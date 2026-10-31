@@ -53,6 +53,7 @@ export const NOT_EXPORTED = {
     schedule_held: 'live state',
     notice_clears: "each person's bell on this server",
     proposal_clears: "the owner's bell on this server",
+    issue_pulls: 'read again from GitHub where the board lands',
     pull_states: 'the pull request cache',
     pull_repos: 'the pull request cache',
 } as const satisfies Partial<Record<Table, string>>

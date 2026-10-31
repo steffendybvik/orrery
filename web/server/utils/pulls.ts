@@ -8,7 +8,7 @@
 // otherwise GitHub is asked, and the answers kept for a minute (five without a token, as GitHub allows 60 requests an
 // hour then), so many pages and issues cost one list per repo.
 import type {H3Event} from 'h3'
-import type {AllPulls, IssuePulls, OpenPull, PullRequest, PullState} from '#shared/roadmap'
+import type {AllPulls, IssuePulls, OpenPull, PastPull, PullRequest, PullState} from '#shared/roadmap'
 import {PULL_NEEDS, githubRepo} from '#shared/roadmap'
 import {notFound} from './input'
 import type {Store} from './store'
@@ -58,6 +58,22 @@ export interface KeptPull {
     told: string
 }
 
+/** What's kept of a PR for good (`issue_pulls`), with the issue ids it names. */
+export interface RememberedPull {
+    number: number
+    title: string
+    url: string
+    branch: string
+    base: string
+    author: string
+    merged: boolean
+    closed: boolean
+    merged_at: string | null
+    created_at: string
+    updated_at: string
+    names: string[]
+}
+
 /** A PR as GitHub's REST lists it. */
 export interface ListedPull {
     number: number
@@ -68,6 +84,7 @@ export interface ListedPull {
     user: {login: string} | null
     head: {ref: string, sha?: string}
     merged_at?: string | null
+    closed_at?: string | null
     merge_commit_sha?: string | null
     base: {ref: string}
     created_at: string
@@ -135,10 +152,42 @@ export class Pulls {
         private readonly tokenProblem: (project: string) => Promise<string | undefined> = async () => undefined,
     ) {}
 
-    /** The issue's open PRs on its project's repo. */
+    /** The issue's open PRs on its project's repo, and those it keeps from before (ORR-795). */
     async forIssue(project: string, issue: string): Promise<IssuePulls> {
         project = await this.store.projectId(project)
         const ids = await this.ids(project, issue)
+        const open = await this.openFor(project, ids)
+        return {...open, done: await this.past(project, ids[0] ?? issue, open.repo)}
+    }
+
+    /** What's kept of the issue's PRs but those open on `repo`, its project's now, as GitHub is the word on those. */
+    private async past(project: string, issue: string, repo: string | null): Promise<PastPull[]> {
+        const rows = await this.store.db.all<PastPull & {repo: string}>('SELECT repo, number, title, url, branch, base, author, state, merged_at, updated_at FROM issue_pulls WHERE project = ? AND issue = ? ORDER BY updated_at DESC, number DESC', project, issue)
+        return rows.filter(row => row.state !== 'open' || row.repo !== repo).map(({repo: _repo, ...pull}) => pull)
+    }
+
+    /** Keeps the PR on each issue it names, for good, and off any it no longer names (ORR-795). A PR naming several is on
+     * each, as an issue's page has always shown it; one naming none has no row. */
+    async remember(repo: string, projects: string[], pull: RememberedPull) {
+        const issues = new Map<string, {project: string, id: string}>()
+        for (const name of pull.names) {
+            const issue = await this.issueOf(projects, [name])
+            if (issue) issues.set(`${issue.project}/${issue.id}`, issue)
+        }
+        for (const row of await this.store.db.all<{project: string, issue: string}>('SELECT project, issue FROM issue_pulls WHERE repo = ? AND number = ?', repo, pull.number)) {
+            if (!issues.has(`${row.project}/${row.issue}`)) await this.store.db.run('DELETE FROM issue_pulls WHERE project = ? AND issue = ? AND repo = ? AND number = ?', row.project, row.issue, repo, pull.number)
+        }
+        const state = pull.merged ? 'merged' : pull.closed ? 'closed' : 'open'
+        for (const {project, id} of issues.values()) {
+            await this.store.db.run(`INSERT INTO issue_pulls (project, issue, repo, number, title, url, branch, base, author, state, merged_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT (project, issue, repo, number) DO UPDATE SET title = excluded.title, url = excluded.url, branch = excluded.branch, base = excluded.base, author = excluded.author,
+                state = excluded.state, merged_at = excluded.merged_at, updated_at = excluded.updated_at`,
+                project, id, repo, pull.number, pull.title, pull.url, pull.branch, pull.base, pull.author, state, pull.merged_at, pull.created_at, pull.updated_at)
+        }
+    }
+
+    /** The issue's open PRs on its project's repo. */
+    private async openFor(project: string, ids: string[]): Promise<Omit<IssuePulls, 'done'>> {
         const row = await this.store.db.get<{repo: string | null}>('SELECT repo FROM projects WHERE id = ?', project)
         const repo = githubRepo(row?.repo)
         if (!repo) return {repo: null, pulls: [], token: false, checked_at: null}
@@ -432,15 +481,15 @@ const LOGIN = /^[\w-]+$/
 /** A PR as anyone but the owner reads it (ORR-532): never its title or head branch, which an outsider may have written,
  * as sessions read what they're given as the owner's; its author only when it's a plain login, so a session can tell
  * its own PR from an outsider's. */
-function pullForSession<T extends PullRequest>({title: _title, branch: _branch, author, ...pull}: T) {
+function pullForSession<T extends {title: string, branch: string, author: string}>({title: _title, branch: _branch, author, ...pull}: T) {
     return {...pull, ...LOGIN.test(author) ? {author} : {}}
 }
 
 /** The answer to a read of PRs, for whoever's asking: in full for the owner, as their pages send their name, and each
  * PR as `pullForSession` gives it for anyone else, a chat naming the owner included. */
-export async function pullsForAsker<T extends {pulls: PullRequest[]}>(event: H3Event, answer: T) {
+export async function pullsForAsker<T extends {pulls: PullRequest[], done?: PastPull[]}>(event: H3Event, answer: T) {
     if (kindOf(event, await actorOf(event)) === 'owner') return answer
-    return {...answer, pulls: answer.pulls.map(pullForSession)}
+    return {...answer, pulls: answer.pulls.map(pullForSession), ...answer.done ? {done: answer.done.map(pullForSession)} : {}}
 }
 
 /** `all` as `?page=&limit=` asks (ORR-615): every one when neither is given, else page `page` (from 1), `limit` to a
