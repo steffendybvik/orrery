@@ -17,6 +17,7 @@ async function call(name: string, method: 'PUT' | 'PATCH' | 'DELETE', body?: Rec
     failed.value = ''
     try {
         await apiFetch(`/secrets/${encodeURIComponent(name)}`, {method: method as 'PUT', body})
+        await loadSecrets()
         return true
     } catch (error) {
         failed.value = errorMessage(error)
