@@ -164,6 +164,27 @@ describe('what happened', () => {
 describe('the bell', () => {
     const bell = async (person?: string, list?: 'bell' | 'waiting' | 'inbox' | 'cleared') => (await store.notices({person, list})).map(n => n.body)
 
+    it('keeps what a member has read their own, and clears only those read (ORR-785)', async () => {
+        const id = await add({assignee: 'hati'})
+        const read = await store.createComment('greenhouse', id, {body: 'Read'}, agentOf('hati'))
+        const unread = await store.createComment('greenhouse', id, {body: 'Unread'}, agentOf('hati'))
+        const asked = await store.createComment('greenhouse', id, {body: 'Which?', asks: 'decision'}, agentOf('hati'))
+        // Now on Skoll's issue, by Hati's agent, so both have them.
+        await store.updateIssue('greenhouse', id, {assignee: 'skoll'}, owner)
+        const flags = async (person: string) => Object.fromEntries((await store.notices({person, list: 'inbox'})).map(n => [n.body, !!n.read]))
+        expect(await store.readNotices({ids: [read.id, asked.id]}, 'hati')).toBe(2)
+        expect(await flags('hati')).toEqual({Read: true, Unread: false})
+        // The owner's are apart, in both directions.
+        expect(await flags('skoll')).toEqual({Read: false, Unread: false})
+        expect(await store.readNotices({ids: [unread.id]}, 'skoll')).toBe(1)
+        expect((await flags('hati')).Unread).toBe(false)
+        // A question still waiting stays when the read ones go.
+        expect(await store.clearNotices({read: true}, 'hati')).toBe(1)
+        expect(await bell('hati', 'inbox')).toEqual(['Unread'])
+        expect(await bell('hati', 'waiting')).toEqual(['Which?'])
+        expect((await failure(() => store.readNotices({ids: ['x']}, 'hati'))).status).toBe(400)
+    })
+
     it('shows a person their agents\' words and what others say on what\'s theirs', async () => {
         const hatis = await add({assignee: 'hati'})
         const skolls = await add({assignee: 'skoll'})
