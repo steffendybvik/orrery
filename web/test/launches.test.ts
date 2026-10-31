@@ -144,11 +144,13 @@ describe('starting a session', () => {
     })
 
     it('knows which folders a channel picked up, and when, until their launchers go (ORR-605)', () => {
-        const picked = launches.addLauncher('greenhouse', '/code/greenhouse', false, '', '2026-10-29T20:00:00.000Z')
+        const picked = launches.addLauncher('greenhouse', '/code/greenhouse', false, '', {picked_at: '2026-10-29T20:00:00.000Z'})
         const installed = launches.addLauncher('greenhouse', '/code/monorepo')
-        expect(launches.launchState('greenhouse').repos).toEqual([{dir: '/code/greenhouse', picked_at: '2026-10-29T20:00:00.000Z'}, {dir: '/code/monorepo'}])
+        const connected = launches.addLauncher('greenhouse', '/code/connected', false, '', {connected_at: '2026-10-30T20:00:00.000Z'})
+        expect(launches.launchState('greenhouse').repos).toEqual([{dir: '/code/greenhouse', picked_at: '2026-10-29T20:00:00.000Z'}, {dir: '/code/monorepo'}, {dir: '/code/connected', connected_at: '2026-10-30T20:00:00.000Z'}])
         picked()
         installed()
+        connected()
         expect(launches.launchState('greenhouse').repos).toEqual([])
         // Installed by hand there later, it isn't taken for picked up.
         const again = launches.addLauncher('greenhouse', '/code/greenhouse')
@@ -432,6 +434,18 @@ describe('a session orrery started', () => {
         expect(answered).toEqual(['greenhouse/abc'])
     })
 
+    it('has its permission prompt answered "No" by its launcher when the owner denies it, only while it waits at one (ORR-750)', () => {
+        expect(() => launches.denyLaunch('greenhouse', 'abc')).toThrow('No session started for launch abc')
+        session = {name: 'greenhouse · Gna', state: 'working', started: {launch: 'abc', tmux: 'orrery-greenhouse-abc'}}
+        expect(() => launches.denyLaunch('greenhouse', 'abc')).toThrow("greenhouse · Gna isn't waiting at a permission prompt")
+        session = {...session, state: 'waiting'}
+        expect(() => launches.denyLaunch('greenhouse', 'abc')).toThrow('attach by hand with tmux attach -t orrery-greenhouse-abc')
+        launches.addLauncher('greenhouse')
+        launches.denyLaunch('greenhouse', 'abc')
+        expect(sent).toEqual([{type: 'deny', project: 'greenhouse', id: 'abc'}])
+        expect(answered).toEqual(['greenhouse/abc'])
+    })
+
     it('has its screen sent by its launcher while the owner views it, and asked for again once stale', () => {
         expect(() => launches.viewLaunch('greenhouse', 'abc')).toThrow('No session started for launch abc')
         session = {started: {launch: 'abc', tmux: 'orrery-greenhouse-abc'}}
@@ -454,6 +468,18 @@ describe('a session orrery started', () => {
 
     it('keeps no screen for a launch it has no session for', () => {
         expect(launches.keepScreen('greenhouse', 'abc', 'anything')).toEqual({watching: false})
+    })
+
+    it('holds a stop for the launchers that connect, until the launch has ended or a day has gone (ORR-789)', () => {
+        vi.useFakeTimers()
+        launches.endLaunch('greenhouse', 'kept')
+        launches.endLaunch('greenhouse', 'done')
+        launches.endLaunch('pantry', 'other')
+        launches.launchGone('done')
+        expect(launches.heldStops('greenhouse')).toEqual(['kept'])
+        vi.advanceTimersByTime(24 * 60 * 60 * 1000 + 1)
+        expect(launches.heldStops('greenhouse')).toEqual([])
+        vi.useRealTimers()
     })
 
     it('is stopped, or given longer from when it would have stopped, through its launcher', () => {

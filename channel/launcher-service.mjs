@@ -109,11 +109,12 @@ export function pickUp(entries, dir, {file = configFile(), now = new Date()} = {
 }
 
 /** Connect a repo (ORR-708): puts the repo the owner just chose on the list, whichever way pick-up is set, and takes it off
- * `skip`, as choosing it says they want it served. It writes the list alone, which the running service follows. */
-export function addToList(entries, dir, {file = configFile()} = {}) {
+ * `skip`, as choosing it says they want it served. It writes the list alone, which the running service follows. Each is
+ * marked with when it was connected (ORR-774). */
+export function addToList(entries, dir, {file = configFile(), now = new Date()} = {}) {
     const config = listIn(file)
     if (!config) throw new Error(`${file} can't be read as a list`)
-    writeList(skipping(entries.reduce(withProject, config), dir, false), file)
+    writeList(skipping(entries.map(entry => ({...entry, connected_at: now.toISOString()})).reduce(withProject, config), dir, false), file)
 }
 
 /** The list with the repo at `dir` kept off it (`--uninstall` there) or not (`--install`), for pick-up. */

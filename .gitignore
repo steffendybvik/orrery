@@ -14,12 +14,16 @@ dist
 coverage
 vitest-results.json
 e2e-results.json
+e2e-lines.json
+spawned-lines.json
+.v8-*
 .vitest-reports
 .idea
 
 # Playwright
 /web/test-results
 /web/test-results-login
+/web/test-results-readme
 /web/playwright-report
 /web/perf-report
 

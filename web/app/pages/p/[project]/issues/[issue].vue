@@ -212,7 +212,7 @@ useHead(() => ({title: issue.value ? `${issue.value.id} ${issue.value.title} · 
     </template>
   </PageHeader>
 
-  <div class="min-h-0 flex-1 overflow-y-auto">
+  <div class="clear-agent min-h-0 flex-1 overflow-y-auto">
     <!-- One sticky block, so the bar sits right under the banner however many lines the banner wraps to (ORR-649). -->
     <div class="sticky top-0 z-20">
       <IssueWorkerBanner v-if="worker && issue && !isClosed(issue.kind)" :session="worker" :since="workerSince" />
@@ -248,7 +248,7 @@ useHead(() => ({title: issue.value ? `${issue.value.id} ${issue.value.title} · 
               Remove {{ issue.id }}{{ subCount ? ` and its ${subCount} sub-issue${subCount === 1 ? '' : 's'}` : '' }}, with its comments?
             </UiConfirm>
           </div>
-          <p v-if="removeFailed" class="text-xs text-rose-600 dark:text-rose-400">{{ removeFailed }}</p>
+          <p v-if="removeFailed" class="text-xs text-rose-700 dark:text-rose-400">{{ removeFailed }}</p>
           <input
               v-if="editingTitle"
               ref="titleInput"
@@ -271,7 +271,7 @@ useHead(() => ({title: issue.value ? `${issue.value.id} ${issue.value.title} · 
             Waiting on
             <span v-for="(b, i) in blockers" :key="b.link" class="inline-flex items-center"><NuxtLink :to="pathOf(b.project, b.id)" class="font-mono text-fg hover:underline" :title="b.issue?.title">{{ b.link }}</NuxtLink><button type="button" class="ml-0.5 rounded px-0.5 text-faint hover:bg-hover hover:text-fg" :aria-label="`Stop waiting on ${b.link}`" :title="`Stop waiting on ${b.link}`" @click="save({depends_on: (issue!.depends_on ?? []).filter(l => l !== b.link)})">×</button>{{ i < blockers.length - 1 ? ',' : '' }}</span>
           </p>
-          <p v-if="saveFailed" class="text-xs text-rose-600 dark:text-rose-400">{{ saveFailed }}</p>
+          <p v-if="saveFailed" class="text-xs text-rose-700 dark:text-rose-400">{{ saveFailed }}</p>
         </header>
 
         <div class="lg:hidden">
@@ -304,12 +304,12 @@ useHead(() => ({title: issue.value ? `${issue.value.id} ${issue.value.title} · 
           />
           <div class="flex items-center justify-end gap-2">
             <ImageButton @picked="upload" />
-            <span v-if="uploading" class="mr-auto text-xs text-faint">Adding image…</span>
-            <span v-else-if="uploadError" class="mr-auto text-xs text-rose-600 dark:text-rose-400">{{ uploadError }}</span>
+            <span v-if="uploading" class="inline-flex items-center gap-1.5 mr-auto text-xs text-faint"><UiSpinner />Adding image…</span>
+            <span v-else-if="uploadError" class="mr-auto text-xs text-rose-700 dark:text-rose-400">{{ uploadError }}</span>
             <span v-else class="mr-auto text-xs text-faint">Markdown</span>
             <UiButton :disabled="saving" @click="editingNotes = false">Cancel <KeyHint>esc</KeyHint></UiButton>
             <UiButton variant="primary" :disabled="saving || !!uploading" @click="saveNotes">
-              {{ saving ? 'Saving…' : 'Save' }} <KeyHint class="bg-white/20 text-white ring-0">⌘↵</KeyHint>
+              <UiBusy :busy="saving" label="Saving…">Save</UiBusy> <KeyHint class="bg-black/10 text-on-accent ring-0">⌘↵</KeyHint>
             </UiButton>
           </div>
         </section>
@@ -349,5 +349,6 @@ useHead(() => ({title: issue.value ? `${issue.value.id} ${issue.value.title} · 
     <NotFound v-else-if="ready && !looking" heading="h1" :to="project ? `/p/${project.id}` : '/mine'" :back="project ? `Back to ${project.name}` : 'Go to My issues'">
       No issue <span class="font-mono">{{ issueId }}</span>{{ project ? ` in ${project.name}` : '' }}
     </NotFound>
+    <UiLoading v-else />
   </div>
 </template>

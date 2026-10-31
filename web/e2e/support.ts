@@ -1,5 +1,5 @@
-import type {APIRequestContext, Page} from '@playwright/test'
-import {expect} from '@playwright/test'
+import type {APIRequestContext, Locator, Page} from '@playwright/test'
+import {expect, test} from '@playwright/test'
 
 // What the spec files split from the first-run story share: a project of their own made through the API, the API as
 // an agent or as the owner (named Ada Lovelace by first-run.spec.ts, which runs before them all), a stream held open
@@ -16,11 +16,22 @@ export function projectApi(project: string) {
         })
 }
 
-/** Makes a project as an agent; its id is its name in lowercase. */
+/** Makes a project as an agent; its id is its name in lowercase. A retry finds the one its first try made. */
 export async function makeProject(request: APIRequestContext, data: {name: string, key?: string, [field: string]: unknown}) {
     const made = await request.post('/api/projects', {data, headers: AGENT})
+    if (made.status() === 409 && test.info().retry > 0) return (await request.get(`/api/projects/${data.name.toLowerCase()}`)).json()
     expect(made.ok(), await made.text()).toBeTruthy()
     return made.json()
+}
+
+/** Drags a card on the board to a column, finding the column once the drag has started: picking a card up adds the
+ * columns the filter hides, which moves the others. */
+export async function dragCard(page: Page, card: Locator, column: Locator) {
+    await card.hover()
+    await page.mouse.down()
+    await page.mouse.move(10, 10, {steps: 2})
+    await column.hover()
+    await page.mouse.up()
 }
 
 /** A stream held open the way a channel or launcher holds it, keeping what arrives; `stop` lets it go. */
@@ -44,7 +55,7 @@ export async function newIssue(page: Page, project: string, title: string, where
     await page.getByRole('button', {name: 'New issue'}).first().click()
     const dialog = page.getByRole('dialog', {name: 'New issue'})
     await dialog.getByLabel('Title').fill(title)
-    await dialog.getByRole('button', {name: 'Where'}).click()
+    await dialog.getByRole('button', {name: 'Status'}).click()
     await dialog.getByRole('option', {name: new RegExp(`^${where}\\b`, 'i')}).click()
     await dialog.getByRole('button', {name: /Create issue/}).click()
     await expect(dialog).toBeHidden()

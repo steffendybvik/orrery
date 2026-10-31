@@ -5,7 +5,6 @@ import {hold, makeProject, projectApi} from './support'
 // Claude would be: one orrery started shows the command from its prompt, and Allow and Open tmux go to its launcher; one
 // started by hand says what it wants without them; × hides it until it asks again. Either says the tool it asks for, as
 // its hook said (ORR-562).
-test.describe.configure({mode: 'serial'})
 
 const api = projectApi('pantry')
 const PANE = `● I'll clear the build output.
@@ -50,6 +49,8 @@ test('a session orrery started pops up with its prompt, and Allow and Open tmux 
         await expect(popup.getByText('rm -rf web/.output', {exact: true})).toBeVisible()
         await popup.getByRole('button', {name: 'Open tmux'}).click()
         await expect.poll(() => launcher.said.text).toContain('event: watch')
+        await popup.getByRole('button', {name: 'Deny'}).click()
+        await expect.poll(() => launcher.said.text).toContain('event: deny')
         await popup.getByRole('button', {name: 'Allow'}).click()
         await expect.poll(() => launcher.said.text).toContain('event: allow')
         // It carries on, and the popup goes.

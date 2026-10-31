@@ -2,19 +2,22 @@
 import type {DocSummary, Project} from '#shared/roadmap'
 
 // A project's docs down the side of the docs pages (a row of tabs on a phone), and New doc after them. Docs with no
-// section come first, then each section (ORR-520), A–Z, folding away; opening a doc unfolds its section, and what's
-// folded is kept per project in this browser. A doc goes to another section by dragging it onto one (onto Docs: none),
-// or by right-clicking it. A section is made at the foot (empty until a doc goes in), and renamed or deleted by
-// right-clicking its header (ORR-560).
+// section come first, then each section (ORR-520) as arranged, folding away; opening a doc unfolds its section, and
+// what's folded is kept per project in this browser. A doc goes to another section by dragging it onto one (onto Docs:
+// none), or by right-clicking it. A section is made at the foot (empty until a doc goes in), renamed or deleted by
+// right-clicking its header (ORR-560), and dragged by its header above or below another, or moved with ⌥↑/⌥↓ (ORR-767).
 const props = defineProps<{project: Project}>()
 const route = useRoute()
 const {docUnseen} = useUnseen()
 
 const loose = computed(() => props.project.docs.filter(doc => !doc.section))
+// The server's order, or the one just dropped until the server's follows.
+const order = ref<string[] | null>(null)
+watch(() => props.project.doc_sections, () => order.value = null)
 const sections = computed(() => {
-    const by = new Map<string, DocSummary[]>(props.project.doc_sections.map(name => [name, []]))
+    const by = new Map<string, DocSummary[]>((order.value ?? props.project.doc_sections).map(name => [name, []]))
     for (const doc of props.project.docs) if (doc.section) by.set(doc.section, [...by.get(doc.section) ?? [], doc])
-    return [...by].sort(([a], [b]) => a.localeCompare(b, 'en', {sensitivity: 'base', numeric: true})).map(([name, docs]) => ({name, docs}))
+    return [...by].map(([name, docs]) => ({name, docs}))
 })
 
 // What's folded, per project, in this browser.
@@ -64,6 +67,39 @@ function dropOn(section: string | null) {
     if (dragging.value) move(dragging.value, section)
     dragging.value = null
     over.value = undefined
+}
+
+// Dragging a section by its header: a line shows where it lands, before the section at this index.
+const draggingSection = ref<string | null>(null)
+const dropAt = ref<number | null>(null)
+function overSection(event: DragEvent, index: number) {
+    if (!draggingSection.value) return
+    event.preventDefault()
+    const box = (event.currentTarget as HTMLElement).getBoundingClientRect()
+    dropAt.value = event.clientY < box.top + box.height / 2 ? index : index + 1
+}
+function dropSection() {
+    if (draggingSection.value === null || dropAt.value === null) return
+    const from = sections.value.findIndex(section => section.name === draggingSection.value)
+    place(draggingSection.value, dropAt.value > from ? dropAt.value - 1 : dropAt.value)
+    endSectionDrag()
+}
+function endSectionDrag() {
+    draggingSection.value = null
+    dropAt.value = null
+}
+function nudge(name: string, by: number, event: KeyboardEvent) {
+    const index = sections.value.findIndex(section => section.name === name) + by
+    if (index < 0 || index >= sections.value.length) return
+    place(name, index)
+    nextTick(() => (event.target as HTMLElement).focus())
+}
+async function place(name: string, position: number) {
+    const names = sections.value.map(section => section.name).filter(each => each !== name)
+    names.splice(position, 0, name)
+    if (names.every((each, index) => each === sections.value[index]?.name)) return
+    order.value = names
+    if (!await save(sectionPath(name), 'PATCH', {position})) order.value = null
 }
 
 // Right-click: Move to section.
@@ -148,14 +184,33 @@ async function makeSection() {
         @dragend="dragging = null; over = undefined"
         @contextmenu.prevent="openMenu($event, doc)"
     />
-    <section v-for="section in sections" :key="section.name" class="contents md:flex md:flex-col md:gap-0.5" :aria-label="section.name">
-      <button
-          type="button"
-          class="mt-2 hidden items-center gap-1.5 rounded-lg px-2 py-1 text-left text-[11px] font-medium tracking-wide text-faint uppercase transition-colors hover:text-fg md:flex"
+    <section
+        v-for="(section, index) in sections"
+        :key="section.name"
+        class="contents transition-opacity md:relative md:flex md:flex-col md:gap-0.5"
+        :class="draggingSection === section.name && 'opacity-40'"
+        :aria-label="section.name"
+        @dragover="overSection($event, index)"
+        @drop.prevent="dropSection"
+    >
+      <span v-if="draggingSection && dropAt === index" class="pointer-events-none absolute inset-x-2 top-0.5 h-0.5 rounded-full bg-accent-500" />
+      <span v-if="draggingSection && dropAt === index + 1 && index === sections.length - 1" class="pointer-events-none absolute inset-x-2 -bottom-1 h-0.5 rounded-full bg-accent-500" />
+      <!-- A div, as Firefox won't drag a button. -->
+      <div
+          role="button"
+          tabindex="0"
+          draggable="true"
+          class="mt-2 hidden cursor-grab items-center gap-1.5 rounded-lg px-2 py-1 text-left text-[11px] font-medium tracking-wide text-faint uppercase outline-none transition-colors hover:text-fg focus-visible:bg-active active:cursor-grabbing md:flex"
           :class="over === section.name && 'bg-active text-fg'"
           :aria-expanded="!isFolded(section)"
-          :title="isFolded(section) ? 'Show its docs' : 'Fold its docs'"
+          :title="`${isFolded(section) ? 'Show its docs' : 'Fold its docs'}. Drag to rearrange (or ⌥↑ / ⌥↓)`"
           @click="fold(section.name)"
+          @keydown.enter.prevent="fold(section.name)"
+          @keydown.space.prevent="fold(section.name)"
+          @keydown.alt.up.prevent="nudge(section.name, -1, $event)"
+          @keydown.alt.down.prevent="nudge(section.name, 1, $event)"
+          @dragstart="draggingSection = section.name; $event.dataTransfer?.setData('text/plain', section.name)"
+          @dragend="endSectionDrag"
           @contextmenu.prevent="openSectionMenu($event, section.name)"
           @dragover.prevent="dragging && (over = section.name)"
           @dragleave="over = undefined"
@@ -164,7 +219,7 @@ async function makeSection() {
         <svg class="size-3 shrink-0 transition-transform" :class="!isFolded(section) && 'rotate-90'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6" /></svg>
         <span class="min-w-0 flex-1 truncate">{{ section.name }}</span>
         <span class="font-mono tabular-nums">{{ section.docs.length }}</span>
-      </button>
+      </div>
       <DocsNavLink
           v-for="doc in section.docs"
           :key="doc.id"
@@ -178,45 +233,48 @@ async function makeSection() {
           @contextmenu.prevent="openMenu($event, doc)"
       />
     </section>
-    <button
-        type="button"
-        class="flex shrink-0 items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] text-faint outline-none transition-colors hover:bg-hover hover:text-fg focus-visible:bg-active md:mt-1 md:shrink"
-        @click="useNewDoc().open(project.id)"
-    >
-      <svg class="size-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14" /></svg>
-      New doc
-    </button>
-    <button
-        type="button"
-        class="flex shrink-0 items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] text-faint outline-none transition-colors hover:bg-hover hover:text-fg focus-visible:bg-active md:shrink"
-        title="A page of HTML, drawn in a locked-down frame"
-        @click="useNewDoc().open(project.id, 'artifact')"
-    >
-      <svg class="size-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14" /></svg>
-      New artifact
-    </button>
-    <button
-        v-if="!making"
-        type="button"
-        class="hidden shrink-0 items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] text-faint outline-none transition-colors hover:bg-hover hover:text-fg focus-visible:bg-active md:flex"
-        @click="making = true"
-    >
-      <svg class="size-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14" /></svg>
-      New section
-    </button>
-    <form v-else class="hidden px-1 py-0.5 md:block" @submit.prevent="makeSection">
-      <input
-          v-model="madeName"
-          class="h-7 w-full rounded-md bg-well px-2 text-xs text-fg ring-1 ring-line placeholder:text-faint focus:ring-accent-500/50 focus:outline-none"
-          placeholder="Section name"
-          aria-label="New section"
-          maxlength="60"
-          autofocus
-          @keydown.esc="making = false; madeName = ''"
-          @blur="!madeName.trim() && (making = false)"
+    <!-- Actions, not sections: a rule above them, and the stronger colour. -->
+    <div class="contents md:mt-3 md:flex md:flex-col md:gap-0.5 md:border-t md:border-line md:pt-3">
+      <button
+          type="button"
+          class="flex shrink-0 items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] text-muted outline-none transition-colors hover:bg-hover hover:text-fg focus-visible:bg-active md:shrink"
+          @click="useNewDoc().open(project.id)"
       >
-    </form>
-    <p v-if="failed" class="px-2 text-xs text-rose-600 dark:text-rose-400">{{ failed }}</p>
+        <svg class="size-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14" /></svg>
+        New doc
+      </button>
+      <button
+          type="button"
+          class="flex shrink-0 items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] text-muted outline-none transition-colors hover:bg-hover hover:text-fg focus-visible:bg-active md:shrink"
+          title="A page of HTML, drawn in a locked-down frame"
+          @click="useNewDoc().open(project.id, 'artifact')"
+      >
+        <svg class="size-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14" /></svg>
+        New artifact
+      </button>
+      <button
+          v-if="!making"
+          type="button"
+          class="hidden shrink-0 items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] text-muted outline-none transition-colors hover:bg-hover hover:text-fg focus-visible:bg-active md:flex"
+          @click="making = true"
+      >
+        <svg class="size-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14" /></svg>
+        New section
+      </button>
+      <form v-else class="hidden px-1 py-0.5 md:block" @submit.prevent="makeSection">
+        <input
+            v-model="madeName"
+            class="h-7 w-full rounded-md bg-well px-2 text-xs text-fg ring-1 ring-line placeholder:text-faint focus:ring-accent-500/50 focus:outline-none"
+            placeholder="Section name"
+            aria-label="New section"
+            maxlength="60"
+            autofocus
+            @keydown.esc="making = false; madeName = ''"
+            @blur="!madeName.trim() && (making = false)"
+        >
+      </form>
+    </div>
+    <p v-if="failed" class="px-2 text-xs text-rose-700 dark:text-rose-400">{{ failed }}</p>
     <DeletedDocs :project="project.id" :docs="project.docs.length" class="hidden md:block md:mt-3" />
 
     <UiContextMenu :at="menuDoc ? menu : null" :label="`Move ${menuDoc?.title}`" width="w-56" @close="closeMenu">

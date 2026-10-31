@@ -1,6 +1,6 @@
 {
   "name": "orrery",
-  "version": "1.0.0-rc.15",
+  "version": "1.0.0-rc.16",
   "private": true,
   "license": "MIT",
   "type": "module",
@@ -14,10 +14,11 @@
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "test:report": "node scripts/test-report.mjs",
-    "test:e2e": "playwright test",
+    "test:e2e": "E2E_WHOLE=1 playwright test",
     "test:e2e:visual": "scripts/e2e-visual.sh",
     "test:e2e:perf": "playwright test --config playwright.perf.config.ts",
     "test:e2e:login": "playwright test --config playwright.login.config.ts",
+    "images:readme": "playwright test --config playwright.readme.config.ts",
     "orrery:claim": "node scripts/claim.mjs",
     "orrery:copy": "jiti scripts/copy.ts"
   },
@@ -37,6 +38,7 @@
     "vue-router": "^5.4.0"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.14.0",
     "@nuxt/eslint-config": "^1.17.0",
     "@nuxt/test-utils": "4.3.4",
     "@playwright/test": "1.64.1",
@@ -51,6 +53,7 @@
     "jiti": "2.7.0",
     "tailwindcss": "^4.3.3",
     "typescript": "^5.9.3",
+    "v8-to-istanbul": "9.3.0",
     "vitest": "^5.0.5",
     "vue-tsc": "^3.3.14"
   }

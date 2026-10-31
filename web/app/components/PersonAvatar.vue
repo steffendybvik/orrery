@@ -3,9 +3,9 @@
 const props = withDefaults(defineProps<{name: string, size?: number}>(), {size: 18})
 const {who} = useOwner()
 const shown = computed(() => who(props.name))
-const COLOURS = ['bg-sky-500', 'bg-violet-500', 'bg-emerald-500', 'bg-rose-500', 'bg-teal-500', 'bg-fuchsia-500', 'bg-indigo-500', 'bg-lime-600']
+const COLOURS = ['bg-sky-700', 'bg-violet-700', 'bg-emerald-700', 'bg-rose-700', 'bg-teal-700', 'bg-fuchsia-700', 'bg-indigo-700', 'bg-lime-700']
 const colour = computed(() => {
-    if (props.name.toLowerCase().startsWith('claude')) return 'bg-gradient-to-br from-accent-300 to-accent-600'
+    if (props.name.toLowerCase().startsWith('claude')) return 'bg-accent-fill'
     let hash = 0
     for (const char of shown.value) hash = (hash * 31 + char.charCodeAt(0)) >>> 0
     return COLOURS[hash % COLOURS.length]

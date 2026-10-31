@@ -188,7 +188,7 @@ const assigneeOptions = computed(() => [{value: '', label: 'Unassigned'}, ...peo
               target="_blank"
               rel="noopener"
               class="max-w-full truncate rounded-md px-1.5 py-0.5 font-mono text-[11px] ring-1 ring-line"
-              :class="link.url ? 'text-accent-600 hover:bg-hover dark:text-accent-400' : 'text-muted'"
+              :class="link.url ? 'text-accent-700 hover:bg-hover dark:text-accent-400' : 'text-muted'"
               :title="link.url ? `Open ${link.task} on the team's tracker` : 'Set the tracker in App settings to link it'"
           >{{ link.task }}</component>
         </span>
@@ -244,7 +244,7 @@ const assigneeOptions = computed(() => [{value: '', label: 'Unassigned'}, ...peo
         <IssueRef v-for="link in blocks" :key="link" :link="link" :here="project.id" :remove-label="`Stop blocking ${link}`" @remove="blocks = blocks.filter(l => l !== link)" />
         <DependsPicker v-model="blocks" :here="project.id" :self="issue.id" label="Blocks" />
       </dd>
-      <dd v-if="blocksFailed" class="col-span-2 text-xs text-rose-600 dark:text-rose-400">{{ blocksFailed }}</dd>
+      <dd v-if="blocksFailed" class="col-span-2 text-xs text-rose-700 dark:text-rose-400">{{ blocksFailed }}</dd>
 
       <template v-if="hasSubs">
         <dt class="label">Progress</dt>
@@ -263,6 +263,6 @@ const assigneeOptions = computed(() => [{value: '', label: 'Unassigned'}, ...peo
       <dt class="label">Updated</dt>
       <dd class="flex min-h-7 items-center text-muted" :title="issue.updated_at">{{ ago(issue.updated_at) }}</dd>
     </template>
-    <dd v-if="failed" class="col-span-2 text-xs text-rose-600 dark:text-rose-400">{{ failed }}</dd>
+    <dd v-if="failed" class="col-span-2 text-xs text-rose-700 dark:text-rose-400">{{ failed }}</dd>
   </dl>
 </template>

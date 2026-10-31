@@ -8,7 +8,7 @@ const title = computed(() => `Waiting on ${props.blockers.join(', ')}`)
 </script>
 
 <template>
-  <span class="inline-flex h-5 shrink-0 items-center gap-1 rounded-full px-1.5 text-[11px] text-amber-700 ring-1 ring-amber-500/40 dark:text-amber-300" :title="title">
+  <span class="inline-flex h-5 shrink-0 items-center gap-1 rounded-full px-1.5 text-[11px] text-amber-800 ring-1 ring-amber-500/40 dark:text-amber-300" :title="title">
     <LockClosedIcon class="size-3" aria-hidden="true" />
     Blocked
   </span>

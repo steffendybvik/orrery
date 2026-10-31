@@ -20,7 +20,7 @@ const all = computed(() => count.value === keys.value.length)
   >
     <span
         class="grid size-3.5 place-items-center rounded-[4px] ring-1 transition-opacity"
-        :class="count ? 'bg-accent-500 text-white ring-accent-500' : ['ring-faint/70 group-hover/tick:ring-fg', selected.length ? '' : 'opacity-0 group-hover:opacity-100 group-focus-visible/tick:opacity-100']"
+        :class="count ? 'bg-accent-fill text-on-accent ring-accent-fill' : ['ring-faint/70 group-hover/tick:ring-fg', selected.length ? '' : 'opacity-0 group-hover:opacity-100 group-focus-visible/tick:opacity-100']"
     >
       <svg v-if="all" class="size-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5 9-10" /></svg>
       <svg v-else-if="count" class="size-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round"><path d="M6 12h12" /></svg>

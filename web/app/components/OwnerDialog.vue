@@ -19,13 +19,15 @@ const backups = ref<Backups | null>(null)
 watch(named, async now => {
     if (!now && !backups.value) backups.value = await apiFetch<Backups>('/backups').catch(() => null)
 }, {immediate: true})
-const asksRestore = computed(() => !!backups.value?.fresh && !!backups.value.snapshots.length)
+// A copy of an empty orrery has nothing to restore (ORR-741); one that can't say how many projects it holds may.
+const restorable = computed(() => backups.value?.snapshots.filter(s => s.projects !== 0) ?? [])
+const asksRestore = computed(() => !!backups.value?.fresh && !!restorable.value.length)
 const showing = computed(() => {
     if (step.value === 'restore' && asksRestore.value) return 'restore'
     return asksData.value ? step.value === 'restore' ? 'data' : step.value : 'name'
 })
 /** In Docker, a new one with no backups may have had its data in a volume of another name. */
-const otherVolume = computed(() => !!backups.value?.fresh && backups.value.docker && !backups.value.snapshots.length)
+const otherVolume = computed(() => !!backups.value?.fresh && backups.value.docker && !restorable.value.length)
 const display = ref('')
 const developer = ref(true)
 const saving = ref(false)
@@ -115,7 +117,7 @@ async function save() {
               class="flex flex-1 cursor-pointer items-start gap-2 rounded-lg p-2 ring-1 hover:bg-hover"
               :class="developer === value ? 'ring-accent-500/50' : 'ring-line'"
           >
-            <input v-model="developer" type="radio" name="developer" :value="value" class="mt-0.5 accent-accent-500">
+            <input v-model="developer" type="radio" name="developer" :value="value" class="mt-0.5 accent-accent-fill">
             <span class="flex flex-col gap-0.5">
               <span class="text-[13px] font-medium text-fg">{{ label }}</span>
               <span class="text-xs text-muted">{{ note }}</span>
@@ -128,10 +130,10 @@ async function save() {
         Your <span class="font-mono text-muted">Orrery-Actor</span> header will be <span class="font-mono text-muted">{{ id || 'your_name' }}</span>
       </p>
       <div class="flex items-center gap-2 border-t border-line pt-3">
-        <span v-if="failed" class="text-xs text-rose-600 dark:text-rose-400">{{ failed }}</span>
-        <span v-else-if="id === 'agent'" class="text-xs text-rose-600 dark:text-rose-400">"agent" is what requests without a name are; pick another.</span>
+        <span v-if="failed" class="text-xs text-rose-700 dark:text-rose-400">{{ failed }}</span>
+        <span v-else-if="id === 'agent'" class="text-xs text-rose-700 dark:text-rose-400">"agent" is what requests without a name are; pick another.</span>
         <UiButton type="submit" variant="primary" size="md" class="ml-auto" :disabled="!ready">
-          {{ saving ? 'Saving…' : 'Continue' }}
+          <UiBusy :busy="saving" label="Saving…">Continue</UiBusy>
         </UiButton>
       </div>
     </template>

@@ -1,0 +1,97 @@
+# Retakes the README's images (`pnpm images:readme`) in the browser suite's Playwright image, so they don't depend on
+# whose machine took them, and leaves any that changed on `images/<release branch>`. Started by hand or by a session, on a
+# release branch: `gh workflow run images.yml --ref v<version>`. No pull request of its own, as Actions can't open one
+# on this repo and one opened with its token would start no checks: whoever started it opens that from the run's summary,
+# a person looks at the images, and it doesn't merge itself. An open one is updated, with its checks started again.
+name: Images
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: images-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  playwright:
+    if: ${{ startsWith(github.ref, 'refs/heads/v') }}
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: web/package.json
+          sparse-checkout-cone-mode: false
+      - id: version
+        run: echo "version=$(jq -r '.devDependencies["@playwright/test"]' web/package.json)" >> "$GITHUB_OUTPUT"
+
+  # Runs the app and its dependencies, so it holds no token that can write.
+  take:
+    needs: playwright
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    container:
+      image: mcr.microsoft.com/playwright:v${{ needs.playwright.outputs.version }}-noble
+      options: --ipc=host
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --dir web images:readme
+      - uses: actions/upload-artifact@v7
+        with:
+          name: images
+          path: docs/images/*.png
+          retention-days: 7
+
+  push:
+    needs: take
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      contents: write
+      pull-requests: read
+    env:
+      BASE: ${{ github.ref_name }}
+      BRANCH: images/${{ github.ref_name }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v7
+        with:
+          name: images
+          path: docs/images
+      - name: Push what changed
+        run: |
+          if [ -z "$(git status --porcelain docs/images)" ]; then
+            echo "No image changed, so there's nothing to look at." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git switch -c "$BRANCH"
+          git add docs/images
+          git commit -m 'chore(repo): retake the README images'
+          # The branch is this workflow's alone: always one commit on the release branch's tip.
+          git push --force origin "HEAD:refs/heads/$BRANCH"
+          {
+            echo "Changed: $(git show --name-only --format= HEAD | xargs -n1 basename | tr '\n' ' ')"
+            echo
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ -n "$(gh pr list --head "$BRANCH" --base "$BASE" --state open --json number --jq '.[].number')" ]; then
+            # A push with this token starts no checks, but running a workflow does.
+            gh workflow run ci.yml --ref "$BRANCH"
+            echo "The open pull request has the new images, and its checks are running again." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "[Open the pull request](https://github.com/$GITHUB_REPOSITORY/compare/$BASE...$BRANCH?expand=1) or run \`gh pr create --base $BASE --head $BRANCH --fill\`." >> "$GITHUB_STEP_SUMMARY"
+          fi

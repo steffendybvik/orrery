@@ -45,11 +45,16 @@ export interface Owner {
     named: boolean
 }
 
-/** A folder a project's launcher serves it from, and when its channel picked it up there (ORR-599), when it did rather
- * than `--install` (ORR-605). */
-export interface LauncherRepo {
-    dir: string
+/** When a repo came onto the launcher's list, when it wasn't by `--install`: its channel picked it up (ORR-599, ORR-605),
+ * or Connect a repo added it (ORR-774). */
+export interface RepoAdded {
     picked_at?: string
+    connected_at?: string
+}
+
+/** A folder a project's launcher serves it from. */
+export interface LauncherRepo extends RepoAdded {
+    dir: string
 }
 
 /** The sessions orrery may start, the owner's one setting for every project: at most `limit` running at once on each, each running until it's stopped,
@@ -189,6 +194,6 @@ export interface Settings {
     /** Shows what's for looking into problems: the Events page, and a notice in the bell for each new kind of error.
      * Off by default; errors are recorded either way, what orrery did only while it's on. */
     advanced: boolean
-    /** A listening session out of work is handed the issues it may start, Todo then Backlog, to pick one (ORR-452). */
+    /** A listening session out of work is handed the issues it may start, in Todo, to pick one (ORR-452, ORR-759). */
     pick_next: boolean
 }

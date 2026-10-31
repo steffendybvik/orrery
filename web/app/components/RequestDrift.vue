@@ -6,7 +6,7 @@ defineProps<{drifted?: ChatRequestDrift[]}>()
 </script>
 
 <template>
-  <ul v-if="drifted?.length" class="flex flex-col gap-0.5 text-xs text-amber-700 dark:text-amber-400" data-testid="request-drifted">
+  <ul v-if="drifted?.length" class="flex flex-col gap-0.5 text-xs text-amber-800 dark:text-amber-400" data-testid="request-drifted">
     <li>Changed since it asked:</li>
     <li v-for="d in drifted" :key="d.label">{{ d.label }} is now {{ d.to }} (was {{ d.from }})</li>
   </ul>

@@ -147,6 +147,6 @@ const field = 'h-7 rounded-md bg-transparent px-1.5 text-[13px] text-fg hover:bg
         <UiButton type="submit" variant="primary" :disabled="busy || !newName.trim()">Add</UiButton>
       </form>
     </div>
-    <p v-if="failed" class="text-xs text-rose-600 dark:text-rose-400">{{ failed }}</p>
+    <p v-if="failed" class="text-xs text-rose-700 dark:text-rose-400">{{ failed }}</p>
   </div>
 </template>

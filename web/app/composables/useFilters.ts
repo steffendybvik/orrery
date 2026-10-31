@@ -21,12 +21,14 @@ const none = (): Filters => ({priorities: [], columns: [], assignees: [], labels
 // The filters over issues (priority, column, assignee, label, blocked or ready, text in the id or title), shared by every view, and
 // the project, on the views across projects.
 // They start on the open columns (Done and Canceled left out, whatever the statuses are called), ticked in
-// the Column filter like any other pick; `changed` says they've moved off that, and `clear` goes back to it.
+// the Status filter, which reads that as not set (`usualColumns`); `changed` says they've moved off it, and `clear` goes back to it.
 export function useFilters() {
     const filters = useState<Filters>('filters', none)
     const {columns: all, statuses} = useStatuses()
     const open = computed(() => all.value.filter(c => !isClosed(c.kind)).map(c => c.id))
     const defaults = (): Filters => ({...none(), columns: [...open.value]})
+    /** What the Status filter starts on, once the statuses are known: until then nothing's ticked, and that's as usual too. */
+    const usualColumns = computed(() => statuses.value.length ? open.value : [])
 
     // The statuses arrive with the settings, so the open columns are ticked once they're known. Until then
     // the only column is Proposed, which ticked alone would hide every other issue.
@@ -70,5 +72,5 @@ export function useFilters() {
         filters.value = defaults()
     }
 
-    return {filters, active, changed, matches, shows, clear}
+    return {filters, active, changed, usualColumns, matches, shows, clear}
 }

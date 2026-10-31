@@ -59,6 +59,13 @@ describe('a session cut off mid-turn', () => {
         expect((await store.issue('greenhouse', 'GRE-2')).status).toBe('in-progress')
     })
 
+    it('leaves what the one person has taken on themselves, which the session only touched', async () => {
+        await store.nameOwner({name: 'Skoll'})
+        await store.updateIssue('greenhouse', 'GRE-1', {assignee: 'skoll'})
+        expect(await clearing.letGo('greenhouse', 'w', 'overloaded')).toEqual(['GRE-2'])
+        expect(await store.issue('greenhouse', 'GRE-1')).toMatchObject({status: 'in-progress', assignee: 'skoll'})
+    })
+
     it('names an error it has no words for as it came', async () => {
         await clearing.letGo('greenhouse', 'w', 'cloud_credential_error')
         expect((await store.listComments('greenhouse', 'GRE-1'))[0]!.body).toContain('cut off by an API error (cloud_credential_error)')
@@ -66,5 +73,22 @@ describe('a session cut off mid-turn', () => {
 
     it('lets go of nothing when it had nothing in progress', async () => {
         expect(await clearing.letGo('greenhouse', 'other-session')).toEqual([])
+    })
+})
+
+describe('a session that ended (ORR-775)', () => {
+    it('puts what it had in progress back in Todo under any id it went by, saying so', async () => {
+        expect(await clearing.letGoEnded('greenhouse', ['w', 'w-before'], 'Sköll')).toEqual(['GRE-1', 'GRE-2'])
+        expect(await store.issue('greenhouse', 'GRE-2')).toMatchObject({status: 'todo'})
+        expect((await store.issue('greenhouse', 'GRE-2')).assignee ?? null).toBeNull()
+        expect((await store.listComments('greenhouse', 'GRE-2'))[0]).toMatchObject({created_by: 'claude', body: expect.stringContaining('(Sköll) ended, so it\'s back in Todo')})
+        expect((await store.issue('greenhouse', 'GRE-3')).status).toBe('in-progress')
+    })
+
+    it('leaves what is in review, or another session took up after it', async () => {
+        await store.updateIssue('greenhouse', 'GRE-1', {status: 'in-review'})
+        await store.workedBy('greenhouse', 'GRE-2', 'next', {claimed: true})
+        expect(await clearing.letGoEnded('greenhouse', ['w', 'w-before'], 'Sköll')).toEqual([])
+        expect((await store.issue('greenhouse', 'GRE-2')).status).toBe('in-progress')
     })
 })

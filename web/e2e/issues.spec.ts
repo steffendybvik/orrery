@@ -1,10 +1,9 @@
 import {expect, test} from '@playwright/test'
-import {AGENT, makeProject, newIssue, projectApi} from './support'
+import {AGENT, OWNER, makeProject, newIssue, projectApi} from './support'
 
 // Issues on a project of their own: made from the page and moved on the board, the board leaving out the columns
 // the filter does, sub-issues, ⌘K, a change showing live in another tab, the open ones first, what changed
 // since the owner last looked, and double-clicking a description to edit it.
-test.describe.configure({mode: 'serial'})
 
 const api = projectApi('scullery')
 
@@ -35,10 +34,15 @@ test('the board leaves out the columns of statuses the filter leaves out', async
     await expect(column('Backlog')).toBeVisible()
     // Closed statuses aren't ticked to begin with, so their columns aren't there either.
     await expect(column('Done')).toBeHidden()
-    await page.getByRole('button', {name: /^Column/}).click()
+    const filter = page.getByRole('button', {name: /^Status ·/})
+    // As it comes, the filter reads as not set (ORR-797); off that, it's lit.
+    await expect(filter).toHaveText('Status · Open')
+    await expect(filter).not.toHaveClass(/bg-accent-500/)
+    await filter.click()
     const menu = page.locator('.glass')
     await menu.getByRole('option', {name: 'Backlog'}).click()
     await expect(column('Backlog')).toBeHidden()
+    await expect(filter).toHaveClass(/bg-accent-500/)
     await expect(page.getByText('Expiry badges')).toBeHidden()
     await expect(column('In progress')).toBeVisible()
     await menu.getByRole('button', {name: 'Clear'}).click()
@@ -86,7 +90,7 @@ test('the issues start on the open ones, Done and Canceled a tick away', async (
     await expect(page.getByText('Dropped barcode idea')).toBeHidden()
     await expect(page.getByRole('button', {name: 'Clear'})).toBeHidden()
 
-    await page.getByRole('button', {name: /^Column/}).click()
+    await page.getByRole('button', {name: /^Status ·/}).click()
     await page.getByRole('option').filter({hasText: /^Done$/}).click()
     await expect(page.getByText('Shipped pantry export')).toBeVisible()
     await expect(page.getByText('Dropped barcode idea')).toBeHidden()
@@ -123,7 +127,7 @@ test("marks what changed since the owner last looked, but not the owner's own ch
     await api(request, 'post', `/issues/${issue.id}/comments`, {body: 'All labelled'})
     await page.waitForTimeout(500)
     await expect(page.getByRole('button', {name: /Mark \d+ seen/})).toBeHidden()
-    await expect(page.getByTitle(/changed since you last looked/)).toBeHidden()
+    await expect(page.locator('aside nav').getByRole('link', {name: /^Scullery\b/}).getByTitle(/changed since you last looked/)).toBeHidden()
 })
 
 test('double-clicking a description opens its editor, unless it was a link, a picture or a drag', async ({page, request}) => {
@@ -175,4 +179,18 @@ test('double-clicking a description opens its editor, unless it was a link, a pi
     await text.hover()
     await page.getByRole('button', {name: 'Edit'}).first().click()
     await expect(editor).toBeFocused()
+})
+
+test('links the GitHub issues an issue came from, short for the project\'s own repo', async ({page, request}) => {
+    await makeProject(request, {name: 'Tracks', key: 'TRK'})
+    expect((await request.patch('/api/projects/tracks', {data: {repo: 'https://github.com/orrery-e2e/tracks'}, headers: OWNER})).ok()).toBeTruthy()
+    const made = await request.post('/api/projects/tracks/issues', {data: {title: 'Oil the points', github_issues: ['orrery-e2e/tracks#523', 'orrery-e2e/depot#7']}, headers: OWNER})
+    expect(made.ok(), await made.text()).toBeTruthy()
+    const {id} = await made.json()
+    await page.goto('/p/tracks')
+    const own = page.getByRole('link', {name: '#523', exact: true})
+    await expect(own).toHaveAttribute('href', 'https://github.com/orrery-e2e/tracks/issues/523')
+    await page.goto(`/p/tracks/issues/${id}`)
+    await expect(page.getByRole('link', {name: '#523', exact: true})).toBeVisible()
+    await expect(page.getByRole('link', {name: 'orrery-e2e/depot#7', exact: true})).toHaveAttribute('href', 'https://github.com/orrery-e2e/depot/issues/7')
 })

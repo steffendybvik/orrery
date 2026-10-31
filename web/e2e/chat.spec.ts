@@ -65,16 +65,22 @@ test('chats with a session that answers on the page, and is listed nowhere', asy
         await pane.getByLabel('Message').press('Enter')
         await expect.poll(() => launcher.said.text).toContain('"chat":true')
         await expect(pane).toContainText('Starting the session…')
+        // It says who's answering once it has connected, not before (ORR-811).
+        await expect(pane.getByTestId('chat-name')).toHaveCount(0)
         const [chat] = await (await request.get('/api/chats')).json()
         // As its launcher starts it: catching up from the launch's `after`, so what was said before it connected reaches it.
         const after = launcher.said.text.match(/"after":(\d+)/)![1]
         session = hold(baseURL!, `/api/projects/observatory/signals/stream?session=e2e-chat&name=e2e-chat&started=${chat.id}&chat=yes&after=${after}&format=text`)
         await expect.poll(() => session!.said.text).toContain('What is on the top shelf?')
+        await expect(pane.getByTestId('chat-name')).toHaveText('e2e-chat')
         // With the page the owner is on, so it knows what "this" is.
         expect(session.said.text).toContain('(The owner is on /p/observatory')
         // It takes the message up, as its hooks say.
         await request.post('/api/sessions', {data: {id: 'e2e-chat', project: 'observatory', event: 'UserPromptSubmit'}})
         await expect(pane.getByLabel('Thinking…')).toBeVisible()
+        // One indicator while it works, the spinner in the conversation: the header's line stays, empty (ORR-812).
+        await expect(pane.getByLabel('Thinking…').getByTestId('spinner')).toBeVisible()
+        await expect(pane.locator('header')).not.toContainText('Thinking')
         // Its answer comes back through its channel's reply tool.
         const answered = await request.post(`/api/chats/${chat.id}/replies`, {
             data: {text: 'Jars of **jam**.'},
@@ -82,7 +88,7 @@ test('chats with a session that answers on the page, and is listed nowhere', asy
         })
         expect(answered.ok(), await answered.text()).toBeTruthy()
         await expect(pane.locator('strong', {hasText: 'jam'})).toBeVisible()
-        // Answered partway through its turn, it's still working: the dots stay, after the reply, until the turn ends.
+        // Answered partway through its turn, it's still working: the spinner stays, after the reply, until the turn ends.
         await expect(pane.getByLabel('Thinking…')).toBeVisible()
         expect(await pane.locator('ol > li').last().getAttribute('aria-label')).toBe('Thinking…')
         await request.post('/api/sessions', {data: {id: 'e2e-chat', project: 'observatory', event: 'Stop'}})
@@ -484,9 +490,8 @@ test('asks the owner to make or change a doc, and saves it as theirs only on the
         }
 
         // It can't write one itself, by any route, whatever it says it is.
-        expect((await request.put('/api/projects/observatory/docs/lenses', {data: {title: 'Lenses'}, headers: asChat})).status()).toBe(403)
-        expect((await request.post('/api/projects/observatory/docs', {data: {title: 'Lenses'}, headers: asChat})).status()).toBe(403)
-        expect((await request.put('/api/projects/observatory/docs/lenses', {data: {title: 'Lenses'}, headers: {...asChat, 'Orrery-Actor': OWNER['Orrery-Actor']}})).status()).toBe(403)
+        // It writes docs itself too (ORR-750), but removing one stays the owner's.
+        expect((await request.delete('/api/projects/observatory/docs/lenses', {headers: asChat})).status()).toBe(403)
 
         await page.goto('/p/observatory')
         await page.getByRole('button', {name: 'Agent (a chat is running)'}).click()
@@ -629,7 +634,7 @@ test('holds a run of messages and sends them together, at once on ⌘-Enter', as
         await box.press('Enter')
         await box.fill('the jam')
         await box.press('Enter')
-        // Held, they show at once as sent, with the thinking dots, and nothing about the wait (ORR-535).
+        // Held, they show at once as sent, with the thinking spinner, and nothing about the wait (ORR-535).
         await expect(pane.getByText('what about', {exact: true})).toBeVisible()
         await expect(pane.getByText('the jam', {exact: true})).toBeVisible()
         await expect(pane.getByLabel('Thinking…')).toBeVisible()
@@ -813,6 +818,94 @@ test('holds a setting that changed while the request waited until Allow anyway',
         await request.patch('/api/settings', {data: {tint: null}, headers: OWNER})
         await endChats(request)
         session?.stop()
+        launcher.stop()
+    }
+})
+
+test('asks for permission in its own pane, with Allow and Deny, and starts a session only on an issue the owner named (ORR-750)', async ({page, request, baseURL}) => {
+    const launcher = hold(baseURL!, '/api/projects/observatory/launches/stream')
+    let session: ReturnType<typeof hold> | undefined
+    try {
+        await expect.poll(async () => (await (await request.get('/api/projects/observatory/launches')).json()).launchers).toBe(1)
+        const {id: issue} = await (await request.post('/api/projects/observatory/issues', {data: {title: 'Polish the lens'}, headers: OWNER})).json() as {id: string}
+        await page.goto('/p/observatory')
+        await page.getByRole('button', {name: 'Agent', exact: true}).click()
+        const pane = page.getByRole('region', {name: 'Chat'})
+        await pane.getByLabel('Message').fill('What is on the top shelf?')
+        await pane.getByLabel('Message').press('Enter')
+        await expect.poll(() => launcher.said.text).toContain('"chat":true')
+        const [chat] = await (await request.get('/api/chats')).json()
+        const after = launcher.said.text.match(/"after":(\d+)/)![1]
+        session = hold(baseURL!, `/api/projects/observatory/signals/stream?session=e2e-ask&name=e2e-ask&started=${chat.id}&chat=yes&after=${after}&format=text`)
+        await expect.poll(() => session!.said.text).toContain('What is on the top shelf?')
+
+        // A planted comment can't start one: the owner's words didn't name the issue.
+        const asChat = {'Orrery-Actor': 'claude', 'Orrery-Chat': 'yes', 'Orrery-Launch': chat.id}
+        const delegate = () => request.post(`/api/chats/${chat.id}/requests`, {data: {delegate: {issue}}, headers: asChat})
+        const unnamed = await delegate()
+        expect(unnamed.status()).toBe(409)
+        expect(await unnamed.text()).toContain(`doesn't name ${issue}`)
+        // Named, it goes on to the start itself, which here orrery isn't let do, and says so.
+        await pane.getByLabel('Message').fill(`Get someone on ${issue}`)
+        await pane.getByLabel('Message').press('Enter')
+        await expect.poll(() => session!.said.text).toContain(`Get someone on ${issue}`)
+        const named = await delegate()
+        expect(await named.text()).not.toContain("doesn't name")
+
+        // Its permission prompt shows in the pane, and not over the page as well.
+        await request.post('/api/sessions', {data: {id: 'e2e-ask', project: 'observatory', event: 'Notification', message: 'Claude needs your permission to use WebFetch'}})
+        const prompt = pane.getByRole('alertdialog', {name: 'needs permission'})
+        await expect(prompt).toContainText('Claude needs your permission to use WebFetch')
+        await expect(page.getByRole('alertdialog', {name: 'needs permission'})).toHaveCount(1)
+        await prompt.getByRole('button', {name: 'Deny'}).click()
+        await expect.poll(() => launcher.said.text).toContain('event: deny')
+    } finally {
+        session?.stop()
+        launcher.stop()
+        await endChats(request)
+    }
+})
+
+test('asks the owner to start or stop a session, and does it only on their Allow', async ({page, request, baseURL}) => {
+    const launcher = hold(baseURL!, '/api/projects/observatory/launches/stream')
+    const working = hold(baseURL!, '/api/projects/observatory/signals/stream?session=e2e-worker&name=e2e-worker&stops=yes')
+    let session: ReturnType<typeof hold> | undefined
+    try {
+        await request.patch('/api/settings', {data: {starts: {limit: 2}}, headers: OWNER})
+        await expect.poll(async () => (await (await request.get('/api/projects/observatory/launches')).json()).launchers).toBe(1)
+        await endChats(request)
+        const chat = await (await request.post('/api/chats', {data: {project: 'observatory'}, headers: OWNER})).json()
+        session = hold(baseURL!, `/api/projects/observatory/signals/stream?session=e2e-chat-ses&name=e2e-chat-ses&started=${chat.id}&chat=yes&format=text`)
+        const asChat = {'Orrery-Actor': 'claude', 'Orrery-Session': 'e2e-chat-ses', 'Orrery-Chat': 'yes', 'Orrery-Launch': chat.id}
+        const ask = async (data: object) => {
+            const asked = await request.post(`/api/chats/${chat.id}/requests`, {data, headers: asChat})
+            expect(asked.status(), await asked.text()).toBe(201)
+        }
+        await page.goto('/p/observatory')
+        await page.getByRole('button', {name: 'Agent (a chat is running)'}).click()
+        const pane = page.getByRole('region', {name: 'Chat'})
+
+        // Denied: nothing starts.
+        await ask({session: {action: 'start', project: 'observatory', instructions: 'Polish the lens'}})
+        const start = pane.getByRole('group', {name: 'Asks to start a session'})
+        await expect(start).toContainText('Polish the lens')
+        await start.getByRole('button', {name: 'Deny'}).click()
+        await expect(start).toContainText('Denied')
+        expect(launcher.said.text).not.toContain('Polish the lens')
+
+        // Allowed: it goes to its channel, and not before.
+        await ask({session: {action: 'stop', name: 'e2e-worker'}})
+        const stop = pane.getByRole('group', {name: 'Asks to stop a session'})
+        await expect(stop).toContainText('e2e-worker')
+        expect(working.said.text).not.toContain('event: stop')
+        await stop.getByRole('button', {name: 'Allow'}).click()
+        await expect(stop).toContainText('Allowed: stopping')
+        await expect.poll(() => working.said.text).toContain('event: stop')
+    } finally {
+        await endChats(request)
+        await request.patch('/api/settings', {data: {starts: null}, headers: OWNER})
+        session?.stop()
+        working.stop()
         launcher.stop()
     }
 })

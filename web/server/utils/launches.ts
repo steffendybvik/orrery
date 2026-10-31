@@ -8,7 +8,7 @@
 // way is replaced by one like it once it has ended, so the count doesn't fall to nothing when no new work comes in.
 import {AsyncLocalStorage} from 'node:async_hooks'
 import {randomBytes} from 'node:crypto'
-import type {LauncherRepo, Session, SessionContext, Signal, StartedSession, Starts, TerminalApp} from '#shared/roadmap'
+import type {LauncherRepo, RepoAdded, Session, SessionContext, Signal, StartedSession, Starts, TerminalApp} from '#shared/roadmap'
 import type {Actor} from './store'
 import {EVERY} from './pool'
 import {scheduleRunning} from './schedules'
@@ -46,6 +46,7 @@ export type LaunchEvent =
     | {type: 'watch', project: string, id: string, terminal: TerminalApp}
     | {type: 'view', project: string, id: string}
     | {type: 'allow', project: string, id: string}
+    | {type: 'deny', project: string, id: string}
 
 /** The schedule whose run started each launch, while it runs: what its session does as it stops is that run's doing,
  * so a session schedule on `session.stopped` can't start itself again without end (ORR-422). */
@@ -67,15 +68,20 @@ const REFUSED_FOR = 30 * 60 * 1000
 /** The launches its launchers say they run, kept across this server's restarts by the launchers themselves:
  * each reports its sessions when it connects, so one that reconnects to a restarted orrery is known again. */
 const reported = new Map<string, {project: string, tmux: string, stops_at?: string, context?: SessionContext, untrusted?: boolean, chat?: boolean}>()
+/** Stops the owner asked for that no launcher has said it carried out, by launch: each launcher that connects hears them,
+ * so one with no launcher there to hear it, and no channel to go through, isn't lost (ORR-789). Kept a day at most, as one
+ * for a session that ended meanwhile is never answered. */
+const stopsAsked = new Map<string, {project: string, at: number}>()
+const STOP_HELD_FOR = 24 * 60 * 60 * 1000
 /** How many launchers each project has connected. */
 const launchers = counter('launchers')
 export const launchersOf = launchers.count
 /** The folders each project's launchers run in, as they say (`?dir=`), counted: projects with a folder in common
  * are served by one repo, so one session there can hear them all. */
 const folders = new Map<string, Map<string, number>>()
-/** When a project's folder was picked up by its channel rather than installed by hand (ORR-599), as its launcher
- * says (`?picked=`), for Sessions → Setup (ORR-605). */
-const picked = new Map<string, Map<string, string>>()
+/** When a project's folder was picked up by its channel (ORR-599) or added by Connect a repo (ORR-774) rather than
+ * installed by hand, as its launcher says (`?picked=`, `?connected=`), for Connected repos (ORR-605). */
+const added = new Map<string, Map<string, RepoAdded>>()
 /** How many of each project's launchers run where its channel serves every project (`*`, `?every=1`), so a session
  * started there hearing no one project hears them all. */
 const everywhere = counter('everywhere')
@@ -87,7 +93,7 @@ const versions = new Map<string, string[]>()
 const tokens = new Map<string, string>()
 /** Counts a project's launcher in, in its folder when it says, and as serving every project when it does, and the
  * version of its code, until `done` is called. `done.token` is the one its claims are to send. */
-export function addLauncher(project: string, dir?: string, every = false, version = '', pickedAt?: string): (() => void) & {token: string} {
+export function addLauncher(project: string, dir?: string, every = false, version = '', how: RepoAdded = {}): (() => void) & {token: string} {
     const token = randomBytes(18).toString('base64url')
     tokens.set(token, project)
     const gone = launchers.add(project)
@@ -107,7 +113,7 @@ export function addLauncher(project: string, dir?: string, every = false, versio
     if (!dir) return Object.assign(done, {token})
     const counts = folders.get(project) ?? new Map<string, number>()
     folders.set(project, counts.set(dir, (counts.get(dir) ?? 0) + 1))
-    if (pickedAt) picked.set(project, (picked.get(project) ?? new Map<string, string>()).set(dir, pickedAt))
+    if (how.picked_at || how.connected_at) added.set(project, (added.get(project) ?? new Map<string, RepoAdded>()).set(dir, how))
     let counted = true
     return Object.assign(() => {
         if (!counted) return
@@ -116,18 +122,15 @@ export function addLauncher(project: string, dir?: string, every = false, versio
         if (left > 0) counts.set(dir, left)
         else {
             counts.delete(dir)
-            picked.get(project)?.delete(dir)
+            added.get(project)?.delete(dir)
         }
         done()
     }, {token})
 }
 /** The folders a project's launchers run in. */
 const foldersOf = (project: string): string[] => [...folders.get(project)?.keys() ?? []]
-/** The folders its launchers run in, each with when its channel picked it up, if it did. */
-const reposOf = (project: string): LauncherRepo[] => foldersOf(project).map(dir => {
-    const at = picked.get(project)?.get(dir)
-    return at ? {dir, picked_at: at} : {dir}
-})
+/** The folders its launchers run in, each with when it was picked up or connected, if it was. */
+const reposOf = (project: string): LauncherRepo[] => foldersOf(project).map(dir => ({dir, ...added.get(project)?.get(dir)}))
 
 function pendingOn(project?: string): number {
     for (const [id, launch] of pending) {
@@ -435,6 +438,7 @@ export function launchGone(id: string) {
     const replaced = replacing.get(id)
     if (replaced) replaced.ended = true
     ended.set(id, Date.now())
+    stopsAsked.delete(id)
     chatEnded(id)
     causes.delete(id)
     pending.delete(id)
@@ -563,6 +567,17 @@ export function allowLaunch(project: string, id: string): Session {
     return session
 }
 
+/** The owner denying what a session orrery started is asking permission for: as `allowLaunch`, its launcher answering "No". */
+export function denyLaunch(project: string, id: string): Session {
+    const session = sessionOfLaunch(project, id)
+    if (!session?.started) throw notFound(`No session started for launch ${id} in ${project}`)
+    if (session.state !== 'waiting') throw conflict(`${session.name} isn't waiting at a permission prompt`)
+    if (!launchersOf(project)) throw conflict(`No launcher is running for ${project} to answer it; attach by hand with tmux attach -t ${session.started.tmux}`)
+    emit({type: 'deny', project, id})
+    promptAnswered(project, id)
+    return session
+}
+
 /** The screens of the sessions orrery started that the owner is viewing, as their launchers last captured them, with
  * when; when the owner last asked for each; and when its launcher was last asked to send it. */
 const screens = new Map<string, {text: string, at: number}>()
@@ -599,11 +614,24 @@ export function keepScreen(project: string, id: string, text: string, now = Date
     return {watching}
 }
 
+/** Tells the project's launchers to stop the launch, and keeps it for any that connect until one says it ended. */
+function askStop(project: string, id: string, chat = false) {
+    stopsAsked.set(id, {project, at: Date.now()})
+    emit({type: 'stop', project, id, ...chat ? {chat} : {}})
+}
+
+/** The stops still asked for on the project, for a launcher connecting to hear. */
+export function heldStops(project: string): string[] {
+    const since = Date.now() - STOP_HELD_FOR
+    for (const [id, stop] of stopsAsked) if (stop.at < since) stopsAsked.delete(id)
+    return [...stopsAsked].filter(([, stop]) => stop.project === project).map(([id]) => id)
+}
+
 /** The owner stopping a session orrery started: its launcher kills it, and says when it's gone. */
 export function stopLaunch(project: string, id: string): Session {
     const session = sessionOfLaunch(project, id)
     if (!session) throw notFound(`No session started for launch ${id} in ${project}`)
-    emit({type: 'stop', project, id})
+    askStop(project, id)
     return session
 }
 
@@ -611,7 +639,7 @@ export function stopLaunch(project: string, id: string): Session {
  * if one took it on, stops it. */
 export function endLaunch(project: string, id: string, chat = false) {
     pending.delete(id)
-    emit({type: 'stop', project, id, ...chat ? {chat} : {}})
+    askStop(project, id, chat)
 }
 
 /** The owner giving a session orrery started more time: `minutes` from when it would have stopped, or from now if that's past. */

@@ -1,9 +1,9 @@
 // When orrery backs its database up (plugins/backup.ts wires it): after a change, a few seconds on, put off by more
 // changes; or, when the owner chose every 15 minutes, hour or day in App settings (ORR-445), once that long has gone
-// since the last backup, and only when something changed. A new orrery (no projects, no owner) doesn't back up over a
-// folder that has a backup in it (ORR-448): its first page asks whether to restore one, and backing up the empty one
-// first would put it in that one's place. What it reaches outside (the target, the database, the log) comes in as
-// hooks, so its timing can be tested on its own.
+// since the last backup, and only when something changed. A new orrery (no projects, no owner) doesn't back up to a
+// folder (ORR-448, ORR-741): there's nothing in it to keep, its first page asks whether to restore what's there, and a
+// copy of the empty one would either take that one's place or be offered as if it were a backup. What it reaches outside
+// (the target, the database, the log) comes in as hooks, so its timing can be tested on its own.
 import type {EventEntry} from './event-log'
 import type {BackupEvery, BackupTarget} from './backup'
 import {backupDelay, targetLabel} from './backup'
@@ -11,8 +11,6 @@ import {backupDelay, targetLabel} from './backup'
 export interface BackupHooks {
     /** Where backups go now, or none while they're off: read each time, so a choice in App settings is followed. */
     target: () => BackupTarget | null
-    /** Whether the folder has a backup in it already. */
-    hasBackup: (dir: string) => boolean
     /** Whether the database is a new orrery's: no projects, no owner. */
     fresh: () => Promise<boolean>
     /** Backs the database up to the target. */
@@ -37,7 +35,7 @@ export class BackupScheduler {
     async save(): Promise<void> {
         const target = this.hooks.target()
         if (!target) return
-        if (target.kind === 'folder' && this.hooks.hasBackup(target.dir) && await this.hooks.fresh().catch(() => false)) return
+        if (target.kind === 'folder' && await this.hooks.fresh().catch(() => false)) return
         this.last = Date.now()
         // A Postgres one by `user@host:port/name`, never its password.
         const where = targetLabel(target)

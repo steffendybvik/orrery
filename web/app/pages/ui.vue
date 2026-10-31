@@ -35,7 +35,7 @@ const confirming = ref(false)
     <span class="rounded bg-well px-1.5 py-px font-mono text-[10px] text-faint ring-1 ring-line">dev</span>
   </PageHeader>
 
-  <div class="min-h-0 flex-1 overflow-y-auto">
+  <div class="clear-agent min-h-0 flex-1 overflow-y-auto">
     <div class="mx-auto flex max-w-4xl flex-col gap-8 px-4 py-8">
       <section class="flex flex-col gap-3">
         <h2 class="label">UiButton</h2>
@@ -108,6 +108,17 @@ const confirming = ref(false)
       <section class="flex flex-col gap-3 border-t border-line pt-6">
         <h2 class="label">SegmentedControl</h2>
         <SegmentedControl v-model="view" :options="[{value: 'list', label: 'List', hint: '1'}, {value: 'board', label: 'Board', hint: '2'}]" class="self-start" />
+      </section>
+
+      <section class="flex flex-col gap-3 border-t border-line pt-6">
+        <h2 class="label">UiSpinner, UiBusy and UiLoading</h2>
+        <div class="flex flex-wrap items-center gap-2 text-xs text-muted">
+          <span class="inline-flex items-center gap-1.5"><UiSpinner />Adding image…</span>
+          <UiButton variant="primary" size="md" disabled><UiBusy busy label="Saving…">Save</UiBusy></UiButton>
+          <UiButton disabled><UiBusy busy label="Sending…">Send</UiBusy></UiButton>
+          <UiButton><UiBusy label="Sending…">Send</UiBusy></UiButton>
+        </div>
+        <UiLoading class="rounded-lg ring-1 ring-line" />
       </section>
 
       <section class="flex flex-col gap-3 border-t border-line pt-6">

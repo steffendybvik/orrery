@@ -3,7 +3,6 @@ import {AGENT, makeProject} from './support'
 
 // The owner writes, edits and removes docs from the page. A doc an agent changed is tinted in the list, and in it
 // the parts changed since the owner read it.
-test.describe.configure({mode: 'serial'})
 
 test.beforeAll(async ({request}) => {
     await makeProject(request, {name: 'Library', key: 'LIB'})
@@ -81,7 +80,7 @@ test("tints a doc an agent changed, and in it the parts that changed since the o
     await page.goto('/p/library/docs/shelves')
     await expect(page.getByText('Top shelf for tins.')).toBeVisible()
     await put('pantry', 'Keep flour dry.\n\nLabel every jar with its date.\n\nRestock on Fridays.')
-    const row = page.getByRole('link', {name: /^Pantry/})
+    const row = page.locator('a[href="/p/library/docs/pantry"]')
     await expect(row).toHaveClass(/unseen-row/)
     await row.click()
     await expect(page.locator('.doc .changed')).toHaveText(['Label every jar with its date.', 'Restock on Fridays.'])
@@ -144,6 +143,42 @@ test('groups the docs into sections, folds one, and moves a doc by right-click a
     await expect.poll(async () => (await (await request.get('/api/projects/library/docs/event-flows')).json()).section).toBeUndefined()
 })
 
+test('drags a section above another, and it stays there after a reload (ORR-767)', async ({page, request}) => {
+    await makeProject(request, {name: 'Shelves', key: 'SHE'})
+    for (const name of ['Alpha', 'Beta', 'Gamma']) await request.post('/api/projects/shelves/doc-sections', {data: {name}, headers: AGENT})
+    await request.put('/api/projects/shelves/docs/first', {data: {title: 'First', body: 'First.', section: 'Alpha'}, headers: AGENT})
+    const order = async () => await (await request.get('/api/projects/shelves/doc-sections')).json()
+
+    await page.goto('/p/shelves/docs/first')
+    const nav = page.getByRole('navigation', {name: 'Docs'})
+    const header = (name: string) => nav.getByRole('region', {name}).getByRole('button', {name: new RegExp(`^${name}`, 'i')})
+    const shown = () => nav.getByRole('region').evaluateAll(sections => sections.map(section => section.getAttribute('aria-label')))
+    await expect.poll(shown).toEqual(['Alpha', 'Beta', 'Gamma'])
+
+    // Above the first, by its top half.
+    await header('Gamma').dragTo(header('Alpha'), {targetPosition: {x: 20, y: 2}})
+    await expect.poll(order).toEqual(['Gamma', 'Alpha', 'Beta'])
+    await expect.poll(shown).toEqual(['Gamma', 'Alpha', 'Beta'])
+
+    // Below the last, past its docs.
+    await header('Gamma').dragTo(nav.getByRole('region', {name: 'Beta'}), {targetPosition: {x: 20, y: 20}})
+    await expect.poll(order).toEqual(['Alpha', 'Beta', 'Gamma'])
+
+    // And by the keys, which keep the header focused.
+    await header('Gamma').focus()
+    await page.keyboard.press('Alt+ArrowUp')
+    await expect.poll(order).toEqual(['Alpha', 'Gamma', 'Beta'])
+    await expect(header('Gamma')).toBeFocused()
+
+    await page.reload()
+    await expect.poll(shown).toEqual(['Alpha', 'Gamma', 'Beta'])
+
+    // Dropping a doc on a section still files it, and doesn't move the section.
+    await nav.getByRole('link', {name: 'First'}).dragTo(header('Beta'))
+    await expect.poll(async () => (await (await request.get('/api/projects/shelves/docs/first')).json()).section).toBe('Beta')
+    expect(await order()).toEqual(['Alpha', 'Gamma', 'Beta'])
+})
+
 test('makes an empty section, renames one on all its docs and deletes one keeping its docs (ORR-560)', async ({page, request}) => {
     const put = (id: string, title: string, section?: string) => request.put(`/api/projects/archive/docs/${id}`, {data: {title, body: `${title}.`, ...section ? {section} : {}}, headers: AGENT})
     await put('decision-boxes', 'Decision: boxes', 'Decisions')
@@ -173,4 +208,20 @@ test('makes an empty section, renames one on all its docs and deletes one keepin
     await expect(nav.getByRole('region', {name: 'Choices'})).toHaveCount(0)
     await expect(nav.getByRole('link', {name: 'Decision: labels'})).toBeVisible()
     expect((await (await request.get('/api/projects/archive/docs/decision-labels')).json()).section).toBeUndefined()
+})
+
+test("a doc's text keeps its reading width, and On this page shows only where there's room for both", async ({page, request}) => {
+    await request.put('/api/projects/library/docs/seasons', {data: {title: 'The seasons', body: '## Spring\n\nSow the first beds.\n\n## Summer\n\nWater early.'}, headers: AGENT})
+    const contents = page.getByRole('navigation', {name: 'On this page'})
+    const article = page.locator('article').first()
+
+    await page.setViewportSize({width: 1280, height: 800})
+    await page.goto('/p/library/docs/seasons')
+    await expect(page.getByRole('heading', {name: 'Spring'})).toBeVisible()
+    await expect(contents).toBeHidden()
+    expect((await article.boundingBox())!.width).toBeGreaterThan(650)
+
+    await page.setViewportSize({width: 1700, height: 800})
+    await expect(contents).toBeVisible()
+    expect((await article.boundingBox())!.width).toBeGreaterThanOrEqual(760)
 })

@@ -122,17 +122,17 @@ const input = 'h-7 rounded-md bg-well px-2 text-[13px] text-fg ring-1 ring-line 
       </p>
 
       <div class="flex flex-wrap items-center gap-2">
-        <UiButton v-if="!check" variant="primary" :disabled="busy || !ready" @click="checkIt">{{ busy ? 'Checking…' : 'Check it' }}</UiButton>
+        <UiButton v-if="!check" variant="primary" :disabled="busy || !ready" @click="checkIt"><UiBusy :busy="busy" label="Checking…">Check it</UiBusy></UiButton>
         <UiButton v-else-if="check.state === 'empty' || (check.state === 'orrery' && !check.projects)" variant="primary" :disabled="busy" @click="move('copy')">
-          {{ busy ? 'Setting it up…' : first ? 'Use it' : 'Copy and move' }}
+          <UiBusy :busy="busy" label="Setting it up…">{{ first ? 'Use it' : 'Copy and move' }}</UiBusy>
         </UiButton>
         <UiButton v-else-if="check.state === 'orrery'" variant="warning-outline" :disabled="busy" @click="move('use')">
-          {{ busy ? 'Moving…' : 'Run on it as it is' }}
+          <UiBusy :busy="busy" label="Moving…">Run on it as it is</UiBusy>
         </UiButton>
         <UiButton v-if="first" :disabled="busy" @click="emit('back')">Back</UiButton>
         <UiButton v-else :disabled="busy" @click="open = false">Cancel</UiButton>
-        <span v-if="failed" class="text-xs text-rose-600 dark:text-rose-400">{{ failed }}</span>
-        <span v-else-if="moved" class="text-xs text-muted">Moved. Loading it…</span>
+        <span v-if="failed" class="text-xs text-rose-700 dark:text-rose-400">{{ failed }}</span>
+        <span v-else-if="moved" class="inline-flex items-center gap-1.5 text-xs text-muted"><UiSpinner />Moved. Loading it…</span>
       </div>
       <p v-if="!first" class="text-xs text-faint">
         The database it leaves stays as it was, so you can move back to it. What's written while it copies, a few seconds, stays behind there.

@@ -8,7 +8,8 @@ import {total} from '#shared/roadmap'
 // column's header has a tick (GroupTick) for all its cards.
 // A card dragged to another column (a folded one too) moves there, as the menu's move does, and so do the other ticked
 // cards when it's ticked; [ and ] move the focused card (or the ticked ones) one column left or right. While
-// proposals are restricted, nothing is dragged into Proposed or out of it: approving one stays a deliberate act.
+// proposals are restricted, nothing is dragged out of Proposed, as approving one stays a deliberate act, and only the
+// owner drags a card into it, which approves nothing (ORR-781).
 const props = defineProps<{chunks: Chunk[], project: string}>()
 const {open, isLast} = useIssueLink()
 const {issueUnseen} = useUnseen()
@@ -18,6 +19,7 @@ const {columns: order, look} = useStatuses()
 const {selected, isSelected, toggle} = useSelection()
 const {settings} = useAppSettings()
 const {filters} = useFilters()
+const {me, owner} = usePeople()
 function click(event: MouseEvent, issue: Issue) {
     if (selected.value.length && (event.shiftKey || event.metaKey || event.ctrlKey)) toggle(props.project, issue.id, event.shiftKey)
     else open(props.project, issue.id)
@@ -45,8 +47,8 @@ function movesOf(issue: Issue): Issue[] {
     if (!isSelected(props.project, issue.id)) return [issue]
     return placed.value.flatMap(({cards}) => cards.map(c => c.issue)).filter(i => isSelected(props.project, i.id))
 }
-/** Whether these cards can go to the column: not into or out of a locked one, and not all there already. */
-const takes = (issues: Issue[], column: Column) => !!issues.length && !locked(column) && !issues.some(i => locked(i.column)) && issues.some(i => i.column !== column)
+/** Whether these cards can go to the column: not all there already, into a locked one only from the owner, and out of one never. */
+const takes = (issues: Issue[], column: Column) => issues.some(i => i.column !== column) && (locked(column) ? me.value === owner.value : !issues.some(i => locked(i.column)))
 
 const over = ref<Column | null>(null)
 const failed = ref('')
@@ -127,6 +129,7 @@ watch(columns, () => {
         <span
             v-if="column === 'proposed' && settings.restrict_proposals"
             class="text-faint"
+            role="img"
             title="Only you move these: sessions wait for your approval (App settings → Proposals)"
             aria-label="Only you move proposals"
         >
@@ -149,10 +152,10 @@ watch(columns, () => {
           class="flex flex-col items-start gap-1 rounded-xl border border-dashed border-line p-3 text-left text-xs text-muted outline-none hover:bg-hover focus-visible:ring-2 focus-visible:ring-accent-500/50"
           @click="fold(column)"
       >
-        <span class="font-mono text-lg font-medium tabular-nums" :style="{color: look(column).color}">{{ cards.length }}</span>
+        <span class="font-mono text-lg font-medium tabular-nums" :style="{color: readable(look(column).color)}">{{ cards.length }}</span>
         {{ cards.length === 1 ? 'issue' : 'issues' }} {{ look(column).label.toLowerCase() }}
       </button>
-      <div v-else class="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto pb-4">
+      <div v-else class="clear-agent flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto">
         <article
             v-for="{issue, chunk} in cards"
             :key="issue.id"
@@ -197,6 +200,6 @@ watch(columns, () => {
         <div v-if="!cards.length" class="rounded-xl border border-dashed border-line px-3 py-6 text-center text-xs text-faint">Nothing here</div>
       </div>
     </section>
-    <p v-if="failed" role="alert" class="fixed bottom-4 left-1/2 z-30 max-w-[90vw] -translate-x-1/2 rounded-lg bg-panel px-3 py-2 text-xs text-rose-600 shadow-lg ring-1 ring-line dark:text-rose-400" @click="failed = ''">{{ failed }}</p>
+    <p v-if="failed" role="alert" class="fixed bottom-4 left-1/2 z-30 max-w-[90vw] -translate-x-1/2 rounded-lg bg-panel px-3 py-2 text-xs text-rose-700 shadow-lg ring-1 ring-line dark:text-rose-400" @click="failed = ''">{{ failed }}</p>
   </div>
 </template>

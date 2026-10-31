@@ -1,13 +1,13 @@
 <script setup lang="ts">
-import {CHAT_CHUNK_FIELDS, CHAT_RELEASE_FIELDS, CHAT_SETTINGS, scheduleValue, settingValue} from '#shared/roadmap'
+import {CHAT_CHUNK_FIELDS, CHAT_RELEASE_FIELDS, CHAT_SETTINGS, nameBesideProject, scheduleValue, settingValue} from '#shared/roadmap'
 import {Menu, MenuButton, MenuItem, MenuItems} from '@headlessui/vue'
 import type {ChatIssues, ChatMessage} from '#shared/roadmap'
 
 // The owner's chat (useChat): a button in the corner of every page, and the pane it opens there, ready to type into.
 // The first message starts a chat on the project in the header (the one you're on, or picked); once started, its
-// session's state shows in the header and the conversation below, newest at the bottom. Enter sends (Shift+Enter for a new
+// session's name and state show in the header and the conversation below, newest at the bottom. Enter sends (Shift+Enter for a new
 // line), but a run of quick messages goes as one once the owner has stopped typing for a moment (`HOLD_MS`), so the chat
-// answers the whole thought (ORR-517). What's held shows at once as sent, with the thinking dots, as one turn (ORR-535);
+// answers the whole thought (ORR-517). What's held shows at once as sent, with the thinking spinner, as one turn (ORR-535);
 // only what couldn't go says so (Not sent, Retry). ⌘/Ctrl-Enter or Send sends at once, and Esc in an empty box takes the
 // last one back. A slash command goes at once, after what's held. Closing the pane, or the chat ending, puts what's held
 // back in the box, so nothing starts a chat on its own after it (ORR-523). An image pasted or
@@ -108,10 +108,11 @@ const state = computed(() => {
     if (chat.value.ended) return 'Ended'
     if (!session.value && chat.value.problem) return "Its session can't start"
     if (!session.value) return 'Starting the session…'
-    return {working: 'Thinking…', waiting: 'Waiting on a prompt in its terminal', idle: 'Ready', starting: 'Starting the session…'}[session.value.state]
+    // Working says nothing here: the spinner in the conversation shows it, where the owner is looking (ORR-812).
+    return {working: '', waiting: 'Waiting on a prompt in its terminal', idle: 'Ready', starting: 'Starting the session…'}[session.value.state]
 })
-/** Whether the dots show: all the while its session works, whoever spoke last, so a reply partway through a turn doesn't
- * hide them (ORR-518); while it starts, only once the owner has said something it hasn't answered. */
+/** Whether the spinner shows: all the while its session works, whoever spoke last, so a reply partway through a turn doesn't
+ * hide it (ORR-518); while it starts, only once the owner has said something it hasn't answered. */
 const thinking = computed(() => {
     // From the first held message on, as if it had gone: holding, sending and the answer are one turn (ORR-535).
     if (held.value.length && !stuck.value) return true
@@ -121,7 +122,7 @@ const thinking = computed(() => {
     return (!session.value || session.value.state === 'starting') && last?.from === 'owner' && !last.cleared
 })
 
-// The newest in sight as it comes, the dots too.
+// The newest in sight as it comes, the spinner too.
 watch(() => [open.value, chat.value?.messages.length, held.value.length, thinking.value], () => nextTick(() => list.value?.scrollTo({top: list.value.scrollHeight})))
 watch(open, now => now && nextTick(() => field.value?.focus()))
 
@@ -268,7 +269,7 @@ const {over, on: drop} = useImageDrop(attach)
       @click="show()"
   >
     <svg
-        class="size-4 text-accent-500"
+        class="size-4 text-accent-fill"
         :class="{'animate-pulse motion-reduce:animate-none': chats.length}"
         viewBox="0 0 24 24"
         fill="none"
@@ -305,7 +306,7 @@ const {over, on: drop} = useImageDrop(attach)
                   variant="ghost" size="xs" square :aria-pressed="!!pinned"
                   :aria-label="pinned ? 'Unpin the project: follow the page you\'re on' : 'Pin the project: stay on it whatever page you open'"
                   :title="pinned ? 'Pinned: stays put. Unpin to follow the page' : 'Follows the page. Pin to stay on it'"
-                  :class="pinned ? 'text-accent-600 dark:text-accent-400' : 'text-faint'"
+                  :class="pinned ? 'text-accent-700 dark:text-accent-400' : 'text-faint'"
                   @click="pin(pinned ? null : about)"
               >
                 <svg class="size-3.5" viewBox="0 0 24 24" :fill="pinned ? 'currentColor' : 'none'" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5M9 3h6l-1 7 4 3v2H6v-2l4-3-1-7Z" /></svg>
@@ -314,8 +315,15 @@ const {over, on: drop} = useImageDrop(attach)
             <span v-else class="truncate">{{ projectName(about) }}</span>
           </template>
         </div>
-        <span v-if="state" class="flex items-center gap-1.5 text-xs text-faint">
-          <SessionDot v-if="session" :session="session" />{{ state }}
+        <!-- The line stays while it works, without a state, so the header doesn't jump each turn. -->
+        <span v-if="chat" class="flex min-h-4 min-w-0 items-center gap-1.5 text-xs text-faint">
+          <SessionDot v-if="session && state" :session="session" />
+          <!-- Who's answering, once connected (ORR-811). The name gives way first on a narrow window, as in the sidebar. -->
+          <template v-if="session">
+            <span class="min-w-0 shrink-[100] truncate font-medium text-muted" :title="session.name" data-testid="chat-name">{{ nameBesideProject(session) }}</span>
+            <span v-if="state" aria-hidden="true">·</span>
+          </template>
+          <span v-if="state" class="min-w-0 truncate">{{ state }}</span>
         </span>
         <span v-if="away" class="truncate text-xs text-muted" data-testid="chat-away">You're on <em>{{ projectName(away) }}</em>; this chat is about <em>{{ projectName(about!) }}</em></span>
       </div>
@@ -433,7 +441,7 @@ v-if="m.chunk" class="flex w-full flex-col gap-2 rounded-xl bg-well p-3 ring-1 r
           <span class="text-xs text-faint">Asks to move {{ m.move.body.ids.length === 1 ? 'an issue' : `${m.move.body.ids.length} issues` }}, as you</span>
           <ul class="flex flex-col gap-1.5 text-[13px]">
             <li v-for="one in movedIssues(m.move.changes)" :key="one.issue" class="flex min-w-0 flex-col">
-              <span class="min-w-0 truncate"><NuxtLink :to="`/p/${chat!.project}/issues/${one.issue}`" class="font-medium text-accent-600 hover:underline dark:text-accent-400">{{ one.issue }}</NuxtLink> <span class="text-fg">{{ one.title }}</span></span>
+              <span class="min-w-0 truncate"><NuxtLink :to="`/p/${chat!.project}/issues/${one.issue}`" class="font-medium text-accent-700 hover:underline dark:text-accent-400">{{ one.issue }}</NuxtLink> <span class="text-fg">{{ one.title }}</span></span>
               <span v-for="c in one.changes" :key="c.field" class="flex flex-wrap items-center gap-1 text-muted">
                 <template v-if="c.field === 'status'">
                   <StatusIcon v-if="c.from" :column="c.from" :size="12" /><span class="line-through decoration-faint">{{ statusName(c.from) }}</span> →
@@ -446,7 +454,7 @@ v-if="m.chunk" class="flex w-full flex-col gap-2 rounded-xl bg-well p-3 ring-1 r
             </li>
           </ul>
           <span v-if="m.move.state === 'asked' && m.move.moved?.length" class="text-xs text-faint">Moved so far: {{ m.move.moved.join(', ') }}</span>
-          <ul v-if="m.move.state === 'asked' && m.move.drifted?.length" class="flex flex-col gap-0.5 text-xs text-amber-700 dark:text-amber-400" data-testid="move-drifted">
+          <ul v-if="m.move.state === 'asked' && m.move.drifted?.length" class="flex flex-col gap-0.5 text-xs text-amber-800 dark:text-amber-400" data-testid="move-drifted">
             <li>Changed since it asked:</li>
             <li v-for="d in m.move.drifted" :key="`${d.issue} ${d.field}`">{{ d.issue }} is now {{ d.field === 'status' ? statusName(d.to) : `assigned to ${d.to ?? 'nobody'}` }} (was {{ d.field === 'status' ? statusName(d.from) : d.from ?? 'nobody' }})</li>
           </ul>
@@ -465,29 +473,33 @@ v-if="m.chunk" class="flex w-full flex-col gap-2 rounded-xl bg-well p-3 ring-1 r
         </div>
         <div v-if="m.text" class="max-w-[85%] rounded-2xl rounded-br-md bg-accent-500/15 px-3 py-2 whitespace-pre-wrap text-fg">{{ m.text }}</div>
       </li>
-      <li v-if="held.length && stuck" class="flex items-center justify-end gap-1 text-[11px] text-rose-600 dark:text-rose-400" aria-live="polite">
+      <li v-if="held.length && stuck" class="flex items-center justify-end gap-1 text-[11px] text-rose-700 dark:text-rose-400" aria-live="polite">
         Not sent ·
         <button type="button" class="hover:underline disabled:opacity-50" :disabled="sending" @click="flush()">Retry</button>
       </li>
-      <li v-if="thinking" class="flex items-center gap-1 px-1 py-2" aria-live="polite" aria-label="Thinking…">
-        <span v-for="i in 3" :key="i" class="size-1.5 animate-dot rounded-full bg-faint" :style="{animationDelay: `${(i - 1) * 0.15}s`}" />
+      <li v-if="thinking" class="flex items-center px-1 py-2 text-lg text-faint" aria-live="polite" aria-label="Thinking…">
+        <UiSpinner />
       </li>
       <li v-if="chat?.ended" class="flex items-center gap-2 text-xs text-faint">
         This chat has ended.
-        <button type="button" class="text-accent-600 hover:underline dark:text-accent-400" @click="fresh">Start another</button>
+        <button type="button" class="text-accent-700 hover:underline dark:text-accent-400" @click="fresh">Start another</button>
       </li>
     </ol>
 
+    <!-- What its session asks permission for, answered here while the pane is open (ORR-750). -->
+    <div v-if="session?.state === 'waiting'" class="px-3 pt-2">
+      <PermissionPrompt :session="session" :hideable="false" class="w-full! max-w-none!" />
+    </div>
     <form v-if="!chat?.ended || !chat.messages.length" class="flex flex-col gap-2 p-3" @submit.prevent="submit(true)">
       <LauncherHint v-if="unlaunched" :project="about!" chat />
-      <p v-else-if="failed" class="px-1 text-xs text-rose-600 dark:text-rose-400">{{ failed }}</p>
+      <p v-else-if="failed" class="px-1 text-xs text-rose-700 dark:text-rose-400">{{ failed }}</p>
       <div class="flex flex-col gap-2 rounded-2xl bg-well p-2 ring-1 ring-line transition focus-within:ring-accent-500/50">
         <div v-if="images.length || uploading" class="flex flex-wrap gap-1.5 px-1 pt-1">
           <div v-for="(image, i) in images" :key="image.id" class="relative">
             <img :src="image.url" alt="" class="size-14 rounded-lg object-cover ring-1 ring-line">
             <button type="button" class="absolute -top-1.5 -right-1.5 grid size-4 place-items-center rounded-full bg-fg text-[10px] text-panel" :aria-label="`Remove image ${i + 1}`" @click="images.splice(i, 1)">×</button>
           </div>
-          <span v-if="uploading" class="grid size-14 place-items-center rounded-lg text-[11px] text-faint ring-1 ring-line">Adding…</span>
+          <span v-if="uploading" class="flex size-14 flex-col items-center justify-center gap-0.5 rounded-lg text-[11px] text-faint ring-1 ring-line"><UiSpinner />Adding…</span>
         </div>
         <textarea
             ref="field"

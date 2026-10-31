@@ -31,14 +31,14 @@ async function submit() {
   <main class="flex min-h-dvh items-center justify-center p-6">
     <div class="flex w-96 max-w-full flex-col gap-4">
       <h1 class="text-[15px] font-semibold text-fg">Log in to this orrery</h1>
-      <p v-if="status?.mode === 'closed'" class="text-xs text-rose-600 dark:text-rose-400">
+      <p v-if="status?.mode === 'closed'" class="text-xs text-rose-700 dark:text-rose-400">
         ORRERY_AUTH=off only works while orrery listens on loopback, and this one is reachable from other machines. Unset it, and restart.
       </p>
       <p v-else-if="status && !status.can_get_in" class="text-xs text-muted">
         Nobody can log in yet. On the machine it runs on, run <code class="font-mono">pnpm orrery:claim</code>
         (or <code class="font-mono">docker compose exec orrery node /app/server/claim.mjs</code>), and sign in with the key it prints.
       </p>
-      <p v-if="status?.warn_http" class="text-xs text-amber-700 dark:text-amber-300">
+      <p v-if="status?.warn_http" class="text-xs text-amber-800 dark:text-amber-300">
         This is plain http: over anything but a VPN, a person key and this login's cookie can travel unencrypted.
       </p>
       <UiButton v-if="status?.oidc" :to="provider" variant="primary" size="md" external>Log in with your provider</UiButton>
@@ -54,7 +54,7 @@ async function submit() {
         >
         <UiButton type="submit" :variant="status?.oidc ? 'secondary' : 'primary'" size="md" :disabled="busy || !key.trim()">Sign in with a key</UiButton>
       </form>
-      <p v-if="failed" class="text-xs text-rose-600 dark:text-rose-400">{{ failed }}</p>
+      <p v-if="failed" class="text-xs text-rose-700 dark:text-rose-400">{{ failed }}</p>
     </div>
   </main>
 </template>

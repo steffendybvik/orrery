@@ -66,6 +66,12 @@ describe('the backups', () => {
         await store.createProject({name: 'greenhouse', key: 'GRE', release_mode: 'own'})
         expect(await isFresh(store.db)).toBe(false)
     })
+
+    it('tell a named owner with no projects yet from a new orrery (ORR-741)', async () => {
+        const store = await orrery('named.db', 'personal', false)
+        await store.nameOwner({name: 'Sköll'}, 'agent')
+        expect(await isFresh(store.db)).toBe(false)
+    })
 })
 
 describe('a restore', () => {

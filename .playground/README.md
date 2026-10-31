@@ -15,10 +15,15 @@ deleting a folder.
 The demo (`seed.mjs`, through the API) is the owner **Skoll**, the wolf who chases the sun, and his brother **Hate**, who chases the moon
 (issues to assign him), with three projects:
 
-- **Primes:** a prime-number library with its own releases (1.0.0), two chunks, sub-issues, issues in every
-  status, starts allowed, a proposal with choices, a question waiting in the bell, and a doc
-- **Primes CLI:** its command line, shipping in Primes' releases, as a monorepo's app would
-- **Graphs:** graph algorithms, no releases, just a board
+- **Primes:** a prime-number library, with shipped releases (0.1.0 to 0.3.0), the current one (1.0.0) and a planned
+  one (1.1.0), four chunks, sub-issues, a full board with blocked issues, comment threads, starts allowed, two proposals,
+  a question waiting in the bell, docs in sections, and schedules, one with a run behind it
+- **Primes CLI:** its command line, shipping in Primes' releases, as a monorepo's app would, with an issue waiting on
+  the library, a doc and a schedule
+- **Graphs:** graph algorithms, with releases of its own, a doc and a schedule
+
+The seed skips a database that has projects, so `.playground/play reset` is how to get a newer demo. New issues go
+after the ones already there: `web/e2e/readme` opens `PRM-3` and `how-the-sieve-works` by id.
 
 After a `pnpm-lock.yaml` change, `docker compose --env-file .playground/compose.env restart orrery`. After a
 Dockerfile change, `docker compose --env-file .playground/compose.env up -d --build`. The settings are in

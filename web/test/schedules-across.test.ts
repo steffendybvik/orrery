@@ -51,6 +51,15 @@ describe('a schedule across projects', () => {
         expect(await onProjects()).toEqual([])
     })
 
+    it('leaves a copy paused on its own, or by Pause all, paused when the schedule across projects changes', async () => {
+        const across = await schedules.createAcross({projects: '*', title: 'Tidy', cron: '0 9 * * *'}, me)
+        await schedules.setAllEnabled('pantry', false, me)
+        await schedules.updateAcross(across.id, {title: 'Tidy up'}, me)
+        const copies = await schedules.list()
+        expect(copies.find(s => s.project === 'pantry')).toMatchObject({title: 'Tidy up', enabled: false})
+        expect(copies.find(s => s.project === 'greenhouse')).toMatchObject({title: 'Tidy up', enabled: true})
+    })
+
     it('lets a project opt out by removing its copy, and stays out', async () => {
         const made = await schedules.createAcross({projects: '*', ...tidy}, me)
         const [copy] = await schedules.list('pantry')

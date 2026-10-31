@@ -9,11 +9,11 @@ import {listable} from '#shared/roadmap'
 // session's hook (ORR-572). With Allow (its launcher answers "Yes" once, only while the prompt is still
 // there) and Open tmux (Watch). One started by hand has no tmux orrery knows, so it says what it wants without the
 // buttons, and without the channel has no card for its name to link to (ORR-716). It goes once the session moves on; × hides it until it asks again.
-const props = defineProps<{session: Session}>()
+const props = withDefaults(defineProps<{session: Session, hideable?: boolean}>(), {hideable: true})
 const emit = defineEmits<{close: []}>()
 const {load} = useOwner()
 const screen = ref<string | null>(null)
-const busy = ref<'allow' | 'watch' | null>(null)
+const busy = ref<'allow' | 'deny' | 'watch' | null>(null)
 const failed = ref('')
 const launch = computed(() => props.session.started?.launch)
 const prompt = computed(() => screen.value ? promptIn(screen.value) : null)
@@ -41,7 +41,7 @@ onBeforeUnmount(() => {
     clearTimeout(timer)
 })
 
-async function act(what: 'allow' | 'watch') {
+async function act(what: 'allow' | 'deny' | 'watch') {
     busy.value = what
     failed.value = ''
     try {
@@ -62,7 +62,7 @@ async function act(what: 'allow' | 'watch') {
       <p class="min-w-0 flex-1 truncate font-medium text-fg">
         <NuxtLink v-if="listable(session)" :to="`/sessions#session-${session.id}`" class="hover:underline">{{ session.name }}</NuxtLink><template v-else>{{ session.name }}</template> needs permission
       </p>
-      <UiButton variant="ghost" size="xs" square aria-label="Hide until it asks again" @click="emit('close')">
+      <UiButton v-if="hideable" variant="ghost" size="xs" square aria-label="Hide until it asks again" @click="emit('close')">
         <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
       </UiButton>
     </div>
@@ -73,10 +73,11 @@ async function act(what: 'allow' | 'watch') {
       <span v-if="session.asking.detail" class="min-w-0 truncate rounded-md bg-well px-2 py-1 font-mono text-[11px] text-fg" :title="session.asking.detail">{{ session.asking.detail }}</span>
     </p>
     <div v-if="launch" class="flex items-center gap-2">
-      <UiButton variant="primary" size="xs" :disabled="!!busy" title="Answers “Yes” once" @click="act('allow')">{{ busy === 'allow' ? 'Allowing…' : 'Allow' }}</UiButton>
-      <UiButton size="xs" :disabled="!!busy" @click="act('watch')">{{ busy === 'watch' ? 'Opening…' : 'Open tmux' }}</UiButton>
+      <UiButton variant="primary" size="xs" :disabled="!!busy" title="Answers “Yes” once" @click="act('allow')"><UiBusy :busy="busy === 'allow'" label="Allowing…">Allow</UiBusy></UiButton>
+      <UiButton size="xs" :disabled="!!busy" title="Answers “No” once" @click="act('deny')"><UiBusy :busy="busy === 'deny'" label="Denying…">Deny</UiBusy></UiButton>
+      <UiButton size="xs" :disabled="!!busy" @click="act('watch')"><UiBusy :busy="busy === 'watch'" label="Opening…">Open tmux</UiBusy></UiButton>
     </div>
     <p v-else class="text-faint">Started in a terminal: answer it there.</p>
-    <p v-if="failed" class="text-rose-600 dark:text-rose-400">{{ failed }}</p>
+    <p v-if="failed" class="text-rose-700 dark:text-rose-400">{{ failed }}</p>
   </div>
 </template>

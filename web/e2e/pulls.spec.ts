@@ -36,3 +36,87 @@ test('polls now on Poll, and holds a repo without a token for five minutes', asy
     // Only the owner polls.
     expect((await request.post('/api/pulls/poll', {headers: {'Orrery-Actor': 'claude'}})).status()).toBe(403)
 })
+
+test('Branches lists what to do with each, and removes one only after asking (ORR-793)', async ({page, request}) => {
+    const branch = (name: string, verdict: string, why: string, over: object = {}) => ({repo: 'orrery-e2e/silo', name, sha: 'abcdef1234', committed_at: '2026-10-01T00:00:00.000Z', ahead: 2, verdict, why, ...over})
+    let removed = ''
+    await page.route('**/api/pulls/branches**', route => {
+        if (route.request().method() === 'DELETE') {
+            removed = new URL(route.request().url()).searchParams.get('name') ?? ''
+            return route.fulfill({status: 204})
+        }
+        return route.fulfill({json: {repos: [{repo: 'orrery-e2e/silo', projects: ['silo'], base: 'main', token: true}], branches: [
+            branch('spike', 'look', 'It has no pull request'),
+            branch('fix/done', 'remove', 'Its pull request merged', {pull: {number: 4, url: 'https://github.com/orrery-e2e/silo/pull/4', state: 'merged'}}),
+            branch('main', 'keep', 'The default branch, or a release being prepared', {ahead: 0}),
+        ].filter(b => b.name !== removed)}})
+    })
+    await page.goto('/pulls')
+    await page.getByRole('link', {name: 'Branches'}).click()
+    await expect(page).toHaveURL(/view=branches/)
+    await expect(page.getByText('3 branches: 1 to look at, 1 to remove, 1 to keep')).toBeVisible()
+    const row = page.getByRole('listitem').filter({hasText: 'fix/done'}).last()
+    await expect(row).toContainText('(a squash merge leaves them reading so)')
+    // Only what reads as remove offers it, and it asks first.
+    await expect(page.getByRole('button', {name: 'Remove…'})).toHaveCount(1)
+    await row.getByRole('button', {name: 'Remove…'}).click()
+    expect(removed).toBe('')
+    await row.getByRole('button', {name: /Remove|Yes|Confirm/}).last().click()
+    await expect(page.getByText('2 branches: 1 to look at, 0 to remove, 1 to keep')).toBeVisible()
+    expect(removed).toBe('fix/done')
+    // Its reads and removal are the owner's alone.
+    expect((await request.get('/api/pulls/branches', {headers: {'Orrery-Actor': 'claude'}})).status()).toBe(403)
+    expect((await request.delete('/api/pulls/branches?repo=a/b&name=c', {headers: {'Orrery-Actor': 'claude'}})).status()).toBe(403)
+    expect((await request.get('/api/pulls/branches', {headers: OWNER})).ok()).toBe(true)
+})
+
+// What GitHub would answer is made up here, so the page's rows can be every state whatever GitHub says.
+test('lists where each pull request stands, and Focus on this sends the note it fills in', async ({page, request}) => {
+    await makeProject(request, {name: 'Silo', key: 'SIL'})
+    const made = await request.post('/api/projects/silo/issues', {data: {title: 'Patch the roof'}, headers: OWNER})
+    const issue = await made.json()
+    const pull = (number: number, state: string, title: string, named: boolean) => ({
+        number, title, state, repo: 'orrery-e2e/silo', url: `https://github.com/orrery-e2e/silo/pull/${number}`, branch: `fix/${number}`, base: 'main', author: 'ada',
+        created_at: '2026-10-01T00:00:00.000Z', updated_at: '2026-10-01T00:00:00.000Z',
+        ...named ? {issue: {project: 'silo', id: issue.id, title: 'Patch the roof'}} : {},
+    })
+    await page.route(/\/api\/pulls\?/, route => route.fulfill({json: {
+        pulls: [pull(11, 'conflicting', 'Mend the eaves', true), pull(12, 'ready', 'Tar the seams', false)],
+        open: 2, needs: 1, page: 1, limit: 50,
+        repos: [{repo: 'orrery-e2e/silo', projects: ['silo'], token: true, open: 2, needs: 1}],
+    }}))
+    await page.goto('/pulls')
+    const rows = page.getByRole('list', {name: 'Open pull requests on orrery-e2e/silo'}).getByRole('listitem')
+    const conflicting = rows.filter({hasText: 'Mend the eaves'})
+    const ready = rows.filter({hasText: 'Tar the seams'})
+    await expect(conflicting).toContainText('Conflicts')
+    await expect(ready).toContainText('Ready to merge')
+    // One naming no issue has none to focus.
+    await expect(ready).toContainText('no issue')
+    await expect(ready.getByRole('button', {name: 'Focus on this'})).toHaveCount(0)
+    await conflicting.getByRole('button', {name: 'Focus on this'}).click()
+    const note = page.getByRole('textbox', {name: 'Note'})
+    await expect(note).toHaveValue(/#11 .*conflicts with main/)
+    await note.fill('Mind the ladder')
+    await page.getByRole('button', {name: 'Send', exact: true}).click()
+    await expect(conflicting.getByRole('button', {name: /^Sent/})).toBeVisible()
+    const signals = await (await request.get(`/api/projects/silo/signals`)).json() as {note?: string}[]
+    expect(signals.map(signal => signal.note)).toContain('Mind the ladder')
+})
+
+test("Send back, on an issue's page, sends what its pull request needs", async ({page, request}) => {
+    await makeProject(request, {name: 'Byre', key: 'BYR'})
+    const issue = await (await request.post('/api/projects/byre/issues', {data: {title: 'Lime the walls'}, headers: OWNER})).json()
+    const pull = {
+        number: 21, title: 'Lime the walls', state: 'conflicting', repo: 'orrery-e2e/byre', url: 'https://github.com/orrery-e2e/byre/pull/21', branch: 'fix/21', base: 'main', author: 'ada',
+        created_at: '2026-10-01T00:00:00.000Z', updated_at: '2026-10-01T00:00:00.000Z',
+    }
+    await page.route(`**/api/projects/byre/issues/${issue.id}/pulls`, route => route.fulfill({json: {repo: 'orrery-e2e/byre', pulls: [pull]}}))
+    await page.goto(`/p/byre/issues/${issue.id}`)
+    const pulls = page.getByRole('region', {name: 'Pull requests'})
+    await expect(pulls).toContainText('Conflicts')
+    await pulls.getByRole('button', {name: 'Send back'}).click()
+    await expect(pulls.getByText('Sent', {exact: true})).toBeVisible()
+    const signals = await (await request.get('/api/projects/byre/signals')).json() as {note?: string}[]
+    expect(signals.map(signal => signal.note).join()).toMatch(/#21 .*conflicts with main/)
+})

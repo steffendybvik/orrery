@@ -2,7 +2,6 @@ import {expect, test} from '@playwright/test'
 import {makeProject, projectApi} from './support'
 
 // A schedule made on its project, kept to it, paused and removed.
-test.describe.configure({mode: 'serial'})
 
 const api = projectApi('vineyard')
 
@@ -198,4 +197,45 @@ test('makes a schedule that moves issues, which runs on an event and has no Run 
     await page.getByText('Merged PR closes its issue').click({button: 'right'})
     await expect(page.getByRole('menu').getByRole('button', {name: /Remove/})).toBeVisible()
     await expect(page.getByRole('menu').getByRole('button', {name: /Run now/})).toBeHidden()
+})
+
+test('Pause all goes at once, and Activate all asks first with the count', async ({page, request}) => {
+    const project = {name: 'Trellis', key: 'TRL'}
+    await request.post('/api/projects', {data: project, headers: {'Orrery-Actor': 'claude'}})
+    const owner = {'Orrery-Actor': 'ada_lovelace'}
+    for (const title of ['Prune', 'Tie in']) await request.post('/api/projects/trellis/schedules', {data: {title, cron: '0 9 * * *'}, headers: owner})
+    const other = await (await request.post('/api/projects', {data: {name: 'Espalier', key: 'ESP'}, headers: {'Orrery-Actor': 'claude'}})).json()
+    const theirs = await (await request.post(`/api/projects/${other.id}/schedules`, {data: {title: 'Stake', cron: '0 9 * * *'}, headers: owner})).json()
+    const running = async () => (await (await request.get('/api/projects/trellis/schedules')).json() as {enabled: boolean}[]).filter(s => s.enabled).length
+
+    await page.goto('/schedules')
+    const card = page.locator('#schedules-trellis')
+    const pauseAll = card.getByRole('button', {name: 'Pause all in Trellis'})
+    const activateAll = card.getByRole('button', {name: 'Activate all in Trellis'})
+    await expect(activateAll).toBeDisabled()
+
+    // On a phone the buttons wrap under the project's name, rather than pushing it out of the card.
+    await page.setViewportSize({width: 390, height: 800})
+    await expect(card.getByRole('heading', {name: 'Trellis'})).toBeVisible()
+    const box = (await card.boundingBox())!
+    const newOne = (await card.getByRole('button', {name: 'New schedule in Trellis'}).boundingBox())!
+    expect(newOne.x + newOne.width).toBeLessThanOrEqual(box.x + box.width)
+    expect((await card.getByRole('heading', {name: 'Trellis'}).boundingBox())!.width).toBeGreaterThan(20)
+    await page.setViewportSize({width: 1280, height: 800})
+
+    await pauseAll.click()
+    await expect(card.getByRole('status')).toHaveText('Paused 2 schedules.')
+    await expect.poll(running).toBe(0)
+    await expect(pauseAll).toBeDisabled()
+    expect((await (await request.get(`/api/projects/${other.id}/schedules/${theirs.id}`)).json()).enabled).toBe(true)
+
+    await activateAll.click()
+    await expect(card).toContainText('Activate 2 schedules, including any paused on purpose?')
+    await card.getByRole('button', {name: 'Cancel'}).click()
+    expect(await running()).toBe(0)
+
+    await activateAll.click()
+    await card.getByRole('button', {name: 'Activate', exact: true}).click()
+    await expect(card.getByRole('status')).toHaveText('Activated 2 schedules.')
+    await expect.poll(running).toBe(2)
 })

@@ -56,15 +56,15 @@ async function tryDemo() {
       </li>
       </template>
       <li v-if="current >= WITHOUT_CLAUDE && !finished">
-        <button type="button" class="text-xs text-accent-600 hover:underline dark:text-accent-400" @click="plan()">Just planning? You're set</button>
+        <button type="button" class="text-xs text-accent-700 hover:underline dark:text-accent-400" @click="plan()">Just planning? You're set</button>
       </li>
     </ol>
   </section>
 
   <div v-else class="mx-auto flex w-full max-w-xl animate-fade-up flex-col gap-6 px-4 py-14">
     <div class="flex items-center gap-3">
-      <div class="grid size-11 shrink-0 place-items-center rounded-2xl bg-gradient-to-br from-accent-300 to-accent-600 shadow-lg shadow-accent-600/30">
-        <OrreryMark class="size-5 text-zinc-950" />
+      <div class="grid size-11 shrink-0 place-items-center rounded-2xl bg-gradient-to-br from-tile-from to-tile-to shadow-lg shadow-accent-600/30">
+        <OrreryMark class="size-5 text-white" />
       </div>
       <div class="flex flex-col">
         <h2 class="text-lg font-semibold tracking-tight">Getting started</h2>
@@ -72,7 +72,7 @@ async function tryDemo() {
       </div>
     </div>
     <div class="h-1 overflow-hidden rounded-full bg-well" role="progressbar" :aria-valuenow="done" :aria-valuemax="steps.length" aria-label="Steps done">
-      <div class="h-full rounded-full bg-accent-500 transition-all" :style="{width: `${(done / steps.length) * 100}%`}" />
+      <div class="h-full rounded-full bg-accent-fill transition-all" :style="{width: `${(done / steps.length) * 100}%`}" />
     </div>
     <ol class="flex flex-col gap-4 text-[13px] leading-relaxed text-muted">
       <template v-for="(step, i) in steps" :key="step.key">
@@ -86,9 +86,9 @@ async function tryDemo() {
             <div v-if="step.key === 'project'" class="flex flex-wrap items-center gap-2">
               <UiButton variant="primary" size="md" @click="newProject = true">New project</UiButton>
               <UiButton size="md" :disabled="demo.making.value" title="A sample board to look around first; delete it from its Settings" @click="tryDemo">
-                {{ demo.making.value ? 'Making the demo…' : 'Try it with a demo project' }}
+                <UiBusy :busy="demo.making.value" label="Making the demo…">Try it with a demo project</UiBusy>
               </UiButton>
-              <span v-if="demo.failed.value" class="text-xs text-rose-600 dark:text-rose-400">{{ demo.failed.value }}</span>
+              <span v-if="demo.failed.value" class="text-xs text-rose-700 dark:text-rose-400">{{ demo.failed.value }}</span>
             </div>
             <CopyBlock v-else-if="step.key === 'connect'" title="Paste into a session, in the folder" :text="pieces.prompt" />
             <CopyBlock v-else-if="step.key === 'listen'" title="In the folder, start a session with" :text="pieces.launch" />
@@ -99,16 +99,16 @@ async function tryDemo() {
       </li>
       </template>
       <li v-if="current >= WITHOUT_CLAUDE && !finished" class="px-4">
-        <button type="button" class="text-xs text-accent-600 hover:underline dark:text-accent-400" @click="plan()">Just planning? You're set</button>
+        <button type="button" class="text-xs text-accent-700 hover:underline dark:text-accent-400" @click="plan()">Just planning? You're set</button>
       </li>
       <li v-else-if="planning && done < steps.length" class="px-4 text-xs text-faint">
         You're set for planning.
-        <button type="button" class="text-accent-600 hover:underline dark:text-accent-400" @click="plan(false)">Working with agents after all?</button>
+        <button type="button" class="text-accent-700 hover:underline dark:text-accent-400" @click="plan(false)">Working with agents after all?</button>
       </li>
     </ol>
     <p class="text-xs text-faint">
-      Later: let orrery start sessions itself, from the <NuxtLink to="/sessions#starts" class="text-accent-600 hover:underline dark:text-accent-400">Sessions page</NuxtLink>.
-      Every step by hand is on <NuxtLink to="/connect" class="text-accent-600 hover:underline dark:text-accent-400">Connect an agent</NuxtLink>.
+      Later: let orrery start sessions itself, from the <NuxtLink to="/sessions#starts" class="text-accent-700 underline underline-offset-2 dark:text-accent-400">Sessions page</NuxtLink>.
+      Every step by hand is on <NuxtLink to="/connect" class="text-accent-700 underline underline-offset-2 dark:text-accent-400">Connect an agent</NuxtLink>.
     </p>
   </div>
 </template>

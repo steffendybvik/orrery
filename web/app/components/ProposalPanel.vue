@@ -16,7 +16,7 @@ watch(() => props.issue.id, () => {
 })
 
 const STATE = {
-    pending: {label: 'Waiting on your decision', chip: 'bg-amber-500/12 text-amber-700 ring-amber-500/30 dark:text-amber-300'},
+    pending: {label: 'Waiting on your decision', chip: 'bg-amber-500/12 text-amber-800 ring-amber-500/30 dark:text-amber-300'},
     approved: {label: 'Approved', chip: 'bg-emerald-500/12 text-emerald-700 ring-emerald-500/30 dark:text-emerald-300'},
     changes: {label: 'Changes asked for', chip: 'bg-sky-500/12 text-sky-700 ring-sky-500/30 dark:text-sky-300'},
     rejected: {label: 'Rejected', chip: 'bg-rose-500/12 text-rose-700 ring-rose-500/30 dark:text-rose-300'},
@@ -108,6 +108,6 @@ const putUpAgain = () => send('', 'PATCH', {proposal: 'pending'})
       <UiButton v-if="approved" variant="ghost" size="md" :disabled="busy" title="Take it off the roadmap and back to Proposed, to decide again" @click="putUpAgain">Put it up again</UiButton>
       <UiButton v-else variant="ghost" size="md" @click="reopened = true">Change decision</UiButton>
     </div>
-    <p v-if="failed" class="text-xs text-rose-600 dark:text-rose-400">{{ failed }}</p>
+    <p v-if="failed" class="text-xs text-rose-700 dark:text-rose-400">{{ failed }}</p>
   </section>
 </template>

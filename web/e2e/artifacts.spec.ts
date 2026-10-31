@@ -3,7 +3,6 @@ import {AGENT, makeProject} from './support'
 
 // An artifact is drawn on its doc's page, styled with Tailwind and the app's theme, and locked down (ORR-677). Only a real
 // browser enforces the sandbox and the CSP, so this is where that's shown: its script runs and reports what it could do.
-test.describe.configure({mode: 'serial'})
 
 const put = async (request: import('@playwright/test').APIRequestContext, id: string, title: string, body: string) =>
     expect((await request.put(`/api/projects/atelier/docs/${id}`, {data: {title, body, kind: 'artifact'}, headers: AGENT})).ok()).toBeTruthy()
@@ -58,7 +57,8 @@ test("runs its script, which can't reach the app, the network, a popup, a form o
     page.on('popup', () => popups++)
     await page.goto('/p/atelier/docs/tries')
     const frame = page.frameLocator('iframe[title="Artifact"]')
-    await expect(frame.locator('#out')).toContainText('"ran":true')
+    // The first artifact the dev server draws, early in a run with the others, can take a while to build.
+    await expect(frame.locator('#out')).toContainText('"ran":true', {timeout: 20_000})
     const out = JSON.parse(await frame.locator('#out').textContent() ?? '{}') as Record<string, unknown>
     expect(out).toMatchObject({api: 'blocked', parent: 'blocked', storage: 'blocked', cookie: 'blocked', popup: 'blocked', image: 'blocked', origin: 'null'})
     await expect(page).toHaveURL(/\/p\/atelier\/docs\/tries$/)
@@ -105,9 +105,10 @@ test("draws Tailwind's classes and the app's theme, and follows dark mode", asyn
     await page.getByRole('button', {name: 'Switch to dark'}).click()
     await expect(page.locator('html')).toHaveClass(/dark/)
     await expect(box).toHaveCSS('padding-top', '16px')
-    await expect.poll(() => box.evaluate(el => getComputedStyle(el).backgroundColor)).not.toBe(light)
+    // Switching replaces the frame, so these retry a read that finds the old one going.
+    await expect(box).not.toHaveCSS('background-color', light)
     await page.getByRole('button', {name: 'Switch to light'}).click()
-    await expect.poll(() => box.evaluate(el => getComputedStyle(el).backgroundColor)).toBe(light)
+    await expect(box).toHaveCSS('background-color', light)
     await page.evaluate(() => {
         localStorage.removeItem('orrery-theme')
     })

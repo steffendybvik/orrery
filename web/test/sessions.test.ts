@@ -27,6 +27,106 @@ afterEach(() => {
     vi.useRealTimers()
 })
 
+describe('a session ending (ORR-775)', () => {
+    const FIVE_MINUTES = 5 * 60 * 1000
+    let handedBack: unknown[][]
+
+    beforeEach(() => {
+        handedBack = []
+        vi.stubGlobal('letGoEnded', async (...args: unknown[]) => void handedBack.push(args))
+        vi.useFakeTimers()
+    })
+
+    const open = (id = 'w', project = 'hub') => {
+        sessions.report({id, project, event: 'SessionStart'})
+        return sessions.attend(project, id, undefined, undefined)
+    }
+
+    it('hands back what it had once its end has stood for a while', () => {
+        open()
+        const name = sessions.sessionName('w')
+        sessions.report({id: 'w', project: 'hub', event: 'SessionEnd', reason: 'prompt_input_exit'})
+        vi.advanceTimersByTime(FIVE_MINUTES - 1)
+        expect(handedBack).toEqual([])
+        vi.advanceTimersByTime(1)
+        expect(handedBack).toEqual([['hub', ['w'], name]])
+    })
+
+    it('hands back nothing for a /clear, under the ids it had before as well as after one that ends it', () => {
+        open()
+        sessions.report({id: 'w', project: 'hub', event: 'SessionEnd', reason: 'clear'})
+        sessions.report({id: 'w2', project: 'hub', event: 'SessionStart', source: 'clear'})
+        vi.advanceTimersByTime(FIVE_MINUTES)
+        expect(handedBack).toEqual([])
+        sessions.report({id: 'w2', project: 'hub', event: 'SessionEnd', reason: 'logout'})
+        vi.advanceTimersByTime(FIVE_MINUTES)
+        expect(handedBack.map(args => args[1])).toEqual([['w2', 'w']])
+    })
+
+    it('hands back nothing for one resumed in time', () => {
+        open()
+        sessions.report({id: 'w', project: 'hub', event: 'SessionEnd'})
+        vi.advanceTimersByTime(FIVE_MINUTES - 1)
+        sessions.report({id: 'w', project: 'hub', event: 'SessionStart', source: 'resume'})
+        vi.advanceTimersByTime(FIVE_MINUTES)
+        expect(handedBack).toEqual([])
+    })
+
+    it('catches one killed with no hook when its channel drops, unless it reconnects', () => {
+        const first = open()
+        first.done()
+        vi.advanceTimersByTime(FIVE_MINUTES - 1)
+        const again = sessions.attend('hub', 'w', undefined, undefined)
+        vi.advanceTimersByTime(FIVE_MINUTES)
+        expect(handedBack).toEqual([])
+        again.done()
+        vi.advanceTimersByTime(FIVE_MINUTES)
+        expect(handedBack.map(args => args[1])).toEqual([['w']])
+    })
+
+    it('hands back once for an end and its channel closing, with the ids it had when it ended', () => {
+        const channel = open()
+        sessions.report({id: 'w2', project: 'hub', event: 'SessionStart'})
+        sessions.report({id: 'w', project: 'hub', event: 'SessionEnd', reason: 'clear'})
+        sessions.report({id: 'w3', pid: undefined, project: 'hub', event: 'SessionStart', source: 'clear'})
+        sessions.report({id: 'w3', project: 'hub', event: 'SessionEnd', reason: 'other'})
+        channel.done()
+        vi.advanceTimersByTime(FIVE_MINUTES)
+        expect(handedBack.map(args => args[1])).toEqual([['w3', 'w']])
+    })
+
+    it('goes through every project its channels served, even once they have closed', () => {
+        const own = open()
+        const other = sessions.attend('pantry', 'w', undefined, undefined)
+        own.done()
+        other.done()
+        vi.advanceTimersByTime(FIVE_MINUTES)
+        expect(handedBack.map(args => args[0]).sort()).toEqual(['hub', 'pantry'])
+    })
+
+    it('counts a session the owner forgets as ended, as one forgotten for going quiet', () => {
+        sessions.report({id: 'gone', project: 'hub', event: 'SessionStart'})
+        sessions.forgetSession('hub', 'gone')
+        sessions.report({id: 'quiet', project: 'hub', event: 'SessionStart'})
+        vi.advanceTimersByTime(60 * 60 * 1000 + 1)
+        sessions.listSessions('hub')
+        vi.advanceTimersByTime(FIVE_MINUTES)
+        expect(handedBack.map(args => args[1])).toEqual([['gone'], ['quiet']])
+    })
+
+    it('reports the failure of a hand-back rather than throwing it from the timer', async () => {
+        const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
+        vi.stubGlobal('letGoEnded', async () => {
+            throw new Error('the store is closed')
+        })
+        open()
+        sessions.report({id: 'w', project: 'hub', event: 'SessionEnd'})
+        await vi.advanceTimersByTimeAsync(FIVE_MINUTES)
+        expect(logged).toHaveBeenCalledWith(expect.stringContaining("handing back w's work"), expect.any(Error))
+        logged.mockRestore()
+    })
+})
+
 describe('a session', () => {
     it('says it was cut off until its next turn gets going, or one ends as it should (ORR-646)', () => {
         sessions.report({id: 'cut', project: 'hub', event: 'SessionStart'})
@@ -178,6 +278,21 @@ describe('a session', () => {
         sessions.report({id: 'a', project: 'greenhouse', event: 'working'})
         expect(sessions.idleAt('a')).toBe(Date.parse('2026-10-25T10:00:00Z'))
         expect(sessions.listSessions('greenhouse')[0]).not.toHaveProperty('idleAt')
+    })
+
+    it('works on a signal only when its hooks have spoken, as nothing else would end the turn (ORR-744)', () => {
+        sessions.attend('greenhouse', 'hooked', undefined, undefined)
+        sessions.report({id: 'hooked', project: 'greenhouse', event: 'SessionStart'})
+        sessions.signalReached('hooked', 'greenhouse')
+        expect(sessions.sessionNow('hooked')?.state).toBe('working')
+        sessions.report({id: 'hooked', project: 'greenhouse', event: 'Stop'})
+        expect(sessions.sessionNow('hooked')?.state).toBe('idle')
+
+        sessions.attend('greenhouse', 'no-hooks', undefined, undefined)
+        const before = sessions.sessionNow('no-hooks')?.state
+        sessions.signalReached('no-hooks', 'greenhouse')
+        expect(sessions.sessionNow('no-hooks')?.state).toBe(before)
+        expect(before).not.toBe('working')
     })
 
     it('first heard of by its pid takes its id when a hook brings it, and keeps no pid in public', () => {

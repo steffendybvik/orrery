@@ -115,16 +115,17 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
   >
     <div class="flex h-12 items-center gap-2 px-3">
       <NuxtLink to="/mine" class="flex min-w-0 flex-1 items-center gap-2">
-        <div class="grid size-7 shrink-0 place-items-center rounded-lg bg-gradient-to-br from-accent-300 to-accent-600 shadow-lg shadow-accent-600/30">
-          <OrreryMark class="size-4 text-zinc-950" />
+        <div class="grid size-7 shrink-0 place-items-center rounded-lg bg-gradient-to-br from-tile-from to-tile-to shadow-lg shadow-accent-600/30">
+          <OrreryMark class="size-4 text-white" />
         </div>
         <span class="text-sm font-semibold tracking-tight">orrery</span>
         <span v-if="environment" class="rounded-md bg-sky-500/15 px-1.5 py-px text-[11px] font-semibold text-sky-700 ring-1 ring-sky-500/30 dark:text-sky-300" :title="`This is the ${environment} orrery: its own database, apart from any other`">{{ environment }}</span>
       </NuxtLink>
       <span class="flex items-center gap-1.5 text-[11px] text-faint" :title="LIVE[live].title">
-        <span class="relative flex size-1.5">
+        <UiSpinner v-if="live === 'connecting' || live === 'reconnecting'" />
+        <span v-else class="relative flex size-1.5">
           <span v-if="live === 'connected'" class="absolute inline-flex size-full animate-ping rounded-full bg-emerald-400 opacity-60" />
-          <span class="relative inline-flex size-1.5 rounded-full" :class="live === 'connected' ? 'bg-emerald-400' : live === 'offline' ? 'bg-rose-500' : 'bg-amber-400'" />
+          <span class="relative inline-flex size-1.5 rounded-full" :class="live === 'connected' ? 'bg-emerald-400' : 'bg-rose-500'" />
         </span>
         {{ LIVE[live].label }}
       </span>
@@ -149,7 +150,7 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
       >
         <svg class="size-4 text-faint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4" /><path d="M4 21a8 8 0 0 1 16 0" /></svg>
         <span class="flex-1">My issues</span>
-        <span v-if="urgentCount" class="rounded-full bg-accent-500 px-1.5 font-mono text-[10px] font-medium text-white tabular-nums" :title="`${urgentCount} urgent`">{{ urgentCount }}</span>
+        <span v-if="urgentCount" class="rounded-full bg-accent-fill px-1.5 font-mono text-[10px] font-medium text-on-accent tabular-nums" :title="`${urgentCount} urgent`">{{ urgentCount }}</span>
         <span v-if="mineCount" class="font-mono text-[11px] text-faint tabular-nums">{{ mineCount }}</span>
       </NuxtLink>
 
@@ -200,7 +201,7 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
         >
           <svg class="size-4 text-faint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h16M4 12h10M4 18h7" /><circle cx="18" cy="16" r="3" /></svg>
           <span class="flex-1">Events</span>
-          <span v-if="newErrors.length" class="rounded-full bg-rose-500 px-1.5 font-mono text-[10px] font-medium text-white tabular-nums" :title="`${newErrors.length} new kind${newErrors.length === 1 ? '' : 's'} of error`">{{ newErrors.length }}</span>
+          <ErrorBadge v-if="newErrors.length" :count="newErrors.length" :title="`${newErrors.length} new kind${newErrors.length === 1 ? '' : 's'} of error`" />
         </NuxtLink>
 
         <NuxtLink
@@ -219,7 +220,7 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
         >
           <svg class="size-4 text-faint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="6" r="2.5" /><circle cx="6" cy="18" r="2.5" /><circle cx="18" cy="18" r="2.5" /><path d="M6 8.5v7M18 15.5V9a3 3 0 0 0-3-3h-4m2-2-2 2 2 2" /></svg>
           <span class="flex-1">Pull requests</span>
-          <span v-if="pulls?.needs" class="rounded-full bg-rose-500 px-1.5 font-mono text-[10px] font-medium text-white tabular-nums" :title="`${pulls.needs} need${pulls.needs === 1 ? 's' : ''} someone: conflicts, failing checks or behind`">{{ pulls.needs }}</span>
+          <ErrorBadge v-if="pulls?.needs" :count="pulls.needs" :title="`${pulls.needs} need${pulls.needs === 1 ? 's' : ''} someone: conflicts, failing checks or behind`" />
           <span v-else-if="pulls?.open" class="font-mono text-[11px] text-faint tabular-nums">{{ pulls.open }}</span>
         </NuxtLink>
       </template>
@@ -250,8 +251,8 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
           @dragover="onDragOver($event, index)"
           @drop.prevent="onDrop"
       >
-        <span v-if="dropAt === index && dragging" class="pointer-events-none absolute inset-x-2 -top-1.5 h-0.5 rounded-full bg-accent-500" />
-        <span v-if="dropAt === index + 1 && index === ordered.length - 1 && dragging" class="pointer-events-none absolute inset-x-2 -bottom-1.5 h-0.5 rounded-full bg-accent-500" />
+        <span v-if="dropAt === index && dragging" class="pointer-events-none absolute inset-x-2 -top-1.5 h-0.5 rounded-full bg-accent-fill" />
+        <span v-if="dropAt === index + 1 && index === ordered.length - 1 && dragging" class="pointer-events-none absolute inset-x-2 -bottom-1.5 h-0.5 rounded-full bg-accent-fill" />
         <div class="group flex items-center rounded-lg transition-colors hover:bg-hover">
           <NuxtLink
               :to="`/p/${project.id}`"
@@ -271,8 +272,8 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
             <ProgressRing v-else :kinds="project.board.kinds" bare :size="14" />
             <span class="min-w-0 flex-1 truncate">{{ project.name }}</span>
             <span v-if="unseenIn(project)" class="unseen-dot" :title="`${unseenIn(project)} changed since you last looked`" />
-            <span v-if="project.board.kinds.started" class="flex items-center gap-1 rounded-full bg-accent-500/12 px-1.5 font-mono text-[10px] text-accent-600 tabular-nums dark:text-accent-300" :title="`${project.board.kinds.started} being worked on`">
-              <span class="size-1 rounded-full bg-accent-500" />{{ project.board.kinds.started }}
+            <span v-if="project.board.kinds.started" class="flex items-center gap-1 rounded-full bg-accent-500/12 px-1.5 font-mono text-[10px] text-accent-700 tabular-nums dark:text-accent-300" :title="`${project.board.kinds.started} being worked on`">
+              <span class="size-1 rounded-full bg-accent-fill" />{{ project.board.kinds.started }}
             </span>
             <span class="font-mono text-[11px] font-normal text-faint tabular-nums">{{ project.board.kinds.done }}/{{ progress(project.board.kinds).total }}</span>
           </NuxtLink>
@@ -328,8 +329,8 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
               <span class="max-w-[75%] shrink-0 truncate">{{ spanLabel(session) ?? project.name }}</span>
               <span class="min-w-0 truncate text-[11px] text-faint">{{ nameBesideProject(session) }}</span>
             </span>
-            <span v-if="session.cut_off" class="shrink-0 text-[11px] text-amber-700 dark:text-amber-400" :title="session.cut_off.text">{{ cutOffLabel(session.cut_off) }}</span>
-            <span v-else class="shrink-0 text-[11px]" :class="session.state === 'waiting' ? 'text-rose-600 dark:text-rose-400' : 'text-faint'">{{ SESSION_STATE[session.state] }}</span>
+            <span v-if="session.cut_off" class="shrink-0 text-[11px] text-amber-800 dark:text-amber-400" :title="session.cut_off.text">{{ cutOffLabel(session.cut_off) }}</span>
+            <span v-else class="shrink-0 text-[11px]" :class="session.state === 'waiting' ? 'text-rose-700 dark:text-rose-400' : 'text-faint'">{{ SESSION_STATE[session.state] }}</span>
           </NuxtLink>
           <NuxtLink
               v-for="issue in onIssue(session).slice(0, 1)"

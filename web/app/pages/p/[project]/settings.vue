@@ -124,7 +124,7 @@ useHead(() => ({title: project.value ? `Settings · ${project.value.name} · orr
     <h1 v-else-if="ready" class="truncate text-sm font-medium">Not found</h1>
   </PageHeader>
 
-  <div class="min-h-0 flex-1 overflow-y-auto">
+  <div class="clear-agent min-h-0 flex-1 overflow-y-auto">
     <div v-if="project" class="mx-auto flex max-w-4xl animate-fade-up flex-col gap-8 px-4 py-8 sm:px-8">
       <section id="name" class="flex flex-col gap-3">
         <header class="flex flex-col gap-0.5">
@@ -140,7 +140,7 @@ useHead(() => ({title: project.value ? `Settings · ${project.value.name} · orr
               @blur="rename"
               @keydown.esc="name = project.name; ($event.target as HTMLInputElement).blur()"
           >
-          <span v-if="nameFailed" class="text-xs text-rose-600 dark:text-rose-400">{{ nameFailed }}</span>
+          <span v-if="nameFailed" class="text-xs text-rose-700 dark:text-rose-400">{{ nameFailed }}</span>
         </form>
       </section>
 
@@ -160,7 +160,7 @@ useHead(() => ({title: project.value ? `Settings · ${project.value.name} · orr
               @blur="saveRepo"
               @keydown.esc="repo = project.repo ?? ''; ($event.target as HTMLInputElement).blur()"
           >
-          <span v-if="repoFailed" class="text-xs text-rose-600 dark:text-rose-400">{{ repoFailed }}</span>
+          <span v-if="repoFailed" class="text-xs text-rose-700 dark:text-rose-400">{{ repoFailed }}</span>
         </form>
       </section>
 
@@ -186,13 +186,13 @@ useHead(() => ({title: project.value ? `Settings · ${project.value.name} · orr
             <span class="truncate">{{ releaseOptions.find(o => o.value === releaseChoice)?.label ?? releaseChoice }}</span>
           </PropertyPicker>
           <span v-if="drawing.length" class="text-xs text-faint">{{ drawing.map(p => p.name).join(', ') }} {{ drawing.length === 1 ? 'takes its' : 'take their' }} releases from {{ project.name }}.</span>
-          <span v-if="releasesFailed" class="text-xs text-rose-600 dark:text-rose-400">{{ releasesFailed }}</span>
+          <span v-if="releasesFailed" class="text-xs text-rose-700 dark:text-rose-400">{{ releasesFailed }}</span>
         </div>
       </section>
 
       <section id="icon" class="flex flex-col gap-3 border-t border-line pt-8">
         <header class="flex items-start gap-3">
-          <div class="mt-0.5 grid size-4 place-items-center text-accent-500">
+          <div class="mt-0.5 grid size-4 place-items-center text-accent-fill">
             <ProjectIcon v-if="project.icon" :icon="project.icon" :color="project.icon_color" class="size-4" />
             <ProgressRing v-else :kinds="project.board.kinds" bare :size="14" />
           </div>
@@ -203,7 +203,7 @@ useHead(() => ({title: project.value ? `Settings · ${project.value.name} · orr
           <UiButton v-if="project.icon" class="shrink-0" @click="saveIcon({icon: null})">Use the ring</UiButton>
         </header>
         <IconPicker :icon="project.icon ?? null" :color="project.icon_color ?? null" @change="change => saveIcon({icon: change.icon, icon_color: change.color})">
-          <p v-if="iconFailed" class="text-xs text-rose-600 dark:text-rose-400">{{ iconFailed }}</p>
+          <p v-if="iconFailed" class="text-xs text-rose-700 dark:text-rose-400">{{ iconFailed }}</p>
         </IconPicker>
       </section>
 
@@ -219,10 +219,18 @@ useHead(() => ({title: project.value ? `Settings · ${project.value.name} · orr
         </div>
       </section>
 
+      <section id="upload" class="flex flex-col gap-3 border-t border-line pt-8">
+        <div>
+          <h2 class="text-[15px] font-semibold text-fg">Upload</h2>
+          <p class="mt-0.5 text-[13px] text-muted">Brings a board's file in as a new board, so this one stays as it is. Nothing in the file counts as yours, and its schedules arrive paused.</p>
+        </div>
+        <BoardUpload />
+      </section>
+
       <section id="danger" class="mt-4 flex flex-col gap-3 rounded-xl border border-rose-500/30 p-4">
         <header class="flex items-start gap-3">
           <div class="flex min-w-0 flex-1 flex-col gap-0.5">
-            <h2 class="text-[15px] font-semibold text-rose-600 dark:text-rose-400">Delete this project</h2>
+            <h2 class="text-[15px] font-semibold text-rose-700 dark:text-rose-400">Delete this project</h2>
             <p class="text-xs text-muted">Removes {{ project.name }} and everything in it from orrery.</p>
           </div>
           <UiButton v-if="!deleting" variant="danger-outline" class="shrink-0" @click="deleting = true">Delete project…</UiButton>
@@ -239,14 +247,15 @@ useHead(() => ({title: project.value ? `Settings · ${project.value.name} · orr
           </label>
           <div class="flex items-center gap-2">
             <UiButton type="submit" variant="danger" size="md" :disabled="typed !== project.id || removing">
-              {{ removing ? 'Deleting…' : `Delete ${project.name} forever` }}
+              <UiBusy :busy="removing" label="Deleting…">{{ `Delete ${project.name} forever` }}</UiBusy>
             </UiButton>
             <UiButton size="md" @click="deleting = false; typed = ''">Cancel</UiButton>
-            <span v-if="failed" class="text-xs text-rose-600 dark:text-rose-400">{{ failed }}</span>
+            <span v-if="failed" class="text-xs text-rose-700 dark:text-rose-400">{{ failed }}</span>
           </div>
         </form>
       </section>
     </div>
     <NotFound v-else-if="ready" reason="It may have been renamed or deleted." to="/mine" back="Go to My issues">No project “{{ route.params.project }}”</NotFound>
+    <UiLoading v-else />
   </div>
 </template>

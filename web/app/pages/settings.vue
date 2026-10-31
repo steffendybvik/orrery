@@ -254,7 +254,7 @@ async function pick(tint: string | null) {
     <SegmentedControl v-model="tab" :options="tabs" />
   </ViewToolbar>
 
-  <div ref="scroller" class="min-h-0 flex-1 overflow-y-auto">
+  <div ref="scroller" class="clear-agent min-h-0 flex-1 overflow-y-auto">
     <div class="mx-auto flex max-w-6xl animate-fade-up gap-12 px-4 py-8 sm:px-8">
     <div class="flex min-w-0 max-w-3xl flex-1 flex-col gap-8 [&>section+section]:border-t [&>section+section]:border-line [&>section+section]:pt-8">
       <p class="-mb-2 text-xs text-muted">{{ TABS.find(t => t.value === tab)?.scope }}</p>
@@ -276,7 +276,7 @@ async function pick(tint: string | null) {
               @blur="saveOwner"
               @keydown.esc="ownerName = owner?.named ? owner.display : ''; ($event.target as HTMLInputElement).blur()"
           >
-          <span v-if="ownerFailed" class="text-xs text-rose-600 dark:text-rose-400">{{ ownerFailed }}</span>
+          <span v-if="ownerFailed" class="text-xs text-rose-700 dark:text-rose-400">{{ ownerFailed }}</span>
         </form>
       </section>
 
@@ -300,7 +300,7 @@ async function pick(tint: string | null) {
               @blur="saveHandle"
               @keydown.esc="handle = settings.handle ?? ''; ($event.target as HTMLInputElement).blur()"
           >
-          <span v-if="handleFailed" class="text-xs text-rose-600 dark:text-rose-400">{{ handleFailed }}</span>
+          <span v-if="handleFailed" class="text-xs text-rose-700 dark:text-rose-400">{{ handleFailed }}</span>
         </form>
       </section>
 
@@ -323,10 +323,10 @@ async function pick(tint: string | null) {
           </p>
         </header>
         <label class="flex items-center gap-2 text-[13px] text-fg">
-          <input type="checkbox" class="accent-accent-500" :checked="settings.restrict_proposals" @change="restrictProposals(($event.target as HTMLInputElement).checked)">
+          <input type="checkbox" class="accent-accent-fill" :checked="settings.restrict_proposals" @change="restrictProposals(($event.target as HTMLInputElement).checked)">
           Keep agents off proposals until you approve them
         </label>
-        <p v-if="proposalsFailed" class="text-xs text-rose-600 dark:text-rose-400">{{ proposalsFailed }}</p>
+        <p v-if="proposalsFailed" class="text-xs text-rose-700 dark:text-rose-400">{{ proposalsFailed }}</p>
       </section>
 
       <section v-if="tab === 'issues'" id="tracker" class="scroll-mt-6 flex flex-col gap-3">
@@ -348,7 +348,7 @@ async function pick(tint: string | null) {
               @blur="saveTracker"
               @keydown.esc="tracker = settings.tracker ?? ''; ($event.target as HTMLInputElement).blur()"
           >
-          <span v-if="trackerFailed" class="text-xs text-rose-600 dark:text-rose-400">{{ trackerFailed }}</span>
+          <span v-if="trackerFailed" class="text-xs text-rose-700 dark:text-rose-400">{{ trackerFailed }}</span>
         </form>
         <p v-if="trackerTurned" class="text-xs text-muted" role="status">
           Saved as a task link, with <span class="font-mono">{id}</span> where a task's id goes: <span class="font-mono text-fg">{{ trackerTurned }}</span>
@@ -404,7 +404,7 @@ async function pick(tint: string | null) {
             Custom
           </label>
         </div>
-        <p v-if="failed" class="text-xs text-rose-600 dark:text-rose-400">{{ failed }}</p>
+        <p v-if="failed" class="text-xs text-rose-700 dark:text-rose-400">{{ failed }}</p>
       </section>
 
 <section v-if="tab === 'orrery'" id="people" class="scroll-mt-6 flex flex-col gap-3">
@@ -459,15 +459,15 @@ async function pick(tint: string | null) {
             <dt class="text-muted">Latest backup</dt>
             <dd class="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
               <span
-                  :class="backupStale || settings.database.backup_failed ? 'font-medium text-amber-700 dark:text-amber-400' : 'text-fg'"
+                  :class="backupStale || settings.database.backup_failed ? 'font-medium text-amber-800 dark:text-amber-400' : 'text-fg'"
                   :title="settings.database.backed_up_at && new Date(settings.database.backed_up_at).toLocaleString()"
                   data-backup-latest
               >{{ settings.database.backed_up_at ? ago(settings.database.backed_up_at) : 'None yet' }}<template v-if="backupStale"> (over two days old)</template></span>
-              <UiButton :disabled="backingUp" @click="backUpNow">{{ backingUp ? 'Backing up…' : 'Back up now' }}</UiButton>
-              <span v-if="backupFailed" class="text-xs text-rose-600 dark:text-rose-400">{{ backupFailed }}</span>
+              <UiButton :disabled="backingUp" @click="backUpNow"><UiBusy :busy="backingUp" label="Backing up…">Back up now</UiBusy></UiButton>
+              <span v-if="backupFailed" class="text-xs text-rose-700 dark:text-rose-400">{{ backupFailed }}</span>
               <span
                   v-else-if="settings.database.backup_failed"
-                  class="basis-full text-xs text-rose-600 dark:text-rose-400"
+                  class="basis-full text-xs text-rose-700 dark:text-rose-400"
                   :title="new Date(settings.database.backup_failed.at).toLocaleString()"
                   data-backup-failed
               >The last try failed {{ ago(settings.database.backup_failed.at) }}: {{ settings.database.backup_failed.message }}</span>
@@ -478,7 +478,7 @@ async function pick(tint: string | null) {
           <label class="flex items-center gap-2 text-[13px] text-fg">
             <input
                 type="checkbox"
-                class="accent-accent-500"
+                class="accent-accent-fill"
                 :checked="!!settings.database.backup"
                 :disabled="settingBackups || (backupKind === 'postgres' ? !backupUrl.trim() && !settings.database.backup_postgres : settings.database.backups_settable === 'switch' && !settings.database.backup_default)"
                 @change="setBackups(($event.target as HTMLInputElement).checked)"
@@ -497,7 +497,7 @@ async function pick(tint: string | null) {
                 class="h-8 w-[28rem] max-w-full field font-mono"
                 @keydown.esc="backupUrl = ''; ($event.target as HTMLInputElement).blur()"
             >
-            <UiButton type="submit" :disabled="settingBackups || !backupUrl.trim()">{{ settingBackups ? 'Backing up…' : 'Back up there' }}</UiButton>
+            <UiButton type="submit" :disabled="settingBackups || !backupUrl.trim()"><UiBusy :busy="settingBackups" label="Backing up…">Back up there</UiBusy></UiButton>
           </form>
           <form v-else-if="settings.database.backups_settable === 'folder'" class="flex flex-wrap items-center gap-2" @submit.prevent="setBackups(true)">
             <input
@@ -508,7 +508,7 @@ async function pick(tint: string | null) {
                 class="h-8 w-[28rem] max-w-full field font-mono"
                 @keydown.esc="backupFolder = settings.database.backup_folder ?? settings.database.backup ?? settings.database.backup_default ?? ''; ($event.target as HTMLInputElement).blur()"
             >
-            <UiButton type="submit" :disabled="settingBackups || !backupFolder.trim()">{{ settingBackups ? 'Backing up…' : 'Back up here' }}</UiButton>
+            <UiButton type="submit" :disabled="settingBackups || !backupFolder.trim()"><UiBusy :busy="settingBackups" label="Backing up…">Back up here</UiBusy></UiButton>
             <UiButton v-if="settings.database.backup_folder && settings.database.backup_default" variant="ghost" :disabled="settingBackups" @click="setBackups(!settings.database.backups_off, null)">Use {{ settings.database.backup_default }}</UiButton>
           </form>
           <div v-if="settings.database.backup" class="flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-muted">
@@ -537,14 +537,14 @@ async function pick(tint: string | null) {
             </template>
             <template v-else-if="settings.database.backups_settable === 'folder'">A folder that syncs off this machine is best. Turned on, it's backed up there at once.</template>
             <template v-else-if="settings.database.backup_local">
-              <span class="text-amber-700 dark:text-amber-400" data-backup-local>The backups are only on this computer, in a Docker volume.</span>
+              <span class="text-amber-800 dark:text-amber-400" data-backup-local>The backups are only on this computer, in a Docker volume.</span>
               Set <code>ORRERY_BACKUP</code> to a folder that leaves it (iCloud Drive, Dropbox, one Time Machine covers).
             </template>
             <template v-else-if="settings.database.backup_default">In Docker the backups go to <code>/backup</code>: choose its folder on this machine with <code>ORRERY_BACKUP</code>.</template>
             <template v-else>Give orrery a folder for its backups with <code>ORRERY_BACKUP</code>.</template>
             <template v-if="settings.database.backup && settings.database.backup_kind !== 'postgres'"> Each backup writes the whole database again, so a synced folder uploads it each time: back up less often to upload less. The daily copies are most of the folder's size.</template>
           </p>
-          <p v-if="backupsFailed" class="text-xs text-rose-600 dark:text-rose-400">{{ backupsFailed }}</p>
+          <p v-if="backupsFailed" class="text-xs text-rose-700 dark:text-rose-400">{{ backupsFailed }}</p>
         </div>
         <p v-else-if="settings.database && !settings.database.backup" class="text-xs text-faint">
           Not backed up: give orrery a folder for its backups with <code>ORRERY_BACKUP</code> (<code>NUXT_BACKUP_DIR</code> outside Docker),
@@ -569,10 +569,10 @@ async function pick(tint: string | null) {
           </p>
         </header>
         <label class="flex items-center gap-2 text-[13px] text-fg">
-          <input type="checkbox" class="accent-accent-500" :checked="settings.advanced" @change="setAdvanced(($event.target as HTMLInputElement).checked)">
+          <input type="checkbox" class="accent-accent-fill" :checked="settings.advanced" @change="setAdvanced(($event.target as HTMLInputElement).checked)">
           Record what orrery does, tell me about new errors, and show Events, Context and Pull requests in the sidebar
         </label>
-        <p v-if="advancedFailed" class="text-xs text-rose-600 dark:text-rose-400">{{ advancedFailed }}</p>
+        <p v-if="advancedFailed" class="text-xs text-rose-700 dark:text-rose-400">{{ advancedFailed }}</p>
       </section>
 
       <section v-if="tab === 'advanced'" id="events" class="scroll-mt-6 flex flex-col gap-3">
@@ -584,8 +584,8 @@ async function pick(tint: string | null) {
           </p>
         </header>
         <div class="flex items-center gap-2">
-          <NuxtLink to="/events" class="text-[13px] font-medium text-accent-600 hover:underline dark:text-accent-400">Open the event log</NuxtLink>
-          <span v-if="newErrors.length" class="rounded-full bg-rose-500 px-1.5 font-mono text-[10px] font-medium text-white tabular-nums" :title="`${newErrors.length} new kind${newErrors.length === 1 ? '' : 's'} of error`">{{ newErrors.length }}</span>
+          <NuxtLink to="/events" class="text-[13px] font-medium text-accent-700 hover:underline dark:text-accent-400">Open the event log</NuxtLink>
+          <ErrorBadge v-if="newErrors.length" :count="newErrors.length" :title="`${newErrors.length} new kind${newErrors.length === 1 ? '' : 's'} of error`" />
         </div>
       </section>
 
@@ -597,7 +597,7 @@ async function pick(tint: string | null) {
             also on its card on the Sessions page while Advanced is on.
           </p>
         </header>
-        <NuxtLink to="/context" class="self-start text-[13px] font-medium text-accent-600 hover:underline dark:text-accent-400">See what a session is sent</NuxtLink>
+        <NuxtLink to="/context" class="self-start text-[13px] font-medium text-accent-700 hover:underline dark:text-accent-400">See what a session is sent</NuxtLink>
       </section>
 
       <section v-if="tab === 'advanced'" id="pulls" class="scroll-mt-6 flex flex-col gap-3">
@@ -609,8 +609,8 @@ async function pick(tint: string | null) {
           </p>
         </header>
         <div class="flex items-center gap-2">
-          <NuxtLink to="/pulls" class="text-[13px] font-medium text-accent-600 hover:underline dark:text-accent-400">Open pull requests</NuxtLink>
-          <span v-if="pulls?.needs" class="rounded-full bg-rose-500 px-1.5 font-mono text-[10px] font-medium text-white tabular-nums" :title="`${pulls.needs} need${pulls.needs === 1 ? 's' : ''} someone: conflicts, failing checks or behind`">{{ pulls.needs }}</span>
+          <NuxtLink to="/pulls" class="text-[13px] font-medium text-accent-700 hover:underline dark:text-accent-400">Open pull requests</NuxtLink>
+          <ErrorBadge v-if="pulls?.needs" :count="pulls.needs" :title="`${pulls.needs} need${pulls.needs === 1 ? 's' : ''} someone: conflicts, failing checks or behind`" />
           <span v-else-if="pulls?.open" class="font-mono text-[11px] text-faint tabular-nums">{{ pulls.open }}</span>
           <span v-else-if="pulls && !pulls.repos.length" class="text-xs text-faint">No project has a repo on GitHub yet.</span>
         </div>

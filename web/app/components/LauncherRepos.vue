@@ -1,47 +1,39 @@
 <script setup lang="ts">
-// The repos the launcher serves (ORR-605), on Sessions → Setup under its install command: each folder its launchers run
-// in, with the projects served from it, and whether a Claude session's channel picked it up (ORR-599, and when) or it
-// was installed there by hand. Asked of each project, and again as launchers come and go; nothing while none runs.
-import type {LaunchState} from '~/composables/useLaunchState'
+// Connected repos, on Connect under its button (ORR-774): each folder the launchers serve, with its projects and how it
+// got there: Connect a repo, a Claude session's channel picking it up (ORR-599), or `--install` by hand. It comes from the
+// launchers, so it says what that leaves out. Sessions → Setup points here (LauncherReposLine).
+import type {ServedRepo} from '~/composables/useLauncherRepos'
 
-const {launchers, byId} = useRoadmaps()
-const {ordered} = useProjectOrder()
-const states = ref<Record<string, LaunchState | null>>({})
-async function ask() {
-    const asked = await Promise.all(ordered.value.map(async p => [p.id, await apiFetch<LaunchState>(`/projects/${encodeURIComponent(p.id)}/launches`).catch(() => null)] as const))
-    states.value = Object.fromEntries(asked)
-}
-watch([() => ordered.value.map(p => p.id).join(), launchers], ask, {immediate: true})
-
-/** Each folder once, with its projects, picked up when any of them was, at the earliest. */
-const repos = computed(() => {
-    const byDir = new Map<string, {dir: string, projects: string[], picked_at?: string}>()
-    for (const [project, state] of Object.entries(states.value)) {
-        for (const {dir, picked_at} of state?.repos ?? []) {
-            const repo = byDir.get(dir) ?? {dir, projects: []}
-            repo.projects.push(byId(project)?.name ?? project)
-            if (picked_at && (!repo.picked_at || picked_at < repo.picked_at)) repo.picked_at = picked_at
-            byDir.set(dir, repo)
-        }
-    }
-    return [...byDir.values()].sort((a, b) => a.dir.localeCompare(b.dir))
+const {repos, loaded} = useLauncherRepos()
+const route = useRoute()
+const section = useTemplateRef<HTMLElement>('section')
+// The page scrolls inside its own box, which the router's scrolling to a hash doesn't reach.
+watch(loaded, async () => {
+    if (route.hash !== '#connected-repos') return
+    await nextTick()
+    section.value?.scrollIntoView({block: 'start'})
 })
+
+const added = (repo: ServedRepo) => repo.connected_at ?? repo.picked_at
+const how = (repo: ServedRepo) => repo.connected_at
+    ? `connected ${ago(repo.connected_at)}`
+    : repo.picked_at ? `picked up ${ago(repo.picked_at)}` : 'installed'
 </script>
 
 <template>
-  <div v-if="repos.length" class="flex flex-col gap-1.5">
-    <h3 class="text-xs font-medium text-fg">Repos it serves</h3>
-    <ul class="overflow-hidden rounded-xl border border-line text-xs dark:bg-panel" aria-label="Repos the launcher serves">
+  <section id="connected-repos" ref="section" class="flex scroll-mt-4 flex-col gap-2">
+    <h3 class="text-[15px] font-semibold">Connected repos</h3>
+    <ul v-if="repos.length" class="overflow-hidden rounded-xl border border-line text-xs dark:bg-panel" aria-label="Connected repos">
       <li v-for="repo in repos" :key="repo.dir" class="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 border-b border-line px-3 py-2 last:border-b-0">
         <span class="min-w-0 truncate font-mono text-fg" :title="repo.dir">{{ repo.dir }}</span>
         <span class="text-muted">{{ repo.projects.join(', ') }}</span>
-        <span class="ml-auto shrink-0 text-faint" :title="repo.picked_at ? new Date(repo.picked_at).toLocaleString() : undefined">
-          {{ repo.picked_at ? `picked up ${ago(repo.picked_at)}` : 'installed' }}
-        </span>
+        <span class="ml-auto shrink-0 text-faint" :title="added(repo) ? new Date(added(repo)!).toLocaleString() : undefined">{{ how(repo) }}</span>
       </li>
     </ul>
-    <p class="text-[11px] text-faint">
-      Picked up: a Claude session opened there added it. <span class="font-mono">--uninstall</span>, run in a repo, takes it off.
+    <p v-else-if="loaded" class="text-[13px] text-muted">None listed.</p>
+    <p class="text-[11px] leading-relaxed text-faint">
+      This list comes from the launchers running now, so a repo set up with the pasted line, with no launcher running or pick-up off, isn't on it.
+      Picked up: a Claude session opened there added it. Installed: <span class="font-mono">--install</span> in the repo, or connected before this list said so. <span class="font-mono">--uninstall</span>, run in a repo, takes it off.
     </p>
-  </div>
+  </section>
 </template>

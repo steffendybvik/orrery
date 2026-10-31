@@ -126,11 +126,11 @@ useHead(() => ({title: chunk.value ? `${chunk.value.title} · orrery` : 'orrery'
     </template>
   </PageHeader>
 
-  <div class="min-h-0 flex-1 overflow-y-auto">
+  <div class="clear-agent min-h-0 flex-1 overflow-y-auto">
     <template v-if="project && chunk && share">
       <header class="mx-auto flex max-w-5xl animate-fade-up flex-col gap-4 px-4 pt-8 pb-6 sm:px-8">
         <div class="flex items-center gap-3 text-xs">
-          <span class="flex items-center gap-2" :style="{color: look(chunk.column).color}">
+          <span class="flex items-center gap-2" :style="{color: readable(look(chunk.column).color)}">
             <StatusIcon :column="chunk.column" :progress="share.share" />
             {{ look(chunk.column).label }}
           </span>
@@ -207,7 +207,7 @@ useHead(() => ({title: chunk.value ? `${chunk.value.title} · orrery` : 'orrery'
             <span class="mr-auto text-xs text-faint">Markdown</span>
             <UiButton :disabled="saving" @click="editingSummary = false">Cancel <KeyHint>esc</KeyHint></UiButton>
             <UiButton variant="primary" :disabled="saving" @click="saveSummary">
-              {{ saving ? 'Saving…' : 'Save' }} <KeyHint class="bg-white/20 text-white ring-0">⌘↵</KeyHint>
+              <UiBusy :busy="saving" label="Saving…">Save</UiBusy> <KeyHint class="bg-black/10 text-on-accent ring-0">⌘↵</KeyHint>
             </UiButton>
           </div>
         </section>
@@ -221,7 +221,7 @@ useHead(() => ({title: chunk.value ? `${chunk.value.title} · orrery` : 'orrery'
           <button v-else type="button" class="text-sm text-faint italic hover:text-muted" @click="editSummary">No summary. Add one</button>
         </section>
         <MarkdownView v-else-if="chunk.summary" :source="chunk.summary" />
-        <p v-if="failed" class="text-xs text-rose-600 dark:text-rose-400">{{ failed }}</p>
+        <p v-if="failed" class="text-xs text-rose-700 dark:text-rose-400">{{ failed }}</p>
         <div class="flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-faint">
           <ProgressRing :kinds="chunk.kinds" :size="16" />
           <span>{{ chunk.tasks.length }} {{ chunk.tasks.length === 1 ? 'issue' : 'issues' }}<template v-if="share.total !== chunk.tasks.length"> · {{ share.total }} with sub-issues</template></span>
@@ -247,5 +247,6 @@ useHead(() => ({title: chunk.value ? `${chunk.value.title} · orrery` : 'orrery'
       <p v-else class="px-4 py-16 text-center text-sm text-muted">{{ active ? 'No issue in this chunk matches the filters.' : 'No issues in this chunk yet.' }}</p>
     </template>
     <NotFound v-else-if="ready" :to="`/p/${route.params.project}/roadmap`" back="Back to the roadmap">No chunk “{{ route.params.chunk }}”</NotFound>
+    <UiLoading v-else />
   </div>
 </template>

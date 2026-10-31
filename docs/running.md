@@ -3,7 +3,7 @@
 In a folder of its own:
 
 ```sh
-curl -LO https://github.com/steffendybvik/orrery/releases/download/v1.0.0-rc.15/compose.yml
+curl -LO https://github.com/steffendybvik/orrery/releases/download/v1.0.0-rc.16/compose.yml
 docker compose up -d        # http://localhost:9000
 ```
 
@@ -22,7 +22,8 @@ sidebar (App settings → Advanced turns it back on).
    `docker compose pull && docker compose up -d`. The database moves to the new schema by itself. On SQLite it keeps a copy
    as it was first, `orrery-pre-<version>-step<n>.db` (`<n>` the schema step it was at, so each step taken under one version gets its own), in the backup folder (beside the database when backups are off).
    An older version won't open a database a newer one has moved on: it stops and says so. To go back, restore that
-   copy.
+   copy. On Postgres orrery keeps no copy, so take a `pg_dump` first, as restoring it is the way back: a failed upgrade leaves
+   the database as it was, but one that worked can't be undone, and orrery's backups are of the new schema soon after it.
 3. **Everything else follows.** Each connected repo's channel and hooks, and the launcher, run on your machine through
    `~/.orrery/bootstrap.mjs`, which fetches what orrery serves (`/channel`) and keeps it in `~/.orrery`. A session gets the
    new channel as it starts, and its hooks within a minute. The launcher restarts itself on the new code and takes its
@@ -74,7 +75,8 @@ leaves when one conflicts, fails or merges). A public repo works without a token
 minutes. With a token, a private repo works too, and orrery reads where each pull request stands every minute.
 
 1. On GitHub, [make a fine-grained token](https://github.com/settings/personal-access-tokens/new) with
-   *Pull requests: Read-only* on the repos your projects point at (a classic token needs `repo`).
+   *Pull requests: Read-only* on the repos your projects point at (a classic token needs `repo`). The Branches view
+   also needs *Contents: Read-only* to read them, and *Contents: Read and write* to remove one from the page.
 2. In **App settings → This orrery → Secrets**, `GITHUB_TOKEN` is listed as *Not set*. Press **Set** and paste the
    token: its name and its host, `api.github.com`, are filled in.
 
@@ -99,7 +101,7 @@ with the reason instead of upgrading a database it has no copy of.
 A new orrery whose database is empty (no projects, no owner yet) never starts from a backup by itself. When its backup
 folder has backups, the first page asks: **Found backups. Restore one?** It lists them with their date, size, projects
 and the orrery each is a copy of (its name, `ORRERY_ENVIRONMENT`, and id), and marks one from another orrery. Pick one,
-or **Start fresh**. Until you've chosen, the empty one isn't backed up over them. In Docker, an orrery that starts
+or **Start fresh**. A new orrery isn't backed up until it has an owner or a project, so it never offers a copy of itself. In Docker, an orrery that starts
 empty with no backups says (on that page and in the log) that its data may be in another volume: a folder with
 another name gives another one, see `docker volume ls`.
 

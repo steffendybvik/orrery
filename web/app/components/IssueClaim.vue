@@ -36,6 +36,6 @@ async function act(method: 'POST' | 'DELETE') {
       <UiButton v-if="mayTake" size="xs" :disabled="busy" @click="act('POST')">Take over</UiButton>
       <UiButton v-if="issue.claimed_by && (holds || isOwner)" size="xs" :disabled="busy" @click="act('DELETE')">Let go</UiButton>
     </div>
-    <p v-if="failed" class="text-rose-600 dark:text-rose-400">{{ failed }}</p>
+    <p v-if="failed" class="text-rose-700 dark:text-rose-400">{{ failed }}</p>
   </div>
 </template>

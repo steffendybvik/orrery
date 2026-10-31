@@ -7,9 +7,23 @@ export interface Notice extends Comment {
     title: string
     /** Taken out of the bell; only `GET /notices?list=cleared` lists these. */
     cleared?: boolean
+    /** Its reader has opened it on the notifications page: apart from what the bell has counted as seen. */
+    read?: boolean
     /** An agent's proposal waiting on the owner instead of a comment: `asks: decision` until they decide it,
      * its notes as the body, put up at `created_at`, `id` 0. Cleared, it's `cleared` until it's put up again. */
     proposal?: {choices: number}
+}
+
+/** A status change on an issue in someone's bell (`GET /notices/changes`), what a notifications line says happened. */
+export interface NoticeChange {
+    id: number
+    project: string
+    issue: string
+    before?: string
+    after?: string
+    created_by: string
+    session_name?: string
+    created_at: string
 }
 
 /** Tells notices apart: a comment by its id, a proposal by its issue. */

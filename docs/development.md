@@ -65,10 +65,10 @@ each test in a schema of its own, and the ones that only make sense there run to
 
 `pnpm test:e2e` runs the flows in a real browser with Playwright, a file per area in `web/e2e/` (issues, proposals,
 roadmap, releases, sessions, schedules, the keys, the phone layout…). `navigation.spec.ts` walks the whole app from one
-list of pages: each renders with no error, and the sidebar, ⌘K and App settings → Advanced lead to it, so a new page
-is a line there. `first-run.spec.ts` (naming the owner, the first
+list of pages: each renders with no error, breaks no WCAG A or AA rule axe checks beyond the known ones listed in the
+spec, and the sidebar, ⌘K and App settings → Advanced lead to it, so a new page is a line there, and `test/page-specs.test.ts` fails on a page that isn't, unless it names the spec that opens it. `first-run.spec.ts` (naming the owner, the first
 project) runs first as a project the others depend on; each other file makes a project of its own, with the helpers in
-`e2e/support.ts`, so it can run alone. It starts `nuxt dev` with a fresh `web/.data/e2e.db`, so your own database isn't
+`e2e/support.ts`, so it can run alone. The whole suite runs on four workers, grouped in `playwright.config.ts` by what specs share on the one orrery: specs in no group run side by side, the `sessions` and `settings` groups each take turns inside themselves, and the specs that affect everyone (`people`, `settings-database`, `visual`) run alone, last, and are skipped if an earlier spec fails. A spec that changes something others read goes in a group, as a new spec is in none unless it's named there. `pnpm exec playwright test e2e/x.spec.ts` runs one spec, a test at a time, rather than `pnpm test:e2e e2e/x.spec.ts`, which runs the suite before it. It starts `nuxt dev` with a fresh `web/.data/e2e.db`, so your own database isn't
 touched, on a port of the checkout's own (3100–3299, from its path, `web/e2e-port.ts`; `E2E_PORT` picks one), so
 sessions running it from their own worktrees at once don't share a server (`pnpm worktrees` tidies up those left behind). The first time, and after `@playwright/test` is bumped, get its browser with `pnpm exec playwright install
 chromium`. With `E2E_POSTGRES_URL` set it runs on that Postgres instead, emptied first, so its database's name
@@ -81,6 +81,9 @@ Linux the spec skips; `pnpm test:e2e:visual` (in `web/`) runs it in CI's Playwri
 
 `pnpm test:e2e:login` runs `e2e/login/` on an orrery of its own with `ORRERY_AUTH=on` and a fresh `web/.data/e2e-login.db`, as
 the flows' stays one person's: the login page, signing in with a key, Settings' keys and logging out.
+
+`pnpm images:readme` takes the README's images into `docs/images`, all 1440×900, from the playground's demo on an orrery of
+its own with a fresh `web/.data/readme.db`. It's a script rather than a test, so it isn't part of `pnpm test:e2e`. It rewrites only the images that differ by more than a run's own noise. A machine that isn't Linux renders every image differently, so the real ones come from the **Images** workflow, in CI's Playwright image: `gh workflow run images.yml --ref v<version>`, on a release branch. Any that changed go on `images/v<version>`, as one commit on that branch's tip, and the run's summary links the pull request to open. Actions can't open it here, and its checks wouldn't start if it did. Someone looks at the images, so it doesn't merge itself. A later run updates an open one and starts its checks again.
 
 `pnpm test:e2e:perf` times the pages on a big orrery. `e2e/perf/seed.ts` fills a fresh `web/.data/perf.db` (or, with
 `E2E_POSTGRES_URL`, that Postgres) through the store: 20 projects, about 3,000 issues, 20,000 comments, 50,000
@@ -97,3 +100,23 @@ beside them in `web/server/utils/migrations/postgres.ts`: add a step to both, ne
 on the same step with the same tables, columns, indexes and checks, and that a step changing data does the same on
 each; a step that changes data gets an upgrade test there. Before a SQLite file takes steps it's copied to
 `orrery-pre-<version>-step<n>.db`, and a database past the newest step the code knows (from a newer orrery) isn't opened.
+
+## Benchmarking the browser suite
+
+[Test speed and coverage](/p/orrery/docs/test-speed-and-coverage) is the history: one run per version, so a slowdown shows when it arrives. It only means something if the runs are alike, so:
+
+**What goes in the history.** The run CI makes of the release pull request, which Releasing's *Keep its test numbers* step records with `--source ci`: the SQLite job, in Chrome, in Playwright's image. A local run can hold a version's place until then, and CI's replaces it. The times on GitHub's runners move a little from run to run, so read a few percent as nothing, and a trend over versions as real.
+
+**What the page holds apart.** A version isn't compared with the one before it when one is local and one on CI, when tests failed in either, or when the browser suite ran differently (its workers, and `metadata.server` in `playwright.config.ts`, kept with each run). Changing how the suite runs starts a new baseline: say so in the release's notes, and change `metadata.server` if it's the server that changed.
+
+**Trying a change locally.** Don't add these runs to the history. To compare two ways of running the suite:
+
+1. Use one machine, and one worktree, with nothing but the change between the runs. A commit from later on brings different tests.
+2. Run nothing else: no other session's suite (check `pnpm worktrees` and Sessions), and at least 5 GB free on the disk. A full disk fails tests with `ENOSPC`, and looks like flaky tests.
+3. Throw away the first run of each way, as it warms Vite's cache, then run each three times and take the median:
+   ```sh
+   E2E_WHOLE=1 PLAYWRIGHT_JSON_OUTPUT_NAME=run.json pnpm exec playwright test --reporter=line,json
+   ```
+4. Read `stats.duration` in `run.json`, in milliseconds, and time the whole command too: a build a way needs is paid on every CI run, so count it.
+5. Count a run only if every test passed and the same tests ran. A way that's faster but fails tests isn't faster.
+6. Put the numbers on the issue, with the commit, the machine and how many workers, so the result can be checked later.

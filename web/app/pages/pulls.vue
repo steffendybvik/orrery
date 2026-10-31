@@ -9,6 +9,7 @@ import {inProjectOrder, PULL_NEEDS} from '#shared/roadmap'
 // Focus on this to send a session to it (ORR-607); the header's copy button copies the repo's name. Poll
 // asks GitHub now rather than waiting for the background poll's next turn; a repo it held back (GitHub's limits) says
 // why in its header.
+// **Branches** beside them lists every branch with its issue and pull request, and whether to remove it (ORR-793).
 // They come 50 to a page (ORR-615), in that order across every repo, so page 1 always has those that need someone; a
 // card shows its PRs on this page, its counts every page's. The page is in the address, so a reload stays on it.
 useHead({title: 'Pull requests · orrery'})
@@ -20,6 +21,8 @@ const page = computed({
     get: () => Math.max(1, Math.floor(Number(route.query.page)) || 1),
     set: at => void router.replace({query: {...route.query, page: at > 1 ? at : undefined}}),
 })
+const view = computed(() => route.query.view === 'branches' ? 'branches' : 'pulls')
+const views = [{id: 'pulls', label: 'Pull requests'}, {id: 'branches', label: 'Branches'}]
 const {pulls, follow, poll, polling, failed} = useOpenPulls(page)
 follow(60_000)
 // Past the last page (PRs closed since), the answer is the last page: the address follows.
@@ -43,19 +46,31 @@ const cards = computed(() => inProjectOrder(pulls.value?.repos ?? [], ordered.va
 
 <template>
   <PageHeader>
-    <svg class="size-4 shrink-0 text-accent-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="6" r="2.5" /><circle cx="6" cy="18" r="2.5" /><circle cx="18" cy="18" r="2.5" /><path d="M6 8.5v7M18 15.5V9a3 3 0 0 0-3-3h-4m2-2-2 2 2 2" /></svg>
+    <svg class="size-4 shrink-0 text-accent-fill" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="6" r="2.5" /><circle cx="6" cy="18" r="2.5" /><circle cx="18" cy="18" r="2.5" /><path d="M6 8.5v7M18 15.5V9a3 3 0 0 0-3-3h-4m2-2-2 2 2 2" /></svg>
     <h1 class="truncate text-sm font-medium">Pull requests</h1>
   </PageHeader>
 
+  <nav class="flex gap-1 border-b border-line px-4 py-2 text-xs" aria-label="Pull requests and branches">
+    <NuxtLink
+        v-for="v in views"
+        :key="v.id"
+        :to="{query: v.id === 'branches' ? {view: 'branches'} : {}}"
+        class="rounded-md px-2 py-1"
+        :class="view === v.id ? 'bg-hover font-medium text-fg' : 'text-muted hover:text-fg'"
+        :aria-current="view === v.id ? 'page' : undefined"
+    >{{ v.label }}</NuxtLink>
+  </nav>
+  <BranchesList v-if="view === 'branches'" />
+  <template v-else>
   <ViewToolbar>
     <span class="text-xs text-muted">
-      <template v-if="!pulls">Asking GitHub…</template>
+      <template v-if="!pulls"><UiSpinner class="mr-1.5" />Asking GitHub…</template>
       <template v-else-if="pulls.open">{{ pulls.open }} open{{ pulls.needs ? `, ${pulls.needs} need${pulls.needs === 1 ? 's' : ''} someone` : '' }}</template>
       <template v-else-if="noneRead">Couldn't read GitHub</template>
       <template v-else>None open</template>
       <template v-if="unread && !noneRead">, {{ unread }} repo{{ unread === 1 ? '' : 's' }} not read</template>
     </span>
-    <span v-if="failed" class="text-xs text-rose-600 dark:text-rose-400">{{ failed }}</span>
+    <span v-if="failed" class="text-xs text-rose-700 dark:text-rose-400">{{ failed }}</span>
     <template #end>
       <div v-if="pulls && pages > 1" class="flex shrink-0 items-center gap-1 text-xs text-faint">
         <span class="mr-1 font-mono tabular-nums">{{ from }}–{{ from + pulls.pulls.length - 1 }} of {{ pulls.open }}</span>
@@ -67,13 +82,15 @@ const cards = computed(() => inProjectOrder(pulls.value?.repos ?? [], ordered.va
         </UiButton>
       </div>
       <UiButton class="shrink-0" :disabled="polling || !pulls?.repos.length" title="Ask GitHub now, rather than at the next poll" @click="poll">
-        <svg class="size-3.5" :class="{'animate-spin motion-reduce:animate-none': polling}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36M21 4v5h-5" /></svg>
-        {{ polling ? 'Polling…' : 'Poll' }}
+        <UiBusy :busy="polling" label="Polling…">
+          <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36M21 4v5h-5" /></svg>
+          Poll
+        </UiBusy>
       </UiButton>
     </template>
   </ViewToolbar>
 
-  <div class="min-h-0 flex-1 overflow-y-auto">
+  <div class="clear-agent min-h-0 flex-1 overflow-y-auto">
     <EmptyProjects v-if="ready && !projects.length" />
     <div v-else class="mx-auto flex max-w-4xl flex-col gap-4 px-4 py-6">
       <p v-if="pulls && !pulls.repos.length" class="rounded-xl border border-dashed border-line px-4 py-10 text-center text-[13px] leading-relaxed text-muted">
@@ -86,20 +103,20 @@ const cards = computed(() => inProjectOrder(pulls.value?.repos ?? [], ordered.va
             <a :href="`https://github.com/${card.repo}/pulls`" target="_blank" rel="noopener" class="font-mono text-[13px] text-fg hover:underline">{{ card.repo }}</a>
             <CopyButton class="self-center" :text="card.repo" :name="`the repo name ${card.repo}`" compact />
             <span class="text-xs text-muted">{{ card.projects.map(p => byId(p)?.name ?? p).join(', ') }}</span>
-            <span v-if="!card.error" class="ml-auto text-xs" :class="card.needs ? 'text-rose-600 dark:text-rose-400' : 'text-muted'">
+            <span v-if="!card.error" class="ml-auto text-xs" :class="card.needs ? 'text-rose-700 dark:text-rose-400' : 'text-muted'">
               <template v-if="card.open">{{ card.open }} open{{ card.needs ? `, ${card.needs} need${card.needs === 1 ? 's' : ''} someone` : '' }}</template>
               <template v-else>none open</template>
             </span>
             <span class="w-full text-[11px] text-faint">
               <template v-if="card.error">not read</template>
               <template v-else-if="card.token">read with the GITHUB_TOKEN secret{{ card.checked_at ? `, ${ago(card.checked_at)}` : '' }}</template>
-              <template v-else-if="card.token_problem">read without a token, so only the list: <span class="text-amber-700 dark:text-amber-400">{{ card.token_problem }}</span></template>
+              <template v-else-if="card.token_problem">read without a token, so only the list: <span class="text-amber-800 dark:text-amber-400">{{ card.token_problem }}</span></template>
               <template v-else>read without a token, so only the list: set a GITHUB_TOKEN secret for api.github.com to see where each stands</template>
-              <template v-if="card.cut"> · <span class="text-amber-700 dark:text-amber-400">only the first {{ card.cut }} read: GitHub has more open</span></template>
-              <template v-if="card.held"> · <span class="text-amber-700 dark:text-amber-400">not polled now: {{ card.held }}</span></template>
+              <template v-if="card.cut"> · <span class="text-amber-800 dark:text-amber-400">only the first {{ card.cut }} read: GitHub has more open</span></template>
+              <template v-if="card.held"> · <span class="text-amber-800 dark:text-amber-400">not polled now: {{ card.held }}</span></template>
             </span>
           </div>
-          <p v-if="card.error" class="px-3 py-2 text-xs text-rose-600 dark:text-rose-400">{{ card.error }}</p>
+          <p v-if="card.error" class="px-3 py-2 text-xs text-rose-700 dark:text-rose-400">{{ card.error }}</p>
           <ul v-else-if="card.pulls.length" :aria-label="`Open pull requests on ${card.repo}`">
             <li v-for="pull in card.pulls" :key="pull.number" class="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-line px-3 py-2 text-sm last:rounded-b-xl last:border-b-0" :class="{'bg-rose-500/5': needs(pull.state)}">
               <a :href="pull.url" target="_blank" rel="noopener" class="min-w-0 flex-1 truncate text-fg hover:underline">
@@ -127,4 +144,5 @@ const cards = computed(() => inProjectOrder(pulls.value?.repos ?? [], ordered.va
       </ul>
     </div>
   </div>
+  </template>
 </template>
