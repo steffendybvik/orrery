@@ -1,4 +1,4 @@
-import {beforeEach, describe, expect, it} from 'vitest'
+import {beforeEach, describe, expect, it, vi} from 'vitest'
 import type {EventEntry} from '../server/utils/event-log'
 import type {PullChange} from '../server/utils/pull-poll'
 import {changesOf, PullPoll, POLL_WITHOUT_TOKEN} from '../server/utils/pull-poll'
@@ -18,6 +18,8 @@ let asked: {url: string, method: string, auth: string | null}[]
 let open: Record<string, unknown>[]
 let done: Record<string, unknown>[]
 let rest: Record<string, () => Response>
+let history: number[]
+let older: Record<string, unknown>[][]
 let refuse: boolean
 let changes: PullChange[]
 let notes: EventEntry[]
@@ -47,13 +49,21 @@ beforeEach(async () => {
     open = []
     done = []
     rest = {}
+    history = []
+    older = []
     refuse = false
     changes = []
     notes = []
     const send = async (url: string | URL | Request, init?: RequestInit) => {
         const headers = new Headers(init?.headers)
-        asked.push({url: String(url), method: init?.method ?? 'GET', auth: headers.get('authorization')})
         const path = new URL(String(url)).pathname + new URL(String(url)).search
+        // Reading a repo's older PRs is told apart (ORR-795): it stops, and the rest count what each poll goes on asking.
+        const page = /sort=created.*&page=(\d+)$/.exec(path)
+        if (page && !refuse) {
+            history.push(Number(page[1]))
+            return older[Number(page[1]) - 1] ? json(older[Number(page[1]) - 1]) : json([])
+        }
+        asked.push({url: String(url), method: init?.method ?? 'GET', auth: headers.get('authorization')})
         if (refuse) return json({message: 'Bad credentials'}, 401)
         if (path === '/graphql') {
             // A hundred open to a page, as GitHub gives them, the cursor being where the next starts.
@@ -72,11 +82,95 @@ beforeEach(async () => {
 })
 
 const withToken = () => secrets.set('GITHUB_TOKEN', {value: TOKEN, hosts: ['api.github.com']}, me)
+const done_ = (...pulls: Record<string, unknown>[]) => done = pulls
 /** The next poll, a minute on. */
 async function minuteOn() {
     now += 60_000
     await poll.tick()
 }
+
+describe('what an issue keeps of its pull requests (ORR-795)', () => {
+    const listed = (number: number, over: Record<string, unknown> = {}) => ({number, title: `Old ${number}`, html_url: `https://github.com/you/shop/pull/${number}`, body: '', user: {login: 'claude'},
+        head: {ref: `feat/sho-1-part-${number}`}, base: {ref: 'v1'}, created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z', closed_at: '2026-01-02T00:00:00Z', merged_at: '2026-01-02T00:00:00Z', ...over})
+    const done = async (issue = 'SHO-1') => (await pulls.forIssue('shop', issue)).done
+
+    it('keeps a merged one past the cache that lets it go after a week', async () => {
+        await withToken()
+        open = [pr(1, {updatedAt: '2026-10-29T09:00:00Z'})]
+        await poll.tick()
+        expect((await pulls.forIssue('shop', 'SHO-1')).pulls.map(p => p.number)).toEqual([1])
+        expect(await done()).toEqual([])
+        open = []
+        done_(pr(1, {merged: true, closed: true, mergedAt: '2026-10-29T10:30:00Z', updatedAt: '2026-10-29T10:30:00Z'}))
+        await minuteOn()
+        expect(await done()).toMatchObject([{number: 1, state: 'merged', base: 'main', branch: 'feat/sho-1-work', merged_at: '2026-10-29T10:30:00Z'}])
+        done_()
+        now += 8 * 24 * 60 * 60_000
+        await poll.tick()
+        expect(await store.db.get('SELECT 1 FROM pull_states WHERE number = 1')).toBeUndefined()
+        expect(await done()).toMatchObject([{number: 1, state: 'merged'}])
+    })
+
+    it('fills in older ones from GitHub a page a poll, once, on any issue they name', async () => {
+        await withToken()
+        older = [[...Array.from({length: 99}, (_, i) => listed(1000 + i, {head: {ref: 'other'}})), listed(40)], [listed(41, {merged_at: null}), listed(42, {head: {ref: 'other'}, body: 'Issue: http://o/p/shop/issues/SHO-2'})]]
+        await poll.tick()
+        expect(history).toEqual([1])
+        expect((await done()).map(p => p.number)).toEqual([40])
+        await minuteOn()
+        expect(history).toEqual([1, 2])
+        expect((await done()).map(p => [p.number, p.state]).sort()).toEqual([[40, 'merged'], [41, 'closed']])
+        expect(await done('SHO-2')).toMatchObject([{number: 42}])
+        await minuteOn()
+        expect(history).toEqual([1, 2])
+    })
+
+    it('counts one it can\'t read yet as still to read, without failing the poll', async () => {
+        await withToken()
+        open = [pr(1)]
+        const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
+        pulls.ask = (original => async function (this: Pulls, ...args: Parameters<Pulls['ask']>) {
+            if (String(args[2]).includes('sort=created')) throw new Error('rate limit')
+            return original.apply(this, args) as never
+        })(pulls.ask) as Pulls['ask']
+        await poll.tick()
+        expect((await store.db.get<{history_page: number}>('SELECT history_page FROM pull_repos WHERE repo = ?', 'you/shop'))?.history_page).toBe(1)
+        expect((await store.db.get<{error: string | null}>('SELECT error FROM pull_repos WHERE repo = ?', 'you/shop'))?.error).toBeNull()
+        logged.mockRestore()
+    })
+
+    it('takes a PR off an issue it no longer names, and leaves one naming none unkept', async () => {
+        await withToken()
+        open = [pr(1, {headRefName: 'work', body: 'Issue: http://o/p/shop/issues/SHO-1\nIssue: http://o/p/shop/issues/SHO-2'}), pr(2, {headRefName: 'nothing'})]
+        await poll.tick()
+        const rows = () => store.db.all<{issue: string, number: number}>('SELECT issue, number FROM issue_pulls ORDER BY issue, number')
+        expect(await rows()).toEqual([{issue: 'SHO-1', number: 1}, {issue: 'SHO-2', number: 1}])
+        open = [pr(1, {headRefName: 'work', body: 'Issue: http://o/p/shop/issues/SHO-2', updatedAt: '2026-10-29T11:00:00Z'}), pr(2, {headRefName: 'nothing'})]
+        await minuteOn()
+        expect(await rows()).toEqual([{issue: 'SHO-2', number: 1}])
+    })
+
+    it('keeps them when the project leaves the repo, one still open saying so', async () => {
+        await withToken()
+        open = [pr(1)]
+        done_(pr(2, {merged: true, closed: true, headRefName: 'feat/sho-1-two', mergedAt: '2026-10-29T09:00:00Z'}))
+        await poll.tick()
+        await store.updateProject('shop', {repo: null}, me)
+        await minuteOn()
+        const answer = await pulls.forIssue('shop', 'SHO-1')
+        expect(answer).toMatchObject({repo: null, pulls: []})
+        expect(answer.done.map(p => [p.number, p.state]).sort()).toEqual([[1, 'open'], [2, 'merged']])
+    })
+
+    it('lets the record go with an issue that is removed', async () => {
+        await withToken()
+        open = [pr(2)]
+        await poll.tick()
+        expect(await store.db.get('SELECT 1 FROM issue_pulls WHERE issue = ?', 'SHO-2')).toBeDefined()
+        await store.deleteIssue('shop', 'SHO-2', me)
+        expect(await store.db.get('SELECT 1 FROM issue_pulls WHERE issue = ?', 'SHO-2')).toBeUndefined()
+    })
+})
 
 describe('the pull request poll', () => {
     it('records on its first poll of a repo, then tells each change once, on the issue the PR names', async () => {
