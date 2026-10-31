@@ -37,3 +37,48 @@ test('the Permissions tab shows what each kind of session may do, from the table
     for (const kind of Object.values(SESSION_KINDS)) await expect(table.getByRole('columnheader', {name: kind, exact: true})).toBeVisible()
     await expect(table).toContainText(PERMISSIONS.find(p => p.area === permissionAreas()[0])!.action)
 })
+
+test("a project's own template and instructions, shown in the preview, and back to the orrery's", async ({page, request}) => {
+    const project = async () => (await request.get('/api/projects/tabs')).json()
+    await page.goto('/sessions?tab=setup')
+    const hear = page.locator('#hear')
+    await hear.getByRole('button', {name: 'What sessions hear, for'}).click()
+    await page.getByRole('option', {name: 'Tabs', exact: true}).click()
+
+    // The template: its own, once saved, and the preview fills it in for a made-up issue.
+    const focus = hear.locator('div').filter({has: page.getByRole('heading', {name: /^Focus on an issue/})}).first()
+    await expect(focus).toContainText("the orrery's")
+    await hear.getByRole('button', {name: 'Edit Focus on an issue'}).click()
+    await hear.getByRole('textbox', {name: 'Focus on an issue'}).fill('Please look at {issue}')
+    await hear.getByRole('button', {name: 'Done editing Focus on an issue'}).click()
+    await expect.poll(async () => (await project()).focus_prompt).toBe('Please look at {issue}')
+    await expect(focus).toContainText("Tabs's own")
+
+    // A standing instruction: added, it goes in the preview; unticked, it doesn't; renamed, and removed.
+    await hear.getByRole('textbox', {name: 'New instruction'}).fill('Commit when it works')
+    await hear.getByRole('button', {name: 'Add', exact: true}).click()
+    await expect.poll(async () => (await project()).instructions.map((i: {text: string}) => i.text)).toEqual(['Commit when it works'])
+    await hear.getByRole('button', {name: 'Preview'}).first().click()
+    const preview = hear.locator('pre')
+    await expect(preview).toContainText('Please look at GRE-42')
+    await expect(preview).toContainText('Commit when it works')
+
+    await hear.getByRole('checkbox', {name: 'Tick “Commit when it works” by default'}).click()
+    await expect(preview).not.toContainText('Commit when it works')
+    expect((await project()).instructions[0].on).toBe(false)
+
+    const line = hear.getByRole('textbox', {name: 'Instruction', exact: true})
+    await line.fill('Commit each piece')
+    await line.press('Enter')
+    await expect.poll(async () => (await project()).instructions[0].text).toBe('Commit each piece')
+
+    await hear.getByRole('button', {name: 'Remove “Commit each piece”'}).click()
+    await expect.poll(async () => (await project()).instructions).toEqual([])
+
+    // Reset: it follows the orrery's again.
+    await hear.getByRole('button', {name: 'Edit Focus on an issue'}).click()
+    await hear.getByRole('button', {name: "Reset to the orrery's"}).click()
+    await expect.poll(async () => (await project()).focus_prompt).toBeFalsy()
+    await expect(focus).toContainText("the orrery's")
+    await expect(preview).not.toContainText('Please look at')
+})

@@ -70,3 +70,20 @@ test('lists where each pull request stands, and Focus on this sends the note it 
     const signals = await (await request.get(`/api/projects/silo/signals`)).json() as {note?: string}[]
     expect(signals.map(signal => signal.note)).toContain('Mind the ladder')
 })
+
+test("Send back, on an issue's page, sends what its pull request needs", async ({page, request}) => {
+    await makeProject(request, {name: 'Byre', key: 'BYR'})
+    const issue = await (await request.post('/api/projects/byre/issues', {data: {title: 'Lime the walls'}, headers: OWNER})).json()
+    const pull = {
+        number: 21, title: 'Lime the walls', state: 'conflicting', repo: 'orrery-e2e/byre', url: 'https://github.com/orrery-e2e/byre/pull/21', branch: 'fix/21', base: 'main', author: 'ada',
+        created_at: '2026-10-01T00:00:00.000Z', updated_at: '2026-10-01T00:00:00.000Z',
+    }
+    await page.route(`**/api/projects/byre/issues/${issue.id}/pulls`, route => route.fulfill({json: {repo: 'orrery-e2e/byre', pulls: [pull]}}))
+    await page.goto(`/p/byre/issues/${issue.id}`)
+    const pulls = page.getByRole('region', {name: 'Pull requests'})
+    await expect(pulls).toContainText('Conflicts')
+    await pulls.getByRole('button', {name: 'Send back'}).click()
+    await expect(pulls.getByText('Sent', {exact: true})).toBeVisible()
+    const signals = await (await request.get('/api/projects/byre/signals')).json() as {note?: string}[]
+    expect(signals.map(signal => signal.note).join()).toMatch(/#21 .*conflicts with main/)
+})
