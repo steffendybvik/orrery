@@ -158,13 +158,16 @@ export async function readDocSummaries(db: Db, project: string, q = ''): Promise
         }))
 }
 
-/** A project's doc sections, A–Z: the ones made on their own (empty ones too) and every one a doc is filed under. */
+/** A project's doc sections, the ones made on their own (empty ones too) and every one a doc is filed under: as arranged, then the rest A–Z (ORR-767). */
 export async function readDocSections(db: Db, project: string): Promise<string[]> {
     const names = new Set([
         ...(await db.all<{name: string}>('SELECT name FROM doc_sections WHERE project = ?', project)).map(row => row.name),
         ...(await db.all<{section: string}>('SELECT DISTINCT section FROM docs WHERE project = ? AND section IS NOT NULL', project)).map(row => row.section),
     ])
-    return [...names].sort((a, b) => a.localeCompare(b, 'en', {sensitivity: 'base', numeric: true}))
+    const row = await db.get<{doc_section_order: string}>('SELECT doc_section_order FROM projects WHERE id = ?', project)
+    const arranged = (JSON.parse(row?.doc_section_order ?? '[]') as string[]).filter(name => names.has(name))
+    const rest = [...names].filter(name => !arranged.includes(name)).sort((a, b) => a.localeCompare(b, 'en', {sensitivity: 'base', numeric: true}))
+    return [...arranged, ...rest]
 }
 
 /** The board's issues as records, each with its parent and chunk, in board order. */

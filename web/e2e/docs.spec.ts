@@ -143,6 +143,42 @@ test('groups the docs into sections, folds one, and moves a doc by right-click a
     await expect.poll(async () => (await (await request.get('/api/projects/library/docs/event-flows')).json()).section).toBeUndefined()
 })
 
+test('drags a section above another, and it stays there after a reload (ORR-767)', async ({page, request}) => {
+    await makeProject(request, {name: 'Shelves', key: 'SHE'})
+    for (const name of ['Alpha', 'Beta', 'Gamma']) await request.post('/api/projects/shelves/doc-sections', {data: {name}, headers: AGENT})
+    await request.put('/api/projects/shelves/docs/first', {data: {title: 'First', body: 'First.', section: 'Alpha'}, headers: AGENT})
+    const order = async () => await (await request.get('/api/projects/shelves/doc-sections')).json()
+
+    await page.goto('/p/shelves/docs/first')
+    const nav = page.getByRole('navigation', {name: 'Docs'})
+    const header = (name: string) => nav.getByRole('region', {name}).getByRole('button', {name: new RegExp(`^${name}`, 'i')})
+    const shown = () => nav.getByRole('region').evaluateAll(sections => sections.map(section => section.getAttribute('aria-label')))
+    await expect.poll(shown).toEqual(['Alpha', 'Beta', 'Gamma'])
+
+    // Above the first, by its top half.
+    await header('Gamma').dragTo(header('Alpha'), {targetPosition: {x: 20, y: 2}})
+    await expect.poll(order).toEqual(['Gamma', 'Alpha', 'Beta'])
+    await expect.poll(shown).toEqual(['Gamma', 'Alpha', 'Beta'])
+
+    // Below the last, past its docs.
+    await header('Gamma').dragTo(nav.getByRole('region', {name: 'Beta'}), {targetPosition: {x: 20, y: 20}})
+    await expect.poll(order).toEqual(['Alpha', 'Beta', 'Gamma'])
+
+    // And by the keys, which keep the header focused.
+    await header('Gamma').focus()
+    await page.keyboard.press('Alt+ArrowUp')
+    await expect.poll(order).toEqual(['Alpha', 'Gamma', 'Beta'])
+    await expect(header('Gamma')).toBeFocused()
+
+    await page.reload()
+    await expect.poll(shown).toEqual(['Alpha', 'Gamma', 'Beta'])
+
+    // Dropping a doc on a section still files it, and doesn't move the section.
+    await nav.getByRole('link', {name: 'First'}).dragTo(header('Beta'))
+    await expect.poll(async () => (await (await request.get('/api/projects/shelves/docs/first')).json()).section).toBe('Beta')
+    expect(await order()).toEqual(['Alpha', 'Gamma', 'Beta'])
+})
+
 test('makes an empty section, renames one on all its docs and deletes one keeping its docs (ORR-560)', async ({page, request}) => {
     const put = (id: string, title: string, section?: string) => request.put(`/api/projects/archive/docs/${id}`, {data: {title, body: `${title}.`, ...section ? {section} : {}}, headers: AGENT})
     await put('decision-boxes', 'Decision: boxes', 'Decisions')
