@@ -210,7 +210,7 @@ Already one component each; use them rather than drawing the same thing again.
 | `LauncherHint` | while no launcher runs for a project, how to install one (on Getting started's last step, and in the chat), gone once one connects |
 | `NotificationBell` | the bell in the header: agents' comments, and those and their proposals waiting on the owner |
 | `NoticeLine` | a line in Notifications' list: an issue's notices from a day, or its question waiting on the owner, saying what happened; its dot says unread, read or waiting |
-| `NoticeHistory` | Notifications' reading pane: a line's comments in full with its status changes among them |
+| `NoticeHistory` | Notifications' reading pane, there only while a line is chosen: a line's comments in full with its status changes among them |
 | `NoticeTransition` | a status change in words: the icon and name of where it started and where it ended |
 | `ThemeToggle` | light ⇄ dark, following the system until one is picked |
 | `OrreryMark` | the logo's mark, in `currentColor` |

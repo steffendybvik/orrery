@@ -93,6 +93,47 @@ test('Notifications leads with what waits on you, each line showing its question
     expect(await line.locator('[data-state]').getAttribute('data-state')).toBe('waiting')
 })
 
+test('The list has the page until a line is chosen, and the pane closes again (ORR-805)', async ({page, request}) => {
+    await page.setViewportSize({width: 1280, height: 800})
+    const issue = await api(request, 'post', '/issues', {title: 'Plane the shelf', status: 'todo'})
+    await api(request, 'post', `/issues/${issue.id}/comments`, {body: 'Planed.'})
+    await page.goto('/notifications')
+    const toggle = page.getByRole('button', {name: `${issue.id}: Plane the shelf`})
+    const pane = page.getByRole('article')
+    await expect(toggle).toBeVisible()
+    await expect(pane).toBeHidden()
+    const fullWidth = (await toggle.boundingBox())!.width
+    expect(fullWidth).toBeGreaterThan(800)
+
+    await toggle.click()
+    await expect(pane.getByText('Planed.')).toBeVisible()
+    expect((await toggle.boundingBox())!.width).toBeLessThan(500)
+
+    await pane.getByRole('button', {name: 'Close this notification'}).click()
+    await expect(pane).toBeHidden()
+    await expect(page).not.toHaveURL(/open=/)
+    expect((await toggle.boundingBox())!.width).toBe(fullWidth)
+
+    // Choosing the open line closes it too.
+    await toggle.click()
+    await expect(pane.getByText('Planed.')).toBeVisible()
+    await toggle.click()
+    await expect(pane).toBeHidden()
+})
+
+test('A line with several comments clears by itself, and only it goes (ORR-805)', async ({page, request}) => {
+    const issue = await api(request, 'post', '/issues', {title: 'Glue the leg', status: 'todo'})
+    const other = await api(request, 'post', '/issues', {title: 'Clamp the leg', status: 'todo'})
+    for (const body of ['Glued.', 'Set.']) await api(request, 'post', `/issues/${issue.id}/comments`, {body})
+    await api(request, 'post', `/issues/${other.id}/comments`, {body: 'Clamped.'})
+    await page.goto('/notifications')
+    const line = (id: string, title: string) => page.getByRole('listitem').filter({has: page.getByRole('button', {name: `${id}: ${title}`})})
+    await line(issue.id, 'Glue the leg').getByRole('button', {name: 'Clear these 2'}).click()
+    await expect(line(issue.id, 'Glue the leg')).toBeHidden()
+    await expect(line(other.id, 'Clamp the leg')).toBeVisible()
+    await expect.poll(async () => (await (await request.get('/api/notices?list=inbox')).json() as {issue: string}[]).filter(n => n.issue === issue.id).length).toBe(0)
+})
+
 test('On a narrow window a chosen line takes the list\'s place, and Back returns to it (ORR-803)', async ({page, request}) => {
     await page.setViewportSize({width: 390, height: 844})
     const issue = await api(request, 'post', '/issues', {title: 'Hang the gate', status: 'todo'})

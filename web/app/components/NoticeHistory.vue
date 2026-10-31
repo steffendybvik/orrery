@@ -24,13 +24,16 @@ const when = (iso: string) => new Date(iso).toLocaleString(undefined, {dateStyle
 </script>
 
 <template>
-  <article class="px-4 py-4 sm:px-6">
+  <article class="relative px-4 py-4 sm:px-6">
+    <button type="button" class="absolute top-3 right-3 hidden size-7 place-items-center rounded-md text-muted hover:bg-hover hover:text-fg lg:grid" title="Close" aria-label="Close this notification" @click="$emit('back')">
+      <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
+    </button>
     <button type="button" class="mb-3 text-xs text-muted hover:text-fg lg:hidden" @click="$emit('back')">← Notifications</button>
-    <p class="flex items-baseline gap-2 text-xs text-muted">
+    <p class="flex items-baseline gap-2 pr-8 text-xs text-muted">
       <NuxtLink :to="pathOf(row.project, row.issue)" class="font-mono hover:text-fg hover:underline">{{ row.issue }}</NuxtLink>
       <span>{{ project }}</span>
     </p>
-    <h2 class="mt-1 text-[17px]/snug font-semibold text-fg"><InlineText :text="row.title" /></h2>
+    <h2 class="mt-1 pr-8 text-[17px]/snug font-semibold text-fg"><InlineText :text="row.title" /></h2>
     <div class="mt-2.5 flex flex-wrap items-center gap-1.5 text-xs">
       <span v-if="status" class="inline-flex items-center rounded-full px-2 py-0.5 ring-1 ring-line"><NoticeTransition :after="status" /></span>
       <span v-if="merged" class="rounded-full px-2 py-0.5 text-green-700 ring-1 ring-line dark:text-green-400">{{ merged }} merged</span>
