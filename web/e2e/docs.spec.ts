@@ -173,3 +173,19 @@ test('makes an empty section, renames one on all its docs and deletes one keepin
     await expect(nav.getByRole('link', {name: 'Decision: labels'})).toBeVisible()
     expect((await (await request.get('/api/projects/archive/docs/decision-labels')).json()).section).toBeUndefined()
 })
+
+test("a doc's text keeps its reading width, and On this page shows only where there's room for both", async ({page, request}) => {
+    await request.put('/api/projects/library/docs/seasons', {data: {title: 'The seasons', body: '## Spring\n\nSow the first beds.\n\n## Summer\n\nWater early.'}, headers: AGENT})
+    const contents = page.getByRole('navigation', {name: 'On this page'})
+    const article = page.locator('article').first()
+
+    await page.setViewportSize({width: 1280, height: 800})
+    await page.goto('/p/library/docs/seasons')
+    await expect(page.getByRole('heading', {name: 'Spring'})).toBeVisible()
+    await expect(contents).toBeHidden()
+    expect((await article.boundingBox())!.width).toBeGreaterThan(650)
+
+    await page.setViewportSize({width: 1700, height: 800})
+    await expect(contents).toBeVisible()
+    expect((await article.boundingBox())!.width).toBeGreaterThanOrEqual(760)
+})
