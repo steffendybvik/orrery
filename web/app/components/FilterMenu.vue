@@ -3,13 +3,21 @@ import type {ComponentPublicInstance} from 'vue'
 import {Listbox, ListboxButton, ListboxOption, ListboxOptions} from '@headlessui/vue'
 
 // A filter as a button with a menu of options to tick; empty means "any". Headless UI's Listbox does the keys
-// (↑↓, ↵ or space ticks, typing jumps to an option, Esc closes), focus and outside-click.
-const props = defineProps<{label: string, options: {value: T, label: string}[]}>()
+// (↑↓, ↵ or space ticks, typing jumps to an option, Esc closes), focus and outside-click. It lights up once it's narrowing
+// what shows. With `usual`, the ticks a page opens on (the open columns, ORR-797), those read as not set: named, and not lit.
+const props = defineProps<{label: string, options: {value: T, label: string}[], usual?: {values: T[], label: string}}>()
 const model = defineModel<T[]>({required: true})
 const list = ref<ComponentPublicInstance | null>(null)
 
+const asUsual = computed(() => {
+    const usual = props.usual?.values
+    return !!usual && model.value.length === usual.length && model.value.every(v => usual.includes(v))
+})
+const lit = computed(() => props.usual ? !asUsual.value : !!model.value.length)
+
 const summary = computed(() => {
-    if (!model.value.length) return props.label
+    if (asUsual.value && props.usual) return `${props.label} · ${props.usual.label}`
+    if (!model.value.length) return props.usual ? `${props.label} · All` : props.label
     if (model.value.length === 1) return props.options.find(o => o.value === model.value[0])?.label ?? props.label
     return `${props.label} · ${model.value.length}`
 })
@@ -28,7 +36,7 @@ function lightFirst() {
   <Listbox v-slot="{open}" v-model="model" as="div" class="relative" multiple>
     <ListboxButton
         class="flex h-7 items-center gap-1.5 rounded-md px-2 text-xs font-medium ring-1 transition-colors"
-        :class="model.length ? 'bg-accent-500/10 text-accent-700 ring-accent-500/30 dark:text-accent-300' : 'text-muted ring-line hover:bg-hover hover:text-fg'"
+        :class="lit ? 'bg-accent-500/10 text-accent-700 ring-accent-500/30 dark:text-accent-300' : 'text-muted ring-line hover:bg-hover hover:text-fg'"
     >
       <slot name="icon" />
       {{ summary }}
