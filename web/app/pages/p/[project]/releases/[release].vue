@@ -233,7 +233,7 @@ useHead(() => ({title: release.value && project.value ? `${release.value.version
             <span class="mr-auto text-xs text-faint">Markdown</span>
             <UiButton :disabled="saving" @click="editingNotes = false">Cancel <KeyHint>esc</KeyHint></UiButton>
             <UiButton variant="primary" :disabled="saving" @click="saveNotes">
-              {{ saving ? 'Saving…' : 'Save' }} <KeyHint class="bg-black/10 text-zinc-950 ring-0">⌘↵</KeyHint>
+              {{ saving ? 'Saving…' : 'Save' }} <KeyHint class="bg-black/10 text-on-accent ring-0">⌘↵</KeyHint>
             </UiButton>
           </div>
         </section>

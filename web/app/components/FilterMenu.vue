@@ -46,8 +46,8 @@ function lightFirst() {
       <ListboxOptions ref="list" class="focus:outline-none">
         <ListboxOption v-for="option in options" :key="option.value" v-slot="{active, selected}" :value="option.value" as="template">
           <li class="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[13px] text-fg" :class="active && 'bg-hover'">
-            <span class="grid size-3.5 place-items-center rounded ring-1" :class="selected ? 'bg-accent-500 ring-accent-500' : 'ring-faint/60'">
-              <svg v-if="selected" class="size-2.5 text-zinc-950" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5 9-10" /></svg>
+            <span class="grid size-3.5 place-items-center rounded ring-1" :class="selected ? 'bg-accent-fill ring-accent-fill' : 'ring-faint/60'">
+              <svg v-if="selected" class="size-2.5 text-on-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5 9-10" /></svg>
             </span>
             <slot name="option" :value="option.value" />
             <span class="flex-1 truncate">{{ option.label }}</span>

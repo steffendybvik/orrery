@@ -135,7 +135,7 @@ async function create() {
         </label>
         <span v-if="failed" class="text-xs text-rose-700 dark:text-rose-400">{{ failed }}</span>
         <UiButton type="submit" variant="primary" size="md" class="ml-auto" :disabled="!title.trim() || saving || !!uploading">
-          {{ saving ? 'Creating…' : 'Create issue' }} <KeyHint class="bg-black/10 text-zinc-950 ring-0">⌘↵</KeyHint>
+          {{ saving ? 'Creating…' : 'Create issue' }} <KeyHint class="bg-black/10 text-on-accent ring-0">⌘↵</KeyHint>
         </UiButton>
       </div>
     </template>

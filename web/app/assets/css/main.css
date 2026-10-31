@@ -56,6 +56,8 @@
     --color-hover: var(--hover);
     --color-active: var(--active);
     --color-well: var(--well);
+    --color-accent-fill: var(--accent-fill);
+    --color-on-accent: var(--on-accent);
 }
 
 :root {
@@ -69,6 +71,9 @@
     --hover: rgb(0 0 0 / 0.04);
     --active: rgb(0 0 0 / 0.07);
     --well: rgb(0 0 0 / 0.05);
+    /* A filled accent and the words on it: white needs a deeper orange than accent-500 to be read. */
+    --accent-fill: oklch(0.58 0.18 45);
+    --on-accent: #fff;
     color-scheme: light;
 }
 
@@ -83,6 +88,8 @@
     --hover: rgb(255 255 255 / 0.05);
     --active: rgb(255 255 255 / 0.1);
     --well: rgb(0 0 0 / 0.25);
+    --accent-fill: var(--color-accent-500);
+    --on-accent: var(--color-zinc-950);
     color-scheme: dark;
 }
 
