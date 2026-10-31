@@ -34,9 +34,9 @@ test('the board leaves out the columns of statuses the filter leaves out', async
     await expect(column('Backlog')).toBeVisible()
     // Closed statuses aren't ticked to begin with, so their columns aren't there either.
     await expect(column('Done')).toBeHidden()
-    const filter = page.getByRole('button', {name: /^Column/})
+    const filter = page.getByRole('button', {name: /^Status ·/})
     // As it comes, the filter reads as not set (ORR-797); off that, it's lit.
-    await expect(filter).toHaveText('Column · Open')
+    await expect(filter).toHaveText('Status · Open')
     await expect(filter).not.toHaveClass(/bg-accent-500/)
     await filter.click()
     const menu = page.locator('.glass')
@@ -90,7 +90,7 @@ test('the issues start on the open ones, Done and Canceled a tick away', async (
     await expect(page.getByText('Dropped barcode idea')).toBeHidden()
     await expect(page.getByRole('button', {name: 'Clear'})).toBeHidden()
 
-    await page.getByRole('button', {name: /^Column/}).click()
+    await page.getByRole('button', {name: /^Status ·/}).click()
     await page.getByRole('option').filter({hasText: /^Done$/}).click()
     await expect(page.getByText('Shipped pantry export')).toBeVisible()
     await expect(page.getByText('Dropped barcode idea')).toBeHidden()

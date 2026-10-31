@@ -55,7 +55,7 @@ export async function newIssue(page: Page, project: string, title: string, where
     await page.getByRole('button', {name: 'New issue'}).first().click()
     const dialog = page.getByRole('dialog', {name: 'New issue'})
     await dialog.getByLabel('Title').fill(title)
-    await dialog.getByRole('button', {name: 'Where'}).click()
+    await dialog.getByRole('button', {name: 'Status'}).click()
     await dialog.getByRole('option', {name: new RegExp(`^${where}\\b`, 'i')}).click()
     await dialog.getByRole('button', {name: /Create issue/}).click()
     await expect(dialog).toBeHidden()
