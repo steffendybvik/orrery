@@ -8,7 +8,7 @@ import {sectionOf} from '../store/docs'
 import {checkInput, isObject} from './input'
 import {known} from '#shared/known'
 import {refusedFor} from './permission'
-import {sessionHeader} from './actor'
+import {anotherPersons, sessionHeader} from './actor'
 import {scheduleAsk, scheduleDrift, scheduleRequest} from './schedule-requests'
 
 // The owner's chats: a Claude session started for one alone (launches.ts `startChat`), which the owner talks to on the
@@ -890,6 +890,7 @@ export function chatEnded(id: string) {
 /** Whether the request is a chat session's: its channel says so (`Orrery-Chat: yes`) on all it sends, or orrery knows
  * its session (`Orrery-Session`) as one. */
 export function chatWrite(event: H3Event): boolean {
+    if (anotherPersons(event)) return false
     const session = sessionHeader(event)
     return getHeader(event, 'orrery-chat') === 'yes' || !!(session && chatSession(session))
 }
