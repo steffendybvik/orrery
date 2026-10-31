@@ -585,7 +585,7 @@ async function pick(tint: string | null) {
         </header>
         <div class="flex items-center gap-2">
           <NuxtLink to="/events" class="text-[13px] font-medium text-accent-700 hover:underline dark:text-accent-400">Open the event log</NuxtLink>
-          <span v-if="newErrors.length" class="rounded-full bg-rose-600 px-1.5 font-mono text-[10px] font-medium text-white tabular-nums" :title="`${newErrors.length} new kind${newErrors.length === 1 ? '' : 's'} of error`">{{ newErrors.length }}</span>
+          <ErrorBadge v-if="newErrors.length" :count="newErrors.length" :title="`${newErrors.length} new kind${newErrors.length === 1 ? '' : 's'} of error`" />
         </div>
       </section>
 
@@ -610,7 +610,7 @@ async function pick(tint: string | null) {
         </header>
         <div class="flex items-center gap-2">
           <NuxtLink to="/pulls" class="text-[13px] font-medium text-accent-700 hover:underline dark:text-accent-400">Open pull requests</NuxtLink>
-          <span v-if="pulls?.needs" class="rounded-full bg-rose-600 px-1.5 font-mono text-[10px] font-medium text-white tabular-nums" :title="`${pulls.needs} need${pulls.needs === 1 ? 's' : ''} someone: conflicts, failing checks or behind`">{{ pulls.needs }}</span>
+          <ErrorBadge v-if="pulls?.needs" :count="pulls.needs" :title="`${pulls.needs} need${pulls.needs === 1 ? 's' : ''} someone: conflicts, failing checks or behind`" />
           <span v-else-if="pulls?.open" class="font-mono text-[11px] text-faint tabular-nums">{{ pulls.open }}</span>
           <span v-else-if="pulls && !pulls.repos.length" class="text-xs text-faint">No project has a repo on GitHub yet.</span>
         </div>
