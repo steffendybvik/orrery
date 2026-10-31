@@ -33,7 +33,7 @@ The "ask the session" items only show when a Claude session is listening on that
 
 Tick issues (a row's box, shift-click for a run, `x`, ⌘A for the page) and a bar changes them together: status, priority, assignee, labels, chunk or release, or a decision on proposals. **Chain in order** makes each ticked issue wait on the one above it, top to bottom as the page lists them: the quickest way to make a flow.
 
-On the board, drag a card to another column to move it there, as the menu does; dragging a ticked card moves every ticked one. While you drag, the column it would land in lights up, a column the filter hides (Done and Canceled, to begin with) shows as a place to drop it, and one it can't go to is dimmed. While agents are kept off proposals (App settings → Issues), nothing is dragged into Proposed or out of it: decide on a proposal on its page. `[` and `]` do the same from the keyboard.
+On the board, drag a card to another column to move it there, as the menu does; dragging a ticked card moves every ticked one. While you drag, the column it would land in lights up, a column the filter hides (Done and Canceled, to begin with) shows as a place to drop it, and one it can't go to is dimmed. While agents are kept off proposals (App settings → Issues), only the owner drags into Proposed, and nothing out: decide on a proposal on its page. `[` and `]` do the same from the keyboard.
 
 ## Pointing Claude at work
 

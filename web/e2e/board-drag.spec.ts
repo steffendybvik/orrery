@@ -1,8 +1,8 @@
 import {type APIRequestContext, type Page, expect, test} from '@playwright/test'
-import {makeProject, projectApi} from './support'
+import {dragCard, makeProject, projectApi} from './support'
 
-// Moving cards on the board by dragging them to another column, the ticked ones together, or with [ and ]; nothing
-// goes into Proposed or out of it while proposals are restricted (the default).
+// Moving cards on the board by dragging them to another column, the ticked ones together, or with [ and ]; while
+// proposals are restricted (the default), the owner can put a card into Proposed, and nothing comes out of it.
 
 const api = projectApi('planetarium')
 
@@ -28,11 +28,7 @@ test('the ticked cards move together, to a column the filter hides too', async (
     for (const {id} of made) await page.getByRole('checkbox', {name: `Select ${id}`}).click()
     // Done is filtered out to begin with, so it's only there to drop on once a card is picked up.
     await expect(column(page, 'done')).toHaveCount(0)
-    await card(page, made[0]!.id).hover()
-    await page.mouse.down()
-    await page.mouse.move(10, 10, {steps: 2})
-    await column(page, 'done').hover()
-    await page.mouse.up()
+    await dragCard(page, card(page, made[0]!.id), column(page, 'done'))
     for (const {id} of made) await expect.poll(() => statusOf(request, id)).toBe('done')
 })
 
@@ -48,14 +44,28 @@ test('[ and ] move the focused card to the column on its left or right', async (
     await expect.poll(() => statusOf(request, rice.id)).toBe('todo')
 })
 
-test('nothing goes into Proposed or out of it while proposals are restricted', async ({page, request}) => {
+test('the owner drags a card into Proposed, and nothing comes out while proposals are restricted', async ({page, request}) => {
     const proposal = await api(request, 'post', '/issues', {title: 'Buy a second freezer', proposal: 'pending'})
     const oats = await api(request, 'post', '/issues', {title: 'Seal the oats', status: 'todo'})
     await page.goto('/p/planetarium?view=board')
     await expect(card(page, proposal.id)).toHaveAttribute('draggable', 'false')
-    await card(page, oats.id).dragTo(column(page, 'proposed'))
-    await card(page, proposal.id).dragTo(column(page, 'todo'))
+    await dragCard(page, card(page, oats.id), column(page, 'proposed'))
+    await expect.poll(() => statusOf(request, oats.id)).toBe('proposed')
+    await expect(column(page, 'proposed').locator(`[data-issue="${oats.id}"]`)).toBeVisible()
+
+    await dragCard(page, card(page, proposal.id), column(page, 'todo'))
     await page.waitForTimeout(300)
-    expect(await statusOf(request, oats.id)).toBe('todo')
     expect(await statusOf(request, proposal.id)).toBe('proposed')
+})
+
+test('[ and ] land in Proposed, and leave a proposal where it is', async ({page, request}) => {
+    const salt = await api(request, 'post', '/issues', {title: 'Sort the salt', status: 'backlog'})
+    await page.goto('/p/planetarium?view=board')
+    await card(page, salt.id).focus()
+    await page.keyboard.press(']')
+    await expect.poll(() => statusOf(request, salt.id)).toBe('proposed')
+    await expect(column(page, 'proposed').locator(`[data-issue="${salt.id}"]`)).toBeFocused()
+    await page.keyboard.press('[')
+    await page.waitForTimeout(300)
+    expect(await statusOf(request, salt.id)).toBe('proposed')
 })

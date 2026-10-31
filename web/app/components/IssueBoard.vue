@@ -8,7 +8,8 @@ import {total} from '#shared/roadmap'
 // column's header has a tick (GroupTick) for all its cards.
 // A card dragged to another column (a folded one too) moves there, as the menu's move does, and so do the other ticked
 // cards when it's ticked; [ and ] move the focused card (or the ticked ones) one column left or right. While
-// proposals are restricted, nothing is dragged into Proposed or out of it: approving one stays a deliberate act.
+// proposals are restricted, nothing is dragged out of Proposed, as approving one stays a deliberate act, and only the
+// owner drags a card into it, which approves nothing (ORR-781).
 const props = defineProps<{chunks: Chunk[], project: string}>()
 const {open, isLast} = useIssueLink()
 const {issueUnseen} = useUnseen()
@@ -18,6 +19,7 @@ const {columns: order, look} = useStatuses()
 const {selected, isSelected, toggle} = useSelection()
 const {settings} = useAppSettings()
 const {filters} = useFilters()
+const {me, owner} = usePeople()
 function click(event: MouseEvent, issue: Issue) {
     if (selected.value.length && (event.shiftKey || event.metaKey || event.ctrlKey)) toggle(props.project, issue.id, event.shiftKey)
     else open(props.project, issue.id)
@@ -45,8 +47,8 @@ function movesOf(issue: Issue): Issue[] {
     if (!isSelected(props.project, issue.id)) return [issue]
     return placed.value.flatMap(({cards}) => cards.map(c => c.issue)).filter(i => isSelected(props.project, i.id))
 }
-/** Whether these cards can go to the column: not into or out of a locked one, and not all there already. */
-const takes = (issues: Issue[], column: Column) => !!issues.length && !locked(column) && !issues.some(i => locked(i.column)) && issues.some(i => i.column !== column)
+/** Whether these cards can go to the column: not all there already, into a locked one only from the owner, and out of one never. */
+const takes = (issues: Issue[], column: Column) => issues.some(i => i.column !== column) && (locked(column) ? me.value === owner.value : !issues.some(i => locked(i.column)))
 
 const over = ref<Column | null>(null)
 const failed = ref('')
