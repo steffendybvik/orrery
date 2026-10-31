@@ -68,10 +68,10 @@ async function create() {
     <div class="flex items-center gap-2 border-t border-line pt-3">
       <ImageButton v-if="!artifact" @picked="upload" />
       <span v-if="failed" class="text-xs text-rose-700 dark:text-rose-400">{{ failed }}</span>
-      <span v-else-if="uploading" class="text-xs text-faint">Adding image…</span>
+      <span v-else-if="uploading" class="inline-flex items-center gap-1.5 text-xs text-faint"><UiSpinner />Adding image…</span>
       <span v-else-if="uploadError" class="text-xs text-rose-700 dark:text-rose-400">{{ uploadError }}</span>
       <UiButton type="submit" variant="primary" size="md" class="ml-auto" :disabled="!ready">
-        {{ saving ? 'Creating…' : artifact ? 'Create artifact' : 'Create doc' }} <KeyHint class="bg-black/10 text-on-accent ring-0">⌘↵</KeyHint>
+        <UiBusy :busy="saving" label="Creating…">{{ artifact ? 'Create artifact' : 'Create doc' }}</UiBusy> <KeyHint class="bg-black/10 text-on-accent ring-0">⌘↵</KeyHint>
       </UiButton>
     </div>
   </UiDialog>

@@ -41,7 +41,7 @@ async function stop() {
         :title="`End ${session.name}: it quits in its terminal`"
         @click="stop"
     >
-      {{ busy ? 'Stopping…' : sure ? 'Stop it?' : 'Stop' }}
+      <UiBusy :busy="busy" label="Stopping…">{{ sure ? 'Stop it?' : 'Stop' }}</UiBusy>
     </UiButton>
     <span v-if="failed" class="text-rose-700 dark:text-rose-400">{{ failed }}</span>
   </span>

@@ -58,6 +58,7 @@ function newSchedule() {
 
   <div class="min-h-0 flex-1 overflow-y-auto">
     <EmptyProjects v-if="ready && !projects.length" />
+    <UiLoading v-else-if="!ready" />
     <div v-else-if="cards.length || acrossHere.length" class="mx-auto flex max-w-4xl flex-col gap-4 px-4 py-6">
       <section v-if="acrossHere.length" class="flex flex-col overflow-hidden rounded-xl border border-line bg-panel" aria-label="Across projects">
         <header class="border-b border-line bg-well/60 px-4 py-2.5"><h2 class="text-[14px] font-semibold">Across projects</h2></header>

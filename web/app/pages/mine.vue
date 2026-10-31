@@ -45,6 +45,7 @@ const lists = computed(() => [
 
   <div class="min-h-0 flex-1 overflow-y-auto">
     <EmptyProjects v-if="ready && !projects.length" />
+    <UiLoading v-else-if="!ready" />
     <template v-else>
       <GettingStarted v-if="!gettingStarted.finished.value && !gettingStarted.hidden.value" card class="m-3 md:m-4" />
       <div v-for="(list, i) in lists" :key="list.id" :class="i > 0 && 'mt-6'">

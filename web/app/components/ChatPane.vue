@@ -7,7 +7,7 @@ import type {ChatIssues, ChatMessage} from '#shared/roadmap'
 // The first message starts a chat on the project in the header (the one you're on, or picked); once started, its
 // session's name and state show in the header and the conversation below, newest at the bottom. Enter sends (Shift+Enter for a new
 // line), but a run of quick messages goes as one once the owner has stopped typing for a moment (`HOLD_MS`), so the chat
-// answers the whole thought (ORR-517). What's held shows at once as sent, with the thinking dots, as one turn (ORR-535);
+// answers the whole thought (ORR-517). What's held shows at once as sent, with the thinking spinner, as one turn (ORR-535);
 // only what couldn't go says so (Not sent, Retry). ⌘/Ctrl-Enter or Send sends at once, and Esc in an empty box takes the
 // last one back. A slash command goes at once, after what's held. Closing the pane, or the chat ending, puts what's held
 // back in the box, so nothing starts a chat on its own after it (ORR-523). An image pasted or
@@ -108,10 +108,11 @@ const state = computed(() => {
     if (chat.value.ended) return 'Ended'
     if (!session.value && chat.value.problem) return "Its session can't start"
     if (!session.value) return 'Starting the session…'
-    return {working: 'Thinking…', waiting: 'Waiting on a prompt in its terminal', idle: 'Ready', starting: 'Starting the session…'}[session.value.state]
+    // Working says nothing here: the spinner in the conversation shows it, where the owner is looking (ORR-812).
+    return {working: '', waiting: 'Waiting on a prompt in its terminal', idle: 'Ready', starting: 'Starting the session…'}[session.value.state]
 })
-/** Whether the dots show: all the while its session works, whoever spoke last, so a reply partway through a turn doesn't
- * hide them (ORR-518); while it starts, only once the owner has said something it hasn't answered. */
+/** Whether the spinner shows: all the while its session works, whoever spoke last, so a reply partway through a turn doesn't
+ * hide it (ORR-518); while it starts, only once the owner has said something it hasn't answered. */
 const thinking = computed(() => {
     // From the first held message on, as if it had gone: holding, sending and the answer are one turn (ORR-535).
     if (held.value.length && !stuck.value) return true
@@ -121,7 +122,7 @@ const thinking = computed(() => {
     return (!session.value || session.value.state === 'starting') && last?.from === 'owner' && !last.cleared
 })
 
-// The newest in sight as it comes, the dots too.
+// The newest in sight as it comes, the spinner too.
 watch(() => [open.value, chat.value?.messages.length, held.value.length, thinking.value], () => nextTick(() => list.value?.scrollTo({top: list.value.scrollHeight})))
 watch(open, now => now && nextTick(() => field.value?.focus()))
 
@@ -314,14 +315,15 @@ const {over, on: drop} = useImageDrop(attach)
             <span v-else class="truncate">{{ projectName(about) }}</span>
           </template>
         </div>
-        <span v-if="state" class="flex min-w-0 items-center gap-1.5 text-xs text-faint">
-          <SessionDot v-if="session" :session="session" />
+        <!-- The line stays while it works, without a state, so the header doesn't jump each turn. -->
+        <span v-if="chat" class="flex min-h-4 min-w-0 items-center gap-1.5 text-xs text-faint">
+          <SessionDot v-if="session && state" :session="session" />
           <!-- Who's answering, once connected (ORR-811). The name gives way first on a narrow window, as in the sidebar. -->
           <template v-if="session">
             <span class="min-w-0 shrink-[100] truncate font-medium text-muted" :title="session.name" data-testid="chat-name">{{ nameBesideProject(session) }}</span>
-            <span aria-hidden="true">·</span>
+            <span v-if="state" aria-hidden="true">·</span>
           </template>
-          <span class="min-w-0 truncate">{{ state }}</span>
+          <span v-if="state" class="min-w-0 truncate">{{ state }}</span>
         </span>
         <span v-if="away" class="truncate text-xs text-muted" data-testid="chat-away">You're on <em>{{ projectName(away) }}</em>; this chat is about <em>{{ projectName(about!) }}</em></span>
       </div>
@@ -475,8 +477,8 @@ v-if="m.chunk" class="flex w-full flex-col gap-2 rounded-xl bg-well p-3 ring-1 r
         Not sent ·
         <button type="button" class="hover:underline disabled:opacity-50" :disabled="sending" @click="flush()">Retry</button>
       </li>
-      <li v-if="thinking" class="flex items-center gap-1 px-1 py-2" aria-live="polite" aria-label="Thinking…">
-        <span v-for="i in 3" :key="i" class="size-1.5 animate-dot rounded-full bg-faint" :style="{animationDelay: `${(i - 1) * 0.15}s`}" />
+      <li v-if="thinking" class="flex items-center px-1 py-2 text-lg text-faint" aria-live="polite" aria-label="Thinking…">
+        <UiSpinner />
       </li>
       <li v-if="chat?.ended" class="flex items-center gap-2 text-xs text-faint">
         This chat has ended.
@@ -497,7 +499,7 @@ v-if="m.chunk" class="flex w-full flex-col gap-2 rounded-xl bg-well p-3 ring-1 r
             <img :src="image.url" alt="" class="size-14 rounded-lg object-cover ring-1 ring-line">
             <button type="button" class="absolute -top-1.5 -right-1.5 grid size-4 place-items-center rounded-full bg-fg text-[10px] text-panel" :aria-label="`Remove image ${i + 1}`" @click="images.splice(i, 1)">×</button>
           </div>
-          <span v-if="uploading" class="grid size-14 place-items-center rounded-lg text-[11px] text-faint ring-1 ring-line">Adding…</span>
+          <span v-if="uploading" class="flex size-14 flex-col items-center justify-center gap-0.5 rounded-lg text-[11px] text-faint ring-1 ring-line"><UiSpinner />Adding…</span>
         </div>
         <textarea
             ref="field"

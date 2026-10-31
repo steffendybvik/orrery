@@ -131,7 +131,7 @@ async function send() {
         {{ reached.length ? `Reaches ${reached.map(s => s.name).join(', ')}` : 'No session like that is listening' }}
       </span>
       <UiButton type="submit" variant="primary" size="md" class="ml-auto shrink-0" :disabled="!text.trim() || !states.length || busy">
-        {{ busy ? 'Sending…' : `Send${reached.length ? ` to ${reached.length}` : ''}` }} <KeyHint class="bg-black/10 text-on-accent ring-0">↵</KeyHint>
+        <UiBusy :busy="busy" label="Sending…">{{ `Send${reached.length ? ` to ${reached.length}` : ''}` }}</UiBusy> <KeyHint class="bg-black/10 text-on-accent ring-0">↵</KeyHint>
       </UiButton>
     </div>
   </UiDialog>

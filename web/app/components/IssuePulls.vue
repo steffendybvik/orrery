@@ -72,7 +72,7 @@ async function sendBack(pull: PullRequest) {
               :disabled="sent[pull.number]?.busy"
               :title="`Ask a session to fix it: ${sendBackNote(pull)}`"
               @click="sendBack(pull)"
-          >{{ sent[pull.number]?.busy ? 'Sending…' : 'Send back' }}</UiButton>
+          ><UiBusy :busy="sent[pull.number]?.busy" label="Sending…">Send back</UiBusy></UiButton>
         </template>
         <span class="w-full truncate pl-7 font-mono text-[11px] text-faint" :title="`${pull.branch} into ${pull.base}, by ${pull.author}`">
           {{ pull.branch }} → {{ pull.base }} · {{ ago(pull.created_at) }}

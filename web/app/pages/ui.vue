@@ -111,6 +111,17 @@ const confirming = ref(false)
       </section>
 
       <section class="flex flex-col gap-3 border-t border-line pt-6">
+        <h2 class="label">UiSpinner, UiBusy and UiLoading</h2>
+        <div class="flex flex-wrap items-center gap-2 text-xs text-muted">
+          <span class="inline-flex items-center gap-1.5"><UiSpinner />Adding image…</span>
+          <UiButton variant="primary" size="md" disabled><UiBusy busy label="Saving…">Save</UiBusy></UiButton>
+          <UiButton disabled><UiBusy busy label="Sending…">Send</UiBusy></UiButton>
+          <UiButton><UiBusy label="Sending…">Send</UiBusy></UiButton>
+        </div>
+        <UiLoading class="rounded-lg ring-1 ring-line" />
+      </section>
+
+      <section class="flex flex-col gap-3 border-t border-line pt-6">
         <h2 class="label">UiDialog and UiConfirm</h2>
         <div class="flex flex-wrap items-center gap-2">
           <UiButton @click="dialog = true">Open a dialog</UiButton>

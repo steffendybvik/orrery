@@ -86,7 +86,7 @@ async function tryDemo() {
             <div v-if="step.key === 'project'" class="flex flex-wrap items-center gap-2">
               <UiButton variant="primary" size="md" @click="newProject = true">New project</UiButton>
               <UiButton size="md" :disabled="demo.making.value" title="A sample board to look around first; delete it from its Settings" @click="tryDemo">
-                {{ demo.making.value ? 'Making the demo…' : 'Try it with a demo project' }}
+                <UiBusy :busy="demo.making.value" label="Making the demo…">Try it with a demo project</UiBusy>
               </UiButton>
               <span v-if="demo.failed.value" class="text-xs text-rose-700 dark:text-rose-400">{{ demo.failed.value }}</span>
             </div>

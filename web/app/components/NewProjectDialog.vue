@@ -82,7 +82,7 @@ const field = 'h-8 field'
     <div class="flex items-center gap-2">
       <span v-if="failed" class="text-xs text-rose-700 dark:text-rose-400">{{ failed }}</span>
       <UiButton type="submit" variant="primary" size="md" class="ml-auto" :disabled="!ready">
-        {{ saving ? 'Creating…' : 'Create project' }} <KeyHint class="bg-black/10 text-on-accent ring-0">⌘↵</KeyHint>
+        <UiBusy :busy="saving" label="Creating…">Create project</UiBusy> <KeyHint class="bg-black/10 text-on-accent ring-0">⌘↵</KeyHint>
       </UiButton>
     </div>
   </UiDialog>

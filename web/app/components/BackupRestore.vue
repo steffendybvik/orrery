@@ -66,12 +66,12 @@ async function restore() {
 
       <div class="flex flex-wrap items-center gap-2">
         <UiButton :variant="first ? 'primary' : 'warning-outline'" :disabled="busy || !picked || !backups.restorable" @click="restore">
-          {{ busy ? 'Restoring…' : 'Restore it' }}
+          <UiBusy :busy="busy" label="Restoring…">Restore it</UiBusy>
         </UiButton>
         <UiButton v-if="first" :disabled="busy" @click="emit('fresh')">Start fresh</UiButton>
         <UiButton v-else :disabled="busy" @click="open = false">Cancel</UiButton>
         <span v-if="failed" class="text-xs text-rose-700 dark:text-rose-400">{{ failed }}</span>
-        <span v-else-if="restored" class="text-xs text-muted">Restored. Loading it…</span>
+        <span v-else-if="restored" class="inline-flex items-center gap-1.5 text-xs text-muted"><UiSpinner />Restored. Loading it…</span>
       </div>
       <p class="text-xs text-faint">
         <template v-if="!backups.restorable">orrery restores from the app only when it runs on a SQLite file.</template>

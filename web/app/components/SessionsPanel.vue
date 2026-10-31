@@ -110,7 +110,7 @@ const aimed = (signal: Signal) => signal.target === '*' || !signal.target && sig
             :disabled="!!sending"
             :title="`orrery starts another session on ${project}, working on this issue alone`"
             @click="startOn"
-        >{{ sending === 'new' ? 'Starting…' : 'New session on this' }}</UiButton>
+        ><UiBusy :busy="sending === 'new'" label="Starting…">New session on this</UiBusy></UiButton>
         <UiButton
             v-if="listening.length > 1 && !issue"
             :disabled="!!sending"
@@ -124,7 +124,7 @@ const aimed = (signal: Signal) => signal.target === '*' || !signal.target && sig
           :disabled="!!sending"
           :title="`orrery starts a session on ${project} and asks it to ${issue ? 'work on this' : 'work through this chunk'}`"
           @click="focus(null, true)"
-      >{{ sending === 'all' ? 'Starting…' : issue ? 'Focus on this (starts a session)' : 'Work through this (starts a session)' }}</button>
+      ><UiBusy :busy="sending === 'all'" label="Starting…">{{ issue ? 'Focus on this (starts a session)' : 'Work through this (starts a session)' }}</UiBusy></button>
     </div>
 
     <p v-if="blockedBy?.length && (listening.length || canStart)" class="text-xs text-amber-800 dark:text-amber-400">

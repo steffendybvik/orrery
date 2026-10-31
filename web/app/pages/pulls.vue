@@ -64,7 +64,7 @@ const cards = computed(() => inProjectOrder(pulls.value?.repos ?? [], ordered.va
   <template v-else>
   <ViewToolbar>
     <span class="text-xs text-muted">
-      <template v-if="!pulls">Asking GitHub…</template>
+      <template v-if="!pulls"><UiSpinner class="mr-1.5" />Asking GitHub…</template>
       <template v-else-if="pulls.open">{{ pulls.open }} open{{ pulls.needs ? `, ${pulls.needs} need${pulls.needs === 1 ? 's' : ''} someone` : '' }}</template>
       <template v-else-if="noneRead">Couldn't read GitHub</template>
       <template v-else>None open</template>
@@ -82,8 +82,10 @@ const cards = computed(() => inProjectOrder(pulls.value?.repos ?? [], ordered.va
         </UiButton>
       </div>
       <UiButton class="shrink-0" :disabled="polling || !pulls?.repos.length" title="Ask GitHub now, rather than at the next poll" @click="poll">
-        <svg class="size-3.5" :class="{'animate-spin motion-reduce:animate-none': polling}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36M21 4v5h-5" /></svg>
-        {{ polling ? 'Polling…' : 'Poll' }}
+        <UiBusy :busy="polling" label="Polling…">
+          <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36M21 4v5h-5" /></svg>
+          Poll
+        </UiBusy>
       </UiButton>
     </template>
   </ViewToolbar>

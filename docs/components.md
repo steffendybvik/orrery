@@ -120,6 +120,22 @@ Stacked, the two buttons share the width (in a menu). `inline` puts the question
 toolbar, a comment), with `size="xs"` beside small text. `action` and `busyAction` change the button's words
 (default Remove, Removing…). Esc cancels.
 
+### UiSpinner, UiBusy and UiLoading
+
+**Anything loading shows the braille spinner**, through these three, and no other animation or bare "Loading".
+
+```vue
+<span class="inline-flex items-center gap-1.5 text-xs text-faint"><UiSpinner />Adding image…</span>
+<UiButton variant="primary" :disabled="saving"><UiBusy :busy="saving" label="Saving…">Save</UiBusy></UiButton>
+<UiLoading v-else-if="!ready" />
+```
+
+- **`UiSpinner`:** the cycle `⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏`, drawn rather than typed, as Geist Mono has no braille and a fallback font changes by machine. It's 1em tall and takes `currentColor`, so `text-lg` sizes it and it works on a primary button. It runs on CSS with no timer, and reduced motion holds one frame. It's hidden from screen readers: the words beside it say what's loading, or `label` where there are none.
+- **`UiBusy`:** a button's words while it's at work, the slot at rest and the spinner with `label` while `busy`. Both keep the same cell, so the button holds its width. `UiConfirm` uses it for `busyAction`.
+- **`UiLoading`:** a page or panel with nothing to show yet, the spinner in the middle of it, coming in a moment late so a quick answer doesn't flash it.
+
+These aren't loading, so they stay as they are: `WorkingDot` and `SessionDot` (a session's state), the status icon's pulse on the board and the chat button's pulse.
+
 ## Styles (`assets/css/main.css`)
 
 Where a class is all it takes, it's a utility rather than a component:
