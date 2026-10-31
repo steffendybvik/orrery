@@ -268,7 +268,7 @@ const {over, on: drop} = useImageDrop(attach)
       @click="show()"
   >
     <svg
-        class="size-4 text-accent-500"
+        class="size-4 text-accent-fill"
         :class="{'animate-pulse motion-reduce:animate-none': chats.length}"
         viewBox="0 0 24 24"
         fill="none"

@@ -101,7 +101,7 @@ const pick = 'grid size-7 place-items-center rounded-md ring-1 hover:bg-hover di
 
         <div class="flex flex-col border-t border-line pt-1">
           <UiMenuItem v-if="listening && !isClosed(chunk.kind)" :disabled="busy" @click="focus()">
-            <svg class="size-3.5 text-accent-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="8" /><circle cx="12" cy="12" r="3" /></svg>
+            <svg class="size-3.5 text-accent-fill" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="8" /><circle cx="12" cy="12" r="3" /></svg>
             Ask {{ listening === 1 ? 'the session' : 'a session' }} to work through it
           </UiMenuItem>
           <UiMenuItem v-if="listening > 1 && !isClosed(chunk.kind)" :disabled="busy" @click="focus(true)">

@@ -21,7 +21,7 @@ function scroller(scrollTop = 0, clientHeight = 500, scrollHeight = 2000) {
     Object.defineProperties(root, {scrollTop: {value: scrollTop, writable: true}, clientHeight: {value: clientHeight}, scrollHeight: {value: scrollHeight}})
     return root
 }
-const reading = (wrapper: Awaited<ReturnType<typeof mountSuspended>>) => wrapper.findAll('a').filter(a => a.classes().includes('border-accent-500')).map(a => a.text())
+const reading = (wrapper: Awaited<ReturnType<typeof mountSuspended>>) => wrapper.findAll('a').filter(a => a.classes().includes('border-accent-fill')).map(a => a.text())
 
 beforeEach(() => place([0, 800, 1600]))
 afterEach(() => added.splice(0).forEach(e => e.remove()))

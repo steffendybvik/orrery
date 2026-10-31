@@ -44,11 +44,11 @@ async function saveStarts(on = !!settings.value.starts) {
 <template>
   <div class="flex flex-col gap-2 rounded-xl border border-line p-3 text-[13px] dark:bg-panel">
     <label class="flex items-center gap-2 text-fg">
-      <input type="checkbox" class="accent-accent-500" :checked="!!settings.starts" @change="saveStarts(($event.target as HTMLInputElement).checked)">
+      <input type="checkbox" class="accent-accent-fill" :checked="!!settings.starts" @change="saveStarts(($event.target as HTMLInputElement).checked)">
       Let orrery start sessions
     </label>
     <label class="flex items-center gap-2 text-xs text-muted" :class="{'opacity-50': !settings.starts}">
-      <input v-model="onSignal" type="checkbox" class="accent-accent-500" :disabled="!settings.starts" @change="saveStarts()">
+      <input v-model="onSignal" type="checkbox" class="accent-accent-fill" :disabled="!settings.starts" @change="saveStarts()">
       Start a session when work arrives and nobody's listening
     </label>
     <div class="flex flex-wrap items-center gap-2 text-xs text-muted" :class="{'opacity-50': !settings.starts}">

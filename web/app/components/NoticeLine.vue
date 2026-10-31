@@ -31,7 +31,7 @@ const clearLabel = computed(() => clearable.value === 1 ? 'Clear this notice' : 
         class="group relative grid grid-cols-[1.25rem_minmax(0,1fr)_auto] gap-x-2 pr-10 pl-2 transition-colors hover:bg-hover"
         :class="[
           row.waiting ? 'bg-violet-500/10' : row.unread ? 'bg-accent-500/10' : '',
-          selected ? 'bg-active shadow-[inset_2px_0_0_var(--color-accent-500)]' : '',
+          selected ? 'bg-active shadow-[inset_2px_0_0_var(--color-accent-fill)]' : '',
         ]"
     >
       <button
@@ -45,7 +45,7 @@ const clearLabel = computed(() => clearable.value === 1 ? 'Clear this notice' : 
       <span class="relative flex items-center justify-center before:absolute before:inset-y-0 before:left-1/2 before:w-px before:bg-faint/40">
         <span
             class="relative size-2.5 rounded-full ring-2"
-            :class="row.waiting ? 'bg-violet-500 ring-violet-500' : row.unread ? 'bg-accent-500 ring-accent-500' : 'bg-canvas ring-faint'"
+            :class="row.waiting ? 'bg-violet-500 ring-violet-500' : row.unread ? 'bg-accent-fill ring-accent-fill' : 'bg-canvas ring-faint'"
             :data-state="state"
         />
       </span>

@@ -32,7 +32,7 @@ const rows = (card: typeof cards.value[number]): TrackedRelease[] => [...card.tr
 
 <template>
   <PageHeader>
-    <SectionIcon section="releases" class="size-4 shrink-0 text-accent-500" />
+    <SectionIcon section="releases" class="size-4 shrink-0 text-accent-fill" />
     <h1 class="truncate text-sm font-medium">Releases</h1>
   </PageHeader>
 

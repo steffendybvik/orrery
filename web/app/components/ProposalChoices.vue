@@ -50,7 +50,7 @@ function toggle(choice: Choice, option: string) {
             :type="choice.pick === 'one' ? 'radio' : 'checkbox'"
             :name="`${issue.id}-${choice.key}`"
             :checked="ticked(choice, option.key)"
-            class="mt-1 size-3.5 shrink-0 accent-accent-500"
+            class="mt-1 size-3.5 shrink-0 accent-accent-fill"
             @change="toggle(choice, option.key)"
         >
         <span class="flex min-w-0 flex-1 flex-col gap-0.5">
