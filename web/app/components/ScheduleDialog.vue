@@ -495,11 +495,11 @@ const labelOf = (options: {value: string, label: string}[], value: string) => op
       <p v-if="untrusted">Each run starts a session for this message alone. It can only read the repo's GitHub issues and raise proposals, labelled <i>external</i>, for you to weigh. It needs a launcher and Starting sessions on.</p>
       <p v-else>Each run sends this to {{ here?.name ?? 'the project' }}'s listening sessions, with no issue. If none is listening, the next one to connect within a day gets it.</p>
       <label class="flex items-center gap-1.5">
-        <input v-model="onlyIfChanged" type="checkbox" class="accent-accent-500">
+        <input v-model="onlyIfChanged" type="checkbox" class="accent-accent-fill">
         Skip a run when no issue or comment changed since the last message
       </label>
       <label v-if="!isAcross" class="flex items-center gap-1.5">
-        <input v-model="untrusted" type="checkbox" class="accent-accent-500">
+        <input v-model="untrusted" type="checkbox" class="accent-accent-fill">
         It reads what others wrote, such as GitHub issues: give it a locked-down session of its own
       </label>
     </section>
@@ -568,11 +568,11 @@ const labelOf = (options: {value: string, label: string}[], value: string) => op
         <LabelPicker v-model="labels" :labels="known" />
       </div>
       <label class="flex items-center gap-1.5 text-xs text-muted">
-        <input v-model="ask" type="checkbox" class="accent-accent-500">
+        <input v-model="ask" type="checkbox" class="accent-accent-fill">
         Ask {{ here?.name ?? 'the project' }}'s sessions to pick it up (if none is listening, the next one to connect gets it)
       </label>
       <label class="flex items-center gap-1.5 text-xs text-muted">
-        <input v-model="skipOpen" type="checkbox" class="accent-accent-500">
+        <input v-model="skipOpen" type="checkbox" class="accent-accent-fill">
         Skip a run while the last run's issue isn't done
       </label>
     </section>

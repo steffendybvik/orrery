@@ -47,8 +47,7 @@ async function open(page: Page, path: string) {
 async function shoot(page: Page, name: string) {
     await page.mouse.move(0, 0)
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
-    await page.evaluate(() => Promise.all(document.getAnimations().filter(a => a.effect?.getTiming().iterations !== Infinity).map(a => a.finished.catch(() => {}))))
-    await page.screenshot({path: repo(`docs/images/${name}-light.png`)})
+    await expect(page).toHaveScreenshot(`${name}-light.png`)
 }
 
 test('board', async ({page}) => {

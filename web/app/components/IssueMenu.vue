@@ -117,7 +117,7 @@ const pick = 'grid size-7 place-items-center rounded-md ring-1 hover:bg-hover di
             <span class="max-w-24 truncate text-xs text-faint">{{ found?.chunk.id ? found.chunk.title : 'None' }}</span>
           </UiMenuItem>
           <UiMenuItem v-if="listening && !isClosed(issue.kind)" :disabled="busy" @click="focus()">
-            <svg class="size-3.5 text-accent-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="8" /><circle cx="12" cy="12" r="3" /></svg>
+            <svg class="size-3.5 text-accent-fill" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="8" /><circle cx="12" cy="12" r="3" /></svg>
             Ask {{ listening === 1 ? 'the session' : 'a session' }} to focus on it
           </UiMenuItem>
           <UiMenuItem @click="copyId">

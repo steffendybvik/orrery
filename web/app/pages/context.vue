@@ -66,7 +66,7 @@ const n = (value: number) => value.toLocaleString('en')
 
 <template>
   <PageHeader>
-    <svg class="size-4 shrink-0 text-accent-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19V5M9 19v-8M14 19V9M19 19v-4" /></svg>
+    <svg class="size-4 shrink-0 text-accent-fill" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19V5M9 19v-8M14 19V9M19 19v-4" /></svg>
     <h1 class="truncate text-sm font-medium">Context</h1>
   </PageHeader>
 

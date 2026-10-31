@@ -101,7 +101,7 @@ const aimed = (signal: Signal) => signal.target === '*' || !signal.target && sig
 <template>
   <section class="flex flex-col gap-3 rounded-2xl bg-well/50 p-4 ring-1 ring-line dark:bg-panel">
     <div class="flex items-center gap-2">
-      <svg class="size-4 text-accent-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="8" /><circle cx="12" cy="12" r="3" /><path d="M12 2v3M12 19v3M2 12h3M19 12h3" /></svg>
+      <svg class="size-4 text-accent-fill" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="8" /><circle cx="12" cy="12" r="3" /><path d="M12 2v3M12 19v3M2 12h3M19 12h3" /></svg>
       <h2 class="text-[13px] font-medium text-fg">Sessions</h2>
       <span class="text-xs text-faint">{{ listening.length ? `${listening.length} listening` : 'none listening' }}</span>
       <span v-if="listening.length" class="ml-auto flex items-center gap-2">
@@ -135,7 +135,7 @@ const aimed = (signal: Signal) => signal.target === '*' || !signal.target && sig
       <legend class="sr-only">Standing instructions for this focus</legend>
       <span class="text-faint">With it:</span>
       <label v-for="i in offered" :key="i.id" class="flex items-center gap-1.5" :class="ticked.includes(i.id) ? 'text-muted' : 'text-faint'">
-        <input v-model="ticked" type="checkbox" :value="i.id" class="size-3 accent-accent-500">
+        <input v-model="ticked" type="checkbox" :value="i.id" class="size-3 accent-accent-fill">
         {{ i.text }}
       </label>
     </fieldset>

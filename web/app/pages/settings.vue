@@ -323,7 +323,7 @@ async function pick(tint: string | null) {
           </p>
         </header>
         <label class="flex items-center gap-2 text-[13px] text-fg">
-          <input type="checkbox" class="accent-accent-500" :checked="settings.restrict_proposals" @change="restrictProposals(($event.target as HTMLInputElement).checked)">
+          <input type="checkbox" class="accent-accent-fill" :checked="settings.restrict_proposals" @change="restrictProposals(($event.target as HTMLInputElement).checked)">
           Keep agents off proposals until you approve them
         </label>
         <p v-if="proposalsFailed" class="text-xs text-rose-700 dark:text-rose-400">{{ proposalsFailed }}</p>
@@ -478,7 +478,7 @@ async function pick(tint: string | null) {
           <label class="flex items-center gap-2 text-[13px] text-fg">
             <input
                 type="checkbox"
-                class="accent-accent-500"
+                class="accent-accent-fill"
                 :checked="!!settings.database.backup"
                 :disabled="settingBackups || (backupKind === 'postgres' ? !backupUrl.trim() && !settings.database.backup_postgres : settings.database.backups_settable === 'switch' && !settings.database.backup_default)"
                 @change="setBackups(($event.target as HTMLInputElement).checked)"
@@ -569,7 +569,7 @@ async function pick(tint: string | null) {
           </p>
         </header>
         <label class="flex items-center gap-2 text-[13px] text-fg">
-          <input type="checkbox" class="accent-accent-500" :checked="settings.advanced" @change="setAdvanced(($event.target as HTMLInputElement).checked)">
+          <input type="checkbox" class="accent-accent-fill" :checked="settings.advanced" @change="setAdvanced(($event.target as HTMLInputElement).checked)">
           Record what orrery does, tell me about new errors, and show Events, Context and Pull requests in the sidebar
         </label>
         <p v-if="advancedFailed" class="text-xs text-rose-700 dark:text-rose-400">{{ advancedFailed }}</p>
