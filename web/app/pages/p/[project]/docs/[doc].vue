@@ -157,7 +157,9 @@ useHead(() => ({title: doc.value ? `${doc.value.title} · orrery` : 'orrery'}))
 
   <div v-if="project" class="flex min-h-0 flex-1 flex-col md:flex-row">
   <DocsNav :project="project" />
-  <div ref="scroller" class="min-h-0 flex-1 overflow-y-auto">
+  <!-- A container, so "On this page" goes by the room left beside the sidebar and the docs list, not the window's width: it
+       needs the text's 48rem, its own 14rem, the gap and the padding (ORR-800). -->
+  <div ref="scroller" class="@container min-h-0 flex-1 overflow-y-auto">
     <div v-if="doc && !missing" :key="doc.id" class="mx-auto flex max-w-6xl animate-fade-up gap-12 px-4 py-8 sm:px-8 sm:py-12">
     <article class="min-w-0 flex-1" :class="!isArtifact && 'max-w-3xl'">
       <header class="mb-8 flex flex-col gap-3 border-b border-line pb-6">
@@ -247,7 +249,7 @@ useHead(() => ({title: doc.value ? `${doc.value.title} · orrery` : 'orrery'}))
       <MarkdownView v-else :source="doc.body" :title="doc.title" :before="before?.body" :data-size="size" />
       <p class="mt-12 rounded-lg bg-well px-3 py-2 font-mono text-[11px] text-faint ring-1 ring-line">PUT /api/projects/{{ doc.project }}/docs/{{ doc.id }}</p>
     </article>
-    <aside v-if="headings.length && !history && !editing" class="hidden w-56 shrink-0 xl:block">
+    <aside v-if="headings.length && !history && !editing" class="hidden w-56 shrink-0 @min-[69rem]:block">
       <div class="sticky top-6">
         <DocContents :headings="headings" :root="scroller" />
       </div>
