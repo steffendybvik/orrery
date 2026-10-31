@@ -14,6 +14,9 @@ dist
 coverage
 vitest-results.json
 e2e-results.json
+e2e-lines.json
+spawned-lines.json
+.v8-*
 .vitest-reports
 .idea
 
