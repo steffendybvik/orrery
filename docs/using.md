@@ -109,7 +109,7 @@ On your own machine, alone, there's no login. With a second person, or from anot
 
 | Key | Does |
 |---|---|
-| ⌘K | Command palette: every page, issue, chunk, doc and command (views, grouping, filters, theme, new project, starting or messaging a session, chat) |
+| ⌘K | Command palette: every page, issue, chunk, doc and command (views, filters, theme, sessions, chat), led by the ones this browser runs most |
 | j / k | Next and previous row or card. On an issue's page, the next and previous issue |
 | Enter | Open the focused row or card |
 | Esc | Back, close, or leave a field |
