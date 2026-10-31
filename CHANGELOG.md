@@ -30,6 +30,9 @@ overview, is one list.
   stays idle. Pointing a session at a Backlog issue still works.
 - **A limit on a request's size:** a body over 32 MB gets a 413, over 256 MB for a board's file or an import, and over
   64 KB on the login's routes, including a doc or comment that big.
+- **A session that ends hands back its issues:** those it had In progress go back to Todo with a comment, after five
+  minutes, so a resumed session keeps its work. An issue assigned to you stays with you. Restarting orrery in those five
+  minutes drops the wait, and those issues stay In progress.
 - **Text meets AA contrast in both themes:** a primary button's words go from white to near-black on the same orange,
   and faint text, the accent's words, red text and assignees' initials change to be readable.
 - **The docs list's New buttons stand apart from its sections,** with a rule above them and a stronger colour.

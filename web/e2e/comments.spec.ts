@@ -3,7 +3,6 @@ import {AGENT, makeProject, projectApi} from './support'
 
 // Pictures and comments: an image picked into a new issue and a comment, the owner editing and deleting their own
 // comment but not an agent's, a Before and After pair as a slider, and copying the whole issue with its comments.
-test.describe.configure({mode: 'serial'})
 
 const api = projectApi('studio')
 

@@ -3,7 +3,6 @@ import {dragCard, makeProject, projectApi} from './support'
 
 // Moving cards on the board by dragging them to another column, the ticked ones together, or with [ and ]; while
 // proposals are restricted (the default), the owner can put a card into Proposed, and nothing comes out of it.
-test.describe.configure({mode: 'serial'})
 
 const api = projectApi('planetarium')
 

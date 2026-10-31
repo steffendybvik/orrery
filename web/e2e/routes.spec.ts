@@ -2,7 +2,6 @@ import {expect, test} from '@playwright/test'
 import {AGENT, OWNER, makeProject, projectApi} from './support'
 
 // The routes no other spec calls by name (ORR-746), through the real server, for what each does and who may call it.
-test.describe.configure({mode: 'serial'})
 
 const api = projectApi('stoneyard')
 const roadmap = (title: string) => ({chunks: [{id: 'c1', title: 'Stone', tasks: [{id: 'STY-1', title, status: 'todo'}]}]})
