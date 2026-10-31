@@ -151,7 +151,7 @@ const line = 'h-8 min-w-0 flex-1 field'
         <li v-for="l in settings.instructions" :key="l.id" class="flex items-center gap-2 text-[13px]">
           <input
               type="checkbox"
-              class="size-3.5 accent-accent-500"
+              class="size-3.5 accent-accent-fill"
               :checked="!project.muted.includes(l.id)"
               :aria-label="`Use “${l.text}” in ${project.name}`"
               @change="mute(l)"
@@ -163,7 +163,7 @@ const line = 'h-8 min-w-0 flex-1 field'
 
       <ul class="flex flex-col gap-1.5">
         <li v-for="l in own" :key="l.id" class="flex items-center gap-2">
-          <input type="checkbox" class="size-3.5 accent-accent-500" :checked="l.on" :title="l.on ? 'Ticked by default' : 'Unticked by default'" :aria-label="`Tick “${l.text}” by default`" @change="toggle(l)">
+          <input type="checkbox" class="size-3.5 accent-accent-fill" :checked="l.on" :title="l.on ? 'Ticked by default' : 'Unticked by default'" :aria-label="`Tick “${l.text}” by default`" @change="toggle(l)">
           <input :value="l.text" :class="line" aria-label="Instruction" @blur="rename(l, $event)" @keydown.enter="($event.target as HTMLInputElement).blur()">
           <UiButton variant="danger-ghost" square class="shrink-0" :aria-label="`Remove “${l.text}”`" @click="remove(l)">
             <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18" /></svg>

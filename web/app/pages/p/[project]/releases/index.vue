@@ -109,7 +109,7 @@ useHead(() => ({title: project.value ? `Releases · ${project.value.name} · orr
   <div class="min-h-0 flex-1 overflow-y-auto">
     <div v-if="project" class="mx-auto flex max-w-4xl animate-fade-up flex-col gap-4 px-4 py-8 sm:px-8">
       <header class="flex items-start gap-3">
-        <SectionIcon section="releases" class="mt-0.5 size-4 text-accent-500" />
+        <SectionIcon section="releases" class="mt-0.5 size-4 text-accent-fill" />
         <div class="flex min-w-0 flex-1 flex-col gap-0.5">
           <h2 class="text-[15px] font-semibold text-fg">Releases</h2>
           <p v-if="project.releases_from" class="text-xs text-muted">
@@ -159,8 +159,8 @@ useHead(() => ({title: project.value ? `Releases · ${project.value.name} · orr
             @dragover="onDragOver($event, index)"
             @drop.prevent="onDrop"
         >
-          <span v-if="dropAt === index && dragging" class="pointer-events-none absolute inset-x-2 -top-1.5 h-0.5 rounded-full bg-accent-500" />
-          <span v-if="dropAt === index + 1 && index === releases.length - 1 && dragging" class="pointer-events-none absolute inset-x-2 -bottom-1.5 h-0.5 rounded-full bg-accent-500" />
+          <span v-if="dropAt === index && dragging" class="pointer-events-none absolute inset-x-2 -top-1.5 h-0.5 rounded-full bg-accent-fill" />
+          <span v-if="dropAt === index + 1 && index === releases.length - 1 && dragging" class="pointer-events-none absolute inset-x-2 -bottom-1.5 h-0.5 rounded-full bg-accent-fill" />
           <NuxtLink
               :to="releasePath(project.id, release.version)"
               :draggable="arranges"

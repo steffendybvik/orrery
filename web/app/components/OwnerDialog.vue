@@ -117,7 +117,7 @@ async function save() {
               class="flex flex-1 cursor-pointer items-start gap-2 rounded-lg p-2 ring-1 hover:bg-hover"
               :class="developer === value ? 'ring-accent-500/50' : 'ring-line'"
           >
-            <input v-model="developer" type="radio" name="developer" :value="value" class="mt-0.5 accent-accent-500">
+            <input v-model="developer" type="radio" name="developer" :value="value" class="mt-0.5 accent-accent-fill">
             <span class="flex flex-col gap-0.5">
               <span class="text-[13px] font-medium text-fg">{{ label }}</span>
               <span class="text-xs text-muted">{{ note }}</span>

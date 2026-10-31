@@ -50,7 +50,7 @@ async function restore() {
               class="flex cursor-pointer items-start gap-2.5 rounded-lg p-2 ring-1 hover:bg-hover"
               :class="picked === s.name ? 'ring-accent-500/50' : 'ring-transparent'"
           >
-            <input v-model="picked" type="radio" name="backup" :value="s.name" class="mt-1 accent-accent-500">
+            <input v-model="picked" type="radio" name="backup" :value="s.name" class="mt-1 accent-accent-fill">
             <span class="flex min-w-0 flex-col gap-0.5">
               <span class="text-[13px] font-medium text-fg">{{ when(s.at) }} <span class="font-normal text-muted">· {{ KIND[s.kind] }}</span></span>
               <span class="text-xs text-muted">

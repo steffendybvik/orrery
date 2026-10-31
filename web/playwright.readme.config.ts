@@ -1,5 +1,7 @@
 // The README's images (`pnpm images:readme`): the playground's demo on an orrery of its own, with a database made fresh
-// for each run, so they come out the same size, of the same pages, each time (ORR-771).
+// for each run, so they come out the same size, of the same pages, each time (ORR-771). An image only changes when the
+// page has (ORR-780): the images are the snapshots, and only those that differ are rewritten. Runs of the same code moved
+// up to 0.11% of an image's pixels, so this allows about twice that.
 import {defineConfig, devices} from '@playwright/test'
 import {e2ePort} from './e2e-port'
 
@@ -10,6 +12,9 @@ export default defineConfig({
     workers: 1,
     reporter: 'list',
     outputDir: 'test-results-readme',
+    snapshotPathTemplate: '{testDir}/../../../docs/images/{arg}{ext}',
+    updateSnapshots: 'changed',
+    expect: {toHaveScreenshot: {threshold: 0.1, maxDiffPixelRatio: 0.002}},
     use: {
         baseURL: `http://localhost:${port}`,
         ...devices['Desktop Chrome'],

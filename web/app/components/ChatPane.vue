@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import {CHAT_CHUNK_FIELDS, CHAT_RELEASE_FIELDS, CHAT_SETTINGS, scheduleValue, settingValue} from '#shared/roadmap'
+import {CHAT_CHUNK_FIELDS, CHAT_RELEASE_FIELDS, CHAT_SETTINGS, nameBesideProject, scheduleValue, settingValue} from '#shared/roadmap'
 import {Menu, MenuButton, MenuItem, MenuItems} from '@headlessui/vue'
 import type {ChatIssues, ChatMessage} from '#shared/roadmap'
 
 // The owner's chat (useChat): a button in the corner of every page, and the pane it opens there, ready to type into.
 // The first message starts a chat on the project in the header (the one you're on, or picked); once started, its
-// session's state shows in the header and the conversation below, newest at the bottom. Enter sends (Shift+Enter for a new
+// session's name and state show in the header and the conversation below, newest at the bottom. Enter sends (Shift+Enter for a new
 // line), but a run of quick messages goes as one once the owner has stopped typing for a moment (`HOLD_MS`), so the chat
 // answers the whole thought (ORR-517). What's held shows at once as sent, with the thinking spinner, as one turn (ORR-535);
 // only what couldn't go says so (Not sent, Retry). ⌘/Ctrl-Enter or Send sends at once, and Esc in an empty box takes the
@@ -269,7 +269,7 @@ const {over, on: drop} = useImageDrop(attach)
       @click="show()"
   >
     <svg
-        class="size-4 text-accent-500"
+        class="size-4 text-accent-fill"
         :class="{'animate-pulse motion-reduce:animate-none': chats.length}"
         viewBox="0 0 24 24"
         fill="none"
@@ -315,9 +315,15 @@ const {over, on: drop} = useImageDrop(attach)
             <span v-else class="truncate">{{ projectName(about) }}</span>
           </template>
         </div>
-        <!-- The line stays while it works, empty, so the header doesn't jump each turn. -->
-        <span v-if="chat" class="flex min-h-4 items-center gap-1.5 text-xs text-faint">
-          <SessionDot v-if="session && state" :session="session" />{{ state }}
+        <!-- The line stays while it works, without a state, so the header doesn't jump each turn. -->
+        <span v-if="chat" class="flex min-h-4 min-w-0 items-center gap-1.5 text-xs text-faint">
+          <SessionDot v-if="session && state" :session="session" />
+          <!-- Who's answering, once connected (ORR-811). The name gives way first on a narrow window, as in the sidebar. -->
+          <template v-if="session">
+            <span class="min-w-0 shrink-[100] truncate font-medium text-muted" :title="session.name" data-testid="chat-name">{{ nameBesideProject(session) }}</span>
+            <span v-if="state" aria-hidden="true">·</span>
+          </template>
+          <span v-if="state" class="min-w-0 truncate">{{ state }}</span>
         </span>
         <span v-if="away" class="truncate text-xs text-muted" data-testid="chat-away">You're on <em>{{ projectName(away) }}</em>; this chat is about <em>{{ projectName(about!) }}</em></span>
       </div>

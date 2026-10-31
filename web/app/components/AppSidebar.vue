@@ -251,8 +251,8 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
           @dragover="onDragOver($event, index)"
           @drop.prevent="onDrop"
       >
-        <span v-if="dropAt === index && dragging" class="pointer-events-none absolute inset-x-2 -top-1.5 h-0.5 rounded-full bg-accent-500" />
-        <span v-if="dropAt === index + 1 && index === ordered.length - 1 && dragging" class="pointer-events-none absolute inset-x-2 -bottom-1.5 h-0.5 rounded-full bg-accent-500" />
+        <span v-if="dropAt === index && dragging" class="pointer-events-none absolute inset-x-2 -top-1.5 h-0.5 rounded-full bg-accent-fill" />
+        <span v-if="dropAt === index + 1 && index === ordered.length - 1 && dragging" class="pointer-events-none absolute inset-x-2 -bottom-1.5 h-0.5 rounded-full bg-accent-fill" />
         <div class="group flex items-center rounded-lg transition-colors hover:bg-hover">
           <NuxtLink
               :to="`/p/${project.id}`"
@@ -273,7 +273,7 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
             <span class="min-w-0 flex-1 truncate">{{ project.name }}</span>
             <span v-if="unseenIn(project)" class="unseen-dot" :title="`${unseenIn(project)} changed since you last looked`" />
             <span v-if="project.board.kinds.started" class="flex items-center gap-1 rounded-full bg-accent-500/12 px-1.5 font-mono text-[10px] text-accent-700 tabular-nums dark:text-accent-300" :title="`${project.board.kinds.started} being worked on`">
-              <span class="size-1 rounded-full bg-accent-500" />{{ project.board.kinds.started }}
+              <span class="size-1 rounded-full bg-accent-fill" />{{ project.board.kinds.started }}
             </span>
             <span class="font-mono text-[11px] font-normal text-faint tabular-nums">{{ project.board.kinds.done }}/{{ progress(project.board.kinds).total }}</span>
           </NuxtLink>

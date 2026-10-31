@@ -39,7 +39,7 @@ function newSchedule() {
 
 <template>
   <PageHeader>
-    <SectionIcon section="schedules" class="size-4 shrink-0 text-accent-500" />
+    <SectionIcon section="schedules" class="size-4 shrink-0 text-accent-fill" />
     <h1 class="truncate text-sm font-medium">Schedules</h1>
   </PageHeader>
 

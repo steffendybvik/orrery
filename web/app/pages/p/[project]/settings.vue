@@ -192,7 +192,7 @@ useHead(() => ({title: project.value ? `Settings · ${project.value.name} · orr
 
       <section id="icon" class="flex flex-col gap-3 border-t border-line pt-8">
         <header class="flex items-start gap-3">
-          <div class="mt-0.5 grid size-4 place-items-center text-accent-500">
+          <div class="mt-0.5 grid size-4 place-items-center text-accent-fill">
             <ProjectIcon v-if="project.icon" :icon="project.icon" :color="project.icon_color" class="size-4" />
             <ProgressRing v-else :kinds="project.board.kinds" bare :size="14" />
           </div>

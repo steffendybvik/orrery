@@ -130,7 +130,7 @@ async function create() {
         <LabelPicker v-model="labels" :labels="known" />
         <DependsPicker v-model="dependsOn" :here="project.id" field />
         <label class="flex items-center gap-1.5 text-xs text-muted">
-          <input v-model="ask" type="checkbox" class="accent-accent-500">
+          <input v-model="ask" type="checkbox" class="accent-accent-fill">
           Ask a session to pick it up
         </label>
         <span v-if="failed" class="text-xs text-rose-700 dark:text-rose-400">{{ failed }}</span>
