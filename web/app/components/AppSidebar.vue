@@ -122,9 +122,10 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
         <span v-if="environment" class="rounded-md bg-sky-500/15 px-1.5 py-px text-[11px] font-semibold text-sky-700 ring-1 ring-sky-500/30 dark:text-sky-300" :title="`This is the ${environment} orrery: its own database, apart from any other`">{{ environment }}</span>
       </NuxtLink>
       <span class="flex items-center gap-1.5 text-[11px] text-faint" :title="LIVE[live].title">
-        <span class="relative flex size-1.5">
+        <UiSpinner v-if="live === 'connecting' || live === 'reconnecting'" />
+        <span v-else class="relative flex size-1.5">
           <span v-if="live === 'connected'" class="absolute inline-flex size-full animate-ping rounded-full bg-emerald-400 opacity-60" />
-          <span class="relative inline-flex size-1.5 rounded-full" :class="live === 'connected' ? 'bg-emerald-400' : live === 'offline' ? 'bg-rose-500' : 'bg-amber-400'" />
+          <span class="relative inline-flex size-1.5 rounded-full" :class="live === 'connected' ? 'bg-emerald-400' : 'bg-rose-500'" />
         </span>
         {{ LIVE[live].label }}
       </span>

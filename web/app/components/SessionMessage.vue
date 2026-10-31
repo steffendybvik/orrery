@@ -117,7 +117,7 @@ async function send() {
           class="h-7 shrink-0 rounded-lg px-3 text-xs font-medium text-accent-700 ring-1 ring-accent-500/40 hover:bg-accent-500/10 disabled:opacity-40 dark:text-accent-400"
           :disabled="!text.trim() || busy"
       >
-        {{ busy ? 'Sending…' : sent ? 'Sent' : 'Send' }}
+        <UiBusy :busy="busy" label="Sending…">{{ sent ? 'Sent' : 'Send' }}</UiBusy>
       </button>
     </div>
     <p v-if="failed" class="text-xs text-rose-700 dark:text-rose-400">{{ failed }}</p>

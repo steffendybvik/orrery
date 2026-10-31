@@ -168,3 +168,23 @@ test('copies the whole issue, with every comment or none, and no description', a
     await expect(copy).toHaveText('Copy issue')
     expect(await copied()).toContain('Second coat tomorrow')
 })
+
+test('a button at work shows the spinner beside its words and holds its width (ORR-812)', async ({page, request}) => {
+    const {id} = await api(request, 'post', '/issues', {title: 'A slow comment'})
+    await page.goto(`/p/studio/issues/${id}`)
+    await page.getByRole('textbox', {name: 'Comment'}).fill('Taking its time')
+    const button = page.getByRole('button', {name: 'Comment', exact: true})
+    const width = (await button.boundingBox())!.width
+    let answer = () => {}
+    const held = new Promise<void>(resolve => { answer = resolve })
+    await page.route('**/comments', async route => {
+        if (route.request().method() === 'POST') await held
+        await route.continue()
+    })
+    await button.click()
+    const busy = page.getByRole('button', {name: 'Posting…'})
+    await expect(busy.getByTestId('spinner')).toBeVisible()
+    expect((await busy.boundingBox())!.width).toBe(width)
+    answer()
+    await expect(page.getByRole('button', {name: 'Comment', exact: true})).toBeVisible()
+})

@@ -36,7 +36,7 @@ async function focus(session: Session | null) {
     <MenuButton v-else as="template" :disabled="sending">
       <UiButton size="xs" :title="`Ask the sessions to work through the ${label} issues, most urgent first`">
         <svg class="size-3 text-accent-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="8" /><circle cx="12" cy="12" r="3" /></svg>
-        {{ sending ? 'Sending…' : `Focus on all ${label}` }}
+        <UiBusy :busy="sending" label="Sending…">{{ `Focus on all ${label}` }}</UiBusy>
       </UiButton>
     </MenuButton>
     <MenuItems class="menu absolute top-full right-0 z-40 mt-1.5 w-56">

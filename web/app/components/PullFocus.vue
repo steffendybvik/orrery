@@ -65,7 +65,7 @@ async function send(close: () => void) {
         <p v-if="failed" class="text-xs text-rose-700 dark:text-rose-400">{{ failed }}</p>
         <div class="flex items-center gap-2">
           <KeyHint class="ml-auto">⌘↵</KeyHint>
-          <UiButton type="submit" variant="primary" size="xs" :disabled="busy || !note.trim()">{{ busy ? 'Sending…' : 'Send' }}</UiButton>
+          <UiButton type="submit" variant="primary" size="xs" :disabled="busy || !note.trim()"><UiBusy :busy="busy" label="Sending…">Send</UiBusy></UiButton>
         </div>
       </form>
     </PopoverPanel>

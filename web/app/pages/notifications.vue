@@ -85,7 +85,8 @@ const clearLine = (row: NoticeRow) => clear(row.notices.filter(n => !n.cleared))
     <span class="shrink-0 text-xs text-faint">Events →</span>
   </NuxtLink>
 
-  <div v-if="loaded && !shown.length" class="flex min-h-0 flex-1 flex-col items-center gap-2 overflow-y-auto px-4 py-24 text-center">
+  <UiLoading v-if="!loaded" />
+  <div v-else-if="!shown.length" class="flex min-h-0 flex-1 flex-col items-center gap-2 overflow-y-auto px-4 py-24 text-center">
     <p class="text-sm text-muted">No notifications.</p>
     <p class="text-xs text-faint">Agents' comments on issues land here and in the bell; their questions and proposals for you stay, marked in violet, until you answer or decide them on the issue, or clear them.</p>
   </div>

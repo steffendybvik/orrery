@@ -239,7 +239,7 @@ useHead(() => ({title: project.value ? `Settings · ${project.value.name} · orr
           </label>
           <div class="flex items-center gap-2">
             <UiButton type="submit" variant="danger" size="md" :disabled="typed !== project.id || removing">
-              {{ removing ? 'Deleting…' : `Delete ${project.name} forever` }}
+              <UiBusy :busy="removing" label="Deleting…">{{ `Delete ${project.name} forever` }}</UiBusy>
             </UiButton>
             <UiButton size="md" @click="deleting = false; typed = ''">Cancel</UiButton>
             <span v-if="failed" class="text-xs text-rose-700 dark:text-rose-400">{{ failed }}</span>
@@ -248,5 +248,6 @@ useHead(() => ({title: project.value ? `Settings · ${project.value.name} · orr
       </section>
     </div>
     <NotFound v-else-if="ready" reason="It may have been renamed or deleted." to="/mine" back="Go to My issues">No project “{{ route.params.project }}”</NotFound>
+    <UiLoading v-else />
   </div>
 </template>

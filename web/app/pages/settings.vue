@@ -463,7 +463,7 @@ async function pick(tint: string | null) {
                   :title="settings.database.backed_up_at && new Date(settings.database.backed_up_at).toLocaleString()"
                   data-backup-latest
               >{{ settings.database.backed_up_at ? ago(settings.database.backed_up_at) : 'None yet' }}<template v-if="backupStale"> (over two days old)</template></span>
-              <UiButton :disabled="backingUp" @click="backUpNow">{{ backingUp ? 'Backing up…' : 'Back up now' }}</UiButton>
+              <UiButton :disabled="backingUp" @click="backUpNow"><UiBusy :busy="backingUp" label="Backing up…">Back up now</UiBusy></UiButton>
               <span v-if="backupFailed" class="text-xs text-rose-700 dark:text-rose-400">{{ backupFailed }}</span>
               <span
                   v-else-if="settings.database.backup_failed"
@@ -497,7 +497,7 @@ async function pick(tint: string | null) {
                 class="h-8 w-[28rem] max-w-full field font-mono"
                 @keydown.esc="backupUrl = ''; ($event.target as HTMLInputElement).blur()"
             >
-            <UiButton type="submit" :disabled="settingBackups || !backupUrl.trim()">{{ settingBackups ? 'Backing up…' : 'Back up there' }}</UiButton>
+            <UiButton type="submit" :disabled="settingBackups || !backupUrl.trim()"><UiBusy :busy="settingBackups" label="Backing up…">Back up there</UiBusy></UiButton>
           </form>
           <form v-else-if="settings.database.backups_settable === 'folder'" class="flex flex-wrap items-center gap-2" @submit.prevent="setBackups(true)">
             <input
@@ -508,7 +508,7 @@ async function pick(tint: string | null) {
                 class="h-8 w-[28rem] max-w-full field font-mono"
                 @keydown.esc="backupFolder = settings.database.backup_folder ?? settings.database.backup ?? settings.database.backup_default ?? ''; ($event.target as HTMLInputElement).blur()"
             >
-            <UiButton type="submit" :disabled="settingBackups || !backupFolder.trim()">{{ settingBackups ? 'Backing up…' : 'Back up here' }}</UiButton>
+            <UiButton type="submit" :disabled="settingBackups || !backupFolder.trim()"><UiBusy :busy="settingBackups" label="Backing up…">Back up here</UiBusy></UiButton>
             <UiButton v-if="settings.database.backup_folder && settings.database.backup_default" variant="ghost" :disabled="settingBackups" @click="setBackups(!settings.database.backups_off, null)">Use {{ settings.database.backup_default }}</UiButton>
           </form>
           <div v-if="settings.database.backup" class="flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-muted">

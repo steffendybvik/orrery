@@ -73,9 +73,9 @@ async function act(what: 'allow' | 'deny' | 'watch') {
       <span v-if="session.asking.detail" class="min-w-0 truncate rounded-md bg-well px-2 py-1 font-mono text-[11px] text-fg" :title="session.asking.detail">{{ session.asking.detail }}</span>
     </p>
     <div v-if="launch" class="flex items-center gap-2">
-      <UiButton variant="primary" size="xs" :disabled="!!busy" title="Answers “Yes” once" @click="act('allow')">{{ busy === 'allow' ? 'Allowing…' : 'Allow' }}</UiButton>
-      <UiButton size="xs" :disabled="!!busy" title="Answers “No” once" @click="act('deny')">{{ busy === 'deny' ? 'Denying…' : 'Deny' }}</UiButton>
-      <UiButton size="xs" :disabled="!!busy" @click="act('watch')">{{ busy === 'watch' ? 'Opening…' : 'Open tmux' }}</UiButton>
+      <UiButton variant="primary" size="xs" :disabled="!!busy" title="Answers “Yes” once" @click="act('allow')"><UiBusy :busy="busy === 'allow'" label="Allowing…">Allow</UiBusy></UiButton>
+      <UiButton size="xs" :disabled="!!busy" title="Answers “No” once" @click="act('deny')"><UiBusy :busy="busy === 'deny'" label="Denying…">Deny</UiBusy></UiButton>
+      <UiButton size="xs" :disabled="!!busy" @click="act('watch')"><UiBusy :busy="busy === 'watch'" label="Opening…">Open tmux</UiBusy></UiButton>
     </div>
     <p v-else class="text-faint">Started in a terminal: answer it there.</p>
     <p v-if="failed" class="text-rose-700 dark:text-rose-400">{{ failed }}</p>

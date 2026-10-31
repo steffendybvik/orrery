@@ -57,7 +57,7 @@ onMounted(() => {
     />
     <div class="flex items-center gap-2 px-1">
       <ImageButton @picked="upload" />
-      <span v-if="uploading" class="text-xs text-faint">Adding image…</span>
+      <span v-if="uploading" class="inline-flex items-center gap-1.5 text-xs text-faint"><UiSpinner />Adding image…</span>
       <span v-else-if="uploadError" class="text-xs text-rose-700 dark:text-rose-400">{{ uploadError }}</span>
       <span v-if="failed" class="text-xs text-rose-700 dark:text-rose-400">Couldn't {{ comment ? 'save' : 'post' }}. Is orrery running?</span>
       <UiButton v-if="comment" class="ml-auto" :disabled="posting" @click="emit('cancel')">Cancel <KeyHint>esc</KeyHint></UiButton>
@@ -66,7 +66,7 @@ onMounted(() => {
           variant="primary"
           :class="!comment && 'ml-auto'"
           :disabled="!body.trim() || posting || !!uploading"
-      >{{ comment ? posting ? 'Saving…' : 'Save' : posting ? 'Posting…' : 'Comment' }}</UiButton>
+      ><UiBusy :busy="posting" :label="comment ? 'Saving…' : 'Posting…'">{{ comment ? 'Save' : 'Comment' }}</UiBusy></UiButton>
     </div>
   </form>
 </template>

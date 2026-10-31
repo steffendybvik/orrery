@@ -27,7 +27,7 @@ defineEmits<{focus: []}>()
         :title="issue ? `Ask ${session.name} to work on this now` : `Ask ${session.name} to work through this chunk now`"
         @click="$emit('focus')"
     >
-      {{ sending === session.id ? 'Sending…' : 'Focus on this' }}
+      <UiBusy :busy="sending === session.id" label="Sending…">Focus on this</UiBusy>
     </button>
   </li>
 </template>

@@ -103,7 +103,7 @@ async function create() {
         />
         <div class="-ml-1.5 flex items-center gap-2">
           <ImageButton @picked="upload" />
-          <span v-if="uploading" class="text-xs text-faint">Adding image…</span>
+          <span v-if="uploading" class="inline-flex items-center gap-1.5 text-xs text-faint"><UiSpinner />Adding image…</span>
           <span v-else-if="uploadError" class="text-xs text-rose-700 dark:text-rose-400">{{ uploadError }}</span>
         </div>
       </div>
@@ -135,7 +135,7 @@ async function create() {
         </label>
         <span v-if="failed" class="text-xs text-rose-700 dark:text-rose-400">{{ failed }}</span>
         <UiButton type="submit" variant="primary" size="md" class="ml-auto" :disabled="!title.trim() || saving || !!uploading">
-          {{ saving ? 'Creating…' : 'Create issue' }} <KeyHint class="bg-black/10 text-on-accent ring-0">⌘↵</KeyHint>
+          <UiBusy :busy="saving" label="Creating…">Create issue</UiBusy> <KeyHint class="bg-black/10 text-on-accent ring-0">⌘↵</KeyHint>
         </UiButton>
       </div>
     </template>

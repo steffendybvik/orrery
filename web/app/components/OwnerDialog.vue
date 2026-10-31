@@ -133,7 +133,7 @@ async function save() {
         <span v-if="failed" class="text-xs text-rose-700 dark:text-rose-400">{{ failed }}</span>
         <span v-else-if="id === 'agent'" class="text-xs text-rose-700 dark:text-rose-400">"agent" is what requests without a name are; pick another.</span>
         <UiButton type="submit" variant="primary" size="md" class="ml-auto" :disabled="!ready">
-          {{ saving ? 'Saving…' : 'Continue' }}
+          <UiBusy :busy="saving" label="Saving…">Continue</UiBusy>
         </UiButton>
       </div>
     </template>

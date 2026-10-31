@@ -46,7 +46,7 @@ async function copyAttach() {
     <span v-if="note" class="text-faint">{{ note }}</span>
     <template v-if="stopping">
       <span class="text-muted">Stop {{ session.name }}?</span>
-      <UiButton variant="danger-outline" size="xs" :disabled="!!busy" @click="act('stop')">{{ busy === 'stop' ? 'Stopping…' : 'Stop' }}</UiButton>
+      <UiButton variant="danger-outline" size="xs" :disabled="!!busy" @click="act('stop')"><UiBusy :busy="busy === 'stop'" label="Stopping…">Stop</UiBusy></UiButton>
       <UiButton size="xs" :disabled="!!busy" @click="stopping = false">Cancel</UiButton>
     </template>
     <template v-else>
@@ -56,7 +56,7 @@ async function copyAttach() {
           :title="`Open ${TERMINALS[settings.terminal]} on ${session.name}, on its launcher's machine`"
           @click="act('watch')"
       >
-        {{ busy === 'watch' ? 'Opening…' : 'Watch' }}
+        <UiBusy :busy="busy === 'watch'" label="Opening…">Watch</UiBusy>
       </UiButton>
       <UiButton size="xs" :aria-expanded="viewing" @click="viewing = !viewing">{{ viewing ? 'Hide screen' : 'Show screen' }}</UiButton>
       <UiButton variant="danger-outline" size="xs" :disabled="!!busy" :title="`Stop ${session.name}`" @click="stopping = true">Stop</UiButton>

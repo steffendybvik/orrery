@@ -142,7 +142,7 @@ useHead(() => ({title: project.value ? `Releases · ${project.value.name} · orr
             <input v-model="branch" placeholder="v1.0.0-rc.3" spellcheck="false" autocomplete="off" class="h-8 w-56 field font-mono" @input="branchTyped = true">
           </label>
           <div class="flex items-center gap-2">
-            <UiButton type="submit" variant="primary" size="md" :disabled="busy || !version.trim()">{{ busy ? 'Making…' : 'Make it' }}</UiButton>
+            <UiButton type="submit" variant="primary" size="md" :disabled="busy || !version.trim()"><UiBusy :busy="busy" label="Making…">Make it</UiBusy></UiButton>
             <UiButton size="md" @click="cancel">Cancel</UiButton>
           </div>
         </div>
@@ -187,5 +187,6 @@ useHead(() => ({title: project.value ? `Releases · ${project.value.name} · orr
       </p>
     </div>
     <NotFound v-else-if="ready" reason="It may have been renamed or deleted." to="/mine" back="Go to My issues">No project “{{ route.params.project }}”</NotFound>
+    <UiLoading v-else />
   </div>
 </template>

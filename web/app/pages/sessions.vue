@@ -117,6 +117,7 @@ watch(() => [route.hash, count.value] as const, ([hash]) => show(hash), {immedia
 
   <div ref="scroller" class="min-h-0 flex-1 overflow-y-auto">
     <EmptyProjects v-if="ready && !projects.length" />
+    <UiLoading v-else-if="!ready" />
     <div v-else class="mx-auto flex max-w-6xl animate-fade-up gap-12 px-4 py-6 sm:px-8">
     <div v-if="tab === 'setup'" class="flex min-w-0 max-w-4xl flex-1 flex-col gap-6">
       <section id="starts" class="flex scroll-mt-14 flex-col gap-2">

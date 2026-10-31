@@ -233,7 +233,7 @@ useHead(() => ({title: release.value && project.value ? `${release.value.version
             <span class="mr-auto text-xs text-faint">Markdown</span>
             <UiButton :disabled="saving" @click="editingNotes = false">Cancel <KeyHint>esc</KeyHint></UiButton>
             <UiButton variant="primary" :disabled="saving" @click="saveNotes">
-              {{ saving ? 'Saving…' : 'Save' }} <KeyHint class="bg-black/10 text-on-accent ring-0">⌘↵</KeyHint>
+              <UiBusy :busy="saving" label="Saving…">Save</UiBusy> <KeyHint class="bg-black/10 text-on-accent ring-0">⌘↵</KeyHint>
             </UiButton>
           </div>
         </section>
@@ -284,5 +284,6 @@ useHead(() => ({title: release.value && project.value ? `${release.value.version
       </template>
     </template>
     <NotFound v-else-if="ready" :to="`/p/${route.params.project}/releases`" back="Back to the releases">No release “{{ route.params.release }}”</NotFound>
+    <UiLoading v-else />
   </div>
 </template>
