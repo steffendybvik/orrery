@@ -204,7 +204,7 @@ until the release ships.
   (stored as their id, so it shows under their My issues; `?assignee=owner` finds theirs too)
 - A top-level issue is in a `chunk`; a sub-issue (`parent`) is in its parent's chunk, so it takes no `chunk`
 - `parent: null` lifts a sub-issue to the top, into the chunk it was in
-- `release`: the version of a release of the project, or of the project it takes its releases from (see [Releases](#releases)); moving the issue to a project that doesn't share them takes it out
+- `release`: the version of a release of the project, or of the project it takes its releases from (see [Releases](#releases)); moving the issue to a project that doesn't share them takes it out. orrery sets it itself when a pull request on the issue merges into the branch of a release being prepared, if the issue and those above it have none
 - `project` moves the issue with its sub-issues and comments; they get that project's ids, their old ones kept as aliases
 - `depends_on`: the issues it waits on, all of them, replacing the list (`[]` or `null` for none): an id in its project,
   `project/ID` in another. An issue itself, one not there, more than 50, a parent and its own sub-issue, and a loop are

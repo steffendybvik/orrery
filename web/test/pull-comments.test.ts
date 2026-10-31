@@ -76,6 +76,102 @@ describe("a pull request's news on its issue", () => {
         expect(signals).toEqual([])
     })
 
+    describe("the release of an issue whose pull request merged (ORR-791)", () => {
+        /** The project makes releases, one of them on the branch these pull requests merge into. */
+        async function releases() {
+            await store.updateProject('shop', {release_mode: 'own'}, me)
+            await store.createRelease('shop', {version: '1.0', branch: 'v1.0.0-rc.11'}, me)
+            events = []
+        }
+        const release = async (id = 'SHO-1') => (await store.issue('shop', id)).release
+        const said = async (id = 'SHO-1') => (await store.listComments('shop', id)).at(-1)?.body
+
+        it("sets it, as orrery's, before the news goes out, and says so", async () => {
+            await releases()
+            await commentOnPull(store, change('merged'))
+            expect(await release()).toBe('1.0')
+            expect(await said()).toContain("That's the branch of release `1.0`, so I've set this issue for it.")
+            expect(events.map(e => e.type)).toEqual(['issue.release', 'comment.added', 'pr.merged'])
+            expect(events[0]).toMatchObject({by: {name: 'orrery', owner: false}})
+        })
+
+        it('leaves a release someone chose, and says so when they disagree', async () => {
+            await releases()
+            await store.createRelease('shop', {version: '2.0'}, me)
+            await store.updateIssue('shop', 'SHO-1', {release: '2.0'}, me)
+            await commentOnPull(store, change('merged'))
+            expect(await release()).toBe('2.0')
+            expect(await said()).toContain('This issue is set for `2.0`, so I\'ve left that')
+        })
+
+        it('says nothing more when the issue is already set for it', async () => {
+            await releases()
+            await store.updateIssue('shop', 'SHO-1', {release: '1.0'}, me)
+            await commentOnPull(store, change('merged'))
+            expect(await said()).toBe('[#12](https://github.com/you/shop/pull/12) was merged into `v1.0.0-rc.11`.')
+        })
+
+        it('lets a sub-issue go out with its parent, and sets its own when nothing above it has one', async () => {
+            await releases()
+            await store.createRelease('shop', {version: '2.0'}, me)
+            const sub = await store.createIssue('shop', {title: 'The card form', parent: 'SHO-1'}, me)
+            await commentOnPull(store, {...change('merged'), issue: sub.id})
+            expect(await release(sub.id)).toBe('1.0')
+
+            await store.updateIssue('shop', sub.id, {release: null}, me)
+            await store.updateIssue('shop', 'SHO-1', {release: '1.0'}, me)
+            await commentOnPull(store, {...change('merged'), issue: sub.id})
+            expect(await release(sub.id)).toBeUndefined()
+            expect(await said(sub.id)).toBe('[#12](https://github.com/you/shop/pull/12) was merged into `v1.0.0-rc.11`.')
+
+            await store.updateIssue('shop', 'SHO-1', {release: '2.0'}, me)
+            await commentOnPull(store, {...change('merged'), issue: sub.id})
+            expect(await release(sub.id)).toBeUndefined()
+            expect(await said(sub.id)).toContain('SHO-1, above this issue, is set for `2.0`')
+        })
+
+        it('takes the release from the project it shares them with', async () => {
+            await releases()
+            await store.createProject({name: 'app', key: 'APP'}, me)
+            await store.updateProject('app', {release_mode: 'shared', releases_from: 'shop'}, me)
+            await store.createIssue('app', {title: 'Its page', status: 'in-progress'}, me)
+            await commentOnPull(store, {...change('merged'), project: 'app', issue: 'APP-1'})
+            expect(await store.issue('app', 'APP-1')).toMatchObject({release: '1.0'})
+        })
+
+        it("sets none on a branch no release names, a shipped release's, a shared name, a proposal, or without releases", async () => {
+            await commentOnPull(store, change('merged'))
+            expect(await release()).toBeUndefined()
+
+            await releases()
+            await commentOnPull(store, change('merged', {base: 'main'}))
+            expect(await release()).toBeUndefined()
+
+            const proposal = await store.createIssue('shop', {title: 'Maybe', proposal: 'pending'}, me)
+            await commentOnPull(store, {...change('merged'), issue: proposal.id})
+            expect(await release(proposal.id)).toBeUndefined()
+
+            await store.createRelease('shop', {version: '1.1', branch: 'v1.0.0-rc.11'}, me)
+            await commentOnPull(store, change('merged'))
+            expect(await release()).toBeUndefined()
+
+            await store.updateRelease('shop', '1.1', {branch: null}, me)
+            await store.updateRelease('shop', '1.0', {shipped_on: '2026-10-30'}, me)
+            await commentOnPull(store, change('merged'))
+            expect(await release()).toBeUndefined()
+        })
+
+        it('holds for an issue of another person on a shared orrery, and only on a merge', async () => {
+            await releases()
+            await commentOnPull(store, change('closed'))
+            expect(await release()).toBeUndefined()
+            await store.nameOwner({name: 'Skoll'})
+            await store.addPerson({name: 'Hate'})
+            await commentOnPull(store, change('merged'))
+            expect(await release()).toBe('1.0')
+        })
+    })
+
     it('says checks failed with where to read them, never what they printed', () => {
         const said = pullComment(change('checks_failed'))!
         expect(said).toContain('[see them](https://github.com/you/shop/pull/12/checks)')
