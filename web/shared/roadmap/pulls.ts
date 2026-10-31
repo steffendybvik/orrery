@@ -111,3 +111,56 @@ export interface AllPulls {
      * polled without one a moment ago). */
     repos: {repo: string, projects: string[], token: boolean, token_problem?: string, checked_at: string | null, open: number, needs: number, cut?: number, error?: string, held?: string}[]
 }
+
+/** What to do with a branch: remove it, keep it, or look at it first (ORR-793). */
+export type BranchVerdict = 'remove' | 'keep' | 'look'
+
+export interface RepoBranch {
+    repo: string
+    name: string
+    sha: string
+    /** Its last commit; null read without a token. */
+    committed_at: string | null
+    /** Commits not in `base`; null read without a token. A squash merge leaves a branch's commits reading as not in it. */
+    ahead: number | null
+    /** The issue its name names, when a project has it. */
+    issue?: {project: string, id: string, title: string, kind: string}
+    pull?: {number: number, url: string, state: 'open' | 'merged' | 'closed'}
+    verdict: BranchVerdict
+    why: string
+}
+
+export interface AllBranches {
+    branches: RepoBranch[]
+    repos: {repo: string, projects: string[], base: string | null, token: boolean, error?: string, cut?: number}[]
+}
+
+/** What's known of a branch, for its verdict. */
+export interface BranchFacts {
+    /** The repo's default branch, or the branch of a release being prepared. */
+    held: boolean
+    sha: string
+    ahead: number | null
+    /** `head_sha` when the PR's last commit is known. */
+    pull?: {state: 'open' | 'merged' | 'closed', head_sha?: string | null}
+    issueKind?: string
+    /** A session that's listening has the branch's issue started. */
+    worked: boolean
+}
+
+/** Keep what's in use, remove what has nothing left to bring in, and leave the rest for someone to look at. Only a merged
+ * PR with no commits since, or no commits past the base, reads as remove: a squash merge makes commit counts alone say unmerged. */
+export function branchVerdict(branch: BranchFacts): {verdict: BranchVerdict, why: string} {
+    if (branch.held) return {verdict: 'keep', why: 'The default branch, or a release being prepared'}
+    if (branch.pull?.state === 'open') return {verdict: 'keep', why: 'Its pull request is open'}
+    if (branch.worked) return {verdict: 'keep', why: 'A session is on its issue'}
+    if (branch.pull?.state === 'merged') {
+        return branch.pull.head_sha && branch.pull.head_sha !== branch.sha
+            ? {verdict: 'look', why: 'It has commits since its pull request merged'}
+            : {verdict: 'remove', why: 'Its pull request merged'}
+    }
+    if (branch.ahead === 0) return {verdict: 'remove', why: 'It has nothing left to bring in'}
+    if (branch.pull?.state === 'closed') return {verdict: 'look', why: 'Its pull request closed without merging'}
+    if (branch.issueKind === 'done' || branch.issueKind === 'canceled') return {verdict: 'look', why: 'Its issue is finished, and it has commits left'}
+    return {verdict: 'look', why: 'It has no pull request'}
+}
