@@ -86,7 +86,7 @@ const clearOne = (notice: Notice) => clear([notice])
       <ul>
         <li v-for="row in day.rows" :key="row.key" class="border-b border-line">
           <div
-              class="group relative grid grid-cols-[3.25rem_1.25rem_minmax(0,1fr)_1.75rem] items-stretch px-3 text-[13px] transition-colors hover:bg-hover sm:grid-cols-[3.25rem_1.25rem_5.5rem_4.75rem_minmax(0,1fr)_6.5rem_1.75rem] sm:px-4"
+              class="group relative grid grid-cols-[4.25rem_1.25rem_minmax(0,1fr)_1.75rem] items-stretch px-3 text-[13px] transition-colors hover:bg-hover sm:grid-cols-[4.25rem_1.25rem_5.5rem_4.75rem_minmax(0,1fr)_6.5rem_1.75rem] sm:px-4"
               :class="tint(row)"
           >
             <button
@@ -96,7 +96,7 @@ const clearOne = (notice: Notice) => clear([notice])
                 :aria-expanded="open.includes(row.key)"
                 @click="toggle(row)"
             />
-            <span class="self-center py-2 font-mono text-xs text-muted" :title="when(row.latest)">{{ time(row.latest) }}</span>
+            <span class="self-center py-2 font-mono text-xs whitespace-nowrap text-muted" :title="when(row.latest)">{{ time(row.latest) }}</span>
             <span class="relative flex items-center justify-center before:absolute before:inset-y-0 before:left-1/2 before:w-px before:bg-faint/40">
               <span class="relative size-2.5 rounded-full ring-2" :class="dot(row)" :data-state="row.waiting ? 'waiting' : row.unread ? 'unread' : 'read'" />
             </span>
@@ -107,7 +107,7 @@ const clearOne = (notice: Notice) => clear([notice])
                 @click="markRead(row.notices)"
             >{{ row.issue }}</NuxtLink>
             <span class="min-w-0 self-center truncate py-2 pl-2 sm:pl-0">
-              <span :class="row.unread || row.waiting ? 'font-medium text-fg' : 'text-muted'">{{ row.title }}</span>
+              <span :class="row.unread || row.waiting ? 'font-medium text-fg' : 'text-muted'"><InlineText :text="row.title" /></span>
               <span class="ml-2 hidden text-xs text-muted lg:inline">{{ firstLine(row) }}</span>
             </span>
             <span class="hidden self-center truncate py-2 pl-2 text-right text-xs text-muted sm:block">{{ projectName(row.project) }}</span>
@@ -122,7 +122,7 @@ const clearOne = (notice: Notice) => clear([notice])
               <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
             </button>
           </div>
-          <div v-if="open.includes(row.key)" class="border-t border-line bg-panel py-3 pr-3 pl-[5.5rem] sm:pr-4">
+          <div v-if="open.includes(row.key)" class="relative border-t border-line bg-panel py-3 pr-3 pl-[6.5rem] before:absolute before:inset-y-0 before:left-[5.625rem] before:w-px before:bg-faint/40 sm:pr-4 sm:before:left-[5.875rem]">
             <NuxtLink :to="pathOf(row.project, row.issue)" class="mb-2 inline-block text-xs text-accent-700 hover:underline dark:text-accent-400">Open {{ row.issue }} →</NuxtLink>
             <div v-for="notice in row.notices" :key="noticeKey(notice)" class="group/notice relative border-t border-line py-2 first:border-t-0">
               <p v-if="row.notices.length > 1" class="mb-1 font-mono text-xs text-muted" :title="when(notice.created_at)">{{ time(notice.created_at) }}</p>
