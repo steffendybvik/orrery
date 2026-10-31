@@ -46,6 +46,8 @@ overview, is one list.
 - **A fresh install no longer offers to restore its own empty backups.**
 - **A session's state no longer sticks as a page opens:** one that changed just then could stay shown as it was until it
   next changed.
+- **The Connect brief's setup steps show as code:** the `.mcp.json` and hooks JSON ran together as a paragraph, and the
+  `CLAUDE.md` section's heading was a real heading on the page.
 
 ### Docs
 
