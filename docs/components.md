@@ -137,7 +137,7 @@ Where a class is all it takes, it's a utility rather than a component:
 
 Colours come from the theme, never a fixed grey: `bg-canvas` (the page), `bg-panel` (sidebar, cards),
 `bg-raised` (popovers), `bg-well` (fields, segmented controls), `border-line`, `text-fg` / `text-muted` /
-`text-faint`, `bg-hover` / `bg-active` (rows), and the accent `accent-300…700`: words on the page are `text-accent-700 dark:text-accent-400`, as the lighter ones can't be read on a light page, and a fill with words or an icon on it is `bg-accent-fill text-on-accent`: white on a deeper orange in light, near-black on `accent-500` in dark. `accent-500` itself stays for what carries no words, like dots and bars, as white can't be read on it. Red words are `text-rose-700 dark:text-rose-400`, as `rose-600` only reads on pure white, and a tinted page takes that away; amber words are `text-amber-800 dark:text-amber-300` for the same reason. A tint moves `text-faint` too (`main.css`). Each has a light and a dark value,
+`text-faint`, `bg-hover` / `bg-active` (rows), and the accent `accent-300…700`: words on the page are `text-accent-700 dark:text-accent-400`, as the lighter ones can't be read on a light page, and a fill with words or an icon on it is `bg-accent-fill text-on-accent`: white on a deeper orange in light, near-black on `accent-500` in dark. `accent-500` itself stays for what carries no words, like dots and bars, as white can't be read on it. An error is never told by colour alone, as red and the primary are about as bright: it says so in words, or has a warning sign (`ErrorBadge`), and a filled red is `bg-rose-700`. Red words are `text-rose-700 dark:text-rose-400`, as `rose-600` only reads on pure white, and a tinted page takes that away; amber words are `text-amber-800 dark:text-amber-300` for the same reason. A tint moves `text-faint` too (`main.css`). Each has a light and a dark value,
 and an orrery's tint mixes into the surfaces, so a fixed colour looks wrong in one of them.
 
 A card or a section that should read as its own surface goes on `bg-panel`, not a border alone: in the dark a border on
@@ -176,6 +176,7 @@ Already one component each; use them rather than drawing the same thing again.
 | `ProjectIcon` | a project's Heroicon in its colour |
 | `SectionIcon` | the icon of a project's page (issues, roadmap, docs…) |
 | `SessionDot` | a Claude session's state as a dot |
+| `ErrorBadge` | a count of what's gone wrong: red with a warning sign, on the bell, the sidebar and App settings |
 | `PullStateChip` | where an open pull request stands (Conflicts, Behind, Ready to merge…), red to green |
 | `ScheduleRunButton` | **Run schedule** in a project's issues toolbar: a popover of the schedules Run now can run, each run at once; the confirmation is `ScheduleMenu`'s |
 | `PullFocus` | **Focus on this** on a pull request: a popover with the note `focusNote` writes from its state, to edit and send as a focus on its issue |
