@@ -57,6 +57,7 @@ export abstract class DocStore extends ChunkStore {
         }
         const now = stamp()
         await this.db.transaction(async () => {
+            await this.sectionLast(project, sectionOf(input.section))
             await this.run('INSERT INTO docs (project, id, title, body, kind, position, section, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
                 project, id, title, String(input.body ?? ''), kind, Number(input.position ?? await this.nextPosition('docs', project)), sectionOf(input.section) ?? null, actor.name, Number(actor.owner), now, now)
             await this.keepRevision(project, {id, title, body: String(input.body ?? ''), kind}, actor)
@@ -99,6 +100,7 @@ export abstract class DocStore extends ChunkStore {
             const now = await this.docRow(project, id)
             if (now.title !== then.title || now.body !== then.body) await this.keepRevision(project, now, actor)
             // Filing it elsewhere isn't a change to read, so it doesn't count as one (`updated_at`, what's unseen).
+            await this.sectionLast(project, section)
             if (section !== undefined) await this.run('UPDATE docs SET section = ? WHERE project = ? AND id = ?', section, project, id)
             await this.touchProject(project)
         })
@@ -156,6 +158,7 @@ export abstract class DocStore extends ChunkStore {
         await this.db.transaction(async () => {
             const first = await this.one<DocRevisionRow>('SELECT * FROM doc_revisions WHERE project = ? AND doc = ? ORDER BY id LIMIT 1', project, id)
             const last = await this.one<DocRevisionRow>('SELECT * FROM doc_revisions WHERE project = ? AND doc = ? ORDER BY id DESC LIMIT 1', project, id)
+            await this.sectionLast(project, last.section)
             await this.run('INSERT INTO docs (project, id, title, body, kind, position, section, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
                 project, id, title, body, kind, await this.nextPosition('docs', project), last.section, first.created_by, first.owned, first.created_at, now)
             await this.keepRevision(project, {id, title, body, kind}, actor)
@@ -177,6 +180,7 @@ export abstract class DocStore extends ChunkStore {
         const name = sectionName(body)
         if ((await readDocSections(this.db, project)).includes(name)) throw conflict(`There is already a section "${name}" in ${project}`)
         await this.db.transaction(async () => {
+            await this.sectionLast(project, name)
             await this.run('INSERT INTO doc_sections (project, name, created_at) VALUES (?, ?, ?)', project, name, stamp())
             await this.touchProject(project)
         })
@@ -191,6 +195,7 @@ export abstract class DocStore extends ChunkStore {
         if (name === from) return name
         if ((await readDocSections(this.db, project)).includes(name)) throw conflict(`There is already a section "${name}" in ${project}; move its docs there instead`)
         await this.db.transaction(async () => {
+            await this.arrangeSections(project, (await readDocSections(this.db, project)).map(each => each === from ? name : each))
             await this.run('UPDATE docs SET section = ? WHERE project = ? AND section = ?', name, project, from)
             await this.run('UPDATE doc_sections SET name = ? WHERE project = ? AND name = ?', name, project, from)
             await this.touchProject(project)
@@ -199,10 +204,39 @@ export abstract class DocStore extends ChunkStore {
         return name
     }
 
+    /** Changes a section: `name` renames it, and `position` moves it in the list, 0 the top (ORR-767). */
+    async updateDocSection(project: string, section: string, body: unknown): Promise<string> {
+        const {position} = isObject(body) ? body : {position: undefined}
+        if (position !== undefined && !(Number.isInteger(position) && Number(position) >= 0)) throw badRequest('A section\'s position is a whole number, 0 the top')
+        const name = position === undefined || (isObject(body) && body.name !== undefined) ? await this.renameDocSection(project, section, body) : section
+        if (position === undefined) return name
+        await this.sectionThere(project, name)
+        await this.db.transaction(async () => {
+            const others = (await readDocSections(this.db, project)).filter(each => each !== name)
+            others.splice(Number(position), 0, name)
+            await this.arrangeSections(project, others)
+            await this.touchProject(project)
+        })
+        this.changed(project)
+        return name
+    }
+
+    /** A new section goes at the end, so what's listed until now keeps its place, A–Z or as arranged. */
+    private async sectionLast(project: string, section: string | null | undefined) {
+        if (!section) return
+        const sections = await readDocSections(this.db, project)
+        if (!sections.includes(section)) await this.arrangeSections(project, [...sections, section])
+    }
+
+    private async arrangeSections(project: string, names: string[]) {
+        await this.run('UPDATE projects SET doc_section_order = ? WHERE id = ?', JSON.stringify(names), project)
+    }
+
     /** Deletes a section, keeping its docs: they're filed under none. */
     async deleteDocSection(project: string, name: string) {
         await this.sectionThere(project, name)
         await this.db.transaction(async () => {
+            await this.arrangeSections(project, (await readDocSections(this.db, project)).filter(each => each !== name))
             await this.run('UPDATE docs SET section = NULL WHERE project = ? AND section = ?', project, name)
             await this.run('DELETE FROM doc_sections WHERE project = ? AND name = ?', project, name)
             await this.touchProject(project)
