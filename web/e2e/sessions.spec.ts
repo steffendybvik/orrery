@@ -383,6 +383,26 @@ test('a session orrery started has Stop out front, asked once more', async ({pag
     }
 })
 
+test('+30 minutes tells the launcher, for a session with a stop time', async ({page, request, baseURL}) => {
+    const launcher = hold(baseURL!, '/api/projects/kitchen/launches/stream')
+    let stream: ReturnType<typeof hold> | undefined
+    try {
+        await expect.poll(async () => (await api(request, 'get', '/launches')).launchers).toBe(1)
+        const stops = new Date(Date.now() + 10 * 60_000)
+        await request.post('/api/projects/kitchen/launches/running', {data: {launches: [{id: 'e2e30e2e30e2', tmux: 'orrery-e2e-more', stops_at: stops.toISOString()}]}})
+        stream = hold(baseURL!, '/api/projects/kitchen/signals/stream?session=e2e-more&name=e2e-timed&started=e2e30e2e30e2&format=text')
+        await page.goto('/sessions#session-e2e-more')
+        await page.locator('#session-e2e-more').getByRole('button', {name: 'More for e2e-timed'}).click()
+        await page.getByRole('menuitem', {name: '+30 minutes'}).click()
+        await expect.poll(() => launcher.said.text).toContain('event: extend')
+        const sent = /event: extend\ndata: (.*)/.exec(launcher.said.text)![1]!
+        expect(Date.parse(JSON.parse(sent).stops_at)).toBeGreaterThan(stops.getTime() + 29 * 60_000)
+    } finally {
+        stream?.stop()
+        launcher.stop()
+    }
+})
+
 test('lists the repos the launcher serves on Setup, picked up or installed (ORR-605)', async ({page, baseURL}) => {
     const picked = hold(baseURL!, `/api/projects/kitchen/launches/stream?dir=${encodeURIComponent('/code/kitchen')}&picked=${encodeURIComponent(new Date().toISOString())}`)
     const installed = hold(baseURL!, `/api/projects/dairy/launches/stream?dir=${encodeURIComponent('/code/dairy')}`)
