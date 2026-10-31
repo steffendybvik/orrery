@@ -175,7 +175,7 @@ function messageParts(event: LoggedEvent): {text: string, to?: string}[] {
         <span class="basis-full break-words sm:basis-auto" :class="event.resolved_at ? 'text-muted' : event.level === 'info' ? 'text-fg' : LEVEL[event.level].text"><template v-for="(part, i) in messageParts(event)" :key="i"><NuxtLink
             v-if="part.to"
             :to="part.to"
-            class="text-accent-700 hover:underline dark:text-accent-400"
+            class="text-accent-700 underline underline-offset-2 dark:text-accent-400"
         >{{ part.text }}</NuxtLink><template v-else>{{ part.text }}</template></template></span>
         <span v-if="event.count > 1" class="text-faint">×{{ event.count }}</span>
         <span v-if="event.resolved_at" class="text-faint">(resolved{{ event.resolved_by ? ` by ${who(event.resolved_by)}` : '' }})</span>

@@ -107,8 +107,8 @@ async function tryDemo() {
       </li>
     </ol>
     <p class="text-xs text-faint">
-      Later: let orrery start sessions itself, from the <NuxtLink to="/sessions#starts" class="text-accent-700 hover:underline dark:text-accent-400">Sessions page</NuxtLink>.
-      Every step by hand is on <NuxtLink to="/connect" class="text-accent-700 hover:underline dark:text-accent-400">Connect an agent</NuxtLink>.
+      Later: let orrery start sessions itself, from the <NuxtLink to="/sessions#starts" class="text-accent-700 underline underline-offset-2 dark:text-accent-400">Sessions page</NuxtLink>.
+      Every step by hand is on <NuxtLink to="/connect" class="text-accent-700 underline underline-offset-2 dark:text-accent-400">Connect an agent</NuxtLink>.
     </p>
   </div>
 </template>
