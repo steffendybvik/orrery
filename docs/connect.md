@@ -4,7 +4,7 @@ The easy way: open **Connect an agent** in orrery's sidebar and press **Connect 
 machine's folder picker; choose the repo, tick its projects (or make one) on the page, and press **Set it up**. The launcher
 writes the repo's `CLAUDE.md` section, `.mcp.json` and hooks, keeping what's in them and safe to run again, puts the repo on
 its list, and opens Claude there in a terminal, where Claude Code asks once about the folder and the server. Commit the
-files with the repo.
+files with the repo. **Connected repos**, under the button, lists the repos your launchers serve.
 
 It needs the launcher running as a service, once per machine; the page gives the line until it is. macOS has its picker. On
 Linux it needs a desktop with `zenity` or `kdialog`. In WSL, or with neither, use the other way: pick (or make) the repo's

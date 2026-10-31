@@ -8,7 +8,7 @@
 // way is replaced by one like it once it has ended, so the count doesn't fall to nothing when no new work comes in.
 import {AsyncLocalStorage} from 'node:async_hooks'
 import {randomBytes} from 'node:crypto'
-import type {LauncherRepo, Session, SessionContext, Signal, StartedSession, Starts, TerminalApp} from '#shared/roadmap'
+import type {LauncherRepo, RepoAdded, Session, SessionContext, Signal, StartedSession, Starts, TerminalApp} from '#shared/roadmap'
 import type {Actor} from './store'
 import {EVERY} from './pool'
 import {scheduleRunning} from './schedules'
@@ -74,9 +74,9 @@ export const launchersOf = launchers.count
 /** The folders each project's launchers run in, as they say (`?dir=`), counted: projects with a folder in common
  * are served by one repo, so one session there can hear them all. */
 const folders = new Map<string, Map<string, number>>()
-/** When a project's folder was picked up by its channel rather than installed by hand (ORR-599), as its launcher
- * says (`?picked=`), for Sessions → Setup (ORR-605). */
-const picked = new Map<string, Map<string, string>>()
+/** When a project's folder was picked up by its channel (ORR-599) or added by Connect a repo (ORR-774) rather than
+ * installed by hand, as its launcher says (`?picked=`, `?connected=`), for Connected repos (ORR-605). */
+const added = new Map<string, Map<string, RepoAdded>>()
 /** How many of each project's launchers run where its channel serves every project (`*`, `?every=1`), so a session
  * started there hearing no one project hears them all. */
 const everywhere = counter('everywhere')
@@ -88,7 +88,7 @@ const versions = new Map<string, string[]>()
 const tokens = new Map<string, string>()
 /** Counts a project's launcher in, in its folder when it says, and as serving every project when it does, and the
  * version of its code, until `done` is called. `done.token` is the one its claims are to send. */
-export function addLauncher(project: string, dir?: string, every = false, version = '', pickedAt?: string): (() => void) & {token: string} {
+export function addLauncher(project: string, dir?: string, every = false, version = '', how: RepoAdded = {}): (() => void) & {token: string} {
     const token = randomBytes(18).toString('base64url')
     tokens.set(token, project)
     const gone = launchers.add(project)
@@ -108,7 +108,7 @@ export function addLauncher(project: string, dir?: string, every = false, versio
     if (!dir) return Object.assign(done, {token})
     const counts = folders.get(project) ?? new Map<string, number>()
     folders.set(project, counts.set(dir, (counts.get(dir) ?? 0) + 1))
-    if (pickedAt) picked.set(project, (picked.get(project) ?? new Map<string, string>()).set(dir, pickedAt))
+    if (how.picked_at || how.connected_at) added.set(project, (added.get(project) ?? new Map<string, RepoAdded>()).set(dir, how))
     let counted = true
     return Object.assign(() => {
         if (!counted) return
@@ -117,18 +117,15 @@ export function addLauncher(project: string, dir?: string, every = false, versio
         if (left > 0) counts.set(dir, left)
         else {
             counts.delete(dir)
-            picked.get(project)?.delete(dir)
+            added.get(project)?.delete(dir)
         }
         done()
     }, {token})
 }
 /** The folders a project's launchers run in. */
 const foldersOf = (project: string): string[] => [...folders.get(project)?.keys() ?? []]
-/** The folders its launchers run in, each with when its channel picked it up, if it did. */
-const reposOf = (project: string): LauncherRepo[] => foldersOf(project).map(dir => {
-    const at = picked.get(project)?.get(dir)
-    return at ? {dir, picked_at: at} : {dir}
-})
+/** The folders its launchers run in, each with when it was picked up or connected, if it was. */
+const reposOf = (project: string): LauncherRepo[] => foldersOf(project).map(dir => ({dir, ...added.get(project)?.get(dir)}))
 
 function pendingOn(project?: string): number {
     for (const [id, launch] of pending) {
