@@ -144,11 +144,13 @@ describe('starting a session', () => {
     })
 
     it('knows which folders a channel picked up, and when, until their launchers go (ORR-605)', () => {
-        const picked = launches.addLauncher('greenhouse', '/code/greenhouse', false, '', '2026-10-29T20:00:00.000Z')
+        const picked = launches.addLauncher('greenhouse', '/code/greenhouse', false, '', {picked_at: '2026-10-29T20:00:00.000Z'})
         const installed = launches.addLauncher('greenhouse', '/code/monorepo')
-        expect(launches.launchState('greenhouse').repos).toEqual([{dir: '/code/greenhouse', picked_at: '2026-10-29T20:00:00.000Z'}, {dir: '/code/monorepo'}])
+        const connected = launches.addLauncher('greenhouse', '/code/connected', false, '', {connected_at: '2026-10-30T20:00:00.000Z'})
+        expect(launches.launchState('greenhouse').repos).toEqual([{dir: '/code/greenhouse', picked_at: '2026-10-29T20:00:00.000Z'}, {dir: '/code/monorepo'}, {dir: '/code/connected', connected_at: '2026-10-30T20:00:00.000Z'}])
         picked()
         installed()
+        connected()
         expect(launches.launchState('greenhouse').repos).toEqual([])
         // Installed by hand there later, it isn't taken for picked up.
         const again = launches.addLauncher('greenhouse', '/code/greenhouse')

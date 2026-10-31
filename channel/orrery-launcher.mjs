@@ -464,7 +464,7 @@ const apiOf = ({url, project}) => `${url}/api/projects/${encodeURIComponent(proj
 
 /** Serves one project: listens for its launches, and for the owner stopping or extending the sessions it started,
  * until `signal` lets it go. */
-function serve({url, project, dir, picked_at: picked}, signal) {
+function serve({url, project, dir, picked_at: picked, connected_at: connected}, signal) {
     const api = apiOf({url, project})
     adopt(project, api)
     /** The token this connection's stream gave it (`ready`), which its claims send, so orrery knows they're a
@@ -497,8 +497,8 @@ function serve({url, project, dir, picked_at: picked}, signal) {
         headers: authHeaders(url),
         // The folder it serves from, so orrery knows which projects share one and can share a session, and whether its
         // channel serves every project, so a session started here hearing no one project hears them all.
-        // And when its channel picked the repo up (ORR-605), for Sessions → Setup.
-        url: () => `${api}/launches/stream?dir=${encodeURIComponent(dir)}${servesEvery(dir, url, project) ? '&every=1' : ''}&version=${encodeURIComponent(VERSION)}${picked ? `&picked=${encodeURIComponent(picked)}` : ''}`,
+        // And when its channel picked the repo up (ORR-605) or Connect a repo added it (ORR-774), for Connected repos.
+        url: () => `${api}/launches/stream?dir=${encodeURIComponent(dir)}${servesEvery(dir, url, project) ? '&every=1' : ''}&version=${encodeURIComponent(VERSION)}${picked ? `&picked=${encodeURIComponent(picked)}` : ''}${connected ? `&connected=${encodeURIComponent(connected)}` : ''}`,
         onEvent: async ({event, data}) => {
             if (event === 'ready') {
                 const {starts, version, token: given} = JSON.parse(data)
