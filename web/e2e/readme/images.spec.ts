@@ -6,8 +6,8 @@ import {expect, test} from '@playwright/test'
 import {hold} from '../support'
 
 // Takes the README's images, into docs/images: not a test, and not part of `pnpm test:e2e`. The playground's demo,
-// schedules for its page, and a fake launcher and three fake sessions where Claude would be: one waiting on a
-// permission, one working an issue and one idle.
+// and a fake launcher and three fake sessions where Claude would be: one waiting on a permission, one working an issue
+// and one idle.
 test.describe.configure({mode: 'serial'})
 
 const repo = (path: string) => fileURLToPath(new URL(`../../../${path}`, import.meta.url))
@@ -89,13 +89,6 @@ test('docs', async ({page}) => {
 
 test('schedules', async ({page}) => {
     await open(page, '/schedules?project=primes')
-    for (const title of ['Groom the backlog', 'Benchmark the sieves each week']) {
-        await page.getByRole('button', {name: 'New schedule in Primes'}).click()
-        const dialog = page.getByRole('dialog', {name: 'New schedule'})
-        await dialog.getByLabel('Title').fill(title)
-        await dialog.getByRole('button', {name: /Create schedule/}).click()
-        await expect(dialog).toBeHidden()
-    }
     await expect(page.getByRole('button', {name: /Benchmark the sieves/}).first()).toBeVisible()
     await shoot(page, 'schedules')
 })

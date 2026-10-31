@@ -111,6 +111,10 @@ answer its prompt), `Stop`, `StopFailure`, `Notification` and `SessionEnd`.
 back to Todo with nobody on it, and a comment says why. One in review or waiting on you stays where it is. The Sessions
 page and the sidebar mark the session (**usage limit reached**, with what Claude Code said) until its next turn gets going.
 
+A session that ends hands its work back the same way, about five minutes on so one resumed or reconnecting keeps it: its
+`SessionEnd` (not a `/clear`), its launcher saying it stopped, its channel closing with no hook (a kill), or its being
+forgotten. An issue assigned to you stays with you, even if the session touched it.
+
 ```json
 {
   "hooks": {

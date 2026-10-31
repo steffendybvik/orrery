@@ -1,3 +1,4 @@
+import {marked} from 'marked'
 import {afterEach, describe, expect, it, vi} from 'vitest'
 import type {ConnectTarget} from '#shared/connect'
 import {connectPieces, idsFor} from '#shared/connect'
@@ -80,10 +81,17 @@ describe('connecting a repo', () => {
         expect(brief.match(/^## Then$/gm)).toHaveLength(1)
     })
 
-    it('puts the CLAUDE.md section in the brief, indented as a block', () => {
+    it('puts the CLAUDE.md section in the brief, as a block in its step', () => {
         const {brief, claudeMd} = connectPieces(greenhouse)
         expect(claudeMd).toContain('issue ids `GRE-n`')
-        expect(brief).toContain('    ## Roadmap')
+        expect(brief).toContain('   ```markdown\n   ## Roadmap\n')
+    })
+
+    it("renders each setup step's block as code, in its step (ORR-773)", () => {
+        const {brief, bootstrap, claudeMd, mcpJson, settingsJson} = connectPieces(greenhouse)
+        const steps = marked.lexer(brief).flatMap(token => token.type === 'list' && token.ordered ? token.items as {tokens: {type: string, text: string}[]}[] : [])
+        const blocks = steps.map(step => step.tokens.filter(token => token.type === 'code').map(token => token.text))
+        expect(blocks).toEqual([[bootstrap], [claudeMd], [mcpJson], [settingsJson]])
     })
 })
 

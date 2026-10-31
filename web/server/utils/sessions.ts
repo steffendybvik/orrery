@@ -21,6 +21,8 @@ interface Known extends Session {
      * when asked. Its own project's say whether it's listening (`listening`) and can be stopped (`stoppable`). */
     channels?: Map<string, {streams: number, heard: number, stops: number}>
     stoppable?: number
+    /** Every project its channels have served, which outlasts them: it may have issues in progress on any of them. */
+    served?: Set<string>
     /** The owner asked it to quit: it's dropped once its channel goes. */
     stopping?: boolean
     /** When a `/clear` ended it: the next session to start after a clear on its project and folder is its
@@ -53,6 +55,11 @@ const CLEARED_FOR = 60 * 1000
 // A permission prompt isn't answered this soon after its dialog opened: another tool's `PreToolUse` landing in this time
 // is a parallel call's, late, not the session going on.
 const PARALLEL_WITHIN = 1000
+// How long a session that seems to have ended has to come back (`claude --resume`, a channel reconnecting) before the
+// issues it had in progress are handed back (ORR-775).
+const HAND_BACK_AFTER = 5 * 60 * 1000
+/** Sessions that seem to have ended, by the id they had then, with every id they went by and the wait for them. */
+const ending = new Map<string, {ids: string[], timer: ReturnType<typeof setTimeout>}>()
 
 /** What each hook event means for the session's state; `end` drops it. */
 const STATES: Record<string, SessionState | 'end'> = {
@@ -164,7 +171,34 @@ function roman(n: number): string {
     return out
 }
 
+/** The session seems to have ended: unless it's heard from again in time, what it had in progress is handed back. Kept
+ * in memory like the sessions, so orrery restarting drops the wait, and a session that really has gone stays on its issues.
+ * The first word of its end stands: by a later one (its channel closing after its `SessionEnd`) its other ids are forgotten. */
+function handBackSoon(session: Known) {
+    if (ending.has(session.id)) return
+    const ids = sessionIds(session.id)
+    const projects = new Set([session.project, ...session.served ?? []])
+    const {id, name} = session
+    ending.set(id, {ids, timer: setTimeout(() => {
+        ending.delete(id)
+        Promise.all([...projects].map(async project => letGoEnded(project, ids, name)))
+            .catch(error => console.error(`[orrery] handing back ${id}'s work:`, error))
+    }, HAND_BACK_AFTER)})
+    ending.get(id)?.timer.unref()
+}
+
+/** The session is here after all: what it has in progress stays its. */
+function stillHere(session: Known) {
+    const ids = sessionIds(session.id)
+    for (const [id, end] of ending) {
+        if (!end.ids.some(known => ids.includes(known))) continue
+        clearTimeout(end.timer)
+        ending.delete(id)
+    }
+}
+
 function forget(session: Known) {
+    handBackSoon(session)
     sessions.delete(session.id)
     for (const [from, to] of aliases) if (to === session.id) aliases.delete(from)
 }
@@ -241,6 +275,7 @@ export function report(input: Report): Session | null {
         session.seenAt = Date.now()
     }
     if (state === 'idle') session.idleAt = Date.now()
+    stillHere(session)
     changed(session.project)
     // Free now: it takes up what was sent to one session while every one was busy (pool.ts).
     if (state === 'idle') projectEvents.emit('session-idle', session.id)
@@ -332,6 +367,8 @@ export function attend(project: string, id: string | undefined, pid: number | un
     const count = held.channels.get(project) ?? {streams: 0, heard: 0, stops: 0}
     held.channels.set(project, {streams: count.streams + 1, heard: count.heard + Number(heard), stops: count.stops + Number(stops)})
     tally(held)
+    ;(held.served ??= new Set()).add(project)
+    stillHere(held)
     if (started) held.started = started
     if (untrusted || started?.untrusted) held.untrusted = true
     if (chat || started?.chat) held.chat = true
@@ -362,6 +399,8 @@ export function attend(project: string, id: string | undefined, pid: number | un
             tally(held)
             rename(held)
             if (!channels.size && held.stopping) forget(held)
+            // Killed, a session opened by hand says nothing else: no hook runs. A channel only reconnecting comes back in time.
+            else if (!channels.size) handBackSoon(held)
             changedAll(held)
             changed(project)
         },
@@ -506,7 +545,7 @@ export function sessionName(id: string | undefined): string | undefined {
     return id ? sessions.get(currentId(id))?.name : undefined
 }
 
-function publicOf({pid: _pid, seenAt: _seen, idleAt: _idle, hooked: _hooked, channels, stoppable, stopping: _stopping, cleared: _cleared, tool: _tool, asked: _asked, ...session}: Known): Session {
+function publicOf({pid: _pid, seenAt: _seen, idleAt: _idle, hooked: _hooked, channels, stoppable, served: _served, stopping: _stopping, cleared: _cleared, tool: _tool, asked: _asked, ...session}: Known): Session {
     const others = [...channels ?? []].filter(([project, c]) => c.heard && project !== session.project).map(([project]) => project)
     return {...session, reachable: !!stoppable, ...others.length ? {also: others} : {}}
 }
