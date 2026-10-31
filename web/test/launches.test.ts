@@ -470,6 +470,18 @@ describe('a session orrery started', () => {
         expect(launches.keepScreen('greenhouse', 'abc', 'anything')).toEqual({watching: false})
     })
 
+    it('holds a stop for the launchers that connect, until the launch has ended or a day has gone (ORR-789)', () => {
+        vi.useFakeTimers()
+        launches.endLaunch('greenhouse', 'kept')
+        launches.endLaunch('greenhouse', 'done')
+        launches.endLaunch('pantry', 'other')
+        launches.launchGone('done')
+        expect(launches.heldStops('greenhouse')).toEqual(['kept'])
+        vi.advanceTimersByTime(24 * 60 * 60 * 1000 + 1)
+        expect(launches.heldStops('greenhouse')).toEqual([])
+        vi.useRealTimers()
+    })
+
     it('is stopped, or given longer from when it would have stopped, through its launcher', () => {
         expect(() => launches.stopLaunch('greenhouse', 'abc')).toThrow('No session started for launch abc')
         session = {started: {launch: 'abc', tmux: 'orrery-greenhouse-abc', stops_at: '2999-01-01T10:00:00.000Z'}}
