@@ -115,8 +115,8 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
   >
     <div class="flex h-12 items-center gap-2 px-3">
       <NuxtLink to="/mine" class="flex min-w-0 flex-1 items-center gap-2">
-        <div class="grid size-7 shrink-0 place-items-center rounded-lg bg-gradient-to-br from-accent-300 to-accent-600 shadow-lg shadow-accent-600/30">
-          <OrreryMark class="size-4 text-zinc-950" />
+        <div class="grid size-7 shrink-0 place-items-center rounded-lg bg-gradient-to-br from-tile-from to-tile-to shadow-lg shadow-accent-600/30">
+          <OrreryMark class="size-4 text-white" />
         </div>
         <span class="text-sm font-semibold tracking-tight">orrery</span>
         <span v-if="environment" class="rounded-md bg-sky-500/15 px-1.5 py-px text-[11px] font-semibold text-sky-700 ring-1 ring-sky-500/30 dark:text-sky-300" :title="`This is the ${environment} orrery: its own database, apart from any other`">{{ environment }}</span>
