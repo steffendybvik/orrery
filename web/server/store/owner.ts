@@ -1,10 +1,10 @@
 // The owner (their name and id) and the bell: agents' comments waiting on them.
-import type {Notice, NoticeList, Owner} from '#shared/roadmap'
+import type {Notice, NoticeChange, NoticeList, Owner} from '#shared/roadmap'
 import {NOTICE_LISTS} from '#shared/roadmap'
 import type {Input} from '../utils/input'
 import {badRequest, checkInput, conflict, forbidden} from '../utils/input'
-import type {CommentRow} from './schema'
-import {AGENT, OWNER_FIELDS, actorId, ANSWERED, SINCE, commentOf, stamp} from './schema'
+import type {CommentRow, EventRow} from './schema'
+import {AGENT, OWNER_FIELDS, actorId, ANSWERED, SINCE, commentOf, eventOf, stamp} from './schema'
 import {StatusStore} from './statuses'
 
 /** A person's bell, as SQL on a comment `c` joined to its issue `i`: what's in it, what they have and haven't cleared, and
@@ -135,6 +135,22 @@ export abstract class OwnerStore extends StatusStore {
             ORDER BY c.created_at DESC, c.id DESC ${count ? 'LIMIT ?' : ''}`,
         ...before !== undefined ? [before] : [], ...count ? [count] : []))
             .map(row => ({...commentOf(row), project: row.project, title: row.title, ...row.gone ? {cleared: true} : {}, ...row.opened ? {read: true} : {}}))
+    }
+
+    /** Status changes at or after `since`, oldest first, on the issues someone's bell has a comment on: what the
+     * notifications page says happened to them (ORR-803). The latest 2000, if there are more. */
+    async noticeChanges({since, person}: {since?: string, person?: string} = {}): Promise<NoticeChange[]> {
+        if (!since || Number.isNaN(Date.parse(since))) throw badRequest('Send "since", a time')
+        const {mine} = await this.bellOf(person)
+        const rows = await this.all<EventRow>(`
+            SELECT e.* FROM issue_events e
+            WHERE e.field = 'status' AND e.created_at >= ?
+                AND EXISTS (SELECT 1 FROM comments c JOIN issues i ON i.project = c.project AND i.id = c.issue WHERE c.project = e.project AND c.issue = e.issue AND ${mine})
+            ORDER BY e.created_at DESC, e.id DESC LIMIT 2000`, new Date(since).toISOString())
+        return rows.reverse().map(row => {
+            const {id, issue, before, after, created_by, session_name, created_at} = eventOf(row)
+            return {id, project: row.project, issue, before, after, created_by, session_name, created_at}
+        })
     }
 
     /** Takes notices out of the bell (the comments stay on their issues, the proposals pending): the comments in
