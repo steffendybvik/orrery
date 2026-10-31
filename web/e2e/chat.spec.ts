@@ -78,6 +78,9 @@ test('chats with a session that answers on the page, and is listed nowhere', asy
         // It takes the message up, as its hooks say.
         await request.post('/api/sessions', {data: {id: 'e2e-chat', project: 'observatory', event: 'UserPromptSubmit'}})
         await expect(pane.getByLabel('Thinking…')).toBeVisible()
+        // One indicator while it works, the spinner in the conversation: the header's line stays, empty (ORR-812).
+        await expect(pane.getByLabel('Thinking…').getByTestId('spinner')).toBeVisible()
+        await expect(pane.locator('header')).not.toContainText('Thinking')
         // Its answer comes back through its channel's reply tool.
         const answered = await request.post(`/api/chats/${chat.id}/replies`, {
             data: {text: 'Jars of **jam**.'},
@@ -85,7 +88,7 @@ test('chats with a session that answers on the page, and is listed nowhere', asy
         })
         expect(answered.ok(), await answered.text()).toBeTruthy()
         await expect(pane.locator('strong', {hasText: 'jam'})).toBeVisible()
-        // Answered partway through its turn, it's still working: the dots stay, after the reply, until the turn ends.
+        // Answered partway through its turn, it's still working: the spinner stays, after the reply, until the turn ends.
         await expect(pane.getByLabel('Thinking…')).toBeVisible()
         expect(await pane.locator('ol > li').last().getAttribute('aria-label')).toBe('Thinking…')
         await request.post('/api/sessions', {data: {id: 'e2e-chat', project: 'observatory', event: 'Stop'}})
@@ -631,7 +634,7 @@ test('holds a run of messages and sends them together, at once on ⌘-Enter', as
         await box.press('Enter')
         await box.fill('the jam')
         await box.press('Enter')
-        // Held, they show at once as sent, with the thinking dots, and nothing about the wait (ORR-535).
+        // Held, they show at once as sent, with the thinking spinner, and nothing about the wait (ORR-535).
         await expect(pane.getByText('what about', {exact: true})).toBeVisible()
         await expect(pane.getByText('the jam', {exact: true})).toBeVisible()
         await expect(pane.getByLabel('Thinking…')).toBeVisible()

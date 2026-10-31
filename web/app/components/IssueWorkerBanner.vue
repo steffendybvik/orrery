@@ -57,7 +57,7 @@ async function watchIt() {
             :title="`Open ${TERMINALS[settings.terminal]} on ${session.name}, on its launcher's machine`"
             @click="watchIt"
         >
-          {{ opening ? 'Opening…' : 'Watch' }}
+          <UiBusy :busy="opening" label="Opening…">Watch</UiBusy>
         </UiButton>
       </div>
     </div>

@@ -235,12 +235,12 @@ useHead(() => ({title: doc.value ? `${doc.value.title} · orrery` : 'orrery'}))
         <div class="flex items-center justify-end gap-2">
           <ImageButton v-if="!isArtifact" @picked="upload" />
           <span v-if="saveFailed" class="mr-auto text-xs text-rose-700 dark:text-rose-400">{{ saveFailed }}</span>
-          <span v-else-if="uploading" class="mr-auto text-xs text-faint">Adding image…</span>
+          <span v-else-if="uploading" class="inline-flex items-center gap-1.5 mr-auto text-xs text-faint"><UiSpinner />Adding image…</span>
           <span v-else-if="uploadError" class="mr-auto text-xs text-rose-700 dark:text-rose-400">{{ uploadError }}</span>
           <span v-else class="mr-auto text-xs text-faint">{{ isArtifact ? 'HTML' : 'Markdown' }}</span>
           <UiButton :disabled="saving" @click="editing = false">Cancel <KeyHint>esc</KeyHint></UiButton>
           <UiButton variant="primary" :disabled="saving || !!uploading || !title.trim()" @click="save">
-            {{ saving ? 'Saving…' : 'Save' }} <KeyHint class="bg-black/10 text-on-accent ring-0">⌘↵</KeyHint>
+            <UiBusy :busy="saving" label="Saving…">Save</UiBusy> <KeyHint class="bg-black/10 text-on-accent ring-0">⌘↵</KeyHint>
           </UiButton>
         </div>
       </section>
@@ -263,6 +263,7 @@ useHead(() => ({title: doc.value ? `${doc.value.title} · orrery` : 'orrery'}))
       <DocHistory :project="String(route.params.project)" :doc="removed.id" @restored="restored" />
     </div>
     <NotFound v-else-if="missing && ready" :to="`/p/${route.params.project}/docs`" back="Back to the docs">No doc “{{ route.params.doc }}”</NotFound>
+    <UiLoading v-else />
   </div>
   </div>
 </template>

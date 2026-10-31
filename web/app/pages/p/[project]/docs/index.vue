@@ -50,5 +50,6 @@ const {docUnseen} = useUnseen()
       </div>
     </template>
     <NotFound v-else-if="ready" reason="It may have been renamed or deleted." to="/mine" back="Go to My issues">No project “{{ route.params.project }}”</NotFound>
+    <UiLoading v-else />
   </div>
 </template>

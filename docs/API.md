@@ -298,9 +298,9 @@ instead of `done` when it won't ship.
 | `GET /projects/:project/docs/:doc/revisions/:revision` | that revision with its `project`, `doc` and `body` |
 | `POST /projects/:project/docs/:doc/revisions/:revision/restore` | the doc with that revision's title and text, kept as a new revision so it can be undone too; 201 when it brings a deleted doc back, where it was filed and with who made it, else 200; 409 when the revision is another kind of doc than the one there now |
 | `GET /projects/:project/deleted-docs` | its docs that are gone, the latest removed first: `{id, title, kind, summary, revision, deleted_by, deleted_at}`. Bring one back by restoring its `revision` |
-| `GET /projects/:project/doc-sections` | its docs' sections, A–Z: each one a doc is filed under, and the empty ones made with `POST`. A project's own read has them too, as `doc_sections` |
+| `GET /projects/:project/doc-sections` | its docs' sections, as arranged, a new one last (A–Z until then): each one a doc is filed under, and the empty ones made with `POST`. A project's own read has them too, as `doc_sections` |
 | `POST /projects/:project/doc-sections` | `{name}` (up to 60 characters) → 201 `{name}`: a section with no docs in it yet, kept until it's deleted; 409 when there's one by that name |
-| `PATCH /projects/:project/doc-sections/:section` | `{name}` → `{name}`: renames it on every doc in it at once, without counting as a change to them (their `updated_at` stays); 409 when there's already one by the new name |
+| `PATCH /projects/:project/doc-sections/:section` | `{name?, position?}` → `{name}`: `name` renames it on every doc in it at once, without counting as a change to them (their `updated_at` stays), 409 when there's already one by the new name; `position` moves it in the list (0 the top), past the end being last |
 | `DELETE /projects/:project/doc-sections/:section` | 204; its docs are kept, under no section |
 
 ## Comments

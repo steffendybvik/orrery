@@ -157,7 +157,8 @@ function messageParts(event: LoggedEvent): {text: string, to?: string}[] {
 
   <div class="relative min-h-0 flex-1">
     <div ref="scroller" role="log" aria-label="Events" class="clear-agent absolute inset-0 overflow-auto pt-2 font-mono text-xs leading-5" @scroll="onScroll">
-      <div v-if="loaded && !shown.length" class="flex flex-col items-center gap-2 px-4 py-24 text-center font-sans">
+      <UiLoading v-if="!loaded" class="font-sans" />
+      <div v-else-if="!shown.length" class="flex flex-col items-center gap-2 px-4 py-24 text-center font-sans">
         <p v-if="filteredAway" class="text-sm text-muted">{{ filteredAway }} line{{ filteredAway === 1 ? '' : 's' }} hidden by the filters above.</p>
         <p v-else class="text-sm text-muted">Nothing logged{{ kind ? ` of ${kindLabel}` : '' }}{{ only ? ` in ${projectName(only)}` : '' }} yet.</p>
         <p v-if="!filteredAway" class="text-xs text-faint">Errors in the server and the page land here, and while Advanced is on, what orrery does and each change to the roadmap, a line each. Nothing leaves this machine.</p>

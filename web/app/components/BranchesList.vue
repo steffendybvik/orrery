@@ -53,7 +53,7 @@ const short = (branch: RepoBranch) => branch.sha.slice(0, 7)
   <div class="flex flex-col gap-3 p-4">
     <p class="text-xs text-muted">
       <template v-if="got">{{ got.branches.length }} {{ got.branches.length === 1 ? 'branch' : 'branches' }}: {{ count('look') }} to look at, {{ count('remove') }} to remove, {{ count('keep') }} to keep</template>
-      <template v-else-if="!failed">Asking GitHub…</template>
+      <template v-else-if="!failed"><UiSpinner class="mr-1.5" />Asking GitHub…</template>
     </p>
     <p v-if="failed" class="text-xs text-rose-700 dark:text-rose-400">{{ failed }}</p>
     <p v-if="got && !got.repos.length" class="text-[13px] text-muted">No project points at a repo on GitHub.</p>

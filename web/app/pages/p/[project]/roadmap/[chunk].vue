@@ -207,7 +207,7 @@ useHead(() => ({title: chunk.value ? `${chunk.value.title} · orrery` : 'orrery'
             <span class="mr-auto text-xs text-faint">Markdown</span>
             <UiButton :disabled="saving" @click="editingSummary = false">Cancel <KeyHint>esc</KeyHint></UiButton>
             <UiButton variant="primary" :disabled="saving" @click="saveSummary">
-              {{ saving ? 'Saving…' : 'Save' }} <KeyHint class="bg-black/10 text-on-accent ring-0">⌘↵</KeyHint>
+              <UiBusy :busy="saving" label="Saving…">Save</UiBusy> <KeyHint class="bg-black/10 text-on-accent ring-0">⌘↵</KeyHint>
             </UiButton>
           </div>
         </section>
@@ -247,5 +247,6 @@ useHead(() => ({title: chunk.value ? `${chunk.value.title} · orrery` : 'orrery'
       <p v-else class="px-4 py-16 text-center text-sm text-muted">{{ active ? 'No issue in this chunk matches the filters.' : 'No issues in this chunk yet.' }}</p>
     </template>
     <NotFound v-else-if="ready" :to="`/p/${route.params.project}/roadmap`" back="Back to the roadmap">No chunk “{{ route.params.chunk }}”</NotFound>
+    <UiLoading v-else />
   </div>
 </template>

@@ -304,12 +304,12 @@ useHead(() => ({title: issue.value ? `${issue.value.id} ${issue.value.title} · 
           />
           <div class="flex items-center justify-end gap-2">
             <ImageButton @picked="upload" />
-            <span v-if="uploading" class="mr-auto text-xs text-faint">Adding image…</span>
+            <span v-if="uploading" class="inline-flex items-center gap-1.5 mr-auto text-xs text-faint"><UiSpinner />Adding image…</span>
             <span v-else-if="uploadError" class="mr-auto text-xs text-rose-700 dark:text-rose-400">{{ uploadError }}</span>
             <span v-else class="mr-auto text-xs text-faint">Markdown</span>
             <UiButton :disabled="saving" @click="editingNotes = false">Cancel <KeyHint>esc</KeyHint></UiButton>
             <UiButton variant="primary" :disabled="saving || !!uploading" @click="saveNotes">
-              {{ saving ? 'Saving…' : 'Save' }} <KeyHint class="bg-black/10 text-on-accent ring-0">⌘↵</KeyHint>
+              <UiBusy :busy="saving" label="Saving…">Save</UiBusy> <KeyHint class="bg-black/10 text-on-accent ring-0">⌘↵</KeyHint>
             </UiButton>
           </div>
         </section>
@@ -349,5 +349,6 @@ useHead(() => ({title: issue.value ? `${issue.value.id} ${issue.value.title} · 
     <NotFound v-else-if="ready && !looking" heading="h1" :to="project ? `/p/${project.id}` : '/mine'" :back="project ? `Back to ${project.name}` : 'Go to My issues'">
       No issue <span class="font-mono">{{ issueId }}</span>{{ project ? ` in ${project.name}` : '' }}
     </NotFound>
+    <UiLoading v-else />
   </div>
 </template>

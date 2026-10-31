@@ -122,9 +122,10 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
         <span v-if="environment" class="rounded-md bg-sky-500/15 px-1.5 py-px text-[11px] font-semibold text-sky-700 ring-1 ring-sky-500/30 dark:text-sky-300" :title="`This is the ${environment} orrery: its own database, apart from any other`">{{ environment }}</span>
       </NuxtLink>
       <span class="flex items-center gap-1.5 text-[11px] text-faint" :title="LIVE[live].title">
-        <span class="relative flex size-1.5">
+        <UiSpinner v-if="live === 'connecting' || live === 'reconnecting'" />
+        <span v-else class="relative flex size-1.5">
           <span v-if="live === 'connected'" class="absolute inline-flex size-full animate-ping rounded-full bg-emerald-400 opacity-60" />
-          <span class="relative inline-flex size-1.5 rounded-full" :class="live === 'connected' ? 'bg-emerald-400' : live === 'offline' ? 'bg-rose-500' : 'bg-amber-400'" />
+          <span class="relative inline-flex size-1.5 rounded-full" :class="live === 'connected' ? 'bg-emerald-400' : 'bg-rose-500'" />
         </span>
         {{ LIVE[live].label }}
       </span>
@@ -200,7 +201,7 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
         >
           <svg class="size-4 text-faint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h16M4 12h10M4 18h7" /><circle cx="18" cy="16" r="3" /></svg>
           <span class="flex-1">Events</span>
-          <span v-if="newErrors.length" class="rounded-full bg-rose-600 px-1.5 font-mono text-[10px] font-medium text-white tabular-nums" :title="`${newErrors.length} new kind${newErrors.length === 1 ? '' : 's'} of error`">{{ newErrors.length }}</span>
+          <ErrorBadge v-if="newErrors.length" :count="newErrors.length" :title="`${newErrors.length} new kind${newErrors.length === 1 ? '' : 's'} of error`" />
         </NuxtLink>
 
         <NuxtLink
@@ -219,7 +220,7 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
         >
           <svg class="size-4 text-faint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="6" r="2.5" /><circle cx="6" cy="18" r="2.5" /><circle cx="18" cy="18" r="2.5" /><path d="M6 8.5v7M18 15.5V9a3 3 0 0 0-3-3h-4m2-2-2 2 2 2" /></svg>
           <span class="flex-1">Pull requests</span>
-          <span v-if="pulls?.needs" class="rounded-full bg-rose-600 px-1.5 font-mono text-[10px] font-medium text-white tabular-nums" :title="`${pulls.needs} need${pulls.needs === 1 ? 's' : ''} someone: conflicts, failing checks or behind`">{{ pulls.needs }}</span>
+          <ErrorBadge v-if="pulls?.needs" :count="pulls.needs" :title="`${pulls.needs} need${pulls.needs === 1 ? 's' : ''} someone: conflicts, failing checks or behind`" />
           <span v-else-if="pulls?.open" class="font-mono text-[11px] text-faint tabular-nums">{{ pulls.open }}</span>
         </NuxtLink>
       </template>

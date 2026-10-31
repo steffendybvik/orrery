@@ -80,12 +80,13 @@ const clearLine = (row: NoticeRow) => clear(row.notices.filter(n => !n.cleared))
   </ViewToolbar>
 
   <NuxtLink v-if="newErrors.length" to="/events?level=error" class="m-3 flex shrink-0 items-center gap-2 rounded-xl bg-panel px-4 py-2.5 text-[13px] ring-1 ring-rose-500/40 transition-colors hover:tint">
-    <span class="size-2 shrink-0 rounded-full bg-rose-500" />
+    <svg class="size-4 shrink-0 text-rose-700 dark:text-rose-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.46 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" /><path d="M12 9v4M12 17h.01" /></svg>
     <span class="flex-1 text-fg">{{ newErrors.length }} new kind{{ newErrors.length === 1 ? '' : 's' }} of error: <span class="text-muted">{{ newErrors[0]?.message }}</span></span>
     <span class="shrink-0 text-xs text-faint">Events →</span>
   </NuxtLink>
 
-  <div v-if="loaded && !shown.length" class="flex min-h-0 flex-1 flex-col items-center gap-2 overflow-y-auto px-4 py-24 text-center">
+  <UiLoading v-if="!loaded" />
+  <div v-else-if="!shown.length" class="flex min-h-0 flex-1 flex-col items-center gap-2 overflow-y-auto px-4 py-24 text-center">
     <p class="text-sm text-muted">No notifications.</p>
     <p class="text-xs text-faint">Agents' comments on issues land here and in the bell; their questions and proposals for you stay, marked in violet, until you answer or decide them on the issue, or clear them.</p>
   </div>

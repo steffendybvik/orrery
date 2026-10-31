@@ -355,7 +355,7 @@ const labelOf = (options: {value: string, label: string}[], value: string) => op
 
     <div v-if="agents && existing" class="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg bg-amber-500/10 px-3 py-2 text-xs text-amber-800 ring-1 ring-amber-500/30 dark:text-amber-200" role="note">
       <span class="min-w-0 flex-1"><strong class="font-semibold">An agent</strong> made this schedule. {{ agents }} Read what it says and its presets first.</span>
-      <UiButton size="sm" :disabled="adopting" title="Runs it as yours from now on, and only you can change it" @click="makeMine">{{ adopting ? 'Making it yours…' : 'Make it mine' }}</UiButton>
+      <UiButton size="sm" :disabled="adopting" title="Runs it as yours from now on, and only you can change it" @click="makeMine"><UiBusy :busy="adopting" label="Making it yours…">Make it mine</UiBusy></UiButton>
     </div>
     <SegmentedControl v-model="sends" :options="SENDS" class="self-start" />
     <input
@@ -546,7 +546,7 @@ const labelOf = (options: {value: string, label: string}[], value: string) => op
     <section v-else class="flex flex-col gap-2 border-t border-line pt-3">
       <span class="label">Each run makes an issue</span>
       <div class="flex flex-wrap items-center gap-2">
-        <PropertyPicker v-model="column" :options="startOptions" label="Where it starts" field>
+        <PropertyPicker v-model="column" :options="startOptions" label="Status it starts in" field>
           <StatusIcon :column="column" />
           <span class="truncate">{{ labelOf(startOptions, column) }}</span>
           <template #option="{option}">
@@ -588,7 +588,7 @@ const labelOf = (options: {value: string, label: string}[], value: string) => op
       <span v-if="!enabled" class="text-xs text-faint">Paused: it won't run until you resume it</span>
       <span v-if="failed" class="text-xs text-rose-700 dark:text-rose-400">{{ failed }}</span>
       <UiButton type="submit" variant="primary" size="md" class="ml-auto" :disabled="!ready">
-        {{ saving ? 'Saving…' : existing || group ? 'Save schedule' : 'Create schedule' }} <KeyHint class="bg-black/10 text-on-accent ring-0">⌘↵</KeyHint>
+        <UiBusy :busy="saving" label="Saving…">{{ existing || group ? 'Save schedule' : 'Create schedule' }}</UiBusy> <KeyHint class="bg-black/10 text-on-accent ring-0">⌘↵</KeyHint>
       </UiButton>
     </div>
   </UiDialog>

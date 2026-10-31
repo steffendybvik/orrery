@@ -18,7 +18,7 @@ const VARIANT = {
     'primary': 'bg-accent-fill font-medium text-on-accent hover:bg-accent-700',
     'secondary': 'text-muted ring-1 ring-line hover:bg-hover hover:text-fg',
     'ghost': 'text-muted hover:bg-hover hover:text-fg',
-    'danger': 'bg-rose-600 font-medium text-white hover:opacity-90',
+    'danger': 'bg-rose-700 font-medium text-white hover:opacity-90',
     'danger-outline': 'font-medium text-rose-700 ring-1 ring-rose-500/40 hover:bg-rose-500/10 dark:text-rose-400',
     'danger-ghost': 'text-muted hover:bg-rose-500/10 hover:text-rose-700 dark:hover:text-rose-400',
     'success': 'bg-emerald-600 font-medium text-white hover:opacity-90',

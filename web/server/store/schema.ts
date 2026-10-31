@@ -123,7 +123,7 @@ interface Made { created_by: string, owned: number, created_at: string, updated_
 export interface ProjectRow extends Made {
     id: string, name: string, key: string, uid: string, description: string | null, icon: string | null, icon_color: string | null, next_number: number, next_chunk: number,
     focus_prompt: string | null, chunk_prompt: string | null, instructions: string, muted: string, starts: string | null, repo: string | null,
-    release_mode: ReleaseMode, releases_from: string | null
+    release_mode: ReleaseMode, releases_from: string | null, doc_section_order: string
 }
 export interface ChunkRow extends Made { project: string, id: string, title: string, summary: string | null, priority: Priority | null, position: number }
 export interface IssueRow extends Made {

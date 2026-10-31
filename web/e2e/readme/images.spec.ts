@@ -54,7 +54,7 @@ test('board', async ({page}) => {
     await open(page, '/p/primes?view=board')
     await expect(page.getByRole('heading', {name: 'In progress'})).toBeVisible()
     // All five columns don't fit this wide, so the ones that say most.
-    await page.getByRole('button', {name: /^Column/}).click()
+    await page.getByRole('button', {name: /^Status ·/}).click()
     for (const name of ['In review', 'Backlog']) await page.getByRole('option', {name}).click()
     await page.keyboard.press('Escape')
     await expect(page.getByRole('heading', {name: 'Backlog'})).toHaveCount(0)
