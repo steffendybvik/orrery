@@ -18,6 +18,7 @@
     "test:e2e:visual": "scripts/e2e-visual.sh",
     "test:e2e:perf": "playwright test --config playwright.perf.config.ts",
     "test:e2e:login": "playwright test --config playwright.login.config.ts",
+    "images:readme": "playwright test --config playwright.readme.config.ts",
     "orrery:claim": "node scripts/claim.mjs",
     "orrery:copy": "jiti scripts/copy.ts"
   },

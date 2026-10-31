@@ -4,7 +4,20 @@ A self-hosted roadmap board for working with Claude Code sessions. Each project 
 (milestones), releases and docs. Sessions read and update them through an HTTP API or MCP tools, and
 the owner directs sessions from the board. It runs locally, in Docker, on SQLite or Postgres.
 
-<img alt="A project's board in orrery: issues in In progress, In review, Todo, Backlog and Proposed columns, one waiting on the owner's decision and a proposal with choices, and the Claude sessions in the sidebar, one needing the owner" src="docs/images/board-light.png">
+<table>
+<tr>
+<td width="50%"><img alt="A project's board in orrery: issues in In progress, Todo and Proposed columns, one waiting on the owner's decision and a proposal with choices, and the Claude sessions in the sidebar, one needing the owner" src="docs/images/board-light.png"></td>
+<td width="50%"><img alt="An issue's page: a banner naming the session working on it, that session in its Sessions panel, its sub-issues, and a question waiting on the owner's decision" src="docs/images/issue-light.png"></td>
+</tr>
+<tr>
+<td><img alt="The Sessions page: each project's Claude sessions with their state, folder and a message box, and what the working one is on now" src="docs/images/sessions-light.png"></td>
+<td><img alt="The chat pane open over a project's issue list, ready for a first question, with suggestions and new issues going to Todo" src="docs/images/chat-light.png"></td>
+</tr>
+<tr>
+<td><img alt="A project's docs: a page on how its sieve works, with the project's other docs and new ones listed beside it" src="docs/images/docs-light.png"></td>
+<td><img alt="The Schedules page: two running schedules with when each runs next, and ready-made ones suggested for the project" src="docs/images/schedules-light.png"></td>
+</tr>
+</table>
 
 ## Features
 
@@ -35,16 +48,6 @@ the owner directs sessions from the board. It runs locally, in Docker, on SQLite
 [Using orrery](docs/using.md) describes each page, menu and shortcut. A session in any connected repo can ask the same
 through the `guide` tool.
 
-<table>
-<tr>
-<td width="50%"><img alt="An issue's page: a banner naming the session working on it, that session first in its Sessions panel, its sub-issues, and a question waiting on the owner's decision" src="docs/images/issue-light.png"></td>
-<td width="50%"><img alt="The Sessions page: each project's Claude sessions with their state, folder and a message box, and what the working one is on now" src="docs/images/sessions-light.png"></td>
-</tr>
-<tr>
-<td><img alt="The chat pane open over a project's issue list, ready for a first question, with suggestions and new issues going to Todo" src="docs/images/chat-light.png"></td>
-<td><img alt="The Events page: the event log read like a console, a line each for new issues, backups, and sessions' channels and launchers connecting" src="docs/images/events-light.png"></td>
-</tr>
-</table>
 
 ## Keep your data safe
 
