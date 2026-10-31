@@ -65,11 +65,14 @@ test('chats with a session that answers on the page, and is listed nowhere', asy
         await pane.getByLabel('Message').press('Enter')
         await expect.poll(() => launcher.said.text).toContain('"chat":true')
         await expect(pane).toContainText('Starting the session…')
+        // It says who's answering once it has connected, not before (ORR-811).
+        await expect(pane.getByTestId('chat-name')).toHaveCount(0)
         const [chat] = await (await request.get('/api/chats')).json()
         // As its launcher starts it: catching up from the launch's `after`, so what was said before it connected reaches it.
         const after = launcher.said.text.match(/"after":(\d+)/)![1]
         session = hold(baseURL!, `/api/projects/observatory/signals/stream?session=e2e-chat&name=e2e-chat&started=${chat.id}&chat=yes&after=${after}&format=text`)
         await expect.poll(() => session!.said.text).toContain('What is on the top shelf?')
+        await expect(pane.getByTestId('chat-name')).toHaveText('e2e-chat')
         // With the page the owner is on, so it knows what "this" is.
         expect(session.said.text).toContain('(The owner is on /p/observatory')
         // It takes the message up, as its hooks say.
