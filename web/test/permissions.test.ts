@@ -184,6 +184,7 @@ describe("a working session's column", () => {
         'schedules.session': async () => expect(await status(() => schedules.create('greenhouse', {title: 'Review', kind: 'session', cron: '0 9 * * *'}, agent))).toBe(403),
         'schedules.action': async () => expect(await status(() => schedules.create('greenhouse', {title: 'Tidy', kind: 'action', on: 'pr.merged', column: 'done'}, agent))).toBe(403),
         'schedules.across': async () => expect(await status(() => schedules.createAcross({projects: '*', title: 'Tidy', cron: '0 9 * * *'}, agent))).toBe(403),
+        'schedules.enabled': async () => expect(await status(() => schedules.setAllEnabled('greenhouse', false, agent))).toBe(403),
         'schedules.adopt': async () => {
             const made = await schedules.create('greenhouse', {title: 'Nudge', kind: 'message', notes: 'Pick up Todo.', cron: '0 9 * * *'}, agent)
             expect(await status(() => schedules.adopt('greenhouse', made.id, agent))).toBe(403)
