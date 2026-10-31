@@ -92,7 +92,7 @@ const clearLine = (row: NoticeRow) => clear(row.notices.filter(n => !n.cleared))
   </div>
 
   <div v-else class="flex min-h-0 flex-1">
-    <div class="min-w-0 flex-1 overflow-y-auto border-line" :class="{'hidden lg:block lg:w-[26rem] lg:flex-none lg:border-r': selected}">
+    <div class="clear-agent min-w-0 flex-1 overflow-y-auto border-line" :class="{'hidden lg:block lg:w-[26rem] lg:flex-none lg:border-r': selected}">
       <section v-if="waiting.length" aria-label="Waiting on you">
         <h2 class="sticky top-0 z-20 flex items-baseline gap-2 border-b-2 border-faint/40 bg-canvas px-3 py-1.5 text-[11px] font-semibold tracking-wide text-violet-700 uppercase dark:text-violet-300">
           Waiting on you
@@ -132,7 +132,7 @@ const clearLine = (row: NoticeRow) => clear(row.notices.filter(n => !n.cleared))
         <UiButton @click="load('inbox', true)">Show older</UiButton>
       </div>
     </div>
-    <div v-if="selected" class="min-w-0 flex-1 overflow-y-auto">
+    <div v-if="selected" class="clear-agent min-w-0 flex-1 overflow-y-auto">
       <NoticeHistory :key="selected.key" :row="selected" :project="projectName(selected.project)" @back="back" />
     </div>
   </div>

@@ -148,6 +148,7 @@ Where a class is all it takes, it's a utility rather than a component:
 | `label` | the small uppercase heading over a group (PROPERTIES, WHEN) |
 | `doc` | Markdown drawn as a page (through `MarkdownView`) |
 | `tint` | the hover tint laid over a solid surface (`hover:tint`) |
+| `clear-agent` | room at the end of a page's scrolling area, so the last line comes clear of the Agent button. Every page's scroller has it, so a new page's does too |
 | `unseen-row`, `unseen-dot` | changed since the owner last looked |
 | `waiting-row` | an issue waiting on the owner's answer (violet; wins over `unseen-row`) |
 

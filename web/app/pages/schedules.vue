@@ -56,7 +56,7 @@ function newSchedule() {
     </template>
   </ViewToolbar>
 
-  <div class="min-h-0 flex-1 overflow-y-auto">
+  <div class="clear-agent min-h-0 flex-1 overflow-y-auto">
     <EmptyProjects v-if="ready && !projects.length" />
     <UiLoading v-else-if="!ready" />
     <div v-else-if="cards.length || acrossHere.length" class="mx-auto flex max-w-4xl flex-col gap-4 px-4 py-6">

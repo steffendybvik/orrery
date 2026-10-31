@@ -7,7 +7,7 @@ useHead({title: 'Getting started · orrery'})
   <PageHeader>
     <h1 class="truncate text-sm font-medium">Getting started</h1>
   </PageHeader>
-  <div class="min-h-0 flex-1 overflow-y-auto">
+  <div class="clear-agent min-h-0 flex-1 overflow-y-auto">
     <GettingStarted />
   </div>
 </template>

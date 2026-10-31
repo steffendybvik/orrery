@@ -147,7 +147,7 @@ useHead(() => ({title: release.value && project.value ? `${release.value.version
     </template>
   </PageHeader>
 
-  <div class="min-h-0 flex-1 overflow-y-auto">
+  <div class="clear-agent min-h-0 flex-1 overflow-y-auto">
     <template v-if="project && release">
       <header class="mx-auto flex max-w-5xl animate-fade-up flex-col gap-4 px-4 pt-8 pb-6 sm:px-8">
         <div class="flex flex-wrap items-center gap-3 text-xs">

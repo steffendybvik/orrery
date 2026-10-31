@@ -106,7 +106,7 @@ useHead(() => ({title: project.value ? `Releases · ${project.value.name} · orr
     <h1 v-else-if="ready" class="truncate text-sm font-medium">Not found</h1>
   </PageHeader>
 
-  <div class="min-h-0 flex-1 overflow-y-auto">
+  <div class="clear-agent min-h-0 flex-1 overflow-y-auto">
     <div v-if="project" class="mx-auto flex max-w-4xl animate-fade-up flex-col gap-4 px-4 py-8 sm:px-8">
       <header class="flex items-start gap-3">
         <SectionIcon section="releases" class="mt-0.5 size-4 text-accent-fill" />

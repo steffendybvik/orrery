@@ -124,7 +124,7 @@ useHead(() => ({title: project.value ? `Settings · ${project.value.name} · orr
     <h1 v-else-if="ready" class="truncate text-sm font-medium">Not found</h1>
   </PageHeader>
 
-  <div class="min-h-0 flex-1 overflow-y-auto">
+  <div class="clear-agent min-h-0 flex-1 overflow-y-auto">
     <div v-if="project" class="mx-auto flex max-w-4xl animate-fade-up flex-col gap-8 px-4 py-8 sm:px-8">
       <section id="name" class="flex flex-col gap-3">
         <header class="flex flex-col gap-0.5">

@@ -134,6 +134,12 @@
     @apply rounded-lg bg-well px-2.5 text-[13px] text-fg ring-1 ring-line placeholder:text-faint focus:ring-accent-500/50 focus:outline-none;
 }
 
+/* Room at the end of anything that scrolls under the Agent button, in the corner of every page, so its last line can come
+   clear (ORR-796). More than the button's height and gap (3rem), to leave a little air. */
+@utility clear-agent {
+    padding-bottom: 4rem;
+}
+
 /* The hover tint laid over what's there (`hover:tint`), for something with a solid background of its own: `hover:bg-hover`
    would put the translucent tint in its place, and a button floating over the page went see-through (ORR-537). */
 @utility tint {

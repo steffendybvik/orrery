@@ -212,7 +212,7 @@ useHead(() => ({title: issue.value ? `${issue.value.id} ${issue.value.title} · 
     </template>
   </PageHeader>
 
-  <div class="min-h-0 flex-1 overflow-y-auto">
+  <div class="clear-agent min-h-0 flex-1 overflow-y-auto">
     <!-- One sticky block, so the bar sits right under the banner however many lines the banner wraps to (ORR-649). -->
     <div class="sticky top-0 z-20">
       <IssueWorkerBanner v-if="worker && issue && !isClosed(issue.kind)" :session="worker" :since="workerSince" />

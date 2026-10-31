@@ -34,7 +34,7 @@ const tab = computed<'connect' | 'mcp'>({
     <SegmentedControl v-model="tab" :options="tabs" />
   </ViewToolbar>
 
-  <div class="min-h-0 flex-1 overflow-y-auto">
+  <div class="clear-agent min-h-0 flex-1 overflow-y-auto">
     <div class="mx-auto flex max-w-3xl animate-fade-up flex-col gap-8 px-4 py-8 sm:px-8 sm:py-12">
       <McpReference v-if="tab === 'mcp'" />
       <template v-else>

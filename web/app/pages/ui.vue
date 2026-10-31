@@ -35,7 +35,7 @@ const confirming = ref(false)
     <span class="rounded bg-well px-1.5 py-px font-mono text-[10px] text-faint ring-1 ring-line">dev</span>
   </PageHeader>
 
-  <div class="min-h-0 flex-1 overflow-y-auto">
+  <div class="clear-agent min-h-0 flex-1 overflow-y-auto">
     <div class="mx-auto flex max-w-4xl flex-col gap-8 px-4 py-8">
       <section class="flex flex-col gap-3">
         <h2 class="label">UiButton</h2>

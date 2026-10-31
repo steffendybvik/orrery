@@ -20,7 +20,7 @@ const {docUnseen} = useUnseen()
     <h1 v-else-if="ready" class="truncate text-sm font-medium">Not found</h1>
   </PageHeader>
 
-  <div class="min-h-0 flex-1 overflow-y-auto">
+  <div class="clear-agent min-h-0 flex-1 overflow-y-auto">
     <template v-if="project">
       <div v-if="project.docs.length" class="mx-auto flex max-w-3xl flex-col px-3 py-6 sm:px-6">
         <h2 class="label mb-2 px-3">Docs</h2>
