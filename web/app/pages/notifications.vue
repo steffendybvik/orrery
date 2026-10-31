@@ -1,17 +1,17 @@
 <script setup lang="ts">
 import type {Notice} from '#shared/roadmap'
-import {noticeKey} from '#shared/roadmap'
 import type {NoticeRow} from '~/composables/useInbox'
 
-// The bell, larger, drawn as a timeline: agents' comments, with their questions and proposals waiting on the owner (which
-// go when answered, decided or cleared; clearing a proposal leaves it pending), by day, one line per issue each day. A line
-// opens in place to its full text, which marks it read; opening the page only resets the bell's count, so the
-// filled dots down the line stay what's still to read.
+// The bell, larger, as a list and a reading pane. The list: what waits on the owner first (it goes when answered, decided or
+// cleared; clearing a proposal leaves it pending), then the rest by day as a timeline, one line per issue a day, each saying
+// what happened. Choosing a line opens its history beside the list (on a narrow window, in its place) and marks it read;
+// opening the page only resets the bell's count, so the filled dots stay what's still to read.
 useHead({title: 'Notifications · orrery'})
-const {notices, lists, seen, load, markRead, clear} = useInbox()
+const {notices, lists, seen, load, loadChanges, markRead, clear} = useInbox()
 const {byId} = useRoadmaps()
 const {newErrors} = useLoggedEvents()
-const {pathOf} = useIssueLink()
+const route = useRoute()
+const router = useRouter()
 
 onMounted(() => {
     seen()
@@ -21,38 +21,47 @@ onMounted(() => {
 // Those arriving while it's open count as seen too, for the bell.
 watch(notices, () => seen())
 
+const waiting = computed(() => waitingRows(lists.value.waiting.items))
+const days = computed(() => noticeDays(lists.value.inbox.items))
 const shown = computed(() => [...lists.value.waiting.items, ...lists.value.inbox.items])
-const days = computed(() => noticeDays(shown.value))
 const loaded = computed(() => lists.value.inbox.loaded && lists.value.waiting.loaded)
 const clearable = computed(() => shown.value.filter(n => !n.cleared))
 const anyRead = computed(() => shown.value.some(n => n.read && !isWaiting(n)))
 const projectName = (id: string) => byId(id)?.name ?? id
-const time = (iso: string) => new Date(iso).toLocaleTimeString(undefined, {hour: '2-digit', minute: '2-digit'})
-const when = (iso: string) => new Date(iso).toLocaleString(undefined, {dateStyle: 'medium', timeStyle: 'short'})
+/** A list from one project needn't say so on every line. */
+const manyProjects = computed(() => new Set(shown.value.map(n => n.project)).size > 1)
 
-/** What a line says it is: its count when it holds several, else its kind. */
-function kind(row: NoticeRow): string {
-    if (row.notices.length > 1) return `${row.notices.length} comments`
-    const [only] = row.notices
-    return only?.proposal ? 'proposal' : only?.asks ? 'asks' : 'comment'
-}
+// The status changes on what's listed, from the start of the day of its oldest. Read again as the list changes.
+const since = computed(() => {
+    const oldest = shown.value.reduce((at, n) => !at || n.created_at < at ? n.created_at : at, '')
+    if (!oldest) return ''
+    const start = new Date(oldest)
+    start.setHours(0, 0, 0, 0)
+    return start.toISOString()
+})
+watch(() => [since.value, shown.value.length] as const, ([from]) => {
+    if (from) loadChanges(from)
+}, {immediate: true})
 
-/** The newest notice's first line, without its Markdown marks. */
-function firstLine(row: NoticeRow): string {
-    const line = (row.notices[0]?.body ?? '').split('\n').map(l => l.trim()).find(Boolean) ?? ''
-    return line.replace(/^(#+\s+|>\s+|[-*]\s+)/, '').replace(/[*_`]/g, '')
+// The chosen line, in the address, so Back leaves it on a narrow window, where it takes the list's place.
+const selected = computed<NoticeRow | undefined>(() => {
+    const key = route.query.open
+    return [...waiting.value, ...days.value.flatMap(d => d.rows)].find(r => r.key === key)
+})
+const narrow = () => !window.matchMedia('(min-width: 1024px)').matches
+function choose(row: NoticeRow) {
+    const to = {query: {...route.query, open: row.key}}
+    if (narrow()) router.push(to)
+    else router.replace(to)
 }
-
-const open = ref<string[]>([])
-function toggle(row: NoticeRow) {
-    if (open.value.includes(row.key)) return void (open.value = open.value.filter(k => k !== row.key))
-    open.value = [...open.value, row.key]
-    markRead(row.notices)
+function back() {
+    const {open: _, ...query} = route.query
+    router.replace({query})
 }
-const dot = (row: NoticeRow) => row.waiting
-    ? 'bg-violet-500 ring-violet-500'
-    : row.unread ? 'bg-accent-500 ring-accent-500' : 'bg-canvas ring-faint'
-const tint = (row: NoticeRow) => row.waiting ? 'bg-violet-500/10' : row.unread ? 'bg-accent-500/10' : ''
+// It's read once it's on screen, and so is what arrives while it is.
+watch(selected, row => {
+    if (row) markRead(row.notices)
+}, {immediate: true})
 const clearOne = (notice: Notice) => clear([notice])
 </script>
 
@@ -69,78 +78,61 @@ const clearOne = (notice: Notice) => clear([notice])
     </template>
   </ViewToolbar>
 
-  <div class="min-h-0 flex-1 overflow-y-auto">
-    <div v-if="newErrors.length" class="mx-auto max-w-3xl px-3 pt-4 sm:px-4">
-      <NuxtLink to="/events?level=error" class="flex items-center gap-2 rounded-xl bg-panel px-4 py-2.5 text-[13px] ring-1 ring-rose-500/40 transition-colors hover:tint">
-        <span class="size-2 shrink-0 rounded-full bg-rose-500" />
-        <span class="flex-1 text-fg">{{ newErrors.length }} new kind{{ newErrors.length === 1 ? '' : 's' }} of error: <span class="text-muted">{{ newErrors[0]?.message }}</span></span>
-        <span class="shrink-0 text-xs text-faint">Events →</span>
-      </NuxtLink>
+  <NuxtLink v-if="newErrors.length" to="/events?level=error" class="m-3 flex shrink-0 items-center gap-2 rounded-xl bg-panel px-4 py-2.5 text-[13px] ring-1 ring-rose-500/40 transition-colors hover:tint">
+    <span class="size-2 shrink-0 rounded-full bg-rose-500" />
+    <span class="flex-1 text-fg">{{ newErrors.length }} new kind{{ newErrors.length === 1 ? '' : 's' }} of error: <span class="text-muted">{{ newErrors[0]?.message }}</span></span>
+    <span class="shrink-0 text-xs text-faint">Events →</span>
+  </NuxtLink>
+
+  <div v-if="loaded && !shown.length" class="flex min-h-0 flex-1 flex-col items-center gap-2 overflow-y-auto px-4 py-24 text-center">
+    <p class="text-sm text-muted">No notifications.</p>
+    <p class="text-xs text-faint">Agents' comments on issues land here and in the bell; their questions and proposals for you stay, marked in violet, until you answer or decide them on the issue, or clear them.</p>
+  </div>
+
+  <div v-else class="flex min-h-0 flex-1">
+    <div class="min-w-0 flex-1 overflow-y-auto border-line lg:w-[26rem] lg:flex-none lg:border-r" :class="{'hidden lg:block': selected}">
+      <section v-if="waiting.length" aria-label="Waiting on you">
+        <h2 class="sticky top-0 z-20 flex items-baseline gap-2 border-b-2 border-faint/40 bg-canvas px-3 py-1.5 text-[11px] font-semibold tracking-wide text-violet-700 uppercase dark:text-violet-300">
+          Waiting on you
+          <span class="text-xs font-normal tracking-normal text-muted normal-case">{{ waiting.length }}</span>
+        </h2>
+        <ul>
+          <NoticeLine
+              v-for="row in waiting"
+              :key="row.key"
+              :row="row"
+              :selected="selected?.key === row.key"
+              :project="manyProjects ? projectName(row.project) : undefined"
+              @select="choose(row)"
+              @clear="clearOne(row.notices[0]!)"
+          />
+        </ul>
+      </section>
+      <section v-for="day in days" :key="day.key">
+        <h2 class="sticky top-0 z-20 flex items-baseline gap-2 border-y-2 border-faint/40 bg-canvas px-3 py-1.5 text-[13px] font-semibold text-fg">
+          {{ day.label }}
+          <span class="text-xs font-normal text-muted">{{ day.total }}</span>
+          <span v-if="day.unread" class="text-xs font-normal text-muted">· {{ day.unread }} unread</span>
+        </h2>
+        <ul>
+          <NoticeLine
+              v-for="row in day.rows"
+              :key="row.key"
+              :row="row"
+              :selected="selected?.key === row.key"
+              :project="manyProjects ? projectName(row.project) : undefined"
+              @select="choose(row)"
+              @clear="clearOne(row.notices[0]!)"
+          />
+        </ul>
+      </section>
+      <div v-if="lists.inbox.more" class="flex justify-center py-6">
+        <UiButton @click="load('inbox', true)">Show older</UiButton>
+      </div>
     </div>
-    <div v-for="day in days" :key="day.key" class="mx-auto max-w-5xl">
-      <h2 class="sticky top-0 z-20 flex items-baseline gap-2 border-y-2 border-faint/40 bg-canvas px-3 py-1.5 text-[13px] font-semibold text-fg sm:px-4">
-        {{ day.label }}
-        <span class="text-xs font-normal text-muted">{{ day.total }}</span>
-        <span v-if="day.unread" class="text-xs font-normal text-muted">· {{ day.unread }} unread</span>
-      </h2>
-      <ul>
-        <li v-for="row in day.rows" :key="row.key" class="border-b border-line">
-          <div
-              class="group relative grid grid-cols-[4.25rem_1.25rem_minmax(0,1fr)_1.75rem] items-stretch px-3 text-[13px] transition-colors hover:bg-hover sm:grid-cols-[4.25rem_1.25rem_5.5rem_4.75rem_minmax(0,1fr)_6.5rem_1.75rem] sm:px-4"
-              :class="tint(row)"
-          >
-            <button
-                type="button"
-                class="absolute inset-0 cursor-pointer focus-visible:ring-2 focus-visible:ring-accent-500/60 focus-visible:outline-none focus-visible:ring-inset"
-                :aria-label="`${row.issue}: ${row.title}`"
-                :aria-expanded="open.includes(row.key)"
-                @click="toggle(row)"
-            />
-            <span class="self-center py-2 font-mono text-xs whitespace-nowrap text-muted" :title="when(row.latest)">{{ time(row.latest) }}</span>
-            <span class="relative flex items-center justify-center before:absolute before:inset-y-0 before:left-1/2 before:w-px before:bg-faint/40">
-              <span class="relative size-2.5 rounded-full ring-2" :class="dot(row)" :data-state="row.waiting ? 'waiting' : row.unread ? 'unread' : 'read'" />
-            </span>
-            <span class="hidden self-center truncate py-2 pl-2 text-xs sm:block" :class="row.waiting ? 'text-violet-700 dark:text-violet-300' : 'text-muted'">{{ kind(row) }}</span>
-            <NuxtLink
-                :to="pathOf(row.project, row.issue)"
-                class="relative z-10 hidden self-center truncate py-2 font-mono text-xs text-muted hover:text-fg hover:underline sm:block"
-                @click="markRead(row.notices)"
-            >{{ row.issue }}</NuxtLink>
-            <span class="min-w-0 self-center truncate py-2 pl-2 sm:pl-0">
-              <span :class="row.unread || row.waiting ? 'font-medium text-fg' : 'text-muted'"><InlineText :text="row.title" /></span>
-              <span class="ml-2 hidden text-xs text-muted lg:inline">{{ firstLine(row) }}</span>
-            </span>
-            <span class="hidden self-center truncate py-2 pl-2 text-right text-xs text-muted sm:block">{{ projectName(row.project) }}</span>
-            <button
-                v-if="row.notices.length === 1 && !row.notices[0]!.cleared"
-                type="button"
-                class="relative z-10 grid size-7 place-items-center self-center rounded-md text-faint opacity-0 group-hover:opacity-100 hover:bg-active hover:text-fg focus-visible:opacity-100"
-                title="Clear"
-                aria-label="Clear this notice"
-                @click="clearOne(row.notices[0]!)"
-            >
-              <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
-            </button>
-          </div>
-          <div v-if="open.includes(row.key)" class="relative border-t border-line bg-panel py-3 pr-3 pl-[6.5rem] before:absolute before:inset-y-0 before:left-[5.625rem] before:w-px before:bg-faint/40 sm:pr-4 sm:before:left-[5.875rem]">
-            <NuxtLink :to="pathOf(row.project, row.issue)" class="mb-2 inline-block text-xs text-accent-700 hover:underline dark:text-accent-400">Open {{ row.issue }} →</NuxtLink>
-            <div v-for="notice in row.notices" :key="noticeKey(notice)" class="group/notice relative border-t border-line py-2 first:border-t-0">
-              <p v-if="row.notices.length > 1" class="mb-1 font-mono text-xs text-muted" :title="when(notice.created_at)">{{ time(notice.created_at) }}</p>
-              <WaitingChip v-if="isWaiting(notice)" :asks="notice.asks!" :proposal="notice.proposal" class="mb-2" />
-              <span v-else-if="notice.asks" class="mb-2 inline-block rounded-full px-2 py-0.5 text-[11px] text-muted ring-1 ring-line">{{ notice.answered ? 'Answered' : notice.proposal ? 'Cleared, still to decide' : 'Cleared' }}</span>
-              <MarkdownView :source="notice.body" class="text-[14px] leading-6" />
-              <UiButton v-if="row.notices.length > 1 && !notice.cleared" variant="ghost" size="xs" class="mt-1" @click="clearOne(notice)">Clear this one</UiButton>
-            </div>
-          </div>
-        </li>
-      </ul>
-    </div>
-    <div v-if="lists.inbox.more" class="flex justify-center py-6">
-      <UiButton @click="load('inbox', true)">Show older</UiButton>
-    </div>
-    <div v-if="loaded && !shown.length" class="flex flex-col items-center gap-2 px-4 py-24 text-center">
-      <p class="text-sm text-muted">No notifications.</p>
-      <p class="text-xs text-faint">Agents' comments on issues land here and in the bell; their questions and proposals for you stay, marked in violet, until you answer or decide them on the issue, or clear them.</p>
+    <div class="min-w-0 flex-1 overflow-y-auto" :class="{'hidden lg:block': !selected}">
+      <NoticeHistory v-if="selected" :key="selected.key" :row="selected" :project="projectName(selected.project)" @back="back" />
+      <p v-else-if="loaded" class="px-6 py-24 text-center text-xs text-faint">Choose a line to read what happened on it.</p>
     </div>
   </div>
 </template>

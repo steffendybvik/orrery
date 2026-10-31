@@ -269,3 +269,25 @@ describe("an owner's comment", () => {
         expect(sent).toEqual(['Use oak', '(Edited: this replaces their earlier comment.)\n\nUse pine'])
     })
 })
+
+describe('notice changes (ORR-803)', () => {
+    const agent: Actor = {name: 'claude', owner: false, agent: true} as Actor
+
+    it("lists status changes since a time, oldest first, only on issues in the bell", async () => {
+        const told = (await store.createIssue('greenhouse', {title: 'Told', status: 'todo'})).id
+        const quiet = (await store.createIssue('greenhouse', {title: 'Quiet', status: 'todo'})).id
+        await store.createComment('greenhouse', told, {body: 'On it'}, agent)
+        await store.updateIssue('greenhouse', told, {status: 'in-progress'}, agent)
+        await store.updateIssue('greenhouse', told, {status: 'done'}, agent)
+        await store.updateIssue('greenhouse', quiet, {status: 'done'}, agent)
+        const changes = await store.noticeChanges({since: '2000-01-01T00:00:00.000Z'})
+        expect(changes.map(c => [c.issue, c.before, c.after])).toEqual([[told, 'todo', 'in-progress'], [told, 'in-progress', 'done']])
+        expect(changes[0]).toMatchObject({project: 'greenhouse', created_by: 'claude'})
+        expect(await store.noticeChanges({since: '2999-01-01T00:00:00.000Z'})).toEqual([])
+    })
+
+    it('needs a time', async () => {
+        expect((await failure(() => store.noticeChanges({}))).status).toBe(400)
+        expect((await failure(() => store.noticeChanges({since: 'soon'}))).status).toBe(400)
+    })
+})

@@ -14,6 +14,18 @@ export interface Notice extends Comment {
     proposal?: {choices: number}
 }
 
+/** A status change on an issue in someone's bell (`GET /notices/changes`), what a notifications line says happened. */
+export interface NoticeChange {
+    id: number
+    project: string
+    issue: string
+    before?: string
+    after?: string
+    created_by: string
+    session_name?: string
+    created_at: string
+}
+
 /** Tells notices apart: a comment by its id, a proposal by its issue. */
 export const noticeKey = (n: Notice) => n.proposal ? `${n.project}/${n.issue}` : String(n.id)
 

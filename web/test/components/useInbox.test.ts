@@ -153,3 +153,48 @@ describe('reading a notice', () => {
         expect(marked).toEqual([])
     })
 })
+
+describe('what a notifications line says (ORR-803)', () => {
+    const change = (id: number, before: string, after: string, at: string, issue = 'GRE-1') => ({id, project: 'greenhouse', issue, before, after, created_by: 'claude', created_at: at})
+
+    it('reads a question: the bold one asking, else the last bold, else the first line', () => {
+        expect(questionOf('**Where it stands:** fine.\n\n**Oak or pine?** I recommend oak.')).toBe('Oak or pine?')
+        expect(questionOf('[#7](https://x.test/7) is ready, **and I held it**.\n\n**Say go, or merge [#7](https://x.test/7).**')).toBe('Say go, or merge #7.')
+        expect(questionOf('**Blockers:**\n\nShall I go on with `this`')).toBe('Shall I go on with this')
+        expect(questionOf('Sieved to a billion. How much memory may it use? **256 KB** would do.')).toBe('How much memory may it use?')
+    })
+
+    it('takes a line of Markdown down to its words', () => {
+        expect(plainLine('\n\n- [x] **Done** in [#712](https://x.test/712)')).toBe('Done in #712')
+        expect(plainLine('![Before](/api/uploads/1)\nAfter it')).toBe('After it')
+    })
+
+    it("knows orrery's own word for a merged pull request, and nobody else's", () => {
+        const merged = '[#711](https://github.com/a/b/pull/711) was merged into `main` as `81bca68`.'
+        expect(mergedPull({body: merged, created_by: 'orrery'})).toBe(711)
+        expect(mergedPull({body: merged, created_by: 'claude'})).toBeNull()
+        expect(mergedPull({body: 'Nothing merged.', created_by: 'orrery'})).toBeNull()
+        expect(latestMerged([notice(2, SEEN, {body: 'Hm.'}), notice(1, SEEN, {body: merged, created_by: 'orrery'})])).toBe('#711')
+    })
+
+    it('comes to where a run of changes started and ended, or its last step if it came back', () => {
+        expect(netChange([])).toBeNull()
+        const there = [change(1, 'todo', 'in-progress', SEEN), change(2, 'in-progress', 'done', SEEN)]
+        expect(netChange(there)).toEqual({before: 'todo', after: 'done'})
+        expect(netChange([change(1, 'todo', 'in-progress', SEEN), change(2, 'in-progress', 'todo', SEEN)])).toEqual({before: 'in-progress', after: 'todo'})
+    })
+
+    it("gives a day's line that day's changes, and a waiting line those since it asked", () => {
+        const at = (day: number, hour: number) => new Date(2026, 9, day, hour).toISOString()
+        const asked = notice(1, at(30, 12), {issue: 'GRE-1', asks: 'decision'})
+        const changes = [change(1, 'todo', 'in-progress', at(30, 9)), change(2, 'in-progress', 'done', at(31, 9)), change(3, 'todo', 'done', at(31, 9), 'GRE-2')]
+        const [line] = noticeDays([notice(1, at(31, 10), {issue: 'GRE-1'})], new Date(2026, 9, 31, 12))[0]!.rows
+        expect(rowChanges(line!, changes).map(c => c.id)).toEqual([2])
+        expect(rowChanges(waitingRows([asked])[0]!, changes).map(c => c.id)).toEqual([2])
+    })
+
+    it('makes one waiting line an issue, its newest question leading', () => {
+        const rows = waitingRows([notice(1, '2026-10-30T08:00:00.000Z', {issue: 'GRE-1'}), notice(2, '2026-10-31T08:00:00.000Z', {issue: 'GRE-1'}), notice(3, '2026-10-30T09:00:00.000Z', {issue: 'GRE-3'})])
+        expect(rows.map(r => [r.issue, r.notices.map(n => n.id), r.waiting])).toEqual([['GRE-1', [2, 1], true], ['GRE-3', [3], true]])
+    })
+})
