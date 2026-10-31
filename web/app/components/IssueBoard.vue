@@ -127,6 +127,7 @@ watch(columns, () => {
         <span
             v-if="column === 'proposed' && settings.restrict_proposals"
             class="text-faint"
+            role="img"
             title="Only you move these: sessions wait for your approval (App settings → Proposals)"
             aria-label="Only you move proposals"
         >
