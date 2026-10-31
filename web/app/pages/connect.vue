@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // Connect an agent: a button that has the launcher set a repo up (ConnectRepo), or one line to give a Claude session in
-// an app's repo. It points the agent at the
+// a project's repo. It points the agent at the
 // brief (/connect/<project>.md), which says how to keep the roadmap here and has it set the repo up
 // itself. The pieces are also here, folded, to set up by hand. Its second tab, MCP server (`?tab=mcp`), says what connecting
 // gives a session (McpReference).
@@ -38,8 +38,8 @@ const tab = computed<'connect' | 'mcp'>({
       <header class="flex flex-col gap-3">
         <h2 class="text-2xl font-semibold tracking-tight">Give a session its roadmap</h2>
         <p class="text-[15px] leading-relaxed text-muted">
-          Connect a repo with a click, or pick the app and copy the line into a session in its repo. The agent reads its brief
-          from orrery, starts keeping the roadmap here and sets the repo up, then asks you to restart it so orrery can reach the window.
+          Connect a repo with a click, or pick the project and copy the line into a session in its repo. The agent reads its brief
+          from orrery, starts keeping the roadmap here and sets the repo up, then asks you to restart it so orrery can reach the session.
           Any agent can also start from <a :href="`${origin}/llms.txt`" target="_blank" class="text-accent-700 underline underline-offset-2 dark:text-accent-400">/llms.txt</a>.
         </p>
       </header>
@@ -54,7 +54,7 @@ const tab = computed<'connect' | 'mcp'>({
       </div>
 
       <section class="flex flex-col gap-3">
-        <h3 class="label">The app</h3>
+        <h3 class="label">The project</h3>
         <div class="flex flex-wrap gap-1.5">
           <button
               v-for="p in ordered"
@@ -71,7 +71,7 @@ const tab = computed<'connect' | 'mcp'>({
               class="flex h-8 items-center gap-1.5 rounded-lg px-3 text-[13px] ring-1 transition-colors"
               :class="!project ? 'bg-active text-fg ring-faint/50' : 'text-muted ring-line hover:bg-hover hover:text-fg'"
               @click="picked = 'new'"
-          >+ A new app</button>
+          >+ A new project</button>
         </div>
         <div class="flex flex-wrap gap-4">
           <label v-if="!project" class="flex min-w-56 flex-1 flex-col gap-1.5">
@@ -79,7 +79,7 @@ const tab = computed<'connect' | 'mcp'>({
             <input v-model="newName" placeholder="e.g. fitness-app" class="h-8 rounded-lg bg-well px-3 text-[13px] text-fg ring-1 ring-line placeholder:text-faint focus:ring-accent-500/50 focus:outline-none">
           </label>
           <label class="flex min-w-56 flex-1 flex-col gap-1.5">
-            <span class="text-xs text-faint">Name the window (optional): shows in orrery, e.g. what it works on</span>
+            <span class="text-xs text-faint">Name the session (optional): shows in orrery, e.g. what it works on</span>
             <input v-model="sessionName" placeholder="e.g. joints" class="h-8 rounded-lg bg-well px-3 text-[13px] text-fg ring-1 ring-line placeholder:text-faint focus:ring-accent-500/50 focus:outline-none">
           </label>
         </div>
