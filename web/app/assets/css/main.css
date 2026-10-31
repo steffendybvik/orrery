@@ -56,8 +56,10 @@
     --color-hover: var(--hover);
     --color-active: var(--active);
     --color-well: var(--well);
-    --color-accent-fill: var(--accent-fill);
-    --color-on-accent: var(--on-accent);
+    /* The primary, one in both themes: a filled accent, the words on it, and whatever else shows solid orange. White needs an
+       orange this deep to be read. */
+    --color-accent-fill: oklch(0.58 0.18 45);
+    --color-on-accent: #fff;
 }
 
 :root {
@@ -71,9 +73,6 @@
     --hover: rgb(0 0 0 / 0.04);
     --active: rgb(0 0 0 / 0.07);
     --well: rgb(0 0 0 / 0.05);
-    /* A filled accent and the words on it: white needs a deeper orange than accent-500 to be read. */
-    --accent-fill: oklch(0.58 0.18 45);
-    --on-accent: #fff;
     color-scheme: light;
 }
 
@@ -88,8 +87,6 @@
     --hover: rgb(255 255 255 / 0.05);
     --active: rgb(255 255 255 / 0.1);
     --well: rgb(0 0 0 / 0.25);
-    --accent-fill: var(--color-accent-500);
-    --on-accent: var(--color-zinc-950);
     color-scheme: dark;
 }
 
@@ -195,7 +192,7 @@ body {
            doesn't read as more of the page. */
         & img { @apply max-w-full rounded-xl border-4 border-well shadow-sm ring-1 ring-line; }
         & h2, & h3 { @apply scroll-mt-6; }
-        & input[type="checkbox"] { @apply mr-1.5 accent-accent-500; }
+        & input[type="checkbox"] { @apply mr-1.5 accent-accent-fill; }
     }
 
     .doc[data-size="sm"] { @apply text-[14.5px]; }
@@ -224,7 +221,7 @@ body {
     & .compare-range {
         @apply absolute inset-0 m-0 size-full cursor-ew-resize opacity-0;
     }
-    & .compare-range:focus-visible ~ .compare-line::after { @apply ring-2 ring-accent-500; }
+    & .compare-range:focus-visible ~ .compare-line::after { @apply ring-2 ring-accent-fill; }
     & .compare-label {
         @apply absolute top-2 z-10 rounded-md bg-black/60 px-2 py-0.5 text-[12px] font-medium text-white no-underline ring-1 ring-white/25 backdrop-blur-sm hover:bg-black/75 dark:text-white;
     }
@@ -236,7 +233,7 @@ body {
    a dot with a halo, and in a doc each block that's new or different since they last read it. */
 .unseen-row {
     background-color: color-mix(in oklab, var(--color-accent-500) 9%, transparent);
-    box-shadow: inset 2px 0 0 var(--color-accent-500);
+    box-shadow: inset 2px 0 0 var(--color-accent-fill);
     &:hover { background-color: color-mix(in oklab, var(--color-accent-500) 15%, transparent); }
 }
 /* An issue waiting on the owner's answer (a decision or feedback an agent asked for): a violet tint and bar,
@@ -247,7 +244,7 @@ body {
     &:hover { background-color: color-mix(in oklab, var(--color-violet-500) 16%, transparent); }
 }
 .unseen-dot {
-    @apply size-2 shrink-0 rounded-full bg-accent-500;
+    @apply size-2 shrink-0 rounded-full bg-accent-fill;
     box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-accent-500) 25%, transparent);
 }
 .doc .changed {
@@ -258,7 +255,7 @@ body {
     &::before {
         content: '';
         @apply pointer-events-none absolute inset-y-0 -left-3 w-3 rounded-l-sm;
-        background: linear-gradient(to right, var(--color-accent-500) 3px, var(--tint) 3px);
+        background: linear-gradient(to right, var(--color-accent-fill) 3px, var(--tint) 3px);
     }
 }
 

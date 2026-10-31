@@ -99,7 +99,7 @@ watch(() => [route.hash, count.value] as const, ([hash]) => show(hash), {immedia
 
 <template>
   <PageHeader>
-    <SectionIcon section="sessions" class="size-4 shrink-0 text-accent-500" />
+    <SectionIcon section="sessions" class="size-4 shrink-0 text-accent-fill" />
     <h1 class="truncate text-sm font-medium">Sessions</h1>
   </PageHeader>
 

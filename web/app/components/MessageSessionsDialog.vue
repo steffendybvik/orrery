@@ -115,7 +115,7 @@ async function send() {
             class="flex items-center gap-2 rounded-lg px-2 py-1.5 text-[13px]"
             :class="projects.includes(p.id) ? 'bg-accent-500/10 text-fg' : 'text-muted hover:bg-hover hover:text-fg'"
         >
-          <input v-model="projects" type="checkbox" name="project" :value="p.id" class="accent-accent-500">
+          <input v-model="projects" type="checkbox" name="project" :value="p.id" class="accent-accent-fill">
           <ProjectIcon v-if="p.icon && heroicon(p.icon)" :icon="p.icon" :color="p.icon_color" class="size-3.5" />
           <span class="min-w-0 flex-1 truncate">{{ p.name }}</span>
         </label>

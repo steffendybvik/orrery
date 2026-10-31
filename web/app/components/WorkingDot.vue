@@ -9,7 +9,7 @@ defineProps<{session: Session}>()
 <template>
   <span
       class="inline-flex size-2 shrink-0 rounded-full"
-      :class="[{idle: 'bg-emerald-500', working: 'bg-accent-500 animate-pulse motion-reduce:animate-none', waiting: 'bg-rose-500', starting: 'bg-faint'}[session.state]]"
+      :class="[{idle: 'bg-emerald-500', working: 'bg-accent-fill animate-pulse motion-reduce:animate-none', waiting: 'bg-rose-500', starting: 'bg-faint'}[session.state]]"
       role="img"
       :aria-label="`${session.name} is working on it`"
       :title="`${session.name} is working on it (${SESSION_STATE[session.state]})`"

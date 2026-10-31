@@ -17,7 +17,7 @@ async function set(on: boolean) {
 <template>
   <div class="flex flex-col gap-1.5">
     <label class="flex items-center gap-2 text-xs text-muted">
-      <input type="checkbox" class="accent-accent-500" :checked="settings.pick_next" @change="set(($event.target as HTMLInputElement).checked)">
+      <input type="checkbox" class="accent-accent-fill" :checked="settings.pick_next" @change="set(($event.target as HTMLInputElement).checked)">
       When a session runs out of work, it picks its next issue
     </label>
     <p class="text-xs text-faint">

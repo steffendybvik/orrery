@@ -9,7 +9,7 @@ const bars = computed(() => ({P1: 3, P2: 2, P3: 1})[props.priority ?? ''] ?? 0)
   <svg :width="size" :height="size" viewBox="0 0 14 14" class="shrink-0" role="img" :aria-label="PRIORITY_LABEL[priority ?? 'none']">
     <title>{{ PRIORITY_LABEL[priority ?? 'none'] }}</title>
     <template v-if="priority === 'P0'">
-      <rect x="1" y="1" width="12" height="12" rx="3" class="fill-accent-500" />
+      <rect x="1" y="1" width="12" height="12" rx="3" class="fill-accent-fill" />
       <path d="M7 4v3.6" stroke="white" stroke-width="1.8" stroke-linecap="round" />
       <circle cx="7" cy="10" r="1" fill="white" />
     </template>

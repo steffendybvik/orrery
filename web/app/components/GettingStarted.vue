@@ -72,7 +72,7 @@ async function tryDemo() {
       </div>
     </div>
     <div class="h-1 overflow-hidden rounded-full bg-well" role="progressbar" :aria-valuenow="done" :aria-valuemax="steps.length" aria-label="Steps done">
-      <div class="h-full rounded-full bg-accent-500 transition-all" :style="{width: `${(done / steps.length) * 100}%`}" />
+      <div class="h-full rounded-full bg-accent-fill transition-all" :style="{width: `${(done / steps.length) * 100}%`}" />
     </div>
     <ol class="flex flex-col gap-4 text-[13px] leading-relaxed text-muted">
       <template v-for="(step, i) in steps" :key="step.key">
