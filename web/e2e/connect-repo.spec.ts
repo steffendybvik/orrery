@@ -4,7 +4,6 @@ import {OWNER, hold, makeProject} from './support'
 // Connect a repo with a click (ORR-708), on the page: with no launcher that can open a picker, the install line; with one
 // (a stand-in holding its stream), the owner's click asks it, it says the folder's name, the page ticks projects, and it
 // hears them. The folder itself is never in anything orrery sends or shows.
-test.describe.configure({mode: 'serial'})
 
 test.beforeAll(async ({request}) => {
     await makeProject(request, {name: 'Lighthouse', key: 'LHT'})

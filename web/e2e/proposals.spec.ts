@@ -2,7 +2,6 @@ import {expect, test} from '@playwright/test'
 import {makeProject, projectApi} from './support'
 
 // An agent's proposal waits on the owner: Approve puts it on the roadmap, and their picks survive a live update.
-test.describe.configure({mode: 'serial'})
 
 const api = projectApi('orangery')
 

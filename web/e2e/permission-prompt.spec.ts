@@ -5,7 +5,6 @@ import {hold, makeProject, projectApi} from './support'
 // Claude would be: one orrery started shows the command from its prompt, and Allow and Open tmux go to its launcher; one
 // started by hand says what it wants without them; × hides it until it asks again. Either says the tool it asks for, as
 // its hook said (ORR-562).
-test.describe.configure({mode: 'serial'})
 
 const api = projectApi('pantry')
 const PANE = `● I'll clear the build output.

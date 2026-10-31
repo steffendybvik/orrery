@@ -3,7 +3,6 @@ import {AGENT, makeProject} from './support'
 
 // The owner writes, edits and removes docs from the page. A doc an agent changed is tinted in the list, and in it
 // the parts changed since the owner read it.
-test.describe.configure({mode: 'serial'})
 
 test.beforeAll(async ({request}) => {
     await makeProject(request, {name: 'Library', key: 'LIB'})

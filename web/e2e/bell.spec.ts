@@ -2,7 +2,6 @@ import {expect, test} from '@playwright/test'
 import {OWNER, makeProject, projectApi} from './support'
 
 // An agent's question waits in the bell until the owner answers it.
-test.describe.configure({mode: 'serial'})
 
 const api = projectApi('porch')
 

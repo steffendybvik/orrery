@@ -3,7 +3,6 @@ import {AGENT, makeProject} from './support'
 
 // An artifact is drawn on its doc's page, styled with Tailwind and the app's theme, and locked down (ORR-677). Only a real
 // browser enforces the sandbox and the CSP, so this is where that's shown: its script runs and reports what it could do.
-test.describe.configure({mode: 'serial'})
 
 const put = async (request: import('@playwright/test').APIRequestContext, id: string, title: string, body: string) =>
     expect((await request.put(`/api/projects/atelier/docs/${id}`, {data: {title, body, kind: 'artifact'}, headers: AGENT})).ok()).toBeTruthy()

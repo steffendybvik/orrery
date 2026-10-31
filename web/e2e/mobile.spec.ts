@@ -3,7 +3,6 @@ import {expect, test} from '@playwright/test'
 
 // On a phone: the sidebar is a drawer behind the menu button that closes once a page is picked, and the
 // project and an issue's page fit the screen's width. A project of its own; the owner named if no one has yet.
-test.describe.configure({mode: 'serial'})
 test.use({viewport: {width: 390, height: 844}, isMobile: true, hasTouch: true})
 
 const api = (request: APIRequestContext, method: 'get' | 'post' | 'put', path: string, data?: object) =>

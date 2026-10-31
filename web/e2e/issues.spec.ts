@@ -4,7 +4,6 @@ import {AGENT, OWNER, makeProject, newIssue, projectApi} from './support'
 // Issues on a project of their own: made from the page and moved on the board, the board leaving out the columns
 // the filter does, sub-issues, ⌘K, a change showing live in another tab, the open ones first, what changed
 // since the owner last looked, and double-clicking a description to edit it.
-test.describe.configure({mode: 'serial'})
 
 const api = projectApi('scullery')
 
