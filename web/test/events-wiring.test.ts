@@ -35,6 +35,7 @@ beforeEach(async () => {
     vi.doMock('../server/utils/store', () => ({Store: fake('Store', {seedPresets: async () => void calls.push('seedPresets'), settings: async () => ({uid: 'x7k2m9qd'})})}))
     vi.doMock('../server/utils/secrets', () => ({Secrets: fake('Secrets', {scrubber: () => 'scrub', own: () => 'own', ownsFor: () => true})}))
     vi.doMock('../server/utils/pulls', () => ({GITHUB_SECRET: 'GITHUB_TOKEN', Pulls: fake('Pulls')}))
+    vi.doMock('../server/utils/branches', () => ({Branches: fake('Branches')}))
     vi.doMock('../server/utils/pull-poll', () => ({PullPoll: fake('PullPoll', {secretsChanged: () => calls.push('poll.secretsChanged')})}))
     vi.doMock('../server/utils/pull-comments', () => ({commentOnPull: async (_store: unknown, change: {pr: number}) => void calls.push(`commentOnPull ${change.pr}`)}))
     vi.doMock('../server/utils/event-log', () => ({EventLog: fake('EventLog', {forget: () => calls.push('log.forget'), note: (entry: object) => calls.push(`note ${JSON.stringify(entry)}`)})}))
@@ -44,7 +45,7 @@ beforeEach(async () => {
 
 afterEach(() => {
     vi.unstubAllGlobals()
-    for (const m of ['store', 'secrets', 'pulls', 'pull-poll', 'pull-comments', 'event-log', 'schedules']) vi.doUnmock(`../server/utils/${m}`)
+    for (const m of ['store', 'secrets', 'pulls', 'branches', 'pull-poll', 'pull-comments', 'event-log', 'schedules']) vi.doUnmock(`../server/utils/${m}`)
 })
 
 const heard = (event: string) => {
@@ -55,7 +56,7 @@ const heard = (event: string) => {
 
 describe("events.ts's helpers", () => {
     it('makes each once', () => {
-        for (const use of [events.useStore, events.useSecrets, events.usePulls, events.usePullPoll, events.useEventLog, events.useScheduler]) expect(use()).toBe(use())
+        for (const use of [events.useStore, events.useSecrets, events.usePulls, events.useBranches, events.usePullPoll, events.useEventLog, events.useScheduler]) expect(use()).toBe(use())
     })
 
     it("sends the secrets' list as `secrets` when they change and as `secret-used` when one is used, sealed with the key", () => {

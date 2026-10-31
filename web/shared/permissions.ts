@@ -385,6 +385,16 @@ export const PERMISSIONS: Permission[] = [
         member: ownerAlone,
     },
     {
+        id: 'pulls.branches', area: 'This orrery', action: 'See the repos’ branches, and remove one',
+        why: 'A branch’s name can hold anyone’s words, and removing one can’t be undone from here.',
+        // Reading them is held by the route too, as the table's routes are the writes.
+        routes: ['DELETE /api/pulls/branches'],
+        session: {level: 'owner'},
+        chat: refused,
+        untrusted: refused,
+        member: ownerAlone,
+    },
+    {
         id: 'pulls.poll', area: 'This orrery', action: 'Poll GitHub for pull requests now',
         why: 'Each poll spends GitHub’s requests, which are few without a token.',
         routes: ['POST /api/pulls/poll'],

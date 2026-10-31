@@ -10,7 +10,7 @@
 import type {H3Event} from 'h3'
 import type {AllPulls, IssuePulls, OpenPull, PastPull, PullRequest, PullState} from '#shared/roadmap'
 import {PULL_NEEDS, githubRepo} from '#shared/roadmap'
-import {notFound} from './input'
+import {conflict, notFound} from './input'
 import type {Store} from './store'
 
 /** The secret orrery sends to api.github.com, when there's one that may go there. */
@@ -25,7 +25,7 @@ export const PAGE = 100
 export const PAGES = 3
 
 /** orrery's own request to GitHub for a project (a GET, or a POST with `init`): `secret` says whether a token went with it. */
-export type GitHubGet = (url: string, project: string, headers: Record<string, string>, init?: {method?: 'GET' | 'POST', body?: string})
+export type GitHubGet = (url: string, project: string, headers: Record<string, string>, init?: {method?: 'GET' | 'POST' | 'DELETE', body?: string})
     => Promise<{response: Response, secret: boolean}>
 
 /** How long what the poll keeps of a repo stands in for asking GitHub: a few of its minutes, so one late poll doesn't
@@ -410,6 +410,19 @@ export class Pulls {
             next = read.next?.startsWith(`${API}/`) ? read.next.slice(API.length) : undefined
         }
         return {value, secret, more: !!next}
+    }
+
+    /** Removes a branch on GitHub (ORR-793), which takes a token that can write: most only read. */
+    async deleteBranch(repo: string, project: string, name: string) {
+        const {response, secret} = await this.get(`${API}/repos/${repo}/git/refs/heads/${name.split('/').map(encodeURIComponent).join('/')}`, project, {
+            'Accept': 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28', 'User-Agent': 'orrery',
+        }, {method: 'DELETE'})
+        if (response.ok) return
+        if (response.status === 422) return // Gone already.
+        const by = `git push origin --delete ${name}`
+        if (!secret) throw conflict(`Removing a branch takes a ${GITHUB_SECRET} secret with Contents: Read and write, or run: ${by}`)
+        if (response.status === 401 || response.status === 403 || response.status === 404) throw conflict(`The ${GITHUB_SECRET} secret can't remove branches: give it Contents: Read and write, or run: ${by}`)
+        throw new Error(`GitHub answered ${response.status} removing a branch of ${repo}`)
     }
 
     private async request<T>(repo: string, project: string, path: string, body?: unknown): Promise<{value: T, secret: boolean, next?: string}> {

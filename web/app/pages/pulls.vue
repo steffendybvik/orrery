@@ -9,6 +9,7 @@ import {inProjectOrder, PULL_NEEDS} from '#shared/roadmap'
 // Focus on this to send a session to it (ORR-607); the header's copy button copies the repo's name. Poll
 // asks GitHub now rather than waiting for the background poll's next turn; a repo it held back (GitHub's limits) says
 // why in its header.
+// **Branches** beside them lists every branch with its issue and pull request, and whether to remove it (ORR-793).
 // They come 50 to a page (ORR-615), in that order across every repo, so page 1 always has those that need someone; a
 // card shows its PRs on this page, its counts every page's. The page is in the address, so a reload stays on it.
 useHead({title: 'Pull requests · orrery'})
@@ -20,6 +21,8 @@ const page = computed({
     get: () => Math.max(1, Math.floor(Number(route.query.page)) || 1),
     set: at => void router.replace({query: {...route.query, page: at > 1 ? at : undefined}}),
 })
+const view = computed(() => route.query.view === 'branches' ? 'branches' : 'pulls')
+const views = [{id: 'pulls', label: 'Pull requests'}, {id: 'branches', label: 'Branches'}]
 const {pulls, follow, poll, polling, failed} = useOpenPulls(page)
 follow(60_000)
 // Past the last page (PRs closed since), the answer is the last page: the address follows.
@@ -47,6 +50,18 @@ const cards = computed(() => inProjectOrder(pulls.value?.repos ?? [], ordered.va
     <h1 class="truncate text-sm font-medium">Pull requests</h1>
   </PageHeader>
 
+  <nav class="flex gap-1 border-b border-line px-4 py-2 text-xs" aria-label="Pull requests and branches">
+    <NuxtLink
+        v-for="v in views"
+        :key="v.id"
+        :to="{query: v.id === 'branches' ? {view: 'branches'} : {}}"
+        class="rounded-md px-2 py-1"
+        :class="view === v.id ? 'bg-hover font-medium text-fg' : 'text-muted hover:text-fg'"
+        :aria-current="view === v.id ? 'page' : undefined"
+    >{{ v.label }}</NuxtLink>
+  </nav>
+  <BranchesList v-if="view === 'branches'" />
+  <template v-else>
   <ViewToolbar>
     <span class="text-xs text-muted">
       <template v-if="!pulls">Asking GitHub…</template>
@@ -127,4 +142,5 @@ const cards = computed(() => inProjectOrder(pulls.value?.repos ?? [], ordered.va
       </ul>
     </div>
   </div>
+  </template>
 </template>

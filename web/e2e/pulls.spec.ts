@@ -37,6 +37,39 @@ test('polls now on Poll, and holds a repo without a token for five minutes', asy
     expect((await request.post('/api/pulls/poll', {headers: {'Orrery-Actor': 'claude'}})).status()).toBe(403)
 })
 
+test('Branches lists what to do with each, and removes one only after asking (ORR-793)', async ({page, request}) => {
+    const branch = (name: string, verdict: string, why: string, over: object = {}) => ({repo: 'orrery-e2e/silo', name, sha: 'abcdef1234', committed_at: '2026-10-01T00:00:00.000Z', ahead: 2, verdict, why, ...over})
+    let removed = ''
+    await page.route('**/api/pulls/branches**', route => {
+        if (route.request().method() === 'DELETE') {
+            removed = new URL(route.request().url()).searchParams.get('name') ?? ''
+            return route.fulfill({status: 204})
+        }
+        return route.fulfill({json: {repos: [{repo: 'orrery-e2e/silo', projects: ['silo'], base: 'main', token: true}], branches: [
+            branch('spike', 'look', 'It has no pull request'),
+            branch('fix/done', 'remove', 'Its pull request merged', {pull: {number: 4, url: 'https://github.com/orrery-e2e/silo/pull/4', state: 'merged'}}),
+            branch('main', 'keep', 'The default branch, or a release being prepared', {ahead: 0}),
+        ].filter(b => b.name !== removed)}})
+    })
+    await page.goto('/pulls')
+    await page.getByRole('link', {name: 'Branches'}).click()
+    await expect(page).toHaveURL(/view=branches/)
+    await expect(page.getByText('3 branches: 1 to look at, 1 to remove, 1 to keep')).toBeVisible()
+    const row = page.getByRole('listitem').filter({hasText: 'fix/done'}).last()
+    await expect(row).toContainText('(a squash merge leaves them reading so)')
+    // Only what reads as remove offers it, and it asks first.
+    await expect(page.getByRole('button', {name: 'Remove…'})).toHaveCount(1)
+    await row.getByRole('button', {name: 'Remove…'}).click()
+    expect(removed).toBe('')
+    await row.getByRole('button', {name: /Remove|Yes|Confirm/}).last().click()
+    await expect(page.getByText('2 branches: 1 to look at, 0 to remove, 1 to keep')).toBeVisible()
+    expect(removed).toBe('fix/done')
+    // Its reads and removal are the owner's alone.
+    expect((await request.get('/api/pulls/branches', {headers: {'Orrery-Actor': 'claude'}})).status()).toBe(403)
+    expect((await request.delete('/api/pulls/branches?repo=a/b&name=c', {headers: {'Orrery-Actor': 'claude'}})).status()).toBe(403)
+    expect((await request.get('/api/pulls/branches', {headers: OWNER})).ok()).toBe(true)
+})
+
 // What GitHub would answer is made up here, so the page's rows can be every state whatever GitHub says.
 test('lists where each pull request stands, and Focus on this sends the note it fills in', async ({page, request}) => {
     await makeProject(request, {name: 'Silo', key: 'SIL'})

@@ -75,7 +75,8 @@ leaves when one conflicts, fails or merges). A public repo works without a token
 minutes. With a token, a private repo works too, and orrery reads where each pull request stands every minute.
 
 1. On GitHub, [make a fine-grained token](https://github.com/settings/personal-access-tokens/new) with
-   *Pull requests: Read-only* on the repos your projects point at (a classic token needs `repo`).
+   *Pull requests: Read-only* on the repos your projects point at (a classic token needs `repo`). The Branches view
+   also needs *Contents: Read-only* to read them, and *Contents: Read and write* to remove one from the page.
 2. In **App settings → This orrery → Secrets**, `GITHUB_TOKEN` is listed as *Not set*. Press **Set** and paste the
    token: its name and its host, `api.github.com`, are filled in.
 
