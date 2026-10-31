@@ -5,7 +5,7 @@ import {checkInput, notFound} from '../utils/input'
 import type {Actor, CommentRow, EventRow, SignalRow} from './schema'
 import {AGENT, COMMENT_FIELDS, ANSWERED, OPEN_ASK, PERSONS_WORDS, commentOf, eventOf, signalOf, nullable, stamp, ORRERY} from './schema'
 import {refusedFor} from '../utils/permission'
-import {SignalStore} from './signals'
+import {KEEP_SIGNALS, SignalStore} from './signals'
 
 /** orrery itself, speaking on an issue. */
 export {ORRERY}
@@ -177,16 +177,17 @@ export abstract class CommentStore extends SignalStore {
     /** The owner's comments in the project that no agent has answered and no session has had yet, nor waits in the pool
      * for one to take (from the last day, as `pooledWaiting`), sent to `session` (just connected) to catch up on. Says
      * how many. orrery's own word after one (a pull request's news) answers nothing (ORR-528). A session whose person
-     * is a member (`person`) gets their own words too, on what's theirs. */
+     * is a member (`person`) gets their own words too, on what's theirs. A comment older than the signals kept (KEEP_SIGNALS)
+     * isn't carried: the signal that says it was heard may be gone (ORR-778). */
     async carryUnanswered(project: string, session: string, person?: string): Promise<number> {
         const waiting = await this.all<{issue: string, body: string, created_by: string, owned: number, assignee: string | null}>(`
             SELECT c.issue, c.body, c.created_by, c.owned, (SELECT i.assignee FROM issues i WHERE i.project = c.project AND i.id = c.issue) AS assignee FROM comments c
-            WHERE c.project = ? AND (c.owned = 1 OR (c.person = ? AND c.by_agent = 0
+            WHERE c.project = ? AND c.created_at >= ? AND (c.owned = 1 OR (c.person = ? AND c.by_agent = 0
                 AND EXISTS (SELECT 1 FROM issues i WHERE i.project = c.project AND i.id = c.issue AND lower(i.assignee) = c.person)))
               AND NOT EXISTS (SELECT 1 FROM comments a WHERE a.project = c.project AND a.issue = c.issue AND NOT ${PERSONS_WORDS('a')} AND a.created_by != ? AND a.id > c.id)
               AND NOT EXISTS (SELECT 1 FROM signals s WHERE s.project = c.project AND s.issue = c.issue AND s.kind = 'comment'
                               AND s.created_at >= c.created_at AND (s.delivered_to != '[]' OR (s.target IS NULL AND s.created_at >= ?)))
-            ORDER BY c.created_at LIMIT 10`, project, person ?? null, ORRERY.name, new Date(Date.now() - 86_400_000).toISOString())
+            ORDER BY c.created_at LIMIT 10`, project, new Date(Date.now() - KEEP_SIGNALS).toISOString(), person ?? null, ORRERY.name, new Date(Date.now() - 86_400_000).toISOString())
         let carried = 0
         for (const comment of waiting) {
             // The owner's words go to whoever has the issue (ORR-656), and on what's nobody's, to the owner's own.
