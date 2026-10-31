@@ -5,7 +5,6 @@ import {OWNER, makeProject, projectApi} from './support'
 // (app/utils/markdown.ts, ORR-582). Tried in the browser, as happy-dom's DOM lets DOMPurify hand a script back as it
 // came: nothing that runs gets onto the page, nothing loads from another site by itself or reaches past its own text
 // (ORR-751), links to the web open apart, and headings' ids can't name anything on it.
-test.describe.configure({mode: 'serial'})
 
 const api = projectApi('pantry-notes')
 

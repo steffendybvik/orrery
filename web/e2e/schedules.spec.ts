@@ -2,7 +2,6 @@ import {expect, test} from '@playwright/test'
 import {makeProject, projectApi} from './support'
 
 // A schedule made on its project, kept to it, paused and removed.
-test.describe.configure({mode: 'serial'})
 
 const api = projectApi('vineyard')
 

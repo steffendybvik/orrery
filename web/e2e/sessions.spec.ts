@@ -6,7 +6,6 @@ import {AGENT, OWNER, hold, makeProject, projectApi} from './support'
 // on one stream, a message to every idle session, Focus on this starting one and New session on this another, Stop on
 // one orrery started, one with no channel left out of the lists, the session on an issue shown on its page, the repos the
 // launcher serves, and a preset.
-test.describe.configure({mode: 'serial'})
 
 const api = projectApi('kitchen')
 
@@ -16,6 +15,7 @@ test.beforeAll(async ({request}) => {
 })
 
 test('lets orrery start sessions once, for every project, on the Sessions page', async ({page, request}) => {
+    await request.patch('/api/settings', {data: {starts: null}, headers: OWNER})
     await page.goto('/sessions#starts')
     const starts = page.locator('#starts')
     await starts.getByRole('checkbox', {name: 'Let orrery start sessions'}).check()
