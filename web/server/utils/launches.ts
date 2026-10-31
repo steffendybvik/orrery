@@ -68,6 +68,11 @@ const REFUSED_FOR = 30 * 60 * 1000
 /** The launches its launchers say they run, kept across this server's restarts by the launchers themselves:
  * each reports its sessions when it connects, so one that reconnects to a restarted orrery is known again. */
 const reported = new Map<string, {project: string, tmux: string, stops_at?: string, context?: SessionContext, untrusted?: boolean, chat?: boolean}>()
+/** Stops the owner asked for that no launcher has said it carried out, by launch: each launcher that connects hears them,
+ * so one with no launcher there to hear it, and no channel to go through, isn't lost (ORR-789). Kept a day at most, as one
+ * for a session that ended meanwhile is never answered. */
+const stopsAsked = new Map<string, {project: string, at: number}>()
+const STOP_HELD_FOR = 24 * 60 * 60 * 1000
 /** How many launchers each project has connected. */
 const launchers = counter('launchers')
 export const launchersOf = launchers.count
@@ -433,6 +438,7 @@ export function launchGone(id: string) {
     const replaced = replacing.get(id)
     if (replaced) replaced.ended = true
     ended.set(id, Date.now())
+    stopsAsked.delete(id)
     chatEnded(id)
     causes.delete(id)
     pending.delete(id)
@@ -608,11 +614,24 @@ export function keepScreen(project: string, id: string, text: string, now = Date
     return {watching}
 }
 
+/** Tells the project's launchers to stop the launch, and keeps it for any that connect until one says it ended. */
+function askStop(project: string, id: string, chat = false) {
+    stopsAsked.set(id, {project, at: Date.now()})
+    emit({type: 'stop', project, id, ...chat ? {chat} : {}})
+}
+
+/** The stops still asked for on the project, for a launcher connecting to hear. */
+export function heldStops(project: string): string[] {
+    const since = Date.now() - STOP_HELD_FOR
+    for (const [id, stop] of stopsAsked) if (stop.at < since) stopsAsked.delete(id)
+    return [...stopsAsked].filter(([, stop]) => stop.project === project).map(([id]) => id)
+}
+
 /** The owner stopping a session orrery started: its launcher kills it, and says when it's gone. */
 export function stopLaunch(project: string, id: string): Session {
     const session = sessionOfLaunch(project, id)
     if (!session) throw notFound(`No session started for launch ${id} in ${project}`)
-    emit({type: 'stop', project, id})
+    askStop(project, id)
     return session
 }
 
@@ -620,7 +639,7 @@ export function stopLaunch(project: string, id: string): Session {
  * if one took it on, stops it. */
 export function endLaunch(project: string, id: string, chat = false) {
     pending.delete(id)
-    emit({type: 'stop', project, id, ...chat ? {chat} : {}})
+    askStop(project, id, chat)
 }
 
 /** The owner giving a session orrery started more time: `minutes` from when it would have stopped, or from now if that's past. */

@@ -303,6 +303,15 @@ export const PERMISSIONS: Permission[] = [
         member: {level: 'limited', note: 'One an agent made, on their boards'},
     },
     {
+        id: 'schedules.enabled', area: 'Schedules', action: 'Pause or activate all of a project’s schedules',
+        why: 'Activating all also turns on what was paused on purpose, so it’s the owner’s to do, on Schedules.',
+        routes: ['POST /api/projects/:project/schedules/enabled'],
+        session: {level: 'owner'},
+        chat: {level: 'owner'},
+        untrusted: refused,
+        member: ownerAlone,
+    },
+    {
         id: 'schedules.ask', area: 'Schedules', action: 'Ask the owner, on the issue it’s working, to make or change a schedule',
         why: 'What a schedule says reaches sessions as the owner’s words, so the owner reads it before it runs (ORR-458).',
         routes: ['POST /api/projects/:project/issues/:issue/schedule-requests'],

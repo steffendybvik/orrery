@@ -18,6 +18,12 @@ const {look} = useStatuses()
 
 const sessions = computed(() => (all.value[props.project] ?? []).filter(listable).sort((a, b) => Number(b.id === props.worker) - Number(a.id === props.worker)))
 const listening = computed(() => sessions.value.filter(s => s.listening))
+// On an issue's page, the sessions it can go to now are what matters (ORR-790): the idle ones, and the one already on it.
+// The rest wait behind a row, which stays as the owner left it as sessions move between the two. A chunk lists them all.
+const available = (session: Session) => !props.issue || session.state === 'idle' || session.id === props.worker
+const free = computed(() => sessions.value.filter(available))
+const busy = computed(() => sessions.value.filter(s => !available(s)))
+const showBusy = ref(false)
 const unheard = computed(() => withoutChannel(all.value[props.project] ?? []))
 // Whether a focus sent with nobody listening has a session started for it.
 const {state: launch} = useLaunchState(() => props.project)
@@ -134,31 +140,41 @@ const aimed = (signal: Signal) => signal.target === '*' || !signal.target && sig
       </label>
     </fieldset>
 
-    <ul v-if="sessions.length" class="flex flex-col">
-      <li v-for="session in sessions" :key="session.id" class="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-lg px-2 py-2 hover:bg-hover">
-        <SessionDot :session="session" />
-        <NuxtLink
-            :to="`/sessions#session-${session.id}`"
-            class="min-w-0 truncate text-[13px] text-fg hover:underline"
-            :title="`Open ${session.name} on the Sessions page`"
-        >{{ session.name }}</NuxtLink>
-        <span v-if="session.id === worker" class="rounded-full bg-accent-500/10 px-1.5 text-[11px] font-medium text-accent-700 ring-1 ring-accent-500/30 dark:text-accent-300">on this issue</span>
-        <span class="whitespace-nowrap text-xs" :class="session.state === 'waiting' ? 'text-rose-700 dark:text-rose-400' : 'text-faint'">
-          {{ SESSION_STATE[session.state] }} · {{ ago(session.since) }}
-        </span>
+    <template v-if="sessions.length">
+      <ul v-if="free.length" class="flex flex-col">
+        <SessionsPanelRow
+            v-for="session in free"
+            :key="session.id"
+            :session="session"
+            :worker="worker"
+            :issue="issue"
+            :sending="sending"
+            @focus="focus(session)"
+        />
+      </ul>
+      <div v-if="busy.length">
         <button
-            v-if="session.listening"
             type="button"
-            class="ml-auto flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium ring-1 transition-colors disabled:opacity-50"
-            :class="session.state === 'idle' ? 'bg-accent-500/10 text-accent-700 ring-accent-500/40 hover:bg-accent-500/20 dark:text-accent-300' : 'text-muted ring-line hover:bg-hover hover:text-fg'"
-            :disabled="!!sending"
-            :title="issue ? `Ask ${session.name} to work on this now` : `Ask ${session.name} to work through this chunk now`"
-            @click="focus(session)"
+            class="flex w-full items-center gap-1.5 rounded-lg px-2 py-1.5 text-left text-xs text-muted hover:bg-hover hover:text-fg"
+            :aria-expanded="showBusy"
+            @click="showBusy = !showBusy"
         >
-          {{ sending === session.id ? 'Sending…' : 'Focus on this' }}
+          <svg class="size-3 transition-transform" :class="showBusy ? 'rotate-90' : ''" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6" /></svg>
+          {{ busy.length }} busy
         </button>
-      </li>
-    </ul>
+        <ul v-if="showBusy" class="flex flex-col">
+          <SessionsPanelRow
+              v-for="session in busy"
+              :key="session.id"
+              :session="session"
+              :worker="worker"
+              :issue="issue"
+              :sending="sending"
+              @focus="focus(session)"
+          />
+        </ul>
+      </div>
+    </template>
     <p v-else-if="canStart" class="text-[13px] leading-relaxed text-muted">
       No session on {{ project }} yet. {{ issue ? 'Focus on this' : 'Work through this' }} has orrery start one, in its repo, through the launcher.
     </p>

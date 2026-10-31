@@ -4,6 +4,7 @@ import {DOMWrapper} from '@vue/test-utils'
 import {mountSuspended} from '@nuxt/test-utils/runtime'
 import type {Project, Session} from '#shared/roadmap'
 import CommandPalette from '~/components/CommandPalette.vue'
+import {mostUsedCommands, recordCommand} from '~/utils/commandUse'
 
 // ⌘K's keyboard: what it shows with nothing typed, an exact id as the Top hit, ↑↓ round the ends, ⇥ by section, a scope
 // prefix, "N more" opening on ↵, and ↵ running the row in focus.
@@ -20,6 +21,7 @@ const mounted: VueWrapper[] = []
 beforeEach(() => {
     useRoadmaps().projects.value = [GREENHOUSE, PANTRY]
     useRoadmaps().sessions.value = {}
+    localStorage.clear()
     useState('palette-open').value = true
 })
 afterEach(() => {
@@ -38,7 +40,84 @@ async function mount() {
     return {wrapper, input, key, sections, chosen}
 }
 
+const runs = (key: string, times: number, at = Date.now()) => {
+    for (let n = 0; n < times; n++) recordCommand(key, at)
+}
+const DAY = 86_400_000
+
 describe('CommandPalette', () => {
+    describe('Most used (ORR-782)', () => {
+        const used = (wrapper: DOMWrapper<Element>) => wrapper.find('section[aria-label="Most used"]').findAll('[role="option"]').map(o => o.text())
+
+        it('stays out until a command has been run a few times', async () => {
+            runs('go:sessions', 2)
+            const {sections} = await mount()
+            expect(sections()).toEqual(['Jump to', 'Go to'])
+        })
+
+        it('leads with the most used, chosen first, and repeats none of them below', async () => {
+            runs('go:events', 3)
+            runs('go:sessions', 5)
+            const {sections, chosen, wrapper} = await mount()
+            expect(sections()).toEqual(['Most used', 'Jump to', 'Go to'])
+            expect(used(wrapper)[0]).toContain('Sessions')
+            expect(used(wrapper)[1]).toContain('Events')
+            expect(chosen()).toContain('Sessions')
+            const go = wrapper.find('section[aria-label="Go to"]').text()
+            expect(go).not.toContain('Sessions')
+            expect(go).not.toContain('Events')
+            expect(go).toContain('Schedules')
+        })
+
+        it('counts older use for less, so it follows changing habits', async () => {
+            runs('go:events', 6, Date.now() - 28 * DAY)
+            runs('go:sessions', 4)
+            const {wrapper} = await mount()
+            expect(used(wrapper)[0]).toContain('Sessions')
+            expect(mostUsedCommands(Date.now() + 28 * DAY)).toEqual([])
+        })
+
+        it('shows five at most, and only what this page offers', async () => {
+            runs('group:chunk', 9)
+            for (const key of ['go:mine', 'go:connect', 'go:sessions', 'go:schedules', 'go:releases', 'go:events']) runs(key, 3)
+            const {sections, wrapper} = await mount()
+            expect(sections()[0]).toBe('Most used')
+            expect(used(wrapper)).toHaveLength(5)
+            expect(used(wrapper).join()).not.toContain('Group the list')
+        })
+
+        it('holds its order while open, and hides from a search', async () => {
+            runs('go:events', 3)
+            const {input, sections, wrapper} = await mount()
+            runs('go:sessions', 9)
+            await input().setValue('x')
+            await input().setValue('')
+            expect(used(wrapper)).toHaveLength(1)
+            expect(used(wrapper)[0]).toContain('Events')
+            await input().setValue('events')
+            expect(sections()).not.toContain('Most used')
+        })
+
+        it('counts a command as it runs, and not a place', async () => {
+            const {input, key} = await mount()
+            for (let n = 0; n < 3; n++) {
+                await input().setValue('>schedules')
+                useState('palette-open').value = true
+                await key('Enter')
+                useState('palette-open').value = true
+                await nextTick()
+            }
+            expect(mostUsedCommands()).toEqual(['go:schedules'])
+            for (let n = 0; n < 3; n++) {
+                await input().setValue('@pantry')
+                await key('Enter')
+                useState('palette-open').value = true
+                await nextTick()
+            }
+            expect(mostUsedCommands()).toEqual(['go:schedules'])
+        })
+    })
+
     it('offers the projects and places with nothing typed', async () => {
         const {sections, wrapper} = await mount()
         expect(sections()).toEqual(['Jump to', 'Go to'])

@@ -143,8 +143,14 @@ test('a session goes from its start to its stop through the real launcher, chann
             expect(await sessions()).toEqual([expect.objectContaining({id: 'window-2', listening: true, started: expect.objectContaining({launch: handedDown.ORRERY_STARTED})})])
         })
 
-        await test.step('stopping it has the launcher kill it and say so, and it leaves the list', async () => {
-            await expect.poll(async () => (await request.post(`/api/projects/${project}/sessions/window-2/stop`, {headers: OWNER})).ok(), WAIT).toBe(true)
+        await test.step('stopped with no channel and no launcher to hear it, the next launcher stops it (ORR-789)', async () => {
+            await window!.stop()
+            window = undefined
+            running.shift()!.kill('SIGKILL')
+            await expect.poll(async () => (await api(request, 'get', '/launches')).launchers, WAIT).toBe(0)
+            await api(request, 'post', '/sessions/window-2/stop', {}, OWNER)
+            expect(box.calls().some(call => call[0] === 'kill-session')).toBe(false)
+            running.push(box.startLauncher())
             await expect.poll(() => box.calls().some(call => call[0] === 'kill-session'), WAIT).toBe(true)
             await expect.poll(async () => (await sessions()).map(s => s.id), WAIT).toEqual([])
         })
