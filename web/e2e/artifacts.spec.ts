@@ -57,7 +57,8 @@ test("runs its script, which can't reach the app, the network, a popup, a form o
     page.on('popup', () => popups++)
     await page.goto('/p/atelier/docs/tries')
     const frame = page.frameLocator('iframe[title="Artifact"]')
-    await expect(frame.locator('#out')).toContainText('"ran":true')
+    // The first artifact the dev server draws, early in a run with the others, can take a while to build.
+    await expect(frame.locator('#out')).toContainText('"ran":true', {timeout: 20_000})
     const out = JSON.parse(await frame.locator('#out').textContent() ?? '{}') as Record<string, unknown>
     expect(out).toMatchObject({api: 'blocked', parent: 'blocked', storage: 'blocked', cookie: 'blocked', popup: 'blocked', image: 'blocked', origin: 'null'})
     await expect(page).toHaveURL(/\/p\/atelier\/docs\/tries$/)
