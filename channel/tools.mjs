@@ -53,7 +53,7 @@ export const TOOLS = [
     },
     {
         name: 'issue',
-        description: 'An issue with its open sub-issues and PRs, and its latest comments and open questions in full.',
+        description: 'An issue with its open sub-issues, PRs, branches, latest comments and open questions in full.',
         inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'string'}, comments: {type: 'string', enum: ['all']}}},
     },
     {
@@ -533,10 +533,13 @@ export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''),
             // merged or closed, however long ago (ORR-795); none if that can't be read.
             // Never a PR's head branch or title, which an outsider may have written, as sessions read this as the owner's; its
             // author only when it's a plain login, so a session can tell its own PR from an outsider's (ORR-532).
+            // Its branches to carry on from, names held to what's safe by the server: only someone who can push names one
+            // (ORR-799). None for an untrusted session, which has no business carrying on anyone's work.
             // Only the latest comments and unanswered questions in full, and finished sub-issues counted: a long issue
             // stays small in a session's context, which keeps it for the rest of the session (ORR-547).
-            const [issue, comments, pulls] = await Promise.all([call('GET', issuePath(id), undefined, base), call('GET', `${issuePath(id)}/comments`, undefined, base),
-                call('GET', `${issuePath(id)}/pulls`, undefined, base).catch(() => null)])
+            const [issue, comments, pulls, branches] = await Promise.all([call('GET', issuePath(id), undefined, base), call('GET', `${issuePath(id)}/comments`, undefined, base),
+                call('GET', `${issuePath(id)}/pulls`, undefined, base).catch(() => null),
+                untrusted ? null : call('GET', `${issuePath(id)}/branches`, undefined, base).catch(() => null)])
             const {tasks, counts, kinds, ...rest} = issue
             const open = [...pulls?.pulls ?? [], ...pulls?.done ?? []].map(p => ({number: p.number, state: p.state, base: p.base, url: p.url, ...p.merged_at ? {merged_at: p.merged_at} : {}, ...LOGIN.test(p.author ?? '') ? {author: p.author} : {}}))
             const finished = tasks.filter(t => ['done', 'canceled'].includes(t.kind))
@@ -552,7 +555,8 @@ export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''),
                 ? {by: c.created_by, at: c.created_at, ...c.asks ? {asks: c.asks, answered: c.answered} : {}, body: c.body}
                 : {by: c.created_by, at: c.created_at, first_line: firstLine(c.body)})
             const older = said.filter(c => 'first_line' in c).length
-            return JSON.stringify({...rest, ...subIssues, ...open.length ? {pull_requests: open} : {}, comments: said,
+            return JSON.stringify({...rest, ...subIssues, ...open.length ? {pull_requests: open} : {},
+                ...branches?.branches?.length ? {branches: branches.branches, branches_base: branches.base} : {}, ...branches?.error ? {branches_error: branches.error} : {}, comments: said,
                 ...older ? {older_comments: `${older} shown by their first line: comments: "all" gives them in full`} : {},
                 ...picked ? {choices_left_out: 'comments: "all" gives every option'} : {}})
         },

@@ -518,6 +518,26 @@ describe("the channel's tools", () => {
         expect(text).not.toMatch(/ignore-your-rules|ignore your rules|Cupboards/i)
     })
 
+    it("show an issue's branches to carry on from, and why they can't be read (ORR-799)", async () => {
+        const branch = {name: 'feat/gre-1-shelves', sha: 'a', committed_at: null, ahead: 2, other_session: false}
+        const {call} = harness({
+            'GET /issues/GRE-1': {body: issue()},
+            'GET /issues/GRE-1/comments': {body: []},
+            'GET /issues/GRE-1/pulls': {body: {pulls: []}},
+            'GET /issues/GRE-1/branches': {body: {repo: 'o/r', base: 'v1', branches: [branch]}},
+        })
+        expect(JSON.parse((await call('issue', {id: 'GRE-1'})).text)).toMatchObject({branches: [branch], branches_base: 'v1'})
+        const refused = harness({
+            'GET /issues/GRE-1': {body: issue()},
+            'GET /issues/GRE-1/comments': {body: []},
+            'GET /issues/GRE-1/pulls': {body: {pulls: []}},
+            'GET /issues/GRE-1/branches': {body: {repo: 'o/r', base: null, branches: [], error: 'give it Contents: Read-only'}},
+        })
+        const said = JSON.parse((await refused.call('issue', {id: 'GRE-1'})).text)
+        expect(said.branches).toBeUndefined()
+        expect(said.branches_error).toBe('give it Contents: Read-only')
+    })
+
     it("give a decided proposal's picks in place of its options, and a pending one's options whole (ORR-643)", async () => {
         const choices = [
             {key: 'volume', question: 'Which volume?', pick: 'one', options: [{key: 'a', title: 'Named', body: 'A long reason'}, {key: 'b', title: 'Unnamed', body: 'Another long reason'}]},
