@@ -34,7 +34,7 @@ const signedIn = async (page: Page) => {
 
 async function refusedAtTheDoor(page: Page, key: string) {
     await signIn(page, key)
-    await expect(page.locator('p.text-rose-600')).toBeVisible()
+    await expect(page.locator('p.text-rose-700')).toBeVisible()
     await expect(page).toHaveURL(/\/login/)
 }
 

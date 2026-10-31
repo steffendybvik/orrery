@@ -309,7 +309,7 @@ async function start() {
     </div>
 
     <div class="flex items-center gap-2 border-t border-line pt-3">
-      <span v-if="failed" class="text-xs text-rose-600 dark:text-rose-400">{{ failed }}</span>
+      <span v-if="failed" class="text-xs text-rose-700 dark:text-rose-400">{{ failed }}</span>
       <label v-if="most > 1" class="ml-auto flex shrink-0 items-center gap-1.5 text-xs text-faint" :title="`At most ${most} under the limit`">
         <input v-model.number="count" type="number" min="1" :max="most" aria-label="Sessions to start" class="h-8 w-14 field" @change="count = Math.min(Math.max(Math.floor(count) || 1, 1), most)">
         <template v-if="launches > 1">each, {{ count * launches }} in all</template>

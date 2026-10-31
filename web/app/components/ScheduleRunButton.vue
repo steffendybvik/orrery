@@ -37,7 +37,7 @@ async function pick(s: Schedule, close: () => void) {
           <span class="truncate text-xs text-faint">{{ nextOf(s) }}</span>
         </span>
       </UiMenuItem>
-      <p v-if="failed" class="px-2 pb-1.5 text-xs text-rose-600 dark:text-rose-400">{{ failed }}</p>
+      <p v-if="failed" class="px-2 pb-1.5 text-xs text-rose-700 dark:text-rose-400">{{ failed }}</p>
     </PopoverPanel>
   </Popover>
 </template>

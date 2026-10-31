@@ -100,11 +100,11 @@ const input = 'h-7 rounded-md bg-well px-2 text-[13px] text-fg ring-1 ring-line 
                 :title="secret.last_used ? `${secret.last_used.method} ${secret.last_used.host}${secret.last_used.path} by ${who(secret.last_used.created_by)}: ${secret.last_used.status ?? secret.last_used.error}` : undefined"
             >
               <template v-if="secret.name === GITHUB && secret.last_used?.status === 401">
-                <span class="text-rose-600 dark:text-rose-400">GitHub turned it down {{ ago(secret.last_used.created_at) }}: replace it with one that works</span>
+                <span class="text-rose-700 dark:text-rose-400">GitHub turned it down {{ ago(secret.last_used.created_at) }}: replace it with one that works</span>
               </template>
               <template v-else-if="secret.last_used">
                 used {{ ago(secret.last_used.created_at) }}
-                <span :class="secret.last_used.status && secret.last_used.status < 400 ? '' : 'text-rose-600 dark:text-rose-400'">· {{ secret.last_used.status ?? 'failed' }}</span>
+                <span :class="secret.last_used.status && secret.last_used.status < 400 ? '' : 'text-rose-700 dark:text-rose-400'">· {{ secret.last_used.status ?? 'failed' }}</span>
               </template>
               <template v-else>never used</template>
             </span>
@@ -152,7 +152,7 @@ const input = 'h-7 rounded-md bg-well px-2 text-[13px] text-fg ring-1 ring-line 
         A fine-grained token with <i>Pull requests: Read-only</i> on the repos, or a classic one with <span class="font-mono">repo</span>.
         <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener" class="text-accent-700 hover:underline dark:text-accent-400">Make one on GitHub</a>
       </p>
-      <p v-if="githubUnused" class="flex flex-wrap items-center gap-2 text-xs text-amber-700 dark:text-amber-400">
+      <p v-if="githubUnused" class="flex flex-wrap items-center gap-2 text-xs text-amber-800 dark:text-amber-400">
         <span>orrery reads pull requests with a GITHUB_TOKEN only when it may go to <span class="font-mono">{{ GITHUB_HOST }}</span>, so without it this one won't be used there.</span>
         <UiButton size="xs" @click="addGithubHost">Add {{ GITHUB_HOST }}</UiButton>
       </p>
@@ -181,7 +181,7 @@ const input = 'h-7 rounded-md bg-well px-2 text-[13px] text-fg ring-1 ring-line 
       <UiButton size="xs" @click="open()">+ Add a secret</UiButton>
     </div>
 
-    <p v-if="failed" class="text-xs text-rose-600 dark:text-rose-400">
+    <p v-if="failed" class="text-xs text-rose-700 dark:text-rose-400">
       {{ failed }}
       <template v-if="missingKey"> (in <span class="font-mono">.env</span> for Docker, or <span class="font-mono">NUXT_SECRET_KEY</span> without it)</template>
     </p>

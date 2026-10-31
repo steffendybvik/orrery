@@ -58,7 +58,7 @@ async function create() {
         class="field-sizing-content min-h-16 resize-none bg-transparent text-[14px] leading-relaxed text-fg placeholder:text-faint focus:outline-none"
     />
     <div class="flex items-center gap-2 border-t border-line pt-3">
-      <span v-if="failed" class="text-xs text-rose-600 dark:text-rose-400">{{ failed }}</span>
+      <span v-if="failed" class="text-xs text-rose-700 dark:text-rose-400">{{ failed }}</span>
       <UiButton type="submit" variant="primary" size="md" class="ml-auto" :disabled="!ready">
         {{ saving ? 'Creating…' : 'Create chunk' }} <KeyHint class="bg-black/10 text-zinc-950 ring-0">⌘↵</KeyHint>
       </UiButton>

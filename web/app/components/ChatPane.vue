@@ -446,7 +446,7 @@ v-if="m.chunk" class="flex w-full flex-col gap-2 rounded-xl bg-well p-3 ring-1 r
             </li>
           </ul>
           <span v-if="m.move.state === 'asked' && m.move.moved?.length" class="text-xs text-faint">Moved so far: {{ m.move.moved.join(', ') }}</span>
-          <ul v-if="m.move.state === 'asked' && m.move.drifted?.length" class="flex flex-col gap-0.5 text-xs text-amber-700 dark:text-amber-400" data-testid="move-drifted">
+          <ul v-if="m.move.state === 'asked' && m.move.drifted?.length" class="flex flex-col gap-0.5 text-xs text-amber-800 dark:text-amber-400" data-testid="move-drifted">
             <li>Changed since it asked:</li>
             <li v-for="d in m.move.drifted" :key="`${d.issue} ${d.field}`">{{ d.issue }} is now {{ d.field === 'status' ? statusName(d.to) : `assigned to ${d.to ?? 'nobody'}` }} (was {{ d.field === 'status' ? statusName(d.from) : d.from ?? 'nobody' }})</li>
           </ul>
@@ -465,7 +465,7 @@ v-if="m.chunk" class="flex w-full flex-col gap-2 rounded-xl bg-well p-3 ring-1 r
         </div>
         <div v-if="m.text" class="max-w-[85%] rounded-2xl rounded-br-md bg-accent-500/15 px-3 py-2 whitespace-pre-wrap text-fg">{{ m.text }}</div>
       </li>
-      <li v-if="held.length && stuck" class="flex items-center justify-end gap-1 text-[11px] text-rose-600 dark:text-rose-400" aria-live="polite">
+      <li v-if="held.length && stuck" class="flex items-center justify-end gap-1 text-[11px] text-rose-700 dark:text-rose-400" aria-live="polite">
         Not sent ·
         <button type="button" class="hover:underline disabled:opacity-50" :disabled="sending" @click="flush()">Retry</button>
       </li>
@@ -484,7 +484,7 @@ v-if="m.chunk" class="flex w-full flex-col gap-2 rounded-xl bg-well p-3 ring-1 r
     </div>
     <form v-if="!chat?.ended || !chat.messages.length" class="flex flex-col gap-2 p-3" @submit.prevent="submit(true)">
       <LauncherHint v-if="unlaunched" :project="about!" chat />
-      <p v-else-if="failed" class="px-1 text-xs text-rose-600 dark:text-rose-400">{{ failed }}</p>
+      <p v-else-if="failed" class="px-1 text-xs text-rose-700 dark:text-rose-400">{{ failed }}</p>
       <div class="flex flex-col gap-2 rounded-2xl bg-well p-2 ring-1 ring-line transition focus-within:ring-accent-500/50">
         <div v-if="images.length || uploading" class="flex flex-wrap gap-1.5 px-1 pt-1">
           <div v-for="(image, i) in images" :key="image.id" class="relative">

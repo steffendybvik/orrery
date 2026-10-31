@@ -132,6 +132,13 @@ test('an old address goes on to the page that took it over', async ({page}) => {
 
 test('no page breaks a WCAG A or AA rule, beyond those the UI/UX audit has (ORR-735)', async ({page}) => {
     test.setTimeout(240_000)
+    // A tint takes contrast away, so the walk has the harshest named one on a light page, and on this page only, as the
+    // setting is shared: chat.spec.ts changes it while this runs.
+    await page.route(/\/api\/settings$/, async route => {
+        const response = await route.fetch()
+        if (route.request().method() !== 'GET') return route.fulfill({response})
+        await route.fulfill({response, json: {...await response.json(), tint: 'violet'}})
+    })
     await setAdvanced(page, true)
     for (const colorScheme of ['light', 'dark'] as const) {
         await page.emulateMedia({colorScheme})

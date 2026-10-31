@@ -121,7 +121,7 @@ const aimed = (signal: Signal) => signal.target === '*' || !signal.target && sig
       >{{ sending === 'all' ? 'Starting…' : issue ? 'Focus on this (starts a session)' : 'Work through this (starts a session)' }}</button>
     </div>
 
-    <p v-if="blockedBy?.length && (listening.length || canStart)" class="text-xs text-amber-700 dark:text-amber-400">
+    <p v-if="blockedBy?.length && (listening.length || canStart)" class="text-xs text-amber-800 dark:text-amber-400">
       Blocked by {{ blockedBy.join(', ') }}, which {{ blockedBy.length === 1 ? "isn't" : "aren't" }} done yet. A focus starts it anyway.
     </p>
 
@@ -143,7 +143,7 @@ const aimed = (signal: Signal) => signal.target === '*' || !signal.target && sig
             :title="`Open ${session.name} on the Sessions page`"
         >{{ session.name }}</NuxtLink>
         <span v-if="session.id === worker" class="rounded-full bg-accent-500/10 px-1.5 text-[11px] font-medium text-accent-700 ring-1 ring-accent-500/30 dark:text-accent-300">on this issue</span>
-        <span class="whitespace-nowrap text-xs" :class="session.state === 'waiting' ? 'text-rose-600 dark:text-rose-400' : 'text-faint'">
+        <span class="whitespace-nowrap text-xs" :class="session.state === 'waiting' ? 'text-rose-700 dark:text-rose-400' : 'text-faint'">
           {{ SESSION_STATE[session.state] }} · {{ ago(session.since) }}
         </span>
         <button
@@ -172,7 +172,7 @@ const aimed = (signal: Signal) => signal.target === '*' || !signal.target && sig
       </template>
     </p>
     <NoChannelHint v-if="unheard.length" :sessions="unheard" :project="project" where="here" />
-    <p v-if="failed" class="text-xs text-rose-600 dark:text-rose-400">{{ failed }}</p>
+    <p v-if="failed" class="text-xs text-rose-700 dark:text-rose-400">{{ failed }}</p>
 
     <ol v-if="sent.length" class="flex flex-col gap-1 border-t border-line pt-3 text-xs text-faint">
       <li v-for="signal in sent.slice(-5)" :key="signal.id" class="flex flex-wrap items-center gap-x-1.5">

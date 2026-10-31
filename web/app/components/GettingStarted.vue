@@ -88,7 +88,7 @@ async function tryDemo() {
               <UiButton size="md" :disabled="demo.making.value" title="A sample board to look around first; delete it from its Settings" @click="tryDemo">
                 {{ demo.making.value ? 'Making the demo…' : 'Try it with a demo project' }}
               </UiButton>
-              <span v-if="demo.failed.value" class="text-xs text-rose-600 dark:text-rose-400">{{ demo.failed.value }}</span>
+              <span v-if="demo.failed.value" class="text-xs text-rose-700 dark:text-rose-400">{{ demo.failed.value }}</span>
             </div>
             <CopyBlock v-else-if="step.key === 'connect'" title="Paste into a session, in the folder" :text="pieces.prompt" />
             <CopyBlock v-else-if="step.key === 'listen'" title="In the folder, start a session with" :text="pieces.launch" />

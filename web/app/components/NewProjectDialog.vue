@@ -77,10 +77,10 @@ const field = 'h-8 field'
         Issues will be <span class="font-mono text-muted">{{ keyOk ? key : 'KEY' }}-1</span>, at <span class="font-mono text-muted">/p/{{ idOk ? id : 'id' }}</span>
       </p>
     </div>
-    <p v-if="key && !keyOk" class="text-xs text-rose-600 dark:text-rose-400">The key is capitals and digits, starting with a capital (up to 10), e.g. GRE.</p>
-    <p v-if="id && !idOk" class="text-xs text-rose-600 dark:text-rose-400">The id is lowercase letters, digits and dashes, e.g. my-app.</p>
+    <p v-if="key && !keyOk" class="text-xs text-rose-700 dark:text-rose-400">The key is capitals and digits, starting with a capital (up to 10), e.g. GRE.</p>
+    <p v-if="id && !idOk" class="text-xs text-rose-700 dark:text-rose-400">The id is lowercase letters, digits and dashes, e.g. my-app.</p>
     <div class="flex items-center gap-2">
-      <span v-if="failed" class="text-xs text-rose-600 dark:text-rose-400">{{ failed }}</span>
+      <span v-if="failed" class="text-xs text-rose-700 dark:text-rose-400">{{ failed }}</span>
       <UiButton type="submit" variant="primary" size="md" class="ml-auto" :disabled="!ready">
         {{ saving ? 'Creating…' : 'Create project' }} <KeyHint class="bg-black/10 text-zinc-950 ring-0">⌘↵</KeyHint>
       </UiButton>

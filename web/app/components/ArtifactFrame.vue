@@ -29,7 +29,7 @@ watch([address, reloads], async ([url], _, onCleanup) => {
 <template>
   <section class="flex flex-col gap-2" aria-label="Artifact">
     <div class="flex items-center justify-end gap-2 text-xs text-faint">
-      <span v-if="failed" role="alert" class="mr-auto text-rose-600 dark:text-rose-400">{{ failed }}</span>
+      <span v-if="failed" role="alert" class="mr-auto text-rose-700 dark:text-rose-400">{{ failed }}</span>
       <UiButton variant="ghost" size="xs" title="Draw it again" @click="reloads++">Reload</UiButton>
     </div>
     <iframe

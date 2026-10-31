@@ -154,7 +154,7 @@ const pick = 'grid size-7 place-items-center rounded-md ring-1 hover:bg-hover di
         Remove {{ issue.id }}<template v-if="issue.tasks.length"> and its sub-issues</template>, with its comments?
       </UiConfirm>
 
-      <p v-if="failed" class="px-2 pb-1.5 text-xs text-rose-600 dark:text-rose-400">{{ failed }}</p>
+      <p v-if="failed" class="px-2 pb-1.5 text-xs text-rose-700 dark:text-rose-400">{{ failed }}</p>
       <p v-else-if="note" class="px-2 pb-1.5 text-xs text-emerald-600 dark:text-emerald-400">{{ note }}</p>
     </template>
   </UiContextMenu>

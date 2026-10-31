@@ -192,7 +192,7 @@ useHead(() => ({title: doc.value ? `${doc.value.title} · orrery` : 'orrery'}))
             </UiConfirm>
           </div>
         </div>
-        <p v-if="removeFailed" class="text-xs text-rose-600 dark:text-rose-400">{{ removeFailed }}</p>
+        <p v-if="removeFailed" class="text-xs text-rose-700 dark:text-rose-400">{{ removeFailed }}</p>
         <div class="flex flex-wrap items-center gap-x-2 gap-y-1.5 text-xs text-faint">
           <PersonAvatar :name="doc.created_by" :size="16" />
           <span class="text-muted">{{ who(doc.created_by) }}</span>
@@ -232,9 +232,9 @@ useHead(() => ({title: doc.value ? `${doc.value.title} · orrery` : 'orrery'}))
         />
         <div class="flex items-center justify-end gap-2">
           <ImageButton v-if="!isArtifact" @picked="upload" />
-          <span v-if="saveFailed" class="mr-auto text-xs text-rose-600 dark:text-rose-400">{{ saveFailed }}</span>
+          <span v-if="saveFailed" class="mr-auto text-xs text-rose-700 dark:text-rose-400">{{ saveFailed }}</span>
           <span v-else-if="uploading" class="mr-auto text-xs text-faint">Adding image…</span>
-          <span v-else-if="uploadError" class="mr-auto text-xs text-rose-600 dark:text-rose-400">{{ uploadError }}</span>
+          <span v-else-if="uploadError" class="mr-auto text-xs text-rose-700 dark:text-rose-400">{{ uploadError }}</span>
           <span v-else class="mr-auto text-xs text-faint">{{ isArtifact ? 'HTML' : 'Markdown' }}</span>
           <UiButton :disabled="saving" @click="editing = false">Cancel <KeyHint>esc</KeyHint></UiButton>
           <UiButton variant="primary" :disabled="saving || !!uploading || !title.trim()" @click="save">

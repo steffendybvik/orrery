@@ -221,7 +221,7 @@ useHead(() => ({title: chunk.value ? `${chunk.value.title} · orrery` : 'orrery'
           <button v-else type="button" class="text-sm text-faint italic hover:text-muted" @click="editSummary">No summary. Add one</button>
         </section>
         <MarkdownView v-else-if="chunk.summary" :source="chunk.summary" />
-        <p v-if="failed" class="text-xs text-rose-600 dark:text-rose-400">{{ failed }}</p>
+        <p v-if="failed" class="text-xs text-rose-700 dark:text-rose-400">{{ failed }}</p>
         <div class="flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-faint">
           <ProgressRing :kinds="chunk.kinds" :size="16" />
           <span>{{ chunk.tasks.length }} {{ chunk.tasks.length === 1 ? 'issue' : 'issues' }}<template v-if="share.total !== chunk.tasks.length"> · {{ share.total }} with sub-issues</template></span>

@@ -42,7 +42,7 @@ async function copyAttach() {
 
 <template>
   <span v-if="session.started" class="flex shrink-0 items-center gap-1.5 text-xs">
-    <span v-if="failed" class="text-rose-600 dark:text-rose-400">{{ failed }}</span>
+    <span v-if="failed" class="text-rose-700 dark:text-rose-400">{{ failed }}</span>
     <span v-if="note" class="text-faint">{{ note }}</span>
     <template v-if="stopping">
       <span class="text-muted">Stop {{ session.name }}?</span>

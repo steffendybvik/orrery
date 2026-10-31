@@ -55,7 +55,7 @@ const cards = computed(() => inProjectOrder(pulls.value?.repos ?? [], ordered.va
       <template v-else>None open</template>
       <template v-if="unread && !noneRead">, {{ unread }} repo{{ unread === 1 ? '' : 's' }} not read</template>
     </span>
-    <span v-if="failed" class="text-xs text-rose-600 dark:text-rose-400">{{ failed }}</span>
+    <span v-if="failed" class="text-xs text-rose-700 dark:text-rose-400">{{ failed }}</span>
     <template #end>
       <div v-if="pulls && pages > 1" class="flex shrink-0 items-center gap-1 text-xs text-faint">
         <span class="mr-1 font-mono tabular-nums">{{ from }}–{{ from + pulls.pulls.length - 1 }} of {{ pulls.open }}</span>
@@ -86,20 +86,20 @@ const cards = computed(() => inProjectOrder(pulls.value?.repos ?? [], ordered.va
             <a :href="`https://github.com/${card.repo}/pulls`" target="_blank" rel="noopener" class="font-mono text-[13px] text-fg hover:underline">{{ card.repo }}</a>
             <CopyButton class="self-center" :text="card.repo" :name="`the repo name ${card.repo}`" compact />
             <span class="text-xs text-muted">{{ card.projects.map(p => byId(p)?.name ?? p).join(', ') }}</span>
-            <span v-if="!card.error" class="ml-auto text-xs" :class="card.needs ? 'text-rose-600 dark:text-rose-400' : 'text-muted'">
+            <span v-if="!card.error" class="ml-auto text-xs" :class="card.needs ? 'text-rose-700 dark:text-rose-400' : 'text-muted'">
               <template v-if="card.open">{{ card.open }} open{{ card.needs ? `, ${card.needs} need${card.needs === 1 ? 's' : ''} someone` : '' }}</template>
               <template v-else>none open</template>
             </span>
             <span class="w-full text-[11px] text-faint">
               <template v-if="card.error">not read</template>
               <template v-else-if="card.token">read with the GITHUB_TOKEN secret{{ card.checked_at ? `, ${ago(card.checked_at)}` : '' }}</template>
-              <template v-else-if="card.token_problem">read without a token, so only the list: <span class="text-amber-700 dark:text-amber-400">{{ card.token_problem }}</span></template>
+              <template v-else-if="card.token_problem">read without a token, so only the list: <span class="text-amber-800 dark:text-amber-400">{{ card.token_problem }}</span></template>
               <template v-else>read without a token, so only the list: set a GITHUB_TOKEN secret for api.github.com to see where each stands</template>
-              <template v-if="card.cut"> · <span class="text-amber-700 dark:text-amber-400">only the first {{ card.cut }} read: GitHub has more open</span></template>
-              <template v-if="card.held"> · <span class="text-amber-700 dark:text-amber-400">not polled now: {{ card.held }}</span></template>
+              <template v-if="card.cut"> · <span class="text-amber-800 dark:text-amber-400">only the first {{ card.cut }} read: GitHub has more open</span></template>
+              <template v-if="card.held"> · <span class="text-amber-800 dark:text-amber-400">not polled now: {{ card.held }}</span></template>
             </span>
           </div>
-          <p v-if="card.error" class="px-3 py-2 text-xs text-rose-600 dark:text-rose-400">{{ card.error }}</p>
+          <p v-if="card.error" class="px-3 py-2 text-xs text-rose-700 dark:text-rose-400">{{ card.error }}</p>
           <ul v-else-if="card.pulls.length" :aria-label="`Open pull requests on ${card.repo}`">
             <li v-for="pull in card.pulls" :key="pull.number" class="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-line px-3 py-2 text-sm last:rounded-b-xl last:border-b-0" :class="{'bg-rose-500/5': needs(pull.state)}">
               <a :href="pull.url" target="_blank" rel="noopener" class="min-w-0 flex-1 truncate text-fg hover:underline">

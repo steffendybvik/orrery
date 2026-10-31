@@ -153,7 +153,7 @@ useHead(() => ({title: release.value && project.value ? `${release.value.version
         <div class="flex flex-wrap items-center gap-3 text-xs">
           <span
               class="rounded-full px-2 py-px text-[11px] font-medium ring-1"
-              :class="release.shipped_on ? 'text-emerald-700 ring-emerald-500/30 dark:text-emerald-300' : isFrozen(release) ? 'text-amber-700 ring-amber-500/30 dark:text-amber-300' : 'text-accent-700 ring-accent-500/30 dark:text-accent-300'"
+              :class="release.shipped_on ? 'text-emerald-700 ring-emerald-500/30 dark:text-emerald-300' : isFrozen(release) ? 'text-amber-800 ring-amber-500/30 dark:text-amber-300' : 'text-accent-700 ring-accent-500/30 dark:text-accent-300'"
               :title="isFrozen(release) ? 'Feature freeze: fixes, tests and docs; a new feature goes on the next release' : undefined"
           >{{ release.shipped_on ? `Shipped ${release.shipped_on}` : isFrozen(release) ? `Frozen ${release.frozen_on}` : 'Preparing' }}</span>
           <template v-if="!release.shipped_on">
@@ -246,7 +246,7 @@ useHead(() => ({title: release.value && project.value ? `${release.value.version
           <MarkdownView v-if="release.notes" :source="release.notes" />
           <button v-else type="button" class="text-sm text-faint italic hover:text-muted" @click="editNotes">No notes. Add some</button>
         </section>
-        <p v-if="failed" class="text-xs text-rose-600 dark:text-rose-400">{{ failed }}</p>
+        <p v-if="failed" class="text-xs text-rose-700 dark:text-rose-400">{{ failed }}</p>
 
         <div class="flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-faint">
           <ProgressRing :kinds="release.kinds" :size="16" />

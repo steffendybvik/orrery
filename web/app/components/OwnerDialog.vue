@@ -130,8 +130,8 @@ async function save() {
         Your <span class="font-mono text-muted">Orrery-Actor</span> header will be <span class="font-mono text-muted">{{ id || 'your_name' }}</span>
       </p>
       <div class="flex items-center gap-2 border-t border-line pt-3">
-        <span v-if="failed" class="text-xs text-rose-600 dark:text-rose-400">{{ failed }}</span>
-        <span v-else-if="id === 'agent'" class="text-xs text-rose-600 dark:text-rose-400">"agent" is what requests without a name are; pick another.</span>
+        <span v-if="failed" class="text-xs text-rose-700 dark:text-rose-400">{{ failed }}</span>
+        <span v-else-if="id === 'agent'" class="text-xs text-rose-700 dark:text-rose-400">"agent" is what requests without a name are; pick another.</span>
         <UiButton type="submit" variant="primary" size="md" class="ml-auto" :disabled="!ready">
           {{ saving ? 'Saving…' : 'Continue' }}
         </UiButton>

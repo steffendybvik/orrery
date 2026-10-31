@@ -176,6 +176,6 @@ const line = 'h-8 min-w-0 flex-1 field'
       </form>
     </div>
 
-    <p v-if="failed" class="text-xs text-rose-600 dark:text-rose-400">{{ failed }}</p>
+    <p v-if="failed" class="text-xs text-rose-700 dark:text-rose-400">{{ failed }}</p>
   </div>
 </template>

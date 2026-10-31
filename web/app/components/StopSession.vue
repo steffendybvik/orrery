@@ -43,6 +43,6 @@ async function stop() {
     >
       {{ busy ? 'Stopping…' : sure ? 'Stop it?' : 'Stop' }}
     </UiButton>
-    <span v-if="failed" class="text-rose-600 dark:text-rose-400">{{ failed }}</span>
+    <span v-if="failed" class="text-rose-700 dark:text-rose-400">{{ failed }}</span>
   </span>
 </template>

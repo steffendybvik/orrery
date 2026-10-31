@@ -76,7 +76,7 @@ function editIt() {
       <UiConfirm v-else class="border-t border-line p-2" :busy="busy" @confirm="remove" @cancel="confirming = false">
         {{ s.across ? 'Leave this project out of it? The issues it made stay.' : 'Remove this schedule? The issues it made stay.' }}
       </UiConfirm>
-      <p v-if="failed" class="px-2 pb-1.5 text-xs text-rose-600 dark:text-rose-400">{{ failed }}</p>
+      <p v-if="failed" class="px-2 pb-1.5 text-xs text-rose-700 dark:text-rose-400">{{ failed }}</p>
     </template>
   </UiContextMenu>
   <Teleport to="body">

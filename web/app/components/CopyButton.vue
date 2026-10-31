@@ -18,7 +18,7 @@ onBeforeUnmount(() => clearTimeout(timer))
       type="button"
       class="flex h-6 shrink-0 items-center gap-1 rounded-md px-1.5 text-[11px] whitespace-nowrap ring-1 transition-colors"
       :class="copied === 'yes' ? 'text-emerald-600 ring-emerald-500/40 dark:text-emerald-400'
-        : copied === 'no' ? 'text-rose-600 ring-rose-500/40 dark:text-rose-400' : 'text-faint ring-line hover:bg-hover hover:text-fg'"
+        : copied === 'no' ? 'text-rose-700 ring-rose-500/40 dark:text-rose-400' : 'text-faint ring-line hover:bg-hover hover:text-fg'"
       :title="`Copy ${name ?? text}`"
       :aria-label="`Copy ${name ?? text}`"
       @click="copy"

@@ -81,7 +81,7 @@ test("tints a doc an agent changed, and in it the parts that changed since the o
     await page.goto('/p/library/docs/shelves')
     await expect(page.getByText('Top shelf for tins.')).toBeVisible()
     await put('pantry', 'Keep flour dry.\n\nLabel every jar with its date.\n\nRestock on Fridays.')
-    const row = page.getByRole('link', {name: /^Pantry/})
+    const row = page.locator('a[href="/p/library/docs/pantry"]')
     await expect(row).toHaveClass(/unseen-row/)
     await row.click()
     await expect(page.locator('.doc .changed')).toHaveText(['Label every jar with its date.', 'Restock on Fridays.'])

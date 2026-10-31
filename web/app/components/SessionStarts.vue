@@ -71,6 +71,6 @@ async function saveStarts(on = !!settings.value.starts) {
       Left blank, a session runs until you stop it. Neither stops one mid-work: it waits until the session is idle with nothing in progress.
       With a minimum, one stopped that way is replaced by a fresh one with the same presets; one you stop yourself isn't.
     </p>
-    <p v-if="failed" class="text-xs text-rose-600 dark:text-rose-400">{{ failed }}</p>
+    <p v-if="failed" class="text-xs text-rose-700 dark:text-rose-400">{{ failed }}</p>
   </div>
 </template>

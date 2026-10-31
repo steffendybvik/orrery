@@ -41,7 +41,7 @@ const rows = (card: typeof cards.value[number]): TrackedRelease[] => [...card.tr
       <span class="truncate">{{ projectOptions.find(o => o.value === only)?.label ?? name(only) }}</span>
     </PropertyPicker>
     <span v-if="read" class="text-xs text-muted">{{ count }}</span>
-    <span v-if="failed" class="text-xs text-rose-600 dark:text-rose-400">{{ failed }}</span>
+    <span v-if="failed" class="text-xs text-rose-700 dark:text-rose-400">{{ failed }}</span>
   </ViewToolbar>
 
   <div class="min-h-0 flex-1 overflow-y-auto">
