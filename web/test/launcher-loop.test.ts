@@ -9,6 +9,7 @@ import {fileURLToPath} from 'node:url'
 import {describe, expect, it, vi} from 'vitest'
 // @ts-expect-error: plain JavaScript, no types
 import {chatOnly, lockedDown} from '../../channel/locked-down.mjs'
+import {endSignal, spawnCoverage} from './spawn-coverage'
 
 // The launcher's running part (ORR-700): the real launcher, spawned, against a stand-in orrery and a fake tmux that records
 // its calls. It must never reach the real tmux, as a launcher adopts real sessions and kills them when it exits. So the
@@ -129,7 +130,7 @@ async function bench({onTestFinished}: Finishing, sessions: Sessions = {}) {
     const env = {PATH: `${bin}:/usr/bin:/bin`, HOME: home, XDG_CONFIG_HOME: join(home, '.config'), TMUX_TMPDIR: sockets, FAKE_TMUX: fake, DISPLAY: ':0'}
     const children: ChildProcess[] = []
     onTestFinished(() => {
-        children.forEach(child => child.kill('SIGKILL'))
+        children.forEach(child => child.kill(endSignal()))
         orrery.close()
     })
     const tmuxCalls = () => readFileSync(join(fake, 'calls'), 'utf8').trim().split('\n').filter(Boolean).map(line => JSON.parse(line) as string[])
@@ -155,7 +156,7 @@ async function bench({onTestFinished}: Finishing, sessions: Sessions = {}) {
             const launcher = spawn(process.execPath, [LAUNCHER, ...service ? ['--service'] : []], {
                 cwd: repo,
                 stdio: ['ignore', 'ignore', 'ignore'],
-                env: {...env, ...service ? {} : {ORRERY_PROJECT: 'greenhouse', ORRERY_URL: orrery.url}},
+                env: {...env, ...spawnCoverage(), ...service ? {} : {ORRERY_PROJECT: 'greenhouse', ORRERY_URL: orrery.url}},
             })
             children.push(launcher)
             return launcher
