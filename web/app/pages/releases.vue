@@ -44,7 +44,7 @@ const rows = (card: typeof cards.value[number]): TrackedRelease[] => [...card.tr
     <span v-if="failed" class="text-xs text-rose-700 dark:text-rose-400">{{ failed }}</span>
   </ViewToolbar>
 
-  <div class="min-h-0 flex-1 overflow-y-auto">
+  <div class="clear-agent min-h-0 flex-1 overflow-y-auto">
     <EmptyProjects v-if="ready && !projects.length" />
     <div v-else-if="read" class="mx-auto flex max-w-4xl flex-col gap-4 px-4 py-6">
       <ul v-if="cards.length" class="flex flex-col gap-4" aria-label="Projects with releases">

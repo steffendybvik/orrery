@@ -155,6 +155,37 @@ test('no page breaks a WCAG A or AA rule, beyond those the UI/UX audit has (ORR-
     }
 })
 
+test('every page, scrolled to the end, leaves nothing under the Agent button (ORR-796)', async ({page}) => {
+    test.setTimeout(120_000)
+    await setAdvanced(page, true)
+    // Short enough that each page has to scroll, and wide enough for a phone's layout not to apply.
+    await page.setViewportSize({width: 1280, height: 320})
+    for (const route of ROUTES()) {
+        await test.step(route.path, async () => {
+            await page.goto(route.path)
+            await expect(heading(page, route.heading)).toBeVisible()
+            const button = page.getByRole('button', {name: 'Agent', exact: true})
+            await expect(button).toBeVisible()
+            // Its data comes after its heading.
+            await page.waitForTimeout(300)
+            const under = await button.evaluate((agent) => {
+                const clear = agent.getBoundingClientRect()
+                const over = (r: DOMRect) => r.width > 0 && r.height > 0 && r.left < clear.right && r.right > clear.left && r.top < clear.bottom && r.bottom > clear.top
+                const inside = [...document.querySelectorAll('main *')] as HTMLElement[]
+                for (const el of inside) {
+                    if (['auto', 'scroll'].includes(getComputedStyle(el).overflowY) && el.tagName !== 'PRE') el.scrollTop = el.scrollHeight
+                }
+                // What can be seen or used: anything without elements inside it, or with words of its own.
+                const shows = (el: HTMLElement) => !el.children.length || [...el.childNodes].some(n => n.nodeType === Node.TEXT_NODE && n.textContent?.trim())
+                return inside
+                    .filter(el => shows(el) && el.checkVisibility({visibilityProperty: true}) && over(el.getBoundingClientRect()))
+                    .map(el => el.outerHTML.slice(0, 90))
+            })
+            expect.soft(under, route.path).toEqual([])
+        })
+    }
+})
+
 test('each sidebar entry goes to its page and shows as active there', async ({page}) => {
     test.setTimeout(120_000)
     await setAdvanced(page, true)

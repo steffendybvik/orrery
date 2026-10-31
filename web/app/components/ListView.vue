@@ -34,7 +34,7 @@ function toggle(group: Group) {
 </script>
 
 <template>
-  <div class="pb-16">
+  <div class="clear-agent">
     <section v-for="g in groups" :key="g.key">
       <div
           data-nav

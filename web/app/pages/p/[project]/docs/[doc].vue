@@ -159,7 +159,7 @@ useHead(() => ({title: doc.value ? `${doc.value.title} · orrery` : 'orrery'}))
   <DocsNav :project="project" />
   <!-- A container, so "On this page" goes by the room left beside the sidebar and the docs list, not the window's width: it
        needs the text's 48rem, its own 14rem, the gap and the padding (ORR-800). -->
-  <div ref="scroller" class="@container min-h-0 flex-1 overflow-y-auto">
+  <div ref="scroller" class="@container clear-agent min-h-0 flex-1 overflow-y-auto">
     <div v-if="doc && !missing" :key="doc.id" class="mx-auto flex max-w-6xl animate-fade-up gap-12 px-4 py-8 sm:px-8 sm:py-12">
     <article class="min-w-0 flex-1" :class="!isArtifact && 'max-w-3xl'">
       <header class="mb-8 flex flex-col gap-3 border-b border-line pb-6">

@@ -115,7 +115,7 @@ watch(() => [route.hash, count.value] as const, ([hash]) => show(hash), {immedia
     </template>
   </ViewToolbar>
 
-  <div ref="scroller" class="min-h-0 flex-1 overflow-y-auto">
+  <div ref="scroller" class="clear-agent min-h-0 flex-1 overflow-y-auto">
     <EmptyProjects v-if="ready && !projects.length" />
     <div v-else class="mx-auto flex max-w-6xl animate-fade-up gap-12 px-4 py-6 sm:px-8">
     <div v-if="tab === 'setup'" class="flex min-w-0 max-w-4xl flex-1 flex-col gap-6">

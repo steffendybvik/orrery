@@ -30,7 +30,7 @@ const tab = computed<'connect' | 'mcp'>({
     <h1 class="truncate text-sm font-medium">Connect an agent</h1>
   </PageHeader>
 
-  <div class="min-h-0 flex-1 overflow-y-auto">
+  <div class="clear-agent min-h-0 flex-1 overflow-y-auto">
     <div class="mx-auto flex max-w-3xl animate-fade-up flex-col gap-8 px-4 py-8 sm:px-8 sm:py-12">
       <SegmentedControl v-model="tab" :options="tabs" class="self-start" />
       <McpReference v-if="tab === 'mcp'" />

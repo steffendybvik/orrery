@@ -254,7 +254,7 @@ async function pick(tint: string | null) {
     <SegmentedControl v-model="tab" :options="tabs" />
   </ViewToolbar>
 
-  <div ref="scroller" class="min-h-0 flex-1 overflow-y-auto">
+  <div ref="scroller" class="clear-agent min-h-0 flex-1 overflow-y-auto">
     <div class="mx-auto flex max-w-6xl animate-fade-up gap-12 px-4 py-8 sm:px-8">
     <div class="flex min-w-0 max-w-3xl flex-1 flex-col gap-8 [&>section+section]:border-t [&>section+section]:border-line [&>section+section]:pt-8">
       <p class="-mb-2 text-xs text-muted">{{ TABS.find(t => t.value === tab)?.scope }}</p>

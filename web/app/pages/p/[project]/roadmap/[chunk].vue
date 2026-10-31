@@ -126,7 +126,7 @@ useHead(() => ({title: chunk.value ? `${chunk.value.title} · orrery` : 'orrery'
     </template>
   </PageHeader>
 
-  <div class="min-h-0 flex-1 overflow-y-auto">
+  <div class="clear-agent min-h-0 flex-1 overflow-y-auto">
     <template v-if="project && chunk && share">
       <header class="mx-auto flex max-w-5xl animate-fade-up flex-col gap-4 px-4 pt-8 pb-6 sm:px-8">
         <div class="flex items-center gap-3 text-xs">

@@ -43,7 +43,7 @@ const lists = computed(() => [
     <template #end><FilterBar /></template>
   </ViewToolbar>
 
-  <div class="min-h-0 flex-1 overflow-y-auto">
+  <div class="clear-agent min-h-0 flex-1 overflow-y-auto">
     <EmptyProjects v-if="ready && !projects.length" />
     <template v-else>
       <GettingStarted v-if="!gettingStarted.finished.value && !gettingStarted.hidden.value" card class="m-3 md:m-4" />

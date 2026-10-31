@@ -155,7 +155,7 @@ watch(columns, () => {
         <span class="font-mono text-lg font-medium tabular-nums" :style="{color: readable(look(column).color)}">{{ cards.length }}</span>
         {{ cards.length === 1 ? 'issue' : 'issues' }} {{ look(column).label.toLowerCase() }}
       </button>
-      <div v-else class="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto pb-4">
+      <div v-else class="clear-agent flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto">
         <article
             v-for="{issue, chunk} in cards"
             :key="issue.id"
