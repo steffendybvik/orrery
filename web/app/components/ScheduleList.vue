@@ -89,19 +89,21 @@ const OUTCOME = {
 
 <template>
   <section :id="`schedules-${project.id}`" class="flex scroll-mt-14 flex-col overflow-hidden rounded-xl border border-line bg-panel">
-    <header class="flex items-center gap-2 border-b border-line bg-well/60 px-4 py-2.5">
+    <header class="flex flex-wrap items-center gap-2 border-b border-line bg-well/60 px-4 py-2.5">
       <NuxtLink :to="`/p/${project.id}`" class="flex min-w-0 items-center gap-2 hover:text-accent-700 dark:hover:text-accent-400">
         <ProjectIcon v-if="project.icon && heroicon(project.icon)" :icon="project.icon" :color="project.icon_color" class="size-4" />
         <ProgressRing v-else :kinds="project.board.kinds" bare :size="16" />
         <h2 class="truncate text-[14px] font-semibold">{{ project.name }}</h2>
       </NuxtLink>
       <span class="shrink-0 text-xs text-faint">{{ active }} running<template v-if="schedules.length - active">, {{ schedules.length - active }} paused</template></span>
-      <UiButton class="ml-auto shrink-0" :disabled="!pausable || settingAll" :aria-label="`Pause all in ${project.name}`" @click="changeAll(false)">Pause all</UiButton>
-      <UiButton class="shrink-0" :disabled="!activatable || settingAll" :aria-label="`Activate all in ${project.name}`" @click="asking = true">Activate all</UiButton>
-      <UiButton class="shrink-0" :aria-label="`New schedule in ${project.name}`" @click="edit(project.id)">
-        <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14" /></svg>
-        New schedule
-      </UiButton>
+      <div class="ml-auto flex shrink-0 items-center gap-2">
+        <UiButton :disabled="!pausable || settingAll" :aria-label="`Pause all in ${project.name}`" @click="changeAll(false)">Pause all</UiButton>
+        <UiButton :disabled="!activatable || settingAll" :aria-label="`Activate all in ${project.name}`" @click="asking = true">Activate all</UiButton>
+        <UiButton :aria-label="`New schedule in ${project.name}`" @click="edit(project.id)">
+          <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14" /></svg>
+          New schedule
+        </UiButton>
+      </div>
     </header>
     <div v-if="asking || allDone || allFailed" class="flex flex-col gap-1 border-b border-line/60 px-4 py-2 text-xs">
       <UiConfirm v-if="asking" inline action="Activate" busy-action="Activating…" size="xs" :busy="settingAll" @confirm="changeAll(true)" @cancel="asking = false">

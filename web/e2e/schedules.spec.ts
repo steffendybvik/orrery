@@ -214,6 +214,15 @@ test('Pause all goes at once, and Activate all asks first with the count', async
     const activateAll = card.getByRole('button', {name: 'Activate all in Trellis'})
     await expect(activateAll).toBeDisabled()
 
+    // On a phone the buttons wrap under the project's name, rather than pushing it out of the card.
+    await page.setViewportSize({width: 390, height: 800})
+    await expect(card.getByRole('heading', {name: 'Trellis'})).toBeVisible()
+    const box = (await card.boundingBox())!
+    const newOne = (await card.getByRole('button', {name: 'New schedule in Trellis'}).boundingBox())!
+    expect(newOne.x + newOne.width).toBeLessThanOrEqual(box.x + box.width)
+    expect((await card.getByRole('heading', {name: 'Trellis'}).boundingBox())!.width).toBeGreaterThan(20)
+    await page.setViewportSize({width: 1280, height: 800})
+
     await pauseAll.click()
     await expect(card.getByRole('status')).toHaveText('Paused 2 schedules.')
     await expect.poll(running).toBe(0)
