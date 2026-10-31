@@ -45,10 +45,26 @@ export function focusNote(pull: Pick<PullRequest, 'number' | 'url' | 'base' | 's
 }
 
 /** An issue's open pull requests, as GitHub had them when orrery last asked. */
+/** A PR an issue keeps once it's no longer among the open ones it reads (ORR-795). `open`: only for a repo the project has
+ * since left, as it stood when last seen. */
+export interface PastPull {
+    number: number
+    title: string
+    url: string
+    branch: string
+    base: string
+    author: string
+    state: 'open' | 'merged' | 'closed'
+    merged_at: string | null
+    updated_at: string
+}
+
 export interface IssuePulls {
     /** The project's repo on GitHub (`you/shop`), or null when it has none there: then nothing is asked. */
     repo: string | null
     pulls: PullRequest[]
+    /** Those merged or closed, newest first, however long ago: asked of orrery's own record, never of GitHub. */
+    done: PastPull[]
     /** Why GitHub couldn't be read (its rate limit, a private repo without a token…); `pulls` is then the last it gave, if any. */
     error?: string
     /** Whether a GITHUB_TOKEN secret went with the request (one that may go to api.github.com, for this project). */

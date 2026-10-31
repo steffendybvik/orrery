@@ -529,7 +529,8 @@ export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''),
         },
         async issue({id, comments: which}) {
             const base = at(await projectOf({id}))
-            // Its open pull requests and where each stands (ORR-508), when its project's repo is on GitHub; none if that can't be read.
+            // Its pull requests: the open ones and where each stands (ORR-508), when its project's repo is on GitHub, and those
+            // merged or closed, however long ago (ORR-795); none if that can't be read.
             // Never a PR's head branch or title, which an outsider may have written, as sessions read this as the owner's; its
             // author only when it's a plain login, so a session can tell its own PR from an outsider's (ORR-532).
             // Only the latest comments and unanswered questions in full, and finished sub-issues counted: a long issue
@@ -537,7 +538,7 @@ export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''),
             const [issue, comments, pulls] = await Promise.all([call('GET', issuePath(id), undefined, base), call('GET', `${issuePath(id)}/comments`, undefined, base),
                 call('GET', `${issuePath(id)}/pulls`, undefined, base).catch(() => null)])
             const {tasks, counts, kinds, ...rest} = issue
-            const open = pulls?.pulls?.map(p => ({number: p.number, state: p.state, base: p.base, url: p.url, ...LOGIN.test(p.author ?? '') ? {author: p.author} : {}})) ?? []
+            const open = [...pulls?.pulls ?? [], ...pulls?.done ?? []].map(p => ({number: p.number, state: p.state, base: p.base, url: p.url, ...p.merged_at ? {merged_at: p.merged_at} : {}, ...LOGIN.test(p.author ?? '') ? {author: p.author} : {}}))
             const finished = tasks.filter(t => ['done', 'canceled'].includes(t.kind))
             const counted = Object.entries(Object.groupBy(finished, t => t.status)).map(([status, of]) => `${of.length} ${status}`).join(', ')
             const subIssues = {sub_issues: tasks.filter(t => !finished.includes(t)).map(line), ...counted ? {finished_sub_issues: counted} : {}}

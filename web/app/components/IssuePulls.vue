@@ -3,9 +3,10 @@ import type {IssuePulls, PullRequest, Signal} from '#shared/roadmap'
 import {sendBackNote} from '#shared/roadmap'
 
 // On an issue's page: its open pull requests on the project's GitHub repo, and where each stands, so an issue in
-// review or done isn't taken as shipped while its PR waits (ORR-485). Asked again every minute while the page is
+// review or done isn't taken as shipped while its PR waits (ORR-485), then those merged or closed, so it can say what
+// shipped for it and where it went (ORR-795). Asked again every minute while the page is
 // open, and when the issue changes; orrery keeps GitHub's answer a minute (five without a token), so this is cheap.
-// Nothing shows for a project without a repo on GitHub, or an issue without an open PR. A PR that conflicts, is behind
+// Nothing shows for an issue without a PR. A PR that conflicts, is behind
 // or fails its checks has **Send back**: a focus on the issue saying what the PR needs, to the session on it (or one
 // orrery picks, or starts when nobody's listening), as the owner's (ORR-492).
 const props = defineProps<{project: string, issue: string, updated?: string}>()
@@ -21,6 +22,7 @@ async function load() {
         .catch(() => undefined)
     if (answer && at === key.value) got.value = answer
 }
+const total = computed(() => (got.value?.pulls.length ?? 0) + (got.value?.done?.length ?? 0))
 watch(key, () => got.value = undefined)
 watch(() => `${key.value}@${props.updated}`, load, {immediate: true})
 let timer: ReturnType<typeof setInterval> | undefined
@@ -50,12 +52,12 @@ async function sendBack(pull: PullRequest) {
 </script>
 
 <template>
-  <section v-if="got?.repo && (got.pulls.length || got.error)" class="flex flex-col gap-2" aria-label="Pull requests">
+  <section v-if="got && (got.pulls.length || got.done?.length || got.error)" class="flex flex-col gap-2" aria-label="Pull requests">
     <h2 class="label flex items-center gap-2">
       Pull requests
-      <span v-if="got.pulls.length" class="font-mono normal-case">{{ got.pulls.length }}</span>
+      <span v-if="total" class="font-mono normal-case">{{ total }}</span>
     </h2>
-    <ul v-if="got.pulls.length" class="overflow-hidden rounded-xl border border-line dark:bg-panel">
+    <ul v-if="total" class="overflow-hidden rounded-xl border border-line dark:bg-panel">
       <li v-for="pull in got.pulls" :key="pull.number" class="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-line px-3 py-2 text-sm last:border-b-0">
         <svg class="size-4 shrink-0 text-faint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="6" r="2.5" /><circle cx="6" cy="18" r="2.5" /><circle cx="18" cy="18" r="2.5" /><path d="M6 8.5v7M18 15.5V9a3 3 0 0 0-3-3h-4m2-2-2 2 2 2" /></svg>
         <a :href="pull.url" target="_blank" rel="noopener" class="min-w-0 flex-1 truncate text-fg hover:underline">
@@ -74,6 +76,15 @@ async function sendBack(pull: PullRequest) {
         </template>
         <span class="w-full truncate pl-7 font-mono text-[11px] text-faint" :title="`${pull.branch} into ${pull.base}, by ${pull.author}`">
           {{ pull.branch }} → {{ pull.base }} · {{ ago(pull.created_at) }}
+        </span>
+      </li>
+      <li v-for="pull in got.done" :key="`done-${pull.number}`" class="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-line px-3 py-2 text-sm last:border-b-0">
+        <a :href="pull.url" target="_blank" rel="noopener" class="min-w-0 flex-1 truncate pl-7 text-muted hover:underline">
+          <span class="font-mono text-xs text-faint">#{{ pull.number }}</span> {{ pull.title }}
+        </a>
+        <PullStateChip :state="pull.state" />
+        <span class="w-full truncate pl-7 font-mono text-[11px] text-faint" :title="`${pull.branch} into ${pull.base}, by ${pull.author}`">
+          {{ pull.branch }} → {{ pull.base }} · {{ ago(pull.merged_at ?? pull.updated_at) }}
         </span>
       </li>
     </ul>
