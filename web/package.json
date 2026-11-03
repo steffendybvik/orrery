@@ -19,6 +19,7 @@
     "test:e2e:perf": "playwright test --config playwright.perf.config.ts",
     "test:e2e:login": "playwright test --config playwright.login.config.ts",
     "images:readme": "playwright test --config playwright.readme.config.ts",
+    "soak": "node scripts/soak.mjs",
     "orrery:claim": "node scripts/claim.mjs",
     "orrery:copy": "jiti scripts/copy.ts"
   },

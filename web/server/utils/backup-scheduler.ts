@@ -19,7 +19,7 @@ export interface BackupHooks {
     every: () => BackupEvery
     /** How long a change settles before it's backed up: a few seconds, or a minute when a whole copy is made. */
     settle: () => number
-    note: (entry: EventEntry) => void
+    note: (entry: EventEntry) => unknown
 }
 
 export class BackupScheduler {
@@ -42,7 +42,7 @@ export class BackupScheduler {
         await this.hooks.backUp(target)
             .then(() => this.hooks.note({level: 'info', kind: 'backup.made', message: `Backed up to ${where}`}), error => {
                 console.error(`[orrery] backing up to ${where}:`, (error as Error).message)
-                this.hooks.note({level: 'error', kind: 'backup.failed', message: `Backing up to ${where}: ${(error as Error).message}`, details: {stack: (error as Error).stack}})
+                return this.hooks.note({level: 'error', kind: 'backup.failed', message: `Backing up to ${where}: ${(error as Error).message}`, details: {stack: (error as Error).stack}})
             })
     }
 
