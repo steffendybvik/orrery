@@ -231,17 +231,32 @@ A repo's channel and hook point at the server its projects are on, by `ORRERY_UR
 
 On your own machine, alone, none of this applies: it opens straight to the board. Login comes on when the server is reachable from
 other machines, with a plain `docker run`, or when you add a second person ([what exactly](../SECURITY.md#login-and-keys)). Until it's been
-claimed, such a server answers nothing but its login page, which says what to run. Claim it on the machine it runs on:
+claimed, such a server answers nothing but its login page. Claim it first, while it's still on loopback, so nothing waits in between.
+
+**From App settings (the easy way).** On the machine orrery runs on, open it at `localhost` and go to App settings → You →
+**Claim this orrery** (the login page has the same button, where login is already on and the page is on this machine). It makes your person key and
+an agent key for this machine, shows each once to copy, and signs this browser in. Then:
+
+1. Put the agent key in `~/.config/orrery/keys.json`: the page gives a line to run in a terminal that adds it for this address,
+   readable by you alone. orrery runs in a container, so it can't write that file itself.
+2. Open it up: set `ORRERY_HOST` (see [Reach it from your phone](#reach-it-from-your-phone)) and `docker compose up -d` again.
+   Your sessions already have their key, so they carry on instead of waiting on a login.
+3. Sign in on the phone with the person key.
+
+The button shows only while nobody has a person key, and only to a page on this machine: from anywhere else, or in Docker once
+`ORRERY_HOST` opens it to the network, claiming is refused, so nothing on the network can race for it.
+
+**From a shell.** The same, for a server you only reach over SSH, or to replace a lost key:
 
 ```sh
-pnpm orrery:claim --name "Your Name"                                      # from a checkout
+pnpm orrery:claim --name "Your Name"                                      # from a checkout: its own .data database, not a container's
 docker compose exec orrery node /app/server/claim.mjs --name "Your Name"  # in Docker
 ```
 
 `--name` is only needed before you've given orrery your name. It prints your person key once: sign in with it on the page. On a server
 already claimed it refuses, unless given `--replace`, which revokes your person keys and ends the logins they started, for when you've lost yours.
 
-**Sessions.** Under App settings → You → Your keys, make an agent key for each machine, and either set `ORRERY_KEY` where you start
+**Sessions.** Claiming from App settings makes this machine's agent key. For any other machine, make one under App settings → You → Your keys, and either set `ORRERY_KEY` where you start
 Claude Code and the launcher, or, on several servers, add it to `~/.config/orrery/keys.json` (mode 0600), as
 `{"https://orrery.example": "orrery_agent_…"}`. `ORRERY_KEY` goes to any server that machine talks to, so use the file with more than one.
 Never commit a key in `.mcp.json`. A person key won't work there: the channel refuses to start with one.

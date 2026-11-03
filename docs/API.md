@@ -48,7 +48,8 @@ person, with a label that's a person's name counting as `agent`. A session stays
 
 | | |
 |---|---|
-| `GET /auth/status` | open: `{mode, person?, via?, can_get_in, oidc, warn_http}`, `mode` `off`, `on` or `closed` (told off on a server others can reach, so refusing) |
+| `GET /auth/status` | open: `{mode, person?, via?, can_get_in, can_claim, named, oidc, warn_http}`, `mode` `off`, `on` or `closed` (told off on a server others can reach, so refusing); `can_claim` when this page may claim the orrery, `named` once the owner has a name |
+| `POST /auth/claim` | open: `{name?}` → 201 `{person, person_key, agent_key}`, each key with its `key` this once, and this browser's login cookie: claims the orrery from its page, as `orrery:claim` does. `name` names the owner when nobody has (400 without it then). 403 off this machine (or in Docker while `ORRERY_HOST` opens it), to a session, or with login off to anyone but the owner; 409 once the owner has a person key |
 | `POST /auth/login` | open: `{key}`, a person key → `{person}` and the login's cookie; 401 for anything else, an agent key included |
 | `POST /auth/logout` | open: 204, ending this browser's login |
 | `GET /auth/oidc/start?invite=` | open: a redirect to the login provider; 404 with none set up |
@@ -78,7 +79,7 @@ The owner can add others to an orrery, and each of them has their own sessions. 
 | | |
 |---|---|
 | `GET /people` | everyone: `{id, name, role, created_at, removed_at?}`, the owner first, `role` `owner` or `member`. The owner is listed once they've given their name |
-| `POST /people` | `{name}` → 201 the person, a member: the owner's only. Their `id` is the name in lowercase snake case, and never changes. 400 for `owner`, `agent`, `claude` and `orrery`, or before the owner has a name; 409 for an id someone has, or a removed person had, or while nobody could log in, as a second person turns login on (`orrery:claim` first, or `ORRERY_AUTH=off` to only try people out) |
+| `POST /people` | `{name}` → 201 the person, a member: the owner's only. Their `id` is the name in lowercase snake case, and never changes. 400 for `owner`, `agent`, `claude` and `orrery`, or before the owner has a name; 409 for an id someone has, or a removed person had, or while nobody could log in, as a second person turns login on (claim it first, from App settings or `orrery:claim`, or `ORRERY_AUTH=off` to only try people out) |
 | `PATCH /people/:person` | `{name}` → the person: the owner's only. The id stays, so what they hold stays theirs. The owner's own name goes through `PUT /owner` |
 | `DELETE /people/:person` | 204: the owner's only. Their name stays on history, their open issues go back to unassigned, each with an activity line, and their sessions can no longer change an issue. Their keys and logins stop at once. The owner can't be removed |
 

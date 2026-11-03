@@ -57,7 +57,7 @@ function routes(dir = 'server/api', at = '/api'): {method: string, path: string}
         return [{method: method.toUpperCase(), path: name === 'index' ? at : `${at}/${name}`}]
     })
 }
-const OPEN = ['/api/auth/status', '/api/auth/login', '/api/auth/logout', '/api/auth/oidc/start', '/api/auth/oidc/callback']
+const OPEN = ['/api/auth/status', '/api/auth/login', '/api/auth/logout', '/api/auth/claim', '/api/auth/oidc/start', '/api/auth/oidc/callback']
 
 describe('with auth on', () => {
     let agent: string
@@ -198,7 +198,7 @@ describe('with auth on', () => {
         await store.revokeKey(claim!.id)
         const {status, message} = await failure(() => gate(asking('/api/projects')))
         expect(status).toBe(503)
-        expect(message).toContain('orrery:claim')
+        expect(message).toContain('App settings → You')
     })
 })
 
@@ -261,7 +261,7 @@ describe('adding a second person', () => {
     it('waits until someone could log in, unless only trying it out', async () => {
         const {status, message} = await failure(() => needsWayInForPeople())
         expect(status).toBe(409)
-        expect(message).toContain('orrery:claim')
+        expect(message).toContain('App settings → You')
         await store.makeKey('skoll', {kind: 'person', name: 'claim'})
         await expect(needsWayInForPeople()).resolves.toBeUndefined()
         await store.db.run('UPDATE keys SET revoked_at = ?', 'now')

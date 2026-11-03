@@ -42,7 +42,7 @@ const toldOff = () => String(useRuntimeConfig().auth || process.env.ORRERY_AUTH 
 /** A second person turns auth on, so without a way in that would lock the owner out: they claim the server first. */
 export async function needsWayInForPeople() {
     if (toldOff() || await canGetIn()) return
-    throw conflict('A second person turns login on, and nobody could log in yet: run `pnpm orrery:claim` on this machine first (or `docker compose exec orrery node /app/server/claim.mjs`). To only try people out on this machine, start orrery with ORRERY_AUTH=off')
+    throw conflict('A second person turns login on, and nobody could log in yet: claim it first, in App settings → You on this machine (or `docker compose exec orrery node /app/server/claim.mjs`). To only try people out on this machine, start orrery with ORRERY_AUTH=off')
 }
 
 const otherPersonNoted = new Set<string>()
