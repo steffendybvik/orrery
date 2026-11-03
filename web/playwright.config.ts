@@ -47,7 +47,8 @@ export default defineConfig({
     ],
     webServer: {
         command: `${postgres ? 'jiti scripts/e2e-postgres.ts' : 'rm -f .data/e2e.db .data/e2e.db-* .data/e2e.db.backups.json .data/e2e-moved-*.db'} && nuxt dev --port ${port}`,
-        env: {NUXT_DATABASE: postgres || '.data/e2e.db', NUXT_BACKUP_DIR: '', NUXT_UPDATE_CHECK: 'false', ORRERY_AUTH: 'off'},
+        // Postgres has no folder beside it to keep the secrets' key in, so it's given one, as its owner would.
+        env: {NUXT_DATABASE: postgres || '.data/e2e.db', NUXT_BACKUP_DIR: '', NUXT_UPDATE_CHECK: 'false', ORRERY_AUTH: 'off', ...postgres ? {NUXT_SECRET_KEY: 'e2e-postgres-secret-key'} : {}},
         url: `http://localhost:${port}/api/settings`,
         reuseExistingServer: false,
         // V8 writes its coverage as a process exits, so a run that collects it has to let the server stop by itself (ORR-745).
