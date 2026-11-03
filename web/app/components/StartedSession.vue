@@ -6,7 +6,9 @@ import {Menu, MenuButton, MenuItem, MenuItems} from '@headlessui/vue'
 // A session orrery started, at the end of its card's first row: Watch (its launcher opens a terminal on it), Show
 // screen (`viewing`, its live screen on the page) and Stop out front, Stop asking once more, as whatever the session
 // was in the middle of goes with it; the rest under ⋯: the command that attaches to its tmux session to copy, and the
-// owner's +30 min (for one with a time). Headless UI's Menu does the keys, focus and outside-click.
+// owner's +30 min (for one with a time). On a phone only Show screen stays out: Watch opens on the launcher's
+// machine, not the phone, so it and Stop fold into ⋯ (ORR-828). Headless UI's Menu does the keys, focus and
+// outside-click.
 const props = defineProps<{session: Session}>()
 const viewing = defineModel<boolean>('viewing', {default: false})
 const busy = ref<'stop' | 'extend' | 'watch' | null>(null)
@@ -14,6 +16,16 @@ const {settings} = useAppSettings()
 const failed = ref('')
 const stopping = ref(false)
 const note = ref('')
+/** Under Tailwind's sm (640px): Watch and Stop live in ⋯ then. Set on mount, so the server draws the wide card. */
+const phone = ref(false)
+let narrow: MediaQueryList | undefined
+const track = () => phone.value = !!narrow?.matches
+onMounted(() => {
+    narrow = matchMedia('(max-width: 639.98px)')
+    track()
+    narrow.addEventListener('change', track)
+})
+onBeforeUnmount(() => narrow?.removeEventListener('change', track))
 
 async function act(what: 'stop' | 'extend' | 'watch') {
     const launch = props.session.started?.launch
@@ -51,6 +63,7 @@ async function copyAttach() {
     </template>
     <template v-else>
       <UiButton
+          v-if="!phone"
           size="xs"
           :disabled="!!busy"
           :title="`Open ${TERMINALS[settings.terminal]} on ${session.name}, on its launcher's machine`"
@@ -59,7 +72,7 @@ async function copyAttach() {
         <UiBusy :busy="busy === 'watch'" label="Opening…">Watch</UiBusy>
       </UiButton>
       <UiButton size="xs" :aria-expanded="viewing" @click="viewing = !viewing">{{ viewing ? 'Hide screen' : 'Show screen' }}</UiButton>
-      <UiButton variant="danger-outline" size="xs" :disabled="!!busy" :title="`Stop ${session.name}`" @click="stopping = true">Stop</UiButton>
+      <UiButton v-if="!phone" variant="danger-outline" size="xs" :disabled="!!busy" :title="`Stop ${session.name}`" @click="stopping = true">Stop</UiButton>
       <Menu as="div" class="relative">
         <MenuButton as="template">
           <UiButton size="xs" square :aria-label="`More for ${session.name}`" :title="`More for ${session.name}`">
@@ -67,6 +80,11 @@ async function copyAttach() {
           </UiButton>
         </MenuButton>
         <MenuItems class="menu absolute top-full right-0 z-40 mt-1.5 w-60">
+          <MenuItem v-if="phone" v-slot="{active}" as="template">
+            <UiMenuItem :lit="active" :disabled="!!busy" @click="act('watch')">
+              <span class="min-w-0 flex-1">Watch <span class="text-faint">· opens on its launcher's machine</span></span>
+            </UiMenuItem>
+          </MenuItem>
           <MenuItem v-if="session.started.stops_at" v-slot="{active}" as="template">
             <UiMenuItem :lit="active" :disabled="!!busy" @click="act('extend')">+30 minutes</UiMenuItem>
           </MenuItem>
@@ -74,6 +92,9 @@ async function copyAttach() {
             <UiMenuItem :lit="active" @click="copyAttach">
               <span class="min-w-0 flex-1 truncate">Copy <code class="font-mono text-[11px]">tmux attach -t {{ session.started.tmux }}</code></span>
             </UiMenuItem>
+          </MenuItem>
+          <MenuItem v-if="phone" v-slot="{active}" as="template">
+            <UiMenuItem :lit="active" danger :disabled="!!busy" @click="stopping = true">Stop…</UiMenuItem>
           </MenuItem>
         </MenuItems>
       </Menu>

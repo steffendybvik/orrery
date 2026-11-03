@@ -420,6 +420,41 @@ test('a session orrery started has Stop out front, asked once more', async ({pag
     }
 })
 
+test('on a phone a started session keeps its name whole, with Watch and Stop under ⋯ (ORR-828)', async ({page, request, baseURL}) => {
+    const launcher = hold(baseURL!, '/api/projects/kitchen/launches/stream')
+    let stream: ReturnType<typeof hold> | undefined
+    try {
+        await page.setViewportSize({width: 390, height: 844})
+        await expect.poll(async () => (await api(request, 'get', '/launches')).launchers).toBe(1)
+        await request.post('/api/projects/kitchen/launches/running', {data: {launches: [{id: 'e2e828e2e828', tmux: 'orrery-e2e-phone', stops_at: new Date(Date.now() + 40 * 60_000).toISOString()}]}})
+        stream = hold(baseURL!, '/api/projects/kitchen/signals/stream?session=e2e-phone&name=e2e-on-a-phone&started=e2e828e2e828&format=text')
+        await page.goto('/sessions#session-e2e-phone')
+        const card = page.locator('#session-e2e-phone')
+        const name = card.getByText('e2e-on-a-phone', {exact: true})
+        await expect(name).toBeVisible()
+        // The name isn't cut: it's as wide as it needs to be.
+        expect(await name.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true)
+        // Show screen stays out, on a row under the name; Watch and Stop are under ⋯.
+        const show = card.getByRole('button', {name: 'Show screen'})
+        await expect(show).toBeVisible()
+        expect((await show.boundingBox())!.y).toBeGreaterThan((await name.boundingBox())!.y + 10)
+        await expect(card.getByRole('button', {name: 'Watch', exact: true})).toHaveCount(0)
+        await expect(card.getByRole('button', {name: 'Stop', exact: true})).toHaveCount(0)
+        // The meta line wraps as text, not a line per item.
+        const meta = card.locator('p').first()
+        expect((await meta.boundingBox())!.height).toBeLessThan(40)
+        await card.getByRole('button', {name: 'More for e2e-on-a-phone'}).click()
+        await expect(page.getByRole('menuitem', {name: /Watch · opens on its launcher's machine/})).toBeVisible()
+        await page.getByRole('menuitem', {name: 'Stop…'}).click()
+        await expect(card).toContainText('Stop e2e-on-a-phone?')
+        await card.getByRole('button', {name: 'Stop', exact: true}).click()
+        await expect.poll(() => launcher.said.text).toContain('event: stop')
+    } finally {
+        stream?.stop()
+        launcher.stop()
+    }
+})
+
 test('+30 minutes tells the launcher, for a session with a stop time', async ({page, request, baseURL}) => {
     const launcher = hold(baseURL!, '/api/projects/kitchen/launches/stream')
     let stream: ReturnType<typeof hold> | undefined
