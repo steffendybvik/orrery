@@ -316,6 +316,9 @@ export const SETTINGS_FIELDS: Record<string, Field> = {
     advanced: {type: 'boolean'},
     /** A listening session out of work is handed the issues it may start, to pick one (ORR-452); false, it waits. */
     pick_next: {type: 'boolean'},
+    /** Project ids the sidebar lists first, and those it folds away under Hidden (ORR-836); null is none. */
+    starred: {type: 'strings', nullable: true},
+    hidden: {type: 'strings', nullable: true},
 }
 
 /** A preset's name and its text, both needed; its badge's icon and colour, neither. */

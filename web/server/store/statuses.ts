@@ -23,6 +23,7 @@ export abstract class StatusStore extends StoreBase {
             const row = rows.find(r => r.key === key)
             return row ? JSON.parse(row.value) as unknown : undefined
         }
+        const ids = (key: string) => (value(key) as string[] | null | undefined) ?? []
         return {
             id: value('id') as string,
             tint: (value('tint') as string | undefined) ?? null,
@@ -38,6 +39,8 @@ export abstract class StatusStore extends StoreBase {
             restrict_proposals: (value('restrict_proposals') as boolean | undefined) ?? true,
             advanced: (value('advanced') as boolean | undefined) ?? true,
             pick_next: (value('pick_next') as boolean | undefined) ?? false,
+            starred: ids('starred').filter(id => !ids('hidden').includes(id)),
+            hidden: ids('hidden'),
         }
     }
 
