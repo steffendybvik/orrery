@@ -16,9 +16,9 @@ let actorOf: typeof import('../server/utils/actor').actorOf
 let personOf: typeof import('../server/utils/actor').personOf
 let authMode: typeof import('../server/utils/auth').authMode
 
-const asking = (path: string, {method = 'GET', headers = {}, bound = '127.0.0.1'}: {method?: string, headers?: Record<string, string>, bound?: string} = {}): Event => ({
+const asking = (path: string, {method = 'GET', headers = {}, bound = '127.0.0.1', port = 9000}: {method?: string, headers?: Record<string, string>, bound?: string, port?: number} = {}): Event => ({
     path, method, headers, context: {},
-    node: {req: {headers, socket: {remoteAddress: '127.0.0.1', server: {address: () => ({address: bound})}}}},
+    node: {req: {headers, socket: {remoteAddress: '127.0.0.1', localPort: port, server: {address: () => ({address: bound})}}}},
 })
 const bearer = (key: string, more: Record<string, string> = {}) => ({authorization: `Bearer ${key}`, ...more})
 
@@ -57,7 +57,7 @@ function routes(dir = 'server/api', at = '/api'): {method: string, path: string}
         return [{method: method.toUpperCase(), path: name === 'index' ? at : `${at}/${name}`}]
     })
 }
-const OPEN = ['/api/auth/status', '/api/auth/login', '/api/auth/logout', '/api/auth/claim', '/api/auth/oidc/start', '/api/auth/oidc/callback']
+const OPEN = ['/api/auth/status', '/api/auth/login', '/api/auth/logout', '/api/auth/claim', '/api/auth/link', '/api/auth/oidc/start', '/api/auth/oidc/callback']
 
 describe('with auth on', () => {
     let agent: string
@@ -346,3 +346,27 @@ describe('identities', () => {
         expect(await store.identity('https://id.example', 'sub-1')).toBe('hati')
     })
 })
+
+describe("the phone's port (ORR-837)", () => {
+    it('asks for a login on the phone port alone, while the main port on loopback stays open to the sessions', async () => {
+        config = {...config, auth: ''}
+        const main = await authMode(asking('/api/projects') as never)
+        config = {...config, phoneListen: '9001'}
+        expect(await authMode(asking('/api/projects') as never)).toBe(main)
+        expect(await authMode(asking('/api/projects', {port: 9001}) as never)).toBe('on')
+        await expect(gate(asking('/api/projects', {port: 9001}))).rejects.toMatchObject({statusCode: 401})
+    })
+
+    it('refuses rather than opens the phone port when told ORRERY_AUTH=off', async () => {
+        config = {...config, auth: 'off', phoneListen: '9001'}
+        expect(await authMode(asking('/api/projects', {port: 9001}) as never)).toBe('closed')
+    })
+
+    it("never counts as this machine, whatever Host it's sent, so nobody claims the orrery over it", async () => {
+        config = {...config, auth: '', phoneListen: '9001'}
+        vi.stubGlobal('getRequestHost', () => 'localhost')
+        const {fromThisMachine} = await import('../server/utils/move')
+        expect(fromThisMachine(asking('/api/auth/claim', {method: 'POST', port: 9001}) as never)).toBe(false)
+    })
+})
+

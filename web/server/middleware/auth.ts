@@ -1,12 +1,13 @@
 // With auth on (ORR-664), every route under /api asks for a credential, reads included, so the checks after this are
 // against a verified person. There's no loopback exemption, as in Docker orrery can't tell loopback from the network.
 // Runs first. What stays open is what can't hold data: the login's own routes (claiming among them, which checks for itself
-// that it's this machine's page, ORR-832), and outside /api the page's files, the
+// that it's this machine's page, ORR-832, and a phone's one-time link, ORR-837), and outside /api the page's files, the
 // channel's, and /llms* and /connect, which leave out what's on this orrery unless `mayRead` says otherwise (ORR-689).
 // Off, as on one person's own machine, this does nothing.
 import {authMode, canGetIn, credential, holdSession, noteOtherPerson, pathOf} from '../utils/auth'
+import {viaPhone} from '../utils/phone-port'
 
-const OPEN = new Set(['/api/auth/status', '/api/auth/login', '/api/auth/logout', '/api/auth/claim', '/api/auth/oidc/start', '/api/auth/oidc/callback'])
+const OPEN = new Set(['/api/auth/status', '/api/auth/login', '/api/auth/logout', '/api/auth/claim', '/api/auth/link', '/api/auth/oidc/start', '/api/auth/oidc/callback'])
 const WRITES = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
 
 export default defineEventHandler(async event => {
@@ -21,7 +22,7 @@ export default defineEventHandler(async event => {
     if (mode === 'closed') throw createError({statusCode: 503, statusMessage: 'Service Unavailable', message: 'ORRERY_AUTH=off only works while orrery listens on loopback, and this one is reachable from other machines: unset it'})
     const who = await credential(event)
     if (!who) {
-        if (!await canGetIn()) throw createError({statusCode: 503, statusMessage: 'Service Unavailable', message: 'Nobody can log in to this orrery yet: claim it from its page on its own machine (App settings → You), or run `docker compose exec orrery node /app/server/claim.mjs` there'})
+        if (!viaPhone(event) && !await canGetIn()) throw createError({statusCode: 503, statusMessage: 'Service Unavailable', message: 'Nobody can log in to this orrery yet: claim it from its page on its own machine (App settings → You), or run `docker compose exec orrery node /app/server/claim.mjs` there'})
         throw createError({statusCode: 401, statusMessage: 'Unauthorized', message: 'This orrery asks for a credential: log in on its page, or give a session an agent key (ORRERY_KEY)'})
     }
     // A cookie goes along by itself, so a write on one has to say it comes from a page, which writes.ts then checks is ours.

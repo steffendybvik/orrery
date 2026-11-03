@@ -18,6 +18,7 @@ import {beforeUpgrade, databaseSetting, hidePassword, movedFile, openDb, switchD
 import {PostgresDb, isPostgres} from './postgres'
 import {badRequest, conflict, forbidden} from './input'
 import {ownerOnly} from './permission'
+import {viaPhone} from './phone-port'
 
 /** The names only this machine reaches orrery by: a move hands the data to wherever it's pointed. */
 const THIS_MACHINE = /^(localhost|.+\.localhost|127(\.\d{1,3}){3}|\[::1\])$/i
@@ -29,6 +30,9 @@ export const LOOPBACK = /^(127(\.\d{1,3}){3}|::1|\[::1\]|::ffff:127(\.\d{1,3}){3
  * comes from a loopback address (see `clientAddress`); in Docker, where every request comes through the bridge, orrery has to be published on
  * loopback alone (`ORRERY_HOST`, 127.0.0.1 by default, which compose passes in as NUXT_LISTEN_HOST). */
 export function fromThisMachine(event: H3Event): boolean {
+    // The phone's port is the network's, whatever Host it's sent (ORR-837): claiming, moving the database and the like
+    // are never done over it.
+    if (viaPhone(event)) return false
     if (!THIS_MACHINE.test(getRequestHost(event).replace(/:\d+$/, ''))) return false
     if (proxied(event)) return false
     if (inDocker()) return LOOPBACK.test(String(useRuntimeConfig().listenHost ?? ''))

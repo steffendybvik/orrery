@@ -6,21 +6,40 @@ import type {PhoneAddress, PhoneLinks} from '#shared/phone'
 // it on a phone the first time, so a scan and a sign-in are all it takes. The code is drawn here, by `uqr`, with nothing
 // sent anywhere. While only this machine can reach it, it says what opening it up takes, claiming first, so the sessions
 // aren't cut off when login comes on.
+// With the phone's own port (ORR-837), the code carries a one-time sign-in link instead: scanned, the phone is signed in,
+// nothing to type. A fresh one is made each time this shows, and again as it runs out.
 const {status} = useAuth()
 const links = ref<PhoneLinks | null>(null)
 const failed = ref('')
 const chosen = ref('')
+const token = ref('')
+let renew: ReturnType<typeof setTimeout> | undefined
+/** A fresh one-time sign-in link, and another a little before it runs out. */
+async function signInLink() {
+    clearTimeout(renew)
+    try {
+        const made = await apiFetch<{token: string, expires_at: string}>('/phone/link', {method: 'POST'})
+        token.value = made.token
+        renew = setTimeout(signInLink, Math.max(new Date(made.expires_at).getTime() - Date.now() - 30_000, 10_000))
+    } catch (error) {
+        failed.value = errorMessage(error)
+    }
+}
 onMounted(async () => {
     try {
         links.value = await apiFetch<PhoneLinks>('/phone')
         chosen.value = links.value.addresses[0]?.url ?? ''
+        if (links.value.phone && links.value.reach === 'network') await signInLink()
     } catch (error) {
         failed.value = errorMessage(error)
     }
 })
+onBeforeUnmount(() => clearTimeout(renew))
 
 const open = computed(() => links.value?.reach === 'network')
-const qr = computed(() => chosen.value ? renderSVG(chosen.value, {border: 2, pixelSize: 4, whiteColor: '#fff', blackColor: '#000'}) : '')
+/** What the code opens: the address, signing the phone in with a one-time link when it has its own port. */
+const target = computed(() => chosen.value && links.value?.phone && token.value ? `${chosen.value}/login?t=${token.value}` : chosen.value)
+const qr = computed(() => target.value ? renderSVG(target.value, {border: 2, pixelSize: 4, whiteColor: '#fff', blackColor: '#000'}) : '')
 const claimed = computed(() => !!status.value?.can_get_in)
 const SOURCES: Record<PhoneAddress['from'], string> = {
     setting: 'ORRERY_PHONE_URL',
@@ -54,7 +73,11 @@ const sourceOf = (address: PhoneAddress) => address.from === 'launcher' ? `the l
               <CopyButton :text="address.url" compact />
             </li>
           </ul>
-          <p class="text-muted">
+          <p v-if="links.phone" class="text-muted">
+            Scan it with the phone's camera and you're signed in, on a login of the phone's own. The code works once, for
+            5 minutes, and a new one shows here as it runs out. The address alone asks for a login.
+          </p>
+          <p v-else class="text-muted">
             Scan it with the phone's camera, then sign in with your person key.
             <template v-if="!claimed">Nobody can sign in yet: claim it first, on this machine.</template>
           </p>
@@ -70,6 +93,12 @@ const sourceOf = (address: PhoneAddress) => address.from === 'launcher' ? `the l
       </p>
     </template>
     <template v-else-if="links">
+      <p v-if="links.phone" class="text-muted">
+        The phone's port is on this machine only (<code class="font-mono">ORRERY_PHONE_HOST</code> is loopback). Remove it
+        from <code class="font-mono">.env</code> and run <code class="font-mono">docker compose up -d</code>, and this shows a
+        code that signs your phone in. The sessions' address stays as it is.
+      </p>
+      <template v-else>
       <p class="text-muted">Only this machine can open it now. To open it on your phone:</p>
       <ol class="flex list-decimal flex-col gap-1 pl-5 text-muted">
         <li>
@@ -87,6 +116,7 @@ const sourceOf = (address: PhoneAddress) => address.from === 'launcher' ? `the l
         Then it's at <template v-for="(address, i) in links.addresses" :key="address.url"><template v-if="i">, </template><code class="font-mono text-fg">{{ address.url }}</code></template>,
         and this shows its QR code.
       </p>
+      </template>
       <p class="text-faint">
         More in Running orrery, under <a href="/p/orrery/docs/running#reach-it-from-your-phone" class="underline">Reach it from your phone</a>.
       </p>
