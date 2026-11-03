@@ -35,6 +35,19 @@ registerEndpoint('/api/chats/c2/clear', () => {
     posted.push({path: 'clear', body: null})
     return {}
 })
+/** An upload on its way, landing on `uploaded()`. */
+let landing: (() => void) | null = null
+let uploads = 0
+registerEndpoint('/api/uploads', () => new Promise(resolve => {
+    const id = `u${++uploads}`
+    landing = () => resolve({id, url: `/api/uploads/${id}`, markdown: `![](/api/uploads/${id})`})
+}))
+async function uploaded() {
+    for (let i = 0; i < 20 && !landing; i++) await flushPromises()
+    landing?.()
+    landing = null
+    await flushPromises()
+}
 registerEndpoint('/api/chats/c2/end', () => {
     posted.push({path: 'end', body: null})
     return {}
@@ -173,5 +186,34 @@ describe('ChatPane', () => {
         useChat().open.value = true
         await flushPromises()
         expect((box().element as HTMLTextAreaElement).value).toBe('and the bolt')
+    })
+
+    it("leaves the focus in a field elsewhere: an image landing doesn't pull it back to the box (ORR-834)", async () => {
+        const pane = await mountSuspended(ChatPane, {attachTo: document.body})
+        mounted.push(pane)
+        useChat().open.value = true
+        await flushPromises()
+        const box = pane.find('textarea[aria-label="Message"]').element as HTMLTextAreaElement
+        expect(document.activeElement).toBe(box)
+        const picker = pane.find('input[type="file"]')
+        const image = () => Object.defineProperty(picker.element, 'files', {value: [new File(['x'], 'jar.png', {type: 'image/png'})], configurable: true})
+
+        // Picked while in the box, it goes back to the box.
+        image()
+        await picker.trigger('change')
+        await uploaded()
+        expect(pane.findAll('button[aria-label^="Remove image"]')).toHaveLength(1)
+        expect(document.activeElement).toBe(box)
+
+        // The owner has gone on to type in another field (a session's Message box) as it lands: the focus stays there.
+        const other = document.createElement('textarea')
+        document.body.append(other)
+        image()
+        await picker.trigger('change')
+        other.focus()
+        await uploaded()
+        expect(pane.findAll('button[aria-label^="Remove image"]')).toHaveLength(2)
+        expect(document.activeElement).toBe(other)
+        other.remove()
     })
 })

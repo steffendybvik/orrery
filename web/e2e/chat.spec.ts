@@ -909,3 +909,22 @@ test('asks the owner to start or stop a session, and does it only on their Allow
         launcher.stop()
     }
 })
+
+test('opens from ⌘K ready to type into, and leaves typing elsewhere on the page where it is (ORR-834)', async ({page}) => {
+    await page.goto('/p/observatory')
+    await expect(page.getByRole('heading', {level: 1}).first()).toBeVisible()
+    await page.keyboard.press('ControlOrMeta+k')
+    const palette = page.getByRole('dialog', {name: 'Commands'})
+    await palette.getByLabel('Type a command or search').fill('Chat about')
+    await palette.getByRole('option').filter({hasText: 'Chat about Observatory'}).first().press('Enter')
+    const box = page.getByRole('region', {name: 'Chat'}).getByRole('textbox', {name: 'Message', exact: true})
+    await expect(box).toBeFocused()
+    // Typing elsewhere with the pane open stays there.
+    const filter = page.getByRole('searchbox', {name: 'Filter by id or title'})
+    await filter.click()
+    await page.keyboard.type('abc', {delay: 50})
+    await expect(filter).toHaveValue('abc')
+    await expect(filter).toBeFocused()
+    await expect(box).toHaveValue('')
+    await page.getByRole('region', {name: 'Chat'}).getByRole('button', {name: 'Close the chat'}).click()
+})

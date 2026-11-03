@@ -53,6 +53,15 @@ const sending = ref(false)
 const list = ref<HTMLElement | null>(null)
 const field = ref<HTMLTextAreaElement | null>(null)
 const picker = ref<HTMLInputElement | null>(null)
+const pane = ref<HTMLElement | null>(null)
+
+/** Puts the focus in the box, unless the owner is typing in a field elsewhere on the page: the chat takes it only when
+ * it's opened or acted in, never from another input (ORR-834). */
+function focusField() {
+    const at = document.activeElement
+    if (at && at !== field.value && isTyping(at) && !pane.value?.contains(at)) return
+    field.value?.focus()
+}
 
 /** The project of the page you're on, if it's one of them. */
 const here = computed(() => {
@@ -100,7 +109,7 @@ const examples = computed(() => {
 })
 function ask(example: string) {
     draft.value = example.endsWith('…') ? example.slice(0, -1) : example
-    nextTick(() => field.value?.focus())
+    nextTick(focusField)
 }
 
 const state = computed(() => {
@@ -124,7 +133,7 @@ const thinking = computed(() => {
 
 // The newest in sight as it comes, the spinner too.
 watch(() => [open.value, chat.value?.messages.length, held.value.length, thinking.value], () => nextTick(() => list.value?.scrollTo({top: list.value.scrollHeight})))
-watch(open, now => now && nextTick(() => field.value?.focus()))
+watch(open, now => now && nextTick(focusField))
 
 /** Where the session's context was last cleared: the messages before it, it no longer remembers. */
 const cut = computed(() => chat.value?.messages.findLastIndex(m => m.cleared) ?? -1)
@@ -189,7 +198,7 @@ function takeBack(key: number) {
         images.value = message.images
     }
     restartHold()
-    field.value?.focus()
+    focusField()
 }
 
 /** Holds what's in the composer to go with the rest (`now`: sends it all at once). A slash command goes at once, after
@@ -255,7 +264,7 @@ async function attach(files: File[]) {
         }
     }
     // Back to typing the message it goes with.
-    field.value?.focus()
+    focusField()
 }
 const {over, on: drop} = useImageDrop(attach)
 </script>
@@ -285,6 +294,7 @@ const {over, on: drop} = useImageDrop(attach)
 
   <section
       v-else
+      ref="pane"
       class="fixed right-4 bottom-4 z-40 flex w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-2xl border border-line bg-panel shadow-2xl"
       :class="large ? 'h-[calc(100dvh-2rem)] sm:w-[min(56rem,calc(100vw-2rem))]' : 'h-[min(40rem,calc(100dvh-2rem))] sm:w-[min(28rem,calc(100vw-2rem))]'"
       aria-label="Chat"
