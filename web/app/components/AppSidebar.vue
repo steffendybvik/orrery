@@ -227,20 +227,21 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
         </NuxtLink>
       </template>
 
+      <!-- On a touch screen its small buttons are 28px to tap, around the same icons (ORR-816). -->
       <div class="label mt-4 mb-1 flex items-center gap-1 px-2">
         <span class="flex-1">Projects</span>
         <span v-if="projects.length" class="font-mono normal-case tabular-nums">{{ projects.length }}</span>
         <button
             v-if="projects.length"
             type="button"
-            class="grid size-5 place-items-center rounded text-faint hover:bg-hover hover:text-fg"
+            class="grid size-5 place-items-center rounded text-faint hover:bg-hover hover:text-fg pointer-coarse:size-7"
             :title="allOpen ? 'Fold every project' : 'Open every project'"
             :aria-label="allOpen ? 'Fold every project' : 'Open every project'"
             @click="setFolds(shown.map(p => p.id), !allOpen)"
         >
           <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path :d="allOpen ? 'm7 4 5 5 5-5M7 20l5-5 5 5' : 'm7 9 5-5 5 5M7 15l5 5 5-5'" /></svg>
         </button>
-        <button type="button" class="grid size-5 place-items-center rounded text-faint hover:bg-hover hover:text-fg" title="New project" aria-label="New project" @click="newProject = true">
+        <button type="button" class="grid size-5 place-items-center rounded text-faint hover:bg-hover hover:text-fg pointer-coarse:size-7" title="New project" aria-label="New project" @click="newProject = true">
           <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14" /></svg>
         </button>
       </div>
@@ -282,7 +283,7 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
           </NuxtLink>
           <button
               type="button"
-              class="mr-1 ml-0.5 grid size-5 shrink-0 place-items-center rounded text-faint hover:text-fg"
+              class="mr-1 ml-0.5 grid size-5 shrink-0 place-items-center rounded text-faint hover:text-fg pointer-coarse:size-7"
               :title="isOpen(project.id) ? 'Fold its pages (←)' : 'Show its pages (→)'"
               :aria-label="isOpen(project.id) ? `Fold ${project.name}` : `Open ${project.name}`"
               :aria-expanded="isOpen(project.id)"
@@ -341,7 +342,7 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
       <div class="label mb-1 flex items-center gap-1 px-2">
         <NuxtLink to="/sessions" class="flex-1 hover:text-fg">Sessions</NuxtLink>
         <span v-if="allSessions.length" class="font-mono normal-case tabular-nums">{{ allSessions.length }}</span>
-        <button type="button" class="rounded p-0.5 text-faint hover:bg-hover hover:text-fg" title="Start a session" aria-label="Start a session" @click="startSession()">
+        <button type="button" class="grid place-items-center rounded p-0.5 text-faint hover:bg-hover hover:text-fg pointer-coarse:size-7" title="Start a session" aria-label="Start a session" @click="startSession()">
           <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14" /></svg>
         </button>
       </div>
