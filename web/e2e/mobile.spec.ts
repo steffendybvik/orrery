@@ -69,3 +69,12 @@ test("the project and an issue's page fit the screen", async ({page}) => {
     await expect(page.getByRole('heading', {name: /A title long enough/})).toBeVisible()
     expect(await scrollsSideways(page)).toBe(false)
 })
+
+test('key hints aren\'t drawn on a touch screen, which has no keys to press (ORR-817)', async ({page}) => {
+    await page.goto('/mine')
+    await page.getByRole('button', {name: 'Open the sidebar'}).tap()
+    const drawer = page.locator('aside')
+    await expect(drawer.getByRole('button', {name: /Jump to/})).toBeVisible()
+    await expect(drawer.locator('kbd')).not.toHaveCount(0)
+    for (const hint of await drawer.locator('kbd').all()) await expect(hint).toBeHidden()
+})
