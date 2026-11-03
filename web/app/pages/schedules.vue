@@ -39,7 +39,7 @@ function newSchedule() {
 
 <template>
   <PageHeader>
-    <SectionIcon section="schedules" class="size-4 shrink-0 text-accent-500" />
+    <SectionIcon section="schedules" class="size-4 shrink-0 text-accent-fill" />
     <h1 class="truncate text-sm font-medium">Schedules</h1>
   </PageHeader>
 
@@ -56,8 +56,9 @@ function newSchedule() {
     </template>
   </ViewToolbar>
 
-  <div class="min-h-0 flex-1 overflow-y-auto">
+  <div class="clear-agent min-h-0 flex-1 overflow-y-auto">
     <EmptyProjects v-if="ready && !projects.length" />
+    <UiLoading v-else-if="!ready" />
     <div v-else-if="cards.length || acrossHere.length" class="mx-auto flex max-w-4xl flex-col gap-4 px-4 py-6">
       <section v-if="acrossHere.length" class="flex flex-col overflow-hidden rounded-xl border border-line bg-panel" aria-label="Across projects">
         <header class="border-b border-line bg-well/60 px-4 py-2.5"><h2 class="text-[14px] font-semibold">Across projects</h2></header>
@@ -79,7 +80,7 @@ function newSchedule() {
     <div v-else-if="ready" class="mx-auto flex max-w-4xl flex-col px-4 py-6">
       <p class="rounded-xl border border-dashed border-line px-4 py-10 text-center text-[13px] leading-relaxed text-muted">
         Nothing scheduled on any project yet.
-        <button type="button" class="text-accent-600 underline underline-offset-2 dark:text-accent-400" @click="newSchedule">Make one</button>
+        <button type="button" class="text-accent-700 underline underline-offset-2 dark:text-accent-400" @click="newSchedule">Make one</button>
         to message sessions, start one, or make an issue, at a set time or when something happens.
       </p>
       <ScheduleSuggestions v-if="target" class="mt-4" :project="target" :schedules="byProject[target] ?? []" />

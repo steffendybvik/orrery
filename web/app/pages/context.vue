@@ -66,7 +66,7 @@ const n = (value: number) => value.toLocaleString('en')
 
 <template>
   <PageHeader>
-    <svg class="size-4 shrink-0 text-accent-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19V5M9 19v-8M14 19V9M19 19v-4" /></svg>
+    <svg class="size-4 shrink-0 text-accent-fill" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19V5M9 19v-8M14 19V9M19 19v-4" /></svg>
     <h1 class="truncate text-sm font-medium">Context</h1>
   </PageHeader>
 
@@ -89,14 +89,14 @@ const n = (value: number) => value.toLocaleString('en')
     </div>
   </ViewToolbar>
 
-  <div class="min-h-0 flex-1 overflow-auto px-4 py-3">
+  <div class="clear-agent min-h-0 flex-1 overflow-auto px-4 pt-3">
     <div class="mx-auto flex max-w-4xl flex-col gap-4">
       <p v-if="!settings.advanced" class="rounded-lg bg-well px-3 py-2 text-xs text-muted ring-1 ring-line">
         This is for Advanced: turn it on in
         <NuxtLink to="/settings?tab=advanced" class="underline underline-offset-2 hover:text-fg">App settings</NuxtLink>
         to see a running session's from its card.
       </p>
-      <p v-if="failed" class="text-sm text-rose-600 dark:text-rose-400">{{ failed }}</p>
+      <p v-if="failed" class="text-sm text-rose-700 dark:text-rose-400">{{ failed }}</p>
 
       <section v-if="view" aria-label="Total" class="flex flex-col gap-2">
         <p class="text-sm">

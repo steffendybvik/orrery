@@ -120,6 +120,41 @@ Stacked, the two buttons share the width (in a menu). `inline` puts the question
 toolbar, a comment), with `size="xs"` beside small text. `action` and `busyAction` change the button's words
 (default Remove, Removing…). Esc cancels.
 
+### UiSpinner, UiBusy and UiLoading
+
+**Anything loading shows the braille spinner**, through these three, and no other animation or bare "Loading".
+
+```vue
+<span class="inline-flex items-center gap-1.5 text-xs text-faint"><UiSpinner />Adding image…</span>
+<UiButton variant="primary" :disabled="saving"><UiBusy :busy="saving" label="Saving…">Save</UiBusy></UiButton>
+<UiLoading v-else-if="!ready" />
+```
+
+- **`UiSpinner`:** the cycle `⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏`, drawn rather than typed, as Geist Mono has no braille and a fallback font changes by machine. It's 1em tall and takes `currentColor`, so `text-lg` sizes it and it works on a primary button. It runs on CSS with no timer, and reduced motion holds one frame. It's hidden from screen readers: the words beside it say what's loading, or `label` where there are none.
+- **`UiBusy`:** a button's words while it's at work, the slot at rest and the spinner with `label` while `busy`. Both keep the same cell, so the button holds its width. `UiConfirm` uses it for `busyAction`.
+- **`UiLoading`:** a page or panel with nothing to show yet, the spinner in the middle of it, coming in a moment late so a quick answer doesn't flash it.
+- **The start-up screen:** what a fresh open or a refresh shows until the app has started: the logo with the spinner under it, and no words. There's no Vue yet, so it's plain HTML and CSS, made by `scripts/spa-loading.ts` as Nuxt's `spaLoadingTemplate`. It inlines `public/favicon.svg` and takes `UiSpinner`'s frames from `shared/spinner.ts`, so it follows both. It matches `UiLoading`'s size, colour and late start, and follows the theme the head's script set.
+
+These aren't loading, so they stay as they are: `WorkingDot` and `SessionDot` (a session's state), the status icon's pulse on the board and the chat button's pulse.
+
+### UiSplitter
+
+The border between two panes side by side, dragged to resize the one before it (the Notifications page's list).
+
+```vue
+<div class="flex">
+  <div :style="{width: `${width}px`}">…</div>
+  <UiSplitter v-model="width" :initial="initial" :min="240" :keep="320" label="Resize the list" />
+  <div class="min-w-0 flex-1">…</div>
+</div>
+```
+
+- `v-model` is the first pane's width in pixels. It stays at least `min`, and leaves the pane after it at least `keep`.
+  The page sets the width: a narrow window can still hold it below the value with a `max-w`.
+- It's the line between them, a `col-resize` grip a little wider than the line, lit faintly on hover, focus and while dragging.
+- Double-click puts it back to `initial`. It's a focusable `separator`: ←→ nudge it 16 px, 64 with Shift, and Home and End go to the ends.
+- `usePaneWidth(key, initial)` remembers the width in this browser, and forgets it once it's back at `initial`.
+
 ## Styles (`assets/css/main.css`)
 
 Where a class is all it takes, it's a utility rather than a component:
@@ -132,12 +167,13 @@ Where a class is all it takes, it's a utility rather than a component:
 | `label` | the small uppercase heading over a group (PROPERTIES, WHEN) |
 | `doc` | Markdown drawn as a page (through `MarkdownView`) |
 | `tint` | the hover tint laid over a solid surface (`hover:tint`) |
+| `clear-agent` | room at the end of a page's scrolling area, so the last line comes clear of the Agent button. Every page's scroller has it, so a new page's does too |
 | `unseen-row`, `unseen-dot` | changed since the owner last looked |
 | `waiting-row` | an issue waiting on the owner's answer (violet; wins over `unseen-row`) |
 
 Colours come from the theme, never a fixed grey: `bg-canvas` (the page), `bg-panel` (sidebar, cards),
 `bg-raised` (popovers), `bg-well` (fields, segmented controls), `border-line`, `text-fg` / `text-muted` /
-`text-faint`, `bg-hover` / `bg-active` (rows), and the accent `accent-300…600`. Each has a light and a dark value,
+`text-faint`, `bg-hover` / `bg-active` (rows), and the accent `accent-300…700`: words on the page are `text-accent-700 dark:text-accent-400`, as the lighter ones can't be read on a light page, and the primary is `accent-fill`, one orange in both themes: a fill with words or an icon on it is `bg-accent-fill text-on-accent` (white), and dots, bars, progress and icons are `accent-fill` too. `accent-500` stays for tints, such as `bg-accent-500/10`, and the words on a page keep their pair, as neither can be read in the other theme. An error is never told by colour alone, as red and the primary are about as bright: it says so in words, or has a warning sign (`ErrorBadge`), and a filled red is `bg-rose-700`. Red words are `text-rose-700 dark:text-rose-400`, as `rose-600` only reads on pure white, and a tinted page takes that away; amber words are `text-amber-800 dark:text-amber-300` for the same reason. A tint moves `text-faint` too (`main.css`). Each has a light and a dark value,
 and an orrery's tint mixes into the surfaces, so a fixed colour looks wrong in one of them.
 
 A card or a section that should read as its own surface goes on `bg-panel`, not a border alone: in the dark a border on
@@ -176,6 +212,7 @@ Already one component each; use them rather than drawing the same thing again.
 | `ProjectIcon` | a project's Heroicon in its colour |
 | `SectionIcon` | the icon of a project's page (issues, roadmap, docs…) |
 | `SessionDot` | a Claude session's state as a dot |
+| `ErrorBadge` | a count of what's gone wrong: red with a warning sign, on the bell, the sidebar and App settings |
 | `PullStateChip` | where an open pull request stands (Conflicts, Behind, Ready to merge…), red to green |
 | `ScheduleRunButton` | **Run schedule** in a project's issues toolbar: a popover of the schedules Run now can run, each run at once; the confirmation is `ScheduleMenu`'s |
 | `PullFocus` | **Focus on this** on a pull request: a popover with the note `focusNote` writes from its state, to edit and send as a focus on its issue |
@@ -209,6 +246,9 @@ Already one component each; use them rather than drawing the same thing again.
 | `GettingStarted` | a new orrery's steps, ticked from live data (`useGettingStarted`): the first run as a page, `card` on My issues |
 | `LauncherHint` | while no launcher runs for a project, how to install one (on Getting started's last step, and in the chat), gone once one connects |
 | `NotificationBell` | the bell in the header: agents' comments, and those and their proposals waiting on the owner |
+| `NoticeLine` | a line in Notifications' list: an issue's notices from a day, or its question waiting on the owner, saying what happened; its dot says unread, read or waiting |
+| `NoticeHistory` | Notifications' reading pane, there only while a line is chosen: a line's comments in full with its status changes among them |
+| `NoticeTransition` | a status change in words: the icon and name of where it started and where it ended |
 | `ThemeToggle` | light ⇄ dark, following the system until one is picked |
 | `OrreryMark` | the logo's mark, in `currentColor` |
 
@@ -233,6 +273,7 @@ Auto-imported, like the components. Reach for these before writing the listener 
 | `useIssueLink` | an issue's page (`pathOf`, `open`), and the last one opened, marked when you come back |
 | `useImageUpload(text, field)` | images pasted, dropped or picked into a Markdown field (with `ImageButton`), then back to typing in it; pasting and dropping work on the whole area around it (`useImageDrop`, with `ImageDropOverlay` while an image is dragged over) |
 | `useUnseen` | what's changed since the owner last looked (`unseen-row`, `unseen-dot`) |
+| `usePaneWidth(key, initial)` | how wide a split page's first pane is (`UiSplitter`), remembered in this browser |
 | `useTheme` | light, dark or the system's, remembered in this browser |
 | `apiFetch`, `apiUrl` | every call to the API, by its path under `/api`; a write goes as the owner unless it gives its own `headers` (`test/api-client.test.ts` holds it) |
 | `copyText` | copies text, with a fallback where the clipboard API refuses (`CopyButton` uses it) |

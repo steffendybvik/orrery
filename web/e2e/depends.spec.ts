@@ -3,7 +3,6 @@ import {OWNER, makeProject, projectApi} from './support'
 
 // Issues that depend on others (ORR-601): linked from an issue's page, the waiting one marked Blocked on the list and the
 // board until what it waits on is done, and ticked issues chained in the order the page lists them.
-test.describe.configure({mode: 'serial'})
 
 const api = projectApi('windmill')
 

@@ -1,7 +1,7 @@
 import type {LaunchEvent} from '../utils/launches'
 
 // Fills the event log (server/utils/event-log.ts): every 5xx the server answers with, each 403 and 409 as a refusal, its starts and the migrations
-// they ran, and the sessions orrery starts and stops. Old events are pruned on start and every hour.
+// they ran, and the sessions orrery starts and stops. Old events are pruned on start and every hour, when orrery also cleans up old signals and unused images (housekeeping.ts).
 export default defineNitroPlugin(nitro => {
     const log = useEventLog()
     const {version} = useRuntimeConfig().public
@@ -23,7 +23,10 @@ export default defineNitroPlugin(nitro => {
         if (ran) log.note({level: 'info', kind: 'migration.ran', message: ran.from ? `Brought the database from step ${ran.from} to ${ran.to}` : `Laid down a new database (step ${ran.to})`, details: {...ran, database: describeDatabase().kind}})
         log.note({level: 'info', kind: 'server.started', message: `orrery ${version} started`, details: {version, database: describeDatabase().kind}})
     }, error => console.error('[orrery] opening the event log:', error))
-    const timer = setInterval(() => log.prune().catch(error => console.error('[orrery] pruning the event log:', error)), 60 * 60 * 1000)
+    const timer = setInterval(() => {
+        log.prune().catch(error => console.error('[orrery] pruning the event log:', error))
+        houseKeep().catch(error => console.error('[orrery] cleaning up:', error))
+    }, 60 * 60 * 1000)
     nitro.hooks.hook('close', () => clearInterval(timer))
 
     projectEvents.on('launches', (sent: LaunchEvent) => {

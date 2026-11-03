@@ -7,7 +7,7 @@ import {PRIORITIES} from '#shared/roadmap'
 // then the priority, column, assignee, label and blocked (or ready) filters, shared by every view, and off a project's pages the
 // project. The assignees and labels to pick from are the ones on this project's issues (every project's off a
 // project's pages).
-const {filters, changed, clear} = useFilters()
+const {filters, changed, usualColumns, clear} = useFilters()
 const {projects, byId} = useRoadmaps()
 const {ordered} = useProjectOrder()
 const {who} = useOwner()
@@ -51,7 +51,7 @@ const columns = computed(() => order.value.map(c => ({value: c.id as Column, lab
     <FilterMenu v-model="filters.priorities" label="Priority" :options="priorities" class="hidden sm:block">
       <template #option="{value}"><PriorityIcon :priority="value === 'none' ? undefined : value" /></template>
     </FilterMenu>
-    <FilterMenu v-model="filters.columns" label="Column" :options="columns" class="hidden sm:block">
+    <FilterMenu v-model="filters.columns" label="Status" :options="columns" :usual="{values: usualColumns, label: 'Open'}" class="hidden sm:block">
       <template #option="{value}"><StatusIcon :column="value" /></template>
     </FilterMenu>
     <FilterMenu v-model="filters.assignees" label="Assignee" :options="assignees" class="hidden sm:block">

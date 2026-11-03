@@ -10,9 +10,9 @@ const OPTIONS = [{value: 'P1', label: 'High'}, {value: 'P2', label: 'Medium'}, {
 const mounted: VueWrapper[] = []
 afterEach(() => mounted.splice(0).forEach(w => w.unmount()))
 
-async function mount(modelValue: string[]) {
+async function mount(modelValue: string[], usual?: {values: string[], label: string}) {
     const wrapper = await mountSuspended(FilterMenu, {
-        props: {label: 'Priority', options: OPTIONS, modelValue, 'onUpdate:modelValue': (v: string[]) => wrapper.setProps({modelValue: v})},
+        props: {label: 'Priority', options: OPTIONS, usual, modelValue, 'onUpdate:modelValue': (v: string[]) => wrapper.setProps({modelValue: v})},
         attachTo: document.body,
     })
     mounted.push(wrapper)
@@ -43,6 +43,30 @@ describe('FilterMenu', () => {
         await option('Clear').trigger('click')
         expect(model()).toEqual([])
         expect(toggle().text()).toBe('Priority')
+    })
+
+    it('is lit only with something ticked', async () => {
+        const {toggle, option} = await mount([])
+        expect(toggle().classes()).not.toContain('bg-accent-500/10')
+        await toggle().trigger('click')
+        await option('Low').trigger('click')
+        expect(toggle().classes()).toContain('bg-accent-500/10')
+    })
+
+    it('reads what a page opens on as not set, and lights up off it, whichever way (ORR-797)', async () => {
+        const {toggle, option} = await mount(['P2', 'P1'], {values: ['P1', 'P2'], label: 'Open'})
+        expect(toggle().text()).toBe('Priority · Open')
+        expect(toggle().classes()).not.toContain('bg-accent-500/10')
+        await toggle().trigger('click')
+        await option('Low').trigger('click')
+        expect(toggle().text()).toBe('Priority · 3')
+        expect(toggle().classes()).toContain('bg-accent-500/10')
+        await option('Low').trigger('click')
+        expect(toggle().text()).toBe('Priority · Open')
+        expect(toggle().classes()).not.toContain('bg-accent-500/10')
+        await option('Clear').trigger('click')
+        expect(toggle().text()).toBe('Priority · All')
+        expect(toggle().classes()).toContain('bg-accent-500/10')
     })
 
     it('closes on Esc and on a click outside', async () => {

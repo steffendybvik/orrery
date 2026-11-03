@@ -303,4 +303,27 @@ describe('identities', () => {
         await store.removePerson('hati', {name: 'skoll', owner: true})
         expect(await store.identity('https://id.example', 'sub-1')).toBeUndefined()
     })
+
+    it('an invite takes over a removed person’s account (ORR-787)', async () => {
+        const {secret} = await store.invite('hati')
+        await store.identity('https://id.example', 'sub-1', secret)
+        await store.removePerson('hati', {name: 'skoll', owner: true})
+        const mani = await store.addPerson({name: 'Mani'})
+        const {secret: again} = await store.invite(mani.id)
+        expect(await store.identity('https://id.example', 'sub-1', again)).toBe(mani.id)
+        expect(await store.identity('https://id.example', 'sub-1')).toBe(mani.id)
+    })
+
+    it('an account stays with someone here, whatever invite comes with it', async () => {
+        const {secret} = await store.invite('hati')
+        await store.identity('https://id.example', 'sub-1', secret)
+        const mani = await store.addPerson({name: 'Mani'})
+        const {secret: other} = await store.invite(mani.id)
+        expect(await store.identity('https://id.example', 'sub-1', other)).toBe('hati')
+        // Should it get past that first look, the write still refuses, and the invite isn't used up.
+        vi.spyOn(store as unknown as {get: () => Promise<undefined>}, 'get').mockResolvedValueOnce(undefined)
+        expect((await failure(() => store.identity('https://id.example', 'sub-1', other))).status).toBe(409)
+        expect(await store.identity('https://id.example', 'sub-2', other)).toBe(mani.id)
+        expect(await store.identity('https://id.example', 'sub-1')).toBe('hati')
+    })
 })

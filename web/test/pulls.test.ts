@@ -96,7 +96,7 @@ describe('pull requests', () => {
     it('ask nothing for a project without a repo on GitHub', async () => {
         await store.createProject({name: 'notes', key: 'NOT', repo: 'https://gitlab.com/you/notes'})
         await store.createIssue('notes', {title: 'Tags'})
-        expect(await pulls.forIssue('notes', 'NOT-1')).toEqual({repo: null, pulls: [], token: false, checked_at: null})
+        expect(await pulls.forIssue('notes', 'NOT-1')).toEqual({repo: null, pulls: [], done: [], token: false, checked_at: null})
         expect(asked).toEqual([])
     })
 

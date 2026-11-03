@@ -99,7 +99,7 @@ watch(() => [route.hash, count.value] as const, ([hash]) => show(hash), {immedia
 
 <template>
   <PageHeader>
-    <SectionIcon section="sessions" class="size-4 shrink-0 text-accent-500" />
+    <SectionIcon section="sessions" class="size-4 shrink-0 text-accent-fill" />
     <h1 class="truncate text-sm font-medium">Sessions</h1>
   </PageHeader>
 
@@ -115,8 +115,9 @@ watch(() => [route.hash, count.value] as const, ([hash]) => show(hash), {immedia
     </template>
   </ViewToolbar>
 
-  <div ref="scroller" class="min-h-0 flex-1 overflow-y-auto">
+  <div ref="scroller" class="clear-agent min-h-0 flex-1 overflow-y-auto">
     <EmptyProjects v-if="ready && !projects.length" />
+    <UiLoading v-else-if="!ready" />
     <div v-else class="mx-auto flex max-w-6xl animate-fade-up gap-12 px-4 py-6 sm:px-8">
     <div v-if="tab === 'setup'" class="flex min-w-0 max-w-4xl flex-1 flex-col gap-6">
       <section id="starts" class="flex scroll-mt-14 flex-col gap-2">
@@ -129,7 +130,7 @@ watch(() => [route.hash, count.value] as const, ([hash]) => show(hash), {immedia
         </header>
         <CopyBlock title="Install the launcher once: run" :text="install" hint="Anywhere, it installs the launcher; in a project's repo, it adds that project too. From then on a Claude session opened in a repo adds it (--no-pick-up turns that off), and --uninstall in a repo takes it off and keeps it off. Adding a repo leaves the running sessions alone." />
         <SessionStarts />
-        <LauncherRepos />
+        <LauncherReposLine />
         <PickNextSetting />
         <StartingSessionsGuide />
       </section>
@@ -191,9 +192,9 @@ watch(() => [route.hash, count.value] as const, ([hash]) => show(hash), {immedia
       </ul>
       <p v-if="ready && !count" class="rounded-xl border border-dashed border-line px-4 py-10 text-center text-[13px] leading-relaxed text-muted">
         No sessions right now.
-        <button type="button" class="text-accent-600 underline underline-offset-2 dark:text-accent-400" @click="open()">Start one</button>,
-        or run <span class="font-mono">claude</span> in a <NuxtLink to="/connect" class="text-accent-600 underline underline-offset-2 dark:text-accent-400">connected</NuxtLink> repo.
-        orrery can start them for you too, set up under <button type="button" class="text-accent-600 underline underline-offset-2 dark:text-accent-400" @click="tab = 'setup'">Setup</button>.
+        <button type="button" class="text-accent-700 underline underline-offset-2 dark:text-accent-400" @click="open()">Start one</button>,
+        or run <span class="font-mono">claude</span> in a <NuxtLink to="/connect" class="text-accent-700 underline underline-offset-2 dark:text-accent-400">connected</NuxtLink> repo.
+        orrery can start them for you too, set up under <button type="button" class="text-accent-700 underline underline-offset-2 dark:text-accent-400" @click="tab = 'setup'">Setup</button>.
       </p>
       <section v-if="spanning.length" id="sessions-across" class="flex scroll-mt-14 flex-col gap-3">
         <header class="flex flex-wrap items-center gap-x-3 gap-y-2">
@@ -214,7 +215,7 @@ watch(() => [route.hash, count.value] as const, ([hash]) => show(hash), {immedia
       </section>
       <section v-for="group in groups" :id="`sessions-${group.project.id}`" :key="group.project.id" class="flex scroll-mt-14 flex-col gap-3">
         <header class="flex flex-wrap items-center gap-x-3 gap-y-2">
-          <NuxtLink :to="`/p/${group.project.id}`" class="flex min-w-0 items-center gap-2 hover:text-accent-600 dark:hover:text-accent-400">
+          <NuxtLink :to="`/p/${group.project.id}`" class="flex min-w-0 items-center gap-2 hover:text-accent-700 dark:hover:text-accent-400">
             <ProjectIcon v-if="group.project.icon && heroicon(group.project.icon)" :icon="group.project.icon" :color="group.project.icon_color" class="size-3.5" />
             <h2 class="truncate text-[15px] font-semibold">{{ group.project.name }}</h2>
           </NuxtLink>

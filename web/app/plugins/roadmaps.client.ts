@@ -41,12 +41,15 @@ export default defineNuxtPlugin(() => {
         await useLoggedEvents().loadNew()
         await useSchedules().load()
         await useChat().fetchChats()
+        // A session can change while this is read: what the `sessions` event says by then is the newer.
+        pushed.clear()
         const all = await apiFetch<Session[]>('/sessions').catch(() => [])
         // Under each project it's on, as the `sessions` event lists them: its own and the others its channel hears.
         const grouped: Record<string, Session[]> = {}
         for (const s of all) for (const p of [s.project, ...s.also ?? []]) (grouped[p] ??= []).push(s)
-        sessions.value = Object.fromEntries(Object.entries(grouped).map(([p, list]) => [p, list.filter(s => !s.started?.chat)]))
-        chatSessions.value = Object.fromEntries(Object.entries(grouped).map(([p, list]) => [p, list.filter(s => s.started?.chat)]))
+        const newer = <T>(now: Record<string, T>) => Object.fromEntries(Object.entries(now).filter(([p]) => pushed.has(p)))
+        sessions.value = {...Object.fromEntries(Object.entries(grouped).map(([p, list]) => [p, list.filter(s => !s.started?.chat)])), ...newer(sessions.value)}
+        chatSessions.value = {...Object.fromEntries(Object.entries(grouped).map(([p, list]) => [p, list.filter(s => s.started?.chat)])), ...newer(chatSessions.value)}
     }
 
     /** The issues whose `updated_at` moved, so their rows can flash. */
@@ -64,6 +67,9 @@ export default defineNuxtPlugin(() => {
         }))
         changed.value = next
     }
+
+    /** The projects a `sessions` event has told of since `load` began reading the sessions. */
+    const pushed = new Set<string>()
 
     /** The revision of each project the page has, which the next patch to it must build on. */
     const revs = new Map<string, number>()
@@ -132,6 +138,7 @@ export default defineNuxtPlugin(() => {
         })
         events.addEventListener('sessions', event => {
             const {project, sessions: now} = JSON.parse((event as MessageEvent).data) as {project: string, sessions: Session[]}
+            pushed.add(project)
             // The owner's chats apart, as they're not listed with the rest.
             sessions.value = {...sessions.value, [project]: now.filter(s => !s.started?.chat)}
             chatSessions.value = {...chatSessions.value, [project]: now.filter(s => s.started?.chat)}

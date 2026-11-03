@@ -60,7 +60,7 @@ const revoke = (id: string) => act(() => apiFetch(`/keys/${id}`, {method: 'DELET
       <p>Shown this once. An agent key goes in <code class="font-mono">ORRERY_KEY</code> where you start Claude Code; a person key signs you in here, and never goes in a session's environment.</p>
       <code class="select-all break-all rounded-md bg-hover px-2 py-1 font-mono text-fg">{{ made }}</code>
     </div>
-    <p v-if="failed" class="text-xs text-rose-600 dark:text-rose-400">{{ failed }}</p>
+    <p v-if="failed" class="text-xs text-rose-700 dark:text-rose-400">{{ failed }}</p>
     <div>
       <UiButton @click="logOut">Log out</UiButton>
     </div>

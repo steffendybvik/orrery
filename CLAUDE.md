@@ -2,7 +2,23 @@
 
 ## Worktrees
 
-Other sessions share the main checkout, so work in a worktree of your own, under `../orrery-worktrees/` (`git worktree add ../orrery-worktrees/orr-n -b <branch> <base>`). Remove it (`git worktree remove`) once its PR has merged or you've finished with it. `pnpm worktrees` lists what sessions left behind and why any must stay, and `pnpm worktrees --remove` clears what's safe.
+Other sessions share the main checkout, so work in a worktree of your own, under `../orrery-worktrees/`. Remove it (`git worktree remove`) once its PR has merged or you've finished with it. `pnpm worktrees` lists what sessions left behind and why any must stay, and `pnpm worktrees --remove` clears what's safe.
+
+Before making a branch, read the issue's `branches` in the `issue` tool:
+
+- **One with `other_session: false`:** carry on from it, with `git fetch origin <branch>`, then `git worktree add ../orrery-worktrees/orr-n <branch>`, and `git pull --ff-only` if a local copy was behind.
+- **`other_session: true`:** another session is on the issue, so leave its branch and its worktree alone.
+- **None:** start one, with `git worktree add ../orrery-worktrees/orr-n -b <branch> <base>`.
+
+A branch can only be checked out in one worktree. If git says it's checked out elsewhere, and `other_session` is false, that session has stopped: when `git -C <path> status --short` is empty, `git worktree remove <path>` and add yours. If it has uncommitted changes, work in that worktree instead, as they're the last session's work.
+
+Replacing a branch (a rebase onto a new rc makes a new one, as force-push is blocked): close the old PR, say so on the issue, and delete an old branch that has no PR. A closed PR's branch isn't listed, so nobody picks it up.
+
+## Pull requests
+
+A session's pull request into a release branch (`v1.0.0-rc.*`) merges itself once it's green: open it ready, not as a draft, and run `gh pr merge --auto --squash`, then say so on its issue. A session that runs out of time leaves that set, so it still lands. A red or cancelled check doesn't merge: read what failed, fix it or re-run a cancelled job, and tell the owner on the issue if you can't. A pull request into `main` stays the owner's.
+
+Before opening one, run `pnpm test`, `pnpm typecheck`, `pnpm lint` and only the browser specs the change touches. The whole browser suite belongs to the pull request into `main`, so don't hold a pull request back to run it.
 
 ## Roadmap
 

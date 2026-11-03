@@ -2,11 +2,15 @@ import {readFileSync} from 'node:fs'
 import {fileURLToPath} from 'node:url'
 import tailwindcss from '@tailwindcss/vite'
 import {bundleChannel} from './scripts/bundle-channel'
+import {writeSpaLoading} from './scripts/spa-loading'
 
 // The version a release sets in package.json, shown at the foot of the sidebar.
 const {version} = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')) as {version: string}
 
 const channelBundle = fileURLToPath(new URL('./.channel-bundle', import.meta.url))
+
+// The start-up screen, made from the logo whenever the config loads (scripts/spa-loading.ts, ORR-815).
+const spaLoading = writeSpaLoading(fileURLToPath(new URL('./.spa-loading.html', import.meta.url)), fileURLToPath(new URL('./public/favicon.svg', import.meta.url)))
 
 export default defineNuxtConfig({
     hooks: {
@@ -17,6 +21,7 @@ export default defineNuxtConfig({
     devtools: {enabled: false},
     // A local, single-user board: the page is drawn in the browser and fed by /api.
     ssr: false,
+    spaLoadingTemplate: spaLoading,
     devServer: {port: 9000},
 
     css: ['~/assets/css/main.css'],
@@ -76,6 +81,16 @@ export default defineNuxtConfig({
     alias: {'#channel': fileURLToPath(new URL('../channel', import.meta.url))},
 
     // docs/API.md is served to agents (/api/guide, /llms-full.txt).
+    // Nothing on the page loads from elsewhere by itself, so what an agent writes in Markdown can't send what it read to
+    // another server just by being shown (ORR-748). Fonts are Google's. A route with a policy of its own replaces this.
+    routeRules: {
+        '/**': {
+            headers: {
+                'Content-Security-Policy': "img-src 'self' data: blob:; media-src 'self' data: blob:; font-src 'self' data: https://fonts.gstatic.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; object-src 'none'",
+                'X-DNS-Prefetch-Control': 'off',
+            },
+        },
+    },
     nitro: {
         // And the bundled channel, hook and launcher are served to the machines that run them (/channel, ORR-435).
         serverAssets: [
@@ -90,6 +105,7 @@ export default defineNuxtConfig({
 
     app: {
         head: {
+            htmlAttrs: {lang: 'en'},
             title: 'orrery',
             meta: [{name: 'description', content: 'Where every app project stands'}],
             link: [

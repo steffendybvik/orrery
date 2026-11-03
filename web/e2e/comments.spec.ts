@@ -3,7 +3,6 @@ import {AGENT, makeProject, projectApi} from './support'
 
 // Pictures and comments: an image picked into a new issue and a comment, the owner editing and deleting their own
 // comment but not an agent's, a Before and After pair as a slider, and copying the whole issue with its comments.
-test.describe.configure({mode: 'serial'})
 
 const api = projectApi('studio')
 
@@ -25,7 +24,8 @@ test('puts a picked image in a new issue, and in a comment on it', async ({page,
     const id = page.url().split('/').at(-1)!
     const image = page.locator('.doc img[alt="shelf"]').first()
     await expect(image).toBeVisible()
-    expect(await image.evaluate((img: HTMLImageElement) => img.naturalWidth)).toBe(1)
+    // Its alt text shows before the file has loaded.
+    await expect.poll(() => image.evaluate((img: HTMLImageElement) => img.naturalWidth)).toBe(1)
 
     await page.locator('form').filter({has: page.getByRole('textbox', {name: 'Comment'})}).locator('input[type="file"]').setInputFiles(png)
     await expect(page.getByRole('textbox', {name: 'Comment'})).toHaveValue(/!\[shelf\]/)
@@ -167,4 +167,24 @@ test('copies the whole issue, with every comment or none, and no description', a
     await expect(page.getByText('Second coat tomorrow')).toBeVisible()
     await expect(copy).toHaveText('Copy issue')
     expect(await copied()).toContain('Second coat tomorrow')
+})
+
+test('a button at work shows the spinner beside its words and holds its width (ORR-812)', async ({page, request}) => {
+    const {id} = await api(request, 'post', '/issues', {title: 'A slow comment'})
+    await page.goto(`/p/studio/issues/${id}`)
+    await page.getByRole('textbox', {name: 'Comment'}).fill('Taking its time')
+    const button = page.getByRole('button', {name: 'Comment', exact: true})
+    const width = (await button.boundingBox())!.width
+    let answer = () => {}
+    const held = new Promise<void>(resolve => { answer = resolve })
+    await page.route('**/comments', async route => {
+        if (route.request().method() === 'POST') await held
+        await route.continue()
+    })
+    await button.click()
+    const busy = page.getByRole('button', {name: 'Posting…'})
+    await expect(busy.getByTestId('spinner')).toBeVisible()
+    expect((await busy.boundingBox())!.width).toBe(width)
+    answer()
+    await expect(page.getByRole('button', {name: 'Comment', exact: true})).toBeVisible()
 })

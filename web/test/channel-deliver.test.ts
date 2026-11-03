@@ -10,6 +10,7 @@ import {fileURLToPath} from 'node:url'
 import {Client} from '@modelcontextprotocol/sdk/client/index.js'
 import {StdioClientTransport} from '@modelcontextprotocol/sdk/client/stdio.js'
 import {afterAll, beforeAll, describe, expect, it, vi} from 'vitest'
+import {spawnCoverage} from './spawn-coverage'
 
 // The last step before the owner's words reach a session (ORR-701): the real channel, spawned, following a stand-in orrery
 // and read over stdio as Claude Code reads it. Each one gets a home of its own, so it can't touch the launcher's list or
@@ -84,7 +85,7 @@ async function startChannel(orrery: {url: string, listening: () => number}, env:
         args: [CHANNEL],
         cwd: home,
         stderr: 'ignore',
-        env: {HOME: home, XDG_CONFIG_HOME: join(home, '.config'), ORRERY_URL: orrery.url, ORRERY_PROJECT: 'greenhouse', CLAUDE_CODE_SESSION_ID: 'window-1', CLAUDE_PID: String(claude.pid), ...env},
+        env: {...spawnCoverage(), HOME: home, XDG_CONFIG_HOME: join(home, '.config'), ORRERY_URL: orrery.url, ORRERY_PROJECT: 'greenhouse', CLAUDE_CODE_SESSION_ID: 'window-1', CLAUDE_PID: String(claude.pid), ...env},
     })
     await client.connect(transport)
     // It doesn't end with its stdin, and closing alone would wait seconds to find that out.

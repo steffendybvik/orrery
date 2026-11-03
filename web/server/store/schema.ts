@@ -123,7 +123,7 @@ interface Made { created_by: string, owned: number, created_at: string, updated_
 export interface ProjectRow extends Made {
     id: string, name: string, key: string, uid: string, description: string | null, icon: string | null, icon_color: string | null, next_number: number, next_chunk: number,
     focus_prompt: string | null, chunk_prompt: string | null, instructions: string, muted: string, starts: string | null, repo: string | null,
-    release_mode: ReleaseMode, releases_from: string | null
+    release_mode: ReleaseMode, releases_from: string | null, doc_section_order: string
 }
 export interface ChunkRow extends Made { project: string, id: string, title: string, summary: string | null, priority: Priority | null, position: number }
 export interface IssueRow extends Made {
@@ -144,7 +144,9 @@ export interface SignalRow { person?: string | null, id: number, project: string
 export const SLUG = /^[a-z0-9][a-z0-9-]{0,39}$/
 /** A named tint or any `#rrggbb`: the page's tint, a project icon's colour. */
 const TINT: Field = {type: 'string', nullable: true, pattern: new RegExp(`^(${Object.keys(TINTS).join('|')}|#[0-9a-fA-F]{6})$`), hint: `use ${Object.keys(TINTS).join(', ')} or a colour like #3b82f6`}
-const KEY = /^[A-Z][A-Z0-9]{0,9}$/
+/** The keys a doc's, chunk's, preset's or schedule's full id starts with, so no project's. */
+export const FULL_ID_KEYS = ['DOC', 'CHK', 'PST', 'SCH']
+export const KEY = /^[A-Z][A-Z0-9]{0,9}$/
 /** A release's version: `1.0.0`, `1.0.0-rc.2`, `2026.10`, `v2`; it goes in URLs as it is. */
 const VERSION = /^[0-9A-Za-z][0-9A-Za-z.+_-]{0,39}$/
 

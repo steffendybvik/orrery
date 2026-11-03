@@ -66,7 +66,7 @@ const ready = computed(() => !!settings.value.starts && !!running.value)
           <span class="font-medium text-fg">Watch it, give it longer, or stop it</span>
           <span>
             It lists here like any session. <strong class="font-medium text-fg">Watch</strong> opens a terminal on it (the app picked in
-            <NuxtLink to="/sessions#watch" class="text-accent-600 hover:underline dark:text-accent-400">Watching sessions</NuxtLink>),
+            <NuxtLink to="/sessions#watch" class="text-accent-700 hover:underline dark:text-accent-400">Watching sessions</NuxtLink>),
             <strong class="font-medium text-fg">Stop</strong> ends it now, and <strong class="font-medium text-fg">+30 min</strong> gives one with minutes longer.
             One whose minutes are up, or that has sat idle too long, is stopped once it's done with what it's on. The launcher's log is <span class="font-mono">~/Library/Logs/orrery-launcher.log</span>
             on macOS, <span class="font-mono">journalctl --user -u orrery-launcher</span> on Linux.

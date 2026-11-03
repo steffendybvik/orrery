@@ -32,7 +32,7 @@ const rows = (card: typeof cards.value[number]): TrackedRelease[] => [...card.tr
 
 <template>
   <PageHeader>
-    <SectionIcon section="releases" class="size-4 shrink-0 text-accent-500" />
+    <SectionIcon section="releases" class="size-4 shrink-0 text-accent-fill" />
     <h1 class="truncate text-sm font-medium">Releases</h1>
   </PageHeader>
 
@@ -41,11 +41,12 @@ const rows = (card: typeof cards.value[number]): TrackedRelease[] => [...card.tr
       <span class="truncate">{{ projectOptions.find(o => o.value === only)?.label ?? name(only) }}</span>
     </PropertyPicker>
     <span v-if="read" class="text-xs text-muted">{{ count }}</span>
-    <span v-if="failed" class="text-xs text-rose-600 dark:text-rose-400">{{ failed }}</span>
+    <span v-if="failed" class="text-xs text-rose-700 dark:text-rose-400">{{ failed }}</span>
   </ViewToolbar>
 
-  <div class="min-h-0 flex-1 overflow-y-auto">
+  <div class="clear-agent min-h-0 flex-1 overflow-y-auto">
     <EmptyProjects v-if="ready && !projects.length" />
+    <UiLoading v-else-if="!read && !failed" />
     <div v-else-if="read" class="mx-auto flex max-w-4xl flex-col gap-4 px-4 py-6">
       <ul v-if="cards.length" class="flex flex-col gap-4" aria-label="Projects with releases">
         <li v-for="card in cards" :key="card.project" class="overflow-hidden rounded-xl border border-line dark:bg-panel">

@@ -43,7 +43,7 @@ onBeforeUnmount(() => {
         class="max-h-[28rem] min-h-24 overflow-auto rounded-lg bg-well p-3 font-mono text-[11px] leading-[1.35] text-fg ring-1 ring-line"
         :aria-label="`${session.name}'s screen`"
     >{{ screen ?? (failed ? '' : 'Waiting for the launcher to send the screen…') }}</pre>
-    <p class="text-[11px]" :class="failed ? 'text-rose-600 dark:text-rose-400' : 'text-faint'">
+    <p class="text-[11px]" :class="failed ? 'text-rose-700 dark:text-rose-400' : 'text-faint'">
       {{ failed || (at ? `Read only · as of ${new Date(at).toLocaleTimeString()}` : 'Read only') }}
     </p>
   </div>

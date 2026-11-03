@@ -1,9 +1,10 @@
+import {execFileSync} from 'node:child_process'
 import {existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {describe, expect, it, vi} from 'vitest'
 // @ts-expect-error: plain JavaScript, no types
-import {choose, connector, folderProblem, pickerFor} from '../../channel/connect-repo.mjs'
+import {choose, claudeLine, connector, folderProblem, pickerFor} from '../../channel/connect-repo.mjs'
 
 // The launcher's part of Connect a repo (ORR-708): which picker opens, and that it only ever writes to the folder chosen.
 const URL = 'http://localhost:9010'
@@ -129,5 +130,15 @@ describe('a connect request on the launcher', () => {
         await remote.write({id: 'c2', projects: PROJECTS, orrery: ORRERY, terminal: 'iterm'})
         expect(said.at(-1)).toMatchObject({state: 'failed', message: expect.stringContaining("isn't on this machine or https")})
         expect(existsSync(join(root.other, '.mcp.json'))).toBe(false)
+    })
+})
+
+describe('the line that opens Claude', () => {
+    it("runs nothing from a server name in the repo's .mcp.json, and passes it on whole", () => {
+        const dir = realpathSync(mkdtempSync(join(tmpdir(), 'orrery-line-')))
+        const name = '$(touch ran); touch ran `touch ran` it\'s'
+        const said = execFileSync('sh', ['-c', claudeLine(dir, '/bin/echo', name)], {encoding: 'utf8'})
+        expect(existsSync(join(dir, 'ran'))).toBe(false)
+        expect(said.trim()).toBe(`--dangerously-load-development-channels server:${name}`)
     })
 })

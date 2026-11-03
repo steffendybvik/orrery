@@ -13,7 +13,7 @@ defineProps<{session: Session}>()
     <span
         class="relative inline-flex size-2 rounded-full"
         :class="[
-            session.cut_off ? 'bg-amber-500' : {idle: 'bg-emerald-500', working: 'bg-accent-500', waiting: 'bg-rose-500', starting: 'bg-faint'}[session.state],
+            session.cut_off ? 'bg-amber-500' : {idle: 'bg-emerald-500', working: 'bg-accent-fill', waiting: 'bg-rose-500', starting: 'bg-faint'}[session.state],
             !session.listening && 'bg-transparent ring-1 ring-inset ring-faint',
         ]"
     />

@@ -46,7 +46,7 @@ describe('IssueWorkerBanner', () => {
     it('shows a session waiting on a permission in rose', async () => {
         const wrapper = await mount({session: session({state: 'waiting'})})
         const state = wrapper.findAll('span').find(s => s.text().startsWith('permission needed'))!
-        expect(state.classes()).toContain('text-rose-600')
+        expect(state.classes()).toContain('text-rose-700')
     })
 
     it('offers Watch only for a session orrery started, and says why it could not open', async () => {

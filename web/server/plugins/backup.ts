@@ -7,7 +7,6 @@ export default defineNitroPlugin(nitro => {
     const log = useEventLog()
     const backups = new BackupScheduler({
         target: backupTarget,
-        hasBackup: dir => !!lastBackup(dir),
         fresh: () => isFresh(useDatabase()),
         backUp: target => backUpTo(useDatabase(), target, backupKeep()),
         every: backupEvery,

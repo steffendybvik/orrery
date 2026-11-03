@@ -71,13 +71,14 @@ interface Polled {
     merged: boolean
     closed: boolean
     merge_sha: string | null
+    merged_at: string | null
     closed_by: string | null
     created_at: string
     updated_at: string
 }
 
 const FIELDS = `number title url body isDraft headRefName baseRefName headRefOid createdAt updatedAt
-    author { login } mergeStateStatus reviewDecision merged closed mergeCommit { oid }
+    author { login } mergeStateStatus reviewDecision merged mergedAt closed mergeCommit { oid }
     reviews(last: 1, states: [CHANGES_REQUESTED]) { nodes { id author { login } body comments(first: 20) { nodes { path line body } } } }
     commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }`
 const QUERY = `query($owner: String!, $name: String!) {
@@ -115,6 +116,7 @@ interface GraphPull {
     mergeStateStatus: string | null
     reviewDecision: string | null
     merged: boolean
+    mergedAt?: string | null
     closed: boolean
     mergeCommit: {oid: string} | null
     reviews?: {nodes: {id: string, author?: {login: string} | null, body?: string | null, comments?: {nodes: {path: string, line: number | null, body: string}[]}}[]}
@@ -132,7 +134,7 @@ function fromGraph(pull: GraphPull): Polled {
         review_by: pull.reviews?.nodes[0]?.author?.login ?? '', review_body: pull.reviews?.nodes[0]?.body ?? '', review_comments: pull.reviews?.nodes[0]?.comments?.nodes ?? [],
         // ERROR is a failure too; EXPECTED (a required check not reported yet) is waiting, as PENDING is.
         checks: checks === 'ERROR' ? 'failure' : checks === 'EXPECTED' ? 'pending' : checks?.toLowerCase() ?? null,
-        merged: pull.merged, closed: pull.closed && !pull.merged, merge_sha: pull.mergeCommit?.oid ?? null,
+        merged: pull.merged, closed: pull.closed && !pull.merged, merge_sha: pull.mergeCommit?.oid ?? null, merged_at: pull.mergedAt ?? null,
         closed_by: pull.timelineItems?.nodes[0]?.actor?.login ?? null, created_at: pull.createdAt, updated_at: pull.updatedAt,
     }
 }
@@ -142,7 +144,7 @@ function fromList(pull: ListedPull & {closed_at?: string | null}): Polled {
     return {
         number: pull.number, title: pull.title, url: pull.html_url, body: pull.body ?? '', branch: pull.head.ref, base: pull.base.ref,
         author: pull.user?.login ?? '', draft: !!pull.draft, head_sha: pull.head.sha ?? null, state: pull.draft ? 'draft' : null,
-        review: null, review_id: null, checks: null, merged, closed: !merged && !!pull.closed_at, merge_sha: merged ? pull.merge_commit_sha ?? null : null,
+        review: null, review_id: null, checks: null, merged, closed: !merged && !!pull.closed_at, merge_sha: merged ? pull.merge_commit_sha ?? null : null, merged_at: pull.merged_at ?? null,
         closed_by: null, created_at: pull.created_at, updated_at: pull.updated_at,
     }
 }
@@ -303,15 +305,18 @@ export class PullPoll {
         const before = await this.store.db.get<{token: number}>('SELECT token FROM pull_repos WHERE repo = ?', repo)
         const first = !before || (token && !before.token)
         const kept = new Map((await this.store.db.all<KeptPull>('SELECT * FROM pull_states WHERE repo = ?', repo)).map(k => [k.number, k]))
+        // What's kept for good, by PR: one not changed since needn't be looked up and written again each minute.
+        const recorded = new Map((await this.store.db.all<{number: number, updated_at: string}>('SELECT number, updated_at FROM issue_pulls WHERE repo = ?', repo)).map(r => [r.number, r.updated_at]))
         const changes: PullChange[] = []
         const seen = new Set<number>()
         for (const pull of [...read.open, ...read.done]) {
             if (seen.has(pull.number)) continue
             seen.add(pull.number)
             const was = kept.get(pull.number)
+            const names = issueIdsIn({body: pull.body, head: {ref: pull.branch}})
+            if (recorded.get(pull.number) !== pull.updated_at) await this.pulls.remember(repo, projects, {...pull, names})
             // One merged or closed before orrery kept it is nothing to it.
             if (!was && (pull.merged || pull.closed)) continue
-            const names = issueIdsIn({body: pull.body, head: {ref: pull.branch}})
             const told = was ? JSON.parse(was.told) as string[] : []
             // Green again after failing (pending between, most often, while CI runs): the failures are counted afresh
             // from here (ORR-529).
@@ -344,11 +349,30 @@ export class PullPoll {
         // Open when last seen, and in neither list now: closed or merged in a rush the lists missed. Kept as closed, told
         // nothing. Not when the open ones were cut short: those past the cut are still open (ORR-615).
         for (const [number, was] of kept) {
-            if (!read.more && !seen.has(number) && !was.merged && !was.closed) await this.store.db.run('UPDATE pull_states SET closed = 1, seen_at = ? WHERE repo = ? AND number = ?', at, repo, number)
+            if (!read.more && !seen.has(number) && !was.merged && !was.closed) {
+                await this.store.db.run('UPDATE pull_states SET closed = 1, seen_at = ? WHERE repo = ? AND number = ?', at, repo, number)
+                await this.store.db.run("UPDATE issue_pulls SET state = 'closed', updated_at = ? WHERE repo = ? AND number = ? AND state = 'open'", at, repo, number)
+            }
         }
         await this.store.db.run(`INSERT INTO pull_repos (repo, polled_at, token, error) VALUES (?, ?, ?, NULL)
             ON CONFLICT (repo) DO UPDATE SET polled_at = excluded.polled_at, token = excluded.token, error = NULL`, repo, at, token ? 1 : 0)
         for (const change of changes) this.onChange(change)
+        await this.readHistory(repo, projects, asker)
+    }
+
+    /** One more page of the repo's closed PRs, oldest last, until each is on the issues it names (ORR-795): a request more a
+     * poll until it's done, so even a repo read without a token stays well inside GitHub's 60 an hour. Newly closed ones only
+     * push the rest down a page, read twice, so none is missed. Not reading one now is no fault of the poll: it's tried next. */
+    private async readHistory(repo: string, projects: string[], asker: string) {
+        const page = (await this.store.db.get<{history_page: number}>('SELECT history_page FROM pull_repos WHERE repo = ?', repo))?.history_page
+        if (!page) return
+        try {
+            const {value} = await this.pulls.ask<ListedPull[]>(repo, asker, `/repos/${repo}/pulls?state=closed&sort=created&direction=desc&per_page=${PAGE}&page=${page}`)
+            for (const pull of value) await this.pulls.remember(repo, projects, {...fromList(pull), names: issueIdsIn(pull)})
+            await this.store.db.run('UPDATE pull_repos SET history_page = ? WHERE repo = ?', value.length < PAGE ? 0 : page + 1, repo)
+        } catch (error) {
+            console.error(`[orrery] reading ${repo}'s older pull requests:`, error)
+        }
     }
 
     /** The repo's open PRs, a page a query up to `PAGES` of them, and the most recently done with the first; `more`

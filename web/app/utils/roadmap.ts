@@ -4,6 +4,8 @@ import {serverName} from '#shared/connect'
 
 /** A tint's name as its colour; a `#rrggbb` as itself. */
 export const colorOf = (color: string) => TINTS[color as keyof typeof TINTS] ?? color
+/** A colour for words on the page: any tint, pulled toward the text's colour so it can be read in either theme (WCAG AA, ORR-724). */
+export const readable = (color: string) => `color-mix(in oklab, ${color} 60%, var(--fg))`
 
 /** Whether a column's kind is closed (done or canceled): out of the open counts. */
 export const isClosed = (kind: Place) => CLOSED.includes(kind as never)

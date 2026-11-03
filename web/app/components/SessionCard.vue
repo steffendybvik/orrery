@@ -80,8 +80,8 @@ const behind = computed(() => props.session.listening && olderVersion(props.sess
           </template>
         </div>
         <p class="flex min-w-0 flex-wrap items-center gap-x-1.5 text-xs text-faint">
-          <span class="whitespace-nowrap" :class="session.state === 'waiting' && 'text-rose-600 dark:text-rose-400'" :title="`Up since ${ago(session.started_at)}`">{{ SESSION_STATE[session.state] }} · {{ ago(session.since) }}</span>
-          <span v-if="session.cut_off" class="text-amber-700 dark:text-amber-400" data-testid="session-cut-off">· {{ cutOffLabel(session.cut_off) }}<template v-if="session.cut_off.text">: {{ session.cut_off.text }}</template></span>
+          <span class="whitespace-nowrap" :class="session.state === 'waiting' && 'text-rose-700 dark:text-rose-400'" :title="`Up since ${ago(session.started_at)}`">{{ SESSION_STATE[session.state] }} · {{ ago(session.since) }}</span>
+          <span v-if="session.cut_off" class="text-amber-800 dark:text-amber-400" data-testid="session-cut-off">· {{ cutOffLabel(session.cut_off) }}<template v-if="session.cut_off.text">: {{ session.cut_off.text }}</template></span>
           <span v-if="session.state === 'waiting' && session.asking" class="flex min-w-0 items-baseline gap-1" :title="session.asking.detail">
             · for <span class="text-muted">{{ toolLabel(session.asking.name) }}</span>
             <span v-if="session.asking.detail" class="max-w-80 truncate font-mono text-[11px] text-muted">{{ session.asking.detail }}</span>
@@ -91,7 +91,7 @@ const behind = computed(() => props.session.listening && olderVersion(props.sess
           <span v-if="session.started?.context">· with <span class="text-muted" :title="session.started.context.text">{{ contextLabel(session.started.context) }}</span></span>
           <NuxtLink v-if="appSettings.advanced" :to="{path: '/context', query: {project, session: session.id}}" class="whitespace-nowrap underline-offset-2 hover:text-fg hover:underline" title="What orrery puts into its context, part by part, with sizes">· Context</NuxtLink>
           <span v-if="session.listening && !spans && elsewhere.length" :title="`One session: it hears ${elsewhere.join(', ')} too`">· also on {{ elsewhere.join(', ') }}</span>
-          <span v-if="behind" class="flex items-center gap-1.5 text-amber-700 dark:text-amber-400" :title="`Its channel runs ${session.version ?? 'code from before 1.0.0-rc.10'}, and this orrery ${version}: it picks up the new code as it restarts`">
+          <span v-if="behind" class="flex items-center gap-1.5 text-amber-800 dark:text-amber-400" :title="`Its channel runs ${session.version ?? 'code from before 1.0.0-rc.10'}, and this orrery ${version}: it picks up the new code as it restarts`">
             · started on {{ session.version ?? 'an older version' }}: {{ session.started ? 'stop it and start another' : 'restart it' }}
             <CopyButton v-if="!session.started" :text="restart(session)" label="Restart command" />
           </span>

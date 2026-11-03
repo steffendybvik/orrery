@@ -6,7 +6,6 @@ import {AGENT, OWNER, hold, makeProject, projectApi} from './support'
 // on one stream, a message to every idle session, Focus on this starting one and New session on this another, Stop on
 // one orrery started, one with no channel left out of the lists, the session on an issue shown on its page, the repos the
 // launcher serves, and a preset.
-test.describe.configure({mode: 'serial'})
 
 const api = projectApi('kitchen')
 
@@ -16,6 +15,7 @@ test.beforeAll(async ({request}) => {
 })
 
 test('lets orrery start sessions once, for every project, on the Sessions page', async ({page, request}) => {
+    await request.patch('/api/settings', {data: {starts: null}, headers: OWNER})
     await page.goto('/sessions#starts')
     const starts = page.locator('#starts')
     await starts.getByRole('checkbox', {name: 'Let orrery start sessions'}).check()
@@ -323,6 +323,38 @@ test("a board card's status icon pulses only while its session works, and not wi
     }
 })
 
+test("keeps a session's state that changes as the page opens, over the older read of the sessions", async ({page, request, baseURL}) => {
+    const report = (event: string) => request.post('/api/sessions', {data: {id: 'e2e-w4', project: 'kitchen', event, name: 'e2e-w4'}})
+    await report('SessionStart')
+    const stream = hold(baseURL!, '/api/projects/kitchen/signals/stream?session=e2e-w4&name=e2e-w4&format=text')
+    try {
+        await expect.poll(async () => (await api(request, 'get', '/sessions')).some((s: {id: string, listening: boolean}) => s.id === 'e2e-w4' && s.listening)).toBe(true)
+        // Read while it's idle, and held back until the event saying it works has come.
+        let read = () => {}
+        const wasRead = new Promise<void>(resolve => read = resolve)
+        let release = () => {}
+        const released = new Promise<void>(resolve => release = resolve)
+        await page.route('**/api/sessions', async route => {
+            const response = await route.fetch()
+            read()
+            await released
+            await route.fulfill({response})
+        })
+        await page.goto('/p/kitchen')
+        await wasRead
+        await report('UserPromptSubmit')
+        const row = page.locator('a[href="/sessions#session-e2e-w4"]').first()
+        await expect(row).toContainText('working')
+        const landed = page.waitForResponse('**/api/sessions')
+        release()
+        await (await landed).finished()
+        await page.evaluate(() => new Promise(done => requestAnimationFrame(() => requestAnimationFrame(done))))
+        await expect(row).toContainText('working')
+    } finally {
+        stream.stop()
+    }
+})
+
 test('a session orrery started has Stop out front, asked once more', async ({page, request, baseURL}) => {
     const launcher = hold(baseURL!, '/api/projects/kitchen/launches/stream')
     let stream: ReturnType<typeof hold> | undefined
@@ -351,16 +383,43 @@ test('a session orrery started has Stop out front, asked once more', async ({pag
     }
 })
 
-test('lists the repos the launcher serves on Setup, picked up or installed (ORR-605)', async ({page, baseURL}) => {
+test('+30 minutes tells the launcher, for a session with a stop time', async ({page, request, baseURL}) => {
+    const launcher = hold(baseURL!, '/api/projects/kitchen/launches/stream')
+    let stream: ReturnType<typeof hold> | undefined
+    try {
+        await expect.poll(async () => (await api(request, 'get', '/launches')).launchers).toBe(1)
+        const stops = new Date(Date.now() + 10 * 60_000)
+        await request.post('/api/projects/kitchen/launches/running', {data: {launches: [{id: 'e2e30e2e30e2', tmux: 'orrery-e2e-more', stops_at: stops.toISOString()}]}})
+        stream = hold(baseURL!, '/api/projects/kitchen/signals/stream?session=e2e-more&name=e2e-timed&started=e2e30e2e30e2&format=text')
+        await page.goto('/sessions#session-e2e-more')
+        await page.locator('#session-e2e-more').getByRole('button', {name: 'More for e2e-timed'}).click()
+        await page.getByRole('menuitem', {name: '+30 minutes'}).click()
+        await expect.poll(() => launcher.said.text).toContain('event: extend')
+        const sent = /event: extend\ndata: (.*)/.exec(launcher.said.text)![1]!
+        expect(Date.parse(JSON.parse(sent).stops_at)).toBeGreaterThan(stops.getTime() + 29 * 60_000)
+    } finally {
+        stream?.stop()
+        launcher.stop()
+    }
+})
+
+test('lists the repos the launchers serve on Connect, with a line pointing there from Setup (ORR-605, ORR-774)', async ({page, baseURL}) => {
     const picked = hold(baseURL!, `/api/projects/kitchen/launches/stream?dir=${encodeURIComponent('/code/kitchen')}&picked=${encodeURIComponent(new Date().toISOString())}`)
     const installed = hold(baseURL!, `/api/projects/dairy/launches/stream?dir=${encodeURIComponent('/code/dairy')}`)
+    const connected = hold(baseURL!, `/api/projects/dairy/launches/stream?dir=${encodeURIComponent('/code/garden')}&connected=${encodeURIComponent(new Date().toISOString())}`)
     await page.goto('/sessions?tab=setup')
-    const repos = page.getByRole('list', {name: 'Repos the launcher serves'})
+    await page.getByRole('link', {name: /^Serving \d+ repos?$/}).click()
+    await expect(page).toHaveURL(/\/connect#connected-repos$/)
+    const repos = page.getByRole('list', {name: 'Connected repos'})
     await expect(repos.getByRole('listitem').filter({hasText: '/code/kitchen'})).toContainText(/Kitchen\s*picked up/)
     await expect(repos.getByRole('listitem').filter({hasText: '/code/dairy'})).toContainText(/Dairy\s*installed/)
+    await expect(repos.getByRole('listitem').filter({hasText: '/code/garden'})).toContainText(/connected/)
+    await expect(page.getByText("isn't on it")).toBeVisible()
     picked.stop()
     installed.stop()
+    connected.stop()
     await expect(repos).toHaveCount(0)
+    await expect(page.getByText('None listed.')).toBeVisible()
 })
 
 test('keeps a preset on the Sessions page and offers it in Start session', async ({page}) => {
@@ -488,5 +547,49 @@ test('marks a session cut off by a usage limit until its next turn gets going', 
     } finally {
         channel.stop()
         await say({event: 'SessionEnd'})
+    }
+})
+
+test('a session opened in a terminal has Stop, asked once more, which ends it through its channel', async ({page, baseURL}) => {
+    const channel = hold(baseURL!, '/api/projects/kitchen/signals/stream?session=e2e-terminal&name=e2e-terminal&stops=yes')
+    try {
+        await page.goto('/sessions')
+        const card = page.locator('#session-e2e-terminal')
+        const stop = card.getByRole('button', {name: 'Stop', exact: true})
+        await expect(stop).toBeVisible()
+        await expect(card.getByRole('button', {name: 'Show screen'})).toHaveCount(0)
+        await stop.click()
+        await expect.poll(() => channel.said.text).not.toContain('event: stop')
+        await card.getByRole('button', {name: 'Stop it?'}).click()
+        await expect.poll(() => channel.said.text).toContain('event: stop')
+    } finally {
+        channel.stop()
+    }
+})
+
+test('Show screen draws what the launcher sends, read only, and asks for it only while shown', async ({page, request, baseURL}) => {
+    const launcher = hold(baseURL!, '/api/projects/kitchen/launches/stream')
+    let stream: ReturnType<typeof hold> | undefined
+    try {
+        await expect.poll(async () => (await api(request, 'get', '/launches')).launchers).toBe(1)
+        await request.post('/api/projects/kitchen/launches/running', {data: {launches: [{id: 'e2e5c7ee2e5c', tmux: 'orrery-e2e-screen'}]}})
+        stream = hold(baseURL!, '/api/projects/kitchen/signals/stream?session=e2e-screen&name=e2e-screen&started=e2e5c7ee2e5c&format=text')
+        await page.goto('/sessions')
+        const card = page.locator('#session-e2e-screen')
+        await expect(card.getByRole('button', {name: 'Show screen'})).toBeVisible()
+        expect(launcher.said.text).not.toContain('event: view')
+        await card.getByRole('button', {name: 'Show screen'}).click()
+        const screen = card.getByLabel("e2e-screen's screen")
+        await expect(screen).toHaveText('Waiting for the launcher to send the screen…')
+        await expect.poll(() => launcher.said.text).toContain('e2e5c7ee2e5c')
+        const sent = await request.post('/api/projects/kitchen/launches/e2e5c7ee2e5c/screen', {data: {screen: '> stirring the soup   \n\n\n'}})
+        expect((await sent.json()).watching).toBe(true)
+        await expect(screen).toHaveText('> stirring the soup')
+        await expect(card.getByText(/^Read only · as of /)).toBeVisible()
+        await card.getByRole('button', {name: 'Hide screen'}).click()
+        await expect(screen).toHaveCount(0)
+    } finally {
+        stream?.stop()
+        launcher.stop()
     }
 })

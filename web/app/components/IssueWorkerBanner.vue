@@ -45,10 +45,10 @@ async function watchIt() {
           >{{ session.name }}</NuxtLink>
           <span class="text-muted"> is working on this</span>
         </span>
-        <span class="text-xs" :class="session.state === 'waiting' ? 'text-rose-600 dark:text-rose-400' : 'text-muted'">
+        <span class="text-xs" :class="session.state === 'waiting' ? 'text-rose-700 dark:text-rose-400' : 'text-muted'">
           {{ SESSION_STATE[session.state] }}<span class="text-faint" :title="since ? 'When it took this issue' : 'When it got into this state'"> · {{ since ? 'took it' : 'since' }} {{ ago(since ?? session.since) }}</span>
         </span>
-        <span v-if="failed" class="text-xs text-rose-600 dark:text-rose-400">{{ failed }}</span>
+        <span v-if="failed" class="text-xs text-rose-700 dark:text-rose-400">{{ failed }}</span>
         <UiButton
             v-if="session.started"
             size="xs"
@@ -57,7 +57,7 @@ async function watchIt() {
             :title="`Open ${TERMINALS[settings.terminal]} on ${session.name}, on its launcher's machine`"
             @click="watchIt"
         >
-          {{ opening ? 'Opening…' : 'Watch' }}
+          <UiBusy :busy="opening" label="Opening…">Watch</UiBusy>
         </UiButton>
       </div>
     </div>

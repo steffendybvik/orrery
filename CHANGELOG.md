@@ -7,6 +7,123 @@ Each version's changes are grouped under **Features**, **Changes** and **Fixes**
 **Internal** where they help, and a group with nothing in it is left out. 1.0.0, the first release's
 overview, is one list.
 
+## 1.0.0-rc.16 (2026-10-30)
+
+### Features
+
+- **The chat works with your own Claude Code settings:** it starts with the settings of the machine its launcher runs
+  on, so what you allow in a terminal, such as fetching a page, works in the chat, and what you deny stays refused. It
+  writes docs, calls `egress` and resolves events itself. A permission prompt shows in its pane with **Allow** and
+  **Deny**. This also means a planted comment it reads can try to talk it into whatever those settings allow, and with
+  Bash allowed it can reach orrery without its channel's mark, as `SECURITY.md` says.
+- **The chat hands issue work to a session:** asked to do work on an issue, it starts a session for it, with no
+  **Allow**, and stays free to talk to. Your last message has to name the issue or come from its page.
+- **The chat reads GitHub:** the repo's issues and pull requests, including a pull request's diff and why its checks
+  failed. It reads outsiders' text unfiltered, as data, so planted text could reach work sessions through what it files.
+- **Upload a board's file as a new board:** **Upload a board…** on a project's Settings, or
+  `POST /api/projects/upload`, brings a board's export in as a new board, held by whoever uploads it: a person or the
+  owner, never an agent. The file is checked as untrusted and its schedules arrive paused. A taken id or key asks for
+  another. The old board doesn't go read-only yet.
+- **Notifications, rebuilt:** a timeline by day, one line per issue each day, with a reading pane that opens beside
+  the list on the line you choose. Each line says what happened to its issue, and questions waiting on you lead. Read
+  is kept on the server for each person, every line clears with its ×, and the border between list and pane drags to
+  resize. **Clear read** now clears what's been opened, not everything the bell has seen.
+- **Every pull request stays on its issue:** an issue's page lists its merged and closed pull requests as well as the
+  open ones, for good, with older ones filled in from GitHub once.
+- **Branches:** a view beside Pull requests lists every branch with its issue and pull request, and says whether to
+  remove it, keep it or look at it first. The owner can remove one that reads as remove.
+- **A session carries on from an issue's branch:** the `issue` tool lists the branches its work can carry on from, so
+  a session picks one up rather than starting another.
+- **A start-up screen:** the logo with a braille spinner while the app starts, in your theme, rather than a blank page.
+- **One spinner for loading:** anything loading shows the same braille spinner, and pages show it until their data
+  comes. The chat has one thinking indicator.
+- **Pause all and Activate all** on each project's card on Schedules. Activate all asks first, with the count.
+- **The command palette opens on your most used commands:** with nothing typed, ⌘K leads with the five this browser
+  runs most that the page offers.
+- **Arrange docs sections by dragging,** or with ⌥↑ and ⌥↓, with the order kept per project.
+- **Connect explains the MCP server:** a second tab lists the channel's tools, who gets each, what asks you first and
+  its environment, read from the channel's own code.
+- **The chat's header names its session,** as the Sessions page and the sidebar do.
+- **Old signals and unused images are cleared away:** signals past 30 days, and images nothing links to past 90 days,
+  with a SQLite file compacted when that freed a lot. An owner's comment older than 30 days that no session heard no
+  longer reaches a session that connects later.
+
+### Changes
+
+- **Ember, one primary colour:** the same deeper orange with white words in light and dark, and the logo recoloured to
+  match: a white mark on an ember tile. Text meets AA contrast in both themes, including faint text, the accent's
+  words, red text and assignees' initials.
+- **Errors carry a sign as well as red:** a count of errors has a warning sign, and filled reds go deeper, as red alone
+  was hard to tell from the orange.
+- **A release's page keeps up with its branch:** an issue joins the release when its pull request merges into that
+  release's branch, unless it or an issue above it already has one.
+- **Backlog is a safe place to park an issue:** a session out of work now picks from Todo only, and with Todo empty it
+  stays idle. Pointing a session at a Backlog issue still works.
+- **A limit on a request's size:** a body over 32 MB gets a 413, over 256 MB for a board's file or an import, and over
+  64 KB on the login's routes, including a doc or comment that big.
+- **A session that ends hands back its issues:** those it had In progress go back to Todo with a comment, after five
+  minutes, so a resumed session keeps its work. An issue assigned to you stays with you. Restarting orrery in those five
+  minutes drops the wait, and those issues stay In progress.
+- **Connected repos are on Connect,** and Setup links there. A repo added by Connect a repo reads as connected.
+- **An issue's panel puts busy sessions behind a row,** so the free ones you'd point at it stand out.
+- **Connect's tabs sit in a toolbar** under the header, as on Sessions.
+- **The docs list's New buttons stand apart from its sections,** with a rule above them and a stronger colour.
+
+### Fixes
+
+- **Connecting a repo can't run a command from its `.mcp.json`:** the channel's name in the line that opens Claude
+  wasn't quoted, so a repo could run a command as soon as you picked it.
+- **A member's agent can't borrow a session's mark:** with login on, the chat's and an untrusted session's marks only
+  count on the owner's credential.
+- **Comments and docs load nothing from other sites:** viewing one could send what its writer had read to another site,
+  and a style in one could cover the page. A remote image now shows as a link naming its site, and inline styles,
+  classes, video and audio in Markdown no longer show, on what's already there too. Every page also has a
+  `Content-Security-Policy`, limiting images, media, fonts and styles to orrery and Google Fonts.
+- **A session's stream is guarded with a slash on its path:** another site's picture could open a stream as any session
+  name.
+- **Stopping a session with no launcher connected works:** the next launcher to connect hears the stop.
+- **An invite can take over a removed person's account,** instead of failing with a database error.
+- **A chat no longer stays on Thinking…** in a repo that keeps its hooks in its local settings.
+- **A fresh install no longer offers to restore its own empty backups.**
+- **A failed backup is always noted,** even when the server is closing.
+- **A session's state no longer sticks as a page opens:** one that changed just then could stay shown as it was until it
+  next changed.
+- **Nothing sits under the Agent button** once a page is scrolled to its end.
+- **The owner can drag a card into Proposed,** as the right-click menu could. Dragging out stays refused.
+- **One word for status:** the filter and the New issue and schedule dialogs say Status, rather than Column and Where.
+- **The status filter reads as unset** on the view a page opens on, and lights up only once you change it.
+- **A doc's text has its full width on a laptop:** On This Page shows only where both fit.
+- **Connect an agent says project and session,** not app and window.
+- **Links inside text are underlined,** on Getting started and in Events' messages, and the board's proposals lock has
+  a role screen readers announce.
+- **The Connect brief's setup steps show as code:** the `.mcp.json` and hooks JSON ran together as a paragraph, and the
+  `CLAUDE.md` section's heading was a real heading on the page.
+
+### Docs
+
+- **Upgrading on Postgres:** Running says to take a `pg_dump` first, as orrery keeps no copy before upgrading there.
+- **The README's images:** all the same size, with docs and schedules added and events gone.
+
+### Internal
+
+- **Shipping:** `CHANGELOG.md` is the only place a release's notes are written, and the Release run makes the GitHub
+  release from it, so don't make one by hand.
+- **The browser suite:** it runs on four workers, grouped by what specs share, and only on pull requests into `main`. A
+  session's pull request into a release branch merges itself once `check` and `docker` pass.
+- **README images:** `pnpm images:readme` takes them, so they stay the same size and pages, and an Images workflow
+  retakes them on a release branch for a pull request someone looks at. It first runs once this release is on `main`.
+- **Line coverage counts the browser suite and spawned processes:** a local run reads 75.6% of lines rather than
+  68.1%. Branches and functions stay Vitest's own.
+- **Test speed history:** each run keeps how the suite ran, and a version isn't compared with one that ran differently
+  or had failing tests. Working on orrery says how to benchmark. This version starts a new baseline.
+- **`pnpm soak`** runs a built app for a while and notes memory, open files and the project list's time.
+- **`pnpm worktrees`** removes a clean, idle worktree whose work has merged, however recently it was touched.
+- **Tests:** axe on every page of the walk, a test that fails when a page has no browser test, the components no browser
+  test mounted, the routes no spec named, and backups and failed upgrades on Postgres. A session's whole path on a real
+  orrery, with the real launcher, channel and hook. Unit tests for the least covered components, browser tests for
+  the features none named, and two specs no longer share a project. The release pull request's browser jobs pass on
+  both databases.
+
 ## 1.0.0-rc.15 (2026-10-30)
 
 ### Features

@@ -98,7 +98,8 @@ export abstract class KeyStore extends PeopleStore {
     }
 
     /** The person an account is, by its issuer and subject and never its email. With `invite`, an account orrery doesn't
-     * know yet attaches to the invited person, using the invite up, in one step so it can't be used twice. */
+     * know yet attaches to the invited person, using the invite up, in one step so it can't be used twice. An account a
+     * removed person had moves to the invited person (ORR-787); one that belongs to someone here never does. */
     async identity(issuer: string, subject: string, invite?: string): Promise<string | undefined> {
         const known = await this.get<{person: string}>(
             'SELECT i.person FROM identities i JOIN people p ON p.id = i.person WHERE i.issuer = ? AND i.subject = ? AND p.removed_at IS NULL', issuer, subject)
@@ -109,7 +110,11 @@ export abstract class KeyStore extends PeopleStore {
             if (!Number(used.changes)) throw conflict('That invite has been used or has run out: ask for a new one')
             const row = await this.get<{person: string}>('SELECT person FROM invites WHERE id = ?', hashOf(invite))
             if (!row) throw conflict('That invite has been used or has run out: ask for a new one')
-            await this.run('INSERT INTO identities (issuer, subject, person) VALUES (?, ?, ?)', issuer, subject, row.person)
+            const attached = await this.run(
+                `INSERT INTO identities (issuer, subject, person) VALUES (?, ?, ?)
+                 ON CONFLICT (issuer, subject) DO UPDATE SET person = excluded.person
+                 WHERE identities.person IN (SELECT id FROM people WHERE removed_at IS NOT NULL)`, issuer, subject, row.person)
+            if (!Number(attached.changes)) throw conflict('That account already belongs to someone here')
             return row.person
         })
     }

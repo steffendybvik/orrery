@@ -1,3 +1,4 @@
+import AxeBuilder from '@axe-core/playwright'
 import type {Page} from '@playwright/test'
 import {expect, test} from '@playwright/test'
 import {OWNER, makeProject, projectApi} from './support'
@@ -46,6 +47,18 @@ const ROUTES = (): Route[] => [
     {path: '/p/atlas/settings', heading: 'Atlas', sidebar: 'Settings', palette: 'Atlas settings'},
     {path: `/p/atlas/issues/${made.issue}`, heading: 'Chart the fjords', sidebar: 'Issues', palette: 'Chart the fjords'},
 ]
+
+// Addresses that only go on to a page, from old links and bookmarks. test/page-specs.test.ts holds every page to these lists.
+const REDIRECTS = [
+    {from: '/', to: /\/mine$/},
+    {from: '/now', to: /\/mine$/},
+    {from: '/urgent', to: /\/mine$/},
+    {from: '/p/atlas/schedules', to: /\/schedules\?project=atlas$/},
+]
+
+// What the page walk already finds, for ORR-724 to fix: each comes off this list as it's fixed, and until then a new
+// case of one of these isn't caught. Any other rule fails the walk.
+const A11Y_KNOWN = ['label-content-name-mismatch', 'nested-interactive']
 
 let advanced = false
 
@@ -104,6 +117,71 @@ test('every page renders its heading, with no page or console error', async ({pa
             await expect(heading(page, route.heading)).toBeVisible()
             await expect(page.getByRole('heading', {name: /^Nothing at /})).toHaveCount(0)
             expect(errors, route.path).toEqual([])
+        })
+    }
+})
+
+test('an old address goes on to the page that took it over', async ({page}) => {
+    for (const {from, to} of REDIRECTS) {
+        await test.step(from, async () => {
+            await page.goto(from)
+            await expect(page).toHaveURL(to)
+        })
+    }
+})
+
+test('no page breaks a WCAG A or AA rule, beyond those the UI/UX audit has (ORR-735)', async ({page}) => {
+    test.setTimeout(240_000)
+    // A tint takes contrast away, so the walk has the harshest named one on a light page, and on this page only, as the
+    // setting is shared: chat.spec.ts changes it while this runs.
+    await page.route(/\/api\/settings$/, async route => {
+        const response = await route.fetch()
+        if (route.request().method() !== 'GET') return route.fulfill({response})
+        await route.fulfill({response, json: {...await response.json(), tint: 'violet'}})
+    })
+    await setAdvanced(page, true)
+    for (const colorScheme of ['light', 'dark'] as const) {
+        await page.emulateMedia({colorScheme})
+        for (const route of ROUTES()) {
+            await test.step(`${route.path}, ${colorScheme}`, async () => {
+                await page.goto(route.path)
+                await expect(heading(page, route.heading)).toBeVisible()
+                // A fade still running reads as low contrast, and differently each time.
+                await page.evaluate(() => Promise.all(document.getAnimations().filter(a => a.effect?.getTiming().iterations !== Infinity).map(a => a.finished.catch(() => {}))))
+                const {violations} = await new AxeBuilder({page}).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']).disableRules(A11Y_KNOWN).analyze()
+                expect.soft(violations.map(v => `${v.id}: ${v.nodes.map(n => n.target.join(' ')).join(', ')}`), `${route.path}, ${colorScheme}`).toEqual([])
+            })
+        }
+    }
+})
+
+test('every page, scrolled to the end, leaves nothing under the Agent button (ORR-796)', async ({page}) => {
+    test.setTimeout(120_000)
+    await setAdvanced(page, true)
+    // Short enough that each page has to scroll, and wide enough for a phone's layout not to apply.
+    await page.setViewportSize({width: 1280, height: 320})
+    for (const route of ROUTES()) {
+        await test.step(route.path, async () => {
+            await page.goto(route.path)
+            await expect(heading(page, route.heading)).toBeVisible()
+            const button = page.getByRole('button', {name: 'Agent', exact: true})
+            await expect(button).toBeVisible()
+            // Its data comes after its heading.
+            await page.waitForTimeout(300)
+            const under = await button.evaluate((agent) => {
+                const clear = agent.getBoundingClientRect()
+                const over = (r: DOMRect) => r.width > 0 && r.height > 0 && r.left < clear.right && r.right > clear.left && r.top < clear.bottom && r.bottom > clear.top
+                const inside = [...document.querySelectorAll('main *')] as HTMLElement[]
+                for (const el of inside) {
+                    if (['auto', 'scroll'].includes(getComputedStyle(el).overflowY) && el.tagName !== 'PRE') el.scrollTop = el.scrollHeight
+                }
+                // What can be seen or used: anything without elements inside it, or with words of its own.
+                const shows = (el: HTMLElement) => !el.children.length || [...el.childNodes].some(n => n.nodeType === Node.TEXT_NODE && n.textContent?.trim())
+                return inside
+                    .filter(el => shows(el) && el.checkVisibility({visibilityProperty: true}) && over(el.getBoundingClientRect()))
+                    .map(el => el.outerHTML.slice(0, 90))
+            })
+            expect.soft(under, route.path).toEqual([])
         })
     }
 })

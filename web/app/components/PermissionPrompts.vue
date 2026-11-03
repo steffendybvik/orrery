@@ -6,11 +6,13 @@ import type {Session} from '#shared/roadmap'
 // it asks again (a new `since`); the sidebar still says permission needed.
 const {sessions} = useRoadmaps()
 const {named} = useOwner()
+// The chat's own shows in its pane while that's open (ORR-750).
+const {open, session: chat} = useChat()
 const hidden = ref(new Set<string>())
 const key = (s: {id: string, since: string}) => `${s.id}@${s.since}`
 const asking = computed(() => {
     const seen = new Map<string, Session>()
-    for (const list of Object.values(sessions.value)) for (const s of list) if (s.state === 'waiting' && !seen.has(s.id)) seen.set(s.id, s)
+    for (const list of Object.values(sessions.value)) for (const s of list) if (s.state === 'waiting' && !seen.has(s.id) && !(open.value && chat.value?.id === s.id)) seen.set(s.id, s)
     return [...seen.values()].filter(s => !hidden.value.has(key(s))).sort((a, b) => a.since.localeCompare(b.since))
 })
 function hide(s: Session) {

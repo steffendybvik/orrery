@@ -11,7 +11,7 @@ const areas = permissionAreas().map(area => ({area, rows: PERMISSIONS.filter(p =
 const TONE: Record<PermissionLevel, string> = {
     free: 'text-emerald-700 dark:text-emerald-400',
     limited: 'text-emerald-700 dark:text-emerald-400',
-    asks: 'text-amber-700 dark:text-amber-400',
+    asks: 'text-amber-800 dark:text-amber-400',
     owned: 'text-violet-700 dark:text-violet-400',
     owner: 'text-fg',
     refused: 'text-faint',

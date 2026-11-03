@@ -355,7 +355,7 @@ const labelOf = (options: {value: string, label: string}[], value: string) => op
 
     <div v-if="agents && existing" class="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg bg-amber-500/10 px-3 py-2 text-xs text-amber-800 ring-1 ring-amber-500/30 dark:text-amber-200" role="note">
       <span class="min-w-0 flex-1"><strong class="font-semibold">An agent</strong> made this schedule. {{ agents }} Read what it says and its presets first.</span>
-      <UiButton size="sm" :disabled="adopting" title="Runs it as yours from now on, and only you can change it" @click="makeMine">{{ adopting ? 'Making it yours…' : 'Make it mine' }}</UiButton>
+      <UiButton size="sm" :disabled="adopting" title="Runs it as yours from now on, and only you can change it" @click="makeMine"><UiBusy :busy="adopting" label="Making it yours…">Make it mine</UiBusy></UiButton>
     </div>
     <SegmentedControl v-model="sends" :options="SENDS" class="self-start" />
     <input
@@ -395,7 +395,7 @@ const labelOf = (options: {value: string, label: string}[], value: string) => op
         </span>
         <span
             class="grid size-4 shrink-0 place-items-center rounded-full"
-            :class="picked.includes(p.id) ? 'bg-accent-500 text-white' : 'ring-1 ring-inset ring-line'"
+            :class="picked.includes(p.id) ? 'bg-accent-fill text-on-accent' : 'ring-1 ring-inset ring-line'"
         >
           <svg v-if="picked.includes(p.id)" class="size-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7.5" /></svg>
         </span>
@@ -438,7 +438,7 @@ const labelOf = (options: {value: string, label: string}[], value: string) => op
             Runs once for each thing it's about (an issue, a release), at most once a minute. What a schedule's run does sets nothing off.
             An event's type is <code>thing.what</code> (<code>issue.&lt;field&gt;</code>, <code>release.frozen</code>, a kind from the event log); <code>*</code> stands for any part.
           </template>
-          <span v-else class="text-rose-600 dark:text-rose-400">Type an event, e.g. <code>issue.priority</code>, or a pattern like <code>release.*</code></span>
+          <span v-else class="text-rose-700 dark:text-rose-400">Type an event, e.g. <code>issue.priority</code>, or a pattern like <code>release.*</code></span>
         </p>
       </template>
       <div v-else class="flex flex-wrap items-center gap-2">
@@ -480,14 +480,14 @@ const labelOf = (options: {value: string, label: string}[], value: string) => op
             :key="d"
             type="button"
             class="h-7 w-11 rounded-md text-xs font-medium transition-colors"
-            :class="days.includes(d) ? 'bg-accent-500 text-white shadow-sm' : 'text-muted hover:text-fg'"
+            :class="days.includes(d) ? 'bg-accent-fill text-on-accent shadow-sm' : 'text-muted hover:text-fg'"
             :aria-pressed="days.includes(d)"
             @click="toggleDay(d)"
         >{{ DAYS[d] }}</button>
       </div>
       <p v-if="trigger === 'time'" class="text-xs text-faint">
         <template v-if="upcoming.length">Next runs <span class="text-muted">{{ upcoming.map(t => when(t, timezone)).join(' · ') }}</span></template>
-        <span v-else class="text-rose-600 dark:text-rose-400">{{ kind === 'once' ? 'Pick a time that hasn’t passed' : 'That doesn’t give a time yet' }}</span>
+        <span v-else class="text-rose-700 dark:text-rose-400">{{ kind === 'once' ? 'Pick a time that hasn’t passed' : 'That doesn’t give a time yet' }}</span>
       </p>
     </section>
 
@@ -495,11 +495,11 @@ const labelOf = (options: {value: string, label: string}[], value: string) => op
       <p v-if="untrusted">Each run starts a session for this message alone. It can only read the repo's GitHub issues and raise proposals, labelled <i>external</i>, for you to weigh. It needs a launcher and Starting sessions on.</p>
       <p v-else>Each run sends this to {{ here?.name ?? 'the project' }}'s listening sessions, with no issue. If none is listening, the next one to connect within a day gets it.</p>
       <label class="flex items-center gap-1.5">
-        <input v-model="onlyIfChanged" type="checkbox" class="accent-accent-500">
+        <input v-model="onlyIfChanged" type="checkbox" class="accent-accent-fill">
         Skip a run when no issue or comment changed since the last message
       </label>
       <label v-if="!isAcross" class="flex items-center gap-1.5">
-        <input v-model="untrusted" type="checkbox" class="accent-accent-500">
+        <input v-model="untrusted" type="checkbox" class="accent-accent-fill">
         It reads what others wrote, such as GitHub issues: give it a locked-down session of its own
       </label>
     </section>
@@ -546,7 +546,7 @@ const labelOf = (options: {value: string, label: string}[], value: string) => op
     <section v-else class="flex flex-col gap-2 border-t border-line pt-3">
       <span class="label">Each run makes an issue</span>
       <div class="flex flex-wrap items-center gap-2">
-        <PropertyPicker v-model="column" :options="startOptions" label="Where it starts" field>
+        <PropertyPicker v-model="column" :options="startOptions" label="Status it starts in" field>
           <StatusIcon :column="column" />
           <span class="truncate">{{ labelOf(startOptions, column) }}</span>
           <template #option="{option}">
@@ -568,11 +568,11 @@ const labelOf = (options: {value: string, label: string}[], value: string) => op
         <LabelPicker v-model="labels" :labels="known" />
       </div>
       <label class="flex items-center gap-1.5 text-xs text-muted">
-        <input v-model="ask" type="checkbox" class="accent-accent-500">
+        <input v-model="ask" type="checkbox" class="accent-accent-fill">
         Ask {{ here?.name ?? 'the project' }}'s sessions to pick it up (if none is listening, the next one to connect gets it)
       </label>
       <label class="flex items-center gap-1.5 text-xs text-muted">
-        <input v-model="skipOpen" type="checkbox" class="accent-accent-500">
+        <input v-model="skipOpen" type="checkbox" class="accent-accent-fill">
         Skip a run while the last run's issue isn't done
       </label>
     </section>
@@ -586,9 +586,9 @@ const labelOf = (options: {value: string, label: string}[], value: string) => op
         {{ enabled ? '❙❙ Pause' : '▶ Resume' }}
       </UiButton>
       <span v-if="!enabled" class="text-xs text-faint">Paused: it won't run until you resume it</span>
-      <span v-if="failed" class="text-xs text-rose-600 dark:text-rose-400">{{ failed }}</span>
+      <span v-if="failed" class="text-xs text-rose-700 dark:text-rose-400">{{ failed }}</span>
       <UiButton type="submit" variant="primary" size="md" class="ml-auto" :disabled="!ready">
-        {{ saving ? 'Saving…' : existing || group ? 'Save schedule' : 'Create schedule' }} <KeyHint class="bg-white/20 text-white ring-0">⌘↵</KeyHint>
+        <UiBusy :busy="saving" label="Saving…">{{ existing || group ? 'Save schedule' : 'Create schedule' }}</UiBusy> <KeyHint class="bg-black/10 text-on-accent ring-0">⌘↵</KeyHint>
       </UiButton>
     </div>
   </UiDialog>

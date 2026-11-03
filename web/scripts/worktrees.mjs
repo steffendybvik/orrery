@@ -13,12 +13,14 @@ export const IN_USE_FOR = 24 * 3600_000
 const KEPT = /(^|\/)orrery-playground$/
 
 /** Why a worktree stays, in a few words; none when it's safe to remove. A commit counts as safe only on GitHub: on a
- * remote branch, or the head of a merged PR, as a squash merge leaves it on neither `main` nor a branch that's kept. */
-export function whyKept({path, locked, dirty, inUse, touched, onGitHub}, now = Date.now()) {
+ * remote branch, or the head of a merged PR, as a squash merge leaves it on neither `main` nor a branch that's kept.
+ * Its head being a merged PR's (`merged`) says its work is done, however recently it was touched (ORR-793). */
+export function whyKept({path, locked, dirty, inUse, touched, onGitHub, merged}, now = Date.now()) {
     if (KEPT.test(path)) return 'the playground'
     if (locked) return 'locked'
     if (dirty) return 'uncommitted changes'
     if (inUse) return 'a process is running from it'
+    if (merged) return null
     if (now - touched < IN_USE_FOR) return 'touched in the last 24h'
     if (!onGitHub) return 'commits not on GitHub'
     return null
@@ -45,7 +47,7 @@ function main(remove) {
     const root = process.cwd()
     git(root, 'fetch', '-q', 'origin')
     // None read (no `gh`, or offline): fewer count as on GitHub, so fewer go.
-    const merged = new Set(run('gh', 'pr', 'list', '--state', 'all', '--limit', '1000', '--json', 'headRefOid,state', '--jq', '.[]|select(.state=="MERGED")|.headRefOid').split('\n'))
+    const mergedHeads = new Set(run('gh', 'pr', 'list', '--state', 'all', '--limit', '1000', '--json', 'headRefOid,state', '--jq', '.[]|select(.state=="MERGED")|.headRefOid').split('\n'))
     const cwds = run('lsof', '-d', 'cwd', '-Fn').split('\n').filter(line => line.startsWith('n')).map(line => line.slice(1))
     const commands = run('ps', '-axo', 'command')
     const [, ...worktrees] = parseWorktrees(git(root, 'worktree', 'list', '--porcelain'))
@@ -61,7 +63,8 @@ function main(remove) {
             dirty: !!git(path, '--no-optional-locks', 'status', '--porcelain'),
             inUse: cwds.some(cwd => cwd === path || cwd.startsWith(`${path}/`)) || commands.includes(`${path}/`) || commands.includes(`${path} `),
             touched: Math.max(statSync(path).mtimeMs, ...['index', 'HEAD', 'logs/HEAD'].map(file => join(gitDir, file)).filter(existsSync).map(file => statSync(file).mtimeMs)),
-            onGitHub: merged.has(head) || !!git(path, 'branch', '-r', '--contains', head),
+            merged: mergedHeads.has(head),
+            onGitHub: !!git(path, 'branch', '-r', '--contains', head),
         })
         if (why) kept.set(why, [...kept.get(why) ?? [], path])
         else go.push(path)

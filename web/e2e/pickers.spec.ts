@@ -3,7 +3,6 @@ import {OWNER, hold, makeProject, projectApi} from './support'
 
 // The settings that were native selects pick through the app's own picker: a project's releases, a chunk's
 // priority, and where a removed status's issues go.
-test.describe.configure({mode: 'serial'})
 
 const api = projectApi('foundry')
 

@@ -1,6 +1,7 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 import type {Store as StoreType} from '../server/utils/store'
 import {failure, storeSetup} from './store-setup'
+import {exportBoard} from '../server/utils/board-export'
 
 // Who may make, list and revoke keys, log in and invite (ORR-696). These rules live in the routes, not the store: only a
 // person handles keys, never a session, so an agent can't make itself a person key and act as its person. Each request
@@ -73,8 +74,9 @@ beforeEach(async () => {
     vi.stubGlobal('logIn', auth.logIn)
     vi.stubGlobal('LOGIN_COOKIE', auth.LOGIN_COOKIE)
     vi.stubGlobal('oidcOn', (await import('../server/utils/oidc')).oidcOn)
-    const {authorize} = await import('../server/utils/authorize')
+    const {authorize, memberAsking} = await import('../server/utils/authorize')
     vi.stubGlobal('authorize', authorize)
+    vi.stubGlobal('memberAsking', memberAsking)
     vi.stubGlobal('refusedFor', (await import('../server/utils/permission')).refusedFor)
     vi.stubGlobal('keyHolderOf', (await import('../server/utils/key-rights')).keyHolderOf)
     gate = (await import('../server/middleware/auth')).default as unknown as Route
@@ -228,5 +230,73 @@ describe('POST /api/invites', () => {
         const {key} = await store.makeKey('skoll', {kind: 'agent', name: 'desk'})
         expect((await failure(() => invite(hati))).status).toBe(403)
         expect((await failure(() => invite(bearer(key)))).status).toBe(403)
+    })
+
+    describe('a member asking in person, for what the routes on their own session and bell let them (ORR-746)', () => {
+        const clear = (headers: Record<string, string>) => ask(() => import('../server/api/notices/clear.post'), '/api/notices/clear', {method: 'POST', headers, body: {before: new Date().toISOString()}})
+        const asking = async (headers: Record<string, string>) => {
+            const {memberAsking} = await import('../server/utils/authorize')
+            return (await ask(async () => ({default: memberAsking}), '/api/notices/clear', {method: 'POST', headers})).data
+        }
+
+        it('counts their own login as them, and no one else\'s', async () => {
+            expect(await asking(await browser('hati'))).toMatchObject({person: 'hati'})
+            expect(await asking(await browser('skoll'))).toBeUndefined()
+        })
+
+        it('never counts an agent of theirs, with its key or by saying their name', async () => {
+            const {key} = await store.makeKey('hati', {kind: 'agent', name: 'a session'})
+            expect(await asking(bearer(key))).toBeUndefined()
+            expect(await asking({...bearer(key), 'orrery-actor': 'hati', 'orrery-person': 'hati'})).toBeUndefined()
+        })
+
+        it('lets them clear their own bell, and refuses their agent', async () => {
+            expect((await clear(await browser('hati'))).data).toHaveProperty('cleared')
+            const {key} = await store.makeKey('hati', {kind: 'agent', name: 'a session'})
+            await expect(clear(bearer(key))).rejects.toMatchObject({statusCode: 403})
+        })
+
+        it('with login off, goes by the name sent: a session working for them isn\'t them, nor the chat, nor an untrusted one', async () => {
+            config.auth = 'off'
+            expect(await asking({'orrery-actor': 'hati'})).toMatchObject({person: 'hati'})
+            expect(await asking({'orrery-actor': 'hati', 'orrery-person': 'hati'})).toMatchObject({person: 'hati'})
+            expect(await asking({'orrery-actor': 'claude', 'orrery-person': 'hati'})).toBeUndefined()
+            expect(await asking({'orrery-actor': 'hati', 'orrery-chat': 'yes'})).toBeUndefined()
+            expect(await asking({'orrery-actor': 'hati', 'orrery-untrusted': 'yes'})).toBeUndefined()
+            expect(await asking({'orrery-actor': 'skoll'})).toBeUndefined()
+        })
+    })
+})
+
+describe("POST /api/projects/upload (a board's file)", () => {
+    const upload = (headers: Record<string, string>, query: Record<string, string>) =>
+        ask(() => import('../server/api/projects/upload.post'), '/api/projects/upload', {method: 'POST', headers, body: query})
+
+    beforeEach(async () => {
+        const file = JSON.stringify(await exportBoard(store.db, 'greenhouse'))
+        vi.stubGlobal('readRawBody', async () => file)
+        // The query rides in the event's body here, as nothing else reads it.
+        vi.stubGlobal('getQuery', (event: Event) => event.body)
+        vi.stubGlobal('useDatabase', () => store.db)
+        vi.stubGlobal('personOf', (await import('../server/utils/actor')).personOf)
+        vi.stubGlobal('useEventLog', () => ({note: () => {}}))
+        vi.stubGlobal('setResponseStatus', (event: Event, status: number) => event.status = status)
+        vi.stubGlobal('created', (event: Event, value: unknown) => (event.status = 201, value))
+        vi.stubGlobal('uploadBoard', (await import('../server/utils/board-upload')).uploadBoard)
+        vi.stubGlobal('BOARD_LIMIT', 256 * 1024 * 1024)
+    })
+
+    it('lets a member bring one in as a board they hold, as the table and the API say (ORR-725)', async () => {
+        const made = await upload(await browser('hati'), {id: 'hatis', key: 'HAT'})
+        expect(made.status).toBe(201)
+        expect(await store.holdsBoard('hatis', 'hati')).toBe(true)
+    })
+
+    it("refuses a member's agent, with its key or by saying their name", async () => {
+        const {key} = await store.makeKey('hati', {kind: 'agent', name: 'a session'})
+        expect((await failure(() => upload(bearer(key), {id: 'theirs', key: 'THE'}))).status).toBe(403)
+        config.auth = 'off'
+        expect((await failure(() => upload({'orrery-actor': 'claude', 'orrery-person': 'hati'}, {id: 'theirs', key: 'THE'}))).status).toBe(403)
+        expect(await store.db.get("SELECT 1 FROM projects WHERE id = 'theirs'")).toBeUndefined()
     })
 })

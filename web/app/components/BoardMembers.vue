@@ -55,6 +55,6 @@ watch(() => props.project, read, {immediate: true})
       </select>
       <UiButton type="submit" size="md" :disabled="busy || !picked">Add to this board</UiButton>
     </form>
-    <p v-if="failed" class="text-xs text-rose-600 dark:text-rose-400">{{ failed }}</p>
+    <p v-if="failed" class="text-xs text-rose-700 dark:text-rose-400">{{ failed }}</p>
   </section>
 </template>

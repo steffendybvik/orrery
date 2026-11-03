@@ -44,7 +44,7 @@ onBeforeUnmount(() => props.root?.removeEventListener('scroll', follow))
         class="block border-l py-1 transition-colors"
         :class="[
             heading.level === 3 ? 'pl-6' : 'pl-3',
-            current === heading.id ? 'border-accent-500 text-fg' : 'border-line text-muted hover:border-faint hover:text-fg',
+            current === heading.id ? 'border-accent-fill text-fg' : 'border-line text-muted hover:border-faint hover:text-fg',
         ]"
         @click.prevent="go(heading.id)"
     >{{ heading.text }}</a>

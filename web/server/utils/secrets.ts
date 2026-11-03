@@ -242,7 +242,7 @@ export class Secrets {
     /** orrery's own request to `url` for `project` (a GET, or `init`'s method and body), with the secret `name` as a
      * bearer token when there's one that may go to its host and be used for the project, else without. Kept in the
      * secret's uses as orrery's (the latest `OWN_USES`), and not logged: it runs every minute or two. */
-    async own(url: string, name: string, project: string, headers: Record<string, string> = {}, init: {method?: 'GET' | 'POST', body?: string} = {}): Promise<{response: Response, secret: boolean}> {
+    async own(url: string, name: string, project: string, headers: Record<string, string> = {}, init: {method?: 'GET' | 'POST' | 'DELETE', body?: string} = {}): Promise<{response: Response, secret: boolean}> {
         const target = new URL(url)
         const value = await this.ownValue(target, name, project)
         const method = init.method ?? 'GET'

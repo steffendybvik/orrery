@@ -2,9 +2,8 @@ import type {APIRequestContext, Page} from '@playwright/test'
 import {expect, test} from '@playwright/test'
 
 // The keys (useHotkeys), on a project of their own: j/k between rows and group headers and Enter to open, j/k and Esc on
-// an issue's page, 1/2 for List and Board, / and c, x and Esc to tick and clear, g m.
+// an issue's page, 1/2 for List and Board, / and c, x and Esc to tick and clear, ⌘A to tick them all, ⌥↑ and ⌥↓ to move a project, g m.
 // Runs after first-run.spec.ts on the same orrery, so the owner is usually named already; named here if not.
-test.describe.configure({mode: 'serial'})
 
 const api = (request: APIRequestContext, method: 'get' | 'post' | 'put', path: string, data?: object) =>
     request[method](`/api${path}`, {data}).then(async r => {
@@ -103,6 +102,43 @@ test('x ticks the issue in focus, Esc clears the ticks', async ({page}) => {
     await expect(bar.getByText('1 selected')).toBeVisible()
     await page.keyboard.press('Escape')
     await expect(bar).toBeHidden()
+})
+
+test('⌘A ticks every issue on the page, and not while typing', async ({page}) => {
+    await open(page)
+    await page.keyboard.press('ControlOrMeta+a')
+    await expect(page.getByRole('checkbox', {name: /^Select KEY-/, checked: true})).toHaveCount(3)
+    await page.keyboard.press('Escape')
+    await expect(page.getByRole('checkbox', {name: /^Select KEY-/, checked: true})).toHaveCount(0)
+
+    await page.keyboard.press('/')
+    await page.keyboard.press('ControlOrMeta+a')
+    await expect(page.getByRole('checkbox', {name: /^Select KEY-/, checked: true})).toHaveCount(0)
+})
+
+test('⌥↑ and ⌥↓ move a project in the sidebar', async ({page, request}) => {
+    await api(request, 'post', '/projects', {name: 'Keyring', key: 'KRG'})
+    await page.goto('/p/keyring')
+    // Each project's row, which can be dragged; an open project lists its pages under it too.
+    const rows = page.locator('aside nav a[draggable="true"][href^="/p/"]')
+    const order = () => rows.evaluateAll(els => els.map(el => el.getAttribute('href')!))
+    const ring = rows.and(page.locator('[href="/p/keyring"]'))
+    await expect(ring).toBeVisible()
+    // Against the one below it, as other specs add projects at the same time, at the top.
+    const before = await order()
+    const below = before[before.indexOf('/p/keyring') + 1]!
+    const isAbove = async () => {
+        const now = await order()
+        return now.indexOf('/p/keyring') < now.indexOf(below)
+    }
+    expect(await isAbove()).toBe(true)
+
+    await ring.focus()
+    await page.keyboard.press('Alt+ArrowDown')
+    await expect.poll(isAbove).toBe(false)
+    await expect(ring).toBeFocused()
+    await page.keyboard.press('Alt+ArrowUp')
+    await expect.poll(isAbove).toBe(true)
 })
 
 test('g m goes to My issues', async ({page}) => {

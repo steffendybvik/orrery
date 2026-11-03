@@ -156,7 +156,7 @@ export function openDb(path: string, upTo = MIGRATIONS.length, snapshot?: string
 
 /** Brings `opened`'s schema up to `upTo` steps; says from and to, or null when it was there already. Refuses one
  * from a newer orrery (ORR-433): this code can't know what its steps changed. */
-function migrate(opened: DatabaseSync, path: string, upTo: number, snapshot?: string): {from: number, to: number} | null {
+export function migrate(opened: DatabaseSync, path: string, upTo: number, snapshot?: string): {from: number, to: number} | null {
     const {user_version: version} = opened.prepare('PRAGMA user_version').get() as {user_version: number}
     if (version > MIGRATIONS.length) {
         throw new Error(`${path} was written by a newer orrery (schema step ${version}; this one knows up to ${MIGRATIONS.length}). `

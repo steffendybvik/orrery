@@ -1,11 +1,14 @@
 // A project's releases, and the projects sharing them.
 import type {Issue, ProjectReleases, Release} from '#shared/roadmap'
 import {badRequest, checkInput, conflict} from '../utils/input'
-import type {ProjectRow, ReleaseDetail, ReleaseRow} from './schema'
-import {AGENT, RELEASE_FIELDS, releaseOf, tallyReleases, noReleases, nullable, stamp} from './schema'
+import type {IssueRow, ProjectRow, ReleaseDetail, ReleaseRow} from './schema'
+import {AGENT, ORRERY, RELEASE_FIELDS, releaseOf, tallyReleases, noReleases, nullable, stamp} from './schema'
 import {DocStore} from './docs'
 import {readReleaseBoard} from './reads'
 import {known} from '#shared/known'
+
+/** What a pull request merging into a release's branch did to its issue's release (ORR-791). */
+export type LandedIn = {set: string} | {left: string, kept: string, from?: string}
 
 export abstract class ReleaseStore extends DocStore {
     async listReleases(project: string): Promise<Release[]> {
@@ -55,6 +58,34 @@ export abstract class ReleaseStore extends DocStore {
         // A source's own row counts every project; its part here is only its own issues.
         const mine = drawing.length ? {...part(own), ...known(tallyReleases([version], [own.board]).get(version), `a tally for ${version}`)} : part(own)
         return {...known(own.releases.find(r => r.version === version), `release ${version}`), project, tasks: mine.tasks, projects: [mine, ...drawing.map(part)]}
+    }
+
+    /** A pull request on this issue merged into `branch`: when that's the branch of the one release being prepared that
+     * names it, the issue ships there. It's set if neither it nor anything above it has a release, as what's set above
+     * it says where a sub-issue goes (ORR-167); a release someone chose stays, and the answer says so if they disagree.
+     * As orrery's, like the news it comes with, so it holds for what's assigned to anyone. A proposal isn't work yet, a
+     * shipped release's branch is past shipping, and two releases naming a branch can't be told apart: none of those is set. */
+    async landIn(project: string, issue: string, branch: string): Promise<LandedIn | null> {
+        const source = await this.releaseSource(project)
+        if (!source) return null
+        const named = await this.all<ReleaseRow>('SELECT * FROM releases WHERE project = ? AND branch = ? AND shipped_on IS NULL', source, branch)
+        const release = named.length === 1 ? named[0] : undefined
+        if (!release) return null
+        const id = await this.issueId(project, issue)
+        const row = await this.issueRow(project, id)
+        if (row.proposal) return null
+        for (let up: IssueRow | null = row; up; up = up.parent ? await this.issueRow(project, up.parent) : null) {
+            if (!up.ships_in) continue
+            if (up.ships_in === release.version) return null
+            return {left: release.version, kept: up.ships_in, ...up.id === id ? {} : {from: up.id}}
+        }
+        await this.db.transaction(async () => {
+            await this.record(project, id, ORRERY, [['release', null, release.version]])
+            await this.update('issues', 'project = ? AND id = ?', [project, id], {ships_in: release.version})
+            await this.touchProject(project)
+        })
+        this.changed(project)
+        return {set: release.version}
     }
 
     /** The newest doc revision on this orrery, 0 with none yet: revision ids run across its projects, so it holds for a shared release too. */

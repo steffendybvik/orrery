@@ -10,6 +10,16 @@ describe('tidying the worktrees sessions left behind', () => {
         expect(whyKept(safe, now)).toBeNull()
     })
 
+    it('removes one whose head is a merged PR, however recently it was touched', () => {
+        expect(whyKept({...safe, merged: true, touched: now - 1000, onGitHub: false}, now)).toBeNull()
+    })
+
+    it('keeps a merged one that is locked, dirty or in use, as a commit on top would show as another head', () => {
+        expect(whyKept({...safe, merged: true, locked: true}, now)).toBe('locked')
+        expect(whyKept({...safe, merged: true, dirty: true}, now)).toBe('uncommitted changes')
+        expect(whyKept({...safe, merged: true, inUse: true}, now)).toBe('a process is running from it')
+    })
+
     it('keeps anything that could still hold work, or be in use', () => {
         expect(whyKept({...safe, path: '/apps/orrery-playground'}, now)).toBe('the playground')
         expect(whyKept({...safe, locked: true}, now)).toBe('locked')

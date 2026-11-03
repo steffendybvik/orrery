@@ -4,6 +4,7 @@
 // change or run, `secrets` (the list, no values) when they change or one is used, `logged` ({event, fresh}) when the
 // event log records or resolves one, and `happened` ({event, cause}) for what the schedules can run on (ORR-341), `cause`
 // the schedule whose run did it. `/api/events` and the signal streams pass them on.
+import {Branches} from './branches'
 import {EventEmitter} from 'node:events'
 import type {H3Event} from 'h3'
 import type {OrreryEvent} from '#shared/happenings'
@@ -111,6 +112,14 @@ export function usePulls(): Pulls {
     pulls ??= new Pulls(useStore(), (url, project, headers, init) => useSecrets().own(url, GITHUB_SECRET, project, headers, init), Date.now,
         project => useSecrets().ownProblem('https://api.github.com/graphql', GITHUB_SECRET, project))
     return pulls
+}
+
+let branches: Branches | null = null
+
+/** The repos' branches, read when the owner opens the view (ORR-793). */
+export function useBranches(): Branches {
+    branches ??= new Branches(useStore(), usePulls(), project => useSecrets().ownsFor('https://api.github.com/graphql', GITHUB_SECRET, project))
+    return branches
 }
 
 let pullPoll: PullPoll | null = null

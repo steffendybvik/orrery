@@ -35,7 +35,7 @@ const lists = computed(() => [
 
 <template>
   <PageHeader>
-    <svg class="size-4 shrink-0 text-accent-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4" /><path d="M4 21a8 8 0 0 1 16 0" /></svg>
+    <svg class="size-4 shrink-0 text-accent-fill" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4" /><path d="M4 21a8 8 0 0 1 16 0" /></svg>
     <h1 class="truncate text-sm font-medium">My issues</h1>
   </PageHeader>
 
@@ -43,8 +43,9 @@ const lists = computed(() => [
     <template #end><FilterBar /></template>
   </ViewToolbar>
 
-  <div class="min-h-0 flex-1 overflow-y-auto">
+  <div class="clear-agent min-h-0 flex-1 overflow-y-auto">
     <EmptyProjects v-if="ready && !projects.length" />
+    <UiLoading v-else-if="!ready" />
     <template v-else>
       <GettingStarted v-if="!gettingStarted.finished.value && !gettingStarted.hidden.value" card class="m-3 md:m-4" />
       <div v-for="(list, i) in lists" :key="list.id" :class="i > 0 && 'mt-6'">

@@ -4,7 +4,7 @@ The easy way: open **Connect an agent** in orrery's sidebar and press **Connect 
 machine's folder picker; choose the repo, tick its projects (or make one) on the page, and press **Set it up**. The launcher
 writes the repo's `CLAUDE.md` section, `.mcp.json` and hooks, keeping what's in them and safe to run again, puts the repo on
 its list, and opens Claude there in a terminal, where Claude Code asks once about the folder and the server. Commit the
-files with the repo.
+files with the repo. **Connected repos**, under the button, lists the repos your launchers serve.
 
 It needs the launcher running as a service, once per machine; the page gives the line until it is. macOS has its picker. On
 Linux it needs a desktop with `zenity` or `kdialog`. In WSL, or with neither, use the other way: pick (or make) the repo's
@@ -80,7 +80,7 @@ alias shop="cd ~/code/shop && claude --dangerously-load-development-channels ser
 
 Then `source ~/.zshrc` and start the session with `shop`.
 
-The same server gives the session **tools** for its projects' roadmaps, so it works without curl:
+The same server gives the session **tools** for its projects' roadmaps, so it works without curl (the **MCP server** tab on Connect lists them all, and who gets each):
 `issues`, `issue`, `start_issue`, `comment` (with `asks` for a decision or feedback), `finish_issue`,
 `create_issue` (a proposal too, with choices), `update_issue`, `releases`, `docs`, `doc` and
 `write_doc`; `sessions`, to read who's working on what; and `guide`, how orrery itself works ([Using orrery](using.md),
@@ -110,6 +110,10 @@ answer its prompt), `Stop`, `StopFailure`, `Notification` and `SessionEnd`.
 `StopFailure` is a turn an API error cut off (the network, a rate limit): the issues that session had in progress go
 back to Todo with nobody on it, and a comment says why. One in review or waiting on you stays where it is. The Sessions
 page and the sidebar mark the session (**usage limit reached**, with what Claude Code said) until its next turn gets going.
+
+A session that ends hands its work back the same way, about five minutes on so one resumed or reconnecting keeps it: its
+`SessionEnd` (not a `/clear`), its launcher saying it stopped, its channel closing with no hook (a kill), or its being
+forgotten. An issue assigned to you stays with you, even if the session touched it.
 
 ```json
 {

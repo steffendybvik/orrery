@@ -28,7 +28,7 @@ import {Cron} from 'croner'
 import type {OnFilter, OrreryEvent} from '#shared/happenings'
 import {EVENT_PATTERN, matchesType} from '#shared/happenings'
 import type {Issue, Preset, Priority, Schedule, ScheduleAcross, ScheduleRun} from '#shared/roadmap'
-import {CLOSED, EVENT_LEVELS, KINDS, PRIORITIES} from '#shared/roadmap'
+import {canActivate, CLOSED, EVENT_LEVELS, KINDS, PRIORITIES} from '#shared/roadmap'
 import type {Db} from './database'
 import {one} from './database'
 import type {Field, Input} from './input'
@@ -217,6 +217,31 @@ export class Schedules {
         const fields = await this.toUpdate(project, id, body, actor)
         await this.write(project, id, fields)
         return await this.get(project, id)
+    }
+
+    /** The owner pausing or activating all of a project's schedules at once (ORR-783), its copies of ones across projects
+     * but not those themselves: an agent's stays the agent's, and activating leaves a paused one-off, which may have run. One that
+     * can't change doesn't stop the rest, and the page hears the change once. */
+    async setAllEnabled(project: string, enabled: boolean, actor = AGENT): Promise<{changed: Schedule[], failed: {id: number, title: string, message: string}[]}> {
+        ownerOnly(actor, 'schedules.enabled')
+        const rows = await this.db.all<ScheduleRow>('SELECT * FROM schedules WHERE project = ? ORDER BY id', project)
+        const changing = rows.filter(row => enabled ? canActivate({enabled: !!row.enabled, at: row.at}) : !!row.enabled)
+        const changed: Schedule[] = []
+        const failed: {id: number, title: string, message: string}[] = []
+        for (const row of changing) {
+            try {
+                const fields = await this.toUpdate(project, row.id, {enabled}, actor)
+                await this.db.run(`UPDATE schedules SET ${fields.map(([k]) => `${k} = ?`).join(', ')} WHERE id = ?`, ...fields.map(([, v]) => v as string | number | null), row.id)
+                changed.push(await this.get(project, row.id))
+            } catch (error) {
+                failed.push({id: row.id, title: row.title, message: error instanceof Error ? error.message : String(error)})
+            }
+        }
+        if (changing.length) {
+            this.listeners = null
+            this.onChange(project)
+        }
+        return {changed, failed}
     }
 
     private async write(project: string, id: number, fields: [string, unknown][]) {

@@ -3,7 +3,6 @@ import {AGENT, makeProject, projectApi} from './support'
 
 // A release made, an issue set for it from its page, its changelog drafted and it shipped; and a project drawing on
 // its releases showing in it, in a section of its own.
-test.describe.configure({mode: 'serial'})
 
 const api = projectApi('bakery')
 

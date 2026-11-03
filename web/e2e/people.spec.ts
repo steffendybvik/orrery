@@ -1,5 +1,5 @@
 import {expect, test} from '@playwright/test'
-import {OWNER, makeProject} from './support'
+import {OWNER, dragCard, makeProject} from './support'
 
 // Two people on one machine (ORR-657), with login off: the owner adds someone, puts them on a board, and the page acts as
 // them. One orrery serves every spec, so the person goes again at the end, back to one person, which shows none of it.
@@ -50,6 +50,13 @@ test('claims, board members and acting as someone, and none of it with one perso
     await page.goto('/p/sorrel/settings')
     await page.locator('#members').scrollIntoViewIfNeeded()
     await page.screenshot({path: process.env.SHOTS ? `${process.env.SHOTS}/claim-members.png` : undefined})
+
+    // Only the owner drags a card into Proposed (ORR-781).
+    await request.post('/api/projects/sorrel/issues', {data: {title: 'Ask for a greenhouse', proposal: 'pending'}, headers: OWNER})
+    await page.goto('/p/sorrel?view=board')
+    await dragCard(page, page.locator(`article[data-issue="${made.id}"]`), page.locator('section[data-column="proposed"]'))
+    await page.waitForTimeout(300)
+    expect((await (await request.get(`/api/projects/sorrel/issues/${made.id}`)).json()).column).toBe('backlog')
 
     // The owner takes it over.
     await page.getByRole('combobox', {name: 'Acting as'}).selectOption('ada_lovelace')

@@ -2,21 +2,23 @@
 import type {Column} from '#shared/roadmap'
 import {PRIORITIES, fullId} from '#shared/roadmap'
 
-// ⌘K: every command and place, in sections. With nothing typed: Here (what fits the page), Jump to (the
-// projects, this one first) and Go to. Typing finds Projects, Issues, Chunks, Docs and Commands, a few of
+// ⌘K: every command and place, in sections. With nothing typed: Most used (the commands this browser runs most that
+// are on offer here, once there are any, ORR-782), Here (what fits the page), Jump to (the projects, this one first) and Go to. Typing finds Projects, Issues, Chunks, Docs and Commands, a few of
 // each with "N more" to open the rest, best match first; an exact issue id is the Top hit. `>` searches
 // commands only, `#` issues, `@` projects, chunks and docs. ↑↓ choose, ⇥ jumps a section, ↵ runs, Esc closes.
 // It's a Headless UI Dialog (UiDialog); the list keeps its own keys, as Headless UI's Combobox can't jump a
 // section on ⇥ or open "N more" in place, but says the same to a screen reader (the row the input points at).
 // Closed issues of projects the page has without them (ORR-447) are asked of orrery as you type.
 interface Entry { key: string, group: string, label: string, detail?: string, hint?: string, also?: string, id?: string, run: () => unknown }
-type SectionKey = 'top' | 'here' | 'jump' | 'go' | 'projects' | 'issues' | 'chunks' | 'docs' | 'commands'
+type SectionKey = 'top' | 'used' | 'here' | 'jump' | 'go' | 'projects' | 'issues' | 'chunks' | 'docs' | 'commands'
 interface Section { key: SectionKey, title: string, entries: Entry[], hidden: number }
 type Row = {kind: 'entry', key: string, entry: Entry, section: SectionKey} | {kind: 'more', key: string, section: SectionKey, n: number}
 
 /** How many of each a search shows before "N more". */
 const CAPS: Partial<Record<SectionKey, number>> = {projects: 3, issues: 6, chunks: 3, docs: 3, commands: 5}
-const TITLES: Record<SectionKey, string> = {top: 'Top hit', here: 'Here', jump: 'Jump to', go: 'Go to', projects: 'Projects', issues: 'Issues', chunks: 'Chunks', docs: 'Docs', commands: 'Commands'}
+/** How many Most used shows. */
+const MOST_USED = 5
+const TITLES: Record<SectionKey, string> = {top: 'Top hit', used: 'Most used', here: 'Here', jump: 'Jump to', go: 'Go to', projects: 'Projects', issues: 'Issues', chunks: 'Chunks', docs: 'Docs', commands: 'Commands'}
 /** Scope prefixes: what a search is narrowed to. */
 const SCOPES: Record<string, SectionKey[]> = {'>': ['commands'], '#': ['issues'], '@': ['projects', 'chunks', 'docs']}
 
@@ -127,7 +129,7 @@ const everywhere = computed<Entry[]>(() => [
     })),
     ...columns.value.map(({id: c, label}) => ({
         key: `filter:column:${c}`, group: 'Filter',
-        label: `${filters.value.columns.includes(c) ? 'Stop filtering' : 'Filter'} by column: ${label}`,
+        label: `${filters.value.columns.includes(c) ? 'Stop filtering' : 'Filter'} by status: ${label}`,
         run: () => filters.value.columns = toggle<Column>(filters.value.columns, c),
     })),
     {key: 'filter:search', group: 'Filter', label: 'Filter by id or title', hint: '/', run: () => nextTick(() => document.getElementById('search')?.focus())},
@@ -172,6 +174,11 @@ const issues = computed<Entry[]>(() => projects.value.flatMap(p => {
     }))
 }))
 
+/** Most used's order, read as the palette opens, so it stays put under the cursor while it's open. */
+const ranked = ref(import.meta.client ? mostUsedCommands() : [])
+/** A command counts by its key. Places aren't actions, and messaging one session goes with that session. */
+const counted = (key: string) => !key.startsWith('session:message:') && [...here.value, ...everywhere.value].some(e => e.key === key)
+
 /** The sections a search opened past their cap. */
 const expanded = ref<SectionKey[]>([])
 
@@ -201,10 +208,14 @@ const sections = computed<Section[]>(() => {
         const current = project.value?.id
         const jump = places.value.filter(e => e.key.startsWith('p:') && e.key.endsWith(':issues'))
             .sort((a, b) => Number(b.key === `p:${current}:issues`) - Number(a.key === `p:${current}:issues`))
+        const commands = [...here.value, ...everywhere.value]
+        const used = ranked.value.flatMap(key => commands.find(e => e.key === key) ?? []).slice(0, MOST_USED)
+        const rest = (entries: Entry[]) => entries.filter(e => !used.includes(e))
         return [
-            section('here', here.value.filter(e => e.group !== 'Go to')),
+            section('used', used),
+            section('here', rest(here.value.filter(e => e.group !== 'Go to'))),
             section('jump', jump),
-            section('go', [...here.value.filter(e => e.group === 'Go to'), ...everywhere.value.filter(e => e.group === 'Go to')]),
+            section('go', rest(commands.filter(e => e.group === 'Go to'))),
         ].filter(s => s.entries.length)
     }
     const found = (entries: Entry[]) => entries.flatMap((entry, i) => {
@@ -241,6 +252,7 @@ watch(query, () => {
 })
 watch(openPalette, isOpen => {
     if (!isOpen) return
+    ranked.value = mostUsedCommands()
     query.value = ''
     active.value = 0
     nextTick(() => input.value?.focus())
@@ -255,6 +267,7 @@ function run(row: Row | undefined) {
         return
     }
     openPalette.value = false
+    if (counted(row.entry.key)) recordCommand(row.entry.key)
     row.entry.run()
 }
 

@@ -23,7 +23,7 @@
 // this launcher open a terminal on it; the Sessions page's live view has it send the screen while it's open; the owner's
 // Allow on a permission prompt has it press Enter on "Yes"), with the channel, in
 // ORRERY_PERMISSION_MODE (`auto` by default, as nobody is there to answer a prompt; an untrusted schedule's session
-// locked down instead, see `lockedDown`, and the owner's chat able only to read and answer, see `chatOnly`), and runs
+// locked down instead, see `lockedDown`, and the owner's chat with the owner's own settings, see `chatOnly`), and runs
 // until orrery asks
 // for it to be stopped: the owner stopping it, or, once it's idle with nothing open, its time being up or its having
 // sat idle too long (when the project sets those). Between pieces of work orrery has it `/clear`ed, for a
@@ -314,6 +314,20 @@ function allow(id) {
     }
 }
 
+/** Answers "No" once to the permission prompt a session it started is waiting at, as the owner pressing Deny asks
+ * (ORR-750): Escape, only while its pane still shows one, as `allow`. */
+function deny(id) {
+    const session = running.get(id)
+    if (!session) return
+    try {
+        if (!onYes(tmux('capture-pane', '-p', '-t', session.tmux))) return log(`${session.tmux} isn't at a permission prompt any more: left as it is`)
+        tmux('send-keys', '-t', session.tmux, 'Escape')
+        log(`denied what ${session.tmux} asked, as the owner said`)
+    } catch {
+        // It has ended.
+    }
+}
+
 /** Gives a session it started a fresh context between pieces of work, as orrery asks once it's idle: types
  * `/clear` into it. Its channel stays, and its hooks hand the new context what's left to do. */
 async function clear(id) {
@@ -450,7 +464,7 @@ const apiOf = ({url, project}) => `${url}/api/projects/${encodeURIComponent(proj
 
 /** Serves one project: listens for its launches, and for the owner stopping or extending the sessions it started,
  * until `signal` lets it go. */
-function serve({url, project, dir, picked_at: picked}, signal) {
+function serve({url, project, dir, picked_at: picked, connected_at: connected}, signal) {
     const api = apiOf({url, project})
     adopt(project, api)
     /** The token this connection's stream gave it (`ready`), which its claims send, so orrery knows they're a
@@ -459,7 +473,7 @@ function serve({url, project, dir, picked_at: picked}, signal) {
 
     /** Starts the launch's session, once this launcher has claimed it (another may have first). */
     async function start(launch) {
-        // It says it locks an untrusted launch down with no Bash, and starts a chat able only to read and answer: orrery
+        // It says it locks an untrusted launch down with no Bash, and starts a chat as `chatOnly` says: orrery
         // gives either only to a launcher that does.
         const claim = await fetch(`${api}/launches/${launch.id}/claim?untrusted=no-bash&chat=yes`, {method: 'POST', headers: {'Orrery-Launcher': token, ...authHeaders(api)}}).then(r => r.json()).catch(() => ({claimed: false}))
         if (!claim.claimed) return
@@ -475,7 +489,7 @@ function serve({url, project, dir, picked_at: picked}, signal) {
         if (launch.untrusted) tmux('set-option', '-t', launch.tmux, UNTRUSTED, 'yes')
         if (launch.chat) tmux('set-option', '-t', launch.tmux, CHAT, 'yes')
         keepStopTime(launch.id, launch.minutes ? new Date(Date.now() + launch.minutes * 60_000).toISOString() : undefined)
-        log(`started ${launch.tmux}${launch.untrusted ? ' locked down, for an untrusted schedule,' : launch.chat ? ' for a chat, able only to read and answer,' : ''} ${launch.minutes ? `for ${launch.minutes} minutes` : 'until stopped'}; watch it with: tmux attach -t ${launch.tmux}`)
+        log(`started ${launch.tmux}${launch.untrusted ? ' locked down, for an untrusted schedule,' : launch.chat ? ' for a chat,' : ''} ${launch.minutes ? `for ${launch.minutes} minutes` : 'until stopped'}; watch it with: tmux attach -t ${launch.tmux}`)
         midway(() => getPast(launch.id, dir)).catch(error => log(`${launch.tmux}: ${error.message}`))
     }
 
@@ -483,8 +497,8 @@ function serve({url, project, dir, picked_at: picked}, signal) {
         headers: authHeaders(url),
         // The folder it serves from, so orrery knows which projects share one and can share a session, and whether its
         // channel serves every project, so a session started here hearing no one project hears them all.
-        // And when its channel picked the repo up (ORR-605), for Sessions → Setup.
-        url: () => `${api}/launches/stream?dir=${encodeURIComponent(dir)}${servesEvery(dir, url, project) ? '&every=1' : ''}&version=${encodeURIComponent(VERSION)}${picked ? `&picked=${encodeURIComponent(picked)}` : ''}`,
+        // And when its channel picked the repo up (ORR-605) or Connect a repo added it (ORR-774), for Connected repos.
+        url: () => `${api}/launches/stream?dir=${encodeURIComponent(dir)}${servesEvery(dir, url, project) ? '&every=1' : ''}&version=${encodeURIComponent(VERSION)}${picked ? `&picked=${encodeURIComponent(picked)}` : ''}${connected ? `&connected=${encodeURIComponent(connected)}` : ''}`,
         onEvent: async ({event, data}) => {
             if (event === 'ready') {
                 const {starts, version, token: given} = JSON.parse(data)
@@ -511,6 +525,8 @@ function serve({url, project, dir, picked_at: picked}, signal) {
                 watch(id, terminal)
             } else if (event === 'allow') {
                 allow(JSON.parse(data).id)
+            } else if (event === 'deny') {
+                deny(JSON.parse(data).id)
             } else if (event === 'view') {
                 // Not awaited: it sends for as long as the owner views it, and the stream goes on meanwhile.
                 view(JSON.parse(data).id).catch(error => log(`couldn't send a screen: ${error.message}`))

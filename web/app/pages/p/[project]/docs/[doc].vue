@@ -157,7 +157,9 @@ useHead(() => ({title: doc.value ? `${doc.value.title} · orrery` : 'orrery'}))
 
   <div v-if="project" class="flex min-h-0 flex-1 flex-col md:flex-row">
   <DocsNav :project="project" />
-  <div ref="scroller" class="min-h-0 flex-1 overflow-y-auto">
+  <!-- A container, so "On this page" goes by the room left beside the sidebar and the docs list, not the window's width: it
+       needs the text's 48rem, its own 14rem, the gap and the padding (ORR-800). -->
+  <div ref="scroller" class="@container clear-agent min-h-0 flex-1 overflow-y-auto">
     <div v-if="doc && !missing" :key="doc.id" class="mx-auto flex max-w-6xl animate-fade-up gap-12 px-4 py-8 sm:px-8 sm:py-12">
     <article class="min-w-0 flex-1" :class="!isArtifact && 'max-w-3xl'">
       <header class="mb-8 flex flex-col gap-3 border-b border-line pb-6">
@@ -192,7 +194,7 @@ useHead(() => ({title: doc.value ? `${doc.value.title} · orrery` : 'orrery'}))
             </UiConfirm>
           </div>
         </div>
-        <p v-if="removeFailed" class="text-xs text-rose-600 dark:text-rose-400">{{ removeFailed }}</p>
+        <p v-if="removeFailed" class="text-xs text-rose-700 dark:text-rose-400">{{ removeFailed }}</p>
         <div class="flex flex-wrap items-center gap-x-2 gap-y-1.5 text-xs text-faint">
           <PersonAvatar :name="doc.created_by" :size="16" />
           <span class="text-muted">{{ who(doc.created_by) }}</span>
@@ -205,7 +207,7 @@ useHead(() => ({title: doc.value ? `${doc.value.title} · orrery` : 'orrery'}))
             <CopyButton :text="address" label="Copy URL" name="this doc's URL" />
           </span>
         </div>
-        <p v-if="rendered?.changed" class="flex items-center gap-2 text-xs text-accent-600 dark:text-accent-400">
+        <p v-if="rendered?.changed" class="flex items-center gap-2 text-xs text-accent-700 dark:text-accent-400">
           <span class="unseen-dot" />{{ rendered.changed }} {{ rendered.changed === 1 ? 'part' : 'parts' }} changed since you last read it, tinted below
         </p>
       </header>
@@ -232,13 +234,13 @@ useHead(() => ({title: doc.value ? `${doc.value.title} · orrery` : 'orrery'}))
         />
         <div class="flex items-center justify-end gap-2">
           <ImageButton v-if="!isArtifact" @picked="upload" />
-          <span v-if="saveFailed" class="mr-auto text-xs text-rose-600 dark:text-rose-400">{{ saveFailed }}</span>
-          <span v-else-if="uploading" class="mr-auto text-xs text-faint">Adding image…</span>
-          <span v-else-if="uploadError" class="mr-auto text-xs text-rose-600 dark:text-rose-400">{{ uploadError }}</span>
+          <span v-if="saveFailed" class="mr-auto text-xs text-rose-700 dark:text-rose-400">{{ saveFailed }}</span>
+          <span v-else-if="uploading" class="inline-flex items-center gap-1.5 mr-auto text-xs text-faint"><UiSpinner />Adding image…</span>
+          <span v-else-if="uploadError" class="mr-auto text-xs text-rose-700 dark:text-rose-400">{{ uploadError }}</span>
           <span v-else class="mr-auto text-xs text-faint">{{ isArtifact ? 'HTML' : 'Markdown' }}</span>
           <UiButton :disabled="saving" @click="editing = false">Cancel <KeyHint>esc</KeyHint></UiButton>
           <UiButton variant="primary" :disabled="saving || !!uploading || !title.trim()" @click="save">
-            {{ saving ? 'Saving…' : 'Save' }} <KeyHint class="bg-white/20 text-white ring-0">⌘↵</KeyHint>
+            <UiBusy :busy="saving" label="Saving…">Save</UiBusy> <KeyHint class="bg-black/10 text-on-accent ring-0">⌘↵</KeyHint>
           </UiButton>
         </div>
       </section>
@@ -247,7 +249,7 @@ useHead(() => ({title: doc.value ? `${doc.value.title} · orrery` : 'orrery'}))
       <MarkdownView v-else :source="doc.body" :title="doc.title" :before="before?.body" :data-size="size" />
       <p class="mt-12 rounded-lg bg-well px-3 py-2 font-mono text-[11px] text-faint ring-1 ring-line">PUT /api/projects/{{ doc.project }}/docs/{{ doc.id }}</p>
     </article>
-    <aside v-if="headings.length && !history && !editing" class="hidden w-56 shrink-0 xl:block">
+    <aside v-if="headings.length && !history && !editing" class="hidden w-56 shrink-0 @min-[69rem]:block">
       <div class="sticky top-6">
         <DocContents :headings="headings" :root="scroller" />
       </div>
@@ -261,6 +263,7 @@ useHead(() => ({title: doc.value ? `${doc.value.title} · orrery` : 'orrery'}))
       <DocHistory :project="String(route.params.project)" :doc="removed.id" @restored="restored" />
     </div>
     <NotFound v-else-if="missing && ready" :to="`/p/${route.params.project}/docs`" back="Back to the docs">No doc “{{ route.params.doc }}”</NotFound>
+    <UiLoading v-else />
   </div>
   </div>
 </template>

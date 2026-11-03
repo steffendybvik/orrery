@@ -163,20 +163,35 @@ const CUT_OFF: Record<string, string> = {
     max_output_tokens: 'the output limit',
 }
 
-/** The session's turn ended on an API error (`error`, from Claude Code's StopFailure): each issue it has in progress
- * goes back to Todo with nobody on it, with a comment saying why, for it or anyone to pick up again. Says which. One in
- * review or waiting on the owner stays: its work is done, and it isn't the session's turn (ORR-646). */
-export async function letGo(project: string, id: string, error?: string): Promise<string[]> {
+/** Each issue the session (by `ids`) has in progress goes back to Todo with nobody on it, with a comment saying `what`
+ * happened to it, for it or anyone to pick up again. Says which. One in review or waiting on the owner stays: its work is
+ * done, and it isn't the session's turn (ORR-646). So does one with one person that's assigned to them: they have it, and
+ * the session only touched it. With people it stays its person's, for another of their agents to pick up. */
+async function handBack(project: string, ids: string[], name: string, what: string): Promise<string[]> {
     const store = useStore()
-    const issues = (await store.workingOn(project, sessionIds(id))).filter(issue => issue.status !== 'in-review' && !issue.waiting)
-    const why = error ? CUT_OFF[error] ?? `an API error (${error})` : 'an API error'
+    const shared = await store.isShared()
+    const issues = []
+    for (const issue of await store.workingOn(project, ids)) {
+        if (issue.status !== 'in-review' && !issue.waiting && (shared || !issue.assignee || !await store.isPerson(issue.assignee))) issues.push(issue)
+    }
     const actor = {name: 'claude', owner: false}
     for (const issue of issues) {
-        // With people it stays its person's, for another of their agents to pick up.
-        await store.updateIssue(project, issue.id, await store.isShared() ? {status: 'todo'} : {status: 'todo', assignee: null}, actor)
+        await store.updateIssue(project, issue.id, shared ? {status: 'todo'} : {status: 'todo', assignee: null}, actor)
         await store.createComment(project, issue.id, {
-            body: `The session working on this (${sessionNow(id)?.name ?? id}) had its turn cut off by ${why}, so it's back in Todo with nobody on it. Focus a session on it to pick it up again.`,
+            body: `The session working on this (${name}) ${what}, so it's back in Todo with nobody on it. Focus a session on it to pick it up again.`,
         }, actor)
     }
     return issues.map(i => i.id)
+}
+
+/** The session's turn ended on an API error (`error`, from Claude Code's StopFailure): what it had in progress goes back. */
+export async function letGo(project: string, id: string, error?: string): Promise<string[]> {
+    const why = error ? CUT_OFF[error] ?? `an API error (${error})` : 'an API error'
+    return handBack(project, sessionIds(id), sessionNow(id)?.name ?? id, `had its turn cut off by ${why}`)
+}
+
+/** The session has ended, by every id it went by, and didn't come back in time (`handBackSoon`): what it had in progress
+ * goes back (ORR-775). */
+export async function letGoEnded(project: string, ids: string[], name: string): Promise<string[]> {
+    return handBack(project, ids, name, 'ended')
 }

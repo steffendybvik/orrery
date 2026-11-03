@@ -18,7 +18,6 @@ let failing: boolean
 function scheduler(over: Partial<BackupHooks> = {}) {
     return new BackupScheduler({
         target: () => target,
-        hasBackup: () => true,
         fresh: async () => fresh,
         backUp: async () => {
             if (failing) throw new Error('disk full')
@@ -81,7 +80,7 @@ describe('backing up', () => {
         expect(made).toHaveLength(1)
     })
 
-    it("doesn't back a new orrery up over a folder's backups, but does once it isn't new", async () => {
+    it("doesn't back a new orrery up to a folder, but does once it isn't new", async () => {
         fresh = true
         const backups = scheduler()
         await backups.save()
@@ -89,10 +88,6 @@ describe('backing up', () => {
         fresh = false
         await backups.save()
         expect(made).toHaveLength(1)
-        // A folder with nothing in it yet takes even a new one's.
-        fresh = true
-        await scheduler({hasBackup: () => false}).save()
-        expect(made).toHaveLength(2)
     })
 
     it('says each one made or failed in the log, and never throws', async () => {
@@ -103,6 +98,16 @@ describe('backing up', () => {
         await expect(backups.save()).resolves.toBeUndefined()
         error.mockRestore()
         expect(notes.map(n => [n.kind, n.message])).toEqual([['backup.made', 'Backed up to /backups'], ['backup.failed', 'Backing up to /backups: disk full']])
+    })
+
+    it('isn\'t done until what it notes is written, as the database closes after it', async () => {
+        let written = false
+        const backups = scheduler({note: async () => {
+            await Promise.resolve()
+            written = true
+        }})
+        await backups.close()
+        expect(written).toBe(true)
     })
 
     it('does nothing with backups off, and backs up what was waiting as the server closes', async () => {

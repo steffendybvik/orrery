@@ -12,11 +12,14 @@
     --color-accent-400: oklch(0.80 0.15 65);
     --color-accent-500: oklch(0.74 0.17 55);
     --color-accent-600: oklch(0.66 0.18 45);
+    /* For text on the page: the others are too light to read on it in the light theme (WCAG AA, ORR-724). */
+    --color-accent-700: oklch(0.52 0.17 45);
 
     --animate-fade-up: fade-up 0.35s cubic-bezier(0.2, 0.8, 0.2, 1) both;
     --animate-slide-in: slide-in 0.25s cubic-bezier(0.2, 0.8, 0.2, 1) both;
     --animate-flash: flash 1.2s ease-out;
-    --animate-dot: dot 1.2s ease-in-out infinite;
+    --animate-spinner: spinner 0.8s steps(10) infinite;
+    --animate-appear: appear 0.2s 0.15s both;
 
     @keyframes fade-up {
         from { opacity: 0; transform: translateY(8px); }
@@ -28,10 +31,14 @@
         to { opacity: 1; transform: translateX(0); }
     }
 
-    /* One of the chat's three Thinking dots, each a little after the one before */
-    @keyframes dot {
-        0%, 60%, 100% { opacity: 0.25; transform: translateY(0); }
-        30% { opacity: 1; transform: translateY(-2px); }
+    /* UiSpinner's tall picture of ten frames, moved up a frame at a time */
+    @keyframes spinner {
+        to { transform: translateY(-100%); }
+    }
+
+    /* UiLoading coming in a moment late */
+    @keyframes appear {
+        from { opacity: 0; }
     }
 
     /* A row that just changed through the API */
@@ -54,6 +61,13 @@
     --color-hover: var(--hover);
     --color-active: var(--active);
     --color-well: var(--well);
+    /* The primary, one in both themes: a filled accent, the words on it, and whatever else shows solid orange. White needs an
+       orange this deep to be read. */
+    --color-accent-fill: oklch(0.58 0.18 45);
+    --color-on-accent: #fff;
+    /* The logo's tile, around the primary: the same two colours as public/favicon.svg. */
+    --color-tile-from: #E0651C;
+    --color-tile-to: #A63C05;
 }
 
 :root {
@@ -63,7 +77,7 @@
     --line: rgb(0 0 0 / 0.08);
     --fg: #18181b;
     --muted: #52525b;
-    --faint: #a1a1aa;
+    --faint: #66666e;
     --hover: rgb(0 0 0 / 0.04);
     --active: rgb(0 0 0 / 0.07);
     --well: rgb(0 0 0 / 0.05);
@@ -77,7 +91,7 @@
     --line: rgb(255 255 255 / 0.08);
     --fg: #f4f4f5;
     --muted: #a1a1aa;
-    --faint: #71717a;
+    --faint: #8b8b94;
     --hover: rgb(255 255 255 / 0.05);
     --active: rgb(255 255 255 / 0.1);
     --well: rgb(0 0 0 / 0.25);
@@ -85,17 +99,20 @@
 }
 
 /* An orrery's tint (App settings), so one looks unlike another: the backgrounds take on a little of
-   its colour, more in the dark. useAppSettings sets `data-tint` and `--tint` on <html>. */
+   its colour, more in the dark, and the faint grey moves away from them to stay readable. useAppSettings
+   sets `data-tint` and `--tint` on <html>. */
 :root[data-tint] {
     --canvas: color-mix(in oklab, var(--tint) 9%, #fafafa);
     --panel: color-mix(in oklab, var(--tint) 6%, #ffffff);
     --raised: color-mix(in oklab, var(--tint) 4%, #ffffff);
+    --faint: #5c5c64;
 }
 
 .dark[data-tint] {
     --canvas: color-mix(in oklab, var(--tint) 12%, #09090b);
     --panel: color-mix(in oklab, var(--tint) 10%, #131316);
     --raised: color-mix(in oklab, var(--tint) 8%, #1c1c20);
+    --faint: #9c9ca5;
 }
 
 /* The panel for everything floating over the page (`glass`). Solid, not frosted: most of them
@@ -115,6 +132,12 @@
    py-2) goes beside it. */
 @utility field {
     @apply rounded-lg bg-well px-2.5 text-[13px] text-fg ring-1 ring-line placeholder:text-faint focus:ring-accent-500/50 focus:outline-none;
+}
+
+/* Room at the end of anything that scrolls under the Agent button, in the corner of every page, so its last line can come
+   clear (ORR-796). More than the button's height and gap (3rem), to leave a little air. */
+@utility clear-agent {
+    padding-bottom: 4rem;
 }
 
 /* The hover tint laid over what's there (`hover:tint`), for something with a solid background of its own: `hover:bg-hover`
@@ -166,7 +189,7 @@ body {
         & > :first-child { @apply mt-0; }
         /* A long link or path breaks rather than running out of its column (comments on a phone). */
         & a, & :not(pre) > code { overflow-wrap: anywhere; }
-        & a { @apply text-accent-600 underline decoration-accent-500/40 underline-offset-2 hover:decoration-accent-500 dark:text-accent-400; }
+        & a { @apply text-accent-700 underline decoration-accent-500/40 underline-offset-2 hover:decoration-accent-500 dark:text-accent-400; }
         & strong { @apply font-semibold text-fg; }
         & ul { @apply list-disc pl-5; }
         & ol { @apply list-decimal pl-5; }
@@ -183,7 +206,7 @@ body {
            doesn't read as more of the page. */
         & img { @apply max-w-full rounded-xl border-4 border-well shadow-sm ring-1 ring-line; }
         & h2, & h3 { @apply scroll-mt-6; }
-        & input[type="checkbox"] { @apply mr-1.5 accent-accent-500; }
+        & input[type="checkbox"] { @apply mr-1.5 accent-accent-fill; }
     }
 
     .doc[data-size="sm"] { @apply text-[14.5px]; }
@@ -212,7 +235,7 @@ body {
     & .compare-range {
         @apply absolute inset-0 m-0 size-full cursor-ew-resize opacity-0;
     }
-    & .compare-range:focus-visible ~ .compare-line::after { @apply ring-2 ring-accent-500; }
+    & .compare-range:focus-visible ~ .compare-line::after { @apply ring-2 ring-accent-fill; }
     & .compare-label {
         @apply absolute top-2 z-10 rounded-md bg-black/60 px-2 py-0.5 text-[12px] font-medium text-white no-underline ring-1 ring-white/25 backdrop-blur-sm hover:bg-black/75 dark:text-white;
     }
@@ -224,7 +247,7 @@ body {
    a dot with a halo, and in a doc each block that's new or different since they last read it. */
 .unseen-row {
     background-color: color-mix(in oklab, var(--color-accent-500) 9%, transparent);
-    box-shadow: inset 2px 0 0 var(--color-accent-500);
+    box-shadow: inset 2px 0 0 var(--color-accent-fill);
     &:hover { background-color: color-mix(in oklab, var(--color-accent-500) 15%, transparent); }
 }
 /* An issue waiting on the owner's answer (a decision or feedback an agent asked for): a violet tint and bar,
@@ -235,7 +258,7 @@ body {
     &:hover { background-color: color-mix(in oklab, var(--color-violet-500) 16%, transparent); }
 }
 .unseen-dot {
-    @apply size-2 shrink-0 rounded-full bg-accent-500;
+    @apply size-2 shrink-0 rounded-full bg-accent-fill;
     box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-accent-500) 25%, transparent);
 }
 .doc .changed {
@@ -246,7 +269,7 @@ body {
     &::before {
         content: '';
         @apply pointer-events-none absolute inset-y-0 -left-3 w-3 rounded-l-sm;
-        background: linear-gradient(to right, var(--color-accent-500) 3px, var(--tint) 3px);
+        background: linear-gradient(to right, var(--color-accent-fill) 3px, var(--tint) 3px);
     }
 }
 

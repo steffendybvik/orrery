@@ -15,6 +15,14 @@ export function sessionHeader(event: H3Event): string | undefined {
 /** Who a credential says this request is, once the auth middleware has checked it (`Who`); nothing with auth off. */
 const verified = (event: H3Event): Who | undefined => event.context?.who
 
+/** Whether a credential says this is someone other than the owner. A chat and an untrusted schedule's session are the owner's
+ * alone (the channel's marks only say which of the owner's sessions it is), so for anyone else those marks count for
+ * nothing, and they can't step round the board check and the rest by adding one (ORR-814). */
+export const anotherPersons = (event: H3Event): boolean => {
+    const who = verified(event)
+    return !!who && !who.owner
+}
+
 export async function actorOf(event: H3Event): Promise<Actor> {
     // With auth on (ORR-664) the credential decides: a person logged in is that person, and an agent key is an agent
     // whatever name it sends, with a label that's a person's name counting for nothing.

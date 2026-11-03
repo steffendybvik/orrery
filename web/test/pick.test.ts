@@ -85,15 +85,27 @@ describe('a session out of work', () => {
         expect(ids(sent[0]!.text)).toEqual(['ORR-2', 'ORR-1'])
     })
 
-    it('is handed Backlog once Todo is empty, and nothing it may not start', async () => {
+    it('is handed nothing it may not start', async () => {
         board.orrery = [
-            issue('ORR-1', 'backlog'), issue('ORR-2', 'backlog', {proposal: 'pending'}), issue('ORR-3', 'backlog', {waiting: 'decision'}),
-            issue('ORR-4', 'backlog', {assignee: 'steffen'}), issue('ORR-5', 'backlog'), issue('ORR-6', 'backlog', {parent: 'ORR-5'}),
-            issue('ORR-7', 'started'), issue('ORR-8', 'backlog', {assignee: 'ada'}), issue('ORR-9', 'backlog', {assignee: 'Claude'}),
+            issue('ORR-1', 'todo'), issue('ORR-2', 'todo', {proposal: 'pending'}), issue('ORR-3', 'todo', {waiting: 'decision'}),
+            issue('ORR-4', 'todo', {assignee: 'steffen'}), issue('ORR-5', 'todo'), issue('ORR-6', 'todo', {parent: 'ORR-5'}),
+            issue('ORR-7', 'started'), issue('ORR-8', 'todo', {assignee: 'ada'}), issue('ORR-9', 'todo', {assignee: 'Claude'}),
         ]
         await pick.pickNext('orrery', 'w')
         // ORR-5 is a parent: its sub-issue is the work.
         expect(ids(sent[0]!.text)).toEqual(['ORR-1', 'ORR-6', 'ORR-9'])
+    })
+
+    it('leaves Backlog alone, even with Todo empty (ORR-759)', async () => {
+        board.orrery = [issue('ORR-1', 'backlog', {priority: 'P0'}), issue('ORR-2', 'started')]
+        await pick.pickNext('orrery', 'w')
+        expect(sent).toEqual([])
+    })
+
+    it('doesn\'t hand over a parent in Todo whose sub-issue waits in Backlog', async () => {
+        board.orrery = [issue('ORR-1', 'todo'), issue('ORR-2', 'backlog', {parent: 'ORR-1'})]
+        await pick.pickNext('orrery', 'w')
+        expect(sent).toEqual([])
     })
 
     it('is handed only what is its own person\'s, with more than one person (ORR-656)', async () => {

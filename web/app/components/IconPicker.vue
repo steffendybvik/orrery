@@ -56,7 +56,7 @@ const shown = computed(() => {
           :key="name"
           type="button"
           class="grid h-9 place-items-center rounded-lg transition-colors"
-          :class="icon === name ? 'bg-accent-500/15 text-accent-600 ring-1 ring-accent-500/40 dark:text-accent-300' : 'text-muted hover:bg-hover hover:text-fg'"
+          :class="icon === name ? 'bg-accent-500/15 text-accent-700 ring-1 ring-accent-500/40 dark:text-accent-300' : 'text-muted hover:bg-hover hover:text-fg'"
           :title="name"
           :aria-label="name"
           :aria-pressed="icon === name"

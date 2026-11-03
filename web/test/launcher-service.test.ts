@@ -4,7 +4,7 @@ import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {describe, expect, it, vi} from 'vitest'
 // @ts-expect-error: the launcher is plain JavaScript, run by node on the host
-import {adoptable, inWsl, keepingSessions, launcherAlive, listChanges, listIn, pickUp, plist, readConfig, RELOADS, servedElsewhere, serviceProblem, skipping, systemdUnit, withProject, withoutProject, wslLocalhost} from '../../channel/launcher-service.mjs'
+import {addToList, adoptable, inWsl, keepingSessions, launcherAlive, listChanges, listIn, pickUp, plist, readConfig, RELOADS, servedElsewhere, serviceProblem, skipping, systemdUnit, withProject, withoutProject, wslLocalhost} from '../../channel/launcher-service.mjs'
 // @ts-expect-error: the same
 import {follow} from '../../channel/sse.mjs'
 
@@ -18,6 +18,14 @@ describe("the launcher's list", () => {
         config = withProject(config, {...greenhouse, url: 'http://localhost:9010'})
         expect(config.projects).toEqual([{...greenhouse, dir: '/moved/greenhouse'}, {...greenhouse, url: 'http://localhost:9010'}])
         expect(withoutProject(config, greenhouse).projects).toEqual([{...greenhouse, url: 'http://localhost:9010'}])
+    })
+
+    it('marks a repo Connect a repo added with when, and takes it off skip (ORR-774)', () => {
+        const file = join(mkdtempSync(join(tmpdir(), 'orrery-launcher-')), 'list.json')
+        writeFileSync(file, JSON.stringify({projects: [], skip: ['/code/shop']}))
+        const now = new Date('2026-10-31T08:00:00.000Z')
+        addToList([{url: 'http://localhost:9000', project: 'shop', dir: '/code/shop'}], '/code/shop', {file, now})
+        expect(readConfig(file)).toMatchObject({projects: [{project: 'shop', dir: '/code/shop', connected_at: now.toISOString()}], skip: []})
     })
 
     it('is empty when its file is missing or broken', () => {

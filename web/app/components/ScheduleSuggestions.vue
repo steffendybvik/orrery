@@ -48,7 +48,7 @@ function add(s: ScheduleSuggestion) {
     <div v-for="s in offered" :key="s.key" class="flex items-center gap-3 border-b border-line/60 px-4 py-3 text-sm last:border-b-0">
       <span class="flex w-9 shrink-0 justify-center -space-x-1.5">
         <PresetBadge v-for="p in shipped(s)" :key="p.id" :preset="p" :size="24" />
-        <span v-if="!shipped(s).length && s.kind === 'issue'" class="grid size-6 place-items-center rounded-md text-accent-600 ring-1 ring-inset ring-line dark:text-accent-400">
+        <span v-if="!shipped(s).length && s.kind === 'issue'" class="grid size-6 place-items-center rounded-md text-accent-700 ring-1 ring-inset ring-line dark:text-accent-400">
           <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><circle cx="12" cy="12" r="8" /></svg>
         </span>
         <span v-else-if="!shipped(s).length && s.kind === 'action'" class="grid size-6 place-items-center rounded-md text-amber-600 ring-1 ring-inset ring-line dark:text-amber-400">→</span>
@@ -59,7 +59,7 @@ function add(s: ScheduleSuggestion) {
           <span class="max-w-full truncate font-medium text-fg">{{ s.title }}</span>
           <span
               class="shrink-0 rounded-full px-1.5 py-px text-[10px] font-medium"
-              :class="s.kind === 'message' ? 'bg-sky-500/12 text-sky-700 dark:text-sky-300' : s.kind === 'session' ? 'bg-violet-500/12 text-violet-700 dark:text-violet-300' : s.kind === 'action' ? 'bg-amber-500/12 text-amber-700 dark:text-amber-300' : 'bg-accent-500/12 text-accent-700 dark:text-accent-300'"
+              :class="s.kind === 'message' ? 'bg-sky-500/12 text-sky-700 dark:text-sky-300' : s.kind === 'session' ? 'bg-violet-500/12 text-violet-700 dark:text-violet-300' : s.kind === 'action' ? 'bg-amber-500/12 text-amber-800 dark:text-amber-300' : 'bg-accent-500/12 text-accent-700 dark:text-accent-300'"
           >{{ s.kind === 'message' ? 'Messages sessions' : s.kind === 'session' ? 'Starts a session' : s.kind === 'action' ? 'Moves issues' : 'Makes an issue' }}</span>
         </div>
         <span class="truncate text-xs text-faint">{{ s.when }}<template v-if="shipped(s).length"> · {{ shipped(s).map(p => p.name).join(' + ') }}</template></span>

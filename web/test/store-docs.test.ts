@@ -69,6 +69,37 @@ describe('docs', () => {
         expect((await store.updateDoc('greenhouse', 'decision-ids', {section: null})).section).toBeUndefined()
     })
 
+    it('keep their sections A–Z until one is new or moved, which stays through a rename and a reload (ORR-767)', async () => {
+        await store.createDoc('greenhouse', {id: 'b', title: 'B', section: 'Beta'})
+        await store.updateDoc('greenhouse', 'b', {section: 'Alpha'})
+        await store.createDoc('greenhouse', {id: 'c', title: 'C', section: 'Beta'})
+        // New ones go last, however they come: made empty, or by a doc filed under one.
+        await store.createDocSection('greenhouse', {name: 'Aardvark'})
+        await store.createDoc('greenhouse', {id: 'd', title: 'D', section: 'Abacus'})
+        expect(await store.docSections('greenhouse')).toEqual(['Alpha', 'Beta', 'Aardvark', 'Abacus'])
+        expect(await store.updateDocSection('greenhouse', 'Abacus', {position: 0})).toBe('Abacus')
+        expect(await store.docSections('greenhouse')).toEqual(['Abacus', 'Alpha', 'Beta', 'Aardvark'])
+        // Past the end is last, and moving isn't a change to its docs.
+        const before = (await store.doc('greenhouse', 'd')).updated_at
+        await store.updateDocSection('greenhouse', 'Abacus', {position: 99})
+        expect((await store.project('greenhouse')).doc_sections).toEqual(['Alpha', 'Beta', 'Aardvark', 'Abacus'])
+        expect((await store.doc('greenhouse', 'd')).updated_at).toBe(before)
+
+        // A rename keeps its place, a delete takes it out, and one emptied and filed again is new.
+        await store.renameDocSection('greenhouse', 'Beta', {name: 'Zeta'})
+        expect(await store.docSections('greenhouse')).toEqual(['Alpha', 'Zeta', 'Aardvark', 'Abacus'])
+        await store.deleteDocSection('greenhouse', 'Aardvark')
+        expect(await store.docSections('greenhouse')).toEqual(['Alpha', 'Zeta', 'Abacus'])
+        await store.updateDoc('greenhouse', 'b', {section: null})
+        expect(await store.docSections('greenhouse')).toEqual(['Zeta', 'Abacus'])
+        await store.updateDoc('greenhouse', 'b', {section: 'Alpha'})
+        expect(await store.docSections('greenhouse')).toEqual(['Zeta', 'Abacus', 'Alpha'])
+
+        for (const position of [-1, 1.5, '1', null]) expect(await failure(() => store.updateDocSection('greenhouse', 'Zeta', {position}))).toMatchObject({status: 400})
+        expect(await failure(() => store.updateDocSection('greenhouse', 'Nowhere', {position: 0}))).toMatchObject({status: 404})
+        expect(await failure(() => store.updateDocSection('greenhouse', 'Zeta', {}))).toMatchObject({status: 400})
+    })
+
     it('have sections made empty, renamed on every doc at once and deleted keeping their docs (ORR-560)', async () => {
         await store.createDoc('greenhouse', {id: 'decision-ids', title: 'Decision: ids', section: 'Decisions'})
         await store.createDoc('greenhouse', {id: 'decision-docs', title: 'Decision: docs', section: 'Decisions'})

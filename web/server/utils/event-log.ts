@@ -150,8 +150,8 @@ export class EventLog {
     }
 
     /** Records it, saying so on the console rather than failing when it can't: logging never breaks what it logs. */
-    note(entry: EventEntry) {
-        this.record(entry).catch(error => console.error(`[orrery] logging ${entry.kind}:`, error))
+    note(entry: EventEntry): Promise<unknown> {
+        return this.record(entry).catch(error => console.error(`[orrery] logging ${entry.kind}:`, error))
     }
 
     /** Records a change to the roadmap, as the store says it (`issue.status`, `release.frozen`), while Advanced is on:

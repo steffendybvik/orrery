@@ -41,6 +41,18 @@ export function useSchedules() {
         }))
     }
 
+    /** Pauses or activates all of a project's schedules at once, as the owner. Their own change isn't news, though an
+     * agent's schedule they hadn't read yet stays marked, as this doesn't read it for them. */
+    async function setAll(project: string, enabled: boolean) {
+        const {scheduleUnseen, seeSchedule} = useUnseen()
+        const unread = new Set(of(project).filter(scheduleUnseen).map(s => s.id))
+        const result = await apiFetch<{changed: Schedule[], failed: {id: number, title: string, message: string}[]}>(`/projects/${encodeURIComponent(project)}/schedules/enabled`, {
+            method: 'POST', body: {enabled},
+        })
+        for (const schedule of result.changed) if (!unread.has(schedule.id)) seeSchedule(schedule)
+        return result
+    }
+
     /** Makes an agent's schedule the owner's, as they read it (`updated_at`): it runs as theirs from then on (ORR-456). */
     async function adopt(schedule: Schedule): Promise<Schedule> {
         const mine = await apiFetch<Schedule>(`/projects/${encodeURIComponent(schedule.project)}/schedules/${schedule.id}/adopt`, {
@@ -71,5 +83,5 @@ export function useSchedules() {
         }
     }
 
-    return {byProject, of, load, across, loadAcross, editing, edit, editAcross, menu, openMenu, pause, adopt, ran, run}
+    return {byProject, of, load, across, loadAcross, editing, edit, editAcross, menu, openMenu, pause, setAll, adopt, ran, run}
 }

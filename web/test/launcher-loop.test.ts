@@ -9,6 +9,9 @@ import {fileURLToPath} from 'node:url'
 import {describe, expect, it, vi} from 'vitest'
 // @ts-expect-error: plain JavaScript, no types
 import {chatOnly, lockedDown} from '../../channel/locked-down.mjs'
+import {endSignal, spawnCoverage} from './spawn-coverage'
+
+import {FAKE_TMUX} from './fake-tmux'
 
 // The launcher's running part (ORR-700): the real launcher, spawned, against a stand-in orrery and a fake tmux that records
 // its calls. It must never reach the real tmux, as a launcher adopts real sessions and kills them when it exits. So the
@@ -18,34 +21,6 @@ const LAUNCHER = fileURLToPath(new URL('../../channel/orrery-launcher.mjs', impo
 const WAIT = {timeout: 10_000, interval: 25}
 const ID = {a: 'aaaaaaaaaaaa', b: 'bbbbbbbbbbbb', c: 'cccccccccccc', d: 'dddddddddddd'}
 const nameOf = (id: string, project = 'greenhouse') => `orrery-${project}-${id}`
-
-// Sessions and their options are a JSON file, so each call sees what the last one did, as with a tmux server.
-const FAKE_TMUX = `#!${process.execPath}
-const fs = require('node:fs')
-const dir = process.env.FAKE_TMUX
-const args = process.argv.slice(2)
-fs.appendFileSync(dir + '/calls', JSON.stringify(args) + '\\n')
-const file = dir + '/state.json'
-const state = JSON.parse(fs.readFileSync(file, 'utf8'))
-const save = () => fs.writeFileSync(file, JSON.stringify(state))
-const at = flag => args[args.indexOf(flag) + 1]
-const session = () => state[at('-t')] ?? process.exit(1)
-switch (args[0]) {
-    case '-V': console.log('tmux 3.4-fake'); break
-    case 'list-sessions': if (!Object.keys(state).length) process.exit(1); console.log(Object.keys(state).join('\\n')); break
-    case 'new-session': state[at('-s')] = {}; save(); break
-    case 'set-option': session()[args[3]] = args[4]; save(); break
-    case 'show-options': { const value = session()[args[4]]; if (value === undefined) process.exit(1); console.log(value); break }
-    case 'if-shell': {
-        const [, option, owner] = /#\\{==:#\\{(.+?)\\},(.*)\\}$/.exec(args[4])
-        if ((session()[option] ?? '') === owner) { const [, , , key, value] = args[5].split(' '); session()[key] = value; save() }
-        break
-    }
-    case 'kill-session': session(); delete state[at('-t')]; save(); break
-    case 'capture-pane': case 'send-keys': session(); break
-    default: process.exit(1)
-}
-`
 
 type Launch = Record<string, unknown> & {id: string}
 type Asked = {method: string, path: string, query: URLSearchParams, headers: Record<string, unknown>, body: string}
@@ -129,7 +104,7 @@ async function bench({onTestFinished}: Finishing, sessions: Sessions = {}) {
     const env = {PATH: `${bin}:/usr/bin:/bin`, HOME: home, XDG_CONFIG_HOME: join(home, '.config'), TMUX_TMPDIR: sockets, FAKE_TMUX: fake, DISPLAY: ':0'}
     const children: ChildProcess[] = []
     onTestFinished(() => {
-        children.forEach(child => child.kill('SIGKILL'))
+        children.forEach(child => child.kill(endSignal()))
         orrery.close()
     })
     const tmuxCalls = () => readFileSync(join(fake, 'calls'), 'utf8').trim().split('\n').filter(Boolean).map(line => JSON.parse(line) as string[])
@@ -155,7 +130,7 @@ async function bench({onTestFinished}: Finishing, sessions: Sessions = {}) {
             const launcher = spawn(process.execPath, [LAUNCHER, ...service ? ['--service'] : []], {
                 cwd: repo,
                 stdio: ['ignore', 'ignore', 'ignore'],
-                env: {...env, ...service ? {} : {ORRERY_PROJECT: 'greenhouse', ORRERY_URL: orrery.url}},
+                env: {...env, ...spawnCoverage(), ...service ? {} : {ORRERY_PROJECT: 'greenhouse', ORRERY_URL: orrery.url}},
             })
             children.push(launcher)
             return launcher
@@ -343,7 +318,7 @@ describe.concurrent("a launcher's own loop", {timeout: 40_000}, () => {
         await vi.waitFor(() => expect(orrery.connectReports().at(-1)).toMatchObject({state: 'done', written: ['.mcp.json', '.claude/settings.json', 'CLAUDE.md']}), WAIT)
         expect(JSON.parse(readFileSync(join(repo, '.mcp.json'), 'utf8')).mcpServers['orrery-personal'].env).toMatchObject({ORRERY_URL: orrery.url, ORRERY_PROJECTS: 'orchard'})
         expect(JSON.parse(readFileSync(list, 'utf8')).projects.map((p: {project: string}) => p.project)).toEqual(['greenhouse', 'orchard'])
-        expect(opened()).toContain('--dangerously-load-development-channels server:orrery-personal')
+        expect(opened()).toMatch(/--dangerously-load-development-channels \W*server:orrery-personal/)
         await vi.waitFor(() => expect(orrery.listening('orchard')).toBe(1), WAIT)
     })
 

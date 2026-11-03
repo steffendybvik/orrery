@@ -44,11 +44,11 @@ async function saveStarts(on = !!settings.value.starts) {
 <template>
   <div class="flex flex-col gap-2 rounded-xl border border-line p-3 text-[13px] dark:bg-panel">
     <label class="flex items-center gap-2 text-fg">
-      <input type="checkbox" class="accent-accent-500" :checked="!!settings.starts" @change="saveStarts(($event.target as HTMLInputElement).checked)">
+      <input type="checkbox" class="accent-accent-fill" :checked="!!settings.starts" @change="saveStarts(($event.target as HTMLInputElement).checked)">
       Let orrery start sessions
     </label>
     <label class="flex items-center gap-2 text-xs text-muted" :class="{'opacity-50': !settings.starts}">
-      <input v-model="onSignal" type="checkbox" class="accent-accent-500" :disabled="!settings.starts" @change="saveStarts()">
+      <input v-model="onSignal" type="checkbox" class="accent-accent-fill" :disabled="!settings.starts" @change="saveStarts()">
       Start a session when work arrives and nobody's listening
     </label>
     <div class="flex flex-wrap items-center gap-2 text-xs text-muted" :class="{'opacity-50': !settings.starts}">
@@ -65,12 +65,12 @@ async function saveStarts(on = !!settings.value.starts) {
     <p class="text-xs text-muted" :class="{'opacity-50': !settings.starts}">
       orrery starts a session {{ onSignal ? "when work reaches a project nobody's listening on" : 'when you press Start session or Focus on this' }}, or when
       one of your schedules starts one
-      (<NuxtLink to="/schedules" class="text-accent-600 hover:underline dark:text-accent-400">{{ starting === 1 ? '1 does' : `${starting} do` }}</NuxtLink>).
+      (<NuxtLink to="/schedules" class="text-accent-700 hover:underline dark:text-accent-400">{{ starting === 1 ? '1 does' : `${starting} do` }}</NuxtLink>).
     </p>
     <p class="text-xs text-faint" :class="{'opacity-50': !settings.starts}">
       Left blank, a session runs until you stop it. Neither stops one mid-work: it waits until the session is idle with nothing in progress.
       With a minimum, one stopped that way is replaced by a fresh one with the same presets; one you stop yourself isn't.
     </p>
-    <p v-if="failed" class="text-xs text-rose-600 dark:text-rose-400">{{ failed }}</p>
+    <p v-if="failed" class="text-xs text-rose-700 dark:text-rose-400">{{ failed }}</p>
   </div>
 </template>

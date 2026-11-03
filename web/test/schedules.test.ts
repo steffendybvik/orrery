@@ -248,3 +248,43 @@ describe('an untrusted schedule', () => {
         expect(signals.filter(x => x.kind === 'message')).toEqual([])
     })
 })
+
+describe('pausing and activating all of a project', () => {
+    const daily = {title: 'Water', cron: '0 9 * * *'}
+
+    it("is the owner's alone", async () => {
+        expect((await failure(() => schedules.setAllEnabled('greenhouse', false, agent))).status).toBe(403)
+    })
+
+    it('changes only that project, and only what has something to change', async () => {
+        await store.createProject({name: 'pantry', key: 'PAN'})
+        const here = await schedules.create('greenhouse', daily, me)
+        const paused = await schedules.create('greenhouse', {...daily, title: 'Feed', enabled: false}, me)
+        const there = await schedules.create('pantry', daily, me)
+
+        const {changed, failed} = await schedules.setAllEnabled('greenhouse', false, me)
+        expect(changed.map(s => s.id)).toEqual([here.id])
+        expect(failed).toEqual([])
+        expect((await schedules.get('greenhouse', here.id)).next_run).toBeFalsy()
+        expect((await schedules.get('pantry', there.id)).enabled).toBe(true)
+
+        const back = await schedules.setAllEnabled('greenhouse', true, me)
+        expect(back.changed.map(s => s.id).sort()).toEqual([here.id, paused.id].sort())
+        expect((await schedules.get('greenhouse', here.id)).next_run).toBeTruthy()
+    })
+
+    it("doesn't bring back a one-off that was taken early, with its time still ahead", async () => {
+        const once = await schedules.create('greenhouse', {title: 'Once', at: new Date(Date.now() + 3_600_000).toISOString()}, me)
+        await schedules.runNow('greenhouse', once.id, me, true)
+        expect((await schedules.get('greenhouse', once.id)).enabled).toBe(false)
+
+        expect((await schedules.setAllEnabled('greenhouse', true, me)).changed).toEqual([])
+        expect((await schedules.get('greenhouse', once.id)).enabled).toBe(false)
+    })
+
+    it("leaves an agent's schedule the agent's", async () => {
+        const theirs = await schedules.create('greenhouse', daily, agent)
+        await schedules.setAllEnabled('greenhouse', false, me)
+        expect(await schedules.get('greenhouse', theirs.id)).toMatchObject({enabled: false, protected: false, created_by: 'claude'})
+    })
+})

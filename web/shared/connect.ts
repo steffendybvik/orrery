@@ -106,21 +106,21 @@ Merge with what's already in each file.
 
 0. Put orrery's bootstrap on this machine, which runs the channel and hooks as this orrery serves them, so they upgrade with it:
 
-    ${bootstrapInstall(origin)}
+${inStep(bootstrapInstall(origin), 'sh')}
 
 1. Add this section to \`CLAUDE.md\`:
 
-${claudeMd.split('\n').map(line => line ? `    ${line}` : '').join('\n')}
+${inStep(claudeMd, 'markdown')}
 
 2. Register orrery's channel in \`.mcp.json\`, so orrery can ask this session to focus on an issue:
 
-${mcpJson.split('\n').map(line => `    ${line}`).join('\n')}
+${inStep(mcpJson, 'json')}
 
    One entry serves all of the repo's projects on this orrery: if \`.mcp.json\` already runs orrery's channel for it (\`bootstrap.mjs channel\`, or an older \`orrery-channel.mjs\` from a checkout, which you switch to the command above, and its hooks with it) (the same \`ORRERY_ID\`, or the same \`ORRERY_URL\`), add \`${id}\` to that entry's \`ORRERY_PROJECTS\` (comma-separated, or \`*\` for every project on it) instead, and fold any entry that serves one project (\`ORRERY_PROJECT\`) into it.
 
 3. Add these hooks to \`.claude/settings.json\`, so orrery sees this session's name and whether it's idle, working or needs the owner:
 
-${settingsJson.split('\n').map(line => `    ${line}`).join('\n')}
+${inStep(settingsJson, 'json')}
 
 ## Then
 
@@ -148,6 +148,13 @@ This orrery asks for a login, and this request had no credential, so this brief 
 
     curl -s -H "Authorization: Bearer $ORRERY_KEY" '${url}'
 `
+}
+
+/** `text` as a numbered step's code block: fenced, as an indented block in a list item is only its content, and a fence
+ * longer than any it holds. */
+function inStep(text: string, language: string): string {
+    const fence = '`'.repeat(Math.max(3, ...[...text.matchAll(/`+/g)].map(run => run[0].length + 1)))
+    return [`${fence}${language}`, ...text.split('\n'), fence].map(line => line ? `   ${line}` : '').join('\n')
 }
 
 /** A name's id and prefix, as orrery would make them (`app` for an id when the name makes none). */

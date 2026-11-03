@@ -4,9 +4,10 @@
 // the doc each time, so the page needs nothing outside itself.
 //
 //   pnpm test:report --vitest vitest.json --e2e e2e.json --coverage coverage/coverage-summary.json --source ci
+//     --final coverage/coverage-final.json --lines 'spawned processes=spawned-lines.json' --lines 'the browser suite'\''s server=e2e-lines.json
 //
 // `--source` says where the run was, as times from a laptop and from CI can't be compared; `--out page.html` writes the
-// file instead of the doc. ORRERY_URL says which orrery (http://localhost:9000), ORRERY_KEY its key if it asks for one.
+// file instead of the doc. How the numbers are kept comparable is in Working on orrery, under Benchmarking the browser suite. ORRERY_URL says which orrery (http://localhost:9000), ORRERY_KEY its key if it asks for one.
 import {execFileSync} from 'node:child_process'
 import {readFileSync, writeFileSync} from 'node:fs'
 import {relative, resolve} from 'node:path'
@@ -24,6 +25,20 @@ const slowestFirst = list => [...list].sort((a, b) => b.seconds - a.seconds).sli
 /** The path from the repo's root, wherever the run was. */
 const short = path => path.replace(/^.*?\/(web|channel)\//, '$1/')
 const pct = (covered, total) => total ? Math.round(1000 * covered / total) / 10 : null
+
+/** Why two versions' numbers for a suite can't be set side by side, or null when they can. Runs from before `setup` was
+ * kept all ran on one worker against `nuxt dev`. In the page's script too, so it may only use what's in here. */
+export function notCompared(run, before, count, setup) {
+    if (before.source !== run.source) return 'one is local, one on CI'
+    if (!count && (run.coverage?.counts ?? '') !== (before.coverage?.counts ?? '')) return 'they count different suites'
+    if (count && (count(run).failed || count(before).failed)) return 'tests failed in one, so it may not have run whole'
+    if (!setup) return null
+    const said = r => {
+        const {workers = 1, server = 'dev'} = setup(r) ?? {}
+        return workers + (workers === 1 ? ' worker' : ' workers') + ' on ' + server
+    }
+    return said(run) === said(before) ? null : 'one ran ' + said(run) + ', the other ' + said(before)
+}
 
 /** Vitest's JSON reporter: the wall clock of the run, and the slowest files and tests. */
 export function unitNumbers(json) {
@@ -56,7 +71,15 @@ export function e2eNumbers(json) {
         seconds: seconds(json.stats.duration),
         tests: tests.length, failed: json.stats.unexpected + (json.stats.flaky ?? 0), skipped: json.stats.skipped,
         files: slowestFirst([...byFile.values()]), slowest: slowestFirst(tests),
+        ...setupOf(json),
     }
+}
+
+/** How the browser suite ran, from what its config and Playwright say, so a later change to it isn't taken for a speedup. */
+function setupOf(json) {
+    const workers = json.config?.metadata?.actualWorkers ?? json.config?.workers
+    const server = json.config?.metadata?.server
+    return workers || server ? {setup: {...workers ? {workers} : {}, ...server ? {server} : {}}} : {}
 }
 
 /** The coverage summary: the totals, each area, and the files least covered, the largest first among equals. */
@@ -73,6 +96,35 @@ export function coverageNumbers(summary) {
             .sort((a, b) => a.lines.pct - b.lines.pct || b.lines.total - a.lines.total).slice(0, TOP)
             .map(file => ({file: short(file.file), lines: file.lines.pct, total: file.lines.total})),
     }
+}
+
+/** Vitest's coverage with the lines other processes reached added (scripts/coverage-lines.mjs, ORR-745), as a summary of
+ * the same shape. Lines only: a line is one thing to every count, while what each tool calls a branch or a function differs,
+ * so those stay Vitest's. A file keeps Vitest's lines as its total, so only the same code can add up. */
+export function withLines(summary, final, reached) {
+    const merged = {}
+    const totals = {covered: 0, total: 0}
+    for (const [file, numbers] of Object.entries(summary)) {
+        if (file === 'total') continue
+        const coverage = final[file]
+        if (!coverage) {
+            merged[file] = numbers
+            totals.covered += numbers.lines.covered
+            totals.total += numbers.lines.total
+            continue
+        }
+        const lines = new Map()
+        for (const [id, count] of Object.entries(coverage.s)) {
+            const line = coverage.statementMap[id].start.line
+            lines.set(line, Math.max(lines.get(line) ?? 0, count))
+        }
+        const other = new Set(reached.flatMap(run => run[short(file)] ?? []))
+        const covered = [...lines].filter(([line, count]) => count || other.has(line)).length
+        merged[file] = {...numbers, lines: {...numbers.lines, covered, pct: pct(covered, lines.size) ?? 100}}
+        totals.covered += covered
+        totals.total += lines.size
+    }
+    return {...merged, total: {...summary.total, lines: {...summary.total.lines, ...totals, pct: pct(totals.covered, totals.total) ?? 100}}}
 }
 
 const RUNS = /<script type="application\/json" id="runs">([\s\S]*?)<\/script>/
@@ -136,16 +188,19 @@ const time = s => s >= 60 ? Math.floor(s / 60) + 'm ' + String(Math.round(s % 60
 const percent = n => n === null || n === undefined ? '–' : n.toFixed(1) + '%'
 const card = (title, body, hint) => '<div class="bg-panel rounded-lg ring-1 ring-line p-3 flex flex-col gap-2 min-w-0"><h2 class="font-medium">' + title + (hint ? ' <span class="font-normal text-muted">' + hint + '</span>' : '') + '</h2>' + body + '</div>'
 
+const notCompared = ${notCompared}
+
 const MEASURES = [
   {title: 'Unit tests', of: r => r.unit.seconds, say: time, more: 'slower', less: 'faster', count: r => r.unit},
-  {title: 'E2E tests', of: r => r.e2e.seconds, say: time, more: 'slower', less: 'faster', count: r => r.e2e},
+  {title: 'E2E tests', of: r => r.e2e.seconds, say: time, more: 'slower', less: 'faster', count: r => r.e2e, setup: r => r.e2e.setup},
   {title: 'Coverage, lines', of: r => r.coverage.lines, say: percent, by: n => n.toFixed(1) + ' points', more: 'up', less: 'down', fixed: 100},
 ]
 
 function tile(measure, run, before) {
   const value = measure.of(run)
   let change = 'The first version here'
-  if (before && before.source !== run.source) change = 'Not compared with ' + esc(before.version) + ': one is local, one on CI'
+  const apart = before && notCompared(run, before, measure.count, measure.setup)
+  if (apart) change = 'Not compared with ' + esc(before.version) + ': ' + esc(apart)
   else if (before) {
     const by = value - measure.of(before)
     change = Math.abs(by) < 0.05 ? 'Level with ' + esc(before.version)
@@ -153,7 +208,7 @@ function tile(measure, run, before) {
   }
   const count = measure.count && measure.count(run)
   const under = count ? count.tests + ' tests' + (count.failed ? ', ' + count.failed + ' failed' : '') + (count.skipped ? ', ' + count.skipped + ' skipped' : '')
-    : 'Branches ' + percent(run.coverage.branches) + ', functions ' + percent(run.coverage.functions)
+    : 'Branches ' + percent(run.coverage.branches) + ', functions ' + percent(run.coverage.functions) + (run.coverage.counts ? ' (Vitest only)' : '')
   return '<div class="bg-panel rounded-lg ring-1 ring-line p-3"><div class="text-muted">' + measure.title + '</div><div class="text-2xl font-semibold num">' + measure.say(value) + '</div><div class="text-muted text-xs">' + under + '</div><div class="text-xs mt-1">' + change + '</div></div>'
 }
 
@@ -186,7 +241,7 @@ const noTests = n => n + (n === 1 ? ' test' : ' tests')
 function draw(version) {
   const at = runs.findIndex(r => r.version === version)
   const run = runs[at], before = runs[at - 1]
-  el('about').textContent = run.date + ' · ' + run.commit + ' · ' + (run.source === 'ci' ? 'on CI' : 'run locally, so its times only compare with other local runs')
+  el('about').textContent = run.date + ' · ' + run.commit + ' · ' + (run.source === 'ci' ? 'on CI' : 'run locally, so its times only compare with other local runs') + ' · lines count ' + esc(run.coverage.counts ?? 'Vitest only')
   el('tiles').innerHTML = MEASURES.map(m => tile(m, run, before)).join('')
   el('trends').innerHTML = MEASURES.map(m => trend(m, version)).join('')
   el('table').innerHTML = '<table class="w-full text-left num"><thead class="text-muted"><tr><th class="pr-4 font-medium">Version</th><th class="pr-4 font-medium">Date</th><th class="pr-4 font-medium">Where</th><th class="pr-4 font-medium">Unit</th><th class="pr-4 font-medium">E2E</th><th class="pr-4 font-medium">Lines</th><th class="font-medium">Branches</th></tr></thead><tbody>'
@@ -229,6 +284,19 @@ const arg = name => {
     const at = process.argv.indexOf(`--${name}`)
     return at === -1 ? undefined : process.argv[at + 1]
 }
+const args = name => process.argv.flatMap((word, at) => word === `--${name}` ? [process.argv[at + 1]] : [])
+
+/** What the coverage counts: Vitest's, plus any `--lines` files, each `<what it counts>=<file>`, with `--final` to add them to. */
+function coverageOf(read) {
+    const lines = args('lines').map(given => {
+        const at = given.indexOf('=')
+        if (at < 1) throw new Error(`Say what it counts: --lines <what>=<file>, not ${given}`)
+        return {counts: given.slice(0, at), reached: JSON.parse(readFileSync(given.slice(at + 1), 'utf8'))}
+    })
+    if (!lines.length) return coverageNumbers(read('coverage'))
+    const merged = withLines(read('coverage'), read('final'), lines.map(l => l.reached))
+    return {...coverageNumbers(merged), counts: ['Vitest', ...lines.map(l => l.counts)].join(', ')}
+}
 
 async function main() {
     const read = name => {
@@ -242,7 +310,7 @@ async function main() {
         version: JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version,
         date: new Date().toISOString().slice(0, 10),
         commit: (process.env.GITHUB_SHA ?? execFileSync('git', ['rev-parse', 'HEAD'], {encoding: 'utf8'})).trim().slice(0, 8),
-        source, unit: unitNumbers(read('vitest')), e2e: e2eNumbers(read('e2e')), coverage: coverageNumbers(read('coverage')),
+        source, unit: unitNumbers(read('vitest')), e2e: e2eNumbers(read('e2e')), coverage: coverageOf(read),
     }
     const base = process.env.ORRERY_URL ?? 'http://localhost:9000'
     const url = `${base}/api/projects/orrery/docs`

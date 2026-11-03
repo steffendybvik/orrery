@@ -18,6 +18,12 @@ const {look} = useStatuses()
 
 const sessions = computed(() => (all.value[props.project] ?? []).filter(listable).sort((a, b) => Number(b.id === props.worker) - Number(a.id === props.worker)))
 const listening = computed(() => sessions.value.filter(s => s.listening))
+// On an issue's page, the sessions it can go to now are what matters (ORR-790): the idle ones, and the one already on it.
+// The rest wait behind a row, which stays as the owner left it as sessions move between the two. A chunk lists them all.
+const available = (session: Session) => !props.issue || session.state === 'idle' || session.id === props.worker
+const free = computed(() => sessions.value.filter(available))
+const busy = computed(() => sessions.value.filter(s => !available(s)))
+const showBusy = ref(false)
 const unheard = computed(() => withoutChannel(all.value[props.project] ?? []))
 // Whether a focus sent with nobody listening has a session started for it.
 const {state: launch} = useLaunchState(() => props.project)
@@ -95,7 +101,7 @@ const aimed = (signal: Signal) => signal.target === '*' || !signal.target && sig
 <template>
   <section class="flex flex-col gap-3 rounded-2xl bg-well/50 p-4 ring-1 ring-line dark:bg-panel">
     <div class="flex items-center gap-2">
-      <svg class="size-4 text-accent-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="8" /><circle cx="12" cy="12" r="3" /><path d="M12 2v3M12 19v3M2 12h3M19 12h3" /></svg>
+      <svg class="size-4 text-accent-fill" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="8" /><circle cx="12" cy="12" r="3" /><path d="M12 2v3M12 19v3M2 12h3M19 12h3" /></svg>
       <h2 class="text-[13px] font-medium text-fg">Sessions</h2>
       <span class="text-xs text-faint">{{ listening.length ? `${listening.length} listening` : 'none listening' }}</span>
       <span v-if="listening.length" class="ml-auto flex items-center gap-2">
@@ -104,7 +110,7 @@ const aimed = (signal: Signal) => signal.target === '*' || !signal.target && sig
             :disabled="!!sending"
             :title="`orrery starts another session on ${project}, working on this issue alone`"
             @click="startOn"
-        >{{ sending === 'new' ? 'Starting…' : 'New session on this' }}</UiButton>
+        ><UiBusy :busy="sending === 'new'" label="Starting…">New session on this</UiBusy></UiButton>
         <UiButton
             v-if="listening.length > 1 && !issue"
             :disabled="!!sending"
@@ -118,10 +124,10 @@ const aimed = (signal: Signal) => signal.target === '*' || !signal.target && sig
           :disabled="!!sending"
           :title="`orrery starts a session on ${project} and asks it to ${issue ? 'work on this' : 'work through this chunk'}`"
           @click="focus(null, true)"
-      >{{ sending === 'all' ? 'Starting…' : issue ? 'Focus on this (starts a session)' : 'Work through this (starts a session)' }}</button>
+      ><UiBusy :busy="sending === 'all'" label="Starting…">{{ issue ? 'Focus on this (starts a session)' : 'Work through this (starts a session)' }}</UiBusy></button>
     </div>
 
-    <p v-if="blockedBy?.length && (listening.length || canStart)" class="text-xs text-amber-700 dark:text-amber-400">
+    <p v-if="blockedBy?.length && (listening.length || canStart)" class="text-xs text-amber-800 dark:text-amber-400">
       Blocked by {{ blockedBy.join(', ') }}, which {{ blockedBy.length === 1 ? "isn't" : "aren't" }} done yet. A focus starts it anyway.
     </p>
 
@@ -129,50 +135,60 @@ const aimed = (signal: Signal) => signal.target === '*' || !signal.target && sig
       <legend class="sr-only">Standing instructions for this focus</legend>
       <span class="text-faint">With it:</span>
       <label v-for="i in offered" :key="i.id" class="flex items-center gap-1.5" :class="ticked.includes(i.id) ? 'text-muted' : 'text-faint'">
-        <input v-model="ticked" type="checkbox" :value="i.id" class="size-3 accent-accent-500">
+        <input v-model="ticked" type="checkbox" :value="i.id" class="size-3 accent-accent-fill">
         {{ i.text }}
       </label>
     </fieldset>
 
-    <ul v-if="sessions.length" class="flex flex-col">
-      <li v-for="session in sessions" :key="session.id" class="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-lg px-2 py-2 hover:bg-hover">
-        <SessionDot :session="session" />
-        <NuxtLink
-            :to="`/sessions#session-${session.id}`"
-            class="min-w-0 truncate text-[13px] text-fg hover:underline"
-            :title="`Open ${session.name} on the Sessions page`"
-        >{{ session.name }}</NuxtLink>
-        <span v-if="session.id === worker" class="rounded-full bg-accent-500/10 px-1.5 text-[11px] font-medium text-accent-700 ring-1 ring-accent-500/30 dark:text-accent-300">on this issue</span>
-        <span class="whitespace-nowrap text-xs" :class="session.state === 'waiting' ? 'text-rose-600 dark:text-rose-400' : 'text-faint'">
-          {{ SESSION_STATE[session.state] }} · {{ ago(session.since) }}
-        </span>
+    <template v-if="sessions.length">
+      <ul v-if="free.length" class="flex flex-col">
+        <SessionsPanelRow
+            v-for="session in free"
+            :key="session.id"
+            :session="session"
+            :worker="worker"
+            :issue="issue"
+            :sending="sending"
+            @focus="focus(session)"
+        />
+      </ul>
+      <div v-if="busy.length">
         <button
-            v-if="session.listening"
             type="button"
-            class="ml-auto flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium ring-1 transition-colors disabled:opacity-50"
-            :class="session.state === 'idle' ? 'bg-accent-500/10 text-accent-700 ring-accent-500/40 hover:bg-accent-500/20 dark:text-accent-300' : 'text-muted ring-line hover:bg-hover hover:text-fg'"
-            :disabled="!!sending"
-            :title="issue ? `Ask ${session.name} to work on this now` : `Ask ${session.name} to work through this chunk now`"
-            @click="focus(session)"
+            class="flex w-full items-center gap-1.5 rounded-lg px-2 py-1.5 text-left text-xs text-muted hover:bg-hover hover:text-fg"
+            :aria-expanded="showBusy"
+            @click="showBusy = !showBusy"
         >
-          {{ sending === session.id ? 'Sending…' : 'Focus on this' }}
+          <svg class="size-3 transition-transform" :class="showBusy ? 'rotate-90' : ''" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6" /></svg>
+          {{ busy.length }} busy
         </button>
-      </li>
-    </ul>
+        <ul v-if="showBusy" class="flex flex-col">
+          <SessionsPanelRow
+              v-for="session in busy"
+              :key="session.id"
+              :session="session"
+              :worker="worker"
+              :issue="issue"
+              :sending="sending"
+              @focus="focus(session)"
+          />
+        </ul>
+      </div>
+    </template>
     <p v-else-if="canStart" class="text-[13px] leading-relaxed text-muted">
       No session on {{ project }} yet. {{ issue ? 'Focus on this' : 'Work through this' }} has orrery start one, in its repo, through the launcher.
     </p>
     <p v-else-if="!unheard.length" class="text-[13px] leading-relaxed text-muted">
       No session on {{ project }} has said hello yet.
-      <NuxtLink :to="`/connect?project=${project}`" class="text-accent-600 underline underline-offset-2 dark:text-accent-400">Connect one</NuxtLink>
+      <NuxtLink :to="`/connect?project=${project}`" class="text-accent-700 underline underline-offset-2 dark:text-accent-400">Connect one</NuxtLink>
       to point it at issues from here.
       <template v-if="byId(project)?.starts && launch && !launch.launchers">
         No launcher is running for it, so orrery can't start one:
-        <NuxtLink to="/sessions#starts" class="text-accent-600 underline underline-offset-2 dark:text-accent-400">how to install it</NuxtLink>.
+        <NuxtLink to="/sessions#starts" class="text-accent-700 underline underline-offset-2 dark:text-accent-400">how to install it</NuxtLink>.
       </template>
     </p>
     <NoChannelHint v-if="unheard.length" :sessions="unheard" :project="project" where="here" />
-    <p v-if="failed" class="text-xs text-rose-600 dark:text-rose-400">{{ failed }}</p>
+    <p v-if="failed" class="text-xs text-rose-700 dark:text-rose-400">{{ failed }}</p>
 
     <ol v-if="sent.length" class="flex flex-col gap-1 border-t border-line pt-3 text-xs text-faint">
       <li v-for="signal in sent.slice(-5)" :key="signal.id" class="flex flex-wrap items-center gap-x-1.5">

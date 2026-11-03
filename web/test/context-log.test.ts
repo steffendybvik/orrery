@@ -29,6 +29,12 @@ describe("a session's context so far", () => {
         expect(log.contextSoFar('s1')[0]!.text).toHaveLength(CONTEXT_TEXT_KEPT)
     })
 
+    it("keeps a GitHub read by its size alone, as it may be a private repo's (ORR-748)", () => {
+        log.noteContext('s1', 'tool', 'github_pulls', '{"body":"private"}')
+        log.noteContext('s1', 'tool', 'github_issues', '[{"body":"private"}]')
+        expect(log.contextSoFar('s1').map(entry => entry.text)).toEqual(['', ''])
+    })
+
     it("keeps an egress answer by its size alone, not what the service sent back (ORR-573)", () => {
         log.noteContext('s1', 'tool', 'egress', '{"access_token":"gho_abc"}')
         expect(log.contextSoFar('s1')[0]).toMatchObject({title: 'egress', text: '', chars: 26})

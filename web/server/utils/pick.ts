@@ -1,6 +1,6 @@
 // A session out of work picks its next issue (ORR-452), with the owner's `pick_next` setting on. Once a listening
 // session is idle with nothing in progress, no run with issues left, nothing waiting on the owner and no signal queued,
-// it's sent, alone, the issues it may start (Todo, or Backlog once Todo is empty, most urgent first) and starts the one
+// it's sent, alone, the issues it may start (Todo, most urgent first; Backlog is the owner's to point at, ORR-759) and starts the one
 // it judges best, passing over one it can't do yet with a comment saying why. With nothing on the list, nothing is
 // sent: no turn starts, and it stays idle. A session orrery started is picked for once its `/clear` is done (from the
 // SessionStart that follows it, when it has no run to resume), as clearing it after would lose what it was handed.
@@ -42,7 +42,7 @@ export async function handedTo(project: string, issue: {assignee?: string | null
     return whose === (await store.ownerOf()).name && !forSessions(issue) ? null : {person: whose}
 }
 
-/** The issues a session hearing `projects` may start: Todo, or Backlog when there's no Todo, most urgent first (then
+/** The issues a session hearing `projects` may start: Todo, most urgent first (then
  * oldest), without proposals not yet approved, ones assigned to someone (`forSessions`), ones waiting on the owner's
  * answer, ones blocked by an issue not done yet (ORR-601), sub-issues of one another session is on (ORR-613), and parents
  * (their sub-issues are the work). At most PICK_FROM. */
@@ -62,8 +62,7 @@ export async function pickable(projects: string[], person?: string): Promise<(Is
     }
     const parents = new Set(open.map(i => i.parent).filter(Boolean))
     const work = open.filter(i => !parents.has(i.id))
-    const todo = work.filter(i => i.kind === 'todo')
-    return (todo.length ? todo : work.filter(i => i.kind === 'backlog'))
+    return work.filter(i => i.kind === 'todo')
         .sort((a, b) => urgency(a) - urgency(b) || a.created_at.localeCompare(b.created_at))
         .slice(0, PICK_FROM)
 }

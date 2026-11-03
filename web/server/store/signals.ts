@@ -11,6 +11,12 @@ import {compressImage} from '../utils/compress'
 import {known} from '#shared/known'
 import {ownerOnly} from '../utils/permission'
 
+/** How long a signal is kept (ORR-778). What it's for is over within a day; the rest is the Sessions page's history. */
+export const KEEP_SIGNALS = 30 * 86_400_000
+/** How long an image nothing refers to is kept: long enough for one in a draft to be saved (ORR-778). */
+const KEEP_UNUSED_UPLOADS = 90 * 86_400_000
+const UPLOAD_LINK = /\/api\/uploads\/([0-9a-f]{24})/g
+
 export abstract class SignalStore extends IssueStore {
     /** Keeps an image for Markdown to show: `{data, name?}` → where it's served and the Markdown that shows it. A PNG or
      * JPEG is kept as WebP when that's smaller (see compress.ts). */
@@ -151,6 +157,44 @@ export abstract class SignalStore extends IssueStore {
         const signal = signalOf(row)
         this.onSignal(signal)
         return signal
+    }
+
+    /** Lets go of signals past KEEP_SIGNALS, heard or not (ORR-778). Nothing they answer for reaches back that far: what
+     * waits on one looks a day back, and `carryUnanswered` no further than this. */
+    async pruneSignals(now = Date.now()): Promise<number> {
+        return (await this.run('DELETE FROM signals WHERE created_at < ?', new Date(now - KEEP_SIGNALS).toISOString())).changes
+    }
+
+    /** Removes images past KEEP_UNUSED_UPLOADS that nothing refers to (ORR-778). What refers to one is any text in any
+     * table, a new column included, so a place to keep Markdown can't be missed; a failed look removes nothing. Once its
+     * backups age out, a removed image is gone. */
+    async sweepUploads(now = Date.now()): Promise<{uploads: number, bytes: number}> {
+        const before = new Date(now - KEEP_UNUSED_UPLOADS).toISOString()
+        return await this.db.transaction(async () => {
+            const old = await this.all<{id: string, size: number}>('SELECT id, size FROM uploads WHERE created_at < ?', before)
+            if (!old.length) return {uploads: 0, bytes: 0}
+            const used = await this.uploadsReferred()
+            const unused = old.filter(upload => !used.has(upload.id))
+            for (const {id} of unused) await this.run('DELETE FROM uploads WHERE id = ?', id)
+            return {uploads: unused.length, bytes: unused.reduce((sum, upload) => sum + Number(upload.size), 0)}
+        })
+    }
+
+    /** The ids of the images any text in the database links to. */
+    private async uploadsReferred(): Promise<Set<string>> {
+        const columns = await this.all<{tbl: string, col: string}>(this.db.dialect === 'postgres'
+            ? `SELECT table_name AS tbl, column_name AS col FROM information_schema.columns
+               WHERE table_schema = current_schema() AND data_type IN ('text', 'character varying', 'json', 'jsonb')`
+            : `SELECT m.name AS tbl, c.name AS col FROM sqlite_master m JOIN pragma_table_info(m.name) c
+               WHERE m.type = 'table' AND m.name NOT LIKE 'sqlite_%' AND upper(c.type) NOT IN ('BLOB', 'INTEGER', 'REAL')`)
+        const texts = columns.filter(({tbl}) => tbl !== 'uploads')
+        if (!texts.some(({tbl, col}) => tbl === 'comments' && col === 'body')) throw new Error("Couldn't read which columns hold text")
+        const used = new Set<string>()
+        for (const {tbl, col} of texts) {
+            const rows = await this.all<{text: string}>(`SELECT CAST("${col}" AS TEXT) AS text FROM "${tbl}" WHERE CAST("${col}" AS TEXT) LIKE ?`, '%/api/uploads/%')
+            for (const {text} of rows) for (const [, id] of text.matchAll(UPLOAD_LINK)) used.add(id as string)
+        }
+        return used
     }
 
     /** The id of the project's latest signal, 0 before its first. */

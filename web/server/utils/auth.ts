@@ -15,6 +15,16 @@ export interface Who {
 
 export const LOGIN_COOKIE = 'orrery_login'
 
+/** The path as a router might come to read it, so no spelling of /api slips past as something else. */
+export function pathOf(event: {path: string}): string {
+    const path = event.path.split('?')[0] ?? ''
+    try {
+        return decodeURIComponent(path).replace(/\\/g, '/').replace(/\/{2,}/g, '/').toLowerCase()
+    } catch {
+        return '/api/'
+    }
+}
+
 /** Whether the server listens on loopback alone: outside Docker the address it bound to (a socket's path is `nuxt dev`'s
  * own), and inside it, where every request comes over the bridge, the address compose publishes it on, empty counting as
  * not. A server that can't say is taken as reachable. */

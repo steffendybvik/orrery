@@ -2,6 +2,7 @@ node_modules
 .nuxt
 .output
 .channel-bundle
+.spa-loading.html
 .data
 .env
 .env.*
@@ -14,14 +15,19 @@ dist
 coverage
 vitest-results.json
 e2e-results.json
+e2e-lines.json
+spawned-lines.json
+.v8-*
 .vitest-reports
 .idea
 
 # Playwright
 /web/test-results
 /web/test-results-login
+/web/test-results-readme
 /web/playwright-report
 /web/perf-report
+/web/soak-report
 
 # The playground's database and backups
 /.playground/data

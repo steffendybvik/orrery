@@ -19,7 +19,7 @@ const circumference = 2 * Math.PI * 6
           stroke-width="2"
           stroke-linecap="round"
           :stroke-dasharray="`${share.share * circumference} ${circumference}`"
-          :class="share.share === 1 ? 'stroke-emerald-500' : 'stroke-accent-500'"
+          :class="share.share === 1 ? 'stroke-emerald-500' : 'stroke-accent-fill'"
           class="transition-[stroke-dasharray] duration-500"
       />
     </svg>

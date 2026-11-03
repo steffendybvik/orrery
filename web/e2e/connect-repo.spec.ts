@@ -4,7 +4,6 @@ import {OWNER, hold, makeProject} from './support'
 // Connect a repo with a click (ORR-708), on the page: with no launcher that can open a picker, the install line; with one
 // (a stand-in holding its stream), the owner's click asks it, it says the folder's name, the page ticks projects, and it
 // hears them. The folder itself is never in anything orrery sends or shows.
-test.describe.configure({mode: 'serial'})
 
 test.beforeAll(async ({request}) => {
     await makeProject(request, {name: 'Lighthouse', key: 'LHT'})
@@ -80,4 +79,21 @@ test('says so when the picker is cancelled, and refuses an agent', async ({page,
     } finally {
         launcher.stop()
     }
+})
+
+test('the MCP server tab lists the tools, who gets each, what asks first and the environment', async ({page}) => {
+    await page.goto('/connect')
+    await page.getByRole('radio', {name: 'MCP server'}).click()
+    await expect(page).toHaveURL(/\/connect\?tab=mcp$/)
+    const row = (name: string) => page.locator(`[data-tool="${name}"]`)
+    await expect(row('start_issue')).toContainText('Starts an issue')
+    await expect(row('egress').getByRole('cell').nth(1)).toHaveText('On request')
+    await expect(row('reply').getByRole('cell').nth(2)).toHaveText('Yes')
+    await expect(page.getByRole('region', {name: 'What asks you first'})).toContainText('start_session')
+    await expect(page.getByRole('region', {name: 'Environment'})).toContainText('ORRERY_HEAR')
+
+    await page.reload()
+    await expect(row('start_issue')).toBeVisible()
+    await page.getByRole('radio', {name: 'Connect', exact: true}).click()
+    await expect(page.getByRole('heading', {name: 'Give a session its roadmap'})).toBeVisible()
 })

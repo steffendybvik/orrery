@@ -1,8 +1,9 @@
 <script setup lang="ts">
 // Connect an agent: a button that has the launcher set a repo up (ConnectRepo), or one line to give a Claude session in
-// an app's repo. It points the agent at the
+// a project's repo. It points the agent at the
 // brief (/connect/<project>.md), which says how to keep the roadmap here and has it set the repo up
-// itself. The pieces are also here, folded, to set up by hand.
+// itself. The pieces are also here, folded, to set up by hand. Its second tab, MCP server (`?tab=mcp`), says what connecting
+// gives a session (McpReference).
 useHead({title: 'Connect an agent · orrery'})
 const route = useRoute()
 const router = useRouter()
@@ -16,26 +17,39 @@ const newName = ref('')
 const sessionName = ref('')
 const project = computed(() => ordered.value.find(p => p.id === picked.value))
 const pieces = useConnect(project, {name: newName, session: sessionName})
+const tabs = [{value: 'connect' as const, label: 'Connect'}, {value: 'mcp' as const, label: 'MCP server'}]
+const tab = computed<'connect' | 'mcp'>({
+    get: () => route.query.tab === 'mcp' ? 'mcp' : 'connect',
+    set: next => router.replace({query: {...route.query, tab: next === 'mcp' ? 'mcp' : undefined}}),
+})
 </script>
 
 <template>
   <PageHeader>
-    <svg class="size-4 shrink-0 text-accent-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 7H7a5 5 0 0 0 0 10h2M15 7h2a5 5 0 0 1 0 10h-2M8 12h8" /></svg>
+    <svg class="size-4 shrink-0 text-accent-fill" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 7H7a5 5 0 0 0 0 10h2M15 7h2a5 5 0 0 1 0 10h-2M8 12h8" /></svg>
     <h1 class="truncate text-sm font-medium">Connect an agent</h1>
   </PageHeader>
 
-  <div class="min-h-0 flex-1 overflow-y-auto">
+  <ViewToolbar>
+    <SegmentedControl v-model="tab" :options="tabs" />
+  </ViewToolbar>
+
+  <div class="clear-agent min-h-0 flex-1 overflow-y-auto">
     <div class="mx-auto flex max-w-3xl animate-fade-up flex-col gap-8 px-4 py-8 sm:px-8 sm:py-12">
+      <McpReference v-if="tab === 'mcp'" />
+      <template v-else>
       <header class="flex flex-col gap-3">
         <h2 class="text-2xl font-semibold tracking-tight">Give a session its roadmap</h2>
         <p class="text-[15px] leading-relaxed text-muted">
-          Connect a repo with a click, or pick the app and copy the line into a session in its repo. The agent reads its brief
-          from orrery, starts keeping the roadmap here and sets the repo up, then asks you to restart it so orrery can reach the window.
-          Any agent can also start from <a :href="`${origin}/llms.txt`" target="_blank" class="text-accent-600 underline underline-offset-2 dark:text-accent-400">/llms.txt</a>.
+          Connect a repo with a click, or pick the project and copy the line into a session in its repo. The agent reads its brief
+          from orrery, starts keeping the roadmap here and sets the repo up, then asks you to restart it so orrery can reach the session.
+          Any agent can also start from <a :href="`${origin}/llms.txt`" target="_blank" class="text-accent-700 underline underline-offset-2 dark:text-accent-400">/llms.txt</a>.
         </p>
       </header>
 
       <ConnectRepo />
+
+      <LauncherRepos />
 
       <div class="flex flex-col gap-1">
         <h3 class="text-[15px] font-semibold">Or give an agent the line</h3>
@@ -43,7 +57,7 @@ const pieces = useConnect(project, {name: newName, session: sessionName})
       </div>
 
       <section class="flex flex-col gap-3">
-        <h3 class="label">The app</h3>
+        <h3 class="label">The project</h3>
         <div class="flex flex-wrap gap-1.5">
           <button
               v-for="p in ordered"
@@ -60,7 +74,7 @@ const pieces = useConnect(project, {name: newName, session: sessionName})
               class="flex h-8 items-center gap-1.5 rounded-lg px-3 text-[13px] ring-1 transition-colors"
               :class="!project ? 'bg-active text-fg ring-faint/50' : 'text-muted ring-line hover:bg-hover hover:text-fg'"
               @click="picked = 'new'"
-          >+ A new app</button>
+          >+ A new project</button>
         </div>
         <div class="flex flex-wrap gap-4">
           <label v-if="!project" class="flex min-w-56 flex-1 flex-col gap-1.5">
@@ -68,7 +82,7 @@ const pieces = useConnect(project, {name: newName, session: sessionName})
             <input v-model="newName" placeholder="e.g. fitness-app" class="h-8 rounded-lg bg-well px-3 text-[13px] text-fg ring-1 ring-line placeholder:text-faint focus:ring-accent-500/50 focus:outline-none">
           </label>
           <label class="flex min-w-56 flex-1 flex-col gap-1.5">
-            <span class="text-xs text-faint">Name the window (optional): shows in orrery, e.g. what it works on</span>
+            <span class="text-xs text-faint">Name the session (optional): shows in orrery, e.g. what it works on</span>
             <input v-model="sessionName" placeholder="e.g. joints" class="h-8 rounded-lg bg-well px-3 text-[13px] text-fg ring-1 ring-line placeholder:text-faint focus:ring-accent-500/50 focus:outline-none">
           </label>
         </div>
@@ -105,6 +119,7 @@ const pieces = useConnect(project, {name: newName, session: sessionName})
           <CopyBlock title="Without the preview: ask the session to watch" hint="Uses the Monitor tool; a watch lasts up to 30 minutes, then the session restarts it." :text="pieces.monitor" />
         </div>
       </details>
+      </template>
     </div>
   </div>
 </template>
