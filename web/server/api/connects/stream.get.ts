@@ -1,18 +1,19 @@
 import type {ConnectEvent} from '../../utils/connects'
 
-// `GET /api/connects/stream?host=` → server-sent events for a launcher service that can open a folder picker on its machine
+// `GET /api/connects/stream?host=&addresses=` → server-sent events for a launcher service that can open a folder picker on its machine
 // (ORR-708), one stream per orrery, whatever it serves: `ready` {token, orrery}, the token for what it reports; `pick` {id}, the
 // owner asking for a folder; `write` {id, projects, orrery, terminal}, the projects to set the folder it chose up with. That a
 // launcher has this stream is what says it can do this, so an older one is never asked. On a server with several people it's
-// the owner's alone.
+// the owner's alone. `addresses` are its machine's IPv4 addresses on its networks, comma-separated, for App settings' link
+// to open orrery on a phone (ORR-833).
 export default defineEventHandler(async event => {
     const who = event.context?.who
     const named = getHeader(event, 'orrery-person')
     if (who ? !who.owner : named && named !== (await useStore().ownerOf()).name) throw forbidden('Only the owner\'s launcher can be asked to connect a repo')
     const {id} = await useStore().settings()
-    const {host} = getQuery(event)
+    const {host, addresses} = getQuery(event)
     const stream = createEventStream(event)
-    const done = addPicker(typeof host === 'string' ? host.slice(0, 100) : '')
+    const done = addPicker(typeof host === 'string' ? host.slice(0, 100) : '', ipv4List(addresses))
     const send = (sent: ConnectEvent) => {
         if (sent.type === 'write' && sent.token !== done.token) return
         const {type, ...data} = sent

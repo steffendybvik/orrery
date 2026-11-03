@@ -39,7 +39,7 @@
 // the channel command once by hand in the repo first, to accept the folder's trust prompt, which it leaves to you.
 import {execFileSync} from 'node:child_process'
 import {mkdirSync, unwatchFile, watchFile, writeFileSync} from 'node:fs'
-import {hostname} from 'node:os'
+import {hostname, networkInterfaces} from 'node:os'
 import {dirname, join} from 'node:path'
 import {fileURLToPath} from 'node:url'
 import {connector, pickerFor} from './connect-repo.mjs'
@@ -539,6 +539,15 @@ function serve({url, project, dir, picked_at: picked, connected_at: connected}, 
     })
 }
 
+/** This machine's IPv4 addresses on its networks (Wi-Fi, a VPN), read each time the stream opens, as they change: in
+ * Docker orrery only sees its container's, so App settings' link for a phone comes from here (ORR-833). */
+/** A virtual machine's or container's network on this machine (a Mac's `bridge100`, Docker's), which a phone can't reach. */
+const VIRTUAL = /^(bridge|vmnet|vboxnet|docker|veth|br-|virbr)/
+
+const networkAddresses = () => Object.entries(networkInterfaces())
+    .filter(([name]) => !VIRTUAL.test(name)).flatMap(([, all]) => all ?? [])
+    .filter(i => i.family === 'IPv4' && !i.internal && !i.address.startsWith('169.254.')).map(i => i.address).slice(0, 8)
+
 /** Follows one orrery for the owner's Connect a repo (ORR-708), whatever it serves: only a service does, as it's what
  * follows its list, and only with a picker on this machine, which having the stream tells orrery. */
 function connectFor(url, signal) {
@@ -549,7 +558,7 @@ function connectFor(url, signal) {
     const serve = (dir, projects) => addToList(projects.map(project => ({url, project, dir})), dir)
     return follow({
         headers: authHeaders(url),
-        url: () => `${url}/api/connects/stream?host=${encodeURIComponent(hostname())}`,
+        url: () => `${url}/api/connects/stream?host=${encodeURIComponent(hostname())}&addresses=${encodeURIComponent(networkAddresses().join(','))}`,
         onEvent: async ({event, data}) => {
             if (event === 'ready') {
                 const ready = JSON.parse(data)

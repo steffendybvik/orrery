@@ -60,6 +60,7 @@ All optional, in a `.env` beside `docker-compose.yml` (see `.env.example`):
 | `ORRERY_DATA` | a folder for the database, `orrery.db` (with its `-wal` and `-shm` files beside it); on Linux it must be writable by uid 1000, the image's `node` user. Not a synced folder: syncing a live SQLite file corrupts it | the `orrery-data` volume |
 | `ORRERY_BACKUP` | a folder for the backups (one that syncs off the machine is best). Without it they stay on this computer, and orrery says so once, and in App settings | the `orrery-backup` volume |
 | `ORRERY_BACKUP_DATABASE` | a `postgres://` URL to back up into instead of the folder: an empty database, or this orrery's backup from before (see [Backups](#backups)) | none |
+| `ORRERY_PHONE_URL` | the address to open it at from a phone, for App settings' link and QR code, when it's one orrery can't see for itself: an https name, a VPN's (see [Reach it from your phone](#reach-it-from-your-phone)) | none |
 | `ORRERY_ALLOWED_HOSTS` | host names it answers to besides `localhost` and IP addresses, comma-separated, e.g. `orrery.lan` (see [SECURITY.md](../SECURITY.md)) | none |
 | `ORRERY_DATABASE` | a `postgres://` URL to keep the orrery in Postgres instead (see [Postgres](#postgres)) | the SQLite file |
 | `ORRERY_SECRET_KEY` | encrypts the [secrets](API.md#secrets) your agents use without seeing: a long random string (`openssl rand -base64 32`). Keep it out of the backups; without the same key, secrets set with it won't open | made on first start, kept in `orrery.key` beside the database (`/data` in Docker; none outside Docker on Postgres, so set it there) |
@@ -283,6 +284,13 @@ Then set `ORRERY_OIDC_ISSUER` to the new address and restart orrery. It's only f
 Compose publishes orrery on `127.0.0.1`, so only this machine can open it. Anything else
 asks for a login, so [claim it](#claiming-it-and-logging-in) first, and open it only as far as you need.
 
+**App settings → You → Open on your phone** shows the address to open it at from a phone, with Copy and a QR code to
+scan the first time (made on the page, with nothing sent anywhere). While only this machine can reach it, it lists what's
+left instead: claim it, put the agent key in `keys.json`, and set `ORRERY_HOST`, with where it will be then. The address
+is the one `ORRERY_HOST` names, or with `0.0.0.0` this machine's on its networks: in Docker, where orrery sees only its
+container's, the launcher on this machine tells it (a VM's or Docker's own networks are left out). Set
+`ORRERY_PHONE_URL` for one orrery can't see for itself, such as an https name in front of it; it's shown first.
+
 **Your own devices only (best).** Put this machine and the phone on a private VPN: a free app on
 each that links your own devices, so the phone reaches the machine from anywhere, as if both were
 on the same Wi-Fi. It isn't the paid kind that hides your browsing, and several are free for a
@@ -290,7 +298,7 @@ handful of devices. Then publish orrery on this machine's address on that VPN, a
 
 ```sh
 # .env.personal
-ORRERY_HOST=100.64.0.7               # this machine's address on the VPN
+ORRERY_HOST=100.64.0.7               # this machine's address on the VPN; sessions then use it too, not localhost
 ORRERY_ALLOWED_HOSTS=mac.my-vpn.net  # only to open it by the VPN's name for the machine
 ```
 
@@ -298,8 +306,10 @@ ORRERY_ALLOWED_HOSTS=mac.my-vpn.net  # only to open it by the VPN's name for the
 `http://mac.my-vpn.net:9010`) on the phone. Nobody else on the Wi-Fi can reach it. The VPN has to
 be connected when Docker starts the container, since that's when the address is taken.
 
-**Your Wi-Fi (quickest, nothing to install).** `ORRERY_HOST=0.0.0.0`, then open
-`http://<this machine's IP>:9010` on the phone, and sign in. It only works at home, and over plain Wi-Fi your person key and
+**Your Wi-Fi (quickest, nothing to install).** `ORRERY_HOST=0.0.0.0`, then scan the QR code in App settings
+(or open `http://<this machine's IP>:9010`) on the phone, and sign in. `0.0.0.0` keeps `localhost` working for this
+machine's sessions too, with their agent key; a single address (the Wi-Fi's or a VPN's) publishes it there alone, so
+point their `ORRERY_URL` at it. It only works at home, and over plain Wi-Fi your person key and
 the login's cookie travel unencrypted, so anyone else on it could read them, which the login page warns of.
 
 Either way, the database is still moved only from this machine: App settings → This orrery → Database refuses a
