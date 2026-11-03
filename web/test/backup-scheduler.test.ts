@@ -100,6 +100,16 @@ describe('backing up', () => {
         expect(notes.map(n => [n.kind, n.message])).toEqual([['backup.made', 'Backed up to /backups'], ['backup.failed', 'Backing up to /backups: disk full']])
     })
 
+    it('isn\'t done until what it notes is written, as the database closes after it', async () => {
+        let written = false
+        const backups = scheduler({note: async () => {
+            await Promise.resolve()
+            written = true
+        }})
+        await backups.close()
+        expect(written).toBe(true)
+    })
+
     it('does nothing with backups off, and backs up what was waiting as the server closes', async () => {
         target = null
         const off = scheduler()

@@ -27,6 +27,7 @@ spawned-lines.json
 /web/test-results-readme
 /web/playwright-report
 /web/perf-report
+/web/soak-report
 
 # The playground's database and backups
 /.playground/data
