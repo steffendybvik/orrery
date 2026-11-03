@@ -1,10 +1,12 @@
 // `POST /api/projects/:project/sessions/:session/message` {text, preset?} → 201 the signal: the owner's own words to
-// that one session, through its channel; with `preset`, a preset's text (tweaked or not), labelled by its name. 404 for a session that isn't on the project; 409 for one that can't hear it now.
+// that one session (by its id or name), through its channel; with `preset`, a preset's text (tweaked or not), labelled by its name. 404 for a session that isn't on the project; 409 for one that can't hear it now.
 // The owner's chat can't send here: it asks the owner in the chat, and their Send sends it (`askSend`, ORR-416).
 export default defineEventHandler(async event => {
     const [project, id] = [param(event, 'project'), param(event, 'session')]
     const actor = await authorize(event, 'sessions.message')
-    const session = listSessions(project).find(s => s.id === currentId(id))
+    // By its id or its name (ORR-821).
+    const aimed = aimFor(project, id)
+    const session = aimed ? listSessions(project).find(s => s.id === aimed) : undefined
     if (!session) throw notFound(`No session ${id} in ${project}`)
     if (!hearing(project, session.id)) throw conflict(`${session.name} isn't listening, so a message can't reach it`)
     const body = await readBody(event) as {text?: unknown, preset?: unknown} | null

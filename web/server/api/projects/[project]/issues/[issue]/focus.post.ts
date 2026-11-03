@@ -4,7 +4,9 @@
 // listening, even when work alone doesn't start one (`starts.on_signal` off).
 export default defineEventHandler(async event => {
     const project = param(event, 'project')
-    const {start, ...body} = ((await readBody(event).catch(() => null)) ?? {}) as {start?: unknown}
+    const {start, ...body} = ((await readBody(event).catch(() => null)) ?? {}) as {start?: unknown, session?: unknown}
+    // A session's name works as its id does; one the project doesn't know is a 404 (ORR-821).
+    if (body.session !== undefined) body.session = aimSession(project, body.session)
     const actor = await actorOf(event)
     // The owner asking for a session for it when nobody's listening: one starts even when work alone doesn't start one.
     const send = () => useStore().focus(project, param(event, 'issue'), body, actor)
