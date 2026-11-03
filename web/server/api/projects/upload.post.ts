@@ -1,7 +1,8 @@
 // `POST /api/projects/upload?id=&key=&name=` {a board's file} → the new board, held by whoever uploaded it (ORR-670). It
-// never merges into or overwrites a board: an id or key already taken is a 409, and you choose another.
+// never merges into or overwrites a board: an id or key already taken is a 409, and you choose another. A member brings one in
+// in person, held to that by `checkBoards`; anyone else goes on to `authorize`, so an agent of theirs is still refused (ORR-725).
 export default defineEventHandler(async event => {
-    const actor = await authorize(event, 'projects.upload')
+    const actor = await memberAsking(event) ?? await authorize(event, 'projects.upload')
     const tooBig = () => createError({statusCode: 413, statusMessage: `A board's file is ${BOARD_LIMIT / 1024 / 1024} MB at most`})
     if (Number(getHeader(event, 'content-length')) > BOARD_LIMIT) throw tooBig()
     const raw = await readRawBody(event)

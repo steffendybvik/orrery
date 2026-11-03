@@ -1,6 +1,7 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 import type {Store as StoreType} from '../server/utils/store'
 import {failure, storeSetup} from './store-setup'
+import {exportBoard} from '../server/utils/board-export'
 
 // Who may make, list and revoke keys, log in and invite (ORR-696). These rules live in the routes, not the store: only a
 // person handles keys, never a session, so an agent can't make itself a person key and act as its person. Each request
@@ -264,5 +265,38 @@ describe('POST /api/invites', () => {
             expect(await asking({'orrery-actor': 'hati', 'orrery-untrusted': 'yes'})).toBeUndefined()
             expect(await asking({'orrery-actor': 'skoll'})).toBeUndefined()
         })
+    })
+})
+
+describe("POST /api/projects/upload (a board's file)", () => {
+    const upload = (headers: Record<string, string>, query: Record<string, string>) =>
+        ask(() => import('../server/api/projects/upload.post'), '/api/projects/upload', {method: 'POST', headers, body: query})
+
+    beforeEach(async () => {
+        const file = JSON.stringify(await exportBoard(store.db, 'greenhouse'))
+        vi.stubGlobal('readRawBody', async () => file)
+        // The query rides in the event's body here, as nothing else reads it.
+        vi.stubGlobal('getQuery', (event: Event) => event.body)
+        vi.stubGlobal('useDatabase', () => store.db)
+        vi.stubGlobal('personOf', (await import('../server/utils/actor')).personOf)
+        vi.stubGlobal('useEventLog', () => ({note: () => {}}))
+        vi.stubGlobal('setResponseStatus', (event: Event, status: number) => event.status = status)
+        vi.stubGlobal('created', (event: Event, value: unknown) => (event.status = 201, value))
+        vi.stubGlobal('uploadBoard', (await import('../server/utils/board-upload')).uploadBoard)
+        vi.stubGlobal('BOARD_LIMIT', 256 * 1024 * 1024)
+    })
+
+    it('lets a member bring one in as a board they hold, as the table and the API say (ORR-725)', async () => {
+        const made = await upload(await browser('hati'), {id: 'hatis', key: 'HAT'})
+        expect(made.status).toBe(201)
+        expect(await store.holdsBoard('hatis', 'hati')).toBe(true)
+    })
+
+    it("refuses a member's agent, with its key or by saying their name", async () => {
+        const {key} = await store.makeKey('hati', {kind: 'agent', name: 'a session'})
+        expect((await failure(() => upload(bearer(key), {id: 'theirs', key: 'THE'}))).status).toBe(403)
+        config.auth = 'off'
+        expect((await failure(() => upload({'orrery-actor': 'claude', 'orrery-person': 'hati'}, {id: 'theirs', key: 'THE'}))).status).toBe(403)
+        expect(await store.db.get("SELECT 1 FROM projects WHERE id = 'theirs'")).toBeUndefined()
     })
 })
