@@ -49,6 +49,9 @@ export default defineNuxtConfig({
         // In Docker, the address compose publishes orrery on (ORRERY_HOST): moving the database and setting backups
         // from the app need it to be loopback, as the container can't tell who's connecting. Compose sets NUXT_LISTEN_HOST.
         listenHost: '',
+        // The address to open orrery at from a phone, when it's one orrery can't see for itself: an https name, a VPN's
+        // (ORR-833). Shown in App settings with a QR code. Override with NUXT_PHONE_URL (ORRERY_PHONE_URL in compose).
+        phoneUrl: '',
         // A Postgres database's URL for the backups, in place of the folder (ORR-427). Compose sets NUXT_BACKUP_DATABASE
         // from ORRERY_BACKUP_DATABASE.
         backupDatabase: '',

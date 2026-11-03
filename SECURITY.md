@@ -255,6 +255,12 @@ server as it always does. It keeps what's in each file, and says what it wrote: 
 It won't take your home folder or the root. Anything that can open a launcher stream is a launcher (above), so it could say it
 took a request, and the page would show what it said, which is all it gets.
 
+**Open on your phone** (ORR-833): a launcher's stream also says its machine's IPv4 addresses on its networks, so App
+settings can show a phone where to open orrery when it runs in Docker. They're kept in memory while the stream is open,
+and only ever shown as links; anything that isn't an address is dropped. A launcher could say a wrong one, and the page
+would offer it, so check the address before signing in on the phone. The QR code is drawn on the page, and nothing is
+sent anywhere to make it.
+
 **Allow** on a session at a permission prompt (ORR-489) is the owner's alone, and no session's or chat's: a prompt is
 there for a person to answer. Its launcher presses Enter only while the pane still shows a permission prompt with the
 cursor on "Yes", so an Allow that arrives late can't answer a later prompt or pick "don't ask again". The pop-up shows the
