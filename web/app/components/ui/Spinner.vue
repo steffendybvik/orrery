@@ -1,10 +1,9 @@
 <script lang="ts">
-// The braille cycle, as dots on a 2×3 cell: bit n of a glyph's code is braille dot n+1. Drawn rather than typed, as Geist
-// Mono has no braille and the fallback font changes by machine, in shape and in width.
-const FRAMES = [...'⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏']
-const CELL = [[3, 3], [3, 7], [3, 11], [7, 3], [7, 7], [7, 11]] as const
-const DOTS = FRAMES.flatMap((glyph, frame) => CELL.flatMap(([x, y], dot) =>
-    ((glyph.codePointAt(0) ?? 0) - 0x2800) >> dot & 1 ? [{x, y: y + frame * 14}] : []))
+import {SPINNER_DOT_RADIUS, SPINNER_DOTS, SPINNER_VIEWBOX} from '#shared/spinner'
+
+// The frames are shared with the start-up screen (scripts/spa-loading.ts), which draws the same spinner before Vue exists:
+// a change to its speed, size or colour here goes there too.
+const DOTS = SPINNER_DOTS
 </script>
 
 <script setup lang="ts">
@@ -23,8 +22,8 @@ defineProps<{label?: string}>()
       :aria-label="label"
       :aria-hidden="label ? undefined : 'true'"
   >
-    <svg class="block h-[1000%] w-full animate-spinner motion-reduce:animate-none" viewBox="0 0 10 140" fill="currentColor">
-      <circle v-for="(dot, i) in DOTS" :key="i" :cx="dot.x" :cy="dot.y" r="1.4" />
+    <svg class="block h-[1000%] w-full animate-spinner motion-reduce:animate-none" :viewBox="SPINNER_VIEWBOX" fill="currentColor">
+      <circle v-for="(dot, i) in DOTS" :key="i" :cx="dot.x" :cy="dot.y" :r="SPINNER_DOT_RADIUS" />
     </svg>
   </span>
 </template>

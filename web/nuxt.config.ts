@@ -2,11 +2,15 @@ import {readFileSync} from 'node:fs'
 import {fileURLToPath} from 'node:url'
 import tailwindcss from '@tailwindcss/vite'
 import {bundleChannel} from './scripts/bundle-channel'
+import {writeSpaLoading} from './scripts/spa-loading'
 
 // The version a release sets in package.json, shown at the foot of the sidebar.
 const {version} = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')) as {version: string}
 
 const channelBundle = fileURLToPath(new URL('./.channel-bundle', import.meta.url))
+
+// The start-up screen, made from the logo whenever the config loads (scripts/spa-loading.ts, ORR-815).
+const spaLoading = writeSpaLoading(fileURLToPath(new URL('./.spa-loading.html', import.meta.url)), fileURLToPath(new URL('./public/favicon.svg', import.meta.url)))
 
 export default defineNuxtConfig({
     hooks: {
@@ -17,6 +21,7 @@ export default defineNuxtConfig({
     devtools: {enabled: false},
     // A local, single-user board: the page is drawn in the browser and fed by /api.
     ssr: false,
+    spaLoadingTemplate: spaLoading,
     devServer: {port: 9000},
 
     css: ['~/assets/css/main.css'],
