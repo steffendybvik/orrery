@@ -78,3 +78,22 @@ test('key hints aren\'t drawn on a touch screen, which has no keys to press (ORR
     await expect(drawer.locator('kbd')).not.toHaveCount(0)
     for (const hint of await drawer.locator('kbd').all()) await expect(hint).toBeHidden()
 })
+
+test("the sidebar's small buttons are at least 24px to tap, WCAG 2.2's minimum (ORR-816)", async ({page}) => {
+    await page.goto('/mine')
+    await page.getByRole('button', {name: 'Open the sidebar'}).tap()
+    const drawer = page.locator('aside')
+    await expect(drawer).toBeInViewport()
+    const small = [
+        drawer.getByRole('button', {name: /^(Open|Fold) every project$/}),
+        drawer.getByRole('button', {name: 'New project'}),
+        drawer.getByRole('button', {name: /^(Open|Fold) Pocket$/}),
+    ]
+    const start = drawer.getByRole('button', {name: 'Start a session'})
+    if (await start.count()) small.push(start)
+    for (const button of small) {
+        const box = (await button.boundingBox())!
+        expect(box.width, await button.getAttribute('aria-label') ?? '').toBeGreaterThanOrEqual(24)
+        expect(box.height, await button.getAttribute('aria-label') ?? '').toBeGreaterThanOrEqual(24)
+    }
+})
