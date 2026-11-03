@@ -70,7 +70,9 @@ with two stores on one database, not two machines.
 **Logging in.** Through any standard OIDC provider, by setting its issuer, client id and secret (the authorization code flow with
 PKCE), with no passwords in orrery. An account is matched by issuer and subject, never email, and only attaches through the
 owner's single-use invite, so having an account with the provider gets nobody in. With no provider, the owner's person key signs in.
-`orrery:claim`, run on the server, makes the first one, so nothing on the network can race for it.
+Claiming makes the first one: `orrery:claim`, run on the server, or App settings → You → Claim this orrery, which only a page on
+the server's own machine may use (refused off it, and in Docker once `ORRERY_HOST` opens it to the network), so nothing on the
+network can race for it. That's no more than a shell there could do, and an agent with one is out of scope already (above).
 
 ## With login off, the owner is a name, not a password
 

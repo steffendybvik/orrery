@@ -5,6 +5,10 @@ export interface AuthStatus {
     person?: string
     via?: 'browser' | 'agent'
     can_get_in: boolean
+    /** Whether this page may claim the orrery (ORR-832): on its own machine, while nobody has a person key. */
+    can_claim: boolean
+    /** Whether the owner has given their name, which claiming asks for otherwise. */
+    named: boolean
     oidc: boolean
     warn_http: boolean
 }

@@ -96,6 +96,22 @@ export abstract class KeyStore extends PeopleStore {
         return !!await this.get("SELECT 1 FROM keys k JOIN people p ON p.id = k.person WHERE p.role = 'owner' AND k.kind = 'person' AND k.revoked_at IS NULL")
     }
 
+    /** Claims this orrery for its owner from App settings (ORR-832), as `orrery:claim` does from a shell: a person key to
+     * sign in with, and an agent key for this machine's sessions, both seen this once. In one transaction, so two
+     * claims can't both land. The route decides who may: only a page on this machine. */
+    async claimOrrery(): Promise<{person: string, person_key: KeyRecord & {key: string}, agent_key: KeyRecord & {key: string}}> {
+        return await this.db.transaction(async () => {
+            if (await this.ownerHasKey()) throw conflict('This orrery is claimed already: the owner has a person key. Make more keys under Your keys, once signed in')
+            const owner = await this.get<{id: string}>("SELECT id FROM people WHERE role = 'owner' AND removed_at IS NULL")
+            if (!owner) throw conflict('This orrery has no owner yet: give your name first')
+            return {
+                person: owner.id,
+                person_key: await this.makeKey(owner.id, {kind: 'person', name: 'Claimed in App settings'}),
+                agent_key: await this.makeKey(owner.id, {kind: 'agent', name: 'This machine'}),
+            }
+        })
+    }
+
     /** An invite for `person` to attach their first login: a link's secret, good once and for a week. */
     async invite(person: string): Promise<{secret: string, expires_at: string}> {
         await this.needsPerson(person)

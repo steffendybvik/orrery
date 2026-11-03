@@ -20,6 +20,8 @@ const TABS: {value: Tab, label: string, scope: string, sections: Heading[]}[] = 
         {id: 'handle', text: 'Your handle', level: 2},
         // Only when this orrery asks for a login (ORR-664): alone on your own machine, none of it shows.
         ...useAuth().status.value?.mode === 'on' ? [{id: 'keys', text: 'Your keys', level: 2 as const}] : [],
+        // Only while it's unclaimed and this page is on its own machine (ORR-832).
+        ...useAuth().status.value?.can_claim ? [{id: 'claim', text: 'Claim this orrery', level: 2 as const}] : [],
     ]},
     {value: 'issues', label: 'Issues', scope: "How issues work in every project on this orrery. A project's own settings are on its Settings tab.", sections: [
         {id: 'proposals', text: 'Proposals', level: 2},
@@ -41,6 +43,12 @@ const TABS: {value: Tab, label: string, scope: string, sections: Heading[]}[] = 
 ]
 const tabs = TABS.map(({value, label}) => ({value, label}))
 const route = useRoute()
+// Claiming stays open once done, until Done, so the keys it shows once aren't taken away as the status changes (ORR-832).
+const claiming = ref(!!useAuth().status.value?.can_claim)
+async function claimDone() {
+    claiming.value = false
+    useAuth().status.value = await apiFetch<AuthStatus>('/auth/status').catch(() => useAuth().status.value)
+}
 const router = useRouter()
 const tab = computed<Tab>({
     get: () => TABS.find(t => t.sections.some(h => `#${h.id}` === route.hash))?.value ?? TABS.find(t => t.value === route.query.tab)?.value ?? 'you',
@@ -312,6 +320,17 @@ async function pick(tint: string | null) {
           </p>
         </header>
         <KeySettings />
+      </section>
+
+      <section v-if="tab === 'you' && claiming" id="claim" class="scroll-mt-6 flex flex-col gap-3">
+        <header class="flex flex-col gap-0.5">
+          <h2 class="text-[15px] font-semibold text-fg">{{ title.claim ?? 'Claim this orrery' }}</h2>
+          <p class="text-xs text-muted">
+            Before opening orrery to your phone or another machine: it makes your person key, to sign in there, and an agent key
+            for this machine's sessions, so nothing stops when login comes on. Only a page on this machine can.
+          </p>
+        </header>
+        <ClaimOrrery @done="claimDone" />
       </section>
 
       <section v-if="tab === 'issues'" id="proposals" class="scroll-mt-6 flex flex-col gap-3">

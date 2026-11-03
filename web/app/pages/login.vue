@@ -12,6 +12,8 @@ const key = ref('')
 const busy = ref(false)
 const failed = ref('')
 
+const home = () => location.assign('/')
+
 async function submit() {
     busy.value = true
     failed.value = ''
@@ -34,6 +36,10 @@ async function submit() {
       <p v-if="status?.mode === 'closed'" class="text-xs text-rose-700 dark:text-rose-400">
         ORRERY_AUTH=off only works while orrery listens on loopback, and this one is reachable from other machines. Unset it, and restart.
       </p>
+      <template v-else-if="status?.can_claim">
+        <p class="text-xs text-muted">Nobody can log in yet. This page is on orrery's own machine, so you can claim it here.</p>
+        <ClaimOrrery @done="home" />
+      </template>
       <p v-else-if="status && !status.can_get_in" class="text-xs text-muted">
         Nobody can log in yet. On the machine it runs on, run <code class="font-mono">pnpm orrery:claim</code>
         (or <code class="font-mono">docker compose exec orrery node /app/server/claim.mjs</code>), and sign in with the key it prints.

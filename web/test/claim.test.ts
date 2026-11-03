@@ -11,7 +11,7 @@ import {openDb} from '../server/utils/db'
 import {MIGRATIONS} from '../server/utils/migrations/sqlite'
 import {actorId, Store} from '../server/utils/store'
 
-// `pnpm orrery:claim` (ORR-664, ORR-698), the one way into a server with login on and no provider. It writes to the
+// `pnpm orrery:claim` (ORR-664, ORR-698), a way into a server with login on and no provider. It writes to the
 // database with its own SQL, so it's run for real here, on a file the store made, and the store has to accept what it wrote.
 const script = fileURLToPath(new URL('../scripts/claim.mjs', import.meta.url))
 const KEY = /orrery_person_[\w-]+/

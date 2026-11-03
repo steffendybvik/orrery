@@ -358,6 +358,16 @@ export const PERMISSIONS: Permission[] = [
         member: {level: 'free'},
     },
     {
+        id: 'auth.claim', area: 'This orrery', action: 'Claim this orrery from its page',
+        why: 'Claiming hands out the owner’s first person key, so only a page on the machine orrery runs on may, as near as its shell, and only while nobody has one. It needs no credential, as nobody can have one yet.',
+        routes: ['POST /api/auth/claim'],
+        unnamed: ['POST /api/auth/claim'],
+        session: refused,
+        chat: refused,
+        untrusted: refused,
+        member: ownerAlone,
+    },
+    {
         id: 'secrets.write', area: 'Secrets', action: 'Set, change or delete a secret',
         why: 'A secret’s value and where it may go are the owner’s to decide.',
         routes: ['PUT /api/secrets/:name', 'PATCH /api/secrets/:name', 'DELETE /api/secrets/:name'],
