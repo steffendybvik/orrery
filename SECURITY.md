@@ -36,7 +36,7 @@ every project, there or not, saying to ask again with a key. The orrery's id sta
 in a session's environment (`ORRERY_KEY`) and acts as an agent of its person: it can never be that person, sign in to the
 page, make a key, or do what only the owner may, even when its person is the owner. A **person key** signs in to the page
 and is swapped for a cookie at once: it's refused as a bearer, and the channel won't start with one. Only a hash of either is
-stored. Revoking works at once, and removing a person revokes theirs.
+stored. Revoking works at once, and ends the logins that key started, and removing a person revokes theirs.
 
 **What an agent key still can do.** Act as any session of its own person, so the lock between one person's sessions keeps
 honest agents apart and isn't a boundary. The boundary is between people, and between a person and their agents.

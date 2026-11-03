@@ -86,10 +86,16 @@ async function main() {
         throw new Error('This database is from before keys: start this version of orrery once first')
     }
     const now = new Date().toISOString()
+    // Whether its logins keep the key that started them (ORR-786), asked before the transaction, as a failed query ends one on Postgres.
+    const keyed = await db.get('SELECT known FROM logins LIMIT 1').then(() => true, () => false)
     await db.begin()
     let owner = await db.get("SELECT id, name FROM people WHERE role = 'owner'")
     if (owner && await db.get("SELECT 1 AS yes FROM keys WHERE person = ? AND kind = 'person' AND revoked_at IS NULL", owner.id)) {
         if (!replace) throw new Error(`This server is claimed: ${owner.name} has a person key. --replace revokes it and prints a new one`)
+        // Their logins go with them (ORR-786): those the keys started, and those from before orrery kept which did. A
+        // database from before that step keeps no key on any, so every login of theirs goes.
+        if (keyed) await db.run("DELETE FROM logins WHERE person = ? AND (known = 0 OR by_key IN (SELECT id FROM keys WHERE person = ? AND kind = 'person' AND revoked_at IS NULL))", owner.id, owner.id)
+        else await db.run('DELETE FROM logins WHERE person = ?', owner.id)
         await db.run("UPDATE keys SET revoked_at = ? WHERE person = ? AND kind = 'person' AND revoked_at IS NULL", now, owner.id)
     }
     if (!owner) {

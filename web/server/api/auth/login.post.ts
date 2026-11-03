@@ -4,6 +4,6 @@ export default defineEventHandler(async event => {
     const {key} = (await readBody<{key?: unknown}>(event)) ?? {}
     const holder = typeof key === 'string' ? await useStore().keyHolder(key.trim()) : undefined
     if (holder?.kind !== 'person') throw createError({statusCode: 401, statusMessage: 'Unauthorized', message: "That isn't a person key on this orrery, or it's been revoked"})
-    await logIn(event, holder.person)
+    await logIn(event, holder.person, holder.key)
     return {person: holder.person}
 })
