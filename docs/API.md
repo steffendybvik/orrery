@@ -55,7 +55,7 @@ person, with a label that's a person's name counting as `agent`. A session stays
 | `GET /auth/oidc/callback` | open: the way back from it, a redirect to the board, logged in. 403 for an account with no invite, 409 for an invite used or run out, 401 for a login that ran out or doesn't match |
 | `GET /keys` | your keys, or everyone's for the owner: `{id, person, kind, name, created_at, last_used_at?, revoked_at?}`, never the key. Only a person, never a session (403) |
 | `POST /keys` | `{kind, name, person?}` → 201 the key, with `key` this once only. `kind` is `agent` or `person`; `person` is the owner's to give. Only a person, never a session, whatever key it has. 404 for someone who isn't a person here |
-| `DELETE /keys/:key` | 204: revokes it at once. Your own, or anyone's for the owner; a 404 for any other. Only a person, never a session (403) |
+| `DELETE /keys/:key` | 204: revokes it at once, with the logins it started (and its person's from before 1.0.0-rc.17, which don't record their key). Your own, or anyone's for the owner; a 404 for any other. Only a person, never a session (403) |
 | `POST /invites` | `{person}` → 201 `{url, expires_at}`: the owner's only, a link good once and for a week, whose first login attaches that account to the person. 409 with no login provider |
 
 `GET /healthz`, outside `/api`, answers `{ok: true}` with no credential, for a container's health check.

@@ -105,9 +105,10 @@ export async function credential(event: H3Event): Promise<Who | undefined> {
     return holder && {person: holder.person, owner: holder.owner, via: 'browser'}
 }
 
-/** The login's cookie: http-only so tokens stay out of the page's scripts, `Secure` whenever the request came over https. */
-export async function logIn(event: H3Event, person: string) {
-    const {secret, days} = await useStore().startLogin(person)
+/** The login's cookie: http-only so tokens stay out of the page's scripts, `Secure` whenever the request came over https.
+ * `key` is the id of the person key it was swapped for, so revoking that ends it (ORR-786). */
+export async function logIn(event: H3Event, person: string, key?: string) {
+    const {secret, days} = await useStore().startLogin(person, key)
     setCookie(event, LOGIN_COOKIE, secret, {httpOnly: true, sameSite: 'lax', path: '/', maxAge: days * 86_400, secure: overHttps(event)})
 }
 

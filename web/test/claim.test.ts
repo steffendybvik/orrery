@@ -188,6 +188,15 @@ describe('on a claimed server', () => {
         expect(await store.keyHolder(second)).toMatchObject({person: 'skoll', kind: 'person'})
     })
 
+    it("--replace ends the logins the old person key started, and leaves a provider's (ORR-786)", async () => {
+        const holder = await store.keyHolder(first)
+        const {secret: fromKey} = await store.startLogin('skoll', holder!.key)
+        const {secret: provider} = await store.startLogin('skoll')
+        await claimed(['--replace'])
+        expect(await store.loginHolder(fromKey)).toBeFalsy()
+        expect(await store.loginHolder(provider)).toMatchObject({person: 'skoll'})
+    })
+
     it('--replace leaves the owner\'s agent keys and everyone else\'s keys working', async () => {
         await store.addPerson({name: 'Hati'})
         const {key: agent} = await store.makeKey('skoll', {kind: 'agent', name: 'laptop'})

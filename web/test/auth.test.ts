@@ -1,3 +1,4 @@
+import {createHash} from 'node:crypto'
 import {readdirSync} from 'node:fs'
 import {join} from 'node:path'
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
@@ -162,6 +163,24 @@ describe('with auth on', () => {
         expect((await failure(() => gate(asking('/api/projects', {headers: {cookie: `orrery_login=${secret}`}})))).status).toBe(401)
     })
 
+    it("a revoked person key's logins stop at once, and so do its person's from before logins kept their key, not a provider's or another key's (ORR-786)", async () => {
+        const cookie = (secret: string) => asking('/api/projects', {headers: {cookie: `orrery_login=${secret}`}})
+        const [lost, kept] = [await store.makeKey('hati', {kind: 'person', name: 'lost'}), await store.makeKey('hati', {kind: 'person', name: 'kept'})]
+        const login = async (key: string) => {
+            const holder = await store.keyHolder(key)
+            return (await store.startLogin(holder!.person, holder!.key)).secret
+        }
+        const [fromLost, fromKept, provider] = [await login(lost.key), await login(kept.key), (await store.startLogin('hati')).secret]
+        const old = (await store.startLogin('hati')).secret
+        await store.db.run('UPDATE logins SET known = 0 WHERE id = ?', createHash('sha256').update(old).digest('hex'))
+        const skoll = (await store.startLogin('skoll')).secret
+        await store.db.run("UPDATE logins SET known = 0 WHERE person = 'skoll'")
+        for (const secret of [fromLost, fromKept, provider, old, skoll]) await gate(cookie(secret))
+        await store.revokeKey(lost.id)
+        for (const secret of [fromLost, old]) expect((await failure(() => gate(cookie(secret)))).status).toBe(401)
+        for (const secret of [fromKept, provider, skoll]) await expect(gate(cookie(secret))).resolves.toBeUndefined()
+    })
+
     it('a login is its person, and its writes have to come from a page', async () => {
         const {secret} = await store.startLogin('skoll')
         const cookie = `orrery_login=${secret}`
@@ -257,7 +276,7 @@ describe('keys', () => {
         expect(made.key).toMatch(/^orrery_agent_/)
         expect(JSON.stringify(await store.db.all('SELECT * FROM keys'))).not.toContain(made.key)
         expect((await store.keys('hati'))[0]).not.toHaveProperty('key')
-        expect(await store.keyHolder(made.key)).toEqual({person: 'hati', owner: false, kind: 'agent'})
+        expect(await store.keyHolder(made.key)).toEqual({person: 'hati', owner: false, kind: 'agent', key: made.id})
         expect(await store.keyHolder(`${made.key}x`)).toBeUndefined()
     })
 

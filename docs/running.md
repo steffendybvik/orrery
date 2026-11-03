@@ -239,7 +239,7 @@ docker compose exec orrery node /app/server/claim.mjs --name "Your Name"  # in D
 ```
 
 `--name` is only needed before you've given orrery your name. It prints your person key once: sign in with it on the page. On a server
-already claimed it refuses, unless given `--replace`, which revokes your person keys, for when you've lost yours.
+already claimed it refuses, unless given `--replace`, which revokes your person keys and ends the logins they started, for when you've lost yours.
 
 **Sessions.** Under App settings → You → Your keys, make an agent key for each machine, and either set `ORRERY_KEY` where you start
 Claude Code and the launcher, or, on several servers, add it to `~/.config/orrery/keys.json` (mode 0600), as

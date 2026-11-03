@@ -12,6 +12,8 @@ export interface Holder {
     person: string
     owner: boolean
     kind?: KeyKind
+    /** The key's id, when it was one. */
+    key?: string
 }
 
 type KeyRow = {id: string, person: string, kind: KeyKind, name: string, created_at: string, last_used_at: string | null, revoked_at: string | null}
@@ -47,11 +49,16 @@ export abstract class KeyStore extends PeopleStore {
         return {id, person, kind, name: label, created_at: created, key}
     }
 
-    /** Revokes a key, at once; revoking it again changes nothing. `mine`, when given, is whose it has to be. */
+    /** Revokes a key, at once, with the logins it started (ORR-786), and its person's logins from before orrery kept
+     * which key started one; revoking it again changes nothing. `mine`, when given, is whose it has to be. */
     async revokeKey(id: string, mine?: string): Promise<void> {
         const key = await this.get<KeyRow>('SELECT * FROM keys WHERE id = ?', id)
         if (!key || mine && key.person !== mine) throw notFound(`No key "${id}"`)
-        if (!key.revoked_at) await this.run('UPDATE keys SET revoked_at = ? WHERE id = ?', stamp(), id)
+        if (key.revoked_at) return
+        await this.db.transaction(async () => {
+            await this.run('UPDATE keys SET revoked_at = ? WHERE id = ?', stamp(), id)
+            await this.run('DELETE FROM logins WHERE by_key = ? OR person = ? AND known = 0', id, key.person)
+        })
     }
 
     /** Who a key is, if it's live and its person is still here. */
@@ -61,14 +68,15 @@ export abstract class KeyStore extends PeopleStore {
              WHERE k.hash = ? AND k.revoked_at IS NULL AND p.removed_at IS NULL`, hashOf(secret))
         if (!row) return undefined
         if (!row.last_used_at || Date.now() - Date.parse(row.last_used_at) > USED_EVERY) await this.run('UPDATE keys SET last_used_at = ? WHERE id = ?', stamp(), row.id)
-        return {person: row.person, owner: row.role === 'owner', kind: row.kind}
+        return {person: row.person, owner: row.role === 'owner', kind: row.kind, key: row.id}
     }
 
-    /** Starts a browser's login for `person`: what goes in its cookie. */
-    async startLogin(person: string): Promise<{secret: string, days: number}> {
+    /** Starts a browser's login for `person`: what goes in its cookie. `key` is the id of the key it was started with,
+     * so revoking that ends it; none for a provider's. */
+    async startLogin(person: string, key?: string): Promise<{secret: string, days: number}> {
         const secret = token()
         await this.run('DELETE FROM logins WHERE expires_at < ?', stamp())
-        await this.run('INSERT INTO logins (id, person, expires_at) VALUES (?, ?, ?)', hashOf(secret), person, days(LOGIN_DAYS))
+        await this.run('INSERT INTO logins (id, person, expires_at, by_key, known) VALUES (?, ?, ?, ?, 1)', hashOf(secret), person, days(LOGIN_DAYS), key ?? null)
         return {secret, days: LOGIN_DAYS}
     }
 
