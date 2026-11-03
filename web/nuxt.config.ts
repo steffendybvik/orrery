@@ -92,6 +92,8 @@ export default defineNuxtConfig({
         },
     },
     nitro: {
+        // Its files gzipped and brotli'd at build, served so to a browser that takes it; API answers are by a plugin (ORR-766).
+        compressPublicAssets: true,
         // And the bundled channel, hook and launcher are served to the machines that run them (/channel, ORR-435).
         serverAssets: [
             {baseName: 'docs', dir: fileURLToPath(new URL('../docs', import.meta.url))},

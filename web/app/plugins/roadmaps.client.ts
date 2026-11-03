@@ -37,13 +37,16 @@ export default defineNuxtPlugin(() => {
         projects.value = read
         ready.value = true
         wholeForPage()
-        useInbox().notices.value = await apiFetch<Notice[]>('/notices').catch(() => [])
-        await useLoggedEvents().loadNew()
-        await useSchedules().load()
-        await useChat().fetchChats()
+        // What the bell, the sidebar and the chat need, side by side: none waits on another (ORR-766).
         // A session can change while this is read: what the `sessions` event says by then is the newer.
         pushed.clear()
-        const all = await apiFetch<Session[]>('/sessions').catch(() => [])
+        const [, , , , all] = await Promise.all([
+            apiFetch<Notice[]>('/notices').catch(() => []).then(notices => { useInbox().notices.value = notices }),
+            useLoggedEvents().loadNew(),
+            useSchedules().load(),
+            useChat().fetchChats(),
+            apiFetch<Session[]>('/sessions').catch(() => [] as Session[]),
+        ])
         // Under each project it's on, as the `sessions` event lists them: its own and the others its channel hears.
         const grouped: Record<string, Session[]> = {}
         for (const s of all) for (const p of [s.project, ...s.also ?? []]) (grouped[p] ??= []).push(s)
