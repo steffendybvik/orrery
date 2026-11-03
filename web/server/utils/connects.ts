@@ -16,6 +16,9 @@ const KEEP_FOR = 15 * 60_000
 const requests = new Map<string, Held>()
 /** The connected launchers that can open a picker, by their stream's token: their machine's name, if they say. */
 const pickers = new Map<string, string>()
+/** Their machine's addresses on its networks (Wi-Fi, a VPN), by the same token, for opening orrery on a phone (ORR-833):
+ * in Docker orrery only sees its container's. */
+const addresses = new Map<string, {host: string, addresses: string[]}>()
 const OPEN: ConnectState[] = ['asking', 'picking', 'picked', 'writing']
 
 const shown = ({token: _, at: __, ...request}: Held): ConnectRequest => request
@@ -25,11 +28,13 @@ function forgetOld(now = Date.now()) {
 
 /** A launcher's stream opening: its token for what it reports, until `done`. Going, it fails what it had taken on, so
  * the page doesn't wait on a picker that's gone. */
-export function addPicker(host: string): (() => void) & {token: string} {
+export function addPicker(host: string, said: string[] = []): (() => void) & {token: string} {
     const token = randomBytes(18).toString('base64url')
     pickers.set(token, host)
+    if (said.length) addresses.set(token, {host, addresses: said})
     return Object.assign(() => {
         pickers.delete(token)
+        addresses.delete(token)
         for (const request of requests.values()) {
             if (request.token === token && OPEN.includes(request.state)) Object.assign(request, {state: 'failed', message: 'The launcher went before it finished. Try again.'})
         }
@@ -37,6 +42,9 @@ export function addPicker(host: string): (() => void) & {token: string} {
 }
 
 export const pickersConnected = () => pickers.size
+
+/** What the connected launchers say their machines' addresses are, each with its machine's name. */
+export const launcherAddresses = () => [...addresses.values()]
 
 /** The latest request still under way, so a page opened or reloaded carries on with it. */
 export function currentConnect(): ConnectRequest | undefined {

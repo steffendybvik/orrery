@@ -22,6 +22,7 @@ const TABS: {value: Tab, label: string, scope: string, sections: Heading[]}[] = 
         ...useAuth().status.value?.mode === 'on' ? [{id: 'keys', text: 'Your keys', level: 2 as const}] : [],
         // Only while it's unclaimed and this page is on its own machine (ORR-832).
         ...useAuth().status.value?.can_claim ? [{id: 'claim', text: 'Claim this orrery', level: 2 as const}] : [],
+        {id: 'phone', text: 'Open on your phone', level: 2},
     ]},
     {value: 'issues', label: 'Issues', scope: "How issues work in every project on this orrery. A project's own settings are on its Settings tab.", sections: [
         {id: 'proposals', text: 'Proposals', level: 2},
@@ -331,6 +332,16 @@ async function pick(tint: string | null) {
           </p>
         </header>
         <ClaimOrrery @done="claimDone" />
+      </section>
+
+      <section v-if="tab === 'you'" id="phone" class="scroll-mt-6 flex flex-col gap-3">
+        <header class="flex flex-col gap-0.5">
+          <h2 class="text-[15px] font-semibold text-fg">{{ title.phone }}</h2>
+          <p class="text-xs text-muted">
+            The address to open this orrery at from your phone, with a QR code to scan the first time. The code is made here, with nothing sent anywhere.
+          </p>
+        </header>
+        <PhoneLink />
       </section>
 
       <section v-if="tab === 'issues'" id="proposals" class="scroll-mt-6 flex flex-col gap-3">
