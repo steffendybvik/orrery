@@ -1,3 +1,4 @@
+import {createHash} from 'node:crypto'
 import {readdirSync} from 'node:fs'
 import {join} from 'node:path'
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
@@ -171,7 +172,7 @@ describe('with auth on', () => {
         }
         const [fromLost, fromKept, provider] = [await login(lost.key), await login(kept.key), (await store.startLogin('hati')).secret]
         const old = (await store.startLogin('hati')).secret
-        await store.db.run("UPDATE logins SET known = 0, by_key = NULL WHERE id = (SELECT id FROM logins WHERE person = 'hati' ORDER BY rowid DESC LIMIT 1)")
+        await store.db.run('UPDATE logins SET known = 0 WHERE id = ?', createHash('sha256').update(old).digest('hex'))
         const skoll = (await store.startLogin('skoll')).secret
         await store.db.run("UPDATE logins SET known = 0 WHERE person = 'skoll'")
         for (const secret of [fromLost, fromKept, provider, old, skoll]) await gate(cookie(secret))
