@@ -137,6 +137,24 @@ toolbar, a comment), with `size="xs"` beside small text. `action` and `busyActio
 
 These aren't loading, so they stay as they are: `WorkingDot` and `SessionDot` (a session's state), the status icon's pulse on the board and the chat button's pulse.
 
+### UiSplitter
+
+The border between two panes side by side, dragged to resize the one before it (the Notifications page's list).
+
+```vue
+<div class="flex">
+  <div :style="{width: `${width}px`}">…</div>
+  <UiSplitter v-model="width" :initial="initial" :min="240" :keep="320" label="Resize the list" />
+  <div class="min-w-0 flex-1">…</div>
+</div>
+```
+
+- `v-model` is the first pane's width in pixels. It stays at least `min`, and leaves the pane after it at least `keep`.
+  The page sets the width: a narrow window can still hold it below the value with a `max-w`.
+- It's the line between them, a `col-resize` grip a little wider than the line, lit faintly on hover, focus and while dragging.
+- Double-click puts it back to `initial`. It's a focusable `separator`: ←→ nudge it 16 px, 64 with Shift, and Home and End go to the ends.
+- `usePaneWidth(key, initial)` remembers the width in this browser, and forgets it once it's back at `initial`.
+
 ## Styles (`assets/css/main.css`)
 
 Where a class is all it takes, it's a utility rather than a component:
@@ -255,6 +273,7 @@ Auto-imported, like the components. Reach for these before writing the listener 
 | `useIssueLink` | an issue's page (`pathOf`, `open`), and the last one opened, marked when you come back |
 | `useImageUpload(text, field)` | images pasted, dropped or picked into a Markdown field (with `ImageButton`), then back to typing in it; pasting and dropping work on the whole area around it (`useImageDrop`, with `ImageDropOverlay` while an image is dragged over) |
 | `useUnseen` | what's changed since the owner last looked (`unseen-row`, `unseen-dot`) |
+| `usePaneWidth(key, initial)` | how wide a split page's first pane is (`UiSplitter`), remembered in this browser |
 | `useTheme` | light, dark or the system's, remembered in this browser |
 | `apiFetch`, `apiUrl` | every call to the API, by its path under `/api`; a write goes as the owner unless it gives its own `headers` (`test/api-client.test.ts` holds it) |
 | `copyText` | copies text, with a fallback where the clipboard API refuses (`CopyButton` uses it) |

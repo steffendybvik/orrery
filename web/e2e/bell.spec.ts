@@ -147,3 +147,36 @@ test('On a narrow window a chosen line takes the list\'s place, and Back returns
     await expect(toggle).toBeVisible()
     await expect(page.getByRole('article')).toBeHidden()
 })
+
+test('dragging the border between the list and the open line resizes the list, remembered until a double-click (ORR-820)', async ({page, request}) => {
+    await page.setViewportSize({width: 1400, height: 900})
+    const issue = await api(request, 'post', '/issues', {title: 'Plane the door', status: 'todo'})
+    await api(request, 'post', `/issues/${issue.id}/comments`, {body: 'Planed a millimetre off.'})
+    await page.goto('/notifications')
+    await page.getByRole('button', {name: `${issue.id}: Plane the door`}).first().click()
+    const border = page.getByRole('separator', {name: 'Resize the list'})
+    await expect(border).toBeVisible()
+    const list = border.locator('xpath=preceding-sibling::div[1]')
+    const width = async () => Math.round((await list.boundingBox())!.width)
+    expect(await width()).toBe(416)
+
+    const box = (await border.boundingBox())!
+    await page.mouse.move(box.x + box.width / 2, box.y + 200)
+    await page.mouse.down()
+    await page.mouse.move(box.x + 150, box.y + 220, {steps: 5})
+    await page.mouse.up()
+    await expect.poll(width).toBeGreaterThan(540)
+    const dragged = await width()
+
+    // The arrows nudge it, and it holds across a reload.
+    await border.focus()
+    await page.keyboard.press('ArrowLeft')
+    await expect.poll(width).toBe(dragged - 16)
+    await page.reload()
+    await expect(border).toBeVisible()
+    await expect.poll(width).toBe(dragged - 16)
+
+    await border.dblclick()
+    await expect.poll(width).toBe(416)
+    expect(await page.evaluate(() => localStorage.getItem('orrery-notifications-list-width'))).toBeNull()
+})

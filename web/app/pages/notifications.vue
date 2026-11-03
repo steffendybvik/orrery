@@ -4,7 +4,8 @@ import type {NoticeRow} from '~/composables/useInbox'
 // The bell, larger, as a list and a reading pane. The list: what waits on the owner first (it goes when answered, decided or
 // cleared; clearing a proposal leaves it pending), then the rest by day as a timeline, one line per issue a day, each saying
 // what happened. The list has the page until a line is chosen: that opens its history beside the list (on a narrow window, in
-// its place) and marks it read, and choosing it again or closing the pane gives the list the page back. Opening the page only
+// its place) and marks it read, and choosing it again or closing the pane gives the list the page back. Dragging the border
+// between them resizes the list. Opening the page only
 // resets the bell's count, so the filled dots stay what's still to read.
 useHead({title: 'Notifications · orrery'})
 const {notices, lists, seen, load, loadChanges, markRead, clear} = useInbox()
@@ -64,6 +65,8 @@ watch(selected, row => {
     if (row) markRead(row.notices)
 }, {immediate: true})
 const clearLine = (row: NoticeRow) => clear(row.notices.filter(n => !n.cleared))
+// How wide the list is beside an open line, dragged on the border between them and remembered (ORR-820).
+const {width: listWidth, initial: initialListWidth} = usePaneWidth('orrery-notifications-list-width', 416)
 </script>
 
 <template>
@@ -92,7 +95,11 @@ const clearLine = (row: NoticeRow) => clear(row.notices.filter(n => !n.cleared))
   </div>
 
   <div v-else class="flex min-h-0 flex-1">
-    <div class="clear-agent min-w-0 flex-1 overflow-y-auto border-line" :class="{'hidden lg:block lg:w-[26rem] lg:flex-none lg:border-r': selected}">
+    <div
+        class="clear-agent min-w-0 flex-1 overflow-y-auto"
+        :class="{'hidden lg:block lg:w-[var(--pane-width)] lg:max-w-[calc(100%-20rem)] lg:min-w-60 lg:flex-none': selected}"
+        :style="{'--pane-width': `${listWidth}px`}"
+    >
       <section v-if="waiting.length" aria-label="Waiting on you">
         <h2 class="sticky top-0 z-20 flex items-baseline gap-2 border-b-2 border-faint/40 bg-canvas px-3 py-1.5 text-[11px] font-semibold tracking-wide text-violet-700 uppercase dark:text-violet-300">
           Waiting on you
@@ -132,6 +139,7 @@ const clearLine = (row: NoticeRow) => clear(row.notices.filter(n => !n.cleared))
         <UiButton @click="load('inbox', true)">Show older</UiButton>
       </div>
     </div>
+    <UiSplitter v-if="selected" v-model="listWidth" :initial="initialListWidth" :min="240" :keep="320" label="Resize the list" class="hidden lg:block" />
     <div v-if="selected" class="clear-agent min-w-0 flex-1 overflow-y-auto">
       <NoticeHistory :key="selected.key" :row="selected" :project="projectName(selected.project)" @back="back" />
     </div>
