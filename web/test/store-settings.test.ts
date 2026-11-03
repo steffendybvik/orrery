@@ -131,6 +131,16 @@ describe('settings', () => {
         expect((await store.updateSettings({tint: null}, {name: 'skoll', owner: true})).tint).toBeNull()
     })
 
+    it("keep the starred and hidden projects, the owner's to change, hidden winning over starred (ORR-836)", async () => {
+        const owner = {name: 'skoll', owner: true}
+        expect(await store.settings()).toMatchObject({starred: [], hidden: []})
+        expect(await store.updateSettings({starred: ['greenhouse', 'pantry'], hidden: ['attic']}, owner)).toMatchObject({starred: ['greenhouse', 'pantry'], hidden: ['attic']})
+        expect(await store.updateSettings({hidden: ['attic', 'pantry']}, owner)).toMatchObject({starred: ['greenhouse'], hidden: ['attic', 'pantry']})
+        expect((await failure(() => store.updateSettings({starred: 'greenhouse'}, owner))).status).toBe(400)
+        expect((await failure(() => store.updateSettings({hidden: []}, {name: 'claude', owner: false}))).status).toBe(403)
+        expect(await store.updateSettings({starred: null, hidden: []}, owner)).toMatchObject({starred: [], hidden: []})
+    })
+
     it("give every issue a reference saying whose board it's on, by the owner's handle or else their id", async () => {
         const owner = {name: 'skoll', owner: true}
         const {id} = await store.createIssue('greenhouse', {title: 'Hinges'})

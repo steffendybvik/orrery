@@ -13,7 +13,7 @@ const failed = ref('')
 // The settings by what they reach (ORR-285), each tab saying so: you, how issues work in every project, this orrery as
 // a whole, and Advanced, the pages for looking into problems (ORR-561). A link to a section (`#tint`) opens its tab, even
 // one naming the tab it used to be on (`?tab=orrery#advanced`). How sessions start and what they hear is on the Sessions page.
-type Tab = 'you' | 'issues' | 'orrery' | 'advanced'
+type Tab = 'you' | 'projects' | 'issues' | 'orrery' | 'advanced'
 const TABS: {value: Tab, label: string, scope: string, sections: Heading[]}[] = [
     {value: 'you', label: 'You', scope: 'Who you are on this orrery, and how your issues are named outside it.', sections: [
         {id: 'name', text: 'Your name', level: 2},
@@ -22,6 +22,9 @@ const TABS: {value: Tab, label: string, scope: string, sections: Heading[]}[] = 
         ...useAuth().status.value?.mode === 'on' ? [{id: 'keys', text: 'Your keys', level: 2 as const}] : [],
         // Only while it's unclaimed and this page is on its own machine (ORR-832).
         ...useAuth().status.value?.can_claim ? [{id: 'claim', text: 'Claim this orrery', level: 2 as const}] : [],
+    ]},
+    {value: 'projects', label: 'Projects', scope: 'Every project on this orrery, and where the sidebar lists it.', sections: [
+        {id: 'projects', text: 'Projects in the sidebar', level: 2},
     ]},
     {value: 'issues', label: 'Issues', scope: "How issues work in every project on this orrery. A project's own settings are on its Settings tab.", sections: [
         {id: 'proposals', text: 'Proposals', level: 2},
@@ -142,6 +145,21 @@ async function restrictProposals(on: boolean) {
         await save({restrict_proposals: on})
     } catch (error) {
         proposalsFailed.value = errorMessage(error)
+    }
+}
+
+// Projects (ORR-836): each starred (first in the sidebar), as it is, or hidden (folded away under Hidden there).
+const {ordered: allProjects, isStarred, isHidden, place} = useProjectOrder()
+type Place = 'starred' | 'normal' | 'hidden'
+const PLACES: {value: Place, label: string}[] = [{value: 'starred', label: 'Starred'}, {value: 'normal', label: 'Shown'}, {value: 'hidden', label: 'Hidden'}]
+const placeOf = (id: string): Place => isHidden(id) ? 'hidden' : isStarred(id) ? 'starred' : 'normal'
+const projectsFailed = ref('')
+async function placeProject(id: string, as: Place) {
+    projectsFailed.value = ''
+    try {
+        await place(id, as)
+    } catch (error) {
+        projectsFailed.value = errorMessage(error)
     }
 }
 
@@ -331,6 +349,33 @@ async function pick(tint: string | null) {
           </p>
         </header>
         <ClaimOrrery @done="claimDone" />
+      </section>
+
+      <section v-if="tab === 'projects'" id="projects" class="scroll-mt-6 flex flex-col gap-3">
+        <header class="flex flex-col gap-0.5">
+          <h2 class="text-[15px] font-semibold text-fg">{{ title.projects }}</h2>
+          <p class="text-xs text-muted">
+            Star the projects you're on to keep them at the top of the sidebar, and hide the ones you're leaving for a while.
+            A hidden one folds away under Hidden at the foot of the list. Its issues, sessions and schedules carry on, and its pages still open.
+          </p>
+        </header>
+        <ul v-if="allProjects.length" class="flex flex-col divide-y divide-line rounded-xl ring-1 ring-line" data-testid="settings-projects">
+          <li v-for="project in allProjects" :key="project.id" class="flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2">
+            <NuxtLink :to="`/p/${project.id}`" class="flex min-w-0 flex-1 items-center gap-2 text-[13px] hover:underline" :class="isHidden(project.id) ? 'text-muted' : 'text-fg'">
+              <ProjectIcon v-if="project.icon && heroicon(project.icon)" :icon="project.icon" :color="project.icon_color" class="size-3.5" />
+              <ProgressRing v-else :kinds="project.board.kinds" bare :size="14" />
+              <span class="truncate">{{ project.name }}</span>
+            </NuxtLink>
+            <SegmentedControl
+                :model-value="placeOf(project.id)"
+                :options="PLACES"
+                :aria-label="`Where the sidebar lists ${project.name}`"
+                @update:model-value="placeProject(project.id, $event)"
+            />
+          </li>
+        </ul>
+        <p v-else class="text-xs text-faint">No projects yet.</p>
+        <p v-if="projectsFailed" class="text-xs text-rose-700 dark:text-rose-400">{{ projectsFailed }}</p>
       </section>
 
       <section v-if="tab === 'issues'" id="proposals" class="scroll-mt-6 flex flex-col gap-3">

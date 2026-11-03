@@ -1,4 +1,4 @@
-// `PATCH /api/settings` {tint?} → the settings: the owner's only. `tint` is a named colour (blue, …), a
+// `PATCH /api/settings` {tint?, starred?, hidden?, …} → the settings: the owner's only. `tint` is a named colour (blue, …), a
 // `#rrggbb`, or null for none. The event log says which were changed, and by whom, never to what.
 export default defineEventHandler(async event => {
     const body = await readBody(event)

@@ -196,4 +196,9 @@ export interface Settings {
     advanced: boolean
     /** A listening session out of work is handed the issues it may start, in Todo, to pick one (ORR-452, ORR-759). */
     pick_next: boolean
+    /** Projects the sidebar lists first, by id, and projects it folds away under Hidden (ORR-836). Only where
+     * they show: a hidden project's issues, sessions and schedules carry on, and its pages still open. A project
+     * is never both: hidden wins. */
+    starred: string[]
+    hidden: string[]
 }

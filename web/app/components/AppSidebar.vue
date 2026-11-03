@@ -51,7 +51,9 @@ const LIVE = {
 }
 
 // Projects are dragged by their name to rearrange them (or moved with ⌥↑/⌥↓); a line shows where one lands.
-const {ordered, move} = useProjectOrder()
+// Starred ones lead, and hidden ones fold away under Hidden at the foot (App settings → Projects, ORR-836).
+const {ordered, shown, hidden, isStarred, move} = useProjectOrder()
+const showHidden = useState('sidebar-hidden-open', () => false)
 const {sessions} = useRoadmaps()
 const dragging = ref<string | null>(null)
 const dropAt = ref<number | null>(null)
@@ -65,8 +67,8 @@ function onDragOver(event: DragEvent, index: number) {
 
 function onDrop() {
     if (dragging.value === null || dropAt.value === null) return
-    const from = ordered.value.findIndex(p => p.id === dragging.value)
-    move(dragging.value, dropAt.value > from ? dropAt.value - 1 : dropAt.value)
+    const from = shown.value.findIndex(p => p.id === dragging.value)
+    move(dragging.value, dropAt.value > from ? dropAt.value - 1 : dropAt.value, shown.value)
     onDragEnd()
 }
 
@@ -77,7 +79,7 @@ function onDragEnd() {
 
 // A project's pages fold away under it (→ / ← on its name), so a long list stays short.
 const {isOpen, set: setFolds, toggle} = useProjectFolds()
-const allOpen = computed(() => ordered.value.length > 0 && ordered.value.every(p => isOpen(p.id)))
+const allOpen = computed(() => shown.value.length > 0 && shown.value.every(p => isOpen(p.id)))
 
 // Every Claude session, at the bottom: the ones waiting on you first, then by project as arranged. One that hears
 // several projects is listed once, as spanning them (All projects, or how many), with them in its tooltip.
@@ -100,8 +102,8 @@ const spanLabel = (session: Session) => {
 }
 
 function nudge(id: string, by: number, event: KeyboardEvent) {
-    const from = ordered.value.findIndex(p => p.id === id)
-    move(id, from + by)
+    const from = shown.value.findIndex(p => p.id === id)
+    move(id, from + by, shown.value)
     nextTick(() => (event.target as HTMLElement).focus())
 }
 
@@ -234,7 +236,7 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
             class="grid size-5 place-items-center rounded text-faint hover:bg-hover hover:text-fg"
             :title="allOpen ? 'Fold every project' : 'Open every project'"
             :aria-label="allOpen ? 'Fold every project' : 'Open every project'"
-            @click="setFolds(ordered.map(p => p.id), !allOpen)"
+            @click="setFolds(shown.map(p => p.id), !allOpen)"
         >
           <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path :d="allOpen ? 'm7 4 5 5 5-5M7 20l5-5 5 5' : 'm7 9 5-5 5 5M7 15l5 5 5-5'" /></svg>
         </button>
@@ -244,7 +246,7 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
       </div>
       <!-- Every project, with its pages under it when it's open: Issues, Roadmap, Docs, Settings. -->
       <div
-          v-for="(project, index) in ordered"
+          v-for="(project, index) in shown"
           :key="project.id"
           class="relative flex flex-col gap-0.5 transition-opacity"
           :class="dragging === project.id && 'opacity-40'"
@@ -252,7 +254,7 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
           @drop.prevent="onDrop"
       >
         <span v-if="dropAt === index && dragging" class="pointer-events-none absolute inset-x-2 -top-1.5 h-0.5 rounded-full bg-accent-fill" />
-        <span v-if="dropAt === index + 1 && index === ordered.length - 1 && dragging" class="pointer-events-none absolute inset-x-2 -bottom-1.5 h-0.5 rounded-full bg-accent-fill" />
+        <span v-if="dropAt === index + 1 && index === shown.length - 1 && dragging" class="pointer-events-none absolute inset-x-2 -bottom-1.5 h-0.5 rounded-full bg-accent-fill" />
         <div class="group flex items-center rounded-lg transition-colors hover:bg-hover">
           <NuxtLink
               :to="`/p/${project.id}`"
@@ -271,6 +273,7 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
             <ProjectIcon v-if="project.icon && heroicon(project.icon)" :icon="project.icon" :color="project.icon_color" class="size-3.5" />
             <ProgressRing v-else :kinds="project.board.kinds" bare :size="14" />
             <span class="min-w-0 flex-1 truncate">{{ project.name }}</span>
+            <svg v-if="isStarred(project.id)" class="size-3 shrink-0 fill-amber-400 text-amber-400" viewBox="0 0 24 24" role="img" aria-label="Starred"><title>Starred</title><path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z" /></svg>
             <span v-if="unseenIn(project)" class="unseen-dot" :title="`${unseenIn(project)} changed since you last looked`" />
             <span v-if="project.board.kinds.started" class="flex items-center gap-1 rounded-full bg-accent-500/12 px-1.5 font-mono text-[10px] text-accent-700 tabular-nums dark:text-accent-300" :title="`${project.board.kinds.started} being worked on`">
               <span class="size-1 rounded-full bg-accent-fill" />{{ project.board.kinds.started }}
@@ -302,6 +305,34 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
           </NuxtLink>
         </div>
       </div>
+      <!-- Hidden projects, folded away until asked for: their pages and sessions carry on as before. -->
+      <template v-if="hidden.length">
+        <button
+            type="button"
+            class="flex items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[13px] text-faint transition-colors hover:bg-hover hover:text-muted"
+            :aria-expanded="showHidden"
+            data-testid="sidebar-hidden"
+            @click="showHidden = !showHidden"
+        >
+          <svg class="size-3 transition-transform duration-150" :class="showHidden && 'rotate-90'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6" /></svg>
+          <span class="flex-1">Hidden</span>
+          <span class="font-mono text-[11px] tabular-nums">{{ hidden.length }}</span>
+        </button>
+        <template v-if="showHidden">
+          <NuxtLink
+              v-for="project in hidden"
+              :key="project.id"
+              :to="`/p/${project.id}`"
+              class="ml-5 flex min-w-0 items-center gap-2 rounded-lg px-2 py-1 text-[13px] transition-colors"
+              :class="route.params.project === project.id ? 'bg-active font-medium text-fg' : 'text-muted hover:bg-hover hover:text-fg'"
+          >
+            <ProjectIcon v-if="project.icon && heroicon(project.icon)" :icon="project.icon" :color="project.icon_color" class="size-3.5" />
+            <ProgressRing v-else :kinds="project.board.kinds" bare :size="14" />
+            <span class="min-w-0 flex-1 truncate">{{ project.name }}</span>
+          </NuxtLink>
+          <NuxtLink to="/settings?tab=projects" class="ml-5 px-2 py-1 text-xs text-faint hover:text-muted">Choose in App settings</NuxtLink>
+        </template>
+      </template>
       <p v-if="ready && !projects.length" class="px-2 py-1 text-xs text-faint">None yet: start one with +.</p>
     </nav>
 
