@@ -2,13 +2,15 @@
 import type {KeyRecord} from '#shared/roadmap'
 
 // Your keys on Settings (ORR-664): an agent key for each machine's sessions, and a person key to sign in to the page where
-// there's no provider. A key shows once, as it's made; only a hash is kept. Revoking works at once.
+// there's no provider. A key shows once, as it's made; only a hash is kept. Revoking works at once. An agent key comes
+// with the line that puts it in keys.json for this address, which the launcher service and its sessions read (ORR-825).
 const {load} = useOwner()
 const {logOut} = useAuth()
 const keys = ref<KeyRecord[]>([])
 const kind = ref<'agent' | 'person'>('agent')
 const name = ref('')
-const made = ref('')
+const made = ref<{key: string, kind: 'agent' | 'person'} | null>(null)
+const here = import.meta.client ? location.origin : ''
 const busy = ref(false)
 const failed = ref('')
 
@@ -32,7 +34,7 @@ async function act(what: () => Promise<unknown>) {
 }
 const make = () => act(async () => {
     const {key} = await apiFetch<{key: string}>('/keys', {method: 'POST', body: {kind: kind.value, name: name.value}})
-    made.value = key
+    made.value = {key, kind: kind.value}
     name.value = ''
 })
 const revoke = (id: string) => act(() => apiFetch(`/keys/${id}`, {method: 'DELETE'}))
@@ -56,9 +58,16 @@ const revoke = (id: string) => act(() => apiFetch(`/keys/${id}`, {method: 'DELET
       </select>
       <UiButton type="submit" variant="primary" size="md" :disabled="busy || !name.trim()">Make a key</UiButton>
     </form>
-    <div v-if="made" class="flex flex-col gap-1 text-xs text-muted">
-      <p>Shown this once. An agent key goes in <code class="font-mono">ORRERY_KEY</code> where you start Claude Code; a person key signs you in here, and never goes in a session's environment.</p>
-      <code class="select-all break-all rounded-md bg-hover px-2 py-1 font-mono text-fg">{{ made }}</code>
+    <div v-if="made" class="flex flex-col gap-2 text-xs text-muted">
+      <p v-if="made.kind === 'agent'">Shown this once. An agent key is for the machine your sessions run on: the launcher and the sessions it starts read it from <code class="font-mono">~/.config/orrery/keys.json</code>, as the launcher runs as a service with nothing from your shell. Only for sessions you start from a terminal yourself, <code class="font-mono">ORRERY_KEY</code> there does as well.</p>
+      <p v-else>Shown this once. A person key signs you in here, and never goes in a session's environment.</p>
+      <code class="select-all break-all rounded-md bg-hover px-2 py-1 font-mono text-fg">{{ made.key }}</code>
+      <CopyBlock
+          v-if="made.kind === 'agent'"
+          title="Put it in keys.json"
+          :text="keysLine(here, made.key)"
+          :hint="`Run it in a terminal on that machine: it adds the key for ${here} to keys.json, keeping what's there, readable by you alone. orrery can't write the file itself, as it runs in a container.`"
+      />
     </div>
     <p v-if="failed" class="text-xs text-rose-700 dark:text-rose-400">{{ failed }}</p>
     <div>

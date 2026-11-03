@@ -139,6 +139,18 @@ describe('KeySettings', () => {
         expect((wrapper.find('[aria-label="What the key is for"]').element as HTMLInputElement).value).toBe('')
     })
 
+    it('gives an agent key with the line that puts it in keys.json for this address (ORR-825)', async () => {
+        const wrapper = await mountSuspended(KeySettings)
+        await wrapper.find('[aria-label="What the key is for"]').setValue('this laptop')
+        await wrapper.find('form').trigger('submit')
+        await expect.poll(() => wrapper.text()).toContain('Put it in keys.json')
+        expect(wrapper.text()).toContain('the launcher and the sessions it starts read it from ~/.config/orrery/keys.json')
+        const line = wrapper.find('pre').text()
+        expect(line).toMatch(/^node -e '/)
+        expect(line).toContain(`'${location.origin}' 'orr_shown_once'`)
+        expect(line).toContain('mode:0o600')
+    })
+
     it('lists each kind with when it was last used, and only a live one can be revoked', async () => {
         keys = [key('laptop', 'agent', {last_used_at: '2026-10-30T08:00:00Z'}), key('phone', 'person'), key('old', 'agent', {revoked_at: '2026-10-30T09:00:00Z'})]
         const wrapper = await mountSuspended(KeySettings)

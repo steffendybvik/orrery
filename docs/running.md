@@ -257,9 +257,10 @@ docker compose exec orrery node /app/server/claim.mjs --name "Your Name"  # in D
 `--name` is only needed before you've given orrery your name. It prints your person key once: sign in with it on the page. On a server
 already claimed it refuses, unless given `--replace`, which revokes your person keys and ends the logins they started, for when you've lost yours.
 
-**Sessions.** Claiming from App settings makes this machine's agent key. For any other machine, make one under App settings → You → Your keys, and either set `ORRERY_KEY` where you start
-Claude Code and the launcher, or, on several servers, add it to `~/.config/orrery/keys.json` (mode 0600), as
-`{"https://orrery.example": "orrery_agent_…"}`. `ORRERY_KEY` goes to any server that machine talks to, so use the file with more than one.
+**Sessions.** Claiming from App settings makes this machine's agent key. For any other machine, make one under App settings → You → Your keys: it comes with a line
+to run in a terminal there that adds it to `~/.config/orrery/keys.json` (mode 0600) for this address, as `{"https://orrery.example": "orrery_agent_…"}`.
+The launcher needs the file: it runs as a service with nothing from your shell but `PATH`, so it and the sessions it starts find a key only there.
+`ORRERY_KEY` where you start Claude Code does for sessions you start from a terminal, but it goes to any server that machine talks to.
 Never commit a key in `.mcp.json`. A person key won't work there: the channel refuses to start with one.
 
 **Other people.** Claim it first, then add them (App settings → This orrery → People, or `POST /api/people`, refused before that unless `ORRERY_AUTH=off`) and put them on a board
