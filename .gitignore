@@ -2,6 +2,7 @@ node_modules
 .nuxt
 .output
 .channel-bundle
+.spa-loading.html
 .data
 .env
 .env.*
