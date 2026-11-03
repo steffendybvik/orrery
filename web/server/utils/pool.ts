@@ -14,11 +14,36 @@ export function pooled(signal: Signal): boolean {
     return !signal.target
 }
 
-/** Whether the signal is for every session, or for this one (by any id it has had). */
-export function aimedAt(signal: Signal, session: string | undefined): boolean {
+/** Whether the signal is for every session, or for this one (by any id it has had). A stream with no session but a
+ * `name` (a plain `curl …/stream?name=…`) hears what's aimed at that name (ORR-821). */
+export function aimedAt(signal: Signal, session: string | undefined, name?: string): boolean {
     // A session reading what others wrote (an untrusted schedule's) hears only what's for it, and so does a chat.
     if (session && (untrustedSession(session) || chatSession(session))) return !!signal.target && currentId(signal.target) === currentId(session)
-    return !signal.target || signal.target === EVERY || !!session && currentId(signal.target) === currentId(session)
+    if (!signal.target || signal.target === EVERY) return true
+    return session ? currentId(signal.target) === currentId(session) : !!name && signal.target === name
+}
+
+/** How many streams with no session listen under each name, by project: what a signal can be aimed at by that name. */
+const named = new Map<string, Map<string, number>>()
+
+/** A stream with no session listening on the project under `name`; the function it gives says it's gone. */
+export function nameStream(project: string, name: string): () => void {
+    let on = named.get(project)
+    if (!on) named.set(project, on = new Map())
+    on.set(name, (on.get(name) ?? 0) + 1)
+    let open = true
+    return () => {
+        if (!open) return
+        open = false
+        const left = (on.get(name) ?? 1) - 1
+        if (left) on.set(name, left)
+        else on.delete(name)
+    }
+}
+
+/** Whether a stream with no session listens on the project under `name`. */
+export function namedStream(project: string, name: string): boolean {
+    return !!named.get(project)?.has(name)
 }
 
 /** Who took each pooled signal, by its id: the session, on the project whose stream sent it. */

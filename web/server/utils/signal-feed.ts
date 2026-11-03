@@ -45,8 +45,11 @@ export async function openFeed(project: string, who: Listener, from: number | un
     // hear the owner's signals.
     const narrow = who.untrusted || !!who.started?.untrusted || who.chat || !!who.started?.chat
     const stopListening = heard && !narrow ? listen(project) : () => {}
+    // With no session, its name is what a signal can be aimed at (ORR-821).
+    const unname = !attended && who.name ? nameStream(project, who.name) : () => {}
     const done = () => {
         stopListening()
+        unname()
         attended?.done()
     }
 
@@ -55,7 +58,7 @@ export async function openFeed(project: string, who: Listener, from: number | un
     /** The signal with what the session needs to act on it (signal-payload.ts). */
     const told = (signal: Signal) => signalPayload(store, project, signal, {api, me: who.session ? currentId(who.session) : undefined, person: who.person})
     // The owner's signals for every session, for one orrery picks, or for this one (by any id it has had); a receipt (delivered_to) isn't news.
-    const ours = (signal: Signal) => aimedAt(signal, attended?.id) && (!signal.person || signal.person === who.person)
+    const ours = (signal: Signal) => aimedAt(signal, attended?.id, who.name) && (!signal.person || signal.person === who.person)
     // A member's words reach only that member's sessions (ORR-658), at the receiver, so nothing that sends one can get past it.
     // The owner's go the same way when they carry a person (ORR-656), and otherwise to every session.
     const heardFrom = (signal: Signal) => signal.person ? signal.person === who.person : signal.protected

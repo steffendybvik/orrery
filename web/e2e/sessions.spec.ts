@@ -174,6 +174,43 @@ test('sends a focus aimed at no session to one, the first free, and to every one
     }
 })
 
+test("sends a focus aimed at a session's name to it, and one at a name nobody has nowhere (ORR-821)", async ({request, baseURL}) => {
+    await request.post('/api/sessions', {data: {id: 'e2e-larder', project: 'kitchen', event: 'SessionStart', name: 'kitchen larder'}})
+    const session = hold(baseURL!, '/api/projects/kitchen/signals/stream?session=e2e-larder&name=kitchen%20larder&format=text')
+    // A plain stream with only a name, as a bridge or `curl` opens one.
+    const bare = hold(baseURL!, '/api/projects/kitchen/signals/stream?name=e2e-bridge&format=text')
+    const sent: number[] = []
+    const focus = async (title: string, session: string) => {
+        const issue = await api(request, 'post', '/issues', {title, status: 'todo'})
+        return request.post(`/api/projects/kitchen/issues/${issue.id}/focus`, {data: {session}, headers: OWNER})
+    }
+    try {
+        await expect.poll(() => bare.said.text).toContain('Listening')
+        await expect.poll(async () => (await api(request, 'get', '/sessions')).some((s: {id: string, listening: boolean}) => s.id === 'e2e-larder' && s.listening)).toBe(true)
+        // By its name, in another case: stored as its id, and heard.
+        const byName = await focus('Count the jars', 'Kitchen Larder')
+        expect(byName.status(), await byName.text()).toBe(201)
+        const signal = (await byName.json()).signal
+        sent.push(signal.id)
+        expect(signal.target).toBe('e2e-larder')
+        await expect.poll(() => session.said.text).toContain('Count the jars')
+        // The stream with only a name hears one aimed at that name, and the session doesn't.
+        const toBridge = await focus('Stack the crates', 'e2e-bridge')
+        expect(toBridge.status(), await toBridge.text()).toBe(201)
+        sent.push((await toBridge.json()).signal.id)
+        await expect.poll(() => bare.said.text).toContain('Stack the crates')
+        expect(session.said.text).not.toContain('Stack the crates')
+        // A name nobody has is a 404, not a signal sent to nobody.
+        const nobody = await focus('Mop the floor', 'kitchen nobody')
+        expect(nobody.status()).toBe(404)
+        expect(await nobody.text()).toContain('No session kitchen nobody')
+    } finally {
+        for (const id of sent) await request.post(`/api/projects/kitchen/signals/${id}/delivered?name=e2e`)
+        session.stop()
+        bare.stop()
+    }
+})
+
 test('follows several projects on one stream, as one session', async ({request, baseURL}) => {
     const stream = hold(baseURL!, '/api/signals/stream?projects=kitchen,dairy&session=e2e-m&name=multi')
     const multi = async () => (await api(request, 'get', '/sessions')).find((s: {id: string}) => s.id === 'e2e-m')

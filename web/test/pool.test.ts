@@ -87,6 +87,22 @@ describe('a signal', () => {
             .toEqual([false, false, true])
     })
 
+    it('is for a stream with no session when aimed at its name, and not for a session of that name by it (ORR-821)', () => {
+        expect([pool.aimedAt(signal(1, {target: 'bridge'}), undefined, 'bridge'), pool.aimedAt(signal(1, {target: 'bridge'}), undefined, 'other'),
+            pool.aimedAt(signal(1, {target: 'bridge'}), undefined), pool.aimedAt(signal(1, {target: 'bridge'}), 'a', 'bridge')])
+            .toEqual([true, false, false, false])
+    })
+
+    it('knows a name a stream with no session listens under until its last such stream closes (ORR-821)', () => {
+        const [one, two] = [pool.nameStream('greenhouse', 'bridge'), pool.nameStream('greenhouse', 'bridge')]
+        expect([pool.namedStream('greenhouse', 'bridge'), pool.namedStream('pantry', 'bridge')]).toEqual([true, false])
+        one()
+        one()
+        expect(pool.namedStream('greenhouse', 'bridge')).toBe(true)
+        two()
+        expect(pool.namedStream('greenhouse', 'bridge')).toBe(false)
+    })
+
     it("is for the owner's chat only when aimed at it", () => {
         expect([pool.aimedAt(signal(1), 'chat'), pool.aimedAt(signal(1, {target: '*'}), 'chat'), pool.aimedAt(signal(1, {target: 'chat'}), 'chat')])
             .toEqual([false, false, true])

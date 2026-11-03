@@ -486,7 +486,7 @@ session's.
 
 | | |
 |---|---|
-| `POST /projects/:project/issues/:issue/focus` | `{note?, session?, instructions?, start?}` → `{signal, listeners}`: sends it, and says how many sessions heard; `session` names the one it's for, and left out it goes to the one on the issue or one orrery picks (`*`, every session, is a 400: only a chunk can go to them all); `start: true` (the owner's) starts a session for it when nobody's listening, even with `on_signal` off (see [Starting sessions](#starting-sessions)) |
+| `POST /projects/:project/issues/:issue/focus` | `{note?, session?, instructions?, start?}` → `{signal, listeners}`: sends it, and says how many sessions heard; `session` is the one it's for, by its id or its name (`orrery · Nide`, or `Nide`, in any case; a stream with no session by the `name` it gave), a 404 for one the project doesn't know, and left out it goes to the one on the issue or one orrery picks (`*`, every session, is a 400: only a chunk can go to them all); `start: true` (the owner's) starts a session for it when nobody's listening, even with `on_signal` off (see [Starting sessions](#starting-sessions)) |
 | `POST /projects/:project/chunks/:chunk/focus` | `{note?, session?, status?, release?, instructions?, start?}` → `{signal, listeners}`: the same, for a chunk (`none`: the issues in no chunk; `all`: every chunk's), which `session` `*` sends to every session; `status` (open statuses' ids, or `backlog`, `todo` or `started`, comma-separated) narrows it to those issues, and `release` (a version) to those set for it, at any depth |
 | `GET /projects/:project/signals?after=` | the signals after that id, oldest first, 50 at most; `?issue=` or `?chunk=` for the latest about one |
 | `GET /projects/:project/signals/stream` | first `ready` (`{project, listeners}`), then server-sent `signal` events as they're sent (`?after=` or `Last-Event-ID` to catch up), `name` `{name}`: what orrery calls the session, once it's known and again when it changes, `stop` when the owner stops the session, and `ping` every 25 seconds; a schedule's message sent again with the same text comes once in a catch-up, and not again while the session hasn't finished a turn since the last copy (the copies count as delivered); `?format=text` gives one line each, for the Monitor tool |
@@ -626,7 +626,7 @@ with review instructions in it.
 | `POST /projects/:project/launches/:launch/screen` | `{screen}` → `{watching}`: the launcher sending the screen of a session it started; it stops once `watching` is false |
 | `POST /projects/:project/launches/:launch/extend` | `{minutes}` → the session: the owner giving it longer, from when it would have stopped; a 409 for one that runs until stopped |
 
-`POST …/focus` takes `{session}` to reach one session; a chunk's also takes `{session: "*"}` for every session on the project.
+`POST …/focus` takes `{session}`, an id or a name, to reach one session; a chunk's also takes `{session: "*"}` for every session on the project.
 Without it, one session gets it, and orrery picks which: for an issue, the session already on it if that one is
 listening; else whichever listening session is idle when it comes; else, with every one busy, the next to go idle
 (within a day). The project's own sessions come first: a session whose channel hears several projects

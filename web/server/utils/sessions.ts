@@ -335,6 +335,31 @@ function heardOn(session: Known, project: string): boolean {
     return !!session.channels?.get(project)?.heard
 }
 
+/** The id a signal aimed at `given` on the project carries (ORR-821): a session's id (or one it had), or its name,
+ * whole (`orrery · Nide`) or without the project (`Nide`), in any case; a name more than one has goes to the one
+ * listening, else the newest. A launch's target stays as it is, for the session it starts, and so does the name of a
+ * stream with no session. Nothing for one the project doesn't know, so it isn't sent to nobody. */
+export function aimFor(project: string, given: string): string | undefined {
+    const byId = sessions.get(currentId(given))
+    if (byId && covers(byId, project)) return byId.id
+    if (given.startsWith('launch-')) return given
+    const wanted = given.trim().toLowerCase()
+    const matches = [...sessions.values()].filter(s => covers(s, project)
+        && (s.name.toLowerCase() === wanted || s.name.toLowerCase().split(' · ').pop() === wanted))
+        .sort((a, b) => Number(b.listening) - Number(a.listening) || b.started_at.localeCompare(a.started_at))
+    if (matches[0]) return matches[0].id
+    return namedStream(project, given) ? given : undefined
+}
+
+/** A request's `session` as `aimFor` resolves it, for a focus or a message to one session; a 404 for one the project
+ * doesn't know, rather than a signal nobody hears (ORR-821). None and `*` pass as they are. */
+export function aimSession(project: string, session: unknown): unknown {
+    if (typeof session !== 'string' || !session || session === EVERY) return session
+    const id = aimFor(project, session)
+    if (!id) throw notFound(`No session ${session} in ${project}: aim it by a session's id or name (GET /api/projects/${project}/sessions), or leave session out`)
+    return id
+}
+
 /** Whether the session belongs with the project on the Sessions page: its own, or one its channel is heard on. */
 function covers(session: Known, project: string): boolean {
     return session.project === project || heardOn(session, project)
