@@ -11,10 +11,12 @@ test.skip(process.platform !== 'linux', "The images are Linux's: run `pnpm test:
 test.describe.configure({mode: 'serial'})
 test.use({viewport: {width: 1280, height: 800}, colorScheme: 'light'})
 
-// The bell counts what earlier files left unread, so it's left out of every image.
-const shoot = (page: Page, name: string) => expect(page.locator('main')).toHaveScreenshot(name, {
-    mask: [page.getByRole('link', {name: /comments from agents|waiting on you/i})],
-})
+// The bell counts what earlier files left unread, so it's left out of every image. Its badge sits partly outside the
+// link, past the mask, so it's hidden too, as it is when nothing's unread.
+const shoot = async (page: Page, name: string) => {
+    await page.addStyleTag({content: 'a[href="/notifications"] > :not(svg) { visibility: hidden }'})
+    await expect(page.locator('main')).toHaveScreenshot(name, {mask: [page.getByRole('link', {name: /comments from agents|waiting on you/i})]})
+}
 
 const api = async (request: APIRequestContext, method: 'get' | 'post' | 'put' | 'patch', path: string, data?: object, headers?: Record<string, string>) => {
     const r = await request[method](`/api${path}`, {data, headers})
@@ -29,6 +31,8 @@ test.beforeAll(async ({request}) => {
     starts = (await api(request, 'get', '/settings')).starts ?? null
     await api(request, 'patch', '/settings', {starts: null}, OWNER)
     await makeProject(request, {name: 'Gallery', key: 'GAL'})
+    // A retry finds the gallery as the first try left it: adding its issues again would put two of each in the image.
+    if (test.info().retry > 0 && (await api(request, 'get', '/projects/gallery/issues')).length) return
     const {id: chunk} = await api(request, 'post', '/projects/gallery/chunks', {title: 'Hanging'})
     const issues = [
         {title: 'Hang the portraits in the east wing', status: 'in-progress', priority: 'P1', labels: ['bug']},
