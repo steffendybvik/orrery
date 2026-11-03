@@ -27,6 +27,7 @@ const picked = ref('')
 const dialog = ref(false)
 const said = ref('')
 const confirming = ref(false)
+const split = ref(240)
 </script>
 
 <template>
@@ -119,6 +120,15 @@ const confirming = ref(false)
           <UiButton><UiBusy label="Sending…">Send</UiBusy></UiButton>
         </div>
         <UiLoading class="rounded-lg ring-1 ring-line" />
+      </section>
+
+      <section class="flex flex-col gap-3 border-t border-line pt-6">
+        <h2 class="label">UiSplitter</h2>
+        <div class="flex h-32 rounded-lg text-xs text-muted ring-1 ring-line">
+          <div class="shrink-0 p-3" :style="{width: `${split}px`}">{{ split }} px</div>
+          <UiSplitter v-model="split" :initial="240" :min="120" :keep="160" label="Resize the example" />
+          <div class="min-w-0 flex-1 p-3">Drag the border, or focus it and press ←→</div>
+        </div>
       </section>
 
       <section class="flex flex-col gap-3 border-t border-line pt-6">
