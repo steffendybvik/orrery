@@ -34,6 +34,9 @@ export default defineConfig({
     // as a Playwright project the rest depend on; each of them then makes an orrery project of its own.
     workers: whole ? 4 : 1,
     retries: process.env.CI ? 1 : 0,
+    // On CI a page under `nuxt dev` can take seconds to hydrate, four workers to a runner and the server's coverage on
+    // besides, so an expect gets longer there than its 5s here (ORR-912).
+    expect: {timeout: process.env.CI ? 15_000 : 5_000},
     reporter: process.env.CI ? [['list'], ['html', {open: 'never'}], ['json', {outputFile: 'e2e-results.json'}]] : 'list',
     use: {baseURL: `http://localhost:${port}`, trace: 'retain-on-failure'},
     projects: [
