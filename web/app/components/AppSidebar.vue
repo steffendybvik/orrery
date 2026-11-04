@@ -157,87 +157,6 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
         <span v-if="mineCount" class="font-mono text-[11px] text-faint tabular-nums">{{ mineCount }}</span>
       </NuxtLink>
 
-      <NuxtLink
-          to="/connect"
-          class="flex items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] transition-colors"
-          :class="route.path === '/connect' ? 'bg-active font-medium text-fg' : 'text-muted hover:bg-hover hover:text-fg'"
-      >
-        <svg class="size-4 text-faint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 7H7a5 5 0 0 0 0 10h2M15 7h2a5 5 0 0 1 0 10h-2M8 12h8" /></svg>
-        <span class="flex-1">Connect an agent</span>
-      </NuxtLink>
-
-      <NuxtLink
-          to="/projects"
-          class="flex items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] transition-colors"
-          :class="route.path === '/projects' ? 'bg-active font-medium text-fg' : 'text-muted hover:bg-hover hover:text-fg'"
-      >
-        <svg class="size-4 text-faint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="7" height="7" rx="1.5" /><rect x="14" y="4" width="7" height="7" rx="1.5" /><rect x="3" y="14" width="7" height="7" rx="1.5" /><rect x="14" y="14" width="7" height="7" rx="1.5" /></svg>
-        <span class="flex-1">Projects</span>
-        <span v-if="projects.length" class="font-mono text-[11px] text-faint tabular-nums">{{ projects.length }}</span>
-      </NuxtLink>
-
-      <NuxtLink
-          to="/sessions"
-          class="flex items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] transition-colors"
-          :class="route.path === '/sessions' ? 'bg-active font-medium text-fg' : 'text-muted hover:bg-hover hover:text-fg'"
-      >
-        <SectionIcon section="sessions" class="size-4 text-faint" />
-        <span class="flex-1">Sessions</span>
-        <span v-if="allSessions.length" class="font-mono text-[11px] text-faint tabular-nums">{{ allSessions.length }}</span>
-      </NuxtLink>
-
-      <NuxtLink
-          to="/schedules"
-          class="flex items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] transition-colors"
-          :class="route.path === '/schedules' ? 'bg-active font-medium text-fg' : 'text-muted hover:bg-hover hover:text-fg'"
-      >
-        <SectionIcon section="schedules" class="size-4 text-faint" />
-        <span class="flex-1">Schedules</span>
-        <span v-if="scheduleCount" class="font-mono text-[11px] text-faint tabular-nums">{{ scheduleCount }}</span>
-      </NuxtLink>
-
-      <NuxtLink
-          to="/releases"
-          class="flex items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] transition-colors"
-          :class="route.path === '/releases' ? 'bg-active font-medium text-fg' : 'text-muted hover:bg-hover hover:text-fg'"
-      >
-        <SectionIcon section="releases" class="size-4 text-faint" />
-        <span class="flex-1">Releases</span>
-        <span v-if="preparingCount" class="font-mono text-[11px] text-faint tabular-nums" :title="`${preparingCount} being prepared`">{{ preparingCount }}</span>
-      </NuxtLink>
-
-      <template v-if="appSettings.advanced">
-        <NuxtLink
-            to="/events"
-            class="flex items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] transition-colors"
-            :class="route.path === '/events' ? 'bg-active font-medium text-fg' : 'text-muted hover:bg-hover hover:text-fg'"
-        >
-          <svg class="size-4 text-faint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h16M4 12h10M4 18h7" /><circle cx="18" cy="16" r="3" /></svg>
-          <span class="flex-1">Events</span>
-          <ErrorBadge v-if="newErrors.length" :count="newErrors.length" :title="`${newErrors.length} new kind${newErrors.length === 1 ? '' : 's'} of error`" />
-        </NuxtLink>
-
-        <NuxtLink
-            to="/context"
-            class="flex items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] transition-colors"
-            :class="route.path === '/context' ? 'bg-active font-medium text-fg' : 'text-muted hover:bg-hover hover:text-fg'"
-        >
-          <svg class="size-4 text-faint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19V5M9 19v-8M14 19V9M19 19v-4" /></svg>
-          <span class="flex-1">Context</span>
-        </NuxtLink>
-
-        <NuxtLink
-            to="/pulls"
-            class="flex items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] transition-colors"
-            :class="route.path === '/pulls' ? 'bg-active font-medium text-fg' : 'text-muted hover:bg-hover hover:text-fg'"
-        >
-          <svg class="size-4 text-faint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="6" r="2.5" /><circle cx="6" cy="18" r="2.5" /><circle cx="18" cy="18" r="2.5" /><path d="M6 8.5v7M18 15.5V9a3 3 0 0 0-3-3h-4m2-2-2 2 2 2" /></svg>
-          <span class="flex-1">Pull requests</span>
-          <ErrorBadge v-if="pulls?.needs" :count="pulls.needs" :title="`${pulls.needs} need${pulls.needs === 1 ? 's' : ''} someone: conflicts, failing checks or behind`" />
-          <span v-else-if="pulls?.open" class="font-mono text-[11px] text-faint tabular-nums">{{ pulls.open }}</span>
-        </NuxtLink>
-      </template>
-
       <!-- On a touch screen its small buttons are 28px to tap, around the same icons (ORR-816). -->
       <div class="label mt-4 mb-1 flex items-center gap-1 px-2">
         <span class="flex-1">Projects</span>
@@ -346,6 +265,88 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
         </template>
       </template>
       <p v-if="ready && !projects.length" class="px-2 py-1 text-xs text-faint">None yet: start one with +.</p>
+
+      <NuxtLink
+          to="/connect"
+          class="mt-4 flex items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] transition-colors"
+          :class="route.path === '/connect' ? 'bg-active font-medium text-fg' : 'text-muted hover:bg-hover hover:text-fg'"
+      >
+        <svg class="size-4 text-faint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 7H7a5 5 0 0 0 0 10h2M15 7h2a5 5 0 0 1 0 10h-2M8 12h8" /></svg>
+        <span class="flex-1">Connect an agent</span>
+      </NuxtLink>
+
+      <NuxtLink
+          to="/projects"
+          class="flex items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] transition-colors"
+          :class="route.path === '/projects' ? 'bg-active font-medium text-fg' : 'text-muted hover:bg-hover hover:text-fg'"
+      >
+        <svg class="size-4 text-faint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="7" height="7" rx="1.5" /><rect x="14" y="4" width="7" height="7" rx="1.5" /><rect x="3" y="14" width="7" height="7" rx="1.5" /><rect x="14" y="14" width="7" height="7" rx="1.5" /></svg>
+        <span class="flex-1">Projects</span>
+        <span v-if="projects.length" class="font-mono text-[11px] text-faint tabular-nums">{{ projects.length }}</span>
+      </NuxtLink>
+
+      <NuxtLink
+          to="/sessions"
+          class="flex items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] transition-colors"
+          :class="route.path === '/sessions' ? 'bg-active font-medium text-fg' : 'text-muted hover:bg-hover hover:text-fg'"
+      >
+        <SectionIcon section="sessions" class="size-4 text-faint" />
+        <span class="flex-1">Sessions</span>
+        <span v-if="allSessions.length" class="font-mono text-[11px] text-faint tabular-nums">{{ allSessions.length }}</span>
+      </NuxtLink>
+
+      <NuxtLink
+          to="/schedules"
+          class="flex items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] transition-colors"
+          :class="route.path === '/schedules' ? 'bg-active font-medium text-fg' : 'text-muted hover:bg-hover hover:text-fg'"
+      >
+        <SectionIcon section="schedules" class="size-4 text-faint" />
+        <span class="flex-1">Schedules</span>
+        <span v-if="scheduleCount" class="font-mono text-[11px] text-faint tabular-nums">{{ scheduleCount }}</span>
+      </NuxtLink>
+
+      <NuxtLink
+          to="/releases"
+          class="flex items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] transition-colors"
+          :class="route.path === '/releases' ? 'bg-active font-medium text-fg' : 'text-muted hover:bg-hover hover:text-fg'"
+      >
+        <SectionIcon section="releases" class="size-4 text-faint" />
+        <span class="flex-1">Releases</span>
+        <span v-if="preparingCount" class="font-mono text-[11px] text-faint tabular-nums" :title="`${preparingCount} being prepared`">{{ preparingCount }}</span>
+      </NuxtLink>
+
+      <template v-if="appSettings.advanced">
+        <NuxtLink
+            to="/events"
+            class="flex items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] transition-colors"
+            :class="route.path === '/events' ? 'bg-active font-medium text-fg' : 'text-muted hover:bg-hover hover:text-fg'"
+        >
+          <svg class="size-4 text-faint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h16M4 12h10M4 18h7" /><circle cx="18" cy="16" r="3" /></svg>
+          <span class="flex-1">Events</span>
+          <ErrorBadge v-if="newErrors.length" :count="newErrors.length" :title="`${newErrors.length} new kind${newErrors.length === 1 ? '' : 's'} of error`" />
+        </NuxtLink>
+
+        <NuxtLink
+            to="/context"
+            class="flex items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] transition-colors"
+            :class="route.path === '/context' ? 'bg-active font-medium text-fg' : 'text-muted hover:bg-hover hover:text-fg'"
+        >
+          <svg class="size-4 text-faint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19V5M9 19v-8M14 19V9M19 19v-4" /></svg>
+          <span class="flex-1">Context</span>
+        </NuxtLink>
+
+        <NuxtLink
+            to="/pulls"
+            class="flex items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] transition-colors"
+            :class="route.path === '/pulls' ? 'bg-active font-medium text-fg' : 'text-muted hover:bg-hover hover:text-fg'"
+        >
+          <svg class="size-4 text-faint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="6" r="2.5" /><circle cx="6" cy="18" r="2.5" /><circle cx="18" cy="18" r="2.5" /><path d="M6 8.5v7M18 15.5V9a3 3 0 0 0-3-3h-4m2-2-2 2 2 2" /></svg>
+          <span class="flex-1">Pull requests</span>
+          <ErrorBadge v-if="pulls?.needs" :count="pulls.needs" :title="`${pulls.needs} need${pulls.needs === 1 ? 's' : ''} someone: conflicts, failing checks or behind`" />
+          <span v-else-if="pulls?.open" class="font-mono text-[11px] text-faint tabular-nums">{{ pulls.open }}</span>
+        </NuxtLink>
+      </template>
+
     </nav>
 
     <!-- Every Claude session working on a project, apart from the projects so they stay short. -->
