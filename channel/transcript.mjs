@@ -11,6 +11,15 @@ export function modelOf(hook) {
     return lastModel(hook.transcript_path)
 }
 
+const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max']
+
+/** The effort level the session runs at (ORR-894), as its hook says on tool events (`effort`, or `effort.level`), so an
+ * `/effort` switch shows too. Nothing when it doesn't say. */
+export function effortOf(hook) {
+    const given = typeof hook.effort === 'string' ? hook.effort : hook.effort?.level
+    return EFFORTS.includes(given) ? given : undefined
+}
+
 const TAIL = 256 * 1024
 
 /** The model of the latest assistant reply in a transcript (one JSON entry a line), or nothing. */

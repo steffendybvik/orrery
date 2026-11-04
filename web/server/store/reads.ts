@@ -1,7 +1,7 @@
 // The store's reads that need nothing but the database: a project's board, its releases with how far their issues are,
 // its docs without their text, and the board's issues as records (ORR-501). StoreBase builds a project from them.
-import type {Asks, Board, Choice, Chunk, DocSummary, Issue, IssueStatus, Picks, Release} from '#shared/roadmap'
-import {CLOSED, linkRef} from '#shared/roadmap'
+import type {Asks, Board, Choice, Chunk, DocSummary, Issue, IssueStatus, Picks, PullRisk, Release, RiskLevel} from '#shared/roadmap'
+import {CLOSED, highestRisk, linkRef} from '#shared/roadmap'
 import type {IssueInput} from '../utils/roadmap'
 import {buildBoard} from '../utils/roadmap'
 import type {Db} from '../utils/database'
@@ -42,8 +42,20 @@ async function readLinks(db: Db, project: string, statuses: IssueStatus[]) {
     return {dependsOn, blockedBy, blocks}
 }
 
+/** Each of the project's issues with a rated PR (ORR-879), and the riskiest of them. */
+async function readRisks(db: Db, project: string): Promise<Map<string, PullRisk>> {
+    const rows = await db.all<{issue: string, risk: RiskLevel, risk_why: string | null, risk_by: string | null}>(
+        'SELECT issue, risk, risk_why, risk_by FROM issue_pulls WHERE project = ? AND risk IS NOT NULL ORDER BY number', project)
+    const risks = new Map<string, PullRisk>()
+    for (const row of rows) {
+        const risk: PullRisk = {level: row.risk, why: row.risk_why ?? '', by: row.risk_by === 'owner' ? 'owner' : 'session'}
+        risks.set(row.issue, highestRisk([risks.get(row.issue), risk]) ?? risk)
+    }
+    return risks
+}
+
 /** The project's board: its chunks and their issues, sub-issues within, each with its comment count, open question,
- * the ids it had before and its dependency links. */
+ * the ids it had before, its dependency links and its risk. */
 export async function readBoard(db: Db, project: string, statuses: IssueStatus[]): Promise<Board> {
     const chunks = await db.all<ChunkRow>('SELECT * FROM chunks WHERE project = ? ORDER BY position, created_at', project)
     const issues = await db.all<IssueRow>('SELECT * FROM issues WHERE project = ? ORDER BY position, created_at', project)
@@ -68,6 +80,7 @@ export async function readBoard(db: Db, project: string, statuses: IssueStatus[]
     // One that's done or canceled waits on nobody, whatever was left unanswered on it (ORR-640).
     const closed = new Set(statuses.filter(s => CLOSED.includes(s.kind)).map(s => s.id))
     const links = await readLinks(db, project, statuses)
+    const risks = await readRisks(db, project)
     const issueAliases = await aliases('issue_aliases', 'issue')
     const chunkAliases = await aliases('chunk_aliases', 'chunk')
     const children = new Map<string | null, IssueRow[]>()
@@ -104,6 +117,7 @@ export async function readBoard(db: Db, project: string, statuses: IssueStatus[]
         ...links.dependsOn.has(row.id) ? {depends_on: links.dependsOn.get(row.id)} : {},
         ...links.blockedBy.has(row.id) ? {blocked_by: links.blockedBy.get(row.id)} : {},
         ...links.blocks.has(row.id) ? {blocks: links.blocks.get(row.id)} : {},
+        ...risks.has(row.id) ? {risk: risks.get(row.id)} : {},
         created_at: row.created_at,
         updated_at: row.updated_at,
         tasks: (children.get(row.id) ?? []).map(input),

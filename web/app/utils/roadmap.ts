@@ -1,5 +1,5 @@
 import type {Chunk, Column, Comment, Issue, Kinds, Place, Project, Release, SessionContext} from '#shared/roadmap'
-import {CLOSED, PRIORITIES, TINTS, linkRef, madeUpName, open, parseLinkRef, total} from '#shared/roadmap'
+import {CLOSED, PRIORITIES, RISK_LEVELS, TINTS, linkRef, madeUpName, open, parseLinkRef, total} from '#shared/roadmap'
 import {serverName} from '#shared/connect'
 
 /** A tint's name as its colour; a `#rrggbb` as itself. */
@@ -116,6 +116,21 @@ export function linkOptions(projects: Project[], here: string, self?: string): {
         const ref = linkRef(here, p.id, issue.id)
         return {value: ref, label: `${ref} · ${issue.title}`}
     }))
+}
+
+/** How risky an issue's change is to review (ORR-879), as a rank to sort by, 0 the riskiest: its own PRs' or its
+ * sub-issues', whichever is higher; one with none rated comes after low. */
+export function riskRank(issue: Issue): number {
+    const own = issue.risk ? RISK_LEVELS.indexOf(issue.risk.level) : RISK_LEVELS.length
+    return Math.min(own, ...issue.tasks.map(riskRank))
+}
+
+/** The issues riskiest first (ORR-879), sub-issues too; those as risky as each other stay in the order they were in. */
+export function byRisk(issues: Issue[]): Issue[] {
+    return issues.map(issue => issue.tasks.length ? {...issue, tasks: byRisk(issue.tasks)} : issue)
+        .map((issue, i) => ({issue, i, rank: riskRank(issue)}))
+        .sort((a, b) => a.rank - b.rank || a.i - b.i)
+        .map(({issue}) => issue)
 }
 
 /** The issues that match, kept with the parents on the way to them. */

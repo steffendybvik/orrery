@@ -2,7 +2,7 @@ import {mkdtempSync, writeFileSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {describe, expect, it} from 'vitest'
-import {lastModel, modelOf} from '../../channel/transcript.mjs'
+import {effortOf, lastModel, modelOf} from '../../channel/transcript.mjs'
 import {modelLabel} from '../shared/roadmap'
 
 // Each session's model on the Sessions page (ORR-871): the hook reads it off the session's transcript, the latest
@@ -37,6 +37,15 @@ describe("a session's model, from its transcript", () => {
         expect(modelOf({hook_event_name: 'SessionStart', model: {id: 'claude-fable-5-1'}})).toBe('claude-fable-5-1')
         expect(modelOf({hook_event_name: 'PreToolUse', transcript_path: path})).toBeUndefined()
         expect(modelOf({hook_event_name: 'Stop', transcript_path: path})).toBe('claude-opus-5-5')
+    })
+})
+
+describe("a session's effort level, from its hook (ORR-894)", () => {
+    it('takes a level as a word or as effort.level, and nothing else', () => {
+        expect(effortOf({hook_event_name: 'PreToolUse', effort: 'high'})).toBe('high')
+        expect(effortOf({hook_event_name: 'PreToolUse', effort: {level: 'xhigh'}})).toBe('xhigh')
+        expect(effortOf({hook_event_name: 'PreToolUse', effort: 'extreme'})).toBeUndefined()
+        expect(effortOf({hook_event_name: 'Stop'})).toBeUndefined()
     })
 })
 
