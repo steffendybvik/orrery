@@ -1,4 +1,4 @@
-import {afterEach, describe, expect, it} from 'vitest'
+import {afterEach, describe, expect, it, vi} from 'vitest'
 import type {VueWrapper} from '@vue/test-utils'
 import {flushPromises} from '@vue/test-utils'
 import {mountSuspended, registerEndpoint} from '@nuxt/test-utils/runtime'
@@ -65,7 +65,9 @@ describe('Open on your phone', () => {
 
     it('puts a one-time sign-in link in the code when the phone has its own port', async () => {
         const wrapper = await mount(links({phone: true, addresses: [{url: 'https://orrery.example', from: 'host'}]}))
-        expect(made).toBe(1)
+        // It asks for the owner, then the link: under a full run that can take longer than the mount's wait.
+        await vi.waitFor(() => expect(made).toBe(1))
+        await flushPromises()
         expect(wrapper.text()).toContain("you're signed in, on a login of the phone's own")
         // The code is drawn from the link with the token, so a different token draws a different code.
         const withToken = code(wrapper).html()
