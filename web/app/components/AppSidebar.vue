@@ -51,8 +51,8 @@ const LIVE = {
 }
 
 // Projects are dragged by their name to rearrange them (or moved with ⌥↑/⌥↓); a line shows where one lands.
-// Starred ones lead, and hidden ones fold away under Hidden at the foot (App settings → Projects, ORR-836), which
-// links to the Projects page, every project on one page (ORR-863).
+// Starred ones lead, and hidden ones fold away under Hidden at the foot (App settings → Projects, ORR-836). The
+// Projects page, every project on one page (ORR-863), is in the nav above, so the fold doesn't link to it (ORR-905).
 const {ordered, shown, hidden, isStarred, move} = useProjectOrder()
 const showHidden = useState('sidebar-hidden-open', () => false)
 const {sessions} = useRoadmaps()
@@ -406,7 +406,6 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
             <ProgressRing v-else :kinds="project.board.kinds" bare :size="14" />
             <span class="min-w-0 flex-1 truncate">{{ project.name }}</span>
           </NuxtLink>
-          <NuxtLink to="/projects?show=hidden" class="ml-5 px-2 py-1 text-xs text-faint hover:text-muted">All projects</NuxtLink>
         </template>
       </template>
       <p v-if="ready && !projects.length" class="px-2 py-1 text-xs text-faint">None yet: start one with +.</p>
