@@ -3,6 +3,7 @@ import {join} from 'node:path'
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 import {PERMISSIONS} from '#shared/permissions'
 import type {Permission, PermissionCell} from '#shared/permissions'
+import {Pulls} from '../server/utils/pulls'
 import {Schedules} from '../server/utils/schedules'
 import {Store} from '../server/utils/store'
 import {testDb} from './db'
@@ -128,6 +129,15 @@ describe("a working session's column", () => {
     // Each row the store or the schedules hold, tried as an agent: the level its column says, and what makes it so.
     const PROBES: Record<string, () => Promise<unknown>> = {
         'issues.create': async () => expect(await status(() => store.createIssue('greenhouse', {title: 'Shelves'}, agent))).toBe(200),
+        'pulls.risk': async () => {
+            const {id} = await store.createIssue('greenhouse', {title: 'Shelves'}, agent)
+            const pulls = new Pulls(store, async () => { throw new Error('no GitHub here') })
+            await pulls.remember('you/greenhouse', ['greenhouse'], {number: 7, title: 'Shelves', url: 'https://github.com/you/greenhouse/pull/7', branch: 'feat/x', base: 'main', author: 'claude',
+                merged: false, closed: false, merged_at: null, created_at: '2026-11-04T09:00:00Z', updated_at: '2026-11-04T09:00:00Z', names: [id]})
+            expect(await status(() => pulls.rate('greenhouse', id, 'you/greenhouse', 7, {level: 'low', why: 'copy only'}, false))).toBe(200)
+            await pulls.rate('greenhouse', id, 'you/greenhouse', 7, {level: 'high', why: 'touches the store'}, true)
+            expect(await status(() => pulls.rate('greenhouse', id, 'you/greenhouse', 7, {level: 'low', why: 'copy only'}, false))).toBe(409)
+        },
         'issues.claim': async () => {
             const {id} = await store.createIssue('greenhouse', {title: 'Shelves'}, agent)
             expect(await status(() => store.claimIssue('greenhouse', id, agent))).toBe(200)

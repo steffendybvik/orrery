@@ -671,4 +671,15 @@ export const STEPS: (string | ((client: Pick<PoolClient, 'query'>) => Promise<un
         count integer NOT NULL,
         PRIMARY KEY (feature, day)
     );
+`, `
+    -- A schedule's own model and effort (ORR-869): what its session starts on, its message needs, and its issues carry.
+    -- None takes its kind's.
+    ALTER TABLE schedules ADD COLUMN model text;
+    ALTER TABLE schedules ADD COLUMN effort text;
+`, `
+    -- A change's risk (ORR-879): high, medium or low, with a line on why, rated by the session that opens the PR. by is
+    -- 'owner' once the owner sets it, and then a session's rating doesn't replace it. None on those from before.
+    ALTER TABLE issue_pulls ADD COLUMN risk text CHECK (risk IN ('high', 'medium', 'low'));
+    ALTER TABLE issue_pulls ADD COLUMN risk_why text;
+    ALTER TABLE issue_pulls ADD COLUMN risk_by text;
 `]

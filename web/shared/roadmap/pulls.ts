@@ -3,6 +3,23 @@
 /** Where an open pull request stands: what it waits on before it can merge (ORR-485). */
 export type PullState = 'draft' | 'conflicting' | 'behind' | 'failing' | 'blocked' | 'ready' | 'checking'
 
+/** How risky a change is (ORR-879), so reviewing starts with what matters. */
+export const RISK_LEVELS = ['high', 'medium', 'low'] as const
+export type RiskLevel = typeof RISK_LEVELS[number]
+
+/** A PR's risk on an issue (ORR-879): rated by the session that opens it, from the change's context, with a line on
+ * what decided it. `by: 'owner'` is the owner's override, which a session's later rating doesn't replace. */
+export interface PullRisk {
+    level: RiskLevel
+    why: string
+    by: 'owner' | 'session'
+}
+
+/** The highest risk among `risks`, or none when none is rated. */
+export function highestRisk(risks: (PullRisk | undefined)[]): PullRisk | undefined {
+    return risks.filter(risk => risk !== undefined).sort((a, b) => RISK_LEVELS.indexOf(a.level) - RISK_LEVELS.indexOf(b.level))[0]
+}
+
 /** An open pull request on the project's repo that names the issue: in its body (a link to the issue's page), or in its branch. */
 export interface PullRequest {
     number: number
@@ -15,6 +32,8 @@ export interface PullRequest {
     state: PullState
     created_at: string
     updated_at: string
+    /** How risky the change is, once rated (ORR-879). */
+    risk?: PullRisk
 }
 
 /** What a session is asked to do about a PR that can't merge as it is (Send back, ORR-492); none for one that can. */
@@ -57,6 +76,8 @@ export interface PastPull {
     state: 'open' | 'merged' | 'closed'
     merged_at: string | null
     updated_at: string
+    /** How risky the change was, once rated (ORR-879). */
+    risk?: PullRisk
 }
 
 /** A PR orrery has kept, by its number, with every issue it's linked to (ORR-880): `GET /api/pulls/:owner/:name/:number`. */

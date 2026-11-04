@@ -8,7 +8,7 @@
 // otherwise GitHub is asked, and the answers kept for a minute (five without a token, as GitHub allows 60 requests an
 // hour then), so many pages and issues cost one list per repo.
 import type {H3Event} from 'h3'
-import type {AllPulls, IssuePulls, OpenPull, PastPull, PullIssues, PullRequest, PullState} from '#shared/roadmap'
+import type {AllPulls, IssuePulls, OpenPull, PastPull, PullIssues, PullRequest, PullRisk, PullState, RiskLevel} from '#shared/roadmap'
 import {PULL_NEEDS, githubRepo} from '#shared/roadmap'
 import {conflict, notFound} from './input'
 import type {Store} from './store'
@@ -157,7 +157,35 @@ export class Pulls {
         project = await this.store.projectId(project)
         const ids = await this.ids(project, issue)
         const open = await this.openFor(project, ids)
-        return {...open, done: await this.past(project, ids[0] ?? issue, open.repo)}
+        const done = await this.past(project, ids[0] ?? issue, open.repo)
+        const risks = await this.risks(project, ids[0] ?? issue)
+        const rated = <T extends {number: number}>(pull: T, repo: string | null): T => {
+            const risk = risks.get(`${repo?.toLowerCase()}#${pull.number}`)
+            return risk ? {...pull, risk} : pull
+        }
+        return {...open, pulls: open.pulls.map(pull => rated(pull, open.repo)), done: done.map(({repo, ...pull}) => rated(pull, repo))}
+    }
+
+    /** The risk of each of the issue's PRs that's rated (ORR-879), by `repo#number`, the repo in lower case. */
+    private async risks(project: string, issue: string): Promise<Map<string, PullRisk>> {
+        const rows = await this.store.db.all<{repo: string, number: number, risk: RiskLevel, risk_why: string | null, risk_by: string | null}>(
+            'SELECT repo, number, risk, risk_why, risk_by FROM issue_pulls WHERE project = ? AND issue = ? AND risk IS NOT NULL', project, issue)
+        return new Map(rows.map(r => [`${r.repo.toLowerCase()}#${r.number}`, {level: r.risk, why: r.risk_why ?? '', by: r.risk_by === 'owner' ? 'owner' : 'session'}]))
+    }
+
+    /** Rates PR `number` on `repo` for the issue (ORR-879): `level` with a line on why, or null to take the rating away.
+     * The owner's rating stands: a session's doesn't replace it (409), and only the owner takes it away. 404 when orrery
+     * keeps no such PR on the issue, as it keeps only those the poll has seen name it. */
+    async rate(project: string, issue: string, repo: string, number: number, risk: {level: RiskLevel, why: string} | null, owner: boolean): Promise<PullRisk | null> {
+        project = await this.store.projectId(project)
+        const [id = issue] = await this.ids(project, issue)
+        const row = await this.store.db.get<{repo: string, risk_by: string | null}>(
+            'SELECT repo, risk_by FROM issue_pulls WHERE project = ? AND issue = ? AND lower(repo) = lower(?) AND number = ?', project, id, repo, number)
+        if (!row) throw notFound(`orrery keeps no pull request #${number} on ${repo} for ${id}: it doesn't name the issue, or hasn't been polled yet`)
+        if (!owner && row.risk_by === 'owner') throw conflict(`The owner rated #${number} on ${id} themselves, and their rating stands`)
+        await this.store.db.run('UPDATE issue_pulls SET risk = ?, risk_why = ?, risk_by = ? WHERE project = ? AND issue = ? AND repo = ? AND number = ?',
+            risk?.level ?? null, risk ? risk.why : null, risk ? owner ? 'owner' : 'session' : null, project, id, row.repo, number)
+        return risk ? {level: risk.level, why: risk.why, by: owner ? 'owner' : 'session'} : null
     }
 
     /** PR `number` on `repo`, as orrery keeps it, with every issue it names (ORR-880), merged and closed ones too. Only
@@ -176,9 +204,9 @@ export class Pulls {
     }
 
     /** What's kept of the issue's PRs but those open on `repo`, its project's now, as GitHub is the word on those. */
-    private async past(project: string, issue: string, repo: string | null): Promise<PastPull[]> {
+    private async past(project: string, issue: string, repo: string | null): Promise<(PastPull & {repo: string})[]> {
         const rows = await this.store.db.all<PastPull & {repo: string}>('SELECT repo, number, title, url, branch, base, author, state, merged_at, updated_at FROM issue_pulls WHERE project = ? AND issue = ? ORDER BY updated_at DESC, number DESC', project, issue)
-        return rows.filter(row => row.state !== 'open' || row.repo !== repo).map(({repo: _repo, ...pull}) => pull)
+        return rows.filter(row => row.state !== 'open' || row.repo !== repo)
     }
 
     /** Keeps the PR on each issue it names, for good, and off any it no longer names (ORR-795). A PR naming several is on

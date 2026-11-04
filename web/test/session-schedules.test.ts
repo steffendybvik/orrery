@@ -131,3 +131,38 @@ describe('checking a schedule before it is made', () => {
         expect((await schedules.get('greenhouse', nightly.id))).toMatchObject({cron: '0 2 * * *', enabled: true})
     })
 })
+
+describe("a schedule's own model (ORR-869)", () => {
+    it('starts its session on it, and none on its kind when left empty', async () => {
+        const own = await schedules.create('greenhouse', {kind: 'session', title: 'Docs audit', notes: 'Audit the docs.', cron: '0 9 * * 1', model: 'haiku', effort: 'low'}, me)
+        expect(own).toMatchObject({model: 'haiku', effort: 'low'})
+        await schedules.runNow('greenhouse', own.id, me)
+        const plain = await schedules.create('greenhouse', {kind: 'session', title: 'Tidy', notes: 'Tidy.', cron: '0 9 * * 1'}, me)
+        expect(plain.model).toBeUndefined()
+        await schedules.runNow('greenhouse', plain.id, me)
+        expect(started.map(s => [s.model, s.effort])).toEqual([['haiku', 'low'], [undefined, undefined]])
+    })
+
+    it("sends a message schedule's message needing it", async () => {
+        const s = await schedules.create('greenhouse', {kind: 'message', title: 'Maintenance', notes: 'Tidy the code.', cron: '0 9 * * 1', model: 'sonnet'}, me)
+        await schedules.runNow('greenhouse', s.id, me)
+        const best = await schedules.create('greenhouse', {kind: 'message', title: 'Any', notes: 'Anything.', cron: '0 9 * * 1', model: 'best'}, me)
+        await schedules.runNow('greenhouse', best.id, me)
+        expect(signals.map(x => x.model ?? null)).toEqual(['sonnet', null])
+    })
+
+    it('writes it onto the issues an issue schedule makes', async () => {
+        const s = await schedules.create('greenhouse', {title: 'Docs audit', labels: ['docs'], cron: '0 9 * * 1', model: 'haiku', effort: 'medium'}, me)
+        const run = await schedules.runNow('greenhouse', s.id, me)
+        expect(await store.issue('greenhouse', run.issue!)).toMatchObject({model: 'haiku', effort: 'medium'})
+    })
+
+    it('is set and cleared by a change, and refuses what is no model or effort', async () => {
+        const s = await schedules.create('greenhouse', {title: 'Groom', cron: '0 9 * * 1'}, me)
+        expect(await schedules.update('greenhouse', s.id, {model: 'claude-sonnet-5-5', effort: 'high'}, me)).toMatchObject({model: 'claude-sonnet-5-5', effort: 'high'})
+        const cleared = await schedules.update('greenhouse', s.id, {model: null, effort: null}, me)
+        expect([cleared.model, cleared.effort]).toEqual([undefined, undefined])
+        expect((await failure(() => schedules.update('greenhouse', s.id, {model: 'gpt'}, me))).status).toBe(400)
+        expect((await failure(() => schedules.update('greenhouse', s.id, {effort: 'huge'}, me))).status).toBe(400)
+    })
+})

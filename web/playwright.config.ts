@@ -1,12 +1,14 @@
 // The main flows in a real browser (`pnpm test:e2e`): `nuxt dev` on a port of its own (one per checkout, e2e-port.ts),
 // with a database made fresh for each run, so the tests start from an empty orrery whose owner has no name yet. A SQLite
 // file by default; with E2E_POSTGRES_URL (a database named for it, `orrery_e2e`), that Postgres, emptied first.
+// Chrome by default; E2E_BROWSER=webkit or firefox runs them in that one. One at a time, as each needs an orrery of its own.
 import {defineConfig, devices} from '@playwright/test'
 import {e2ePort} from './e2e-port'
 
 const port = e2ePort(3100)
 const postgres = process.env.E2E_POSTGRES_URL
-const chrome = devices['Desktop Chrome']
+// The browser it runs in: Chrome, or `E2E_BROWSER=webkit` or `firefox` (ORR-734).
+const chrome = devices[{webkit: 'Desktop Safari', firefox: 'Desktop Firefox'}[process.env.E2E_BROWSER ?? ''] ?? 'Desktop Chrome']
 // The whole suite (`pnpm test:e2e`), or a spec on its own (`pnpm exec playwright test e2e/x.spec.ts`), which stays one at a
 // time: a project's dependencies run whatever the filter says, so these groups would run the whole suite first.
 const whole = process.env.E2E_WHOLE
@@ -43,7 +45,7 @@ export default defineConfig({
                 {name: 'settings', testMatch: specs(SETTINGS), dependencies: ['first-run'], workers: 1, use: chrome},
                 {name: 'alone', testMatch: specs(ALONE), dependencies: beforeLast, workers: 1, use: chrome},
             ]
-            : [{name: 'chromium', testIgnore: ['first-run.spec.ts', 'perf/**', 'login/**', 'readme/**', 'restart/**'], dependencies: ['first-run'], use: chrome}],
+            : [{name: process.env.E2E_BROWSER || 'chromium', testIgnore: ['first-run.spec.ts', 'perf/**', 'login/**', 'readme/**', 'restart/**'], dependencies: ['first-run'], use: chrome}],
     ],
     webServer: {
         command: `rm -f node_modules/.cache/nuxt/dev-server.json && ${postgres ? 'jiti scripts/e2e-postgres.ts' : 'rm -f .data/e2e.db .data/e2e.db-* .data/e2e.db.backups.json .data/e2e-moved-*.db'} && nuxt dev --port ${port}`,

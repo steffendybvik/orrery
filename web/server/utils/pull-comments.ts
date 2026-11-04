@@ -11,6 +11,8 @@
 // starts a new round of LOOP_LIMIT told; checks going green start one too, as the poll counts failures since (ORR-529).
 // Green again, or approved, is an event and nothing more (`pr.ready`, `pr.approved`). A merge into a release's branch also
 // sets the issue's release, when it has none (ORR-791), before the news goes out, so a schedule on `pr.merged` sees it.
+// A merged PR its session rated high risk, or the owner did (ORR-879), also asks the owner to review it, on their bell
+// (`pr.risky_merged`); its why is the session's words, so it's quoted as theirs.
 import type {LandedIn} from '../store/releases'
 import type {PullChange, PullChangeKind} from './pull-poll'
 import type {Store} from './store'
@@ -87,6 +89,17 @@ async function failedChecks(store: Store, {project, issue, repo, pull, failures 
     return Number(told?.n ?? 0) < LOOP_LIMIT ? 'tell' : 'ask'
 }
 
+/** Asks the owner to review a merged PR rated high risk on the issue (ORR-879): the rest wait their turn on the list. */
+async function askToReview(store: Store, {project, issue, repo, pull}: PullChange): Promise<void> {
+    const rated = await store.db.get<{risk_why: string | null, risk_by: string | null}>(
+        "SELECT risk_why, risk_by FROM issue_pulls WHERE project = ? AND issue = ? AND repo = ? AND number = ? AND risk = 'high'", project, issue, repo, pull.number)
+    if (!rated) return
+    const pr = `[#${pull.number}](https://github.com/${repo}/pull/${pull.number})`
+    const why = (rated.risk_why ?? '').replace(/\s+/g, ' ').trim()
+    const by = rated.risk_by === 'owner' ? 'you rated it' : 'its session rated it'
+    await store.systemAsk(project, issue, `${pr} merged into \`${pull.base}\`, and ${by} **high risk**${why ? `: “${why}”` : ''}. Review what it changed ([the files](https://github.com/${repo}/pull/${pull.number}/files)), and answer here once you have.`, 'pr.risky_merged')
+}
+
 /** Tells the change on its issue, if it's one that's told; a PR's failed checks go by `failedChecks`, asking the owner
  * past LOOP_LIMIT; a quiet one is an event only. A failure is logged, not thrown: the poll goes on. */
 export async function commentOnPull(store: Store, change: PullChange): Promise<void> {
@@ -102,6 +115,7 @@ export async function commentOnPull(store: Store, change: PullChange): Promise<v
         const body = pullComment(change, (await store.settings()).handle)
         if (!body) return
         await store.systemComment(change.project, change.issue, body + landedComment(landed), `pr.${change.kind}`)
+        if (change.kind === 'merged') await askToReview(store, change)
     } catch (error) {
         console.error(`[orrery] telling ${change.issue} about ${change.repo}#${change.pull.number}:`, error)
     }

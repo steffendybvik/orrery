@@ -95,6 +95,15 @@ export const PERMISSIONS: Permission[] = [
         member: {level: 'limited', note: 'Their own, or one unassigned, on their boards'},
     },
     {
+        id: 'pulls.risk', area: 'Roadmap', action: 'Rate how risky an issue’s pull request is',
+        why: 'The session that opened a PR knows what it changes, so it says where reviewing should start; your own rating stands.',
+        routes: ['PUT /api/projects/:project/issues/:issue/pulls/:owner/:name/:number/risk'],
+        session: {level: 'limited', note: 'Not over a rating you set yourself'},
+        chat: refused,
+        untrusted: refused,
+        member: {level: 'limited', note: 'On their boards, not over a rating you set yourself'},
+    },
+    {
         id: 'issues.delete', area: 'Roadmap', action: 'Remove issues, chunks, releases or docs',
         why: 'Taking away what the owner made is their call.',
         routes: ['DELETE /api/projects/:project/issues/:issue', 'DELETE /api/projects/:project/chunks/:chunk', 'DELETE /api/projects/:project/docs/:doc', 'DELETE /api/projects/:project/issues', 'DELETE /api/projects/:project/releases/:release'],

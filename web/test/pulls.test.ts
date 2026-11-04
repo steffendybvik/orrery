@@ -168,6 +168,42 @@ describe('pull requests', () => {
         await expect(pulls.forPull('you/shop', 789)).rejects.toMatchObject({statusCode: 404})
     })
 
+    it('keep a rated risk on the issue\'s PR, with the owner\'s rating standing over a session\'s (ORR-879)', async () => {
+        const pull = {number: 790, title: 'A migration', url: 'https://github.com/you/shop/pull/790', branch: 'feat/sho-1', base: 'main', author: 'claude',
+            merged: true, closed: false, merged_at: '2026-10-29T09:00:00Z', created_at: '2026-10-28T09:00:00Z', updated_at: '2026-10-29T09:00:00Z', names: ['SHO-1']}
+        await pulls.remember('you/shop', ['shop'], pull)
+        expect((await pulls.forIssue('shop', 'SHO-1')).done[0]!.risk).toBeUndefined()
+
+        expect(await pulls.rate('shop', 'SHO-1', 'You/Shop', 790, {level: 'low', why: 'docs only'}, false)).toEqual({level: 'low', why: 'docs only', by: 'session'})
+        expect(await pulls.rate('shop', 'SHO-1', 'you/shop', 790, {level: 'medium', why: 'one page'}, false)).toMatchObject({level: 'medium'})
+        expect(await pulls.rate('shop', 'SHO-1', 'you/shop', 790, {level: 'high', why: 'adds a migration'}, true)).toEqual({level: 'high', why: 'adds a migration', by: 'owner'})
+        await expect(pulls.rate('shop', 'SHO-1', 'you/shop', 790, {level: 'low', why: 'docs only'}, false)).rejects.toMatchObject({statusCode: 409})
+        await expect(pulls.rate('shop', 'SHO-1', 'you/shop', 790, null, false)).rejects.toMatchObject({statusCode: 409})
+        expect((await pulls.forIssue('shop', 'SHO-1')).done[0]).toMatchObject({number: 790, risk: {level: 'high', why: 'adds a migration', by: 'owner'}})
+        // Polled again, the PR keeps its rating.
+        await pulls.remember('you/shop', ['shop'], {...pull, title: 'A migration, renamed'})
+        expect((await pulls.forIssue('shop', 'SHO-1')).done[0]!.risk).toMatchObject({level: 'high'})
+
+        // The owner takes it away, and a session may rate it again.
+        expect(await pulls.rate('shop', 'SHO-1', 'you/shop', 790, null, true)).toBeNull()
+        expect((await pulls.forIssue('shop', 'SHO-1')).done[0]!.risk).toBeUndefined()
+        expect(await pulls.rate('shop', 'SHO-1', 'you/shop', 790, {level: 'low', why: 'docs only'}, false)).toMatchObject({by: 'session'})
+        // Another issue's, or one orrery keeps nothing of, isn't there to rate.
+        await expect(pulls.rate('shop', 'SHO-2', 'you/shop', 790, {level: 'low', why: 'x'}, false)).rejects.toMatchObject({statusCode: 404})
+        await expect(pulls.rate('shop', 'SHO-1', 'you/shop', 791, {level: 'low', why: 'x'}, false)).rejects.toMatchObject({statusCode: 404})
+    })
+
+    it('rate an open PR the same way, shown with it while GitHub lists it (ORR-879)', async () => {
+        answers[LIST] = () => json([listed(7, {head: {ref: 'feat/sho-1-cards'}})])
+        answers['/repos/you/shop/pulls/7'] = () => json({...listed(7), mergeable_state: 'clean'})
+        await pulls.remember('you/shop', ['shop'], {number: 7, title: 'PR 7', url: 'https://github.com/you/shop/pull/7', branch: 'feat/sho-1-cards', base: 'main', author: 'claude',
+            merged: false, closed: false, merged_at: null, created_at: '2026-10-29T08:00:00Z', updated_at: '2026-10-29T09:00:00Z', names: ['SHO-1']})
+        await pulls.rate('shop', 'SHO-1', 'you/shop', 7, {level: 'high', why: 'bug fix in signal routing'}, false)
+        const got = await pulls.forIssue('shop', 'SHO-1')
+        expect(got.pulls.map(p => [p.number, p.risk?.level])).toEqual([[7, 'high']])
+        expect(got.done).toEqual([])
+    })
+
     it('404 on an issue there isn\'t', async () => {
         await expect(pulls.forIssue('shop', 'SHO-99')).rejects.toMatchObject({statusCode: 404})
     })
