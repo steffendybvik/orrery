@@ -4,7 +4,7 @@ import type {EventLevel, LoggedEvent} from '#shared/roadmap'
 // The event log (ORR-322), for looking into a problem, read like a console (ORR-378): a line each, oldest at the top
 // and the newest at the bottom, each with the time it happened and coloured by its level. What went wrong (a 5xx, an
 // error in the page, a schedule or backup that failed) and, while Advanced is on, what orrery did (sessions and
-// launchers, schedule runs, backups, migrations, starts) and each change to the roadmap (issues, comments, chunks, docs,
+// launchers, schedule runs, backups, migrations, starts) and each change to the roadmap (issues, comments, milestones, docs,
 // releases). Levels can be switched off (ORR-379), per browser; it keeps to a project (`?project=`) and a kind or a
 // family of them (`?kind=`, ORR-401), in the URL so the view can be linked. A line is only ever a line, as in a console
 // (ORR-472): the issue ids in it, and its project, link to them (ORR-403). It's in the sidebar while Advanced is on

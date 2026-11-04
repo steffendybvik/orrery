@@ -29,7 +29,7 @@ export abstract class StatusStore extends StoreBase {
             tint: (value('tint') as string | undefined) ?? null,
             statuses: await this.statuses(),
             focus_prompt: (value('focus_prompt') as string | undefined) || null,
-            chunk_prompt: (value('chunk_prompt') as string | undefined) || null,
+            milestone_prompt: (value('milestone_prompt') as string | undefined) || null,
             instructions: (value('instructions') as Instruction[] | undefined) ?? [],
             handle: (value('handle') as string | undefined) || null,
             uid: (value('uid') as string | undefined) ?? '',
@@ -157,7 +157,7 @@ export abstract class StatusStore extends StoreBase {
             for (const [key, sent] of Object.entries(input)) {
                 if (sent === undefined) continue
                 // An empty template is none: the default.
-                const value = (key === 'focus_prompt' || key === 'chunk_prompt') && typeof sent === 'string' ? sent.trim() || null
+                const value = (key === 'focus_prompt' || key === 'milestone_prompt') && typeof sent === 'string' ? sent.trim() || null
                     : key === 'handle' && typeof sent === 'string' ? sent.toLowerCase()
                     // Checked and given back as JSON text: kept as the value it stands for.
                     : (key === 'starts' || key === 'work_kinds') && typeof sent === 'string' ? JSON.parse(sent) as unknown : sent

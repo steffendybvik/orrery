@@ -7,7 +7,7 @@
 export const FEATURES = {
     'board-view': 'The board view',
     'command-palette': 'The command palette',
-    'chunks': 'Making a chunk',
+    'milestones': 'Making a milestone',
     'schedules': 'Making a schedule',
     'presets': 'Making a preset',
     'message-sessions': 'Message sessions',

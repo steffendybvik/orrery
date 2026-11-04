@@ -34,7 +34,7 @@ afterEach(async () => {
 
 /** As the page gets it: through JSON, which drops what's undefined. */
 const sent = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T
-const title = (project: Project) => project.board.chunks.flatMap(chunk => chunk.tasks).find(issue => issue.id === 'GRE-1')?.title
+const title = (project: Project) => project.board.milestones.flatMap(milestone => milestone.tasks).find(issue => issue.id === 'GRE-1')?.title
 
 /** What the page does with a patch to the project it read: drop it when it's already past it, else apply it. */
 function onPage(read: Project & {rev: number}, patch: ProjectPatch) {

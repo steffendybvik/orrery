@@ -12,7 +12,7 @@ const KINDS = {proposed: 0, backlog: 0, todo: 8, started: 0, done: 0, canceled: 
 const issue = (id: string, title: string, aliases: string[] = []) => ({id, title, aliases, labels: [], tasks: [], column: 'todo', kind: 'todo'})
 const project = (id: string, name: string, issues: ReturnType<typeof issue>[]) => ({
     id, name, key: id.toUpperCase(), release_mode: 'none', releases: [], docs: [{id: 'shelving', title: `${name} shelving guide`}],
-    board: {kinds: KINDS, chunks: [{id: 'stock', title: `${name} stock`, tasks: issues}]},
+    board: {kinds: KINDS, milestones: [{id: 'stock', title: `${name} stock`, tasks: issues}]},
 }) as unknown as Project
 const GREENHOUSE = project('greenhouse', 'Greenhouse', Array.from({length: 8}, (_, n) => issue(`GRE-${n + 1}`, `Label jar ${n + 1}`, n === 0 ? ['OLD-9'] : [])))
 const PANTRY = project('pantry', 'Pantry', [issue('PAN-1', 'Sort the tins')])
@@ -78,7 +78,7 @@ describe('CommandPalette', () => {
         })
 
         it('shows five at most, and only what this page offers', async () => {
-            runs('group:chunk', 9)
+            runs('group:milestone', 9)
             for (const key of ['go:mine', 'go:connect', 'go:sessions', 'go:schedules', 'go:releases', 'go:events']) runs(key, 3)
             const {sections, wrapper} = await mount()
             expect(sections()[0]).toBe('Most used')

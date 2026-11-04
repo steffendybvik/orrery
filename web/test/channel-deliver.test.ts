@@ -175,20 +175,20 @@ describe('what a channel tells a session', {timeout: 30_000}, () => {
         expect(said.meta).toEqual({project: 'greenhouse', issue: 'GRE-4', kind: 'focus'})
     })
 
-    it('a focus on a chunk, with its issues most urgent first', async () => {
-        const {said} = await told({kind: 'focus', chunk: '3', title: 'Moving parts', column: 'todo', priority: 'P2', issues: [{id: 'GRE-1', title: 'Oil them', column: 'todo', priority: 'P0'}, {id: 'GRE-2', title: 'Fit them', column: 'todo'}]})
+    it('a focus on a milestone, with its issues most urgent first', async () => {
+        const {said} = await told({kind: 'focus', milestone: '3', title: 'Moving parts', column: 'todo', priority: 'P2', issues: [{id: 'GRE-1', title: 'Oil them', column: 'todo', priority: 'P0'}, {id: 'GRE-2', title: 'Fit them', column: 'todo'}]})
         expect(said.content).toBe([
-            'Skoll asks you to work through chunk 3: Moving parts [todo, P2].',
+            'Skoll asks you to work through milestone 3: Moving parts [todo, P2].',
             'Its open issues, most urgent first:\n- GRE-1: Oil them [todo, P0]\n- GRE-2: Fit them [todo]',
-            `Take them one at a time as you would a focus on each (in-progress, comments, done). Read the chunk with: curl ${api()}/chunks/3`,
+            `Take them one at a time as you would a focus on each (in-progress, comments, done). Read the milestone with: curl ${api()}/milestones/3`,
         ].join('\n'))
-        expect(said.meta).toEqual({project: 'greenhouse', chunk: '3', kind: 'focus'})
+        expect(said.meta).toEqual({project: 'greenhouse', milestone: '3', kind: 'focus'})
     })
 
-    it('a chunk with nothing left says so', async () => {
-        const {said} = await told({kind: 'focus', chunk: 'none', title: 'No chunk', status: 'todo', issues: []})
+    it('a milestone with nothing left says so', async () => {
+        const {said} = await told({kind: 'focus', milestone: 'none', title: 'No milestone', status: 'todo', issues: []})
         expect(said.content).toContain('It has no todo issues left.')
-        expect(said.content).toContain(`Read them with: curl '${api()}/issues?chunk=none'`)
+        expect(said.content).toContain(`Read them with: curl '${api()}/issues?milestone=none'`)
     })
 
     it("uses a signal's prompt rather than its own wording", async () => {

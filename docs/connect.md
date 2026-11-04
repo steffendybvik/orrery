@@ -89,7 +89,7 @@ answer "how do schedules work?" without reading all of it. Those it needs less
 often wait behind `more_tools`, so they don't take up its context until it asks for them: `create_schedule` and
 `update_schedule`, to ask you on its issue for a schedule (saved only once you allow it); `secrets` and `egress`, to
 call an outside service with a [secret](API.md#secrets) it never sees; and `events` and `resolve_event`, to debug
-orrery from its [event log](API.md#event-log). `chunks`, `presets`, `preset` and `schedules`, which read the project's chunks, presets and schedules,
+orrery from its [event log](API.md#event-log). `milestones`, `presets`, `preset` and `schedules`, which read the project's milestones, presets and schedules,
 are the [chat](API.md#chats)'s. They write as `claude`, from that session, so your comments on an issue it worked go back
 to it. Tools work in any session with the server in `.mcp.json`, even one started without the
 channels flag; only the pushed messages need the flag.
@@ -187,9 +187,9 @@ that launcher's sessions alone: each session keeps its launcher's pid, and only 
 
 Between pieces of work, a session it started gets a fresh context: once it goes idle with no issue in progress
 and no signal waiting, the launcher types `/clear` into it. Its channel stays connected, and the brief after the
-clear hands it the issues still in progress and what's left of a chunk or scope it was working through. When some of that
-chunk or scope is left, orrery also sends it a focus on the rest, to it alone, so it carries on rather than waiting. A
-focus on a single issue ends the chunk or scope it was working through.
+clear hands it the issues still in progress and what's left of a milestone or scope it was working through. When some of that
+milestone or scope is left, orrery also sends it a focus on the rest, to it alone, so it carries on rather than waiting. A
+focus on a single issue ends the milestone or scope it was working through.
 
 It needs [tmux](https://github.com/tmux/tmux) 3.2 or newer: each session runs detached (`tmux attach -t <name>` to
 watch it, as the launcher logs), with the channel and the hooks as usual, and is stopped once its minutes

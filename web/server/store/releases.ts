@@ -51,7 +51,7 @@ export abstract class ReleaseStore extends DocStore {
         const part = (p: typeof own) => {
             const tasks: Issue[] = []
             const walk = (issues: Issue[]) => issues.forEach(issue => issue.release === version ? tasks.push(issue) : walk(issue.tasks))
-            p.board.chunks.forEach(c => walk(c.tasks))
+            p.board.milestones.forEach(c => walk(c.tasks))
             const {issues, kinds} = known(p.releases.find(r => r.version === version), `release ${version} in ${p.id}`)
             return {project: p.id, name: p.name, issues, kinds, tasks}
         }

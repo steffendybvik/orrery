@@ -1,5 +1,5 @@
-// Projects, chunks, issues and comments: reading and changing them, and the rules they keep.
-// Issues nest (a parent holds sub-issues, to any depth); only a top-level issue is in a chunk, its
+// Projects, milestones, issues and comments: reading and changing them, and the rules they keep.
+// Issues nest (a parent holds sub-issues, to any depth); only a top-level issue is in a milestone, its
 // sub-issues are in the same one. Every change ends with `onChange(project)`, which the server
 // turns into a server-sent event, so open pages update.
 // Each domain is its own file under `server/store/`, one class extending the one before, and `Store` is the last of them:
@@ -9,8 +9,8 @@ import type {IssueRecord, CommentRow} from '../store/schema'
 import {ANSWERED, commentOf} from '../store/schema'
 import {ImportStore} from '../store/imports'
 
-export type {ProjectSummary, ReleaseDetail, IssueRecord, BulkResult, IssueDetail, ChunkRecord, Actor, IssueFilter} from '../store/schema'
-export {AGENT, PROJECT_FIELDS, CHUNK_FIELDS, ISSUE_FIELDS, RELEASE_FIELDS, DOC_FIELDS, DECISION_FIELDS, SIGNAL_FIELDS, CHUNK_SIGNAL_FIELDS, STATUS_FIELDS, SETTINGS_FIELDS, PRESET_FIELDS, OWNER_FIELDS, actorId, COMMENT_FIELDS, UPLOAD_FIELDS, UPLOAD_LIMIT} from '../store/schema'
+export type {ProjectSummary, ReleaseDetail, IssueRecord, BulkResult, IssueDetail, MilestoneRecord, Actor, IssueFilter} from '../store/schema'
+export {AGENT, PROJECT_FIELDS, MILESTONE_FIELDS, ISSUE_FIELDS, RELEASE_FIELDS, DOC_FIELDS, DECISION_FIELDS, SIGNAL_FIELDS, MILESTONE_SIGNAL_FIELDS, STATUS_FIELDS, SETTINGS_FIELDS, PRESET_FIELDS, OWNER_FIELDS, actorId, COMMENT_FIELDS, UPLOAD_FIELDS, UPLOAD_LIMIT} from '../store/schema'
 
 export class Store extends ImportStore {
     /** The issues in progress (a started status) that one of `sessions` worked last, with their latest comment. */

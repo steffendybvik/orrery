@@ -54,10 +54,10 @@ closed (its open state, `useNewIssue().target` say, back to `null`), not only un
 on its way closes the next test's dialog when it lands (ORR-409).
 
 ```vue
-<UiDialog :open="target" label="New chunk" @close="close" @submit="create">
+<UiDialog :open="target" label="New milestone" @close="close" @submit="create">
   <input v-model="title" ...>
   <div class="flex items-center gap-2 border-t border-line pt-3">
-    <UiButton type="submit" variant="primary" size="md" class="ml-auto">Create chunk</UiButton>
+    <UiButton type="submit" variant="primary" size="md" class="ml-auto">Create milestone</UiButton>
   </div>
 </UiDialog>
 ```
@@ -104,7 +104,7 @@ focus or changing size.
 </UiContextMenu>
 ```
 
-`at` is where the right-click was (`{x, y}`); nothing closes it. Its lines can change in place (a chunk list, a
+`at` is where the right-click was (`{x, y}`); nothing closes it. Its lines can change in place (a milestone list, a
 confirm), as a Headless UI `Menu` can't: one closes on any pick.
 
 ### UiConfirm
@@ -114,7 +114,7 @@ side.
 
 ```vue
 <UiConfirm v-if="confirming" :busy="busy" @confirm="remove" @cancel="confirming = false">
-  Remove chunk {{ chunk.id }}? Its issues stay, in no chunk.
+  Remove milestone {{ milestone.id }}? Its issues stay, in no milestone.
 </UiConfirm>
 ```
 
@@ -191,7 +191,7 @@ Already one component each; use them rather than drawing the same thing again.
 
 | Component | For |
 |---|---|
-| `PropertyPicker` | a property as a button with a menu to type in (status, priority, chunk, release, assignee, labels with `multiple`). Use it rather than a native `<select>`; `field` draws it as a boxed field for a row of them in a form (New issue), and `field small` at a toolbar's height (the Schedules project filter). `PRIORITY_OPTIONS` and `chunkOptions(chunks)` (utils/roadmap) are the usual option lists. `disabled` shuts an open menu, so a `multiple` one stays enabled while it saves: show the pick at once and send each in turn (an issue's labels, team tasks and depends on) |
+| `PropertyPicker` | a property as a button with a menu to type in (status, priority, milestone, release, assignee, labels with `multiple`). Use it rather than a native `<select>`; `field` draws it as a boxed field for a row of them in a form (New issue), and `field small` at a toolbar's height (the Schedules project filter). `PRIORITY_OPTIONS` and `milestoneOptions(milestones)` (utils/roadmap) are the usual option lists. `disabled` shuts an open menu, so a `multiple` one stays enabled while it saves: show the pick at once and send each in turn (an issue's labels, team tasks and depends on) |
 | `SegmentedControl` | a choice of two to four shown side by side (List \| Board, issue \| message, a page's tabs): Headless UI's `RadioGroup`, one Tab stop with ←→ moving the choice; the chosen option takes the accent fill on the `bg-well` track, like the schedule dialog's weekday picker |
 | `FilterMenu` | a toolbar filter: a button with options to tick, empty meaning any: Headless UI's `Listbox` (`multiple`) |
 | `LabelPicker` | a new issue's or a schedule's labels: tick the project's or make one, a `PropertyPicker` (`multiple`, `creatable`) |
@@ -257,8 +257,8 @@ Already one component each; use them rather than drawing the same thing again.
 **Dialogs**
 
 The layout (`layouts/default.vue`) mounts the dialogs any page can open, each as `Lazy…` behind `openedOnce`: it
-loads the first time it opens, in its own chunk, and then stays. A dialog is opened through the state its composable
-shares (`useNewIssue`, `useNewChunk`, `useNewDoc`, `useStartSession`, `useMessageSessions`, `useSchedules`, and `useState('new-project')`),
+loads the first time it opens, in its own milestone, and then stays. A dialog is opened through the state its composable
+shares (`useNewIssue`, `useNewMilestone`, `useNewDoc`, `useStartSession`, `useMessageSessions`, `useSchedules`, and `useState('new-project')`),
 so any page or ⌘K can open it without holding it. `OwnerDialog` is mounted from the start; a dialog that belongs to
 one page (`PresetDialog`) stays on that page. A new one goes in the same way, built on `UiDialog`. ⌘K's palette, the menus and the bulk bar are
 mounted from the start, as they listen for keys or show on a right-click.

@@ -1,6 +1,6 @@
 // The event log (ORR-322): what orrery did and what went wrong, kept in its own `events` table and never sent off
 // the machine. Errors are recorded always; warnings, what orrery did (sessions, launchers, schedules, backups,
-// migrations) and the changes to the roadmap (ORR-378: issues, comments, chunks, docs, releases) only while the owner
+// migrations) and the changes to the roadmap (ORR-378: issues, comments, milestones, docs, releases) only while the owner
 // has Advanced on in App settings, as most never look. Each is a row of its own, as the owner reads it line by line
 // (ORR-378); a repeat of an error that isn't resolved is no news, to the bell or the schedules, and resolving one
 // resolves its repeats. Old rows go: info after a week, the rest after a month, and past MAX_ROWS (MAX_ACTIVITY for

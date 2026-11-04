@@ -2,7 +2,7 @@
 // the permissions table's chat column (`guard`, ORR-512): making issues (its route leaves them unstarted and unassigned),
 // changing one issue's words and place (its route refuses the rest, `asChatEdit`), commenting, writing docs, calling an
 // outside service, marking events dealt with (ORR-750), answering and asking in its own chat. What it asks for (messaging
-// sessions, a setting, a schedule, a release, a chunk, a move) is sent or saved only by the owner's Send or Allow, a route
+// sessions, a setting, a schedule, a release, a milestone, a move) is sent or saved only by the owner's Send or Allow, a route
 // refused here. Anything else it tries is refused, so a chat never takes up or finishes work, or speaks to another session
 // on its own say. Starting a session on an issue it does through its own chat (`delegate`). This holds what the chat sends
 // through its channel: with Bash allowed, it can call orrery without that mark.
@@ -10,5 +10,5 @@ import {guard} from '../utils/guard'
 
 export default defineEventHandler(async event => {
     if (!chatWrite(event)) return
-    await guard(event, 'chat', "This session is the owner's chat: it answers (reply), makes and changes issues (create_issue, edit_issue) and comments, asks the owner before messaging sessions or changing settings, schedules, releases, chunks, docs or an issue's status, and works on nothing")
+    await guard(event, 'chat', "This session is the owner's chat: it answers (reply), makes and changes issues (create_issue, edit_issue) and comments, asks the owner before messaging sessions or changing settings, schedules, releases, milestones, docs or an issue's status, and works on nothing")
 })

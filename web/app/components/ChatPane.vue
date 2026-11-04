@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {CHAT_CHUNK_FIELDS, CHAT_RELEASE_FIELDS, CHAT_SETTINGS, nameBesideProject, scheduleValue, settingValue} from '#shared/roadmap'
+import {CHAT_MILESTONE_FIELDS, CHAT_RELEASE_FIELDS, CHAT_SETTINGS, nameBesideProject, scheduleValue, settingValue} from '#shared/roadmap'
 import {Menu, MenuButton, MenuItem, MenuItems} from '@headlessui/vue'
 import type {Chat, ChatIssues, ChatMessage} from '#shared/roadmap'
 
@@ -16,7 +16,7 @@ import type {Chat, ChatIssues, ChatMessage} from '#shared/roadmap'
 // live isn't shown, only a session that can't start. Only a row's × in the list ends a chat. The pane can be made large; a phone's fills the screen either way, as it has no Larger button. Beside
 // Send, the owner picks where the issues it makes land, Todo or Backlog; the server holds the chat to it. A setting the
 // chat asks to change shows from → to with Allow and Deny; only Allow saves it. So does a schedule it asks to make (each
-// field it sets) or change (each from → to), a release it asks to add or change, a chunk it asks to make or change (ORR-510),
+// field it sets) or change (each from → to), a release it asks to add or change, a milestone it asks to make or change (ORR-510),
 // a doc it asks to make or change (ChatDocCard, ORR-661), an issue it offers to file (ChatIssueCard, ORR-711), a session it asks to start, stop or give more time (ChatSessionCard), and issues it asks to move or assign (each
 // one's status or assignee, from → to, its id a link). A message it asks to send other sessions shows with who it goes to, and
 // Send and Don't send; only Send sends it. Under each of Claude's replies, Copy takes its Markdown as written (on a
@@ -557,24 +557,24 @@ const {over, on: drop} = useImageDrop(attach)
           <span v-else class="text-xs" :class="m.release.state === 'allowed' ? 'text-emerald-600 dark:text-emerald-400' : 'text-faint'">{{ m.release.state === 'asked' ? 'Not answered' : ANSWERED[m.release.state] }}</span>
         </div>
         <div
-v-if="m.chunk" class="flex w-full flex-col gap-2 rounded-xl bg-well p-3 ring-1 ring-line" role="group"
-             :aria-label="m.chunk.changes.some(c => c.from !== undefined) ? `Change chunk ${m.chunk.title}` : `Make chunk ${m.chunk.title}`">
-          <span class="text-xs text-faint">{{ m.chunk.changes.some(c => c.from !== undefined) ? `Asks to change chunk ${m.chunk.id}` : 'Asks to make a chunk' }}</span>
-          <span class="font-medium text-fg">{{ m.chunk.title }}</span>
+v-if="m.milestone" class="flex w-full flex-col gap-2 rounded-xl bg-well p-3 ring-1 ring-line" role="group"
+             :aria-label="m.milestone.changes.some(c => c.from !== undefined) ? `Change milestone ${m.milestone.title}` : `Make milestone ${m.milestone.title}`">
+          <span class="text-xs text-faint">{{ m.milestone.changes.some(c => c.from !== undefined) ? `Asks to change milestone ${m.milestone.id}` : 'Asks to make a milestone' }}</span>
+          <span class="font-medium text-fg">{{ m.milestone.title }}</span>
           <dl class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[13px]">
-            <template v-for="c in m.chunk.changes.filter(c => c.field !== 'title' || c.from !== undefined)" :key="c.field">
-              <dt class="text-muted">{{ CHAT_CHUNK_FIELDS[c.field] }}</dt>
+            <template v-for="c in m.milestone.changes.filter(c => c.field !== 'title' || c.from !== undefined)" :key="c.field">
+              <dt class="text-muted">{{ CHAT_MILESTONE_FIELDS[c.field] }}</dt>
               <dd class="min-w-0 break-words whitespace-pre-wrap text-fg">
                 <template v-if="c.from !== undefined"><span class="text-muted line-through decoration-faint">{{ settingValue(c.from) }}</span> → </template>{{ settingValue(c.to) }}
               </dd>
             </template>
           </dl>
-          <RequestDrift v-if="m.chunk.state === 'asked'" :drifted="m.chunk.drifted" />
-          <div v-if="m.chunk.state === 'asked' && !chat!.ended" class="flex gap-2">
-            <UiButton variant="primary" size="sm" :disabled="answering === m.id" @click="decide(m.id, true, !!m.chunk.drifted?.length)">{{ m.chunk.drifted?.length ? 'Allow anyway' : 'Allow' }}</UiButton>
+          <RequestDrift v-if="m.milestone.state === 'asked'" :drifted="m.milestone.drifted" />
+          <div v-if="m.milestone.state === 'asked' && !chat!.ended" class="flex gap-2">
+            <UiButton variant="primary" size="sm" :disabled="answering === m.id" @click="decide(m.id, true, !!m.milestone.drifted?.length)">{{ m.milestone.drifted?.length ? 'Allow anyway' : 'Allow' }}</UiButton>
             <UiButton size="sm" :disabled="answering === m.id" @click="decide(m.id, false)">Deny</UiButton>
           </div>
-          <span v-else class="text-xs" :class="m.chunk.state === 'allowed' ? 'text-emerald-600 dark:text-emerald-400' : 'text-faint'">{{ m.chunk.state === 'asked' ? 'Not answered' : ANSWERED[m.chunk.state] }}</span>
+          <span v-else class="text-xs" :class="m.milestone.state === 'allowed' ? 'text-emerald-600 dark:text-emerald-400' : 'text-faint'">{{ m.milestone.state === 'asked' ? 'Not answered' : ANSWERED[m.milestone.state] }}</span>
         </div>
         <div v-if="m.move" class="flex w-full flex-col gap-2 rounded-xl bg-well p-3 ring-1 ring-line" role="group" :aria-label="`Move ${m.move.body.ids.join(', ')}`">
           <span class="text-xs text-faint">Asks to move {{ m.move.body.ids.length === 1 ? 'an issue' : `${m.move.body.ids.length} issues` }}, as you</span>

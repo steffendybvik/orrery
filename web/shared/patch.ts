@@ -1,20 +1,20 @@
-import type {Chunk, Issue, Project} from './roadmap'
+import type {Milestone, Issue, Project} from './roadmap'
 import {CLOSED} from './roadmap'
 
 // What changed in a project since the page last had it (ORR-440), so a change to one issue doesn't send the whole
-// project to every open tab. A patch carries the issues that changed, whole, and for each chunk with a change its
-// fields and its tree of issue ids; a chunk with no change is its id alone. The page builds the project again from
+// project to every open tab. A patch carries the issues that changed, whole, and for each milestone with a change its
+// fields and its tree of issue ids; a milestone with no change is its id alone. The page builds the project again from
 // the patch and what it has. `base` is the revision the patch was made from and `rev` the one it makes: a page
 // behind `base` missed one, and reads the project again.
 
-/** An issue's place in its chunk: its id and its sub-issues'. */
+/** An issue's place in its milestone: its id and its sub-issues'. */
 interface Shape {
     id: string
     tasks: Shape[]
 }
 
 type IssueFields = Omit<Issue, 'tasks'>
-type ChunkFields = Omit<Chunk, 'tasks'>
+type MilestoneFields = Omit<Milestone, 'tasks'>
 
 export interface ProjectPatch {
     id: string
@@ -26,7 +26,7 @@ export interface ProjectPatch {
     board: {
         counts: Project['board']['counts']
         kinds: Project['board']['kinds']
-        chunks: ((ChunkFields & {tasks: Shape[]}) | {id: string, same: true})[]
+        milestones: ((MilestoneFields & {tasks: Shape[]}) | {id: string, same: true})[]
     }
     /** Every issue that's new or changed, without its sub-issues. */
     issues: Record<string, IssueFields>
@@ -39,14 +39,14 @@ const fieldsOf = (issue: Issue): IssueFields => {
 }
 const json = (value: unknown) => JSON.stringify(value)
 
-/** Each issue in `chunks`, by id, as JSON without its sub-issues. */
-function issueJson(chunks: Chunk[]): Map<string, string> {
+/** Each issue in `milestones`, by id, as JSON without its sub-issues. */
+function issueJson(milestones: Milestone[]): Map<string, string> {
     const found = new Map<string, string>()
     const walk = (issues: Issue[]) => issues.forEach(issue => {
         found.set(issue.id, json(fieldsOf(issue)))
         walk(issue.tasks)
     })
-    chunks.forEach(chunk => walk(chunk.tasks))
+    milestones.forEach(milestone => walk(milestone.tasks))
     return found
 }
 
@@ -54,7 +54,7 @@ function issueJson(chunks: Chunk[]): Map<string, string> {
  * the page's load of every board and the patches after it leave them out. */
 export function withoutNotes<T extends Project>(project: T): T {
     const strip = (issues: Issue[]): Issue[] => issues.map(({notes: _, tasks, ...issue}) => ({...issue, tasks: strip(tasks)}))
-    return {...project, board: {...project.board, chunks: project.board.chunks.map(chunk => ({...chunk, tasks: strip(chunk.tasks)}))}}
+    return {...project, board: {...project.board, milestones: project.board.milestones.map(milestone => ({...milestone, tasks: strip(milestone.tasks)}))}}
 }
 
 const closed = (issue: {kind: string}) => (CLOSED as readonly string[]).includes(issue.kind)
@@ -67,7 +67,7 @@ export function withoutClosed<T extends Project>(project: T): T {
         const tasks = keep(issue.tasks)
         return closed(issue) && !tasks.length ? [] : [{...issue, tasks}]
     })
-    return {...project, board: {...project.board, chunks: project.board.chunks.map(chunk => ({...chunk, tasks: keep(chunk.tasks)}))}}
+    return {...project, board: {...project.board, milestones: project.board.milestones.map(milestone => ({...milestone, tasks: keep(milestone.tasks)}))}}
 }
 
 /** What changed from `before` (none: everything) to `after`. `seen` saves work on a big project (ORR-483): its
@@ -82,10 +82,10 @@ export function diffProject(before: Project | undefined, after: Project, base: n
     for (const [key, value] of Object.entries(fields)) if (value !== undefined && (!before || json(value) !== json(was[key]))) changed[key] = value
     const unset = before ? Object.keys(was).filter(key => was[key] !== undefined && (fields as Record<string, unknown>)[key] === undefined) : []
 
-    const old = seen?.before ?? issueJson(before?.board.chunks ?? [])
-    const oldChunks = new Map((before?.board.chunks ?? []).map(chunk => [chunk.id, chunk]))
+    const old = seen?.before ?? issueJson(before?.board.milestones ?? [])
+    const oldMilestones = new Map((before?.board.milestones ?? []).map(milestone => [milestone.id, milestone]))
     const issues: Record<string, IssueFields> = {}
-    const chunks = after.board.chunks.map(chunk => {
+    const milestones = after.board.milestones.map(milestone => {
         let same = true
         const walk = (list: Issue[]) => list.forEach(issue => {
             const now = fieldsOf(issue)
@@ -97,19 +97,19 @@ export function diffProject(before: Project | undefined, after: Project, base: n
             }
             walk(issue.tasks)
         })
-        walk(chunk.tasks)
-        const {tasks, ...head} = chunk
-        const was = oldChunks.get(chunk.id)
+        walk(milestone.tasks)
+        const {tasks, ...head} = milestone
+        const was = oldMilestones.get(milestone.id)
         if (same && was) {
             const {tasks: wasTasks, ...wasHead} = was
-            if (json(head) === json(wasHead) && json(shapeOf(tasks)) === json(shapeOf(wasTasks))) return {id: chunk.id, same: true as const}
+            if (json(head) === json(wasHead) && json(shapeOf(tasks)) === json(shapeOf(wasTasks))) return {id: milestone.id, same: true as const}
         }
         return {...head, tasks: shapeOf(tasks)}
     })
-    return {id: after.id, base, rev, fields: changed as ProjectPatch['fields'], unset, board: {counts: after.board.counts, kinds: after.board.kinds, chunks}, issues}
+    return {id: after.id, base, rev, fields: changed as ProjectPatch['fields'], unset, board: {counts: after.board.counts, kinds: after.board.kinds, milestones}, issues}
 }
 
-/** `project` with `patch` applied; null when it can't be (a chunk or issue the patch counts on isn't there). A `partial`
+/** `project` with `patch` applied; null when it can't be (a milestone or issue the patch counts on isn't there). A `partial`
  * project was read without its closed issues (`withoutClosed`): one it never had stays out, changed or not, unless open
  * work under it needs it there, when it can't be applied (and the project is read again, with it). */
 export function applyPatch(project: Project, patch: ProjectPatch, partial = false): Project | null {
@@ -118,8 +118,8 @@ export function applyPatch(project: Project, patch: ProjectPatch, partial = fals
         issues.set(issue.id, fieldsOf(issue))
         walk(issue.tasks)
     })
-    project.board.chunks.forEach(chunk => walk(chunk.tasks))
-    const chunks = new Map(project.board.chunks.map(chunk => [chunk.id, chunk]))
+    project.board.milestones.forEach(milestone => walk(milestone.tasks))
+    const milestones = new Map(project.board.milestones.map(milestone => [milestone.id, milestone]))
     const fieldsFor = (id: string): IssueFields | undefined => {
         const sent = patch.issues[id]
         return partial && !issues.has(id) && sent && closed(sent) ? undefined : sent ?? issues.get(id)
@@ -132,19 +132,19 @@ export function applyPatch(project: Project, patch: ProjectPatch, partial = fals
         const tasks = shape.tasks.map(build)
         return tasks.includes(null) ? null : {...fields, tasks: tasks.filter(Boolean) as Issue[]} as Issue
     }
-    const next: Chunk[] = []
-    for (const chunk of patch.board.chunks) {
-        if ('same' in chunk) {
-            const kept = chunks.get(chunk.id)
+    const next: Milestone[] = []
+    for (const milestone of patch.board.milestones) {
+        if ('same' in milestone) {
+            const kept = milestones.get(milestone.id)
             if (!kept) return null
             next.push(kept)
             continue
         }
-        const tasks = chunk.tasks.map(build)
+        const tasks = milestone.tasks.map(build)
         if (tasks.includes(null)) return null
-        next.push({...chunk, tasks: tasks.filter(Boolean) as Issue[]})
+        next.push({...milestone, tasks: tasks.filter(Boolean) as Issue[]})
     }
-    const result = {...project, ...patch.fields, board: {chunks: next, counts: patch.board.counts, kinds: patch.board.kinds}} as Project
+    const result = {...project, ...patch.fields, board: {milestones: next, counts: patch.board.counts, kinds: patch.board.kinds}} as Project
     for (const key of patch.unset) delete (result as unknown as Record<string, unknown>)[key]
     return result
 }

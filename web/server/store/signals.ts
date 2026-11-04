@@ -4,7 +4,7 @@ import type {Kind, SessionWork, Signal, Upload} from '#shared/roadmap'
 import {CLOSED, heaviest, modelFor} from '#shared/roadmap'
 import {badRequest, checkInput, conflict, notFound} from '../utils/input'
 import type {Actor, SignalRow} from './schema'
-import {AGENT, SIGNAL_FIELDS, CHUNK_SIGNAL_FIELDS, LEGACY_KINDS, UPLOAD_FIELDS, UPLOAD_LIMIT, IMAGE_TYPES, signalOf, nullable, stamp} from './schema'
+import {AGENT, SIGNAL_FIELDS, MILESTONE_SIGNAL_FIELDS, LEGACY_KINDS, UPLOAD_FIELDS, UPLOAD_LIMIT, IMAGE_TYPES, signalOf, nullable, stamp} from './schema'
 import {IssueStore} from './issues'
 import {EVERY} from '../utils/pool'
 import {compressImage} from '../utils/compress'
@@ -94,10 +94,10 @@ export abstract class SignalStore extends IssueStore {
 
     /** `focus` for an issue id already resolved and checked. Aimed at no session, it goes to the one already on the
      * issue if that one is listening, else to the one on an issue above it (ORR-613: a follow-up is its to start), else
-     * to one orrery picks (pool.ts). Only a chunk can go to every session (ORR-681). */
+     * to one orrery picks (pool.ts). Only a milestone can go to every session (ORR-681). */
     protected async sendFocus(project: string, issue: string, body: unknown, actor: Actor): Promise<Signal> {
         const input = checkInput(body ?? {}, SIGNAL_FIELDS)
-        if (input.session === EVERY) throw badRequest(`Only a chunk can go to every session, not issue ${issue}: name one in "session", or leave it out for orrery to pick one`)
+        if (input.session === EVERY) throw badRequest(`Only a milestone can go to every session, not issue ${issue}: name one in "session", or leave it out for orrery to pick one`)
         const instructions = JSON.stringify(await this.instructionsFor(project, input.instructions))
         const member = this.memberAiming(actor, input.session)
         // The owner's goes to the sessions of whoever has the issue, and on what's nobody's, to their own (ORR-656).
@@ -126,10 +126,10 @@ export abstract class SignalStore extends IssueStore {
         return modelFor({labels: JSON.parse(row.labels) as string[], model: row.model, effort: row.effort}, await this.workKinds()).model ?? 'best'
     }
 
-    /** The heaviest model a chunk's open issues need (`all`: every chunk's, `none`: those in none), as a session working
+    /** The heaviest model a milestone's open issues need (`all`: every milestone's, `none`: those in none), as a session working
      * through them may come to any; none when it has no open issues. */
-    private async chunkModelNeeded(project: string, chunk: string): Promise<string | null> {
-        const open = (await this.listIssues(project, chunk === 'all' ? {} : {chunk})).filter(i => !CLOSED.includes(i.kind as Kind))
+    private async milestoneModelNeeded(project: string, milestone: string): Promise<string | null> {
+        const open = (await this.listIssues(project, milestone === 'all' ? {} : {milestone})).filter(i => !CLOSED.includes(i.kind as Kind))
         const kinds = await this.workKinds()
         return open.length ? heaviest(open.map(i => modelFor(i, kinds))).model ?? 'best' : null
     }
@@ -142,15 +142,15 @@ export abstract class SignalStore extends IssueStore {
         return member
     }
 
-    /** Asks the sessions (or `session`) to work through the chunk's open issues now, or (`status`) its issues of
-     * those statuses, or (`release`) those set for a release; `none` is the issues in no chunk, `all` every chunk's. */
-    async focusChunk(project: string, chunk: string, body: unknown, actor = AGENT): Promise<Signal> {
+    /** Asks the sessions (or `session`) to work through the milestone's open issues now, or (`status`) its issues of
+     * those statuses, or (`release`) those set for a release; `none` is the issues in no milestone, `all` every milestone's. */
+    async focusMilestone(project: string, milestone: string, body: unknown, actor = AGENT): Promise<Signal> {
         await this.projectRow(project)
-        if (chunk !== 'none' && chunk !== 'all') {
-            chunk = await this.chunkId(project, chunk)
-            await this.chunkRow(project, chunk)
+        if (milestone !== 'none' && milestone !== 'all') {
+            milestone = await this.milestoneId(project, milestone)
+            await this.milestoneRow(project, milestone)
         }
-        const input = checkInput(body ?? {}, CHUNK_SIGNAL_FIELDS)
+        const input = checkInput(body ?? {}, MILESTONE_SIGNAL_FIELDS)
         let status: string | null = null
         if (input.status) {
             const all = await this.statuses()
@@ -167,8 +167,8 @@ export abstract class SignalStore extends IssueStore {
         }
         const release = input.release ? (await this.releaseRow(project, String(input.release))).version : null
         const instructions = JSON.stringify(await this.instructionsFor(project, input.instructions))
-        const row = await this.one<SignalRow>('INSERT INTO signals (project, chunk, status, release, kind, note, target, person, instructions, model, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *',
-            project, chunk, status, release, 'focus', nullable(input.note), nullable(input.session), this.memberAiming(actor, input.session) ?? null, instructions, await this.chunkModelNeeded(project, chunk), actor.name, Number(actor.owner), stamp())
+        const row = await this.one<SignalRow>('INSERT INTO signals (project, milestone, status, release, kind, note, target, person, instructions, model, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *',
+            project, milestone, status, release, 'focus', nullable(input.note), nullable(input.session), this.memberAiming(actor, input.session) ?? null, instructions, await this.milestoneModelNeeded(project, milestone), actor.name, Number(actor.owner), stamp())
         const signal = signalOf(row)
         this.onSignal(signal)
         return signal
@@ -218,10 +218,10 @@ export abstract class SignalStore extends IssueStore {
         return Number((await this.get<{id: number | null}>('SELECT MAX(id) AS id FROM signals WHERE project = ?', project))?.id ?? 0)
     }
 
-    /** The project's signals after `after` (an id), oldest first; or the latest ones about an issue or a chunk. */
-    async listSignals(project: string, after = 0, limit = 50, about?: {issue?: string, chunk?: string}): Promise<Signal[]> {
+    /** The project's signals after `after` (an id), oldest first; or the latest ones about an issue or a milestone. */
+    async listSignals(project: string, after = 0, limit = 50, about?: {issue?: string, milestone?: string}): Promise<Signal[]> {
         await this.projectRow(project)
-        const which = about?.issue ? ['issue', await this.issueId(project, about.issue)] as const : about?.chunk ? ['chunk', await this.chunkId(project, about.chunk)] as const : undefined
+        const which = about?.issue ? ['issue', await this.issueId(project, about.issue)] as const : about?.milestone ? ['milestone', await this.milestoneId(project, about.milestone)] as const : undefined
         if (which) {
             const [column, id] = which
             return (await this.all<SignalRow>(`SELECT * FROM signals WHERE project = ? AND ${column} = ? ORDER BY id DESC LIMIT ?`, project, id, limit))

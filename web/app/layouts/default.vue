@@ -4,7 +4,7 @@ useHotkeys()
 const {load} = useOwner()
 await callOnce('owner', load)
 
-// The dialogs load the first time they open, each in its own chunk, and then stay; ⌘K's palette, the menus and
+// The dialogs load the first time they open, each in its own milestone, and then stay; ⌘K's palette, the menus and
 // the bar are there from the start, as they listen for keys or show on a right-click.
 function openedOnce(open: () => unknown) {
     const opened = ref(false)
@@ -14,14 +14,14 @@ function openedOnce(open: () => unknown) {
     return opened
 }
 const {target: newIssue} = useNewIssue()
-const {target: newChunk} = useNewChunk()
+const {target: newMilestone} = useNewMilestone()
 const {target: newDoc} = useNewDoc()
 const {target: startSession} = useStartSession()
 const {all: messagingAll, one: messagingOne} = useMessageSessions()
 const {editing: schedule} = useSchedules()
 const newProject = useState('new-project', () => false)
 const issueDialog = openedOnce(() => newIssue.value)
-const chunkDialog = openedOnce(() => newChunk.value)
+const milestoneDialog = openedOnce(() => newMilestone.value)
 const docDialog = openedOnce(() => newDoc.value)
 const sessionDialog = openedOnce(() => startSession.value)
 const messageAllDialog = openedOnce(() => messagingAll.value)
@@ -49,10 +49,10 @@ const skipToContent = () => main.value?.focus()
     <CommandPalette />
     <LazyNewIssueDialog v-if="issueDialog" />
     <IssueMenu />
-    <ChunkMenu />
+    <MilestoneMenu />
     <LazyScheduleDialog v-if="scheduleDialog" />
     <LazyNewProjectDialog v-if="projectDialog" />
-    <LazyNewChunkDialog v-if="chunkDialog" />
+    <LazyNewMilestoneDialog v-if="milestoneDialog" />
     <LazyNewDocDialog v-if="docDialog" />
     <LazyStartSessionDialog v-if="sessionDialog" />
     <LazyMessageSessionsDialog v-if="messageAllDialog" :open="messagingAll" @close="messagingAll = false" />

@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import type {Instruction} from '#shared/prompt'
 import type {Project} from '#shared/roadmap'
-import {DEFAULT_CHUNK_PROMPT, DEFAULT_FOCUS_PROMPT, PLACEHOLDERS, renderPrompt} from '#shared/prompt'
+import {DEFAULT_MILESTONE_PROMPT, DEFAULT_FOCUS_PROMPT, PLACEHOLDERS, renderPrompt} from '#shared/prompt'
 
-// What a Claude session hears when asked to focus: the two templates (an issue, a chunk's issues) and the
+// What a Claude session hears when asked to focus: the two templates (an issue, a milestone's issues) and the
 // standing instructions added to every focus. Without `project` they're the orrery's (every project's); with it, that
 // project's own templates (empty follows the orrery's), its own instructions, and the orrery's it switches off.
 // Each template shows what it's for and whose it is; its text opens with Edit.
@@ -13,17 +13,17 @@ const failed = ref('')
 
 const KINDS = [
     {key: 'focus_prompt', label: 'Focus on an issue', about: 'What a session hears when you ask it to work on one issue.', fallback: DEFAULT_FOCUS_PROMPT, placeholders: PLACEHOLDERS.focus},
-    {key: 'chunk_prompt', label: "Work through a chunk's issues", about: "What a session hears when you ask it to work through a chunk's or a release's issues.", fallback: DEFAULT_CHUNK_PROMPT, placeholders: PLACEHOLDERS.chunk},
+    {key: 'milestone_prompt', label: "Work through a milestone's issues", about: "What a session hears when you ask it to work through a milestone's or a release's issues.", fallback: DEFAULT_MILESTONE_PROMPT, placeholders: PLACEHOLDERS.milestone},
 ] as const
 type Key = (typeof KINDS)[number]['key']
 
 /** What a template follows when left empty: the orrery's for a project, else the default. */
 const inherited = (key: Key) => (props.project ? settings.value[key] : null) ?? KINDS.find(k => k.key === key)?.fallback ?? ''
 const saved = (key: Key) => (props.project ? props.project[key] : settings.value[key]) ?? ''
-const drafts = reactive<Record<Key, string>>({focus_prompt: '', chunk_prompt: ''})
-watch(() => [saved('focus_prompt'), saved('chunk_prompt')] as const, ([focus, chunk]) => {
+const drafts = reactive<Record<Key, string>>({focus_prompt: '', milestone_prompt: ''})
+watch(() => [saved('focus_prompt'), saved('milestone_prompt')] as const, ([focus, milestone]) => {
     drafts.focus_prompt = focus
-    drafts.chunk_prompt = chunk
+    drafts.milestone_prompt = milestone
 }, {immediate: true})
 
 async function save(change: Record<string, unknown>) {
@@ -48,17 +48,17 @@ function reset(key: Key) {
     save({[key]: null})
 }
 
-// The preview: the template as a session would hear it, for a made-up issue or chunk.
+// The preview: the template as a session would hear it, for a made-up issue or milestone.
 const own = computed(() => props.project?.instructions ?? settings.value.instructions)
 const ticked = computed(() => [
     ...settings.value.instructions.filter(i => i.on && !(props.project?.muted ?? []).includes(i.id)),
     ...props.project ? props.project.instructions.filter(i => i.on) : [],
 ].map(i => i.text))
 const SAMPLE = {
-    focus_prompt: {actor: 'you', issue: 'GRE-42', title: 'Scale a recipe by servings', status: 'Todo', priority: 'P1', chunk: 'Recipes', where: 'Todo, P1, Recipes', note: 'before the weekend', url: 'http://localhost:9000/api/projects/greenhouse/issues/GRE-42'},
-    chunk_prompt: {
-        actor: 'you', chunk: '3', title: 'Recipes', status: 'Todo', priority: 'P2', where: 'Todo, P2', note: '',
-        issues: '- GRE-42: Scale a recipe by servings [Todo, P1]\n- GRE-43: Timers inside steps [Todo]', url: 'http://localhost:9000/api/projects/greenhouse/chunks/3',
+    focus_prompt: {actor: 'you', issue: 'GRE-42', title: 'Scale a recipe by servings', status: 'Todo', priority: 'P1', milestone: 'Recipes', where: 'Todo, P1, Recipes', note: 'before the weekend', url: 'http://localhost:9000/api/projects/greenhouse/issues/GRE-42'},
+    milestone_prompt: {
+        actor: 'you', milestone: '3', title: 'Recipes', status: 'Todo', priority: 'P2', where: 'Todo, P2', note: '',
+        issues: '- GRE-42: Scale a recipe by servings [Todo, P1]\n- GRE-43: Timers inside steps [Todo]', url: 'http://localhost:9000/api/projects/greenhouse/milestones/3',
     },
 }
 const preview = (key: Key) => renderPrompt(drafts[key].trim() || inherited(key), SAMPLE[key], ticked.value)

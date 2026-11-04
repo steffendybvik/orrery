@@ -1,7 +1,7 @@
-// The column rules: every leaf issue goes where its status puts it, and parents and chunks follow their
-// leaves. Also checks a roadmap in the `roadmap.json` format (chunks of tasks with a status and a plan),
+// The column rules: every leaf issue goes where its status puts it, and parents and milestones follow their
+// leaves. Also checks a roadmap in the `roadmap.json` format (milestones of tasks with a status and a plan),
 // which `POST /api/projects/:project/import` takes.
-import type {Board, Chunk, Column, Counts, Issue, IssueStatus, Kinds, Place, Priority} from '#shared/roadmap'
+import type {Board, Milestone, Column, Counts, Issue, IssueStatus, Kinds, Place, Priority} from '#shared/roadmap'
 import {CLOSED, PRIORITIES, emptyKinds, open, total} from '#shared/roadmap'
 import {isObject} from './input'
 import {known} from '#shared/known'
@@ -13,10 +13,10 @@ export const LEGACY_PLANS = ['now', 'next', 'later'] as const
 /** A roadmap in the `roadmap.json` format, once checked. */
 export interface RoadmapFile {
     comment: string
-    chunks: ChunkFile[]
+    milestones: MilestoneFile[]
 }
 
-interface ChunkFile {
+interface MilestoneFile {
     id: string
     title: string
     summary: string
@@ -42,8 +42,8 @@ export class RoadmapError extends Error {
     }
 }
 
-const ROADMAP_FIELDS = ['$comment', 'chunks']
-const CHUNK_FIELDS = ['id', 'title', 'summary', 'tasks']
+const ROADMAP_FIELDS = ['$comment', 'milestones']
+const MILESTONE_FIELDS = ['id', 'title', 'summary', 'tasks']
 const TASK_FIELDS = ['id', 'title', 'priority', 'assignee', 'labels', 'status', 'plan', 'notes', 'tasks']
 
 /** Parses and checks the file's text; unknown fields are refused, so typos show up. */
@@ -61,7 +61,7 @@ export function checkRoadmap(data: unknown): RoadmapFile {
     const problems: string[] = []
     const problem = (where: string, what: string) => problems.push(`${where}: ${what}`)
     const issueIds = new Set<string>()
-    const chunkIds = new Set<string>()
+    const milestoneIds = new Set<string>()
 
     function fields(value: Record<string, unknown>, known: string[], where: string) {
         for (const key of Object.keys(value)) {
@@ -128,18 +128,18 @@ export function checkRoadmap(data: unknown): RoadmapFile {
         }
     }
 
-    function chunk(value: unknown, where: string): ChunkFile | null {
+    function milestone(value: unknown, where: string): MilestoneFile | null {
         if (!isObject(value)) {
-            problem(where, `should be a chunk, not ${describe(value)}`)
+            problem(where, `should be a milestone, not ${describe(value)}`)
             return null
         }
         const id = text(value, 'id', where, true)
-        const at = id ? `chunk "${id}"` : where
+        const at = id ? `milestone "${id}"` : where
         if (id) {
-            if (chunkIds.has(id)) problem(at, 'id is used by more than one chunk')
-            chunkIds.add(id)
+            if (milestoneIds.has(id)) problem(at, 'id is used by more than one milestone')
+            milestoneIds.add(id)
         }
-        fields(value, CHUNK_FIELDS, at)
+        fields(value, MILESTONE_FIELDS, at)
         if (!Array.isArray(value.tasks)) problem(at, 'missing "tasks"')
         const tasks = list(value, 'tasks', at).map((t, i) => task(t, `${at} › tasks[${i}]`))
         return {
@@ -150,11 +150,11 @@ export function checkRoadmap(data: unknown): RoadmapFile {
         }
     }
 
-    if (!isObject(data)) throw new RoadmapError('Not a roadmap', [`the file: should be an object with "chunks", not ${describe(data)}`])
+    if (!isObject(data)) throw new RoadmapError('Not a roadmap', [`the file: should be an object with "milestones", not ${describe(data)}`])
     fields(data, ROADMAP_FIELDS, 'the file')
-    if (!Array.isArray(data.chunks)) problem('the file', 'missing "chunks"')
-    const chunks = list(data, 'chunks', 'the file').map((c, i) => chunk(c, `chunks[${i}]`))
-    const roadmap = {comment: text(data, '$comment', 'the file') ?? '', chunks: chunks.filter(c => c !== null)}
+    if (!Array.isArray(data.milestones)) problem('the file', 'missing "milestones"')
+    const milestones = list(data, 'milestones', 'the file').map((c, i) => milestone(c, `milestones[${i}]`))
+    const roadmap = {comment: text(data, '$comment', 'the file') ?? '', milestones: milestones.filter(c => c !== null)}
 
     if (problems.length) throw new RoadmapError(problems.length === 1 ? '1 problem in the roadmap' : `${problems.length} problems in the roadmap`, problems)
     return roadmap
@@ -175,24 +175,24 @@ export type IssueInput = Pick<Issue, 'id' | 'title' | 'labels' | 'status'>
     & {tasks: IssueInput[]}
 
 export interface BoardInput {
-    chunks: (Omit<ChunkFile, 'tasks'> & {priority?: Priority, aliases?: string[], created_by?: string, protected?: boolean, tasks: IssueInput[]})[]
+    milestones: (Omit<MilestoneFile, 'tasks'> & {priority?: Priority, aliases?: string[], created_by?: string, protected?: boolean, tasks: IssueInput[]})[]
 }
 
-/** Places every issue in its column and rolls them up into their parents and chunks. `statuses` are in board order. */
+/** Places every issue in its column and rolls them up into their parents and milestones. `statuses` are in board order. */
 export function buildBoard(roadmap: BoardInput, statuses: IssueStatus[]): Board {
     const rules = new Rules(statuses)
     const counts: Counts = {}
     const kinds = emptyKinds()
-    const chunks = roadmap.chunks.map((chunk): Chunk => {
-        const tasks = chunk.tasks.map(task => rules.issue(task))
+    const milestones = roadmap.milestones.map((milestone): Milestone => {
+        const tasks = milestone.tasks.map(task => rules.issue(task))
         const own = rules.sum(tasks)
         merge(counts, own.counts)
         mergeKinds(kinds, own.kinds)
-        const {id, title, summary, priority, aliases = [], created_by = '', protected: owned = false} = chunk
+        const {id, title, summary, priority, aliases = [], created_by = '', protected: owned = false} = milestone
         const column = rules.columnOf(own.counts, own.kinds)
         return {id, title, summary: summary || undefined, priority, column, kind: rules.kindOf(column), counts: own.counts, kinds: own.kinds, aliases, created_by, protected: owned, tasks}
     })
-    return {chunks, counts, kinds}
+    return {milestones, counts, kinds}
 }
 
 class Rules {

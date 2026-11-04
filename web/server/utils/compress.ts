@@ -15,7 +15,7 @@ const MIN_SIZE = 16 * 1024
 /** A screenshot's text stays crisp at 90; a photo looks the same at 82, and is much smaller. */
 const QUALITY = {'image/png': 90, 'image/jpeg': 82} as const
 
-/** A PNG with frames (APNG) says so in an `acTL` chunk before its first image data. */
+/** A PNG with frames (APNG) says so in an `acTL` milestone before its first image data. */
 function animated(png: Buffer): boolean {
     const data = png.indexOf('IDAT', 8, 'latin1')
     const frames = png.indexOf('acTL', 8, 'latin1')

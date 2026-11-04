@@ -45,8 +45,8 @@ beforeEach(() => {
     sent = []
     refusal = ''
     useRoadmaps().projects.value = [
-        {id: 'shop', name: 'Shop', key: 'SHO', board: {chunks: []}},
-        {id: 'blog', name: 'Blog', key: 'BLO', board: {chunks: []}},
+        {id: 'shop', name: 'Shop', key: 'SHO', board: {milestones: []}},
+        {id: 'blog', name: 'Blog', key: 'BLO', board: {milestones: []}},
     ] as unknown as Project[]
 })
 afterEach(() => {

@@ -181,7 +181,7 @@ export async function streamFeed(say: (signal: Signal, told: Told) => unknown, f
         feed.inOrder(async () => {
             const told = {...await feed.told(signal), ...extra}
             // Kept for the Context page as the stream says it (ORR-549).
-            if (attended) noteContext(attended.id, 'signal', [signal.kind, signal.issue ?? signal.chunk].filter(Boolean).join(' · '), JSON.stringify(told))
+            if (attended) noteContext(attended.id, 'signal', [signal.kind, signal.issue ?? signal.milestone].filter(Boolean).join(' · '), JSON.stringify(told))
             return say(signal, told)
         })
     }

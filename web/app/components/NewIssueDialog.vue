@@ -10,10 +10,10 @@ const {byId} = useRoadmaps()
 const {open: openIssue} = useIssueLink()
 
 const project = computed(() => byId(target.value?.project))
-const chunks = computed(() => project.value?.board.chunks.filter(c => c.id) ?? [])
+const milestones = computed(() => project.value?.board.milestones.filter(c => c.id) ?? [])
 const title = ref('')
 const notes = ref('')
-const chunk = ref('')
+const milestone = ref('')
 const priority = ref<Priority | ''>('')
 const labels = ref<string[]>([])
 const dependsOn = ref<string[]>([])
@@ -38,7 +38,7 @@ watch(target, now => {
     if (!now) return
     title.value = ''
     notes.value = ''
-    chunk.value = now.chunk ?? ''
+    milestone.value = now.milestone ?? ''
     priority.value = ''
     labels.value = []
     dependsOn.value = []
@@ -60,7 +60,7 @@ async function create() {
                 ...labels.value.length ? {labels: labels.value} : {},
                 title: title.value.trim(),
                 ...notes.value.trim() ? {notes: notes.value.trim()} : {},
-                ...chunk.value ? {chunk: chunk.value} : {},
+                ...milestone.value ? {milestone: milestone.value} : {},
                 ...priority.value ? {priority: priority.value} : {},
                 ...dependsOn.value.length ? {depends_on: dependsOn.value} : {},
                 ...columnPatch(column.value),
@@ -124,8 +124,8 @@ async function create() {
             <span class="min-w-0 flex-1 truncate">{{ option.label }}</span>
           </template>
         </PropertyPicker>
-        <PropertyPicker v-model="chunk" :options="chunkOptions(project.board.chunks)" label="Chunk" field>
-          <span class="truncate" :class="!chunk && 'text-faint'">{{ chunks.find(c => c.id === chunk)?.title ?? 'No chunk' }}</span>
+        <PropertyPicker v-model="milestone" :options="milestoneOptions(project.board.milestones)" label="Milestone" field>
+          <span class="truncate" :class="!milestone && 'text-faint'">{{ milestones.find(c => c.id === milestone)?.title ?? 'No milestone' }}</span>
         </PropertyPicker>
         <LabelPicker v-model="labels" :labels="known" />
         <DependsPicker v-model="dependsOn" :here="project.id" field />

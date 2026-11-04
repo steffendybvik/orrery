@@ -1,4 +1,4 @@
-// An issue board: statuses and their kinds, issues, proposals, chunks, releases, docs, comments and what they
+// An issue board: statuses and their kinds, issues, proposals, milestones, releases, docs, comments and what they
 // changed, and the helpers that name and link them.
 import type {Instruction} from '../prompt'
 import type {ChatScheduleRequest} from './chats'
@@ -165,7 +165,7 @@ export function parseLinkRef(here: string, ref: string): {project: string, id: s
 }
 
 /** A group of issues: a milestone. The one with an empty id holds the issues in none. */
-export interface Chunk {
+export interface Milestone {
     id: string
     title: string
     summary?: string
@@ -183,7 +183,7 @@ export interface Chunk {
 }
 
 export interface Board {
-    chunks: Chunk[]
+    milestones: Milestone[]
     counts: Counts
     kinds: Kinds
 }
@@ -320,9 +320,9 @@ export interface Project {
     icon?: string
     /** Its icon's colour: a tint's name (`teal`) or a `#rrggbb`; none follows the text. */
     icon_color?: string
-    /** What its sessions hear when asked to focus on an issue or a chunk, when not the orrery's (`Settings`). */
+    /** What its sessions hear when asked to focus on an issue or a milestone, when not the orrery's (`Settings`). */
     focus_prompt?: string
-    chunk_prompt?: string
+    milestone_prompt?: string
     /** Its own standing instructions, and the ids of the orrery's it switches off. */
     instructions: Instruction[]
     muted: string[]
@@ -387,10 +387,10 @@ export interface Comment {
 export const RELEASE_MODES = ['none', 'own', 'shared'] as const
 export type ReleaseMode = typeof RELEASE_MODES[number]
 
-export type ActivityField = 'model' | 'effort' | 'claim' | 'uploaded' | 'created' | 'title' | 'status' | 'priority' | 'assignee' | 'labels' | 'external' | 'github_issues' | 'notes' | 'chunk' | 'parent' | 'proposal' | 'project' | 'release' | 'depends'
+export type ActivityField = 'model' | 'effort' | 'claim' | 'uploaded' | 'created' | 'title' | 'status' | 'priority' | 'assignee' | 'labels' | 'external' | 'github_issues' | 'notes' | 'milestone' | 'parent' | 'proposal' | 'project' | 'release' | 'depends'
 
 /** One change to an issue: who set `field` from `before` to `after`, and when. Values are as stored (a
- * status's id, a chunk's id, labels as a JSON list); none means unset. Notes keep no values. */
+ * status's id, a milestone's id, labels as a JSON list); none means unset. Notes keep no values. */
 export interface IssueEvent {
     id: number
     issue: string
@@ -467,7 +467,9 @@ export function trackerLinkOf(sent: string): string | null {
 
 /** An issue's reference, saying whose board it's on, for commit bodies and PR descriptions: `orrery-ada: DOC-132`. */
 /** What each kind's full id starts with (ORR-674); an issue has the project's key already. */
-const FULL_PREFIX = {issue: '', doc: 'doc-', chunk: 'chk-', preset: 'pst-', schedule: 'sch-'}
+const FULL_PREFIX = {issue: '', doc: 'doc-', milestone: 'mls-', preset: 'pst-', schedule: 'sch-'}
+/** What a kind's full ids started with before (ORR-896: milestones were chunks, `chk-`), so those pasted earlier still work. */
+const OLD_PREFIX: Partial<Record<keyof typeof FULL_PREFIX, string>> = {milestone: 'chk-'}
 export type IdKind = keyof typeof FULL_PREFIX
 
 /** The form of an id to paste anywhere: `ORR-660-x7k2m9qd`. `uid` is the board's random id, or the server's for what
@@ -476,9 +478,9 @@ export const fullId = (kind: IdKind, id: string | number, uid: string) => `${FUL
 
 /** The id inside a full one with this `uid`; null for anything else, a full id from another board included. */
 export function shortId(kind: IdKind, id: string, uid: string): string | null {
-    const [prefix, tail] = [FULL_PREFIX[kind], `-${uid}`]
-    return uid && id.startsWith(prefix) && id.endsWith(tail) && id.length > prefix.length + tail.length
-        ? id.slice(prefix.length, -tail.length) : null
+    const tail = `-${uid}`
+    const prefix = [FULL_PREFIX[kind], OLD_PREFIX[kind]].find(p => p !== undefined && id.startsWith(p) && id.length > p.length + tail.length)
+    return uid && prefix !== undefined && id.endsWith(tail) ? id.slice(prefix.length, -tail.length) : null
 }
 
 /** Whether a doc's id reads as a full one, from any board: `doc-ideas-x7k2m9qd`. */

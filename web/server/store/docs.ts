@@ -5,7 +5,7 @@ import {badRequest, checkInput, conflict, isObject, notFound} from '../utils/inp
 import type {Actor, DocRevisionRow, DocRow} from './schema'
 import {AGENT, SLUG, DOC_FIELDS, docOf, docRevisionOf, docRevisionSummaryOf, docSummaryOf, stamp} from './schema'
 import type {Input} from '../utils/input'
-import {ChunkStore} from './chunks'
+import {MilestoneStore} from './milestones'
 import {readDocSections, readDocSummaries} from './reads'
 
 /** A doc's section as sent: trimmed, and none for an empty one; undefined leaves it as it is. */
@@ -25,7 +25,7 @@ function sectionName(body: unknown): string {
     return name
 }
 
-export abstract class DocStore extends ChunkStore {
+export abstract class DocStore extends MilestoneStore {
     async listDocs(project: string, {q}: {q?: string} = {}): Promise<DocSummary[]> {
         await this.projectRow(project)
         return await readDocSummaries(this.db, project, q)

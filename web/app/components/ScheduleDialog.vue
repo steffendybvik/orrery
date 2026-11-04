@@ -14,7 +14,7 @@ import type {Repeat} from '~/utils/schedule'
 // run, before its own words), and a schedule can start a session with presets instead (ORR-332, ORR-342). An agent's says
 // so at the top, and whether it runs, with Make it mine: changing it here leaves it the agent's (ORR-456). Or it moves what
 // its event is about to a status, with no session (ORR-636), so it only runs on an event. Or it's across projects (ORR-638):
-// All projects, with those to leave out unticked, or several, ticked; it then can't name a chunk, or run once or untrusted.
+// All projects, with those to leave out unticked, or several, ticked; it then can't name a milestone, or run once or untrusted.
 const {editing, pause, adopt, loadAcross} = useSchedules()
 const {seeSchedule} = useUnseen()
 const {byId} = useRoadmaps()
@@ -104,7 +104,7 @@ const once = ref('')
 const cron = ref('0 9 * * 1-5')
 const timezone = ref(localZone())
 const column = ref('todo')
-const chunk = ref('')
+const milestone = ref('')
 const priority = ref<Priority | ''>('')
 const labels = ref<string[]>([])
 const model = ref('')
@@ -133,11 +133,11 @@ const effortOptions = computed(() => [{value: '', label: workKind.value?.effort 
 const existing = computed(() => editing.value?.schedule)
 const group = computed(() => editing.value?.across)
 const here = computed(() => byId(project.value))
-const chunks = computed(() => here.value?.board.chunks.filter(c => c.id) ?? [])
+const milestones = computed(() => here.value?.board.milestones.filter(c => c.id) ?? [])
 const known = computed(() => here.value ? [...new Set(allIssues(here.value).flatMap(({issue}) => issue.labels))] : [])
-// Another project picked for a new one: a chunk of the last one isn't one of this one's.
+// Another project picked for a new one: a milestone of the last one isn't one of this one's.
 watch(project, () => {
-    if (chunk.value && !chunks.value.some(c => c.id === chunk.value)) chunk.value = ''
+    if (milestone.value && !milestones.value.some(c => c.id === milestone.value)) milestone.value = ''
 })
 
 /** A time as `datetime-local` wants it, in this browser's zone. */
@@ -161,7 +161,7 @@ watch(editing, now => {
     moveFrom.value = [...s?.move_from ?? []]
     timezone.value = s?.timezone ?? localZone()
     column.value = s?.column ?? starts.value.find(p => p.kind === 'todo')?.id ?? 'todo'
-    chunk.value = s?.chunk ?? ''
+    milestone.value = s?.milestone ?? ''
     priority.value = s?.priority ?? ''
     labels.value = [...s?.labels ?? []]
     model.value = s?.model ?? ''
@@ -263,7 +263,7 @@ async function save() {
         ...trigger.value === 'event' ? {on: on.value, on_filter: onFilter.value} : cronText.value ? {cron: cronText.value} : {at: atText.value},
         timezone: timezone.value,
         column: column.value,
-        chunk: chunk.value || null,
+        milestone: milestone.value || null,
         priority: priority.value || null,
         labels: labels.value,
         // An action runs no session, so it has no model.
@@ -277,7 +277,7 @@ async function save() {
     }
     try {
         if (isAcross.value) {
-            const across = {...body, chunk: undefined, untrusted: undefined, projects: project.value === ALL ? ALL : listed.value, skip: project.value === ALL ? skipped.value : []}
+            const across = {...body, milestone: undefined, untrusted: undefined, projects: project.value === ALL ? ALL : listed.value, skip: project.value === ALL ? skipped.value : []}
             await (group.value ? apiFetch(`/schedules/across/${group.value.id}`, {method: 'PATCH', body: across}) : apiFetch('/schedules', {method: 'POST', body: across}))
             await loadAcross()
             close()
@@ -579,8 +579,8 @@ const labelOf = (options: {value: string, label: string}[], value: string) => op
             <span class="min-w-0 flex-1 truncate">{{ option.label }}</span>
           </template>
         </PropertyPicker>
-        <PropertyPicker v-if="!isAcross" v-model="chunk" :options="chunkOptions(chunks)" label="Chunk" field>
-          <span class="truncate" :class="!chunk && 'text-faint'">{{ labelOf(chunkOptions(chunks), chunk) }}</span>
+        <PropertyPicker v-if="!isAcross" v-model="milestone" :options="milestoneOptions(milestones)" label="Milestone" field>
+          <span class="truncate" :class="!milestone && 'text-faint'">{{ labelOf(milestoneOptions(milestones), milestone) }}</span>
         </PropertyPicker>
         <LabelPicker v-model="labels" :labels="known" />
       </div>

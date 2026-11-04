@@ -49,7 +49,7 @@ export function modelFor(issue: {labels: readonly string[], model?: string | nul
     return {...model ? {model} : {}, ...effort ? {effort} : {}}
 }
 
-/** The heaviest of several issues' models, for a session working through all of them (a chunk or a release). */
+/** The heaviest of several issues' models, for a session working through all of them (a milestone or a release). */
 export function heaviest(picks: {model?: string, effort?: Effort}[]): {model?: string, effort?: Effort} {
     return picks.reduce<{model?: string, effort?: Effort}>((best, pick) => weightOf(pick.model) > weightOf(best.model) ? pick : best, picks[0] ?? {})
 }

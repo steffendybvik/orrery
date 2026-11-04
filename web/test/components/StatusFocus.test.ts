@@ -6,12 +6,12 @@ import {readBody, setResponseStatus} from 'h3'
 import type {Session} from '#shared/roadmap'
 import StatusFocus from '~/components/StatusFocus.vue'
 
-// On a status group of a chunk's page: asking one session, or all, to work through its issues. It's there only while a
+// On a status group of a milestone's page: asking one session, or all, to work through its issues. It's there only while a
 // session is listening, and never on Proposed or a closed status, as there's no work to take up in those.
 let sent: unknown[] = []
 let refused = false
 registerEndpoint('/api/owner', () => ({name: 'skoll', display: 'Skoll', named: true}))
-registerEndpoint('/api/projects/greenhouse/chunks/3/focus', {method: 'POST', handler: async event => {
+registerEndpoint('/api/projects/greenhouse/milestones/3/focus', {method: 'POST', handler: async event => {
     if (refused) {
         setResponseStatus(event, 400)
         return {message: 'no'}
@@ -39,7 +39,7 @@ afterEach(() => {
 })
 
 async function mount(column = 'todo') {
-    const wrapper = await mountSuspended(StatusFocus, {props: {project: 'greenhouse', chunk: '3', column}, attachTo: document.body})
+    const wrapper = await mountSuspended(StatusFocus, {props: {project: 'greenhouse', milestone: '3', column}, attachTo: document.body})
     mounted.push(wrapper as VueWrapper)
     return wrapper
 }

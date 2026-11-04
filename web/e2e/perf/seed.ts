@@ -73,8 +73,8 @@ async function insert(db: Db, table: string, columns: string[], rows: Value[][])
     const batch = Math.floor(30_000 / columns.length)
     await db.transaction(async () => {
         for (let i = 0; i < rows.length; i += batch) {
-            const chunk = rows.slice(i, i + batch)
-            await db.run(`INSERT INTO ${table} (${columns.join(', ')}) VALUES ${chunk.map(() => `(${columns.map(() => '?').join(', ')})`).join(', ')}`, ...chunk.flat())
+            const milestone = rows.slice(i, i + batch)
+            await db.run(`INSERT INTO ${table} (${columns.join(', ')}) VALUES ${milestone.map(() => `(${columns.map(() => '?').join(', ')})`).join(', ')}`, ...milestone.flat())
         }
     })
 }
@@ -90,24 +90,24 @@ export async function seed(db: Db, sizes: Sizes = SIZES, log: (line: string) => 
     await store.nameOwner({name: 'Ada Lovelace'})
     await db.run("INSERT INTO settings (key, value) VALUES ('advanced', 'true') ON CONFLICT (key) DO UPDATE SET value = excluded.value")
 
-    // Projects, each with chunks, releases and docs; the first is the big one.
-    const projects: {id: string, chunks: string[], releases: string[], issues: string[]}[] = []
+    // Projects, each with milestones, releases and docs; the first is the big one.
+    const projects: {id: string, milestones: string[], releases: string[], issues: string[]}[] = []
     const names = Array.from({length: sizes.projects}, (_, i) => NAMES[i % NAMES.length] + (i < NAMES.length ? '' : ` ${Math.floor(i / NAMES.length) + 1}`))
     for (const [i, name] of names.entries()) {
         const made = await store.createProject({name, description: `The ${name.toLowerCase()} service: ${r.words(12)}.`, release_mode: 'own'}, i % 3 ? AGENT : OWNER)
-        const chunks: string[] = []
-        for (let c = 0; c < (i === 0 ? 12 : 6); c++) chunks.push((await store.createChunk(made.id, {title: `${r.words(2)} ${c + 1}`, summary: r.words(20)})).id)
+        const milestones: string[] = []
+        for (let c = 0; c < (i === 0 ? 12 : 6); c++) milestones.push((await store.createMilestone(made.id, {title: `${r.words(2)} ${c + 1}`, summary: r.words(20)})).id)
         const releases: string[] = []
         for (let v = 0; v < (i === 0 ? 8 : 3); v++) {
             const version = `${Math.floor(v / 4) + 1}.${v % 4}.0`
             await store.createRelease(made.id, {version, notes: r.words(15), ...v < 2 ? {shipped_on: ago(now, (30 - v * 10) * 24 * 60).slice(0, 10)} : {}}, OWNER)
             releases.push(version)
         }
-        projects.push({id: made.id, chunks, releases, issues: []})
+        projects.push({id: made.id, milestones, releases, issues: []})
     }
     log(`${projects.length} projects`)
 
-    // Issues: roots in a chunk or none, a third with sub-issues, some of those nested again (three deep at most).
+    // Issues: roots in a milestone or none, a third with sub-issues, some of those nested again (three deep at most).
     const issueSplit = split(sizes.issues - sizes.proposals, projects.length, 0.4)
     const make = async (project: typeof projects[number], parent: string | null, depth: number): Promise<number> => {
         const status = r.pick(STATUSES)
@@ -116,7 +116,7 @@ export async function seed(db: Db, sizes: Sizes = SIZES, log: (line: string) => 
             notes: r.next() < 0.6 ? `${r.words(40)}\n\n- ${r.words(8)}\n- ${r.words(8)}\n\n\`\`\`\n${r.words(10)}\n\`\`\`` : undefined,
             status, priority: r.pick(PRIORITIES), labels: r.next() < 0.5 ? [r.pick(LABELS)] : [],
             assignee: status === 'in-progress' || status === 'in-review' ? r.pick(['claude', 'ada_lovelace']) : r.next() < 0.2 ? 'claude' : null,
-            ...parent ? {parent} : r.next() < 0.8 ? {chunk: r.pick(project.chunks)} : {},
+            ...parent ? {parent} : r.next() < 0.8 ? {milestone: r.pick(project.milestones)} : {},
             ...!parent && r.next() < 0.4 ? {release: r.pick(project.releases)} : {},
         }, r.next() < 0.7 ? AGENT : OWNER, {urgent: false})
         project.issues.push(issue.id)
@@ -164,7 +164,7 @@ export async function seed(db: Db, sizes: Sizes = SIZES, log: (line: string) => 
     log(`${sizes.comments} comments`)
 
     // History: changes to the issues over the last 90 days, the big issue's among them.
-    const fields = ['status', 'status', 'status', 'priority', 'assignee', 'labels', 'chunk', 'title', 'notes', 'release']
+    const fields = ['status', 'status', 'status', 'priority', 'assignee', 'labels', 'milestone', 'title', 'notes', 'release']
     const history: Value[][] = []
     for (let e = 0; e < sizes.history; e++) {
         const on = e < 300 ? BIG : r.pick(all)
@@ -212,7 +212,7 @@ export async function seed(db: Db, sizes: Sizes = SIZES, log: (line: string) => 
     log(`${sizes.schedules} schedules`)
 
     const counts: Record<string, number> = {}
-    for (const table of ['projects', 'chunks', 'releases', 'issues', 'comments', 'issue_events', 'events', 'docs', 'schedules', 'schedule_runs']) {
+    for (const table of ['projects', 'milestones', 'releases', 'issues', 'comments', 'issue_events', 'events', 'docs', 'schedules', 'schedule_runs']) {
         counts[table] = Number((await db.get<{n: number}>(`SELECT count(*) AS n FROM ${table}`))!.n)
     }
     return counts

@@ -1,4 +1,4 @@
-// Ids are the project's: chunks are numbered 1, 2, … and issues KEY-1, KEY-2, … Renumbering a
+// Ids are the project's: milestones are numbered 1, 2, … and issues KEY-1, KEY-2, … Renumbering a
 // project gives what doesn't have one yet the next free number, in roadmap order (sub-issues right
 // after their parent), and keeps each old id as an alias, so links and agents that use it still find
 // the same thing. Ids already in that form keep it, and the counters never go back: a number never
@@ -9,35 +9,38 @@ import {one} from './database'
 
 /** An id an issue had, pointed at its id now (replacing where it pointed before). */
 export const UPSERT_ISSUE_ALIAS = 'INSERT INTO issue_aliases (project, alias, issue) VALUES (?, ?, ?) ON CONFLICT (project, alias) DO UPDATE SET issue = excluded.issue'
-/** The same for a chunk. */
-const UPSERT_CHUNK_ALIAS = 'INSERT INTO chunk_aliases (project, alias, chunk) VALUES (?, ?, ?) ON CONFLICT (project, alias) DO UPDATE SET chunk = excluded.chunk'
+/** The same for a milestone. */
+const UPSERT_MILESTONE_ALIAS = 'INSERT INTO milestone_aliases (project, alias, milestone) VALUES (?, ?, ?) ON CONFLICT (project, alias) DO UPDATE SET milestone = excluded.milestone'
 
 // Marks ids mid-rename, so a new id never meets an old one in a primary key.
 const MOVING = '\u0001'
 
 type Statement = [sql: string, ...params: SQLInputValue[]]
-type Issue = {id: string, parent: string | null, chunk: string | null}
+type Issue = {id: string, parent: string | null, milestone: string | null}
 
-const KEY = 'SELECT key, next_number, next_chunk FROM projects WHERE id = ?'
-type Project = {key: string, next_number: number, next_chunk: number}
-const CHUNKS = 'SELECT id FROM chunks WHERE project = ? ORDER BY position, created_at'
-const ISSUES = 'SELECT id, parent, chunk FROM issues WHERE project = ? ORDER BY position, created_at'
+const KEY = 'SELECT key, next_number, next_milestone FROM projects WHERE id = ?'
+type Project = {key: string, next_number: number, next_milestone: number}
+const MILESTONES = 'SELECT id FROM milestones WHERE project = ? ORDER BY position, created_at'
+const ISSUES = 'SELECT id, parent, milestone FROM issues WHERE project = ? ORDER BY position, created_at'
 
 /** Run with foreign keys off or deferred: rows point at ids that are changing. */
 export async function renumber(db: Db, project: string) {
-    const statements = plan(project, await one<Project>(db, KEY, project), await db.all<{id: string}>(CHUNKS, project), await db.all<Issue>(ISSUES, project), true)
+    const statements = plan(project, await one<Project>(db, KEY, project), await db.all<{id: string}>(MILESTONES, project), await db.all<Issue>(ISSUES, project), true)
     for (const statement of statements) await db.run(...statement)
 }
 
 /** The same, on the raw connection: for the migration step that gave everything its id, from before there were
- * dependency links. */
+ * dependency links, and before milestones were (ORR-896), so its tables and columns still say chunk. */
 export function renumberSync(db: DatabaseSync, project: string) {
-    const statements = plan(project, db.prepare(KEY).get(project) as Project, db.prepare(CHUNKS).all(project) as {id: string}[], db.prepare(ISSUES).all(project) as Issue[])
-    for (const [sql, ...params] of statements) db.prepare(sql).run(...params)
+    const chunk = (sql: string) => sql.replaceAll('milestone', 'chunk')
+    const project_ = db.prepare('SELECT key, next_number, next_chunk AS next_milestone FROM projects WHERE id = ?').get(project) as Project
+    const issues = db.prepare('SELECT id, parent, chunk AS milestone FROM issues WHERE project = ? ORDER BY position, created_at').all(project) as Issue[]
+    const statements = plan(project, project_, db.prepare(chunk(MILESTONES)).all(project) as {id: string}[], issues)
+    for (const [sql, ...params] of statements) db.prepare(chunk(sql)).run(...params)
 }
 
 /** The writes that renumber the project, in order. */
-function plan(project: string, {key, next_number, next_chunk}: Project, chunks: {id: string}[], issues: Issue[], links = false): Statement[] {
+function plan(project: string, {key, next_number, next_milestone}: Project, milestones: {id: string}[], issues: Issue[], links = false): Statement[] {
     const statements: Statement[] = []
     const run = (...statement: Statement) => statements.push(statement)
 
@@ -49,16 +52,16 @@ function plan(project: string, {key, next_number, next_chunk}: Project, chunks: 
         children.get(id)?.forEach(child => walk(child.id))
     }
     const top = children.get(null) ?? []
-    for (const chunk of [...chunks.map(c => c.id), null]) top.filter(t => t.chunk === chunk).forEach(t => walk(t.id))
+    for (const milestone of [...milestones.map(c => c.id), null]) top.filter(t => t.milestone === milestone).forEach(t => walk(t.id))
 
-    const chunkIds = numbered(chunks.map(c => c.id), /^(\d+)$/, n => String(n), next_chunk)
+    const milestoneIds = numbered(milestones.map(c => c.id), /^(\d+)$/, n => String(n), next_milestone)
     const own = new RegExp(`^${key}-(\\d+)$`)
     const issueIds = numbered(order, own, n => `${key}-${n}`, next_number)
 
-    for (const [from, to] of chunkIds) {
-        run('UPDATE chunks SET id = ? WHERE project = ? AND id = ?', MOVING + to, project, from)
-        run('UPDATE issues SET chunk = ? WHERE project = ? AND chunk = ?', MOVING + to, project, from)
-        run('UPDATE chunk_aliases SET chunk = ? WHERE project = ? AND chunk = ?', MOVING + to, project, from)
+    for (const [from, to] of milestoneIds) {
+        run('UPDATE milestones SET id = ? WHERE project = ? AND id = ?', MOVING + to, project, from)
+        run('UPDATE issues SET milestone = ? WHERE project = ? AND milestone = ?', MOVING + to, project, from)
+        run('UPDATE milestone_aliases SET milestone = ? WHERE project = ? AND milestone = ?', MOVING + to, project, from)
     }
     for (const [from, to] of issueIds) {
         run('UPDATE issues SET id = ? WHERE project = ? AND id = ?', MOVING + to, project, from)
@@ -71,9 +74,9 @@ function plan(project: string, {key, next_number, next_chunk}: Project, chunks: 
         }
     }
     const strip = `substr(%, ${MOVING.length + 1})`
-    run(`UPDATE chunks SET id = ${strip.replace('%', 'id')} WHERE project = ? AND substr(id, 1, 1) = ?`, project, MOVING)
-    run(`UPDATE issues SET chunk = ${strip.replace('%', 'chunk')} WHERE project = ? AND substr(chunk, 1, 1) = ?`, project, MOVING)
-    run(`UPDATE chunk_aliases SET chunk = ${strip.replace('%', 'chunk')} WHERE project = ? AND substr(chunk, 1, 1) = ?`, project, MOVING)
+    run(`UPDATE milestones SET id = ${strip.replace('%', 'id')} WHERE project = ? AND substr(id, 1, 1) = ?`, project, MOVING)
+    run(`UPDATE issues SET milestone = ${strip.replace('%', 'milestone')} WHERE project = ? AND substr(milestone, 1, 1) = ?`, project, MOVING)
+    run(`UPDATE milestone_aliases SET milestone = ${strip.replace('%', 'milestone')} WHERE project = ? AND substr(milestone, 1, 1) = ?`, project, MOVING)
     run(`UPDATE issues SET id = ${strip.replace('%', 'id')} WHERE project = ? AND substr(id, 1, 1) = ?`, project, MOVING)
     run(`UPDATE issues SET parent = ${strip.replace('%', 'parent')} WHERE project = ? AND substr(parent, 1, 1) = ?`, project, MOVING)
     run(`UPDATE comments SET issue = ${strip.replace('%', 'issue')} WHERE project = ? AND substr(issue, 1, 1) = ?`, project, MOVING)
@@ -83,12 +86,12 @@ function plan(project: string, {key, next_number, next_chunk}: Project, chunks: 
         run(`UPDATE issue_links SET on_issue = ${strip.replace('%', 'on_issue')} WHERE on_project = ? AND substr(on_issue, 1, 1) = ?`, project, MOVING)
     }
 
-    for (const [from, to] of chunkIds) if (from !== to) run(UPSERT_CHUNK_ALIAS, project, from, to)
+    for (const [from, to] of milestoneIds) if (from !== to) run(UPSERT_MILESTONE_ALIAS, project, from, to)
     for (const [from, to] of issueIds) if (from !== to) run(UPSERT_ISSUE_ALIAS, project, from, to)
     // An alias that is now some thing's own id would only mislead.
-    run('DELETE FROM chunk_aliases WHERE project = ? AND alias IN (SELECT id FROM chunks WHERE project = ?)', project, project)
+    run('DELETE FROM milestone_aliases WHERE project = ? AND alias IN (SELECT id FROM milestones WHERE project = ?)', project, project)
     run('DELETE FROM issue_aliases WHERE project = ? AND alias IN (SELECT id FROM issues WHERE project = ?)', project, project)
-    run('UPDATE projects SET next_number = ?, next_chunk = ? WHERE id = ?', after(issueIds.values(), own, next_number), after(chunkIds.values(), /^(\d+)$/, next_chunk), project)
+    run('UPDATE projects SET next_number = ?, next_milestone = ? WHERE id = ?', after(issueIds.values(), own, next_number), after(milestoneIds.values(), /^(\d+)$/, next_milestone), project)
     return statements
 }
 

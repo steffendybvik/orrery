@@ -179,8 +179,8 @@ test('sends a focus aimed at no session to one, the first free, and to every one
         await expect.poll(() => heard('Sort the spices').filter(Boolean).length).toBe(1)
         await quiet()
         expect(heard('Sort the spices').filter(Boolean)).toHaveLength(1)
-        // A chunk's, aimed at every session: both do.
-        sent.push((await api(request, 'post', '/chunks/all/focus', {note: 'Label the tins', session: '*'}, OWNER)).signal.id as number)
+        // A milestone's, aimed at every session: both do.
+        sent.push((await api(request, 'post', '/milestones/all/focus', {note: 'Label the tins', session: '*'}, OWNER)).signal.id as number)
         await expect.poll(() => heard('Label the tins')).toEqual([true, true])
         // With both busy it waits, and goes to the first to go idle.
         for (const id of ids) await request.post('/api/sessions', {data: {id, project: 'kitchen', event: 'UserPromptSubmit'}})

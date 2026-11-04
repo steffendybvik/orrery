@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type {Chunk, Column, Issue} from '#shared/roadmap'
+import type {Milestone, Column, Issue} from '#shared/roadmap'
 import {total} from '#shared/roadmap'
 
 // Issues as cards in their columns, started first and closed last. A parent stands for its
@@ -10,7 +10,7 @@ import {total} from '#shared/roadmap'
 // cards when it's ticked; [ and ] move the focused card (or the ticked ones) one column left or right. While
 // proposals are restricted, nothing is dragged out of Proposed, as approving one stays a deliberate act, and only the
 // owner drags a card into it, which approves nothing (ORR-781).
-const props = defineProps<{chunks: Chunk[], project: string}>()
+const props = defineProps<{milestones: Milestone[], project: string}>()
 const {open, isLast} = useIssueLink()
 const {issueUnseen} = useUnseen()
 const {workerOf} = useWorkedIssues()
@@ -30,7 +30,7 @@ const dragging = ref<Issue[]>([])
 const refused = (column: Column) => !!dragging.value.length && !takes(dragging.value, column) && !dragging.value.some(i => i.column === column)
 
 const columns = computed(() => {
-    const issues = props.chunks.flatMap(chunk => chunk.tasks.map(issue => ({issue, chunk})))
+    const issues = props.milestones.flatMap(milestone => milestone.tasks.map(issue => ({issue, milestone})))
     const picked = filters.value.columns
     return order.value.map(({id}) => ({column: id, cards: issues.filter(({issue}) => issue.column === id)}))
         .map(c => ({...c, shown: !picked.length || picked.includes(c.column) || !!c.cards.length}))
@@ -157,7 +157,7 @@ watch(columns, () => {
       </button>
       <div v-else class="clear-agent flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto">
         <article
-            v-for="{issue, chunk} in cards"
+            v-for="{issue, milestone} in cards"
             :key="issue.id"
             data-nav
             :data-issue="issue.id"
@@ -177,7 +177,7 @@ watch(columns, () => {
             <SelectBox :project="project" :id="issue.id" />
             <span v-if="issueUnseen(project, issue)" class="unseen-dot" title="Changed since you last opened it" />
             <span class="font-mono">{{ issue.id }}</span>
-            <span class="min-w-0 flex-1 truncate">{{ chunk.title }}</span>
+            <span class="min-w-0 flex-1 truncate">{{ milestone.title }}</span>
             <WorkingDot v-if="!isClosed(issue.kind) && workerOf(project, issue.id)" :session="workerOf(project, issue.id)!" />
             <ClaimMark :issue="issue" />
             <PersonAvatar v-if="issue.assignee" :name="issue.assignee" :size="16" />

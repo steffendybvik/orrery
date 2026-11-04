@@ -5,7 +5,7 @@ import {randomUid} from '../utils/uid'
 import type {Input} from '../utils/input'
 import {badRequest, checkInput, conflict} from '../utils/input'
 import type {Instruction} from '#shared/prompt'
-import {DEFAULT_CHUNK_PROMPT, DEFAULT_FOCUS_PROMPT, defaultInstructions} from '#shared/prompt'
+import {DEFAULT_MILESTONE_PROMPT, DEFAULT_FOCUS_PROMPT, defaultInstructions} from '#shared/prompt'
 import type {ProjectSummary, Actor, ProjectRow} from './schema'
 import {AGENT, FULL_ID_KEYS, SLUG, PROJECT_FIELDS, PROMPT_FIELDS, releaseModeOf, nullable, stamp} from './schema'
 import {KeyStore} from './keys'
@@ -17,7 +17,7 @@ export abstract class ProjectStore extends KeyStore {
     async listProjects(): Promise<ProjectSummary[]> {
         return Promise.all((await this.all<ProjectRow>('SELECT * FROM projects ORDER BY lower(name), name')).map(async row => {
             const {board, ...project} = await this.projectOf(row)
-            return {...project, counts: board.counts, kinds: board.kinds, chunks: board.chunks.filter(c => c.id).length}
+            return {...project, counts: board.counts, kinds: board.kinds, milestones: board.milestones.filter(c => c.id).length}
         }))
     }
 
@@ -43,7 +43,7 @@ export abstract class ProjectStore extends KeyStore {
         if (!SLUG.test(id)) throw badRequest(`"${name}" doesn't make an id; give one in "id"`)
         if (await this.get('SELECT 1 FROM projects WHERE id = ?', id)) throw conflict(`There is already a project "${id}"`)
         const key = input.key ? String(input.key) : keyFor(name)
-        if (FULL_ID_KEYS.includes(key)) throw badRequest(`"${key}" is how a doc's, chunk's, preset's or schedule's full id starts; give another in "key"`)
+        if (FULL_ID_KEYS.includes(key)) throw badRequest(`"${key}" is how a doc's, milestone's, preset's or schedule's full id starts; give another in "key"`)
         const {mode, from} = releaseModeOf(input, 'none', null)
         if (from) await this.checkReleasesFrom(id, from)
         const now = stamp()
@@ -119,7 +119,7 @@ export abstract class ProjectStore extends KeyStore {
         const template = (value: Input[string]) => value === undefined ? undefined : String(value ?? '').trim() || null
         const list = (value: Input[string]) => value === undefined ? undefined : JSON.stringify(value ?? [])
         return {
-            focus_prompt: template(input.focus_prompt), chunk_prompt: template(input.chunk_prompt), instructions: list(input.instructions), muted: list(input.muted),
+            focus_prompt: template(input.focus_prompt), milestone_prompt: template(input.milestone_prompt), instructions: list(input.instructions), muted: list(input.muted),
         }
     }
 
@@ -131,12 +131,12 @@ export abstract class ProjectStore extends KeyStore {
     }
 
     /** The templates the project's sessions hear: its own, else the orrery's, else the defaults. */
-    async prompts(project: string): Promise<{focus: string, chunk: string}> {
+    async prompts(project: string): Promise<{focus: string, milestone: string}> {
         const row = await this.projectRow(project)
         const settings = await this.settings()
         return {
             focus: row.focus_prompt ?? settings.focus_prompt ?? DEFAULT_FOCUS_PROMPT,
-            chunk: row.chunk_prompt ?? settings.chunk_prompt ?? DEFAULT_CHUNK_PROMPT,
+            milestone: row.milestone_prompt ?? settings.milestone_prompt ?? DEFAULT_MILESTONE_PROMPT,
         }
     }
 
@@ -159,16 +159,16 @@ export abstract class ProjectStore extends KeyStore {
         await this.db.transaction(async () => {
             // Comments and issues first: the foreign keys would refuse the project going before them.
             await this.run('DELETE FROM comments WHERE project = ?', id)
-            await this.run('UPDATE issues SET parent = NULL, chunk = NULL WHERE project = ?', id)
+            await this.run('UPDATE issues SET parent = NULL, milestone = NULL WHERE project = ?', id)
             await this.run('DELETE FROM issues WHERE project = ?', id)
-            await this.run('DELETE FROM chunks WHERE project = ?', id)
+            await this.run('DELETE FROM milestones WHERE project = ?', id)
             await this.run('DELETE FROM docs WHERE project = ?', id)
             await this.run('DELETE FROM doc_sections WHERE project = ?', id)
             await this.run('DELETE FROM doc_revisions WHERE project = ?', id)
             await this.run('DELETE FROM releases WHERE project = ?', id)
             await this.run('DELETE FROM issue_aliases WHERE project = ?', id)
             await this.run('DELETE FROM issue_links WHERE project = ? OR on_project = ?', id, id)
-            await this.run('DELETE FROM chunk_aliases WHERE project = ?', id)
+            await this.run('DELETE FROM milestone_aliases WHERE project = ?', id)
             await this.run('DELETE FROM signals WHERE project = ?', id)
             await this.run('DELETE FROM schedules WHERE project = ?', id)
             await this.run('DELETE FROM presets WHERE project = ?', id)

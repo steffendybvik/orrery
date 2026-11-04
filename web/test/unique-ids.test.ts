@@ -20,7 +20,7 @@ describe('full ids', () => {
     it('are made and read back by kind', () => {
         expect(fullId('issue', 'ORR-660', 'x7k2m9qd')).toBe('ORR-660-x7k2m9qd')
         expect(fullId('doc', 'ideas', 'x7k2m9qd')).toBe('doc-ideas-x7k2m9qd')
-        expect(fullId('chunk', 3, 'x7k2m9qd')).toBe('chk-3-x7k2m9qd')
+        expect(fullId('milestone', 3, 'x7k2m9qd')).toBe('mls-3-x7k2m9qd')
         expect(shortId('doc', 'doc-ideas-x7k2m9qd', 'x7k2m9qd')).toBe('ideas')
         expect(shortId('issue', 'ORR-660-aaaaaaaa', 'x7k2m9qd')).toBeNull()
         expect(shortId('issue', 'ORR-660', 'x7k2m9qd')).toBeNull()
@@ -51,11 +51,11 @@ describe('full ids', () => {
         expect((await store.issue('shop', fullId('issue', 'OLD-5', await uid('shop')))).id).toBe(id)
     })
 
-    it('finds a chunk and a doc the same way', async () => {
-        const chunk = await store.createChunk('shop', {title: 'Autumn'}, me)
-        const chunkFull = fullId('chunk', chunk.id, await uid('shop'))
-        expect(await store.chunk('shop', chunkFull)).toMatchObject({id: chunk.id, full_id: chunkFull})
-        await expect(store.chunk('yard', chunkFull)).rejects.toMatchObject({statusCode: 404})
+    it('finds a milestone and a doc the same way', async () => {
+        const milestone = await store.createMilestone('shop', {title: 'Autumn'}, me)
+        const milestoneFull = fullId('milestone', milestone.id, await uid('shop'))
+        expect(await store.milestone('shop', milestoneFull)).toMatchObject({id: milestone.id, full_id: milestoneFull})
+        await expect(store.milestone('yard', milestoneFull)).rejects.toMatchObject({statusCode: 404})
 
         await store.createDoc('shop', {title: 'Ideas', body: 'Words.'}, me)
         const docFull = fullId('doc', 'ideas', await uid('shop'))

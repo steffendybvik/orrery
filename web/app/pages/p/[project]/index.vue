@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// A project's issues as a list (rows grouped by status or by chunk) or a board (issue cards in their
+// A project's issues as a list (rows grouped by status or by milestone) or a board (issue cards in their
 // columns): `?view=`, keys 1 and 2. Without `?view=` it's the view last picked in this browser.
 const route = useRoute()
 const router = useRouter()
@@ -20,10 +20,10 @@ const view = computed({
 const {count} = useUsage()
 watch(view, now => now === 'board' && count('board-view'), {immediate: true})
 const views = [{value: 'list' as const, label: 'List', hint: '1'}, {value: 'board' as const, label: 'Board', hint: '2'}]
-const groupings = [{value: 'status' as const, label: 'Status'}, {value: 'chunk' as const, label: 'Chunk'}]
+const groupings = [{value: 'status' as const, label: 'Status'}, {value: 'milestone' as const, label: 'Milestone'}]
 
-const chunks = computed(() => {
-    const all = project.value?.board.chunks ?? []
+const milestones = computed(() => {
+    const all = project.value?.board.milestones ?? []
     if (!active.value) return all
     return all.map(c => ({...c, tasks: filterTree(c.tasks, matches)})).filter(c => c.tasks.length)
 })
@@ -81,16 +81,16 @@ onMounted(() => nextTick(() => {
 
   <div class="min-h-0 flex-1" :class="view === 'list' ? 'overflow-y-auto' : 'overflow-hidden'">
     <template v-if="project">
-      <div v-if="!project.board.chunks.length" class="mx-auto flex max-w-xl flex-col gap-3 px-4 py-20 text-center">
+      <div v-if="!project.board.milestones.length" class="mx-auto flex max-w-xl flex-col gap-3 px-4 py-20 text-center">
         <p class="text-sm text-muted">{{ project.name }} has no issues yet.</p>
         <UiButton variant="primary" class="self-center" @click="useNewIssue().open(project.id)">New issue</UiButton>
         <p v-if="!sessions[project.id]?.length" class="mt-3 text-xs text-faint">
           Or <NuxtLink :to="`/connect?project=${project.id}`" class="text-accent-700 underline underline-offset-2 dark:text-accent-400">connect a session</NuxtLink> in its repo, and it can add them.
         </p>
       </div>
-      <div v-else-if="!chunks.length" class="grid place-items-center px-4 py-24 text-sm text-muted">No issue matches the filters.</div>
-      <IssueBoard v-else-if="view === 'board'" :chunks="chunks" :project="project.id" />
-      <ListView v-else :chunks="chunks" :project="project.id" :group="group" />
+      <div v-else-if="!milestones.length" class="grid place-items-center px-4 py-24 text-sm text-muted">No issue matches the filters.</div>
+      <IssueBoard v-else-if="view === 'board'" :milestones="milestones" :project="project.id" />
+      <ListView v-else :milestones="milestones" :project="project.id" :group="group" />
     </template>
     <NotFound v-else-if="ready" reason="It may have been renamed or deleted." to="/mine" back="Go to My issues">No project “{{ route.params.project }}”</NotFound>
     <UiLoading v-else />

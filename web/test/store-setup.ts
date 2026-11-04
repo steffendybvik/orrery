@@ -1,5 +1,5 @@
 // What every store test starts from (ORR-500): a fresh database (SQLite, or Postgres with TEST_POSTGRES_URL) with the
-// project `greenhouse` and its chunk, and the projects the store has said changed since.
+// project `greenhouse` and its milestone, and the projects the store has said changed since.
 import {Store} from '../server/utils/store'
 import {testDb} from './db'
 
@@ -7,7 +7,7 @@ export async function storeSetup(): Promise<{store: Store, changes: string[]}> {
     const changes: string[] = []
     const store = new Store(testDb(), project => changes.push(project))
     await store.createProject({name: 'greenhouse', key: 'GRE'})
-    await store.createChunk('greenhouse', {title: 'Moving parts: joints'})
+    await store.createMilestone('greenhouse', {title: 'Moving parts: joints'})
     return {store, changes}
 }
 

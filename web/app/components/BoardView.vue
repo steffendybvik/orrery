@@ -1,12 +1,12 @@
 <script setup lang="ts">
-import type {Chunk, Column} from '#shared/roadmap'
+import type {Milestone, Column} from '#shared/roadmap'
 
-// The columns, started first and closed last, with the chunks in them. Closed ones start folded to a count.
-const props = defineProps<{chunks: Chunk[], project: string}>()
+// The columns, started first and closed last, with the milestones in them. Closed ones start folded to a count.
+const props = defineProps<{milestones: Milestone[], project: string}>()
 const {columns: order, look} = useStatuses()
 const unfolded = ref<Column[]>([])
 
-const columns = computed(() => order.value.map(({id}) => ({column: id, chunks: props.chunks.filter(c => c.column === id)})))
+const columns = computed(() => order.value.map(({id}) => ({column: id, milestones: props.milestones.filter(c => c.column === id)})))
 
 const folded = (column: Column) => isClosed(look(column).kind) && !unfolded.value.includes(column)
 const fold = (column: Column) => unfolded.value = unfolded.value.includes(column) ? unfolded.value.filter(c => c !== column) : [...unfolded.value, column]
@@ -15,7 +15,7 @@ const fold = (column: Column) => unfolded.value = unfolded.value.includes(column
 <template>
   <div class="flex h-full snap-x scroll-px-3 gap-3 overflow-x-auto p-3 sm:scroll-px-4 sm:p-4">
     <section
-        v-for="{column, chunks: inColumn} in columns"
+        v-for="{column, milestones: inColumn} in columns"
         :key="column"
         class="flex shrink-0 snap-start flex-col"
         :class="folded(column) ? 'w-44' : 'w-[85vw] sm:w-72'"
@@ -36,13 +36,13 @@ const fold = (column: Column) => unfolded.value = unfolded.value.includes(column
           @click="fold(column)"
       >
         <span class="font-mono text-lg font-medium tabular-nums" :style="{color: readable(look(column).color)}">{{ inColumn.length }}</span>
-        {{ inColumn.length === 1 ? 'chunk' : 'chunks' }} {{ look(column).label.toLowerCase() }}
+        {{ inColumn.length === 1 ? 'milestone' : 'milestones' }} {{ look(column).label.toLowerCase() }}
       </button>
       <div v-else class="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto pb-4">
-        <ChunkCard
-            v-for="chunk in inColumn"
-            :key="chunk.id || 'none'"
-            :chunk="chunk"
+        <MilestoneCard
+            v-for="milestone in inColumn"
+            :key="milestone.id || 'none'"
+            :milestone="milestone"
             :project="project"
         />
         <div v-if="!inColumn.length" class="rounded-xl border border-dashed border-line px-3 py-6 text-center text-xs text-faint">Nothing here</div>

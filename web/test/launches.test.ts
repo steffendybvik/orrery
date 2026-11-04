@@ -21,7 +21,7 @@ let waiting: string[]
 let waitingForAll: boolean
 let adopted: string[]
 let focused: {issue: string, session: string}[]
-let scoped: {chunk: string, body: Record<string, unknown>}[]
+let scoped: {milestone: string, body: Record<string, unknown>}[]
 let messages: {schedule: number, text: string, target?: string}[]
 /** The launches whose prompt the owner's Allow answered. */
 let answered: string[]
@@ -80,8 +80,8 @@ beforeEach(async () => {
             focused.push({issue, session: body.session})
             return {id: 42}
         },
-        focusChunk: async (_project: string, chunk: string, body: Record<string, unknown>) => {
-            scoped.push({chunk, body})
+        focusMilestone: async (_project: string, milestone: string, body: Record<string, unknown>) => {
+            scoped.push({milestone, body})
             return {id: 43}
         },
         message: async (_project: string, schedule: number, text: string, _actor: unknown, target?: string) => {
@@ -391,8 +391,8 @@ describe('the owner starting a session by hand', () => {
         const launch = await launches.startLaunch('greenhouse', {statuses: ['backlog', 'todo'], release: '1.0.0'})
         await launches.startLaunch('greenhouse', {release: '1.0.0'})
         expect(scoped).toEqual([
-            {chunk: 'all', body: {session: `launch-${launch.id}`, status: 'backlog,todo', release: '1.0.0'}},
-            {chunk: 'all', body: expect.objectContaining({status: 'todo,started', release: '1.0.0'})},
+            {milestone: 'all', body: {session: `launch-${launch.id}`, status: 'backlog,todo', release: '1.0.0'}},
+            {milestone: 'all', body: expect.objectContaining({status: 'todo,started', release: '1.0.0'})},
         ])
         expect(launch.after).toBe(42)
     })
@@ -787,7 +787,7 @@ describe("an untrusted schedule's run", () => {
 
     it('makes what its session raises a proposal labelled external, and nothing more', async () => {
         const {asProposal} = await import('../server/utils/untrusted')
-        expect(asProposal({title: 'Crash on save', notes: 'From #12', labels: ['bug'], priority: 'P0', status: 'in-progress', assignee: 'claude', parent: 'GRE-1', chunk: '2', release: '1.0.0'}))
+        expect(asProposal({title: 'Crash on save', notes: 'From #12', labels: ['bug'], priority: 'P0', status: 'in-progress', assignee: 'claude', parent: 'GRE-1', milestone: '2', release: '1.0.0'}))
             .toEqual({title: 'Crash on save', notes: 'From #12', proposal: 'pending', labels: ['external']})
         expect(asProposal({title: 'x', labels: ['external']}).labels).toEqual(['external'])
         expect(asProposal({title: 'x', github_issues: [12]})).toMatchObject({github_issues: [12], labels: ['external']})

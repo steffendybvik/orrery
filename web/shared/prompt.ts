@@ -16,8 +16,8 @@ export const DEFAULT_FOCUS_PROMPT = [
     'Read the project docs it touches before the code, and fix any that turn out wrong.',
 ].join('\n')
 
-export const DEFAULT_CHUNK_PROMPT = [
-    '{actor} asks you to work through the {status} issues in chunk {chunk}: {title} [{where}].',
+export const DEFAULT_MILESTONE_PROMPT = [
+    '{actor} asks you to work through the {status} issues in milestone {milestone}: {title} [{where}].',
     'Note: {note}',
     'Its {status} issues, most urgent first:',
     '{issues}',
@@ -32,28 +32,28 @@ export const PLACEHOLDERS = {
         title: 'its title',
         status: "its status's name",
         priority: 'its priority, e.g. P1',
-        chunk: "its chunk's title",
-        where: 'status, priority and chunk, comma-separated',
+        milestone: "its milestone's title",
+        where: 'status, priority and milestone, comma-separated',
         note: 'the note sent with it',
         url: 'its address in the API',
         instructions: 'the standing instructions, one per line (added at the end when left out)',
     },
-    chunk: {
+    milestone: {
         actor: 'who asked (the owner)',
-        chunk: "the chunk's id",
-        title: "the chunk's title",
+        milestone: "the milestone's id",
+        title: "the milestone's title",
         status: 'the status asked for, or "open"',
-        priority: "the chunk's priority",
-        where: "the chunk's status and priority",
+        priority: "the milestone's priority",
+        where: "the milestone's status and priority",
         note: 'the note sent with it',
         issues: 'its issues, one per line, most urgent first',
-        url: "the chunk's address in the API",
+        url: "the milestone's address in the API",
         instructions: 'the standing instructions, one per line (added at the end when left out)',
     },
 } as const
 
 const PLACEHOLDER = /\{([a-z]+)\}/g
-const KNOWN = new Set<string>([...Object.keys(PLACEHOLDERS.focus), ...Object.keys(PLACEHOLDERS.chunk)])
+const KNOWN = new Set<string>([...Object.keys(PLACEHOLDERS.focus), ...Object.keys(PLACEHOLDERS.milestone)])
 
 /** Fills the template. A line whose placeholders all come out empty is left out (`Note: {note}` without a
  * note), and an unknown placeholder stays as written. The instructions go where `{instructions}` is, or

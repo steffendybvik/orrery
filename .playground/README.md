@@ -16,7 +16,7 @@ The demo (`seed.mjs`, through the API) is the owner **Skoll**, the wolf who chas
 (issues to assign him), with three projects:
 
 - **Primes:** a prime-number library, with shipped releases (0.1.0 to 0.3.0), the current one (1.0.0) and a planned
-  one (1.1.0), four chunks, sub-issues, a full board with blocked issues, comment threads, starts allowed, two proposals,
+  one (1.1.0), four milestones, sub-issues, a full board with blocked issues, comment threads, starts allowed, two proposals,
   a question waiting in the bell, docs in sections, and schedules, one with a run behind it
 - **Primes CLI:** its command line, shipping in Primes' releases, as a monorepo's app would, with an issue waiting on
   the library, a doc and a schedule

@@ -52,7 +52,7 @@ beforeEach(async () => {
         async busy(project: string, ids: string[]) {
             return (await this.workingOn(project, ids)).length > 0 || await this.waiting(project, ids)
         },
-        focusChunk: async (...args: unknown[]) => void focused.push(args),
+        focusMilestone: async (...args: unknown[]) => void focused.push(args),
         listIssues: async () => issues,
         focus: async (...args: unknown[]) => void carried.push(args),
         ownerOf: async () => ({name: 'steffen'}),
@@ -165,27 +165,27 @@ describe('a session orrery started, gone idle', () => {
 describe("a session's run", () => {
     const signal = (more: object) => ({id: 1, project: 'orrery', kind: 'focus', delivered_to: [], instructions: [], created_by: 'steffen', protected: true, created_at: '', ...more}) as never
 
-    it('is the last chunk or scope focus it was handed, found by any id it has had', () => {
-        clearing.startRun('w-before', signal({chunk: 'all', status: 'todo'}))
+    it('is the last milestone or scope focus it was handed, found by any id it has had', () => {
+        clearing.startRun('w-before', signal({milestone: 'all', status: 'todo'}))
         clearing.startRun('w-before', signal({kind: 'message', note: 'hi'}))
-        expect(clearing.runOf('w')).toMatchObject({chunk: 'all', status: 'todo'})
+        expect(clearing.runOf('w')).toMatchObject({milestone: 'all', status: 'todo'})
         expect(clearing.runOf('other')).toBeUndefined()
     })
 
     it('ends with a focus on one issue, and is let go once its session is gone', () => {
-        clearing.startRun('w', signal({chunk: '3'}))
+        clearing.startRun('w', signal({milestone: '3'}))
         clearing.startRun('w', signal({issue: 'ORR-98', note: clearing.CARRY_ON}))
-        expect(clearing.runOf('w')).toMatchObject({chunk: '3'})
+        expect(clearing.runOf('w')).toMatchObject({milestone: '3'})
         clearing.startRun('w-before', signal({issue: 'ORR-99'}))
         expect(clearing.runOf('w')).toBeUndefined()
-        clearing.startRun('gone', signal({chunk: '3'}))
-        clearing.startRun('w', signal({chunk: '4'}))
+        clearing.startRun('gone', signal({milestone: '3'}))
+        clearing.startRun('w', signal({milestone: '4'}))
         expect(clearing.runOf('gone')).toBeUndefined()
-        expect(clearing.runOf('w')).toMatchObject({chunk: '4'})
+        expect(clearing.runOf('w')).toMatchObject({milestone: '4'})
     })
 
     it("goes on after a clear: what's left of it is sent to the session alone, as its owner sent it", async () => {
-        clearing.startRun('w', signal({chunk: 'all', status: 'todo,started', release: '1.2'}))
+        clearing.startRun('w', signal({milestone: 'all', status: 'todo,started', release: '1.2'}))
         expect(await clearing.resumeRun('orrery', 'w')).toBe(false)
         left = [{id: 'ORR-2'}]
         expect(await clearing.resumeRun('elsewhere', 'w')).toBe(false)
@@ -197,7 +197,7 @@ describe("a session's run", () => {
         expect(await clearing.resumeRun('orrery', 'w')).toBe(true)
         expect(focused).toHaveLength(2)
         // A new run starts afresh.
-        clearing.startRun('w', signal({chunk: 'all', status: 'todo'}))
+        clearing.startRun('w', signal({milestone: 'all', status: 'todo'}))
         expect(await clearing.resumeRun('orrery', 'w')).toBe(true)
         // One someone opened themselves isn't sent on.
         session = {project: 'orrery', state: 'idle', idleAt: 1}

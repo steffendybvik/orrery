@@ -1,6 +1,6 @@
 // Fills an empty playground orrery with a demo, through its API, as the owner (Skoll, the wolf who chases the sun)
 // and an agent (claude), with Skoll's brother Hate, who chases the moon, to assign to:
-// sessions orrery may start; a prime-number library with shipped, current and planned releases, chunks, sub-issues,
+// sessions orrery may start; a prime-number library with shipped, current and planned releases, milestones, sub-issues,
 // blocked issues, comment threads, two proposals, a question waiting in the bell, docs in sections and schedules; its
 // command line, sharing its releases as a monorepo's app would; graph algorithms with releases of their own. New issues
 // go after the ones there, so ids stay put: web/e2e/readme opens PRM-3 and how-the-sieve-works. Its repo is made up, so
@@ -29,31 +29,31 @@ if ((await call('GET', '/projects')).length) {
 await call('PUT', '/owner', {name: 'Skoll'})
 await call('PATCH', '/settings', {handle: 'skoll', tracker: 'https://tracker.example.com/issue/{id}', starts: {limit: 2, minutes: 30}})
 
-// Primes: its own releases and chunks.
+// Primes: its own releases and milestones.
 await call('POST', '/projects', {name: 'Primes', id: 'primes', key: 'PRM', description: 'A library for finding and testing prime numbers'})
 await call('PATCH', '/projects/primes', {release_mode: 'own', repo: 'https://github.com/demo/primes'})
 const primes = (path, body, actor) => call('POST', `/projects/primes${path}`, body, actor)
-const sieves = await primes('/chunks', {title: 'Sieves', summary: 'Every prime up to n, fast.'})
-const tests = await primes('/chunks', {title: 'Primality tests', summary: 'Whether one number is prime, without listing the rest.'})
-const factoring = await primes('/chunks', {title: 'Factoring', summary: 'The primes inside a number.'})
-const packaging = await primes('/chunks', {title: 'Docs and packaging', summary: 'What it takes for someone else to use it.'})
+const sieves = await primes('/milestones', {title: 'Sieves', summary: 'Every prime up to n, fast.'})
+const tests = await primes('/milestones', {title: 'Primality tests', summary: 'Whether one number is prime, without listing the rest.'})
+const factoring = await primes('/milestones', {title: 'Factoring', summary: 'The primes inside a number.'})
+const packaging = await primes('/milestones', {title: 'Docs and packaging', summary: 'What it takes for someone else to use it.'})
 await primes('/releases', {version: '1.0.0', notes: 'Sieves and a test good enough to ship.'})
 await primes('/releases', {version: '0.3.0', position: 1, shipped_on: daysAgo(24), notes: 'A wheel for the sieve, and `is_prime` for anything below 2³².\n\n- The wheel skips multiples of 2, 3 and 5, a third fewer writes\n- `is_prime` no longer sieves to answer one number\n- **Breaking:** `sieve()` is now `primes_up_to()`'})
 await primes('/releases', {version: '0.2.0', position: 2, shipped_on: daysAgo(67), notes: 'One bit per odd number, so a sieve to 10⁹ fits in 63 MB.\n\n- Bit-packed storage\n- `nth_prime(n)`\n- Fixed: `count_primes(1)` answered 1'})
 await primes('/releases', {version: '0.1.0', position: 3, shipped_on: daysAgo(118), notes: 'The first one: the sieve of Eratosthenes, and enough of an API to call it.'})
 await primes('/releases', {version: '1.1.0', notes: 'Factoring, and the sieve on every core.'})
 
-const eratosthenes = await primes('/issues', {title: 'Sieve of Eratosthenes', status: 'done', chunk: sieves.id, release: '0.1.0'}, 'claude')
+const eratosthenes = await primes('/issues', {title: 'Sieve of Eratosthenes', status: 'done', milestone: sieves.id, release: '0.1.0'}, 'claude')
 await primes('/issues', {title: 'Skip the even numbers', status: 'done', parent: eratosthenes.id}, 'claude')
-const segmented = await primes('/issues', {title: 'Segmented sieve for n past memory', notes: 'A sieve to 10¹² wants 62 GB in one piece. Sieved a segment at a time, it needs only the primes up to √n and one segment in memory.\n\n**Done when** `primes_up_to(10**12)` runs in under 1 GB and gives the same count as the plain sieve up to 10⁹.', status: 'in-progress', priority: 'P1', assignee: 'claude', chunk: sieves.id, release: '1.0.0', external: ['DEMO-12'], github_issues: [8]}, 'claude')
+const segmented = await primes('/issues', {title: 'Segmented sieve for n past memory', notes: 'A sieve to 10¹² wants 62 GB in one piece. Sieved a segment at a time, it needs only the primes up to √n and one segment in memory.\n\n**Done when** `primes_up_to(10**12)` runs in under 1 GB and gives the same count as the plain sieve up to 10⁹.', status: 'in-progress', priority: 'P1', assignee: 'claude', milestone: sieves.id, release: '1.0.0', external: ['DEMO-12'], github_issues: [8]}, 'claude')
 await primes('/issues', {title: 'Split the range into segments', status: 'done', parent: segmented.id}, 'claude')
 await primes('/issues', {title: 'Sieve each segment with the base primes', status: 'in-progress', parent: segmented.id}, 'claude')
 await primes('/issues', {title: 'Merge the segments in order', status: 'todo', parent: segmented.id}, 'claude')
-const upToTwo = await primes('/issues', {title: 'primes_up_to(2) leaves out 2', notes: '`primes_up_to(2)` returns `[]`. The bound should be inclusive, as it is for every other n.', status: 'todo', priority: 'P0', chunk: sieves.id, labels: ['bug']})
-const millerRabin = await primes('/issues', {title: 'Miller–Rabin primality test', notes: 'Answers for one number in O(k log³ n), without a sieve. With the right bases it is deterministic below 2⁶⁴.', status: 'todo', priority: 'P2', chunk: tests.id, release: '1.0.0', labels: ['algorithm']})
-const benchmark = await primes('/issues', {title: 'Benchmark against primesieve', status: 'in-review', chunk: sieves.id, release: '1.0.0', assignee: 'claude'}, 'claude')
-await primes('/issues', {title: 'Sieve of Atkin', status: 'backlog', chunk: sieves.id, labels: ['algorithm']})
-await primes('/issues', {title: 'Trial division for every n', status: 'canceled', chunk: tests.id})
+const upToTwo = await primes('/issues', {title: 'primes_up_to(2) leaves out 2', notes: '`primes_up_to(2)` returns `[]`. The bound should be inclusive, as it is for every other n.', status: 'todo', priority: 'P0', milestone: sieves.id, labels: ['bug']})
+const millerRabin = await primes('/issues', {title: 'Miller–Rabin primality test', notes: 'Answers for one number in O(k log³ n), without a sieve. With the right bases it is deterministic below 2⁶⁴.', status: 'todo', priority: 'P2', milestone: tests.id, release: '1.0.0', labels: ['algorithm']})
+const benchmark = await primes('/issues', {title: 'Benchmark against primesieve', status: 'in-review', milestone: sieves.id, release: '1.0.0', assignee: 'claude'}, 'claude')
+await primes('/issues', {title: 'Sieve of Atkin', status: 'backlog', milestone: sieves.id, labels: ['algorithm']})
+await primes('/issues', {title: 'Trial division for every n', status: 'canceled', milestone: tests.id})
 await primes('/issues', {
     title: 'Keep the primes found between runs',
     proposal: 'pending',
@@ -65,35 +65,35 @@ await primes('/issues', {
 }, 'claude')
 // More of the board, after the ones above so their ids stay: every column, blocked work and sub-issues.
 const issue = (body, actor) => primes('/issues', body, actor)
-const wheel = await issue({title: 'Wheel factorization for the sieve', status: 'done', chunk: sieves.id, release: '0.3.0', labels: ['performance'], assignee: 'claude'}, 'claude')
+const wheel = await issue({title: 'Wheel factorization for the sieve', status: 'done', milestone: sieves.id, release: '0.3.0', labels: ['performance'], assignee: 'claude'}, 'claude')
 await issue({title: 'Skip multiples of 3 and 5', status: 'done', parent: wheel.id}, 'claude')
 await issue({title: 'Measure the writes saved', status: 'done', parent: wheel.id}, 'claude')
-await issue({title: 'Bit-packed storage', status: 'done', chunk: sieves.id, release: '0.2.0', labels: ['performance'], assignee: 'claude'}, 'claude')
-await issue({title: '`nth_prime(n)`', status: 'done', chunk: sieves.id, release: '0.2.0', labels: ['api'], assignee: HATE})
-await issue({title: 'count_primes(1) answers 1', status: 'done', chunk: sieves.id, release: '0.2.0', labels: ['bug'], assignee: HATE})
-await issue({title: 'First version of the public API', status: 'done', chunk: packaging.id, release: '0.1.0', labels: ['api'], assignee: OWNER})
-await issue({title: '`is_prime` below 2³²', status: 'done', chunk: tests.id, release: '0.3.0', labels: ['api', 'algorithm'], assignee: 'claude'}, 'claude')
+await issue({title: 'Bit-packed storage', status: 'done', milestone: sieves.id, release: '0.2.0', labels: ['performance'], assignee: 'claude'}, 'claude')
+await issue({title: '`nth_prime(n)`', status: 'done', milestone: sieves.id, release: '0.2.0', labels: ['api'], assignee: HATE})
+await issue({title: 'count_primes(1) answers 1', status: 'done', milestone: sieves.id, release: '0.2.0', labels: ['bug'], assignee: HATE})
+await issue({title: 'First version of the public API', status: 'done', milestone: packaging.id, release: '0.1.0', labels: ['api'], assignee: OWNER})
+await issue({title: '`is_prime` below 2³²', status: 'done', milestone: tests.id, release: '0.3.0', labels: ['api', 'algorithm'], assignee: 'claude'}, 'claude')
 
-const parallel = await issue({title: 'Sieve segments on every core', notes: 'Segments share nothing but the base primes, so they should scale close to linearly.', status: 'todo', priority: 'P1', chunk: sieves.id, release: '1.1.0', labels: ['performance'], assignee: 'claude', depends_on: [segmented.id]}, 'claude')
+const parallel = await issue({title: 'Sieve segments on every core', notes: 'Segments share nothing but the base primes, so they should scale close to linearly.', status: 'todo', priority: 'P1', milestone: sieves.id, release: '1.1.0', labels: ['performance'], assignee: 'claude', depends_on: [segmented.id]}, 'claude')
 await issue({title: 'Share the base primes between threads', status: 'todo', parent: parallel.id}, 'claude')
 await issue({title: 'Hand out segments from a queue', status: 'todo', parent: parallel.id}, 'claude')
 await issue({title: 'Hand the merged segments back in order', status: 'backlog', parent: parallel.id}, 'claude')
-const bases = await issue({title: 'Deterministic bases below 2⁶⁴', status: 'todo', priority: 'P1', chunk: tests.id, release: '1.0.0', labels: ['algorithm'], assignee: HATE, depends_on: [millerRabin.id]})
-await issue({title: 'Baillie–PSW for numbers past 2⁶⁴', status: 'backlog', priority: 'P3', chunk: tests.id, release: '1.1.0', labels: ['algorithm'], depends_on: [bases.id]})
-await issue({title: 'Overflow in the modular multiply near 2⁶⁴', status: 'in-progress', priority: 'P0', chunk: tests.id, release: '1.0.0', labels: ['bug'], assignee: HATE})
-await issue({title: 'Quick start for the README', status: 'in-progress', priority: 'P2', chunk: packaging.id, release: '1.0.0', labels: ['docs'], assignee: OWNER})
-await issue({title: 'Reject a negative bound with a clear error', status: 'in-review', priority: 'P2', chunk: sieves.id, release: '1.0.0', labels: ['bug', 'api'], assignee: 'claude'}, 'claude')
-await issue({title: 'Doctests for every public function', status: 'in-review', priority: 'P3', chunk: packaging.id, release: '1.0.0', labels: ['docs'], assignee: HATE})
-await issue({title: 'Publish 1.0.0', notes: 'Waits on what 1.0.0 promises: the segmented sieve and numbers we can stand behind.', status: 'todo', priority: 'P1', chunk: packaging.id, release: '1.0.0', assignee: OWNER, depends_on: [segmented.id, benchmark.id, upToTwo.id]})
-await issue({title: 'Stable API policy', status: 'todo', priority: 'P2', chunk: packaging.id, release: '1.0.0', labels: ['docs', 'api'], assignee: OWNER})
-const rho = await issue({title: "Pollard's rho factorization", notes: 'Trial division up to the sieve, then rho for what is left.', status: 'todo', priority: 'P2', chunk: factoring.id, release: '1.1.0', labels: ['algorithm'], assignee: 'claude', depends_on: [millerRabin.id]}, 'claude')
+const bases = await issue({title: 'Deterministic bases below 2⁶⁴', status: 'todo', priority: 'P1', milestone: tests.id, release: '1.0.0', labels: ['algorithm'], assignee: HATE, depends_on: [millerRabin.id]})
+await issue({title: 'Baillie–PSW for numbers past 2⁶⁴', status: 'backlog', priority: 'P3', milestone: tests.id, release: '1.1.0', labels: ['algorithm'], depends_on: [bases.id]})
+await issue({title: 'Overflow in the modular multiply near 2⁶⁴', status: 'in-progress', priority: 'P0', milestone: tests.id, release: '1.0.0', labels: ['bug'], assignee: HATE})
+await issue({title: 'Quick start for the README', status: 'in-progress', priority: 'P2', milestone: packaging.id, release: '1.0.0', labels: ['docs'], assignee: OWNER})
+await issue({title: 'Reject a negative bound with a clear error', status: 'in-review', priority: 'P2', milestone: sieves.id, release: '1.0.0', labels: ['bug', 'api'], assignee: 'claude'}, 'claude')
+await issue({title: 'Doctests for every public function', status: 'in-review', priority: 'P3', milestone: packaging.id, release: '1.0.0', labels: ['docs'], assignee: HATE})
+await issue({title: 'Publish 1.0.0', notes: 'Waits on what 1.0.0 promises: the segmented sieve and numbers we can stand behind.', status: 'todo', priority: 'P1', milestone: packaging.id, release: '1.0.0', assignee: OWNER, depends_on: [segmented.id, benchmark.id, upToTwo.id]})
+await issue({title: 'Stable API policy', status: 'todo', priority: 'P2', milestone: packaging.id, release: '1.0.0', labels: ['docs', 'api'], assignee: OWNER})
+const rho = await issue({title: "Pollard's rho factorization", notes: 'Trial division up to the sieve, then rho for what is left.', status: 'todo', priority: 'P2', milestone: factoring.id, release: '1.1.0', labels: ['algorithm'], assignee: 'claude', depends_on: [millerRabin.id]}, 'claude')
 await issue({title: 'Brent’s cycle detection', status: 'todo', parent: rho.id}, 'claude')
 await issue({title: 'Retry with a new constant on failure', status: 'todo', parent: rho.id}, 'claude')
-await issue({title: '`factorize(n)` returning primes and powers', status: 'backlog', priority: 'P2', chunk: factoring.id, release: '1.1.0', labels: ['api'], depends_on: [rho.id]})
-await issue({title: 'Quadratic sieve for 30 digits and up', status: 'backlog', priority: 'P3', chunk: factoring.id, labels: ['algorithm']})
-await issue({title: 'Twin primes iterator', status: 'backlog', priority: 'P3', chunk: sieves.id, labels: ['api']})
-await issue({title: 'Sieve on the GPU', status: 'backlog', chunk: sieves.id, labels: ['performance']})
-await issue({title: 'AKS primality test', notes: 'Proves primality in polynomial time, and is far too slow next to Miller–Rabin to be worth carrying.', status: 'canceled', chunk: tests.id, labels: ['algorithm']})
+await issue({title: '`factorize(n)` returning primes and powers', status: 'backlog', priority: 'P2', milestone: factoring.id, release: '1.1.0', labels: ['api'], depends_on: [rho.id]})
+await issue({title: 'Quadratic sieve for 30 digits and up', status: 'backlog', priority: 'P3', milestone: factoring.id, labels: ['algorithm']})
+await issue({title: 'Twin primes iterator', status: 'backlog', priority: 'P3', milestone: sieves.id, labels: ['api']})
+await issue({title: 'Sieve on the GPU', status: 'backlog', milestone: sieves.id, labels: ['performance']})
+await issue({title: 'AKS primality test', notes: 'Proves primality in polynomial time, and is far too slow next to Miller–Rabin to be worth carrying.', status: 'canceled', milestone: tests.id, labels: ['algorithm']})
 
 await issue({
     title: 'An iterator over primes with no upper bound',
@@ -130,10 +130,10 @@ await primes('/docs', {id: 'releasing', section: 'Working on Primes', title: 'Re
 
 // Schedules for its page, each the owner's so it would run. One has run once, so the page shows a run.
 await primes('/schedules', {title: 'Groom the backlog', cron: '0 9 * * 1-5', timezone: 'Europe/Oslo', notes: 'Close what no longer matters, and give the rest a priority.'})
-await primes('/schedules', {title: 'Benchmark the sieves each week', cron: '0 9 * * 5', timezone: 'Europe/Oslo', chunk: sieves.id, labels: ['performance'], notes: 'Run the benchmark on the release branch. Say if anything got slower.'})
-const triage = await primes('/schedules', {title: 'Triage new bugs', cron: '0 9 * * 1', timezone: 'Europe/Oslo', chunk: sieves.id, priority: 'P2', labels: ['triage'], notes: 'Every open bug should have a priority and a chunk by the end of this.\n\n- [ ] **Reproduce** what came in last week\n- [ ] **Set a priority** on each one'})
-await primes('/schedules', {title: 'Check the docs against the API', cron: '0 8 1 * *', timezone: 'Europe/Oslo', chunk: packaging.id, labels: ['docs'], notes: 'Run every example in the docs. Fix what has drifted.'})
-await primes('/schedules', {title: 'Count π(10¹²) on the nightly build', cron: '30 2 * * *', timezone: 'Europe/Oslo', chunk: sieves.id, priority: 'P3', enabled: false, notes: 'Should be 37,607,912,018. Paused until the segmented sieve lands.'})
+await primes('/schedules', {title: 'Benchmark the sieves each week', cron: '0 9 * * 5', timezone: 'Europe/Oslo', milestone: sieves.id, labels: ['performance'], notes: 'Run the benchmark on the release branch. Say if anything got slower.'})
+const triage = await primes('/schedules', {title: 'Triage new bugs', cron: '0 9 * * 1', timezone: 'Europe/Oslo', milestone: sieves.id, priority: 'P2', labels: ['triage'], notes: 'Every open bug should have a priority and a milestone by the end of this.\n\n- [ ] **Reproduce** what came in last week\n- [ ] **Set a priority** on each one'})
+await primes('/schedules', {title: 'Check the docs against the API', cron: '0 8 1 * *', timezone: 'Europe/Oslo', milestone: packaging.id, labels: ['docs'], notes: 'Run every example in the docs. Fix what has drifted.'})
+await primes('/schedules', {title: 'Count π(10¹²) on the nightly build', cron: '30 2 * * *', timezone: 'Europe/Oslo', milestone: sieves.id, priority: 'P3', enabled: false, notes: 'Should be 37,607,912,018. Paused until the segmented sieve lands.'})
 await primes('/schedules', {kind: 'message', title: 'Write up what shipped', on: 'release.shipped', notes: 'A release just shipped. Put what changed in its notes, in plain words.'})
 await primes(`/schedules/${triage.id}/run`, {})
 

@@ -208,7 +208,7 @@ describe('images', () => {
         expect((await store.createUpload({data: gif.toString('base64')})).type).toBe('image/gif')
         expect((await store.createUpload({data: png})).type).toBe('image/png')
         const frames = await noise(300, 300)
-        // An `acTL` chunk before the image data is what makes a PNG animated.
+        // An `acTL` milestone before the image data is what makes a PNG animated.
         const apng = Buffer.concat([frames.subarray(0, 33), Buffer.from('\0\0\0\x08acTL\0\0\0\x02\0\0\0\0\0\0\0\0', 'latin1'), frames.subarray(33)])
         expect((await store.createUpload({data: apng.toString('base64')})).type).toBe('image/png')
     })

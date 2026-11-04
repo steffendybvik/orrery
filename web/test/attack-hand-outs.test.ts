@@ -24,7 +24,7 @@ beforeEach(async () => {
     store = new Store(testDb(), () => {}, signal => signals.push(signal))
     store.sessionPerson = session => SESSIONS[session]
     await store.createProject({name: 'greenhouse', key: 'GRE'})
-    await store.createChunk('greenhouse', {title: 'Shelves'})
+    await store.createMilestone('greenhouse', {title: 'Shelves'})
     await store.nameOwner({name: 'Skoll'})
     for (const name of ['Hati', 'Manni']) {
         await store.addPerson({name})
@@ -96,8 +96,8 @@ describe('a session catching up after a restart or a /clear', () => {
         expect(signals.at(-1)).toMatchObject({target: 'hati-b', person: 'hati'})
     })
 
-    it('hears nothing of what a chunk\'s focus said to someone else, even asked by id', async () => {
-        await store.focusChunk('greenhouse', '1', {}, hati)
+    it('hears nothing of what a milestone\'s focus said to someone else, even asked by id', async () => {
+        await store.focusMilestone('greenhouse', '1', {}, hati)
         const sent = signals.at(-1) as Signal
         expect(sent.person).toBe('hati')
         for (const session of ['manni-a', 'manni-b']) {

@@ -7,7 +7,7 @@ import FilterBar from '~/components/FilterBar.vue'
 // The Project filter: on My issues, across projects, it narrows it to the projects ticked, a
 // project's own pages don't offer it, and Clear unticks it with the rest. Blocked or Ready (ORR-601) splits the issues
 // by whether they wait on others.
-const project = (id: string) => ({id, name: id[0]!.toUpperCase() + id.slice(1), key: id.toUpperCase(), releases: [], board: {chunks: []}}) as unknown as Project
+const project = (id: string) => ({id, name: id[0]!.toUpperCase() + id.slice(1), key: id.toUpperCase(), releases: [], board: {milestones: []}}) as unknown as Project
 
 const mounted: VueWrapper[] = []
 beforeEach(() => {

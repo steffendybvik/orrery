@@ -36,7 +36,7 @@ export abstract class BulkStore extends CommentStore {
         }
     }
 
-    /** One change to many issues: `{ids, set: {status?, priority?, assignee?, chunk?, release?}, labels?: {add?, remove?}}`. */
+    /** One change to many issues: `{ids, set: {status?, priority?, assignee?, milestone?, release?}, labels?: {add?, remove?}}`. */
     async updateIssues(project: string, body: unknown, actor = AGENT): Promise<BulkResult[]> {
         await this.projectRow(project)
         const {ids, set = {}, labels} = (body ?? {}) as {ids?: unknown, set?: Record<string, unknown>, labels?: {add?: unknown, remove?: unknown}}
@@ -169,13 +169,13 @@ export abstract class BulkStore extends CommentStore {
 
     /** Moves an issue and everything under it to `to`, where they get its ids (KEY-n); the ids they had
      * stay as aliases there. Says the issue's new id. */
-    protected async moveIssue(from: string, id: string, to: string, parent: Input[string], chunk: Input[string], actor: Actor): Promise<string> {
+    protected async moveIssue(from: string, id: string, to: string, parent: Input[string], milestone: Input[string], actor: Actor): Promise<string> {
         await this.projectRow(to)
         const parentId = parent ? await this.issueId(to, String(parent)) : null
-        const chunkId = chunk ? await this.chunkId(to, String(chunk)) : null
+        const milestoneId = milestone ? await this.milestoneId(to, String(milestone)) : null
         if (parentId) await this.issueRow(to, parentId)
-        if (parentId && chunkId) throw badRequest(`A sub-issue is in its parent's chunk; leave out "chunk" or "parent"`)
-        if (chunkId) await this.chunkRow(to, chunkId)
+        if (parentId && milestoneId) throw badRequest(`A sub-issue is in its parent's milestone; leave out "milestone" or "parent"`)
+        if (milestoneId) await this.milestoneRow(to, milestoneId)
         const subtree = await this.subtree(from, id)
         const rails = await this.railsFor(actor)
         if (rails) await this.mustHoldAll(rails, from, subtree, 'move it')
@@ -195,8 +195,8 @@ export abstract class BulkStore extends CommentStore {
             const position = await this.nextPosition('issues', to)
             for (const link of links) {
                 const next = renamed(link.id)
-                await this.run(`UPDATE issues SET project = ?, id = ?, parent = ?, chunk = ?, ships_in = ${ships}, position = position + ? WHERE project = ? AND id = ?`,
-                    to, next, link.id === id ? parentId : link.parent ? names.get(link.parent) ?? null : null, link.id === id && !parentId ? chunkId : null, position, from, link.id)
+                await this.run(`UPDATE issues SET project = ?, id = ?, parent = ?, milestone = ?, ships_in = ${ships}, position = position + ? WHERE project = ? AND id = ?`,
+                    to, next, link.id === id ? parentId : link.parent ? names.get(link.parent) ?? null : null, link.id === id && !parentId ? milestoneId : null, position, from, link.id)
             }
             for (const comment of comments) await this.run('UPDATE comments SET project = ?, issue = ? WHERE id = ?', to, renamed(comment.issue), comment.id)
             for (const [old, next] of names) await this.run('UPDATE issue_events SET project = ?, issue = ? WHERE project = ? AND issue = ?', to, next, from, old)

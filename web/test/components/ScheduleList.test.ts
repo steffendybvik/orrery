@@ -7,7 +7,7 @@ import ScheduleList from '~/components/ScheduleList.vue'
 // Event schedules stand out from timed ones (ORR-709): a running one comes first with a mark of its own, and a paused one
 // still shows the bolt on its trigger line.
 registerEndpoint('/api/owner', () => ({name: 'skoll', display: 'Sköll', named: true}))
-const PROJECT = {id: 'greenhouse', name: 'Greenhouse', key: 'GRE', board: {chunks: [], kinds: {}}} as unknown as Project
+const PROJECT = {id: 'greenhouse', name: 'Greenhouse', key: 'GRE', board: {milestones: [], kinds: {}}} as unknown as Project
 const schedule = (id: number, title: string, more: Partial<Schedule>) => ({id, project: 'greenhouse', kind: 'issue', title, labels: [], runs: [], enabled: true, timezone: 'UTC', protected: true, created_by: 'skoll', ...more}) as Schedule
 const SCHEDULES = [
     schedule(1, 'Later', {cron: '0 9 * * *', next_run: '2099-01-02T09:00:00.000Z'}),

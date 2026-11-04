@@ -120,9 +120,9 @@ describe('a focus', () => {
         expect(message).toContain("isn't hati's")
     })
 
-    it('on a chunk from a member is theirs too', async () => {
-        await store.createChunk('greenhouse', {title: 'Joints'}, owner)
-        await store.focusChunk('greenhouse', 'all', {}, hati)
+    it('on a milestone from a member is theirs too', async () => {
+        await store.createMilestone('greenhouse', {title: 'Joints'}, owner)
+        await store.focusMilestone('greenhouse', 'all', {}, hati)
         expect(lastSignal()).toMatchObject({person: 'hati', protected: false})
     })
 

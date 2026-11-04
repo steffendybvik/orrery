@@ -1,5 +1,5 @@
-// `POST /api/projects/:project/chunks/:chunk/focus` {note?, session?, start?, status?} → {signal, listeners}: asks the
-// Claude session (`*` for every session; without `session`, one orrery picks) on the project to work through the chunk's open
+// `POST /api/projects/:project/milestones/:milestone/focus` {note?, session?, start?, status?} → {signal, listeners}: asks the
+// Claude session (`*` for every session; without `session`, one orrery picks) on the project to work through the milestone's open
 // issues now, or only those of `status` (`now`, …). `listeners` says how many sessions were listening to hear it. `start: true`, from the owner, starts a session for it when nobody's
 // listening, even when work alone doesn't start one (`starts.on_signal` off).
 export default defineEventHandler(async event => {
@@ -9,7 +9,7 @@ export default defineEventHandler(async event => {
     if (body.session !== undefined) body.session = aimSession(project, body.session)
     const actor = await actorOf(event)
     // The owner asking for a session for it when nobody's listening: one starts even when work alone doesn't start one.
-    const send = () => useStore().focusChunk(project, param(event, 'chunk'), body, actor)
+    const send = () => useStore().focusMilestone(project, param(event, 'milestone'), body, actor)
     const signal = await (start === true && actor.owner ? startAsked.run(true, send) : send())
     setResponseStatus(event, 201)
     return {signal, listeners: listening(project)}

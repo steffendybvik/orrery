@@ -1,5 +1,5 @@
 // The store's records and rows, the fields each write takes, and turning rows into records.
-import type {ActivityField, Asks, Board, Chunk, Comment, Counts, Decision, Doc, DocKind, DocRevision, DocRevisionSummary, Issue, IssueEvent, Kind, Kinds, Priority, Project, Proposal, Release, ReleaseMode, Signal, Effort} from '#shared/roadmap'
+import type {ActivityField, Asks, Board, Milestone, Comment, Counts, Decision, Doc, DocKind, DocRevision, DocRevisionSummary, Issue, IssueEvent, Kind, Kinds, Priority, Project, Proposal, Release, ReleaseMode, Signal, Effort} from '#shared/roadmap'
 import {ASKS, DECISIONS, DOC_KINDS, EFFORTS, KINDS, PRIORITIES, RELEASE_MODES, TERMINALS, TINTS, emptyKinds, isEffort, isModel} from '#shared/roadmap'
 import type {Field, Input} from '../utils/input'
 import {badRequest, isObject} from '../utils/input'
@@ -10,7 +10,7 @@ import {LEGACY_PLANS} from '../utils/roadmap'
 export interface ProjectSummary extends Omit<Project, 'board'> {
     counts: Counts
     kinds: Kinds
-    chunks: number
+    milestones: number
 }
 
 /** A release with its issues: `tasks` the project's own, and `projects` each project's part (those drawing on it
@@ -32,8 +32,8 @@ export interface IssueRecord extends Omit<Issue, 'tasks'> {
     /** Its id to paste anywhere: `GRE-12-x7k2m9qd`, which finds nothing on any other board. */
     full_id?: string
     parent: string | null
-    /** The chunk it's in, a sub-issue's being its top-level issue's. */
-    chunk: string | null
+    /** The milestone it's in, a sub-issue's being its top-level issue's. */
+    milestone: string | null
     sub_issues: string[]
 }
 
@@ -45,7 +45,7 @@ export interface BulkResult {
 }
 
 /** What one change to many issues can set. */
-export const BULK_FIELDS = ['status', 'priority', 'assignee', 'chunk', 'release']
+export const BULK_FIELDS = ['status', 'priority', 'assignee', 'milestone', 'release']
 
 /** An issue with its sub-issues drawn out, as `GET …/issues/:issue` shows it. */
 export interface IssueDetail extends Issue {
@@ -54,11 +54,11 @@ export interface IssueDetail extends Issue {
     /** Its id to paste anywhere: `GRE-12-x7k2m9qd`, which finds nothing on any other board. */
     full_id: string
     parent: string | null
-    chunk: string | null
+    milestone: string | null
 }
 
-export interface ChunkRecord extends Omit<Chunk, 'tasks'> {
-    /** Its id to paste anywhere: `chk-3-x7k2m9qd`, which finds nothing on any other board. */
+export interface MilestoneRecord extends Omit<Milestone, 'tasks'> {
+    /** Its id to paste anywhere: `mls-3-x7k2m9qd`, which finds nothing on any other board. */
     full_id?: string
     project: string
     position: number
@@ -106,7 +106,7 @@ export interface IssueFilter {
     external?: string
     /** A GitHub issue (`523` on the project's repo, `owner/name#523`, or its link): the issues that came from it (ORR-635). */
     github_issue?: string
-    chunk?: string
+    milestone?: string
     /** A release's version, or `none` for issues set for none. */
     release?: string
     /** An issue id, or `none` for top-level issues. */
@@ -121,15 +121,15 @@ export interface IssueFilter {
 
 interface Made { created_by: string, owned: number, created_at: string, updated_at: string }
 export interface ProjectRow extends Made {
-    id: string, name: string, key: string, uid: string, description: string | null, icon: string | null, icon_color: string | null, next_number: number, next_chunk: number,
-    focus_prompt: string | null, chunk_prompt: string | null, instructions: string, muted: string, starts: string | null, repo: string | null,
+    id: string, name: string, key: string, uid: string, description: string | null, icon: string | null, icon_color: string | null, next_number: number, next_milestone: number,
+    focus_prompt: string | null, milestone_prompt: string | null, instructions: string, muted: string, starts: string | null, repo: string | null,
     release_mode: ReleaseMode, releases_from: string | null, doc_section_order: string
 }
-export interface ChunkRow extends Made { project: string, id: string, title: string, summary: string | null, priority: Priority | null, position: number }
+export interface MilestoneRow extends Made { project: string, id: string, title: string, summary: string | null, priority: Priority | null, position: number }
 export interface IssueRow extends Made {
     project: string, id: string, title: string, status: string, priority: Priority | null,
     assignee: string | null, labels: string, external: string, github_issues: string, notes: string | null,
-    parent: string | null, chunk: string | null, position: number, schedule: number | null,
+    parent: string | null, milestone: string | null, position: number, schedule: number | null,
     proposal: Proposal | null, decided_by: string | null, decided_at: string | null, decision_note: string | null,
     choices: string, picks: string | null, explore: string | null, ships_in: string | null, claimed_by: string | null, claimed_at: string | null, claimed_session: string | null, created_person: string | null, session_name: string | null, model?: string | null, effort?: Effort | null
 }
@@ -139,14 +139,14 @@ export interface DocRow extends Made { project: string, id: string, title: strin
 export interface DocRevisionRow { id: number, project: string, doc: string, title: string, body: string, section: string | null, kind: DocKind, deleted: number, created_by: string, session_name: string | null, owned: number, created_at: string }
 export interface ReleaseRow extends Made { project: string, version: string, branch: string | null, notes: string | null, frozen_on: string | null, shipped_on: string | null, doc_mark: number | null, position: number }
 export interface PresetRow { id: number, project: string | null, name: string, text: string, icon: string | null, color: string | null, default_key: string | null, created_at: string, updated_at: string }
-export interface SignalRow { person?: string | null, model?: string | null, id: number, project: string, issue: string | null, chunk: string | null, status: string | null, release: string | null, schedule: number | null, kind: 'focus' | 'comment' | 'message', note: string | null, preset: string | null, via: string | null, target: string | null, delivered_to: string, instructions: string, created_by: string, owned: number, created_at: string }
+export interface SignalRow { person?: string | null, model?: string | null, id: number, project: string, issue: string | null, milestone: string | null, status: string | null, release: string | null, schedule: number | null, kind: 'focus' | 'comment' | 'message', note: string | null, preset: string | null, via: string | null, target: string | null, delivered_to: string, instructions: string, created_by: string, owned: number, created_at: string }
 
 /** A model a session can start on, as `isModel` takes it (ORR-868). */
 export const MODEL = /^(best|opus|sonnet|haiku|fable|default|opusplan|claude-[a-z0-9.-]{1,56}(\[1m\])?)$/
 export const SLUG = /^[a-z0-9][a-z0-9-]{0,39}$/
 /** A named tint or any `#rrggbb`: the page's tint, a project icon's colour. */
 const TINT: Field = {type: 'string', nullable: true, pattern: new RegExp(`^(${Object.keys(TINTS).join('|')}|#[0-9a-fA-F]{6})$`), hint: `use ${Object.keys(TINTS).join(', ')} or a colour like #3b82f6`}
-/** The keys a doc's, chunk's, preset's or schedule's full id starts with, so no project's. */
+/** The keys a doc's, milestone's, preset's or schedule's full id starts with, so no project's. */
 export const FULL_ID_KEYS = ['DOC', 'CHK', 'PST', 'SCH']
 export const KEY = /^[A-Z][A-Z0-9]{0,9}$/
 /** A release's version: `1.0.0`, `1.0.0-rc.2`, `2026.10`, `v2`; it goes in URLs as it is. */
@@ -161,7 +161,7 @@ export const PROJECT_FIELDS: Record<string, Field> = {
     icon_color: TINT,
     /** The owner's: what the project's sessions hear when asked to focus (none is the orrery's). */
     focus_prompt: {type: 'string', nullable: true},
-    chunk_prompt: {type: 'string', nullable: true},
+    milestone_prompt: {type: 'string', nullable: true},
     instructions: {type: 'lines', nullable: true},
     /** Ids of the orrery's standing instructions the project switches off. */
     muted: {type: 'strings', nullable: true},
@@ -214,10 +214,10 @@ function parseWorkKinds(value: unknown): string {
 }
 
 /** What a project's sessions are told: only the owner changes these. */
-export const PROMPT_FIELDS = ['focus_prompt', 'chunk_prompt', 'instructions', 'muted']
+export const PROMPT_FIELDS = ['focus_prompt', 'milestone_prompt', 'instructions', 'muted']
 
-// No `id` on chunks and issues: orrery numbers them in their project (chunks 1, 2, …, issues KEY-1, …).
-export const CHUNK_FIELDS: Record<string, Field> = {
+// No `id` on milestones and issues: orrery numbers them in their project (milestones 1, 2, …, issues KEY-1, …).
+export const MILESTONE_FIELDS: Record<string, Field> = {
     title: {type: 'string', required: true},
     summary: {type: 'string', nullable: true},
     priority: {type: 'string', values: PRIORITIES, nullable: true},
@@ -246,7 +246,7 @@ export const ISSUE_FIELDS: Record<string, Field> = {
     /** Only on an update: moves the issue, its sub-issues and their comments to another project. */
     project: {type: 'string', pattern: SLUG, hint: "use the other project's id"},
     parent: {type: 'string', nullable: true},
-    chunk: {type: 'string', nullable: true},
+    milestone: {type: 'string', nullable: true},
     /** The version of a release it ships in; null takes it out of one. */
     release: {type: 'string', nullable: true},
     /** The issues it depends on (ORR-601), all of them: ids in its project, `project/ID` in another; null or [] for none. */
@@ -306,15 +306,15 @@ export const DECIDED: Record<Decision, string> = {approved: 'Approved this propo
 
 export const SIGNAL_FIELDS: Record<string, Field> = {
     note: {type: 'string', nullable: true},
-    /** A session id; left out, one session orrery picks gets it. A chunk's can be `*`, for every session on the project. */
+    /** A session id; left out, one session orrery picks gets it. A milestone's can be `*`, for every session on the project. */
     session: {type: 'string', nullable: true},
     /** The standing instructions to add, by id (the orrery's or the project's); left out, those ticked by default. */
     instructions: {type: 'strings', nullable: true},
 }
 
-/** A chunk's focus can be narrowed to its issues of some open statuses, `{status: 'todo,started'}` (ids or kinds),
+/** A milestone's focus can be narrowed to its issues of some open statuses, `{status: 'todo,started'}` (ids or kinds),
  * and to those set for a release. */
-export const CHUNK_SIGNAL_FIELDS: Record<string, Field> = {
+export const MILESTONE_SIGNAL_FIELDS: Record<string, Field> = {
     ...SIGNAL_FIELDS,
     status: {type: 'string', nullable: true},
     release: {type: 'string', nullable: true},
@@ -334,7 +334,7 @@ export const LEGACY_KINDS: Record<string, Kind> = {doing: 'started', now: 'todo'
 export const SETTINGS_FIELDS: Record<string, Field> = {
     tint: TINT,
     focus_prompt: {type: 'string', nullable: true},
-    chunk_prompt: {type: 'string', nullable: true},
+    milestone_prompt: {type: 'string', nullable: true},
     instructions: {type: 'lines', nullable: true},
     tracker: {type: 'string', nullable: true, pattern: /^https?:\/\/\S*\{id\}\S*$/, hint: 'use the web address of a task with {id} where its id goes, e.g. https://tracker.example.com/issue/{id}'},
     handle: {type: 'string', nullable: true, pattern: /^[A-Za-z0-9][A-Za-z0-9._-]{0,38}$/, hint: 'use letters, digits, dots, dashes and underscores, e.g. your GitHub login'},
@@ -426,7 +426,7 @@ export function eventOf(row: EventRow): IssueEvent {
 
 export function signalOf(row: SignalRow): Signal {
     return {
-        id: row.id, project: row.project, issue: row.issue ?? undefined, chunk: row.chunk ?? undefined, status: row.status ?? undefined, release: row.release ?? undefined, schedule: row.schedule ?? undefined, kind: row.kind, note: row.note ?? undefined, preset: row.preset ?? undefined, ...row.via === 'chat' ? {via: 'chat' as const} : {},
+        id: row.id, project: row.project, issue: row.issue ?? undefined, milestone: row.milestone ?? undefined, status: row.status ?? undefined, release: row.release ?? undefined, schedule: row.schedule ?? undefined, kind: row.kind, note: row.note ?? undefined, preset: row.preset ?? undefined, ...row.via === 'chat' ? {via: 'chat' as const} : {},
         target: row.target ?? undefined, delivered_to: JSON.parse(row.delivered_to) as string[], instructions: JSON.parse(row.instructions) as string[], ...row.person ? {person: row.person} : {}, ...row.model ? {model: row.model} : {}, created_by: row.created_by, protected: !!row.owned, created_at: row.created_at,
     }
 }
@@ -447,7 +447,7 @@ export function tallyReleases(versions: string[], boards: Board[]): Map<string, 
             }
         }
     }
-    boards.forEach(b => b.chunks.forEach(c => walk(c.tasks, undefined)))
+    boards.forEach(b => b.milestones.forEach(c => walk(c.tasks, undefined)))
     return tally
 }
 

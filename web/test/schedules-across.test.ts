@@ -108,7 +108,7 @@ describe('a schedule across projects', () => {
         expect(await failure({projects: '*', ...tidy}, agent)).toBe(403)
         expect(await failure(tidy)).toBe(400)
         expect(await failure({projects: [], ...tidy})).toBe(400)
-        expect(await failure({projects: '*', ...tidy, chunk: '1'})).toBe(400)
+        expect(await failure({projects: '*', ...tidy, milestone: '1'})).toBe(400)
         expect(await failure({projects: '*', title: 'x', at: '2099-01-01T00:00:00Z'})).toBe(400)
         expect(await failure({projects: '*', title: 'x', kind: 'message', notes: 'y', cron: '0 9 * * *', untrusted: true})).toBe(400)
         expect(await failure({projects: '*', skip: ['greenhouse', 'pantry'], ...tidy})).toBe(400)
