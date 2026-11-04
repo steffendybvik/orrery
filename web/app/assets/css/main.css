@@ -282,3 +282,12 @@ body {
         height: 3.5rem;
     }
 }
+
+/* iOS zooms the page in on a field whose text is under 16px as it takes the focus, which pushed the chat's Send off the
+   screen (ORR-843). So on a touch screen a field's text is 16px; a desktop's stays as small as its class says. Outside
+   any layer, so it outranks the utilities' smaller sizes, but not a field set larger (`text-lg` and up). Pinch-zoom stays. */
+@media (pointer: coarse) {
+    :is(input, textarea, select):not(.text-lg, .text-xl, .text-2xl, .text-3xl) {
+        font-size: 16px;
+    }
+}
