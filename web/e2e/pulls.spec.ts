@@ -119,7 +119,9 @@ test("opens a pull request by its number, listing every issue it's linked to (OR
         issues: issues.map((id, i) => ({project: 'hayloft', project_name: 'Hayloft', id, title: ['Muck out', 'Mend the gate'][i], status: 'todo'})),
     }}))
     await page.goto('/pulls')
-    await page.getByRole('link', {name: '#21', exact: true}).click()
+    // Its number and title open its page (ORR-893); GitHub stays on the row's ↗.
+    await expect(page.getByRole('link', {name: '#21 on GitHub'})).toHaveAttribute('href', 'https://github.com/orrery-e2e/hayloft/pull/21')
+    await page.getByRole('link', {name: '#21 Spring clean'}).click()
     await expect(page).toHaveURL(/\/pulls\/orrery-e2e\/hayloft\/21$/)
     await expect(page.getByRole('heading', {name: '#21 Spring clean'})).toBeVisible()
     await expect(page.getByRole('region', {name: 'The pull request'})).toContainText('Merged')
@@ -159,4 +161,8 @@ test("Send back, on an issue's page, sends what its pull request needs", async (
     await expect(pulls.getByText('Sent', {exact: true})).toBeVisible()
     const signals = await (await request.get('/api/projects/byre/signals')).json() as {note?: string}[]
     expect(signals.map(signal => signal.note).join()).toMatch(/#21 .*conflicts with main/)
+    // Its row opens the PR's own page, with the issues linked to it, and keeps a way to GitHub (ORR-893).
+    await expect(pulls.getByRole('link', {name: '#21 on GitHub'})).toHaveAttribute('href', pull.url)
+    await pulls.getByRole('link', {name: '#21 Lime the walls'}).click()
+    await expect(page).toHaveURL(/\/pulls\/orrery-e2e\/byre\/21$/)
 })

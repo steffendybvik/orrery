@@ -70,7 +70,10 @@ const short = (branch: RepoBranch) => branch.sha.slice(0, 7)
           <li v-for="branch in own(repo.repo)" :key="branch.name" class="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-line px-3 py-2 text-sm last:border-b-0">
             <span class="min-w-0 flex-1 truncate font-mono text-xs text-fg" :title="branch.name">{{ branch.name }}</span>
             <NuxtLink v-if="branch.issue" :to="`/p/${branch.issue.project}/issues/${branch.issue.id}`" class="shrink-0 font-mono text-xs text-muted hover:underline" :title="branch.issue.title">{{ branch.issue.id }}</NuxtLink>
-            <a v-if="branch.pull" :href="branch.pull.url" target="_blank" rel="noopener" class="shrink-0 text-xs text-muted hover:underline">#{{ branch.pull.number }} {{ branch.pull.state }}</a>
+            <span v-if="branch.pull" class="flex shrink-0 items-baseline gap-1 text-xs">
+              <NuxtLink :to="`/pulls/${repo.repo}/${branch.pull.number}`" class="text-muted hover:underline" :title="`#${branch.pull.number}'s linked issues`">#{{ branch.pull.number }} {{ branch.pull.state }}</NuxtLink>
+              <a :href="branch.pull.url" target="_blank" rel="noopener" class="text-faint hover:text-fg" :title="`#${branch.pull.number} on GitHub`" :aria-label="`#${branch.pull.number} on GitHub`">↗</a>
+            </span>
             <span v-else class="shrink-0 text-xs text-faint">no pull request</span>
             <span class="flex h-5 shrink-0 items-center rounded-full px-2 text-[11px] font-medium ring-1" :class="TONE[branch.verdict]" :title="branch.why">{{ VERDICT[branch.verdict] }}</span>
             <UiButton v-if="branch.verdict === 'remove' && asking !== key(branch)" size="xs" :disabled="!!removing" @click="asking = key(branch)">Remove…</UiButton>
