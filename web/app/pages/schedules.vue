@@ -9,7 +9,9 @@ const route = useRoute()
 const router = useRouter()
 const {projects, ready, byId} = useRoadmaps()
 const {ordered} = useProjectOrder()
-const {byProject, edit, across, editAcross} = useSchedules()
+const {byProject, edit, across, editAcross, load, loaded, failed} = useSchedules()
+/** Read, so the page can say what's scheduled, or that nothing is (ORR-854). */
+const read = computed(() => ready.value && loaded.value)
 const acrossHere = computed(() => across.value.filter(a => !only.value || a.on_projects.includes(only.value)))
 /** Which projects one is for, in words. */
 function reach(a: typeof across.value[number]): string {
@@ -47,7 +49,7 @@ function newSchedule() {
     <PropertyPicker v-model="only" :options="projectOptions" label="Project" field small>
       <span class="truncate">{{ projectOptions.find(o => o.value === only)?.label ?? only }}</span>
     </PropertyPicker>
-    <span class="text-xs text-muted">{{ all.length ? `${active} running, ${all.length - active} paused` : 'Nothing scheduled' }}</span>
+    <span v-if="read" class="text-xs text-muted">{{ all.length ? `${active} running, ${all.length - active} paused` : 'Nothing scheduled' }}</span>
     <template v-if="ordered.length && !only" #end>
       <UiButton variant="primary" class="shrink-0" @click="newSchedule">
         <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14" /></svg>
@@ -58,7 +60,7 @@ function newSchedule() {
 
   <div class="clear-agent min-h-0 flex-1 overflow-y-auto">
     <EmptyProjects v-if="ready && !projects.length" />
-    <UiLoading v-else-if="!ready" />
+    <UiLoading v-else-if="!read" :failed="failed" what="the schedules" @retry="load" />
     <div v-else-if="cards.length || acrossHere.length" class="mx-auto flex max-w-4xl flex-col gap-4 px-4 py-6">
       <section v-if="acrossHere.length" class="flex flex-col overflow-hidden rounded-xl border border-line bg-panel" aria-label="Across projects">
         <header class="border-b border-line bg-well/60 px-4 py-2.5"><h2 class="text-[14px] font-semibold">Across projects</h2></header>
@@ -76,7 +78,7 @@ function newSchedule() {
       <ScheduleList v-for="card in cards" :key="card.project.id" :project="card.project" :schedules="card.schedules" />
       <ScheduleSuggestions v-if="target" :project="target" :schedules="byProject[target] ?? []" />
     </div>
-    <div v-else-if="ready" class="mx-auto flex max-w-4xl flex-col px-4 py-6">
+    <div v-else class="mx-auto flex max-w-4xl flex-col px-4 py-6">
       <p class="rounded-xl border border-dashed border-line px-4 py-10 text-center text-[13px] leading-relaxed text-muted">
         Nothing scheduled on any project yet.
         <button type="button" class="text-accent-700 underline underline-offset-2 dark:text-accent-400" @click="newSchedule">Make one</button>
