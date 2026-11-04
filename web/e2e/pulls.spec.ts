@@ -130,6 +130,18 @@ test("opens a pull request by its number, listing every issue it's linked to (OR
     // Its address opens it straight away too.
     await page.goto('/pulls/orrery-e2e/hayloft/21')
     await expect(page.getByRole('heading', {name: '#21 Spring clean'})).toBeVisible()
+    // ⌘K opens it by its number, on the page's project's repo, or by its link from anywhere.
+    await request.patch('/api/projects/hayloft', {data: {repo: 'https://github.com/orrery-e2e/hayloft'}, headers: OWNER}).then(r => expect(r.ok()).toBeTruthy())
+    const palette = page.getByRole('dialog', {name: 'Commands'})
+    for (const [from, heading, typed] of [['/p/hayloft', 'Hayloft', '#21'], ['/mine', 'My issues', 'https://github.com/orrery-e2e/hayloft/pull/21']]) {
+        await page.goto(from!)
+        await expect(page.getByRole('heading', {name: heading, exact: true}).first()).toBeVisible()
+        await page.keyboard.press('ControlOrMeta+k')
+        await palette.getByLabel('Type a command or search').fill(typed!)
+        await expect(palette.getByRole('option', {name: /Pull request #21/})).toBeVisible()
+        await page.keyboard.press('Enter')
+        await expect(page.getByRole('heading', {name: '#21 Spring clean'})).toBeVisible()
+    }
 })
 
 test("Send back, on an issue's page, sends what its pull request needs", async ({page, request}) => {

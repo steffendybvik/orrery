@@ -111,7 +111,7 @@ const effortOf = (value: string): Effort | undefined => (EFFORTS as readonly str
             @change="commit()"
         >
         <input v-model="row.model" list="work-kind-models" :aria-label="`${row.name}'s model`" :class="[field, 'w-36 font-mono']" @change="commit()">
-        <select :value="row.effort ?? ''" :aria-label="`${row.name}'s effort`" :class="[field, 'w-28']" @change="row.effort = effortOf(($event.target as HTMLSelectElement).value); commit()">
+        <select :value="row.effort ?? ''" :aria-label="`${row.name}'s effort`" :class="[field, 'w-36']" @change="row.effort = effortOf(($event.target as HTMLSelectElement).value); commit()">
           <option value="">default effort</option>
           <option v-for="effort in EFFORTS" :key="effort" :value="effort">{{ effort }}</option>
         </select>
