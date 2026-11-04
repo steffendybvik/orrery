@@ -196,7 +196,7 @@ export class Pulls {
              FROM issue_pulls p JOIN issues i ON i.project = p.project AND i.id = p.issue JOIN projects pr ON pr.id = p.project
              WHERE lower(p.repo) = lower(?) AND p.number = ? ORDER BY p.updated_at DESC`, repo, number)
         const newest = rows[0]
-        if (!newest) throw notFound(`orrery keeps no pull request #${number} on ${repo}: it names no issue, or it hasn't been polled`)
+        if (!newest) throw notFound(`orrery keeps no pull request #${number} on ${repo}: it names no issue and is no release's, or it hasn't been polled`)
         const {number: n, title, url, branch, base, author, state, merged_at, updated_at} = newest
         const issues = rows.map(r => ({project: r.project, project_name: r.project_name, id: r.issue, title: r.issue_title, status: r.status}))
             .sort((a, b) => a.project.localeCompare(b.project) || a.id.localeCompare(b.id, undefined, {numeric: true}))
@@ -210,13 +210,16 @@ export class Pulls {
     }
 
     /** Keeps the PR on each issue it names, for good, and off any it no longer names (ORR-795). A PR naming several is on
-     * each, as an issue's page has always shown it; one naming none has no row. */
+     * each, as an issue's page has always shown it; one naming none has no row. A release PR, from a release's branch, is
+     * on every issue in that release too (ORR-913): its body names none, and its branch is the release's. Only kept: what
+     * a PR does next (merged, failing) still goes to the issue it names, so a release PR's news goes to none. */
     async remember(repo: string, projects: string[], pull: RememberedPull) {
         const issues = new Map<string, {project: string, id: string}>()
         for (const name of pull.names) {
             const issue = await this.issueOf(projects, [name])
             if (issue) issues.set(`${issue.project}/${issue.id}`, issue)
         }
+        for (const issue of await this.releaseIssues(projects, pull.branch)) issues.set(`${issue.project}/${issue.id}`, issue)
         for (const row of await this.store.db.all<{project: string, issue: string}>('SELECT project, issue FROM issue_pulls WHERE repo = ? AND number = ?', repo, pull.number)) {
             if (!issues.has(`${row.project}/${row.issue}`)) await this.store.db.run('DELETE FROM issue_pulls WHERE project = ? AND issue = ? AND repo = ? AND number = ?', row.project, row.issue, repo, pull.number)
         }
@@ -227,6 +230,16 @@ export class Pulls {
                 state = excluded.state, merged_at = excluded.merged_at, updated_at = excluded.updated_at`,
                 project, id, repo, pull.number, pull.title, pull.url, pull.branch, pull.base, pull.author, state, pull.merged_at, pull.created_at, pull.updated_at)
         }
+    }
+
+    /** The issues in the releases of `projects` whose branch is `branch`, those of the projects sharing them included. */
+    private async releaseIssues(projects: string[], branch: string): Promise<{project: string, id: string}[]> {
+        if (!projects.length || !branch) return []
+        const among = projects.map(() => '?').join(', ')
+        return await this.store.db.all<{project: string, id: string}>(
+            `SELECT i.project, i.id FROM releases r JOIN issues i ON i.ships_in = r.version
+                AND (i.project = r.project OR i.project IN (SELECT id FROM projects WHERE release_mode = 'shared' AND releases_from = r.project))
+             WHERE r.project IN (${among}) AND r.branch = ?`, ...projects, branch)
     }
 
     /** The issue's open PRs on its project's repo. */

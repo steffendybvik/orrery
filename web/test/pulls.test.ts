@@ -168,6 +168,25 @@ describe('pull requests', () => {
         await expect(pulls.forPull('you/shop', 789)).rejects.toMatchObject({statusCode: 404})
     })
 
+    it('link a release PR to every issue in the release whose branch it comes from, and only keep them (ORR-913)', async () => {
+        await store.updateProject('shop', {release_mode: 'own'})
+        await store.createRelease('shop', {version: '1.0.0-rc.1', branch: 'v1.0.0-rc.1'})
+        await store.createIssue('shop', {title: 'Receipts', release: '1.0.0-rc.1'})
+        await store.updateIssue('shop', 'SHO-1', {release: '1.0.0-rc.1'})
+        const release = {number: 800, title: 'Release v1.0.0-rc.1', url: 'https://github.com/you/shop/pull/800', branch: 'v1.0.0-rc.1', base: 'main', author: 'skoll',
+            merged: false, closed: false, merged_at: null, created_at: '2026-10-28T09:00:00Z', updated_at: '2026-10-29T09:00:00Z', names: []}
+        await pulls.remember('you/shop', ['shop'], release)
+        expect((await pulls.forPull('you/shop', 800)).issues.map(i => i.id)).toEqual(['SHO-1', 'SHO-3'])
+
+        // One taken out of the release is off the PR the next time it's kept.
+        await store.updateIssue('shop', 'SHO-1', {release: null})
+        await pulls.remember('you/shop', ['shop'], {...release, updated_at: '2026-10-29T10:00:00Z'})
+        expect((await pulls.forPull('you/shop', 800)).issues.map(i => i.id)).toEqual(['SHO-3'])
+        // Another branch is no release's.
+        await pulls.remember('you/shop', ['shop'], {...release, number: 801, branch: 'feat/rc-notes'})
+        await expect(pulls.forPull('you/shop', 801)).rejects.toMatchObject({statusCode: 404})
+    })
+
     it('keep a rated risk on the issue\'s PR, with the owner\'s rating standing over a session\'s (ORR-879)', async () => {
         const pull = {number: 790, title: 'A migration', url: 'https://github.com/you/shop/pull/790', branch: 'feat/sho-1', base: 'main', author: 'claude',
             merged: true, closed: false, merged_at: '2026-10-29T09:00:00Z', created_at: '2026-10-28T09:00:00Z', updated_at: '2026-10-29T09:00:00Z', names: ['SHO-1']}

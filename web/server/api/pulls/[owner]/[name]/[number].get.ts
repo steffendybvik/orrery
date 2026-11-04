@@ -1,6 +1,6 @@
 // `GET /api/pulls/:owner/:name/:number` → {repo, pull, issues}: pull request `number` on GitHub repo `owner/name`, as
 // orrery keeps it (`issue_pulls`), merged and closed ones too, with every issue it's linked to, on any project, each with
-// its title and status (ORR-880). 404 when orrery keeps no such PR: it names no issue, or hasn't been polled.
+// its title and status (ORR-880); a release PR is linked to every issue in its release (ORR-913). 404 when orrery keeps no such PR: it names no issue, or hasn't been polled.
 // Anyone but the owner gets the PR without what an outsider may have written (ORR-532).
 export default defineEventHandler(async event => {
     const number = Number(param(event, 'number').replace(/^#/, ''))
