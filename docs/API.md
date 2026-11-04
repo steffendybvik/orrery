@@ -746,7 +746,7 @@ removed isn't added again. Only the owner makes, changes or removes them (an age
 machine runs, with `/channel/manifest.json` (`{id, version, code, files: {<file>: <sha256>}}`) saying what's there; and
 for a project that doesn't exist yet `?name=` names it and the brief has the agent make it;
 `/api/guide` is this reference alone, and `/api/guide/using` how orrery works, page by page (docs/using.md), which the
-channel's `guide` tool answers with. A Claude session with orrery's server in its `.mcp.json` also
+channel's `guide` tool answers from: its contents, or the one section or page asked for. A Claude session with orrery's server in its `.mcp.json` also
 gets it as tools (`issue`, `start_issue`, `comment`, `finish_issue`, … see Connecting a repo), which
 make these calls for it. An untrusted schedule's session (its launcher sets `ORRERY_UNTRUSTED=yes`) sends
 `Orrery-Untrusted: yes` on every write and `untrusted=yes` on its streams, and is held to raising proposals and

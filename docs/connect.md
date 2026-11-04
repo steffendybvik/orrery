@@ -84,7 +84,8 @@ The same server gives the session **tools** for its projects' roadmaps, so it wo
 `issues`, `issue`, `start_issue`, `comment` (with `asks` for a decision or feedback), `finish_issue`,
 `create_issue` (a proposal too, with choices), `update_issue`, `releases`, `docs`, `doc` and
 `write_doc`; `sessions`, to read who's working on what; and `guide`, how orrery itself works ([Using orrery](using.md),
-from the orrery it's connected to), so a session in any repo can answer "how do schedules work?". Those it needs less
+from the orrery it's connected to): its contents, or one section or page with `section`, so a session in any repo can
+answer "how do schedules work?" without reading all of it. Those it needs less
 often wait behind `more_tools`, so they don't take up its context until it asks for them: `create_schedule` and
 `update_schedule`, to ask you on its issue for a schedule (saved only once you allow it); `secrets` and `egress`, to
 call an outside service with a [secret](API.md#secrets) it never sees; and `events` and `resolve_event`, to debug

@@ -1,6 +1,7 @@
 import {execFile} from 'node:child_process'
 import {readFile} from 'node:fs/promises'
 import {promisify} from 'node:util'
+import {guideContents, guideSection} from './guide-sections.mjs'
 
 // The channel's tools: what a Claude session does with its projects' roadmaps, as MCP tools instead of
 // curl. Each is one or two calls to orrery's API as `claude`, with the session's id so the owner's comments
@@ -128,7 +129,7 @@ export const TOOLS = [
             limit: {type: 'number', description: '30 by default'},
         }},
     },
-    {name: 'guide', description: "How orrery itself works (issues, proposals, schedules, sessions, the launcher, its pages…), for questions about it rather than the project.", inputSchema: {type: 'object', properties: {}}},
+    {name: 'guide', description: "How orrery itself works (issues, proposals, schedules, sessions, the launcher, its pages…), for questions about it rather than the project.", inputSchema: {type: 'object', properties: {section: {type: 'string', description: 'One from its contents'}}}},
     {name: 'resolve_event', description: "Marks an event in the log dealt with (say what fixed it on the issue).", inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'number'}}}},
 ]
 
@@ -664,13 +665,14 @@ export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''),
                 ...details && e.details ? [JSON.stringify(e.details, null, 2)] : [],
             ].join('\n')).join(details ? '\n\n' : '\n')
         },
-        async guide() {
+        async guide({section} = {}) {
             // The orrery's own, so it's what that orrery does; else the one beside this channel, from before it served it.
+            // Its contents, or the one section asked for, rather than all of it (ORR-848).
             const response = await fetch(`${root}/guide/using`, {method: 'GET', headers: {Accept: 'text/markdown', ...auth}}).catch(() => null)
             const served = response?.ok ? await response.text() : ''
-            if (served.trim()) return served
-            return await readFile(new URL('../docs/using.md', import.meta.url), 'utf8')
+            const markdown = served.trim() ? served : await readFile(new URL('../docs/using.md', import.meta.url), 'utf8')
                 .catch(() => { throw new Error(`no guide at ${root}/guide/using, nor beside this channel`) })
+            return section?.trim() ? guideSection(markdown, section) : guideContents(markdown)
         },
         async resolve_event({id}) {
             const event = await call('POST', `/events/log/${encodeURIComponent(id)}/resolve`, undefined, root)

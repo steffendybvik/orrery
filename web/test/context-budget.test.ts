@@ -1,3 +1,4 @@
+import {readFile} from 'node:fs/promises'
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 import type {Signal} from '#shared/roadmap'
 // @ts-expect-error: the channel is plain JavaScript, run by node from other repos
@@ -6,6 +7,8 @@ import {instructionsFor} from '../../channel/instructions.mjs'
 import {orreryTools, toolsFor} from '../../channel/tools.mjs'
 // @ts-expect-error: the channel is plain JavaScript, run by node from other repos
 import {signalWords} from '../../channel/signal-words.mjs'
+// @ts-expect-error: the channel is plain JavaScript, run by node from other repos
+import {guideParts} from '../../channel/guide-sections.mjs'
 import {chatBrief} from '../server/utils/chats'
 import {signalPayload} from '../server/utils/signal-payload'
 import {Store} from '../server/utils/store'
@@ -41,14 +44,15 @@ describe('the tool list a session carries on every turn', () => {
 
     it('stays within its budget, for one project and for several', () => {
         // A work session's and an untrusted run's were cut by a third and more (ORR-625): 9,708 and 9,444 before. An
-        // issue's GitHub issues (ORR-635) added about 140 to each, a doc's past (ORR-675) about 130, and writing an artifact (ORR-677) about 95.
-        expect(size(tools(['greenhouse']))).toBeLessThanOrEqual(6_375)
-        expect(size(tools(['greenhouse', 'pantry']))).toBeLessThanOrEqual(7_275)
+        // issue's GitHub issues (ORR-635) added about 140 to each, a doc's past (ORR-675) about 130, writing an artifact (ORR-677) about 95, and
+        // the guide's section (ORR-848) about 65, which saves a session most of the 39,000 the guide sent whole.
+        expect(size(tools(['greenhouse']))).toBeLessThanOrEqual(6_450)
+        expect(size(tools(['greenhouse', 'pantry']))).toBeLessThanOrEqual(7_335)
         expect(size(tools(['greenhouse'], {loaded: ['schedules', 'secrets', 'debug']}))).toBeLessThanOrEqual(9_125)
-        expect(size(tools(['greenhouse'], {untrusted: true}))).toBeLessThanOrEqual(4_730)
+        expect(size(tools(['greenhouse'], {untrusted: true}))).toBeLessThanOrEqual(4_770)
         // The chat's fell from about 20,100 when its requests went behind request (ORR-624), reading GitHub (ORR-748) added about 1,500, and its own docs, egress and event log (ORR-750) about 1,900.
-        expect(size(tools(['greenhouse'], {chat: true}))).toBeLessThanOrEqual(12_600)
-        expect(size(tools(['greenhouse', 'pantry'], {chat: true}))).toBeLessThanOrEqual(14_100)
+        expect(size(tools(['greenhouse'], {chat: true}))).toBeLessThanOrEqual(12_650)
+        expect(size(tools(['greenhouse', 'pantry'], {chat: true}))).toBeLessThanOrEqual(14_175)
     })
 
     it('has no description, of a tool or of its arguments, longer than a short paragraph', () => {
@@ -166,14 +170,23 @@ describe('what a big chunk brings', () => {
 })
 
 describe('what a tool brings', () => {
-    it('stays within its budget for the guide, all of docs/using.md', async () => {
+    it('stays within its budget for the guide: its contents, then one section or page of docs/using.md (ORR-848)', async () => {
+        // It sent all of docs/using.md (39,400 and growing, about 10k tokens) until ORR-848. The budgets leave room for growth:
+        // the contents were about 880, and the longest part (the Chat page) about 5,250. A part past its budget wants splitting.
         const fetch = async () => new Response('', {status: 404})
         vi.stubGlobal('fetch', fetch)
         try {
             const call = orreryTools({root: 'http://o/api', projects: ['greenhouse']}) as (name: string, args: object) => Promise<{content: {text: string}[]}>
-            const {content} = await call('guide', {})
-            expect(content[0]!.text).toContain('What you can do')
-            expect(size(content[0]!.text)).toBeLessThanOrEqual(39_400)
+            const contents = (await call('guide', {})).content[0]!.text
+            expect(contents).toContain('What you can do')
+            expect(size(contents)).toBeLessThanOrEqual(1_500)
+            const using = await readFile(new URL('../../docs/using.md', import.meta.url), 'utf8')
+            const {sections} = guideParts(using) as {sections: {name: string, rows: {name: string}[]}[]}
+            for (const part of sections.flatMap(s => [s.name, ...s.rows.map(r => r.name)])) {
+                const text = (await call('guide', {section: part})).content[0]!.text
+                expect(text, part).not.toMatch(/^No section/)
+                expect(size(text), part).toBeLessThanOrEqual(7_000)
+            }
         } finally {
             vi.unstubAllGlobals()
         }
