@@ -3,8 +3,10 @@
 // the owner makes one, from the main address: with login off there, that's this machine's page. Never over the phone's
 // port, so a phone signed in can't hand out more.
 import type {Who} from '../../utils/auth'
+import {countOwnUse} from '../../utils/usage'
 
 export default defineEventHandler(async event => {
+    countOwnUse(event, 'phone-code')
     if (viaPhone(event)) throw createError({statusCode: 403, statusMessage: 'Forbidden', message: "A sign-in link is made from orrery's page on its own machine"})
     const mode = await authMode(event)
     const who = event.context.who as Who | undefined
