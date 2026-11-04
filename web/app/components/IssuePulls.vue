@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type {IssuePulls, PullRequest, Signal} from '#shared/roadmap'
+import type {IssuePulls, PullRequest, PullRisk, Signal} from '#shared/roadmap'
 import {highestRisk, sendBackNote} from '#shared/roadmap'
 
 // On an issue's page: its open pull requests on the project's GitHub repo, and where each stands, so an issue in
@@ -33,6 +33,9 @@ onMounted(() => timer = setInterval(() => {
     if (document.visibilityState === 'visible') void load()
 }, 60_000))
 onBeforeUnmount(() => clearInterval(timer))
+
+/** The PR being rated (ORR-879), null with the dialog shut. */
+const rating = ref<{number: number, url: string, risk?: PullRisk} | null>(null)
 
 /** Per PR: sending, sent, or why it couldn't. */
 const sent = ref<Record<number, {busy?: boolean, sent?: boolean, failed?: string}>>({})
@@ -68,6 +71,7 @@ async function sendBack(pull: PullRequest) {
           <span class="font-mono text-xs text-faint">#{{ pull.number }}</span> {{ pull.title }}
         </a>
         <RiskChip v-if="pull.risk" :risk="pull.risk" />
+        <UiButton size="xs" variant="ghost" :title="pull.risk ? 'Change its risk rating' : 'Rate its risk'" @click="rating = pull">Rate</UiButton>
         <PullStateChip :state="pull.state" />
         <template v-if="sendBackNote(pull)">
           <span v-if="sent[pull.number]?.sent" class="shrink-0 text-xs text-faint">Sent</span>
@@ -89,6 +93,7 @@ async function sendBack(pull: PullRequest) {
           <span class="font-mono text-xs text-faint">#{{ pull.number }}</span> {{ pull.title }}
         </a>
         <RiskChip v-if="pull.risk" :risk="pull.risk" />
+        <UiButton size="xs" variant="ghost" :title="pull.risk ? 'Change its risk rating' : 'Rate its risk'" @click="rating = pull">Rate</UiButton>
         <PullStateChip :state="pull.state" />
         <span class="w-full truncate pl-7 font-mono text-[11px] text-faint" :title="`${pull.branch} into ${pull.base}, by ${pull.author}`">
           {{ pull.branch }} → {{ pull.base }} · {{ ago(pull.merged_at ?? pull.updated_at) }}
@@ -101,5 +106,6 @@ async function sendBack(pull: PullRequest) {
     <p v-if="got.error" class="text-xs text-muted" :title="got.error">
       Not read from GitHub. <NuxtLink to="/pulls" class="text-fg underline">Pull requests</NuxtLink> says why.
     </p>
+    <PullRiskDialog :project="project" :issue="issue" :pull="rating" @close="rating = null" @rated="load" />
   </section>
 </template>

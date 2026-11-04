@@ -177,4 +177,19 @@ test("shows each pull request's risk on an issue's page, the riskiest in the hea
     await expect(open.getByText('Medium risk')).toHaveAttribute('title', 'medium: changes how the roof page saves (rated by the session that opened it)')
     await expect(open).toContainText('changes how the roof page saves')
     await expect(pulls.getByRole('listitem').filter({hasText: 'Gutter copy'}).getByText('Low risk')).toHaveAttribute('title', /rated by you/)
+
+    // Rating it yourself: High, with a why, sent to the PR's own path.
+    let sent: unknown
+    await page.route('**/api/projects/woodshed/issues/*/pulls/orrery-e2e/woodshed/31/risk', route => {
+        sent = route.request().postDataJSON()
+        return route.fulfill({json: {risk: {level: 'high', why: 'touches the store', by: 'owner'}}})
+    })
+    await open.getByRole('button', {name: 'Rate'}).click()
+    const dialog = page.getByRole('dialog', {name: 'Rate the risk of #31'})
+    await expect(dialog.getByLabel('Why')).toHaveValue('medium: changes how the roof page saves')
+    await dialog.getByRole('radio', {name: 'High'}).click()
+    await dialog.getByLabel('Why').fill('touches the store')
+    await dialog.getByRole('button', {name: 'Save'}).click()
+    await expect(dialog).toBeHidden()
+    expect(sent).toEqual({level: 'high', why: 'touches the store'})
 })
