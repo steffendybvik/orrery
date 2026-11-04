@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import type {Column} from '#shared/roadmap'
-import {PRIORITIES, fullId} from '#shared/roadmap'
+import {PRIORITIES, fullId, githubRepo} from '#shared/roadmap'
 
 // ⌘K: every command and place, in sections. With nothing typed: Most used (the commands this browser runs most that
 // are on offer here, once there are any, ORR-782), Here (what fits the page), Jump to (the projects, this one first) and Go to. Typing finds Projects, Issues, Chunks, Docs and Commands, a few of
-// each with "N more" to open the rest, best match first; an exact issue id is the Top hit. `>` searches
+// each with "N more" to open the rest, best match first; an exact issue id is the Top hit, and so is a pull request by its number (`#788`, on the page's project's repo) or its link, which opens its page (ORR-880). `>` searches
 // commands only, `#` issues, `@` projects, chunks and docs. ↑↓ choose, ⇥ jumps a section, ↵ runs, Esc closes.
 // It's a Headless UI Dialog (UiDialog); the list keeps its own keys, as Headless UI's Combobox can't jump a
 // section on ⇥ or open "N more" in place, but says the same to a screen reader (the row the input points at).
@@ -198,6 +198,17 @@ function rank(entry: Entry, text: string, words: string[]): number | null {
     return 3
 }
 
+/** A pull request typed in (ORR-880): its link on GitHub, or `#788` or `788` on the page's project's repo, as an entry
+ * that opens its page; null for anything else, or a number on a page with no project on GitHub. */
+function pullTyped(raw: string): Entry | null {
+    const link = raw.match(/^https?:\/\/(?:www\.)?github\.com\/([\w.-]+\/[\w.-]+)\/pull\/(\d+)/i)
+    const bare = raw.match(/^#?(\d+)$/)
+    const repo = link?.[1] ?? (bare ? githubRepo(project.value?.repo) : null)
+    const number = link?.[2] ?? bare?.[1]
+    if (!repo || !number || Number(number) < 1) return null
+    return {key: `pull:${repo}#${number}`, group: 'Pull request', label: `Pull request #${number}`, detail: `${repo}, and the issues it's linked to`, run: () => router.push(`/pulls/${repo}/${number}`)}
+}
+
 const sections = computed<Section[]>(() => {
     const raw = query.value.trim()
     const scope = SCOPES[raw[0] ?? ''] ?? null
@@ -227,7 +238,8 @@ const sections = computed<Section[]>(() => {
         return score === null ? [] : [{entry, score, i}]
     }).sort((a, b) => a.score - b.score || a.i - b.i)
     const hits = found(issues.value)
-    const top = hits.filter(h => h.score === 0).map(h => h.entry)
+    const pull = !scope || scope.includes('issues') ? pullTyped(raw) : null
+    const top = [...hits.filter(h => h.score === 0).map(h => h.entry), ...pull ? [pull] : []]
     const pool: Record<'projects' | 'issues' | 'chunks' | 'docs' | 'commands', Entry[]> = {
         projects: found(places.value.filter(e => e.key.startsWith('p:'))).map(h => h.entry),
         issues: hits.filter(h => h.score > 0).map(h => h.entry),

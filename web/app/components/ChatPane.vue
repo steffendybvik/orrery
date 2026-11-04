@@ -5,15 +5,15 @@ import type {Chat, ChatIssues, ChatMessage} from '#shared/roadmap'
 
 // The owner's chat (useChat): a button in the corner of every page, and the pane it opens there, ready to type into.
 // The first message starts a chat on the project in the header (the one you're on, or picked); once started, its
-// session's name and state show in the header and the conversation below, newest at the bottom. Enter sends (Shift+Enter for a new
+// session's name shows in the header and the conversation below, newest at the bottom. Enter sends (Shift+Enter for a new
 // line), but a run of quick messages goes as one once the owner has stopped typing for a moment (`HOLD_MS`), so the chat
 // answers the whole thought (ORR-517). What's held shows at once as sent, with the thinking spinner, as one turn (ORR-535);
 // only what couldn't go says so (Not sent, Retry). ⌘/Ctrl-Enter or Send sends at once, and Esc in an empty box takes the
 // last one back. A slash command goes at once, after what's held. The chat ending, or closing the pane before one has
 // started, puts what's held back in the box, so nothing starts a chat on its own after it (ORR-523). An image pasted or
-// dropped anywhere on the pane goes with the message. Closing the pane (×) or minimizing it (–, or Esc) hides it with the
-// chat still running (ORR-878), and the corner button, marked while one runs, brings it back as it was. Only a row's × in
-// the list ends a chat. The pane can be made large; a phone's fills the screen either way, as it has no Larger button. Beside
+// dropped anywhere on the pane goes with the message. The pane is open or closed: closing it (× or Esc) only hides it,
+// with the chat still running (ORR-878, ORR-883), and the corner button brings it back as it was. Whether the chat is
+// live isn't shown, only a session that can't start. Only a row's × in the list ends a chat. The pane can be made large; a phone's fills the screen either way, as it has no Larger button. Beside
 // Send, the owner picks where the issues it makes land, Todo or Backlog; the server holds the chat to it. A setting the
 // chat asks to change shows from → to with Allow and Deny; only Allow saves it. So does a schedule it asks to make (each
 // field it sets) or change (each from → to), a release it asks to add or change, a chunk it asks to make or change (ORR-510),
@@ -32,7 +32,7 @@ import type {Chat, ChatIssues, ChatMessage} from '#shared/roadmap'
 // held goes back in the box on a switch, so it never goes to another chat.
 // While no launcher runs for its project, LauncherHint above the box says so, with the install command to copy, in place
 // of the server's error (ORR-591).
-const {open, large, chat, session, project, pinned, failed, chats, running, lands, start, send, clear, land, fresh, view, end: endChat, remove, answer, hide, close, pin, resize, upload, show} = useChat()
+const {open, large, chat, session, project, pinned, failed, chats, running, lands, start, send, clear, land, fresh, view, end: endChat, remove, answer, close, pin, resize, upload, show} = useChat()
 const answering = ref<number | null>(null)
 async function decide(message: number, allow: boolean, anyway = false) {
     answering.value = message
@@ -176,14 +176,9 @@ function ask(example: string) {
     nextTick(focusField)
 }
 
-const state = computed(() => {
-    if (!chat.value) return ''
-    if (chat.value.ended) return 'Ended'
-    if (!session.value && chat.value.problem) return "Its session can't start"
-    if (!session.value) return 'Starting the session…'
-    // Working says nothing here: the spinner in the conversation shows it, where the owner is looking (ORR-812).
-    return {working: '', waiting: 'Waiting on a prompt in its terminal', idle: 'Ready', starting: 'Starting the session…'}[session.value.state]
-})
+/** What the header says of its session: only that it can't start. Whether it's ready, starting or working isn't the
+ * owner's to watch (ORR-883): the spinner shows a turn, and a prompt it waits on shows above the box. */
+const state = computed(() => chat.value && !chat.value.ended && !session.value && chat.value.problem ? "Its session can't start" : '')
 /** Whether the spinner shows: all the while its session works, whoever spoke last, so a reply partway through a turn doesn't
  * hide it (ORR-518); while it starts, only once the owner has said something it hasn't answered. */
 const thinking = computed(() => {
@@ -302,7 +297,7 @@ function onKey(event: KeyboardEvent) {
         event.preventDefault()
         void submit()
     } else if (event.key === 'Escape' && held.value.length && !draft.value.trim() && !images.value.length) {
-        // In an empty box, takes the last one back, rather than minimizing the pane.
+        // In an empty box, takes the last one back, rather than closing the pane.
         event.preventDefault()
         event.stopPropagation()
         const last = held.value.at(-1)
@@ -343,12 +338,11 @@ const {over, on: drop} = useImageDrop(attach)
       v-if="!open"
       type="button"
       class="fixed right-4 bottom-4 z-40 inline-flex h-8 items-center gap-1.5 rounded-lg bg-panel px-3.5 text-[13px] text-fg shadow-md ring-1 ring-line transition hover:tint"
-      :title="running.length > 1 ? `Back to your chats: ${running.length} are still running` : running.length ? 'Back to your chat: it is still running' : 'Chat about a project: an agent answers and makes issues'"
+      title="Chat about a project: an agent answers and makes issues"
       @click="show()"
   >
     <svg
         class="size-4 text-accent-fill"
-        :class="{'animate-pulse motion-reduce:animate-none': running.length}"
         viewBox="0 0 24 24"
         fill="none"
         stroke="currentColor"
@@ -358,7 +352,6 @@ const {over, on: drop} = useImageDrop(attach)
         aria-hidden="true"
     ><path d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 0 0-2.456 2.456ZM16.894 20.567 16.5 21.75l-.394-1.183a2.25 2.25 0 0 0-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 0 0 1.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 0 0 1.423 1.423l1.183.394-1.183.394a2.25 2.25 0 0 0-1.423 1.423Z" /></svg>
     Agent
-    <span v-if="running.length" class="sr-only">{{ running.length > 1 ? `(${running.length} chats are running)` : '(a chat is running)' }}</span>
   </button>
 
   <section
@@ -368,7 +361,7 @@ const {over, on: drop} = useImageDrop(attach)
       :class="large ? 'h-[calc(100dvh-2rem)] sm:w-[min(56rem,calc(100vw-2rem))]' : ['h-[calc(100dvh-2rem)] sm:h-[min(40rem,calc(100dvh-2rem))]', docked ? 'sm:w-[min(41rem,calc(100vw-2rem))]' : 'sm:w-[min(28rem,calc(100vw-2rem))]']"
       aria-label="Chat"
       v-on="drop"
-      @keydown.esc="!chat || chat.ended ? shut() : hide()"
+      @keydown.esc="shut"
   >
     <ImageDropOverlay v-if="over" />
     <aside
@@ -469,9 +462,8 @@ const {over, on: drop} = useImageDrop(attach)
             <span v-else class="truncate">{{ projectName(about) }}</span>
           </template>
         </div>
-        <!-- The line stays while it works, without a state, so the header doesn't jump each turn. -->
+        <!-- The line stays as it connects and works, so the header doesn't jump. -->
         <span v-if="chat" class="flex min-h-4 min-w-0 items-center gap-1.5 text-xs text-faint">
-          <SessionDot v-if="session && state" :session="session" />
           <!-- Who's answering, once connected (ORR-811). The name gives way first on a narrow window, as in the sidebar. -->
           <template v-if="session">
             <span class="min-w-0 shrink-[100] truncate font-medium text-muted" :title="session.name" data-testid="chat-name">{{ nameBesideProject(session) }}</span>
@@ -484,9 +476,6 @@ const {over, on: drop} = useImageDrop(attach)
       <UiButton variant="ghost" size="xs" square class="max-sm:hidden" :aria-label="large ? 'Make the chat smaller' : 'Make the chat larger'" :title="large ? 'Smaller' : 'Larger'" @click="resize">
         <svg v-if="large" class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 9V4.5M9 9H4.5M9 9 3.75 3.75M9 15v4.5M9 15H4.5M9 15l-5.25 5.25M15 9h4.5M15 9V4.5M15 9l5.25-5.25M15 15h4.5M15 15v4.5m0-4.5 5.25 5.25" /></svg>
         <svg v-else class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3.75 3.75v4.5m0-4.5h4.5m-4.5 0L9 9M3.75 20.25v-4.5m0 4.5h4.5m-4.5 0L9 15M20.25 3.75h-4.5m4.5 0v4.5m0-4.5L15 9m5.25 11.25h-4.5m4.5 0v-4.5m0 4.5L15 15" /></svg>
-      </UiButton>
-      <UiButton v-if="chat && !chat.ended" variant="ghost" size="xs" square aria-label="Minimize the chat, leaving it running" title="Minimize" @click="hide">
-        <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14" /></svg>
       </UiButton>
       <UiButton variant="ghost" size="xs" square :aria-label="chat && !chat.ended ? 'Close the chat, leaving it running' : 'Close the chat'" title="Close" @click="shut">
         <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 18 18 6M6 6l12 12" /></svg>

@@ -6,7 +6,7 @@ import type {Chat, ChatIssues, ChatMessage, Session, Upload} from '#shared/roadm
 // browser), and shows one chat (`chat`): the one picked in the list (`pick`), else the newest running on `project`; or,
 // after New chat (`fresh`) or with none, it's ready to start one there with the first message. A chat keeps running
 // while the pane shows another, and an ended one opens to read. The chats come in over the page's events (`arrived`);
-// closing the pane (`close`) or minimizing it (`hide`) leaves its chat running, and only a row's × ends one (`end`, ORR-878). Each message says
+// closing the pane (`close`, × or Esc) only hides it, leaving its chat running, and only a row's × ends one (`end`, ORR-878, ORR-883). Each message says
 // which page the owner is on, so the chat knows what "this" is. `/clear` clears its session's context instead (`clear`). Where the issues it makes land (`lands`, Todo or Backlog)
 // is the owner's pick beside Send, remembered in this browser for the next chat, and kept by the server on the chat.
 // The project a chat would start on follows the page you're on until it's pinned (`pin`, a hand pick pins it); pinned, it
@@ -206,11 +206,6 @@ export function useChat() {
         else fresh()
     }
 
-    /** Hides the pane, leaving its chat running: opened again, it's on the same conversation. */
-    function hide() {
-        open.value = false
-    }
-
     /** Closes the pane, leaving its chat running (ORR-878): open again, it's on the same conversation. An ended one
      * shown to read is let go, so it opens on the project's running chat, or ready to start one. */
     function close() {
@@ -246,5 +241,5 @@ export function useChat() {
         return apiFetch<Upload>('/uploads', {method: 'POST', body: {data: await readAsDataUrl(file), name: file.name || null}})
     }
 
-    return {chats, running, open, large, chat, session, project, pinned, picked, failed, lands, fetchChats, arrived, show, start, send, clear, land, fresh, switchTo, view, end, remove, answer, hide, close, pin, resize, upload}
+    return {chats, running, open, large, chat, session, project, pinned, picked, failed, lands, fetchChats, arrived, show, start, send, clear, land, fresh, switchTo, view, end, remove, answer, close, pin, resize, upload}
 }

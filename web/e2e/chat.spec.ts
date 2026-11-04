@@ -3,8 +3,8 @@ import {OWNER, hold, makeProject} from './support'
 
 // The owner's chat, with a fake launcher and a fake chat session on the API where Claude would be: the first message
 // in the pane starts one with starts turned off (a chat counts towards nothing), the owner's words reach its session
-// alone, its answer shows in the pane, it isn't listed on the Sessions page, minimizing the pane leaves it running, and
-// closing the pane ends it. It asks the owner before messaging other sessions (sent as theirs, marked as through it,
+// alone, its answer shows in the pane, it isn't listed on the Sessions page, closing the pane (× or Esc) only hides it,
+// and nothing in the pane says whether it's live (ORR-883). It asks the owner before messaging other sessions (sent as theirs, marked as through it,
 // on their Send) or changing a setting.
 let starts: unknown = null
 
@@ -64,7 +64,8 @@ test('chats with a session that answers on the page, and is listed nowhere', asy
         await pane.getByLabel('Message').fill('What is on the top shelf?')
         await pane.getByLabel('Message').press('Enter')
         await expect.poll(() => launcher.said.text).toContain('"chat":true')
-        await expect(pane).toContainText('Starting the session…')
+        // Nothing says it's starting, or ready once it has (ORR-883): the spinner shows the turn.
+        await expect(pane.getByLabel('Thinking…')).toBeVisible()
         // It says who's answering once it has connected, not before (ORR-811).
         await expect(pane.getByTestId('chat-name')).toHaveCount(0)
         const [chat] = await (await request.get('/api/chats')).json()
@@ -119,31 +120,31 @@ test('chats with a session that answers on the page, and is listed nowhere', asy
         await expect(page.locator('#session-e2e-chat')).toHaveCount(0)
         expect((await (await request.get('/api/projects/observatory/launches')).json()).total).toBe(0)
 
-        // With a chat running, the button says so.
-        await page.getByRole('button', {name: 'Agent (a chat is running)'}).click()
+        // With a chat running, the button says nothing of it, and brings it back (ORR-883).
+        await expect(page.getByRole('button', {name: 'Agent', exact: true}).locator('svg')).not.toHaveClass(/animate-pulse/)
+        await page.getByRole('button', {name: 'Agent', exact: true}).click()
         await expect(pane).toContainText('Jars of')
         // It can be made larger, and back.
         const narrow = (await pane.boundingBox())!.width
         await pane.getByRole('button', {name: 'Make the chat larger'}).click()
         await expect.poll(async () => (await pane.boundingBox())!.width).toBeGreaterThan(narrow)
         await pane.getByRole('button', {name: 'Make the chat smaller'}).click()
-        // Minimizing it, by its button or Esc, hides the pane and leaves the chat running, conversation and all.
-        await pane.getByRole('button', {name: 'Minimize the chat, leaving it running'}).click()
-        await expect(pane).toHaveCount(0)
-        expect(await (await request.get('/api/chats', {headers: OWNER})).json()).toHaveLength(1)
-        await page.getByRole('button', {name: 'Agent (a chat is running)'}).click()
-        await expect(pane).toContainText('Jars of')
+        // There's no Minimize: the pane is open or closed (ORR-883), and its header says nothing of the chat's state.
+        await expect(pane.getByRole('button', {name: /Minimize/})).toHaveCount(0)
+        await expect(pane.locator('header')).not.toContainText('Ready')
+        // Esc closes it, leaving the chat running, conversation and all.
         await pane.getByLabel('Message').press('Escape')
         await expect(pane).toHaveCount(0)
+        expect(await (await request.get('/api/chats', {headers: OWNER})).json()).toHaveLength(1)
         expect(launcher.said.text).not.toContain('event: stop')
-        await page.getByRole('button', {name: 'Agent (a chat is running)'}).click()
+        await page.getByRole('button', {name: 'Agent', exact: true}).click()
         await expect(pane).toContainText('Jars of')
         // Closing the pane (×) leaves the chat running too (ORR-878).
         await pane.getByRole('button', {name: 'Close the chat, leaving it running'}).click()
         await expect(pane).toHaveCount(0)
         await page.waitForTimeout(500)
         expect(launcher.said.text).not.toContain('event: stop')
-        await page.getByRole('button', {name: 'Agent (a chat is running)'}).click()
+        await page.getByRole('button', {name: 'Agent', exact: true}).click()
         await expect(pane).toContainText('Jars of')
         // Only its row's × in the list ends it, and the pane then opens ready for another.
         await pane.getByRole('button', {name: /^End the chat on Observatory/}).click()
@@ -194,7 +195,7 @@ test("asks before messaging other sessions, and sends only on the owner's Send, 
         expect((await request.post('/api/sessions/message', {data: {text: 'Hi'}, headers: {...asChat, 'Orrery-Actor': OWNER['Orrery-Actor']}})).status()).toBe(403)
 
         await page.goto('/p/observatory')
-        await page.getByRole('button', {name: 'Agent (a chat is running)'}).click()
+        await page.getByRole('button', {name: 'Agent', exact: true}).click()
         const pane = page.getByRole('region', {name: 'Chat'})
         // Idle ones by default: shown with who it goes to, and sent only on Send.
         expect((await ask({text: 'Pick up Todo.', projects: ['observatory']})).to).toEqual(['e2e-idle'])
@@ -250,7 +251,7 @@ test('asks the owner to change a setting, and saves it only on their Allow', asy
         }
 
         await page.goto('/p/observatory')
-        await page.getByRole('button', {name: 'Agent (a chat is running)'}).click()
+        await page.getByRole('button', {name: 'Agent', exact: true}).click()
         const pane = page.getByRole('region', {name: 'Chat'})
         // Denied: nothing saved, and its session hears so.
         await ask(url)
@@ -300,7 +301,7 @@ test('asks the owner to make or pause a schedule, and saves it as theirs only on
         }
 
         await page.goto('/p/observatory')
-        await page.getByRole('button', {name: 'Agent (a chat is running)'}).click()
+        await page.getByRole('button', {name: 'Agent', exact: true}).click()
         const pane = page.getByRole('region', {name: 'Chat'})
         // What Schedules would refuse, or the chat may not set, fails as it asks; it can't make one itself.
         expect((await request.post(`/api/chats/${chat.id}/requests`, {data: {schedule: {title: 'Bad', cron: 'often'}}, headers: asChat})).status()).toBe(400)
@@ -355,7 +356,7 @@ test('asks the owner to move or assign issues, and moves them as theirs only on 
         expect(asked.status(), await asked.text()).toBe(201)
 
         await page.goto('/p/observatory')
-        await page.getByRole('button', {name: 'Agent (a chat is running)'}).click()
+        await page.getByRole('button', {name: 'Agent', exact: true}).click()
         const card = page.getByRole('region', {name: 'Chat'}).getByRole('group', {name: `Move ${made.join(', ')}`})
         await expect(card).toContainText('Label the jars')
         await expect(card).toContainText('Todo')
@@ -404,7 +405,7 @@ test('asks the owner to add or ship a release, and saves it only on their Allow'
         }
 
         await page.goto('/p/observatory')
-        await page.getByRole('button', {name: 'Agent (a chat is running)'}).click()
+        await page.getByRole('button', {name: 'Agent', exact: true}).click()
         const pane = page.getByRole('region', {name: 'Chat'})
         // What Releases would refuse fails as it asks; it can't make one itself.
         expect((await request.post(`/api/chats/${chat.id}/requests`, {data: {release: {version: 'one two'}}, headers: asChat})).status()).toBe(400)
@@ -454,7 +455,7 @@ test("offers an issue it wasn't asked for, marked as not filed, and files it onl
         expect((await request.post(`/api/chats/${chat.id}/requests`, {data: {issue: {title: 'Mine', assignee: 'claude'}}, headers: asChat})).status()).toBe(403)
 
         await page.goto('/p/observatory')
-        await page.getByRole('button', {name: 'Agent (a chat is running)'}).click()
+        await page.getByRole('button', {name: 'Agent', exact: true}).click()
         const pane = page.getByRole('region', {name: 'Chat'})
 
         await offer({title: 'Recoat the primary mirror', notes: 'It has **dulled**.\nSince the last clean.', priority: 'P2', labels: ['bug']}, 'I noticed this while reading the logs.')
@@ -503,7 +504,7 @@ test('asks the owner to make or change a doc, and saves it as theirs only on the
         expect((await request.delete('/api/projects/observatory/docs/lenses', {headers: asChat})).status()).toBe(403)
 
         await page.goto('/p/observatory')
-        await page.getByRole('button', {name: 'Agent (a chat is running)'}).click()
+        await page.getByRole('button', {name: 'Agent', exact: true}).click()
         const pane = page.getByRole('region', {name: 'Chat'})
 
         // Made: the title, section and full text, saved as the owner's on Allow.
@@ -815,7 +816,7 @@ test('lists every chat down the left, two on one project and one on another, eac
 
         // A third, on another project's page.
         await page.goto('/p/crypt')
-        await page.getByRole('button', {name: 'Agent (2 chats are running)'}).click()
+        await page.getByRole('button', {name: 'Agent', exact: true}).click()
         await expect(pane.getByRole('heading', {name: 'Ask about Crypt'})).toBeVisible()
         await box.fill('How cold is the vault?')
         await box.press('ControlOrMeta+Enter')
@@ -915,7 +916,7 @@ test('holds a setting that changed while the request waited until Allow anyway',
         const asked = await request.post(`/api/chats/${chat.id}/requests`, {data: {setting: 'tint', value: 'teal'}, headers: asChat})
         expect(asked.status(), await asked.text()).toBe(201)
         await page.goto('/p/observatory')
-        await page.getByRole('button', {name: 'Agent (a chat is running)'}).click()
+        await page.getByRole('button', {name: 'Agent', exact: true}).click()
         const card = page.getByRole('region', {name: 'Chat'}).getByRole('group', {name: /Change /})
         await request.patch('/api/settings', {data: {tint: 'rose'}, headers: OWNER})
         await card.getByRole('button', {name: 'Allow', exact: true}).click()
@@ -993,7 +994,7 @@ test('asks the owner to start or stop a session, and does it only on their Allow
             expect(asked.status(), await asked.text()).toBe(201)
         }
         await page.goto('/p/observatory')
-        await page.getByRole('button', {name: 'Agent (a chat is running)'}).click()
+        await page.getByRole('button', {name: 'Agent', exact: true}).click()
         const pane = page.getByRole('region', {name: 'Chat'})
 
         // Denied: nothing starts.
