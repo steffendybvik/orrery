@@ -101,17 +101,16 @@ useHead(() => ({title: project.value ? `Releases · ${project.value.name} · orr
 <template>
   <PageHeader>
     <template v-if="project">
-      <h1 class="truncate text-sm font-medium">{{ project.name }}</h1>
+      <ProjectTopBar :project="project" tab="Releases" />
     </template>
     <h1 v-else-if="ready" class="truncate text-sm font-medium">Not found</h1>
   </PageHeader>
 
   <div class="clear-agent min-h-0 flex-1 overflow-y-auto">
     <div v-if="project" class="mx-auto flex max-w-4xl animate-fade-up flex-col gap-4 px-4 py-8 sm:px-8">
+      <!-- The top bar names the tab (ORR-857), so this leads with what it holds. -->
       <header class="flex items-start gap-3">
-        <SectionIcon section="releases" class="mt-0.5 size-4 text-accent-fill" />
         <div class="flex min-w-0 flex-1 flex-col gap-0.5">
-          <h2 class="text-[15px] font-semibold text-fg">Releases</h2>
           <p v-if="project.releases_from" class="text-xs text-muted">
             {{ project.name }} ships in <NuxtLink :to="`/p/${project.releases_from}/releases`" class="text-fg underline underline-offset-2">{{ source?.name ?? project.releases_from }}'s releases</NuxtLink>,
             made there; each counts {{ project.name }}'s issues here. Set an issue's release on its page.
