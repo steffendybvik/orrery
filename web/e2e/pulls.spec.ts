@@ -162,15 +162,15 @@ test("Send back, on an issue's page, sends what its pull request needs", async (
 })
 
 test("shows each pull request's risk on an issue's page, the riskiest in the heading (ORR-879)", async ({page, request}) => {
-    await makeProject(request, {name: 'Shed', key: 'SHD'})
-    const issue = await (await request.post('/api/projects/shed/issues', {data: {title: 'New roof'}, headers: OWNER})).json()
+    await makeProject(request, {name: 'Woodshed', key: 'WDS'})
+    const issue = await (await request.post('/api/projects/woodshed/issues', {data: {title: 'New roof'}, headers: OWNER})).json()
     const at = '2026-10-01T00:00:00.000Z'
-    const pull = {number: 31, title: 'Roof felt', state: 'ready', url: 'https://github.com/orrery-e2e/shed/pull/31', branch: 'feat/31', base: 'main', author: 'ada', created_at: at, updated_at: at,
+    const pull = {number: 31, title: 'Roof felt', state: 'ready', url: 'https://github.com/orrery-e2e/woodshed/pull/31', branch: 'feat/31', base: 'main', author: 'ada', created_at: at, updated_at: at,
         risk: {level: 'medium', why: 'medium: changes how the roof page saves', by: 'session'}}
-    const done = {number: 30, title: 'Gutter copy', state: 'merged', url: 'https://github.com/orrery-e2e/shed/pull/30', branch: 'docs/30', base: 'main', author: 'ada', merged_at: at, updated_at: at,
+    const done = {number: 30, title: 'Gutter copy', state: 'merged', url: 'https://github.com/orrery-e2e/woodshed/pull/30', branch: 'docs/30', base: 'main', author: 'ada', merged_at: at, updated_at: at,
         risk: {level: 'low', why: 'low: copy only', by: 'owner'}}
-    await page.route(`**/api/projects/shed/issues/${issue.id}/pulls`, route => route.fulfill({json: {repo: 'orrery-e2e/shed', pulls: [pull], done: [done], token: true, checked_at: at}}))
-    await page.goto(`/p/shed/issues/${issue.id}`)
+    await page.route(`**/api/projects/woodshed/issues/${issue.id}/pulls`, route => route.fulfill({json: {repo: 'orrery-e2e/woodshed', pulls: [pull], done: [done], token: true, checked_at: at}}))
+    await page.goto(`/p/woodshed/issues/${issue.id}`)
     const pulls = page.getByRole('region', {name: 'Pull requests'})
     await expect(pulls.getByRole('heading').getByText('Medium risk')).toBeVisible()
     const open = pulls.getByRole('listitem').filter({hasText: 'Roof felt'})
