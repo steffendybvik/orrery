@@ -2,7 +2,6 @@
 // with no keys), and a second port, the one a phone opens, always asks for a login. A request is told apart by the port it
 // came in on inside the server, never by who sent it, as in Docker on a Mac every caller looks the same.
 import type {H3Event} from 'h3'
-import {LOOPBACK} from './move'
 
 const port = (value: unknown) => {
     const n = Number(String(value ?? '').trim())
@@ -23,9 +22,6 @@ export function phonePublishedPort(): number {
 export function phoneHost(): string {
     return String(useRuntimeConfig().phoneHost || process.env.ORRERY_PHONE_HOST || '0.0.0.0').trim()
 }
-
-/** Whether the phone port opens to other devices, rather than only this machine. */
-export const phoneOpen = () => !!phoneListenPort() && !LOOPBACK.test(phoneHost())
 
 /** Whether this request came in on the phone's port. */
 export function viaPhone(event: H3Event): boolean {
