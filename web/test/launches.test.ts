@@ -120,6 +120,24 @@ describe('starting a session', () => {
         expect(await launches.startAsked.run(true, () => launches.considerLaunch(signal(6)))).toMatchObject({after: 5, minutes: 30})
     })
 
+    it('happens on the model its work needs when every session listening is on a lighter one (ORR-868)', async () => {
+        launches.addLauncher('greenhouse')
+        listeners = 1
+        vi.stubGlobal('listSessions', () => [{id: 'a', project: 'greenhouse', state: 'idle', listening: true, started: {launch: 'x', tmux: 'x', model: 'haiku'}}])
+        // Nothing needed: the haiku session hears it.
+        expect(await launches.considerLaunch(signal(5))).toBeNull()
+        // Docs work on sonnet starts a session on sonnet.
+        issueLabels = {'GRE-2': ['docs']}
+        const docs = await launches.considerLaunch(signal(6, {issue: 'GRE-2', model: 'sonnet'}))
+        expect(docs).toMatchObject({after: 5, model: 'sonnet'})
+        // A sonnet launch on its way doesn't cover security work, which starts one on Claude Code's default.
+        const security = await launches.considerLaunch(signal(7, {issue: 'GRE-3', model: 'best'}))
+        expect(security).not.toBeNull()
+        expect(security!.model).toBeUndefined()
+        // And that one on its way covers what comes after it.
+        expect(await launches.considerLaunch(signal(8, {model: 'sonnet'}))).toBeNull()
+    })
+
     it("happens for the owner's signal that nobody is listening for, once a launcher is there", async () => {
         expect(await launches.considerLaunch(signal(5))).toBeNull()
         const done = launches.addLauncher('greenhouse')

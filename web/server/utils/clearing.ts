@@ -8,7 +8,8 @@
 // by an API error (the network, a rate limit) lets go of what it had in progress (`letGo`), so none of it sits there
 // in progress with nobody on it.
 import type {Signal} from '#shared/roadmap'
-import {byPriority, isBlocked} from '#shared/roadmap'
+import {byPriority, isBlocked, modelFor} from '#shared/roadmap'
+import {heavyEnough} from './pool'
 
 /** How long a session stays idle before it's cleared: a signal its channel has just handed Claude Code starts
  * another turn in that time, and then it isn't cleared. */
@@ -133,6 +134,8 @@ export function carryOn(project: string, id: string) {
             // Only what's its own person's to start (ORR-656).
             let next: (typeof left)[number] | undefined
             for (const issue of left) {
+                // Only what its model is set for (ORR-868): a lighter session leaves the heavier ones to another.
+                if (!heavyEnough({model: modelFor(issue).model}, now.started?.model)) continue
                 const whose = await store.whoseWork(now.project, issue.assignee)
                 if (whose === undefined || whose === now.person) {
                     next = issue

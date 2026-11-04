@@ -2,8 +2,10 @@
 // already on its issue (made its target as it's sent), else a listening session that's idle when it comes, else the
 // next one to go idle. The project's own sessions come first: one that spans several projects (its channel hears
 // others too) takes it only while none of them is free. Aimed at `*`, it goes to every session, as all of them used to. Each such signal is taken by
-// the first session free to, here in memory (orrery is one process), so two streams can't both send it on.
+// the first session free to, here in memory (orrery is one process), so two streams can't both send it on. One about an
+// issue says the model its work needs (ORR-868), and a session orrery started on a lighter one doesn't take it.
 import type {Signal} from '#shared/roadmap'
+import {weightOf} from '#shared/roadmap'
 
 /** The target that sends a signal to every session on the project. */
 export const EVERY = '*'
@@ -49,7 +51,7 @@ export function namedStream(project: string, name: string): boolean {
 /** Who took each pooled signal, by its id: the session, on the project whose stream sent it. */
 const taken = new Map<number, {session: string, project: string}>()
 
-/** The session takes the pooled signal if no session has and it's free for it: idle, or with no hooks to say
+/** The session takes the pooled signal if no session has and it's free for it: idle, on a model heavy enough for it, or with no hooks to say
  * (a stream with no session, such as the Monitor tool's, takes it as it comes), and, spanning projects, with none of
  * the project's own sessions listening and idle, which take it instead. Says whether it's the session's. */
 export function take(signal: Signal, project: string, session: string | undefined): boolean {
@@ -58,7 +60,8 @@ export function take(signal: Signal, project: string, session: string | undefine
     if (had) return !!session && currentId(had.session) === currentId(session)
     const now = session ? sessionNow(session) : undefined
     if (session && now?.state !== 'idle') return false
-    if (now?.also?.length && listSessions(project).some(s => s.project === project && !s.also?.length && s.listening && s.state === 'idle' && (!signal.person || s.person === signal.person))) return false
+    if (session && !heavyEnough(signal, now?.started?.model)) return false
+    if (now?.also?.length && listSessions(project).some(s => s.project === project && !s.also?.length && s.listening && s.state === 'idle' && heavyEnough(signal, s.started?.model) && (!signal.person || s.person === signal.person))) return false
     taken.set(signal.id, {session: session ?? '', project})
     // Only the latest matter: an old one was delivered long since, or nobody took it up.
     if (taken.size > 500) for (const oldest of taken.keys()) {
@@ -66,6 +69,11 @@ export function take(signal: Signal, project: string, session: string | undefine
         break
     }
     return true
+}
+
+/** Whether a session on `model` (none: Claude Code's default, which can do anything) may take the signal's work. */
+export function heavyEnough(signal: Pick<Signal, 'model'>, model: string | undefined): boolean {
+    return !signal.model || weightOf(model) >= weightOf(signal.model)
 }
 
 /** The session's stream on the project closed: what it took and didn't hand on is free for another session. */
