@@ -445,14 +445,25 @@ describe("the channel's tools", () => {
         for (const listed of [toolsFor(['greenhouse']), toolsFor(['greenhouse'], {chat: true}), toolsFor(['greenhouse', 'pantry'])]) {
             expect(listed.map((t: {name: string}) => t.name)).toContain('guide')
         }
-        const served = harness({'GET /guide/using': {raw: '# Using orrery\n\nSchedules run on their own.'}})
-        expect(await served.call('guide')).toEqual({error: false, text: '# Using orrery\n\nSchedules run on their own.'})
+        const guide = '# Using orrery\n\nThe map.\n\n## The bell\n\nIt rings.\n\n## Pages\n\n| Page | What\'s there |\n|---|---|\n| **Schedules** (`/schedules`) | Run on their own. |\n| An **issue\'s page** | Its notes. |\n'
+        const served = harness({'GET /guide/using': {raw: guide}})
+        // Its contents, rather than all of it (ORR-848): the opening, then the sections, with a table's rows by name.
+        expect(await served.call('guide')).toEqual({error: false, text: '# Using orrery\n\nThe map.\n\n## Contents\n\n' +
+            'Call guide with a section, or a page from Pages, for its text (one per call):\n- The bell\n- Pages: Schedules, An issue\'s page'})
         expect(served.calls[0]).toMatchObject({method: 'GET', url: '/guide/using'})
+        // A section in full; a page by its row, whatever the case, under its table's head.
+        expect((await served.call('guide', {section: 'The bell'})).text).toBe('## The bell\n\nIt rings.')
+        expect((await served.call('guide', {section: 'schedules'})).text).toBe('## Pages\n\n| Page | What\'s there |\n|---|---|\n| **Schedules** (`/schedules`) | Run on their own. |')
+        expect((await served.call('guide', {section: "issue's page"})).text).toContain('Its notes.')
+        expect((await served.call('guide', {section: 'bell'})).text).toBe('## The bell\n\nIt rings.')
+        // Nothing by that name: says so, with the contents to pick from.
+        expect((await served.call('guide', {section: 'Gardens'})).text).toMatch(/^No section or page called "Gardens" in the guide\.\n\n# Using orrery[\s\S]*- The bell/)
         // An orrery from before it served the guide: the docs beside the channel.
         const older = await harness({}).call('guide')
         expect(older.error).toBe(false)
         expect(older.text).toMatch(/^# Using orrery/)
-        expect(older.text).toContain('## How it fits together')
+        expect(older.text).toContain('- How it fits together')
+        expect((await harness({}).call('guide', {section: 'How it fits together'})).text).toMatch(/^## How it fits together\n/)
     })
 
     it('list the open issues unless asked for a status', async () => {
