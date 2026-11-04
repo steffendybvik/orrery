@@ -231,9 +231,9 @@ export const PERMISSIONS: Permission[] = [
         member: ownerAlone,
     },
     {
-        id: 'chats.use', area: 'Sessions', action: 'Chat with an agent: start, write in, clear or end a chat, and answer what it asks',
+        id: 'chats.use', area: 'Sessions', action: 'Chat with an agent: start, write in, clear, end or delete a chat, and answer what it asks',
         why: 'The chat is the owner talking to an agent, and its requests wait on their answer.',
-        routes: ['POST /api/chats', 'POST /api/chats/:chat/messages', 'PATCH /api/chats/:chat', 'POST /api/chats/:chat/clear', 'POST /api/chats/:chat/end', 'POST /api/chats/:chat/requests/:message'],
+        routes: ['POST /api/chats', 'POST /api/chats/:chat/messages', 'PATCH /api/chats/:chat', 'POST /api/chats/:chat/clear', 'POST /api/chats/:chat/end', 'DELETE /api/chats/:chat', 'POST /api/chats/:chat/requests/:message'],
         session: {level: 'owner'},
         chat: {level: 'refused', note: 'It answers in its chat and asks there, never answering for you'},
         untrusted: refused,

@@ -286,6 +286,31 @@ describe("the owner's chat", () => {
         })
     })
 
+    it('deletes a chat when the owner deletes it: a running one is ended first, and the page hears it go (ORR-882)', async () => {
+        const notes: {kind: string, details?: object}[] = []
+        vi.stubGlobal('useEventLog', () => ({note: (note: {kind: string}) => notes.push(note)}))
+        await chats.openChat('greenhouse')
+        await chats.say('c1c2c3c4c5c6', 'File one for the grow lights', [], owner)
+        chats.deleteChat('c1c2c3c4c5c6', {name: 'skoll', owner: true})
+        expect(stopped).toEqual(['c1c2c3c4c5c6'])
+        expect(chats.listChats()).toEqual([])
+        expect(() => chats.readChat('c1c2c3c4c5c6')).toThrow(/No chat/)
+        expect(changes.at(-1)).toMatchObject({id: 'c1c2c3c4c5c6', deleted: true, messages: []})
+        expect(notes).toEqual([expect.objectContaining({kind: 'chat.deleted', project: 'greenhouse', details: {chat: 'c1c2c3c4c5c6'}})])
+        // Its launch ending after doesn't bring it back to read.
+        chats.chatEnded('c1c2c3c4c5c6')
+        expect(chats.listChats()).toEqual([])
+        // An ended one, kept to read, goes too, with no session to stop.
+        vi.stubGlobal('startChat', async (project: string) => ({id: 'd1d2d3d4d5d6', project}))
+        await chats.openChat('greenhouse')
+        await chats.say('d1d2d3d4d5d6', 'Hello', [], owner)
+        chats.endChat('d1d2d3d4d5d6')
+        chats.deleteChat('d1d2d3d4d5d6', {name: 'skoll', owner: true})
+        expect(stopped).toEqual(['c1c2c3c4c5c6', 'd1d2d3d4d5d6'])
+        expect(chats.listChats()).toEqual([])
+        expect(() => chats.deleteChat('nope', {name: 'skoll', owner: true})).toThrow(/No chat nope/)
+    })
+
     it('asks the owner to message sessions, sending only once they press Send, as theirs through the chat', async () => {
         const sent: {project: string, target: string, text: string, via?: string}[] = []
         const notes: {kind: string}[] = []
@@ -1040,6 +1065,18 @@ describe('chats kept across a restart (ORR-877)', () => {
         expect(await kept()).toEqual([{id: CHAT, ended_at: expect.any(String)}])
         expect(chats.listChats()).toEqual([expect.objectContaining({id: CHAT, ended: true})])
         expect(chats.readChat(CHAT).messages.map(m => m.text)).toEqual(['Hello'])
+    })
+
+    it('drops a deleted chat from the database, so a restart brings back none of it (ORR-882)', async () => {
+        vi.stubGlobal('useEventLog', () => ({note: () => {}}))
+        await chats.openChat('greenhouse')
+        await chats.say(CHAT, 'Hello', [], owner)
+        await chats.chatsSaved()
+        expect((await kept()).map(r => r.id)).toEqual([CHAT])
+        chats.deleteChat(CHAT, {name: 'skoll', owner: true})
+        await restart()
+        expect(await kept()).toEqual([])
+        expect(chats.listChats()).toEqual([])
     })
 
     it('ends one whose session no launcher says still runs, and brings it back when one does', async () => {

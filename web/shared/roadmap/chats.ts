@@ -9,6 +9,8 @@ export interface Chat {
     started_at: string
     messages: ChatMessage[]
     ended?: boolean
+    /** On the last word of one the owner deleted (ORR-882): the page drops it. */
+    deleted?: boolean
     /** When it ended, once it has: it's kept to read until orrery restarts (ORR-870). */
     ended_at?: string
     /** Why its session can't start, while that holds: a launcher too old to start a chat refused it (ORR-383). */

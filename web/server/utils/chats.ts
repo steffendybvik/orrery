@@ -994,6 +994,22 @@ export function endChat(id: string) {
     chatEnded(id)
 }
 
+/** The owner deleting the chat (ORR-882): one still running is ended first, then it goes with its messages and
+ * requests, from the list and the database. What it made (issues, comments, docs) stays. The page hears it as the chat
+ * with `deleted`, and drops it. */
+export function deleteChat(id: string, actor: Actor) {
+    const chat = readChat(id)
+    if (chats.has(id)) endLaunch(chat.project, id, true)
+    chats.delete(id)
+    over.delete(id)
+    unconfirmed.delete(id)
+    lapsed.delete(id)
+    told.delete(id)
+    save(chat, true)
+    projectEvents.emit('chat', {...chat, messages: [], ended: true, deleted: true} satisfies Chat)
+    useEventLog().note({level: 'info', kind: 'chat.deleted', project: chat.project, message: `${actor.name} deleted a chat on ${chat.project}`, details: {chat: id}})
+}
+
 /** Why the chat's session can't start (a launcher too old to start one refused it), for the page to say instead of
  * waiting. It goes once the session connects. */
 export function chatProblem(id: string, problem: string | null) {
