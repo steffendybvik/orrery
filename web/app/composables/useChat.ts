@@ -5,7 +5,7 @@ import type {Chat, ChatIssues, ChatMessage, Session, Upload} from '#shared/roadm
 // ended, newest first, for the pane's list. The pane is open or not (`open`), large or not (`large`, remembered in this
 // browser), and shows one chat (`chat`): the one picked in the list (`pick`), else the newest running on `project`; or,
 // after New chat (`fresh`) or with none, it's ready to start one there with the first message. A chat keeps running
-// while the pane shows another, and an ended one opens to read. The chats come in over the page's events (`arrived`);
+// while the pane shows another, and an ended one opens as it was: writing in it starts its session again (ORR-884). The chats come in over the page's events (`arrived`);
 // closing the pane (`close`, × or Esc) only hides it, leaving its chat running, and only a row's × ends one (`end`, ORR-878, ORR-883). Each message says
 // which page the owner is on, so the chat knows what "this" is. `/clear` clears its session's context instead (`clear`). Where the issues it makes land (`lands`, Todo or Backlog)
 // is the owner's pick beside Send, remembered in this browser for the next chat, and kept by the server on the chat.
@@ -97,9 +97,10 @@ export function useChat() {
         }
     }
 
-    /** Sends the owner's message, or a run of them held and sent together (`text` as their parts), as one. */
+    /** Sends the owner's message, or a run of them held and sent together (`text` as their parts), as one. To an ended
+     * chat, it starts its session again, taking up the conversation where it was (ORR-884). */
     async function send(text: string | string[], images: string[]) {
-        if (!chat.value || chat.value.ended) return false
+        if (!chat.value) return false
         failed.value = ''
         try {
             // The page's tab title, without the app's name it ends in.

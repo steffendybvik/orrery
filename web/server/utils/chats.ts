@@ -1,5 +1,5 @@
 import type {H3Event} from 'h3'
-import type {Chat, ChatRequestDrift, ChatChunkField, ChatChunkRequest, ChatDocRequest, ChatIssueRequest, ChatIssues, ChatMessage, ChatMoveRequest, ChatReleaseField, ChatReleaseRequest, ChatScheduleRequest, ChatSendRequest, ChatSessionRequest, ChatSetting, Release, Schedule, Session, SessionState} from '#shared/roadmap'
+import type {Chat, ChatRequestDrift, SessionContext, ChatChunkField, ChatChunkRequest, ChatDocRequest, ChatIssueRequest, ChatIssues, ChatMessage, ChatMoveRequest, ChatReleaseField, ChatReleaseRequest, ChatScheduleRequest, ChatSendRequest, ChatSessionRequest, ChatSetting, Release, Schedule, Session, SessionState} from '#shared/roadmap'
 import {CHAT_CHUNK_FIELDS, CHAT_DOC_FIELDS, CHAT_ISSUES, CHAT_RELEASE_FIELDS, CHAT_SETTINGS, SESSION_STATES, scheduleValue, settingValue} from '#shared/roadmap'
 import type {OrreryEvent} from '#shared/happenings'
 import type {Actor} from '../store/schema'
@@ -15,8 +15,9 @@ import {scheduleAsk, scheduleDrift, scheduleRequest} from './schedule-requests'
 // page instead of in a terminal. It answers questions about the project and makes issues and comments when asked;
 // it doesn't take up work on an issue, but starts a session for that (`delegate`; middleware/chat.ts holds its writes, and it hears only the chat). The owner's words go
 // to it as messages aimed at it; it answers with its channel's `reply` tool, kept here and streamed to the page
-// (`chat` events). A chat is kept while its session runs, and ends when the owner ends it. An ended chat stays to read,
-// with no cap (ORR-870): the pane lists it with the running ones. One that ended before anything was said goes. Each
+// (`chat` events). A chat is kept while its session runs, and ends when the owner ends it. An ended chat stays,
+// with no cap (ORR-870): the pane lists it with the running ones, and writing in it starts its session again, on the
+// Claude session it ran as (`reopen`, ORR-884). One that ended before anything was said goes. Each
 // is kept in the database too, as it changes (the `chats` table, ORR-877), so a restart or rebuild loses none: as orrery
 // starts, a running one waits for its launcher to say its session still runs, and ends, to read, when none does.
 
@@ -177,12 +178,14 @@ function elsewhere(path: string, project: string): string {
  * it goes to the chat's session alone, as a message from the owner, the page said at its end but not kept with it. A
  * run of messages held and sent together (`parts`, ORR-517) goes as one, joined by blank lines, and is kept as its parts. */
 export async function say(id: string, text: unknown, images: unknown, actor: {name: string, owner: boolean}, page?: unknown, parts?: unknown): Promise<ChatMessage> {
-    const chat = chatOf(id)
+    await chatsLoaded()
     const run = partsOf(parts)
     const words = run ? run.join('\n\n') : typeof text === 'string' ? text.trim() : ''
     const pasted = Array.isArray(images) ? images.filter((i): i is string => typeof i === 'string' && /^[0-9a-f]{24}$/.test(i)) : []
     if (!words && !pasted.length) throw badRequest('Send {text, images?}: what to say, and the ids of any uploads pasted with it')
     if (Array.isArray(images) && pasted.length !== images.length) throw badRequest('Send images as the ids of uploads (POST /api/uploads)')
+    const ended = over.get(id)
+    const chat = ended ? await reopen(ended) : chatOf(id)
     const on = pageOf(page)
     const note = [
         words,
@@ -192,6 +195,35 @@ export async function say(id: string, text: unknown, images: unknown, actor: {na
     await useStore().messageSession(chat.project, launchTarget(id), note, actor)
     told.set(id, {words, ...on ? {page: on.path} : {}, started: new Set()})
     return add(chat, {from: 'owner', text: words, images: pasted, ...run && run.length > 1 ? {parts: run} : {}})
+}
+
+/** How much of an ended chat's conversation a session started fresh for it is told, at most. */
+const RETOLD = 8000
+
+/** What a session started fresh for an ended chat is told: its brief, then the conversation so far, the newest kept
+ * when it's long. */
+function retold(chat: Chat): SessionContext {
+    const lines = chat.messages.filter(m => m.text && !m.cleared).map(m => `${m.from === 'owner' ? 'The owner' : 'You'}: ${m.text}`)
+    let kept = ''
+    for (const line of lines.reverse()) {
+        if (kept.length + line.length > RETOLD) break
+        kept = kept ? `${line}\n\n${kept}` : line
+    }
+    return {presets: [], text: `${chatBrief(chat.project)}\n\nThis chat ended and the owner has written in it again. What was said in it before:\n\n${kept || '(nothing)'}`}
+}
+
+/** An ended chat written in again (ORR-884): it's running once more, on the same id, its session started again on
+ * the Claude session it ran as, or fresh, told what was said, when there's none or the launcher can't resume. */
+async function reopen(was: Chat): Promise<Chat> {
+    const id = was.id
+    const {ended: _ended, ended_at: _at, ...chat} = was
+    await resumeChat(chat.project, id, {presets: [], text: chatBrief(chat.project)}, retold(chat), chat.claude_session)
+    over.delete(id)
+    lapsed.delete(id)
+    chats.set(id, chat)
+    changed(chat)
+    useEventLog().note({level: 'info', kind: 'chat.resumed', project: chat.project, message: chat.claude_session ? 'The owner wrote in an ended chat: its session is taken up again' : 'The owner wrote in an ended chat: its session starts fresh, told what was said'})
+    return chat
 }
 
 /** The parts of a run of messages, each trimmed, the empty ones left out; none when it isn't one. */
@@ -977,7 +1009,9 @@ export function chatEnded(id: string) {
     const chat = chats.get(id)
     if (!chat) return
     chats.delete(id)
-    const ended: Chat = {...chat, ended: true, ended_at: new Date().toISOString()}
+    // The Claude session it ran as, the one it goes by now (a `/clear` changes it), to take up again (ORR-884).
+    const ran = sessionOfLaunch(chat.project, id)?.id
+    const ended: Chat = {...chat, ...ran ? {claude_session: ran} : {}, ended: true, ended_at: new Date().toISOString()}
     delete ended.problem
     // One ended before anything was said has nothing to read.
     if (chat.messages.length) {

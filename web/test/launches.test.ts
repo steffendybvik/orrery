@@ -822,6 +822,36 @@ describe("the owner's chat", () => {
         expect(launches.launchState('greenhouse')).toMatchObject({starting: 0, total: 1})
     })
 
+    describe('written in again once ended (ORR-884)', () => {
+        const fresh = {presets: [], text: 'Chat. What was said before: …'}
+        const CLAUDE = '0b5c3a8e-2f4d-4c1a-9e7b-6d2f8a1c3e5b'
+
+        it('starts on the same id, taking its Claude session up again, with a launcher that can', async () => {
+            const {token} = launches.addLauncher('greenhouse')
+            const launch = await launches.resumeChat('greenhouse', 'c1c2c3c4c5c6', context, fresh, CLAUDE)
+            expect(launch).toMatchObject({id: 'c1c2c3c4c5c6', tmux: 'orrery-greenhouse-c1c2c3c4c5c6', chat: true, resume: CLAUDE, context, after: 41})
+            // What the launcher hears names no fallback.
+            expect(launch).not.toHaveProperty('fresh')
+            expect(launches.claim('greenhouse', launch.id, token, false, true, true, true)).toBe(true)
+            expect(launches.launched(launch.id)).toMatchObject({launch: 'c1c2c3c4c5c6', chat: true, context})
+        })
+
+        it('starts fresh, told what was said, with a launcher that can\'t resume', async () => {
+            const {token} = launches.addLauncher('greenhouse')
+            const launch = await launches.resumeChat('greenhouse', 'c1c2c3c4c5c6', context, fresh, CLAUDE)
+            expect(launches.claim('greenhouse', launch.id, token, false, true, true)).toBe(true)
+            expect(launches.launched(launch.id)).toMatchObject({context: fresh})
+        })
+
+        it('starts fresh with no Claude session to take up, and needs a launcher', async () => {
+            await expect(launches.resumeChat('greenhouse', 'c1c2c3c4c5c6', context, fresh)).rejects.toMatchObject({statusCode: 409})
+            launches.addLauncher('greenhouse')
+            const launch = await launches.resumeChat('greenhouse', 'c1c2c3c4c5c6', context, fresh)
+            expect(launch.resume).toBeUndefined()
+            expect(launch.context).toEqual(fresh)
+        })
+    })
+
     it('says it stops as a chat, so the log leaves it out', async () => {
         launches.addLauncher('greenhouse')
         const launch = await launches.startChat('greenhouse', context)

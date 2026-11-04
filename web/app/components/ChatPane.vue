@@ -26,7 +26,7 @@ import type {Chat, ChatIssues, ChatMessage} from '#shared/roadmap'
 // whatever page you open, until unpinned. While the chat's project isn't the page's, a line under the header says so
 // (ORR-588). The owner's chats, as many as they like and several on a project, are listed down the pane's left (ORR-870),
 // newest first, running and ended: each row names its project and its first message, a running one is marked and has
-// an × to end it, and a click opens it, an ended one to read. New chat heads the list. On a narrow screen the list folds
+// an × to end it, and a click opens it, an ended one as it was: writing in it starts its session again (ORR-884). New chat heads the list. On a narrow screen the list folds
 // behind the button at the header's left, and opens over the conversation. Moving to another project, by page or
 // picker, shows its newest running chat and leaves the others running; the picker marks the projects with one. What's
 // held goes back in the box on a switch, so it never goes to another chat.
@@ -75,9 +75,12 @@ const here = computed(() => {
 })
 /** The project the chat would be about: the pinned one, else the one you're on; on a page of no project, a running
  * chat's when the pane has none, so the corner button brings you back to it (ORR-865, ORR-870); else the first. */
-watch([pinned, here, projects, chats], () => {
+watch([pinned, here, projects, chats], (_now, was?: unknown[]) => {
+    const [wasPinned, wasHere] = was ?? []
     if (pinned.value && projects.value.some(p => p.id === pinned.value)) project.value = pinned.value
-    else if (here.value) project.value = here.value
+    // Opening the page, or unpinning, moves it there; a chat changing meanwhile doesn't take back one picked in the
+    // list (ORR-884).
+    else if (here.value) project.value = here.value === wasHere && pinned.value === wasPinned && project.value ? project.value : here.value
     else if (!chat.value && running.value[0]) project.value = running.value[0].project
     else if (!project.value) project.value = projects.value[0]?.id ?? null
 }, {immediate: true})
@@ -193,10 +196,10 @@ async function flush(owner = true): Promise<boolean> {
         restartHold()
         return false
     }
-    if (!owner && (chat.value ? chat.value.ended : !open.value)) return false
+    // What was held as a chat ended went back in the box (`unhold`); what's held since, for the ended chat, goes to it.
+    if (!owner && !chat.value && !open.value) return false
     const run = held.value
     sending.value = true
-    if (chat.value?.ended) fresh()
     const texts = run.map(m => m.text).filter(Boolean)
     const ids = run.flatMap(m => m.images.map(i => i.id))
     const went = !!(chat.value || await start()) && await send(texts.length > 1 ? texts : texts[0] ?? '', ids)
@@ -251,7 +254,6 @@ async function submit(now = false) {
         if (text === '/clear') {
             if (!chat.value || chat.value.ended || await clear()) draft.value = ''
         } else {
-            if (chat.value?.ended) fresh()
             if ((chat.value || await start()) && await send(text, [])) draft.value = ''
         }
         sending.value = false
@@ -587,17 +589,14 @@ v-if="m.chunk" class="flex w-full flex-col gap-2 rounded-xl bg-well p-3 ring-1 r
       <li v-if="thinking" class="flex items-center px-1 py-2 text-lg text-faint" aria-live="polite" aria-label="Thinking…">
         <UiSpinner />
       </li>
-      <li v-if="chat?.ended" class="flex items-center gap-2 text-xs text-faint">
-        This chat has ended.
-        <button type="button" class="text-accent-700 hover:underline dark:text-accent-400" @click="newChat">New chat</button>
-      </li>
     </ol>
 
     <!-- What its session asks permission for, answered here while the pane is open (ORR-750). -->
     <div v-if="session?.state === 'waiting'" class="px-3 pt-2">
       <PermissionPrompt :session="session" :hideable="false" class="w-full! max-w-none!" />
     </div>
-    <form v-if="!chat?.ended || !chat.messages.length" class="flex flex-col gap-2 p-3" @submit.prevent="submit(true)">
+    <!-- An ended chat takes a message too: it starts its session again, on the same conversation (ORR-884). -->
+    <form class="flex flex-col gap-2 p-3" @submit.prevent="submit(true)">
       <LauncherHint v-if="unlaunched" :project="about!" chat />
       <p v-else-if="failed" class="px-1 text-xs text-rose-700 dark:text-rose-400">{{ failed }}</p>
       <div class="flex flex-col gap-2 rounded-2xl bg-well p-2 ring-1 ring-line transition focus-within:ring-accent-500/50">

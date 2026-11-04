@@ -3,7 +3,7 @@ import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {describe, expect, it} from 'vitest'
 // @ts-expect-error: the launcher is plain JavaScript, run by node on the host
-import {chatOnly, lockedDown, modelArgs} from '../../channel/locked-down.mjs'
+import {chatOnly, lockedDown, modelArgs, resumeArgs} from '../../channel/locked-down.mjs'
 // @ts-expect-error: the channel is plain JavaScript, run by node on the host
 import {NOT_FOR_CHAT} from '../../channel/tools.mjs'
 
@@ -56,5 +56,19 @@ describe('a session started on a model (ORR-868)', () => {
     it('passes on nothing that isn\'t a model or an effort', () => {
         expect(modelArgs({model: '--dangerously-skip-permissions', effort: 'huge'})).toEqual([])
         expect(modelArgs({model: 'haiku; rm -rf ~'})).toEqual([])
+    })
+})
+
+describe('a chat taken up again (ORR-884)', () => {
+    const id = '0b5c3a8e-2f4d-4c1a-9e7b-6d2f8a1c3e5b'
+    it('adds --resume with the Claude session id for a chat', () => {
+        expect(resumeArgs({chat: true, resume: id})).toEqual(['--resume', id])
+    })
+
+    it('passes on nothing that isn\'t a chat or a session id', () => {
+        expect(resumeArgs({resume: id})).toEqual([])
+        expect(resumeArgs({chat: true})).toEqual([])
+        expect(resumeArgs({chat: true, resume: '--dangerously-skip-permissions'})).toEqual([])
+        expect(resumeArgs({chat: true, resume: `${id}; rm -rf ~`})).toEqual([])
     })
 })
