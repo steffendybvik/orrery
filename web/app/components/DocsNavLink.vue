@@ -10,6 +10,7 @@ defineProps<{project: Project, doc: DocSummary, here: boolean, unseen: boolean}>
       data-nav
       draggable="true"
       :to="`/p/${project.id}/docs/${doc.id}`"
+      :aria-current="here ? 'page' : undefined"
       class="flex shrink-0 items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] outline-none transition-colors focus-visible:bg-active md:shrink"
       :class="[here ? 'bg-active font-medium text-fg' : 'text-muted hover:bg-hover hover:text-fg', unseen && 'unseen-row']"
       title="Drag onto a section, or right-click to move it"
