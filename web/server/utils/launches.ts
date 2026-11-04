@@ -9,7 +9,7 @@
 import {AsyncLocalStorage} from 'node:async_hooks'
 import {randomBytes} from 'node:crypto'
 import type {Effort, LauncherRepo, RepoAdded, Session, SessionContext, Signal, StartedSession, Starts, TerminalApp} from '#shared/roadmap'
-import {EFFORTS, isEffort, isModel, modelFor, WORK_KINDS} from '#shared/roadmap'
+import {EFFORTS, isEffort, isModel, modelFor} from '#shared/roadmap'
 import type {Actor} from './store'
 import {EVERY, heavyEnough} from './pool'
 import {scheduleRunning} from './schedules'
@@ -209,7 +209,7 @@ export async function considerLaunch(signal: Signal): Promise<Launch | null> {
     const asked = !!startAsked.getStore()
     // On the model its work needs (ORR-868); `best` asks for none, so any launcher can take it.
     const needs = signal.model && signal.model !== 'best' ? signal.model : undefined
-    const effort = needs && signal.issue ? await useStore().issue(project, signal.issue).then(i => modelFor(i)).then(p => p.model === needs ? p.effort : undefined, () => undefined) : undefined
+    const effort = needs && signal.issue ? await Promise.all([useStore().issue(project, signal.issue), useStore().workKinds()]).then(([i, kinds]) => modelFor(i, kinds)).then(p => p.model === needs ? p.effort : undefined, () => undefined) : undefined
     const held = hold(project, {after: signal.id - 1, ...needs ? {model: needs} : {}, ...effort ? {effort} : {}})
     const starts = await allowedStarts(project).catch(error => release(held, error))
     if (!starts || starts.on_signal === false && !asked) {
@@ -251,7 +251,7 @@ export async function startLaunch(project: string, {issue, statuses, release: ve
     // Focused on an issue with no model asked for, it starts on what the issue's kind is set to (ORR-868). `best` is
     // Claude Code's own pick, so it asks for none and any launcher can take it.
     if (issue && !model && !effort) {
-        const picked = modelFor(await useStore().issue(project, issue))
+        const picked = modelFor(await useStore().issue(project, issue), await useStore().workKinds())
         if (picked.model !== 'best') ({model, effort} = picked)
     }
     // Held from here, so the limit counts it while its focus is made.
@@ -302,7 +302,7 @@ export async function startUntrusted(project: string, schedule: number, text: st
  * builds nothing itself, so a lighter model fits; what it hands over starts on its issue's own. */
 export async function startChat(project: string, context: SessionContext): Promise<Launch> {
     if (!launchersOf(project)) throw noLauncher(project)
-    const kind = WORK_KINDS.find(k => k.id === 'chat')
+    const kind = (await useStore().workKinds()).find(k => k.id === 'chat')
     const model = kind?.model && kind.model !== 'best' ? {model: kind.model, ...kind.effort ? {effort: kind.effort} : {}} : {}
     return send(hold(project, {after: await useStore().lastSignal(project), context, chat: true, ...model}))
 }

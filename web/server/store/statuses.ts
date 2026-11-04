@@ -1,7 +1,7 @@
 // The orrery's statuses (every project's board has them) and its own settings.
 import {randomBytes} from 'node:crypto'
-import type {IssueStatus, Kind, Settings, Starts, TerminalApp} from '#shared/roadmap'
-import {KINDS, slugify} from '#shared/roadmap'
+import type {IssueStatus, Kind, Settings, Starts, TerminalApp, WorkKind} from '#shared/roadmap'
+import {KINDS, WORK_KINDS, slugify} from '#shared/roadmap'
 import type {Input} from '../utils/input'
 import {badRequest, checkInput, conflict, notFound} from '../utils/input'
 import type {Instruction} from '#shared/prompt'
@@ -39,9 +39,16 @@ export abstract class StatusStore extends StoreBase {
             restrict_proposals: (value('restrict_proposals') as boolean | undefined) ?? true,
             advanced: (value('advanced') as boolean | undefined) ?? true,
             pick_next: (value('pick_next') as boolean | undefined) ?? false,
+            work_kinds: (value('work_kinds') as WorkKind[] | null | undefined) ?? [...WORK_KINDS],
             starred: ids('starred').filter(id => !ids('hidden').includes(id)),
             hidden: ids('hidden'),
         }
+    }
+
+    /** The kinds of work, highest-ranked first (ORR-868): the owner's, else orrery's own. */
+    async workKinds(): Promise<readonly WorkKind[]> {
+        const row = await this.get<{value: string}>("SELECT value FROM settings WHERE key = 'work_kinds'")
+        return (row && JSON.parse(row.value) as WorkKind[] | null) ?? WORK_KINDS
     }
 
     /** The issue statuses, in board order: by kind, then as arranged. */
@@ -152,7 +159,7 @@ export abstract class StatusStore extends StoreBase {
                 const value = (key === 'focus_prompt' || key === 'chunk_prompt') && typeof sent === 'string' ? sent.trim() || null
                     : key === 'handle' && typeof sent === 'string' ? sent.toLowerCase()
                     // Checked and given back as JSON text: kept as the value it stands for.
-                    : key === 'starts' && typeof sent === 'string' ? JSON.parse(sent) as unknown : sent
+                    : (key === 'starts' || key === 'work_kinds') && typeof sent === 'string' ? JSON.parse(sent) as unknown : sent
                 await this.run('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value', key, JSON.stringify(value))
             }
         })

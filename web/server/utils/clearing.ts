@@ -133,9 +133,10 @@ export function carryOn(project: string, id: string) {
                 .sort(byPriority)
             // Only what's its own person's to start (ORR-656).
             let next: (typeof left)[number] | undefined
+            const kinds = await store.workKinds()
             for (const issue of left) {
                 // Only what its model is set for (ORR-868): a lighter session leaves the heavier ones to another.
-                if (!heavyEnough({model: modelFor(issue).model}, now.started?.model)) continue
+                if (!heavyEnough({model: modelFor(issue, kinds).model}, now.started?.model)) continue
                 const whose = await store.whoseWork(now.project, issue.assignee)
                 if (whose === undefined || whose === now.person) {
                     next = issue

@@ -1,6 +1,7 @@
 // This orrery's own settings: its owner, the sessions it may start, its database and backups.
 import type {Instruction} from '../prompt'
 import type {IssueStatus} from './board'
+import type {WorkKind} from './work-kinds'
 
 /** The tints a page can take on: a few named colours, or any `#rrggbb`. */
 export const TINTS = {slate: '#64748b', blue: '#3b82f6', teal: '#14b8a6', green: '#22c55e', amber: '#f59e0b', rose: '#f43f5e', violet: '#8b5cf6'} as const
@@ -208,6 +209,9 @@ export interface Settings {
     advanced: boolean
     /** A listening session out of work is handed the issues it may start, in Todo, to pick one (ORR-452, ORR-759). */
     pick_next: boolean
+    /** The kinds of work, highest-ranked first, each with the model a session for it starts on (ORR-868): the owner's,
+     * else orrery's own (`WORK_KINDS`). An issue's kind is its highest-ranked label's. */
+    work_kinds: WorkKind[]
     /** Projects the sidebar lists first, by id, and projects it folds away under Hidden (ORR-836). Only where
      * they show: a hidden project's issues, sessions and schedules carry on, and its pages still open. A project
      * is never both: hidden wins. */

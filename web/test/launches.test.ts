@@ -1,6 +1,7 @@
 import {EventEmitter} from 'node:events'
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
-import type {Signal, Starts} from '#shared/roadmap'
+import type {Signal, Starts, WorkKind} from '#shared/roadmap'
+import {WORK_KINDS} from '#shared/roadmap'
 
 // The launches live in the module, so each test gets a fresh one, with Nitro's auto-imports stubbed.
 let launches: typeof import('../server/utils/launches')
@@ -26,11 +27,14 @@ let messages: {schedule: number, text: string, target?: string}[]
 let answered: string[]
 /** The labels of the issues a session is started on, by id. */
 let issueLabels: Record<string, string[]>
+/** The kinds of work the owner has set (ORR-868). */
+let kinds: readonly WorkKind[]
 
 beforeEach(async () => {
     sent = []
     answered = []
     issueLabels = {}
+    kinds = WORK_KINDS
     listeners = 0
     started = {greenhouse: 0, all: 0}
     starts = {limit: 2, minutes: 30}
@@ -64,7 +68,7 @@ beforeEach(async () => {
     focused = []
     scoped = []
     messages = []
-    vi.stubGlobal('useStore', () => ({ownerOf: async () => ({name: 'skoll'}), 
+    vi.stubGlobal('useStore', () => ({ownerOf: async () => ({name: 'skoll'}), workKinds: async () => kinds,
         starts: () => new Promise(resolve => setTimeout(() => resolve(starts), 0)),
         lastSignal: async () => 41,
         issue: async (_project: string, id: string) => {
@@ -912,6 +916,15 @@ describe('a session started on a model (ORR-868)', () => {
         expect((await launches.startLaunch('greenhouse', {issue: 'GRE-3'})).model).toBeUndefined()
         // What the owner picks beats the kind's.
         expect(await launches.startLaunch('greenhouse', {issue: 'GRE-1', model: 'opus'})).toMatchObject({model: 'opus'})
+    })
+
+    it("starts one on what the owner set a kind to, the chat's too (ORR-868)", async () => {
+        launches.addLauncher('greenhouse')
+        starts = {limit: 5}
+        kinds = WORK_KINDS.map(k => k.id === 'docs' ? {...k, model: 'haiku', effort: 'low' as const} : k.id === 'chat' ? {...k, model: 'opus'} : k)
+        issueLabels = {'GRE-1': ['docs']}
+        expect(await launches.startLaunch('greenhouse', {issue: 'GRE-1'})).toMatchObject({model: 'haiku', effort: 'low'})
+        expect(await launches.startChat('greenhouse', {presets: [], text: ''})).toMatchObject({model: 'opus'})
     })
 
     it('keeps the model a launcher reports after orrery restarted', () => {
