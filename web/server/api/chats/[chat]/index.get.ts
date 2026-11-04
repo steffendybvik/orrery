@@ -1,2 +1,2 @@
-// `GET /api/chats/:chat` → the chat, with its messages: running, or ended since orrery started (ORR-870); 404 after a restart.
+// `GET /api/chats/:chat` → the chat, with its messages: running, or ended (ORR-870), kept across restarts (ORR-877).
 export default defineEventHandler(event => readChat(param(event, 'chat')))

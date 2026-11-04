@@ -15,9 +15,10 @@ import {scheduleAsk, scheduleDrift, scheduleRequest} from './schedule-requests'
 // page instead of in a terminal. It answers questions about the project and makes issues and comments when asked;
 // it doesn't take up work on an issue, but starts a session for that (`delegate`; middleware/chat.ts holds its writes, and it hears only the chat). The owner's words go
 // to it as messages aimed at it; it answers with its channel's `reply` tool, kept here and streamed to the page
-// (`chat` events). A chat is kept while its session runs, here only, and ends when the owner ends it. An ended chat
-// stays here to read, with no cap, until orrery restarts (ORR-870): the pane lists it with the running ones. One that
-// ended before anything was said goes.
+// (`chat` events). A chat is kept while its session runs, and ends when the owner ends it. An ended chat stays to read,
+// with no cap (ORR-870): the pane lists it with the running ones. One that ended before anything was said goes. Each
+// is kept in the database too, as it changes (the `chats` table, ORR-877), so a restart or rebuild loses none: as orrery
+// starts, a running one waits for its launcher to say its session still runs, and ends, to read, when none does.
 
 /** What the chat's session on `project` is told it is, with every message. */
 export const chatBrief = (project: string) => `This session is the owner's chat in orrery, on ${project}. Its tools and their asking
@@ -33,6 +34,86 @@ let next = 1
 
 function changed(chat: Chat) {
     projectEvents.emit('chat', chat)
+    save(chat)
+}
+
+/** Each chat's last write to the database, so its writes land in the order they were made. */
+const saving = new Map<string, Promise<void>>()
+
+/** Keeps the chat in the database as it is now (`gone`: drops it), after its writes before. Why its launcher couldn't
+ * start it isn't kept: that's said again, if it still holds, once orrery is up again. */
+function save(chat: Chat, gone = false) {
+    const {problem: _problem, ...kept} = chat
+    const json = JSON.stringify(kept)
+    const write = async () => {
+        const db = useDatabase()
+        if (gone) await db.run('DELETE FROM chats WHERE id = ?', chat.id)
+        else await db.run('INSERT INTO chats (id, project, started_at, ended_at, chat) VALUES (?, ?, ?, ?, ?) ON CONFLICT (id) DO UPDATE SET ended_at = excluded.ended_at, chat = excluded.chat',
+            chat.id, chat.project, chat.started_at, chat.ended_at ?? null, json)
+    }
+    const done = (saving.get(chat.id) ?? Promise.resolve()).then(write).catch(error => console.error(`[orrery] keeping chat ${chat.id}:`, error))
+    saving.set(chat.id, done)
+    void done.then(() => { if (saving.get(chat.id) === done) saving.delete(chat.id) })
+}
+
+/** Waits for every chat's writes so far to land (tests, and a server closing). */
+export async function chatsSaved() {
+    await Promise.all(saving.values())
+}
+
+/** How long a chat that was running when orrery stopped waits, as it starts again, for its launcher to say its
+ * session still runs; after that it has ended. */
+export const RESTORED_FOR = 3 * 60_000
+/** The chats read back as running that no launcher has said still run yet, and those that ended for that: a launcher
+ * that says so later brings one back. */
+const unconfirmed = new Set<string>()
+const lapsed = new Set<string>()
+let loading: Promise<void> | undefined
+
+/** Reads the chats kept in the database, once, as orrery starts: an ended one to read, a running one as it was, until
+ * `RESTORED_FOR` shows whether its session still runs. What runs here already stays as it is. */
+export function chatsLoaded(): Promise<void> {
+    return loading ??= (async () => {
+        try {
+            const rows = await useDatabase().all<{project: string, chat: string}>('SELECT project, chat FROM chats')
+            for (const row of rows) {
+                const chat = {...JSON.parse(row.chat) as Chat, project: row.project}
+                if (chats.has(chat.id) || over.has(chat.id)) continue
+                if (chat.ended) over.set(chat.id, chat)
+                else {
+                    chats.set(chat.id, chat)
+                    unconfirmed.add(chat.id)
+                }
+                for (const message of chat.messages) next = Math.max(next, message.id + 1)
+            }
+            if (unconfirmed.size) setTimeout(endUnconfirmed, RESTORED_FOR).unref?.()
+        } catch (error) {
+            console.error('[orrery] reading the chats kept:', error)
+        }
+    })()
+}
+
+/** Ends each chat read back as running whose session no launcher has said still runs. */
+export function endUnconfirmed() {
+    for (const id of unconfirmed) {
+        const chat = chats.get(id)
+        unconfirmed.delete(id)
+        if (!chat || launchKnown(id) || sessionOfLaunch(chat.project, id)) continue
+        lapsed.add(id)
+        chatEnded(id)
+    }
+}
+
+/** A launcher says the chat's session runs (it connected to orrery again): one read back as running is, and one that
+ * ended for want of that word is running again. */
+export function chatRunning(id: string) {
+    unconfirmed.delete(id)
+    const chat = over.get(id)
+    if (!chat || !lapsed.delete(id)) return
+    over.delete(id)
+    const {ended: _ended, ended_at: _at, ...running} = chat
+    chats.set(id, running)
+    changed(running)
 }
 
 /** Where `issues` says a chat's issues land; Todo when it says nothing. */
@@ -45,6 +126,7 @@ export function chatIssuesOf(issues: unknown): ChatIssues {
 /** Starts a chat on the project, its issues landing in `issues`: its session is on its way, and the chat is there to
  * write in at once. */
 export async function openChat(project: string, issues: ChatIssues = 'todo'): Promise<Chat> {
+    await chatsLoaded()
     const launch = await startChat(project, {presets: [], text: chatBrief(project)})
     const chat: Chat = {id: launch.id, project, started_at: new Date().toISOString(), messages: [], issues}
     chats.set(chat.id, chat)
@@ -52,19 +134,19 @@ export async function openChat(project: string, issues: ChatIssues = 'todo'): Pr
     return chat
 }
 
-/** The chats running now and those that have ended since orrery started, newest first. */
+/** The chats running now and those that have ended, newest first (once `chatsLoaded`). */
 export const listChats = (): Chat[] => [...chats.values(), ...over.values()].sort((a, b) => b.started_at.localeCompare(a.started_at))
 
-/** A chat to read: running, or ended since orrery started. */
+/** A chat to read: running, or ended. */
 export function readChat(id: string): Chat {
     const chat = chats.get(id) ?? over.get(id)
-    if (!chat) throw notFound(`No chat ${id}: orrery restarted since`)
+    if (!chat) throw notFound(`No chat ${id}`)
     return chat
 }
 
 export function chatOf(id: string): Chat {
     const chat = chats.get(id)
-    if (!chat) throw notFound(`No chat ${id}: it has ended, or orrery restarted since`)
+    if (!chat) throw notFound(`No chat ${id}: it has ended`)
     return chat
 }
 
@@ -898,8 +980,13 @@ export function chatEnded(id: string) {
     const ended: Chat = {...chat, ended: true, ended_at: new Date().toISOString()}
     delete ended.problem
     // One ended before anything was said has nothing to read.
-    if (chat.messages.length) over.set(id, ended)
-    changed(ended)
+    if (chat.messages.length) {
+        over.set(id, ended)
+        changed(ended)
+    } else {
+        projectEvents.emit('chat', ended)
+        save(ended, true)
+    }
 }
 
 /** Whether the request is a chat session's: its channel says so (`Orrery-Chat: yes`) on all it sends, or orrery knows
