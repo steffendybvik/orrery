@@ -21,6 +21,8 @@ async function open(page: Page) {
 
 test.beforeAll(async ({request}) => {
     if (!(await api(request, 'get', '/owner')).named) await api(request, 'put', '/owner', {name: 'Ada Lovelace'})
+    // A retry's new worker finds the project and its three issues its first try made, rather than failing on a 409.
+    if ((await request.get('/api/projects/keys')).ok()) return
     await api(request, 'post', '/projects', {name: 'Keys', key: 'KEY'})
     for (const title of ['First key', 'Second key', 'Third key']) await api(request, 'post', '/projects/keys/issues', {title, status: 'todo'})
 })
