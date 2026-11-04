@@ -1,3 +1,5 @@
+import {viaPhone} from '../../utils/phone-port'
+
 // `GET /api/auth/status` → {mode, person?, via?, can_get_in, can_claim, named, oidc, warn_http, phone}: whether this orrery asks for a login, and who
 // this browser is, and whether it may claim the orrery here (ORR-832), naming its owner if `named` is false, and `phone` on the phone's own port (ORR-837). Open, as the login page needs it first; it says nothing about anyone else.
 export default defineEventHandler(async event => {
