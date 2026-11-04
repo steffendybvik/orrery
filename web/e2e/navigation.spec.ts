@@ -1,7 +1,7 @@
 import AxeBuilder from '@axe-core/playwright'
 import type {Page} from '@playwright/test'
 import {expect, test} from '@playwright/test'
-import {OWNER, makeProject, projectApi} from './support'
+import {AGENT, OWNER, makeProject, projectApi} from './support'
 
 // The navigation as a whole (ORR-580): every page opens and renders its heading with no page or console error, each
 // sidebar entry goes to its page and shows as active there, and the ⌘K palette and App settings → Advanced still lead
@@ -176,6 +176,27 @@ test('no page breaks a WCAG A or AA rule, beyond those the UI/UX audit has (ORR-
                 expect.soft(violations.map(v => `${v.id}: ${v.nodes.map(n => n.target.join(' ')).join(', ')}`), `${route.path}, ${colorScheme}`).toEqual([])
             })
         }
+    }
+})
+
+// At 390 px a box can scroll sideways that doesn't on a desktop, and a keyboard has to be able to scroll it (ORR-859). One
+// rule only: the full pass above is the desktop's.
+test('on a phone, every box that scrolls takes focus, so a keyboard can scroll it (ORR-859)', async ({page, request}) => {
+    test.setTimeout(240_000)
+    const wide = `${'long_name_that_runs_on_'.repeat(6)}end`
+    await request.put('/api/projects/atlas/docs/wide-code', {headers: AGENT, data: {
+        title: 'Wide code',
+        body: `\`\`\`sh\ncurl -fsSL http://localhost:9000/${wide} | sh\n\`\`\`\n\n| ${wide} | b | c | d | e |\n|---|---|---|---|---|\n| 1 | 2 | 3 | 4 | 5 |\n`,
+    }}).then(r => expect(r.ok(), 'the doc').toBeTruthy())
+    await page.setViewportSize({width: 390, height: 800})
+    await setAdvanced(page, true)
+    for (const route of [...ROUTES(), {path: '/p/atlas/docs/wide-code', heading: 'Wide code'}]) {
+        await test.step(route.path, async () => {
+            await page.goto(route.path)
+            await expect(heading(page, route.heading)).toBeVisible()
+            const {violations} = await new AxeBuilder({page}).withRules(['scrollable-region-focusable']).analyze()
+            expect.soft(violations.map(v => `${v.id}: ${v.nodes.map(n => n.target.join(' ')).join(', ')}`), route.path).toEqual([])
+        })
     }
 })
 

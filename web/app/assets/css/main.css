@@ -200,6 +200,8 @@ body {
         & :not(pre) > code { @apply rounded bg-well px-1 py-px font-mono text-[0.88em] text-fg ring-1 ring-line; }
         & pre { @apply overflow-x-auto rounded-xl bg-well p-4 font-mono text-[13.5px] leading-relaxed text-fg ring-1 ring-line; }
         & table { @apply block w-full overflow-x-auto border-collapse text-[14.5px]; }
+        /* Focusable so a keyboard can scroll them (ORR-859): a ring only for the keyboard. */
+        & pre:focus-visible, & table:focus-visible { @apply outline-none ring-2 ring-accent-500/60; }
         & th, & td { @apply border border-line px-3 py-1.5 text-left; }
         & th { @apply bg-well font-medium text-fg; }
         /* A picture sits in a frame (a band of the well colour, a hairline and a soft shadow), so a screenshot
