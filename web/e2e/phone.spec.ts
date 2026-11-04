@@ -1,6 +1,6 @@
 import {expect, test} from '@playwright/test'
 
-// Open on your phone, in App settings → You (ORR-833). The browser specs' server is on loopback only, so it says how to
+// Open on your phone, in App settings → You (ORR-833), the command palette and Getting started (ORR-876). The browser specs' server is on loopback only, so it says how to
 // give the phone a port of its own; where it's open, the unit tests (phone.test.ts) say which address it shows.
 test("says how to open it on a phone while only this machine can", async ({page}) => {
     await page.goto('/settings?tab=you#phone')
@@ -17,4 +17,33 @@ test('lists the logins, with none yet', async ({page}) => {
     const section = page.locator('#logins')
     await expect(section.getByRole('heading', {name: 'Signed in'})).toBeVisible()
     await expect(section.getByText('Nothing is signed in: no browser or phone has a login.')).toBeVisible()
+})
+
+// The code where people look (ORR-876): ⌘K → Open on your phone opens it in a dialog of its own.
+test('opens from the command palette in a dialog', async ({page}) => {
+    await page.goto('/mine')
+    await expect(page.getByRole('heading', {level: 1}).first()).toBeVisible()
+    await page.keyboard.press('ControlOrMeta+k')
+    const palette = page.getByRole('dialog', {name: 'Commands'})
+    await palette.getByLabel('Type a command or search').fill('Open on your phone')
+    await palette.getByRole('option').filter({has: page.getByText('Open on your phone', {exact: true})}).click()
+    const dialog = page.getByRole('dialog', {name: 'Open on your phone'})
+    await expect(dialog.getByText('Only this machine can open it now.')).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(dialog).toBeHidden()
+})
+
+// And as Getting started's last step, optional and out of the count, ticked once the QR code has signed a phone in.
+test("is Getting started's optional last step, ticked once a phone is signed in", async ({page}) => {
+    await page.goto('/getting-started')
+    const step = page.locator('[data-step="phone"]')
+    await expect(step.getByText('Open it on your phone')).toBeVisible()
+    await expect(page.getByText(/^5 steps to a session/)).toBeVisible()
+    await step.getByRole('button', {name: 'Show the code'}).click()
+    await expect(step.getByText('Only this machine can open it now.')).toBeVisible()
+
+    await page.route('**/api/logins', route => route.fulfill({json: [{id: 'a1', person: 'owner', name: 'Phone, signed in by QR code', expires_at: '2026-12-01T00:00:00Z'}]}))
+    await page.goto('/getting-started')
+    await expect(step.getByText('Open it on your phone')).toBeVisible()
+    await expect(step.getByRole('button', {name: 'Show the code'})).toBeHidden()
 })

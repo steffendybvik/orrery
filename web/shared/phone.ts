@@ -3,6 +3,10 @@
 
 /** Where an address came from: `ORRERY_PHONE_URL`, the address `ORRERY_HOST` publishes it on, this machine's own
  * networks (outside Docker), or a launcher's report of its machine's (in Docker, which sees only its container's). */
+/** What a login made by the QR code is called in App settings' list of logins (ORR-838), and how Getting started tells
+ * a phone has been signed in (ORR-876). */
+export const PHONE_LOGIN = 'Phone, signed in by QR code'
+
 export type PhoneSource = 'setting' | 'host' | 'machine' | 'launcher'
 
 export interface PhoneAddress {

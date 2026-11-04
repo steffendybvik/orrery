@@ -286,7 +286,8 @@ Then set `ORRERY_OIDC_ISSUER` to the new address and restart orrery. It's only f
 
 ## Reach it from your phone
 
-**Scan the QR code in App settings → You → Open on your phone** with the phone's camera, and you're signed in. Nothing
+**Scan the QR code in App settings → You → Open on your phone** (also ⌘K → *Open on your phone*, and Getting started's
+last step) with the phone's camera, and you're signed in. Nothing
 to claim, type or run, and nothing runs on the phone: it opens the orrery on this machine, so the chat, the sessions and
 Allow there all work on this machine's Claude sessions.
 
