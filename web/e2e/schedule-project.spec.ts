@@ -18,7 +18,7 @@ test('New schedule picks its project in the dialog', async ({page, request}) => 
     await page.getByRole('button', {name: 'New schedule', exact: true}).click()
     const dialog = page.getByRole('dialog', {name: 'New schedule'})
     await dialog.getByRole('button', {name: 'Project'}).click()
-    await dialog.getByRole('option', {name: 'Shed'}).click()
+    await dialog.getByRole('option', {name: 'Shed', exact: true}).click()
     await expect(dialog.getByRole('button', {name: 'Project'})).toContainText('Shed')
     await dialog.getByLabel('Title').fill('Oil the hinges')
     await dialog.getByRole('button', {name: /Create schedule/}).click()
