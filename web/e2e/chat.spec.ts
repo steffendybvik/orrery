@@ -138,9 +138,17 @@ test('chats with a session that answers on the page, and is listed nowhere', asy
         expect(launcher.said.text).not.toContain('event: stop')
         await page.getByRole('button', {name: 'Agent (a chat is running)'}).click()
         await expect(pane).toContainText('Jars of')
-        // Closing the pane ends the chat, and it opens again ready for another.
-        await pane.getByRole('button', {name: 'End the chat and close it'}).click()
+        // Closing the pane (×) leaves the chat running too (ORR-878).
+        await pane.getByRole('button', {name: 'Close the chat, leaving it running'}).click()
+        await expect(pane).toHaveCount(0)
+        await page.waitForTimeout(500)
+        expect(launcher.said.text).not.toContain('event: stop')
+        await page.getByRole('button', {name: 'Agent (a chat is running)'}).click()
+        await expect(pane).toContainText('Jars of')
+        // Only its row's × in the list ends it, and the pane then opens ready for another.
+        await pane.getByRole('button', {name: /^End the chat on Observatory/}).click()
         await expect.poll(() => launcher.said.text).toContain('event: stop')
+        await pane.getByRole('button', {name: 'Close the chat', exact: true}).click()
         // It stays listed, ended, to read (ORR-870).
         await expect.poll(async () => (await (await request.get('/api/chats', {headers: OWNER})).json() as {ended?: boolean}[]).map(c => !!c.ended)).toEqual([true])
         await page.getByRole('button', {name: 'Agent', exact: true}).click()
