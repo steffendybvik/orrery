@@ -92,11 +92,15 @@ describe('StartSessionDialog', () => {
 
     it('starts one on the project it opened on, through its Todo and In progress issues, as the owner', async () => {
         const {row, submit, wrapper} = await mount('greenhouse')
+        const push = vi.spyOn(useRouter(), 'push')
         expect(row('greenhouse')).toContain('2 issues')
         await vi.waitFor(() => expect(submit().attributes('disabled')).toBeUndefined())
         await wrapper.find('form').trigger('submit')
         await vi.waitFor(() => expect(useStartSession().target.value).toBeNull())
         expect(sent).toEqual([{project: 'greenhouse', actor: 'skoll', body: {statuses: ['todo', 'in-progress'], presets: [], hears: ['greenhouse']}}])
+        // It closes and leaves the owner on their page, not the Sessions page (ORR-864).
+        expect(push).not.toHaveBeenCalled()
+        push.mockRestore()
     })
 
     it("gives each project's session the orrery's presets ticked and only its own", async () => {
