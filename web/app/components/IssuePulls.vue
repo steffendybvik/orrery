@@ -6,7 +6,8 @@ import {sendBackNote} from '#shared/roadmap'
 // review or done isn't taken as shipped while its PR waits (ORR-485), then those merged or closed, so it can say what
 // shipped for it and where it went (ORR-795). Asked again every minute while the page is
 // open, and when the issue changes; orrery keeps GitHub's answer a minute (five without a token), so this is cheap.
-// Nothing shows for an issue without a PR. A PR that conflicts, is behind
+// Nothing shows for an issue without a PR. A repo it can't read is one muted line, linking to the Pull requests
+// page, which says why (ORR-861). A PR that conflicts, is behind
 // or fails its checks has **Send back**: a focus on the issue saying what the PR needs, to the session on it (or one
 // orrery picks, or starts when nobody's listening), as the owner's (ORR-492).
 const props = defineProps<{project: string, issue: string, updated?: string}>()
@@ -89,6 +90,9 @@ async function sendBack(pull: PullRequest) {
       </li>
     </ul>
     <p v-for="(state, number) in sent" v-show="state.failed" :key="number" class="text-xs text-rose-700 dark:text-rose-400">#{{ number }}: {{ state.failed }}</p>
-    <p v-if="got.error" class="text-xs text-rose-700 dark:text-rose-400">{{ got.error }}</p>
+    <!-- Set-up advice for the whole project, not this issue's fault: one muted line, the full message on Pull requests (ORR-861). -->
+    <p v-if="got.error" class="text-xs text-muted" :title="got.error">
+      Not read from GitHub. <NuxtLink to="/pulls" class="text-fg underline">Pull requests</NuxtLink> says why.
+    </p>
   </section>
 </template>
