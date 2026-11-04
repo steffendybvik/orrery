@@ -152,6 +152,8 @@ const SCHEDULE_FIELDS = {
     ask: {type: 'boolean', description: 'An issue schedule also asks a session to work on its issue'},
     skip_open: {type: 'boolean', description: "Skip a run while the last run's issue is open (on by default)"},
     only_if_changed: {type: 'boolean', description: 'A message schedule skips a run when nothing in the project changed since its last message'},
+    model: {type: ['string', 'null'], description: "What its work runs on: best, opus, sonnet, haiku, or a full id; null takes its kind's"},
+    effort: {type: ['string', 'null'], enum: ['low', 'medium', 'high', 'xhigh', 'max', null], description: "Its effort; null takes its kind's"},
     enabled: {type: 'boolean', description: 'false pauses it'},
 }
 

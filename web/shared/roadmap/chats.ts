@@ -110,6 +110,8 @@ export const CHAT_SCHEDULE_FIELDS = {
     ask: 'Ask sessions',
     skip_open: 'Skip while open',
     only_if_changed: 'Only if changed',
+    model: 'Model',
+    effort: 'Effort',
     enabled: 'Running',
 } as const
 export type ChatScheduleField = keyof typeof CHAT_SCHEDULE_FIELDS
