@@ -37,7 +37,7 @@ beforeEach(() => {
     posted.length = 0
     refuse = ''
     localStorage.clear()
-    clearNuxtState(['chats', 'chat-open', 'chat-current', 'chat-ended', 'chat-project', 'chat-pinned', 'chat-failed', 'chat-heard', 'chat-large', 'chat-lands', 'owner'])
+    clearNuxtState(['chats', 'chat-open', 'chat-ended', 'chat-project', 'chat-pinned', 'chat-failed', 'chat-heard', 'chat-large', 'chat-lands', 'owner'])
 })
 
 describe('useChat', () => {
@@ -58,8 +58,8 @@ describe('useChat', () => {
 
     it("says why a message didn't go", async () => {
         const c = useChat()
+        c.show('greenhouse')
         c.arrived(chat('c1'))
-        c.current.value = 'c1'
         refuse = 'No launcher is running for greenhouse'
         expect(await c.send('Hello', [])).toBe(false)
         expect(c.failed.value).toContain('No launcher is running for greenhouse')
@@ -67,12 +67,13 @@ describe('useChat', () => {
 
     it('keeps a chat heard live over an older one a fetch was bringing, and keeps one that ended on screen', async () => {
         const c = useChat()
+        c.show('greenhouse')
         served = [chat('c1', {issues: 'todo'})]
         const fetching = c.fetchChats()
         c.arrived(chat('c1', {issues: 'backlog'}))
         await fetching
         expect(c.chats.value).toEqual([chat('c1', {issues: 'backlog'})])
-        expect(c.current.value).toBe('c1')
+        expect(c.chat.value?.id).toBe('c1')
         c.arrived(chat('c1', {ended: true} as Partial<Chat>))
         expect(c.chats.value).toEqual([])
         expect(c.chat.value).toMatchObject({id: 'c1', ended: true})
@@ -84,16 +85,49 @@ describe('useChat', () => {
 
     it("ends the chat on close, but only hides it on minimize", async () => {
         const c = useChat()
+        c.show('greenhouse')
         c.arrived(chat('c1'))
-        c.current.value = 'c1'
-        c.open.value = true
         c.hide()
         expect(c.open.value).toBe(false)
         expect(c.chat.value?.id).toBe('c1')
         await c.close()
         expect(posted).toEqual([{path: '/api/chats/c1/end', body: null}])
         expect(c.chats.value).toEqual([])
-        expect(c.current.value).toBeNull()
+        expect(c.chat.value).toBeNull()
+        // Its end, heard after, doesn't put it back on screen as ended: the owner closed it.
+        c.arrived(chat('c1', {ended: true} as Partial<Chat>))
+        expect(c.chat.value).toBeNull()
+    })
+
+    it('keeps a chat per project: the pane shows its project\'s, and the others keep running to switch back to (ORR-865)', async () => {
+        const c = useChat()
+        served = [chat('c1')]
+        c.show('greenhouse')
+        await c.fetchChats()
+        c.show('pantry')
+        await c.fetchChats()
+        // Pantry has none yet: ready to start one, with Greenhouse's still running.
+        expect(c.chat.value).toBeNull()
+        expect(c.elsewhere.value.map(e => e.id)).toEqual(['c1'])
+        expect(await c.start()).toBe(true)
+        expect(c.chat.value).toMatchObject({id: 'c2', project: 'pantry'})
+        expect(c.chats.value).toHaveLength(2)
+        c.switchTo('greenhouse')
+        expect(c.chat.value?.id).toBe('c1')
+        expect(c.elsewhere.value.map(e => e.id)).toEqual(['c2'])
+        // Pinned, a switch moves the pin.
+        c.pin('pantry')
+        c.switchTo('greenhouse')
+        expect(c.pinned.value).toBe('greenhouse')
+        // Closing ends only the one on screen.
+        await c.close()
+        expect(posted.filter(p => p.path.endsWith('/end'))).toEqual([{path: '/api/chats/c1/end', body: null}])
+        expect(c.chats.value.map(e => e.id)).toEqual(['c2'])
+        // One that ends on its own stays to read on its project only.
+        c.arrived(chat('c2', {project: 'pantry', ended: true} as Partial<Chat>))
+        expect(c.chat.value).toBeNull()
+        c.switchTo('pantry')
+        expect(c.chat.value).toMatchObject({id: 'c2', ended: true})
     })
 
     it('follows the page until its project is pinned, and remembers the pin and its size in the browser (ORR-588)', () => {
