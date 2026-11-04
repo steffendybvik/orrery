@@ -57,6 +57,9 @@ person, with a label that's a person's name counting as `agent`. A session stays
 | `POST /auth/logout` | open: 204, ending this browser's login |
 | `GET /auth/oidc/start?invite=` | open: a redirect to the login provider; 404 with none set up |
 | `GET /auth/oidc/callback` | open: the way back from it, a redirect to the board, logged in. 403 for an account with no invite, 409 for an invite used or run out, 401 for a login that ran out or doesn't match |
+| `GET /logins` | your live logins, or everyone's for the owner: `{id, person, name?, created_at?, last_used_at?, expires_at, current?}`, `current` on the browser asking. `id` is a short part of the login's hash, never its cookie. Only a person, never a session (403) |
+| `DELETE /logins/:login` | 204: ends that login at once, such as a lost phone's. Your own, or anyone's for the owner; a 404 for any other |
+| `DELETE /logins` | `{ended}`: ends every login but the browser asking, your own or everyone's for the owner |
 | `GET /keys` | your keys, or everyone's for the owner: `{id, person, kind, name, created_at, last_used_at?, revoked_at?}`, never the key. Only a person, never a session (403) |
 | `POST /keys` | `{kind, name, person?}` → 201 the key, with `key` this once only. `kind` is `agent` or `person`; `person` is the owner's to give. Only a person, never a session, whatever key it has. 404 for someone who isn't a person here |
 | `DELETE /keys/:key` | 204: revokes it at once, with the logins it started (and its person's from before 1.0.0-rc.17, which don't record their key). Your own, or anyone's for the owner; a 404 for any other. Only a person, never a session (403) |

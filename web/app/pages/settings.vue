@@ -23,6 +23,7 @@ const TABS: {value: Tab, label: string, scope: string, sections: Heading[]}[] = 
         // Only while it's unclaimed and this page is on its own machine (ORR-832).
         ...useAuth().status.value?.can_claim ? [{id: 'claim', text: 'Claim this orrery', level: 2 as const}] : [],
         {id: 'phone', text: 'Open on your phone', level: 2},
+        {id: 'logins', text: 'Signed in', level: 2},
     ]},
     {value: 'projects', label: 'Projects', scope: 'Every project on this orrery, and where the sidebar lists it.', sections: [
         {id: 'projects', text: 'Projects in the sidebar', level: 2},
@@ -360,6 +361,16 @@ async function pick(tint: string | null) {
           </p>
         </header>
         <PhoneLink />
+      </section>
+
+      <section v-if="tab === 'you'" id="logins" class="scroll-mt-6 flex flex-col gap-3">
+        <header class="flex flex-col gap-0.5">
+          <h2 class="text-[15px] font-semibold text-fg">{{ title.logins }}</h2>
+          <p class="text-xs text-muted">
+            Each browser and phone signed in to this orrery. End one you've lost, and it has to sign in again.
+          </p>
+        </header>
+        <LoginSettings />
       </section>
 
       <section v-if="tab === 'projects'" id="projects" class="scroll-mt-6 flex flex-col gap-3">

@@ -4,6 +4,8 @@
 import {createHash, randomBytes} from 'node:crypto'
 
 export const LINK_MINUTES = 5
+/** What a login made by the QR code is called in App settings' list of logins (ORR-838). */
+export const PHONE_LOGIN = 'Phone, signed in by QR code'
 const MAX = 20
 const links = new Map<string, {person: string, expires: number}>()
 const hash = (token: string) => createHash('sha256').update(token).digest('hex')
