@@ -23,10 +23,13 @@ let scoped: {chunk: string, body: Record<string, unknown>}[]
 let messages: {schedule: number, text: string, target?: string}[]
 /** The launches whose prompt the owner's Allow answered. */
 let answered: string[]
+/** The labels of the issues a session is started on, by id. */
+let issueLabels: Record<string, string[]>
 
 beforeEach(async () => {
     sent = []
     answered = []
+    issueLabels = {}
     listeners = 0
     started = {greenhouse: 0, all: 0}
     starts = {limit: 2, minutes: 30}
@@ -61,6 +64,10 @@ beforeEach(async () => {
     vi.stubGlobal('useStore', () => ({ownerOf: async () => ({name: 'skoll'}), 
         starts: () => new Promise(resolve => setTimeout(() => resolve(starts), 0)),
         lastSignal: async () => 41,
+        issue: async (_project: string, id: string) => {
+            if (id === 'GRE-404') throw Object.assign(new Error('No issue GRE-404'), {statusCode: 404})
+            return {id, labels: issueLabels[id] ?? []}
+        },
         focus: async (_project: string, issue: string, body: {session: string}) => {
             if (issue === 'GRE-404') throw Object.assign(new Error('No issue GRE-404'), {statusCode: 404})
             focused.push({issue, session: body.session})
@@ -864,6 +871,18 @@ describe('a session started on a model (ORR-868)', () => {
         const launch = await launches.startLaunch('greenhouse')
         expect(launch.model).toBeUndefined()
         expect(launches.claim('greenhouse', launch.id, token, true, true)).toBe(true)
+    })
+
+    it("starts one on an issue on its kind's model, its highest-ranked label's", async () => {
+        launches.addLauncher('greenhouse')
+        issueLabels = {'GRE-1': ['docs'], 'GRE-2': ['docs', 'security'], 'GRE-3': []}
+        expect(await launches.startLaunch('greenhouse', {issue: 'GRE-1'})).toMatchObject({model: 'sonnet'})
+        // Security outranks Docs, and best is Claude Code's own pick: no model asked for.
+        expect((await launches.startLaunch('greenhouse', {issue: 'GRE-2'})).model).toBeUndefined()
+        starts = {limit: 5}
+        expect((await launches.startLaunch('greenhouse', {issue: 'GRE-3'})).model).toBeUndefined()
+        // What the owner picks beats the kind's.
+        expect(await launches.startLaunch('greenhouse', {issue: 'GRE-1', model: 'opus'})).toMatchObject({model: 'opus'})
     })
 
     it('keeps the model a launcher reports after orrery restarted', () => {

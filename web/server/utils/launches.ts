@@ -9,7 +9,7 @@
 import {AsyncLocalStorage} from 'node:async_hooks'
 import {randomBytes} from 'node:crypto'
 import type {Effort, LauncherRepo, RepoAdded, Session, SessionContext, Signal, StartedSession, Starts, TerminalApp} from '#shared/roadmap'
-import {EFFORTS, isEffort, isModel} from '#shared/roadmap'
+import {EFFORTS, isEffort, isModel, modelFor} from '#shared/roadmap'
 import type {Actor} from './store'
 import {EVERY} from './pool'
 import {scheduleRunning} from './schedules'
@@ -231,6 +231,12 @@ export async function startLaunch(project: string, {issue, statuses, release: ve
     const apart = hears?.filter(p => p !== project && !foldersOf(project).some(dir => foldersOf(p).includes(dir)))
     if (apart?.length) throw conflict(`${apart.join(', ')} ${apart.length === 1 ? "isn't" : "aren't"} served from ${project}'s repo, so one session there can't hear ${apart.length === 1 ? 'it' : 'them'}: start a session for each`)
     const starts = await roomFor(project)
+    // Focused on an issue with no model asked for, it starts on what the issue's kind is set to (ORR-868). `best` is
+    // Claude Code's own pick, so it asks for none and any launcher can take it.
+    if (issue && !model && !effort) {
+        const picked = modelFor(await useStore().issue(project, issue))
+        if (picked.model !== 'best') ({model, effort} = picked)
+    }
     // Held from here, so the limit counts it while its focus is made.
     const held = hold(project, {after: 0, ...starts.minutes ? {minutes: starts.minutes} : {}, ...context ? {context} : {}, ...hears ? {hears} : {}, ...model ? {model} : {}, ...effort ? {effort} : {}, ...actor?.owner ? {person: actor.name} : {}})
     try {
@@ -508,7 +514,8 @@ export async function stopDue(now = Date.now()): Promise<string[]> {
         if (!overdue && await store.busy(session.project, ids, !!started.untrusted)) continue
         stopping.set(started.launch, now)
         if (starts.get(session.project)?.min && !started.untrusted) {
-            replacing.set(started.launch, {project: session.project, ...started.context ? {context: started.context} : {}, ...started.hears ? {hears: started.hears} : {}, ended: false})
+            replacing.set(started.launch, {project: session.project, ...started.context ? {context: started.context} : {}, ...started.hears ? {hears: started.hears} : {},
+                ...started.model ? {model: started.model} : {}, ...started.effort ? {effort: started.effort} : {}, ended: false})
         }
         emit({type: 'stop', project: session.project, id: started.launch})
         stopped.push(started.launch)
@@ -517,10 +524,10 @@ export async function stopDue(now = Date.now()): Promise<string[]> {
 }
 
 /** The sessions orrery stopped as done (time up, or idle too long) while the owner keeps a minimum running, by launch:
- * once one has `ended`, one like it (its project, context and the projects it hears) is started in its place, with a
+ * once one has `ended`, one like it (its project, context, the projects it hears and its model) is started in its place, with a
  * fresh context. One the owner stops isn't among them, nor an untrusted run's. Kept in memory: an orrery that restarts
  * before one has been replaced forgets it, and its launchers' sessions carry on as they were. */
-const replacing = new Map<string, {project: string, context?: SessionContext, hears?: string[], ended: boolean}>()
+const replacing = new Map<string, {project: string, context?: SessionContext, hears?: string[], model?: string, effort?: Effort, ended: boolean}>()
 /** The launches that have ended lately, and when: their sessions' channels may not have closed yet. */
 const ended = new Map<string, number>()
 const ENDED_FOR = 5 * 60 * 1000
@@ -544,7 +551,7 @@ async function fill(): Promise<Launch[]> {
     // take its place once it's gone (ORR-481).
     for (const [id, at] of ended) if (Date.now() - at > ENDED_FOR) ended.delete(id)
     const dying = listSessions().filter(s => s.started && !s.started.chat && s.listening && ended.has(s.started.launch)).length
-    for (const [id, {project, context, hears, ended}] of replacing) {
+    for (const [id, {project, context, hears, model, effort, ended}] of replacing) {
         if (!ended) continue
         const starts = await useStore().starts(project).catch(() => undefined)
         if (!starts?.min || startedSessions() - dying + pendingOn() >= starts.min) {
@@ -553,7 +560,7 @@ async function fill(): Promise<Launch[]> {
         }
         if (!launchersOf(project)) continue
         try {
-            started.push(await startLaunch(project, {...context ? {context} : {}, ...hears ? {hears} : {}}))
+            started.push(await startLaunch(project, {...context ? {context} : {}, ...hears ? {hears} : {}, ...model ? {model} : {}, ...effort ? {effort} : {}}))
             replacing.delete(id)
         } catch {
             // No room under the limit, or its repo no longer serves what it heard: tried again at the next check.
