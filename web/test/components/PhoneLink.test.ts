@@ -1,4 +1,4 @@
-import {afterEach, describe, expect, it} from 'vitest'
+import {afterEach, describe, expect, it, vi} from 'vitest'
 import type {VueWrapper} from '@vue/test-utils'
 import {flushPromises} from '@vue/test-utils'
 import {mountSuspended, registerEndpoint} from '@nuxt/test-utils/runtime'
@@ -64,15 +64,19 @@ describe('Open on your phone', () => {
     })
 
     it('puts a one-time sign-in link in the code when the phone has its own port', async () => {
-        const wrapper = await mount(links({phone: true, addresses: [{url: 'https://orrery.example', from: 'host'}]}))
-        expect(made).toBe(1)
-        expect(wrapper.text()).toContain("you're signed in, on a login of the phone's own")
-        // The code is drawn from the link with the token, so a different token draws a different code.
-        const withToken = code(wrapper).html()
-        wrapper.unmount()
-        mounted.pop()
+        // The code without a sign-in link first, so the one with it can be waited for: the token comes back after the
+        // POST is answered, and a busy run may draw the code before it does (ORR-898).
         const plain = await mount(links({phone: false, addresses: [{url: 'https://orrery.example', from: 'host'}]}))
-        expect(code(plain).html()).not.toBe(withToken)
+        await vi.waitFor(() => expect(code(plain).html()).toContain('<svg'))
+        const without = code(plain).html()
+        expect(made).toBe(0)
+        plain.unmount()
+        mounted.pop()
+        const wrapper = await mount(links({phone: true, addresses: [{url: 'https://orrery.example', from: 'host'}]}))
+        expect(wrapper.text()).toContain("you're signed in, on a login of the phone's own")
+        // The code is drawn from the link with the token, so it isn't the plain one.
+        await vi.waitFor(() => expect(code(wrapper).html()).not.toBe(without))
+        expect(made).toBe(1)
     })
 
     it('says how to reach it when orrery can\'t see the machine\'s address from its container', async () => {
