@@ -15,10 +15,13 @@ const {newErrors} = useLoggedEvents()
 const route = useRoute()
 const router = useRouter()
 
-onMounted(() => {
-    seen()
+function loadLists() {
     load('waiting')
     load('inbox')
+}
+onMounted(() => {
+    seen()
+    loadLists()
 })
 // Those arriving while it's open count as seen too, for the bell.
 watch(notices, () => seen())
@@ -39,6 +42,12 @@ const waiting = computed(() => waitingRows(lists.value.waiting.items.filter(inOn
 const days = computed(() => noticeDays(lists.value.inbox.items.filter(inOnly)))
 const shown = computed(() => listed.value.filter(inOnly))
 const loaded = computed(() => lists.value.inbox.loaded && lists.value.waiting.loaded)
+/** Why a list the page waits on couldn't be read, so it says so rather than spinning (ORR-854). */
+const failed = computed(() => [lists.value.waiting, lists.value.inbox].find(l => !l.loaded && l.failed)?.failed ?? '')
+function retry() {
+    for (const list of [lists.value.waiting, lists.value.inbox]) list.failed = undefined
+    loadLists()
+}
 const clearable = computed(() => shown.value.filter(n => !n.cleared))
 const readShown = computed(() => shown.value.filter(n => n.read && !isWaiting(n) && !n.cleared))
 const anyRead = computed(() => readShown.value.length > 0)
@@ -106,7 +115,7 @@ const {width: listWidth, initial: initialListWidth} = usePaneWidth('orrery-notif
     <span class="shrink-0 text-xs text-faint">Events →</span>
   </NuxtLink>
 
-  <UiLoading v-if="!loaded" />
+  <UiLoading v-if="!loaded" :failed="failed" what="the notifications" @retry="retry" />
   <div v-else-if="!shown.length && only && listed.length" class="flex min-h-0 flex-1 flex-col items-center gap-2 overflow-y-auto px-4 py-24 text-center">
     <p class="text-sm text-muted">No notifications in {{ projectName(only) }}.</p>
     <UiButton variant="ghost" size="xs" @click="only = ''">Show all projects</UiButton>

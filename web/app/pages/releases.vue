@@ -10,7 +10,7 @@ const route = useRoute()
 const router = useRouter()
 const {projects, ready, byId} = useRoadmaps()
 const {ordered} = useProjectOrder()
-const {cards: read, failed} = useAllReleases()
+const {cards: read, failed, load} = useAllReleases()
 const only = computed({
     get: () => (route.query.project as string | undefined) ?? '',
     set: id => router.replace({query: id ? {project: id} : {}}),
@@ -41,12 +41,12 @@ const rows = (card: typeof cards.value[number]): TrackedRelease[] => [...card.tr
       <span class="truncate">{{ projectOptions.find(o => o.value === only)?.label ?? name(only) }}</span>
     </PropertyPicker>
     <span v-if="read" class="text-xs text-muted">{{ count }}</span>
-    <span v-if="failed" class="text-xs text-rose-700 dark:text-rose-400">{{ failed }}</span>
+    <span v-if="failed && read" class="text-xs text-rose-700 dark:text-rose-400">Couldn't read them again: {{ failed }}</span>
   </ViewToolbar>
 
   <div class="clear-agent min-h-0 flex-1 overflow-y-auto">
     <EmptyProjects v-if="ready && !projects.length" />
-    <UiLoading v-else-if="!read && !failed" />
+    <UiLoading v-else-if="!read" :failed="failed" what="the releases" @retry="load" />
     <div v-else-if="read" class="mx-auto flex max-w-4xl flex-col gap-4 px-4 py-6">
       <ul v-if="cards.length" class="flex flex-col gap-4" aria-label="Projects with releases">
         <li v-for="card in cards" :key="card.project" class="overflow-hidden rounded-xl border border-line dark:bg-panel">

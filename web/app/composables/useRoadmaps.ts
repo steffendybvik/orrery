@@ -6,6 +6,10 @@ import type {Project, Session, Signal} from '#shared/roadmap'
 export function useRoadmaps() {
     const projects = useState<Project[]>('projects', () => [])
     const ready = useState('projects-ready', () => false)
+    /** Why the first read of the projects failed ('' while it hasn't): pages show it in place of their spinner (UiLoading),
+     * with a Try again that bumps `retries`, which the `roadmaps` plugin reads them again on (ORR-854). */
+    const failed = useState('projects-failed', () => '')
+    const retries = useState('projects-retries', () => 0)
     const live = useState<'connecting' | 'connected' | 'reconnecting' | 'offline'>('projects-live', () => 'connecting')
     const changed = useState<Record<string, number>>('projects-changed', () => ({}))
     /** How many Claude sessions listen for each project's signals (known for projects asked about). */
@@ -41,5 +45,5 @@ export function useRoadmaps() {
         reading.set(id, read)
         return read
     }
-    return {projects, ready, live, changed, listeners, launchers, sessions, chatSessions, signals, partial, byId, reload, whole}
+    return {projects, ready, failed, retries, live, changed, listeners, launchers, sessions, chatSessions, signals, partial, byId, reload, whole}
 }

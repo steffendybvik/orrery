@@ -9,7 +9,7 @@ import {applyPatch} from '#shared/patch'
 export default defineNuxtPlugin(() => {
     // On the login page there's nothing yet it may read.
     if (useAuth().loggedOut.value) return
-    const {projects, ready, live, changed, listeners, launchers, sessions, chatSessions, signals, partial, whole} = useRoadmaps()
+    const {projects, ready, failed, retries, live, changed, listeners, launchers, sessions, chatSessions, signals, partial, whole} = useRoadmaps()
     const router = useRouter()
     /** The project the page is on, read whole once the projects are in, and those it shares releases with, whose
      * issues its release pages show. */
@@ -36,6 +36,7 @@ export default defineNuxtPlugin(() => {
         partial.value = Object.fromEntries(read.map(p => [p.id, p.id !== own]))
         projects.value = read
         ready.value = true
+        failed.value = ''
         wholeForPage()
         // What the bell, the sidebar and the chat need, side by side: none waits on another (ORR-766).
         // A session can change while this is read: what the `sessions` event says by then is the newer.
@@ -181,8 +182,15 @@ export default defineNuxtPlugin(() => {
         })
     }
 
-    load().catch(() => {
-        ready.value = true
-    })
+    // A first read that fails says so, in place of each page's spinner, rather than leaving it spinning, or showing no
+    // projects as if there were none (ORR-854); Try again reads them again.
+    async function first() {
+        failed.value = ''
+        await load().catch(error => {
+            failed.value = errorMessage(error, 'load them')
+        })
+    }
+    watch(retries, first)
+    void first()
     connect()
 })
