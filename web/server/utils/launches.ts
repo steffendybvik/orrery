@@ -462,8 +462,12 @@ export function reportRunning(project: string, launches: {id: string, tmux: stri
             ...model ? {model} : {}, ...effort ? {effort} : {}}
         reported.set(id, {project, ...known})
         adoptLaunch(project, {launch: id, ...known})
+        if (chat) chatRunning(id)
     }
 }
+
+/** Whether orrery knows of the launch: on its way, or said by its launcher to run. */
+export const launchKnown = (id: string) => pending.has(id) || reported.has(id)
 
 /** The launch has ended, whether or not its session ever connected: it no longer holds the project's place. */
 export function launchGone(id: string) {

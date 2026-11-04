@@ -82,6 +82,9 @@ Linux the spec skips; `pnpm test:e2e:visual` (in `web/`) runs it in CI's Playwri
 `pnpm test:e2e:login` runs `e2e/login/` on an orrery of its own with `ORRERY_AUTH=on` and a fresh `web/.data/e2e-login.db`, as
 the flows' stays one person's: the login page, signing in with a key, Settings' keys and logging out.
 
+`pnpm test:e2e:restart` builds the app and runs `e2e/restart/` on it, with a fresh `web/.data/e2e-restart.db`: the spec
+stops and starts the server itself, to check what outlives a restart (the owner's chats). `RESTART_NO_BUILD=1` skips the build.
+
 `pnpm images:readme` takes the README's images into `docs/images`, all 1440×900, from the playground's demo on an orrery of
 its own with a fresh `web/.data/readme.db`. It's a script rather than a test, so it isn't part of `pnpm test:e2e`. It rewrites only the images that differ by more than a run's own noise. A machine that isn't Linux renders every image differently, so the real ones come from the **Images** workflow, in CI's Playwright image: `gh workflow run images.yml --ref v<version>`, on a release branch. Any that changed go on `images/v<version>`, as one commit on that branch's tip, and the run's summary links the pull request to open. Actions can't open it here, and its checks wouldn't start if it did. Someone looks at the images, so it doesn't merge itself. A later run updates an open one and starts its checks again.
 
