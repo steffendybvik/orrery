@@ -105,6 +105,10 @@ test("shows the model each session runs on, from its hook, and the new one after
         await expect(model).toHaveAttribute('title', 'claude-opus-5-5')
         await request.post('/api/sessions', {data: {id: 'e2e-model', project: 'kitchen', event: 'Stop', model: 'claude-sonnet-5-5'}})
         await expect(model).toHaveText('Sonnet 5.5')
+        // Its effort level beside it, once its hook has said (ORR-894).
+        await request.post('/api/sessions', {data: {id: 'e2e-model', project: 'kitchen', event: 'PreToolUse', effort: 'high'}})
+        await expect(model).toHaveText('Sonnet 5.5 · high')
+        await expect(model).toHaveAttribute('title', 'claude-sonnet-5-5 · high effort')
     } finally {
         channel.stop()
         await request.post('/api/sessions', {data: {id: 'e2e-model', project: 'kitchen', event: 'SessionEnd'}})
