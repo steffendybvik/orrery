@@ -12,6 +12,14 @@ else.
 - **Off this machine, it asks for a login.** With `ORRERY_HOST=0.0.0.0` or any address but loopback, or a plain
   `docker run`, every route refuses anything without a login or a key, reads included, and until someone
   has claimed the server it answers nothing else ([Login and keys](#login-and-keys)).
+- **From a phone**, away from the Mac ([Using orrery from a phone](/p/orrery/docs/phone)), the ways in, safest first:
+  hosted on a server of its own over https ([Hosting on a server](/p/orrery/docs/hosting)); a private VPN, which
+  keeps it to your own devices, with https on top for the phone to install the page or get pushes; and a public
+  tunnel only with `ORRERY_AUTH=on`, and better not at all, as a tunnel looks like loopback and the login is then
+  the Mac's only lock against the internet.
+- **A signed-in phone is the owner.** It can press **Allow** on the Mac's sessions' prompts, and do all else the owner
+  does, for as long as its cookie lasts (30 days). Give the phone a screen lock, and log out on it when you're done. A
+  lost phone's login can't be ended from the Mac yet (ORR-838): until then, the `known-defects` doc says what to do.
 - **Host names.** orrery answers to `localhost` (and `*.localhost`) and IP addresses. Reaching it by
   another name, say `orrery.lan`, needs `ORRERY_ALLOWED_HOSTS=orrery.lan` (`NUXT_ALLOWED_HOSTS` without
   Docker). This is what stops DNS rebinding, a website pointing its own domain at your machine.
