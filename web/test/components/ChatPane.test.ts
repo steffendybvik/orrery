@@ -7,7 +7,7 @@ import ChatPane from '~/components/ChatPane.vue'
 // The owner's chat pane (ChatPane): the corner button, the greeting, and how what's typed goes. Quick messages in a row
 // are held and go as one once typing stops (ORR-517), ⌘-Enter sends at once, Esc in an empty box takes the last one back,
 // a slash command goes at once and `/clear` clears, what couldn't go waits for Retry (ORR-530), and closing puts what's
-// held back in the box (ORR-523). useChat.test.ts holds the composable, and chat.spec.ts the flows in a browser (ORR-792).
+// held back in the box (ORR-523). The pane is open or closed, and says nothing of whether its chat is live (ORR-883). useChat.test.ts holds the composable, and chat.spec.ts the flows in a browser (ORR-792).
 const HOLD_MS = 2000
 const chat = (id: string, more: Partial<Chat> = {}) => ({id, project: 'shed', started_at: '2026-11-04T10:00:00Z', issues: 'todo', messages: [], ...more}) as unknown as Chat
 const project = (id: string, name: string) =>
@@ -188,6 +188,23 @@ describe('ChatPane', () => {
         useChat().open.value = true
         await flushPromises()
         expect((box().element as HTMLTextAreaElement).value).toBe('')
+    })
+
+    it('is open or closed: no Minimize, Esc closes it with the chat running, and nothing says it is ready (ORR-883)', async () => {
+        useChat().arrived(chat('c2', {messages: [{id: 1, at: '2026-11-04T10:00:00Z', from: 'owner', text: 'Oil the hinge', images: []}]} as Partial<Chat>))
+        useRoadmaps().chatSessions.value = {shed: [{id: 's1', name: 'shed · Ask', state: 'idle', started: {launch: 'c2'}} as never]}
+        const {pane, box} = await mount()
+        expect(pane.find('[data-testid="chat-name"]').exists()).toBe(true)
+        expect(pane.find('header').text()).not.toContain('Ready')
+        expect(pane.findAll('button').some(b => /Minimize/.test(b.attributes('aria-label') ?? ''))).toBe(false)
+        await box().trigger('keydown', {key: 'Escape'})
+        await flushPromises()
+        expect(useChat().open.value).toBe(false)
+        expect(posted.some(p => p.path === 'end')).toBe(false)
+        expect(useChat().chat.value?.ended).toBeFalsy()
+        const corner = pane.find('button[title^="Chat about a project"]')
+        expect(corner.text()).toBe('Agent')
+        expect(corner.find('svg').classes()).not.toContain('animate-pulse')
     })
 
     it("leaves the focus in a field elsewhere: an image landing doesn't pull it back to the box (ORR-834)", async () => {
