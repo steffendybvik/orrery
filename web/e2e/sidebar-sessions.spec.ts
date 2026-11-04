@@ -1,5 +1,5 @@
 import type {APIRequestContext} from '@playwright/test'
-import {expect, test} from '@playwright/test'
+import {expect, test} from './test'
 
 // The sidebar's sessions list is a panel of its own (ORR-897): its top edge drags it taller, its arrow folds it away,
 // and both hold over a reload. A project of its own, with a session listening on it.

@@ -25,7 +25,9 @@ export default defineNuxtConfig({
     // The host is always given (ORR-849): with none, nuxt 4.6.4 resolves it to `{}`, and the CLI's dev server stops on it
     // (`options.hostname.toLowerCase is not a function`). The dev container's HOST still wins. A checkout that already ran
     // into it keeps `{}` in node_modules/.cache/nuxt/dev-server.json, which the browser specs' servers clear first.
-    devServer: {port: 9000, host: process.env.NUXT_HOST || process.env.NITRO_HOST || process.env.HOST || 'localhost'},
+    // `127.0.0.1`, not `localhost` (ORR-910): in the Playwright image `localhost` looks up as `::1` first, so the server
+    // listened on IPv6 alone, and Node's fetch to `localhost` (the specs' seed and streams) got ECONNREFUSED on 127.0.0.1.
+    devServer: {port: 9000, host: process.env.NUXT_HOST || process.env.NITRO_HOST || process.env.HOST || '127.0.0.1'},
 
     css: ['~/assets/css/fonts.css', '~/assets/css/main.css'],
 
