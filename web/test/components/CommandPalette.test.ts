@@ -177,7 +177,7 @@ describe('CommandPalette', () => {
         await input().setValue('gre-3')
         await key('Enter')
         // The issue's page is built the first time it's gone to, which a busy machine takes well over a second for.
-        await vi.waitFor(() => expect(useRouter().currentRoute.value.path).toBe('/p/greenhouse/issues/GRE-3'), {timeout: 5000})
+        await vi.waitFor(() => expect(useRouter().currentRoute.value.path).toBe('/p/greenhouse/issues/GRE-3'), {timeout: 12000})
         expect(useState('palette-open').value).toBe(false)
         useState('palette-open').value = true
         await vi.waitFor(() => expect(input().exists()).toBe(true))
