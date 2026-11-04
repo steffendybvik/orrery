@@ -16,7 +16,7 @@ export default defineConfig({
     outputDir: 'test-results-login',
     use: {baseURL: `http://localhost:${port}`, trace: 'retain-on-failure', ...devices['Desktop Chrome']},
     webServer: {
-        command: `rm -f .data/e2e-login.db .data/e2e-login.db-* .data/e2e-login.db.backups.json && nuxt dev --port ${port}`,
+        command: `rm -f node_modules/.cache/nuxt/dev-server.json .data/e2e-login.db .data/e2e-login.db-* .data/e2e-login.db.backups.json && nuxt dev --port ${port}`,
         // Its address is given (`ORRERY_PHONE_URL`, as for a VPN's name), so the QR link goes to this machine's phone port
         // whatever networks the machine running the tests is on.
         env: {
