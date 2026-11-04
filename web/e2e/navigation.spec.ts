@@ -107,10 +107,25 @@ const landsOn = (path: string) => new RegExp(`${path.split('?')[0]}${path.endsWi
 
 const heading = (page: Page, name: string) => page.getByRole('heading', {name, exact: true}).first()
 
-test('every page renders its heading, with no page or console error', async ({page}) => {
+/** The requests seen from here on that went to a host other than the page's own (ORR-846). */
+function watchOtherHosts(page: Page, origin: string) {
+    const elsewhere: string[] = []
+    page.on('request', request => {
+        const url = new URL(request.url())
+        if (/^(https?|wss?):$/.test(url.protocol) && url.host !== new URL(origin).host) elsewhere.push(request.url())
+    })
+    return elsewhere
+}
+
+/** A Content-Security-Policy's directives, by name. */
+const directives = (csp = '') => Object.fromEntries(csp.split(';').map(d => d.trim().split(/\s+/)).filter(d => d[0]).map(([name, ...values]) => [name, values.join(' ')]))
+
+test('every page renders its heading, with no page or console error, and loads nothing from another host', async ({page, baseURL}) => {
     test.setTimeout(120_000)
     await setAdvanced(page, true)
     const errors = watchErrors(page)
+    // orrery serves its own fonts and styles (ORR-766), and SECURITY.md says a page loads nothing from elsewhere.
+    const elsewhere = watchOtherHosts(page, baseURL!)
     for (const route of ROUTES()) {
         await test.step(route.path, async () => {
             await page.goto(route.path)
@@ -119,6 +134,15 @@ test('every page renders its heading, with no page or console error', async ({pa
             expect(errors, route.path).toEqual([])
         })
     }
+    await page.waitForLoadState('networkidle')
+    expect(elsewhere).toEqual([])
+})
+
+test("a page's CSP lets fonts and styles come from orrery alone (ORR-846)", async ({page}) => {
+    const answer = await page.goto('/mine')
+    const csp = directives(answer?.headers()['content-security-policy'])
+    expect(csp['font-src']).toBe("'self' data:")
+    expect(csp['style-src']).toBe("'self' 'unsafe-inline'")
 })
 
 test('an old address goes on to the page that took it over', async ({page}) => {
