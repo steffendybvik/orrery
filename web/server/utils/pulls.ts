@@ -9,7 +9,7 @@
 // hour then), so many pages and issues cost one list per repo.
 import type {H3Event} from 'h3'
 import type {AllPulls, IssuePulls, OpenPull, PastPull, PullIssues, PullRequest, PullRisk, PullState, RiskLevel} from '#shared/roadmap'
-import {PULL_NEEDS, githubRepo} from '#shared/roadmap'
+import {PULL_NEEDS, RISK_LEVELS, githubRepo, highestRisk} from '#shared/roadmap'
 import {conflict, notFound} from './input'
 import type {Store} from './store'
 
@@ -188,7 +188,7 @@ export class Pulls {
         return risk ? {level: risk.level, why: risk.why, by: owner ? 'owner' : 'session'} : null
     }
 
-    /** PR `number` on `repo`, as orrery keeps it, with every issue it names (ORR-880), merged and closed ones too. Only
+    /** PR `number` on `repo`, as orrery keeps it, with every issue it names (ORR-880), merged and closed ones too, riskiest first. Only
      * a PR naming an issue is kept, so one naming none, or never polled, isn't found. */
     async forPull(repo: string, number: number): Promise<PullIssues> {
         const rows = await this.store.db.all<PastPull & {project: string, project_name: string, issue: string, issue_title: string, status: string}>(
@@ -198,8 +198,22 @@ export class Pulls {
         const newest = rows[0]
         if (!newest) throw notFound(`orrery keeps no pull request #${number} on ${repo}: it names no issue and is no release's, or it hasn't been polled`)
         const {number: n, title, url, branch, base, author, state, merged_at, updated_at} = newest
-        const issues = rows.map(r => ({project: r.project, project_name: r.project_name, id: r.issue, title: r.issue_title, status: r.status}))
-            .sort((a, b) => a.project.localeCompare(b.project) || a.id.localeCompare(b.id, undefined, {numeric: true}))
+        // Each issue's riskiest rated PR (ORR-914), its own or this one, so a release PR's riskiest issues are read first.
+        const rated = await this.store.db.all<{project: string, issue: string, risk: RiskLevel, risk_why: string | null, risk_by: string | null}>(
+            `SELECT q.project, q.issue, q.risk, q.risk_why, q.risk_by FROM issue_pulls q
+             JOIN issue_pulls p ON p.project = q.project AND p.issue = q.issue
+             WHERE lower(p.repo) = lower(?) AND p.number = ? AND q.risk IS NOT NULL`, repo, number)
+        const risks = new Map<string, PullRisk>()
+        for (const r of rated) {
+            const key = `${r.project}/${r.issue}`
+            const risk: PullRisk = {level: r.risk, why: r.risk_why ?? '', by: r.risk_by === 'owner' ? 'owner' : 'session'}
+            risks.set(key, highestRisk([risks.get(key), risk]) ?? risk)
+        }
+        const rank = (risk?: PullRisk) => risk ? RISK_LEVELS.indexOf(risk.level) : RISK_LEVELS.length
+        const issues = rows.map(r => {
+            const risk = risks.get(`${r.project}/${r.issue}`)
+            return {project: r.project, project_name: r.project_name, id: r.issue, title: r.issue_title, status: r.status, ...risk ? {risk} : {}}
+        }).sort((a, b) => rank(a.risk) - rank(b.risk) || a.project.localeCompare(b.project) || a.id.localeCompare(b.id, undefined, {numeric: true}))
         return {repo, pull: {number: n, title, url, branch, base, author, state, merged_at, updated_at}, issues}
     }
 

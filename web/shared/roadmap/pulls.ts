@@ -84,8 +84,9 @@ export interface PastPull {
 export interface PullIssues {
     repo: string
     pull: PastPull
-    /** The issues it names, on any project, by project then id. */
-    issues: {project: string, project_name: string, id: string, title: string, status: string}[]
+    /** The issues it names, on any project, riskiest first (ORR-914), then by project and id. `risk`: the riskiest of the
+     * issue's rated PRs, this one or its own, as the board has it; left out when none is rated. */
+    issues: {project: string, project_name: string, id: string, title: string, status: string, risk?: PullRisk}[]
 }
 
 export interface IssuePulls {
