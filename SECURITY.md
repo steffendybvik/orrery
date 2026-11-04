@@ -7,8 +7,11 @@ else.
 
 ## Who can reach it
 
-- **This machine only, by default.** Compose publishes the port on `127.0.0.1`, and the dev server
-  (`docker-compose.dev.yml`) is always this machine's only, since it also hands out the source.
+- **The sessions' address is this machine's only, by default.** Compose publishes `ORRERY_PORT` on `127.0.0.1`, and the
+  dev server (`docker-compose.dev.yml`) is always this machine's only, since it also hands out the source.
+- **The phone's port is on your network, and always asks for a login.** Compose also publishes `ORRERY_PHONE_PORT`
+  (`19000` by default) on every address, for App settings' QR code ([how it's kept apart](#what-only-the-owner-writes)).
+  `ORRERY_PHONE_HOST=127.0.0.1` keeps it to this machine.
 - **Off this machine, it asks for a login.** With `ORRERY_HOST=0.0.0.0` or any address but loopback, or a plain
   `docker run`, every route refuses anything without a login or a key, reads included, and until someone
   has claimed the server it answers nothing else ([Login and keys](#login-and-keys)).
@@ -18,8 +21,8 @@ else.
   tunnel only with `ORRERY_AUTH=on`, and better not at all, as a tunnel looks like loopback and the login is then
   the Mac's only lock against the internet.
 - **A signed-in phone is the owner.** It can press **Allow** on the Mac's sessions' prompts, and do all else the owner
-  does, for as long as its cookie lasts (30 days). Give the phone a screen lock, and log out on it when you're done. A
-  lost phone's login can't be ended from the Mac yet (ORR-838): until then, the `known-defects` doc says what to do.
+  does, for as long as its cookie lasts (30 days). Give the phone a screen lock, and log out on it when you're done. End a
+  lost phone's login from the Mac, under App settings → You → Signed in.
 - **Host names.** orrery answers to `localhost` (and `*.localhost`) and IP addresses. Reaching it by
   another name, say `orrery.lan`, needs `ORRERY_ALLOWED_HOSTS=orrery.lan` (`NUXT_ALLOWED_HOSTS` without
   Docker). This is what stops DNS rebinding, a website pointing its own domain at your machine.
