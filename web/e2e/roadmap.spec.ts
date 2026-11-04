@@ -45,7 +45,8 @@ test("a milestone's right-click menu sets its priority, files an issue in it, co
         const copied: string[] = (window as unknown as {copied: string[]}).copied = []
         navigator.clipboard.writeText = async text => { copied.push(text) }
     })
-    const card = page.getByRole('link', {name: /Ladders/}).first()
+    // By its own address, as a retry finds the first try's Ladders on the roadmap too.
+    const card = page.locator(`a[href="/p/orchard/roadmap/${milestone.id}"]`).first()
     const menu = page.getByRole('menu', {name: `Actions for milestone ${milestone.id}`})
 
     await card.click({button: 'right'})
