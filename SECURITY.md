@@ -266,8 +266,24 @@ took a request, and the page would show what it said, which is all it gets.
 **Open on your phone** (ORR-833): a launcher's stream also says its machine's IPv4 addresses on its networks, so App
 settings can show a phone where to open orrery when it runs in Docker. They're kept in memory while the stream is open,
 and only ever shown as links; anything that isn't an address is dropped. A launcher could say a wrong one, and the page
-would offer it, so check the address before signing in on the phone. The QR code is drawn on the page, and nothing is
+would offer it, so check the address before scanning. The QR code is drawn on the page, and nothing is
 sent anywhere to make it.
+
+**The phone's port** (ORR-837): orrery listens twice. The sessions' address (`ORRERY_PORT`, on `127.0.0.1`) is as above.
+The phone's own (`ORRERY_PHONE_PORT`, `1` before `ORRERY_PORT`, on every address unless `ORRERY_PHONE_HOST` says otherwise)
+**always asks for a login**, whatever the other does, and `ORRERY_AUTH=off` closes it rather than opens it. A request is
+known by the port it came in on inside the server, which nothing outside can change, not by its address or its `Host`.
+Over that port nothing counts as this machine (`fromThisMachine`), so claiming, moving the database and the backup
+settings are refused there, whatever `Host` is sent.
+
+App settings' QR code carries a one-time sign-in link to that port: a random token, kept only as its hash, in memory, good
+once and for 5 minutes, at most 20 at a time. Opened, it signs that browser in as the owner with a login of its own. Only
+the owner makes one (`POST /api/phone/link`, the `phone.link` row): from their page on the sessions' address, never over the
+phone's port, and never a session, the chat or an untrusted one, as it would hand them the owner's login. Over plain
+Wi-Fi the link and the login's cookie travel unencrypted, so someone else on it who reads the link first gets the login:
+App settings says so beside the code, and a private VPN (`ORRERY_PHONE_HOST` set to its address) keeps it to your own
+devices. As the link goes to the address shown, a launcher reporting a wrong one would send it there: check the address
+before scanning.
 
 **Allow** on a session at a permission prompt (ORR-489) is the owner's alone, and no session's or chat's: a prompt is
 there for a person to answer. Its launcher presses Enter only while the pane still shows a permission prompt with the

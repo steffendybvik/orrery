@@ -7,6 +7,7 @@ import type {PhoneAddress, PhoneLinks} from '#shared/phone'
 import {inDocker} from './backup-choice'
 import {launcherAddresses} from './connects'
 import {LOOPBACK} from './move'
+import {phoneHost, phonePublishedPort} from './phone-port'
 
 const IPV4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/
 const EVERY = /^(0\.0\.0\.0|::|\[::\]|)$/
@@ -49,9 +50,11 @@ function listening(event: H3Event): string {
 
 export function phoneLinks(event: H3Event): PhoneLinks {
     const docker = inDocker()
-    const port = /:(\d+)$/.exec(getRequestHost(event))?.[1] ?? ''
+    // With the phone's own port (ORR-837), that's where a phone goes; else the one the page was opened on.
+    const phone = phonePublishedPort()
+    const port = phone ? String(phone) : /:(\d+)$/.exec(getRequestHost(event))?.[1] ?? ''
     const at = (address: string) => `http://${address}${port ? `:${port}` : ''}`
-    const bound = listening(event)
+    const bound = phone ? phoneHost() : listening(event)
     const reach = LOOPBACK.test(bound) ? 'loopback' : 'network'
     const found: PhoneAddress[] = []
     const setting = String(useRuntimeConfig().phoneUrl ?? '').trim().replace(/\/+$/, '')
@@ -64,5 +67,5 @@ export function phoneLinks(event: H3Event): PhoneLinks {
         }
     }
     const seen = new Set<string>()
-    return {reach, docker, port, addresses: found.filter(({url}) => !seen.has(url) && seen.add(url))}
+    return {reach, docker, port, phone: !!phone, addresses: found.filter(({url}) => !seen.has(url) && seen.add(url))}
 }

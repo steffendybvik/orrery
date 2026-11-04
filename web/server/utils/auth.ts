@@ -5,6 +5,7 @@ import {actorId} from '../store/schema'
 import {inDocker} from './backup-choice'
 import {LOOPBACK, proxied} from './move'
 import {oidcOn} from './oidc'
+import {viaPhone} from './phone-port'
 
 /** A checked credential: a person in a browser, or an agent of that person, which can never act as them. */
 export interface Who {
@@ -71,6 +72,8 @@ export async function holdSession(event: H3Event, session: string | undefined) {
 /** `off`, as orrery has always been; `on`, asking for a credential; `closed` when told off on a server others can reach,
  * which refuses rather than opens. A database that can't say counts as on. */
 export async function authMode(event: H3Event): Promise<'off' | 'on' | 'closed'> {
+    // The phone's port always asks (ORR-837), whatever the main one does.
+    if (viaPhone(event)) return toldOff() ? 'closed' : 'on'
     const loopback = onLoopback(event)
     if (toldOff()) return loopback ? 'off' : 'closed'
     const on = String(useRuntimeConfig().auth || process.env.ORRERY_AUTH || '').toLowerCase() === 'on'

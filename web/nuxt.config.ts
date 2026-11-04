@@ -52,6 +52,13 @@ export default defineNuxtConfig({
         // The address to open orrery at from a phone, when it's one orrery can't see for itself: an https name, a VPN's
         // (ORR-833). Shown in App settings with a QR code. Override with NUXT_PHONE_URL (ORRERY_PHONE_URL in compose).
         phoneUrl: '',
+        // The phone's own port (ORR-837): a second listener that always asks for a login, so the address the sessions use
+        // stays trusted. `phoneListen` is the port it listens on (ORRERY_PHONE_LISTEN, in the container 9001; outside it,
+        // ORRERY_PHONE_PORT), `phonePort` the one it's published on and `phoneHost` the address (NUXT_PHONE_PORT and
+        // NUXT_PHONE_HOST, which compose sets from ORRERY_PHONE_PORT and ORRERY_PHONE_HOST). Empty: no phone port.
+        phoneListen: '',
+        phonePort: '',
+        phoneHost: '',
         // A Postgres database's URL for the backups, in place of the folder (ORR-427). Compose sets NUXT_BACKUP_DATABASE
         // from ORRERY_BACKUP_DATABASE.
         backupDatabase: '',

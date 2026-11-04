@@ -18,5 +18,7 @@ export interface PhoneLinks {
     docker: boolean
     /** The port the page was opened on, which is the one published. */
     port: string
+    /** The phone has a port of its own (ORR-837), which always asks for a login: the QR code signs it in. */
+    phone: boolean
     addresses: PhoneAddress[]
 }

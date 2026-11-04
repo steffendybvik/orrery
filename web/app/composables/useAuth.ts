@@ -11,6 +11,8 @@ export interface AuthStatus {
     named: boolean
     oidc: boolean
     warn_http: boolean
+    /** On the phone's own port (ORR-837), where the QR code signs you in. */
+    phone?: boolean
 }
 
 export function useAuth() {

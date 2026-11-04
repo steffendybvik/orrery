@@ -54,12 +54,14 @@ All optional, in a `.env` beside `docker-compose.yml` (see `.env.example`):
 | Variable | What it does | Default |
 |---|---|---|
 | `ORRERY_PORT` | the port on this machine | `9000` |
-| `ORRERY_HOST` | who can reach it: anything but loopback asks for a login, once [claimed](#claiming-it-and-logging-in); see [Reach it from your phone](#reach-it-from-your-phone) | `127.0.0.1` |
+| `ORRERY_HOST` | who can reach the sessions' address: anything but loopback asks for a login, once [claimed](#claiming-it-and-logging-in). A phone has a port of its own: see [Reach it from your phone](#reach-it-from-your-phone) | `127.0.0.1` |
 | `ORRERY_AUTH` | `on` always asks for a login; `off` never, on loopback only, for trying people out; unset, see [Logging in](#claiming-it-and-logging-in) | unset |
 | `ORRERY_OIDC_ISSUER`, `ORRERY_OIDC_CLIENT_ID`, `ORRERY_OIDC_CLIENT_SECRET` | any standard OIDC provider to log in through | unset |
 | `ORRERY_DATA` | a folder for the database, `orrery.db` (with its `-wal` and `-shm` files beside it); on Linux it must be writable by uid 1000, the image's `node` user. Not a synced folder: syncing a live SQLite file corrupts it | the `orrery-data` volume |
 | `ORRERY_BACKUP` | a folder for the backups (one that syncs off the machine is best). Without it they stay on this computer, and orrery says so once, and in App settings | the `orrery-backup` volume |
 | `ORRERY_BACKUP_DATABASE` | a `postgres://` URL to back up into instead of the folder: an empty database, or this orrery's backup from before (see [Backups](#backups)) | none |
+| `ORRERY_PHONE_PORT` | the phone's own port, which always asks for a login (see [Reach it from your phone](#reach-it-from-your-phone)) | `1` before `ORRERY_PORT`: `19000` |
+| `ORRERY_PHONE_HOST` | who can reach the phone's port: `127.0.0.1` keeps it to this machine | `0.0.0.0` |
 | `ORRERY_PHONE_URL` | the address to open it at from a phone, for App settings' link and QR code, when it's one orrery can't see for itself: an https name, a VPN's (see [Reach it from your phone](#reach-it-from-your-phone)) | none |
 | `ORRERY_ALLOWED_HOSTS` | host names it answers to besides `localhost` and IP addresses, comma-separated, e.g. `orrery.lan` (see [SECURITY.md](../SECURITY.md)) | none |
 | `ORRERY_DATABASE` | a `postgres://` URL to keep the orrery in Postgres instead (see [Postgres](#postgres)) | the SQLite file |
@@ -240,9 +242,10 @@ an agent key for this machine, shows each once to copy, and signs this browser i
 
 1. Put the agent key in `~/.config/orrery/keys.json`: the page gives a line to run in a terminal that adds it for this address,
    readable by you alone. orrery runs in a container, so it can't write that file itself.
-2. Open it up: set `ORRERY_HOST` (see [Reach it from your phone](#reach-it-from-your-phone)) and `docker compose up -d` again.
+2. Open it up: set `ORRERY_HOST` and `docker compose up -d` again.
    Your sessions already have their key, so they carry on instead of waiting on a login.
-3. Sign in on the phone with the person key.
+
+A phone needs none of this: it has a port of its own (see [Reach it from your phone](#reach-it-from-your-phone)).
 
 The button shows only while nobody has a person key, and only to a page on this machine: from anywhere else, or in Docker once
 `ORRERY_HOST` opens it to the network, claiming is refused, so nothing on the network can race for it.
@@ -282,36 +285,42 @@ Then set `ORRERY_OIDC_ISSUER` to the new address and restart orrery. It's only f
 
 ## Reach it from your phone
 
-Compose publishes orrery on `127.0.0.1`, so only this machine can open it. Anything else
-asks for a login, so [claim it](#claiming-it-and-logging-in) first, and open it only as far as you need.
+**Scan the QR code in App settings → You → Open on your phone** with the phone's camera, and you're signed in. Nothing
+to claim, type or run, and nothing runs on the phone: it opens the orrery on this machine, so the chat, the sessions and
+Allow there all work on this machine's Claude sessions.
 
-**App settings → You → Open on your phone** shows the address to open it at from a phone, with Copy and a QR code to
-scan the first time (made on the page, with nothing sent anywhere). While only this machine can reach it, it lists what's
-left instead: claim it, put the agent key in `keys.json`, and set `ORRERY_HOST`, with where it will be then. The address
-is the one `ORRERY_HOST` names, or with `0.0.0.0` this machine's on its networks: in Docker, where orrery sees only its
-container's, the launcher on this machine tells it (a VM's or Docker's own networks are left out). Set
-`ORRERY_PHONE_URL` for one orrery can't see for itself, such as an https name in front of it; it's shown first.
+orrery listens twice. `ORRERY_PORT` on `127.0.0.1` is the sessions' address, as before: trusted, with no keys. The
+phone's own port (`ORRERY_PHONE_PORT`, `19000`, or `19010` for an `ORRERY_PORT` of `9010`, so two orrerys on one
+machine don't clash) is published on every address and **always asks for a login**, whatever the other does. orrery
+tells them apart by the port a request came in on inside it, never by who sent it, as in Docker every caller looks the same.
+
+The QR code carries a one-time sign-in link to the phone's port: good once, for 5 minutes, and a new one shows as it
+runs out. Opened, it signs the phone in as you, with a login of its own (logging out on the phone ends it). The address
+alone, without the link, asks for a login. Only your own page on this machine makes a link: never a session, the chat,
+or anything on the phone's port. Over the phone's port nothing counts as this machine, so claiming, moving the database
+and the like are refused there.
+
+The address is this machine's on its networks: in Docker, where orrery sees only its container's, the launcher on
+this machine tells it (a VM's or Docker's own networks are left out). Set `ORRERY_PHONE_URL` for one orrery can't see
+for itself, such as an https name in front of it; it's shown first. `ORRERY_PHONE_HOST=127.0.0.1` keeps the phone's
+port to this machine.
+
+**Your Wi-Fi** is the default: it only works at home, and it's plain http, so the link and the login's cookie travel
+unencrypted, and anyone else on the Wi-Fi could read them. App settings says so beside the code.
 
 **Your own devices only (best).** Put this machine and the phone on a private VPN: a free app on
 each that links your own devices, so the phone reaches the machine from anywhere, as if both were
 on the same Wi-Fi. It isn't the paid kind that hides your browsing, and several are free for a
-handful of devices. Then publish orrery on this machine's address on that VPN, and nowhere else:
+handful of devices. Then publish the phone's port on this machine's address on that VPN, and nowhere else:
 
 ```sh
-# .env.personal
-ORRERY_HOST=100.64.0.7               # this machine's address on the VPN; sessions then use it too, not localhost
+# .env
+ORRERY_PHONE_HOST=100.64.0.7         # this machine's address on the VPN; the sessions keep localhost
 ORRERY_ALLOWED_HOSTS=mac.my-vpn.net  # only to open it by the VPN's name for the machine
 ```
 
-`docker compose --env-file .env.personal up -d` again, then open `http://100.64.0.7:9010` (or
-`http://mac.my-vpn.net:9010`) on the phone. Nobody else on the Wi-Fi can reach it. The VPN has to
+`docker compose up -d` again, and the QR code points there. Nobody else on the Wi-Fi can reach it. The VPN has to
 be connected when Docker starts the container, since that's when the address is taken.
-
-**Your Wi-Fi (quickest, nothing to install).** `ORRERY_HOST=0.0.0.0`, then scan the QR code in App settings
-(or open `http://<this machine's IP>:9010`) on the phone, and sign in. `0.0.0.0` keeps `localhost` working for this
-machine's sessions too, with their agent key; a single address (the Wi-Fi's or a VPN's) publishes it there alone, so
-point their `ORRERY_URL` at it. It only works at home, and over plain Wi-Fi your person key and
-the login's cookie travel unencrypted, so anyone else on it could read them, which the login page warns of.
 
 Either way, the database is still moved only from this machine: App settings → This orrery → Database refuses a
 move from any other address.
