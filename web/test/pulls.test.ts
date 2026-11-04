@@ -155,6 +155,19 @@ describe('pull requests', () => {
         expect(asked).toHaveLength(1)
     })
 
+    it('open by number with every issue they name, merged ones too, and 404 on one orrery keeps nothing of (ORR-880)', async () => {
+        const pull = {number: 788, title: 'Cards and refunds', url: 'https://github.com/you/shop/pull/788', branch: 'feat/sho-1', base: 'main', author: 'skoll',
+            merged: true, closed: false, merged_at: '2026-10-29T09:00:00Z', created_at: '2026-10-28T09:00:00Z', updated_at: '2026-10-29T09:00:00Z', names: ['SHO-2', 'SHO-1']}
+        await pulls.remember('you/shop', ['shop'], pull)
+        const got = await pulls.forPull('You/Shop', 788)
+        expect(got.pull).toMatchObject({number: 788, title: 'Cards and refunds', state: 'merged', base: 'main'})
+        expect(got.issues).toEqual([
+            {project: 'shop', project_name: 'shop', id: 'SHO-1', title: 'Pay with cards', status: 'backlog'},
+            {project: 'shop', project_name: 'shop', id: 'SHO-2', title: 'Refunds', status: 'backlog'},
+        ])
+        await expect(pulls.forPull('you/shop', 789)).rejects.toMatchObject({statusCode: 404})
+    })
+
     it('404 on an issue there isn\'t', async () => {
         await expect(pulls.forIssue('shop', 'SHO-99')).rejects.toMatchObject({statusCode: 404})
     })
