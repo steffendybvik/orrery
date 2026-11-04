@@ -5,7 +5,7 @@ import {CheckIcon, SunIcon} from '@heroicons/vue/16/solid'
 
 // A release's page: whether it shipped (and when), the branch its work gathers on with its PRs (when the
 // project says where its code is), its notes, a changelog drafted from its issues, and every one of those
-// issues by status (the board's filters would hide the done ones, most of a release), each row saying its milestone. The branch, notes and day edit in place, as the owner, and it can be
+// issues by status (the board's filters would hide the done ones, most of a release), riskiest first (ORR-879), each row saying its milestone. The branch, notes and day edit in place, as the owner, and it can be
 // removed (its issues stay, set for none). A release shared across projects is its source's: there it shows each
 // project's issues in a section of their own, and from a project drawing on it, that project's, linking the whole.
 // Esc goes back to the releases.
@@ -271,7 +271,7 @@ useHead(() => ({title: release.value && project.value ? `${release.value.version
             <ProgressRing :kinds="part.kinds" :size="14" />
             <span class="text-xs text-faint">{{ part.issues }} {{ part.issues === 1 ? 'issue' : 'issues' }}</span>
           </ViewToolbar>
-          <ListView v-if="part.milestones.length" :milestones="part.milestones" :project="part.project.id" group="status" />
+          <ListView v-if="part.milestones.length" :milestones="part.milestones" :project="part.project.id" group="status" risk-first />
           <p v-else class="px-4 py-6 text-center text-xs text-faint">None of {{ part.project.name }}'s issues are set for it yet.</p>
         </section>
       </template>
@@ -279,7 +279,7 @@ useHead(() => ({title: release.value && project.value ? `${release.value.version
         <ViewToolbar>
           <span class="label">Issues</span>
         </ViewToolbar>
-        <ListView v-if="milestones.length" :milestones="milestones" :project="project.id" group="status" />
+        <ListView v-if="milestones.length" :milestones="milestones" :project="project.id" group="status" risk-first />
         <p v-else class="px-4 py-16 text-center text-sm text-muted">No issues set for this release yet. Pick it under Release on an issue’s page.</p>
       </template>
     </template>

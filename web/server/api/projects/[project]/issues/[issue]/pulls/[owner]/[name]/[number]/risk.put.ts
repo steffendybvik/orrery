@@ -17,5 +17,7 @@ export default defineEventHandler(async event => {
     const owner = kindOf(event, await actorOf(event)) === 'owner'
     const risk = await usePulls().rate(param(event, 'project'), param(event, 'issue'), `${param(event, 'owner')}/${param(event, 'name')}`, number,
         input.level === null ? null : {level: input.level as RiskLevel, why}, owner)
+    // The issue's risk is on its project's board, which open pages filter and sort by: they read it again.
+    reread(await useStore().projectId(param(event, 'project')))
     return {risk}
 })

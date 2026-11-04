@@ -2,6 +2,7 @@
 // changed, and the helpers that name and link them.
 import type {Instruction} from '../prompt'
 import type {ChatScheduleRequest} from './chats'
+import type {PullRisk} from './pulls'
 import type {Effort} from './sessions'
 import type {Starts} from './settings'
 
@@ -147,6 +148,8 @@ export interface Issue {
     blocked_by?: string[]
     /** The issues that depend on it, read the other way. Only with some. */
     blocks?: string[]
+    /** How risky its change is (ORR-879): its riskiest rated PR's. Only once one is rated. */
+    risk?: PullRisk
     created_at: string
     updated_at: string
     tasks: Issue[]

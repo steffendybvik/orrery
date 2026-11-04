@@ -1,12 +1,14 @@
 export type View = 'board' | 'list'
 export type Grouping = 'status' | 'milestone'
+export type Sorting = 'order' | 'risk'
 
 // How the issues were last shown in this browser: as a list (the default) or a board, and the
-// list grouped by status (the default) or by milestone.
+// list grouped by status (the default) or by milestone, and sorted in the board's order (the default) or riskiest first (ORR-879).
 export function useLastView() {
     const view = remembered<View>('orrery-issues-view', 'list', ['board', 'list'])
     const group = remembered<Grouping>('orrery-issues-group', 'status', ['status', 'milestone'])
-    return {view, group}
+    const sort = remembered<Sorting>('orrery-issues-sort', 'order', ['order', 'risk'])
+    return {view, group, sort}
 }
 
 function remembered<T extends string>(key: string, fallback: T, values: T[]) {

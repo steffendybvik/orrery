@@ -1,11 +1,11 @@
 <script setup lang="ts">
-// A project's issues as a list (rows grouped by status or by milestone) or a board (issue cards in their
+// A project's issues as a list (rows grouped by status or by milestone, in the board's order or riskiest first) or a board (issue cards in their
 // columns): `?view=`, keys 1 and 2. Without `?view=` it's the view last picked in this browser.
 const route = useRoute()
 const router = useRouter()
 const {byId, ready, sessions} = useRoadmaps()
 const {matches, active} = useFilters()
-const {view: lastView, group} = useLastView()
+const {view: lastView, group, sort} = useLastView()
 
 const project = computed(() => byId(route.params.project as string))
 const {unseenIn, seeAll} = useUnseen()
@@ -21,6 +21,9 @@ const {count} = useUsage()
 watch(view, now => now === 'board' && count('board-view'), {immediate: true})
 const views = [{value: 'list' as const, label: 'List', hint: '1'}, {value: 'board' as const, label: 'Board', hint: '2'}]
 const groupings = [{value: 'status' as const, label: 'Status'}, {value: 'milestone' as const, label: 'Milestone'}]
+// Riskiest first (ORR-879), once any issue's change is rated.
+const sortings = [{value: 'order' as const, label: 'Order'}, {value: 'risk' as const, label: 'Risk'}]
+const rated = computed(() => !!project.value && allIssues(project.value).some(({issue}) => issue.risk))
 
 const milestones = computed(() => {
     const all = project.value?.board.milestones ?? []
@@ -63,6 +66,10 @@ onMounted(() => nextTick(() => {
       <span class="label">Group</span>
       <SegmentedControl v-model="group" :options="groupings" />
     </div>
+    <div v-if="view === 'list' && rated" class="flex items-center gap-1.5 max-sm:hidden">
+      <span class="label">Sort</span>
+      <SegmentedControl v-model="sort" :options="sortings" />
+    </div>
     <template #end>
       <UiButton
           v-if="unseenIn(project)"
@@ -90,7 +97,7 @@ onMounted(() => nextTick(() => {
       </div>
       <div v-else-if="!milestones.length" class="grid place-items-center px-4 py-24 text-sm text-muted">No issue matches the filters.</div>
       <IssueBoard v-else-if="view === 'board'" :milestones="milestones" :project="project.id" />
-      <ListView v-else :milestones="milestones" :project="project.id" :group="group" />
+      <ListView v-else :milestones="milestones" :project="project.id" :group="group" :risk-first="rated && sort === 'risk'" />
     </template>
     <NotFound v-else-if="ready" reason="It may have been renamed or deleted." to="/mine" back="Go to My issues">No project “{{ route.params.project }}”</NotFound>
     <UiLoading v-else />

@@ -3,14 +3,22 @@ import type {Milestone, Column, Counts, Issue, Kinds} from '#shared/roadmap'
 
 // Top-level issues as rows with their sub-issues under them, in groups that fold: by status (Doing…Done, each row
 // saying its milestone; started first) or by milestone. Closed groups start folded, unless a filter is on. `#group-end` adds to a group's header.
-// An open group's header has a tick (GroupTick) for every row it shows, sub-issues included.
-const props = withDefaults(defineProps<{milestones: Milestone[], project: string, group: 'status' | 'milestone', showMilestone?: boolean}>(), {showMilestone: true})
+// An open group's header has a tick (GroupTick) for every row it shows, sub-issues included. With `riskFirst`, each
+// group's rows are riskiest first (ORR-879), else in the board's order.
+const props = withDefaults(defineProps<{milestones: Milestone[], project: string, group: 'status' | 'milestone', showMilestone?: boolean, riskFirst?: boolean}>(), {showMilestone: true, riskFirst: false})
 const {active} = useFilters()
 const {columns, look} = useStatuses()
 
 interface Group { key: string, title: string, column: Column, counts?: Counts, kinds?: Kinds, summary?: string, muted?: boolean, issues: {issue: Issue, milestone?: {id: string, title: string}}[] }
 
-const groups = computed<Group[]>(() => {
+const groups = computed<Group[]>(() => grouped.value.map(g => props.riskFirst ? {...g, issues: sortedByRisk(g.issues)} : g))
+
+function sortedByRisk(rows: Group['issues']): Group['issues'] {
+    const milestoneOf = new Map(rows.map(row => [row.issue.id, row.milestone]))
+    return byRisk(rows.map(row => row.issue)).map(issue => ({issue, milestone: milestoneOf.get(issue.id)}))
+}
+
+const grouped = computed<Group[]>(() => {
     if (props.group === 'milestone') {
         return props.milestones.map(milestone => ({
             key: `milestone:${milestone.id}`, title: milestone.title, column: milestone.column, counts: milestone.counts, kinds: milestone.kinds, summary: milestone.summary, muted: !milestone.id,
