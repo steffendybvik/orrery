@@ -27,6 +27,13 @@ export class Store extends ImportStore {
         return issues.map(issue => ({...issue, last: last.get(issue.id)}))
     }
 
+    /** The issue one of `sessions` worked last, by when it last wrote to it or was focused on it (ORR-903). */
+    async lastWorked(project: string, sessions: string[]): Promise<string | undefined> {
+        if (!sessions.length) return undefined
+        return (await this.get<{issue: string}>(`SELECT issue FROM issue_sessions WHERE project = ? AND session IN (${sessions.map(() => '?').join(', ')}) ORDER BY at DESC LIMIT 1`,
+            project, ...sessions))?.issue
+    }
+
     /** Whether the session (any of its `ids`) has an issue in progress, or a signal of the owner's waiting for it: then
      * it isn't cleared, stopped or handed more. `own`: only what was sent to it by name counts as waiting (an untrusted
      * run's session, which what's for every session never reaches). */
