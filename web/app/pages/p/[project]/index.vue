@@ -16,6 +16,9 @@ const view = computed({
         router.replace({query: {...route.query, view: v}})
     },
 })
+// The board view, counted each time it shows, for App settings' Usage (ORR-881).
+const {count} = useUsage()
+watch(view, now => now === 'board' && count('board-view'), {immediate: true})
 const views = [{value: 'list' as const, label: 'List', hint: '1'}, {value: 'board' as const, label: 'Board', hint: '2'}]
 const groupings = [{value: 'status' as const, label: 'Status'}, {value: 'chunk' as const, label: 'Chunk'}]
 

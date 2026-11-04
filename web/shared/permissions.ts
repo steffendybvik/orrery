@@ -161,7 +161,7 @@ export const PERMISSIONS: Permission[] = [
     {
         id: 'settings.write', area: 'This orrery', action: 'Change App settings and the statuses',
         why: 'They change how orrery runs for every project and session.',
-        routes: ['PATCH /api/settings', 'POST /api/statuses', 'PATCH /api/statuses/:status', 'DELETE /api/statuses/:status'],
+        routes: ['PATCH /api/settings', 'POST /api/statuses', 'PATCH /api/statuses/:status', 'DELETE /api/statuses/:status', 'DELETE /api/usage'],
         session: {level: 'owner'},
         chat: {level: 'asks', note: 'One setting at a time, saved on your Allow'},
         untrusted: refused,
@@ -346,6 +346,15 @@ export const PERMISSIONS: Permission[] = [
         chat: refused,
         untrusted: refused,
         member: {level: 'free', note: 'Their own: the route refuses their agents, and anyone else\'s key'},
+    },
+    {
+        id: 'usage.count', area: 'This orrery', action: 'Count a use of a feature',
+        why: 'How often each feature is used, for App settings\u2019 Usage (ORR-881), so what goes unused can go. Only the owner\u2019s own use is counted, and only once they turn counting on; anyone else\u2019s is taken and ignored.',
+        routes: ['POST /api/usage'],
+        session: {level: 'free', note: 'The tools it calls, counted for the owner\u2019s own sessions alone'},
+        chat: {level: 'free', note: 'The tools it calls'},
+        untrusted: refused,
+        member: {level: 'free', note: 'Taken, and not counted: only the owner\u2019s use is'},
     },
     {
         id: 'logins.write', area: 'This orrery', action: 'End a browser’s login',

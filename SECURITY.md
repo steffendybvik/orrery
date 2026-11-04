@@ -435,6 +435,10 @@ are. Only a review by your own handle (`handle` in App settings) is quoted (ORR-
   it. A session can mark an error resolved, but the row then says which agent did, and the bell keeps showing it
   until you've looked. Anything can add a page error, so those are marked as reports and held to 5 of a kind and 20
   in all a minute. Read the log as a lead, not proof (ORR-420).
+- **Usage** (Advanced → Usage), off unless the owner turns it on, keeps how often each feature was used: a count a
+  day per page, per orrery tool your sessions call, and per one of a few optional features. Nothing about what was
+  done, by whom, or with what, and only the owner's own use. Rows over a year old go, and turning it off offers to
+  delete them. `ORRERY_USAGE=off` stops it for a whole server (ORR-881).
 - orrery itself sends nothing anywhere, except your roadmap to a Postgres you chose, and the requests your
   agents make with a secret, to the hosts you allowed it. The page loads nothing from elsewhere, its fonts included.
 

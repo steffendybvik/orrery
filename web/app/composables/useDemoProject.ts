@@ -10,6 +10,7 @@ export function useDemoProject() {
     const failed = ref('')
 
     async function make(): Promise<string | undefined> {
+        useUsage().count('demo-project')
         making.value = true
         failed.value = ''
         try {

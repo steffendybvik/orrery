@@ -40,6 +40,7 @@ const TABS: {value: Tab, label: string, scope: string, sections: Heading[]}[] = 
     ]},
     {value: 'advanced', label: 'Advanced', scope: 'For looking into problems: what orrery records, its event log, what it puts into a session\'s context, and the open pull requests on GitHub.', sections: [
         {id: 'advanced', text: 'Advanced', level: 2},
+        {id: 'usage', text: 'Usage', level: 2},
         {id: 'events', text: 'Events', level: 2},
         {id: 'context', text: 'Context', level: 2},
         {id: 'pulls', text: 'Pull requests', level: 2},
@@ -638,6 +639,18 @@ async function pick(tint: string | null) {
           Record what orrery does, tell me about new errors, and show Events, Context and Pull requests in the sidebar
         </label>
         <p v-if="advancedFailed" class="text-xs text-rose-700 dark:text-rose-400">{{ advancedFailed }}</p>
+      </section>
+
+      <section v-if="tab === 'advanced'" id="usage" class="scroll-mt-6 flex flex-col gap-3">
+        <header class="flex flex-col gap-0.5">
+          <h2 class="text-[15px] font-semibold text-fg">{{ title.usage }}</h2>
+          <p class="text-xs text-muted">
+            Which features you use, the coldest first, to find what could go. Off unless you turn it on. It counts only your
+            own use (the pages you open, the tools your sessions call, and a few optional features), a number a day, on
+            this machine only: nothing about what you did, and nothing sent anywhere.
+          </p>
+        </header>
+        <UsageSettings />
       </section>
 
       <section v-if="tab === 'advanced'" id="events" class="scroll-mt-6 flex flex-col gap-3">

@@ -8,7 +8,10 @@
 // the repo's channel says. `model` (`best`, `opus`, `sonnet`, `haiku`… or a full id) and `effort` (`low`…`max`) start it
 // on them, as `claude --model … --effort …`; without, on Claude Code's default there. 409 when the project doesn't let orrery start sessions, no launcher is running, the limit
 // is reached, or a project in `hears` has no launcher in this project's folder.
+import {countOwnUse} from '../../../../utils/usage'
+
 export default defineEventHandler(async event => {
+    countOwnUse(event, 'start-session')
     const actor = await authorize(event, 'sessions.start')
     const {issue, statuses, release, presets, instructions, hears, model, effort} = startInput((await readBody(event).catch(() => null)) ?? {})
     const project = param(event, 'project')
