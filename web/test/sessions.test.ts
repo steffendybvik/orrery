@@ -827,6 +827,15 @@ describe("a session's model (ORR-871)", () => {
         expect(session()?.model).toBe('claude-sonnet-5-5')
     })
 
+    it('keeps its effort level the same way, through reports that say none (ORR-894)', () => {
+        sessions.report({id: 'e', project: 'hub', event: 'PreToolUse', effort: 'high'})
+        sessions.report({id: 'e', project: 'hub', event: 'Stop'})
+        const session = () => sessions.listSessions('hub').find(s => s.id === 'e')
+        expect(session()?.effort).toBe('high')
+        sessions.report({id: 'e', project: 'hub', event: 'PreToolUse', effort: 'low'})
+        expect(session()?.effort).toBe('low')
+    })
+
     it('comes with the first report when that one says it', () => {
         sessions.report({id: 'n', project: 'hub', event: 'SessionStart', model: 'claude-fable-5-1'})
         expect(sessions.listSessions('hub').find(s => s.id === 'n')?.model).toBe('claude-fable-5-1')

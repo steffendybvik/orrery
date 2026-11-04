@@ -81,6 +81,9 @@ export interface Session {
     /** The model it runs on, as Claude Code names it (`claude-opus-5-5`), from its hook: the latest reply's model in its
      * transcript, so a `/model` switch shows after its next turn (ORR-871). None until it has said. */
     model?: string
+    /** The effort level it runs at, from its hook on tool events, so an `/effort` switch shows too (ORR-894). None until it
+     * has said: then the one it was started at (`started.effort`), if any. */
+    effort?: Effort
 }
 
 /** Whether a session goes in a list of sessions (ORR-716): something can be done with it there, as it hears signals, its

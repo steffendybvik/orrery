@@ -6,7 +6,7 @@
 // can run a channel for every project in its repo's `.mcp.json`, only the flagged one heard, so it
 // listens (and can be stopped) through its own project's channel only.
 import {randomInt} from 'node:crypto'
-import type {Session, SessionState, SessionTool, StartedSession} from '#shared/roadmap'
+import type {Effort, Session, SessionState, SessionTool, StartedSession} from '#shared/roadmap'
 import {SESSION_NAMES, madeUpName} from '#shared/roadmap'
 
 interface Known extends Session {
@@ -95,6 +95,8 @@ export interface Report {
     tool?: SessionTool
     /** The model it runs on, when its hook could tell (ORR-871). */
     model?: string
+    /** The effort level it runs at, when its hook said (ORR-894). */
+    effort?: Effort
 }
 
 /** The id the session goes by now, for one it had before a `/clear`; any other id as it is. */
@@ -247,6 +249,7 @@ export function report(input: Report): Session | null {
             ...state === 'waiting' && input.tool ? {asking: input.tool} : {},
             ...cutOff ? {cut_off: cutOff} : {},
             ...input.model ? {model: input.model} : {},
+            ...input.effort ? {effort: input.effort} : {},
         }
         add(session)
     } else {
@@ -276,6 +279,7 @@ export function report(input: Report): Session | null {
         // Done with its turn: the next prompt comes after a tool of its next.
         if (state === 'idle') session.tool = session.asked = undefined
         if (input.model) session.model = input.model
+        if (input.effort) session.effort = input.effort
         session.seenAt = Date.now()
     }
     if (state === 'idle') session.idleAt = Date.now()
