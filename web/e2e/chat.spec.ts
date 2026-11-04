@@ -893,6 +893,26 @@ test('folds the list of chats behind a button on a phone, opening over the conve
     await pane.getByTestId('chat-list').getByRole('button', {name: 'New chat', exact: true}).click()
     await expect(pane.getByTestId('chat-list')).toHaveCount(0)
     await expect(pane.getByLabel('Message')).toBeFocused()
+    // A tap on the conversation beside the list closes it, as Esc does, with no key on a phone (ORR-899).
+    await pane.getByRole('button', {name: 'Show your chats'}).click()
+    const list = pane.getByTestId('chat-list')
+    await expect(list).toBeVisible()
+    const box = (await list.boundingBox())!
+    const at = (await pane.boundingBox())!
+    await page.mouse.click(box.x + box.width + (at.x + at.width - box.x - box.width) / 2, at.y + at.height / 2)
+    await expect(list).toHaveCount(0)
+})
+
+test('keeps the docked list of chats open on a wide screen when the conversation is clicked (ORR-899)', async ({page}) => {
+    await page.setViewportSize({width: 1280, height: 800})
+    await page.goto('/p/observatory')
+    await page.getByRole('button', {name: /^Agent/}).click()
+    const pane = page.getByRole('region', {name: 'Chat'})
+    const list = pane.getByTestId('chat-list')
+    await expect(list).toBeVisible()
+    await expect(pane.getByTestId('chat-list-backdrop')).toHaveCount(0)
+    await pane.getByLabel('Message').click()
+    await expect(list).toBeVisible()
 })
 
 test('writes a code block in the box: Enter after ``` closes it, and inside it is a new line, not a send', async ({page}) => {
