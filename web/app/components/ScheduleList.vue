@@ -80,8 +80,8 @@ const ran = (s: Schedule) => !!s.at && !s.enabled
 const gist = (s: Schedule) => s.notes?.split('\n').find(line => line.trim())?.replace(/^[#>*\-\s]+/, '') ?? ''
 
 const OUTCOME = {
-    made: 'text-emerald-600 dark:text-emerald-400',
-    sent: 'text-emerald-600 dark:text-emerald-400',
+    made: 'text-emerald-700 dark:text-emerald-400',
+    sent: 'text-emerald-700 dark:text-emerald-400',
     skipped: 'text-faint',
     failed: 'text-rose-700 dark:text-rose-400',
 }
@@ -142,10 +142,10 @@ const OUTCOME = {
       <span v-else class="grid size-9 shrink-0 place-items-center rounded-full border-2 border-dashed border-line text-faint" title="A one-off that has run">
         <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5 9-10" /></svg>
       </span>
-      <div class="flex min-w-0 flex-1 flex-col gap-0.5" :class="!s.enabled && 'opacity-60'">
+      <div class="flex min-w-0 flex-1 flex-col gap-0.5">
         <div class="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 sm:flex-nowrap">
           <span v-if="scheduleUnseen(s)" class="unseen-dot" title="An agent made or changed it since you last opened it" />
-          <span class="max-w-full truncate text-fg" :class="scheduleUnseen(s) ? 'font-semibold' : 'font-medium'">{{ s.title }}</span>
+          <span class="max-w-full truncate" :class="[scheduleUnseen(s) ? 'font-semibold' : 'font-medium', s.enabled ? 'text-fg' : 'text-muted']">{{ s.title }}</span>
           <span
               class="shrink-0 rounded-full px-1.5 py-px text-[10px] font-medium"
               :class="s.kind === 'message' ? 'bg-sky-500/12 text-sky-700 dark:text-sky-300' : s.kind === 'session' ? 'bg-violet-500/12 text-violet-700 dark:text-violet-300' : s.kind === 'action' ? 'bg-amber-500/12 text-amber-800 dark:text-amber-300' : 'bg-accent-500/12 text-accent-700 dark:text-accent-300'"
@@ -158,7 +158,7 @@ const OUTCOME = {
           <BoltIcon v-if="s.on" class="mr-0.5 inline size-3 align-[-2px] text-teal-600 dark:text-teal-400" aria-hidden="true" />{{ describe(s) }}<template v-if="s.kind === 'action'"> · moves to {{ movesTo(s) }}</template><template v-if="s.held"> · {{ s.held }} waiting their turn</template><template v-if="s.kind === 'issue' && s.ask"> · asks the sessions</template><template v-if="s.kind === 'issue' && s.priority"> · {{ s.priority }}</template><template v-if="s.kind === 'issue' && s.labels.length"> · {{ s.labels.join(', ') }}</template>
         </span>
       </div>
-      <span v-if="s.runs[0]" class="hidden shrink-0 items-center gap-1 self-start pt-0.5 text-xs md:flex" :class="[OUTCOME[s.runs[0].outcome], !s.enabled && 'opacity-60']" :title="s.runs[0].note ?? ''">
+      <span v-if="s.runs[0]" class="hidden shrink-0 items-center gap-1 self-start pt-0.5 text-xs md:flex" :class="OUTCOME[s.runs[0].outcome]" :title="s.runs[0].note ?? ''">
         <template v-if="s.runs[0].outcome === 'made' && s.runs[0].issue">
           ✓ {{ s.kind === 'action' ? 'moved' : 'made' }}
           <button type="button" class="font-mono hover:underline" @click.stop="openIssue(s.project, s.runs[0].issue!)">{{ s.runs[0].issue }}</button>
