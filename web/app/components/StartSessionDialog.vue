@@ -15,7 +15,6 @@ const {target, close} = useStartSession()
 const {launchers, sessions, byId} = useRoadmaps()
 const {ordered} = useProjectOrder()
 const {places} = useStatuses()
-const router = useRouter()
 
 /** The most sessions to start at once of each, when the limit isn't known yet. */
 const MOST = 9
@@ -194,9 +193,8 @@ async function start() {
         loadStates()
         return
     }
+    // The owner stays where they were (ORR-864); the Sessions page shows them arriving.
     close()
-    // They're listed with every other session, on the Sessions page.
-    router.push('/sessions')
 }
 
 </script>
