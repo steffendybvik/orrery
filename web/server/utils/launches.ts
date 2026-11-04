@@ -9,7 +9,7 @@
 import {AsyncLocalStorage} from 'node:async_hooks'
 import {randomBytes} from 'node:crypto'
 import type {Effort, LauncherRepo, RepoAdded, Session, SessionContext, Signal, StartedSession, Starts, TerminalApp} from '#shared/roadmap'
-import {EFFORTS, isEffort, isModel, modelFor} from '#shared/roadmap'
+import {EFFORTS, isEffort, isModel, modelFor, WORK_KINDS} from '#shared/roadmap'
 import type {Actor} from './store'
 import {EVERY} from './pool'
 import {scheduleRunning} from './schedules'
@@ -281,10 +281,13 @@ export async function startUntrusted(project: string, schedule: number, text: st
 /** The owner's chat (chats.ts): a session started for it alone, which its launcher starts able only to read and to
  * answer, told what it's for in its `context`. It runs until the owner ends the chat, whatever the project gives
  * sessions, and hears only what's aimed at it. It counts towards nothing: it needs only a launcher, not starts turned
- * on or room under the limit, and takes up none. */
+ * on or room under the limit, and takes up none. It starts on the Chat kind's model (ORR-868): it answers and asks, and
+ * builds nothing itself, so a lighter model fits; what it hands over starts on its issue's own. */
 export async function startChat(project: string, context: SessionContext): Promise<Launch> {
     if (!launchersOf(project)) throw noLauncher(project)
-    return send(hold(project, {after: await useStore().lastSignal(project), context, chat: true}))
+    const kind = WORK_KINDS.find(k => k.id === 'chat')
+    const model = kind?.model && kind.model !== 'best' ? {model: kind.model, ...kind.effort ? {effort: kind.effort} : {}} : {}
+    return send(hold(project, {after: await useStore().lastSignal(project), context, chat: true, ...model}))
 }
 
 const noLauncher = (project: string) => conflict(`No launcher is running for ${project}: install it once with node ~/.orrery/bootstrap.mjs launcher --install, then open a Claude session in its repo, or run that in the repo`)
