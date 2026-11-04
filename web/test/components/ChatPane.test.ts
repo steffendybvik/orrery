@@ -190,6 +190,18 @@ describe('ChatPane', () => {
         expect((box().element as HTMLTextAreaElement).value).toBe('')
     })
 
+    it('takes a message in an ended chat, sending it there rather than starting another (ORR-884)', async () => {
+        vi.useFakeTimers({toFake: ['setTimeout', 'clearTimeout']})
+        useChat().arrived(chat('c2', {ended: true, ended_at: '2026-11-04T11:00:00Z', messages: [{id: 1, at: '2026-11-04T10:00:00Z', from: 'owner', text: 'Oil the hinge', images: []}]} as Partial<Chat>))
+        useChat().view('c2')
+        const {pane, type} = await mount()
+        expect(pane.text()).not.toContain('This chat has ended')
+        await type('And the latch?')
+        await wait()
+        expect(messages()).toEqual([expect.objectContaining({text: 'And the latch?'})])
+        expect(posted.some(p => p.path === '/api/chats')).toBe(false)
+    })
+
     it("leaves the focus in a field elsewhere: an image landing doesn't pull it back to the box (ORR-834)", async () => {
         const pane = await mountSuspended(ChatPane, {attachTo: document.body})
         mounted.push(pane)

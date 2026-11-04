@@ -38,6 +38,9 @@ export interface Launch {
      * says it can (`?model=yes` on its claim) may take one with either, as an older one would drop them (ORR-868). */
     model?: string
     effort?: Effort
+    /** The Claude Code session to take up again (`claude --resume`): an ended chat written in again (ORR-884). Only a
+     * launcher that says it can (`?resume=yes` on its claim) gets it; to an older one it's started fresh, on `fresh`. */
+    resume?: string
 }
 
 /** What goes down a project's launcher stream: a session to start, or one of its sessions to stop, keep longer,
@@ -154,11 +157,11 @@ function emit(event: LaunchEvent) {
 }
 
 /** A launch waiting for a launcher to take it, and since when. */
-type Held = Launch & {at: number, claimed: boolean}
+/** A launch on its way; `fresh`, what a resumed one starts on instead with a launcher that can't resume (ORR-884). */
+type Held = Launch & {at: number, claimed: boolean, fresh?: SessionContext}
 
 /** Holds a new launch on the project from here, so the limit counts it as on its way while it's readied. */
-function hold(project: string, fields: Omit<Launch, 'id' | 'project' | 'tmux'>): Held {
-    const id = randomBytes(6).toString('hex')
+function hold(project: string, fields: Omit<Held, 'id' | 'project' | 'tmux' | 'at' | 'claimed'>, id = randomBytes(6).toString('hex')): Held {
     const held: Held = {id, project, tmux: `orrery-${project}-${id}`.replace(/[^\w-]/g, '-'), ...fields, at: Date.now(), claimed: false}
     pending.set(id, held)
     return held
@@ -172,7 +175,7 @@ function release(held: Held, error: unknown): never {
 
 /** Offers a held launch to the project's launchers, as a run of the schedule `cause` when one started it. */
 function send(held: Held, cause?: number): Launch {
-    const {at: _at, claimed: _claimed, ...launch} = held
+    const {at: _at, claimed: _claimed, fresh: _fresh, ...launch} = held
     if (cause !== undefined) causes.set(held.id, cause)
     emit({type: 'launch', launch})
     return launch
@@ -185,7 +188,7 @@ const room = (limit: number) => limit - startedSessions() - pendingOn()
  * launcher is started once that launcher restarts on new code (ORR-471). */
 export function unclaimedLaunches(project: string): Launch[] {
     pendingOn()
-    return [...pending.values()].filter(l => l.project === project && !l.claimed).map(({at: _at, claimed: _claimed, ...launch}) => launch)
+    return [...pending.values()].filter(l => l.project === project && !l.claimed).map(({at: _at, claimed: _claimed, fresh: _fresh, ...launch}) => launch)
 }
 
 /** Set while the owner sends work asking for a session to be started for it when nobody's listening (Focus on this,
@@ -307,6 +310,17 @@ export async function startChat(project: string, context: SessionContext): Promi
     return send(hold(project, {after: await useStore().lastSignal(project), context, chat: true, ...model}))
 }
 
+/** An ended chat written in again (ORR-884): its session started once more on the same launch id, so it's the same
+ * chat, taking its Claude session up again (`resume`) where there is one, else fresh on `fresh`, which tells it what was
+ * said. Needs what a chat does: a launcher. */
+export async function resumeChat(project: string, id: string, context: SessionContext, fresh: SessionContext, resume?: string): Promise<Launch> {
+    if (!launchersOf(project)) throw noLauncher(project)
+    pending.delete(id)
+    const kind = (await useStore().workKinds()).find(k => k.id === 'chat')
+    const model = kind?.model && kind.model !== 'best' ? {model: kind.model, ...kind.effort ? {effort: kind.effort} : {}} : {}
+    return send(hold(project, {after: await useStore().lastSignal(project), chat: true, ...model, ...resume ? {context, resume, fresh} : {context: fresh}}, id))
+}
+
 const noLauncher = (project: string) => conflict(`No launcher is running for ${project}: install it once with node ~/.orrery/bootstrap.mjs launcher --install, then open a Claude session in its repo, or run that in the repo`)
 
 /** The project's starts, if it may have one more session started now: the owner lets orrery start them, a launcher is
@@ -406,7 +420,7 @@ async function allowedStarts(project: string): Promise<Starts | null> {
 /** A launcher taking the launch on: only the first gets it, so several launchers start one session between them. Only
  * a launcher connected for the project counts, by the `token` its stream gave it. An untrusted launch only goes to one
  * that `locksDown`, and a chat to one that `chats`: an older launcher would start either with every tool. */
-export function claim(project: string, id: string, token: string | undefined, locksDown = false, chats = false, models = false): boolean {
+export function claim(project: string, id: string, token: string | undefined, locksDown = false, chats = false, models = false, resumes = false): boolean {
     const launch = pending.get(id)
     if (!launch || launch.project !== project || launch.claimed) return false
     if (!token || tokens.get(token) !== project) {
@@ -422,6 +436,12 @@ export function claim(project: string, id: string, token: string | undefined, lo
         outdated(project, id, `A launcher on ${project} is running older code that can't start a session on a chosen model or effort, so it was refused it. Restart the launcher, and it's offered it again (it runs the channel folder's code when it starts).`)
         return false
     }
+    // A launcher that can't take a session up again starts it fresh, told what was said (ORR-884).
+    if (launch.resume && !resumes) {
+        delete launch.resume
+        if (launch.fresh) launch.context = launch.fresh
+    }
+    delete launch.fresh
     launch.claimed = true
     // Refused before: it's on its way now, with the usual time to connect.
     if (told.delete(id)) {

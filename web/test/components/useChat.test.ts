@@ -67,7 +67,7 @@ describe('useChat', () => {
         expect(c.failed.value).toContain('No launcher is running for greenhouse')
     })
 
-    it('keeps a chat heard live over an older one a fetch was bringing, and keeps one that ended on screen, to read', async () => {
+    it('keeps a chat heard live over an older one a fetch was bringing, and keeps one that ended on screen, to write in again', async () => {
         const c = useChat()
         c.show('greenhouse')
         served = [chat('c1', {issues: 'todo'})]
@@ -81,8 +81,9 @@ describe('useChat', () => {
         expect(c.chats.value).toEqual([chat('c1', {ended: true})])
         expect(c.running.value).toEqual([])
         expect(c.chat.value).toMatchObject({id: 'c1', ended: true})
-        // Nothing goes to an ended chat.
-        expect(await c.send('Hello', [])).toBe(false)
+        // Writing in an ended chat goes to it, which starts its session again (ORR-884).
+        expect(await c.send('Hello', [])).toBe(true)
+        expect(posted.at(-1)).toMatchObject({path: '/api/chats/c1/messages', body: {text: 'Hello'}})
         c.fresh()
         expect(c.chat.value).toBeNull()
     })
