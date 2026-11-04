@@ -160,3 +160,36 @@ test("Send back, on an issue's page, sends what its pull request needs", async (
     const signals = await (await request.get('/api/projects/byre/signals')).json() as {note?: string}[]
     expect(signals.map(signal => signal.note).join()).toMatch(/#21 .*conflicts with main/)
 })
+
+test("shows each pull request's risk on an issue's page, the riskiest in the heading (ORR-879)", async ({page, request}) => {
+    await makeProject(request, {name: 'Woodshed', key: 'WDS'})
+    const issue = await (await request.post('/api/projects/woodshed/issues', {data: {title: 'New roof'}, headers: OWNER})).json()
+    const at = '2026-10-01T00:00:00.000Z'
+    const pull = {number: 31, title: 'Roof felt', state: 'ready', url: 'https://github.com/orrery-e2e/woodshed/pull/31', branch: 'feat/31', base: 'main', author: 'ada', created_at: at, updated_at: at,
+        risk: {level: 'medium', why: 'medium: changes how the roof page saves', by: 'session'}}
+    const done = {number: 30, title: 'Gutter copy', state: 'merged', url: 'https://github.com/orrery-e2e/woodshed/pull/30', branch: 'docs/30', base: 'main', author: 'ada', merged_at: at, updated_at: at,
+        risk: {level: 'low', why: 'low: copy only', by: 'owner'}}
+    await page.route(`**/api/projects/woodshed/issues/${issue.id}/pulls`, route => route.fulfill({json: {repo: 'orrery-e2e/woodshed', pulls: [pull], done: [done], token: true, checked_at: at}}))
+    await page.goto(`/p/woodshed/issues/${issue.id}`)
+    const pulls = page.getByRole('region', {name: 'Pull requests'})
+    await expect(pulls.getByRole('heading').getByText('Medium risk')).toBeVisible()
+    const open = pulls.getByRole('listitem').filter({hasText: 'Roof felt'})
+    await expect(open.getByText('Medium risk')).toHaveAttribute('title', 'medium: changes how the roof page saves (rated by the session that opened it)')
+    await expect(open).toContainText('changes how the roof page saves')
+    await expect(pulls.getByRole('listitem').filter({hasText: 'Gutter copy'}).getByText('Low risk')).toHaveAttribute('title', /rated by you/)
+
+    // Rating it yourself: High, with a why, sent to the PR's own path.
+    let sent: unknown
+    await page.route('**/api/projects/woodshed/issues/*/pulls/orrery-e2e/woodshed/31/risk', route => {
+        sent = route.request().postDataJSON()
+        return route.fulfill({json: {risk: {level: 'high', why: 'touches the store', by: 'owner'}}})
+    })
+    await open.getByRole('button', {name: 'Rate'}).click()
+    const dialog = page.getByRole('dialog', {name: 'Rate the risk of #31'})
+    await expect(dialog.getByLabel('Why')).toHaveValue('medium: changes how the roof page saves')
+    await dialog.getByRole('radio', {name: 'High'}).click()
+    await dialog.getByLabel('Why').fill('touches the store')
+    await dialog.getByRole('button', {name: 'Save'}).click()
+    await expect(dialog).toBeHidden()
+    expect(sent).toEqual({level: 'high', why: 'touches the store'})
+})

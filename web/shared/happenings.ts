@@ -60,6 +60,7 @@ export const COMMON_EVENTS: {type: string, label: string, family: string, filter
     {type: 'doc.changed', label: 'A doc is written', family: 'Chunks and docs'},
     {type: 'pr.conflicting', label: "An issue's pull request conflicts", family: 'Pull requests'},
     {type: 'pr.merged', label: "An issue's pull request is merged", family: 'Pull requests'},
+    {type: 'pr.risky_merged', label: "An issue's high-risk pull request is merged", family: 'Pull requests'},
     {type: 'pr.closed', label: "An issue's pull request is closed unmerged", family: 'Pull requests'},
     {type: 'pr.checks_failed', label: "An issue's pull request fails its checks", family: 'Pull requests'},
     {type: 'pr.changes_requested', label: "An issue's pull request is asked for changes", family: 'Pull requests'},

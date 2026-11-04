@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import type {IssuePulls, PullRequest, Signal} from '#shared/roadmap'
-import {sendBackNote} from '#shared/roadmap'
+import type {IssuePulls, PullRequest, PullRisk, Signal} from '#shared/roadmap'
+import {highestRisk, sendBackNote} from '#shared/roadmap'
 
 // On an issue's page: its open pull requests on the project's GitHub repo, and where each stands, so an issue in
 // review or done isn't taken as shipped while its PR waits (ORR-485), then those merged or closed, so it can say what
@@ -23,6 +23,8 @@ async function load() {
         .catch(() => undefined)
     if (answer && at === key.value) got.value = answer
 }
+// The issue's risk is its riskiest PR's (ORR-879).
+const risk = computed(() => highestRisk([...got.value?.pulls ?? [], ...got.value?.done ?? []].map(pull => pull.risk)))
 const total = computed(() => (got.value?.pulls.length ?? 0) + (got.value?.done?.length ?? 0))
 watch(key, () => got.value = undefined)
 watch(() => `${key.value}@${props.updated}`, load, {immediate: true})
@@ -31,6 +33,9 @@ onMounted(() => timer = setInterval(() => {
     if (document.visibilityState === 'visible') void load()
 }, 60_000))
 onBeforeUnmount(() => clearInterval(timer))
+
+/** The PR being rated (ORR-879), null with the dialog shut. */
+const rating = ref<{number: number, url: string, risk?: PullRisk} | null>(null)
 
 /** Per PR: sending, sent, or why it couldn't. */
 const sent = ref<Record<number, {busy?: boolean, sent?: boolean, failed?: string}>>({})
@@ -57,6 +62,7 @@ async function sendBack(pull: PullRequest) {
     <h2 class="label flex items-center gap-2">
       Pull requests
       <span v-if="total" class="font-mono normal-case">{{ total }}</span>
+      <RiskChip v-if="risk" :risk="risk" class="normal-case tracking-normal" />
     </h2>
     <ul v-if="total" class="overflow-hidden rounded-xl border border-line dark:bg-panel">
       <li v-for="pull in got.pulls" :key="pull.number" class="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-line px-3 py-2 text-sm last:border-b-0">
@@ -64,6 +70,8 @@ async function sendBack(pull: PullRequest) {
         <a :href="pull.url" target="_blank" rel="noopener" class="min-w-0 flex-1 truncate text-fg hover:underline">
           <span class="font-mono text-xs text-faint">#{{ pull.number }}</span> {{ pull.title }}
         </a>
+        <RiskChip v-if="pull.risk" :risk="pull.risk" />
+        <UiButton size="xs" variant="ghost" :title="pull.risk ? 'Change its risk rating' : 'Rate its risk'" @click="rating = pull">Rate</UiButton>
         <PullStateChip :state="pull.state" />
         <template v-if="sendBackNote(pull)">
           <span v-if="sent[pull.number]?.sent" class="shrink-0 text-xs text-faint">Sent</span>
@@ -78,15 +86,19 @@ async function sendBack(pull: PullRequest) {
         <span class="w-full truncate pl-7 font-mono text-[11px] text-faint" :title="`${pull.branch} into ${pull.base}, by ${pull.author}`">
           {{ pull.branch }} → {{ pull.base }} · {{ ago(pull.created_at) }}
         </span>
+        <span v-if="pull.risk" class="w-full pl-7 text-xs text-muted">{{ pull.risk.why }}</span>
       </li>
       <li v-for="pull in got.done" :key="`done-${pull.number}`" class="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-line px-3 py-2 text-sm last:border-b-0">
         <a :href="pull.url" target="_blank" rel="noopener" class="min-w-0 flex-1 truncate pl-7 text-muted hover:underline">
           <span class="font-mono text-xs text-faint">#{{ pull.number }}</span> {{ pull.title }}
         </a>
+        <RiskChip v-if="pull.risk" :risk="pull.risk" />
+        <UiButton size="xs" variant="ghost" :title="pull.risk ? 'Change its risk rating' : 'Rate its risk'" @click="rating = pull">Rate</UiButton>
         <PullStateChip :state="pull.state" />
         <span class="w-full truncate pl-7 font-mono text-[11px] text-faint" :title="`${pull.branch} into ${pull.base}, by ${pull.author}`">
           {{ pull.branch }} → {{ pull.base }} · {{ ago(pull.merged_at ?? pull.updated_at) }}
         </span>
+        <span v-if="pull.risk" class="w-full pl-7 text-xs text-muted">{{ pull.risk.why }}</span>
       </li>
     </ul>
     <p v-for="(state, number) in sent" v-show="state.failed" :key="number" class="text-xs text-rose-700 dark:text-rose-400">#{{ number }}: {{ state.failed }}</p>
@@ -94,5 +106,6 @@ async function sendBack(pull: PullRequest) {
     <p v-if="got.error" class="text-xs text-muted" :title="got.error">
       Not read from GitHub. <NuxtLink to="/pulls" class="text-fg underline">Pull requests</NuxtLink> says why.
     </p>
+    <PullRiskDialog :project="project" :issue="issue" :pull="rating" @close="rating = null" @rated="load" />
   </section>
 </template>

@@ -78,6 +78,11 @@ export const TOOLS = [
         inputSchema: {type: 'object', required: ['id', 'comment'], properties: {id: {type: 'string'}, comment: {type: 'string'}, status: {type: 'string', enum: ['done', 'in-review', 'canceled']}}},
     },
     {
+        name: 'rate_pull',
+        description: 'Rates the risk of your PR for an issue, from what it changes: high, medium or low, why says what decided it. Again when it changes.',
+        inputSchema: {type: 'object', required: ['id', 'pull', 'level', 'why'], properties: {id: {type: 'string'}, pull: {type: 'string', description: 'owner/name#number, or its link'}, level: {type: 'string', enum: ['high', 'medium', 'low']}, why: {type: 'string', description: 'e.g. "bug fix in signal routing"'}}},
+    },
+    {
         name: 'comment',
         description: 'Comments on an issue (Markdown); asks waits at the top of the owner’s bell until they answer.',
         inputSchema: {type: 'object', required: ['id', 'body'], properties: {id: {type: 'string'}, body: {type: 'string'}, asks: {type: 'string', enum: ['decision', 'feedback']}}},
@@ -382,21 +387,22 @@ export const ON_DEMAND = {
     schedules: ['create_schedule', 'update_schedule'],
     secrets: ['secrets', 'egress'],
     debug: ['events', 'resolve_event'],
+    review: ['rate_pull'],
 }
 
 const MORE_TOOLS = {
     name: 'more_tools',
-    description: "Adds orrery tools to your list: schedules (ask the owner on your issue for a schedule), secrets (egress: call an outside service with a key) or debug (orrery's event log).",
+    description: "Adds tools: schedules (ask the owner on your issue for one), secrets (egress: call an outside service with a key), debug (orrery's event log), review (rate each PR you open).",
     inputSchema: {type: 'object', required: ['group'], properties: {group: {type: 'string', enum: Object.keys(ON_DEMAND)}}},
 }
 
 /** What an untrusted schedule's session goes without: what orrery refuses it (the permissions' untrusted column: it
  * only raises proposals and comments on them), and orrery's own log. */
-export const NOT_FOR_UNTRUSTED = ['update_issue', 'start_issue', 'finish_issue', 'write_doc', 'secrets', 'egress', 'events', 'resolve_event']
+export const NOT_FOR_UNTRUSTED = ['update_issue', 'start_issue', 'finish_issue', 'rate_pull', 'write_doc', 'secrets', 'egress', 'events', 'resolve_event']
 
 /** The tools a chat goes without: those that take up or finish work, its one rule (ORR-750), `update_issue` among them as
  * it sets a status; `edit_issue` is its way to change the rest (its launcher refuses them too, `chatOnly`). */
-export const NOT_FOR_CHAT = ['start_issue', 'finish_issue', 'update_issue']
+export const NOT_FOR_CHAT = ['start_issue', 'finish_issue', 'update_issue', 'rate_pull']
 
 /** The reads only the chat has use for, helping the owner plan: a work session goes without them, so their definitions
  * don't ride on its every turn (ORR-544). */
@@ -583,6 +589,13 @@ export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''),
             const issue = await call('PATCH', issuePath(id), {status}, base)
             await call('POST', `${issuePath(id)}/comments`, {body: comment}, base)
             return `${status === 'done' ? 'Done' : status === 'canceled' ? 'Canceled' : 'In review'}: ${line(issue)}`
+        },
+        async rate_pull({id, pull, level, why}) {
+            const found = /(?:github\.com\/)?([\w.-]+)\/([\w.-]+)(?:#|\/pull\/)(\d+)/.exec(String(pull ?? ''))
+            if (!found) return `Give the PR as owner/name#number or its link, not ${JSON.stringify(pull)}`
+            const [, owner, name, number] = found
+            const {risk} = await call('PUT', `${issuePath(id)}/pulls/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/${number}/risk`, {level, why}, at(await projectOf({id})))
+            return `Rated ${owner}/${name}#${number} on ${id}: ${risk.level} risk, ${risk.why}`
         },
         async comment({id, body, asks}) {
             const posted = await call('POST', `${issuePath(id)}/comments`, {body, ...asks ? {asks} : {}}, at(await projectOf({id})))

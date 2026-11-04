@@ -45,7 +45,7 @@ describe('whose a session is', () => {
 
 describe("the channel's tools", () => {
     it('each have a name, a description and an object schema', () => {
-        expect(TOOLS.map((t: {name: string}) => t.name)).toEqual(['issues', 'issue', 'create_issue', 'update_issue', 'start_issue', 'finish_issue', 'comment', 'chunks', 'releases', 'docs', 'doc', 'write_doc', 'presets', 'preset', 'schedules', 'sessions', 'secrets', 'egress', 'events', 'guide', 'resolve_event'])
+        expect(TOOLS.map((t: {name: string}) => t.name)).toEqual(['issues', 'issue', 'create_issue', 'update_issue', 'start_issue', 'finish_issue', 'rate_pull', 'comment', 'chunks', 'releases', 'docs', 'doc', 'write_doc', 'presets', 'preset', 'schedules', 'sessions', 'secrets', 'egress', 'events', 'guide', 'resolve_event'])
         for (const tool of TOOLS) expect(tool).toMatchObject({description: expect.any(String), inputSchema: {type: 'object'}})
     })
 
@@ -417,6 +417,16 @@ describe("the channel's tools", () => {
         expect(calls).toEqual([])
     })
 
+    it('rate a PR\'s risk on its issue, by owner/name#number or its link (ORR-879)', async () => {
+        const risk = {level: 'high', why: 'adds a migration', by: 'session'}
+        const {calls, call} = harness({'PUT /issues/GRE-4/pulls/you/greenhouse/7/risk': {body: {risk}}})
+        expect((await call('rate_pull', {id: 'GRE-4', pull: 'you/greenhouse#7', level: 'high', why: 'adds a migration'})).text).toBe('Rated you/greenhouse#7 on GRE-4: high risk, adds a migration')
+        expect((await call('rate_pull', {id: 'GRE-4', pull: 'https://github.com/you/greenhouse/pull/7', level: 'high', why: 'adds a migration'})).text).toMatch(/^Rated you\/greenhouse#7/)
+        expect(calls.map(c => c.url)).toEqual(['/issues/GRE-4/pulls/you/greenhouse/7/risk', '/issues/GRE-4/pulls/you/greenhouse/7/risk'])
+        expect((await call('rate_pull', {id: 'GRE-4', pull: '7', level: 'low', why: 'x'})).text).toMatch(/^Give the PR as owner\/name#number/)
+        expect(calls).toHaveLength(2)
+    })
+
     it("read the orrery's event log and resolve what they fixed", async () => {
         const event = {id: 4, level: 'error', kind: 'page.error', message: 'x is undefined', details: {page: '/mine', stack: 'at setup'}, count: 3, first_seen: '2026-10-27T20:00:00Z', last_seen: '2026-10-27T20:05:00Z'}
         const {calls, call} = harness({'GET /events/log': {body: [event]}, 'POST /events/log/4/resolve': {body: {...event, resolved_at: '2026-10-27T21:00:00Z'}}})
@@ -688,7 +698,7 @@ describe('one channel serving several projects', () => {
         expect(docs.inputSchema.required).toEqual(['project'])
         expect(docs.inputSchema.properties.project!.enum).toEqual(['greenhouse', 'pantry'])
         expect(tools.find(t => t.name === 'issue')!.inputSchema.properties).not.toHaveProperty('project')
-        expect(toolsFor(['greenhouse'], {loaded: ['schedules', 'secrets', 'debug']})).toEqual([...TOOLS.filter((t: {name: string}) => !CHAT_READS.includes(t.name)), ...ASK_TOOLS])
+        expect(toolsFor(['greenhouse'], {loaded: ['schedules', 'secrets', 'debug', 'review']})).toEqual([...TOOLS.filter((t: {name: string}) => !CHAT_READS.includes(t.name)), ...ASK_TOOLS])
     })
 })
 
@@ -708,7 +718,7 @@ describe('tools loaded on demand', () => {
         expect(await call('more_tools', {group: 'everything'})).toMatchObject({isError: true})
         // Not listed yet, it still answers when called by its name.
         expect(await call('secrets')).not.toMatchObject({isError: true})
-        expect(tools({loaded: ['schedules', 'secrets', 'debug']})).not.toContain('more_tools')
+        expect(tools({loaded: ['schedules', 'secrets', 'debug', 'review']})).not.toContain('more_tools')
     })
 
     it("isn't the chat's or an untrusted run's, and an untrusted run can't call what it isn't given", async () => {
