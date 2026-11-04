@@ -95,6 +95,8 @@ export async function readBoard(db: Db, project: string, statuses: IssueStatus[]
         aliases: issueAliases.get(row.id) ?? [],
         schedule: row.schedule ?? undefined,
         release: row.ships_in ?? undefined,
+        ...row.model ? {model: row.model} : {},
+        ...row.effort ? {effort: row.effort} : {},
         created_by: row.created_by,
         ...row.session_name ? {session_name: row.session_name} : {},
         ...row.claimed_by ? {claimed_by: row.claimed_by, ...row.claimed_at ? {claimed_at: row.claimed_at} : {}} : {},

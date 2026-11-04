@@ -111,14 +111,14 @@ export abstract class IssueStore extends ClaimStore {
             const id = await this.nextId(project, 'issue')
             const now = stamp()
             await this.run(`INSERT INTO issues (project, id, title, status, priority, assignee, labels, external, github_issues, notes, proposal, choices, parent, chunk, ships_in,
-                                          position, created_by, session_name, owned, created_at, updated_at, created_person, claimed_by, claimed_at)
-                      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                                          position, created_by, session_name, owned, created_at, updated_at, created_person, claimed_by, claimed_at, model, effort)
+                      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 project, id, String(input.title).trim(), status, nullable(input.priority),
                 // A proposal waits on the owner, so it's theirs, whoever the request names.
                 assigned,
                 JSON.stringify(input.labels ?? []), JSON.stringify(tasksOf(input.external)), JSON.stringify(github ?? []), nullable(input.notes), nullable(input.proposal), String(input.choices ?? '[]'),
                 parent, chunk, release, Number(input.position ?? await this.nextPosition('issues', project)), actor.name, actor.session ?? null, Number(actor.owner), now, now,
-                person ?? null, taken ? person : null, taken ? now : null)
+                person ?? null, taken ? person : null, taken ? now : null, nullable(input.model), nullable(input.effort))
             await this.record(project, id, actor, [['created', null, null]])
             if (depends) await this.setLinks(project, id, depends, actor)
             await this.touchProject(project)
@@ -206,6 +206,8 @@ export abstract class IssueStore extends ClaimStore {
                 // A sub-issue is in its parent's chunk, so a new parent says it all.
                 moved ? ['parent', row.parent, parent] : ['chunk', row.chunk, chunk],
                 ['release', row.ships_in, release],
+                ['model', row.model ?? null, input.model],
+                ['effort', row.effort ?? null, input.effort],
             ])
             await this.update('issues', 'project = ? AND id = ?', [project, id], {
                 title,
@@ -223,6 +225,8 @@ export abstract class IssueStore extends ClaimStore {
                 parent: input.parent === undefined ? undefined : parent,
                 chunk,
                 ships_in: release,
+                model: input.model,
+                effort: input.effort,
                 position: input.position,
                 ...ended ? {claimed_by: null, claimed_at: null, claimed_session: null} : {},
             })

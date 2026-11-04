@@ -1,5 +1,5 @@
 // The store's records and rows, the fields each write takes, and turning rows into records.
-import type {ActivityField, Asks, Board, Chunk, Comment, Counts, Decision, Doc, DocKind, DocRevision, DocRevisionSummary, Issue, IssueEvent, Kind, Kinds, Priority, Project, Proposal, Release, ReleaseMode, Signal} from '#shared/roadmap'
+import type {ActivityField, Asks, Board, Chunk, Comment, Counts, Decision, Doc, DocKind, DocRevision, DocRevisionSummary, Issue, IssueEvent, Kind, Kinds, Priority, Project, Proposal, Release, ReleaseMode, Signal, Effort} from '#shared/roadmap'
 import {ASKS, DECISIONS, DOC_KINDS, EFFORTS, KINDS, PRIORITIES, RELEASE_MODES, TERMINALS, TINTS, emptyKinds, isEffort, isModel} from '#shared/roadmap'
 import type {Field, Input} from '../utils/input'
 import {badRequest, isObject} from '../utils/input'
@@ -131,7 +131,7 @@ export interface IssueRow extends Made {
     assignee: string | null, labels: string, external: string, github_issues: string, notes: string | null,
     parent: string | null, chunk: string | null, position: number, schedule: number | null,
     proposal: Proposal | null, decided_by: string | null, decided_at: string | null, decision_note: string | null,
-    choices: string, picks: string | null, explore: string | null, ships_in: string | null, claimed_by: string | null, claimed_at: string | null, claimed_session: string | null, created_person: string | null, session_name: string | null
+    choices: string, picks: string | null, explore: string | null, ships_in: string | null, claimed_by: string | null, claimed_at: string | null, claimed_session: string | null, created_person: string | null, session_name: string | null, model?: string | null, effort?: Effort | null
 }
 export interface CommentRow extends Made { id: number, project: string, issue: string, body: string, asks: Asks | null, answered?: number, session_name: string | null, person: string | null, by_agent: number }
 export interface EventRow { id: number, project: string, issue: string, field: ActivityField, before: string | null, after: string | null, created_by: string, session_name: string | null, owned: number, created_at: string }
@@ -141,6 +141,8 @@ export interface ReleaseRow extends Made { project: string, version: string, bra
 export interface PresetRow { id: number, project: string | null, name: string, text: string, icon: string | null, color: string | null, default_key: string | null, created_at: string, updated_at: string }
 export interface SignalRow { person?: string | null, model?: string | null, id: number, project: string, issue: string | null, chunk: string | null, status: string | null, release: string | null, schedule: number | null, kind: 'focus' | 'comment' | 'message', note: string | null, preset: string | null, via: string | null, target: string | null, delivered_to: string, instructions: string, created_by: string, owned: number, created_at: string }
 
+/** A model a session can start on, as `isModel` takes it (ORR-868). */
+export const MODEL = /^(best|opus|sonnet|haiku|fable|default|opusplan|claude-[a-z0-9.-]{1,56}(\[1m\])?)$/
 export const SLUG = /^[a-z0-9][a-z0-9-]{0,39}$/
 /** A named tint or any `#rrggbb`: the page's tint, a project icon's colour. */
 const TINT: Field = {type: 'string', nullable: true, pattern: new RegExp(`^(${Object.keys(TINTS).join('|')}|#[0-9a-fA-F]{6})$`), hint: `use ${Object.keys(TINTS).join(', ')} or a colour like #3b82f6`}
@@ -249,6 +251,9 @@ export const ISSUE_FIELDS: Record<string, Field> = {
     release: {type: 'string', nullable: true},
     /** The issues it depends on (ORR-601), all of them: ids in its project, `project/ID` in another; null or [] for none. */
     depends_on: {type: 'strings', nullable: true},
+    /** The model and effort a session for it starts on (ORR-868), over its kind's; null follows its kind. */
+    model: {type: 'string', nullable: true, pattern: MODEL, hint: 'use best, opus, sonnet, haiku, fable, default, opusplan or a full id such as claude-sonnet-5-5'},
+    effort: {type: 'string', nullable: true, values: EFFORTS},
     position: {type: 'number'},
 }
 
