@@ -4,11 +4,9 @@ import type {PhoneAddress, PhoneLinks} from '#shared/phone'
 
 // Open on your phone (ORR-833), on App settings → You: orrery's address on the network with Copy and a QR code, for opening
 // it on a phone the first time, so a scan and a sign-in are all it takes. The code is drawn here, by `uqr`, with nothing
-// sent anywhere. While only this machine can reach it, it says what opening it up takes, claiming first, so the sessions
-// aren't cut off when login comes on.
+// sent anywhere. While only this machine can reach it, it says how to give the phone a port of its own.
 // With the phone's own port (ORR-837), the code carries a one-time sign-in link instead: scanned, the phone is signed in,
 // nothing to type. A fresh one is made each time this shows, and again as it runs out.
-const {status} = useAuth()
 const links = ref<PhoneLinks | null>(null)
 const failed = ref('')
 const chosen = ref('')
@@ -40,7 +38,6 @@ const open = computed(() => links.value?.reach === 'network')
 /** What the code opens: the address, signing the phone in with a one-time link when it has its own port. */
 const target = computed(() => chosen.value && links.value?.phone && token.value ? `${chosen.value}/login?t=${token.value}` : chosen.value)
 const qr = computed(() => target.value ? renderSVG(target.value, {border: 2, pixelSize: 4, whiteColor: '#fff', blackColor: '#000'}) : '')
-const claimed = computed(() => !!status.value?.can_get_in)
 const SOURCES: Record<PhoneAddress['from'], string> = {
     setting: 'ORRERY_PHONE_URL',
     host: 'ORRERY_HOST',
@@ -79,7 +76,6 @@ const sourceOf = (address: PhoneAddress) => address.from === 'launcher' ? `the l
           </p>
           <p v-else class="text-muted">
             Scan it with the phone's camera, then sign in with your person key.
-            <template v-if="!claimed">Nobody can sign in yet: claim it first, on this machine.</template>
           </p>
           <p v-if="chosen.startsWith('http://')" class="text-amber-800 dark:text-amber-300">
             This is plain http. Over a VPN that's encrypted, but over Wi-Fi your person key and the login's cookie travel
@@ -98,25 +94,10 @@ const sourceOf = (address: PhoneAddress) => address.from === 'launcher' ? `the l
         from <code class="font-mono">.env</code> and run <code class="font-mono">docker compose up -d</code>, and this shows a
         code that signs your phone in. The sessions' address stays as it is.
       </p>
-      <template v-else>
-      <p class="text-muted">Only this machine can open it now. To open it on your phone:</p>
-      <ol class="flex list-decimal flex-col gap-1 pl-5 text-muted">
-        <li>
-          <template v-if="claimed"><span class="text-fg">Claimed.</span> You have a person key to sign in with.</template>
-          <template v-else><a href="#claim" class="text-fg underline">Claim it</a>, above: that makes your person key, and this machine's agent key.</template>
-        </li>
-        <li>Put the agent key in <code class="font-mono">keys.json</code> with the line claiming gives, so your sessions keep working once login comes on.</li>
-        <li v-if="links.docker">
-          Set <code class="font-mono">ORRERY_HOST=0.0.0.0</code> in <code class="font-mono">.env</code> and run <code class="font-mono">docker compose up -d</code>.
-          Anything on the Wi-Fi can reach it then, behind the login. For your own devices only, use a private VPN's address instead.
-        </li>
-        <li v-else>Start orrery listening on every address (<code class="font-mono">HOST=0.0.0.0</code>), or on a private VPN's address for your own devices only.</li>
-      </ol>
-      <p v-if="links.addresses.length" class="text-muted">
-        Then it's at <template v-for="(address, i) in links.addresses" :key="address.url"><template v-if="i">, </template><code class="font-mono text-fg">{{ address.url }}</code></template>,
-        and this shows its QR code.
+      <p v-else class="text-muted">
+        Only this machine can open it now. Start orrery with <code class="font-mono">ORRERY_PHONE_PORT</code> set (Docker sets
+        one already), and this shows a code that signs your phone in. The sessions' address stays as it is.
       </p>
-      </template>
       <p class="text-faint">
         More in Running orrery, under <a href="/p/orrery/docs/running#reach-it-from-your-phone" class="underline">Reach it from your phone</a>.
       </p>

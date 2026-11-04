@@ -81,9 +81,8 @@ with two stores on one database, not two machines.
 **Logging in.** Through any standard OIDC provider, by setting its issuer, client id and secret (the authorization code flow with
 PKCE), with no passwords in orrery. An account is matched by issuer and subject, never email, and only attaches through the
 owner's single-use invite, so having an account with the provider gets nobody in. With no provider, the owner's person key signs in.
-Claiming makes the first one: `orrery:claim`, run on the server, or App settings → You → Claim this orrery, which only a page on
-the server's own machine may use (refused off it, and in Docker once `ORRERY_HOST` opens it to the network), so nothing on the
-network can race for it. That's no more than a shell there could do, and an agent with one is out of scope already (above).
+Claiming makes the first one: `orrery:claim`, run in a shell on the server, so nothing on the network can race for it. That's
+no more than a shell there could do, and an agent with one is out of scope already (above).
 
 ## With login off, the owner is a name, not a password
 
@@ -276,7 +275,7 @@ sent anywhere to make it.
 The phone's own (`ORRERY_PHONE_PORT`, `1` before `ORRERY_PORT`, on every address unless `ORRERY_PHONE_HOST` says otherwise)
 **always asks for a login**, whatever the other does, and `ORRERY_AUTH=off` closes it rather than opens it. A request is
 known by the port it came in on inside the server, which nothing outside can change, not by its address or its `Host`.
-Over that port nothing counts as this machine (`fromThisMachine`), so claiming, moving the database and the backup
+Over that port nothing counts as this machine (`fromThisMachine`), so moving the database and the backup
 settings are refused there, whatever `Host` is sent.
 
 App settings' QR code carries a one-time sign-in link to that port: a random token, kept only as its hash, in memory, good

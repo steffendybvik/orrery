@@ -234,23 +234,10 @@ A repo's channel and hook point at the server its projects are on, by `ORRERY_UR
 
 On your own machine, alone, none of this applies: it opens straight to the board. Login comes on when the server is reachable from
 other machines, with a plain `docker run`, or when you add a second person ([what exactly](../SECURITY.md#login-and-keys)). Until it's been
-claimed, such a server answers nothing but its login page. Claim it first, while it's still on loopback, so nothing waits in between.
+claimed, such a server answers nothing but its login page. A phone needs none of this: it has a port of its own (see
+[Reach it from your phone](#reach-it-from-your-phone)).
 
-**From App settings (the easy way).** On the machine orrery runs on, open it at `localhost` and go to App settings → You →
-**Claim this orrery** (the login page has the same button, where login is already on and the page is on this machine). It makes your person key and
-an agent key for this machine, shows each once to copy, and signs this browser in. Then:
-
-1. Put the agent key in `~/.config/orrery/keys.json`: the page gives a line to run in a terminal that adds it for this address,
-   readable by you alone. orrery runs in a container, so it can't write that file itself.
-2. Open it up: set `ORRERY_HOST` and `docker compose up -d` again.
-   Your sessions already have their key, so they carry on instead of waiting on a login.
-
-A phone needs none of this: it has a port of its own (see [Reach it from your phone](#reach-it-from-your-phone)).
-
-The button shows only while nobody has a person key, and only to a page on this machine: from anywhere else, or in Docker once
-`ORRERY_HOST` opens it to the network, claiming is refused, so nothing on the network can race for it.
-
-**From a shell.** The same, for a server you only reach over SSH, or to replace a lost key:
+Claim it from a shell on the server, for a hosted box, or to replace a lost key:
 
 ```sh
 pnpm orrery:claim --name "Your Name"                                      # from a checkout: its own .data database, not a container's
@@ -274,7 +261,7 @@ stays as it was). The backup's people and keys come with it, so it prints no key
 It refuses once the orrery has projects, as App settings → This orrery → **Restore a backup…** is the way then, keeping a
 copy of what it replaces.
 
-**Sessions.** Claiming from App settings makes this machine's agent key. For any other machine, make one under App settings → You → Your keys: it comes with a line
+**Sessions.** On a server others reach, each machine's sessions need an agent key: make one under App settings → You → Your keys: it comes with a line
 to run in a terminal there that adds it to `~/.config/orrery/keys.json` (mode 0600) for this address, as `{"https://orrery.example": "orrery_agent_…"}`.
 The launcher needs the file: it runs as a service with nothing from your shell but `PATH`, so it and the sessions it starts find a key only there.
 `ORRERY_KEY` where you start Claude Code does for sessions you start from a terminal, but it goes to any server that machine talks to.
@@ -312,32 +299,19 @@ The QR code carries a one-time sign-in link to the phone's port: good once, for 
 runs out. Opened, it signs the phone in as you, with a login of its own, listed under App settings → You → Signed in.
 Lost the phone? Press **End** beside it there, or **End every other login**, and it has to sign in again. The address
 alone, without the link, asks for a login. Only your own page on this machine makes a link: never a session, the chat,
-or anything on the phone's port. Over the phone's port nothing counts as this machine, so claiming, moving the database
-and the like are refused there.
+or anything on the phone's port. Over the phone's port nothing counts as this machine, so moving the database and the
+like are refused there.
 
 The address is this machine's on its networks: in Docker, where orrery sees only its container's, the launcher on
 this machine tells it (a VM's or Docker's own networks are left out). Set `ORRERY_PHONE_URL` for one orrery can't see
 for itself, such as an https name in front of it; it's shown first. `ORRERY_PHONE_HOST=127.0.0.1` keeps the phone's
 port to this machine.
 
-**Your Wi-Fi** is the default: it only works at home, and it's plain http, so the link and the login's cookie travel
-unencrypted, and anyone else on the Wi-Fi could read them. App settings says so beside the code.
+**On the Wi-Fi** it only works at home, and it's plain http, so the link and the login's cookie travel unencrypted, and
+anyone else on the Wi-Fi could read them. App settings says so beside the code. **Away from home**, host orrery on a
+server behind https, claimed from its shell ([above](#claiming-it-and-logging-in)): it answers while this machine sleeps.
 
-**Your own devices only (best).** Put this machine and the phone on a private VPN: a free app on
-each that links your own devices, so the phone reaches the machine from anywhere, as if both were
-on the same Wi-Fi. It isn't the paid kind that hides your browsing, and several are free for a
-handful of devices. Then publish the phone's port on this machine's address on that VPN, and nowhere else:
-
-```sh
-# .env
-ORRERY_PHONE_HOST=100.64.0.7         # this machine's address on the VPN; the sessions keep localhost
-ORRERY_ALLOWED_HOSTS=mac.my-vpn.net  # only to open it by the VPN's name for the machine
-```
-
-`docker compose up -d` again, and the QR code points there. Nobody else on the Wi-Fi can reach it. The VPN has to
-be connected when Docker starts the container, since that's when the address is taken.
-
-Either way, the database is still moved only from this machine: App settings → This orrery → Database refuses a
+The database is still moved only from this machine: App settings → This orrery → Database refuses a
 move from any other address.
 
 ## Where each database is

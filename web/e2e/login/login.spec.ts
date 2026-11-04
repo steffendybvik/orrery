@@ -51,8 +51,7 @@ test('a logged-out browser lands on the login page, reads nothing, and is told t
         await expect(page).toHaveURL(/\/login$/)
         await expect(page.getByRole('heading', {name: 'Log in to this orrery'})).toBeVisible()
     }
-    // On orrery's own machine the page offers the claim itself (ORR-832), rather than the command to run.
-    await expect(page.getByRole('button', {name: 'Claim this orrery'})).toBeVisible()
+    await expect(page.getByText('pnpm orrery:claim')).toBeVisible()
     expect(read).toEqual([])
 })
 
@@ -60,7 +59,7 @@ test('a wrong key shows the error and stays on the page', async ({page}) => {
     personKey = claim()
     await page.goto('/login')
     await expect(page.getByRole('heading', {name: 'Log in to this orrery'})).toBeVisible()
-    await expect(page.getByRole('button', {name: 'Claim this orrery'})).toBeHidden()
+    await expect(page.getByText('pnpm orrery:claim')).toBeHidden()
     await refusedAtTheDoor(page, NOT_A_KEY)
 })
 
