@@ -15,7 +15,9 @@ import {scheduleAsk, scheduleDrift, scheduleRequest} from './schedule-requests'
 // page instead of in a terminal. It answers questions about the project and makes issues and comments when asked;
 // it doesn't take up work on an issue, but starts a session for that (`delegate`; middleware/chat.ts holds its writes, and it hears only the chat). The owner's words go
 // to it as messages aimed at it; it answers with its channel's `reply` tool, kept here and streamed to the page
-// (`chat` events). A chat is kept while its session runs, here only, and ends when the owner ends it.
+// (`chat` events). A chat is kept while its session runs, here only, and ends when the owner ends it. An ended chat
+// stays here to read, with no cap, until orrery restarts (ORR-870): the pane lists it with the running ones. One that
+// ended before anything was said goes.
 
 /** What the chat's session on `project` is told it is, with every message. */
 export const chatBrief = (project: string) => `This session is the owner's chat in orrery, on ${project}. Its tools and their asking
@@ -25,6 +27,8 @@ schedule, removing a release, a chunk or a doc, and renaming or deleting a doc s
 aren't ${project}, and what you file still goes in ${project} unless they name the other, and say which (ORR-588).`
 
 const chats = new Map<string, Chat>()
+/** The chats that have ended, kept to read (ORR-870). Nothing writes to them. */
+const over = new Map<string, Chat>()
 let next = 1
 
 function changed(chat: Chat) {
@@ -48,8 +52,15 @@ export async function openChat(project: string, issues: ChatIssues = 'todo'): Pr
     return chat
 }
 
-/** The chats running now, newest first. */
-export const listChats = (): Chat[] => [...chats.values()].reverse()
+/** The chats running now and those that have ended since orrery started, newest first. */
+export const listChats = (): Chat[] => [...chats.values(), ...over.values()].sort((a, b) => b.started_at.localeCompare(a.started_at))
+
+/** A chat to read: running, or ended since orrery started. */
+export function readChat(id: string): Chat {
+    const chat = chats.get(id) ?? over.get(id)
+    if (!chat) throw notFound(`No chat ${id}: orrery restarted since`)
+    return chat
+}
 
 export function chatOf(id: string): Chat {
     const chat = chats.get(id)
@@ -884,7 +895,11 @@ export function chatEnded(id: string) {
     const chat = chats.get(id)
     if (!chat) return
     chats.delete(id)
-    changed({...chat, ended: true})
+    const ended: Chat = {...chat, ended: true, ended_at: new Date().toISOString()}
+    delete ended.problem
+    // One ended before anything was said has nothing to read.
+    if (chat.messages.length) over.set(id, ended)
+    changed(ended)
 }
 
 /** Whether the request is a chat session's: its channel says so (`Orrery-Chat: yes`) on all it sends, or orrery knows

@@ -208,13 +208,21 @@ describe("the owner's chat", () => {
         expect(() => chats.clearChat('c1c2c3c4c5c6')).toThrow(/has ended/)
     })
 
-    it('ends when the owner ends it: its session is stopped and the chat goes, saying so', async () => {
+    it('ends when the owner ends it: its session is stopped, and the chat stays to read, saying so (ORR-870)', async () => {
         await chats.openChat('greenhouse')
+        await chats.say('c1c2c3c4c5c6', 'What is GRE-4 about?', [], owner)
         chats.endChat('c1c2c3c4c5c6')
         expect(stopped).toEqual(['c1c2c3c4c5c6'])
-        expect(chats.listChats()).toEqual([])
+        expect(chats.listChats()).toEqual([expect.objectContaining({id: 'c1c2c3c4c5c6', ended: true, ended_at: expect.any(String)})])
+        expect(chats.readChat('c1c2c3c4c5c6')).toMatchObject({ended: true})
         expect(changes.at(-1)).toMatchObject({id: 'c1c2c3c4c5c6', ended: true})
         expect(() => chats.chatOf('c1c2c3c4c5c6')).toThrow(/has ended/)
+        expect(() => chats.readChat('nope')).toThrow(/restarted/)
+        // One ended before anything was said has nothing to read, and goes.
+        vi.stubGlobal('startChat', async (project: string) => ({id: 'd1d2d3d4d5d6', project}))
+        await chats.openChat('greenhouse')
+        chats.endChat('d1d2d3d4d5d6')
+        expect(chats.listChats().map(c => c.id)).toEqual(['c1c2c3c4c5c6'])
         await expect(chats.say('c1c2c3c4c5c6', 'Still there?', [], owner)).rejects.toMatchObject({statusCode: 404})
     })
 

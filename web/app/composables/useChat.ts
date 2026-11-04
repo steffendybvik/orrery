@@ -1,10 +1,12 @@
 import type {Chat, ChatIssues, ChatMessage, Session, Upload} from '#shared/roadmap'
 
 // The owner's chats (server/utils/chats.ts): a session started for each alone that they talk to here, with no terminal.
-// One chat per project (ORR-865): the pane is open or not (`open`), large or not (`large`, remembered in this browser),
-// and shows `project`'s chat (`chat`) or, with none, is ready to start one there with the first message. A chat on
-// another project keeps running while the pane is elsewhere, and comes back when the pane is on its project again. The chats come in over the page's events (`arrived`); closing the pane ends
-// its chat (`close`), minimizing it leaves the chat running (`hide`), and one that ends on its own stays on screen, ended, until the pane closes. Each message says
+// As many as the owner likes, on any project, several on one included (ORR-870): `chats` holds them all, running and
+// ended, newest first, for the pane's list. The pane is open or not (`open`), large or not (`large`, remembered in this
+// browser), and shows one chat (`chat`): the one picked in the list (`pick`), else the newest running on `project`; or,
+// after New chat (`fresh`) or with none, it's ready to start one there with the first message. A chat keeps running
+// while the pane shows another, and an ended one opens to read. The chats come in over the page's events (`arrived`);
+// closing the pane ends its chat (`close`), and so does a row's × (`end`); minimizing it leaves the chat running (`hide`). Each message says
 // which page the owner is on, so the chat knows what "this" is. `/clear` clears its session's context instead (`clear`). Where the issues it makes land (`lands`, Todo or Backlog)
 // is the owner's pick beside Send, remembered in this browser for the next chat, and kept by the server on the chat.
 // The project a chat would start on follows the page you're on until it's pinned (`pin`, a hand pick pins it); pinned, it
@@ -12,8 +14,10 @@ import type {Chat, ChatIssues, ChatMessage, Session, Upload} from '#shared/roadm
 export function useChat() {
     const chats = useState<Chat[]>('chats', () => [])
     const open = useState('chat-open', () => false)
-    /** Each project's chat that just ended, kept to read until the pane closes or starts another there. */
-    const ended = useState<Record<string, Chat>>('chat-ended', () => ({}))
+    /** The chat picked in the list, shown while it's on the pane's project. */
+    const picked = useState<string | null>('chat-picked', () => null)
+    /** The project New chat was pressed on: the pane is ready for a fresh one there, whatever else runs on it. */
+    const blank = useState<string | null>('chat-blank', () => null)
     const project = useState<string | null>('chat-project', () => null)
     /** The project the pane stays on whatever page is open, picked by hand; none while it follows the page. */
     const pinned = useState<string | null>('chat-pinned', () => {
@@ -42,14 +46,16 @@ export function useChat() {
     })
     const {chatSessions} = useRoadmaps()
 
-    /** The pane's project's chat: the running one (the newest, should there be more), else the one that just ended. */
+    /** The chat the pane shows: the one picked, while it's on the pane's project, else the newest running there. */
     const chat = computed<Chat | null>(() => {
         const on = project.value
-        if (!on) return null
-        return chats.value.find(c => c.project === on && !c.ended) ?? ended.value[on] ?? null
+        if (!on || blank.value === on) return null
+        const pick = chats.value.find(c => c.id === picked.value)
+        if (pick?.project === on) return pick
+        return chats.value.find(c => c.project === on && !c.ended) ?? null
     })
-    /** The chats running on other projects than the pane's, to switch to. */
-    const elsewhere = computed(() => chats.value.filter(c => !c.ended && c.project !== project.value))
+    /** The chats running, the pane's included. */
+    const running = computed(() => chats.value.filter(c => !c.ended))
     /** The chat's session, once it has connected. */
     const session = computed<Session | undefined>(() => {
         const on = chat.value
@@ -65,12 +71,7 @@ export function useChat() {
 
     function arrived(changed: Chat) {
         heard.value++
-        const others = chats.value.filter(c => c.id !== changed.id)
-        if (changed.ended) {
-            // One the owner closed is gone already; one that ended on its own stays to read, on its project.
-            if (others.length < chats.value.length) ended.value = {...ended.value, [changed.project]: changed}
-            chats.value = others
-        } else chats.value = [changed, ...others]
+        chats.value = [changed, ...chats.value.filter(c => c.id !== changed.id)].sort((a, b) => b.started_at.localeCompare(a.started_at))
     }
 
     /** Opens the pane on `on`'s chat, or ready to start one there, unless a project is pinned. */
@@ -86,8 +87,9 @@ export function useChat() {
         failed.value = ''
         try {
             const made = await apiFetch<Chat>('/chats', {method: 'POST', body: {project: project.value, issues: lands.value}})
-            forget(made.project)
             arrived(made)
+            picked.value = made.id
+            blank.value = null
             return true
         } catch (error) {
             failed.value = errorMessage(error, 'start')
@@ -155,16 +157,10 @@ export function useChat() {
         }
     }
 
-    /** Drops `on`'s ended chat, so the pane is ready for a fresh one there. */
-    function forget(on: string) {
-        if (!ended.value[on]) return
-        const {[on]: _, ...rest} = ended.value
-        ended.value = rest
-    }
-
-    /** Leaves the chat on screen for a fresh one, started by the next message. */
+    /** New chat: the pane is ready for a fresh one on its project, started by the next message; the others keep running. */
     function fresh() {
-        if (project.value) forget(project.value)
+        picked.value = null
+        blank.value = project.value
         failed.value = ''
     }
 
@@ -174,6 +170,23 @@ export function useChat() {
         if (pinned.value) pin(on)
         else project.value = on
         failed.value = ''
+    }
+
+    /** Opens chat `id` in the pane, running or ended, on its project. */
+    function view(id: string) {
+        const to = chats.value.find(c => c.id === id)
+        if (!to) return
+        switchTo(to.project)
+        picked.value = id
+        blank.value = null
+    }
+
+    /** Ends chat `id`, its session stopped; it stays in the list, ended, to read. */
+    async function end(id: string) {
+        const on = chats.value.find(c => c.id === id)
+        if (!on || on.ended) return
+        arrived({...on, ended: true, ended_at: new Date().toISOString()})
+        await apiFetch(`/chats/${id}/end`, {method: 'POST'}).catch(() => {})
     }
 
     /** Hides the pane, leaving its chat running: opened again, it's on the same conversation. */
@@ -186,9 +199,7 @@ export function useChat() {
         open.value = false
         const on = chat.value
         fresh()
-        if (!on || on.ended) return
-        chats.value = chats.value.filter(c => c.id !== on.id)
-        await apiFetch(`/chats/${on.id}/end`, {method: 'POST'}).catch(() => {})
+        if (on) await end(on.id)
     }
 
     /** Pins the pane to `on`, so it stays there whatever page is open, or unpins it (null) to follow the page again. */
@@ -218,5 +229,5 @@ export function useChat() {
         return apiFetch<Upload>('/uploads', {method: 'POST', body: {data: await readAsDataUrl(file), name: file.name || null}})
     }
 
-    return {chats, elsewhere, open, large, chat, session, project, pinned, failed, ended, lands, fetchChats, arrived, show, start, send, clear, land, fresh, switchTo, answer, hide, close, pin, resize, upload}
+    return {chats, running, open, large, chat, session, project, pinned, picked, failed, lands, fetchChats, arrived, show, start, send, clear, land, fresh, switchTo, view, end, answer, hide, close, pin, resize, upload}
 }

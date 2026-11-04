@@ -9,6 +9,8 @@ export interface Chat {
     started_at: string
     messages: ChatMessage[]
     ended?: boolean
+    /** When it ended, once it has: it's kept to read until orrery restarts (ORR-870). */
+    ended_at?: string
     /** Why its session can't start, while that holds: a launcher too old to start a chat refused it (ORR-383). */
     problem?: string
     /** Where the issues it makes land, the first status of that kind, whatever its session asks: the owner picks it

@@ -98,7 +98,7 @@ test('chats with a session that answers on the page, and is listed nowhere', asy
             const copied: string[] = (window as unknown as {copied: string[]}).copied = []
             navigator.clipboard.writeText = async text => { copied.push(text) }
         })
-        await pane.getByText('Jars of').hover()
+        await pane.getByLabel('Conversation', {exact: true}).getByText('Jars of').hover()
         await pane.getByRole('button', {name: 'Copy this reply'}).click()
         await expect(pane.getByRole('button', {name: 'Copy this reply'})).toHaveText('Copied')
         expect(await page.evaluate(() => (window as unknown as {copied: string[]}).copied)).toEqual(['Jars of **jam**.'])
@@ -141,7 +141,8 @@ test('chats with a session that answers on the page, and is listed nowhere', asy
         // Closing the pane ends the chat, and it opens again ready for another.
         await pane.getByRole('button', {name: 'End the chat and close it'}).click()
         await expect.poll(() => launcher.said.text).toContain('event: stop')
-        await expect.poll(async () => (await request.get('/api/chats', {headers: OWNER})).json()).toEqual([])
+        // It stays listed, ended, to read (ORR-870).
+        await expect.poll(async () => (await (await request.get('/api/chats', {headers: OWNER})).json() as {ended?: boolean}[]).map(c => !!c.ended)).toEqual([true])
         await page.getByRole('button', {name: 'Agent', exact: true}).click()
         await expect(pane.getByRole('heading', {name: /^Ask about/})).toBeVisible()
     } finally {
@@ -603,7 +604,7 @@ test("clears its session's context on /clear, marking the cut and keeping what w
         await expect(pane.getByRole('separator', {name: 'Context cleared'})).toBeVisible()
         await expect(pane.getByLabel('Message')).toHaveValue('')
         // What was said stays, greyed; the chat runs on, and its session never heard "/clear" as words.
-        await expect(pane.getByText('What is in the cellar?')).toBeVisible()
+        await expect(pane.getByLabel('Conversation', {exact: true}).getByText('What is in the cellar?')).toBeVisible()
         await expect(pane.getByLabel('Thinking…')).toHaveCount(0)
         expect((await (await request.get(`/api/chats/${chat.id}`)).json()).messages.at(-1)).toMatchObject({cleared: true})
 
@@ -635,17 +636,17 @@ test('holds a run of messages and sends them together, at once on ⌘-Enter', as
         await box.fill('the jam')
         await box.press('Enter')
         // Held, they show at once as sent, with the thinking spinner, and nothing about the wait (ORR-535).
-        await expect(pane.getByText('what about', {exact: true})).toBeVisible()
-        await expect(pane.getByText('the jam', {exact: true})).toBeVisible()
+        await expect(pane.getByLabel('Conversation', {exact: true}).getByText('what about', {exact: true})).toBeVisible()
+        await expect(pane.getByLabel('Conversation', {exact: true}).getByText('the jam', {exact: true})).toBeVisible()
         await expect(pane.getByLabel('Thinking…')).toBeVisible()
         await expect(pane.getByText(/after you stop typing|Send now/)).toHaveCount(0)
         // Esc in the empty box takes the last one back before it goes: it's in the box again.
         await box.fill('oops')
         await box.press('Enter')
-        await expect(pane.getByText('oops', {exact: true})).toBeVisible()
+        await expect(pane.getByLabel('Conversation', {exact: true}).getByText('oops', {exact: true})).toBeVisible()
         await box.press('Escape')
         await expect(box).toHaveValue('oops')
-        await expect(pane.getByText('oops', {exact: true})).toHaveCount(0)
+        await expect(pane.getByLabel('Conversation', {exact: true}).getByText('oops', {exact: true})).toHaveCount(0)
         await box.fill('')
 
         // Once the owner stops typing, both go as one message, still shown as two.
@@ -657,8 +658,8 @@ test('holds a run of messages and sends them together, at once on ⌘-Enter', as
         await expect.poll(() => session!.said.text).toContain('(to you): what about the jam (The owner is on')
         expect(session.said.text).not.toContain('oops')
         expect((await (await request.get(`/api/chats/${chat.id}`)).json()).messages[0]).toMatchObject({text: 'what about\n\nthe jam', parts: ['what about', 'the jam']})
-        await expect(pane.getByText('what about', {exact: true})).toBeVisible()
-        await expect(pane.getByText('the jam', {exact: true})).toBeVisible()
+        await expect(pane.getByLabel('Conversation', {exact: true}).getByText('what about', {exact: true})).toBeVisible()
+        await expect(pane.getByLabel('Conversation', {exact: true}).getByText('the jam', {exact: true})).toBeVisible()
 
         // ⌘-Enter (Ctrl-Enter) sends at once, with no wait.
         await box.fill('and the honey?')
@@ -688,7 +689,7 @@ test("holds a run that couldn't go until the owner tries again, and keeps a slas
     const box = pane.getByLabel('Message')
     await box.fill('what about the jam')
     await box.press('Enter')
-    await expect(pane.getByText('what about the jam', {exact: true})).toBeVisible()
+    await expect(pane.getByLabel('Conversation', {exact: true}).getByText('what about the jam', {exact: true})).toBeVisible()
     await expect(pane.getByText('Not sent')).toBeVisible({timeout: 5000})
     await expect(pane.getByLabel('Thinking…')).toHaveCount(0)
     // It says how to install the launcher, the command to copy, rather than the server's error line (ORR-591).
@@ -712,7 +713,7 @@ test("holds a run that couldn't go until the owner tries again, and keeps a slas
         await expect.poll(async () => (await (await request.get('/api/projects/observatory/launches')).json()).launchers).toBe(1)
         await pane.getByRole('button', {name: 'Retry'}).click()
         await expect.poll(() => launcher.said.text).toContain('"chat":true')
-        await expect(pane.getByText('Not sent')).toHaveCount(0)
+        await expect(pane.getByLabel('Conversation', {exact: true}).getByText('Not sent')).toHaveCount(0)
         await expect(pane.getByText('No launcher is running for Observatory.')).toHaveCount(0)
         await endChats(request)
     } finally {
@@ -735,7 +736,7 @@ test('closing the pane with messages held puts them back in the box, and starts 
     })
     await box.fill('the pantry')
     await box.press('Enter')
-    await expect(pane.getByText('the pantry', {exact: true})).toBeVisible()
+    await expect(pane.getByLabel('Conversation', {exact: true}).getByText('the pantry', {exact: true})).toBeVisible()
     await pane.getByRole('button', {name: 'Close the chat'}).click()
     await page.waitForTimeout(3000)
     expect(starts).toBe(0)
@@ -743,7 +744,7 @@ test('closing the pane with messages held puts them back in the box, and starts 
     await expect(box).toHaveValue('the pantry')
     await box.fill('')
     await pane.getByRole('button', {name: 'Close the chat'}).click()
-    expect((await (await request.get('/api/chats')).json()).length).toBe(0)
+    expect((await (await request.get('/api/chats')).json() as {ended?: boolean}[]).filter(c => !c.ended)).toHaveLength(0)
 })
 
 test("follows the page's project until one is picked by hand, then stays pinned to it, saying when the page is elsewhere (ORR-588)", async ({page, request}) => {
@@ -777,50 +778,76 @@ test("follows the page's project until one is picked by hand, then stays pinned 
     await pane.getByRole('button', {name: 'Close the chat'}).click()
 })
 
-test("keeps a chat per project: moving to another project's page leaves the one you had running, to switch back to (ORR-865)", async ({page, request, baseURL}) => {
+test('lists every chat down the left, two on one project and one on another, each a click away, an ended one to read (ORR-870)', async ({page, request, baseURL}) => {
     await endChats(request)
     await makeProject(request, {name: 'Crypt', key: 'CRY'})
     const launchers = [hold(baseURL!, '/api/projects/observatory/launches/stream'), hold(baseURL!, '/api/projects/crypt/launches/stream')]
+    const running = async () => (await (await request.get('/api/chats')).json() as {project: string, ended?: boolean}[]).filter(c => !c.ended).map(c => c.project)
     try {
         for (const id of ['observatory', 'crypt'])
             await expect.poll(async () => (await (await request.get(`/api/projects/${id}/launches`)).json()).launchers).toBe(1)
         const pane = page.getByRole('region', {name: 'Chat'})
         const box = pane.getByLabel('Message')
+        const list = pane.getByTestId('chat-list')
+        const row = (text: string, state = 'running|ended') => list.getByRole('button', {name: new RegExp(`^\\w+ \\((${state})\\) ${text}`)})
         await page.goto('/p/observatory')
         await page.getByRole('button', {name: 'Agent', exact: true}).click()
-        await box.fill('What is on the top shelf?')
+        await box.fill('Where are the star charts?')
         await box.press('ControlOrMeta+Enter')
-        await expect(pane).toContainText('Starting the session…')
+        await expect(row('Where are the star charts', 'running')).toBeVisible()
 
-        // Another project's page: its own chat, ready to start, with Observatory's still running and named.
+        // New chat: a second on the same project, the first still running.
+        await list.getByRole('button', {name: 'New chat', exact: true}).click()
+        await expect(pane.getByRole('heading', {name: 'Ask about Observatory'})).toBeVisible()
+        await box.fill('Who dusts the telescope?')
+        await box.press('ControlOrMeta+Enter')
+        await expect.poll(running).toEqual(['observatory', 'observatory'])
+
+        // A third, on another project's page.
         await page.goto('/p/crypt')
-        await page.getByRole('button', {name: 'Agent (a chat is running)'}).click()
+        await page.getByRole('button', {name: 'Agent (2 chats are running)'}).click()
         await expect(pane.getByRole('heading', {name: 'Ask about Crypt'})).toBeVisible()
-        const elsewhere = pane.getByTestId('chat-elsewhere')
-        await expect(elsewhere).toHaveText('Also chatting on Observatory')
-        await box.fill('How cold is it down here?')
+        await box.fill('How cold is the vault?')
         await box.press('ControlOrMeta+Enter')
-        await expect.poll(async () => (await (await request.get('/api/chats')).json()).map((c: {project: string}) => c.project).sort()).toEqual(['crypt', 'observatory'])
-        await expect(pane.getByText('How cold is it down here?')).toBeVisible()
+        await expect.poll(running).toEqual(['crypt', 'observatory', 'observatory'])
+        // Newest first, each named for its project and its first message.
+        await expect(list.getByRole('listitem').nth(0)).toContainText('Crypt(running)How cold is the vault?')
+        await expect(list.getByRole('listitem').nth(1)).toContainText('Observatory(running)Who dusts the telescope?')
+        await expect(list.getByRole('listitem').nth(2)).toContainText('Observatory(running)Where are the star charts?')
 
-        // The picker marks both, and switching back brings Observatory's conversation, with Crypt's still running.
-        await pane.getByRole('button', {name: 'Project', exact: true}).click()
-        await expect(pane.getByRole('option', {name: /Observatory.*chat running/})).toBeVisible()
-        await page.keyboard.press('Escape')
-        await elsewhere.getByRole('button', {name: 'Observatory'}).click()
-        await expect(pane.getByText('What is on the top shelf?')).toBeVisible()
-        await expect(pane.getByText('How cold is it down here?')).toHaveCount(0)
-        await expect(elsewhere).toHaveText('Also chatting on Crypt')
+        // One click switches, each conversation as it was.
+        await row('Where are the star charts').click()
+        await expect(pane.getByLabel('Conversation', {exact: true}).getByText('Where are the star charts?', {exact: true})).toBeVisible()
+        await expect(pane.getByLabel('Conversation', {exact: true}).getByText('Who dusts the telescope?')).toHaveCount(0)
+        await row('Who dusts').click()
+        await expect(pane.getByLabel('Conversation', {exact: true}).getByText('Who dusts the telescope?')).toBeVisible()
+        await expect(pane.getByLabel('Conversation', {exact: true}).getByText('Where are the star charts?')).toHaveCount(0)
 
-        // Ending the one on screen leaves the other.
-        await pane.getByRole('button', {name: 'End the chat and close it'}).click()
-        await expect.poll(async () => (await (await request.get('/api/chats')).json()).map((c: {project: string}) => c.project)).toEqual(['crypt'])
-        await page.getByRole('button', {name: 'Agent (a chat is running)'}).click()
-        await expect(pane.getByText('How cold is it down here?')).toBeVisible()
-        await pane.getByRole('button', {name: 'End the chat and close it'}).click()
+        // A row's × ends that chat alone, which stays listed, and reopens to read.
+        await list.getByRole('button', {name: 'End the chat on Observatory: Where are the star charts?'}).click()
+        await expect.poll(running).toEqual(['crypt', 'observatory'])
+        await expect(row('Where are the star charts', 'ended')).toBeVisible()
+        await row('Where are the star charts').click()
+        await expect(pane.getByLabel('Conversation', {exact: true}).getByText('This chat has ended.')).toBeVisible()
+        await expect(box).toHaveCount(0)
+        await expect(pane.getByLabel('Conversation', {exact: true}).getByText('Where are the star charts?')).toBeVisible()
     } finally {
+        await endChats(request)
         for (const l of launchers) l.stop()
     }
+})
+
+test('folds the list of chats behind a button on a phone, opening over the conversation (ORR-870)', async ({page}) => {
+    await page.setViewportSize({width: 390, height: 844})
+    await page.goto('/p/observatory')
+    await page.getByRole('button', {name: /^Agent/}).click()
+    const pane = page.getByRole('region', {name: 'Chat'})
+    await expect(pane.getByTestId('chat-list')).toHaveCount(0)
+    await pane.getByRole('button', {name: 'Show your chats'}).click()
+    await expect(pane.getByTestId('chat-list')).toBeVisible()
+    await pane.getByTestId('chat-list').getByRole('button', {name: 'New chat', exact: true}).click()
+    await expect(pane.getByTestId('chat-list')).toHaveCount(0)
+    await expect(pane.getByLabel('Message')).toBeFocused()
 })
 
 test('writes a code block in the box: Enter after ``` closes it, and inside it is a new line, not a send', async ({page}) => {
