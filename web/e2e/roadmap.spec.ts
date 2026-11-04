@@ -36,3 +36,56 @@ test('makes a chunk from the roadmap, renames it, gives it a summary and removes
     await expect(page).toHaveURL(/\/p\/orchard\/roadmap$/)
     expect((await request.get(`/api/projects/orchard/chunks/${id}`)).status()).toBe(404)
 })
+
+test("a chunk's right-click menu sets its priority, files an issue in it, copies its id, opens it and removes it (ORR-792)", async ({page, request}) => {
+    const chunk = await api(request, 'post', '/chunks', {title: 'Ladders'})
+    await api(request, 'post', '/issues', {title: 'Check the rungs', chunk: chunk.id})
+    await page.goto('/p/orchard/roadmap')
+    await page.evaluate(() => {
+        const copied: string[] = (window as unknown as {copied: string[]}).copied = []
+        navigator.clipboard.writeText = async text => { copied.push(text) }
+    })
+    const card = page.getByRole('link', {name: /Ladders/}).first()
+    const menu = page.getByRole('menu', {name: `Actions for chunk ${chunk.id}`})
+
+    await card.click({button: 'right'})
+    await menu.getByRole('button', {name: 'Priority P1'}).click()
+    await expect.poll(async () => (await api(request, 'get', `/chunks/${chunk.id}`)).priority).toBe('P1')
+    // A pick closes the menu.
+    await expect(menu).toHaveCount(0)
+
+    await card.click({button: 'right'})
+    await menu.getByRole('button', {name: 'Copy id'}).click()
+    await expect(menu).toContainText(/Copied \S+/)
+    expect((await page.evaluate(() => (window as unknown as {copied: string[]}).copied))[0]).toContain(String(chunk.id))
+    await page.keyboard.press('Escape')
+    await expect(menu).toHaveCount(0)
+
+    // The new issue lands in the chunk.
+    await card.click({button: 'right'})
+    await menu.getByRole('button', {name: 'New issue in it'}).click()
+    const dialog = page.getByRole('dialog', {name: 'New issue'})
+    await dialog.getByLabel('Title').fill('Oil the hinges')
+    await dialog.getByRole('button', {name: /Create issue/}).click()
+    await expect(page).toHaveURL(/\/p\/orchard\/issues\/ORC-\d+/)
+    expect(await api(request, 'get', `/issues/${page.url().split('/').at(-1)}`)).toMatchObject({chunk: chunk.id})
+
+    await page.goto('/p/orchard/roadmap')
+    await card.click({button: 'right'})
+    await menu.getByRole('button', {name: 'Open'}).click()
+    await expect(page).toHaveURL(new RegExp(`/p/orchard/roadmap/${chunk.id}$`))
+
+    // Remove asks first; Cancel leaves it, Remove takes the chunk and leaves its issues in no chunk.
+    await page.goto('/p/orchard/roadmap')
+    await card.click({button: 'right'})
+    await menu.getByRole('button', {name: 'Remove…'}).click()
+    await expect(menu).toContainText(`Remove chunk ${chunk.id}? Its 2 issues stay, in no chunk.`)
+    await menu.getByRole('button', {name: 'Cancel'}).click()
+    await expect(menu.getByRole('button', {name: 'Remove…'})).toBeVisible()
+    await menu.getByRole('button', {name: 'Remove…'}).click()
+    await menu.getByRole('button', {name: 'Remove', exact: true}).click()
+    await expect.poll(async () => (await request.get(`/api/projects/orchard/chunks/${chunk.id}`)).status()).toBe(404)
+    const left = await api(request, 'get', '/issues')
+    const list = (Array.isArray(left) ? left : left.issues) as {title: string, chunk: unknown}[]
+    expect(list.filter(i => ['Check the rungs', 'Oil the hinges'].includes(i.title)).map(i => i.chunk ?? null)).toEqual([null, null])
+})

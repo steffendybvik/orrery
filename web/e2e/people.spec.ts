@@ -66,3 +66,32 @@ test('claims, board members and acting as someone, and none of it with one perso
     await expect(page.getByText(`took it over from`)).toBeVisible()
     expect((await (await request.get(`/api/projects/sorrel/issues/${made.id}`)).json()).assignee).toBe('ada_lovelace')
 })
+
+test('the owner takes someone off a board, then off the orrery, from the page (ORR-792)', async ({page, request}) => {
+    await makeProject(request, {name: 'Tansy', key: 'TAN'})
+    const person = await request.post('/api/people', {data: {name: 'Skoll Varg'}, headers: OWNER})
+    expect(person.ok(), await person.text()).toBeTruthy()
+    const added = await request.post('/api/projects/tansy/members', {data: {person: 'skoll_varg'}, headers: OWNER})
+    expect(added.ok(), await added.text()).toBeTruthy()
+    try {
+        await page.goto('/p/tansy/settings')
+        const members = page.locator('#members')
+        await expect(members.getByText('Skoll Varg')).toBeVisible()
+        await members.getByRole('button', {name: 'Remove Skoll Varg'}).click()
+        // Off the board, they're back among those to add.
+        await expect(members.getByRole('button', {name: 'Remove Skoll Varg'})).toHaveCount(0)
+        await expect(members.getByRole('combobox', {name: 'Who to add'}).locator('option', {hasText: 'Skoll Varg'})).toHaveCount(1)
+        expect((await (await request.get('/api/projects/tansy/members')).json()).map((m: {person: string}) => m.person)).not.toContain('skoll_varg')
+
+        await page.goto('/settings?tab=orrery#people')
+        const people = page.locator('#people')
+        // The owner is marked, and has no Remove.
+        await expect(people.getByText('owner', {exact: true})).toBeVisible()
+        await people.getByRole('button', {name: 'Remove Skoll Varg'}).click()
+        await expect(people.getByText('Skoll Varg')).toHaveCount(0)
+        // Removed, not forgotten: their name stays on history.
+        expect((await (await request.get('/api/people')).json()).find((p: {id: string}) => p.id === 'skoll_varg')).toHaveProperty('removed_at')
+    } finally {
+        await request.delete('/api/people/skoll_varg', {headers: OWNER})
+    }
+})

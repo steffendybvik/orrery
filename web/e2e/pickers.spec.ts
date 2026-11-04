@@ -138,3 +138,53 @@ test('picks two labels in a row, and Esc closes the picker, not the page', async
     await expect(find).toBeHidden()
     await expect(page).toHaveURL(new RegExp(`/p/foundry/issues/${issue.id}$`))
 })
+
+test('adds a status from App settings, renames it, colours it and moves it, Esc leaving a name as it was (ORR-792)', async ({page, request}) => {
+    const statuses = async () => (await (await request.get('/api/statuses')).json()) as {id: string, name: string, kind: string, color: string, position: number}[]
+    const started = async () => (await statuses()).filter(s => s.kind === 'started').map(s => s.id)
+    await page.goto('/settings#statuses')
+    const startedGroup = page.locator('div.rounded-xl').filter({has: page.getByRole('textbox', {name: "In progress's name"})}).first()
+
+    // Esc closes the new one's box, adding nothing.
+    await startedGroup.getByRole('button', {name: '+ Add'}).click()
+    await page.getByLabel("New status's name").fill('Simmering')
+    await page.getByLabel("New status's name").press('Escape')
+    await expect(page.getByLabel("New status's name")).toHaveCount(0)
+    expect(await started()).not.toContain('simmering')
+
+    await startedGroup.getByRole('button', {name: '+ Add'}).click()
+    await page.getByLabel("New status's name").fill('Simmering')
+    await startedGroup.getByRole('button', {name: 'Add', exact: true}).click()
+    await expect.poll(started).toContain('simmering')
+    expect((await started()).at(-1)).toBe('simmering')
+
+    // Renamed in place: Enter saves, Esc puts the name back.
+    const name = page.getByRole('textbox', {name: "Simmering's name"})
+    await name.fill('Bubbling')
+    await name.press('Enter')
+    await expect.poll(async () => (await statuses()).find(s => s.id === 'simmering')?.name).toBe('Bubbling')
+    const renamed = page.getByRole('textbox', {name: "Bubbling's name"})
+    await renamed.fill('Boiling over')
+    await renamed.press('Escape')
+    await expect(renamed).toHaveValue('Bubbling')
+    expect((await statuses()).find(s => s.id === 'simmering')?.name).toBe('Bubbling')
+
+    await page.getByRole('button', {name: 'Colour Bubbling teal'}).click()
+    await expect.poll(async () => (await statuses()).find(s => s.id === 'simmering')?.color).toBe('teal')
+
+    // Last in its kind, it can't go down; up swaps it with the one before.
+    await expect(page.getByRole('button', {name: 'Move Bubbling down'})).toBeDisabled()
+    const before = await started()
+    await page.getByRole('button', {name: 'Move Bubbling up'}).click()
+    await expect.poll(started).toEqual([...before.slice(0, -2), 'simmering', before.at(-2)])
+    await page.getByRole('button', {name: 'Move Bubbling down'}).click()
+    await expect.poll(started).toEqual(before)
+
+    // Cancel leaves it; nothing uses it, so Remove takes it.
+    await page.getByRole('button', {name: 'Remove Bubbling'}).click()
+    await startedGroup.getByRole('button', {name: 'Cancel'}).click()
+    await expect(page.getByRole('button', {name: 'Move its issues to'})).toHaveCount(0)
+    await page.getByRole('button', {name: 'Remove Bubbling'}).click()
+    await page.getByRole('button', {name: 'Remove', exact: true}).click()
+    await expect.poll(started).not.toContain('simmering')
+})
