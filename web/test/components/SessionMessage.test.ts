@@ -47,7 +47,9 @@ describe('SessionMessage', () => {
         await wrapper.find('form').trigger('submit')
         await vi.waitFor(() => expect(sent).toHaveLength(1))
         expect(sent[0]).toEqual({text: 'Cut the release, for rc.9.', preset: 2})
-        // Sent, the box is empty and the next message is plain words.
+        // Sent, the box is empty and the next message is plain words. The server has it before the page is done
+        // sending, and a send while one is under way is dropped, so it waits for the box to empty (ORR-898).
+        await vi.waitFor(() => expect((box.element as HTMLTextAreaElement).value).toBe(''))
         await box.setValue('Thanks')
         await wrapper.find('form').trigger('submit')
         await vi.waitFor(() => expect(sent).toHaveLength(2))
