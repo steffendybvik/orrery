@@ -71,7 +71,9 @@ export function useChat() {
 
     function arrived(changed: Chat) {
         heard.value++
-        chats.value = [changed, ...chats.value.filter(c => c.id !== changed.id)].sort((a, b) => b.started_at.localeCompare(a.started_at))
+        const others = chats.value.filter(c => c.id !== changed.id)
+        chats.value = changed.deleted ? others : [changed, ...others].sort((a, b) => b.started_at.localeCompare(a.started_at))
+        if (changed.deleted && picked.value === changed.id) picked.value = null
     }
 
     /** Opens the pane on `on`'s chat, or ready to start one there, unless a project is pinned. */
@@ -189,6 +191,21 @@ export function useChat() {
         await apiFetch(`/chats/${id}/end`, {method: 'POST'}).catch(() => {})
     }
 
+    /** Deletes chat `id` (ORR-882), ended first if it runs: it goes from the list, and the pane, if it showed it, goes
+     * on to the next in the list, or ready to start one when it was the last. What it made stays. */
+    async function remove(id: string) {
+        const at = chats.value.findIndex(c => c.id === id)
+        const on = chats.value[at]
+        if (!on) return
+        const shown = chat.value?.id === id
+        const next = chats.value[at + 1] ?? chats.value[at - 1]
+        await apiFetch(`/chats/${id}`, {method: 'DELETE'})
+        arrived({...on, messages: [], ended: true, deleted: true})
+        if (!shown) return
+        if (next) view(next.id)
+        else fresh()
+    }
+
     /** Hides the pane, leaving its chat running: opened again, it's on the same conversation. */
     function hide() {
         open.value = false
@@ -229,5 +246,5 @@ export function useChat() {
         return apiFetch<Upload>('/uploads', {method: 'POST', body: {data: await readAsDataUrl(file), name: file.name || null}})
     }
 
-    return {chats, running, open, large, chat, session, project, pinned, picked, failed, lands, fetchChats, arrived, show, start, send, clear, land, fresh, switchTo, view, end, answer, hide, close, pin, resize, upload}
+    return {chats, running, open, large, chat, session, project, pinned, picked, failed, lands, fetchChats, arrived, show, start, send, clear, land, fresh, switchTo, view, end, remove, answer, hide, close, pin, resize, upload}
 }

@@ -32,7 +32,7 @@ import type {Chat, ChatIssues, ChatMessage} from '#shared/roadmap'
 // held goes back in the box on a switch, so it never goes to another chat.
 // While no launcher runs for its project, LauncherHint above the box says so, with the install command to copy, in place
 // of the server's error (ORR-591).
-const {open, large, chat, session, project, pinned, failed, chats, running, lands, start, send, clear, land, fresh, view, end: endChat, answer, hide, close, pin, resize, upload, show} = useChat()
+const {open, large, chat, session, project, pinned, failed, chats, running, lands, start, send, clear, land, fresh, view, end: endChat, remove, answer, hide, close, pin, resize, upload, show} = useChat()
 const answering = ref<number | null>(null)
 async function decide(message: number, allow: boolean, anyway = false) {
     answering.value = message
@@ -75,12 +75,18 @@ const here = computed(() => {
 })
 /** The project the chat would be about: the pinned one, else the one you're on; on a page of no project, a running
  * chat's when the pane has none, so the corner button brings you back to it (ORR-865, ORR-870); else the first. */
-watch([pinned, here, projects, chats], () => {
+function follow() {
     if (pinned.value && projects.value.some(p => p.id === pinned.value)) project.value = pinned.value
     else if (here.value) project.value = here.value
     else if (!chat.value && running.value[0]) project.value = running.value[0].project
     else if (!project.value) project.value = projects.value[0]?.id ?? null
-}, {immediate: true})
+}
+watch([pinned, here, projects], follow, {immediate: true})
+// A chat changing (a message, one ended or deleted) only fills an empty pane on a page of no project: it doesn't take a
+// chat picked on another project back to the page's.
+watch(chats, () => {
+    if (!pinned.value && !here.value) follow()
+})
 /** Where the issues the chat makes land: the running chat's, or the next one's. */
 const landing = computed<ChatIssues>(() => chat.value && !chat.value.ended ? chat.value.issues : lands.value)
 const LANDS: {value: ChatIssues, label: string}[] = [{value: 'todo', label: 'Todo'}, {value: 'backlog', label: 'Backlog'}]
@@ -113,6 +119,22 @@ function firstLine(c: Chat) {
 function pick(id: string) {
     view(id)
     if (!wide.value) listing.value = false
+}
+/** The chat in the list asking to be deleted, and why its delete failed (ORR-882). */
+const deleting = ref<string | null>(null)
+const deleteBusy = ref(false)
+const deleteFailed = ref('')
+async function deleteChat(id: string) {
+    deleteBusy.value = true
+    deleteFailed.value = ''
+    try {
+        await remove(id)
+        deleting.value = null
+    } catch (error) {
+        deleteFailed.value = errorMessage(error, 'delete')
+    } finally {
+        deleteBusy.value = false
+    }
 }
 /** New chat: what's held for the one on screen goes back in the box, and the next message starts a fresh one. */
 function newChat() {
@@ -370,8 +392,8 @@ const {over, on: drop} = useImageDrop(attach)
         <li v-for="c in chats" :key="c.id" class="group relative">
           <button
               type="button"
-              class="flex w-full min-w-0 flex-col rounded-lg px-2.5 py-1.5 pr-7 text-left transition hover:bg-hover"
-              :class="c.id === chat?.id && 'bg-hover'"
+              class="flex w-full min-w-0 flex-col rounded-lg px-2.5 py-1.5 text-left transition hover:bg-hover"
+              :class="[c.id === chat?.id && 'bg-hover', c.ended ? 'pr-7' : 'pr-12']"
               :aria-current="c.id === chat?.id ? 'true' : undefined"
               :title="`${projectName(c.project)}: ${firstLine(c)}${c.ended ? ' (ended, to read)' : ''}`"
               @click="pick(c.id)"
@@ -393,6 +415,20 @@ const {over, on: drop} = useImageDrop(attach)
           >
             <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 18 18 6M6 6l12 12" /></svg>
           </button>
+          <button
+              type="button"
+              class="absolute top-1.5 grid size-5 place-items-center rounded text-faint transition hover:bg-panel hover:text-rose-600 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100"
+              :class="c.ended ? 'right-1' : 'right-6'"
+              :aria-label="`Delete the chat on ${projectName(c.project)}: ${firstLine(c)}`"
+              title="Delete this chat"
+              @click="deleting = c.id; deleteFailed = ''"
+          >
+            <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3" /></svg>
+          </button>
+          <UiConfirm v-if="deleting === c.id" class="px-2.5 py-1.5" size="xs" action="Delete" busy-action="Deleting…" :busy="deleteBusy" data-testid="chat-delete" @confirm="deleteChat(c.id)" @cancel="deleting = null">
+            Delete this chat{{ c.ended ? '' : ', ending it' }}? What it filed stays.
+          </UiConfirm>
+          <p v-if="deleting === c.id && deleteFailed" class="px-2.5 pb-1.5 text-xs text-rose-700 dark:text-rose-400">{{ deleteFailed }}</p>
         </li>
         <li v-if="!chats.length" class="px-2.5 py-1.5 text-xs text-faint">No chats yet</li>
       </ul>
