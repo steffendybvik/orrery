@@ -260,6 +260,20 @@ docker compose exec orrery node /app/server/claim.mjs --name "Your Name"  # in D
 `--name` is only needed before you've given orrery your name. It prints your person key once: sign in with it on the page. On a server
 already claimed it refuses, unless given `--replace`, which revokes your person keys and ends the logins they started, for when you've lost yours.
 
+**Restoring instead of claiming.** A new server that's to carry on from another orrery's backup, rather than start empty,
+takes it in place of a claim:
+
+```sh
+docker compose cp from-mac.db orrery:/data/from-mac.db
+docker compose exec orrery node /app/server/claim.mjs --restore /data/from-mac.db
+docker compose restart orrery
+```
+
+It checks the backup whole, copies it in beside the database, and orrery opens the copy when it starts again (the backup
+stays as it was). The backup's people and keys come with it, so it prints no key: sign in with the person key you had there.
+It refuses once the orrery has projects, as App settings → This orrery → **Restore a backup…** is the way then, keeping a
+copy of what it replaces.
+
 **Sessions.** Claiming from App settings makes this machine's agent key. For any other machine, make one under App settings → You → Your keys: it comes with a line
 to run in a terminal there that adds it to `~/.config/orrery/keys.json` (mode 0600) for this address, as `{"https://orrery.example": "orrery_agent_…"}`.
 The launcher needs the file: it runs as a service with nothing from your shell but `PATH`, so it and the sessions it starts find a key only there.
