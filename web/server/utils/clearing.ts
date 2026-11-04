@@ -76,9 +76,61 @@ export function clearPending(id: string): boolean {
     return sessionIds(id).some(known => Date.now() - (clearDue.get(known) ?? -Infinity) < CLEAR_DUE_FOR)
 }
 
-/** The session is back from its clear: nothing holds it back from picking now. */
-export function clearDone(id: string) {
-    for (const known of sessionIds(id)) clearDue.delete(known)
+/** The owner's focuses held back from a session until its clear is done (ORR-904), by its id then: each goes out on its
+ * stream as it's back, as a `/clear` would wipe one sent before it, and nothing sends it again. */
+const held = new Map<string, (() => void)[]>()
+
+/** The session is back from its clear: nothing holds it back from picking now, and the focuses held for it go out.
+ * Says whether any did, so nothing else (its run, its pick list) is handed it on top of them. */
+export function clearDone(id: string): boolean {
+    let released = false
+    for (const known of sessionIds(id)) {
+        clearDue.delete(known)
+        const waiting = held.get(known)
+        if (!waiting) continue
+        held.delete(known)
+        waiting.forEach(deliver => deliver())
+        released = true
+    }
+    return released
+}
+
+/** Whether `issue` is part of the same work as any of `ours`: one of them, its parent, a sub-issue or a sibling of one. */
+const related = (issue: {id: string, parent?: string | null}, ours: {id: string, parent?: string | null}[]) =>
+    ours.some(o => o.id === issue.id || o.id === issue.parent || o.parent === issue.id || !!o.parent && o.parent === issue.parent)
+
+/** The owner's focus on an issue is about to reach a session orrery started (`id`), idle, that still holds work only in
+ * review or waiting on the owner, so it was never cleared (ORR-904). When the issue isn't part of that work, its launcher
+ * clears it first, and `deliver` sends the focus once it's back (`clearDone`), so the new work starts on a fresh context.
+ * A sub-issue, parent or sibling of that work keeps it. Says whether it held the focus. A clear that never comes back
+ * (its launcher gone) lets the focus go anyway once the mark runs out, so it isn't lost. */
+export async function clearBefore(project: string, id: string, signal: Signal, deliver: () => void): Promise<boolean> {
+    if (signal.kind !== 'focus' || !signal.issue || !signal.protected || signal.note === CARRY_ON) return false
+    const now = sessionNow(id)
+    if (!now?.started || now.started.chat || now.started.untrusted || untrustedSession(id) || chatSession(id) || now.state !== 'idle') return false
+    const session = currentId(id)
+    // Already due a clear for one held before this: this one waits behind it.
+    const waiting = held.get(session)
+    if (waiting) {
+        waiting.push(deliver)
+        return true
+    }
+    const store = useStore()
+    const ours = await store.workingOn(now.project, sessionIds(id))
+    // Work still in progress is its context to keep; none at all, and `considerClear` has cleared it already.
+    if (!ours.length || ours.some(o => o.status !== 'in-review' && !o.waiting)) return false
+    const issue = (await store.listIssues(project)).find(i => i.id === signal.issue)
+    if (!issue || related(issue, ours)) return false
+    held.set(session, [deliver])
+    const due = Date.now()
+    clearDue.set(session, due)
+    projectEvents.emit('launches', {type: 'clear', project: now.project, id: now.started.launch})
+    setTimeout(() => {
+        if (held.get(session)?.[0] !== deliver) return
+        if (clearDue.get(session) === due) clearDue.delete(session)
+        clearDone(session)
+    }, CLEAR_DUE_FOR)
+    return true
 }
 
 /** The session went idle: if orrery started it, and after a moment it's still idle, with no issue in progress

@@ -196,6 +196,17 @@ export async function streamFeed(say: (signal: Signal, told: Told) => unknown, f
     }
     const send = (signal: Signal) => {
         if (!feed.wanted(signal) || !feed.mine(signal)) return
+        // The owner's focus on unrelated work, to a session orrery started that still holds work in review, waits for its
+        // clear and goes once it's back (ORR-904); anything else goes now.
+        if (attended && signal.kind === 'focus' && signal.issue && sessionNow(attended.id)?.started) {
+            return feed.inOrder(async () => {
+                const id = attended.id
+                if (!await clearBefore(project, id, signal, () => push(signal)).catch(error => {
+                    console.error(`[orrery] clearing ${id} before a focus:`, error)
+                    return false
+                })) push(signal)
+            })
+        }
         if (!unread(signal)) return push(signal)
         store.delivered(project, signal.id, (attended && sessionName(attended.id)) ?? name ?? 'a session')
             .catch(error => console.error(`[orrery] a repeat for ${project}:`, error))
