@@ -7,6 +7,81 @@ Each version's changes are grouped under **Features**, **Changes** and **Fixes**
 **Internal** where they help, and a group with nothing in it is left out. 1.0.0, the first release's
 overview, is one list.
 
+## 1.0.0-rc.17 (2026-11-04)
+
+### Features
+
+- **Sign a phone in with a QR code:** App settings → You → **Open on your phone** shows the address a phone can open
+  orrery at, with Copy and a QR code made on the page. Scanning it opens orrery on the phone already signed in. The
+  phone gets a port of its own (`1` before `ORRERY_PORT`, so 19010 for 9010) that always asks for a login, while the
+  sessions' `127.0.0.1` address stays trusted with no keys. A signed-in phone acts as the owner, Allow included, for
+  its login's 30 days.
+- **End a phone's login:** App settings → You → **Signed in** lists each browser and phone with a login, with **End** on
+  each and **End every other login**.
+- **A chat per project, and a list of chats:** each project has its own chat, and moving to another project shows its
+  chat and leaves the one you had running. A list down the chat pane's left holds every chat, several on one project,
+  running and ended, each a click away.
+- **Each session's model:** the Sessions page shows the model every session runs on (Opus 5.5, the full id on hover),
+  read from what Claude Code actually used, so a `/model` switch shows after its next turn.
+- **Start a session on a model and effort:** `POST …/launches` takes `model` and `effort`, and the launcher starts
+  `claude --model … --effort …`. A session started on an issue takes its kind's model, from its highest-ranked label:
+  a `docs` issue starts on Sonnet. A launcher on older code is refused such a launch rather than dropping the model.
+- **Star and hide projects:** App settings → Projects lists every project as Starred, Shown or Hidden. Starred ones lead
+  the sidebar, and hidden ones fold away under a Hidden row at its foot, with their work unchanged.
+- **A Projects page** lists every project, hidden ones included, so the sidebar can stay short.
+- **Filter Notifications by project:** with notices from more than one project, a Project picker keeps the timeline,
+  Clear read and Clear all to one, kept in `?project=`.
+- **Restore a backup on a new server:** `claim.mjs --restore <file>`, run from a shell on the box, puts a backup in place
+  of the empty database, people and keys included, instead of claiming it.
+
+### Changes
+
+- **Faster loads:** API answers and public files go compressed, about a fifth off a cold load over a network, and the
+  start-up reads run side by side, so the bell and sidebar fill about 600 ms sooner on a remote link.
+- **orrery serves its own fonts:** Geist and Geist Mono come from orrery rather than Google Fonts, which takes a
+  render-blocking stylesheet and three outside requests off every page. The CSP now allows orrery alone.
+- **The guide tool sends its contents,** and one section when a session names it, rather than all of `using.md` (about
+  10k tokens) on every call.
+- **No more in-app claim:** with the phone's QR sign-in, nothing on the Mac needs claiming from its page. A hosted box
+  still claims from its shell (`orrery:claim`, `--restore`).
+- **Starting sessions keeps you where you were:** the Start session dialog closes and leaves you on your page rather
+  than going to Sessions.
+- **An unread repo is a muted line** on an issue's page, linking to Pull requests, rather than an error in red.
+- **Every project tab has the same top bar,** project / tab, with the key and progress from phone width up.
+- **A new agent key comes with its `keys.json` line,** so the launcher service and its sessions can use it with login on.
+- **Dependencies updated:** `pnpm audit` goes from 18 advisories (6 high) to 3 (1 low, 2 moderate).
+
+### Fixes
+
+- **Revoking a person key ends its logins at once,** rather than leaving them signed in for up to 30 days.
+- **A focus aimed at a session by its name reaches it:** it went to nobody before. A session the project doesn't know is
+  a 404.
+- **Typing in another field no longer jumps to the chat** after one letter while the chat pane is open.
+- **A phone no longer zooms in on a field it types in:** on a touch screen, fields' text is 16px, so Send stays in view.
+  A desktop keeps its size, and pinch-zoom still works.
+- **On a phone:** key hints are hidden; a session card keeps its name whole, with Watch and Stop under ⋯; the sidebar's
+  small buttons are big enough to tap; Start session fits, with its footer in reach; the open doc scrolls into the docs
+  strip; and code in a doc's table stays on one line.
+- **A page whose read fails says so,** with the reason and **Try again**, rather than spinning for ever or saying there's
+  nothing there.
+- **Skip to content:** the first Tab on every page shows the link, so a keyboard needn't go through the sidebar first.
+- **A keyboard can scroll code boxes and tables** that scroll sideways on a phone.
+- **Text contrast holds** on paused schedules, a run's outcome, the active sidebar row in dark, and status chips on a
+  waiting row.
+- **`nuxt dev` starts again** with no host set, after the nuxt 4.6.4 update.
+
+### Docs
+
+- **Reaching orrery from a phone:** `SECURITY.md` lists the ways, safest first, and the README and `SECURITY.md` say the
+  phone's port is on the network by default. `using.md` has what this release added to App settings and Notifications.
+
+### Internal
+
+- **README images:** the Images workflow's first run retook all six in the browser suite's own image.
+- **An atlas of the shared building blocks** on `/ui`, in development only.
+- **Tests:** the chat pane's sending, the QR sign-in's routes and its flow in a browser, Back up now, that a page loads
+  nothing from another host, and the chunk, status, schedule and people flows through the least covered components.
+
 ## 1.0.0-rc.16 (2026-10-30)
 
 ### Features
