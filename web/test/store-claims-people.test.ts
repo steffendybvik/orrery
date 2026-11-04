@@ -140,7 +140,7 @@ describe('with two people', () => {
             const theirs = await add({assignee: 'skoll'})
             await refused(() => store.updateIssue('greenhouse', theirs, {project: 'greenhouse', title: 'x'}, hatis))
             await refused(() => store.deleteIssue('greenhouse', theirs, hatis), 'assigned to skoll')
-            await refused(() => store.importRoadmap('greenhouse', {comment: '', chunks: []}, true, hatis), 'only a person')
+            await refused(() => store.importRoadmap('greenhouse', {comment: '', milestones: []}, true, hatis), 'only a person')
         })
 
         it('leaves comments open to all', async () => {

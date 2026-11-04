@@ -63,10 +63,10 @@ export default defineNuxtPlugin(() => {
             visit(i)
             walk(i.tasks, visit)
         })
-        before?.board.chunks.forEach(c => walk(c.tasks, i => stamps.set(i.id, i.updated_at)))
+        before?.board.milestones.forEach(c => walk(c.tasks, i => stamps.set(i.id, i.updated_at)))
         const now = Date.now()
         const next = {...changed.value}
-        after.board.chunks.forEach(c => walk(c.tasks, i => {
+        after.board.milestones.forEach(c => walk(c.tasks, i => {
             if (before && stamps.get(i.id) !== i.updated_at) next[`${after.id}/${i.id}`] = now
         }))
         changed.value = next
@@ -96,7 +96,7 @@ export default defineNuxtPlugin(() => {
         if (before && have !== undefined && patch.rev <= have) return
         const fits = before ? have !== undefined && patch.base <= have : patch.base === 0
         const lacking = !!partial.value[patch.id]
-        const project = fits ? applyPatch(before ?? {board: {chunks: []}} as unknown as Project, patch, lacking) : null
+        const project = fits ? applyPatch(before ?? {board: {milestones: []}} as unknown as Project, patch, lacking) : null
         if (project) {
             revs.set(patch.id, Math.max(have ?? 0, patch.rev))
             return received(project)

@@ -2,7 +2,7 @@
 import type {Priority} from '#shared/roadmap'
 import {fullId, shortId} from '#shared/roadmap'
 
-// A chunk's page: its summary, priority and progress, the Claude sessions to point at it, and its issues
+// A milestone's page: its summary, priority and progress, the Claude sessions to point at it, and its issues
 // by status, each status with a button to point the sessions at just those. Its title and summary edit
 // in place and it can be removed, as the owner. Esc goes back to the roadmap.
 const route = useRoute()
@@ -11,23 +11,23 @@ const {byId, ready} = useRoadmaps()
 const {matches, active} = useFilters()
 
 const project = computed(() => byId(route.params.project as string))
-const chunkId = computed(() => route.params.chunk === 'none' ? '' : shortId('chunk', String(route.params.chunk), project.value?.uid ?? '') ?? String(route.params.chunk))
-const chunk = computed(() => project.value?.board.chunks.find(c => c.id === chunkId.value || c.aliases.includes(chunkId.value)))
+const milestoneId = computed(() => route.params.milestone === 'none' ? '' : shortId('milestone', String(route.params.milestone), project.value?.uid ?? '') ?? String(route.params.milestone))
+const milestone = computed(() => project.value?.board.milestones.find(c => c.id === milestoneId.value || c.aliases.includes(milestoneId.value)))
 // A name it had before (/roadmap/joints) goes to its own address.
-watch(chunk, c => {
-    if (c && c.id && c.id !== chunkId.value) router.replace(chunkPath(String(route.params.project), c.id))
+watch(milestone, c => {
+    if (c && c.id && c.id !== milestoneId.value) router.replace(milestonePath(String(route.params.project), c.id))
 }, {immediate: true})
 const shown = computed(() => {
-    if (!chunk.value) return []
-    return [active.value ? {...chunk.value, tasks: filterTree(chunk.value.tasks, matches)} : chunk.value]
+    if (!milestone.value) return []
+    return [active.value ? {...milestone.value, tasks: filterTree(milestone.value.tasks, matches)} : milestone.value]
 })
-const share = computed(() => chunk.value ? progress(chunk.value.kinds) : null)
+const share = computed(() => milestone.value ? progress(milestone.value.kinds) : null)
 const {look} = useStatuses()
 
 // Changes, as the owner; the page catches up live once they're saved. `failed` holds why the last didn't.
 const saving = ref(false)
 const failed = ref('')
-const api = computed(() => project.value && chunk.value?.id ? `/projects/${encodeURIComponent(project.value.id)}/chunks/${encodeURIComponent(chunk.value.id)}` : '')
+const api = computed(() => project.value && milestone.value?.id ? `/projects/${encodeURIComponent(project.value.id)}/milestones/${encodeURIComponent(milestone.value.id)}` : '')
 async function save(body: Record<string, unknown>): Promise<boolean> {
     if (!api.value) return false
     saving.value = true
@@ -51,15 +51,15 @@ const editingTitle = ref(false)
 const title = ref('')
 const titleInput = ref<HTMLInputElement | null>(null)
 function editTitle() {
-    if (!chunk.value?.id) return
-    title.value = chunk.value.title
+    if (!milestone.value?.id) return
+    title.value = milestone.value.title
     editingTitle.value = true
     nextTick(() => titleInput.value?.select())
 }
 async function saveTitle() {
     if (!editingTitle.value) return
     const next = title.value.trim()
-    if (next && next !== chunk.value?.title && !await save({title: next})) return
+    if (next && next !== milestone.value?.title && !await save({title: next})) return
     editingTitle.value = false
 }
 
@@ -68,18 +68,18 @@ const editingSummary = ref(false)
 const summary = ref('')
 const summaryInput = ref<HTMLTextAreaElement | null>(null)
 function editSummary() {
-    summary.value = chunk.value?.summary ?? ''
+    summary.value = milestone.value?.summary ?? ''
     editingSummary.value = true
     nextTick(() => summaryInput.value?.focus())
 }
 async function saveSummary() {
     const next = summary.value.trim()
-    if (next !== (chunk.value?.summary ?? '') && !await save({summary: next || null})) return
+    if (next !== (milestone.value?.summary ?? '') && !await save({summary: next || null})) return
     editingSummary.value = false
 }
-watch(() => chunk.value?.id, () => editingTitle.value = editingSummary.value = confirmingRemove.value = false)
+watch(() => milestone.value?.id, () => editingTitle.value = editingSummary.value = confirmingRemove.value = false)
 
-// Removing it leaves its issues in no chunk.
+// Removing it leaves its issues in no milestone.
 const confirmingRemove = ref(false)
 async function remove() {
     if (!api.value || !project.value) return
@@ -105,7 +105,7 @@ function onKey(event: KeyboardEvent) {
 onMounted(() => window.addEventListener('keydown', onKey))
 onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
 
-useHead(() => ({title: chunk.value ? `${chunk.value.title} · orrery` : 'orrery'}))
+useHead(() => ({title: milestone.value ? `${milestone.value.title} · orrery` : 'orrery'}))
 </script>
 
 <template>
@@ -118,55 +118,55 @@ useHead(() => ({title: chunk.value ? `${chunk.value.title} · orrery` : 'orrery'
         <NuxtLink :to="`/p/${project.id}`" class="shrink-0 font-medium hover:text-fg">{{ project.name }}</NuxtLink>
         <span class="text-faint">/</span>
         <NuxtLink :to="`/p/${project.id}/roadmap`" class="shrink-0 text-muted hover:text-fg">Roadmap</NuxtLink>
-        <template v-if="chunk">
+        <template v-if="milestone">
           <span class="text-faint">/</span>
-          <span class="truncate text-fg">{{ chunk.title }}</span>
+          <span class="truncate text-fg">{{ milestone.title }}</span>
         </template>
       </nav>
     </template>
   </PageHeader>
 
   <div class="clear-agent min-h-0 flex-1 overflow-y-auto">
-    <template v-if="project && chunk && share">
+    <template v-if="project && milestone && share">
       <header class="mx-auto flex max-w-5xl animate-fade-up flex-col gap-4 px-4 pt-8 pb-6 sm:px-8">
         <div class="flex items-center gap-3 text-xs">
-          <span class="flex items-center gap-2" :style="{color: readable(look(chunk.column).color)}">
-            <StatusIcon :column="chunk.column" :progress="share.share" />
-            {{ look(chunk.column).label }}
+          <span class="flex items-center gap-2" :style="{color: readable(look(milestone.column).color)}">
+            <StatusIcon :column="milestone.column" :progress="share.share" />
+            {{ look(milestone.column).label }}
           </span>
-          <span v-if="chunk.id" class="flex items-center gap-1.5">
-            <span class="font-mono text-faint">{{ chunk.id }}</span>
-            <CopyButton :text="fullId('chunk', chunk.id, project.uid)" />
+          <span v-if="milestone.id" class="flex items-center gap-1.5">
+            <span class="font-mono text-faint">{{ milestone.id }}</span>
+            <CopyButton :text="fullId('milestone', milestone.id, project.uid)" />
           </span>
           <PropertyPicker
-              v-if="chunk.id"
-              :model-value="chunk.priority ?? ''"
+              v-if="milestone.id"
+              :model-value="milestone.priority ?? ''"
               :options="PRIORITY_OPTIONS"
-              label="Chunk priority"
+              label="Milestone priority"
               placeholder="Find a priority…"
               field
               small
               :disabled="saving"
               @update:model-value="setPriority($event as Priority | '')"
           >
-            <PriorityIcon :priority="chunk.priority" />
-            <span class="truncate" :class="!chunk.priority && 'text-faint'">{{ chunk.priority ? `${chunk.priority} · ${PRIORITY_LABEL[chunk.priority]}` : 'No priority' }}</span>
+            <PriorityIcon :priority="milestone.priority" />
+            <span class="truncate" :class="!milestone.priority && 'text-faint'">{{ milestone.priority ? `${milestone.priority} · ${PRIORITY_LABEL[milestone.priority]}` : 'No priority' }}</span>
             <template #option="{option}">
               <PriorityIcon :priority="option.value || undefined" />
               <span class="min-w-0 flex-1 truncate">{{ option.label }}</span>
             </template>
           </PropertyPicker>
-          <span v-if="chunk.id" class="ml-auto flex items-center gap-2">
+          <span v-if="milestone.id" class="ml-auto flex items-center gap-2">
             <UiConfirm v-if="confirmingRemove" inline :busy="saving" @confirm="remove" @cancel="confirmingRemove = false">
-              Remove chunk {{ chunk.id }}? Its {{ chunk.tasks.length }} {{ chunk.tasks.length === 1 ? 'issue stays' : 'issues stay' }}, in no chunk.
+              Remove milestone {{ milestone.id }}? Its {{ milestone.tasks.length }} {{ milestone.tasks.length === 1 ? 'issue stays' : 'issues stay' }}, in no milestone.
             </UiConfirm>
             <UiButton
                 v-else
                 variant="danger-ghost"
                 size="xs"
                 square
-                title="Remove this chunk"
-                aria-label="Remove this chunk"
+                title="Remove this milestone"
+                aria-label="Remove this milestone"
                 @click="confirmingRemove = true"
             >
               <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3" /></svg>
@@ -187,10 +187,10 @@ useHead(() => ({title: chunk.value ? `${chunk.value.title} · orrery` : 'orrery'
         <h1
             v-else
             class="-mx-2 rounded-lg px-2 py-0.5 text-xl font-semibold tracking-tight text-fg sm:text-2xl"
-            :class="chunk.id ? 'cursor-text hover:bg-hover' : 'text-muted italic'"
-            :title="chunk.id ? 'Click to edit' : undefined"
+            :class="milestone.id ? 'cursor-text hover:bg-hover' : 'text-muted italic'"
+            :title="milestone.id ? 'Click to edit' : undefined"
             @click="editTitle"
-        >{{ chunk.title }}</h1>
+        >{{ milestone.title }}</h1>
         <section v-if="editingSummary" class="flex flex-col gap-2" @keydown.esc.stop.prevent="editingSummary = false">
           <textarea
               ref="summaryInput"
@@ -211,42 +211,42 @@ useHead(() => ({title: chunk.value ? `${chunk.value.title} · orrery` : 'orrery'
             </UiButton>
           </div>
         </section>
-        <section v-else-if="chunk.id" class="group relative">
+        <section v-else-if="milestone.id" class="group relative">
           <UiButton
-              v-if="chunk.summary"
+              v-if="milestone.summary"
               class="absolute -top-1 right-0 opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100"
               @click="editSummary"
           >Edit</UiButton>
-          <MarkdownView v-if="chunk.summary" :source="chunk.summary" />
+          <MarkdownView v-if="milestone.summary" :source="milestone.summary" />
           <button v-else type="button" class="text-sm text-faint italic hover:text-muted" @click="editSummary">No summary. Add one</button>
         </section>
-        <MarkdownView v-else-if="chunk.summary" :source="chunk.summary" />
+        <MarkdownView v-else-if="milestone.summary" :source="milestone.summary" />
         <p v-if="failed" class="text-xs text-rose-700 dark:text-rose-400">{{ failed }}</p>
         <div class="flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-faint">
-          <ProgressRing :kinds="chunk.kinds" :size="16" />
-          <span>{{ chunk.tasks.length }} {{ chunk.tasks.length === 1 ? 'issue' : 'issues' }}<template v-if="share.total !== chunk.tasks.length"> · {{ share.total }} with sub-issues</template></span>
-          <ColumnBar :counts="chunk.counts" class="max-w-64 flex-1" />
+          <ProgressRing :kinds="milestone.kinds" :size="16" />
+          <span>{{ milestone.tasks.length }} {{ milestone.tasks.length === 1 ? 'issue' : 'issues' }}<template v-if="share.total !== milestone.tasks.length"> · {{ share.total }} with sub-issues</template></span>
+          <ColumnBar :counts="milestone.counts" class="max-w-64 flex-1" />
         </div>
-        <SessionsPanel v-if="!isClosed(chunk.kind)" :project="project.id" :chunk="chunk.id || 'none'" />
+        <SessionsPanel v-if="!isClosed(milestone.kind)" :project="project.id" :milestone="milestone.id || 'none'" />
       </header>
       <ViewToolbar>
         <span class="label">Issues</span>
         <template #end>
           <FilterBar />
-          <UiButton variant="primary" class="shrink-0" title="New issue (c)" @click="useNewIssue().open(project.id, chunk.id || undefined)">
+          <UiButton variant="primary" class="shrink-0" title="New issue (c)" @click="useNewIssue().open(project.id, milestone.id || undefined)">
             <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14" /></svg>
             New issue
           </UiButton>
         </template>
       </ViewToolbar>
-      <ListView v-if="shown[0]?.tasks.length" :chunks="shown" :project="project.id" group="status" :show-chunk="false">
+      <ListView v-if="shown[0]?.tasks.length" :milestones="shown" :project="project.id" group="status" :show-milestone="false">
         <template #group-end="{column}">
-          <StatusFocus :project="project.id" :chunk="chunk.id || 'none'" :column="column" />
+          <StatusFocus :project="project.id" :milestone="milestone.id || 'none'" :column="column" />
         </template>
       </ListView>
-      <p v-else class="px-4 py-16 text-center text-sm text-muted">{{ active ? 'No issue in this chunk matches the filters.' : 'No issues in this chunk yet.' }}</p>
+      <p v-else class="px-4 py-16 text-center text-sm text-muted">{{ active ? 'No issue in this milestone matches the filters.' : 'No issues in this milestone yet.' }}</p>
     </template>
-    <NotFound v-else-if="ready" :to="`/p/${route.params.project}/roadmap`" back="Back to the roadmap">No chunk “{{ route.params.chunk }}”</NotFound>
+    <NotFound v-else-if="ready" :to="`/p/${route.params.project}/roadmap`" back="Back to the roadmap">No milestone “{{ route.params.milestone }}”</NotFound>
     <UiLoading v-else />
   </div>
 </template>

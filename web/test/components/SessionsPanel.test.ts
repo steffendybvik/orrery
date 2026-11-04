@@ -5,7 +5,7 @@ import {readBody} from 'h3'
 import type {Project} from '#shared/roadmap'
 import SessionsPanel from '~/components/SessionsPanel.vue'
 
-// Only a chunk can go to every session (ORR-681): an issue's panel doesn't offer it, and a chunk's button reaches them all.
+// Only a milestone can go to every session (ORR-681): an issue's panel doesn't offer it, and a milestone's button reaches them all.
 let sent: {on: string, body: unknown}[] = []
 registerEndpoint('/api/owner', () => ({name: 'skoll', display: 'Sköll', named: true}))
 const record = (on: string) => async (event: Parameters<typeof readBody>[0]) => {
@@ -13,20 +13,20 @@ const record = (on: string) => async (event: Parameters<typeof readBody>[0]) => 
     return {signal: {id: sent.length, project: 'greenhouse', kind: 'focus', target: '*', delivered_to: [], created_by: 'skoll', created_at: '2026-10-30T12:00:00.000Z'}, listeners: 2}
 }
 registerEndpoint('/api/projects/greenhouse/issues/GRE-1/focus', {method: 'POST', handler: record('issue')})
-registerEndpoint('/api/projects/greenhouse/chunks/3/focus', {method: 'POST', handler: record('chunk')})
+registerEndpoint('/api/projects/greenhouse/milestones/3/focus', {method: 'POST', handler: record('milestone')})
 registerEndpoint('/api/projects/greenhouse/signals', () => [])
 
 const mounted: VueWrapper[] = []
 beforeEach(() => {
     sent = []
-    useRoadmaps().projects.value = [{id: 'greenhouse', name: 'Greenhouse', key: 'GRE', releases: [], board: {chunks: []}} as unknown as Project]
+    useRoadmaps().projects.value = [{id: 'greenhouse', name: 'Greenhouse', key: 'GRE', releases: [], board: {milestones: []}} as unknown as Project]
     useRoadmaps().sessions.value = {greenhouse: [{id: 'a', name: 'a', listening: true, state: 'idle'}, {id: 'b', name: 'b', listening: true, state: 'idle'}] as never}
 })
 afterEach(() => {
     mounted.splice(0).forEach(w => w.unmount())
 })
 
-async function mount(props: {issue?: string, chunk?: string}) {
+async function mount(props: {issue?: string, milestone?: string}) {
     const wrapper = await mountSuspended(SessionsPanel, {props: {project: 'greenhouse', ...props}, attachTo: document.body})
     mounted.push(wrapper)
     return wrapper
@@ -82,18 +82,18 @@ describe('the sessions panel', () => {
             expect(wrapper.text()).not.toContain('busy')
         })
 
-        it("lists them all on a chunk's page", async () => {
+        it("lists them all on a milestone's page", async () => {
             given(session('one', 'working'), session('two', 'waiting'))
-            const wrapper = await mount({chunk: '3'})
+            const wrapper = await mount({milestone: '3'})
             expect(named(wrapper)).toEqual(['name-one', 'name-two'])
             expect(wrapper.text()).not.toContain('busy')
         })
     })
 
-    it("sends a chunk to every session", async () => {
-        const wrapper = await mount({chunk: '3'})
+    it("sends a milestone to every session", async () => {
+        const wrapper = await mount({milestone: '3'})
         await all(wrapper)!.trigger('click')
         await vi.waitFor(() => expect(sent).toHaveLength(1))
-        expect(sent[0]).toMatchObject({on: 'chunk', body: {session: '*'}})
+        expect(sent[0]).toMatchObject({on: 'milestone', body: {session: '*'}})
     })
 })

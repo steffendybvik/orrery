@@ -189,7 +189,7 @@ useHead(() => ({title: issue.value ? `${issue.value.id} ${issue.value.title} · 
         <NuxtLink :to="`/p/${project.id}`" class="shrink-0 font-medium hover:text-fg">{{ project.name }}</NuxtLink>
         <template v-if="found">
           <span class="text-faint">/</span>
-          <NuxtLink :to="chunkPath(project.id, found.chunk.id)" class="hidden max-w-48 truncate text-muted hover:text-fg sm:inline">{{ found.chunk.title }}</NuxtLink>
+          <NuxtLink :to="milestonePath(project.id, found.milestone.id)" class="hidden max-w-48 truncate text-muted hover:text-fg sm:inline">{{ found.milestone.title }}</NuxtLink>
           <template v-for="parent in found.parents" :key="parent.id">
             <span class="hidden text-faint sm:inline">/</span>
             <button type="button" class="hidden font-mono text-xs text-muted hover:text-fg sm:inline" @click="open(project.id, parent.id)">{{ parent.id }}</button>
@@ -275,7 +275,7 @@ useHead(() => ({title: issue.value ? `${issue.value.id} ${issue.value.title} · 
         </header>
 
         <div class="lg:hidden">
-          <IssueProperties fold :issue="issue" :project="project" :chunk="found.chunk" :sub="found.parents.length > 0" :worker="isClosed(issue.kind) ? undefined : worker" />
+          <IssueProperties fold :issue="issue" :project="project" :milestone="found.milestone" :sub="found.parents.length > 0" :worker="isClosed(issue.kind) ? undefined : worker" />
         </div>
 
         <ProposalPanel :project="project.id" :issue="issue" />
@@ -341,7 +341,7 @@ useHead(() => ({title: issue.value ? `${issue.value.id} ${issue.value.title} · 
         <!-- Clear of the worker's banner, which sticks above it, on one line at this width. -->
         <div class="sticky flex flex-col gap-4" :class="worker && !isClosed(issue.kind) ? 'top-16' : 'top-6'">
           <IssueIdRow :id="issue.id" :full="full" />
-          <IssueProperties :issue="issue" :project="project" :chunk="found.chunk" :sub="found.parents.length > 0" :worker="isClosed(issue.kind) ? undefined : worker" />
+          <IssueProperties :issue="issue" :project="project" :milestone="found.milestone" :sub="found.parents.length > 0" :worker="isClosed(issue.kind) ? undefined : worker" />
         </div>
       </aside>
     </div>

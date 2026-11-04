@@ -263,7 +263,7 @@ export function useInbox() {
             if (i.proposal === 'pending' && !i.protected) pending.push(`${project.id}/${i.id}@${i.updated_at}`)
             else if (!i.proposal) walk(i.tasks)
         })
-        project.board.chunks.forEach(c => walk(c.tasks))
+        project.board.milestones.forEach(c => walk(c.tasks))
         const shown = () => notices.value.filter(n => n.proposal && n.project === project.id).map(n => `${noticeKey(n)}@${n.updated_at}`)
         if (pending.filter(p => !hidden.value.includes(p)).sort().join() === shown().sort().join()) return
         refresh().then(() => {

@@ -7,7 +7,7 @@ import {AGENT, OWNER, makeProject, projectApi} from './support'
 // sidebar entry goes to its page and shows as active there, and the ⌘K palette and App settings → Advanced still lead
 // to theirs. The pages are one list, so a new page is a line here.
 const api = projectApi('atlas')
-const made = {chunk: '', doc: '', issue: ''}
+const made = {milestone: '', doc: '', issue: ''}
 
 interface Route {
     path: string
@@ -39,7 +39,7 @@ const ROUTES = (): Route[] => [
     {path: '/p/atlas', heading: 'Atlas', sidebar: 'Issues', palette: 'Atlas'},
     {path: '/p/atlas?view=board', heading: 'Atlas', sidebar: 'Issues'},
     {path: '/p/atlas/roadmap', heading: 'Atlas', sidebar: 'Roadmap', palette: 'Atlas roadmap'},
-    {path: `/p/atlas/roadmap/${made.chunk}`, heading: 'Coastlines', sidebar: 'Roadmap', palette: 'Coastlines'},
+    {path: `/p/atlas/roadmap/${made.milestone}`, heading: 'Coastlines', sidebar: 'Roadmap', palette: 'Coastlines'},
     {path: '/p/atlas/releases', heading: 'Atlas', sidebar: 'Releases', palette: 'Atlas releases'},
     {path: '/p/atlas/releases/2.0.0', heading: '2.0.0', sidebar: 'Releases'},
     // Docs opens on the first doc, whose title is the page's h1 (ORR-623).
@@ -67,18 +67,18 @@ test.beforeAll(async ({request}) => {
     advanced = !!(await (await request.get('/api/settings')).json()).advanced
     // Once a test fails, the next starts on a fresh worker, which runs this again on the same orrery.
     if ((await request.get('/api/projects/atlas')).ok()) {
-        made.chunk = String((await api(request, 'get', '/chunks') as {id: number, title: string}[]).find(c => c.title === 'Coastlines')!.id)
+        made.milestone = String((await api(request, 'get', '/milestones') as {id: number, title: string}[]).find(c => c.title === 'Coastlines')!.id)
         made.doc = (await api(request, 'get', '/docs') as {id: string, title: string}[]).find(d => d.title === 'Projections')!.id
         made.issue = (await api(request, 'get', '/issues?q=fjords') as {id: string}[])[0]!.id
         return
     }
     await makeProject(request, {name: 'Atlas', key: 'ATL', release_mode: 'own'})
-    made.chunk = String((await api(request, 'post', '/chunks', {title: 'Coastlines'})).id)
+    made.milestone = String((await api(request, 'post', '/milestones', {title: 'Coastlines'})).id)
     made.doc = (await api(request, 'post', '/docs', {title: 'Projections', body: 'Mercator, mostly.'})).id
     await api(request, 'post', '/releases', {version: '2.0.0'})
-    made.issue = (await api(request, 'post', '/issues', {title: 'Chart the fjords', chunk: made.chunk})).id
+    made.issue = (await api(request, 'post', '/issues', {title: 'Chart the fjords', milestone: made.milestone})).id
     // What the contrast pass has to see (ORR-855): a row waiting on a decision, a schedule that has run and one paused.
-    const waiting = (await api(request, 'post', '/issues', {title: 'Pick a projection', chunk: made.chunk, status: 'in-progress'})).id
+    const waiting = (await api(request, 'post', '/issues', {title: 'Pick a projection', milestone: made.milestone, status: 'in-progress'})).id
     await api(request, 'post', `/issues/${waiting}/comments`, {body: 'Mercator or Robinson?', asks: 'decision'})
     const ran = await api(request, 'post', '/schedules', {title: 'Survey the coast', cron: '0 9 * * *', timezone: 'UTC'})
     await api(request, 'post', `/schedules/${ran.id}/run`)

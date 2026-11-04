@@ -1,7 +1,7 @@
 import {expect, test} from '@playwright/test'
 import {OWNER, hold, makeProject, projectApi} from './support'
 
-// The settings that were native selects pick through the app's own picker: a project's releases, a chunk's
+// The settings that were native selects pick through the app's own picker: a project's releases, a milestone's
 // priority, and where a removed status's issues go.
 
 const api = projectApi('foundry')
@@ -19,12 +19,12 @@ test("picks a project's releases", async ({page, request}) => {
     await expect(page.getByRole('button', {name: 'Its releases'})).toHaveText('Its own')
 })
 
-test("picks a chunk's priority", async ({page, request}) => {
-    const chunk = await api(request, 'post', '/chunks', {title: 'Casting'})
-    await page.goto(`/p/foundry/roadmap/${chunk.id}`)
-    await page.getByRole('button', {name: 'Chunk priority'}).click()
+test("picks a milestone's priority", async ({page, request}) => {
+    const milestone = await api(request, 'post', '/milestones', {title: 'Casting'})
+    await page.goto(`/p/foundry/roadmap/${milestone.id}`)
+    await page.getByRole('button', {name: 'Milestone priority'}).click()
     await page.getByRole('option', {name: 'P1 · High'}).click()
-    await expect.poll(async () => (await api(request, 'get', `/chunks/${chunk.id}`)).priority).toBe('P1')
+    await expect.poll(async () => (await api(request, 'get', `/milestones/${milestone.id}`)).priority).toBe('P1')
 })
 
 test("picks where a removed status's issues go", async ({page, request}) => {
@@ -74,12 +74,12 @@ test('a picker works from the keyboard, and Esc in a dialog closes only the pick
     await expect(priority).toBeFocused()
 })
 
-test("a chunk's Focus on all is a menu the keys work", async ({page, request, baseURL}) => {
-    const chunk = await api(request, 'post', '/chunks', {title: 'Pouring'})
-    await api(request, 'post', '/issues', {title: 'Heat the crucible', status: 'todo', chunk: String(chunk.id)})
+test("a milestone's Focus on all is a menu the keys work", async ({page, request, baseURL}) => {
+    const milestone = await api(request, 'post', '/milestones', {title: 'Pouring'})
+    await api(request, 'post', '/issues', {title: 'Heat the crucible', status: 'todo', milestone: String(milestone.id)})
     const streams = ['smith', 'caster'].map(id => hold(baseURL!, `/api/projects/foundry/signals/stream?session=${id}&name=${id}&format=text`))
     try {
-        await page.goto(`/p/foundry/roadmap/${chunk.id}`)
+        await page.goto(`/p/foundry/roadmap/${milestone.id}`)
         const button = page.getByRole('button', {name: 'Focus on all Todo', exact: true})
         await button.focus()
         await page.keyboard.press('Enter')

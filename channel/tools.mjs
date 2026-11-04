@@ -26,7 +26,7 @@ const FIELDS = {
     external: {type: 'array', items: {type: 'string'}, description: "Team tracker task ids or URLs"},
     github_issues: {type: 'array', items: {type: 'string'}, description: 'GitHub issues it came from: 523, owner/name#523'},
     assignee: {type: ['string', 'null'], description: '"claude", or "owner" for the owner'},
-    chunk: {type: ['string', 'null'], description: "A chunk's id"},
+    milestone: {type: ['string', 'null'], description: "A milestone's id"},
     parent: {type: ['string', 'null'], description: 'Makes it a sub-issue of this issue'},
     release: {type: ['string', 'null'], description: 'The release version it ships in'},
     depends_on: {type: 'array', items: {type: 'string'}, description: 'Issues it waits on (all); chain ordered follow-ups'},
@@ -43,7 +43,7 @@ export const TOOLS = [
         inputSchema: {type: 'object', properties: {
             status: STATUS,
             assignee: {type: 'string', description: 'A name, or "none"'},
-            chunk: {type: 'string', description: 'A chunk id, or "none"'},
+            milestone: {type: 'string', description: 'A milestone id, or "none"'},
             release: {type: 'string', description: 'A release\'s version, or "none"'},
             label: {type: 'string'},
             external: {type: 'string', description: 'A team task id'},
@@ -87,7 +87,7 @@ export const TOOLS = [
         description: 'Comments on an issue (Markdown); asks waits at the top of the owner’s bell until they answer.',
         inputSchema: {type: 'object', required: ['id', 'body'], properties: {id: {type: 'string'}, body: {type: 'string'}, asks: {type: 'string', enum: ['decision', 'feedback']}}},
     },
-    {name: 'chunks', description: "Lists the project's chunks (milestones) with their status and progress; done ones with all.", inputSchema: {type: 'object', properties: {all: {type: 'boolean', description: 'Done chunks too'}}}},
+    {name: 'milestones', description: "Lists the project's milestones with their status and progress; done ones with all.", inputSchema: {type: 'object', properties: {all: {type: 'boolean', description: 'Done milestones too'}}}},
     {
         name: 'releases',
         description: "Lists the project's releases with their branches and progress; of the shipped ones, only the latest unless all.",
@@ -127,7 +127,7 @@ export const TOOLS = [
             level: {type: 'string', description: 'error, warn or info; several comma-separated'},
             kind: {type: 'string', description: 'e.g. server.error, or session for all under it'},
             project: {type: 'string'},
-            subject: {type: 'string', description: 'An issue id, release version, chunk or doc id'},
+            subject: {type: 'string', description: 'An issue id, release version, milestone or doc id'},
             since: {type: 'string', description: 'ISO time'},
             open: {type: 'boolean', description: 'Only unresolved ones'},
             details: {type: 'boolean'},
@@ -151,7 +151,7 @@ const SCHEDULE_FIELDS = {
     presets: {type: 'array', items: {type: 'number'}, description: 'Preset ids for a message or session schedule, before notes'},
     column: {type: 'string', description: "Where its issues start: an open status's id, or a kind (todo). An action schedule's: the status it moves them to"},
     move_from: {type: 'array', items: {type: 'string'}, description: 'The statuses (ids or kinds) an action schedule moves issues out of; none, any open one'},
-    chunk: {type: ['string', 'null']},
+    milestone: {type: ['string', 'null']},
     priority: {type: ['string', 'null'], enum: ['P0', 'P1', 'P2', 'P3', null]},
     labels: {type: 'array', items: {type: 'string'}},
     ask: {type: 'boolean', description: 'An issue schedule also asks a session to work on its issue'},
@@ -171,8 +171,8 @@ const RELEASE_FIELDS = {
     shipped_on: {type: ['string', 'null'], description: 'The day it shipped, YYYY-MM-DD; null marks it not shipped yet'},
 }
 
-/** What of a chunk the chat may ask to set (CHAT_CHUNK_FIELDS in web/shared/roadmap.ts). */
-const CHUNK_FIELDS = {
+/** What of a milestone the chat may ask to set (CHAT_MILESTONE_FIELDS in web/shared/roadmap.ts). */
+const MILESTONE_FIELDS = {
     title: {type: 'string', description: 'Its name'},
     summary: {type: ['string', 'null']},
     priority: {type: ['string', 'null'], enum: ['P0', 'P1', 'P2', 'P3', null]},
@@ -199,8 +199,8 @@ export const CHAT_TOOLS = [
     },
     {
         name: 'edit_issue',
-        description: "Changes an issue's title, notes, priority, labels, team tasks, GitHub issues, chunk, release, parent or what it depends on, when the owner asks in this chat. To move one to another status or assign it, ask with move_issues.",
-        inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'string'}, ...Object.fromEntries(['title', 'notes', 'priority', 'labels', 'external', 'github_issues', 'chunk', 'release', 'parent', 'depends_on'].map(f => [f, FIELDS[f]]))}},
+        description: "Changes an issue's title, notes, priority, labels, team tasks, GitHub issues, milestone, release, parent or what it depends on, when the owner asks in this chat. To move one to another status or assign it, ask with move_issues.",
+        inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'string'}, ...Object.fromEntries(['title', 'notes', 'priority', 'labels', 'external', 'github_issues', 'milestone', 'release', 'parent', 'depends_on'].map(f => [f, FIELDS[f]]))}},
     },
     {
         name: 'delegate_issue',
@@ -220,7 +220,7 @@ export const CHAT_TOOLS = [
     {name: 'image', description: 'An image the owner pasted in the chat, by the id its message names, to look at.', inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'string'}}}},
     {
         name: 'request',
-        description: 'Asks the owner for an action request_fields describes: start, stop or extend a session; message sessions; change an App setting; make or change a schedule, release, chunk or doc. Read its fields first.',
+        description: 'Asks the owner for an action request_fields describes: start, stop or extend a session; message sessions; change an App setting; make or change a schedule, release, milestone or doc. Read its fields first.',
         inputSchema: {type: 'object', required: ['action'], properties: {
             action: {type: 'string', enum: []},
             fields: {type: 'object', description: 'As request_fields gives them'},
@@ -304,17 +304,17 @@ export const CHAT_REQUESTS = [
     {
         name: 'offer_issue',
         description: "Offers an issue the owner didn't ask you to file: they see it marked as not filed, with File issue and Don't file, and you hear which they pressed. Nothing is filed until they press it. Use create_issue when they did ask.",
-        inputSchema: {type: 'object', required: ['title'], properties: {title: {type: 'string'}, notes: {type: 'string', description: 'The description, in Markdown'}, priority: {type: 'string', enum: ['P0', 'P1', 'P2', 'P3']}, labels: {type: 'array', items: {type: 'string'}}, chunk: {type: 'string'}}},
+        inputSchema: {type: 'object', required: ['title'], properties: {title: {type: 'string'}, notes: {type: 'string', description: 'The description, in Markdown'}, priority: {type: 'string', enum: ['P0', 'P1', 'P2', 'P3']}, labels: {type: 'array', items: {type: 'string'}}, milestone: {type: 'string'}}},
     },
     {
-        name: 'create_chunk',
-        description: 'Makes a chunk (a group of issues) in this project; once allowed, put issues in it with edit_issue.',
-        inputSchema: {type: 'object', required: ['title'], properties: CHUNK_FIELDS},
+        name: 'create_milestone',
+        description: 'Makes a milestone (a group of issues) in this project; once allowed, put issues in it with edit_issue.',
+        inputSchema: {type: 'object', required: ['title'], properties: MILESTONE_FIELDS},
     },
     {
-        name: 'update_chunk',
-        description: "Changes one of this project's chunks, by its id (the chunks tool lists them): send only what changes. Removing one is the owner's, on its page.",
-        inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'string'}, ...CHUNK_FIELDS}},
+        name: 'update_milestone',
+        description: "Changes one of this project's milestones, by its id (the milestones tool lists them): send only what changes. Removing one is the owner's, on its page.",
+        inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'string'}, ...MILESTONE_FIELDS}},
     },
     {
         name: 'create_doc',
@@ -406,7 +406,7 @@ export const NOT_FOR_CHAT = ['start_issue', 'finish_issue', 'update_issue', 'rat
 
 /** The reads only the chat has use for, helping the owner plan: a work session goes without them, so their definitions
  * don't ride on its every turn (ORR-544). */
-export const CHAT_READS = ['chunks', 'presets', 'preset', 'schedules']
+export const CHAT_READS = ['milestones', 'presets', 'preset', 'schedules']
 
 /** How many of a search's hits in the text the `issues` tool quotes (ORR-641), so a common word stays small. */
 const MATCHES_SHOWN = 15
@@ -440,7 +440,7 @@ function pickedOf({decided_by, proposal, picks, choices}) {
 const LOGIN = /^[\w-]+$/
 
 /** The tools that work on one project, which take `project` when the server serves several. */
-const SCOPED = ['issues', 'create_issue', 'chunks', 'releases', 'docs', 'doc', 'write_doc', 'presets', 'preset', 'schedules', 'sessions']
+const SCOPED = ['issues', 'create_issue', 'milestones', 'releases', 'docs', 'doc', 'write_doc', 'presets', 'preset', 'schedules', 'sessions']
 
 /** The tools as a server serving `projects` lists them: with several, each project-scoped one takes which. A chat's
  * (`chat`) are its own; a work session's leave out the chat's reads and ask the owner on its issue (`ASK_TOOLS`), with
@@ -519,7 +519,7 @@ export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''),
             return `Added ${names.join(', ')} to your tools.`
         },
         async issues(args) {
-            const query = new URLSearchParams(pick(args, ['status', 'assignee', 'chunk', 'release', 'label', 'external', 'blocked', 'q']))
+            const query = new URLSearchParams(pick(args, ['status', 'assignee', 'milestone', 'release', 'label', 'external', 'blocked', 'q']))
             if (args.q) query.set('in', 'all')
             let issues = await call('GET', `/issues?${query}`, undefined, at(await projectOf(args)))
             if (args.open !== false && !args.status) issues = issues.filter(i => !['done', 'canceled'].includes(i.kind))
@@ -601,16 +601,16 @@ export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''),
             const posted = await call('POST', `${issuePath(id)}/comments`, {body, ...asks ? {asks} : {}}, at(await projectOf({id})))
             return `Commented on ${id} (comment ${posted.id})${asks ? `, asking the owner for ${asks === 'decision' ? 'a decision' : 'feedback'}` : ''}.`
         },
-        // Done chunks and all but the latest shipped release only when asked (`all`), with a line counting what's left
+        // Done milestones and all but the latest shipped release only when asked (`all`), with a line counting what's left
         // out: a session picking up work has no use for them (ORR-546).
-        async chunks({all, ...args}) {
-            const chunks = await call('GET', '/chunks', undefined, at(await projectOf(args)))
-            const shown = all ? chunks : chunks.filter(c => c.kind !== 'done')
-            const hidden = chunks.length - shown.length
+        async milestones({all, ...args}) {
+            const milestones = await call('GET', '/milestones', undefined, at(await projectOf(args)))
+            const shown = all ? milestones : milestones.filter(c => c.kind !== 'done')
+            const hidden = milestones.length - shown.length
             return [
                 ...shown.map(c => `${c.id || 'none'} [${c.column}${c.priority ? `, ${c.priority}` : ''}] ${c.title}: ${c.kinds.done}/${c.kinds.backlog + c.kinds.todo + c.kinds.started + c.kinds.done} done`),
-                ...hidden ? [`${hidden} done chunk${hidden === 1 ? '' : 's'} not shown: all lists them`] : [],
-            ].join('\n') || 'No chunks yet.'
+                ...hidden ? [`${hidden} done milestone${hidden === 1 ? '' : 's'} not shown: all lists them`] : [],
+            ].join('\n') || 'No milestones yet.'
         },
         async releases({all, ...args}) {
             const releases = await call('GET', '/releases', undefined, at(await projectOf(args)))
@@ -744,12 +744,12 @@ export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''),
             await call('POST', `/chats/${encodeURIComponent(chat)}/requests`, {version, release, ...why ? {why} : {}}, root)
             return "Asked: the owner sees the change with Allow and Deny, and you'll hear which they pressed. Nothing is saved until they allow it."
         },
-        async create_chunk({why, ...chunk}) {
-            await call('POST', `/chats/${encodeURIComponent(chat)}/requests`, {chunk, ...why ? {why} : {}}, root)
-            return "Asked: the owner sees the chunk with Allow and Deny, and you'll hear which they pressed. Nothing is saved until they allow it."
+        async create_milestone({why, ...milestone}) {
+            await call('POST', `/chats/${encodeURIComponent(chat)}/requests`, {milestone, ...why ? {why} : {}}, root)
+            return "Asked: the owner sees the milestone with Allow and Deny, and you'll hear which they pressed. Nothing is saved until they allow it."
         },
-        async update_chunk({id, why, ...chunk}) {
-            await call('POST', `/chats/${encodeURIComponent(chat)}/requests`, {id, chunk, ...why ? {why} : {}}, root)
+        async update_milestone({id, why, ...milestone}) {
+            await call('POST', `/chats/${encodeURIComponent(chat)}/requests`, {id, milestone, ...why ? {why} : {}}, root)
             return "Asked: the owner sees the change with Allow and Deny, and you'll hear which they pressed. Nothing is saved until they allow it."
         },
         async offer_issue({why, ...issue}) {

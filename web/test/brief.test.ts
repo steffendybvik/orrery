@@ -40,12 +40,12 @@ describe("a session's brief", () => {
     it('carries its issues in progress on after a clear, with their last comment, and what is left of its run', async () => {
         await store.workedBy('shop', 'SHO-1', 's-1')
         await store.createComment('shop', 'SHO-1', {body: 'Cards   work;\nwallets next.'}, me)
-        run = {project: 'shop', chunk: 'all'} as Signal
+        run = {project: 'shop', milestone: 'all'} as Signal
         expect(await sessionBrief(store, {project: 'shop', session: 's-1', source: 'clear', api})).toBe([
             "orrery: this window's context was just cleared.",
             'It was working on these issues in project "shop"; carry on with them:',
             '- SHO-1: Pay with cards [In progress, P2]\n  last comment, by skoll: Cards work; wallets next.',
-            'After those, it was working through every chunk in project "shop"; these are left, most urgent first. Take them one at a time (in-progress, comments, done):',
+            'After those, it was working through every milestone in project "shop"; these are left, most urgent first. Take them one at a time (in-progress, comments, done):',
             '- SHO-2: Refunds [Todo, P0]',
             '- SHO-3: Receipts [Todo]',
             `Read each in full (the issue tool, or curl ${api}/issues/<id>) before going on.`,

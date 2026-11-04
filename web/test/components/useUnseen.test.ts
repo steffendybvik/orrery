@@ -11,7 +11,7 @@ const issue = (id: string, at: string, more: Partial<Issue> = {}) =>
     ({id, kind: 'todo', created_by: 'claude', created_at: SINCE, updated_at: at, tasks: [], ...more}) as unknown as Issue
 const doc = (id: string, at: string) => ({id, created_by: 'claude', created_at: SINCE, updated_at: at}) as unknown as DocSummary
 const project = (issues: Issue[], docs: DocSummary[] = []) =>
-    ({id: 'greenhouse', docs, board: {chunks: [{id: '1', tasks: issues}]}}) as unknown as Project
+    ({id: 'greenhouse', docs, board: {milestones: [{id: '1', tasks: issues}]}}) as unknown as Project
 
 beforeEach(() => {
     localStorage.clear()

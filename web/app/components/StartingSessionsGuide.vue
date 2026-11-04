@@ -54,7 +54,7 @@ const ready = computed(() => !!settings.value.starts && !!running.value)
         <div class="flex min-w-0 flex-col gap-0.5">
           <span class="font-medium text-fg">Start one</span>
           <span>
-            Press <strong class="font-medium text-fg">Start session</strong> above, or send a project work (focus on an issue, a chunk,
+            Press <strong class="font-medium text-fg">Start session</strong> above, or send a project work (focus on an issue, a milestone,
             a comment) while no session is listening on it. It runs <span class="font-mono">claude</span> in a detached tmux session in the repo, with the channel, in
             <span class="font-mono">auto</span> permission mode, as nobody is there to answer a prompt.
           </span>

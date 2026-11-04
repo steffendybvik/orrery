@@ -6,7 +6,7 @@ import {getHeader, getMethod, readBody, setResponseStatus} from 'h3'
 import type {Project} from '#shared/roadmap'
 import IssueMenu from '~/components/IssueMenu.vue'
 
-// Right-clicking an issue: what each action sends and as whom, the chunk list, asking the sessions, removing only
+// Right-clicking an issue: what each action sends and as whom, the milestone list, asking the sessions, removing only
 // once asked again, and an error keeping it open.
 let sent: {method: string, path: string, actor?: string, body?: unknown}[] = []
 let failing = false
@@ -26,10 +26,10 @@ registerEndpoint('/api/projects/greenhouse/issues/GRE-1/focus', {method: 'POST',
 const issue = (id: string, title: string, more: Record<string, unknown> = {}) => ({id, title, aliases: [], labels: [], tasks: [], column: 'todo', kind: 'todo', ...more})
 const GREENHOUSE = {
     id: 'greenhouse', name: 'Greenhouse', key: 'GRE',
-    board: {chunks: [
+    board: {milestones: [
         {id: 'stock', title: 'Stock', tasks: [issue('GRE-1', 'Label the jars', {priority: 'P2'})]},
         {id: 'shelves', title: 'Shelves', tasks: []},
-        {id: '', title: 'No chunk', tasks: []},
+        {id: '', title: 'No milestone', tasks: []},
     ]},
 } as unknown as Project
 
@@ -72,14 +72,14 @@ describe('IssueMenu', () => {
         expect(sent[1]).toEqual({method: 'PATCH', path: 'GRE-1', actor: 'skoll', body: {priority: 'P1'}})
     })
 
-    it('lists the chunks to move it to, and No chunk takes it out', async () => {
+    it('lists the milestones to move it to, and No milestone takes it out', async () => {
         const {wrapper, button, closed} = await mount()
-        expect(button('Move to chunk').text()).toContain('Stock')
-        await button('Move to chunk').trigger('click')
-        expect(wrapper.findAll('button').map(b => b.text())).toEqual(['‹ Back', 'No chunk', 'Stock', 'Shelves'])
-        await button('No chunk').trigger('click')
+        expect(button('Move to milestone').text()).toContain('Stock')
+        await button('Move to milestone').trigger('click')
+        expect(wrapper.findAll('button').map(b => b.text())).toEqual(['‹ Back', 'No milestone', 'Stock', 'Shelves'])
+        await button('No milestone').trigger('click')
         await closed()
-        expect(sent).toEqual([{method: 'PATCH', path: 'GRE-1', actor: 'skoll', body: {chunk: null}}])
+        expect(sent).toEqual([{method: 'PATCH', path: 'GRE-1', actor: 'skoll', body: {milestone: null}}])
     })
 
     it('asks one listening session, never all of them, and says so', async () => {

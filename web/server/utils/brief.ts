@@ -1,5 +1,5 @@
 // What a session's hook hands Claude Code as a session starts (POST /api/sessions on `SessionStart`): after a `/clear`, a
-// compaction or a resume, the issues it has in progress and what's left of the chunk or scope it was working through, so
+// compaction or a resume, the issues it has in progress and what's left of the milestone or scope it was working through, so
 // the work carries on; and for a session orrery started with context, that context, every time.
 import {contextBlock, launchContext} from './launches'
 import {runOf} from './clearing'
@@ -27,7 +27,7 @@ export async function sessionBrief(store: Store, {project, session, source, laun
     return [work, context && contextBlock(context)].filter(Boolean).join('\n\n')
 }
 
-/** What the session has in progress, told to its fresh context, and what's left of the chunk or scope it was
+/** What the session has in progress, told to its fresh context, and what's left of the milestone or scope it was
  * working through; none when it has neither. */
 async function workBrief(store: Store, project: string, session: string, happened: string, api: string): Promise<string | undefined> {
     const issues = await store.workingOn(project, sessionIds(session))

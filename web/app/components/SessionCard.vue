@@ -30,7 +30,7 @@ const effort = computed(() => props.session.effort ?? props.session.started?.eff
 
 const signalText = (s: SessionWork['signals'][number]) => s.kind === 'comment' ? `${who(s.created_by)}'s comment on ${s.issue}`
     : s.kind === 'message' ? (s.schedule === undefined ? `${who(s.created_by)}'s message${s.via === 'chat' ? ' via chat' : ''}: ${s.preset ?? s.note ?? ''}` : `${who(s.created_by)}'s scheduled message`)
-    : s.issue ? `${who(s.created_by)}: focus on ${s.issue}` : `${who(s.created_by)}: work through chunk ${s.chunk}`
+    : s.issue ? `${who(s.created_by)}: focus on ${s.issue}` : `${who(s.created_by)}: work through milestone ${s.milestone}`
 /** In progress first; the rest it worked are folded under them. */
 const doing = computed(() => props.work?.issues.filter(i => i.kind === 'started') ?? [])
 const rest = computed(() => props.work?.issues.filter(i => i.kind !== 'started') ?? [])

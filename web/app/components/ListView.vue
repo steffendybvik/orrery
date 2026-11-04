@@ -1,31 +1,31 @@
 <script setup lang="ts">
-import type {Chunk, Column, Counts, Issue, Kinds} from '#shared/roadmap'
+import type {Milestone, Column, Counts, Issue, Kinds} from '#shared/roadmap'
 
 // Top-level issues as rows with their sub-issues under them, in groups that fold: by status (Doing…Done, each row
-// saying its chunk; started first) or by chunk. Closed groups start folded, unless a filter is on. `#group-end` adds to a group's header.
+// saying its milestone; started first) or by milestone. Closed groups start folded, unless a filter is on. `#group-end` adds to a group's header.
 // An open group's header has a tick (GroupTick) for every row it shows, sub-issues included. With `riskFirst`, each
 // group's rows are riskiest first (ORR-879), else in the board's order.
-const props = withDefaults(defineProps<{chunks: Chunk[], project: string, group: 'status' | 'chunk', showChunk?: boolean, riskFirst?: boolean}>(), {showChunk: true, riskFirst: false})
+const props = withDefaults(defineProps<{milestones: Milestone[], project: string, group: 'status' | 'milestone', showMilestone?: boolean, riskFirst?: boolean}>(), {showMilestone: true, riskFirst: false})
 const {active} = useFilters()
 const {columns, look} = useStatuses()
 
-interface Group { key: string, title: string, column: Column, counts?: Counts, kinds?: Kinds, summary?: string, muted?: boolean, issues: {issue: Issue, chunk?: {id: string, title: string}}[] }
+interface Group { key: string, title: string, column: Column, counts?: Counts, kinds?: Kinds, summary?: string, muted?: boolean, issues: {issue: Issue, milestone?: {id: string, title: string}}[] }
 
 const groups = computed<Group[]>(() => grouped.value.map(g => props.riskFirst ? {...g, issues: sortedByRisk(g.issues)} : g))
 
 function sortedByRisk(rows: Group['issues']): Group['issues'] {
-    const chunkOf = new Map(rows.map(row => [row.issue.id, row.chunk]))
-    return byRisk(rows.map(row => row.issue)).map(issue => ({issue, chunk: chunkOf.get(issue.id)}))
+    const milestoneOf = new Map(rows.map(row => [row.issue.id, row.milestone]))
+    return byRisk(rows.map(row => row.issue)).map(issue => ({issue, milestone: milestoneOf.get(issue.id)}))
 }
 
 const grouped = computed<Group[]>(() => {
-    if (props.group === 'chunk') {
-        return props.chunks.map(chunk => ({
-            key: `chunk:${chunk.id}`, title: chunk.title, column: chunk.column, counts: chunk.counts, kinds: chunk.kinds, summary: chunk.summary, muted: !chunk.id,
-            issues: chunk.tasks.map(issue => ({issue})),
+    if (props.group === 'milestone') {
+        return props.milestones.map(milestone => ({
+            key: `milestone:${milestone.id}`, title: milestone.title, column: milestone.column, counts: milestone.counts, kinds: milestone.kinds, summary: milestone.summary, muted: !milestone.id,
+            issues: milestone.tasks.map(issue => ({issue})),
         }))
     }
-    const all = props.chunks.flatMap(chunk => chunk.tasks.map(issue => ({issue, chunk: props.showChunk ? chunk : undefined})))
+    const all = props.milestones.flatMap(milestone => milestone.tasks.map(issue => ({issue, milestone: props.showMilestone ? milestone : undefined})))
     return columns.value.map(({id, label}) => ({key: `status:${id}`, title: label, column: id, issues: all.filter(i => i.issue.column === id)}))
         .filter(g => g.issues.length)
 })
@@ -65,7 +65,7 @@ function toggle(group: Group) {
         <div v-if="$slots['group-end']" class="ml-auto shrink-0"><slot name="group-end" :column="g.column" /></div>
       </div>
       <div v-if="isOpen(g)">
-        <IssueRow v-for="{issue, chunk} in g.issues" :key="issue.id" :issue="issue" :project="project" :chunk="chunk" nested />
+        <IssueRow v-for="{issue, milestone} in g.issues" :key="issue.id" :issue="issue" :project="project" :milestone="milestone" nested />
         <p v-if="!g.issues.length" class="border-b border-line/60 px-10 py-2 text-xs text-faint">No issues yet</p>
       </div>
     </section>

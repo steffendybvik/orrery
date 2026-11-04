@@ -37,7 +37,7 @@ or, without Docker, `pnpm install` and `pnpm dev` (Node 24.22.1, pnpm 10.14.0).
 - **scope:** `orrery` for the app, `repo` for CI, config and tooling
 
 ```
-fix(orrery): keep a chunk's priority when it's renamed
+fix(orrery): keep a milestone's priority when it's renamed
 ```
 
 A body only when the why isn't obvious. Pull requests get squashed, so the title is what lands.

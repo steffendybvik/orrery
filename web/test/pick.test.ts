@@ -9,7 +9,7 @@ let board: Record<string, {id: string, title: string, kind: string, column: stri
 let on: boolean
 let working: string[]
 let waiting: boolean
-let run: {project: string, chunk: string} | undefined
+let run: {project: string, milestone: string} | undefined
 let left: {id: string}[]
 let untrusted: boolean
 let chat: boolean
@@ -147,7 +147,7 @@ describe('a session out of work', () => {
         waiting = true
         expect(await pick.pickNext('orrery', 'w')).toBe(false)
         waiting = false
-        run = {project: 'orrery', chunk: '4'}
+        run = {project: 'orrery', milestone: '4'}
         left = [{id: 'ORR-8'}]
         expect(await pick.pickNext('orrery', 'w')).toBe(false)
         run = undefined

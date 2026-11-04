@@ -37,7 +37,7 @@ export interface Schedule {
     column: string
     /** The statuses (ids or kinds) an action schedule moves issues out of; none, any open one. */
     move_from: string[]
-    chunk?: string
+    milestone?: string
     priority?: Priority
     labels: string[]
     ask: boolean

@@ -70,8 +70,8 @@ export function useHotkeys() {
             case 'c': {
                 const project = route.params.project as string | undefined
                 if (!project) return
-                const chunk = route.name === 'p-project-roadmap-chunk' && route.params.chunk !== 'none' ? String(route.params.chunk) : undefined
-                useNewIssue().open(project, chunk)
+                const milestone = route.name === 'p-project-roadmap-milestone' && route.params.milestone !== 'none' ? String(route.params.milestone) : undefined
+                useNewIssue().open(project, milestone)
                 break
             }
             case '1': view('list'); break

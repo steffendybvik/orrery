@@ -3,7 +3,7 @@ import type {Decision, Issue} from '#shared/roadmap'
 import {isFrozen, linkRef} from '#shared/roadmap'
 
 // The issues ticked on the page (useSelection), changed at once: decided when they're all proposals waiting on the
-// owner, else set (status, priority, assignee, labels added or taken off, and chunk or release within one project),
+// owner, else set (status, priority, assignee, labels added or taken off, and milestone or release within one project),
 // or deleted, or chained in order (each waiting on the one above it). Under the buttons it says how to tick more.
 // Each project's ticked issues go in one call, and each issue on its own: what was refused is listed.
 const route = useRoute()
@@ -107,7 +107,7 @@ const pick = (apply: (value: string) => void) => computed({get: () => '\u0000', 
 const status = pick(value => set({status: value}))
 const priority = pick(value => set({priority: value || null}))
 const assignee = pick(value => set({assignee: value.trim() || null}))
-const chunk = pick(value => set({chunk: value || null}))
+const milestone = pick(value => set({milestone: value || null}))
 const release = pick(value => set({release: value || null}))
 const addLabel = pick(value => run('PATCH', '', {labels: {add: [value]}}, 'Labelled'))
 const removeLabel = pick(value => run('PATCH', '', {labels: {remove: [value]}}, 'Took the label off'))
@@ -119,7 +119,7 @@ const assigneeOptions = computed(() => {
 })
 const labelsKnown = computed(() => [...new Set(issues.value.flatMap(({project}) => allIssues(project).flatMap(({issue}) => issue.labels)))].sort().map(l => ({value: l, label: l})))
 const labelsOn = computed(() => [...new Set(issues.value.flatMap(({issue}) => issue.labels))].sort().map(l => ({value: l, label: l})))
-const chunks = computed(() => one.value ? chunkOptions(one.value.board.chunks) : [])
+const milestones = computed(() => one.value ? milestoneOptions(one.value.board.milestones) : [])
 const releaseOptions = computed(() => one.value?.releases.length ? [{value: '', label: 'No release'}, ...one.value.releases.map(r => ({value: r.version, label: isFrozen(r) ? `${r.version} · frozen` : r.version}))] : [])
 const button = 'flex h-7 items-center whitespace-nowrap rounded-md px-2 text-xs text-muted ring-1 ring-line hover:bg-hover hover:text-fg'
 </script>
@@ -143,7 +143,7 @@ const button = 'flex h-7 items-center whitespace-nowrap rounded-md px-2 text-xs 
           <PropertyPicker v-model="assignee" :options="assigneeOptions" label="Assignee" placeholder="Find or assign someone…" creatable create-verb="Assign" up :disabled="busy"><span :class="button">Assignee</span></PropertyPicker>
           <PropertyPicker v-model="addLabel" :options="labelsKnown" label="Add a label" placeholder="Find or add a label…" creatable up :disabled="busy"><span :class="button">+ Label</span></PropertyPicker>
           <PropertyPicker v-if="labelsOn.length" v-model="removeLabel" :options="labelsOn" label="Take a label off" up :disabled="busy"><span :class="button">− Label</span></PropertyPicker>
-          <PropertyPicker v-if="one" v-model="chunk" :options="chunks" label="Chunk" up :disabled="busy"><span :class="button">Chunk</span></PropertyPicker>
+          <PropertyPicker v-if="one" v-model="milestone" :options="milestones" label="Milestone" up :disabled="busy"><span :class="button">Milestone</span></PropertyPicker>
           <PropertyPicker v-if="releaseOptions.length" v-model="release" :options="releaseOptions" label="Release" up :disabled="busy"><span :class="button">Release</span></PropertyPicker>
           <button v-if="issues.length > 1" type="button" :class="[button, 'disabled:opacity-60']" :disabled="busy" title="Each waits on the one above it, top to bottom" @click="chain">Chain in order</button>
         </template>

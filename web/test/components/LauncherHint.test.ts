@@ -12,7 +12,7 @@ registerEndpoint('/api/projects/greenhouse/launches', () => ({launchers, folders
 const mounted: VueWrapper[] = []
 beforeEach(() => {
     launchers = 0
-    useRoadmaps().projects.value = [{id: 'greenhouse', name: 'Greenhouse', key: 'GRE', releases: [], board: {chunks: []}} as unknown as Project]
+    useRoadmaps().projects.value = [{id: 'greenhouse', name: 'Greenhouse', key: 'GRE', releases: [], board: {milestones: []}} as unknown as Project]
 })
 afterEach(() => {
     mounted.splice(0).forEach(w => w.unmount())

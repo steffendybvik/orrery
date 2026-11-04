@@ -1,5 +1,5 @@
 // `POST /api/projects/:project/issues` {title, status?, priority?, assignee?, labels?, external?, github_issues?, notes?,
-// proposal?, choices?, parent?, chunk?, release?, position?} → the new issue, with the project's next id (`KEY-n`).
+// proposal?, choices?, parent?, milestone?, release?, position?} → the new issue, with the project's next id (`KEY-n`).
 // From an untrusted schedule's session (`Orrery-Untrusted`, or its `Orrery-Session`), it's made a proposal labelled
 // `external`, whatever it asks; from the owner's chat (`Orrery-Chat`), it's made with nobody on it, in Todo or Backlog as
 // the owner picked for the chat (`Orrery-Launch`), whatever status it asks for (a proposal stays one).

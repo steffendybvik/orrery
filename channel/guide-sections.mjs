@@ -7,14 +7,14 @@ const norm = text => text.toLowerCase().replace(/[’']/g, "'").replace(/\s+/g, 
 
 /** The guide split into its opening, its `##` sections and the rows of any table in them, each row named by its first cell. */
 export function guideParts(markdown) {
-    const [opening, ...chunks] = markdown.split(/^(?=## )/m)
-    const sections = chunks.map(chunk => {
-        const [heading, ...body] = chunk.split('\n')
+    const [opening, ...milestones] = markdown.split(/^(?=## )/m)
+    const sections = milestones.map(milestone => {
+        const [heading, ...body] = milestone.split('\n')
         const lines = body.join('\n').trimEnd().split('\n')
         const tableAt = lines.findIndex(l => l.startsWith('|'))
         const table = tableAt < 0 ? [] : lines.slice(tableAt).filter(l => l.startsWith('|'))
         const rows = table.slice(2).map(line => ({name: strip(line.split('|')[1] ?? ''), line}))
-        return {name: heading.replace(/^## /, '').trim(), text: chunk.trimEnd(), lead: lines.slice(0, Math.max(tableAt, 0)).join('\n').trim(), head: table.slice(0, 2), rows}
+        return {name: heading.replace(/^## /, '').trim(), text: milestone.trimEnd(), lead: lines.slice(0, Math.max(tableAt, 0)).join('\n').trim(), head: table.slice(0, 2), rows}
     })
     return {opening: opening.trimEnd(), sections}
 }

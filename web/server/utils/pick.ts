@@ -95,7 +95,7 @@ export async function pickNext(project: string, id: string): Promise<boolean> {
     const ids = sessionIds(id)
     if (await store.busy(project, ids)) return false
     const run = runOf(id)
-    if (run?.chunk && (await scopeOf(store, run.project, run)).open.length) return false
+    if (run?.milestone && (await scopeOf(store, run.project, run)).open.length) return false
     const issues = await pickable([session.project, ...session.also ?? []], session.person)
     for (const known of handed.keys()) {
         if (!sessionNow(known)) handed.delete(known)

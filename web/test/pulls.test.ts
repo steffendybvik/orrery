@@ -198,12 +198,12 @@ describe('pull requests', () => {
             merged: true, closed: false, merged_at: '2026-10-29T09:00:00Z', created_at: '2026-10-28T09:00:00Z', updated_at: '2026-10-29T09:00:00Z', names: ['SHO-1']})
         await pulls.remember('you/shop', ['shop'], merged(790))
         await pulls.remember('you/shop', ['shop'], merged(791))
-        const risks = async () => (await store.project('shop')).board.chunks.flatMap(c => c.tasks).map(i => [i.id, i.risk?.level])
+        const risks = async () => (await store.project('shop')).board.milestones.flatMap(c => c.tasks).map(i => [i.id, i.risk?.level])
         expect(await risks()).toEqual([['SHO-1', undefined], ['SHO-2', undefined]])
         await pulls.rate('shop', 'SHO-1', 'you/shop', 790, {level: 'low', why: 'docs only'}, false)
         await pulls.rate('shop', 'SHO-1', 'you/shop', 791, {level: 'high', why: 'adds a migration'}, false)
         expect(await risks()).toEqual([['SHO-1', 'high'], ['SHO-2', undefined]])
-        expect((await store.project('shop')).board.chunks[0]!.tasks[0]!.risk).toEqual({level: 'high', why: 'adds a migration', by: 'session'})
+        expect((await store.project('shop')).board.milestones[0]!.tasks[0]!.risk).toEqual({level: 'high', why: 'adds a migration', by: 'session'})
     })
 
     it('rate an open PR the same way, shown with it while GitHub lists it (ORR-879)', async () => {

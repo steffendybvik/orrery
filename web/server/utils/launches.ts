@@ -267,7 +267,7 @@ export async function startLaunch(project: string, {issue, statuses, release: ve
         held.after = issue
             ? (await useStore().focus(project, issue, {session}, actor)).id - 1
             : statuses?.length || version
-                ? (await useStore().focusChunk(project, 'all', {session, status: (statuses?.length ? statuses : SCOPE_STATUSES).join(','), release: version ?? null}, actor)).id - 1
+                ? (await useStore().focusMilestone(project, 'all', {session, status: (statuses?.length ? statuses : SCOPE_STATUSES).join(','), release: version ?? null}, actor)).id - 1
                 : await useStore().lastSignal(project)
     } catch (error) {
         release(held, error)

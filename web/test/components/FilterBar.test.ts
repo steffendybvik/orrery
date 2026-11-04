@@ -7,7 +7,7 @@ import FilterBar from '~/components/FilterBar.vue'
 // The Project filter: on My issues, across projects, it narrows it to the projects ticked, a
 // project's own pages don't offer it, and Clear unticks it with the rest. Blocked or Ready (ORR-601) splits the issues
 // by whether they wait on others, and Risk (ORR-879) by how risky their change is.
-const project = (id: string) => ({id, name: id[0]!.toUpperCase() + id.slice(1), key: id.toUpperCase(), releases: [], board: {chunks: []}}) as unknown as Project
+const project = (id: string) => ({id, name: id[0]!.toUpperCase() + id.slice(1), key: id.toUpperCase(), releases: [], board: {milestones: []}}) as unknown as Project
 
 const mounted: VueWrapper[] = []
 beforeEach(() => {
@@ -62,7 +62,7 @@ describe('FilterBar', () => {
         expect((await mount('/p/greenhouse')).menu('Risk')).toBeUndefined()
         const risky = {id: 'GRE-1', title: 'Move the shelves', labels: [], column: 'todo', tasks: [], risk: {level: 'high', why: 'adds a migration', by: 'session'}} as unknown as Issue
         const unrated = {id: 'GRE-2', title: 'Dust the jars', labels: [], column: 'todo', tasks: []} as unknown as Issue
-        useRoadmaps().projects.value = [{...project('greenhouse'), board: {chunks: [{id: '', title: '', tasks: [risky, unrated]}]}} as unknown as Project]
+        useRoadmaps().projects.value = [{...project('greenhouse'), board: {milestones: [{id: '', title: '', tasks: [risky, unrated]}]}} as unknown as Project]
         const {wrapper, menu} = await mount('/p/greenhouse')
         const {filters, matches, changed} = useFilters()
         filters.value.columns = []

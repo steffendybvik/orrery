@@ -56,7 +56,7 @@ describe('the database', () => {
         const old = openDb(path, 27)
         old.prepare(`INSERT INTO settings (key, value) VALUES ('focusPrompt', '"Look at {issue}"'), ('chunkPrompt', '"Work {chunk}"')`).run()
         old.close()
-        expect(await new Store(new SqliteDb(openDb(path))).settings()).toMatchObject({focus_prompt: 'Look at {issue}', chunk_prompt: 'Work {chunk}'})
+        expect(await new Store(new SqliteDb(openDb(path))).settings()).toMatchObject({focus_prompt: 'Look at {issue}', milestone_prompt: 'Work {milestone}'})
     })
 
     it('keeps its data through the migrations and gives it project ids, the old ones as aliases', async () => {
@@ -74,15 +74,15 @@ describe('the database', () => {
 
         const upgraded = new Store(new SqliteDb(openDb(path)))
         const {board} = await upgraded.project('greenhouse')
-        expect(board.chunks.map(c => [c.id, c.title, c.aliases])).toEqual([['1', 'Joints', ['joints']], ['2', 'UX', ['ux']]])
+        expect(board.milestones.map(c => [c.id, c.title, c.aliases])).toEqual([['1', 'Joints', ['joints']], ['2', 'UX', ['ux']]])
         // GRE-1 was already the project's kind of id, so it keeps it; the others take the next numbers.
-        expect(board.chunks[0]!.tasks.map(t => [t.id, t.aliases, t.tasks.map(s => s.id)])).toEqual([['GRE-2', ['MOT-5'], ['GRE-1']]])
-        expect(board.chunks[1]!.tasks.map(t => [t.id, t.aliases])).toEqual([['GRE-3', ['UX-1']]])
+        expect(board.milestones[0]!.tasks.map(t => [t.id, t.aliases, t.tasks.map(s => s.id)])).toEqual([['GRE-2', ['MOT-5'], ['GRE-1']]])
+        expect(board.milestones[1]!.tasks.map(t => [t.id, t.aliases])).toEqual([['GRE-3', ['UX-1']]])
         expect((await upgraded.issue('greenhouse', 'MOT-5')).id).toBe('GRE-2')
         expect((await upgraded.listComments('greenhouse', 'MOT-5')).map(c => c.body)).toEqual(['hi'])
-        expect((await upgraded.chunk('greenhouse', 'joints')).id).toBe('1')
-        expect(await upgraded.createIssue('greenhouse', {title: 'new', chunk: 'ux'})).toMatchObject({id: 'GRE-4', chunk: '2'})
-        expect((await upgraded.createChunk('greenhouse', {title: 'Print'})).id).toBe('3')
+        expect((await upgraded.milestone('greenhouse', 'joints')).id).toBe('1')
+        expect(await upgraded.createIssue('greenhouse', {title: 'new', milestone: 'ux'})).toMatchObject({id: 'GRE-4', milestone: '2'})
+        expect((await upgraded.createMilestone('greenhouse', {title: 'Print'})).id).toBe('3')
         expect((await upgraded.updateIssue('greenhouse', 'GRE-4', {priority: 'P0'})).priority).toBe('P0')
     })
 
@@ -248,11 +248,11 @@ describe('import', () => {
     it("loads greenhouse's roadmap", async () => {
         expect((await failure(() => store.importRoadmap('greenhouse', roadmap))).status).toBe(409)
         const {board} = await store.importRoadmap('greenhouse', roadmap, true)
-        expect(board.chunks).toHaveLength(16)
+        expect(board.milestones).toHaveLength(16)
         expect(total(board.kinds)).toBe(139)
-        // Chunk 1 was the one it replaced, so its number isn't handed out again.
-        expect(board.chunks.map(c => c.id)).toEqual(Array.from({length: 16}, (_, i) => String(i + 2)))
-        expect(board.chunks[0]!.tasks[0]).toMatchObject({id: 'GRE-1', aliases: ['FIX-1']})
+        // Milestone 1 was the one it replaced, so its number isn't handed out again.
+        expect(board.milestones.map(c => c.id)).toEqual(Array.from({length: 16}, (_, i) => String(i + 2)))
+        expect(board.milestones[0]!.tasks[0]).toMatchObject({id: 'GRE-1', aliases: ['FIX-1']})
         expect((await store.issue('greenhouse', 'MOT-5')).aliases).toEqual(['MOT-5'])
         expect((await store.createIssue('greenhouse', {title: 'next'})).id).toBe('GRE-140')
     })
@@ -262,11 +262,11 @@ describe('import', () => {
         const shelves = (await store.createIssue('greenhouse', {title: 'Shelves'})).id
         await store.createIssue('greenhouse', {title: 'Jars'})
         await store.focus('greenhouse', shelves, {}, owner)
-        await store.focusChunk('greenhouse', '1', {}, owner)
-        const file = readRoadmap(JSON.stringify({chunks: [{id: 'new', title: 'New', tasks: [{id: 'lids', title: 'Lids', status: 'todo'}]}]}))
+        await store.focusMilestone('greenhouse', '1', {}, owner)
+        const file = readRoadmap(JSON.stringify({milestones: [{id: 'new', title: 'New', tasks: [{id: 'lids', title: 'Lids', status: 'todo'}]}]}))
         const {board} = await store.importRoadmap('greenhouse', file, true)
-        expect(board.chunks.map(c => c.id)).toEqual(['2'])
-        expect(board.chunks[0]!.tasks.map(t => t.id)).toEqual(['GRE-3'])
+        expect(board.milestones.map(c => c.id)).toEqual(['2'])
+        expect(board.milestones[0]!.tasks.map(t => t.id)).toEqual(['GRE-3'])
         expect(await store.listSignals('greenhouse')).toEqual([])
         expect((await store.createIssue('greenhouse', {title: 'next'})).id).toBe('GRE-4')
     })

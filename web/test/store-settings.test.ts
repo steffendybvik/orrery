@@ -106,8 +106,8 @@ describe('statuses', () => {
         expect((await failure(() => store.status('blocked'))).status).toBe(404)
     })
 
-    it('narrow a chunk focus to an open one, by id or kind', async () => {
-        const signal = async (status: string) => (await store.focusChunk('greenhouse', '1', {status}, owner)).status
+    it('narrow a milestone focus to an open one, by id or kind', async () => {
+        const signal = async (status: string) => (await store.focusMilestone('greenhouse', '1', {status}, owner)).status
         expect(await signal('in-review')).toBe('in-review')
         expect(await signal('started')).toBe('started')
         expect((await failure(() => signal('done'))).status).toBe(400)

@@ -4,10 +4,10 @@ import {DOMWrapper} from '@vue/test-utils'
 import {mountSuspended, registerEndpoint} from '@nuxt/test-utils/runtime'
 import {getMethod, readBody, setResponseStatus} from 'h3'
 import type {Project, Schedule, Session} from '#shared/roadmap'
-import ChunkMenu from '~/components/ChunkMenu.vue'
+import MilestoneMenu from '~/components/MilestoneMenu.vue'
 import ScheduleMenu from '~/components/ScheduleMenu.vue'
 
-// Right-clicking a chunk or a schedule: what each offers, what it sends, that removing asks first, and that a refusal
+// Right-clicking a milestone or a schedule: what each offers, what it sends, that removing asks first, and that a refusal
 // stays on the menu instead of closing it.
 let sent: {method: string, path: string, body?: unknown}[] = []
 let refusal = ''
@@ -23,9 +23,9 @@ function endpoint(path: string, answer: Record<string, unknown> = {}) {
     })
 }
 registerEndpoint('/api/owner', () => ({name: 'skoll', display: 'Skoll', named: true}))
-endpoint('/projects/greenhouse/chunks/3')
-endpoint('/projects/greenhouse/chunks/3/focus')
-endpoint('/projects/greenhouse/chunks/none/focus')
+endpoint('/projects/greenhouse/milestones/3')
+endpoint('/projects/greenhouse/milestones/3/focus')
+endpoint('/projects/greenhouse/milestones/none/focus')
 endpoint('/projects/greenhouse/schedules/7', {id: 7})
 endpoint('/projects/greenhouse/schedules/7/run', {outcome: 'made', issue: 'GRE-9'})
 
@@ -44,37 +44,37 @@ const issue = (id: string) => ({id, title: id, labels: [], status: 'todo', tasks
 beforeEach(() => {
     sent = []
     refusal = ''
-    useRoadmaps().projects.value = [{id: 'greenhouse', name: 'Greenhouse', key: 'GRE', uid: 'abcd1234', board: {chunks: [
+    useRoadmaps().projects.value = [{id: 'greenhouse', name: 'Greenhouse', key: 'GRE', uid: 'abcd1234', board: {milestones: [
         {id: '3', title: 'Moving parts', priority: 'P1', kind: 'todo', tasks: [issue('GRE-1'), issue('GRE-2')]},
-        {id: '', title: 'No chunk', kind: 'todo', tasks: [issue('GRE-3')]},
+        {id: '', title: 'No milestone', kind: 'todo', tasks: [issue('GRE-3')]},
         {id: '4', title: 'Finished', kind: 'done', tasks: []},
     ]}}] as unknown as Project[]
     useRoadmaps().sessions.value = {greenhouse: [session('shelves'), session('jars')]}
 })
 afterEach(() => {
     mounted.splice(0).forEach(w => w.unmount())
-    useChunkMenu().close()
+    useMilestoneMenu().close()
     useSchedules().menu.value = null
     vi.restoreAllMocks()
 })
 
-describe('ChunkMenu', () => {
-    const open = async (chunk: string) => {
-        useChunkMenu().target.value = {project: 'greenhouse', chunk, x: 10, y: 10}
-        mounted.push(await mountSuspended(ChunkMenu, {attachTo: document.body}) as VueWrapper)
+describe('MilestoneMenu', () => {
+    const open = async (milestone: string) => {
+        useMilestoneMenu().target.value = {project: 'greenhouse', milestone, x: 10, y: 10}
+        mounted.push(await mountSuspended(MilestoneMenu, {attachTo: document.body}) as VueWrapper)
         await expect.poll(() => page().text()).toContain('New issue in it')
     }
 
     it('sets its priority, and clears it, then closes', async () => {
         await open('3')
         await press('Priority P0')
-        await expect.poll(() => sent).toEqual([{method: 'PATCH', path: '/projects/greenhouse/chunks/3', body: {priority: 'P0'}}])
-        await expect.poll(() => useChunkMenu().target.value).toBeNull()
-        useChunkMenu().target.value = {project: 'greenhouse', chunk: '3', x: 10, y: 10}
+        await expect.poll(() => sent).toEqual([{method: 'PATCH', path: '/projects/greenhouse/milestones/3', body: {priority: 'P0'}}])
+        await expect.poll(() => useMilestoneMenu().target.value).toBeNull()
+        useMilestoneMenu().target.value = {project: 'greenhouse', milestone: '3', x: 10, y: 10}
         await expect.poll(() => page().text()).toContain('New issue in it')
         await press('No priority')
         await expect.poll(() => sent.at(-1)?.body).toEqual({priority: null})
-        await expect.poll(() => useChunkMenu().target.value).toBeNull()
+        await expect.poll(() => useMilestoneMenu().target.value).toBeNull()
     })
 
     it('asks one session or all of them, stays open and says who it reached', async () => {
@@ -82,18 +82,18 @@ describe('ChunkMenu', () => {
         expect(page().text()).toContain('Ask a session to work through it')
         await press('Ask a session to work through it')
         await expect.poll(() => page().text()).toContain('Sent to one session, the first free')
-        expect(sent).toEqual([{method: 'POST', path: '/projects/greenhouse/chunks/3/focus', body: {}}])
+        expect(sent).toEqual([{method: 'POST', path: '/projects/greenhouse/milestones/3/focus', body: {}}])
         await press('Ask all 2 sessions to work through it')
         await expect.poll(() => page().text()).toContain('Sent to all 2 sessions')
         expect(sent.at(-1)?.body).toEqual({session: '*'})
-        expect(useChunkMenu().target.value).not.toBeNull()
+        expect(useMilestoneMenu().target.value).not.toBeNull()
     })
 
-    it('offers no asking with nobody listening, or on a chunk that is finished', async () => {
+    it('offers no asking with nobody listening, or on a milestone that is finished', async () => {
         useRoadmaps().sessions.value = {greenhouse: []}
         await open('3')
         expect(page().text()).not.toContain('work through it')
-        useChunkMenu().close()
+        useMilestoneMenu().close()
         mounted.splice(0).forEach(w => w.unmount())
 
         useRoadmaps().sessions.value = {greenhouse: [session('shelves')]}
@@ -113,40 +113,40 @@ describe('ChunkMenu', () => {
     it('asks before removing, saying what happens to its issues; Cancel goes back, and yes removes it', async () => {
         await open('3')
         await press('Remove…')
-        await expect.poll(() => page().text()).toContain('Remove chunk 3? Its 2 issues stay, in no chunk.')
+        await expect.poll(() => page().text()).toContain('Remove milestone 3? Its 2 issues stay, in no milestone.')
         expect(sent).toEqual([])
         await press('Cancel')
         await expect.poll(() => page().text()).toContain('New issue in it')
         expect(sent).toEqual([])
         await press('Remove…')
-        await expect.poll(() => page().text()).toContain('Remove chunk 3?')
+        await expect.poll(() => page().text()).toContain('Remove milestone 3?')
         await press(CONFIRM)
-        await expect.poll(() => sent).toEqual([{method: 'DELETE', path: '/projects/greenhouse/chunks/3'}])
-        await expect.poll(() => useChunkMenu().target.value).toBeNull()
+        await expect.poll(() => sent).toEqual([{method: 'DELETE', path: '/projects/greenhouse/milestones/3'}])
+        await expect.poll(() => useMilestoneMenu().target.value).toBeNull()
     })
 
-    it("shows the issues in no chunk neither a priority, an id to copy nor Remove", async () => {
+    it("shows the issues in no milestone neither a priority, an id to copy nor Remove", async () => {
         await open('none')
         const text = page().text()
-        expect(text).toContain('No chunk')
+        expect(text).toContain('No milestone')
         expect(text).not.toContain('Priority')
         expect(text).not.toContain('Copy id')
         expect(text).not.toContain('Remove')
         expect(text).toContain('Open')
     })
 
-    it('opens New issue in that chunk, and the chunk itself', async () => {
+    it('opens New issue in that milestone, and the milestone itself', async () => {
         await open('3')
         await press('New issue in it')
-        expect(useNewIssue().target.value).toMatchObject({project: 'greenhouse', chunk: '3'})
+        expect(useNewIssue().target.value).toMatchObject({project: 'greenhouse', milestone: '3'})
         useNewIssue().close()
 
         const push = vi.spyOn(useRouter(), 'push').mockResolvedValue(undefined)
-        useChunkMenu().target.value = {project: 'greenhouse', chunk: '3', x: 10, y: 10}
+        useMilestoneMenu().target.value = {project: 'greenhouse', milestone: '3', x: 10, y: 10}
         await expect.poll(() => page().text()).toContain('Open')
         await press('Open')
         expect(push.mock.calls[0]?.[0]).toContain('/p/greenhouse/roadmap/3')
-        expect(useChunkMenu().target.value).toBeNull()
+        expect(useMilestoneMenu().target.value).toBeNull()
     })
 
     it('stays open with what was refused', async () => {
@@ -154,7 +154,7 @@ describe('ChunkMenu', () => {
         refusal = 'Not yours to change'
         await press('Priority P0')
         await expect.poll(() => page().text()).toContain('Not yours to change')
-        expect(useChunkMenu().target.value).not.toBeNull()
+        expect(useMilestoneMenu().target.value).not.toBeNull()
     })
 })
 

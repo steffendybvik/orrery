@@ -224,7 +224,7 @@ test('reconnecting and live changes', async () => {
     await expect.poll(() => stream.said.text.includes(renamed)).toBe(true)
     const pushed = Buffer.byteLength(stream.said.text.slice(before))
     steps.at(-1)!.pushed = pushed
-    // The changed issue and its chunk's tree of ids, not the whole project (ORR-440: it was 859 kB).
+    // The changed issue and its milestone's tree of ids, not the whole project (ORR-440: it was 859 kB).
     expect.soft(pushed, `a live change pushed ${kb(pushed)}, over its ${kb(PUSH_BUDGET)} budget`).toBeLessThanOrEqual(PUSH_BUDGET)
     stream.stop()
 })

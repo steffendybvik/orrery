@@ -1,6 +1,6 @@
 // `PATCH /api/projects/:project/issues/:issue` {title?, status?, plan?, priority?, assignee?, labels?, notes?,
-// proposal?, parent?, chunk?, project?, position?} → the issue. Null clears plan, priority, assignee, labels, notes,
-// parent and chunk, and commits a proposal; `project` moves it, with its sub-issues and comments, to another project.
+// proposal?, parent?, milestone?, project?, position?} → the issue. Null clears plan, priority, assignee, labels, notes,
+// parent and milestone, and commits a proposal; `project` moves it, with its sub-issues and comments, to another project.
 // A session (`Orrery-Session`) starting, editing or moving one another session is working on is refused (409), though
 // any may close it; two starting it at once go one after the other, so the second is refused. The owner's never are,
 // nor their chat's (`Orrery-Chat`), which may change only what it says and where it sits (`asChatEdit`, 403 otherwise).

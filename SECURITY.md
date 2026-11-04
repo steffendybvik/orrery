@@ -163,7 +163,7 @@ reach orrery without its channel's mark, and the guards below don't hold there. 
 So it can edit files and run commands where your settings let it. It goes without only the tools that take up or finish work
 (`start_issue`, `finish_issue`, and `update_issue`, as that sets a status). What your settings would ask about shows as
 **Allow** and **Deny**, in its pane while that's open and in a pop-up otherwise. orrery holds what it sends through its channel to making issues (unstarted and
-unassigned), changing an issue's title, description, priority, labels, team tasks, chunk, release, parent or what it depends on (any other
+unassigned), changing an issue's title, description, priority, labels, team tasks, milestone, release, parent or what it depends on (any other
 change is refused), commenting, writing docs (never removing one or changing a section), `egress` under each secret's own rules, marking events dealt with, and
 answering you. It changes those fields even on an issue another session is working: the check that refuses one
 session's writes to another's issue lets you and your chat through, since it changes one only when you ask.
@@ -197,8 +197,8 @@ Five more go further, and you should know how far:
   Nothing is saved until you press **Allow**, and then a new one is yours, so a schedule that starts sessions starts
   them as you. A change to an agent's schedule leaves it the agent's: only **Make it mine** makes it yours. Read what it would send before allowing it. Whether a schedule is untrusted, and deleting one, stay yours on
   the Schedules page.
-- **Sessions, releases, chunks and moves** it can only ask for as well: starting a session for anything but work on an
-  issue you named, stopping or giving more time to a session, adding or changing a release or a chunk, and moving issues to another status or assigning them. Each shows
+- **Sessions, releases, milestones and moves** it can only ask for as well: starting a session for anything but work on an
+  issue you named, stopping or giving more time to a session, adding or changing a release or a milestone, and moving issues to another status or assigning them. Each shows
   what it would do, and nothing happens until you press **Allow**.
 - **Docs** it writes itself now, and can also ask for: a new one shows its title, section and full text, and a change shows what changes,
   the text as a diff. Nothing is saved until you press **Allow**, and then it's yours. Docs are material later sessions
@@ -221,7 +221,7 @@ orrery has two tiers of text a session reads:
 
 - **Material**: issues, comments, docs. A session reads it as it works and weighs it like anything else
   it reads. Agents write it freely; deleting what the owner made stays the owner's call.
-- **Instructions**: what a session is told it must do, in the owner's voice. That's the focus and chunk
+- **Instructions**: what a session is told it must do, in the owner's voice. That's the focus and milestone
   prompts and standing instructions (`PATCH /settings`), the signals that reach sessions, and **presets**,
   whose text a session is started with as "the owner gave this session more context … it holds for all
   its work". Only the owner writes these, and an agent gets a 403, **on purpose**.
@@ -245,7 +245,7 @@ if the agent changed it after you opened it, so you never take on text you haven
 or editing it leaves it the agent's, and it's tinted as unseen whenever the agent changes it (ORR-456).
 
 What an event schedule passes on follows the same rule. A session schedule's instructions and a message schedule's
-message end with what happened, said by ids: the change for a status, priority, chunk, release or parent, never a
+message end with what happened, said by ids: the change for a status, priority, milestone, release or parent, never a
 label's text, and an agent by its handle. A launcher's report of what it runs can't give a session a context
 orrery didn't start it with. A launcher's claim on a session waiting to start counts only with the token its stream
 was given as it connected (ORR-443), so a program posting claims can't take a launch and keep it from starting. Anything
@@ -311,7 +311,7 @@ and each is asked:
 - **Starting a session for anything but work on an issue you named, stopping or extending one:** you see what would start (its project, focus, presets and words) or
   which session, and nothing happens until you press **Allow**. A session started this way is yours, with the context
   shown, so read it. The launch routes refuse the chat itself, and watching one (a window on your machine) stays yours.
-- **Adding or changing a release or a chunk, or moving or assigning issues:** you see what would change, and nothing
+- **Adding or changing a release or a milestone, or moving or assigning issues:** you see what would change, and nothing
   is saved until you press **Allow**.
 - **Making or changing a doc, when it asks rather than writing it itself:** you see the title, section and full text, or a diff of what changes, and nothing is
   saved until you press **Allow**. A change that no longer fits the doc as it stands is refused (ORR-661).

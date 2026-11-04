@@ -11,7 +11,7 @@ import ChatPane from '~/components/ChatPane.vue'
 const HOLD_MS = 2000
 const chat = (id: string, more: Partial<Chat> = {}) => ({id, project: 'shed', started_at: '2026-11-04T10:00:00Z', issues: 'todo', messages: [], ...more}) as unknown as Chat
 const project = (id: string, name: string) =>
-    ({id, name, key: id.slice(0, 3).toUpperCase(), releases: [], docs: [], release_mode: 'none', board: {chunks: [], kinds: {}}}) as unknown as Project
+    ({id, name, key: id.slice(0, 3).toUpperCase(), releases: [], docs: [], release_mode: 'none', board: {milestones: [], kinds: {}}}) as unknown as Project
 
 const posted: {path: string, body: unknown}[] = []
 let refuse = ''

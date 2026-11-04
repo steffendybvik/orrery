@@ -39,7 +39,7 @@ for (const [n, id] of Object.keys(STATES).entries()) {
 const issue = (id: string, column: string, kind: string) => ({id, title: id, column, kind, tasks: [], labels: []})
 const project = (id: string, starts: object | null) => ({
     id, name: id[0]!.toUpperCase() + id.slice(1), key: id.toUpperCase(), starts, releases: [],
-    board: {chunks: [{id: '', title: 'No chunk', tasks: [issue(`${id}-1`, 'todo', 'todo'), issue(`${id}-2`, 'in-progress', 'started'), issue(`${id}-3`, 'backlog', 'backlog')]}]},
+    board: {milestones: [{id: '', title: 'No milestone', tasks: [issue(`${id}-1`, 'todo', 'todo'), issue(`${id}-2`, 'in-progress', 'started'), issue(`${id}-3`, 'backlog', 'backlog')]}]},
 }) as unknown as Project
 
 const mounted: VueWrapper[] = []
