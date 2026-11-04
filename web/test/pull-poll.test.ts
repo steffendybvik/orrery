@@ -271,6 +271,17 @@ describe('the pull request poll', () => {
         expect(changes).toHaveLength(2)
     })
 
+    it("reads a merge's changed files, and tells it without them when GitHub can't say (ORR-879)", async () => {
+        await withToken()
+        open = [pr(1), pr(2)]
+        await poll.tick()
+        open = []
+        rest['/repos/you/shop/pulls/1/files?per_page=100'] = () => json([{filename: 'web/server/utils/migrations/sqlite.ts'}, {filename: 'docs/API.md'}])
+        done = [pr(1, {merged: true, closed: true, mergeCommit: {oid: 'm1'}}), pr(2, {merged: true, closed: true, mergeCommit: {oid: 'm2'}})]
+        await minuteOn()
+        expect(changes.map(c => [c.pull.number, c.files])).toEqual([[1, ['web/server/utils/migrations/sqlite.ts', 'docs/API.md']], [2, undefined]])
+    })
+
     it('tells nothing for a PR that names no issue, and keeps it for the pages', async () => {
         await withToken()
         open = [pr(5, {headRefName: 'chore/deps'})]
