@@ -212,7 +212,10 @@ export async function considerLaunch(signal: Signal): Promise<Launch | null> {
     const asked = !!startAsked.getStore()
     // On the model its work needs (ORR-868); `best` asks for none, so any launcher can take it.
     const needs = signal.model && signal.model !== 'best' ? signal.model : undefined
-    const effort = needs && signal.issue ? await Promise.all([useStore().issue(project, signal.issue), useStore().workKinds()]).then(([i, kinds]) => modelFor(i, kinds)).then(p => p.model === needs ? p.effort : undefined, () => undefined) : undefined
+    const effort = !needs ? undefined
+        : signal.issue ? await Promise.all([useStore().issue(project, signal.issue), useStore().workKinds()]).then(([i, kinds]) => modelFor(i, kinds)).then(p => p.model === needs ? p.effort : undefined, () => undefined)
+            // A schedule's message on the schedule's own model (ORR-869) starts on its effort too.
+            : signal.schedule !== undefined ? await useScheduler().get(project, signal.schedule).then(s => s.model === needs ? s.effort : undefined, () => undefined) : undefined
     const held = hold(project, {after: signal.id - 1, ...needs ? {model: needs} : {}, ...effort ? {effort} : {}})
     const starts = await allowedStarts(project).catch(error => release(held, error))
     if (!starts || starts.on_signal === false && !asked) {

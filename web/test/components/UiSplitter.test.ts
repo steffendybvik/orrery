@@ -19,8 +19,12 @@ const Split = defineComponent({
     },
 })
 
+/** Unmounted before the width's state is cleared, so they never draw a splitter without one. */
+const mounted: {unmount: () => void}[] = []
+
 async function mount() {
     const split = await mountSuspended(Split)
+    mounted.push(split)
     const row = split.find('[data-row]').element as HTMLElement
     Object.defineProperty(row, 'clientWidth', {value: 1000, configurable: true})
     const list = split.find('[data-list]').element as HTMLElement
@@ -33,6 +37,7 @@ async function mount() {
 const pointer = (type: string, clientX: number) => new PointerEvent(type, {clientX, button: 0, pointerId: 1, bubbles: true})
 
 afterEach(() => {
+    for (const split of mounted.splice(0)) split.unmount()
     localStorage.removeItem(KEY)
     clearNuxtState(`pane-width:${KEY}`)
 })
