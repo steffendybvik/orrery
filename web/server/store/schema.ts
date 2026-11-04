@@ -1,6 +1,6 @@
 // The store's records and rows, the fields each write takes, and turning rows into records.
 import type {ActivityField, Asks, Board, Chunk, Comment, Counts, Decision, Doc, DocKind, DocRevision, DocRevisionSummary, Issue, IssueEvent, Kind, Kinds, Priority, Project, Proposal, Release, ReleaseMode, Signal} from '#shared/roadmap'
-import {ASKS, DECISIONS, DOC_KINDS, KINDS, PRIORITIES, RELEASE_MODES, TERMINALS, TINTS, emptyKinds} from '#shared/roadmap'
+import {ASKS, DECISIONS, DOC_KINDS, EFFORTS, KINDS, PRIORITIES, RELEASE_MODES, TERMINALS, TINTS, emptyKinds, isEffort, isModel} from '#shared/roadmap'
 import type {Field, Input} from '../utils/input'
 import {badRequest, isObject} from '../utils/input'
 import {parseChoices} from '../utils/choices'
@@ -184,6 +184,33 @@ function parseStarts(value: unknown): string {
     return JSON.stringify({limit, ...min ? {min} : {}, ...minutes ? {minutes} : {}, ...idle_minutes ? {idle_minutes} : {}, ...on_signal === false ? {on_signal} : {}})
 }
 
+/** The kinds of work (ORR-868), highest-ranked first: each `{id, name, labels, model, effort?}`, ids unique and labels
+ * in one kind only, so an issue's kind is plain. Kept as sent, labels lowercase. */
+function parseWorkKinds(value: unknown): string {
+    const fail = (why: string) => new Error(`should be a list of {id, name, labels, model, effort?}, highest-ranked first: ${why}`)
+    if (!Array.isArray(value) || !value.length) throw fail('at least one kind')
+    const ids = new Set<string>()
+    const labels = new Map<string, string>()
+    const kinds = value.map((kind: unknown) => {
+        const {id, name, labels: own, model, effort, ...rest} = isObject(kind) ? kind : {} as Record<string, unknown>
+        if (Object.keys(rest).length) throw fail(`${Object.keys(rest).join(', ')} isn't a kind's`)
+        if (typeof id !== 'string' || !SLUG.test(id)) throw fail(`each needs an id of lowercase letters, digits and dashes, not ${JSON.stringify(id)}`)
+        if (ids.has(id)) throw fail(`"${id}" is there twice`)
+        ids.add(id)
+        if (typeof name !== 'string' || !name.trim()) throw fail(`${id} needs a name`)
+        if (!Array.isArray(own) || own.some(l => typeof l !== 'string' || !l.trim())) throw fail(`${id}'s labels should be a list of labels`)
+        const lower = [...new Set(own.map(l => l.trim().toLowerCase()))]
+        for (const label of lower) {
+            if (labels.has(label)) throw fail(`label "${label}" is in both ${labels.get(label)} and ${id}`)
+            labels.set(label, id)
+        }
+        if (!isModel(model)) throw fail(`${id}'s model should be best, opus, sonnet, haiku, fable, default, opusplan or a full id, not ${JSON.stringify(model)}`)
+        if (effort !== undefined && effort !== null && !isEffort(effort)) throw fail(`${id}'s effort should be one of ${EFFORTS.join(', ')}`)
+        return {id, name: name.trim(), labels: lower, model, ...effort ? {effort} : {}}
+    })
+    return JSON.stringify(kinds)
+}
+
 /** What a project's sessions are told: only the owner changes these. */
 export const PROMPT_FIELDS = ['focus_prompt', 'chunk_prompt', 'instructions', 'muted']
 
@@ -316,6 +343,8 @@ export const SETTINGS_FIELDS: Record<string, Field> = {
     advanced: {type: 'boolean'},
     /** A listening session out of work is handed the issues it may start, to pick one (ORR-452); false, it waits. */
     pick_next: {type: 'boolean'},
+    /** The kinds of work and the model each starts a session on (ORR-868), highest-ranked first; null is orrery's own. */
+    work_kinds: {type: 'json', nullable: true, parse: parseWorkKinds},
     /** Project ids the sidebar lists first, and those it folds away under Hidden (ORR-836); null is none. */
     starred: {type: 'strings', nullable: true},
     hidden: {type: 'strings', nullable: true},

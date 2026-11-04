@@ -122,14 +122,15 @@ export abstract class SignalStore extends IssueStore {
     /** The model a signal about the issue needs (ORR-868): what its kind starts a session on. No session on a lighter
      * one takes it from the pool (pool.ts). */
     protected async modelNeeded(project: string, issue: string): Promise<string> {
-        return modelFor({labels: JSON.parse((await this.issueRow(project, issue)).labels) as string[]}).model ?? 'best'
+        return modelFor({labels: JSON.parse((await this.issueRow(project, issue)).labels) as string[]}, await this.workKinds()).model ?? 'best'
     }
 
     /** The heaviest model a chunk's open issues need (`all`: every chunk's, `none`: those in none), as a session working
      * through them may come to any; none when it has no open issues. */
     private async chunkModelNeeded(project: string, chunk: string): Promise<string | null> {
         const open = (await this.listIssues(project, chunk === 'all' ? {} : {chunk})).filter(i => !CLOSED.includes(i.kind as Kind))
-        return open.length ? heaviest(open.map(i => modelFor(i))).model ?? 'best' : null
+        const kinds = await this.workKinds()
+        return open.length ? heaviest(open.map(i => modelFor(i, kinds))).model ?? 'best' : null
     }
 
     /** The member behind a signal, if one is (ORR-658): it goes only to their own sessions, so naming someone else's is

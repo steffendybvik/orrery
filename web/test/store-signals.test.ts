@@ -201,6 +201,28 @@ describe('the model a signal needs (ORR-868)', () => {
     })
 })
 
+describe('the kinds of work (ORR-868)', () => {
+    const owner: Actor = {name: 'skoll', owner: true}
+
+    it("are orrery's own until the owner sets them, which the signals then follow, and null brings orrery's back", async () => {
+        const {WORK_KINDS} = await import('#shared/roadmap')
+        expect((await store.settings()).work_kinds).toEqual(WORK_KINDS)
+        const mine = [{id: 'docs', name: 'Docs', labels: ['Docs', 'writing'], model: 'haiku', effort: 'low'}, {id: 'other', name: 'Other', labels: [], model: 'best'}]
+        expect((await store.updateSettings({work_kinds: mine}, owner)).work_kinds).toEqual([{...mine[0], labels: ['docs', 'writing']}, mine[1]])
+        const writing = (await store.createIssue('greenhouse', {title: 'Write', labels: ['writing']})).id
+        expect((await store.focus('greenhouse', writing, {}, owner)).model).toBe('haiku')
+        expect((await store.updateSettings({work_kinds: null}, owner)).work_kinds).toEqual(WORK_KINDS)
+    })
+
+    it('are refused with a model, effort, id or label that makes no sense, and are the owner\'s to set', async () => {
+        const kind = {id: 'docs', name: 'Docs', labels: ['docs'], model: 'sonnet'}
+        for (const bad of [[], [{...kind, model: 'gpt'}], [{...kind, effort: 'huge'}], [kind, kind], [kind, {...kind, id: 'more'}], [{...kind, id: 'Has Space'}], [{...kind, extra: 1}]]) {
+            expect((await failure(() => store.updateSettings({work_kinds: bad}, owner))).status).toBe(400)
+        }
+        expect((await failure(() => store.updateSettings({work_kinds: [kind]}, {name: 'claude', owner: false}))).status).toBe(403)
+    })
+})
+
 describe('a session that connects', () => {
     it("knows an owner's focus on an issue is on its way until a session hears it (ORR-515)", async () => {
         const local = new Store(testDb())

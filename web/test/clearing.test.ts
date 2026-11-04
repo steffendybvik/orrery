@@ -1,4 +1,5 @@
 import {EventEmitter} from 'node:events'
+import {WORK_KINDS} from '#shared/roadmap'
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 
 // The clearing lives in the module, with Nitro's auto-imports stubbed: the session as it is, and the store's say on its work.
@@ -45,7 +46,7 @@ beforeEach(async () => {
     vi.stubGlobal('untrustedSession', () => untrusted)
     vi.stubGlobal('chatSession', () => chat)
     vi.stubGlobal('recheckIdle', () => void rechecked++)
-    vi.stubGlobal('useStore', () => ({
+    vi.stubGlobal('useStore', () => ({workKinds: async () => WORK_KINDS,
         whoseWork: async (_project: string, assignee?: string | null) => whoseWork(assignee),
         workingOn: async (_project: string, _ids: string[]) => working.map(id => ({id})), waiting: async (_project: string, _ids: string[]) => waiting,
         async busy(project: string, ids: string[]) {
