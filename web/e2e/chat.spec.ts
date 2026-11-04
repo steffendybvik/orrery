@@ -787,7 +787,7 @@ test("follows the page's project until one is picked by hand, then stays pinned 
     await pane.getByRole('button', {name: 'Close the chat'}).click()
 })
 
-test('lists every chat down the left, two on one project and one on another, each a click away, an ended one to read (ORR-870)', async ({page, request, baseURL}) => {
+test('lists every chat down the left, two on one project and one on another, each a click away, an ended one written in again (ORR-870, ORR-884)', async ({page, request, baseURL}) => {
     await endChats(request)
     await makeProject(request, {name: 'Crypt', key: 'CRY'})
     const launchers = [hold(baseURL!, '/api/projects/observatory/launches/stream'), hold(baseURL!, '/api/projects/crypt/launches/stream')]
@@ -834,14 +834,20 @@ test('lists every chat down the left, two on one project and one on another, eac
         await expect(pane.getByLabel('Conversation', {exact: true}).getByText('Who dusts the telescope?')).toBeVisible()
         await expect(pane.getByLabel('Conversation', {exact: true}).getByText('Where are the star charts?')).toHaveCount(0)
 
-        // A row's × ends that chat alone, which stays listed, and reopens to read.
+        // A row's × ends that chat alone, which stays listed, and reopens as it was.
         await list.getByRole('button', {name: 'End the chat on Observatory: Where are the star charts?'}).click()
         await expect.poll(running).toEqual(['crypt', 'observatory'])
         await expect(row('Where are the star charts', 'ended')).toBeVisible()
+        const [ended] = (await (await request.get('/api/chats')).json() as {id: string, ended?: boolean}[]).filter(c => c.ended)
         await row('Where are the star charts').click()
-        await expect(pane.getByLabel('Conversation', {exact: true}).getByText('This chat has ended.')).toBeVisible()
-        await expect(box).toHaveCount(0)
         await expect(pane.getByLabel('Conversation', {exact: true}).getByText('Where are the star charts?')).toBeVisible()
+        // Writing in it starts its session again, on the same chat (ORR-884).
+        await box.fill('And the moon maps?')
+        await box.press('ControlOrMeta+Enter')
+        await expect.poll(running).toEqual(['crypt', 'observatory', 'observatory'])
+        await expect.poll(() => launchers[0]!.said.text).toContain(`"id":"${ended!.id}"`)
+        await expect(row('Where are the star charts', 'running')).toBeVisible()
+        await expect(pane.getByLabel('Conversation', {exact: true}).getByText('And the moon maps?')).toBeVisible()
 
         // Deleting the open one, after a confirm, lands on another chat; what it filed stays (ORR-882).
         const listed = await (await request.get('/api/chats')).json() as {id: string, ended?: boolean, messages: {text: string}[]}[]

@@ -25,6 +25,7 @@ beforeEach(async () => {
     vi.stubGlobal('notFound', (message: string) => Object.assign(new Error(message), {statusCode: 404}))
     vi.stubGlobal('badRequest', (message: string) => Object.assign(new Error(message), {statusCode: 400}))
     vi.stubGlobal('currentId', (id: string) => id)
+    vi.stubGlobal('sessionOfLaunch', () => undefined)
     // Where a chat is kept (ORR-877): nowhere, but in the tests of it below.
     vi.stubGlobal('useDatabase', () => ({run: async () => ({changes: 0}), all: async () => []}))
     vi.resetModules()
@@ -226,7 +227,63 @@ describe("the owner's chat", () => {
         await chats.openChat('greenhouse')
         chats.endChat('d1d2d3d4d5d6')
         expect(chats.listChats().map(c => c.id)).toEqual(['c1c2c3c4c5c6'])
-        await expect(chats.say('c1c2c3c4c5c6', 'Still there?', [], owner)).rejects.toMatchObject({statusCode: 404})
+        await expect(chats.say('d1d2d3d4d5d6', 'Still there?', [], owner)).rejects.toMatchObject({statusCode: 404})
+    })
+
+    describe('written in again once ended (ORR-884)', () => {
+        const CLAUDE = '0b5c3a8e-2f4d-4c1a-9e7b-6d2f8a1c3e5b'
+        let resumed: {project: string, id: string, context: {text: string}, fresh: {text: string}, resume?: string}[]
+        let notes: {kind: string}[]
+        beforeEach(() => {
+            resumed = []
+            notes = []
+            vi.stubGlobal('resumeChat', async (project: string, id: string, context: {text: string}, fresh: {text: string}, resume?: string) => {
+                resumed.push({project, id, context, fresh, resume})
+                return {id, project}
+            })
+            vi.stubGlobal('useEventLog', () => ({note: (note: {kind: string}) => notes.push(note)}))
+        })
+
+        it('takes up the Claude session it ran as, on the same chat, and the message goes to it', async () => {
+            await chats.openChat('greenhouse')
+            await chats.say('c1c2c3c4c5c6', 'What is GRE-4 about?', [], owner)
+            chats.reply('c1c2c3c4c5c6', 'Jars.')
+            vi.stubGlobal('sessionOfLaunch', (_project: string, launch: string) => launch === 'c1c2c3c4c5c6' ? {id: CLAUDE} : undefined)
+            chats.endChat('c1c2c3c4c5c6')
+            expect(chats.readChat('c1c2c3c4c5c6')).toMatchObject({ended: true, claude_session: CLAUDE})
+            await chats.say('c1c2c3c4c5c6', 'And GRE-5?', [], owner)
+            expect(resumed).toEqual([expect.objectContaining({project: 'greenhouse', id: 'c1c2c3c4c5c6', resume: CLAUDE})])
+            // A launcher that can't resume starts it fresh, told what was said.
+            expect(resumed[0]!.fresh.text).toContain('The owner: What is GRE-4 about?')
+            expect(resumed[0]!.fresh.text).toContain('You: Jars.')
+            const chat = chats.chatOf('c1c2c3c4c5c6')
+            expect(chat.ended).toBeUndefined()
+            expect(chat.ended_at).toBeUndefined()
+            expect(chat.messages.map(m => m.text)).toEqual(['What is GRE-4 about?', 'Jars.', 'And GRE-5?'])
+            expect(messages.at(-1)).toMatchObject({target: 'launch-c1c2c3c4c5c6', text: expect.stringContaining('And GRE-5?')})
+            expect(changes.at(-1)).toMatchObject({id: 'c1c2c3c4c5c6'})
+            expect(changes.at(-1)?.ended).toBeUndefined()
+            expect(notes.map(n => n.kind)).toContain('chat.resumed')
+        })
+
+        it('starts it fresh, told what was said, when no Claude session is known', async () => {
+            await chats.openChat('greenhouse')
+            await chats.say('c1c2c3c4c5c6', 'What is GRE-4 about?', [], owner)
+            chats.endChat('c1c2c3c4c5c6')
+            await chats.say('c1c2c3c4c5c6', 'Still there?', [], owner)
+            expect(resumed[0]!.resume).toBeUndefined()
+            expect(resumed[0]!.fresh.text).toContain('The owner: What is GRE-4 about?')
+        })
+
+        it('stays ended when its session can\'t start again, the message not kept', async () => {
+            await chats.openChat('greenhouse')
+            await chats.say('c1c2c3c4c5c6', 'What is GRE-4 about?', [], owner)
+            chats.endChat('c1c2c3c4c5c6')
+            vi.stubGlobal('resumeChat', async () => { throw Object.assign(new Error('No launcher is running for greenhouse'), {statusCode: 409}) })
+            await expect(chats.say('c1c2c3c4c5c6', 'Still there?', [], owner)).rejects.toMatchObject({statusCode: 409})
+            expect(chats.readChat('c1c2c3c4c5c6')).toMatchObject({ended: true})
+            expect(chats.readChat('c1c2c3c4c5c6').messages).toHaveLength(1)
+        })
     })
 
     it('deletes a chat when the owner deletes it: a running one is ended first, and the page hears it go (ORR-882)', async () => {

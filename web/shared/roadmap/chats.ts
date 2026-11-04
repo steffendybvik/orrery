@@ -18,6 +18,9 @@ export interface Chat {
     /** Where the issues it makes land, the first status of that kind, whatever its session asks: the owner picks it
      * beside Send (ORR-408). */
     issues: ChatIssues
+    /** The Claude Code session it last ran as, kept as it ends, so writing in it again takes that up (`claude --resume`,
+     * ORR-884). */
+    claude_session?: string
 }
 
 /** Where a chat's issues land: Todo or Backlog. */
