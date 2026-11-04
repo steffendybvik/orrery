@@ -88,3 +88,58 @@ describe('counting feature use', () => {
         expect(await counted()).toEqual([])
     })
 })
+
+// The routes behind App settings' Usage (ORR-888): the counts are the owner's own record, so only the owner reads or
+// wipes them, and anyone else's `POST` is dropped with the same 204, saying nothing of whether counting is on.
+describe("Usage's routes", () => {
+    type Who = {name: string, owner: boolean, untrusted?: boolean}
+    type Event = {context: {who?: Who}, body?: unknown, status?: number}
+    const member: Who = {name: 'hati', owner: false}
+    const session: Who = {name: 'claude', owner: false, untrusted: true}
+
+    beforeEach(async () => {
+        const {forbidden} = await import('../server/utils/input')
+        const {ownerOnly} = await import('../server/utils/permission')
+        vi.stubGlobal('defineEventHandler', (handler: unknown) => handler)
+        vi.stubGlobal('actorOf', async (event: Event) => event.context.who ?? {name: 'nobody', owner: false})
+        vi.stubGlobal('readBody', async (event: Event) => event.body)
+        vi.stubGlobal('setResponseStatus', (event: Event, status: number) => { event.status = status })
+        vi.stubGlobal('forbidden', forbidden)
+        vi.stubGlobal('ownerOnly', ownerOnly)
+        for (const name of ['countUse', 'flushUse', 'featureUse', 'forgetUse', 'usageAllowed'] as const) vi.stubGlobal(name, usage[name])
+        await store.updateSettings({count_use: true}, owner)
+    })
+
+    const call = async (route: string, who: Who | undefined, body?: unknown) => {
+        const handler = (await import(`../server/api/usage/${route}.ts`)).default as (event: Event) => Promise<unknown>
+        const event: Event = {context: who ? {who} : {}, body}
+        try {
+            return {data: await handler(event), status: event.status ?? 200}
+        } catch (error) {
+            return {status: (error as {statusCode: number}).statusCode}
+        }
+    }
+
+    it("reads the counts for the owner alone", async () => {
+        expect((await call('index.get', owner)).data).toMatchObject({on: true, allowed: true})
+        for (const who of [member, session, undefined]) expect((await call('index.get', who)).status).toBe(403)
+    })
+
+    it('wipes them for the owner alone', async () => {
+        usage.countUse('chunks', NOW)
+        await usage.flushUse(NOW)
+        for (const who of [member, session, undefined]) expect((await call('index.delete', who)).status).toBe(403)
+        expect(await counted()).toHaveLength(1)
+        expect((await call('index.delete', owner)).status).toBe(204)
+        expect(await counted()).toEqual([])
+    })
+
+    it("counts the owner's use, and drops anyone else's with the same 204", async () => {
+        for (const who of [member, session]) expect((await call('index.post', who, {feature: 'chunks'})).status).toBe(204)
+        await usage.flushUse()
+        expect(await counted()).toEqual([])
+        expect((await call('index.post', owner, {feature: 'chunks'})).status).toBe(204)
+        await usage.flushUse()
+        expect((await counted()).map(r => [r.feature, r.count])).toEqual([['chunks', 1]])
+    })
+})

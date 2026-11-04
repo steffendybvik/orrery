@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import {COMMON_EVENTS, EVENT_PATTERN} from '#shared/happenings'
 import type {OnFilter} from '#shared/happenings'
-import type {Preset, Priority, Schedule} from '#shared/roadmap'
-import {EVENT_LEVELS} from '#shared/roadmap'
+import type {Effort, Preset, Priority, Schedule} from '#shared/roadmap'
+import {EFFORTS, EVENT_LEVELS, MODEL_ALIASES, kindOf} from '#shared/roadmap'
 import type {Repeat} from '~/utils/schedule'
 
 // Writing a schedule, or changing one, as the owner: in a project (picked here for a new one), whether each run makes an issue or
@@ -107,6 +107,8 @@ const column = ref('todo')
 const chunk = ref('')
 const priority = ref<Priority | ''>('')
 const labels = ref<string[]>([])
+const model = ref('')
+const effort = ref<Effort | ''>('')
 const ask = ref(false)
 const skipOpen = ref(true)
 const onlyIfChanged = ref(false)
@@ -116,6 +118,17 @@ const pausing = ref(false)
 const saving = ref(false)
 const failed = ref('')
 const titleInput = ref<HTMLInputElement | null>(null)
+
+// Its own model and effort (ORR-869): empty takes its kind's. An issue schedule's kind is its labels', as its issues' is; a
+// session's or a message's follows the issue it's about, else Claude Code's default. A full id set through the API stays a choice.
+const {settings: appSettings} = useAppSettings()
+const workKind = computed(() => sends.value === 'issue' ? kindOf(labels.value, appSettings.value.work_kinds) : undefined)
+const modelOptions = computed(() => [
+    {value: '', label: workKind.value ? `${workKind.value.model}, as ${workKind.value.name}` : sends.value === 'message' ? 'Any session' : "The issue's, or Claude Code's default"},
+    ...[...MODEL_ALIASES.filter(a => a !== 'default' && a !== 'opusplan'), ...model.value && !(MODEL_ALIASES as readonly string[]).includes(model.value) ? [model.value] : []]
+        .map(m => ({value: m, label: m})),
+])
+const effortOptions = computed(() => [{value: '', label: workKind.value?.effort ? `${workKind.value.effort}, as ${workKind.value.name}` : 'Default effort'}, ...EFFORTS.map(e => ({value: e, label: e}))])
 
 const existing = computed(() => editing.value?.schedule)
 const group = computed(() => editing.value?.across)
@@ -151,6 +164,8 @@ watch(editing, now => {
     chunk.value = s?.chunk ?? ''
     priority.value = s?.priority ?? ''
     labels.value = [...s?.labels ?? []]
+    model.value = s?.model ?? ''
+    effort.value = s?.effort ?? ''
     ask.value = s?.ask ?? false
     skipOpen.value = s?.skip_open ?? true
     onlyIfChanged.value = s?.only_if_changed ?? false
@@ -251,6 +266,8 @@ async function save() {
         chunk: chunk.value || null,
         priority: priority.value || null,
         labels: labels.value,
+        // An action runs no session, so it has no model.
+        ...sends.value === 'action' ? {} : {model: model.value || null, effort: effort.value || null},
         ask: ask.value,
         skip_open: skipOpen.value,
         only_if_changed: onlyIfChanged.value,
@@ -575,6 +592,16 @@ const labelOf = (options: {value: string, label: string}[], value: string) => op
         <input v-model="skipOpen" type="checkbox" class="accent-accent-fill">
         Skip a run while the last run's issue isn't done
       </label>
+    </section>
+
+    <section v-if="sends !== 'action'" class="flex flex-wrap items-center gap-2 border-t border-line pt-3" data-testid="schedule-model">
+      <span class="label mr-0.5">Runs on</span>
+      <PropertyPicker v-model="model" :options="modelOptions" label="Model" field>
+        <span class="truncate" :class="model ? 'font-mono text-xs' : 'text-faint'">{{ labelOf(modelOptions, model) }}</span>
+      </PropertyPicker>
+      <PropertyPicker v-model="effort" :options="effortOptions" label="Effort" field>
+        <span class="truncate" :class="!effort && 'text-faint'">{{ labelOf(effortOptions, effort) }}</span>
+      </PropertyPicker>
     </section>
 
     <div class="flex items-center gap-2 border-t border-line pt-3">
