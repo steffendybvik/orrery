@@ -2,7 +2,8 @@
 import type {PullIssues} from '#shared/roadmap'
 
 // One pull request by its number (ORR-880): its title, state and base, a link to it on GitHub, then every issue it's linked
-// to, on any project, each with its status, so a big PR (a release's) can be read issue by issue. It's what orrery keeps
+// to, on any project, each with its status and its risk once rated (ORR-914), riskiest first, so a big PR (a release's)
+// can be read issue by issue, starting with what matters. It's what orrery keeps
 // (`GET /api/pulls/:owner/:name/:number`), merged and closed ones too, so it says so when it keeps nothing of one.
 const route = useRoute()
 const repo = computed(() => `${route.params.owner}/${route.params.name}`)
@@ -39,6 +40,7 @@ useHead({title: () => `#${number.value}${data.value ? ` ${data.value.pull.title}
               <span class="shrink-0 font-mono text-xs text-muted">{{ issue.id }}</span>
               <span class="min-w-0 truncate text-fg">{{ issue.title }}</span>
             </NuxtLink>
+            <RiskChip v-if="issue.risk" :risk="issue.risk" />
             <span class="shrink-0 text-xs text-muted">{{ look(issue.status).label }}</span>
             <span class="shrink-0 text-xs text-faint">{{ issue.project_name }}</span>
           </li>

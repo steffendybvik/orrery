@@ -116,7 +116,11 @@ test("opens a pull request by its number, listing every issue it's linked to (OR
     await page.route('**/api/pulls/orrery-e2e/hayloft/21', route => route.fulfill({json: {
         repo: 'orrery-e2e/hayloft',
         pull: {number: 21, title: 'Spring clean', url: 'https://github.com/orrery-e2e/hayloft/pull/21', branch: 'feat/21', base: 'main', author: 'ada', state: 'merged', merged_at: '2026-10-02T00:00:00.000Z', updated_at: '2026-10-02T00:00:00.000Z'},
-        issues: issues.map((id, i) => ({project: 'hayloft', project_name: 'Hayloft', id, title: ['Muck out', 'Mend the gate'][i], status: 'todo'})),
+        // Riskiest first, as the store sorts them (ORR-914): only the gate's change is rated.
+        issues: [
+            {project: 'hayloft', project_name: 'Hayloft', id: issues[1], title: 'Mend the gate', status: 'todo', risk: {level: 'high', why: 'high: moves the hinges', by: 'session'}},
+            {project: 'hayloft', project_name: 'Hayloft', id: issues[0], title: 'Muck out', status: 'todo'},
+        ],
     }}))
     await page.goto('/pulls')
     // Its number and title open its page (ORR-893); GitHub stays on the row's ↗.
@@ -127,6 +131,9 @@ test("opens a pull request by its number, listing every issue it's linked to (OR
     await expect(page.getByRole('region', {name: 'The pull request'})).toContainText('Merged')
     const linked = page.getByRole('list', {name: 'Linked issues'}).getByRole('listitem')
     await expect(linked).toHaveCount(2)
+    await expect(linked.first()).toContainText('Mend the gate')
+    await expect(linked.first().getByText('High risk')).toHaveAttribute('title', 'high: moves the hinges (rated by the session that opened it)')
+    await expect(linked.filter({hasText: 'Muck out'}).getByText(/ risk$/)).toHaveCount(0)
     await linked.filter({hasText: 'Mend the gate'}).getByRole('link').click()
     await expect(page).toHaveURL(new RegExp(`/p/hayloft/issues/${issues[1]}$`))
     // Its address opens it straight away too.

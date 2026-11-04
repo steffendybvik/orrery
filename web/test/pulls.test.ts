@@ -187,6 +187,22 @@ describe('pull requests', () => {
         await expect(pulls.forPull('you/shop', 801)).rejects.toMatchObject({statusCode: 404})
     })
 
+    it('give each issue on a PR its riskiest rated PR, riskiest first (ORR-914)', async () => {
+        const base = {url: 'https://github.com/you/shop/pull/1', branch: 'x', base: 'main', author: 'claude', merged: false, closed: false,
+            merged_at: null, created_at: '2026-10-28T09:00:00Z', updated_at: '2026-10-29T09:00:00Z'}
+        await pulls.remember('you/shop', ['shop'], {...base, number: 810, title: 'Both', names: ['SHO-1', 'SHO-2']})
+        await pulls.remember('you/shop', ['shop'], {...base, number: 811, title: 'Its own', names: ['SHO-2']})
+        expect((await pulls.forPull('you/shop', 810)).issues.map(i => [i.id, i.risk])).toEqual([['SHO-1', undefined], ['SHO-2', undefined]])
+
+        // SHO-2's own PR is rated high, and this one low on both: SHO-2 comes first, with the high rating.
+        await pulls.rate('shop', 'SHO-2', 'you/shop', 811, {level: 'high', why: 'adds a migration'}, false)
+        await pulls.rate('shop', 'SHO-1', 'you/shop', 810, {level: 'low', why: 'docs only'}, false)
+        await pulls.rate('shop', 'SHO-2', 'you/shop', 810, {level: 'low', why: 'docs only'}, false)
+        const issues = (await pulls.forPull('you/shop', 810)).issues
+        expect(issues.map(i => [i.id, i.risk?.level])).toEqual([['SHO-2', 'high'], ['SHO-1', 'low']])
+        expect(issues[0]!.risk).toEqual({level: 'high', why: 'adds a migration', by: 'session'})
+    })
+
     it('keep a rated risk on the issue\'s PR, with the owner\'s rating standing over a session\'s (ORR-879)', async () => {
         const pull = {number: 790, title: 'A migration', url: 'https://github.com/you/shop/pull/790', branch: 'feat/sho-1', base: 'main', author: 'claude',
             merged: true, closed: false, merged_at: '2026-10-29T09:00:00Z', created_at: '2026-10-28T09:00:00Z', updated_at: '2026-10-29T09:00:00Z', names: ['SHO-1']}
