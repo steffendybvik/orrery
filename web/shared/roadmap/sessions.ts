@@ -8,6 +8,9 @@ import type {Issue} from './board'
 export interface Signal {
     /** A member's signal (ORR-658): only their sessions hear it. The owner's say `protected` instead. */
     person?: string
+    /** The model its work needs, pooled (ORR-868): its issue's, or a chunk's heaviest. No session started on a lighter one
+     * takes it; none, any session can. */
+    model?: string
     id: number
     project: string
     /** The issue it's about, or for a focus on a whole chunk, `chunk` (`none`: the issues in no chunk; `all`: every chunk's). */

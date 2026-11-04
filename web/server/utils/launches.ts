@@ -11,7 +11,7 @@ import {randomBytes} from 'node:crypto'
 import type {Effort, LauncherRepo, RepoAdded, Session, SessionContext, Signal, StartedSession, Starts, TerminalApp} from '#shared/roadmap'
 import {EFFORTS, isEffort, isModel, modelFor, WORK_KINDS} from '#shared/roadmap'
 import type {Actor} from './store'
-import {EVERY} from './pool'
+import {EVERY, heavyEnough} from './pool'
 import {scheduleRunning} from './schedules'
 import {startsNone} from './starts-none'
 
@@ -205,9 +205,12 @@ export async function considerLaunch(signal: Signal): Promise<Launch | null> {
     if (signal.person && signal.person !== (await useStore().ownerOf()).name) return null
     // The owner's answer that asks for no work (ORR-606).
     if (startsNone.getStore()) return null
-    if (listening(project) || !launchersOf(project) || pendingOn(project)) return null
+    if (hearsIt(project, signal) || !launchersOf(project) || pendingFor(project, signal)) return null
     const asked = !!startAsked.getStore()
-    const held = hold(project, {after: signal.id - 1})
+    // On the model its work needs (ORR-868); `best` asks for none, so any launcher can take it.
+    const needs = signal.model && signal.model !== 'best' ? signal.model : undefined
+    const effort = needs && signal.issue ? await useStore().issue(project, signal.issue).then(i => modelFor(i)).then(p => p.model === needs ? p.effort : undefined, () => undefined) : undefined
+    const held = hold(project, {after: signal.id - 1, ...needs ? {model: needs} : {}, ...effort ? {effort} : {}})
     const starts = await allowedStarts(project).catch(error => release(held, error))
     if (!starts || starts.on_signal === false && !asked) {
         pending.delete(held.id)
@@ -215,6 +218,20 @@ export async function considerLaunch(signal: Signal): Promise<Launch | null> {
     }
     if (starts.minutes) held.minutes = starts.minutes
     return send(held)
+}
+
+/** Whether a session listening on the project can take the signal: any, unless it needs a model (ORR-868), and then one
+ * started on a heavy enough one, or a stream with no session to say (the Monitor tool's), which takes what comes. */
+function hearsIt(project: string, signal: Signal): boolean {
+    const hearing = listening(project)
+    if (!hearing || !signal.model) return !!hearing
+    const sessions = listSessions(project).filter(s => s.project === project && s.listening && !s.started?.chat && !s.started?.untrusted)
+    return sessions.length < hearing || sessions.some(s => heavyEnough(signal, s.started?.model))
+}
+
+/** Whether a launch on its way to the project will take the signal: one heavy enough for its work. */
+function pendingFor(project: string, signal: Signal): boolean {
+    return pendingOn(project) > 0 && [...pending.values()].some(l => l.project === project && !l.chat && !l.untrusted && heavyEnough(signal, l.model))
 }
 
 /** The session id a focus made for a launch is aimed at: its session takes it as one of its ids when it connects,

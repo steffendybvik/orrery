@@ -139,7 +139,7 @@ export interface DocRow extends Made { project: string, id: string, title: strin
 export interface DocRevisionRow { id: number, project: string, doc: string, title: string, body: string, section: string | null, kind: DocKind, deleted: number, created_by: string, session_name: string | null, owned: number, created_at: string }
 export interface ReleaseRow extends Made { project: string, version: string, branch: string | null, notes: string | null, frozen_on: string | null, shipped_on: string | null, doc_mark: number | null, position: number }
 export interface PresetRow { id: number, project: string | null, name: string, text: string, icon: string | null, color: string | null, default_key: string | null, created_at: string, updated_at: string }
-export interface SignalRow { person?: string | null, id: number, project: string, issue: string | null, chunk: string | null, status: string | null, release: string | null, schedule: number | null, kind: 'focus' | 'comment' | 'message', note: string | null, preset: string | null, via: string | null, target: string | null, delivered_to: string, instructions: string, created_by: string, owned: number, created_at: string }
+export interface SignalRow { person?: string | null, model?: string | null, id: number, project: string, issue: string | null, chunk: string | null, status: string | null, release: string | null, schedule: number | null, kind: 'focus' | 'comment' | 'message', note: string | null, preset: string | null, via: string | null, target: string | null, delivered_to: string, instructions: string, created_by: string, owned: number, created_at: string }
 
 export const SLUG = /^[a-z0-9][a-z0-9-]{0,39}$/
 /** A named tint or any `#rrggbb`: the page's tint, a project icon's colour. */
@@ -391,7 +391,7 @@ export function eventOf(row: EventRow): IssueEvent {
 export function signalOf(row: SignalRow): Signal {
     return {
         id: row.id, project: row.project, issue: row.issue ?? undefined, chunk: row.chunk ?? undefined, status: row.status ?? undefined, release: row.release ?? undefined, schedule: row.schedule ?? undefined, kind: row.kind, note: row.note ?? undefined, preset: row.preset ?? undefined, ...row.via === 'chat' ? {via: 'chat' as const} : {},
-        target: row.target ?? undefined, delivered_to: JSON.parse(row.delivered_to) as string[], instructions: JSON.parse(row.instructions) as string[], ...row.person ? {person: row.person} : {}, created_by: row.created_by, protected: !!row.owned, created_at: row.created_at,
+        target: row.target ?? undefined, delivered_to: JSON.parse(row.delivered_to) as string[], instructions: JSON.parse(row.instructions) as string[], ...row.person ? {person: row.person} : {}, ...row.model ? {model: row.model} : {}, created_by: row.created_by, protected: !!row.owned, created_at: row.created_at,
     }
 }
 
