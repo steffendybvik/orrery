@@ -216,6 +216,7 @@ Already one component each; use them rather than drawing the same thing again.
 | `SessionDot` | a Claude session's state as a dot |
 | `ErrorBadge` | a count of what's gone wrong: red with a warning sign, on the bell, the sidebar and App settings |
 | `PullStateChip` | where an open pull request stands (Conflicts, Behind, Ready to merge…), red to green |
+| `PullGithubLink` | a pull request on GitHub, as the GitHub mark in a small button beside its number and title (which open its orrery page), opening a new tab |
 | `ScheduleRunButton` | **Run schedule** in a project's issues toolbar: a popover of the schedules Run now can run, each run at once; the confirmation is `ScheduleMenu`'s |
 | `PullFocus` | **Focus on this** on a pull request: a popover with the note `focusNote` writes from its state, to edit and send as a focus on its issue |
 | `KeyHint` | a key, as `<KeyHint>⌘↵</KeyHint>` |

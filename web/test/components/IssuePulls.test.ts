@@ -28,7 +28,10 @@ async function mount(given: Partial<Answer>) {
 describe('an issue\'s pull requests', () => {
     it('lists the open ones, then those merged and closed, with where each went', async () => {
         const wrapper = await mount({pulls: [open], done: [past(7, 'merged'), past(6, 'closed')]})
-        expect(wrapper.findAll('li a').map(a => a.text())).toEqual(['#9 Still going', '#7 Old 7', '#6 Old 6'])
+        expect(wrapper.findAll('li a:not([aria-label])').map(a => a.text())).toEqual(['#9 Still going', '#7 Old 7', '#6 Old 6'])
+        // Each opens its own page, with GitHub on its ↗ (ORR-893).
+        expect(wrapper.findAll('li a:not([aria-label])').map(a => a.attributes('href'))).toEqual(['/pulls/you/shop/9', '/pulls/you/shop/7', '/pulls/you/shop/6'])
+        expect(wrapper.findAll('li a[aria-label]').map(a => a.attributes('href'))).toEqual(['https://x/9', 'https://x/7', 'https://x/6'])
         const rows = wrapper.findAll('li').map(li => li.text())
         expect(rows[1]).toContain('Merged')
         expect(rows[1]).toContain('feat/sho-1-a → v1')
@@ -39,6 +42,8 @@ describe('an issue\'s pull requests', () => {
     it('still shows them with the repo gone, one open saying it was when last seen', async () => {
         const wrapper = await mount({repo: null, done: [past(7, 'open')]})
         expect(wrapper.text()).toContain('Open when last seen')
+        // No repo to name its page by, so it opens on GitHub.
+        expect(wrapper.find('li a').attributes('href')).toBe('https://x/7')
     })
 
     it('offers Send back only on what can still be fixed', async () => {
