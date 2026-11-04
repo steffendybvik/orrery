@@ -3,6 +3,7 @@ import type {OrreryEvent} from '#shared/happenings'
 import type {Signal} from '#shared/roadmap'
 import type {PullChange} from '../server/utils/pull-poll'
 import {commentOnPull, pullComment} from '../server/utils/pull-comments'
+import {Pulls} from '../server/utils/pulls'
 import {Store} from '../server/utils/store'
 import {testDb} from './db'
 
@@ -67,6 +68,27 @@ describe("a pull request's news on its issue", () => {
         await commentOnPull(store, change('merged', {merge_sha: '9f8e7d6c5b4a'}))
         expect((await store.listComments('shop', 'SHO-1')).map(c => c.created_by)).toEqual(['orrery'])
         expect(signals).toEqual([])
+    })
+
+    it('asks the owner to review a merged PR rated high risk, and only that (ORR-879)', async () => {
+        const pulls = new Pulls(store, async () => { throw new Error('no GitHub here') })
+        const kept = {number: 12, title: 'x', url: 'https://github.com/you/shop/pull/12', branch: 'feat/sho-1', base: 'v1.0.0-rc.11', author: 'claude',
+            merged: true, closed: false, merged_at: '2026-11-04T09:00:00Z', created_at: '2026-11-04T08:00:00Z', updated_at: '2026-11-04T09:00:00Z', names: ['SHO-1']}
+        await pulls.remember('you/shop', ['shop'], kept)
+        await pulls.rate('shop', 'SHO-1', 'you/shop', 12, {level: 'low', why: 'docs only'}, false)
+        await commentOnPull(store, change('merged'))
+        expect((await store.listComments('shop', 'SHO-1')).map(c => c.asks ?? null)).toEqual([null])
+
+        await pulls.rate('shop', 'SHO-1', 'you/shop', 12, {level: 'high', why: 'adds a\nmigration'}, false)
+        events = []
+        await commentOnPull(store, change('merged'))
+        const asked = (await store.listComments('shop', 'SHO-1')).find(c => c.asks)
+        expect(asked).toMatchObject({created_by: 'orrery', asks: 'feedback'})
+        expect(asked!.body).toBe('[#12](https://github.com/you/shop/pull/12) merged into `v1.0.0-rc.11`, and its session rated it **high risk**: “adds a migration”. Review what it changed ([the files](https://github.com/you/shop/pull/12/files)), and answer here once you have.')
+        expect(events.map(e => e.type)).toContain('pr.risky_merged')
+        // Closed unmerged, it asks nothing.
+        await commentOnPull(store, change('closed'))
+        expect((await store.listComments('shop', 'SHO-1')).filter(c => c.asks)).toHaveLength(1)
     })
 
     it("says nothing for what it doesn't tell, and gives up quietly on an issue that's gone", async () => {
