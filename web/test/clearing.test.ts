@@ -355,3 +355,95 @@ describe('a session someone opened themselves, gone idle after closing a sub-iss
         expect(carried).toEqual([])
     })
 })
+
+describe("the owner's focus reaching a session orrery started that holds only work in review (ORR-904)", () => {
+    /** What it holds: each issue with its status and parent, and whether it waits on the owner. */
+    let held: {id: string, parent?: string | null, status: string, waiting?: boolean}[]
+    let delivered: string[]
+    beforeEach(() => {
+        held = [{id: 'ORR-1', status: 'in-review'}]
+        delivered = []
+        issues = [
+            {id: 'ORR-1', parent: null, kind: 'started', column: 'in-review', updated_at: 'a'},
+            {id: 'ORR-2', parent: null, kind: 'todo', column: 'todo', updated_at: 'a'},
+            {id: 'ORR-3', parent: 'ORR-1', kind: 'todo', column: 'todo', updated_at: 'a'},
+            {id: 'ORR-4', parent: 'ORR-9', kind: 'todo', column: 'todo', updated_at: 'a'},
+            {id: 'ORR-5', parent: 'ORR-9', kind: 'started', column: 'in-review', updated_at: 'a'},
+        ]
+        const store = (globalThis as unknown as {useStore: () => Record<string, unknown>}).useStore()
+        vi.stubGlobal('useStore', () => ({...store, workingOn: async () => held}))
+    })
+    const focus = (issue: string, more: object = {}) => ({id: 7, kind: 'focus', project: 'orrery', issue, protected: true, ...more}) as never
+    const reach = (issue: string, more: object = {}) => clearing.clearBefore('orrery', 'w', focus(issue, more), () => void delivered.push(issue))
+
+    it('is held while its launcher clears it, and goes once it is back', async () => {
+        expect(await reach('ORR-2')).toBe(true)
+        expect(sent).toEqual([{type: 'clear', project: 'orrery', id: 'l1'}])
+        expect(clearing.clearPending('w')).toBe(true)
+        expect(delivered).toEqual([])
+        expect(clearing.clearDone('w')).toBe(true)
+        expect(delivered).toEqual(['ORR-2'])
+        expect(clearing.clearPending('w')).toBe(false)
+        expect(clearing.clearDone('w')).toBe(false)
+    })
+
+    it('waits behind one already held, and both go after the one clear', async () => {
+        await reach('ORR-2')
+        expect(await reach('ORR-4')).toBe(true)
+        expect(sent).toHaveLength(1)
+        clearing.clearDone('w')
+        expect(delivered).toEqual(['ORR-2', 'ORR-4'])
+    })
+
+    it("goes anyway, uncleared, when the clear never comes back", async () => {
+        await reach('ORR-2')
+        await vi.advanceTimersByTimeAsync(clearing.CLEAR_DUE_FOR + 10)
+        expect(delivered).toEqual(['ORR-2'])
+        expect(clearing.clearPending('w')).toBe(false)
+    })
+
+    it('waits on the owner counts as held work too', async () => {
+        held = [{id: 'ORR-1', status: 'in-progress', waiting: true}]
+        expect(await reach('ORR-2')).toBe(true)
+    })
+
+    it('keeps its context for the same issue, a sub-issue, its parent or a sibling', async () => {
+        expect(await reach('ORR-1')).toBe(false)
+        expect(await reach('ORR-3')).toBe(false)
+        held = [{id: 'ORR-3', parent: 'ORR-1', status: 'in-review'}]
+        expect(await reach('ORR-1')).toBe(false)
+        held = [{id: 'ORR-5', parent: 'ORR-9', status: 'in-review'}]
+        expect(await reach('ORR-4')).toBe(false)
+        expect(sent).toEqual([])
+    })
+
+    it('goes at once with work still in progress, or none held', async () => {
+        held = [{id: 'ORR-1', status: 'in-review'}, {id: 'ORR-5', status: 'in-progress'}]
+        expect(await reach('ORR-2')).toBe(false)
+        held = []
+        expect(await reach('ORR-2')).toBe(false)
+        expect(sent).toEqual([])
+    })
+
+    it("goes at once when it isn't the owner's focus on an issue, or is orrery's own carry-on", async () => {
+        expect(await reach('ORR-2', {protected: false})).toBe(false)
+        expect(await reach('ORR-2', {kind: 'message'})).toBe(false)
+        expect(await reach('ORR-2', {note: clearing.CARRY_ON})).toBe(false)
+        expect(sent).toEqual([])
+    })
+
+    it("goes at once to a session that's working, opened by hand, a chat or an untrusted run", async () => {
+        session!.state = 'working'
+        expect(await reach('ORR-2')).toBe(false)
+        session!.state = 'idle'
+        chat = true
+        expect(await reach('ORR-2')).toBe(false)
+        chat = false
+        untrusted = true
+        expect(await reach('ORR-2')).toBe(false)
+        untrusted = false
+        session!.started = undefined
+        expect(await reach('ORR-2')).toBe(false)
+        expect(sent).toEqual([])
+    })
+})
