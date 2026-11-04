@@ -110,8 +110,8 @@ export async function credential(event: H3Event): Promise<Who | undefined> {
 
 /** The login's cookie: http-only so tokens stay out of the page's scripts, `Secure` whenever the request came over https.
  * `key` is the id of the person key it was swapped for, so revoking that ends it (ORR-786). */
-export async function logIn(event: H3Event, person: string, key?: string) {
-    const {secret, days} = await useStore().startLogin(person, key)
+export async function logIn(event: H3Event, person: string, key?: string, name?: string) {
+    const {secret, days} = await useStore().startLogin(person, key, name)
     setCookie(event, LOGIN_COOKIE, secret, {httpOnly: true, sameSite: 'lax', path: '/', maxAge: days * 86_400, secure: overHttps(event)})
 }
 

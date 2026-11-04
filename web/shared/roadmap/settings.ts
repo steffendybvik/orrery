@@ -20,6 +20,18 @@ export interface KeyRecord {
     revoked_at?: string
 }
 
+/** A browser's login as it's listed (ORR-838): `id` is a short part of its hash, never what's in the cookie. `name` says
+ * how it was made, such as a phone's QR code; `current` marks the browser asking. Older logins have no dates. */
+export interface LoginRecord {
+    id: string
+    person: string
+    name?: string
+    created_at?: string
+    last_used_at?: string
+    expires_at: string
+    current?: boolean
+}
+
 export interface Person {
     id: string
     name: string

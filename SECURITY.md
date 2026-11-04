@@ -277,7 +277,9 @@ Over that port nothing counts as this machine (`fromThisMachine`), so claiming, 
 settings are refused there, whatever `Host` is sent.
 
 App settings' QR code carries a one-time sign-in link to that port: a random token, kept only as its hash, in memory, good
-once and for 5 minutes, at most 20 at a time. Opened, it signs that browser in as the owner with a login of its own. Only
+once and for 5 minutes, at most 20 at a time. Opened, it signs that browser in as the owner with a login of its own, named
+so in App settings → You → Signed in, where the owner ends it from the Mac when a phone is lost (ORR-838, the `logins.write`
+row: a person their own logins, the owner anyone's, never a session, the chat or an untrusted one). Only
 the owner makes one (`POST /api/phone/link`, the `phone.link` row): from their page on the sessions' address, never over the
 phone's port, and never a session, the chat or an untrusted one, as it would hand them the owner's login. Over plain
 Wi-Fi the link and the login's cookie travel unencrypted, so someone else on it who reads the link first gets the login:

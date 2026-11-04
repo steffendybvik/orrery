@@ -43,8 +43,9 @@ registerEndpoint('/api/uploads', () => new Promise(resolve => {
     landing = () => resolve({id, url: `/api/uploads/${id}`, markdown: `![](/api/uploads/${id})`})
 }))
 async function uploaded() {
-    for (let i = 0; i < 20 && !landing; i++) await flushPromises()
-    landing?.()
+    // The image is read with a FileReader before it's sent, which a busy runner can take a while over: wait for the request.
+    await vi.waitFor(() => expect(landing).not.toBeNull())
+    landing!()
     landing = null
     await flushPromises()
 }

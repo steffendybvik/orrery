@@ -348,6 +348,15 @@ export const PERMISSIONS: Permission[] = [
         member: {level: 'free', note: 'Their own: the route refuses their agents, and anyone else\'s key'},
     },
     {
+        id: 'logins.write', area: 'This orrery', action: 'End a browser’s login',
+        why: 'A login is a browser signed in, a phone’s too (ORR-838), so a person ends their own, the owner anyone’s, from App settings: how a lost phone is shut out. Never a session, which has no login and no business with them.',
+        routes: ['DELETE /api/logins', 'DELETE /api/logins/:login'],
+        session: refused,
+        chat: refused,
+        untrusted: refused,
+        member: {level: 'free', note: 'Their own logins'},
+    },
+    {
         id: 'auth.login', area: 'This orrery', action: 'Log in or out',
         why: 'Nobody has a credential until they’ve logged in, and a session has no use for a login: an agent key signs nothing in.',
         routes: ['POST /api/auth/login', 'POST /api/auth/logout', 'POST /api/auth/link'],

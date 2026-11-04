@@ -309,7 +309,8 @@ machine don't clash) is published on every address and **always asks for a login
 tells them apart by the port a request came in on inside it, never by who sent it, as in Docker every caller looks the same.
 
 The QR code carries a one-time sign-in link to the phone's port: good once, for 5 minutes, and a new one shows as it
-runs out. Opened, it signs the phone in as you, with a login of its own (logging out on the phone ends it). The address
+runs out. Opened, it signs the phone in as you, with a login of its own, listed under App settings → You → Signed in.
+Lost the phone? Press **End** beside it there, or **End every other login**, and it has to sign in again. The address
 alone, without the link, asks for a login. Only your own page on this machine makes a link: never a session, the chat,
 or anything on the phone's port. Over the phone's port nothing counts as this machine, so claiming, moving the database
 and the like are refused there.
