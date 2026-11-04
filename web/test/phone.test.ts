@@ -1,4 +1,4 @@
-import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
+import {afterAll, afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 
 // Where App settings says a phone can open orrery (ORR-833): from what it listens on, ORRERY_PHONE_URL, this machine's
 // networks outside Docker, and in Docker a launcher's report of its machine's, as the container sees only its own.
@@ -16,7 +16,16 @@ vi.mock('node:os', async original => ({
     }),
 }))
 
-const {ipv4List, phoneLinks, reachable} = await import('../server/utils/phone')
+// A Mac, which goes by its LocalHostName on its Wi-Fi (ORR-874), whatever system runs the tests.
+const platform = Object.getOwnPropertyDescriptor(process, 'platform')!
+Object.defineProperty(process, 'platform', {value: 'darwin'})
+afterAll(() => Object.defineProperty(process, 'platform', platform))
+vi.mock('node:child_process', async original => ({
+    ...await original<object>(),
+    execFileSync: (file: string, args: string[]) => file === '/usr/sbin/scutil' && args.join(' ') === '--get LocalHostName' ? 'Steffens-Mac\n' : '',
+}))
+
+const {bonjourName, ipv4List, phoneLinks, reachable} = await import('../server/utils/phone')
 const {addPicker} = await import('../server/utils/connects')
 
 /** A request to the page at `host`, on a server outside Docker bound to `bound`. */
@@ -44,16 +53,24 @@ describe('the addresses a phone could reach', () => {
     })
 })
 
+describe("a machine's Bonjour name", () => {
+    it('is one label and .local, lowercased, and nothing else', () => {
+        expect(bonjourName('Steffens-Mac.local')).toBe('steffens-mac.local')
+        expect(['mac.local.evil.example', 'a.b.local', '-mac.local', 'mac', '.local', 'evil<script>.local', 7, undefined].map(bonjourName)).toEqual(Array(8).fill(''))
+    })
+})
+
 describe('outside Docker', () => {
     it("on loopback, says it's only this machine's, with where it would be", () => {
         const links = phoneLinks(request('127.0.0.1'))
         expect(links.reach).toBe('loopback')
-        expect(links.addresses.map(a => a.url)).toEqual(['http://192.168.178.90:9010', 'http://100.64.0.7:9010'])
+        expect(links.addresses.map(a => a.url)).toEqual(['http://steffens-mac.local:9010', 'http://192.168.178.90:9010', 'http://100.64.0.7:9010'])
+        expect(links.addresses[0]).toEqual({url: 'http://steffens-mac.local:9010', from: 'machine', name: true})
     })
 
     it("on every address, is this machine's networks, at the port the page was opened on", () => {
         expect(phoneLinks(request('0.0.0.0')).reach).toBe('network')
-        expect(urls(request('::', 'localhost:3400'))).toEqual(['http://192.168.178.90:3400', 'http://100.64.0.7:3400'])
+        expect(urls(request('::', 'localhost:3400'))).toEqual(['http://steffens-mac.local:3400', 'http://192.168.178.90:3400', 'http://100.64.0.7:3400'])
     })
 
     it('on one address, is that address alone', () => {
@@ -78,6 +95,19 @@ describe('in Docker', () => {
             done()
         }
         expect(urls(request('0.0.0.0'))).toEqual([])
+    })
+
+    it("leads with the launcher's Bonjour name, the IPs after it", () => {
+        config.listenHost = '0.0.0.0'
+        const done = addPicker('mac', ['192.168.178.90'], 'steffens-mac.local')
+        try {
+            expect(phoneLinks(request('0.0.0.0')).addresses).toEqual([
+                {url: 'http://steffens-mac.local:9010', from: 'launcher', name: true, machine: 'mac'},
+                {url: 'http://192.168.178.90:9010', from: 'launcher', machine: 'mac'},
+            ])
+        } finally {
+            done()
+        }
     })
 
     it('on a VPN address is that address, after ORRERY_PHONE_URL', () => {

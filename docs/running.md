@@ -63,7 +63,7 @@ All optional, in a `.env` beside `docker-compose.yml` (see `.env.example`):
 | `ORRERY_PHONE_PORT` | the phone's own port, which always asks for a login (see [Reach it from your phone](#reach-it-from-your-phone)) | `1` before `ORRERY_PORT`: `19000` |
 | `ORRERY_PHONE_HOST` | who can reach the phone's port: `127.0.0.1` keeps it to this machine | `0.0.0.0` |
 | `ORRERY_PHONE_URL` | the address to open it at from a phone, for App settings' link and QR code, when it's one orrery can't see for itself: an https name, a VPN's (see [Reach it from your phone](#reach-it-from-your-phone)) | none |
-| `ORRERY_ALLOWED_HOSTS` | host names it answers to besides `localhost` and IP addresses, comma-separated, e.g. `orrery.lan` (see [SECURITY.md](../SECURITY.md)) | none |
+| `ORRERY_ALLOWED_HOSTS` | host names it answers to besides `localhost`, IP addresses and a `<name>.local`, comma-separated, e.g. `orrery.lan` (see [SECURITY.md](../SECURITY.md)) | none |
 | `ORRERY_DATABASE` | a `postgres://` URL to keep the orrery in Postgres instead (see [Postgres](#postgres)) | the SQLite file |
 | `ORRERY_SECRET_KEY` | encrypts the [secrets](API.md#secrets) your agents use without seeing: a long random string (`openssl rand -base64 32`). Keep it out of the backups; without the same key, secrets set with it won't open | made on first start, kept in `orrery.key` beside the database (`/data` in Docker; none outside Docker on Postgres, so set it there) |
 | `ORRERY_BUILD_CONTEXT` | what the image is built from: a ref on GitHub, e.g. `https://github.com/steffendybvik/orrery.git#main`, so a branch switched in this folder never ends up in it | this folder |
@@ -303,7 +303,10 @@ or anything on the phone's port. Over the phone's port nothing counts as this ma
 like are refused there.
 
 The address is this machine's on its networks: in Docker, where orrery sees only its container's, the launcher on
-this machine tells it (a VM's or Docker's own networks are left out). Set `ORRERY_PHONE_URL` for one orrery can't see
+this machine tells it (a VM's or Docker's own networks are left out). On a Mac its Bonjour name comes first,
+`http://<name>.local:<port>` (its LocalHostName, under System Settings → General → Sharing → Local hostname): short
+enough to type, and it keeps working when the Mac's IP changes. iPhones find it with no setup; an older Android may not,
+so its IPs are listed under it. Set `ORRERY_PHONE_URL` for one orrery can't see
 for itself, such as an https name in front of it; it's shown first. `ORRERY_PHONE_HOST=127.0.0.1` keeps the phone's
 port to this machine.
 

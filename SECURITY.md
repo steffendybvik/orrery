@@ -23,9 +23,11 @@ else.
 - **A signed-in phone is the owner.** It can press **Allow** on the Mac's sessions' prompts, and do all else the owner
   does, for as long as its cookie lasts (30 days). Give the phone a screen lock, and log out on it when you're done. End a
   lost phone's login from the Mac, under App settings → You → Signed in.
-- **Host names.** orrery answers to `localhost` (and `*.localhost`) and IP addresses. Reaching it by
-  another name, say `orrery.lan`, needs `ORRERY_ALLOWED_HOSTS=orrery.lan` (`NUXT_ALLOWED_HOSTS` without
-  Docker). This is what stops DNS rebinding, a website pointing its own domain at your machine.
+- **Host names.** orrery answers to `localhost` (and `*.localhost`), IP addresses, and a machine's Bonjour name on
+  the Wi-Fi, `<name>.local`, for a phone. Reaching it by another name, say `orrery.lan`, needs
+  `ORRERY_ALLOWED_HOSTS=orrery.lan` (`NUXT_ALLOWED_HOSTS` without Docker). This is what stops DNS rebinding, a
+  website pointing its own domain at your machine. A `.local` name is looked up on the local network alone
+  (multicast DNS), never in a website's DNS, so a website can't point one at your machine.
 
 ## Login and keys
 

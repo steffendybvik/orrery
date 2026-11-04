@@ -6,7 +6,8 @@ import type {PhoneAddress, PhoneLinks} from '#shared/phone'
 // it on a phone the first time, so a scan and a sign-in are all it takes. The code is drawn here, by `uqr`, with nothing
 // sent anywhere. While only this machine can reach it, it says how to give the phone a port of its own.
 // With the phone's own port (ORR-837), the code carries a one-time sign-in link instead: scanned, the phone is signed in,
-// nothing to type. A fresh one is made each time this shows, and again as it runs out.
+// nothing to type. A fresh one is made each time this shows, and again as it runs out. The machine's `.local` name leads
+// the list when it has one (ORR-874), the IPs after it.
 const links = ref<PhoneLinks | null>(null)
 const failed = ref('')
 const chosen = ref('')
@@ -37,6 +38,8 @@ onBeforeUnmount(() => clearTimeout(renew))
 const open = computed(() => links.value?.reach === 'network')
 /** What the code opens: the address, signing the phone in with a one-time link when it has its own port. */
 const target = computed(() => chosen.value && links.value?.phone && token.value ? `${chosen.value}/login?t=${token.value}` : chosen.value)
+/** The chosen address is the machine's Bonjour name, `<name>.local` (ORR-874), rather than an IP. */
+const chosenName = computed(() => !!links.value?.addresses.find(a => a.url === chosen.value)?.name)
 const qr = computed(() => target.value ? renderSVG(target.value, {border: 2, pixelSize: 4, whiteColor: '#fff', blackColor: '#000'}) : '')
 const SOURCES: Record<PhoneAddress['from'], string> = {
     setting: 'ORRERY_PHONE_URL',
@@ -70,6 +73,11 @@ const sourceOf = (address: PhoneAddress) => address.from === 'launcher' ? `the l
               <CopyButton :text="address.url" compact />
             </li>
           </ul>
+          <p v-if="chosenName" class="text-muted">
+            <span class="font-mono">.local</span> is this machine's name on the Wi-Fi, so it keeps working when its IP
+            changes, and it's short enough to type. iPhones find it with no setup. If a phone can't open it, as an older
+            Android may not, use an IP below it.
+          </p>
           <p v-if="links.phone" class="text-muted">
             Scan it with the phone's camera and you're signed in, on a login of the phone's own. The code works once, for
             5 minutes, and a new one shows here as it runs out. The address alone asks for a login.

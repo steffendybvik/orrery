@@ -1,6 +1,7 @@
 // Where a phone can open this orrery (ORR-833), for App settings' link and QR code. orrery knows what it listens on: in
 // Docker the address compose publishes it on (`listenHost`), and outside it the one it bound to. With every address
 // (`0.0.0.0`) it's this machine's networks, which in Docker only a launcher on the machine can say.
+import {execFileSync} from 'node:child_process'
 import {networkInterfaces} from 'node:os'
 import type {H3Event} from 'h3'
 import type {PhoneAddress, PhoneLinks} from '#shared/phone'
@@ -24,6 +25,28 @@ export function reachable(address: string): boolean {
 export function ipv4List(value: unknown): string[] {
     if (typeof value !== 'string') return []
     return [...new Set(value.split(',').map(a => a.trim()).filter(reachable))].slice(0, 8)
+}
+
+/** A Bonjour name, `<name>.local` (one label, as RFC 6762 has it), lowercased, or nothing for anything else. */
+const BONJOUR = /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.local$/i
+export function bonjourName(value: unknown): string {
+    return typeof value === 'string' && BONJOUR.test(value.trim()) ? value.trim().toLowerCase() : ''
+}
+
+let ownName: string | undefined
+/** This Mac's Bonjour name, outside Docker (ORR-874): its LocalHostName, read once. A phone on its Wi-Fi finds
+ * `<name>.local` with no setup, and it outlasts a new IP. Other systems say nothing, as they may not answer to it. */
+function machineName(): string {
+    if (ownName !== undefined) return ownName
+    ownName = ''
+    if (process.platform === 'darwin') {
+        try {
+            ownName = bonjourName(`${execFileSync('/usr/sbin/scutil', ['--get', 'LocalHostName'], {encoding: 'utf8', timeout: 2000, stdio: ['ignore', 'pipe', 'ignore']}).trim()}.local`)
+        } catch {
+            // No name, so the IPs alone.
+        }
+    }
+    return ownName
 }
 
 /** Docker's own networks (172.17/16 and up, 192.168.65/24 on a Mac) mean nothing to a phone; a home or VPN one does. */
@@ -61,9 +84,16 @@ export function phoneLinks(event: H3Event): PhoneLinks {
     if (/^https?:\/\/[^\s/]+/.test(setting)) found.push({url: setting, from: 'setting'})
     if (reachable(bound)) found.push({url: at(bound), from: 'host'})
     else if (EVERY.test(bound) || reach === 'loopback') {
-        if (!docker) for (const address of machineAddresses()) found.push({url: at(address), from: 'machine'})
-        else for (const {host, addresses} of launcherAddresses()) {
-            for (const address of addresses.filter(a => !dockersOwn(a))) found.push({url: at(address), from: 'launcher', ...host ? {machine: host} : {}})
+        // The machine's Bonjour name first, which a person can type and which keeps working when its IP changes; the IPs
+        // after it, for a phone that doesn't find `.local` names.
+        if (!docker) {
+            const name = machineName()
+            if (name) found.push({url: at(name), from: 'machine', name: true})
+            for (const address of machineAddresses()) found.push({url: at(address), from: 'machine'})
+        } else for (const {host, addresses, local} of launcherAddresses()) {
+            const machine = host ? {machine: host} : {}
+            if (local) found.push({url: at(local), from: 'launcher', name: true, ...machine})
+            for (const address of addresses.filter(a => !dockersOwn(a))) found.push({url: at(address), from: 'launcher', ...machine})
         }
     }
     const seen = new Set<string>()
