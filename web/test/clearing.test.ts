@@ -6,6 +6,8 @@ import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 let clearing: typeof import('../server/utils/clearing')
 let session: {project: string, state: string, started?: {launch: string}, idleAt?: number, listening?: boolean} | undefined
 let working: string[]
+/** The issue the session worked last (ORR-903). */
+let lastWorked: string | undefined
 let issues: {id: string, parent: string | null, kind: string, column: string, priority?: string, updated_at: string}[]
 let untrusted: boolean
 let chat: boolean
@@ -27,6 +29,7 @@ beforeEach(async () => {
     vi.useFakeTimers()
     session = {project: 'orrery', state: 'idle', started: {launch: 'l1'}, idleAt: 1, listening: true}
     working = []
+    lastWorked = undefined
     issues = []
     untrusted = false
     chat = false
@@ -54,6 +57,7 @@ beforeEach(async () => {
         },
         focusChunk: async (...args: unknown[]) => void focused.push(args),
         listIssues: async () => issues,
+        lastWorked: async () => lastWorked,
         focus: async (...args: unknown[]) => void carried.push(args),
         ownerOf: async () => ({name: 'steffen'}),
     }))
@@ -286,5 +290,68 @@ describe('a session gone idle on an issue with sub-issues to do', () => {
         clearing.carryOn('orrery', 'w')
         await after()
         expect(carried).toEqual([owners('ORR-3'), owners('ORR-3')])
+    })
+})
+
+describe('a session orrery started, gone idle after closing a sub-issue (ORR-903)', () => {
+    const sub = (id: string, more: object = {}) => ({id, parent: 'ORR-1', kind: 'todo', column: 'todo', labels: [], updated_at: 't1', ...more})
+    const owners = (id: string) => ['orrery', id, {session: 'w', note: clearing.CARRY_ON}, {name: 'steffen', owner: true}]
+    const idle = async (at: number) => {
+        session = {...session!, idleAt: at}
+        clearing.considerClear('orrery', 'w')
+        clearing.carryOn('orrery', 'w')
+        await after()
+    }
+
+    beforeEach(() => {
+        lastWorked = 'ORR-2'
+        issues = [{id: 'ORR-1', parent: null, kind: 'started', column: 'in-progress', updated_at: 't0'}, sub('ORR-2', {kind: 'done', column: 'done'}),
+            sub('ORR-3', {priority: 'P2'}), sub('ORR-4', {priority: 'P1'}), sub('ORR-5', {parent: 'ORR-9', priority: 'P0'})]
+    })
+
+    it('keeps its context and is sent on to the most urgent sibling, once', async () => {
+        await idle(2)
+        expect(sent).toEqual([])
+        expect(carried).toEqual([owners('ORR-4')])
+        expect(clearing.clearPending('w')).toBe(false)
+    })
+
+    it('is cleared on its next idle when it leaves that sibling as it was', async () => {
+        await idle(2)
+        await idle(3)
+        expect(carried).toHaveLength(1)
+        expect(sent).toEqual([{type: 'clear', project: 'orrery', id: 'l1'}])
+    })
+
+    it('is cleared when what it worked last has no parent, is still open, or has no sibling left to do', async () => {
+        issues = issues.map(i => i.id === 'ORR-2' ? {...i, parent: null} : i)
+        await idle(2)
+        issues = issues.map(i => i.id === 'ORR-2' ? {...i, parent: 'ORR-1', kind: 'todo', column: 'todo'} : i)
+        await idle(3)
+        issues = issues.filter(i => i.id !== 'ORR-3' && i.id !== 'ORR-4').map(i => i.id === 'ORR-2' ? {...i, kind: 'canceled', column: 'canceled'} : i)
+        await idle(4)
+        expect(carried).toEqual([])
+        expect(sent).toHaveLength(3)
+    })
+
+    it("is cleared, never sent on, when it's an untrusted schedule's run or not listening", async () => {
+        untrusted = true
+        await idle(2)
+        untrusted = false
+        session = {...session!, listening: false}
+        await idle(3)
+        expect(carried).toEqual([])
+        expect(sent).toHaveLength(2)
+    })
+})
+
+describe('a session someone opened themselves, gone idle after closing a sub-issue (ORR-903)', () => {
+    it("isn't sent on to a sibling: it keeps its context anyway, and picks", async () => {
+        session = {project: 'orrery', state: 'idle', idleAt: 1, listening: true}
+        lastWorked = 'ORR-2'
+        issues = [{id: 'ORR-2', parent: 'ORR-1', kind: 'done', column: 'done', updated_at: 't1'}, {id: 'ORR-3', parent: 'ORR-1', kind: 'todo', column: 'todo', updated_at: 't1'}]
+        clearing.carryOn('orrery', 'w')
+        await after()
+        expect(carried).toEqual([])
     })
 })
