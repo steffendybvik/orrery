@@ -8,7 +8,7 @@
 // otherwise GitHub is asked, and the answers kept for a minute (five without a token, as GitHub allows 60 requests an
 // hour then), so many pages and issues cost one list per repo.
 import type {H3Event} from 'h3'
-import type {AllPulls, IssuePulls, OpenPull, PastPull, PullRequest, PullState} from '#shared/roadmap'
+import type {AllPulls, IssuePulls, OpenPull, PastPull, PullIssues, PullRequest, PullState} from '#shared/roadmap'
 import {PULL_NEEDS, githubRepo} from '#shared/roadmap'
 import {conflict, notFound} from './input'
 import type {Store} from './store'
@@ -158,6 +158,21 @@ export class Pulls {
         const ids = await this.ids(project, issue)
         const open = await this.openFor(project, ids)
         return {...open, done: await this.past(project, ids[0] ?? issue, open.repo)}
+    }
+
+    /** PR `number` on `repo`, as orrery keeps it, with every issue it names (ORR-880), merged and closed ones too. Only
+     * a PR naming an issue is kept, so one naming none, or never polled, isn't found. */
+    async forPull(repo: string, number: number): Promise<PullIssues> {
+        const rows = await this.store.db.all<PastPull & {project: string, project_name: string, issue: string, issue_title: string, status: string}>(
+            `SELECT p.number, p.title, p.url, p.branch, p.base, p.author, p.state, p.merged_at, p.updated_at, p.project, pr.name AS project_name, p.issue, i.title AS issue_title, i.status
+             FROM issue_pulls p JOIN issues i ON i.project = p.project AND i.id = p.issue JOIN projects pr ON pr.id = p.project
+             WHERE lower(p.repo) = lower(?) AND p.number = ? ORDER BY p.updated_at DESC`, repo, number)
+        const newest = rows[0]
+        if (!newest) throw notFound(`orrery keeps no pull request #${number} on ${repo}: it names no issue, or it hasn't been polled`)
+        const {number: n, title, url, branch, base, author, state, merged_at, updated_at} = newest
+        const issues = rows.map(r => ({project: r.project, project_name: r.project_name, id: r.issue, title: r.issue_title, status: r.status}))
+            .sort((a, b) => a.project.localeCompare(b.project) || a.id.localeCompare(b.id, undefined, {numeric: true}))
+        return {repo, pull: {number: n, title, url, branch, base, author, state, merged_at, updated_at}, issues}
     }
 
     /** What's kept of the issue's PRs but those open on `repo`, its project's now, as GitHub is the word on those. */

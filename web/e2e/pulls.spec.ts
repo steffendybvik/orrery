@@ -104,6 +104,34 @@ test('lists where each pull request stands, and Focus on this sends the note it 
     expect(signals.map(signal => signal.note)).toContain('Mind the ladder')
 })
 
+test("opens a pull request by its number, listing every issue it's linked to (ORR-880)", async ({page, request}) => {
+    await makeProject(request, {name: 'Hayloft', key: 'HAY'})
+    const issues = await Promise.all(['Muck out', 'Mend the gate'].map(async title => (await (await request.post('/api/projects/hayloft/issues', {data: {title}, headers: OWNER})).json()).id as string))
+    await page.route(/\/api\/pulls\?/, route => route.fulfill({json: {
+        pulls: [{number: 21, title: 'Spring clean', state: 'ready', repo: 'orrery-e2e/hayloft', url: 'https://github.com/orrery-e2e/hayloft/pull/21', branch: 'feat/21', base: 'main', author: 'ada',
+            created_at: '2026-10-01T00:00:00.000Z', updated_at: '2026-10-01T00:00:00.000Z', issue: {project: 'hayloft', id: issues[0], title: 'Muck out'}}],
+        open: 1, needs: 0, page: 1, limit: 50, repos: [{repo: 'orrery-e2e/hayloft', projects: ['hayloft'], token: true, open: 1, needs: 0}],
+    }}))
+    // orrery keeps a PR once a poll finds it naming an issue, so the page's answer is stood in for here; the store's is unit tested.
+    await page.route('**/api/pulls/orrery-e2e/hayloft/21', route => route.fulfill({json: {
+        repo: 'orrery-e2e/hayloft',
+        pull: {number: 21, title: 'Spring clean', url: 'https://github.com/orrery-e2e/hayloft/pull/21', branch: 'feat/21', base: 'main', author: 'ada', state: 'merged', merged_at: '2026-10-02T00:00:00.000Z', updated_at: '2026-10-02T00:00:00.000Z'},
+        issues: issues.map((id, i) => ({project: 'hayloft', project_name: 'Hayloft', id, title: ['Muck out', 'Mend the gate'][i], status: 'todo'})),
+    }}))
+    await page.goto('/pulls')
+    await page.getByRole('link', {name: '#21', exact: true}).click()
+    await expect(page).toHaveURL(/\/pulls\/orrery-e2e\/hayloft\/21$/)
+    await expect(page.getByRole('heading', {name: '#21 Spring clean'})).toBeVisible()
+    await expect(page.getByRole('region', {name: 'The pull request'})).toContainText('Merged')
+    const linked = page.getByRole('list', {name: 'Linked issues'}).getByRole('listitem')
+    await expect(linked).toHaveCount(2)
+    await linked.filter({hasText: 'Mend the gate'}).getByRole('link').click()
+    await expect(page).toHaveURL(new RegExp(`/p/hayloft/issues/${issues[1]}$`))
+    // Its address opens it straight away too.
+    await page.goto('/pulls/orrery-e2e/hayloft/21')
+    await expect(page.getByRole('heading', {name: '#21 Spring clean'})).toBeVisible()
+})
+
 test("Send back, on an issue's page, sends what its pull request needs", async ({page, request}) => {
     await makeProject(request, {name: 'Byre', key: 'BYR'})
     const issue = await (await request.post('/api/projects/byre/issues', {data: {title: 'Lime the walls'}, headers: OWNER})).json()
