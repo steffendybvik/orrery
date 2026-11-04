@@ -13,7 +13,7 @@ import type {Chat, ChatIssues, ChatMessage} from '#shared/roadmap'
 // started, puts what's held back in the box, so nothing starts a chat on its own after it (ORR-523). An image pasted or
 // dropped anywhere on the pane goes with the message. Closing the pane (×) or minimizing it (–, or Esc) hides it with the
 // chat still running (ORR-878), and the corner button, marked while one runs, brings it back as it was. Only a row's × in
-// the list ends a chat. The pane can be made large (a phone's fills the screen either way). Beside
+// the list ends a chat. The pane can be made large; a phone's fills the screen either way, as it has no Larger button. Beside
 // Send, the owner picks where the issues it makes land, Todo or Backlog; the server holds the chat to it. A setting the
 // chat asks to change shows from → to with Allow and Deny; only Allow saves it. So does a schedule it asks to make (each
 // field it sets) or change (each from → to), a release it asks to add or change, a chunk it asks to make or change (ORR-510),
@@ -343,7 +343,7 @@ const {over, on: drop} = useImageDrop(attach)
       v-else
       ref="pane"
       class="fixed right-4 bottom-4 z-40 flex w-[calc(100vw-2rem)] overflow-hidden rounded-2xl border border-line bg-panel shadow-2xl"
-      :class="large ? 'h-[calc(100dvh-2rem)] sm:w-[min(56rem,calc(100vw-2rem))]' : ['h-[min(40rem,calc(100dvh-2rem))]', docked ? 'sm:w-[min(41rem,calc(100vw-2rem))]' : 'sm:w-[min(28rem,calc(100vw-2rem))]']"
+      :class="large ? 'h-[calc(100dvh-2rem)] sm:w-[min(56rem,calc(100vw-2rem))]' : ['h-[calc(100dvh-2rem)] sm:h-[min(40rem,calc(100dvh-2rem))]', docked ? 'sm:w-[min(41rem,calc(100vw-2rem))]' : 'sm:w-[min(28rem,calc(100vw-2rem))]']"
       aria-label="Chat"
       v-on="drop"
       @keydown.esc="!chat || chat.ended ? shut() : hide()"

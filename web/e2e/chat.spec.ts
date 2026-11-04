@@ -852,6 +852,8 @@ test('folds the list of chats behind a button on a phone, opening over the conve
     await page.goto('/p/observatory')
     await page.getByRole('button', {name: /^Agent/}).click()
     const pane = page.getByRole('region', {name: 'Chat'})
+    // A phone has no Larger button, so the pane fills its screen, 1rem in from each edge (ORR-724).
+    await expect.poll(async () => Math.round((await pane.boundingBox())!.height)).toBe(844 - 32)
     await expect(pane.getByTestId('chat-list')).toHaveCount(0)
     await pane.getByRole('button', {name: 'Show your chats'}).click()
     await expect(pane.getByTestId('chat-list')).toBeVisible()
