@@ -61,3 +61,64 @@ test('resizes and folds the sidebar sessions list, and remembers both', async ({
         stop()
     }
 })
+
+test('pops the sessions out to float anywhere, remembers where, and puts them back (ORR-901)', async ({page, request, baseURL}) => {
+    await api(request, 'post', '/projects', {name: 'Grain store', key: 'GRS'})
+    const stop = hold(baseURL!, '/api/projects/grain-store/signals/stream?session=e2e-grain-store&name=grain-store-one&format=text')
+    try {
+        await expect.poll(async () => (await api(request, 'get', '/projects/grain-store/sessions')).some((s: {id: string, listening: boolean}) => s.id === 'e2e-grain-store' && s.listening)).toBe(true)
+        await page.setViewportSize({width: 1280, height: 800})
+        await page.goto('/p/grain-store')
+        const aside = page.locator('aside').first()
+        await aside.getByRole('button', {name: 'Pop out the sessions'}).click()
+
+        // Out of the sidebar, at the top right.
+        const panel = page.getByRole('region', {name: 'Sessions'})
+        await expect(panel).toBeVisible()
+        await expect(aside.getByTestId('sidebar-sessions')).toHaveCount(0)
+        let box = (await panel.boundingBox())!
+        expect(box.x + box.width).toBeGreaterThan(1200)
+        expect(box.y).toBeLessThan(100)
+        await expect(panel.getByRole('link', {name: /Grain store/})).toBeVisible()
+
+        // Dragged by its heading to the bottom left, it stays there over a reload.
+        const heading = panel.getByRole('link', {name: 'Sessions'})
+        const from = (await panel.getByTestId('sessions-float-grip').boundingBox())!
+        await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2)
+        await page.mouse.down()
+        await page.mouse.move(400, 700, {steps: 6})
+        await page.mouse.up()
+        box = (await panel.boundingBox())!
+        expect(box.x).toBeLessThan(640)
+        expect(box.y + box.height).toBeGreaterThan(400)
+        await page.reload()
+        await expect(panel).toBeVisible()
+        const kept = (await panel.boundingBox())!
+        expect(Math.abs(kept.x - box.x)).toBeLessThan(2)
+        expect(Math.abs(kept.y + kept.height - (box.y + box.height))).toBeLessThan(2)
+        await expect(heading).toBeVisible()
+
+        // Its grip's arrows move it; Esc folds it.
+        const grip = panel.getByTestId('sessions-float-grip')
+        await grip.focus()
+        await page.keyboard.press('ArrowRight')
+        await expect.poll(async () => (await panel.boundingBox())!.x).toBeCloseTo(kept.x + 16, 0)
+        await page.keyboard.press('Escape')
+        await expect(panel.getByRole('link', {name: /Grain store/})).toBeHidden()
+        await panel.getByRole('button', {name: 'Show the sessions'}).click()
+
+        // On a phone it's in the drawer, as before.
+        await page.setViewportSize({width: 390, height: 800})
+        await expect(page.getByRole('region', {name: 'Sessions'})).toHaveCount(0)
+        await page.setViewportSize({width: 1280, height: 800})
+
+        // Back in the sidebar, and still there after a reload.
+        await page.getByRole('region', {name: 'Sessions'}).getByRole('button', {name: 'Back to the sidebar'}).click()
+        await expect(aside.getByTestId('sidebar-sessions').getByRole('link', {name: /Grain store/})).toBeVisible()
+        await page.reload()
+        await expect(page.getByRole('region', {name: 'Sessions'})).toHaveCount(0)
+        await expect(aside.getByTestId('sidebar-sessions')).toBeVisible()
+    } finally {
+        stop()
+    }
+})
