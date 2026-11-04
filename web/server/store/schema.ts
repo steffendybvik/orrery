@@ -350,6 +350,8 @@ export const SETTINGS_FIELDS: Record<string, Field> = {
     pick_next: {type: 'boolean'},
     /** The kinds of work and the model each starts a session on (ORR-868), highest-ranked first; null is orrery's own. */
     work_kinds: {type: 'json', nullable: true, parse: parseWorkKinds},
+    /** Counts the owner's own use of orrery's features, for App settings' Usage (ORR-881); off by default. */
+    count_use: {type: 'boolean'},
     /** Project ids the sidebar lists first, and those it folds away under Hidden (ORR-836); null is none. */
     starred: {type: 'strings', nullable: true},
     hidden: {type: 'strings', nullable: true},

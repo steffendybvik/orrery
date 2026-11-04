@@ -39,6 +39,7 @@ export abstract class StatusStore extends StoreBase {
             restrict_proposals: (value('restrict_proposals') as boolean | undefined) ?? true,
             advanced: (value('advanced') as boolean | undefined) ?? true,
             pick_next: (value('pick_next') as boolean | undefined) ?? false,
+            count_use: (value('count_use') as boolean | undefined) ?? false,
             work_kinds: (value('work_kinds') as WorkKind[] | null | undefined) ?? [...WORK_KINDS],
             starred: ids('starred').filter(id => !ids('hidden').includes(id)),
             hidden: ids('hidden'),

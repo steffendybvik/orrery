@@ -58,6 +58,7 @@ export const NOT_EXPORTED = {
     pull_states: 'the pull request cache',
     pull_repos: 'the pull request cache',
     chats: "the owner's chats on this server",
+    feature_use: "the owner's use of this server's features",
 } as const satisfies Partial<Record<Table, string>>
 
 /** Taken as the board uses them, below. */

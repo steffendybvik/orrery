@@ -1029,4 +1029,13 @@ export const MIGRATIONS: (string | ((db: DatabaseSync) => void))[] = [`
     -- An issue's own model and effort (ORR-868): a session for it starts on them, over its kind's. None follows its kind.
     ALTER TABLE issues ADD COLUMN model TEXT;
     ALTER TABLE issues ADD COLUMN effort TEXT;
+`, `
+    -- How often each feature got used, a row a day (ORR-881), to find what goes unused: the owner's own use alone, only
+    -- once they turn counting on (count_use, off by default). A count, nothing about who or what. Rows over a year go.
+    CREATE TABLE feature_use (
+        feature TEXT NOT NULL,
+        day TEXT NOT NULL,
+        count INTEGER NOT NULL,
+        PRIMARY KEY (feature, day)
+    );
 `]

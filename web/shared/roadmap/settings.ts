@@ -209,6 +209,8 @@ export interface Settings {
     advanced: boolean
     /** A listening session out of work is handed the issues it may start, in Todo, to pick one (ORR-452, ORR-759). */
     pick_next: boolean
+    /** Counts the owner's own use of features, for App settings' Usage (ORR-881). Off unless turned on. */
+    count_use: boolean
     /** The kinds of work, highest-ranked first, each with the model a session for it starts on (ORR-868): the owner's,
      * else orrery's own (`WORK_KINDS`). An issue's kind is its highest-ranked label's. */
     work_kinds: WorkKind[]
