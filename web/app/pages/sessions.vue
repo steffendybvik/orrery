@@ -132,6 +132,7 @@ watch(() => [route.hash, count.value] as const, ([hash]) => show(hash), {immedia
         <SessionStarts />
         <LauncherReposLine />
         <PickNextSetting />
+        <WorkKindsSetting />
         <StartingSessionsGuide />
       </section>
       <section id="presets" class="flex scroll-mt-14 flex-col gap-2 border-t border-line pt-6">

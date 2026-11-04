@@ -59,6 +59,14 @@ export interface PastPull {
     updated_at: string
 }
 
+/** A PR orrery has kept, by its number, with every issue it's linked to (ORR-880): `GET /api/pulls/:owner/:name/:number`. */
+export interface PullIssues {
+    repo: string
+    pull: PastPull
+    /** The issues it names, on any project, by project then id. */
+    issues: {project: string, project_name: string, id: string, title: string, status: string}[]
+}
+
 export interface IssuePulls {
     /** The project's repo on GitHub (`you/shop`), or null when it has none there: then nothing is asked. */
     repo: string | null

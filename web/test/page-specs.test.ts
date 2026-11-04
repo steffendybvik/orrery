@@ -12,6 +12,8 @@ const ELSEWHERE: Record<string, string> = {
     'login.vue': 'e2e/login/login.spec.ts',
     // Only in development, and a page of samples rather than of the app.
     'ui.vue': 'e2e/ui-kit.spec.ts',
+    // Only for a PR a poll of GitHub has found naming an issue, which the walk's orrery never polls (ORR-880).
+    'pulls/[owner]/[name]/[number].vue': 'e2e/pulls.spec.ts',
 }
 
 const pageFiles = (dir: string): string[] => readdirSync(dir, {withFileTypes: true}).flatMap(entry => {
