@@ -674,13 +674,13 @@ the owner's on their Allow; a change shows as a diff, and is a 409, saving nothi
 Removing a doc, and renaming or deleting a section, stay the owner's. A message the owner sends from its request goes as theirs,
 with `via: "chat"` on the signal; the session hears it ending `(Sent by the owner through their chat.)`, and the
 Sessions page and the event log (`session.messaged`) say it came through the chat. A chat is kept in memory
-while it runs, so it's gone after orrery restarts.
+while it runs, and once ended to read, so it's gone after orrery restarts.
 
 | | |
 |---|---|
-| `GET /chats` | the chats running, newest first: `{id, project, started_at, messages: [{id, from, text, images, at}], issues, problem?}`, `from` being `owner` or `claude`, and `images` the ids of uploads pasted with a message. `issues` is where the issues it makes land, `todo` or `backlog` (the first status of that kind), whatever status its session sends. `problem` says why its session can't start (a launcher too old to start a chat was refused it: restart the launcher), until the session connects |
+| `GET /chats` | the chats running and those ended since orrery started (`ended: true`, `ended_at`; one ended before anything was said isn't kept), newest first by `started_at`: `{id, project, started_at, messages: [{id, from, text, images, at}], issues, problem?}`, `from` being `owner` or `claude`, and `images` the ids of uploads pasted with a message. `issues` is where the issues it makes land, `todo` or `backlog` (the first status of that kind), whatever status its session sends. `problem` says why its session can't start (a launcher too old to start a chat was refused it: restart the launcher), until the session connects |
 | `POST /chats` | `{project, issues?}` → 201 the chat: the owner starting one, its session on its way (its `id` is its launch's), its issues landing in `issues` (`todo` by default, or `backlog`); 409 without a launcher for the project |
-| `GET /chats/:chat` | the chat; 404 once it has ended |
+| `GET /chats/:chat` | the chat, running or ended (to read: it takes no writes); 404 after orrery restarts |
 | `PATCH /chats/:chat` | `{issues}` → the chat: the owner choosing where the issues it makes land from now on, `todo` or `backlog`; its own session can't (403) |
 | `POST /chats/:chat/messages` | `{text, images?, page?}` (or `parts` in place of `text`: a run of messages the pane held and sends together, which the session gets as one, joined by blank lines, and the message keeps as `parts`) → 201 the message: the owner writing in it, with the ids of [uploads](#images) pasted and the page they're on, `{path, title?}` (a path on this orrery, starting with `/`; 400 otherwise); it goes to the chat's session alone, ending `(The owner is on <path>: <title>.)`, plus `That page is on <project>, not this chat's project, <chat's>.` when the path is another project's (`/p/<project>/…`) |
 | `POST /chats/:chat/replies` | `{text}` → 201 the message: the chat's session answering, in Markdown; only that session's (`Orrery-Chat: yes` and `Orrery-Launch: <the chat's id>`) |

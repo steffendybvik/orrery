@@ -9,7 +9,7 @@ import ChatPane from '~/components/ChatPane.vue'
 // a slash command goes at once and `/clear` clears, what couldn't go waits for Retry (ORR-530), and closing puts what's
 // held back in the box (ORR-523). useChat.test.ts holds the composable, and chat.spec.ts the flows in a browser (ORR-792).
 const HOLD_MS = 2000
-const chat = (id: string, more: Partial<Chat> = {}) => ({id, project: 'shed', issues: 'todo', messages: [], ...more}) as unknown as Chat
+const chat = (id: string, more: Partial<Chat> = {}) => ({id, project: 'shed', started_at: '2026-11-04T10:00:00Z', issues: 'todo', messages: [], ...more}) as unknown as Chat
 const project = (id: string, name: string) =>
     ({id, name, key: id.slice(0, 3).toUpperCase(), releases: [], docs: [], release_mode: 'none', board: {chunks: [], kinds: {}}}) as unknown as Project
 
@@ -58,7 +58,7 @@ beforeEach(() => {
     posted.length = 0
     refuse = ''
     localStorage.clear()
-    clearNuxtState(['chats', 'chat-open', 'chat-ended', 'chat-project', 'chat-pinned', 'chat-failed', 'chat-heard', 'chat-large', 'chat-lands', 'launch-state'])
+    clearNuxtState(['chats', 'chat-open', 'chat-picked', 'chat-blank', 'chat-project', 'chat-pinned', 'chat-failed', 'chat-heard', 'chat-large', 'chat-lands', 'launch-state'])
     useRoadmaps().projects.value = [project('shed', 'Shed')]
     useRoadmaps().ready.value = true
 })

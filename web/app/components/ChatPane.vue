@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {CHAT_CHUNK_FIELDS, CHAT_RELEASE_FIELDS, CHAT_SETTINGS, nameBesideProject, scheduleValue, settingValue} from '#shared/roadmap'
 import {Menu, MenuButton, MenuItem, MenuItems} from '@headlessui/vue'
-import type {ChatIssues, ChatMessage} from '#shared/roadmap'
+import type {Chat, ChatIssues, ChatMessage} from '#shared/roadmap'
 
 // The owner's chat (useChat): a button in the corner of every page, and the pane it opens there, ready to type into.
 // The first message starts a chat on the project in the header (the one you're on, or picked); once started, its
@@ -24,13 +24,15 @@ import type {ChatIssues, ChatMessage} from '#shared/roadmap'
 // to it: a divider marks the cut, and what was said above it stays, greyed. Any other slash command goes as words.
 // The pane's project follows the page you're on; picking one by hand pins it (the pin beside the picker), so it stays put
 // whatever page you open, until unpinned. While the chat's project isn't the page's, a line under the header says so
-// (ORR-588). Each project has its own chat (ORR-865): the pane shows its project's, and moving to another project,
-// by page or picker, leaves the one you had running, to come back to. A line under the header names the chats running on
-// other projects, each a button to switch to it, and the picker marks them. What's held goes back in the box on a
-// switch, so it never goes to another project's chat.
+// (ORR-588). The owner's chats, as many as they like and several on a project, are listed down the pane's left (ORR-870),
+// newest first, running and ended: each row names its project and its first message, a running one is marked and has
+// an × to end it, and a click opens it, an ended one to read. New chat heads the list. On a narrow screen the list folds
+// behind the button at the header's left, and opens over the conversation. Moving to another project, by page or
+// picker, shows its newest running chat and leaves the others running; the picker marks the projects with one. What's
+// held goes back in the box on a switch, so it never goes to another chat.
 // While no launcher runs for its project, LauncherHint above the box says so, with the install command to copy, in place
 // of the server's error (ORR-591).
-const {open, large, chat, session, project, pinned, failed, chats, elsewhere, lands, start, send, clear, land, fresh, switchTo, answer, hide, close, pin, resize, upload, show} = useChat()
+const {open, large, chat, session, project, pinned, failed, chats, running, lands, start, send, clear, land, fresh, view, end: endChat, answer, hide, close, pin, resize, upload, show} = useChat()
 const answering = ref<number | null>(null)
 async function decide(message: number, allow: boolean, anyway = false) {
     answering.value = message
@@ -72,11 +74,11 @@ const here = computed(() => {
     return typeof on === 'string' && projects.value.some(p => p.id === on) ? on : null
 })
 /** The project the chat would be about: the pinned one, else the one you're on; on a page of no project, a running
- * chat's when the pane has none, so the corner button brings you back to it (ORR-865); else the first. */
+ * chat's when the pane has none, so the corner button brings you back to it (ORR-865, ORR-870); else the first. */
 watch([pinned, here, projects, chats], () => {
     if (pinned.value && projects.value.some(p => p.id === pinned.value)) project.value = pinned.value
     else if (here.value) project.value = here.value
-    else if (!chat.value && elsewhere.value[0]) project.value = elsewhere.value[0].project
+    else if (!chat.value && running.value[0]) project.value = running.value[0].project
     else if (!project.value) project.value = projects.value[0]?.id ?? null
 }, {immediate: true})
 /** Where the issues the chat makes land: the running chat's, or the next one's. */
@@ -86,7 +88,39 @@ const LANDS: {value: ChatIssues, label: string}[] = [{value: 'todo', label: 'Tod
 const projectName = (id: string) => projects.value.find(p => p.id === id)?.name ?? id
 const options = computed(() => projects.value.map(p => ({value: p.id, label: p.name})))
 /** The projects with a chat running, which the picker marks. */
-const chatting = computed(() => new Set(chats.value.filter(c => !c.ended).map(c => c.project)))
+const chatting = computed(() => new Set(running.value.map(c => c.project)))
+
+/** A wide enough screen docks the list beside the conversation; a narrower one opens it over it. */
+const wide = ref(false)
+let widths: MediaQueryList | undefined
+const measure = () => wide.value = !!widths?.matches
+onMounted(() => {
+    widths = matchMedia('(min-width: 768px)')
+    measure()
+    widths.addEventListener('change', measure)
+})
+onBeforeUnmount(() => widths?.removeEventListener('change', measure))
+/** Whether the list of chats shows: docked by default on a wide screen, folded on a narrow one. */
+const listing = ref(false)
+watch(wide, now => listing.value = now, {immediate: true})
+const docked = computed(() => listing.value && wide.value)
+/** A chat's row: its first message's first line, or that nothing's said yet. */
+function firstLine(c: Chat) {
+    const first = c.messages.find(m => m.from === 'owner' && m.text)
+    return first ? (first.parts?.[0] ?? first.text).split('\n')[0] : 'Nothing said yet'
+}
+/** Opens a chat from the list: over the conversation, the list folds away again. */
+function pick(id: string) {
+    view(id)
+    if (!wide.value) listing.value = false
+}
+/** New chat: what's held for the one on screen goes back in the box, and the next message starts a fresh one. */
+function newChat() {
+    unhold()
+    fresh()
+    if (!wide.value) listing.value = false
+    nextTick(focusField)
+}
 /** Which project it's about: the chat's, else the one the first message will start it on. */
 const about = computed(() => chat.value && !chat.value.ended ? chat.value.project : project.value)
 /** The page's project, when it isn't the chat's: "here" isn't what the chat is about. */
@@ -259,6 +293,8 @@ watch(open, shown => shown && restartHold())
 watch(() => chat.value?.ended, over => over && unhold())
 // Another project's chat, or none yet: what was held for the last one doesn't go to it.
 watch(about, (now, was) => now !== was && unhold())
+// Another chat on the same project, picked in the list: the same.
+watch(() => chat.value?.id, (now, was) => now && was && now !== was && unhold())
 onBeforeUnmount(() => clearTimeout(holdTimer))
 
 async function attach(files: File[]) {
@@ -284,12 +320,12 @@ const {over, on: drop} = useImageDrop(attach)
       v-if="!open"
       type="button"
       class="fixed right-4 bottom-4 z-40 inline-flex h-8 items-center gap-1.5 rounded-lg bg-panel px-3.5 text-[13px] text-fg shadow-md ring-1 ring-line transition hover:tint"
-      :title="chats.length > 1 ? `Back to your chats: ${chats.length} are still running` : chats.length ? 'Back to your chat: it is still running' : 'Chat about a project: an agent answers and makes issues'"
+      :title="running.length > 1 ? `Back to your chats: ${running.length} are still running` : running.length ? 'Back to your chat: it is still running' : 'Chat about a project: an agent answers and makes issues'"
       @click="show()"
   >
     <svg
         class="size-4 text-accent-fill"
-        :class="{'animate-pulse motion-reduce:animate-none': chats.length}"
+        :class="{'animate-pulse motion-reduce:animate-none': running.length}"
         viewBox="0 0 24 24"
         fill="none"
         stroke="currentColor"
@@ -299,20 +335,77 @@ const {over, on: drop} = useImageDrop(attach)
         aria-hidden="true"
     ><path d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 0 0-2.456 2.456ZM16.894 20.567 16.5 21.75l-.394-1.183a2.25 2.25 0 0 0-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 0 0 1.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 0 0 1.423 1.423l1.183.394-1.183.394a2.25 2.25 0 0 0-1.423 1.423Z" /></svg>
     Agent
-    <span v-if="chats.length" class="sr-only">{{ chats.length > 1 ? `(${chats.length} chats are running)` : '(a chat is running)' }}</span>
+    <span v-if="running.length" class="sr-only">{{ running.length > 1 ? `(${running.length} chats are running)` : '(a chat is running)' }}</span>
   </button>
 
   <section
       v-else
       ref="pane"
-      class="fixed right-4 bottom-4 z-40 flex w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-2xl border border-line bg-panel shadow-2xl"
-      :class="large ? 'h-[calc(100dvh-2rem)] sm:w-[min(56rem,calc(100vw-2rem))]' : 'h-[min(40rem,calc(100dvh-2rem))] sm:w-[min(28rem,calc(100vw-2rem))]'"
+      class="fixed right-4 bottom-4 z-40 flex w-[calc(100vw-2rem)] overflow-hidden rounded-2xl border border-line bg-panel shadow-2xl"
+      :class="large ? 'h-[calc(100dvh-2rem)] sm:w-[min(56rem,calc(100vw-2rem))]' : ['h-[min(40rem,calc(100dvh-2rem))]', docked ? 'sm:w-[min(41rem,calc(100vw-2rem))]' : 'sm:w-[min(28rem,calc(100vw-2rem))]']"
       aria-label="Chat"
       v-on="drop"
       @keydown.esc="!chat || chat.ended ? end() : hide()"
   >
     <ImageDropOverlay v-if="over" />
-    <header class="flex items-center gap-1 border-b border-line py-2.5 pr-2.5 pl-4">
+    <aside
+        v-if="listing"
+        class="flex shrink-0 flex-col border-r border-line"
+        :class="docked ? 'w-52 bg-well/50' : 'absolute inset-y-0 left-0 z-10 w-[min(17rem,85%)] bg-panel shadow-xl'"
+        aria-label="Your chats"
+        data-testid="chat-list"
+        @keydown.esc.stop="!docked && (listing = false)"
+    >
+      <div class="flex items-center gap-1 p-2">
+        <UiButton size="sm" class="flex-1 justify-start" title="Start a fresh chat: the others keep running" @click="newChat">
+          <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14" /></svg>
+          New chat
+        </UiButton>
+        <UiButton v-if="!docked" variant="ghost" size="xs" square aria-label="Hide your chats" title="Hide" @click="listing = false">
+          <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 18 18 6M6 6l12 12" /></svg>
+        </UiButton>
+      </div>
+      <ul class="flex flex-1 flex-col gap-0.5 overflow-y-auto px-1.5 pb-2">
+        <li v-for="c in chats" :key="c.id" class="group relative">
+          <button
+              type="button"
+              class="flex w-full min-w-0 flex-col rounded-lg px-2.5 py-1.5 pr-7 text-left transition hover:bg-hover"
+              :class="c.id === chat?.id && 'bg-hover'"
+              :aria-current="c.id === chat?.id ? 'true' : undefined"
+              :title="`${projectName(c.project)}: ${firstLine(c)}${c.ended ? ' (ended, to read)' : ''}`"
+              @click="pick(c.id)"
+          >
+            <span class="flex min-w-0 items-center gap-1.5 text-[11px] text-faint">
+              <span v-if="!c.ended" class="size-1.5 shrink-0 rounded-full bg-accent-fill" />
+              <span class="truncate">{{ projectName(c.project) }}</span>
+              <span class="sr-only">{{ c.ended ? '(ended)' : '(running)' }}</span>
+            </span>
+            <span class="truncate text-[13px]" :class="c.ended ? 'text-muted' : 'text-fg'">{{ firstLine(c) }}</span>
+          </button>
+          <button
+              v-if="!c.ended"
+              type="button"
+              class="absolute top-1.5 right-1 grid size-5 place-items-center rounded text-faint transition hover:bg-panel hover:text-fg sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100"
+              :aria-label="`End the chat on ${projectName(c.project)}: ${firstLine(c)}`"
+              title="End this chat"
+              @click="endChat(c.id)"
+          >
+            <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 18 18 6M6 6l12 12" /></svg>
+          </button>
+        </li>
+        <li v-if="!chats.length" class="px-2.5 py-1.5 text-xs text-faint">No chats yet</li>
+      </ul>
+    </aside>
+    <div class="flex min-w-0 flex-1 flex-col">
+    <header class="flex items-center gap-1 border-b border-line py-2.5 pr-2.5 pl-2">
+      <UiButton
+          variant="ghost" size="xs" square :aria-expanded="listing"
+          :aria-label="listing ? 'Hide your chats' : 'Show your chats'" :title="listing ? 'Hide your chats' : 'Your chats'"
+          :class="listing && 'text-accent-700 dark:text-accent-400'"
+          @click="listing = !listing"
+      >
+        <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M9 4v16" /></svg>
+      </UiButton>
       <div class="flex min-w-0 flex-1 flex-col">
         <div class="flex min-w-0 items-center gap-1.5 text-[13px] font-medium text-fg">
           <span>Chat</span>
@@ -350,15 +443,6 @@ const {over, on: drop} = useImageDrop(attach)
           <span v-if="state" class="min-w-0 truncate">{{ state }}</span>
         </span>
         <span v-if="away" class="truncate text-xs text-muted" data-testid="chat-away">You're on <em>{{ projectName(away) }}</em>; this chat is about <em>{{ projectName(about!) }}</em></span>
-        <span v-if="elsewhere.length" class="flex min-w-0 flex-wrap items-center gap-x-1.5 text-xs text-muted" data-testid="chat-elsewhere">
-          Also chatting on
-          <button
-              v-for="c in elsewhere" :key="c.id" type="button"
-              class="truncate font-medium text-accent-700 underline decoration-accent-500/40 underline-offset-2 hover:decoration-accent-500 dark:text-accent-400"
-              :title="`Switch to the chat on ${projectName(c.project)}: this one keeps running`"
-              @click="switchTo(c.project)"
-          >{{ projectName(c.project) }}</button>
-        </span>
       </div>
       <UiButton variant="ghost" size="xs" square class="max-sm:hidden" :aria-label="large ? 'Make the chat smaller' : 'Make the chat larger'" :title="large ? 'Smaller' : 'Larger'" @click="resize">
         <svg v-if="large" class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 9V4.5M9 9H4.5M9 9 3.75 3.75M9 15v4.5M9 15H4.5M9 15l-5.25 5.25M15 9h4.5M15 9V4.5M15 9l5.25-5.25M15 15h4.5M15 15v4.5m0-4.5 5.25 5.25" /></svg>
@@ -390,7 +474,7 @@ const {over, on: drop} = useImageDrop(attach)
       </div>
     </div>
 
-    <ol v-else ref="list" class="flex flex-1 flex-col gap-3 overflow-y-auto px-4 py-4 text-[13px]">
+    <ol v-else ref="list" class="flex flex-1 flex-col gap-3 overflow-y-auto px-4 py-4 text-[13px]" aria-label="Conversation">
       <template v-for="(m, i) in chat?.messages ?? []" :key="m.id">
       <li v-if="m.cleared" class="flex items-center gap-3 py-1 text-xs text-faint" role="separator" aria-label="Context cleared">
         <span class="h-px flex-1 bg-line" />Context cleared<span class="h-px flex-1 bg-line" />
@@ -515,7 +599,7 @@ v-if="m.chunk" class="flex w-full flex-col gap-2 rounded-xl bg-well p-3 ring-1 r
       </li>
       <li v-if="chat?.ended" class="flex items-center gap-2 text-xs text-faint">
         This chat has ended.
-        <button type="button" class="text-accent-700 hover:underline dark:text-accent-400" @click="fresh">Start another</button>
+        <button type="button" class="text-accent-700 hover:underline dark:text-accent-400" @click="newChat">New chat</button>
       </li>
     </ol>
 
@@ -568,6 +652,7 @@ v-if="m.chunk" class="flex w-full flex-col gap-2 rounded-xl bg-well p-3 ring-1 r
         </div>
       </div>
     </form>
+    </div>
   </section>
 </template>
 
