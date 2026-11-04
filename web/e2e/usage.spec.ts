@@ -18,8 +18,11 @@ test('counts nothing until turned on, then lists what was used, coldest first', 
     await expect(section.getByRole('table', {name: 'Feature use'})).toBeVisible()
     await page.goto('/sessions')
     await expect(page.getByRole('heading', {level: 1}).first()).toBeVisible()
+    // A use is sent without waiting on it, so the next page load could cancel it: the test waits for it to land.
+    const counted = page.waitForResponse(r => r.url().endsWith('/api/usage') && r.request().method() === 'POST' && r.request().postDataJSON()?.feature === 'command-palette')
     await page.keyboard.press('ControlOrMeta+k')
     await expect(page.getByRole('dialog', {name: 'Commands'})).toBeVisible()
+    await counted
     await page.keyboard.press('Escape')
     await page.goto('/settings?tab=usage')
     const table = section.getByRole('table', {name: 'Feature use'})

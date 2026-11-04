@@ -37,6 +37,8 @@ export default defineConfig({
     // On CI a page under `nuxt dev` can take seconds to hydrate, four workers to a runner and the server's coverage on
     // besides, so an expect gets longer there than its 5s here (ORR-912).
     expect: {timeout: process.env.CI ? 15_000 : 5_000},
+    // And a whole test, so a few slow expects in one fit: 30s held only while each took 5 (ORR-912).
+    timeout: process.env.CI ? 60_000 : 30_000,
     reporter: process.env.CI ? [['list'], ['html', {open: 'never'}], ['json', {outputFile: 'e2e-results.json'}]] : 'list',
     use: {baseURL: `http://localhost:${port}`, trace: 'retain-on-failure'},
     projects: [
