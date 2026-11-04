@@ -120,8 +120,8 @@ const cards = computed(() => inProjectOrder(pulls.value?.repos ?? [], ordered.va
           <ul v-else-if="card.pulls.length" :aria-label="`Open pull requests on ${card.repo}`">
             <li v-for="pull in card.pulls" :key="pull.number" class="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-line px-3 py-2 text-sm last:rounded-b-xl last:border-b-0" :class="{'bg-rose-500/5': needs(pull.state)}">
               <span class="flex min-w-0 flex-1 items-baseline gap-1.5">
-                <NuxtLink :to="`/pulls/${card.repo}/${pull.number}`" class="shrink-0 font-mono text-xs text-faint hover:text-fg hover:underline" :title="`#${pull.number}'s linked issues`">#{{ pull.number }}</NuxtLink>
-                <a :href="pull.url" target="_blank" rel="noopener" class="min-w-0 truncate text-fg hover:underline">{{ pull.title }}</a>
+                <NuxtLink :to="`/pulls/${card.repo}/${pull.number}`" class="min-w-0 truncate text-fg hover:underline" :title="`#${pull.number}'s linked issues`"><span class="font-mono text-xs text-faint">#{{ pull.number }}</span> {{ pull.title }}</NuxtLink>
+                <PullGithubLink :number="pull.number" :url="pull.url" />
               </span>
               <PullStateChip :state="pull.state" />
               <PullFocus v-if="pull.issue" :pull="pull" :issue="pull.issue" />
