@@ -27,7 +27,7 @@ import type {Chat, ChatIssues, ChatMessage} from '#shared/roadmap'
 // (ORR-588). The owner's chats, as many as they like and several on a project, are listed down the pane's left (ORR-870),
 // newest first, running and ended: each row names its project and its first message, a running one is marked and has
 // an × to end it, and a click opens it, an ended one as it was: writing in it starts its session again (ORR-884). New chat heads the list. On a narrow screen the list folds
-// behind the button at the header's left, and opens over the conversation. Moving to another project, by page or
+// behind the button at the header's left, and opens over the conversation, closing on a tap outside it (ORR-899). Moving to another project, by page or
 // picker, shows its newest running chat and leaves the others running; the picker marks the projects with one. What's
 // held goes back in the box on a switch, so it never goes to another chat.
 // While no launcher runs for its project, LauncherHint above the box says so, with the install command to copy, in place
@@ -360,6 +360,8 @@ const {over, on: drop} = useImageDrop(attach)
       @keydown.esc="shut"
   >
     <ImageDropOverlay v-if="over" />
+    <!-- Over the chat, a tap anywhere outside the list closes it, as Esc does (ORR-899). -->
+    <div v-if="listing && !docked" class="absolute inset-0 z-10 bg-black/10" data-testid="chat-list-backdrop" aria-hidden="true" @click="listing = false" />
     <aside
         v-if="listing"
         class="flex shrink-0 flex-col border-r border-line"
