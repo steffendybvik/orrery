@@ -173,20 +173,21 @@ describe('ChatPane', () => {
         expect(pane.text()).not.toContain('Not sent')
     })
 
-    it('puts what was held back in the box when the pane closes, and sends nothing after', async () => {
+    it('leaves the chat running when the pane closes: what was held still goes to it (ORR-878)', async () => {
         vi.useFakeTimers({toFake: ['setTimeout', 'clearTimeout']})
         const {pane, box, type} = await mount()
         await type('Fix the latch', {metaKey: true})
         await type('and the bolt')
-        await pane.find('button[aria-label="End the chat and close it"]').trigger('click')
+        await pane.find('button[aria-label="Close the chat, leaving it running"]').trigger('click')
         await flushPromises()
-        expect(posted.at(-1)).toEqual({path: 'end', body: null})
+        expect(posted.some(p => p.path === 'end')).toBe(false)
         expect(useChat().open.value).toBe(false)
+        expect(useChat().chat.value?.ended).toBeFalsy()
         await wait(HOLD_MS * 2)
-        expect(messages()).toHaveLength(1)
+        expect(messages()).toEqual([expect.objectContaining({text: 'Fix the latch'}), expect.objectContaining({text: 'and the bolt'})])
         useChat().open.value = true
         await flushPromises()
-        expect((box().element as HTMLTextAreaElement).value).toBe('and the bolt')
+        expect((box().element as HTMLTextAreaElement).value).toBe('')
     })
 
     it("leaves the focus in a field elsewhere: an image landing doesn't pull it back to the box (ORR-834)", async () => {

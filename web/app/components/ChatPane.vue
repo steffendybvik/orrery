@@ -9,11 +9,11 @@ import type {Chat, ChatIssues, ChatMessage} from '#shared/roadmap'
 // line), but a run of quick messages goes as one once the owner has stopped typing for a moment (`HOLD_MS`), so the chat
 // answers the whole thought (ORR-517). What's held shows at once as sent, with the thinking spinner, as one turn (ORR-535);
 // only what couldn't go says so (Not sent, Retry). ⌘/Ctrl-Enter or Send sends at once, and Esc in an empty box takes the
-// last one back. A slash command goes at once, after what's held. Closing the pane, or the chat ending, puts what's held
-// back in the box, so nothing starts a chat on its own after it (ORR-523). An image pasted or
-// dropped anywhere on the pane goes with the message. Closing the pane (×) ends the chat and stops its session; minimizing it
-// (–, or Esc) hides it with the chat still running, and the corner button, marked while one runs, brings it back as it was.
-// Esc closes the pane only before a chat starts, so a stray key doesn't end it. The pane can be made large (a phone's fills the screen either way). Beside
+// last one back. A slash command goes at once, after what's held. The chat ending, or closing the pane before one has
+// started, puts what's held back in the box, so nothing starts a chat on its own after it (ORR-523). An image pasted or
+// dropped anywhere on the pane goes with the message. Closing the pane (×) or minimizing it (–, or Esc) hides it with the
+// chat still running (ORR-878), and the corner button, marked while one runs, brings it back as it was. Only a row's × in
+// the list ends a chat. The pane can be made large (a phone's fills the screen either way). Beside
 // Send, the owner picks where the issues it makes land, Todo or Backlog; the server holds the chat to it. A setting the
 // chat asks to change shows from → to with Allow and Deny; only Allow saves it. So does a schedule it asks to make (each
 // field it sets) or change (each from → to), a release it asks to add or change, a chunk it asks to make or change (ORR-510),
@@ -223,10 +223,11 @@ function unhold() {
     held.value = []
 }
 
-/** Closes the pane (× or Esc), ending its chat: what's held goes back in the box rather than starting another. */
-function end() {
-    unhold()
-    void close()
+/** Closes the pane (× or Esc), leaving its chat running: what's held still goes to it. With no chat running, what's
+ * held goes back in the box rather than starting one. */
+function shut() {
+    if (!chat.value || chat.value.ended) unhold()
+    close()
 }
 
 /** Takes a held message back before it goes: into the box when the box is empty. */
@@ -345,7 +346,7 @@ const {over, on: drop} = useImageDrop(attach)
       :class="large ? 'h-[calc(100dvh-2rem)] sm:w-[min(56rem,calc(100vw-2rem))]' : ['h-[min(40rem,calc(100dvh-2rem))]', docked ? 'sm:w-[min(41rem,calc(100vw-2rem))]' : 'sm:w-[min(28rem,calc(100vw-2rem))]']"
       aria-label="Chat"
       v-on="drop"
-      @keydown.esc="!chat || chat.ended ? end() : hide()"
+      @keydown.esc="!chat || chat.ended ? shut() : hide()"
   >
     <ImageDropOverlay v-if="over" />
     <aside
@@ -451,7 +452,7 @@ const {over, on: drop} = useImageDrop(attach)
       <UiButton v-if="chat && !chat.ended" variant="ghost" size="xs" square aria-label="Minimize the chat, leaving it running" title="Minimize" @click="hide">
         <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14" /></svg>
       </UiButton>
-      <UiButton variant="ghost" size="xs" square :aria-label="chat && !chat.ended ? 'End the chat and close it' : 'Close the chat'" :title="chat && !chat.ended ? 'End chat' : 'Close'" @click="end">
+      <UiButton variant="ghost" size="xs" square :aria-label="chat && !chat.ended ? 'Close the chat, leaving it running' : 'Close the chat'" title="Close" @click="shut">
         <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 18 18 6M6 6l12 12" /></svg>
       </UiButton>
     </header>
