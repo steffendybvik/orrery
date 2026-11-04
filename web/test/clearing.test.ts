@@ -205,7 +205,7 @@ describe("a session's run", () => {
 })
 
 describe('a session gone idle on an issue with sub-issues to do', () => {
-    const sub = (id: string, more: object = {}) => ({id, parent: 'ORR-1', kind: 'todo', column: 'todo', updated_at: 't1', ...more})
+    const sub = (id: string, more: object = {}) => ({id, parent: 'ORR-1', kind: 'todo', column: 'todo', labels: [], updated_at: 't1', ...more})
     const owners = (id: string) => ['orrery', id, {session: 'w', note: clearing.CARRY_ON}, {name: 'steffen', owner: true}]
 
     beforeEach(() => {
@@ -218,6 +218,14 @@ describe('a session gone idle on an issue with sub-issues to do', () => {
         expect(carried).toEqual([])
         await after()
         expect(carried).toEqual([owners('ORR-3')])
+    })
+
+    it('passes over a sub-issue heavier than its model, started on a lighter one (ORR-868)', async () => {
+        session = {...session!, started: {launch: 'l', tmux: 't', model: 'sonnet'}}
+        issues = issues.map(i => i.id === 'ORR-3' ? {...i, labels: ['security']} : i.id === 'ORR-2' ? {...i, labels: ['docs']} : i)
+        clearing.carryOn('orrery', 'w')
+        await after()
+        expect(carried).toEqual([owners('ORR-2')])
     })
 
     it('passes over a sub-issue of someone else\'s, with more than one person (ORR-656)', async () => {

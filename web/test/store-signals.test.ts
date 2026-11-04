@@ -186,6 +186,21 @@ describe("what a project's sessions are on", () => {
         }
     })
 })
+describe('the model a signal needs (ORR-868)', () => {
+    const owner: Actor = {name: 'skoll', owner: true}
+
+    it("is its issue's kind's on a focus or a comment, and a chunk's heaviest open issue's", async () => {
+        const docs = (await store.createIssue('greenhouse', {title: 'Docs', labels: ['docs']})).id
+        const both = (await store.createIssue('greenhouse', {title: 'Both', labels: ['docs', 'security']})).id
+        expect((await store.focus('greenhouse', docs, {}, owner)).model).toBe('sonnet')
+        expect((await store.focus('greenhouse', both, {}, owner)).model).toBe('best')
+        await store.createComment('greenhouse', docs, {body: 'And this.'}, owner)
+        const signals = await store.listSignals('greenhouse', 0)
+        expect(signals.find(s => s.kind === 'comment')?.model).toBe('sonnet')
+        expect((await store.focusChunk('greenhouse', 'all', {}, owner)).model).toBe('best')
+    })
+})
+
 describe('a session that connects', () => {
     it("knows an owner's focus on an issue is on its way until a session hears it (ORR-515)", async () => {
         const local = new Store(testDb())

@@ -636,7 +636,12 @@ with review instructions in it.
 Without it, one session gets it, and orrery picks which: for an issue, the session already on it if that one is
 listening; else whichever listening session is idle when it comes; else, with every one busy, the next to go idle
 (within a day). The project's own sessions come first: a session whose channel hears several projects
-(`ORRERY_PROJECTS`) gets it only while none of the project's own is listening and idle. A schedule's message goes the same way. A focus on one session makes it the issue's session, unless another listening session has the issue started:
+(`ORRERY_PROJECTS`) gets it only while none of the project's own is listening and idle. A schedule's message goes the same way.
+A focus or comment about an issue carries `model`, the model its work needs (its kind's; a chunk's focus, the heaviest of
+its open issues'), and no session orrery started on a lighter one takes it (`haiku` < `sonnet` < `opus` < `fable` <
+`best`; a session on Claude Code's default, or one orrery didn't start, can take anything). With only lighter sessions
+listening, it starts one on that model, as it would with nobody listening, and a session carried on to a sub-issue skips
+those heavier than its own. A focus on one session makes it the issue's session, unless another listening session has the issue started:
 then it stays with that one, and the session asked gets the 409 if it tries to start it. Each signal lists the sessions it reached in `delivered_to`
 (`POST /projects/:project/signals/:signal/delivered`, sent by the channel, which also sets a session whose hooks have spoken `working`).
 

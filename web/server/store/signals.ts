@@ -1,7 +1,7 @@
 // Signals to sessions (a focus, a comment, a message) and the uploads they carry.
 import {randomBytes} from 'node:crypto'
 import type {Kind, SessionWork, Signal, Upload} from '#shared/roadmap'
-import {CLOSED} from '#shared/roadmap'
+import {CLOSED, heaviest, modelFor} from '#shared/roadmap'
 import {badRequest, checkInput, conflict, notFound} from '../utils/input'
 import type {Actor, SignalRow} from './schema'
 import {AGENT, SIGNAL_FIELDS, CHUNK_SIGNAL_FIELDS, LEGACY_KINDS, UPLOAD_FIELDS, UPLOAD_LIMIT, IMAGE_TYPES, signalOf, nullable, stamp} from './schema'
@@ -110,13 +110,26 @@ export abstract class SignalStore extends IssueStore {
             return !whose || person === whose || !member && !person ? session : null
         }
         const target = nullable(input.session) ?? theirs(await this.listeningWorker(project, issue)) ?? theirs((await this.heldAbove(project, issue))?.holder) ?? null
-        const row = await this.one<SignalRow>('INSERT INTO signals (project, issue, kind, note, target, person, instructions, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *',
-            project, issue, 'focus', nullable(input.note), target, whose ?? null, instructions, actor.name, Number(actor.owner), stamp())
+        const row = await this.one<SignalRow>('INSERT INTO signals (project, issue, kind, note, target, person, instructions, model, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *',
+            project, issue, 'focus', nullable(input.note), target, whose ?? null, instructions, await this.modelNeeded(project, issue), actor.name, Number(actor.owner), stamp())
         const signal = signalOf(row)
         // A started issue another session is still on stays its: the one asked gets the claim's 409 if it starts it.
         if (signal.target && signal.target !== EVERY && !await this.takenFrom(project, issue, signal.target)) await this.workedBy(project, issue, signal.target)
         this.onSignal(signal)
         return signal
+    }
+
+    /** The model a signal about the issue needs (ORR-868): what its kind starts a session on. No session on a lighter
+     * one takes it from the pool (pool.ts). */
+    protected async modelNeeded(project: string, issue: string): Promise<string> {
+        return modelFor({labels: JSON.parse((await this.issueRow(project, issue)).labels) as string[]}).model ?? 'best'
+    }
+
+    /** The heaviest model a chunk's open issues need (`all`: every chunk's, `none`: those in none), as a session working
+     * through them may come to any; none when it has no open issues. */
+    private async chunkModelNeeded(project: string, chunk: string): Promise<string | null> {
+        const open = (await this.listIssues(project, chunk === 'all' ? {} : {chunk})).filter(i => !CLOSED.includes(i.kind as Kind))
+        return open.length ? heaviest(open.map(i => modelFor(i))).model ?? 'best' : null
     }
 
     /** The member behind a signal, if one is (ORR-658): it goes only to their own sessions, so naming someone else's is
@@ -152,8 +165,8 @@ export abstract class SignalStore extends IssueStore {
         }
         const release = input.release ? (await this.releaseRow(project, String(input.release))).version : null
         const instructions = JSON.stringify(await this.instructionsFor(project, input.instructions))
-        const row = await this.one<SignalRow>('INSERT INTO signals (project, chunk, status, release, kind, note, target, person, instructions, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *',
-            project, chunk, status, release, 'focus', nullable(input.note), nullable(input.session), this.memberAiming(actor, input.session) ?? null, instructions, actor.name, Number(actor.owner), stamp())
+        const row = await this.one<SignalRow>('INSERT INTO signals (project, chunk, status, release, kind, note, target, person, instructions, model, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *',
+            project, chunk, status, release, 'focus', nullable(input.note), nullable(input.session), this.memberAiming(actor, input.session) ?? null, instructions, await this.chunkModelNeeded(project, chunk), actor.name, Number(actor.owner), stamp())
         const signal = signalOf(row)
         this.onSignal(signal)
         return signal

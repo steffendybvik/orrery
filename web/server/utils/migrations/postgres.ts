@@ -654,4 +654,8 @@ export const STEPS: (string | ((client: Pick<PoolClient, 'query'>) => Promise<un
         ended_at text,
         chat text NOT NULL
     );
+`, `
+    -- The model a pooled signal's work needs (ORR-868), from its issue's kind: no session on a lighter one takes it.
+    -- None on those from before, and on a message, which any session takes.
+    ALTER TABLE signals ADD COLUMN model text;
 `]
