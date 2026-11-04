@@ -585,7 +585,7 @@ test('keeps a preset on the Sessions page and offers it in Start session', async
     const editing = page.getByRole('dialog', {name: 'Edit Close review'})
     await expect(editing.getByLabel('Preset name')).toHaveValue('Close review')
     // Its badge is its initials until an icon is picked, behind the badge's button; it's kept as the preset is saved.
-    await editing.locator('[data-picker="Badge"]').click()
+    await editing.getByRole('button', {name: 'Badge', exact: true}).click()
     await editing.getByRole('button', {name: 'shield-check', exact: true}).click()
     await expect(editing.getByRole('button', {name: 'Use its initials'})).toBeVisible()
     await editing.getByRole('button', {name: 'Save preset'}).click()
