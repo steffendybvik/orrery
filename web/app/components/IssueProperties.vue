@@ -46,7 +46,7 @@ const model = computed({
     set: (next: string) => save({model: next || null}),
 })
 const modelOptions = computed(() => [
-    {value: '', label: kind.value ? `${kind.value.name}'s (${kind.value.model})` : "Claude Code's default"},
+    {value: '', label: kind.value ? `${kind.value.model}, as ${kind.value.name}` : "Claude Code's default"},
     ...[...MODEL_ALIASES.filter(a => a !== 'default' && a !== 'opusplan'), ...props.issue.model && !(MODEL_ALIASES as readonly string[]).includes(props.issue.model) ? [props.issue.model] : []]
         .map(m => ({value: m, label: m})),
 ])
