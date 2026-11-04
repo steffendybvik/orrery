@@ -1,6 +1,6 @@
 # orrery
 
-A self-hosted roadmap board for working with Claude Code sessions. Each project has issues, chunks
+A self-hosted roadmap board for working with Claude Code sessions. Each project has issues, milestones
 (milestones), releases and docs. Sessions read and update them through an HTTP API or MCP tools, and
 the owner directs sessions from the board. It runs locally, in Docker, on SQLite or Postgres.
 
@@ -21,12 +21,12 @@ the owner directs sessions from the board. It runs locally, in Docker, on SQLite
 
 ## Features
 
-- **Issues:** sub-issues to any depth, grouped into chunks, shown as a list or a board. The statuses
+- **Issues:** sub-issues to any depth, grouped into milestones, shown as a list or a board. The statuses
   are configurable, and every change is kept as activity. **My issues**, the home page, spans all projects.
 - **Agent access:** a JSON API, MCP tools (`issue`, `start_issue`, `comment`, `finish_issue`, …) and
   `/llms.txt`. Agents can propose issues for the owner to approve, and ask for a decision or feedback.
 - **Directing sessions:** through a Claude Code channel, the owner can ask a session to focus on an
-  issue, work through a chunk, or read a message. Hooks report whether each session is working, idle
+  issue, work through a milestone, or read a message. Hooks report whether each session is working, idle
   or waiting. Only one session can work on an issue at a time, and its page shows who's on it.
 - **Starting sessions:** optionally, a launcher on the host starts Claude sessions in tmux when work
   arrives with nobody listening, or when you start one, within limits set on the Sessions page.

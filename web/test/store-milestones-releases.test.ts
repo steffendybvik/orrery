@@ -1,4 +1,4 @@
-// Chunks and releases: made, ordered, frozen, shipped and shared between projects. The store, against a fresh database
+// Milestones and releases: made, ordered, frozen, shipped and shared between projects. The store, against a fresh database
 // with the project `greenhouse` (store-setup.ts).
 import {beforeEach, describe, expect, it} from 'vitest'
 import {Store} from '../server/utils/store'
@@ -14,50 +14,50 @@ beforeEach(async () => {
     ({store, changes} = await storeSetup())
 })
 
-describe('chunks', () => {
+describe('milestones', () => {
     it('have a priority to set and clear', async () => {
-        expect((await store.chunk('greenhouse', '1')).priority).toBeUndefined()
-        expect((await store.updateChunk('greenhouse', '1', {priority: 'P1'})).priority).toBe('P1')
-        expect((await store.project('greenhouse')).board.chunks[0]!.priority).toBe('P1')
-        expect((await store.updateChunk('greenhouse', '1', {priority: null})).priority).toBeUndefined()
-        expect((await failure(() => store.updateChunk('greenhouse', '1', {priority: 'P7'}))).status).toBe(400)
+        expect((await store.milestone('greenhouse', '1')).priority).toBeUndefined()
+        expect((await store.updateMilestone('greenhouse', '1', {priority: 'P1'})).priority).toBe('P1')
+        expect((await store.project('greenhouse')).board.milestones[0]!.priority).toBe('P1')
+        expect((await store.updateMilestone('greenhouse', '1', {priority: null})).priority).toBeUndefined()
+        expect((await failure(() => store.updateMilestone('greenhouse', '1', {priority: 'P7'}))).status).toBe(400)
     })
 
     it('can be focused on, by their id or a name they had', async () => {
         const sent: string[] = []
-        const local = new Store(testDb(), () => {}, signal => sent.push(`${signal.kind}:${signal.issue ?? '-'}:${signal.chunk}:${signal.target ?? 'all'}`))
+        const local = new Store(testDb(), () => {}, signal => sent.push(`${signal.kind}:${signal.issue ?? '-'}:${signal.milestone}:${signal.target ?? 'all'}`))
         await local.createProject({name: 'greenhouse', key: 'GRE'})
-        await local.createChunk('greenhouse', {title: 'Joints'})
-        const signal = await local.focusChunk('greenhouse', '1', {session: 'joints-window', note: 'urgent'}, {name: 'skoll', owner: true})
-        expect(signal).toMatchObject({chunk: '1', kind: 'focus', note: 'urgent', protected: true})
+        await local.createMilestone('greenhouse', {title: 'Joints'})
+        const signal = await local.focusMilestone('greenhouse', '1', {session: 'joints-window', note: 'urgent'}, {name: 'skoll', owner: true})
+        expect(signal).toMatchObject({milestone: '1', kind: 'focus', note: 'urgent', protected: true})
         expect(signal.issue).toBeUndefined()
         expect(sent).toEqual(['focus:-:1:joints-window'])
-        expect((await local.listSignals('greenhouse', 0, 50, {chunk: '1'})).map(s => s.id)).toEqual([signal.id])
+        expect((await local.listSignals('greenhouse', 0, 50, {milestone: '1'})).map(s => s.id)).toEqual([signal.id])
         expect(await local.lastSignal('greenhouse')).toBe(signal.id)
-        expect((await failure(() => local.focusChunk('greenhouse', '9', {}))).status).toBe(404)
-        expect((await local.focusChunk('greenhouse', 'none', {})).chunk).toBe('none')
+        expect((await failure(() => local.focusMilestone('greenhouse', '9', {}))).status).toBe(404)
+        expect((await local.focusMilestone('greenhouse', 'none', {})).milestone).toBe('none')
     })
 
     it('can be focused on for their issues of one status', async () => {
         const local = new Store(testDb(), () => {})
         await local.createProject({name: 'greenhouse', key: 'GRE'})
-        await local.createChunk('greenhouse', {title: 'Joints'})
-        expect((await local.focusChunk('greenhouse', '1', {status: 'todo'}, {name: 'skoll', owner: true})).status).toBe('todo')
-        expect((await local.focusChunk('greenhouse', '1', {})).status).toBeUndefined()
-        expect((await failure(() => local.focusChunk('greenhouse', '1', {status: 'done'}))).status).toBe(400)
-        expect((await failure(() => local.focusChunk('greenhouse', '1', {status: 'soon'}))).status).toBe(400)
+        await local.createMilestone('greenhouse', {title: 'Joints'})
+        expect((await local.focusMilestone('greenhouse', '1', {status: 'todo'}, {name: 'skoll', owner: true})).status).toBe('todo')
+        expect((await local.focusMilestone('greenhouse', '1', {})).status).toBeUndefined()
+        expect((await failure(() => local.focusMilestone('greenhouse', '1', {status: 'done'}))).status).toBe(400)
+        expect((await failure(() => local.focusMilestone('greenhouse', '1', {status: 'soon'}))).status).toBe(400)
         // An old word is kept as the kind it means now, so the scope finds its issues.
-        expect((await local.focusChunk('greenhouse', '1', {status: 'doing, todo'})).status).toBe('started,todo')
+        expect((await local.focusMilestone('greenhouse', '1', {status: 'doing, todo'})).status).toBe('started,todo')
     })
 
     it('can be focused on all at once, for issues of several statuses and a release', async () => {
         const local = new Store(testDb(), () => {})
         await local.createProject({name: 'greenhouse', key: 'GRE', release_mode: 'own'})
         await local.createRelease('greenhouse', {version: '1.0.0'})
-        const signal = await local.focusChunk('greenhouse', 'all', {status: 'todo, started', release: '1.0.0'}, {name: 'skoll', owner: true})
-        expect(signal).toMatchObject({chunk: 'all', status: 'todo,started', release: '1.0.0'})
-        expect((await failure(() => local.focusChunk('greenhouse', 'all', {status: 'todo,done'}))).message).toContain('"status" has "done"')
-        expect((await failure(() => local.focusChunk('greenhouse', 'all', {release: '9.9'}))).status).toBe(404)
+        const signal = await local.focusMilestone('greenhouse', 'all', {status: 'todo, started', release: '1.0.0'}, {name: 'skoll', owner: true})
+        expect(signal).toMatchObject({milestone: 'all', status: 'todo,started', release: '1.0.0'})
+        expect((await failure(() => local.focusMilestone('greenhouse', 'all', {status: 'todo,done'}))).message).toContain('"status" has "done"')
+        expect((await failure(() => local.focusMilestone('greenhouse', 'all', {release: '9.9'}))).status).toBe(404)
         await local.createIssue('greenhouse', {title: 'Hinges', status: 'todo'})
         await local.createIssue('greenhouse', {title: 'Pins', status: 'in-progress'})
         await local.createIssue('greenhouse', {title: 'Bolts'})
@@ -136,10 +136,10 @@ describe('releases', () => {
         await store.createRelease('greenhouse', {version: '0.9.0', shipped_on: '2026-10-01'})
         await store.createRelease('greenhouse', {version: '1.0.0'})
         await store.createRelease('greenhouse', {version: '1.1.0'})
-        const parent = await store.createIssue('greenhouse', {title: 'Hinges', chunk: '1', release: '1.0.0'})
+        const parent = await store.createIssue('greenhouse', {title: 'Hinges', milestone: '1', release: '1.0.0'})
         await store.createIssue('greenhouse', {title: 'Pin', parent: parent.id, status: 'done'})
         await store.createIssue('greenhouse', {title: 'Socket', parent: parent.id, release: '1.0.0'})
-        const loose = await store.createIssue('greenhouse', {title: 'Ball joint', chunk: '1'})
+        const loose = await store.createIssue('greenhouse', {title: 'Ball joint', milestone: '1'})
         await store.createIssue('greenhouse', {title: 'Its socket', parent: loose.id, release: '1.1.0', status: 'done'})
 
         const [newer, older, ...shipped] = (await store.project('greenhouse')).releases
@@ -155,7 +155,7 @@ describe('releases', () => {
     it("count a sub-issue set for another release there, not in its parent's", async () => {
         await store.createRelease('greenhouse', {version: '1.0.0'})
         await store.createRelease('greenhouse', {version: '1.0.0-rc.2'})
-        const parent = await store.createIssue('greenhouse', {title: 'Hinges', chunk: '1', release: '1.0.0'})
+        const parent = await store.createIssue('greenhouse', {title: 'Hinges', milestone: '1', release: '1.0.0'})
         await store.createIssue('greenhouse', {title: 'Pin', parent: parent.id})
         const early = await store.createIssue('greenhouse', {title: 'Socket', parent: parent.id, release: '1.0.0-rc.2', status: 'done'})
         await store.createIssue('greenhouse', {title: 'Its screw', parent: early.id, status: 'done'})

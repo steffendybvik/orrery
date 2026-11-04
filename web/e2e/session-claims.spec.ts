@@ -3,7 +3,7 @@ import {expect, test} from '@playwright/test'
 
 // An issue one listening session has started is that session's (ORR-287): another session's edit or start on it is
 // refused, while the owner's go through and anyone's comment does (ORR-613: a reviewer's findings reach it that way);
-// and a chunk's list tells the other session to skip it.
+// and a milestone's list tells the other session to skip it.
 // A project of its own; the owner named if no one has yet.
 const api = async (request: APIRequestContext, method: 'get' | 'post' | 'patch' | 'put', path: string, data?: object, headers?: Record<string, string>) => {
     const r = await request[method](`/api${path}`, {data, headers})
@@ -64,8 +64,8 @@ test("keeps an issue to the session on it: another's edit and start are refused,
         expect(await taken.text()).toContain(`is a sub-issue of ${id}, which another session (e2e-c1) is working on`)
         await api(request, 'patch', `/projects/cellar/issues/${followUp}`, {status: 'in-progress'}, as('e2e-c1'))
 
-        // A chunk's list marks it for the other session only.
-        await api(request, 'post', '/projects/cellar/chunks/all/focus', {session: '*'}, OWNER)
+        // A milestone's list marks it for the other session only.
+        await api(request, 'post', '/projects/cellar/milestones/all/focus', {session: '*'}, OWNER)
         await expect.poll(() => streams.map(s => s.said.text.includes('Rack the wine'))).toEqual([true, true])
         const line = (text: string) => text.split('\n').find(l => l.includes(`${id}: Rack the wine`))
         expect(line(streams[1]!.said.text)).toContain('another session is on it')

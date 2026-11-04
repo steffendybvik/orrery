@@ -12,8 +12,8 @@ import {total} from '#shared/roadmap'
 // parent's first icon (RAIL from the row's edge) and turns into it. `rails` says, for each level
 // above the parent, whether that level's line carries on past this row; `last` whether this one does.
 const {byId} = useRoadmaps()
-const props = withDefaults(defineProps<{issue: Issue, project: string, depth?: number, chunk?: {id: string, title: string}, nested?: boolean, rails?: boolean[], last?: boolean}>(),
-    {depth: 0, chunk: undefined, nested: false, rails: () => [], last: true})
+const props = withDefaults(defineProps<{issue: Issue, project: string, depth?: number, milestone?: {id: string, title: string}, nested?: boolean, rails?: boolean[], last?: boolean}>(),
+    {depth: 0, milestone: undefined, nested: false, rails: () => [], last: true})
 const INDENT = 24
 const RAIL = 19
 const railAt = (level: number) => `${RAIL + level * INDENT}px`
@@ -80,12 +80,12 @@ const shown = computed(() => isParent.value ? props.issue.column : props.issue.s
       <span v-if="isParent" class="flex h-6 shrink-0 items-center gap-1.5 rounded-full px-2 ring-1 ring-line max-sm:hidden" :title="`${issue.kinds.done} of ${total(issue.kinds)} sub-issues done`"><ProgressRing :kinds="issue.kinds" :size="13" /></span>
     </span>
     <NuxtLink
-        v-if="chunk"
-        :to="chunkPath(project, chunk.id)"
+        v-if="milestone"
+        :to="milestonePath(project, milestone.id)"
         class="hidden max-w-40 shrink-0 truncate text-xs text-faint hover:text-fg hover:underline lg:inline"
-        :title="`Open ${chunk.id ? chunk.title : 'the issues in no chunk'}`"
+        :title="`Open ${milestone.id ? milestone.title : 'the issues in no milestone'}`"
         @click.stop
-    >{{ chunk.title }}</NuxtLink>
+    >{{ milestone.title }}</NuxtLink>
     <span
         v-if="issue.proposal && issue.proposal !== 'pending'"
         class="shrink-0 rounded-full px-1.5 py-px text-[10px] font-medium ring-1"

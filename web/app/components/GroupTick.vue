@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// A group's tick (a status or chunk in the list, a column on the board): ticks every issue the group shows (`ids`),
+// A group's tick (a status or milestone in the list, a column on the board): ticks every issue the group shows (`ids`),
 // or unticks them once all are. A dash says only some are. Shown on the header's hover, and always once any is ticked.
 const props = defineProps<{project: string, ids: string[], label: string}>()
 const {selected, key, set} = useSelection()

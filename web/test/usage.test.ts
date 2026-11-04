@@ -29,7 +29,7 @@ const counted = async () => db.all<{feature: string, day: string, count: number}
 describe('counting feature use', () => {
     it('counts nothing while it is off, as it is by default, and drops what gathered meanwhile', async () => {
         expect((await store.settings()).count_use).toBe(false)
-        usage.countUse('chunks', NOW)
+        usage.countUse('milestones', NOW)
         await usage.flushUse(NOW)
         await store.updateSettings({count_use: true}, owner)
         await usage.flushUse(NOW)
@@ -38,14 +38,14 @@ describe('counting feature use', () => {
 
     it('once on, writes a row a feature a day, adding to it', async () => {
         await store.updateSettings({count_use: true}, owner)
-        usage.countUse('chunks', NOW)
-        usage.countUse('chunks', NOW)
+        usage.countUse('milestones', NOW)
+        usage.countUse('milestones', NOW)
         usage.countUse('page:sessions', NOW)
         await usage.flushUse(NOW)
-        usage.countUse('chunks', NOW)
+        usage.countUse('milestones', NOW)
         await usage.flushUse(NOW)
         expect(await counted()).toEqual([
-            {feature: 'chunks', day: '2026-11-04', count: 3},
+            {feature: 'milestones', day: '2026-11-04', count: 3},
             {feature: 'page:sessions', day: '2026-11-04', count: 1},
         ])
     })
@@ -53,26 +53,26 @@ describe('counting feature use', () => {
     it("counts nothing on a server that doesn't allow it, whatever the setting", async () => {
         await store.updateSettings({count_use: true}, owner)
         config.usage = 'off'
-        usage.countUse('chunks', NOW)
+        usage.countUse('milestones', NOW)
         await usage.flushUse(NOW)
         expect(await counted()).toEqual([])
     })
 
     it("ignores a name that isn't a feature's", async () => {
         await store.updateSettings({count_use: true}, owner)
-        for (const name of ['', 'Chunks', 'page:../etc', 'evil<script>', 'x'.repeat(41)]) usage.countUse(name, NOW)
+        for (const name of ['', 'Milestones', 'page:../etc', 'evil<script>', 'x'.repeat(41)]) usage.countUse(name, NOW)
         await usage.flushUse(NOW)
         expect(await counted()).toEqual([])
     })
 
     it('lists every listed feature, coldest first, with its last use and its uses over 30 and 90 days', async () => {
         await store.updateSettings({count_use: true}, owner)
-        usage.countUse('chunks', new Date('2026-10-20T09:00:00Z'))
-        usage.countUse('chunks', new Date('2026-08-20T09:00:00Z'))
+        usage.countUse('milestones', new Date('2026-10-20T09:00:00Z'))
+        usage.countUse('milestones', new Date('2026-08-20T09:00:00Z'))
         for (let i = 0; i < 3; i++) usage.countUse('schedules', NOW)
         await usage.flushUse(NOW)
         const list = await usage.featureUse(NOW)
-        expect(list.find(f => f.feature === 'chunks')).toEqual({feature: 'chunks', label: 'Making a chunk', last: '2026-10-20', days30: 1, days90: 2})
+        expect(list.find(f => f.feature === 'milestones')).toEqual({feature: 'milestones', label: 'Making a milestone', last: '2026-10-20', days30: 1, days90: 2})
         expect(list.find(f => f.feature === 'presets')).toEqual({feature: 'presets', label: 'Making a preset', last: null, days30: 0, days90: 0})
         expect(list.at(-1)!.feature).toBe('schedules')
         expect(list[0]!.days90).toBe(0)
@@ -80,7 +80,7 @@ describe('counting feature use', () => {
 
     it('forgets rows over a year old, and every row when asked', async () => {
         await store.updateSettings({count_use: true}, owner)
-        usage.countUse('chunks', new Date('2025-10-01T09:00:00Z'))
+        usage.countUse('milestones', new Date('2025-10-01T09:00:00Z'))
         usage.countUse('schedules', NOW)
         await usage.flushUse(NOW)
         expect((await counted()).map(r => r.feature)).toEqual(['schedules'])
@@ -126,7 +126,7 @@ describe("Usage's routes", () => {
     })
 
     it('wipes them for the owner alone', async () => {
-        usage.countUse('chunks', NOW)
+        usage.countUse('milestones', NOW)
         await usage.flushUse(NOW)
         for (const who of [member, session, undefined]) expect((await call('index.delete', who)).status).toBe(403)
         expect(await counted()).toHaveLength(1)
@@ -135,11 +135,11 @@ describe("Usage's routes", () => {
     })
 
     it("counts the owner's use, and drops anyone else's with the same 204", async () => {
-        for (const who of [member, session]) expect((await call('index.post', who, {feature: 'chunks'})).status).toBe(204)
+        for (const who of [member, session]) expect((await call('index.post', who, {feature: 'milestones'})).status).toBe(204)
         await usage.flushUse()
         expect(await counted()).toEqual([])
-        expect((await call('index.post', owner, {feature: 'chunks'})).status).toBe(204)
+        expect((await call('index.post', owner, {feature: 'milestones'})).status).toBe(204)
         await usage.flushUse()
-        expect((await counted()).map(r => [r.feature, r.count])).toEqual([['chunks', 1]])
+        expect((await counted()).map(r => [r.feature, r.count])).toEqual([['milestones', 1]])
     })
 })

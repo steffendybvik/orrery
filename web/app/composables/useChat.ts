@@ -134,7 +134,7 @@ export function useChat() {
         failed.value = ''
         try {
             const asked = await apiFetch<ChatMessage>(`/chats/${chat.value.id}/requests/${message}`, {method: 'POST', body: {allow, ...anyway ? {anyway} : {}}})
-            const request = asked.request ?? asked.schedule ?? asked.release ?? asked.chunk ?? asked.move
+            const request = asked.request ?? asked.schedule ?? asked.release ?? asked.milestone ?? asked.move
             return allow && request?.state === 'asked'
         } catch (error) {
             failed.value = errorMessage(error, allow ? 'allow' : 'deny')

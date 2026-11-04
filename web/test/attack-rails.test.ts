@@ -46,7 +46,7 @@ describe.each([['another person\'s', {assignee: 'manni'}, 'assigned to manni'], 
     const unchanged = async () => expect(await held(id)).toEqual(before)
 
     it('is refused a single edit, however it spells the status or the id', async () => {
-        for (const patch of [{status: 'in-progress'}, {status: 'started'}, {title: 'Mine'}, {labels: ['mine']}, {priority: 'P0'}, {chunk: '1'}, {depends_on: []}]) {
+        for (const patch of [{status: 'in-progress'}, {status: 'started'}, {title: 'Mine'}, {labels: ['mine']}, {priority: 'P0'}, {milestone: '1'}, {depends_on: []}]) {
             await refused(() => store.updateIssue('greenhouse', id, patch, hatis), says)
         }
         const {full_id: full} = await row(id)
@@ -149,11 +149,11 @@ describe('an agent going round by what holds an issue', () => {
         expect((await failure(() => row(child))).status).toBe(404)
     })
 
-    it('can\'t delete a chunk, or take the release off, to change another person\'s issue', async () => {
-        const chunk = (await store.createChunk('greenhouse', {title: 'Shelves'}, owner)).id
-        const id = await add({assignee: 'manni', chunk})
-        await failure(() => store.deleteChunk('greenhouse', chunk, hatis)).catch(() => {})
-        expect((await row(id)).chunk).toBe(chunk)
+    it('can\'t delete a milestone, or take the release off, to change another person\'s issue', async () => {
+        const milestone = (await store.createMilestone('greenhouse', {title: 'Shelves'}, owner)).id
+        const id = await add({assignee: 'manni', milestone})
+        await failure(() => store.deleteMilestone('greenhouse', milestone, hatis)).catch(() => {})
+        expect((await row(id)).milestone).toBe(milestone)
     })
 
     it('can\'t ship a release to close another person\'s issue', async () => {

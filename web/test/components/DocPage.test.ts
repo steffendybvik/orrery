@@ -11,7 +11,7 @@ registerEndpoint('/api/projects/greenhouse/docs/potting-mix', () => doc)
 
 const mounted: VueWrapper[] = []
 beforeEach(() => {
-    useRoadmaps().projects.value = [{id: 'greenhouse', name: 'Greenhouse', key: 'GRE', uid: 'x7k2m9qd', releases: [], docs: [doc], board: {chunks: [], kinds: {backlog: 0, todo: 0, started: 0, done: 0, canceled: 0}}} as unknown as Project]
+    useRoadmaps().projects.value = [{id: 'greenhouse', name: 'Greenhouse', key: 'GRE', uid: 'x7k2m9qd', releases: [], docs: [doc], board: {milestones: [], kinds: {backlog: 0, todo: 0, started: 0, done: 0, canceled: 0}}} as unknown as Project]
 })
 afterEach(() => {
     mounted.splice(0).forEach(w => w.unmount())

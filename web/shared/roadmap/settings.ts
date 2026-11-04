@@ -183,10 +183,10 @@ export interface Settings {
     tint: string | null
     /** The issue statuses, in board order. */
     statuses: IssueStatus[]
-    /** What a session hears when asked to focus on an issue, or to work through a chunk; none is the default
-     * (`DEFAULT_FOCUS_PROMPT`, `DEFAULT_CHUNK_PROMPT`). A project can have its own. */
+    /** What a session hears when asked to focus on an issue, or to work through a milestone; none is the default
+     * (`DEFAULT_FOCUS_PROMPT`, `DEFAULT_MILESTONE_PROMPT`). A project can have its own. */
     focus_prompt: string | null
-    chunk_prompt: string | null
+    milestone_prompt: string | null
     /** Lines added to every focus, such as `commit whenever a piece works`. */
     instructions: Instruction[]
     /** The owner's handle in an issue's reference (`orrery-<handle>: DOC-132`), such as their GitHub login;

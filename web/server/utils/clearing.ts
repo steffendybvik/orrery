@@ -1,7 +1,7 @@
 // Sessions orrery started get a fresh context between pieces of work: once one goes idle with nothing in progress
 // and nothing waiting for it, its launcher types `/clear` into it. The process, its tmux session and its channel
 // stay. Its hooks' SessionStart brief then hands the fresh context what's left: the issues in progress, and the
-// rest of a chunk or scope it was asked to work through (its run). A brief starts no turn, so when some of the run
+// rest of a milestone or scope it was asked to work through (its run). A brief starts no turn, so when some of the run
 // is left, a focus on the rest goes to the session alone once it's back (`resumeRun`), and it carries on.
 // Any listening session gone idle on an issue whose sub-issues are still to do (it just split it, say) is sent on to
 // the most urgent of them (`carryOn`), since nothing else would start its next turn. Related work keeps the context
@@ -17,7 +17,7 @@ import {heavyEnough} from './pool'
  * another turn in that time, and then it isn't cleared. */
 export const CLEAR_AFTER = 5000
 
-/** The last chunk or scope focus each session was handed, by the id it had then. */
+/** The last milestone or scope focus each session was handed, by the id it had then. */
 const runs = new Map<string, Signal>()
 
 /** What was left of each run when it was last resumed: its open issues, each with its status and last change. */
@@ -36,14 +36,14 @@ const carried = new Map<string, string>()
 /** The note on a focus `carryOn` sends, which tells it from the owner's own. */
 export const CARRY_ON = 'Carry on with this one, the most urgent next to the issue you just worked (a sub-issue or sibling of it), with what you know from that.'
 
-/** A chunk or scope focus reaching the session: what's left of it is its run until another comes. A focus on one
+/** A milestone or scope focus reaching the session: what's left of it is its run until another comes. A focus on one
  * issue ends the run: the owner pointed it elsewhere. Runs of sessions that are gone are let go. */
 export function startRun(session: string, signal: Signal) {
     for (const id of runs.keys()) {
         if (!sessionNow(currentId(id))) runs.delete(id)
     }
     if (signal.kind !== 'focus') return
-    if (!signal.issue && signal.chunk) runs.set(session, signal)
+    if (!signal.issue && signal.milestone) runs.set(session, signal)
     // Carrying on with sub-issues is still the run's work: what's left of it waits until they're done.
     else if (signal.issue && signal.note !== CARRY_ON) sessionIds(currentId(session)).forEach(id => runs.delete(id))
 }
@@ -54,14 +54,14 @@ export function startRun(session: string, signal: Signal) {
  * on the owner) would otherwise be cleared and sent it again every few seconds. */
 export async function resumeRun(project: string, session: string): Promise<boolean> {
     const run = runOf(session)
-    if (!run || run.project !== project || !run.chunk || !sessionNow(session)?.started) return false
+    if (!run || run.project !== project || !run.milestone || !sessionNow(session)?.started) return false
     const store = useStore()
     const {open} = await scopeOf(store, project, run)
     if (!open.length) return false
     const left = open.map(t => `${t.id} ${t.column} ${t.updated_at}`).join('\n')
     if (resumed.get(run) === left) return false
     resumed.set(run, left)
-    await store.focusChunk(project, run.chunk, {session, status: run.status ?? null, release: run.release ?? null, note: "Carry on with what's left of it after the clear."},
+    await store.focusMilestone(project, run.milestone, {session, status: run.status ?? null, release: run.release ?? null, note: "Carry on with what's left of it after the clear."},
         {name: run.created_by, owner: run.protected, ...run.person ? {person: run.person} : {}})
     return true
 }
@@ -118,7 +118,7 @@ export function considerClear(project: string, id: string) {
 
 /** The session went idle: if it's listening, and after a moment it's still idle with no signal waiting, and an issue
  * it has in progress has sub-issues in backlog or todo, a focus on the most urgent goes to it alone, as the owner's,
- * so it carries on with them as it would with a chunk. Not for a session an untrusted schedule's run started, which
+ * so it carries on with them as it would with a milestone. Not for a session an untrusted schedule's run started, which
  * the owner's word mustn't reach. Not twice for a sub-issue that hasn't changed since: a session that won't take it
  * (blocked, or waiting on the owner) would otherwise be sent it after every turn. */
 export function carryOn(project: string, id: string) {

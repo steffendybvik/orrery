@@ -18,9 +18,9 @@ describe('proposals', () => {
     const claude: Actor = {name: 'claude', owner: false}
 
     it('sit in Proposed with their sub-issues, out of the committed work', async () => {
-        const proposal = await store.createIssue('greenhouse', {title: 'Button', proposal: 'pending', chunk: '1'})
+        const proposal = await store.createIssue('greenhouse', {title: 'Button', proposal: 'pending', milestone: '1'})
         await store.createIssue('greenhouse', {title: 'Its states', parent: proposal.id, status: 'todo'})
-        await store.createIssue('greenhouse', {title: 'Work', chunk: '1', status: 'todo'})
+        await store.createIssue('greenhouse', {title: 'Work', milestone: '1', status: 'todo'})
         const {board} = await store.project('greenhouse')
         expect([(await store.issue('greenhouse', proposal.id)).column, board.kinds.proposed, total(board.kinds)]).toEqual(['proposed', 1, 1])
         expect((await store.listIssues('greenhouse', {proposal: 'none'})).map(i => i.title)).toEqual(['Work'])

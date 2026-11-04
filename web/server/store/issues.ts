@@ -15,11 +15,11 @@ const MAX_DEPENDS = 50
 export abstract class IssueStore extends ClaimStore {
     // Further down the chain: a focus is a signal, and moving an issue takes its sub-issues along.
     protected abstract sendFocus(project: string, issue: string, body: unknown, actor: Actor): Promise<Signal>
-    protected abstract moveIssue(from: string, id: string, to: string, parent: Input[string], chunk: Input[string], actor: Actor): Promise<string>
+    protected abstract moveIssue(from: string, id: string, to: string, parent: Input[string], milestone: Input[string], actor: Actor): Promise<string>
 
     async listIssues(project: string, filter: IssueFilter = {}): Promise<IssueRecord[]> {
         const records = issueRecords(project, await this.boardOf(project))
-        if (filter.chunk && filter.chunk !== 'none') filter = {...filter, chunk: await this.chunkId(project, filter.chunk)}
+        if (filter.milestone && filter.milestone !== 'none') filter = {...filter, milestone: await this.milestoneId(project, filter.milestone)}
         if (filter.parent && filter.parent !== 'none') filter = {...filter, parent: await this.issueId(project, filter.parent)}
         if (filter.release && filter.release !== 'none') await this.releaseRow(project, filter.release)
         const q = filter.q?.toLowerCase()
@@ -39,7 +39,7 @@ export abstract class IssueStore extends ClaimStore {
             && (!filter.label || r.labels.includes(filter.label))
             && (!filter.external || r.external.includes(filter.external))
             && (!github || r.github_issues.some(g => g.toLowerCase() === github))
-            && (!filter.chunk || (filter.chunk === 'none' ? !r.chunk : r.chunk === filter.chunk))
+            && (!filter.milestone || (filter.milestone === 'none' ? !r.milestone : r.milestone === filter.milestone))
             && (!filter.release || (filter.release === 'none' ? !r.release : r.release === filter.release))
             && (!filter.parent || (filter.parent === 'none' ? !r.parent : r.parent === filter.parent))
             && (!filter.proposal || (filter.proposal === 'none' ? r.column !== 'proposed' : r.proposal === filter.proposal))
@@ -66,7 +66,7 @@ export abstract class IssueStore extends ClaimStore {
         id = await this.issueId(project, id)
         const found = findIssue(await this.boardOf(project), id)
         if (!found) throw notFound(`No issue ${id} in ${project}`)
-        return {...found.issue, project, parent: found.parent, chunk: found.chunk || null, ref: issueRef(await this.handle(), id), full_id: fullId('issue', id, (await this.projectRow(project)).uid)}
+        return {...found.issue, project, parent: found.parent, milestone: found.milestone || null, ref: issueRef(await this.handle(), id), full_id: fullId('issue', id, (await this.projectRow(project)).uid)}
     }
 
     /** `urgent: false` leaves a P0 issue's push to the caller, which asks the sessions itself. */
@@ -75,12 +75,12 @@ export abstract class IssueStore extends ClaimStore {
         const input = checkInput(body, ISSUE_FIELDS)
         if (input.project !== undefined && input.project !== project) throw badRequest(`Create the issue in its project: POST /api/projects/${input.project}/issues`)
         const parent = input.parent ? await this.issueId(project, String(input.parent)) : null
-        const chunk = input.chunk ? await this.chunkId(project, String(input.chunk)) : null
+        const milestone = input.milestone ? await this.milestoneId(project, String(input.milestone)) : null
         if (parent) {
             await this.issueRow(project, parent)
-            if (chunk) throw badRequest(`A sub-issue is in its parent's chunk; leave out "chunk" or "parent"`)
+            if (milestone) throw badRequest(`A sub-issue is in its parent's milestone; leave out "milestone" or "parent"`)
         }
-        if (chunk) await this.chunkRow(project, chunk)
+        if (milestone) await this.milestoneRow(project, milestone)
         const release = input.release ? (await this.releaseRow(project, String(input.release))).version : null
         const github = await this.githubIssuesOf(project, input.github_issues)
         const depends = await this.linksFrom(project, null, input.depends_on)
@@ -110,14 +110,14 @@ export abstract class IssueStore extends ClaimStore {
         const id = await this.db.transaction(async () => {
             const id = await this.nextId(project, 'issue')
             const now = stamp()
-            await this.run(`INSERT INTO issues (project, id, title, status, priority, assignee, labels, external, github_issues, notes, proposal, choices, parent, chunk, ships_in,
+            await this.run(`INSERT INTO issues (project, id, title, status, priority, assignee, labels, external, github_issues, notes, proposal, choices, parent, milestone, ships_in,
                                           position, created_by, session_name, owned, created_at, updated_at, created_person, claimed_by, claimed_at, model, effort)
                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 project, id, String(input.title).trim(), status, nullable(input.priority),
                 // A proposal waits on the owner, so it's theirs, whoever the request names.
                 assigned,
                 JSON.stringify(input.labels ?? []), JSON.stringify(tasksOf(input.external)), JSON.stringify(github ?? []), nullable(input.notes), nullable(input.proposal), String(input.choices ?? '[]'),
-                parent, chunk, release, Number(input.position ?? await this.nextPosition('issues', project)), actor.name, actor.session ?? null, Number(actor.owner), now, now,
+                parent, milestone, release, Number(input.position ?? await this.nextPosition('issues', project)), actor.name, actor.session ?? null, Number(actor.owner), now, now,
                 person ?? null, taken ? person : null, taken ? now : null, nullable(input.model), nullable(input.effort))
             await this.record(project, id, actor, [['created', null, null]])
             if (depends) await this.setLinks(project, id, depends, actor)
@@ -130,7 +130,7 @@ export abstract class IssueStore extends ClaimStore {
         return await this.issue(project, id)
     }
 
-    /** `parent: null` lifts a sub-issue to the top, into the chunk it was in unless `chunk` says otherwise.
+    /** `parent: null` lifts a sub-issue to the top, into the milestone it was in unless `milestone` says otherwise.
      * `project` moves it (with its sub-issues and comments) to the top of another project. `proposal:
      * null` commits a proposal, as the owner (approving one commits it). */
     async updateIssue(project: string, id: string, body: unknown, actor = AGENT): Promise<IssueDetail> {
@@ -138,11 +138,11 @@ export abstract class IssueStore extends ClaimStore {
         await this.issueRow(project, id)
         const input = checkInput(body, ISSUE_FIELDS, true)
         if (input.project !== undefined && input.project !== project) {
-            const {project: to, parent, chunk, ...rest} = input
+            const {project: to, parent, milestone, ...rest} = input
             // Held before it moves (and in moveIssue), as the write after this is too late to refuse: it has already gone.
             const rails = await this.railsFor(actor)
             if (rails) await this.railedAssignee(rails, id, rest.assignee as string | null | undefined)
-            const moved = await this.moveIssue(project, id, String(to), parent ?? null, chunk ?? null, actor)
+            const moved = await this.moveIssue(project, id, String(to), parent ?? null, milestone ?? null, actor)
             return await this.updateIssue(String(to), moved, rest, actor)
         }
         const row = await this.issueRow(project, id)
@@ -156,18 +156,18 @@ export abstract class IssueStore extends ClaimStore {
         }
 
         const parent = input.parent === undefined ? row.parent : input.parent === null ? null : await this.issueId(project, String(input.parent))
-        let chunk = input.chunk === undefined ? undefined : input.chunk === null ? null : await this.chunkId(project, String(input.chunk))
+        let milestone = input.milestone === undefined ? undefined : input.milestone === null ? null : await this.milestoneId(project, String(input.milestone))
         if (parent) {
-            if (chunk) throw badRequest(`A sub-issue is in its parent's chunk; leave out "chunk" or set "parent" to null`)
+            if (milestone) throw badRequest(`A sub-issue is in its parent's milestone; leave out "milestone" or set "parent" to null`)
             await this.issueRow(project, parent)
             for (let up: string | null = parent; up; up = (await this.issueRow(project, up)).parent) {
                 if (up === id) throw badRequest(`${parent} is ${up === parent ? 'this issue' : 'under this issue'}, so it can't be its parent`)
             }
-            chunk = null
-        } else if (chunk === undefined && row.parent) {
-            chunk = (await this.rootOf(project, row)).chunk
+            milestone = null
+        } else if (milestone === undefined && row.parent) {
+            milestone = (await this.rootOf(project, row)).milestone
         }
-        if (chunk) await this.chunkRow(project, chunk)
+        if (milestone) await this.milestoneRow(project, milestone)
         const release = input.release === undefined ? undefined : input.release === null ? null : (await this.releaseRow(project, String(input.release))).version
 
         const title = input.title === undefined ? undefined : String(input.title).trim()
@@ -203,8 +203,8 @@ export abstract class IssueStore extends ClaimStore {
                 ['github_issues', row.github_issues, githubIssues],
                 ['notes', row.notes, input.notes],
                 ['proposal', row.proposal, input.proposal],
-                // A sub-issue is in its parent's chunk, so a new parent says it all.
-                moved ? ['parent', row.parent, parent] : ['chunk', row.chunk, chunk],
+                // A sub-issue is in its parent's milestone, so a new parent says it all.
+                moved ? ['parent', row.parent, parent] : ['milestone', row.milestone, milestone],
                 ['release', row.ships_in, release],
                 ['model', row.model ?? null, input.model],
                 ['effort', row.effort ?? null, input.effort],
@@ -223,7 +223,7 @@ export abstract class IssueStore extends ClaimStore {
                 // Put up again, it waits on a new decision.
                 ...input.proposal === 'pending' ? {decided_by: null, decided_at: null, decision_note: null, picks: null, explore: null} : {},
                 parent: input.parent === undefined ? undefined : parent,
-                chunk,
+                milestone,
                 ships_in: release,
                 model: input.model,
                 effort: input.effort,

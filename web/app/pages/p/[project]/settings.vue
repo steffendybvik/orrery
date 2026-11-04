@@ -92,9 +92,9 @@ const failed = ref('')
 const loses = computed(() => {
     if (!project.value) return []
     const issues = allIssues(project.value).length
-    const chunks = project.value.board.chunks.filter(c => c.id).length
+    const milestones = project.value.board.milestones.filter(c => c.id).length
     const n = (count: number, one: string, many = `${one}s`) => `${count} ${count === 1 ? one : many}`
-    return [n(issues, 'issue'), n(chunks, 'chunk'), n(project.value.docs.length, 'doc'), n(of(project.value.id).length, 'schedule'), 'every comment and signal']
+    return [n(issues, 'issue'), n(milestones, 'milestone'), n(project.value.docs.length, 'doc'), n(of(project.value.id).length, 'schedule'), 'every comment and signal']
 })
 watch(() => route.params.project, () => {
     deleting.value = false

@@ -23,10 +23,10 @@ for (const id of ['GRE-1', 'GRE-2', 'GRE-3']) registerEndpoint(`/api/projects/gr
 registerEndpoint('/api/projects/pantry/issues/PAN-4', {method: 'PATCH', handler: record('PAN-4')})
 
 const issue = (id: string, more: Record<string, unknown> = {}) => ({id, title: id, aliases: [], labels: [], tasks: [], column: 'todo', kind: 'todo', ...more})
-const GREENHOUSE = {id: 'greenhouse', name: 'Greenhouse', key: 'GRE', releases: [], board: {chunks: [{id: '', title: 'No chunk', tasks: [
+const GREENHOUSE = {id: 'greenhouse', name: 'Greenhouse', key: 'GRE', releases: [], board: {milestones: [{id: '', title: 'No milestone', tasks: [
     issue('GRE-1'), issue('GRE-2', {depends_on: ['GRE-9']}), issue('GRE-3'),
 ]}]}} as unknown as Project
-const PANTRY = {id: 'pantry', name: 'Pantry', key: 'PAN', releases: [], board: {chunks: [{id: '', title: 'No chunk', tasks: [issue('PAN-4')]}]}} as unknown as Project
+const PANTRY = {id: 'pantry', name: 'Pantry', key: 'PAN', releases: [], board: {milestones: [{id: '', title: 'No milestone', tasks: [issue('PAN-4')]}]}} as unknown as Project
 
 const mounted: VueWrapper[] = []
 beforeEach(() => {

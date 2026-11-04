@@ -1,4 +1,4 @@
-// A focus, a comment, a chunk's or a schedule's message aimed at no session goes to one session, not every one: the session
+// A focus, a comment, a milestone's or a schedule's message aimed at no session goes to one session, not every one: the session
 // already on its issue (made its target as it's sent), else a listening session that's idle when it comes, else the
 // next one to go idle. The project's own sessions come first: one that spans several projects (its channel hears
 // others too) takes it only while none of them is free. Aimed at `*`, it goes to every session, as all of them used to. Each such signal is taken by

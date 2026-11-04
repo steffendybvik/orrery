@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type {Session} from '#shared/roadmap'
 
-// One session in SessionsPanel: its state, a link to its card, and a button to point it at this issue or chunk.
+// One session in SessionsPanel: its state, a link to its card, and a button to point it at this issue or milestone.
 defineProps<{session: Session, worker?: string, issue?: string, sending: string | null}>()
 defineEmits<{focus: []}>()
 </script>
@@ -25,7 +25,7 @@ defineEmits<{focus: []}>()
         class="ml-auto flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium ring-1 transition-colors disabled:opacity-50"
         :class="session.state === 'idle' ? 'bg-accent-500/10 text-accent-700 ring-accent-500/40 hover:bg-accent-500/20 dark:text-accent-300' : 'text-muted ring-line hover:bg-hover hover:text-fg'"
         :disabled="!!sending"
-        :title="issue ? `Ask ${session.name} to work on this now` : `Ask ${session.name} to work through this chunk now`"
+        :title="issue ? `Ask ${session.name} to work on this now` : `Ask ${session.name} to work through this milestone now`"
         @click="$emit('focus')"
     >
       <UiBusy :busy="sending === session.id" label="Sending…">Focus on this</UiBusy>

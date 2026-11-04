@@ -4,7 +4,7 @@ import {AGENT, OWNER, makeProject, projectApi} from './support'
 // The routes no other spec calls by name (ORR-746), through the real server, for what each does and who may call it.
 
 const api = projectApi('stoneyard')
-const roadmap = (title: string) => ({chunks: [{id: 'c1', title: 'Stone', tasks: [{id: 'STY-1', title, status: 'todo'}]}]})
+const roadmap = (title: string) => ({milestones: [{id: 'c1', title: 'Stone', tasks: [{id: 'STY-1', title, status: 'todo'}]}]})
 
 test.beforeAll(async ({request}) => {
     await makeProject(request, {name: 'Stoneyard', key: 'STY'})
@@ -12,7 +12,7 @@ test.beforeAll(async ({request}) => {
 
 test('imports a roadmap into an empty project, and replaces one only when asked and allowed', async ({request}) => {
     const post = (path: string, data: object, headers = OWNER) => request.post(`/api/projects/stoneyard/import${path}`, {data, headers})
-    expect((await post('', {chunks: 'none'})).status()).toBe(400)
+    expect((await post('', {milestones: 'none'})).status()).toBe(400)
     expect((await post('', roadmap('Cut the first block'))).ok()).toBeTruthy()
     expect((await post('', roadmap('Cut another'))).status()).toBe(409)
     expect((await post('?replace=true', roadmap('Cut another'), AGENT)).status()).toBe(403)

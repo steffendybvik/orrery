@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// Markdown drawn as a page (see `renderMarkdown`): docs, chunk summaries, issue descriptions, comments.
+// Markdown drawn as a page (see `renderMarkdown`): docs, milestone summaries, issue descriptions, comments.
 // Given `before`, what changed since is tinted.
 const props = defineProps<{source: string, title?: string, before?: string}>()
 const html = computed(() => renderMarkdown(props.source, props.title, props.before).html)

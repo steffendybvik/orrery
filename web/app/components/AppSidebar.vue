@@ -118,8 +118,12 @@ watch(sessionsFolded, folded => {
 })
 const sessionsPanel = ref<HTMLElement>()
 const sessionsDragging = ref(false)
-/** The most the panel can be: what the sidebar has, less what the nav keeps. */
+// Popped out, it floats over the page wherever it's put (ORR-901), its resize edge on the side away from its corner.
+const float = useSessionsFloat(sessionsPanel)
+const floating = float.floating
+/** The most the panel can be: floating, what the window has; in the sidebar, what it has less what the nav keeps. */
 function sessionsMax() {
+    if (floating.value) return float.maxHeight()
     const panel = sessionsPanel.value
     const aside = panel?.parentElement
     if (!panel || !aside) return SESSIONS_HEIGHT
@@ -138,7 +142,9 @@ function sessionsDown(event: PointerEvent) {
     sessionsDragging.value = true
 }
 function sessionsMove(event: PointerEvent) {
-    if (sessionsDragging.value) sessionsHeight.value = clampSessions(dragFromHeight + dragFromY - event.clientY)
+    // Its edge at the bottom (floating from a top corner), dragging down makes it taller; at the top, dragging up.
+    const by = floating.value && float.top.value ? event.clientY - dragFromY : dragFromY - event.clientY
+    if (sessionsDragging.value) sessionsHeight.value = clampSessions(dragFromHeight + by)
 }
 function sessionsUp(event: PointerEvent) {
     if (!sessionsDragging.value) return
@@ -411,13 +417,19 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
       <p v-if="ready && !projects.length" class="px-2 py-1 text-xs text-faint">None yet: start one with +.</p>
     </nav>
 
-    <!-- Every Claude session working on a project, apart from the projects so they stay short. -->
+    <!-- Every Claude session working on a project, apart from the projects so they stay short; popped out, floating
+         over the page (ORR-901). -->
+    <Teleport to="body" :disabled="!floating">
     <div
         v-if="allSessions.length || canStart"
         ref="sessionsPanel"
-        class="relative flex shrink-0 flex-col border-t border-line px-2 pt-2 pb-2"
-        :style="sessionsFolded ? undefined : sessionsHeight === SESSIONS_HEIGHT ? {maxHeight: `${SESSIONS_HEIGHT}px`} : {height: `${sessionsHeight}px`}"
+        class="flex shrink-0 flex-col px-2 pt-2 pb-2"
+        :class="floating ? 'fixed z-40 rounded-xl border border-line bg-panel shadow-xl' : 'relative border-t border-line'"
+        :style="{...float.style.value, ...sessionsFolded ? {} : sessionsHeight === SESSIONS_HEIGHT ? {maxHeight: `${SESSIONS_HEIGHT}px`} : {height: `${sessionsHeight}px`}}"
+        :role="floating ? 'region' : undefined"
+        :aria-label="floating ? 'Sessions' : undefined"
         data-testid="sidebar-sessions"
+        @keydown.esc="floating && !sessionsFolded && (sessionsFolded = true)"
     >
       <!-- Its top edge, dragged (or the arrows) to make it taller or shorter; double-click puts it back. -->
       <div
@@ -429,7 +441,8 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
           :aria-valuenow="sessionsHeight"
           :aria-valuemin="SESSIONS_MIN"
           title="Drag to resize, double-click to reset"
-          class="group absolute inset-x-0 -top-1 z-10 h-2 cursor-row-resize touch-none outline-none"
+          class="group absolute inset-x-0 z-10 h-2 cursor-row-resize touch-none outline-none"
+          :class="floating && float.top.value ? '-bottom-1' : '-top-1'"
           data-testid="sidebar-sessions-resize"
           @pointerdown="sessionsDown"
           @pointermove="sessionsMove"
@@ -445,7 +458,15 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
             aria-hidden="true"
         />
       </div>
-      <div class="label flex items-center gap-1 px-2" :class="!sessionsFolded && 'mb-1'">
+      <!-- Floating, its heading is where it's dragged from. -->
+      <div
+          class="label flex items-center gap-1 px-2"
+          :class="[!sessionsFolded && 'mb-1', floating && 'cursor-grab touch-none']"
+          @pointerdown="float.down"
+          @pointermove="float.move"
+          @pointerup="float.up"
+          @pointercancel="float.up"
+      >
         <button
             type="button"
             class="-ml-1 grid place-items-center rounded p-0.5 text-faint hover:bg-hover hover:text-fg pointer-coarse:size-7"
@@ -461,6 +482,32 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
         <span v-if="allSessions.length" class="font-mono normal-case tabular-nums">{{ allSessions.length }}</span>
         <button type="button" class="grid place-items-center rounded p-0.5 text-faint hover:bg-hover hover:text-fg pointer-coarse:size-7" title="Start a session" aria-label="Start a session" @click="startSession()">
           <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14" /></svg>
+        </button>
+        <template v-if="floating">
+          <button
+              type="button"
+              data-grip
+              class="grid cursor-grab place-items-center rounded p-0.5 text-faint hover:bg-hover hover:text-fg"
+              title="Move the panel: drag, or the arrow keys"
+              aria-label="Move the sessions panel"
+              data-testid="sessions-float-grip"
+              @keydown="float.key"
+          >
+            <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v18M3 12h18M12 3l-3 3m3-3 3 3M12 21l-3-3m3 3 3-3M3 12l3-3m-3 3 3 3M21 12l-3-3m3 3-3 3" /></svg>
+          </button>
+          <button type="button" class="grid place-items-center rounded p-0.5 text-faint hover:bg-hover hover:text-fg" title="Back to the sidebar" aria-label="Back to the sidebar" @click="float.dock()">
+            <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M9 4v16" /></svg>
+          </button>
+        </template>
+        <button
+            v-else
+            type="button"
+            class="hidden place-items-center rounded p-0.5 text-faint hover:bg-hover hover:text-fg md:grid"
+            title="Pop out: float the sessions anywhere on the page"
+            aria-label="Pop out the sessions"
+            @click="float.popOut()"
+        >
+          <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 4h6v6M20 4l-8 8M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5" /></svg>
         </button>
       </div>
       <div v-if="!sessionsFolded" class="flex min-h-0 flex-col gap-0.5 overflow-y-auto">
@@ -496,6 +543,7 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
         </div>
       </div>
     </div>
+    </Teleport>
 
     <div class="shrink-0 border-t border-line p-2">
       <!-- GitHub keeps the row; orrery's own releases sit small at its right (ORR-609), apart from the Releases page above. -->

@@ -34,7 +34,7 @@ test.beforeAll(async ({request}) => {
     await makeProject(request, {name: 'Gallery', key: 'GAL'})
     // A retry finds the gallery as the first try left it: adding its issues again would put two of each in the image.
     if (test.info().retry > 0 && (await api(request, 'get', '/projects/gallery/issues')).length) return
-    const {id: chunk} = await api(request, 'post', '/projects/gallery/chunks', {title: 'Hanging'})
+    const {id: milestone} = await api(request, 'post', '/projects/gallery/milestones', {title: 'Hanging'})
     const issues = [
         {title: 'Hang the portraits in the east wing', status: 'in-progress', priority: 'P1', labels: ['bug']},
         {title: 'Light the sculpture hall', status: 'todo', priority: 'P2'},
@@ -42,7 +42,7 @@ test.beforeAll(async ({request}) => {
         {title: 'Reframe the watercolours', status: 'backlog'},
         {title: 'Open the doors', status: 'done', priority: 'P2'},
     ]
-    for (const issue of issues) await api(request, 'post', '/projects/gallery/issues', {...issue, chunk})
+    for (const issue of issues) await api(request, 'post', '/projects/gallery/issues', {...issue, milestone})
     await api(request, 'post', '/projects/gallery/issues/GAL-1/comments', {body: 'Started on the **east wing**: three of eight up.'}, {'Orrery-Actor': 'claude'})
 })
 

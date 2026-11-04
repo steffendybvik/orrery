@@ -7,7 +7,7 @@ import {badRequest, notFound} from '../utils/input'
 import type {Db, Value} from '../utils/database'
 import {one} from '../utils/database'
 import type {Instruction} from '#shared/prompt'
-import type {Actor, ProjectRow, ChunkRow, IssueRow, CommentRow, DocRow, ReleaseRow} from './schema'
+import type {Actor, ProjectRow, MilestoneRow, IssueRow, CommentRow, DocRow, ReleaseRow} from './schema'
 import {noReleases, nullable, stamp} from './schema'
 import type {OrreryEvent} from '#shared/happenings'
 import {refusedFor} from '../utils/permission'
@@ -89,7 +89,7 @@ export abstract class StoreBase {
             icon: row.icon ?? undefined,
             icon_color: row.icon_color ?? undefined,
             focus_prompt: row.focus_prompt ?? undefined,
-            chunk_prompt: row.chunk_prompt ?? undefined,
+            milestone_prompt: row.milestone_prompt ?? undefined,
             instructions: JSON.parse(row.instructions) as Instruction[],
             muted: JSON.parse(row.muted) as string[],
             starts: await this.orreryStarts(),
@@ -123,19 +123,19 @@ export abstract class StoreBase {
         return short === null ? id : await this.issueId(project, short)
     }
 
-    /** The chunk's id, from its number, a name it had before (an alias), or the full form of either on this board. */
-    protected async chunkId(project: string, id: string): Promise<string> {
-        if (await this.get('SELECT 1 FROM chunks WHERE project = ? AND id = ?', project, id)) return id
-        const alias = (await this.get<{chunk: string}>('SELECT chunk FROM chunk_aliases WHERE project = ? AND alias = ?', project, id))?.chunk
+    /** The milestone's id, from its number, a name it had before (an alias), or the full form of either on this board. */
+    protected async milestoneId(project: string, id: string): Promise<string> {
+        if (await this.get('SELECT 1 FROM milestones WHERE project = ? AND id = ?', project, id)) return id
+        const alias = (await this.get<{milestone: string}>('SELECT milestone FROM milestone_aliases WHERE project = ? AND alias = ?', project, id))?.milestone
         if (alias) return alias
-        const short = shortId('chunk', id, (await this.projectRow(project)).uid)
-        return short === null ? id : await this.chunkId(project, short)
+        const short = shortId('milestone', id, (await this.projectRow(project)).uid)
+        return short === null ? id : await this.milestoneId(project, short)
     }
 
-    /** Hands out the project's next id: KEY-n for an issue, n for a chunk. */
-    protected async nextId(project: string, kind: 'issue' | 'chunk'): Promise<string> {
+    /** Hands out the project's next id: KEY-n for an issue, n for a milestone. */
+    protected async nextId(project: string, kind: 'issue' | 'milestone'): Promise<string> {
         const {key} = await this.projectRow(project)
-        const [column, table, aliases] = kind === 'issue' ? ['next_number', 'issues', 'issue_aliases'] as const : ['next_chunk', 'chunks', 'chunk_aliases'] as const
+        const [column, table, aliases] = kind === 'issue' ? ['next_number', 'issues', 'issue_aliases'] as const : ['next_milestone', 'milestones', 'milestone_aliases'] as const
         const name = (n: number) => kind === 'issue' ? `${key}-${n}` : String(n)
         // Each number is taken in one statement, so two writers never get the same one; one an import
         // already used, or that's still an id something had, is skipped.
@@ -157,10 +157,10 @@ export abstract class StoreBase {
         return row
     }
 
-    protected async chunkRow(project: string, id: string): Promise<ChunkRow> {
+    protected async milestoneRow(project: string, id: string): Promise<MilestoneRow> {
         await this.projectRow(project)
-        const row = await this.get<ChunkRow>('SELECT * FROM chunks WHERE project = ? AND id = ?', project, id)
-        if (!row) throw notFound(`No chunk "${id}" in ${project}`)
+        const row = await this.get<MilestoneRow>('SELECT * FROM milestones WHERE project = ? AND id = ?', project, id)
+        if (!row) throw notFound(`No milestone "${id}" in ${project}`)
         return row
     }
 
@@ -208,7 +208,7 @@ export abstract class StoreBase {
         const row = await this.projectRow(project)
         return [
             ...row.owned ? [`project "${project}"`] : [],
-            ...(await this.all<{id: string}>('SELECT id FROM chunks WHERE project = ? AND owned = 1', project)).map(c => `chunk "${c.id}"`),
+            ...(await this.all<{id: string}>('SELECT id FROM milestones WHERE project = ? AND owned = 1', project)).map(c => `milestone "${c.id}"`),
             ...(await this.all<{id: string}>('SELECT id FROM docs WHERE project = ? AND owned = 1', project)).map(d => `doc "${d.id}"`),
             ...(await this.all<{version: string}>('SELECT version FROM releases WHERE project = ? AND owned = 1', project)).map(r => `release ${r.version}`),
             ...await this.ownedUnder(project, (await this.all<{id: string}>('SELECT id FROM issues WHERE project = ?', project)).map(i => i.id)),
@@ -259,7 +259,7 @@ export abstract class StoreBase {
         await this.run('UPDATE projects SET updated_at = ? WHERE id = ?', now, project)
     }
 
-    protected async nextPosition(table: 'chunks' | 'issues' | 'docs', project: string): Promise<number> {
+    protected async nextPosition(table: 'milestones' | 'issues' | 'docs', project: string): Promise<number> {
         return ((await this.get<{n: number | null}>(`SELECT max(position) AS n FROM ${table} WHERE project = ?`, project))?.n ?? -1) + 1
     }
 

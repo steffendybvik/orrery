@@ -2,10 +2,10 @@
 import type {Column, Session} from '#shared/roadmap'
 import {Menu, MenuButton, MenuItem, MenuItems} from '@headlessui/vue'
 
-// On a status group of a chunk's page: asks one listening session, or all of them, to work through the
-// chunk's issues of that status, most urgent first. Only there while a session is listening. Headless UI's Menu
+// On a status group of a milestone's page: asks one listening session, or all of them, to work through the
+// milestone's issues of that status, most urgent first. Only there while a session is listening. Headless UI's Menu
 // does the keys, focus and outside-click.
-const props = defineProps<{project: string, chunk: string, column: Column}>()
+const props = defineProps<{project: string, milestone: string, column: Column}>()
 const {sessions: all} = useRoadmaps()
 
 const listening = computed(() => (all.value[props.project] ?? []).filter(s => s.listening))
@@ -17,7 +17,7 @@ const note = ref('')
 async function focus(session: Session | null) {
     sending.value = true
     try {
-        await apiFetch(`/projects/${encodeURIComponent(props.project)}/chunks/${encodeURIComponent(props.chunk)}/focus`, {
+        await apiFetch(`/projects/${encodeURIComponent(props.project)}/milestones/${encodeURIComponent(props.milestone)}/focus`, {
             method: 'POST', body: {status: props.column, session: session?.id ?? '*'},
         })
         note.value = `Sent to ${session ? session.name : listening.value.length === 1 ? 'the session' : `${listening.value.length} sessions`}`

@@ -61,7 +61,7 @@ const lists = computed(() => [
             <h3 class="text-[13px] font-medium">{{ group.project.name }}</h3>
             <span class="font-mono text-[11px] text-faint">{{ group.issues.length }}</span>
           </NuxtLink>
-          <IssueRow v-for="{issue, chunk} in group.issues" :key="issue.id" :issue="issue" :project="group.project.id" :chunk="chunk" />
+          <IssueRow v-for="{issue, milestone} in group.issues" :key="issue.id" :issue="issue" :project="group.project.id" :milestone="milestone" />
         </section>
       </div>
       <div v-if="ready && projects.length && !lists.length" class="flex flex-col items-center gap-2 px-4 py-24 text-center">

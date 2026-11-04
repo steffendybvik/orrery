@@ -50,22 +50,22 @@ describe('a run', () => {
     let store: Store
     let schedules: Schedules
     let signals: Signal[]
-    const make = (body: Record<string, unknown> = {}) => schedules.create('greenhouse', {title: 'Pre-release', cron: '0 9 * * *', timezone: 'UTC', notes: NOTES, chunk: '1', priority: 'P2', column: 'todo', ...body}, me)
+    const make = (body: Record<string, unknown> = {}) => schedules.create('greenhouse', {title: 'Pre-release', cron: '0 9 * * *', timezone: 'UTC', notes: NOTES, milestone: '1', priority: 'P2', column: 'todo', ...body}, me)
     const run = async (id: number) => (await schedules.runNow('greenhouse', id, me))
 
     beforeEach(async () => {
         signals = []
         store = new Store(testDb(), () => {}, signal => signals.push(signal))
         await store.createProject({name: 'greenhouse', key: 'GRE'})
-        await store.createChunk('greenhouse', {title: 'Upkeep'})
+        await store.createMilestone('greenhouse', {title: 'Upkeep'})
         schedules = new Schedules(store)
     })
 
-    it('makes a sub-issue for each line, in order, with the parent\'s priority, chunk and status', async () => {
+    it('makes a sub-issue for each line, in order, with the parent\'s priority, milestone and status', async () => {
         const made = await run((await make({labels: ['upkeep']})).id)
         expect(made).toMatchObject({outcome: 'made', note: 'with 4 sub-issues'})
         const parent = await store.issue('greenhouse', made.issue!)
-        expect(parent).toMatchObject({notes: 'Get it ready.\n\nDon\'t merge into main.', chunk: '1', priority: 'P2', status: 'todo'})
+        expect(parent).toMatchObject({notes: 'Get it ready.\n\nDon\'t merge into main.', milestone: '1', priority: 'P2', status: 'todo'})
         expect(parent.tasks.map(t => t.title)).toEqual(['Feature freeze', 'Update PR description', 'Update the images', 'Run unit and e2e'])
         const first = await store.issue('greenhouse', parent.tasks[0]!.id)
         expect(first).toMatchObject({notes: 'only fixes go in from here.', priority: 'P2', status: 'todo', parent: parent.id})

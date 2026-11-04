@@ -9,7 +9,7 @@ registerEndpoint('/api/owner', () => ({name: 'skoll', display: 'Skoll', named: t
 registerEndpoint('/api/pulls', () => ({repos: [], needs: 0}))
 
 const project = (id: string, name: string, more: Record<string, unknown> = {}) =>
-    ({id, name, key: id.slice(0, 3).toUpperCase(), releases: [], docs: [], release_mode: 'none', board: {chunks: [], kinds: {}}, ...more}) as unknown as Project
+    ({id, name, key: id.slice(0, 3).toUpperCase(), releases: [], docs: [], release_mode: 'none', board: {milestones: [], kinds: {}}, ...more}) as unknown as Project
 const session = (id: string, projectId: string, state: Session['state'], more: Partial<Session> = {}) =>
     ({id, name: id, project: projectId, state, listening: true, since: '', started_at: '', ...more}) as Session
 

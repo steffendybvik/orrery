@@ -3,7 +3,7 @@ import {nextTick} from 'vue'
 import type {VueWrapper} from '@vue/test-utils'
 import {mountSuspended, registerEndpoint} from '@nuxt/test-utils/runtime'
 import {getHeader, readBody} from 'h3'
-import type {Chunk, Issue, Project} from '#shared/roadmap'
+import type {Milestone, Issue, Project} from '#shared/roadmap'
 import {WORK_KINDS} from '#shared/roadmap'
 import IssueProperties from '~/components/IssueProperties.vue'
 
@@ -18,8 +18,8 @@ registerEndpoint('/api/projects/greenhouse/issues/GRE-1', {method: 'PATCH', hand
 }})
 
 const issue = (more: Record<string, unknown> = {}) => ({id: 'GRE-1', title: 'Write the watering guide', aliases: [], labels: ['docs'], external: [], github_issues: [], tasks: [], column: 'todo', kind: 'todo', kinds: {done: 0}, created_by: 'skoll', ...more}) as unknown as Issue
-const chunk = (task: Issue) => ({id: 'care', title: 'Care', tasks: [task]}) as unknown as Chunk
-const project = (task: Issue) => ({id: 'greenhouse', name: 'Greenhouse', key: 'GRE', releases: [], board: {chunks: [chunk(task)]}}) as unknown as Project
+const milestone = (task: Issue) => ({id: 'care', title: 'Care', tasks: [task]}) as unknown as Milestone
+const project = (task: Issue) => ({id: 'greenhouse', name: 'Greenhouse', key: 'GRE', releases: [], board: {milestones: [milestone(task)]}}) as unknown as Project
 
 const settled = () => new Promise(resolve => requestAnimationFrame(resolve)).then(() => nextTick())
 const mounted: VueWrapper[] = []
@@ -31,7 +31,7 @@ beforeEach(() => {
 afterEach(() => mounted.splice(0).forEach(w => w.unmount()))
 
 async function mount(task: Issue) {
-    const wrapper = await mountSuspended(IssueProperties, {props: {issue: task, project: project(task), chunk: chunk(task)}, attachTo: document.body})
+    const wrapper = await mountSuspended(IssueProperties, {props: {issue: task, project: project(task), milestone: milestone(task)}, attachTo: document.body})
     mounted.push(wrapper)
     return wrapper
 }

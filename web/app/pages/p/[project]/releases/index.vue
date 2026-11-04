@@ -120,7 +120,7 @@ useHead(() => ({title: project.value ? `Releases · ${project.value.name} · orr
             when it ships versions, its own or another project's.
           </p>
           <p v-else class="text-xs text-muted">
-            The versions {{ project.name }} ships, and which issues go out in each. Chunks are themes; a release cuts across them.
+            The versions {{ project.name }} ships, and which issues go out in each. Milestones are themes; a release cuts across them.
             Set an issue's release on its page.
           </p>
         </div>

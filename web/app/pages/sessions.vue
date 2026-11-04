@@ -178,7 +178,7 @@ watch(() => [route.hash, count.value] as const, ([hash]) => show(hash), {immedia
             </PropertyPicker>
           </div>
           <p class="text-xs text-muted">
-            The message a session gets when you ask it to focus on an issue or work through a chunk. For one project, its
+            The message a session gets when you ask it to focus on an issue or work through a milestone. For one project, its
             own templates (empty follows every project's) and instructions. Sessions started before a change hear it once they restart.
           </p>
         </header>

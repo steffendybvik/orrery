@@ -1,4 +1,4 @@
-import type {Chunk, Column, Comment, Issue, Kinds, Place, Project, Release, SessionContext} from '#shared/roadmap'
+import type {Milestone, Column, Comment, Issue, Kinds, Place, Project, Release, SessionContext} from '#shared/roadmap'
 import {CLOSED, PRIORITIES, RISK_LEVELS, TINTS, linkRef, madeUpName, open, parseLinkRef, total} from '#shared/roadmap'
 import {serverName} from '#shared/connect'
 
@@ -36,8 +36,8 @@ export const PRIORITY_LABEL: Record<string, string> = {P0: 'Urgent', P1: 'High',
 /** The priorities as a `PropertyPicker`'s options, none first. */
 export const PRIORITY_OPTIONS = [{value: '', label: 'No priority'}, ...PRIORITIES.map(p => ({value: p, label: `${p} · ${PRIORITY_LABEL[p]}`}))]
 
-/** A project's chunks as a `PropertyPicker`'s options, none first (the chunk of loose issues has no id). */
-export const chunkOptions = (chunks: Chunk[]) => [{value: '', label: 'No chunk'}, ...chunks.filter(c => c.id).map(c => ({value: c.id, label: c.title}))]
+/** A project's milestones as a `PropertyPicker`'s options, none first (the milestone of loose issues has no id). */
+export const milestoneOptions = (milestones: Milestone[]) => [{value: '', label: 'No milestone'}, ...milestones.filter(c => c.id).map(c => ({value: c.id, label: c.title}))]
 
 /** Putting an issue in a column: its status. Into Proposed makes it a proposal; a proposal put anywhere
  * else is committed. */
@@ -68,7 +68,7 @@ export function progress(kinds: Kinds) {
 
 export interface Found {
     issue: Issue
-    chunk: Chunk
+    milestone: Milestone
     /** From the top-level issue down to its parent. */
     parents: Issue[]
 }
@@ -76,29 +76,29 @@ export interface Found {
 /** The issue with this id, or one it had before. */
 export function findIssue(project: Project | undefined, id: string): Found | null {
     if (!project) return null
-    const search = (issues: Issue[], chunk: Chunk, parents: Issue[]): Found | null => {
+    const search = (issues: Issue[], milestone: Milestone, parents: Issue[]): Found | null => {
         for (const issue of issues) {
-            if (issue.id === id || issue.aliases.includes(id)) return {issue, chunk, parents}
-            const found = search(issue.tasks, chunk, [...parents, issue])
+            if (issue.id === id || issue.aliases.includes(id)) return {issue, milestone, parents}
+            const found = search(issue.tasks, milestone, [...parents, issue])
             if (found) return found
         }
         return null
     }
-    for (const chunk of project.board.chunks) {
-        const found = search(chunk.tasks, chunk, [])
+    for (const milestone of project.board.milestones) {
+        const found = search(milestone.tasks, milestone, [])
         if (found) return found
     }
     return null
 }
 
 /** Every issue in the board, sub-issues after their parent. */
-export function allIssues(project: Project): {issue: Issue, chunk: Chunk, depth: number}[] {
-    const out: {issue: Issue, chunk: Chunk, depth: number}[] = []
-    const walk = (issues: Issue[], chunk: Chunk, depth: number) => issues.forEach(issue => {
-        out.push({issue, chunk, depth})
-        walk(issue.tasks, chunk, depth + 1)
+export function allIssues(project: Project): {issue: Issue, milestone: Milestone, depth: number}[] {
+    const out: {issue: Issue, milestone: Milestone, depth: number}[] = []
+    const walk = (issues: Issue[], milestone: Milestone, depth: number) => issues.forEach(issue => {
+        out.push({issue, milestone, depth})
+        walk(issue.tasks, milestone, depth + 1)
     })
-    project.board.chunks.forEach(chunk => walk(chunk.tasks, chunk, 0))
+    project.board.milestones.forEach(milestone => walk(milestone.tasks, milestone, 0))
     return out
 }
 
@@ -173,7 +173,7 @@ export function sectionsOf(project: Project, path: string) {
         : path.startsWith(`${base}/settings`) ? 'settings' : path === base || path.startsWith(`${base}/issues`) ? 'issues' : null
     const sections = [
         {id: 'issues' as Section, label: 'Issues', to: base, count: open(project.board.kinds), active: on === 'issues'},
-        {id: 'roadmap' as Section, label: 'Roadmap', to: `${base}/roadmap`, count: project.board.chunks.filter(c => c.id).length, active: on === 'roadmap'},
+        {id: 'roadmap' as Section, label: 'Roadmap', to: `${base}/roadmap`, count: project.board.milestones.filter(c => c.id).length, active: on === 'roadmap'},
         // Counted: the releases still being prepared.
         {id: 'releases' as Section, label: 'Releases', to: `${base}/releases`, count: project.releases.filter(r => !r.shipped_on).length, active: on === 'releases'},
         {id: 'docs' as Section, label: 'Docs', to: `${base}/docs`, count: project.docs.length, active: on === 'docs'},
@@ -186,14 +186,14 @@ export function sectionsOf(project: Project, path: string) {
 /** A release's page. */
 export const releasePath = (project: string, version: string) => `/p/${encodeURIComponent(project)}/releases/${encodeURIComponent(version)}`
 
-/** A chunk's page; the issues in no chunk are at `none`. */
-export const chunkPath = (project: string, chunk: string) => `/p/${encodeURIComponent(project)}/roadmap/${chunk ? encodeURIComponent(chunk) : 'none'}`
+/** A milestone's page; the issues in no milestone are at `none`. */
+export const milestonePath = (project: string, milestone: string) => `/p/${encodeURIComponent(project)}/roadmap/${milestone ? encodeURIComponent(milestone) : 'none'}`
 
-/** The issues set for a release, chunk by chunk as the board has them: a sub-issue set for it on its own
- * comes up from under its parent. Chunks with none of them are left out. */
-export function releaseChunks(project: Project, version: string): Chunk[] {
+/** The issues set for a release, milestone by milestone as the board has them: a sub-issue set for it on its own
+ * comes up from under its parent. Milestones with none of them are left out. */
+export function releaseMilestones(project: Project, version: string): Milestone[] {
     const pick = (issues: Issue[]): Issue[] => issues.flatMap(issue => issue.release === version ? [issue] : pick(issue.tasks))
-    return project.board.chunks.map(c => ({...c, tasks: pick(c.tasks)})).filter(c => c.tasks.length)
+    return project.board.milestones.map(c => ({...c, tasks: pick(c.tasks)})).filter(c => c.tasks.length)
 }
 
 /** The changelog's groups, in the order it lists them, and the labels that put an issue in each (ORR-516). An issue
@@ -219,8 +219,8 @@ export function changelogGroup(issue: Pick<Issue, 'labels'>): (typeof CHANGELOG_
 
 /** A changelog for the release, in Markdown, from its issues' titles: what's done, under Features, Changes, Fixes,
  * Docs and Internal (the empty ones left out), each most urgent first, then by id; then what isn't done yet. */
-export function changelogOf(release: Release, chunks: Chunk[], date = release.shipped_on ?? 'unreleased'): string {
-    const issues = chunks.flatMap(c => c.tasks)
+export function changelogOf(release: Release, milestones: Milestone[], date = release.shipped_on ?? 'unreleased'): string {
+    const issues = milestones.flatMap(c => c.tasks)
     const line = (issue: Issue) => `- ${issue.title} (${issue.id})`
     const rank = (issue: Issue) => issue.priority ? PRIORITIES.indexOf(issue.priority) : PRIORITIES.length
     const byUrgency = (a: Issue, b: Issue) => rank(a) - rank(b) || a.id.localeCompare(b.id, undefined, {numeric: true})

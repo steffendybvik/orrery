@@ -3,22 +3,22 @@
 import type {Issue} from './board'
 
 /** A word to the Claude sessions on a project: `focus` asks one to work on the issue (or work through
- * the chunk) now; `comment` brings the owner's comment on an issue (in `note`) to the session working
+ * the milestone) now; `comment` brings the owner's comment on an issue (in `note`) to the session working
  * on it, to answer; `message` is a schedule's message (in `note`), about no issue. */
 export interface Signal {
     /** A member's signal (ORR-658): only their sessions hear it. The owner's say `protected` instead. */
     person?: string
-    /** The model its work needs, pooled (ORR-868): its issue's, or a chunk's heaviest. No session started on a lighter one
+    /** The model its work needs, pooled (ORR-868): its issue's, or a milestone's heaviest. No session started on a lighter one
      * takes it; none, any session can. */
     model?: string
     id: number
     project: string
-    /** The issue it's about, or for a focus on a whole chunk, `chunk` (`none`: the issues in no chunk; `all`: every chunk's). */
+    /** The issue it's about, or for a focus on a whole milestone, `milestone` (`none`: the issues in no milestone; `all`: every milestone's). */
     issue?: string
-    chunk?: string
-    /** For a chunk: only its issues of these statuses (ids or kinds, comma-separated), not all its open ones. */
+    milestone?: string
+    /** For a milestone: only its issues of these statuses (ids or kinds, comma-separated), not all its open ones. */
     status?: string
-    /** For a chunk: only its issues set for this release. */
+    /** For a milestone: only its issues set for this release. */
     release?: string
     /** The schedule that sent it (a message). */
     schedule?: number

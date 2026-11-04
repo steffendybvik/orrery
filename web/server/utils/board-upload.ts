@@ -22,6 +22,10 @@ type Tables = Record<Table, Row[]>
 
 const UPLOAD_ID = /^[0-9a-f]{24}$/
 
+/** The step that renamed chunks to milestones (ORR-896), and the tables' names before it: a file at or below it says those. */
+const MILESTONE_STEP = MIGRATIONS.findIndex(step => typeof step === 'string' && step.includes('ALTER TABLE chunks RENAME TO milestones'))
+const OLD_NAMES: Partial<Record<Table, string>> = {milestones: 'chunks', milestone_aliases: 'chunk_aliases'}
+
 const isRow = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value)
 
 /** The file's tables, checked in a SQLite of their own at the file's schema step and brought up to this server's: a
@@ -47,13 +51,15 @@ function upToDate(file: Record<string, unknown>, statuses: Row[]): Tables {
         }
         for (const status of statuses) if (!known.has(String(status.id))) memory.prepare('INSERT INTO statuses (id, name, kind, color, position) VALUES (?, ?, ?, ?, ?)').run(status.id as string, status.name as string, status.kind as string, status.color as string, status.position as number)
         for (const table of Object.keys(EXPORTED) as Table[]) {
-            const rows = given[table] ?? []
-            if (!Array.isArray(rows)) throw badRequest(`That file's ${table} isn't a list`)
+            // A file from before milestones were (ORR-896) has them under their old tables' names.
+            const named = (step as number) <= MILESTONE_STEP ? OLD_NAMES[table] ?? table : table
+            const rows = given[named] ?? []
+            if (!Array.isArray(rows)) throw badRequest(`That file's ${named} isn't a list`)
             for (const row of rows) {
                 if (!isRow(row)) throw badRequest(`That file's ${table} holds something that isn't a row`)
                 // Whatever project a row says, it's on this board. A schedule keeps nothing tied to the server it came from.
                 const here = table === 'projects' ? {...row, id: 'uploaded'} : 'project' in row || table === 'presets' ? {...row, project: 'uploaded'} : row
-                add(table, table === 'schedules' ? {...here, across: null, place: known.has(String(here.place)) || statuses.some(s => s.id === here.place) ? here.place : 'todo'} : here)
+                add(named, table === 'schedules' ? {...here, across: null, place: known.has(String(here.place)) || statuses.some(s => s.id === here.place) ? here.place : 'todo'} : here)
             }
         }
         migrate(memory, 'That file', MIGRATIONS.length)
@@ -176,9 +182,9 @@ export async function uploadBoard(db: Db, file: unknown, as: {id?: string, key?:
         const seen = async (project: string) => !!await db.get('SELECT 1 FROM project_members WHERE project = ? AND person = ?', project, holder)
         const from = typeof source.releases_from === 'string' && await seen(source.releases_from) ? source.releases_from : null
         await insert(db, 'projects', {...source, id, key, name: as.name ?? source.name, uid: randomUid(), created_by: actor.name, owned: Number(actor.owner),
-            focus_prompt: null, chunk_prompt: null, instructions: '[]', starts: null, repo: null,
+            focus_prompt: null, milestone_prompt: null, instructions: '[]', starts: null, repo: null,
             releases_from: from, release_mode: source.release_mode !== 'own' && !from ? 'none' : source.release_mode,
-            next_number: pastIds(tables.issues.map(issue => issue.id), source.next_number), next_chunk: pastIds(tables.chunks.map(chunk => chunk.id), source.next_chunk),
+            next_number: pastIds(tables.issues.map(issue => issue.id), source.next_number), next_milestone: pastIds(tables.milestones.map(milestone => milestone.id), source.next_milestone),
         })
         await db.run("INSERT INTO project_members (project, person, role, created_at) VALUES (?, ?, 'owner', ?)", id, holder, now)
         for (const member of tables.project_members) {
@@ -186,7 +192,7 @@ export async function uploadBoard(db: Db, file: unknown, as: {id?: string, key?:
             if (person && person !== holder) await db.run("INSERT INTO project_members (project, person, role, created_at) VALUES (?, ?, 'member', ?) ON CONFLICT DO NOTHING", id, person, String(member.created_at ?? now))
         }
 
-        for (const table of ['chunks', 'chunk_aliases', 'doc_sections', 'docs', 'releases'] as Table[]) {
+        for (const table of ['milestones', 'milestone_aliases', 'doc_sections', 'docs', 'releases'] as Table[]) {
             for (const row of tables[table]) await insert(db, table, onThisBoard(table === 'releases' ? {...row, doc_mark: null} : row))
         }
 

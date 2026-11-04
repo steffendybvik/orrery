@@ -44,7 +44,7 @@ describe("the owner's things", () => {
         expect((await failure(() => store.deleteComment('greenhouse', a, comment.id, claude))).status).toBe(403)
         expect((await failure(() => store.updateComment('greenhouse', a, comment.id, {body: 'not yours'}, claude))).status).toBe(403)
         expect((await failure(() => store.deleteProject('greenhouse', claude))).status).toBe(403)
-        expect((await failure(() => store.importRoadmap('greenhouse', {comment: '', chunks: []}, true, claude))).status).toBe(403)
+        expect((await failure(() => store.importRoadmap('greenhouse', {comment: '', milestones: []}, true, claude))).status).toBe(403)
 
         await store.deleteIssue('greenhouse', a, me)
         expect(await store.listIssues('greenhouse')).toEqual([])
