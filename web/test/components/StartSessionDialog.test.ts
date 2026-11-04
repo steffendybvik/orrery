@@ -209,6 +209,29 @@ describe('StartSessionDialog', () => {
         await vi.waitFor(() => expect(count().exists()).toBe(false))
     })
 
+    it('shows the model it works out for an issue (ORR-869)', async () => {
+        const {wrapper} = await mount('greenhouse')
+        const picker = () => wrapper.find('[data-testid="start-model"]')
+        await vi.waitFor(() => expect(picker().text()).toContain("Claude Code's default"))
+        await wrapper.find('button[aria-label="Issue"]').trigger('click')
+        await vi.waitFor(() => expect(wrapper.findAll('[role="option"]').length).toBeGreaterThan(1))
+        await wrapper.findAll('[role="option"]').find(o => o.text().includes('greenhouse-1 ·'))!.trigger('mousedown', {button: 0})
+        await vi.waitFor(() => expect(picker().text()).toContain('best, as Other'))
+    })
+
+    it('starts it on a model picked for this one session (ORR-869)', async () => {
+        const {wrapper, submit} = await mount('greenhouse')
+        await vi.waitFor(() => expect(wrapper.find('button[aria-label="Model"]').exists()).toBe(true))
+        await wrapper.find('button[aria-label="Model"]').trigger('click')
+        await vi.waitFor(() => expect(wrapper.findAll('[role="option"]').some(o => o.text().trim() === 'haiku')).toBe(true))
+        await wrapper.findAll('[role="option"]').find(o => o.text().trim() === 'haiku')!.trigger('mousedown', {button: 0})
+        await vi.waitFor(() => expect(wrapper.find('[data-testid="start-model"]').text()).toContain('haiku'))
+        await vi.waitFor(() => expect(submit().attributes('disabled')).toBeUndefined())
+        await wrapper.find('form').trigger('submit')
+        await vi.waitFor(() => expect(sent).toHaveLength(1))
+        expect(sent[0]!.body).toMatchObject({model: 'haiku'})
+    })
+
     it('says how many started when the limit refuses the rest', async () => {
         room = {greenhouse: 1}
         const {wrapper} = await mount('greenhouse')
