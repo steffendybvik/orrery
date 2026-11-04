@@ -18,8 +18,7 @@ useHead(() => ({title: project.value ? `Roadmap · ${project.value.name} · orre
 <template>
   <PageHeader>
     <template v-if="project">
-      <h1 class="truncate text-sm font-medium">{{ project.name }}</h1>
-      <ProgressRing :kinds="project.board.kinds" class="max-sm:hidden" />
+      <ProjectTopBar :project="project" tab="Roadmap" />
     </template>
     <h1 v-else-if="ready" class="truncate text-sm font-medium">Not found</h1>
   </PageHeader>

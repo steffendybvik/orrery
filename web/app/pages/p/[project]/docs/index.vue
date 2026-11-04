@@ -15,7 +15,7 @@ const {docUnseen} = useUnseen()
 <template>
   <PageHeader>
     <template v-if="project">
-      <h1 class="truncate text-sm font-medium">{{ project.name }}</h1>
+      <ProjectTopBar :project="project" tab="Docs" />
     </template>
     <h1 v-else-if="ready" class="truncate text-sm font-medium">Not found</h1>
   </PageHeader>

@@ -44,10 +44,7 @@ onMounted(() => nextTick(() => {
 <template>
   <PageHeader>
     <template v-if="project">
-      <h1 class="truncate text-sm font-medium">{{ project.name }}</h1>
-      <span class="rounded bg-well px-1.5 py-px font-mono text-[10px] text-faint ring-1 ring-line">{{ project.key }}</span>
-      <ProgressRing :kinds="project.board.kinds" class="max-sm:hidden" />
-      <span v-if="project.description" class="hidden min-w-0 truncate text-xs text-faint lg:inline">{{ project.description }}</span>
+      <ProjectTopBar :project="project" tab="Issues" />
     </template>
     <h1 v-else-if="ready" class="truncate text-sm font-medium">Not found</h1>
   </PageHeader>
