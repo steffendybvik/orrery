@@ -204,6 +204,8 @@ body {
         & pre:focus-visible, & table:focus-visible { @apply outline-none ring-2 ring-accent-500/60; }
         & th, & td { @apply border border-line px-3 py-1.5 text-left; }
         & th { @apply bg-well font-medium text-fg; }
+        /* A name in a table stays whole on a phone: the table scrolls in its box rather than squeeze it (ORR-858). */
+        & :is(th, td) code { @apply whitespace-nowrap; overflow-wrap: normal; }
         /* A picture sits in a frame (a band of the well colour, a hairline and a soft shadow), so a screenshot
            doesn't read as more of the page. */
         & img { @apply max-w-full rounded-xl border-4 border-well shadow-sm ring-1 ring-line; }
