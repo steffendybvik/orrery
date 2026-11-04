@@ -193,6 +193,19 @@ describe('pull requests', () => {
         await expect(pulls.rate('shop', 'SHO-1', 'you/shop', 791, {level: 'low', why: 'x'}, false)).rejects.toMatchObject({statusCode: 404})
     })
 
+    it("put the riskiest of an issue's rated PRs on it in the board, for filtering and sorting by (ORR-879)", async () => {
+        const merged = (number: number) => ({number, title: `PR ${number}`, url: `https://github.com/you/shop/pull/${number}`, branch: 'feat/sho-1', base: 'main', author: 'claude',
+            merged: true, closed: false, merged_at: '2026-10-29T09:00:00Z', created_at: '2026-10-28T09:00:00Z', updated_at: '2026-10-29T09:00:00Z', names: ['SHO-1']})
+        await pulls.remember('you/shop', ['shop'], merged(790))
+        await pulls.remember('you/shop', ['shop'], merged(791))
+        const risks = async () => (await store.project('shop')).board.chunks.flatMap(c => c.tasks).map(i => [i.id, i.risk?.level])
+        expect(await risks()).toEqual([['SHO-1', undefined], ['SHO-2', undefined]])
+        await pulls.rate('shop', 'SHO-1', 'you/shop', 790, {level: 'low', why: 'docs only'}, false)
+        await pulls.rate('shop', 'SHO-1', 'you/shop', 791, {level: 'high', why: 'adds a migration'}, false)
+        expect(await risks()).toEqual([['SHO-1', 'high'], ['SHO-2', undefined]])
+        expect((await store.project('shop')).board.chunks[0]!.tasks[0]!.risk).toEqual({level: 'high', why: 'adds a migration', by: 'session'})
+    })
+
     it('rate an open PR the same way, shown with it while GitHub lists it (ORR-879)', async () => {
         answers[LIST] = () => json([listed(7, {head: {ref: 'feat/sho-1-cards'}})])
         answers['/repos/you/shop/pulls/7'] = () => json({...listed(7), mergeable_state: 'clean'})
