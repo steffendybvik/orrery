@@ -772,7 +772,7 @@ test("follows the page's project until one is picked by hand, then stays pinned 
     await expect(pane.getByRole('heading', {name: 'Ask about Belfry'})).toBeVisible()
     await expect(pane.getByTestId('chat-away')).toHaveCount(0)
     // Picked by hand, it's pinned: another page, even after a reload, leaves it there, and says where you are.
-    await pane.getByRole('button', {name: 'Project', exact: true}).click()
+    await pane.locator('[data-picker="Project"]').click()
     await pane.getByRole('option', {name: 'Observatory'}).click()
     await expect(pane.getByRole('button', {name: /^Unpin the project/})).toHaveAttribute('aria-pressed', 'true')
     await expect(pane.getByTestId('chat-away')).toHaveText("You're on Belfry; this chat is about Observatory")

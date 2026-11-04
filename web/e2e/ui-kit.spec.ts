@@ -21,7 +21,7 @@ test('everything you can click shows the pointer, a disabled button the arrow', 
     const cursor = (target: Locator) => target.evaluate(el => getComputedStyle(el).cursor)
     expect(await cursor(page.getByRole('button', {name: 'primary', exact: true}).first())).toBe('pointer')
     expect(await cursor(page.getByRole('radio', {name: /Board/}))).toBe('pointer')
-    await page.getByRole('button', {name: 'Status', exact: true}).click()
+    await page.locator('[data-picker="Status"]').click()
     expect(await cursor(page.getByRole('option').first())).toBe('pointer')
     await page.keyboard.press('Escape')
     await page.getByRole('button', {name: 'primary', exact: true}).first().evaluate(el => (el as HTMLButtonElement).disabled = true)
@@ -29,7 +29,7 @@ test('everything you can click shows the pointer, a disabled button the arrow', 
 })
 
 test('PropertyPicker: types to narrow, ↵ picks, and the focus comes back', async ({page}) => {
-    const status = page.getByRole('button', {name: 'Status', exact: true})
+    const status = page.locator('[data-picker="Status"]')
     await status.click()
     await page.keyboard.type('pro')
     await lit(page, /In progress/)
@@ -49,7 +49,7 @@ test('PropertyPicker: types to narrow, ↵ picks, and the focus comes back', asy
 })
 
 test('PropertyPicker, multiple and creatable: ticks many, makes one, stays open', async ({page}) => {
-    const labels = page.getByRole('button', {name: 'Labels', exact: true})
+    const labels = page.locator('[data-picker="Labels"]')
     await labels.click()
     await page.keyboard.type('urgent')
     await lit(page, /Add/)
@@ -71,8 +71,8 @@ test('PropertyPicker as a field: Tab reaches it, ↓ opens it', async ({page}) =
     await lit(page, /Done/)
     await page.keyboard.press('Enter')
     await expect(small).toHaveText('Done')
-    await expect(page.getByRole('button', {name: 'Status', exact: true})).toHaveText(/Done/)
-    await expect(page.getByRole('button', {name: 'Priority', exact: true})).toHaveAttribute('tabindex', '0')
+    await expect(page.locator('[data-picker="Status"]')).toHaveText(/Done/)
+    await expect(page.locator('[data-picker="Priority"]')).toHaveAttribute('tabindex', '0')
 })
 
 test('FilterMenu: ticks from the keys, counts them, Clear and Esc', async ({page}) => {
