@@ -355,7 +355,7 @@ Comments, descriptions, docs and the chat's answers are drawn from Markdown that
 have written, so they're cleaned first. Nothing in them runs, or sends a form. They load nothing from another site by themselves, as
 opening the page would send that site whatever the address holds (ORR-751): a picture from elsewhere shows as a link naming the
 site, and video, audio, inline styles and `<style>` are dropped, so they can't restyle or cover the page either. A link is still a
-link, and clicking one sends what its address holds, so look at where it goes. The page itself still loads its fonts from Google Fonts.
+link, and clicking one sends what its address holds, so look at where it goes.
 
 ## The browser can't be used against it
 
@@ -368,7 +368,7 @@ at all, not even as a picture in orrery's own page; only the channel, the launch
 Nor can what's written in orrery send anything out just by being shown (ORR-748). Issues, comments, docs and the chat's
 replies are drawn as Markdown, and an agent that has read something could put it in an image's address, which a browser would
 ask for by itself. So orrery's pages carry a `Content-Security-Policy` that loads images and media only from orrery, and fonts
-and styles only from orrery and Google Fonts. Browsers' DNS prefetching
+and styles only from orrery, which serves its own fonts (ORR-766). Browsers' DNS prefetching
 is off too, as looking up a link's host would send a name out. A link sends something only when you click it.
 
 ## Secrets
@@ -429,7 +429,7 @@ are. Only a review by your own handle (`handle` in App settings) is quoted (ORR-
   until you've looked. Anything can add a page error, so those are marked as reports and held to 5 of a kind and 20
   in all a minute. Read the log as a lead, not proof (ORR-420).
 - orrery itself sends nothing anywhere, except your roadmap to a Postgres you chose, and the requests your
-  agents make with a secret, to the hosts you allowed it. The page loads its fonts from Google Fonts.
+  agents make with a secret, to the hosts you allowed it. The page loads nothing from elsewhere, its fonts included.
 
 ## Reporting a problem
 

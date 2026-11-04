@@ -24,7 +24,7 @@ export default defineNuxtConfig({
     spaLoadingTemplate: spaLoading,
     devServer: {port: 9000},
 
-    css: ['~/assets/css/main.css'],
+    css: ['~/assets/css/fonts.css', '~/assets/css/main.css'],
 
     vite: {
         plugins: [tailwindcss()],
@@ -92,11 +92,11 @@ export default defineNuxtConfig({
 
     // docs/API.md is served to agents (/api/guide, /llms-full.txt).
     // Nothing on the page loads from elsewhere by itself, so what an agent writes in Markdown can't send what it read to
-    // another server just by being shown (ORR-748). Fonts are Google's. A route with a policy of its own replaces this.
+    // another server just by being shown (ORR-748), fonts included, which orrery serves itself (ORR-766). A route with a policy of its own replaces this.
     routeRules: {
         '/**': {
             headers: {
-                'Content-Security-Policy': "img-src 'self' data: blob:; media-src 'self' data: blob:; font-src 'self' data: https://fonts.gstatic.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; object-src 'none'",
+                'Content-Security-Policy': "img-src 'self' data: blob:; media-src 'self' data: blob:; font-src 'self' data:; style-src 'self' 'unsafe-inline'; object-src 'none'",
                 'X-DNS-Prefetch-Control': 'off',
             },
         },
@@ -125,12 +125,8 @@ export default defineNuxtConfig({
                 {rel: 'icon', type: 'image/svg+xml', href: '/favicon.svg'},
                 {rel: 'apple-touch-icon', href: '/apple-touch-icon.png'},
                 {rel: 'manifest', href: '/site.webmanifest'},
-                {rel: 'preconnect', href: 'https://fonts.googleapis.com'},
-                {rel: 'preconnect', href: 'https://fonts.gstatic.com', crossorigin: ''},
-                {
-                    rel: 'stylesheet',
-                    href: 'https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap',
-                },
+                // Fetched with the page rather than once its stylesheet is read: nearly every page's text is in it (ORR-766).
+                {rel: 'preload', href: '/fonts/geist-latin.woff2', as: 'font', type: 'font/woff2', crossorigin: ''},
             ],
             // Sets the theme before the first paint, so a light page doesn't flash dark.
             script: [{
