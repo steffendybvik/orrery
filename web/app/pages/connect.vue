@@ -96,14 +96,17 @@ const tab = computed<'connect' | 'mcp'>({
         <p class="rounded-lg bg-canvas/60 px-3 py-2.5 font-mono text-[12.5px] leading-relaxed wrap-break-word text-fg ring-1 ring-line">{{ pieces.prompt }}</p>
       </section>
 
-      <details class="group rounded-2xl bg-well/50 ring-1 ring-line">
-        <summary class="flex list-none items-center gap-2 px-5 py-4 text-[13px] font-medium text-fg">
-          <svg class="size-3 text-faint transition-transform group-open:rotate-90" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6" /></svg>
-          What the agent reads
-          <a :href="pieces.url" target="_blank" class="ml-auto font-mono text-[11px] font-normal text-faint hover:text-fg" @click.stop>{{ pieces.url.replace(origin, '') }}</a>
-        </summary>
-        <div class="px-5 pb-5"><MarkdownView :source="pieces.brief" class="text-[14px]" /></div>
-      </details>
+      <!-- The brief's link sits over the summary's row rather than in it, as a link inside a summary is a control in a control. -->
+      <div class="relative">
+        <details class="group rounded-2xl bg-well/50 ring-1 ring-line">
+          <summary class="flex list-none items-center gap-2 py-4 pr-32 pl-5 text-[13px] font-medium text-fg">
+            <svg class="size-3 text-faint transition-transform group-open:rotate-90" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6" /></svg>
+            What the agent reads
+          </summary>
+          <div class="px-5 pb-5"><MarkdownView :source="pieces.brief" class="text-[14px]" /></div>
+        </details>
+        <a :href="pieces.url" target="_blank" class="absolute top-4 right-5 font-mono text-[11px] leading-[19.5px] text-faint hover:text-fg">{{ pieces.url.replace(origin, '') }}</a>
+      </div>
 
       <details class="group rounded-2xl bg-well/50 ring-1 ring-line">
         <summary class="flex list-none items-center gap-2 px-5 py-4 text-[13px] font-medium text-fg">
