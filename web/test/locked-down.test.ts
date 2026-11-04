@@ -3,7 +3,7 @@ import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {describe, expect, it} from 'vitest'
 // @ts-expect-error: the launcher is plain JavaScript, run by node on the host
-import {chatOnly, lockedDown} from '../../channel/locked-down.mjs'
+import {chatOnly, lockedDown, modelArgs} from '../../channel/locked-down.mjs'
 // @ts-expect-error: the channel is plain JavaScript, run by node on the host
 import {NOT_FOR_CHAT} from '../../channel/tools.mjs'
 
@@ -43,5 +43,18 @@ describe("the owner's chat", () => {
         expect(args.slice(args.indexOf('--allowedTools') + 1, args.indexOf('--disallowedTools'))).toEqual(['mcp__orrery-shop'])
         const refused = args.slice(args.indexOf('--disallowedTools') + 1)
         expect(refused).toEqual(NOT_FOR_CHAT.map((tool: string) => `mcp__orrery-shop__${tool}`))
+    })
+})
+
+describe('a session started on a model (ORR-868)', () => {
+    it('adds --model and --effort when the launch asks for them, and nothing when it asks for neither', () => {
+        expect(modelArgs({model: 'haiku', effort: 'low'})).toEqual(['--model', 'haiku', '--effort', 'low'])
+        expect(modelArgs({model: 'claude-sonnet-5-5'})).toEqual(['--model', 'claude-sonnet-5-5'])
+        expect(modelArgs({})).toEqual([])
+    })
+
+    it('passes on nothing that isn\'t a model or an effort', () => {
+        expect(modelArgs({model: '--dangerously-skip-permissions', effort: 'huge'})).toEqual([])
+        expect(modelArgs({model: 'haiku; rm -rf ~'})).toEqual([])
     })
 })

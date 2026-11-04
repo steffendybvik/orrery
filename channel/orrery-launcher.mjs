@@ -45,7 +45,7 @@ import {fileURLToPath} from 'node:url'
 import {connector, pickerFor} from './connect-repo.mjs'
 import {authHeaders, keyFor, keysFile} from './credentials.mjs'
 import {addToList, adoptable, configFile, inWsl, install, listChanges, listIn, readConfig, removeService, restartKeepsSessions, servedElsewhere, serviceProblem, uninstall, wslLocalhost} from './launcher-service.mjs'
-import {chatOnly, lockedDown} from './locked-down.mjs'
+import {chatOnly, lockedDown, modelArgs} from './locked-down.mjs'
 import {onYes} from './permission-prompt.mjs'
 import {channelFor, channelsIn, projectsIn, servesEvery} from './repo-channels.mjs'
 import {follow} from './sse.mjs'
@@ -369,6 +369,9 @@ function keepStopTime(id, stopsAt) {
  * or the owner's chat, the same way. */
 const UNTRUSTED = '@orrery_untrusted'
 const CHAT = '@orrery_chat'
+/** The model and effort it was started on, when orrery asked for them (ORR-868), kept the same way. */
+const MODEL = '@orrery_model'
+const EFFORT = '@orrery_effort'
 
 /** The tmux session a launch on the project runs in, as orrery names it. */
 const tmuxName = (project, id) => `orrery-${project}-${id}`.replace(/[^\w-]/g, '-')
@@ -431,6 +434,14 @@ function adopt(project, api) {
         } catch {
             // Not a chat.
         }
+        for (const [key, option] of [['model', MODEL], ['effort', EFFORT]]) {
+            try {
+                const value = tmux('show-options', '-v', '-t', name, option)
+                if (value) running.get(id)[key] = value
+            } catch {
+                // Started on Claude Code's default.
+            }
+        }
         log(`took back ${name}, running ${stopsAt === NEVER ? 'until stopped' : `until ${new Date(stopsAt).toLocaleTimeString()}`}`)
     }
 }
@@ -438,7 +449,7 @@ function adopt(project, api) {
 /** Tells the project's orrery which of its sessions this launcher runs, so one that restarted knows them again. */
 async function report(api) {
     const launches = [...running.entries()].filter(([, s]) => s.api === api)
-        .map(([id, s]) => ({id, tmux: s.tmux, ...s.stops_at ? {stops_at: s.stops_at} : {}, ...s.context ? {context: s.context} : {}, ...s.untrusted ? {untrusted: true} : {}, ...s.chat ? {chat: true} : {}}))
+        .map(([id, s]) => ({id, tmux: s.tmux, ...s.stops_at ? {stops_at: s.stops_at} : {}, ...s.context ? {context: s.context} : {}, ...s.untrusted ? {untrusted: true} : {}, ...s.chat ? {chat: true} : {}, ...s.model ? {model: s.model} : {}, ...s.effort ? {effort: s.effort} : {}}))
     await fetch(`${api}/launches/running`, {method: 'POST', headers: {'Content-Type': 'application/json', ...authHeaders(api)}, body: JSON.stringify({launches})})
         .catch(() => {})
 }
@@ -473,18 +484,20 @@ function serve({url, project, dir, picked_at: picked, connected_at: connected}, 
 
     /** Starts the launch's session, once this launcher has claimed it (another may have first). */
     async function start(launch) {
-        // It says it locks an untrusted launch down with no Bash, and starts a chat as `chatOnly` says: orrery
-        // gives either only to a launcher that does.
-        const claim = await fetch(`${api}/launches/${launch.id}/claim?untrusted=no-bash&chat=yes`, {method: 'POST', headers: {'Orrery-Launcher': token, ...authHeaders(api)}}).then(r => r.json()).catch(() => ({claimed: false}))
+        // It says it locks an untrusted launch down with no Bash, starts a chat as `chatOnly` says, and starts a session
+        // on the model and effort asked for: orrery gives each only to a launcher that does.
+        const claim = await fetch(`${api}/launches/${launch.id}/claim?untrusted=no-bash&chat=yes&model=yes`, {method: 'POST', headers: {'Orrery-Launcher': token, ...authHeaders(api)}}).then(r => r.json()).catch(() => ({claimed: false}))
         if (!claim.claimed) return
         // An untrusted one's channel says so on everything it sends, so orrery holds it to that even when it has
         // restarted and doesn't know the launch yet.
         const env = {ORRERY_URL: url, ORRERY_PROJECT: project, ORRERY_STARTED: launch.id, ORRERY_AFTER: String(launch.after), ...launch.hears?.length ? {ORRERY_HEAR: launch.hears.join(',')} : {}, ...launch.untrusted ? {ORRERY_UNTRUSTED: 'yes'} : {}, ...launch.chat ? {ORRERY_CHAT: 'yes'} : {}, ...launch.person ? {ORRERY_PERSON: launch.person} : {}, ...keyFor(url) ? {ORRERY_KEY: keyFor(url)} : {}}
         const server = channelFor(dir, url, project)?.name ?? project
         tmux('new-session', '-d', '-s', launch.tmux, '-c', dir, ...Object.entries(env).flatMap(([k, v]) => ['-e', `${k}=${v}`]),
-            'claude', '--dangerously-load-development-channels', `server:${server}`, ...launch.untrusted ? lockedDown(dir, server) : launch.chat ? chatOnly(dir, server) : ['--permission-mode', mode])
+            'claude', '--dangerously-load-development-channels', `server:${server}`, ...launch.untrusted ? lockedDown(dir, server) : launch.chat ? chatOnly(dir, server) : ['--permission-mode', mode], ...modelArgs(launch))
         tmux('set-option', '-t', launch.tmux, LAUNCHER, String(process.pid))
-        running.set(launch.id, {tmux: launch.tmux, api, context: launch.context, ...launch.untrusted ? {untrusted: true} : {}, ...launch.chat ? {chat: true} : {}})
+        running.set(launch.id, {tmux: launch.tmux, api, context: launch.context, ...launch.untrusted ? {untrusted: true} : {}, ...launch.chat ? {chat: true} : {}, ...launch.model ? {model: launch.model} : {}, ...launch.effort ? {effort: launch.effort} : {}})
+        if (launch.model) tmux('set-option', '-t', launch.tmux, MODEL, launch.model)
+        if (launch.effort) tmux('set-option', '-t', launch.tmux, EFFORT, launch.effort)
         if (launch.context) tmux('set-option', '-t', launch.tmux, CONTEXT, JSON.stringify(launch.context))
         if (launch.untrusted) tmux('set-option', '-t', launch.tmux, UNTRUSTED, 'yes')
         if (launch.chat) tmux('set-option', '-t', launch.tmux, CHAT, 'yes')

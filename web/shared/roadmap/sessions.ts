@@ -117,7 +117,21 @@ export interface StartedSession {
     /** Started for the owner's chat: it hears only the chat's messages, reads and answers, and makes issues and
      * comments when asked; nothing else. */
     chat?: boolean
+    /** The model and effort it was started on (`claude --model … --effort …`), when it asked for any; none, on
+     * Claude Code's default there (ORR-868). */
+    model?: string
+    effort?: Effort
 }
+
+/** The effort levels Claude Code takes at start (`--effort`). */
+export const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const
+export type Effort = typeof EFFORTS[number]
+/** The models a session can be started on: an alias Claude Code takes (`best`, `opus`, `sonnet`, `haiku`, `fable`,
+ * `default`, `opusplan`), which follows its family's newest model, or a full id (`claude-sonnet-5-5`), which never moves. */
+export const MODEL_ALIASES = ['best', 'opus', 'sonnet', 'haiku', 'fable', 'default', 'opusplan'] as const
+export const isModel = (value: unknown): value is string =>
+    typeof value === 'string' && value.length <= 64 && ((MODEL_ALIASES as readonly string[]).includes(value) || /^claude-[a-z0-9.-]+(\[1m\])?$/.test(value))
+export const isEffort = (value: unknown): value is Effort => (EFFORTS as readonly unknown[]).includes(value)
 
 /** More context for a session, from the owner as they start it: the presets they picked (by name) and their own
  * words (`instructions`), joined in `text`. It goes with every signal to the session, and back to it after a `/clear`. */

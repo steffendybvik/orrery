@@ -842,6 +842,46 @@ describe("the owner's chat", () => {
     })
 })
 
+describe('a session started on a model (ORR-868)', () => {
+    it('carries the model and effort asked for, onto the session once it connects', async () => {
+        const {token} = launches.addLauncher('greenhouse')
+        const launch = await launches.startLaunch('greenhouse', {model: 'haiku', effort: 'low'})
+        expect(launch).toMatchObject({model: 'haiku', effort: 'low'})
+        expect(launches.claim('greenhouse', launch.id, token, true, true, true)).toBe(true)
+        expect(launches.launched(launch.id)).toMatchObject({model: 'haiku', effort: 'low'})
+    })
+
+    it('goes only to a launcher that says it starts sessions on a model, as an older one would drop it', async () => {
+        const {token} = launches.addLauncher('greenhouse')
+        const launch = await launches.startLaunch('greenhouse', {model: 'sonnet'})
+        expect(launches.claim('greenhouse', launch.id, token, true, true)).toBe(false)
+        expect(noted).toEqual([expect.objectContaining({kind: 'launcher.outdated', message: expect.stringMatching(/chosen model/)})])
+        expect(launches.claim('greenhouse', launch.id, token, true, true, true)).toBe(true)
+    })
+
+    it('leaves one on the default to any launcher', async () => {
+        const {token} = launches.addLauncher('greenhouse')
+        const launch = await launches.startLaunch('greenhouse')
+        expect(launch.model).toBeUndefined()
+        expect(launches.claim('greenhouse', launch.id, token, true, true)).toBe(true)
+    })
+
+    it('keeps the model a launcher reports after orrery restarted', () => {
+        launches.reportRunning('greenhouse', [{id: 'd1d2d3d4d5d6', tmux: 'orrery-greenhouse-d1d2d3d4d5d6', model: 'opus', effort: 'high'}])
+        expect(launches.launched('d1d2d3d4d5d6')).toMatchObject({model: 'opus', effort: 'high'})
+    })
+
+    it('takes an alias or a full id and an effort level, and refuses anything else', () => {
+        expect(launches.startInput({model: 'best', effort: 'max'})).toMatchObject({model: 'best', effort: 'max'})
+        expect(launches.startInput({model: 'claude-haiku-5-5'})).toMatchObject({model: 'claude-haiku-5-5'})
+        expect(launches.startInput({})).not.toHaveProperty('model')
+        vi.stubGlobal('badRequest', (message: string) => Object.assign(new Error(message), {statusCode: 400}))
+        expect(() => launches.startInput({model: 'gpt'})).toThrow('Send {model}')
+        expect(() => launches.startInput({model: 'haiku --dangerously-skip-permissions'})).toThrow('Send {model}')
+        expect(() => launches.startInput({effort: 'huge'})).toThrow('Send {effort}')
+    })
+})
+
 describe('a launcher reporting the sessions it runs', () => {
     const running = {id: 'a1b2c3d4e5f6', tmux: 'orrery-greenhouse-a1b2c3d4e5f6', stops_at: '2026-10-25T20:00:00.000Z'}
 

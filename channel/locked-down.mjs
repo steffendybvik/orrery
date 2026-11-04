@@ -47,3 +47,11 @@ function settingsIn(path) {
         return {}
     }
 }
+
+/** What starts a launch's session on the model and effort orrery asked for (ORR-868); none, on Claude Code's own default.
+ * Only a model or effort of the shape orrery sends is passed on, as separate words to tmux, never through a shell. */
+export function modelArgs(launch) {
+    const model = typeof launch.model === 'string' && /^[a-z][a-z0-9.\-]*(\[1m\])?$/.test(launch.model) && launch.model.length <= 64 ? launch.model : ''
+    const effort = ['low', 'medium', 'high', 'xhigh', 'max'].includes(launch.effort) ? launch.effort : ''
+    return [...model ? ['--model', model] : [], ...effort ? ['--effort', effort] : []]
+}
