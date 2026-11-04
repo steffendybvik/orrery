@@ -1,5 +1,9 @@
 import type {Project} from '#shared/roadmap'
 
+/** Where a project stands in the sidebar: first, as it is, or folded away under Hidden. */
+export type ProjectPlace = 'starred' | 'normal' | 'hidden'
+export const PROJECT_PLACES: {value: ProjectPlace, label: string}[] = [{value: 'starred', label: 'Starred'}, {value: 'normal', label: 'Shown'}, {value: 'hidden', label: 'Hidden'}]
+
 // The order the projects are shown in, as arranged in the sidebar and remembered in this browser: starred ones first
 // (App settings → Projects, ORR-836), then the rest. Projects not placed yet (new ones) come after, by name.
 // `shown` leaves out the hidden ones, which the sidebar folds away; `ordered` keeps them, for the pickers and palette.
@@ -17,6 +21,7 @@ export function useProjectOrder() {
 
     const isStarred = (id: string) => settings.value.starred.includes(id)
     const isHidden = (id: string) => settings.value.hidden.includes(id)
+    const placeOf = (id: string): ProjectPlace => isHidden(id) ? 'hidden' : isStarred(id) ? 'starred' : 'normal'
 
     const ordered = computed<Project[]>(() => {
         const at = (p: Project) => {
@@ -45,7 +50,7 @@ export function useProjectOrder() {
     }
 
     /** Stars, hides or puts back a project (App settings → Projects): never both starred and hidden. */
-    function place(id: string, as: 'starred' | 'normal' | 'hidden') {
+    function place(id: string, as: ProjectPlace) {
         const starred = settings.value.starred.filter(other => other !== id)
         const hiddenIds = settings.value.hidden.filter(other => other !== id)
         if (as === 'starred') starred.push(id)
@@ -53,5 +58,5 @@ export function useProjectOrder() {
         return useAppSettings().save({starred, hidden: hiddenIds})
     }
 
-    return {ordered, shown, hidden, isStarred, isHidden, move, place}
+    return {ordered, shown, hidden, isStarred, isHidden, placeOf, move, place}
 }

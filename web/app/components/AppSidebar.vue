@@ -51,7 +51,8 @@ const LIVE = {
 }
 
 // Projects are dragged by their name to rearrange them (or moved with ⌥↑/⌥↓); a line shows where one lands.
-// Starred ones lead, and hidden ones fold away under Hidden at the foot (App settings → Projects, ORR-836).
+// Starred ones lead, and hidden ones fold away under Hidden at the foot (App settings → Projects, ORR-836), which
+// links to the Projects page, every project on one page (ORR-863).
 const {ordered, shown, hidden, isStarred, move} = useProjectOrder()
 const showHidden = useState('sidebar-hidden-open', () => false)
 const {sessions} = useRoadmaps()
@@ -163,6 +164,16 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
       >
         <svg class="size-4 text-faint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 7H7a5 5 0 0 0 0 10h2M15 7h2a5 5 0 0 1 0 10h-2M8 12h8" /></svg>
         <span class="flex-1">Connect an agent</span>
+      </NuxtLink>
+
+      <NuxtLink
+          to="/projects"
+          class="flex items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] transition-colors"
+          :class="route.path === '/projects' ? 'bg-active font-medium text-fg' : 'text-muted hover:bg-hover hover:text-fg'"
+      >
+        <svg class="size-4 text-faint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="7" height="7" rx="1.5" /><rect x="14" y="4" width="7" height="7" rx="1.5" /><rect x="3" y="14" width="7" height="7" rx="1.5" /><rect x="14" y="14" width="7" height="7" rx="1.5" /></svg>
+        <span class="flex-1">Projects</span>
+        <span v-if="projects.length" class="font-mono text-[11px] text-faint tabular-nums">{{ projects.length }}</span>
       </NuxtLink>
 
       <NuxtLink
@@ -331,7 +342,7 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
             <ProgressRing v-else :kinds="project.board.kinds" bare :size="14" />
             <span class="min-w-0 flex-1 truncate">{{ project.name }}</span>
           </NuxtLink>
-          <NuxtLink to="/settings?tab=projects" class="ml-5 px-2 py-1 text-xs text-faint hover:text-muted">Choose in App settings</NuxtLink>
+          <NuxtLink to="/projects?show=hidden" class="ml-5 px-2 py-1 text-xs text-faint hover:text-muted">All projects</NuxtLink>
         </template>
       </template>
       <p v-if="ready && !projects.length" class="px-2 py-1 text-xs text-faint">None yet: start one with +.</p>

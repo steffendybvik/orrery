@@ -2,6 +2,7 @@
 import {TINTS, issueRef, trackerLinkOf} from '#shared/roadmap'
 import type {Backups, DatabaseInfo} from '#shared/roadmap'
 import type {Heading} from '~/utils/markdown'
+import {PROJECT_PLACES, type ProjectPlace} from '~/composables/useProjectOrder'
 
 // This orrery's own settings (a project's are on its Settings tab): whose it is, how issues work in every project, and
 // the orrery itself: its tint, a colour the backgrounds take on, so one orrery (personal, work) looks unlike another at a
@@ -143,12 +144,9 @@ async function restrictProposals(on: boolean) {
 }
 
 // Projects (ORR-836): each starred (first in the sidebar), as it is, or hidden (folded away under Hidden there).
-const {ordered: allProjects, isStarred, isHidden, place} = useProjectOrder()
-type Place = 'starred' | 'normal' | 'hidden'
-const PLACES: {value: Place, label: string}[] = [{value: 'starred', label: 'Starred'}, {value: 'normal', label: 'Shown'}, {value: 'hidden', label: 'Hidden'}]
-const placeOf = (id: string): Place => isHidden(id) ? 'hidden' : isStarred(id) ? 'starred' : 'normal'
+const {ordered: allProjects, isHidden, placeOf, place} = useProjectOrder()
 const projectsFailed = ref('')
-async function placeProject(id: string, as: Place) {
+async function placeProject(id: string, as: ProjectPlace) {
     projectsFailed.value = ''
     try {
         await place(id, as)
@@ -371,7 +369,7 @@ async function pick(tint: string | null) {
             </NuxtLink>
             <SegmentedControl
                 :model-value="placeOf(project.id)"
-                :options="PLACES"
+                :options="PROJECT_PLACES"
                 :aria-label="`Where the sidebar lists ${project.name}`"
                 @update:model-value="placeProject(project.id, $event)"
             />
