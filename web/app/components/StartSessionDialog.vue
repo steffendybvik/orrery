@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type {Issue, Preset, Project} from '#shared/roadmap'
+import {MODEL_ALIASES, kindOf, modelFor} from '#shared/roadmap'
 import type {LaunchState} from '~/composables/useLaunchState'
 
 // Starting Claude sessions from anywhere, as the owner: pick the projects (every one, those that can't start one
@@ -20,6 +21,8 @@ const {places} = useStatuses()
 const MOST = 9
 const chosen = ref<string[]>([])
 const issue = ref('')
+/** The model picked for this one session (ORR-869); empty starts it on what orrery works out. */
+const model = ref('')
 /** The statuses ticked for the scope; the open work that's ready to begin with. */
 const statuses = ref<string[]>([])
 const release = ref('')
@@ -48,7 +51,7 @@ const open = computed(() => places.value.filter(p => p.kind !== 'proposed' && !i
 watch(target, now => {
     if (!now) return
     chosen.value = now.project ? [now.project] : []
-    issue.value = release.value = failed.value = instructions.value = ''
+    issue.value = release.value = failed.value = instructions.value = model.value = ''
     picked.value = []
     together.value = 'one'
     count.value = 1
@@ -100,6 +103,17 @@ const releases = computed(() => {
     return lists.length ? lists.reduce((all, list) => all.filter(v => list.includes(v))) : []
 })
 const scoped = computed(() => !issue.value && (statuses.value.length > 0 || !!release.value))
+
+// The model it starts on (ORR-869): what orrery works out, its issue's own or its kind's, unless the owner picks another
+// for this one session. Without an issue it's Claude Code's default there.
+const {settings: appSettings} = useAppSettings()
+const worked = computed(() => {
+    const focused = openIssues.value.find(i => i.id === issue.value)
+    if (!focused) return "Claude Code's default"
+    const picked = modelFor(focused, appSettings.value.work_kinds).model ?? 'best'
+    return focused.model ? `${picked}, its own` : `${picked}, as ${kindOf(focused.labels, appSettings.value.work_kinds)?.name ?? 'its kind'}`
+})
+const modelOptions = computed(() => [{value: '', label: worked.value}, ...MODEL_ALIASES.filter(a => a !== 'default' && a !== 'opusplan').map(m => ({value: m, label: m}))])
 // For the pickers, which find as you type, as on an issue's page.
 const issueOptions = computed(() => [{value: '', label: "No one issue: it works through what's below"}, ...openIssues.value.map(i => ({value: i.id, label: `${i.id} · ${i.title}`}))])
 const issueLabel = computed(() => issueOptions.value.find(o => o.value === issue.value)?.label)
@@ -164,6 +178,7 @@ async function start() {
         ...work,
         presets: picked.value.filter(id => presets.value.some(p => p.id === id && (!p.project || p.project === project))),
         ...own,
+        ...model.value ? {model: model.value} : {},
     })
     const refused = new Map<string, string>()
     // The count of them through the project's launcher, stopping at the first refused, as the rest would be too.
@@ -269,6 +284,13 @@ async function start() {
       <p class="px-1 text-xs text-faint">
         {{ scoped ? 'It works through these issues, most urgent first, one at a time.' : 'Nothing ticked: it waits for your work.' }}
       </p>
+    </div>
+
+    <div v-if="projects.length || everywhere" class="flex flex-col gap-1" data-testid="start-model">
+      <span class="label px-1">Model</span>
+      <PropertyPicker v-model="model" :options="modelOptions" label="Model" wide>
+        <span class="truncate font-mono text-xs" :class="!model && 'font-sans text-faint'">{{ model || worked }}</span>
+      </PropertyPicker>
     </div>
 
     <div v-if="projects.length || everywhere" class="flex flex-col gap-1.5">
