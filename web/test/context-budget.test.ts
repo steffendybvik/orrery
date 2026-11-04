@@ -25,13 +25,13 @@ const tools = (projects: string[], options: object = {}) => toolsFor(projects, o
 describe('the tool list a session carries on every turn', () => {
     it('gives each kind of session these tools, so adding one is a choice', () => {
         // The chat's planning reads (chunks, presets, preset, schedules) are the chat's alone (ORR-544).
-        // A work session's rarer tools (asking for a schedule, secrets and egress, the event log) wait behind more_tools
+        // A work session's rarer tools (asking for a schedule, secrets and egress, the event log, rating a PR) wait behind more_tools
         // (ORR-625), and come in its list once it asks for their group.
         const work = ['issues', 'issue', 'create_issue', 'update_issue', 'start_issue', 'finish_issue', 'comment', 'releases', 'docs', 'doc',
             'write_doc', 'sessions', 'guide']
         expect(tools(['greenhouse']).map(t => t.name)).toEqual([...work, 'more_tools'])
-        expect(tools(['greenhouse'], {loaded: ['schedules', 'secrets', 'debug']}).map(t => t.name)).toEqual(['issues', 'issue', 'create_issue',
-            'update_issue', 'start_issue', 'finish_issue', 'comment', 'releases', 'docs', 'doc', 'write_doc', 'sessions', 'secrets', 'egress',
+        expect(tools(['greenhouse'], {loaded: ['schedules', 'secrets', 'debug', 'review']}).map(t => t.name)).toEqual(['issues', 'issue', 'create_issue',
+            'update_issue', 'start_issue', 'finish_issue', 'rate_pull', 'comment', 'releases', 'docs', 'doc', 'write_doc', 'sessions', 'secrets', 'egress',
             'events', 'guide', 'resolve_event', 'create_schedule', 'update_schedule'])
         expect(tools(['greenhouse'], {loaded: ['debug']}).map(t => t.name)).toEqual([...work.slice(0, -1), 'events', 'guide', 'resolve_event', 'more_tools'])
         // An untrusted one has only what orrery lets it do: read, raise proposals and comment on them, and read GitHub issues.
