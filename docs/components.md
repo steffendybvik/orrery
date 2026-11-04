@@ -4,7 +4,9 @@ The page is built from a small set of pieces. Reach for one of these before writ
 menu by hand, and add to the set rather than copy markup from another page. Components in
 `web/app/components/` are auto-imported by their file name; those in `components/ui/` get a `Ui` prefix.
 
-Under `pnpm dev`, `/ui` shows the kit on one page, each piece in its states.
+Under `pnpm dev`, `/ui` shows the kit on one page, each piece in its states, and under it **Building blocks**: an atlas of the
+shared display pieces below (status and priority icons, chips, avatars, session dots, icons, text, copy and the style classes),
+each drawn in its states with made-up data. A new shared piece goes there too, with a line in `ui-kit.spec.ts`.
 
 ## The kit (`components/ui/`)
 

@@ -1,8 +1,11 @@
 <script setup lang="ts">
 import {Menu, MenuButton, MenuItem, MenuItems} from '@headlessui/vue'
+import type {Session} from '#shared/roadmap'
+import {TINTS} from '#shared/roadmap'
 
-// The kit in one place (docs/components.md), so a new screen reuses its pieces rather than copying them. Only
-// under `nuxt dev`: a built orrery says Not found here.
+// The kit in one place (docs/components.md), so a new screen reuses its pieces rather than copying them, and under it the
+// atlas of the shared building blocks (ORR-757): each one drawn in its states, with its name. Only under `nuxt dev`: a
+// built orrery says Not found here.
 if (!import.meta.dev) throw createError({statusCode: 404, statusMessage: 'Not found'})
 useHead({title: 'UI kit · orrery'})
 
@@ -28,6 +31,23 @@ const dialog = ref(false)
 const said = ref('')
 const confirming = ref(false)
 const split = ref(240)
+
+// The atlas's examples: made-up data, enough to draw each piece in its states.
+const PULL_STATES = ['conflicting', 'failing', 'behind', 'blocked', 'draft', 'checking', 'ready', 'open', 'merged', 'closed'] as const
+const SECTIONS = ['issues', 'roadmap', 'releases', 'docs', 'schedules', 'sessions', 'settings'] as const
+const session = (state: Session['state'], more: Partial<Session> = {}) => ({id: state, project: 'greenhouse', name: state, state, since: '', listening: true, ...more}) as Session
+const SESSIONS = [
+    {label: 'idle', session: session('idle')},
+    {label: 'working', session: session('working')},
+    {label: 'waiting on you', session: session('waiting')},
+    {label: 'starting', session: session('starting')},
+    {label: 'not listening', session: session('idle', {listening: false})},
+    {label: 'cut off', session: session('idle', {cut_off: {error: 'rate_limit', at: ''}})},
+]
+const KINDS_SHOWN = [{backlog: 2, todo: 3, started: 2, done: 5, canceled: 0, proposed: 0}, {backlog: 0, todo: 0, started: 0, done: 4, canceled: 0, proposed: 0}]
+const COUNTS = {'backlog': 2, 'todo': 3, 'in-progress': 2, 'done': 5}
+const MARKDOWN = '### A heading\n\nA paragraph with `code`, **bold** and [a link](https://example.com).\n\n- a list\n- [x] a ticked step\n\n> A quote.'
+const tints = Object.keys(TINTS)
 </script>
 
 <template>
@@ -149,16 +169,107 @@ const split = ref(240)
         </UiDialog>
       </section>
 
-      <section class="flex flex-col gap-3 border-t border-line pt-6">
-        <h2 class="label">Showing</h2>
-        <div class="flex flex-wrap items-center gap-4 text-xs text-muted">
-          <span class="flex items-center gap-1.5"><StatusIcon v-for="o in statusOptions" :key="o.value" :column="o.value" /></span>
-          <span class="flex items-center gap-1.5"><PriorityIcon v-for="o in PRIORITY_OPTIONS" :key="o.value" :priority="o.value || undefined" /></span>
-          <LabelChip label="design" />
-          <BlockedChip :blockers="['ORR-270']" />
-          <PersonAvatar name="claude" />
-          <KeyHint>⌘K</KeyHint>
+      <header class="flex flex-col gap-1 border-t border-line pt-8">
+        <h2 class="text-[15px] font-semibold text-fg">Building blocks</h2>
+        <p class="text-xs text-muted">The shared pieces pages are made of (docs/components.md → Shared components), each in its states.</p>
+      </header>
+
+      <section class="flex flex-col gap-3" aria-labelledby="atlas-status">
+        <h2 id="atlas-status" class="label">StatusIcon, PriorityIcon, ProgressRing and ColumnBar</h2>
+        <div class="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-muted">
+          <span v-for="o in statusOptions" :key="o.value" class="inline-flex items-center gap-1.5"><StatusIcon :column="o.value" />{{ o.label }}</span>
+        </div>
+        <div class="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-muted">
+          <span v-for="o in PRIORITY_OPTIONS" :key="o.value" class="inline-flex items-center gap-1.5"><PriorityIcon :priority="o.value || undefined" />{{ o.label }}</span>
+        </div>
+        <div class="flex flex-wrap items-center gap-4">
+          <ProgressRing v-for="(kinds, i) in KINDS_SHOWN" :key="i" :kinds="kinds" />
+          <ProgressRing :kinds="KINDS_SHOWN[0]!" bare />
+          <ColumnBar :counts="COUNTS" class="w-48" />
+        </div>
+      </section>
+
+      <section class="flex flex-col gap-3 border-t border-line pt-6" aria-labelledby="atlas-chips">
+        <h2 id="atlas-chips" class="label">LabelChip, WaitingChip, BlockedChip, PullStateChip and ErrorBadge</h2>
+        <div class="flex flex-wrap items-center gap-2">
+          <LabelChip v-for="label in ['design', 'security', 'maintenance', 'bug']" :key="label" :label="label" />
+        </div>
+        <div class="flex flex-wrap items-center gap-2">
+          <WaitingChip asks="decision" />
+          <WaitingChip asks="feedback" />
+          <WaitingChip asks="decision" :proposal="{choices: 2}" />
+          <BlockedChip :blockers="['ORR-270', 'ORR-271']" />
+          <ErrorBadge :count="3" />
+        </div>
+        <div class="flex flex-wrap items-center gap-2">
+          <PullStateChip v-for="state in PULL_STATES" :key="state" :state="state" />
+        </div>
+      </section>
+
+      <section class="flex flex-col gap-3 border-t border-line pt-6" aria-labelledby="atlas-people">
+        <h2 id="atlas-people" class="label">PersonAvatar, SessionDot and PresetBadge</h2>
+        <div class="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-muted">
+          <span v-for="name in ['claude', 'hati', 'skoll']" :key="name" class="inline-flex items-center gap-1.5"><PersonAvatar :name="name" />{{ name }}</span>
+        </div>
+        <div class="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-muted">
+          <span v-for="s in SESSIONS" :key="s.label" class="inline-flex items-center gap-1.5"><SessionDot :session="s.session" />{{ s.label }}</span>
+        </div>
+        <div class="flex flex-wrap items-center gap-2">
+          <PresetBadge :preset="{name: 'Release', icon: 'rocket-launch', color: 'violet'}" />
+          <PresetBadge :preset="{name: 'Security audit', icon: 'shield-check', color: 'rose'}" />
+          <PresetBadge :preset="{name: 'Code review'}" />
+          <PresetBadge :preset="{name: 'Release', icon: 'rocket-launch', color: 'violet'}" :size="28" />
+        </div>
+      </section>
+
+      <section class="flex flex-col gap-3 border-t border-line pt-6" aria-labelledby="atlas-icons">
+        <h2 id="atlas-icons" class="label">ProjectIcon, SectionIcon and OrreryMark</h2>
+        <div class="flex flex-wrap items-center gap-3">
+          <ProjectIcon v-for="tint in tints" :key="tint" icon="beaker" :color="tint" class="size-4" />
+          <ProjectIcon icon="beaker" class="size-4" />
+        </div>
+        <div class="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-muted">
+          <span v-for="section in SECTIONS" :key="section" class="inline-flex items-center gap-1.5"><SectionIcon :section="section" />{{ section }}</span>
+        </div>
+        <div class="flex items-center gap-3 text-fg">
+          <OrreryMark class="size-4" />
+          <OrreryMark class="size-8" />
+        </div>
+      </section>
+
+      <section class="flex flex-col gap-3 border-t border-line pt-6" aria-labelledby="atlas-text">
+        <h2 id="atlas-text" class="label">KeyHint, StepMark, InlineText and MarkdownView</h2>
+        <div class="flex flex-wrap items-center gap-2 text-xs text-muted">
+          <KeyHint>⌘K</KeyHint><KeyHint>⌘↵</KeyHint><KeyHint>Esc</KeyHint><KeyHint>j</KeyHint>
+        </div>
+        <div class="flex flex-col gap-2 text-xs text-fg">
+          <span class="flex items-start gap-2"><StepMark :n="1" done />A step that's done</span>
+          <span class="flex items-start gap-2"><StepMark :n="2" :done="false" />A step still to do</span>
+        </div>
+        <p class="text-xs text-muted"><InlineText text="A line with `code`, **bold** and [a link](https://example.com)." /></p>
+        <MarkdownView :source="MARKDOWN" class="rounded-lg p-3 ring-1 ring-line" />
+      </section>
+
+      <section class="flex flex-col gap-3 border-t border-line pt-6" aria-labelledby="atlas-copy">
+        <h2 id="atlas-copy" class="label">CopyButton and CopyBlock</h2>
+        <div class="flex flex-wrap items-center gap-2">
           <CopyButton text="ORR-271" name="the id" />
+          <CopyButton text="ORR-271" name="the id" compact />
+        </div>
+        <CopyBlock title="Install the launcher" text="curl -fsSL http://localhost:9000/launcher | sh" hint="Run it in a terminal on this machine." />
+      </section>
+
+      <section class="flex flex-col gap-3 border-t border-line pt-6" aria-labelledby="atlas-styles">
+        <h2 id="atlas-styles" class="label">Styles: field, label, glass, tint, unseen-row and waiting-row</h2>
+        <div class="flex flex-wrap items-center gap-3">
+          <input aria-label="A field" placeholder="field" class="h-8 w-48 field">
+          <span class="label">label</span>
+          <span class="glass rounded-lg px-3 py-2 text-xs text-fg">glass</span>
+          <span class="rounded-lg bg-well px-3 py-2 text-xs text-fg hover:tint">tint, on hover</span>
+        </div>
+        <div class="flex flex-col gap-1 text-xs text-fg">
+          <span class="unseen-row rounded-lg px-2 py-1.5">unseen-row: changed since you looked <span class="unseen-dot" /></span>
+          <span class="waiting-row rounded-lg px-2 py-1.5">waiting-row: waiting on your answer</span>
         </div>
       </section>
     </div>
