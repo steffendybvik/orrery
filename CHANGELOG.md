@@ -107,7 +107,8 @@ overview, is one list.
 - **Connect an agent's brief link** no longer sits inside the summary it opens, a control inside a control.
 - **A picker is named by what it shows** ("Status: Done", not only "Status"), so voice control reaches it by the words on
   screen.
-- **`nuxt dev` starts again** with no host set, after the nuxt 4.6.4 update.
+- **`nuxt dev` starts again** with no host set, after the nuxt 4.6.4 update. It listens on `127.0.0.1` unless `HOST` says
+  otherwise, so Node's requests to `localhost` reach it where that looks up as `::1` first.
 
 ### Docs
 
@@ -116,7 +117,8 @@ overview, is one list.
 
 ### Internal
 
-- **README images:** the Images workflow's first run retook all six in the browser suite's own image.
+- **README images:** the Images workflow retook all six in the browser suite's own image, for rc.17. The dark and light
+  atlases are reshot, with rc.16 as their Before.
 - **An atlas of the shared building blocks** on `/ui`, in development only.
 - **The browser suite runs on WebKit and Firefox** next to Chrome, on the pull request into `main` and on a release tag.
 - **Coverage counts the page's own code** that runs in Chrome during the browser suite, so a component only the browser
