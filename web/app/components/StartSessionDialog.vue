@@ -202,15 +202,18 @@ async function start() {
 </script>
 
 <template>
-  <UiDialog :open="target" label="Start session" class="max-h-[76vh]" @close="close" @submit="start">
+  <!-- Its body scrolls between the heading and the footer, so Start session is always in reach, on a phone too (ORR-851).
+       dvh, as a phone's toolbars take some of vh. -->
+  <UiDialog :open="target" label="Start session" class="max-h-[76dvh]" @close="close" @submit="start">
     <div class="flex items-center gap-2 text-xs text-faint">
       <span>Start a session</span>
       <KeyHint class="ml-auto">esc</KeyHint>
     </div>
 
-    <div class="flex min-h-0 flex-col gap-1">
+    <div class="-mx-5 flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-5" data-dialog-body>
+    <div class="flex flex-col gap-1">
       <span class="label px-1">Projects <span class="font-normal normal-case text-faint">· {{ !projects.length ? 'none ticked: one session hearing every project' : oneSession ? 'one session hearing them all' : 'a session each' }}</span></span>
-      <div class="flex min-h-0 flex-col gap-0.5 overflow-y-auto" role="group" aria-label="Projects">
+      <div class="flex flex-col gap-0.5" role="group" aria-label="Projects">
         <label
             v-for="p in ordered"
             :key="p.id"
@@ -307,8 +310,9 @@ async function start() {
         Context you give often can be saved as a preset under <NuxtLink to="/sessions#presets" class="text-accent-700 hover:underline dark:text-accent-400" @click="close">Presets</NuxtLink> on the Sessions page.
       </p>
     </div>
+    </div>
 
-    <div class="flex items-center gap-2 border-t border-line pt-3">
+    <div class="flex shrink-0 items-center gap-2 border-t border-line pt-3">
       <span v-if="failed" class="text-xs text-rose-700 dark:text-rose-400">{{ failed }}</span>
       <label v-if="most > 1" class="ml-auto flex shrink-0 items-center gap-1.5 text-xs text-faint" :title="`At most ${most} under the limit`">
         <input v-model.number="count" type="number" min="1" :max="most" aria-label="Sessions to start" class="h-8 w-14 field" @change="count = Math.min(Math.max(Math.floor(count) || 1, 1), most)">
