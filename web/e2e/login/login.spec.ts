@@ -1,7 +1,7 @@
 import {execFileSync} from 'node:child_process'
 import {fileURLToPath} from 'node:url'
 import type {Page} from '@playwright/test'
-import {expect, test} from '@playwright/test'
+import {devices, expect, test} from '@playwright/test'
 
 // The story of a new server with login on (ORR-699), in order: nobody can log in, it's claimed, and the owner signs in, makes
 // keys and logs out. So the tests share one server's state, and run in turn.
@@ -130,4 +130,39 @@ test('a login ended while the page is open goes back to the login page', async (
     // The next thing the first tab asks for is refused.
     await page.getByRole('link', {name: 'Sessions'}).first().click()
     await expect(page).toHaveURL(/\/login$/)
+})
+
+// Signing a phone in by App settings' QR code (ORR-837, ORR-845), as the owner does: the code carries a one-time link to
+// the phone's own port, read here from the request that makes it, as a camera reads it off the code.
+test("App settings' QR link signs a phone in on its own port, once, and lists its login", async ({page, browser}) => {
+    await signedIn(page)
+    const made = page.waitForResponse(response => response.url().endsWith('/api/phone/link') && response.request().method() === 'POST')
+    await page.goto('/settings?tab=you#phone')
+    const {token} = await (await made).json() as {token: string}
+    const section = page.locator('#phone')
+    const address = await section.getByRole('button', {name: /^Show the QR code for /}).first().innerText()
+    const sessions = new URL(page.url()).port
+    // The phone port's address, not the sessions' one the page is on.
+    expect(new URL(address).port).not.toBe(sessions)
+    await expect(section.getByRole('img', {name: `QR code for ${address}`})).toBeVisible()
+    const link = `${address}/login?t=${token}`
+
+    const phone = await browser.newContext({...devices['iPhone 13']})
+    const scanned = await phone.newPage()
+    await scanned.goto(link)
+    await expect(scanned).not.toHaveURL(/\/login/)
+    await expect(scanned.getByRole('heading', {name: 'My issues'}).first()).toBeVisible()
+    await phone.close()
+
+    await page.goto('/settings?tab=you#logins')
+    await expect(page.locator('#logins').getByRole('listitem').filter({hasText: 'Phone, signed in by QR code'})).toHaveCount(1)
+
+    // Used once, the same link signs nobody else in.
+    const another = await browser.newContext()
+    const again = await another.newPage()
+    await again.goto(link)
+    await expect(again.getByText(/used or has run out/)).toBeVisible()
+    await expect(again).toHaveURL(/\/login$/)
+    expect((await again.request.get(`${address}/api/projects`)).status()).toBe(401)
+    await another.close()
 })
