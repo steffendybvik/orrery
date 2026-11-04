@@ -3,6 +3,7 @@ import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 import type {Chat} from '#shared/roadmap'
 import {Store} from '../server/utils/store'
 import {testDb} from './db'
+import type {Db} from '../server/utils/database'
 
 // The owner's chats live in the module, with Nitro's auto-imports stubbed: its launch, and the message to its session.
 let chats: typeof import('../server/utils/chats')
@@ -24,6 +25,8 @@ beforeEach(async () => {
     vi.stubGlobal('notFound', (message: string) => Object.assign(new Error(message), {statusCode: 404}))
     vi.stubGlobal('badRequest', (message: string) => Object.assign(new Error(message), {statusCode: 400}))
     vi.stubGlobal('currentId', (id: string) => id)
+    // Where a chat is kept (ORR-877): nowhere, but in the tests of it below.
+    vi.stubGlobal('useDatabase', () => ({run: async () => ({changes: 0}), all: async () => []}))
     vi.resetModules()
     chats = await import('../server/utils/chats')
 })
@@ -217,7 +220,7 @@ describe("the owner's chat", () => {
         expect(chats.readChat('c1c2c3c4c5c6')).toMatchObject({ended: true})
         expect(changes.at(-1)).toMatchObject({id: 'c1c2c3c4c5c6', ended: true})
         expect(() => chats.chatOf('c1c2c3c4c5c6')).toThrow(/has ended/)
-        expect(() => chats.readChat('nope')).toThrow(/restarted/)
+        expect(() => chats.readChat('nope')).toThrow(/No chat nope/)
         // One ended before anything was said has nothing to read, and goes.
         vi.stubGlobal('startChat', async (project: string) => ({id: 'd1d2d3d4d5d6', project}))
         await chats.openChat('greenhouse')
@@ -924,5 +927,89 @@ describe("a chat session's writes", () => {
         expect(await refused('PATCH', '/api/chats/c1c2c3c4c5c6')).toBe(403)
         // Anyone else's go on to their own checks.
         expect(await refused('PATCH', '/api/projects/greenhouse/issues/GRE-4', false)).toBeUndefined()
+    })
+})
+
+describe('chats kept across a restart (ORR-877)', () => {
+    const CHAT = 'c1c2c3c4c5c6'
+    let db: Db
+    let known: Set<string>
+
+    beforeEach(async () => {
+        db = testDb()
+        const store = new Store(db)
+        await store.nameOwner({name: 'Skoll'})
+        await store.createProject({name: 'Greenhouse', key: 'GRE'}, owner)
+        known = new Set()
+        vi.stubGlobal('useDatabase', () => db)
+        vi.stubGlobal('useEventLog', () => ({note: () => {}}))
+        vi.stubGlobal('launchKnown', (id: string) => known.has(id))
+        vi.stubGlobal('sessionOfLaunch', () => undefined)
+    })
+
+    /** orrery starting again: the module as new, reading what's kept. */
+    async function restart() {
+        await chats.chatsSaved()
+        vi.resetModules()
+        chats = await import('../server/utils/chats')
+        await chats.chatsLoaded()
+    }
+
+    const kept = async () => db.all<{id: string, ended_at: string | null}>('SELECT id, ended_at FROM chats ORDER BY id')
+
+    it('keeps a running chat and what was said in it, numbering on past its messages', async () => {
+        await chats.openChat('greenhouse', 'backlog')
+        await chats.say(CHAT, 'What is GRE-4 about?', [], owner)
+        chats.reply(CHAT, 'Grow lights.')
+        await restart()
+        expect(chats.listChats()).toEqual([expect.objectContaining({id: CHAT, project: 'greenhouse', issues: 'backlog'})])
+        const chat = chats.chatOf(CHAT)
+        expect(chat.ended).toBeUndefined()
+        expect(chat.messages.map(m => [m.from, m.text])).toEqual([['owner', 'What is GRE-4 about?'], ['claude', 'Grow lights.']])
+        const next = chats.reply(CHAT, 'Anything else?')
+        expect(next.id).toBeGreaterThan(Math.max(...chat.messages.slice(0, 2).map(m => m.id)))
+    })
+
+    it('keeps an ended chat to read, and drops one ended before anything was said', async () => {
+        await chats.openChat('greenhouse')
+        await chats.say(CHAT, 'Hello', [], owner)
+        chats.endChat(CHAT)
+        vi.stubGlobal('startChat', async (project: string) => ({id: 'd1d2d3d4d5d6', project}))
+        await chats.openChat('greenhouse')
+        await chats.chatsSaved()
+        expect((await kept()).map(r => r.id)).toEqual([CHAT, 'd1d2d3d4d5d6'])
+        chats.endChat('d1d2d3d4d5d6')
+        await restart()
+        expect(await kept()).toEqual([{id: CHAT, ended_at: expect.any(String)}])
+        expect(chats.listChats()).toEqual([expect.objectContaining({id: CHAT, ended: true})])
+        expect(chats.readChat(CHAT).messages.map(m => m.text)).toEqual(['Hello'])
+    })
+
+    it('ends one whose session no launcher says still runs, and brings it back when one does', async () => {
+        await chats.openChat('greenhouse')
+        await chats.say(CHAT, 'Hello', [], owner)
+        await restart()
+        chats.endUnconfirmed()
+        expect(chats.readChat(CHAT)).toMatchObject({ended: true})
+        await chats.chatsSaved()
+        expect((await kept())[0]!.ended_at).toEqual(expect.any(String))
+        // Its launcher took longer to connect again.
+        chats.chatRunning(CHAT)
+        expect(chats.chatOf(CHAT).ended).toBeUndefined()
+        await chats.chatsSaved()
+        expect(await kept()).toEqual([{id: CHAT, ended_at: null}])
+    })
+
+    it('keeps one running whose launcher says it runs, and never brings back one the owner ended', async () => {
+        await chats.openChat('greenhouse')
+        await chats.say(CHAT, 'Hello', [], owner)
+        await restart()
+        chats.chatRunning(CHAT)
+        chats.endUnconfirmed()
+        expect(chats.chatOf(CHAT).ended).toBeUndefined()
+        known.add(CHAT)
+        chats.endChat(CHAT)
+        chats.chatRunning(CHAT)
+        expect(chats.readChat(CHAT)).toMatchObject({ended: true})
     })
 })

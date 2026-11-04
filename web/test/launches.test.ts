@@ -5,6 +5,7 @@ import type {Signal, Starts} from '#shared/roadmap'
 // The launches live in the module, so each test gets a fresh one, with Nitro's auto-imports stubbed.
 let launches: typeof import('../server/utils/launches')
 let chatsEnded: string[]
+let chatsRunning: string[]
 let problems: [string, string | null][]
 let noted: {level: string, kind: string, message: string}[]
 let sent: {type: string, project?: string, id?: string, after?: number, minutes?: number, stops_at?: string}[]
@@ -52,7 +53,9 @@ beforeEach(async () => {
     vi.stubGlobal('notFound', (message: string) => Object.assign(new Error(message), {statusCode: 404}))
     vi.stubGlobal('conflict', (message: string) => Object.assign(new Error(message), {statusCode: 409}))
     vi.stubGlobal('chatEnded', (id: string) => chatsEnded.push(id))
+    vi.stubGlobal('chatRunning', (id: string) => chatsRunning.push(id))
     chatsEnded = []
+    chatsRunning = []
     problems = []
     noted = []
     vi.stubGlobal('chatProblem', (id: string, problem: string | null) => problems.push([id, problem]))
@@ -869,6 +872,9 @@ describe("the owner's chat", () => {
     it('stays a chat when a launcher reports it after orrery restarted', () => {
         launches.reportRunning('greenhouse', [{id: 'c1c2c3c4c5c6', tmux: 'orrery-greenhouse-c1c2c3c4c5c6', chat: true}])
         expect(launches.launched('c1c2c3c4c5c6')).toMatchObject({chat: true})
+        // The chat kept in the database runs on (ORR-877).
+        expect(chatsRunning).toEqual(['c1c2c3c4c5c6'])
+        expect(launches.launchKnown('c1c2c3c4c5c6')).toBe(true)
     })
 })
 

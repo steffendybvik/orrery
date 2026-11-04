@@ -57,6 +57,7 @@ export const NOT_EXPORTED = {
     issue_pulls: 'read again from GitHub where the board lands',
     pull_states: 'the pull request cache',
     pull_repos: 'the pull request cache',
+    chats: "the owner's chats on this server",
 } as const satisfies Partial<Record<Table, string>>
 
 /** Taken as the board uses them, below. */

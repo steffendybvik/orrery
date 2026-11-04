@@ -1012,6 +1012,16 @@ export const MIGRATIONS: (string | ((db: DatabaseSync) => void))[] = [`
     ALTER TABLE logins ADD COLUMN created_at TEXT;
     ALTER TABLE logins ADD COLUMN last_used_at TEXT;
 `, `
+    -- The owner's chats (ORR-877), kept so a restart or rebuild loses none: the chat as the page reads it, its messages
+    -- in it, as JSON. ended_at is set once it has ended, kept to read.
+    CREATE TABLE chats (
+        id TEXT PRIMARY KEY,
+        project TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        started_at TEXT NOT NULL,
+        ended_at TEXT,
+        chat TEXT NOT NULL
+    );
+`, `
     -- The model a pooled signal's work needs (ORR-868), from its issue's kind: no session on a lighter one takes it.
     -- None on those from before, and on a message, which any session takes.
     ALTER TABLE signals ADD COLUMN model TEXT;

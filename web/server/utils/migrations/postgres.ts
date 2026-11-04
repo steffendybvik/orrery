@@ -645,6 +645,16 @@ export const STEPS: (string | ((client: Pick<PoolClient, 'query'>) => Promise<un
     ALTER TABLE logins ADD COLUMN created_at text;
     ALTER TABLE logins ADD COLUMN last_used_at text;
 `, `
+    -- The owner's chats (ORR-877), kept so a restart or rebuild loses none: the chat as the page reads it, its messages
+    -- in it, as JSON. ended_at is set once it has ended, kept to read.
+    CREATE TABLE chats (
+        id text PRIMARY KEY,
+        project text NOT NULL REFERENCES projects(id) ON DELETE CASCADE ${KEYS},
+        started_at text NOT NULL,
+        ended_at text,
+        chat text NOT NULL
+    );
+`, `
     -- The model a pooled signal's work needs (ORR-868), from its issue's kind: no session on a lighter one takes it.
     -- None on those from before, and on a message, which any session takes.
     ALTER TABLE signals ADD COLUMN model text;
