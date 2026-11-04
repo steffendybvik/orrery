@@ -2,8 +2,10 @@
 // in the owner's browser could otherwise post a form here and plant issues or comments for the sessions
 // to read, or point its own domain at this machine (DNS rebinding) to read the board and write to it.
 //
-// - Only the names this machine goes by are answered: localhost (and *.localhost), an IP address, or
-//   one listed in NUXT_ALLOWED_HOSTS (ORRERY_ALLOWED_HOSTS in compose), e.g. `orrery.lan`.
+// - Only the names this machine goes by are answered: localhost (and *.localhost), an IP address, a Bonjour
+//   name (`<name>.local`, for a phone on the Wi-Fi, ORR-874), or one listed in NUXT_ALLOWED_HOSTS
+//   (ORRERY_ALLOWED_HOSTS in compose), e.g. `orrery.lan`. A `.local` name is looked up on the local network
+//   alone (multicast DNS), never by a website's DNS, so it can't be used to rebind one onto this machine.
 // - A write from a page on another site (its `Origin`) is refused; agents, curl and the channel send none.
 // - A write's body must be JSON, which a page on another site can't send without the browser asking
 //   first, and orrery never says yes.
@@ -13,7 +15,7 @@
 //   The channel, the launcher and curl send no Sec-Fetch headers.
 const WRITES = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
 const STREAM = /^\/api\/(projects\/[^/]+\/(signals|launches)|signals)\/stream\/?(\?|$)/
-const LOCAL = /^(localhost|.+\.localhost|\d{1,3}(\.\d{1,3}){3}|\[[0-9a-f:.]+\])$/i
+const LOCAL = /^(localhost|.+\.localhost|[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.local|\d{1,3}(\.\d{1,3}){3}|\[[0-9a-f:.]+\])$/i
 
 export default defineEventHandler(event => {
     const host = getRequestHost(event)

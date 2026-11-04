@@ -39,6 +39,20 @@ describe('writes', () => {
     })
 })
 
+describe('the names it answers to', () => {
+    it('are this machine’s: localhost, an IP, and its Bonjour name on the Wi-Fi (ORR-874)', () => {
+        for (const host of ['localhost:9000', 'app.localhost', '192.168.1.20:19000', 'steffens-mac.local:19010', 'Mac.local']) {
+            expect(refused('GET', '/api/issues', {host})).toBeUndefined()
+        }
+    })
+
+    it('aren’t another site’s, even one that ends like a local name', () => {
+        for (const host of ['evil.example', 'mac.local.evil.example', 'a.b.local', '-mac.local', 'local', '.local']) {
+            expect(refused('GET', '/api/issues', {host})).toBe(403)
+        }
+    })
+})
+
 describe('a session’s stream', () => {
     const stream = '/api/projects/greenhouse/signals/stream?session=abc&channel=no'
 

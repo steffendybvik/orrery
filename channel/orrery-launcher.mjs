@@ -561,6 +561,20 @@ const networkAddresses = () => Object.entries(networkInterfaces())
     .filter(([name]) => !VIRTUAL.test(name)).flatMap(([, all]) => all ?? [])
     .filter(i => i.family === 'IPv4' && !i.internal && !i.address.startsWith('169.254.')).map(i => i.address).slice(0, 8)
 
+/** The name this machine goes by on its Wi-Fi, Bonjour's `<name>.local`, which a phone on it finds with no setup and
+ * which outlasts a new IP (ORR-874). A Mac's is its LocalHostName; elsewhere only a hostname that already says `.local`. */
+function localName() {
+    if (process.platform === 'darwin') {
+        try {
+            const name = execFileSync('/usr/sbin/scutil', ['--get', 'LocalHostName'], {encoding: 'utf8', timeout: 2000, stdio: ['ignore', 'pipe', 'ignore']}).trim()
+            return name ? `${name}.local` : ''
+        } catch {
+            return ''
+        }
+    }
+    return /\.local$/i.test(hostname()) ? hostname() : ''
+}
+
 /** Follows one orrery for the owner's Connect a repo (ORR-708), whatever it serves: only a service does, as it's what
  * follows its list, and only with a picker on this machine, which having the stream tells orrery. */
 function connectFor(url, signal) {
@@ -571,7 +585,7 @@ function connectFor(url, signal) {
     const serve = (dir, projects) => addToList(projects.map(project => ({url, project, dir})), dir)
     return follow({
         headers: authHeaders(url),
-        url: () => `${url}/api/connects/stream?host=${encodeURIComponent(hostname())}&addresses=${encodeURIComponent(networkAddresses().join(','))}`,
+        url: () => `${url}/api/connects/stream?host=${encodeURIComponent(hostname())}&addresses=${encodeURIComponent(networkAddresses().join(','))}&local=${encodeURIComponent(localName())}`,
         onEvent: async ({event, data}) => {
             if (event === 'ready') {
                 const ready = JSON.parse(data)

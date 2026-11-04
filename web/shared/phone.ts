@@ -14,6 +14,8 @@ export interface PhoneAddress {
     from: PhoneSource
     /** The launcher's machine, for one it reported. */
     machine?: string
+    /** It's the machine's Bonjour name (`<name>.local`), not an IP: easy to type, and it outlasts a new IP (ORR-874). */
+    name?: boolean
 }
 
 export interface PhoneLinks {
