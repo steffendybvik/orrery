@@ -41,6 +41,20 @@ watch(() => route.params.doc, id => {
     if (section && folded.value.includes(section)) fold(section)
 }, {immediate: true})
 
+// On a phone the list is a strip scrolled sideways: the open doc's tab is brought into it, centred, on opening a doc
+// and as the list changes, so you see where you are (ORR-860). Only the strip scrolls, never the page.
+const strip = ref<HTMLElement | null>(null)
+function showHere() {
+    const nav = strip.value
+    const here = nav?.querySelector<HTMLElement>('[aria-current="page"]')
+    if (!nav || !here || nav.scrollWidth <= nav.clientWidth) return
+    const box = nav.getBoundingClientRect(), tab = here.getBoundingClientRect()
+    if (tab.left >= box.left && tab.right <= box.right) return
+    nav.scrollLeft += tab.left - box.left - (box.width - tab.width) / 2
+}
+watch(() => [route.params.doc, props.project.docs.length], () => nextTick(showHere), {flush: 'post'})
+onMounted(showHere)
+
 // Filing a doc, and making, renaming and deleting sections: saved as the owner; the project's patch redraws the list.
 const failed = ref('')
 async function save(path: string, method: 'POST' | 'PATCH' | 'DELETE', body?: object): Promise<boolean> {
@@ -163,7 +177,7 @@ async function makeSection() {
 </script>
 
 <template>
-  <nav class="flex shrink-0 gap-1 overflow-x-auto border-b border-line px-3 py-2 md:w-60 md:flex-col md:gap-0.5 md:overflow-y-auto md:border-r md:border-b-0 md:px-2 md:py-4" aria-label="Docs">
+  <nav ref="strip" class="flex shrink-0 gap-1 overflow-x-auto border-b border-line px-3 py-2 md:w-60 md:flex-col md:gap-0.5 md:overflow-y-auto md:border-r md:border-b-0 md:px-2 md:py-4" aria-label="Docs">
     <p
         class="label mb-1 hidden rounded px-2 md:block"
         :class="over === null && 'bg-active'"
