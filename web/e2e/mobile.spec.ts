@@ -97,3 +97,27 @@ test("the sidebar's small buttons are at least 24px to tap, WCAG 2.2's minimum (
         expect(box.height, await button.getAttribute('aria-label') ?? '').toBeGreaterThanOrEqual(24)
     }
 })
+
+/** The text size of each field on the page a person can type in, by its label or placeholder. */
+const fieldSizes = (page: Page) => page.evaluate(() => [...document.querySelectorAll<HTMLElement>('input, textarea, select')]
+    .filter(f => !['checkbox', 'radio', 'hidden', 'range', 'color', 'file'].includes((f as HTMLInputElement).type) && f.getClientRects().length)
+    .map(f => ({field: f.getAttribute('aria-label') || f.getAttribute('placeholder') || f.tagName, size: parseFloat(getComputedStyle(f).fontSize)})))
+
+test("a field's text is 16px on a touch screen, so iOS doesn't zoom in as it takes the focus (ORR-843)", async ({page}) => {
+    await page.goto(`/p/pocket/issues/${id}`)
+    await expect(page.getByRole('heading', {level: 1})).toBeVisible()
+    const sizes = await fieldSizes(page)
+    expect(sizes.length).toBeGreaterThan(0)
+    for (const {field, size} of sizes) expect(size, field).toBeGreaterThanOrEqual(16)
+})
+
+test.describe('on a desktop', () => {
+    test.use({viewport: {width: 1280, height: 800}, isMobile: false, hasTouch: false})
+
+    test("a field's text stays as small as its class says (ORR-843)", async ({page}) => {
+        await page.goto(`/p/pocket/issues/${id}`)
+        await expect(page.getByRole('heading', {level: 1})).toBeVisible()
+        const sizes = await fieldSizes(page)
+        expect(sizes.some(({size}) => size < 16), JSON.stringify(sizes)).toBe(true)
+    })
+})
