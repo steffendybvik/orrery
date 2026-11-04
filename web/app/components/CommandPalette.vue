@@ -30,6 +30,8 @@ const {filters, changed: filtering, clear} = useFilters()
 const {view, group} = useLastView()
 const {set: setTheme} = useTheme()
 const {all: messageAll, one: messageOne, listening} = useMessageSessions()
+/** Open on your phone in a dialog of its own (ORR-876), the code App settings shows. */
+const phoneOpen = ref(false)
 const {columns} = useStatuses()
 const route = useRoute()
 const router = useRouter()
@@ -117,6 +119,7 @@ const everywhere = computed<Entry[]>(() => [
         router.push('/getting-started')
     }},
     {key: 'go:settings', group: 'Go to', label: 'App settings', run: () => router.push('/settings')},
+    {key: 'phone', group: 'Phone', label: 'Open on your phone', detail: 'its QR code', run: () => phoneOpen.value = true},
     ...(projects.value.some(p => p.starts) ? [{key: 'session:start', group: 'Session', label: 'Start session', detail: project.value?.name, run: () => useStartSession().open(project.value?.id ?? null)}] : []),
     ...(listening.value.length ? [{key: 'session:message-all', group: 'Session', label: 'Message sessions', detail: 'every one listening', run: () => messageAll.value = true}] : []),
     ...listening.value.map(s => ({key: `session:message:${s.id}`, group: 'Session', label: `Message ${s.name}`, detail: 'only it hears', run: () => messageOne.value = s})),
@@ -351,6 +354,13 @@ function onKey(event: KeyboardEvent) {
       <span class="hidden sm:inline"><KeyHint>&gt;</KeyHint> commands · <KeyHint>#</KeyHint> issues · <KeyHint>@</KeyHint> places</span>
       <span class="ml-auto">{{ results.length }} {{ results.length === 1 ? 'result' : 'results' }}</span>
     </div>
+  </UiDialog>
+  <UiDialog :open="phoneOpen" label="Open on your phone" width="md" @close="phoneOpen = false">
+    <div class="flex items-center gap-2 pb-3 text-xs text-faint">
+      <span class="text-[13px] font-medium text-fg">Open on your phone</span>
+      <KeyHint class="ml-auto">esc</KeyHint>
+    </div>
+    <PhoneLink v-if="phoneOpen" />
   </UiDialog>
   <Teleport to="body">
     <div v-if="copied" class="glass fixed bottom-4 left-1/2 z-50 -translate-x-1/2 animate-fade-up rounded-full px-4 py-2 text-xs text-fg">Copied the {{ copied }}</div>

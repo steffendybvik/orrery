@@ -1,3 +1,5 @@
+import {PHONE_LOGIN} from '#shared/phone'
+import type {LoginRecord} from '#shared/roadmap'
 import {allIssues} from '~/utils/roadmap'
 
 export const DEMO = 'demo'
@@ -36,8 +38,23 @@ export function useGettingStarted() {
         // An issue someone other than the owner has taken on: a session started it.
         {key: 'work', done: work.value},
     ])
-    watch(steps, now => {
-        const ticked = now.filter(s => s.done && ['connect', 'listen', 'work'].includes(s.key) && !seen.value.includes(s.key))
+    // Optional, after the rest, and not in the count (ORR-876): open it on a phone, ticked once a login was made by the
+    // QR code. Asked by the steps as they show (checkPhone), as only the owner's page can list logins, and remembered
+    // like the steps for Claude.
+    const phoneSignedIn = useState('getting-started-phone', () => false)
+    const phone = computed(() => ({key: 'phone', done: phoneSignedIn.value || seen.value.includes('phone')}))
+    const {load} = useOwner()
+    async function checkPhone() {
+        if (phone.value.done) return
+        try {
+            const logins = await apiFetch<LoginRecord[]>('/logins', {headers: {'Orrery-Actor': await load()}})
+            phoneSignedIn.value = logins.some(login => login.name === PHONE_LOGIN)
+        } catch {
+            // Not the owner's page: it stays to do.
+        }
+    }
+    watch([steps, phone], ([now, optional]) => {
+        const ticked = [...now, optional].filter(s => s.done && ['connect', 'listen', 'work', 'phone'].includes(s.key) && !seen.value.includes(s.key))
         if (!ticked.length) return
         seen.value = [...seen.value, ...ticked.map(s => s.key)]
         try {
@@ -95,5 +112,5 @@ export function useGettingStarted() {
         }
     }
 
-    return {steps, done, current, finished, project, hidden, hide, planning, plan, WITHOUT_CLAUDE}
+    return {steps, phone, checkPhone, done, current, finished, project, hidden, hide, planning, plan, WITHOUT_CLAUDE}
 }
