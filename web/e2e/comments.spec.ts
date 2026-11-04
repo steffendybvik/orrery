@@ -66,7 +66,12 @@ test('takes an image dropped or pasted anywhere on the dialog or the comment box
     // Pasted while typing the title, it goes into the description too.
     await title.focus()
     const clipboard = await carrying('lid')
-    await title.evaluate((field, clipboardData) => field.dispatchEvent(new ClipboardEvent('paste', {clipboardData, bubbles: true, cancelable: true})), clipboard)
+    // Firefox's ClipboardEvent ignores a clipboardData handed to it and makes an empty one, so it's put on the event instead.
+    await title.evaluate((field, clipboardData) => {
+        const paste = new ClipboardEvent('paste', {bubbles: true, cancelable: true})
+        Object.defineProperty(paste, 'clipboardData', {value: clipboardData})
+        field.dispatchEvent(paste)
+    }, clipboard)
     await expect(dialog.getByLabel('Description')).toHaveValue(/!\[lid\]/)
     await dialog.getByRole('button', {name: /Create issue/}).click()
     await expect(page).toHaveURL(/\/p\/studio\/issues\/STU-\d+/)
