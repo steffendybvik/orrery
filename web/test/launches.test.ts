@@ -247,7 +247,7 @@ describe('starting a session', () => {
         expect(problems).toEqual([[chat.id, expect.stringMatching(/restart it/)]])
         vi.useFakeTimers({now: Date.now() + 2 * 60 * 60 * 1000, toFake: ['Date']})
         expect(launches.unclaimedLaunches('greenhouse').map(l => l.id)).toEqual([chat.id])
-        expect(launches.claim('greenhouse', chat.id, launches.addLauncher('greenhouse').token, false, true)).toBe(true)
+        expect(launches.claim('greenhouse', chat.id, launches.addLauncher('greenhouse').token, false, true, true)).toBe(true)
         expect(problems.at(-1)).toEqual([chat.id, null])
     })
 
@@ -804,11 +804,16 @@ describe("the owner's chat", () => {
         expect(sent.at(-1)).toEqual({type: 'stop', project: 'greenhouse', id: launch.id, chat: true})
     })
 
+    it("starts on the Chat kind's model, sonnet (ORR-868)", async () => {
+        launches.addLauncher('greenhouse')
+        expect(await launches.startChat('greenhouse', context)).toMatchObject({chat: true, model: 'sonnet'})
+    })
+
     it('goes only to a launcher that says it starts chats', async () => {
         const {token} = launches.addLauncher('greenhouse')
         const launch = await launches.startChat('greenhouse', context)
         expect(launches.claim('greenhouse', launch.id, token, true)).toBe(false)
-        expect(launches.claim('greenhouse', launch.id, token, true, true)).toBe(true)
+        expect(launches.claim('greenhouse', launch.id, token, true, true, true)).toBe(true)
     })
 
     it('says a launcher too old to start it was refused, once, and lets that go as its session connects', async () => {
@@ -820,7 +825,7 @@ describe("the owner's chat", () => {
         expect(noted).toEqual([expect.objectContaining({level: 'warn', kind: 'launcher.outdated', message: expect.stringMatching(/start a chat.*Restart the launcher/)})])
         expect(problems).toEqual([[launch.id, noted[0]!.message]])
         // Restarted on the new code, it takes the chat on, and the chat stops saying so.
-        expect(launches.claim('greenhouse', launch.id, token, true, true)).toBe(true)
+        expect(launches.claim('greenhouse', launch.id, token, true, true, true)).toBe(true)
         launches.launched(launch.id)
         expect(problems.at(-1)).toEqual([launch.id, null])
     })
@@ -838,7 +843,7 @@ describe("the owner's chat", () => {
         const launch = await launches.startChat('greenhouse', context)
         launches.endLaunch('greenhouse', launch.id)
         expect(sent.at(-1)).toEqual({type: 'stop', project: 'greenhouse', id: launch.id})
-        expect(launches.claim('greenhouse', launch.id, token, true, true)).toBe(false)
+        expect(launches.claim('greenhouse', launch.id, token, true, true, true)).toBe(false)
         launches.launchGone(launch.id)
         expect(chatsEnded).toEqual([launch.id])
     })
@@ -870,7 +875,7 @@ describe('a session started on a model (ORR-868)', () => {
         const {token} = launches.addLauncher('greenhouse')
         const launch = await launches.startLaunch('greenhouse')
         expect(launch.model).toBeUndefined()
-        expect(launches.claim('greenhouse', launch.id, token, true, true)).toBe(true)
+        expect(launches.claim('greenhouse', launch.id, token, true, true, true)).toBe(true)
     })
 
     it("starts one on an issue on its kind's model, its highest-ranked label's", async () => {
