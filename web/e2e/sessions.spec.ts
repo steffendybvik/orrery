@@ -308,6 +308,59 @@ test('with a session listening, New session on this starts another on the issue'
     }
 })
 
+test("starts a session on the model picked on its issue's page, and on its kind's when it has none (ORR-889)", async ({page, request, baseURL}) => {
+    const before = (await (await request.get('/api/settings')).json()) as {starts: unknown, work_kinds: {id: string, model: string}[]}
+    await request.patch('/api/settings', {data: {starts: {limit: 20}}, headers: OWNER})
+    const own = await api(request, 'post', '/issues', {title: 'Write the oiling guide', status: 'todo', labels: ['docs']})
+    const plain = await api(request, 'post', '/issues', {title: 'Write the sweeping guide', status: 'todo', labels: ['docs']})
+    await expect.poll(async () => (await api(request, 'get', '/sessions')).some((s: {listening: boolean}) => s.listening)).toBe(false)
+    const launcher = hold(baseURL!, '/api/projects/kitchen/launches/stream')
+    // The models of the launches it's sent since `from`, as the launcher hears them.
+    const models = (from: number) => [...launcher.said.text.matchAll(/^data: (.+)$/gm)].slice(from).map(m => (JSON.parse(m[1]!) as {model?: string}).model)
+    const sent = () => models(0).length
+    try {
+        await expect.poll(async () => (await api(request, 'get', '/launches')).launchers).toBe(1)
+        // Its page shows its kind's model until it has one of its own, which it saves.
+        await page.goto(`/p/kitchen/issues/${own.id}`)
+        const model = page.getByTestId('issue-model')
+        await expect(model).toHaveText('sonnet, as Docs')
+        await model.getByRole('button', {name: 'Model'}).click()
+        await page.getByRole('option', {name: 'opus', exact: true}).click()
+        await expect(model).toHaveText('opus')
+        await expect.poll(async () => (await api(request, 'get', `/issues/${own.id}`)).model).toBe('opus')
+
+        // Start session works it out from the issue, and starts on it.
+        await page.goto('/sessions')
+        await page.getByRole('button', {name: 'Start session'}).first().click()
+        const dialog = page.getByRole('dialog', {name: 'Start session'})
+        await dialog.getByRole('checkbox', {name: 'Kitchen'}).check()
+        await dialog.getByRole('button', {name: 'Issue', exact: true}).click()
+        await page.getByRole('option', {name: new RegExp(own.id)}).click()
+        await expect(dialog.getByTestId('start-model')).toContainText('opus, its own')
+        const first = sent()
+        await dialog.getByRole('button', {name: /^Start session/}).click()
+        await expect.poll(() => models(first)).toEqual(['opus'])
+
+        // One with no model of its own follows its kind, as the owner sets it.
+        await request.patch('/api/settings', {data: {work_kinds: before.work_kinds.map(k => k.id === 'docs' ? {...k, model: 'haiku'} : k)}, headers: OWNER})
+        await page.goto(`/p/kitchen/issues/${plain.id}`)
+        await expect(page.getByTestId('issue-model')).toHaveText('haiku, as Docs')
+        // Through Start session, as Focus on this would hand it to the opus session still starting, heavy enough for it.
+        await page.goto('/sessions')
+        await page.getByRole('button', {name: 'Start session'}).first().click()
+        await dialog.getByRole('checkbox', {name: 'Kitchen'}).check()
+        await dialog.getByRole('button', {name: 'Issue', exact: true}).click()
+        await page.getByRole('option', {name: new RegExp(plain.id)}).click()
+        await expect(dialog.getByTestId('start-model')).toContainText('haiku, as Docs')
+        const second = sent()
+        await dialog.getByRole('button', {name: /^Start session/}).click()
+        await expect.poll(() => models(second)).toEqual(['haiku'])
+    } finally {
+        launcher.stop()
+        await request.patch('/api/settings', {data: {starts: before.starts, work_kinds: null}, headers: OWNER})
+    }
+})
+
 test("shows on an issue's page which session is on it, while it listens", async ({page, request, baseURL}) => {
     // Long enough to scroll.
     const notes = Array.from({length: 80}, (_, i) => `Step ${i + 1}: rinse and repeat.`).join('\n\n')
