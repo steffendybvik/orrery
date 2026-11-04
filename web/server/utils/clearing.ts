@@ -4,11 +4,13 @@
 // rest of a chunk or scope it was asked to work through (its run). A brief starts no turn, so when some of the run
 // is left, a focus on the rest goes to the session alone once it's back (`resumeRun`), and it carries on.
 // Any listening session gone idle on an issue whose sub-issues are still to do (it just split it, say) is sent on to
-// the most urgent of them (`carryOn`), since nothing else would start its next turn. A session whose turn was cut off
+// the most urgent of them (`carryOn`), since nothing else would start its next turn. Related work keeps the context
+// (ORR-903): one orrery started that has just closed a sub-issue, with a sibling still to do, is sent on to the sibling
+// instead of cleared. Anything else, and the sibling it won't take, starts clean. A session whose turn was cut off
 // by an API error (the network, a rate limit) lets go of what it had in progress (`letGo`), so none of it sits there
 // in progress with nobody on it.
 import type {Signal} from '#shared/roadmap'
-import {byPriority, isBlocked, modelFor} from '#shared/roadmap'
+import {CLOSED, byPriority, isBlocked, modelFor} from '#shared/roadmap'
 import {heavyEnough} from './pool'
 
 /** How long a session stays idle before it's cleared: a signal its channel has just handed Claude Code starts
@@ -32,7 +34,7 @@ export const CLEAR_DUE_FOR = 60_000
 const carried = new Map<string, string>()
 
 /** The note on a focus `carryOn` sends, which tells it from the owner's own. */
-export const CARRY_ON = 'Carry on with the sub-issues of the issue you have in progress, most urgent first.'
+export const CARRY_ON = 'Carry on with this one, the most urgent next to the issue you just worked (a sub-issue or sibling of it), with what you know from that.'
 
 /** A chunk or scope focus reaching the session: what's left of it is its run until another comes. A focus on one
  * issue ends the run: the owner pointed it elsewhere. Runs of sessions that are gone are let go. */
@@ -99,6 +101,9 @@ export function considerClear(project: string, id: string) {
             const ids = sessionIds(id)
             const store = useStore()
             if (await store.busy(now.project, ids)) return notDue()
+            // Its next piece of work is related to the one it just did (a sibling of it): it keeps its context and is
+            // sent on to it instead (ORR-903). Once it won't take it, the next idle clears it as before.
+            if (await sendOn(now, id)) return notDue()
             projectEvents.emit('launches', {type: 'clear', project: now.project, id: now.started.launch})
             // A clear that never comes back (its launcher gone) lets it pick again once the mark runs out.
             setTimeout(() => {
@@ -123,38 +128,65 @@ export function carryOn(project: string, id: string) {
         try {
             const now = sessionNow(id)
             if (!now?.listening || now.state !== 'idle' || now.idleAt !== before.idleAt) return
-            const ids = sessionIds(id)
             const store = useStore()
-            if (await store.waiting(now.project, ids)) return
-            const parents = new Set((await store.workingOn(now.project, ids)).map(i => i.id))
-            if (!parents.size) return
-            const left = (await store.listIssues(now.project))
-                .filter(i => i.parent && parents.has(i.parent) && (i.kind === 'backlog' || i.kind === 'todo') && !isBlocked(i))
-                .sort(byPriority)
-            // Only what's its own person's to start (ORR-656).
-            let next: (typeof left)[number] | undefined
-            const kinds = await store.workKinds()
-            for (const issue of left) {
-                // Only what its model is set for (ORR-868): a lighter session leaves the heavier ones to another.
-                if (!heavyEnough({model: modelFor(issue, kinds).model}, now.started?.model)) continue
-                const whose = await store.whoseWork(now.project, issue.assignee)
-                if (whose === undefined || whose === now.person) {
-                    next = issue
-                    break
-                }
-            }
-            if (!next) return
-            for (const session of carried.keys()) {
-                if (!sessionNow(session)) carried.delete(session)
-            }
-            const sent = `${next.id} ${next.column} ${next.updated_at}`
-            if (carried.get(currentId(id)) === sent) return
-            carried.set(currentId(id), sent)
-            await store.focus(now.project, next.id, {session: currentId(id), note: CARRY_ON}, {name: (await store.ownerOf()).name, owner: true})
+            if (await store.waiting(now.project, sessionIds(id))) return
+            // One orrery started with nothing in progress is `considerClear`'s to send on or clear, so the two don't race.
+            if (now.started && !(await store.workingOn(now.project, sessionIds(id))).length) return
+            await sendOn(now, id)
         } catch (error) {
             console.error(`[orrery] carrying ${id} on:`, error)
         }
     }, CLEAR_AFTER)
+}
+
+/** The session's next related piece of work, which it keeps its context for (ORR-903): a sub-issue of an issue it has
+ * in progress, or, with none in progress and orrery having started it, a sibling of the one it worked last, now closed. In Backlog or Todo, not
+ * blocked, the most urgent first. Only what its own person's to start (ORR-656) and what its model is set for (ORR-868). */
+async function nextRelated(now: NonNullable<ReturnType<typeof sessionNow>>, id: string) {
+    const ids = sessionIds(id)
+    const store = useStore()
+    const issues = await store.listIssues(now.project)
+    const parents = new Set((await store.workingOn(now.project, ids)).map(i => i.id))
+    let after: string | undefined
+    // A sibling only for one orrery started, which it would otherwise clear; one opened by hand keeps its context anyway, and picks.
+    if (!parents.size) {
+        if (!now.started) return undefined
+        const lastId = await store.lastWorked(now.project, ids)
+        const last = lastId ? issues.find(i => i.id === lastId) : undefined
+        if (!last?.parent || !(CLOSED as readonly string[]).includes(last.kind)) return undefined
+        parents.add(last.parent)
+        after = last.id
+    }
+    const left = issues
+        .filter(i => i.parent && parents.has(i.parent) && i.id !== after && (i.kind === 'backlog' || i.kind === 'todo') && !isBlocked(i))
+        .sort(byPriority)
+    const kinds = await store.workKinds()
+    for (const issue of left) {
+        // A lighter session leaves the heavier ones to another.
+        if (!heavyEnough({model: modelFor(issue, kinds).model}, now.started?.model)) continue
+        const whose = await store.whoseWork(now.project, issue.assignee)
+        if (whose === undefined || whose === now.person) return issue
+    }
+    return undefined
+}
+
+/** Sends the listening session on to its next related piece of work (`nextRelated`), alone and as the owner, as a
+ * focus with CARRY_ON. Not for an untrusted schedule's run, which the owner's word mustn't reach, or a chat. Not twice
+ * for an issue that hasn't changed since: a session that won't take it (blocked, or waiting on the owner) would
+ * otherwise be sent it after every turn, and never cleared. Says whether it sent one. */
+async function sendOn(now: NonNullable<ReturnType<typeof sessionNow>>, id: string): Promise<boolean> {
+    if (!now.listening || untrustedSession(id) || chatSession(id)) return false
+    const next = await nextRelated(now, id)
+    if (!next) return false
+    for (const session of carried.keys()) {
+        if (!sessionNow(session)) carried.delete(session)
+    }
+    const sent = `${next.id} ${next.column} ${next.updated_at}`
+    if (carried.get(currentId(id)) === sent) return false
+    carried.set(currentId(id), sent)
+    const store = useStore()
+    await store.focus(now.project, next.id, {session: currentId(id), note: CARRY_ON}, {name: (await store.ownerOf()).name, owner: true})
+    return true
 }
 
 /** What a cut-off turn's `error` (Claude Code's StopFailure) says, for the comment; any other as it is. */
