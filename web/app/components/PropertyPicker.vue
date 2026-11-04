@@ -102,8 +102,9 @@ function closing(vnode: VNode) {
           : '-ml-1.5 flex min-h-7 w-full min-w-0 items-center gap-2 rounded-md px-1.5 py-0.5 text-left text-[13px] text-fg hover:bg-hover focus:bg-hover focus:outline-none disabled:cursor-default disabled:hover:bg-transparent'"
     >
       <!-- Its name is what it's for, then what it shows ("Status: In progress"), from its text rather than an aria-label,
-           so the words a person sees are in the name voice control goes by (WCAG 2.5.3, ORR-724). -->
-      <span class="sr-only">{{ label }}: </span>
+           so the words a person sees are in the name voice control goes by (WCAG 2.5.3, ORR-724). The label is generated
+           content, hidden from sight, so the button's text is still only what it shows. -->
+      <span class="picker-name" :data-name="`${label}: `" />
       <slot />
       <svg v-if="field" class="ml-auto size-3.5 shrink-0 text-faint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6" /></svg>
     </ComboboxButton>
@@ -145,3 +146,15 @@ function closing(vnode: VNode) {
     </div>
   </Combobox>
 </template>
+
+<style scoped>
+.picker-name::before {
+    content: attr(data-name);
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+}
+</style>
