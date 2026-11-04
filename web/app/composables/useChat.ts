@@ -6,7 +6,7 @@ import type {Chat, ChatIssues, ChatMessage, Session, Upload} from '#shared/roadm
 // browser), and shows one chat (`chat`): the one picked in the list (`pick`), else the newest running on `project`; or,
 // after New chat (`fresh`) or with none, it's ready to start one there with the first message. A chat keeps running
 // while the pane shows another, and an ended one opens to read. The chats come in over the page's events (`arrived`);
-// closing the pane ends its chat (`close`), and so does a row's × (`end`); minimizing it leaves the chat running (`hide`). Each message says
+// closing the pane (`close`) or minimizing it (`hide`) leaves its chat running, and only a row's × ends one (`end`, ORR-878). Each message says
 // which page the owner is on, so the chat knows what "this" is. `/clear` clears its session's context instead (`clear`). Where the issues it makes land (`lands`, Todo or Backlog)
 // is the owner's pick beside Send, remembered in this browser for the next chat, and kept by the server on the chat.
 // The project a chat would start on follows the page you're on until it's pinned (`pin`, a hand pick pins it); pinned, it
@@ -194,12 +194,12 @@ export function useChat() {
         open.value = false
     }
 
-    /** Closes the pane, ending its chat: open again, it's ready to start another. */
-    async function close() {
+    /** Closes the pane, leaving its chat running (ORR-878): open again, it's on the same conversation. An ended one
+     * shown to read is let go, so it opens on the project's running chat, or ready to start one. */
+    function close() {
         open.value = false
-        const on = chat.value
-        fresh()
-        if (on) await end(on.id)
+        if (chat.value?.ended) picked.value = null
+        failed.value = ''
     }
 
     /** Pins the pane to `on`, so it stays there whatever page is open, or unpins it (null) to follow the page again. */

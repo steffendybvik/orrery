@@ -87,19 +87,26 @@ describe('useChat', () => {
         expect(c.chat.value).toBeNull()
     })
 
-    it('ends the chat on close, keeping it in the list, but only hides it on minimize', async () => {
+    it('leaves the chat running on close and on minimize; only end ends it, keeping it in the list (ORR-878)', async () => {
         const c = useChat()
         c.show('greenhouse')
         c.arrived(chat('c1'))
         c.hide()
         expect(c.open.value).toBe(false)
         expect(c.chat.value?.id).toBe('c1')
-        await c.close()
+        c.show('greenhouse')
+        c.close()
+        expect(c.open.value).toBe(false)
+        expect(posted).toEqual([])
+        expect(c.chat.value).toMatchObject({id: 'c1'})
+        expect(c.chat.value?.ended).toBeFalsy()
+        await c.end('c1')
         expect(posted).toEqual([{path: '/api/chats/c1/end', body: null}])
         expect(c.chats.value).toMatchObject([{id: 'c1', ended: true}])
-        // Opened again, it's ready for a fresh one; the ended one is a click away.
-        expect(c.chat.value).toBeNull()
-        c.arrived(chat('c1', {ended: true}))
+        // The ended one is a click away, to read; closed, the pane lets it go, ready for a fresh one.
+        c.view('c1')
+        expect(c.chat.value).toMatchObject({id: 'c1', ended: true})
+        c.close()
         expect(c.chat.value).toBeNull()
         c.view('c1')
         expect(c.chat.value).toMatchObject({id: 'c1', ended: true})
