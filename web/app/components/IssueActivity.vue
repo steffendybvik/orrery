@@ -66,6 +66,8 @@ function said(event: IssueEvent): string[] {
             ...was.filter(g => !now.includes(g)).map(g => `unlinked the GitHub issue ${g}`),
         ]
     }
+    if (field === 'model') return [after ? `set its model to ${after}` : 'let its kind pick its model']
+    if (field === 'effort') return [after ? `set its effort to ${after}` : 'let its kind pick its effort']
     if (field === 'depends') {
         const [was, now] = [list(before), list(after)]
         return [

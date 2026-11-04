@@ -201,6 +201,28 @@ describe('the model a signal needs (ORR-868)', () => {
     })
 })
 
+describe("an issue's own model (ORR-868)", () => {
+    const owner: Actor = {name: 'skoll', owner: true}
+
+    it("beats its kind's, shows on the issue and in its activity, and null follows its kind again", async () => {
+        const {id} = await store.createIssue('greenhouse', {title: 'Heavy docs', labels: ['docs'], model: 'opus', effort: 'high'})
+        expect(await store.issue('greenhouse', id)).toMatchObject({model: 'opus', effort: 'high'})
+        expect((await store.focus('greenhouse', id, {}, owner)).model).toBe('opus')
+        await store.updateIssue('greenhouse', id, {model: null, effort: null}, owner)
+        const issue = await store.issue('greenhouse', id)
+        expect([issue.model, issue.effort]).toEqual([undefined, undefined])
+        expect((await store.focus('greenhouse', id, {}, owner)).model).toBe('sonnet')
+        expect((await store.listActivity('greenhouse', id)).map(e => e.field)).toEqual(expect.arrayContaining(['model', 'effort']))
+    })
+
+    it('is refused when it names no model or effort Claude Code takes', async () => {
+        const {id} = await store.createIssue('greenhouse', {title: 'A'})
+        for (const bad of [{model: 'gpt-5'}, {model: 'Opus'}, {effort: 'huge'}]) {
+            expect((await failure(() => store.updateIssue('greenhouse', id, bad, owner))).status).toBe(400)
+        }
+    })
+})
+
 describe('the kinds of work (ORR-868)', () => {
     const owner: Actor = {name: 'skoll', owner: true}
 

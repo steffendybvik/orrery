@@ -658,4 +658,8 @@ export const STEPS: (string | ((client: Pick<PoolClient, 'query'>) => Promise<un
     -- The model a pooled signal's work needs (ORR-868), from its issue's kind: no session on a lighter one takes it.
     -- None on those from before, and on a message, which any session takes.
     ALTER TABLE signals ADD COLUMN model text;
+`, `
+    -- An issue's own model and effort (ORR-868): a session for it starts on them, over its kind's. None follows its kind.
+    ALTER TABLE issues ADD COLUMN model text;
+    ALTER TABLE issues ADD COLUMN effort text;
 `]

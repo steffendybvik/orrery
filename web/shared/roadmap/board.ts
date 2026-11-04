@@ -2,6 +2,7 @@
 // changed, and the helpers that name and link them.
 import type {Instruction} from '../prompt'
 import type {ChatScheduleRequest} from './chats'
+import type {Effort} from './sessions'
 import type {Starts} from './settings'
 
 /** What a status means, whatever it's called: orrery's counts, progress and pages reason about kinds,
@@ -128,6 +129,9 @@ export interface Issue {
     schedule?: number
     /** The version it ships in (a release's), if it's set for one. */
     release?: string
+    /** The model and effort a session for it starts on (ORR-868), over its kind's; none follows its kind. */
+    model?: string
+    effort?: Effort
     created_by: string
     /** The name of the session that made it, as it was then (ORR-466). */
     session_name?: string
@@ -383,7 +387,7 @@ export interface Comment {
 export const RELEASE_MODES = ['none', 'own', 'shared'] as const
 export type ReleaseMode = typeof RELEASE_MODES[number]
 
-export type ActivityField = 'claim' | 'uploaded' | 'created' | 'title' | 'status' | 'priority' | 'assignee' | 'labels' | 'external' | 'github_issues' | 'notes' | 'chunk' | 'parent' | 'proposal' | 'project' | 'release' | 'depends'
+export type ActivityField = 'model' | 'effort' | 'claim' | 'uploaded' | 'created' | 'title' | 'status' | 'priority' | 'assignee' | 'labels' | 'external' | 'github_issues' | 'notes' | 'chunk' | 'parent' | 'proposal' | 'project' | 'release' | 'depends'
 
 /** One change to an issue: who set `field` from `before` to `after`, and when. Values are as stored (a
  * status's id, a chunk's id, labels as a JSON list); none means unset. Notes keep no values. */

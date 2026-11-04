@@ -119,10 +119,11 @@ export abstract class SignalStore extends IssueStore {
         return signal
     }
 
-    /** The model a signal about the issue needs (ORR-868): what its kind starts a session on. No session on a lighter
+    /** The model a signal about the issue needs (ORR-868): its own, else what its kind starts a session on. No session on a lighter
      * one takes it from the pool (pool.ts). */
     protected async modelNeeded(project: string, issue: string): Promise<string> {
-        return modelFor({labels: JSON.parse((await this.issueRow(project, issue)).labels) as string[]}, await this.workKinds()).model ?? 'best'
+        const row = await this.issueRow(project, issue)
+        return modelFor({labels: JSON.parse(row.labels) as string[], model: row.model, effort: row.effort}, await this.workKinds()).model ?? 'best'
     }
 
     /** The heaviest model a chunk's open issues need (`all`: every chunk's, `none`: those in none), as a session working
