@@ -1,19 +1,26 @@
-import {afterEach, beforeEach, describe, expect, it} from 'vitest'
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 import type {VueWrapper} from '@vue/test-utils'
 import {flushPromises} from '@vue/test-utils'
 import {mountSuspended, registerEndpoint} from '@nuxt/test-utils/runtime'
-import {createError, getQuery, readRawBody} from 'h3'
+import {getQuery, readRawBody, setResponseStatus} from 'h3'
 import BoardUpload from '~/components/BoardUpload.vue'
 
 // A board's file brought in as a new board from a project's Settings (ORR-747, ORR-866): it uploads as soon as it's
 // picked, and an id or key already taken keeps the file waiting while the owner picks others, or cancels.
 const sent: {query: Record<string, unknown>, body: string | undefined}[] = []
 let answers: ('taken' | 'broken' | 'made')[] = []
+// A write goes as the owner, who the page asks for first.
+registerEndpoint('/api/owner', () => ({name: 'skoll', display: 'Sköll', named: true}))
 registerEndpoint('/api/projects/upload', {method: 'POST', handler: async event => {
-    sent.push({query: getQuery(event), body: await readRawBody(event).catch(e => `ERR ${e}`)})
+    sent.push({query: getQuery(event), body: await readRawBody(event)})
     const answer = answers.shift()
-    if (answer === 'taken') throw createError({statusCode: 409, statusMessage: 'A project with the id shop already exists'})
-    if (answer === 'broken') throw createError({statusCode: 400, statusMessage: 'That file is not a board export'})
+    // As the server answers a refusal: its status, and why in `message`.
+    const refused = (status: number, message: string) => {
+        setResponseStatus(event, status)
+        return {statusCode: status, message}
+    }
+    if (answer === 'taken') return refused(409, 'A project with the id shop already exists')
+    if (answer === 'broken') return refused(400, 'That file is not a board export')
     return {id: 'shop-2', name: 'Shop'}
 }})
 
@@ -48,7 +55,7 @@ describe('uploading a board', () => {
         const wrapper = await mountUpload()
         await pick(wrapper)
         expect(sent).toEqual([{query: {}, body: '{"project":{"id":"shop"}}'}])
-        expect(useRouter().currentRoute.value.path).toBe('/p/shop-2')
+        await vi.waitFor(() => expect(useRouter().currentRoute.value.path).toBe('/p/shop-2'), {timeout: 5000})
         expect(wrapper.find('form').exists()).toBe(false)
     })
 
