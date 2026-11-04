@@ -28,12 +28,22 @@ const messageAllDialog = openedOnce(() => messagingAll.value)
 const messageOneDialog = openedOnce(() => messagingOne.value)
 const scheduleDialog = openedOnce(() => schedule.value)
 const projectDialog = openedOnce(() => newProject.value)
+
+// Skip to content (ORR-856): the first thing a Tab reaches, shown only then, so a keyboard needn't go through the whole
+// sidebar on every page. It moves focus to the page itself without touching the address, as some pages read its hash.
+const main = ref<HTMLElement | null>(null)
+const skipToContent = () => main.value?.focus()
 </script>
 
 <template>
   <div class="flex h-dvh overflow-hidden">
+    <a
+        href="#main"
+        class="sr-only z-[60] rounded-lg bg-panel px-3 py-2 text-[13px] font-medium text-fg shadow-lg ring-2 ring-accent-500/60 outline-none focus:not-sr-only focus:fixed focus:top-2 focus:left-2"
+        @click.prevent="skipToContent"
+    >Skip to content</a>
     <AppSidebar />
-    <main class="flex min-w-0 flex-1 flex-col overflow-hidden">
+    <main id="main" ref="main" tabindex="-1" class="flex min-w-0 flex-1 flex-col overflow-hidden outline-none">
       <slot />
     </main>
     <CommandPalette />

@@ -147,3 +147,23 @@ test('g m goes to My issues', async ({page}) => {
     await page.keyboard.press('m')
     await expect(page).toHaveURL('/mine')
 })
+
+test('the first Tab shows Skip to content, and Enter puts the next Tab in the page, past the sidebar (ORR-856)', async ({page}) => {
+    for (const path of ['/p/keys?view=list', '/sessions', '/settings']) {
+        await page.goto(path)
+        await expect(page.locator('main h1').first()).toBeVisible()
+        await page.keyboard.press('Tab')
+        const skip = page.getByRole('link', {name: 'Skip to content'})
+        await expect(skip, path).toBeFocused()
+        await expect(skip).toBeInViewport()
+        await page.keyboard.press('Enter')
+        await expect(page.locator('main#main')).toBeFocused()
+        // The address is left alone, as Settings reads its hash.
+        expect(new URL(page.url()).hash).toBe('')
+        await page.keyboard.press('Tab')
+        expect(await page.evaluate(() => !!document.activeElement?.closest('main') && !document.activeElement.closest('aside')), path).toBe(true)
+    }
+    // Hidden until then.
+    await page.locator('main#main').click({position: {x: 5, y: 5}})
+    await expect(page.getByRole('link', {name: 'Skip to content'})).not.toBeInViewport()
+})
