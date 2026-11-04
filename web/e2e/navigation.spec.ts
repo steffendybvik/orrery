@@ -22,6 +22,7 @@ interface Route {
 
 const ROUTES = (): Route[] => [
     {path: '/mine', heading: 'My issues', sidebar: 'My issues', palette: 'My issues and urgent'},
+    {path: '/projects', heading: 'Projects', sidebar: 'Projects', palette: 'Projects'},
     {path: '/connect', heading: 'Connect an agent', sidebar: 'Connect an agent', palette: 'Connect an agent'},
     {path: '/sessions', heading: 'Sessions', sidebar: 'Sessions', palette: 'Sessions'},
     {path: '/schedules', heading: 'Schedules', sidebar: 'Schedules', palette: 'Schedules'},
