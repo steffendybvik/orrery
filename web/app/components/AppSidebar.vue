@@ -94,6 +94,70 @@ const allSessions = computed(() => ordered.value
     .flatMap(project => (sessions.value[project.id] ?? []).filter(s => s.project === project.id && listable(s)).map(session => ({session, project})))
     .sort((a, b) => Number(b.session.state === 'waiting') - Number(a.session.state === 'waiting')))
 
+// The sessions list is a panel of its own (ORR-897): its top edge drags to make it taller or shorter, and its heading's
+// arrow folds it away, both remembered in this browser. Left alone it's as tall as its sessions, up to SESSIONS_HEIGHT;
+// resized, it's the height it was given. It never takes more than leaves the nav SESSIONS_KEEP.
+const SESSIONS_HEIGHT = 224
+const SESSIONS_MIN = 64
+const SESSIONS_KEEP = 120
+const {width: sessionsHeight} = usePaneWidth('orrery-sidebar-sessions-height', SESSIONS_HEIGHT)
+const sessionsFolded = ref((() => {
+    try {
+        return localStorage.getItem('orrery-sidebar-sessions') === 'folded'
+    } catch {
+        return false
+    }
+})())
+watch(sessionsFolded, folded => {
+    try {
+        if (folded) localStorage.setItem('orrery-sidebar-sessions', 'folded')
+        else localStorage.removeItem('orrery-sidebar-sessions')
+    } catch {
+        // Private windows may refuse; it still holds until a reload.
+    }
+})
+const sessionsPanel = ref<HTMLElement>()
+const sessionsDragging = ref(false)
+/** The most the panel can be: what the sidebar has, less what the nav keeps. */
+function sessionsMax() {
+    const panel = sessionsPanel.value
+    const aside = panel?.parentElement
+    if (!panel || !aside) return SESSIONS_HEIGHT
+    return Math.max(SESSIONS_MIN, panel.offsetHeight + (aside.querySelector('nav')?.clientHeight ?? 0) - SESSIONS_KEEP)
+}
+const clampSessions = (to: number) => Math.round(Math.min(Math.max(to, SESSIONS_MIN), sessionsMax()))
+let dragFromY = 0
+let dragFromHeight = 0
+function sessionsDown(event: PointerEvent) {
+    if (event.button !== 0) return
+    event.preventDefault()
+    ;(event.currentTarget as HTMLElement).setPointerCapture(event.pointerId)
+    dragFromY = event.clientY
+    // What shows, which may be less than the height kept when there are few sessions.
+    dragFromHeight = sessionsPanel.value?.offsetHeight ?? sessionsHeight.value
+    sessionsDragging.value = true
+}
+function sessionsMove(event: PointerEvent) {
+    if (sessionsDragging.value) sessionsHeight.value = clampSessions(dragFromHeight + dragFromY - event.clientY)
+}
+function sessionsUp(event: PointerEvent) {
+    if (!sessionsDragging.value) return
+    sessionsDragging.value = false
+    ;(event.currentTarget as HTMLElement).releasePointerCapture(event.pointerId)
+}
+watch(sessionsDragging, on => {
+    document.documentElement.classList.toggle('cursor-row-resize', on)
+    document.documentElement.classList.toggle('select-none', on)
+})
+onBeforeUnmount(() => document.documentElement.classList.remove('cursor-row-resize', 'select-none'))
+function sessionsKey(event: KeyboardEvent) {
+    const step = event.shiftKey ? 64 : 16
+    const to = {ArrowUp: sessionsHeight.value + step, ArrowDown: sessionsHeight.value - step, Home: SESSIONS_MIN, End: Infinity}[event.key]
+    if (to === undefined) return
+    event.preventDefault()
+    sessionsHeight.value = clampSessions(to)
+}
+
 /** The other projects a session hears, by name. */
 const alsoNames = (session: Session) => (session.also ?? []).map(id => projects.value.find(p => p.id === id)?.name ?? id)
 /** Where a session that spans projects says it is, in place of its own project's name. */
@@ -349,15 +413,58 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
     </nav>
 
     <!-- Every Claude session working on a project, apart from the projects so they stay short. -->
-    <div v-if="allSessions.length || canStart" class="flex max-h-56 shrink-0 flex-col border-t border-line px-2 pt-2 pb-2">
-      <div class="label mb-1 flex items-center gap-1 px-2">
+    <div
+        v-if="allSessions.length || canStart"
+        ref="sessionsPanel"
+        class="relative flex shrink-0 flex-col border-t border-line px-2 pt-2 pb-2"
+        :style="sessionsFolded ? undefined : sessionsHeight === SESSIONS_HEIGHT ? {maxHeight: `${SESSIONS_HEIGHT}px`} : {height: `${sessionsHeight}px`}"
+        data-testid="sidebar-sessions"
+    >
+      <!-- Its top edge, dragged (or the arrows) to make it taller or shorter; double-click puts it back. -->
+      <div
+          v-if="!sessionsFolded"
+          role="separator"
+          aria-orientation="horizontal"
+          tabindex="0"
+          aria-label="Resize the sessions list"
+          :aria-valuenow="sessionsHeight"
+          :aria-valuemin="SESSIONS_MIN"
+          title="Drag to resize, double-click to reset"
+          class="group absolute inset-x-0 -top-1 z-10 h-2 cursor-row-resize touch-none outline-none"
+          data-testid="sidebar-sessions-resize"
+          @pointerdown="sessionsDown"
+          @pointermove="sessionsMove"
+          @pointerup="sessionsUp"
+          @pointercancel="sessionsUp"
+          @lostpointercapture="sessionsDragging = false"
+          @dblclick="sessionsHeight = SESSIONS_HEIGHT"
+          @keydown="sessionsKey"
+      >
+        <span
+            class="pointer-events-none absolute inset-x-0 top-[3px] h-0.5 transition-colors group-hover:bg-accent-fill/40 group-focus-visible:bg-accent-fill"
+            :class="{'bg-accent-fill/60': sessionsDragging}"
+            aria-hidden="true"
+        />
+      </div>
+      <div class="label flex items-center gap-1 px-2" :class="!sessionsFolded && 'mb-1'">
+        <button
+            type="button"
+            class="-ml-1 grid place-items-center rounded p-0.5 text-faint hover:bg-hover hover:text-fg pointer-coarse:size-7"
+            :aria-expanded="!sessionsFolded"
+            :title="sessionsFolded ? 'Show the sessions' : 'Fold the sessions away'"
+            :aria-label="sessionsFolded ? 'Show the sessions' : 'Fold the sessions away'"
+            data-testid="sidebar-sessions-fold"
+            @click="sessionsFolded = !sessionsFolded"
+        >
+          <svg class="size-3 transition-transform duration-150" :class="!sessionsFolded && 'rotate-90'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6" /></svg>
+        </button>
         <NuxtLink to="/sessions" class="flex-1 hover:text-fg">Sessions</NuxtLink>
         <span v-if="allSessions.length" class="font-mono normal-case tabular-nums">{{ allSessions.length }}</span>
         <button type="button" class="grid place-items-center rounded p-0.5 text-faint hover:bg-hover hover:text-fg pointer-coarse:size-7" title="Start a session" aria-label="Start a session" @click="startSession()">
           <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14" /></svg>
         </button>
       </div>
-      <div class="flex min-h-0 flex-col gap-0.5 overflow-y-auto">
+      <div v-if="!sessionsFolded" class="flex min-h-0 flex-col gap-0.5 overflow-y-auto">
         <div v-for="{session, project} in allSessions" :key="session.id" class="flex flex-col rounded-lg transition-colors hover:bg-hover">
           <NuxtLink
               :to="`/sessions#session-${session.id}`"
