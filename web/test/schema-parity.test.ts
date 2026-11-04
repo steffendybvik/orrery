@@ -151,8 +151,9 @@ describe.runIf(url)('upgrading Postgres with data in it', () => {
         await expectPeopleUpgraded(await upgraded(BEFORE_PEOPLE_STEP, BEFORE_PEOPLE))
     })
 
+    // As written at step 29: camelCase, and still `chunk`, which the rename to milestones carries over (ORR-896).
     it("keeps the orrery's prompts through the API going snake_case (step 30)", async () => {
-        const store = await upgraded(29, `INSERT INTO settings (key, value) VALUES ('focusPrompt', '"Look at {issue}"'), ('milestonePrompt', '"Work {milestone}"');`)
+        const store = await upgraded(29, `INSERT INTO settings (key, value) VALUES ('focusPrompt', '"Look at {issue}"'), ('chunkPrompt', '"Work {chunk}"');`)
         expect(await store.settings()).toMatchObject({focus_prompt: 'Look at {issue}', milestone_prompt: 'Work {milestone}'})
     })
 
