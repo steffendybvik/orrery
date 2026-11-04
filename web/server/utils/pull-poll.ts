@@ -46,6 +46,8 @@ export interface PullChange {
     review?: {by: string, body: string, comments: {path: string, line: number | null, body: string}[]}
     /** For checks failed: how many times they have failed on this PR since they last went green, this one counted. */
     failures?: number
+    /** For a merge: the paths it changed (ORR-879), up to 300; left out when GitHub couldn't say. */
+    files?: string[]
 }
 
 /** A PR as a poll read it. */
@@ -356,8 +358,22 @@ export class PullPoll {
         }
         await this.store.db.run(`INSERT INTO pull_repos (repo, polled_at, token, error) VALUES (?, ?, ?, NULL)
             ON CONFLICT (repo) DO UPDATE SET polled_at = excluded.polled_at, token = excluded.token, error = NULL`, repo, at, token ? 1 : 0)
-        for (const change of changes) this.onChange(change)
+        for (const change of changes) {
+            if (change.kind === 'merged') change.files = await this.changedFiles(repo, asker, change.pull.number)
+            this.onChange(change)
+        }
         await this.readHistory(repo, projects, asker)
+    }
+
+    /** The paths a merged PR changed, so one that touches what everything rests on asks for a review however it was rated
+     * (ORR-879): a request a merge, with or without a token. Not read, it's left out, and the merge is told as before. */
+    private async changedFiles(repo: string, asker: string, number: number): Promise<string[] | undefined> {
+        try {
+            return (await this.pulls.askPages<{filename: string}>(repo, asker, `/repos/${repo}/pulls/${number}/files?per_page=${PAGE}`)).value.map(f => f.filename)
+        } catch (error) {
+            console.error(`[orrery] reading the files ${repo}#${number} changed:`, error)
+            return undefined
+        }
     }
 
     /** One more page of the repo's closed PRs, oldest last, until each is on the issues it names (ORR-795): a request more a
