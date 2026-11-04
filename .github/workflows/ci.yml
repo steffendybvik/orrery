@@ -109,7 +109,8 @@ jobs:
   e2e:
     needs: playwright
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # Firefox and WebKit take longer than Chrome, and a whole suite with retries ran past 20 minutes on them (ORR-912).
+    timeout-minutes: 35
     strategy:
       fail-fast: false
       matrix:
@@ -149,8 +150,10 @@ jobs:
           # The image runs as root, and Firefox won't start with a home folder that's another user's.
           HOME: /root
           NODE_V8_COVERAGE: ${{ matrix.database == 'sqlite' && matrix.browser == 'chromium' && format('{0}/.v8-e2e', github.workspace) || '' }}
-          # And what the page's own code ran in Chrome (ORR-784).
-          E2E_PAGE_COVERAGE: ${{ matrix.database == 'sqlite' && matrix.browser == 'chromium' && format('{0}/.page-e2e', github.workspace) || '' }}
+          # What the page's own code ran in Chrome (ORR-784) is off for now: with it, pages took past 5s to load early in the
+          # run, so specs failed from the first minute and the job ran out of time (ORR-912). `pnpm test:e2e` with
+          # E2E_PAGE_COVERAGE set still collects it.
+          E2E_PAGE_COVERAGE: ''
       - run: node web/scripts/coverage-lines.mjs --v8 .v8-e2e --pages .page-e2e --out web/e2e-lines.json
         if: matrix.database == 'sqlite' && matrix.browser == 'chromium'
         continue-on-error: true
@@ -164,9 +167,10 @@ jobs:
             web/e2e-results.json
             web/e2e-lines.json
           retention-days: 30
-      # The report carries the traces of the failed tests (open with `pnpm exec playwright show-report`).
+      # The report carries the traces of the failed tests (open with `pnpm exec playwright show-report`), a job that ran
+      # out of time too, as that's when they're most needed (ORR-912).
       - uses: actions/upload-artifact@v7
-        if: failure()
+        if: failure() || cancelled()
         with:
           name: playwright-report-${{ matrix.database }}-${{ matrix.browser }}
           path: web/playwright-report/
