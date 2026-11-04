@@ -373,7 +373,8 @@ at all, not even as a picture in orrery's own page; only the channel, the launch
 Nor can what's written in orrery send anything out just by being shown (ORR-748). Issues, comments, docs and the chat's
 replies are drawn as Markdown, and an agent that has read something could put it in an image's address, which a browser would
 ask for by itself. So orrery's pages carry a `Content-Security-Policy` that loads images and media only from orrery, and fonts
-and styles only from orrery, which serves its own fonts (ORR-766). Browsers' DNS prefetching
+and styles only from orrery, which serves its own fonts (ORR-766). `navigation.spec.ts` holds both: its walk over every
+page expects no request to another host, and the policy's `font-src` and `style-src` to name no other (ORR-846). Browsers' DNS prefetching
 is off too, as looking up a link's host would send a name out. A link sends something only when you click it.
 
 ## Secrets
