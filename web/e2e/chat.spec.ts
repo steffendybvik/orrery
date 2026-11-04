@@ -777,6 +777,52 @@ test("follows the page's project until one is picked by hand, then stays pinned 
     await pane.getByRole('button', {name: 'Close the chat'}).click()
 })
 
+test("keeps a chat per project: moving to another project's page leaves the one you had running, to switch back to (ORR-865)", async ({page, request, baseURL}) => {
+    await endChats(request)
+    await makeProject(request, {name: 'Crypt', key: 'CRY'})
+    const launchers = [hold(baseURL!, '/api/projects/observatory/launches/stream'), hold(baseURL!, '/api/projects/crypt/launches/stream')]
+    try {
+        for (const id of ['observatory', 'crypt'])
+            await expect.poll(async () => (await (await request.get(`/api/projects/${id}/launches`)).json()).launchers).toBe(1)
+        const pane = page.getByRole('region', {name: 'Chat'})
+        const box = pane.getByLabel('Message')
+        await page.goto('/p/observatory')
+        await page.getByRole('button', {name: 'Agent', exact: true}).click()
+        await box.fill('What is on the top shelf?')
+        await box.press('ControlOrMeta+Enter')
+        await expect(pane).toContainText('Starting the session…')
+
+        // Another project's page: its own chat, ready to start, with Observatory's still running and named.
+        await page.goto('/p/crypt')
+        await page.getByRole('button', {name: 'Agent (a chat is running)'}).click()
+        await expect(pane.getByRole('heading', {name: 'Ask about Crypt'})).toBeVisible()
+        const elsewhere = pane.getByTestId('chat-elsewhere')
+        await expect(elsewhere).toHaveText('Also chatting on Observatory')
+        await box.fill('How cold is it down here?')
+        await box.press('ControlOrMeta+Enter')
+        await expect.poll(async () => (await (await request.get('/api/chats')).json()).map((c: {project: string}) => c.project).sort()).toEqual(['crypt', 'observatory'])
+        await expect(pane.getByText('How cold is it down here?')).toBeVisible()
+
+        // The picker marks both, and switching back brings Observatory's conversation, with Crypt's still running.
+        await pane.getByRole('button', {name: 'Project', exact: true}).click()
+        await expect(pane.getByRole('option', {name: /Observatory.*chat running/})).toBeVisible()
+        await page.keyboard.press('Escape')
+        await elsewhere.getByRole('button', {name: 'Observatory'}).click()
+        await expect(pane.getByText('What is on the top shelf?')).toBeVisible()
+        await expect(pane.getByText('How cold is it down here?')).toHaveCount(0)
+        await expect(elsewhere).toHaveText('Also chatting on Crypt')
+
+        // Ending the one on screen leaves the other.
+        await pane.getByRole('button', {name: 'End the chat and close it'}).click()
+        await expect.poll(async () => (await (await request.get('/api/chats')).json()).map((c: {project: string}) => c.project)).toEqual(['crypt'])
+        await page.getByRole('button', {name: 'Agent (a chat is running)'}).click()
+        await expect(pane.getByText('How cold is it down here?')).toBeVisible()
+        await pane.getByRole('button', {name: 'End the chat and close it'}).click()
+    } finally {
+        for (const l of launchers) l.stop()
+    }
+})
+
 test('writes a code block in the box: Enter after ``` closes it, and inside it is a new line, not a send', async ({page}) => {
     await page.goto('/p/observatory')
     await page.getByRole('button', {name: /^Agent/}).click()

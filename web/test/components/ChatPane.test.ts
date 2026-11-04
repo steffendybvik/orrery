@@ -58,7 +58,7 @@ beforeEach(() => {
     posted.length = 0
     refuse = ''
     localStorage.clear()
-    clearNuxtState(['chats', 'chat-open', 'chat-current', 'chat-ended', 'chat-project', 'chat-pinned', 'chat-failed', 'chat-heard', 'chat-large', 'chat-lands', 'launch-state'])
+    clearNuxtState(['chats', 'chat-open', 'chat-ended', 'chat-project', 'chat-pinned', 'chat-failed', 'chat-heard', 'chat-large', 'chat-lands', 'launch-state'])
     useRoadmaps().projects.value = [project('shed', 'Shed')]
     useRoadmaps().ready.value = true
 })

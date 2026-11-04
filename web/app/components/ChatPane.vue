@@ -22,12 +22,15 @@ import type {ChatIssues, ChatMessage} from '#shared/roadmap'
 // Send and Don't send; only Send sends it. Under each of Claude's replies, Copy takes its Markdown as written (on a
 // wide screen it shows on hover or focus). A message that's just `/clear` clears the session's context instead of going
 // to it: a divider marks the cut, and what was said above it stays, greyed. Any other slash command goes as words.
-// Before a chat starts, its project follows the page you're on; picking one by hand pins it (the pin beside the picker), so
-// it stays put whatever page you open, until unpinned. While the chat's project isn't the page's, a line under the header
-// says so (ORR-588).
+// The pane's project follows the page you're on; picking one by hand pins it (the pin beside the picker), so it stays put
+// whatever page you open, until unpinned. While the chat's project isn't the page's, a line under the header says so
+// (ORR-588). Each project has its own chat (ORR-865): the pane shows its project's, and moving to another project,
+// by page or picker, leaves the one you had running, to come back to. A line under the header names the chats running on
+// other projects, each a button to switch to it, and the picker marks them. What's held goes back in the box on a
+// switch, so it never goes to another project's chat.
 // While no launcher runs for its project, LauncherHint above the box says so, with the install command to copy, in place
 // of the server's error (ORR-591).
-const {open, large, chat, session, project, pinned, failed, chats, lands, start, send, clear, land, fresh, answer, hide, close, pin, resize, upload, show} = useChat()
+const {open, large, chat, session, project, pinned, failed, chats, elsewhere, lands, start, send, clear, land, fresh, switchTo, answer, hide, close, pin, resize, upload, show} = useChat()
 const answering = ref<number | null>(null)
 async function decide(message: number, allow: boolean, anyway = false) {
     answering.value = message
@@ -68,10 +71,13 @@ const here = computed(() => {
     const on = route.params.project
     return typeof on === 'string' && projects.value.some(p => p.id === on) ? on : null
 })
-/** The project the chat would be about: the pinned one, else the one you're on, else the first. */
-watch([pinned, here, projects], () => {
+/** The project the chat would be about: the pinned one, else the one you're on; on a page of no project, a running
+ * chat's when the pane has none, so the corner button brings you back to it (ORR-865); else the first. */
+watch([pinned, here, projects, chats], () => {
     if (pinned.value && projects.value.some(p => p.id === pinned.value)) project.value = pinned.value
-    else if (here.value || !project.value) project.value = here.value ?? project.value ?? projects.value[0]?.id ?? null
+    else if (here.value) project.value = here.value
+    else if (!chat.value && elsewhere.value[0]) project.value = elsewhere.value[0].project
+    else if (!project.value) project.value = projects.value[0]?.id ?? null
 }, {immediate: true})
 /** Where the issues the chat makes land: the running chat's, or the next one's. */
 const landing = computed<ChatIssues>(() => chat.value && !chat.value.ended ? chat.value.issues : lands.value)
@@ -79,6 +85,8 @@ const LANDS: {value: ChatIssues, label: string}[] = [{value: 'todo', label: 'Tod
 
 const projectName = (id: string) => projects.value.find(p => p.id === id)?.name ?? id
 const options = computed(() => projects.value.map(p => ({value: p.id, label: p.name})))
+/** The projects with a chat running, which the picker marks. */
+const chatting = computed(() => new Set(chats.value.filter(c => !c.ended).map(c => c.project)))
 /** Which project it's about: the chat's, else the one the first message will start it on. */
 const about = computed(() => chat.value && !chat.value.ended ? chat.value.project : project.value)
 /** The page's project, when it isn't the chat's: "here" isn't what the chat is about. */
@@ -249,6 +257,8 @@ watch(draft, () => restartHold())
 // Opened again, what was held while it was hidden gets its wait.
 watch(open, shown => shown && restartHold())
 watch(() => chat.value?.ended, over => over && unhold())
+// Another project's chat, or none yet: what was held for the last one doesn't go to it.
+watch(about, (now, was) => now !== was && unhold())
 onBeforeUnmount(() => clearTimeout(holdTimer))
 
 async function attach(files: File[]) {
@@ -274,7 +284,7 @@ const {over, on: drop} = useImageDrop(attach)
       v-if="!open"
       type="button"
       class="fixed right-4 bottom-4 z-40 inline-flex h-8 items-center gap-1.5 rounded-lg bg-panel px-3.5 text-[13px] text-fg shadow-md ring-1 ring-line transition hover:tint"
-      :title="chats.length ? 'Back to your chat: it is still running' : 'Chat about a project: an agent answers and makes issues'"
+      :title="chats.length > 1 ? `Back to your chats: ${chats.length} are still running` : chats.length ? 'Back to your chat: it is still running' : 'Chat about a project: an agent answers and makes issues'"
       @click="show()"
   >
     <svg
@@ -289,7 +299,7 @@ const {over, on: drop} = useImageDrop(attach)
         aria-hidden="true"
     ><path d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 0 0-2.456 2.456ZM16.894 20.567 16.5 21.75l-.394-1.183a2.25 2.25 0 0 0-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 0 0 1.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 0 0 1.423 1.423l1.183.394-1.183.394a2.25 2.25 0 0 0-1.423 1.423Z" /></svg>
     Agent
-    <span v-if="chats.length" class="sr-only">(a chat is running)</span>
+    <span v-if="chats.length" class="sr-only">{{ chats.length > 1 ? `(${chats.length} chats are running)` : '(a chat is running)' }}</span>
   </button>
 
   <section
@@ -308,9 +318,13 @@ const {over, on: drop} = useImageDrop(attach)
           <span>Chat</span>
           <template v-if="about">
             <span class="text-faint">·</span>
-            <template v-if="(!chat || chat.ended) && options.length > 1">
+            <template v-if="options.length > 1">
               <PropertyPicker :model-value="project ?? ''" :options="options" label="Project" field small @update:model-value="pin(String($event))">
                 <span class="truncate">{{ projectName(about) }}</span>
+                <template #option="{option}">
+                  <span class="min-w-0 flex-1 truncate" :title="option.label">{{ option.label }}</span>
+                  <span v-if="chatting.has(option.value)" class="shrink-0 text-xs text-faint">chat running</span>
+                </template>
               </PropertyPicker>
               <UiButton
                   variant="ghost" size="xs" square :aria-pressed="!!pinned"
@@ -336,6 +350,15 @@ const {over, on: drop} = useImageDrop(attach)
           <span v-if="state" class="min-w-0 truncate">{{ state }}</span>
         </span>
         <span v-if="away" class="truncate text-xs text-muted" data-testid="chat-away">You're on <em>{{ projectName(away) }}</em>; this chat is about <em>{{ projectName(about!) }}</em></span>
+        <span v-if="elsewhere.length" class="flex min-w-0 flex-wrap items-center gap-x-1.5 text-xs text-muted" data-testid="chat-elsewhere">
+          Also chatting on
+          <button
+              v-for="c in elsewhere" :key="c.id" type="button"
+              class="truncate font-medium text-accent-700 underline decoration-accent-500/40 underline-offset-2 hover:decoration-accent-500 dark:text-accent-400"
+              :title="`Switch to the chat on ${projectName(c.project)}: this one keeps running`"
+              @click="switchTo(c.project)"
+          >{{ projectName(c.project) }}</button>
+        </span>
       </div>
       <UiButton variant="ghost" size="xs" square class="max-sm:hidden" :aria-label="large ? 'Make the chat smaller' : 'Make the chat larger'" :title="large ? 'Smaller' : 'Larger'" @click="resize">
         <svg v-if="large" class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 9V4.5M9 9H4.5M9 9 3.75 3.75M9 15v4.5M9 15H4.5M9 15l-5.25 5.25M15 9h4.5M15 9V4.5M15 9l5.25-5.25M15 15h4.5M15 15v4.5m0-4.5 5.25 5.25" /></svg>
