@@ -1007,6 +1007,8 @@ describe("a chat session's writes", () => {
         expect(await refused('DELETE', '/api/projects/greenhouse/docs/shelving')).toBe(403)
         expect(await refused('POST', '/api/chats/c1c2c3c4c5c6/messages')).toBe(403)
         expect(await refused('PATCH', '/api/chats/c1c2c3c4c5c6')).toBe(403)
+        // Deleting a chat, its own included, is the owner's (ORR-888).
+        expect(await refused('DELETE', '/api/chats/c1c2c3c4c5c6')).toBe(403)
         // Anyone else's go on to their own checks.
         expect(await refused('PATCH', '/api/projects/greenhouse/issues/GRE-4', false)).toBeUndefined()
     })
