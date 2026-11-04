@@ -46,6 +46,17 @@ describe('an issue\'s pull requests', () => {
         expect(wrapper.findAll('button').filter(b => b.text() === 'Send back')).toHaveLength(1)
     })
 
+    it("says in one muted line, not in red, that the repo isn't read, and where to see why", async () => {
+        const error = 'GitHub has no public you/shop: for a private repo, set a GITHUB_TOKEN secret that may go to api.github.com'
+        const wrapper = await mount({error})
+        const line = wrapper.find('section p')
+        expect(line.text()).toBe('Not read from GitHub. Pull requests says why.')
+        expect(line.classes()).toContain('text-muted')
+        expect(line.attributes('title')).toBe(error)
+        expect(line.find('a').attributes('href')).toBe('/pulls')
+        expect(wrapper.find('.text-rose-700').exists()).toBe(false)
+    })
+
     it('shows nothing for an issue with no PR', async () => {
         const wrapper = await mount({})
         expect(wrapper.find('section').exists()).toBe(false)
