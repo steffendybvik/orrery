@@ -514,9 +514,13 @@ test('on a phone a started session keeps its name whole, with Watch and Stop und
         expect((await show.boundingBox())!.y).toBeGreaterThan((await name.boundingBox())!.y + 10)
         await expect(card.getByRole('button', {name: 'Watch', exact: true})).toHaveCount(0)
         await expect(card.getByRole('button', {name: 'Stop', exact: true})).toHaveCount(0)
-        // The meta line wraps as text, not a line per item.
+        // The meta line wraps as text, not a line per item: fewer lines than its items. How many lines it takes depends on
+        // its words ("just now" or "1 min ago"), so it isn't held to two (ORR-912).
         const meta = card.locator('p').first()
-        expect((await meta.boundingBox())!.height).toBeLessThan(40)
+        const items = (await meta.innerText()).split('·').length
+        const lineHeight = await meta.evaluate(el => parseFloat(getComputedStyle(el).lineHeight))
+        expect(items).toBeGreaterThan(3)
+        expect(Math.round((await meta.boundingBox())!.height / lineHeight)).toBeLessThan(items)
         await card.getByRole('button', {name: 'More for e2e-on-a-phone'}).click()
         await expect(page.getByRole('menuitem', {name: /Watch · opens on its launcher's machine/})).toBeVisible()
         await page.getByRole('menuitem', {name: 'Stop…'}).click()
@@ -754,7 +758,10 @@ test.describe('on a phone', () => {
             await page.getByRole('button', {name: 'Start session'}).first().tap()
             const dialog = page.getByRole('dialog', {name: 'Start session'})
             const kitchen = dialog.getByRole('checkbox', {name: 'Kitchen'})
-            // The projects' list was squeezed to nothing once the rest of the dialog filled the screen.
+            // The projects' list was squeezed to nothing once the rest of the dialog filled the screen. With the suite's
+            // other projects before it, Kitchen can be further down the scrolling body (ORR-912), so the first one shows.
+            await expect(dialog.getByRole('group', {name: 'Projects'}).getByRole('checkbox').first()).toBeInViewport()
+            await kitchen.scrollIntoViewIfNeeded()
             await expect(kitchen).toBeInViewport()
             await kitchen.check()
             const start = dialog.getByRole('button', {name: /^Start session/})

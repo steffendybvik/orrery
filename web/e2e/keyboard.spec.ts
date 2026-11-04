@@ -163,7 +163,10 @@ test('the first Tab shows Skip to content, and Enter puts the next Tab in the pa
         await page.keyboard.press('Tab')
         expect(await page.evaluate(() => !!document.activeElement?.closest('main') && !document.activeElement.closest('aside')), path).toBe(true)
     }
-    // Hidden until then.
+    // Hidden until then: unfocused, it's sr-only again, clipped away. WebKit and Firefox count its clipped box as in the
+    // viewport, where Chromium leaves it out, so it's held to its clip (ORR-912).
     await page.locator('main#main').click({position: {x: 5, y: 5}})
-    await expect(page.getByRole('link', {name: 'Skip to content'})).not.toBeInViewport()
+    const skip = page.getByRole('link', {name: 'Skip to content'})
+    await expect(skip).not.toBeFocused()
+    await expect.poll(() => skip.evaluate(el => getComputedStyle(el).clipPath)).toBe('inset(50%)')
 })

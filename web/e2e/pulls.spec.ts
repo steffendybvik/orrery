@@ -177,6 +177,8 @@ test("shows each pull request's risk on an issue's page, the riskiest in the hea
         risk: {level: 'low', why: 'low: copy only', by: 'owner'}}
     await page.route(`**/api/projects/woodshed/issues/${issue.id}/pulls`, route => route.fulfill({json: {repo: 'orrery-e2e/woodshed', pulls: [pull], done: [done], token: true, checked_at: at}}))
     await page.goto(`/p/woodshed/issues/${issue.id}`)
+    // On Postgres, under the suite's load, the page was still loading at 5s (ORR-912): it's given longer to open.
+    await expect(page.getByRole('heading', {name: 'New roof'})).toBeVisible({timeout: 15_000})
     const pulls = page.getByRole('region', {name: 'Pull requests'})
     await expect(pulls.getByRole('heading').getByText('Medium risk')).toBeVisible()
     const open = pulls.getByRole('listitem').filter({hasText: 'Roof felt'})
