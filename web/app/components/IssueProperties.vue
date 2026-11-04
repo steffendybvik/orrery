@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type {Chunk, Column, Issue, Project, Session} from '#shared/roadmap'
-import {githubIssueLabel, githubIssueOf, githubRepo, isFrozen, taskUrl} from '#shared/roadmap'
+import {MODEL_ALIASES, githubIssueLabel, githubIssueOf, githubRepo, isFrozen, kindOf, taskUrl} from '#shared/roadmap'
 
 // An issue's properties, as the right-hand column of its page: status, priority, assignee, labels and
 // chunk are menus to type in (`PropertyPicker`), and change in place, as the owner, saving at once. The issues it
@@ -37,6 +37,19 @@ const release = computed({
     set: (next: string) => save({release: next || null}),
 })
 const releaseOptions = computed(() => [{value: '', label: 'No release'}, ...props.project.releases.map(r => ({value: r.version, label: r.shipped_on ? `${r.version} · shipped` : isFrozen(r) ? `${r.version} · frozen` : r.version}))])
+// Its own model (ORR-869), over its kind's: empty follows the kind, whose model shows as the empty choice. A full id set
+// through the API stays a choice.
+const {settings: appSettings} = useAppSettings()
+const kind = computed(() => kindOf(props.issue.labels, appSettings.value.work_kinds))
+const model = computed({
+    get: () => props.issue.model ?? '',
+    set: (next: string) => save({model: next || null}),
+})
+const modelOptions = computed(() => [
+    {value: '', label: kind.value ? `${kind.value.name}'s (${kind.value.model})` : "Claude Code's default"},
+    ...[...MODEL_ALIASES.filter(a => a !== 'default' && a !== 'opusplan'), ...props.issue.model && !(MODEL_ALIASES as readonly string[]).includes(props.issue.model) ? [props.issue.model] : []]
+        .map(m => ({value: m, label: m})),
+])
 // Only a heads-up: a frozen release still takes the issue.
 const frozen = computed(() => isFrozen(props.project.releases.find(r => r.version === props.issue.release)))
 
@@ -219,6 +232,13 @@ const assigneeOptions = computed(() => [{value: '', label: 'Unassigned'}, ...peo
         <UiButton v-if="!isSub && chunk.id" :to="chunkPath(project.id, chunk.id)" variant="ghost" size="xs" square class="shrink-0" title="Open the chunk" aria-label="Open the chunk">
           <svg class="size-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M9 7h8v8" /></svg>
         </UiButton>
+      </dd>
+
+      <dt class="label">Model</dt>
+      <dd class="flex min-w-0 items-center gap-1" data-testid="issue-model">
+        <PropertyPicker v-model="model" :options="modelOptions" label="Model" :disabled="saving">
+          <span class="truncate font-mono text-xs" :class="!issue.model && 'font-sans text-faint'">{{ issue.model ?? modelOptions[0]?.label }}</span>
+        </PropertyPicker>
       </dd>
 
       <template v-if="project.releases.length || issue.release">
