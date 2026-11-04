@@ -198,7 +198,7 @@ test('A project picker keeps Notifications to one project, through a reload, and
         await row.getByRole('button', {name: `${id}: ${title}`}).click()
         await expect(row.locator('[data-state]')).not.toHaveAttribute('data-state', 'unread')
     }
-    await page.getByRole('button', {name: 'Project', exact: true}).click()
+    await page.locator('[data-picker="Project"]').click()
     await page.getByRole('option', {name: 'Shed', exact: true}).click()
     await expect(page).toHaveURL(/project=shed/)
     await expect(felt).toBeVisible()
@@ -209,7 +209,7 @@ test('A project picker keeps Notifications to one project, through a reload, and
 
     await page.getByRole('button', {name: 'Clear read'}).click()
     await expect(felt).toBeHidden()
-    await page.getByRole('button', {name: 'Project', exact: true}).click()
+    await page.locator('[data-picker="Project"]').click()
     await page.getByRole('option', {name: 'All projects'}).click()
     await expect(page).not.toHaveURL(/project=/)
     await expect(sweep).toBeVisible()

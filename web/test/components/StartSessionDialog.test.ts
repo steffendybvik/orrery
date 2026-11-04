@@ -202,7 +202,7 @@ describe('StartSessionDialog', () => {
         await wrapper.find('input[value="pantry"]').setValue(false)
         await vi.waitFor(() => expect(count().exists()).toBe(true))
         // A session on one issue is never joined by another.
-        await wrapper.find('button[aria-label="Issue"]').trigger('click')
+        await wrapper.find('button[data-picker="Issue"]').trigger('click')
         await vi.waitFor(() => expect(wrapper.findAll('[role="option"]').length).toBeGreaterThan(1))
         // Headless UI picks on the press.
         await wrapper.findAll('[role="option"]').find(o => o.text().includes('greenhouse-1 ·'))!.trigger('mousedown', {button: 0})
@@ -213,7 +213,7 @@ describe('StartSessionDialog', () => {
         const {wrapper} = await mount('greenhouse')
         const picker = () => wrapper.find('[data-testid="start-model"]')
         await vi.waitFor(() => expect(picker().text()).toContain("Claude Code's default"))
-        await wrapper.find('button[aria-label="Issue"]').trigger('click')
+        await wrapper.find('button[data-picker="Issue"]').trigger('click')
         await vi.waitFor(() => expect(wrapper.findAll('[role="option"]').length).toBeGreaterThan(1))
         await wrapper.findAll('[role="option"]').find(o => o.text().includes('greenhouse-1 ·'))!.trigger('mousedown', {button: 0})
         await vi.waitFor(() => expect(picker().text()).toContain('best, as Other'))
@@ -221,8 +221,8 @@ describe('StartSessionDialog', () => {
 
     it('starts it on a model picked for this one session (ORR-869)', async () => {
         const {wrapper, submit} = await mount('greenhouse')
-        await vi.waitFor(() => expect(wrapper.find('button[aria-label="Model"]').exists()).toBe(true))
-        await wrapper.find('button[aria-label="Model"]').trigger('click')
+        await vi.waitFor(() => expect(wrapper.find('button[data-picker="Model"]').exists()).toBe(true))
+        await wrapper.find('button[data-picker="Model"]').trigger('click')
         await vi.waitFor(() => expect(wrapper.findAll('[role="option"]').some(o => o.text().trim() === 'haiku')).toBe(true))
         await wrapper.findAll('[role="option"]').find(o => o.text().trim() === 'haiku')!.trigger('mousedown', {button: 0})
         await vi.waitFor(() => expect(wrapper.find('[data-testid="start-model"]').text()).toContain('haiku'))

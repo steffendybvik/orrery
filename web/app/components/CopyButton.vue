@@ -20,7 +20,7 @@ onBeforeUnmount(() => clearTimeout(timer))
       :class="copied === 'yes' ? 'text-emerald-600 ring-emerald-500/40 dark:text-emerald-400'
         : copied === 'no' ? 'text-rose-700 ring-rose-500/40 dark:text-rose-400' : 'text-faint ring-line hover:bg-hover hover:text-fg'"
       :title="`Copy ${name ?? text}`"
-      :aria-label="`Copy ${name ?? text}`"
+      :aria-label="label === 'Copy' ? `Copy ${name ?? text}` : undefined"
       @click="copy"
   >
     <svg v-if="copied === 'yes'" class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5 9-10" /></svg>

@@ -27,7 +27,7 @@ test('makes a schedule, keeps to its project, pauses and removes it', async ({pa
     // The same big button now offers to resume it.
     await expect(page.getByRole('button', {name: 'Resume Groom the backlog', exact: true})).toBeVisible()
     // Kept to another project, it isn't there; the old tab comes here kept to vineyard.
-    await page.getByRole('button', {name: 'Project', exact: true}).click()
+    await page.locator('[data-picker="Project"]').click()
     await page.getByRole('option', {name: 'Cottage'}).click()
     await expect(page.getByText('Groom the backlog')).toBeHidden()
     await page.goto('/p/vineyard/schedules')
@@ -155,7 +155,7 @@ test('makes a schedule across projects, leaves one out, and removes it (ORR-638)
     await page.goto('/schedules')
     await page.getByRole('button', {name: 'New schedule', exact: true}).click()
     const dialog = page.getByRole('dialog', {name: 'New schedule'})
-    await dialog.getByRole('button', {name: 'Project', exact: true}).click()
+    await dialog.locator('[data-picker="Project"]').click()
     await dialog.getByRole('option', {name: 'All projects'}).click()
     await dialog.getByLabel('Title').fill('Weekly tidy everywhere')
     await dialog.getByRole('group', {name: "Projects it's for"}).getByRole('button', {name: 'Cottage'}).click()
@@ -185,7 +185,7 @@ test('makes a schedule that moves issues, which runs on an event and has no Run 
     await dialog.getByLabel('Title').fill('Merged PR closes its issue')
     // On an event, with no clock to pick.
     await expect(dialog.getByRole('radio', {name: 'Time', exact: true})).toBeHidden()
-    await dialog.getByRole('button', {name: 'Event', exact: true}).click()
+    await dialog.locator('[data-picker="Event"]').click()
     await dialog.getByRole('option', {name: "An issue's pull request is merged"}).click()
     await dialog.getByRole('group', {name: 'Moves it from'}).getByRole('button', {name: 'In review'}).click()
     await dialog.getByRole('button', {name: /Create schedule/}).click()

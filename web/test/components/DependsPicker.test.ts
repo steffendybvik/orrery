@@ -119,7 +119,7 @@ describe('IssueProperties, Blocked by and Blocks', () => {
 
     it('saves the whole list as the owner, and says why one is refused', async () => {
         const wrapper = await mount()
-        await wrapper.find('button[aria-label="Blocked by"]').trigger('click')
+        await wrapper.find('button[data-picker="Blocked by"]').trigger('click')
         await settled()
         const option = (text: string) => wrapper.findAll('li').find(li => li.text().startsWith(text))!
         await option('GRE-3').trigger('mousedown', {button: 0})
@@ -138,7 +138,7 @@ describe('IssueProperties, Blocked by and Blocks', () => {
     it("sets what it blocks on the other issue's list, read fresh, adding and dropping itself (ORR-680)", async () => {
         const wrapper = await mount()
         // In its own project, GRE-3 waits on nothing yet; in another, this issue is named with its project.
-        await wrapper.find('button[aria-label="Blocks"]').trigger('click')
+        await wrapper.find('button[data-picker="Blocks"]').trigger('click')
         await settled()
         await wrapper.findAll('li').find(li => li.text().startsWith('GRE-3'))!.trigger('mousedown', {button: 0})
         await vi.waitFor(() => expect(others).toContainEqual({issue: 'GRE-3', actor: 'skoll', body: {depends_on: ['GRE-9', 'GRE-2']}}))

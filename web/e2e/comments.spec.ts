@@ -127,7 +127,7 @@ test('turns a Before and an After picture into a slider between them', async ({p
 })
 
 test('copies the whole issue, with every comment or none, and no description', async ({page, request}) => {
-    const copy = page.getByRole('button', {name: 'Copy the whole issue'})
+    const copy = page.getByTitle('Copy the whole issue')
     const copied = async () => {
         await copy.click()
         await expect(copy).toHaveText('Copied')

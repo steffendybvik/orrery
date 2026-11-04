@@ -36,7 +36,7 @@ async function mount(task: Issue) {
     return wrapper
 }
 async function open(wrapper: VueWrapper) {
-    await wrapper.find('button[aria-label="Model"]').trigger('click')
+    await wrapper.find('button[data-picker="Model"]').trigger('click')
     await settled()
     return wrapper.findAll('li').map(li => li.text())
 }

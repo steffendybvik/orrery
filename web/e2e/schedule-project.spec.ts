@@ -11,7 +11,8 @@ const api = async (request: APIRequestContext, method: 'get' | 'post' | 'put', p
 
 test('New schedule picks its project in the dialog', async ({page, request}) => {
     if (!(await api(request, 'get', '/owner')).named) await api(request, 'put', '/owner', {name: 'Ada Lovelace'})
-    for (const name of ['Garden', 'Shed']) await api(request, 'post', '/projects', {name})
+    // bell.spec.ts makes Shed too, whichever runs first.
+    for (const name of ['Garden', 'Shed']) if (!(await request.get(`/api/projects/${name.toLowerCase()}`)).ok()) await api(request, 'post', '/projects', {name})
 
     await page.goto('/schedules')
     await page.getByRole('button', {name: 'New schedule', exact: true}).click()

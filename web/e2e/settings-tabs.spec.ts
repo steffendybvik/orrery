@@ -22,5 +22,5 @@ test('splits App settings into tabs by what they reach, and a link opens the rig
 
     await page.goto('/sessions#watch')
     await expect(page.getByRole('heading', {name: 'Watching sessions'})).toBeVisible()
-    await expect(page.getByLabel('Terminal app')).toBeVisible()
+    await expect(page.locator('[data-picker="Terminal app"]')).toBeVisible()
 })
