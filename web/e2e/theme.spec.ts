@@ -1,4 +1,4 @@
-import {expect, test} from '@playwright/test'
+import {expect, test} from './test'
 
 // The button in every page's header: light and dark, kept in this browser. Until it's pressed, the page follows the system.
 

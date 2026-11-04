@@ -1,4 +1,4 @@
-import {expect, test} from '@playwright/test'
+import {expect, test} from './test'
 
 // Secrets on App settings: added with a value that never comes back, a host taken off, and deleted.
 

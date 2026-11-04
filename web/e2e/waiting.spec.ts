@@ -1,5 +1,5 @@
 import type {APIRequestContext} from '@playwright/test'
-import {expect, test} from '@playwright/test'
+import {expect, test} from './test'
 
 // An agent's question marks its issue as waiting on the owner (ORR-277): a chip and tint on its row, a list of
 // its own on top of My issues, the question quoted on its page; all gone once the owner answers with a comment.

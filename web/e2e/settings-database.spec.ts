@@ -1,7 +1,7 @@
 import {existsSync, mkdtempSync, statSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
-import {expect, test} from '@playwright/test'
+import {expect, test} from './test'
 import {OWNER} from './support'
 
 // App settings says where this orrery keeps its data (ORR-284), and how big it is (ORR-323): the SQLite file, or the Postgres database the

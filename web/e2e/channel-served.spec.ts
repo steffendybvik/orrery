@@ -1,5 +1,5 @@
 import {createHash} from 'node:crypto'
-import {expect, test} from '@playwright/test'
+import {expect, test} from './test'
 
 // What a machine connected to this orrery runs (ORR-435): the bootstrap, and the bundled scripts as the manifest lists them.
 test('serves the channel, hook and launcher as the manifest lists them, and the bootstrap', async ({request}) => {

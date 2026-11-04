@@ -1,4 +1,5 @@
-import {type APIRequestContext, type Page, expect, test} from '@playwright/test'
+import type {APIRequestContext, Page} from '@playwright/test'
+import {expect, test} from './test'
 import {dragCard, makeProject, projectApi} from './support'
 
 // Moving cards on the board by dragging them to another column, the ticked ones together, or with [ and ]; while

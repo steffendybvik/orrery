@@ -1,4 +1,4 @@
-import {expect, test} from '@playwright/test'
+import {expect, test} from './test'
 import {makeProject, projectApi} from './support'
 
 // An agent's proposal waits on the owner: Approve puts it on the roadmap, and their picks survive a live update.

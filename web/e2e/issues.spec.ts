@@ -1,4 +1,4 @@
-import {expect, test} from '@playwright/test'
+import {expect, test} from './test'
 import {AGENT, OWNER, makeProject, newIssue, projectApi} from './support'
 
 // Issues on a project of their own: made from the page and moved on the board, the board leaving out the columns

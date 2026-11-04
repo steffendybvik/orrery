@@ -1,4 +1,4 @@
-import {expect, test} from '@playwright/test'
+import {expect, test} from './test'
 import {OWNER, makeProject} from './support'
 
 // The Pull requests page's Poll (ORR-534): GitHub asked at once, and a repo read without a token a moment ago held back,

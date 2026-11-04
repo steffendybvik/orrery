@@ -1,4 +1,4 @@
-import {expect, test} from '@playwright/test'
+import {expect, test} from './test'
 import {AGENT, makeProject, projectApi} from './support'
 
 // Pictures and comments: an image picked into a new issue and a comment, the owner editing and deleting their own

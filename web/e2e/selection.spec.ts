@@ -1,4 +1,4 @@
-import {expect, test} from '@playwright/test'
+import {expect, test} from './test'
 import {makeProject, projectApi} from './support'
 
 // Ticking issues to change them together: a click (or one just beside the box), a drag over the ticks, a group's

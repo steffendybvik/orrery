@@ -1,4 +1,4 @@
-import {expect, test} from '@playwright/test'
+import {expect, test} from './test'
 import {OWNER, makeProject, projectApi} from './support'
 
 // Issues that depend on others (ORR-601): linked from an issue's page, the waiting one marked Blocked on the list and the

@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright'
 import type {Page} from '@playwright/test'
-import {expect, test} from '@playwright/test'
+import {expect, test} from './test'
 import {AGENT, OWNER, makeProject, projectApi} from './support'
 
 // The navigation as a whole (ORR-580): every page opens and renders its heading with no page or console error, each

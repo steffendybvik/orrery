@@ -1,4 +1,4 @@
-import {expect, test} from '@playwright/test'
+import {expect, test} from './test'
 import {OWNER} from './support'
 
 // Usage, on its own tab of App settings (ORR-881, ORR-900): off until the owner turns it on, then the pages they open and the

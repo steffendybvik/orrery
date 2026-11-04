@@ -1,4 +1,5 @@
-import {type APIRequestContext, expect, test} from '@playwright/test'
+import type {APIRequestContext} from '@playwright/test'
+import {expect, test} from './test'
 import {OWNER, hold, makeProject} from './support'
 
 // The owner's chat, with a fake launcher and a fake chat session on the API where Claude would be: the first message

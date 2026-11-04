@@ -1,5 +1,5 @@
 import type {Page} from '@playwright/test'
-import {expect, test} from '@playwright/test'
+import {expect, test} from './test'
 import {makeProject} from './support'
 
 // A read a page waits on that fails says so, with the server's reason and a Try again, in place of a spinner that never

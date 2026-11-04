@@ -1,4 +1,4 @@
-import {expect, test} from '@playwright/test'
+import {expect, test} from './test'
 
 // App settings by what they reach (ORR-285): You, Issues (every project) and This orrery, each tab saying so; a link
 // to a section opens its tab. Which terminal Watch opens is with the sessions, under Sessions → Setup.

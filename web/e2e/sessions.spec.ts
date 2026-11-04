@@ -1,4 +1,4 @@
-import {expect, test} from '@playwright/test'
+import {expect, test} from './test'
 import {AGENT, OWNER, hold, makeProject, projectApi} from './support'
 
 // The session side, with a fake channel and launcher on the API where Claude would be: starting sessions turned on,

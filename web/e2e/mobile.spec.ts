@@ -1,5 +1,5 @@
 import type {APIRequestContext, Page} from '@playwright/test'
-import {expect, test} from '@playwright/test'
+import {expect, test} from './test'
 
 // On a phone: the sidebar is a drawer behind the menu button that closes once a page is picked, and the
 // project and an issue's page fit the screen's width. A project of its own; the owner named if no one has yet.

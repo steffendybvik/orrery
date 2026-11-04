@@ -1,4 +1,4 @@
-import {expect, test} from '@playwright/test'
+import {expect, test} from './test'
 import {AGENT, makeProject} from './support'
 
 // The owner writes, edits and removes docs from the page. A doc an agent changed is tinted in the list, and in it

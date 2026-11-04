@@ -1,4 +1,4 @@
-import {expect, test} from '@playwright/test'
+import {expect, test} from './test'
 import {OWNER} from './support'
 
 // The team tracker's field takes a link to the tracker's projects page, as an owner pastes one, and saves it as the

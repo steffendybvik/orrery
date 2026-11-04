@@ -1,4 +1,4 @@
-import {expect, test} from '@playwright/test'
+import {expect, test} from './test'
 import {AGENT, OWNER, makeProject} from './support'
 
 // A full id over HTTP (ORR-674): found on its own board and server, a 404 anywhere else, and what the copy buttons give.
