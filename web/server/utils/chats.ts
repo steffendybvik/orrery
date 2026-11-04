@@ -184,7 +184,8 @@ export async function say(id: string, text: unknown, images: unknown, actor: {na
     const pasted = Array.isArray(images) ? images.filter((i): i is string => typeof i === 'string' && /^[0-9a-f]{24}$/.test(i)) : []
     if (!words && !pasted.length) throw badRequest('Send {text, images?}: what to say, and the ids of any uploads pasted with it')
     if (Array.isArray(images) && pasted.length !== images.length) throw badRequest('Send images as the ids of uploads (POST /api/uploads)')
-    const chat = over.has(id) ? await reopen(id) : chatOf(id)
+    const ended = over.get(id)
+    const chat = ended ? await reopen(ended) : chatOf(id)
     const on = pageOf(page)
     const note = [
         words,
@@ -213,8 +214,8 @@ function retold(chat: Chat): SessionContext {
 
 /** An ended chat written in again (ORR-884): it's running once more, on the same id, its session started again on
  * the Claude session it ran as, or fresh, told what was said, when there's none or the launcher can't resume. */
-async function reopen(id: string): Promise<Chat> {
-    const was = over.get(id)!
+async function reopen(was: Chat): Promise<Chat> {
+    const id = was.id
     const {ended: _ended, ended_at: _at, ...chat} = was
     await resumeChat(chat.project, id, {presets: [], text: chatBrief(chat.project)}, retold(chat), chat.claude_session)
     over.delete(id)

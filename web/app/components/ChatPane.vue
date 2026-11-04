@@ -75,7 +75,8 @@ const here = computed(() => {
 })
 /** The project the chat would be about: the pinned one, else the one you're on; on a page of no project, a running
  * chat's when the pane has none, so the corner button brings you back to it (ORR-865, ORR-870); else the first. */
-watch([pinned, here, projects, chats], (_now, [wasPinned, wasHere] = []) => {
+watch([pinned, here, projects, chats], (_now, was?: unknown[]) => {
+    const [wasPinned, wasHere] = was ?? []
     if (pinned.value && projects.value.some(p => p.id === pinned.value)) project.value = pinned.value
     // Opening the page, or unpinning, moves it there; a chat changing meanwhile doesn't take back one picked in the
     // list (ORR-884).

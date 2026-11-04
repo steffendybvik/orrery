@@ -68,7 +68,7 @@ export function asLaunch<T>(id: string, note: () => T): T {
 
 /** Launches asked for whose session hasn't connected yet; one that never does is let go after a while.
  * `claimed` once a launcher has taken it on. */
-const pending = new Map<string, Launch & {at: number, claimed: boolean}>()
+const pending = new Map<string, Launch & {at: number, claimed: boolean, fresh?: SessionContext}>()
 const PENDING_FOR = 3 * 60 * 1000
 /** How long one an outdated launcher was refused waits for a launcher that can take it, as it's offered again to each
  * that connects (ORR-471); a chat waits until the owner ends it. */
