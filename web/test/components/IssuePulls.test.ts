@@ -1,4 +1,4 @@
-import {afterEach, describe, expect, it} from 'vitest'
+import {afterEach, describe, expect, it, vi} from 'vitest'
 import type {VueWrapper} from '@vue/test-utils'
 import {mountSuspended, registerEndpoint} from '@nuxt/test-utils/runtime'
 import type {IssuePulls as Answer} from '#shared/roadmap'
@@ -28,7 +28,11 @@ async function mount(given: Partial<Answer>) {
 describe('an issue\'s pull requests', () => {
     it('lists the open ones, then those merged and closed, with where each went', async () => {
         const wrapper = await mount({pulls: [open], done: [past(7, 'merged'), past(6, 'closed')]})
-        expect(wrapper.findAll('li a').map(a => a.text())).toEqual(['#9 Still going', '#7 Old 7', '#6 Old 6'])
+        // The PRs come back after the mount, later on a busy run, so each test waits for what it checks (ORR-898).
+        await vi.waitFor(() => expect(wrapper.findAll('li a:not([aria-label])').map(a => a.text())).toEqual(['#9 Still going', '#7 Old 7', '#6 Old 6']))
+        // Each opens its own page, with GitHub on its ↗ (ORR-893).
+        expect(wrapper.findAll('li a:not([aria-label])').map(a => a.attributes('href'))).toEqual(['/pulls/you/shop/9', '/pulls/you/shop/7', '/pulls/you/shop/6'])
+        expect(wrapper.findAll('li a[aria-label]').map(a => a.attributes('href'))).toEqual(['https://x/9', 'https://x/7', 'https://x/6'])
         const rows = wrapper.findAll('li').map(li => li.text())
         expect(rows[1]).toContain('Merged')
         expect(rows[1]).toContain('feat/sho-1-a → v1')
@@ -38,17 +42,20 @@ describe('an issue\'s pull requests', () => {
 
     it('still shows them with the repo gone, one open saying it was when last seen', async () => {
         const wrapper = await mount({repo: null, done: [past(7, 'open')]})
-        expect(wrapper.text()).toContain('Open when last seen')
+        await vi.waitFor(() => expect(wrapper.text()).toContain('Open when last seen'))
+        // No repo to name its page by, so it opens on GitHub.
+        expect(wrapper.find('li a').attributes('href')).toBe('https://x/7')
     })
 
     it('offers Send back only on what can still be fixed', async () => {
         const wrapper = await mount({pulls: [{...open, state: 'failing'}], done: [past(7, 'merged')]})
-        expect(wrapper.findAll('button').filter(b => b.text() === 'Send back')).toHaveLength(1)
+        await vi.waitFor(() => expect(wrapper.findAll('button').filter(b => b.text() === 'Send back')).toHaveLength(1))
     })
 
     it("says in one muted line, not in red, that the repo isn't read, and where to see why", async () => {
         const error = 'GitHub has no public you/shop: for a private repo, set a GITHUB_TOKEN secret that may go to api.github.com'
         const wrapper = await mount({error})
+        await vi.waitFor(() => expect(wrapper.find('section p').exists()).toBe(true))
         const line = wrapper.find('section p')
         expect(line.text()).toBe('Not read from GitHub. Pull requests says why.')
         expect(line.classes()).toContain('text-muted')

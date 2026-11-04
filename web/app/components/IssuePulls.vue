@@ -34,6 +34,13 @@ onMounted(() => timer = setInterval(() => {
 }, 60_000))
 onBeforeUnmount(() => clearInterval(timer))
 
+/** A PR's own page, with the issues linked to it (ORR-893); GitHub stays a click away on the row's GitHub button. With the
+ *  project's repo gone, the one its link names; failing that, GitHub. */
+function page(pull: Pick<PullRequest, 'number' | 'url'>): string | null {
+    const repo = got.value?.repo ?? /^https:\/\/github\.com\/([^/]+\/[^/]+)\/pull\/\d+/.exec(pull.url)?.[1]
+    return repo ? `/pulls/${repo}/${pull.number}` : null
+}
+
 /** The PR being rated (ORR-879), null with the dialog shut. */
 const rating = ref<{number: number, url: string, risk?: PullRisk} | null>(null)
 
@@ -67,9 +74,13 @@ async function sendBack(pull: PullRequest) {
     <ul v-if="total" class="overflow-hidden rounded-xl border border-line dark:bg-panel">
       <li v-for="pull in got.pulls" :key="pull.number" class="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-line px-3 py-2 text-sm last:border-b-0">
         <svg class="size-4 shrink-0 text-faint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="6" r="2.5" /><circle cx="6" cy="18" r="2.5" /><circle cx="18" cy="18" r="2.5" /><path d="M6 8.5v7M18 15.5V9a3 3 0 0 0-3-3h-4m2-2-2 2 2 2" /></svg>
-        <a :href="pull.url" target="_blank" rel="noopener" class="min-w-0 flex-1 truncate text-fg hover:underline">
+        <NuxtLink v-if="page(pull)" :to="page(pull)!" class="min-w-0 flex-1 truncate text-fg hover:underline" :title="`#${pull.number}'s linked issues`">
+          <span class="font-mono text-xs text-faint">#{{ pull.number }}</span> {{ pull.title }}
+        </NuxtLink>
+        <a v-else :href="pull.url" target="_blank" rel="noopener" class="min-w-0 flex-1 truncate text-fg hover:underline">
           <span class="font-mono text-xs text-faint">#{{ pull.number }}</span> {{ pull.title }}
         </a>
+        <PullGithubLink v-if="page(pull)" :number="pull.number" :url="pull.url" />
         <RiskChip v-if="pull.risk" :risk="pull.risk" />
         <UiButton size="xs" variant="ghost" :title="pull.risk ? 'Change its risk rating' : 'Rate its risk'" @click="rating = pull">Rate</UiButton>
         <PullStateChip :state="pull.state" />
@@ -89,9 +100,13 @@ async function sendBack(pull: PullRequest) {
         <span v-if="pull.risk" class="w-full pl-7 text-xs text-muted">{{ pull.risk.why }}</span>
       </li>
       <li v-for="pull in got.done" :key="`done-${pull.number}`" class="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-line px-3 py-2 text-sm last:border-b-0">
-        <a :href="pull.url" target="_blank" rel="noopener" class="min-w-0 flex-1 truncate pl-7 text-muted hover:underline">
+        <NuxtLink v-if="page(pull)" :to="page(pull)!" class="min-w-0 flex-1 truncate pl-7 text-muted hover:underline" :title="`#${pull.number}'s linked issues`">
+          <span class="font-mono text-xs text-faint">#{{ pull.number }}</span> {{ pull.title }}
+        </NuxtLink>
+        <a v-else :href="pull.url" target="_blank" rel="noopener" class="min-w-0 flex-1 truncate pl-7 text-muted hover:underline">
           <span class="font-mono text-xs text-faint">#{{ pull.number }}</span> {{ pull.title }}
         </a>
+        <PullGithubLink v-if="page(pull)" :number="pull.number" :url="pull.url" />
         <RiskChip v-if="pull.risk" :risk="pull.risk" />
         <UiButton size="xs" variant="ghost" :title="pull.risk ? 'Change its risk rating' : 'Rate its risk'" @click="rating = pull">Rate</UiButton>
         <PullStateChip :state="pull.state" />

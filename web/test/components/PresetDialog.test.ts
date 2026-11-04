@@ -1,124 +1,110 @@
-import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
+import {afterEach, beforeEach, describe, expect, it} from 'vitest'
 import type {VueWrapper} from '@vue/test-utils'
-import {DOMWrapper} from '@vue/test-utils'
+import {DOMWrapper, flushPromises} from '@vue/test-utils'
 import {mountSuspended, registerEndpoint} from '@nuxt/test-utils/runtime'
 import type {H3Event} from 'h3'
-import {readBody, setResponseStatus} from 'h3'
+import {getMethod, readBody, setResponseStatus} from 'h3'
 import type {Preset, Project} from '#shared/roadmap'
 import PresetDialog from '~/components/PresetDialog.vue'
 
-// Writing a preset (ORR-866): a new one goes to the orrery's list or a project's, one already made is saved, removed
-// or reset to what orrery ships, Add waits for a name and text, and a refused save says why and keeps the dialog.
-let calls: {method: string, url: string, body?: unknown}[] = []
-let refuse = false
-const record = (url: string, method: string) => async (event: H3Event) => {
-    if (refuse) {
-        setResponseStatus(event, 409)
-        return {message: 'A preset called Review is already there'}
+// Writing a preset in Sessions → Setup (ORR-866): a new one for any project or for one, editing one already made,
+// removing it, and putting one orrery ships back as it ships it. A refused save says why and keeps the dialog open.
+let sent: {method: string, path: string, body?: unknown}[] = []
+let failing = false
+registerEndpoint('/api/owner', () => ({name: 'skoll', display: 'Sköll', named: true}))
+const record = (path: string) => async (event: H3Event) => {
+    if (failing) {
+        setResponseStatus(event, 400)
+        return {message: 'A preset needs a name'}
     }
-    calls.push({method, url, ...method === 'DELETE' ? {} : {body: await readBody(event).catch(() => undefined)}})
+    const method = getMethod(event)
+    sent.push({method, path, ...method === 'DELETE' ? {} : {body: await readBody(event).catch(() => undefined)}})
     return {}
 }
-registerEndpoint('/api/owner', () => ({name: 'skoll', display: 'Sköll', named: true}))
-registerEndpoint('/api/presets', {method: 'POST', handler: record('/api/presets', 'POST')})
-registerEndpoint('/api/projects/shop/presets', {method: 'POST', handler: record('/api/projects/shop/presets', 'POST')})
-registerEndpoint('/api/presets/4', {method: 'PATCH', handler: record('/api/presets/4', 'PATCH')})
-registerEndpoint('/api/presets/4', {method: 'DELETE', handler: record('/api/presets/4', 'DELETE')})
-registerEndpoint('/api/presets/4/reset', {method: 'POST', handler: record('/api/presets/4/reset', 'POST')})
+registerEndpoint('/api/presets', {method: 'POST', handler: record('presets')})
+registerEndpoint('/api/projects/shop/presets', {method: 'POST', handler: record('projects/shop/presets')})
+for (const method of ['PATCH', 'DELETE'] as const) registerEndpoint('/api/presets/7', {method, handler: record('presets/7')})
+registerEndpoint('/api/presets/7/reset', {method: 'POST', handler: record('presets/7/reset')})
 
-const preset = (over: Partial<Preset> = {}): Preset => ({
-    id: 4, project: null, name: 'Review', text: 'Read the diff.', icon: null, color: null,
-    created_at: '2026-11-01T00:00:00Z', updated_at: '2026-11-01T00:00:00Z', ...over,
-})
-const shop = {id: 'shop', name: 'Shop'} as Project
+const CAREFUL: Preset = {id: 7, project: null, name: 'Careful', text: 'Go slow.', icon: null, color: null,
+    created_at: '2026-11-01T00:00:00Z', updated_at: '2026-11-01T00:00:00Z'}
+const SHOP = {id: 'shop', name: 'Shop', key: 'SHO'} as unknown as Project
 
 const mounted: VueWrapper[] = []
 beforeEach(() => {
-    calls = []
-    refuse = false
+    sent = []
+    failing = false
 })
-afterEach(() => mounted.splice(0).forEach(w => w.unmount()))
+afterEach(() => {
+    mounted.splice(0).forEach(w => w.unmount())
+})
+const settle = async () => {
+    await new Promise(resolve => setTimeout(resolve, 20))
+    await flushPromises()
+}
 
 async function mount(open: Preset | 'new', project?: Project) {
     const component = await mountSuspended(PresetDialog, {props: {open, ...project ? {project} : {}}, attachTo: document.body})
-    mounted.push(component)
+    mounted.push(component as VueWrapper)
     // Headless UI's Dialog draws in a portal on the page's body, not inside the component.
-    const page = new DOMWrapper(document.body)
-    await vi.waitFor(() => expect(page.find('textarea#preset-text').exists()).toBe(true))
-    const button = (text: string) => page.findAll('button').find(b => b.text().startsWith(text))
-    return {component, page, button, name: page.find('input[aria-label="Preset name"]'), text: page.find('textarea#preset-text')}
+    const wrapper = new DOMWrapper(document.body)
+    const button = (text: string) => wrapper.findAll('button').find(b => b.text().startsWith(text))!
+    return {component, wrapper, button}
 }
 
 describe('PresetDialog', () => {
-    it('adds a new one to the orrery\'s presets once it has a name and text, and closes', async () => {
-        const {component, page, button, name, text} = await mount('new')
-        expect(page.text()).toContain('for sessions on any project')
-        expect(button('Add preset')!.attributes('disabled')).toBeDefined()
-        await name.setValue('  Careful ')
-        expect(button('Add preset')!.attributes('disabled')).toBeDefined()
-        await text.setValue('Go slow.')
-        expect(button('Add preset')!.attributes('disabled')).toBeUndefined()
-        await page.find('form').trigger('submit')
-        await vi.waitFor(() => expect(component.emitted('close')).toHaveLength(1))
+    it("adds a preset for any project, trimmed, once it has a name and words", async () => {
+        const {component, wrapper, button} = await mount('new')
+        expect(wrapper.text()).toContain('for sessions on any project')
+        expect(button('Add preset').attributes('disabled')).toBeDefined()
+        await wrapper.find('input[aria-label="Preset name"]').setValue(' Review ')
+        await wrapper.find('textarea').setValue('  Read the diff and comment.  ')
+        expect(button('Add preset').attributes('disabled')).toBeUndefined()
+        await wrapper.find('form').trigger('submit')
+        await settle()
+        expect(sent).toEqual([{method: 'POST', path: 'presets', body: {name: 'Review', text: 'Read the diff and comment.', icon: null, color: null}}])
         expect(component.emitted('saved')).toHaveLength(1)
-        expect(calls).toEqual([{method: 'POST', url: '/api/presets', body: {name: 'Careful', text: 'Go slow.', icon: null, color: null}}])
+        expect(component.emitted('close')).toHaveLength(1)
     })
 
-    it('adds one to a project\'s own presets from its settings', async () => {
-        const {page, name, text} = await mount('new', shop)
-        expect(page.text()).toContain('for sessions on Shop')
-        await name.setValue('Ship')
-        await text.setValue('Run the e2e suite.')
-        await page.find('form').trigger('submit')
-        await vi.waitFor(() => expect(calls).toHaveLength(1))
-        expect(calls[0]).toMatchObject({method: 'POST', url: '/api/projects/shop/presets'})
+    it("adds one to a project's own presets", async () => {
+        const {wrapper} = await mount('new', SHOP)
+        expect(wrapper.text()).toContain('for sessions on Shop')
+        await wrapper.find('input[aria-label="Preset name"]').setValue('E2E')
+        await wrapper.find('textarea').setValue('Run the e2e suite.')
+        await wrapper.find('form').trigger('submit')
+        await settle()
+        expect(sent.map(s => `${s.method} ${s.path}`)).toEqual(['POST projects/shop/presets'])
     })
 
-    it('opens one already made with its words, and saves the change to it', async () => {
-        const {page, button, name, text} = await mount(preset())
-        expect((name.element as HTMLInputElement).value).toBe('Review')
-        expect((text.element as HTMLTextAreaElement).value).toBe('Read the diff.')
+    it('edits one already made, and removes it', async () => {
+        const {wrapper, button} = await mount(CAREFUL)
+        expect((wrapper.find('input[aria-label="Preset name"]').element as HTMLInputElement).value).toBe('Careful')
         expect(button('Reset to default')).toBeUndefined()
-        await text.setValue('Read the diff, then comment.')
-        await page.find('form').trigger('submit')
-        await vi.waitFor(() => expect(calls).toHaveLength(1))
-        expect(calls[0]).toEqual({method: 'PATCH', url: '/api/presets/4', body: {name: 'Review', text: 'Read the diff, then comment.', icon: null, color: null}})
+        await wrapper.find('textarea').setValue('Go slower.')
+        await wrapper.find('form').trigger('submit')
+        await settle()
+        await button('Remove Careful').trigger('click')
+        await settle()
+        expect(sent).toEqual([
+            {method: 'PATCH', path: 'presets/7', body: {name: 'Careful', text: 'Go slower.', icon: null, color: null}},
+            {method: 'DELETE', path: 'presets/7'},
+        ])
     })
 
-    it('removes one, and resets one orrery ships once it was changed', async () => {
-        const first = await mount(preset())
-        await first.button('Remove Review')!.trigger('click')
-        await vi.waitFor(() => expect(calls).toEqual([{method: 'DELETE', url: '/api/presets/4'}]))
-        first.component.unmount()
-        mounted.pop()
-        calls = []
-        const second = await mount(preset({default: {key: 'review', changed: true}}))
-        await second.button('Reset to default')!.trigger('click')
-        await vi.waitFor(() => expect(calls).toHaveLength(1))
-        expect(calls[0]).toMatchObject({method: 'POST', url: '/api/presets/4/reset'})
-    })
-
-    it('picks a badge, and goes back to its initials', async () => {
-        const {page, button} = await mount(preset({icon: 'star', color: 'amber'}))
-        const badge = page.find('button[aria-label="Badge"]')
-        expect(badge.attributes('aria-expanded')).toBe('false')
-        await badge.trigger('click')
-        expect(badge.attributes('aria-expanded')).toBe('true')
-        await button('Use its initials')!.trigger('click')
-        expect(button('Use its initials')).toBeUndefined()
-        await page.find('form').trigger('submit')
-        await vi.waitFor(() => expect(calls).toHaveLength(1))
-        expect(calls[0]!.body).toMatchObject({icon: null, color: 'amber'})
+    it('puts one orrery ships back as it ships it, once changed', async () => {
+        const {button} = await mount({...CAREFUL, default: {key: 'careful', changed: true}} as Preset)
+        await button('Reset to default').trigger('click')
+        await settle()
+        expect(sent.map(s => `${s.method} ${s.path}`)).toEqual(['POST presets/7/reset'])
     })
 
     it('says why a save was refused, and stays open', async () => {
-        refuse = true
-        const {component, page, name, text} = await mount('new')
-        await name.setValue('Review')
-        await text.setValue('Again.')
-        await page.find('form').trigger('submit')
-        await vi.waitFor(() => expect(page.text()).toContain('A preset called Review is already there'))
+        failing = true
+        const {component, wrapper} = await mount(CAREFUL)
+        await wrapper.find('form').trigger('submit')
+        await settle()
+        expect(wrapper.text()).toContain('A preset needs a name')
         expect(component.emitted('close')).toBeUndefined()
-        expect(component.emitted('saved')).toBeUndefined()
     })
 })

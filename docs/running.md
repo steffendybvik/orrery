@@ -63,7 +63,7 @@ All optional, in a `.env` beside `docker-compose.yml` (see `.env.example`):
 | `ORRERY_PHONE_PORT` | the phone's own port, which always asks for a login (see [Reach it from your phone](#reach-it-from-your-phone)) | `1` before `ORRERY_PORT`: `19000` |
 | `ORRERY_PHONE_HOST` | who can reach the phone's port: `127.0.0.1` keeps it to this machine | `0.0.0.0` |
 | `ORRERY_PHONE_URL` | the address to open it at from a phone, for App settings' link and QR code, when it's one orrery can't see for itself: an https name, a VPN's (see [Reach it from your phone](#reach-it-from-your-phone)) | none |
-| `ORRERY_USAGE` | `off` stops anyone counting feature use on this server, whatever App settings → Advanced → Usage says (ORR-881) | none |
+| `ORRERY_USAGE` | `off` stops anyone counting feature use on this server, whatever App settings → Usage says (ORR-881) | none |
 | `ORRERY_ALLOWED_HOSTS` | host names it answers to besides `localhost`, IP addresses and a `<name>.local`, comma-separated, e.g. `orrery.lan` (see [SECURITY.md](../SECURITY.md)) | none |
 | `ORRERY_DATABASE` | a `postgres://` URL to keep the orrery in Postgres instead (see [Postgres](#postgres)) | the SQLite file |
 | `ORRERY_SECRET_KEY` | encrypts the [secrets](API.md#secrets) your agents use without seeing: a long random string (`openssl rand -base64 32`). Keep it out of the backups; without the same key, secrets set with it won't open | made on first start, kept in `orrery.key` beside the database (`/data` in Docker; none outside Docker on Postgres, so set it there) |

@@ -14,7 +14,7 @@ const failed = ref('')
 // The settings by what they reach (ORR-285), each tab saying so: you, how issues work in every project, this orrery as
 // a whole, and Advanced, the pages for looking into problems (ORR-561). A link to a section (`#tint`) opens its tab, even
 // one naming the tab it used to be on (`?tab=orrery#advanced`). How sessions start and what they hear is on the Sessions page.
-type Tab = 'you' | 'projects' | 'issues' | 'orrery' | 'advanced'
+type Tab = 'you' | 'projects' | 'issues' | 'orrery' | 'usage' | 'advanced'
 const TABS: {value: Tab, label: string, scope: string, sections: Heading[]}[] = [
     {value: 'you', label: 'You', scope: 'Who you are on this orrery, and how your issues are named outside it.', sections: [
         {id: 'name', text: 'Your name', level: 2},
@@ -38,9 +38,12 @@ const TABS: {value: Tab, label: string, scope: string, sections: Heading[]}[] = 
         {id: 'secrets', text: 'Secrets', level: 2},
         {id: 'database', text: 'Database', level: 2},
     ]},
+    // Usage has a tab of its own (ORR-900): counting what you use is your choice, not a tool for looking into problems.
+    {value: 'usage', label: 'Usage', scope: 'What you use on this orrery, counted only while you let it, to find what could go.', sections: [
+        {id: 'usage', text: 'Usage', level: 2},
+    ]},
     {value: 'advanced', label: 'Advanced', scope: 'For looking into problems: what orrery records, its event log, what it puts into a session\'s context, and the open pull requests on GitHub.', sections: [
         {id: 'advanced', text: 'Advanced', level: 2},
-        {id: 'usage', text: 'Usage', level: 2},
         {id: 'events', text: 'Events', level: 2},
         {id: 'context', text: 'Context', level: 2},
         {id: 'pulls', text: 'Pull requests', level: 2},
@@ -641,7 +644,7 @@ async function pick(tint: string | null) {
         <p v-if="advancedFailed" class="text-xs text-rose-700 dark:text-rose-400">{{ advancedFailed }}</p>
       </section>
 
-      <section v-if="tab === 'advanced'" id="usage" class="scroll-mt-6 flex flex-col gap-3">
+      <section v-if="tab === 'usage'" id="usage" class="scroll-mt-6 flex flex-col gap-3">
         <header class="flex flex-col gap-0.5">
           <h2 class="text-[15px] font-semibold text-fg">{{ title.usage }}</h2>
           <p class="text-xs text-muted">
