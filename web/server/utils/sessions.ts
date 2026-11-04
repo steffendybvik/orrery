@@ -93,6 +93,8 @@ export interface Report {
     source?: string
     /** For `PreToolUse` and `PermissionRequest`: the tool, and in short what it would do. */
     tool?: SessionTool
+    /** The model it runs on, when its hook could tell (ORR-871). */
+    model?: string
 }
 
 /** The id the session goes by now, for one it had before a `/clear`; any other id as it is. */
@@ -244,6 +246,7 @@ export function report(input: Report): Session | null {
             ...input.event === 'PermissionRequest' && input.tool ? {asked: Date.now()} : {},
             ...state === 'waiting' && input.tool ? {asking: input.tool} : {},
             ...cutOff ? {cut_off: cutOff} : {},
+            ...input.model ? {model: input.model} : {},
         }
         add(session)
     } else {
@@ -272,6 +275,7 @@ export function report(input: Report): Session | null {
         else if (state === 'working' || input.event === 'Stop') session.cut_off = undefined
         // Done with its turn: the next prompt comes after a tool of its next.
         if (state === 'idle') session.tool = session.asked = undefined
+        if (input.model) session.model = input.model
         session.seenAt = Date.now()
     }
     if (state === 'idle') session.idleAt = Date.now()

@@ -94,6 +94,23 @@ test("shows a listening session on the Sessions page, and sends it a message onl
     }
 })
 
+test("shows the model each session runs on, from its hook, and the new one after a switch (ORR-871)", async ({page, request, baseURL}) => {
+    const said = await request.post('/api/sessions', {data: {id: 'e2e-model', project: 'kitchen', event: 'Stop', name: 'kitchen pantry', model: 'claude-opus-5-5'}})
+    expect(said.ok(), await said.text()).toBeTruthy()
+    const channel = hold(baseURL!, '/api/projects/kitchen/signals/stream?session=e2e-model&name=kitchen%20pantry&format=text')
+    try {
+        await page.goto('/sessions')
+        const model = page.locator('#session-e2e-model').getByTestId('session-model')
+        await expect(model).toHaveText('Opus 5.5')
+        await expect(model).toHaveAttribute('title', 'claude-opus-5-5')
+        await request.post('/api/sessions', {data: {id: 'e2e-model', project: 'kitchen', event: 'Stop', model: 'claude-sonnet-5-5'}})
+        await expect(model).toHaveText('Sonnet 5.5')
+    } finally {
+        channel.stop()
+        await request.post('/api/sessions', {data: {id: 'e2e-model', project: 'kitchen', event: 'SessionEnd'}})
+    }
+})
+
 test('leaves a session with no channel out of the lists, with a line on restarting it, until its channel connects', async ({page, request, baseURL}) => {
     // Those the tests before it left behind would count on the line too.
     for (const {id} of await api(request, 'get', '/sessions')) await request.post('/api/sessions', {data: {id, project: 'kitchen', event: 'SessionEnd'}})

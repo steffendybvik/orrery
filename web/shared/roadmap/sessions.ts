@@ -75,6 +75,9 @@ export interface Session {
     /** Its last turn was cut off by an API error (Claude Code's StopFailure), until its next turn gets going (ORR-646):
      * the `error` it named (`rate_limit`…), and what Claude Code told it, cut short. */
     cut_off?: {error?: string, text?: string, at: string}
+    /** The model it runs on, as Claude Code names it (`claude-opus-5-5`), from its hook: the latest reply's model in its
+     * transcript, so a `/model` switch shows after its next turn (ORR-871). None until it has said. */
+    model?: string
 }
 
 /** Whether a session goes in a list of sessions (ORR-716): something can be done with it there, as it hears signals, its
@@ -166,3 +169,14 @@ export const madeUpName = (session: {name: string, project: string}) => session.
 /** Its name where its project already shows beside it: `Odin` for `orrery · Odin`; any other name as it is. */
 export const nameBesideProject = (session: {name: string, project: string}) =>
     session.name.startsWith(`${session.project} · `) ? session.name.slice(session.project.length + 3) || session.name : session.name
+
+/** A model's id as people say it (ORR-871): `claude-opus-5-5` is Opus 5.5, `claude-sonnet-5-20260101` Sonnet 5, and a
+ * 1M context (`[1m]`) says so. An id it can't read is shown as it is. */
+export function modelLabel(id: string): string {
+    const long = /\[1m\]$/i.test(id)
+    const match = /^(?:anthropic\.)?claude-([a-z]+)-(\d+)(?:-(\d{1,2}))?(?:-\d{8})?(?:-v\d+(?::\d+)?)?(?:\[1m\])?$/i.exec(id.trim())
+    if (!match) return id
+    const [, family, major, minor] = match as unknown as [string, string, string, string | undefined]
+    const name = `${family.charAt(0).toUpperCase()}${family.slice(1).toLowerCase()} ${major}${minor ? `.${minor}` : ''}`
+    return long ? `${name} · 1M` : name
+}

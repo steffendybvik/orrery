@@ -814,3 +814,21 @@ describe('aiming a signal at a session (ORR-821)', () => {
         expect([sessions.aimSession('hub', '*'), sessions.aimSession('hub', undefined), sessions.aimSession('pantry', 'eir')]).toEqual(['*', undefined, 'p'])
     })
 })
+
+describe("a session's model (ORR-871)", () => {
+    it('is kept from the report that says it, through the ones that don\'t, and changes with a switch', () => {
+        sessions.report({id: 'm', project: 'hub', event: 'SessionStart'})
+        const session = () => sessions.listSessions('hub').find(s => s.id === 'm')
+        expect(session()?.model).toBeUndefined()
+        sessions.report({id: 'm', project: 'hub', event: 'Stop', model: 'claude-opus-5-5'})
+        sessions.report({id: 'm', project: 'hub', event: 'UserPromptSubmit'})
+        expect(session()?.model).toBe('claude-opus-5-5')
+        sessions.report({id: 'm', project: 'hub', event: 'Stop', model: 'claude-sonnet-5-5'})
+        expect(session()?.model).toBe('claude-sonnet-5-5')
+    })
+
+    it('comes with the first report when that one says it', () => {
+        sessions.report({id: 'n', project: 'hub', event: 'SessionStart', model: 'claude-fable-5-1'})
+        expect(sessions.listSessions('hub').find(s => s.id === 'n')?.model).toBe('claude-fable-5-1')
+    })
+})
