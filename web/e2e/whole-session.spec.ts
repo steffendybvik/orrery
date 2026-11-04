@@ -6,7 +6,7 @@ import {join} from 'node:path'
 import {fileURLToPath} from 'node:url'
 import {Client} from '@modelcontextprotocol/sdk/client/index.js'
 import {StdioClientTransport} from '@modelcontextprotocol/sdk/client/stdio.js'
-import {expect, test} from '@playwright/test'
+import {expect, test} from './test'
 import {FAKE_TMUX} from '../test/fake-tmux'
 import {OWNER, makeProject, projectApi} from './support'
 

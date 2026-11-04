@@ -1,5 +1,5 @@
 import type {APIRequestContext, Page} from '@playwright/test'
-import {expect, test} from '@playwright/test'
+import {expect, test} from './test'
 import {makeProject, OWNER} from './support'
 
 // What the board and an issue's page look like, against images kept in `visual.spec.ts-snapshots/`, so a change

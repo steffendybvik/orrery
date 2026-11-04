@@ -1,5 +1,5 @@
 import type {APIRequestContext} from '@playwright/test'
-import {expect, test} from '@playwright/test'
+import {expect, test} from './test'
 
 // A session whose channel hears several projects spans them (ORR-283): the Sessions page lists it once, under Across
 // projects with the projects it hears, and each of those with sessions of its own says it hears it too; the sidebar

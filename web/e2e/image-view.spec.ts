@@ -1,5 +1,5 @@
 import type {APIRequestContext} from '@playwright/test'
-import {expect, test} from '@playwright/test'
+import {expect, test} from './test'
 
 // A picture in Markdown opens larger over the page on a click (ORR-286), not on a page of its own: a click outside it
 // or Esc closes it and leaves you where you were. A project of its own; the owner named if no one has yet.

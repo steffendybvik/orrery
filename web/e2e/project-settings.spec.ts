@@ -1,4 +1,4 @@
-import {expect, test} from '@playwright/test'
+import {expect, test} from './test'
 import {makeProject} from './support'
 
 // A project's own settings: its name, its icon and colour in the sidebar, and deleting it, which asks for its id.

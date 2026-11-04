@@ -1,5 +1,5 @@
 import {readFileSync} from 'node:fs'
-import {expect, test} from '@playwright/test'
+import {expect, test} from './test'
 import {AGENT, makeProject} from './support'
 
 // A board as one file (ORR-668): the button on its Settings saves what the API gives, named for the board.

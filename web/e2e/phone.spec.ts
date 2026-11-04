@@ -1,4 +1,4 @@
-import {expect, test} from '@playwright/test'
+import {expect, test} from './test'
 
 // Open on your phone, in App settings → You (ORR-833), the command palette and Getting started (ORR-876). The browser
 // specs' server is on loopback only, so it says how to give the phone a port of its own; where it's open, the unit tests

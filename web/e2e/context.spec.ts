@@ -1,4 +1,4 @@
-import {expect, test} from '@playwright/test'
+import {expect, test} from './test'
 import {OWNER, makeProject} from './support'
 
 // What orrery puts into a session's context (ORR-549): for a work session, its instructions and each tool with their

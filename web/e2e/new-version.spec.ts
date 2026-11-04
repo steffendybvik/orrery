@@ -1,4 +1,4 @@
-import {expect, test} from '@playwright/test'
+import {expect, test} from './test'
 
 // A newer orrery is out (ORR-608): a notice at the sidebar's foot, above the version, hidden for that version by ×
 // and back for the next. The e2e server never asks GitHub (NUXT_UPDATE_CHECK=false), so its answer is played here.

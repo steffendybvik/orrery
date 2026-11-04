@@ -1,5 +1,5 @@
 import type {Locator, Page} from '@playwright/test'
-import {expect, test} from '@playwright/test'
+import {expect, test} from './test'
 
 // Every piece of the kit on /ui (dev only), from the mouse and the keyboard: the Headless UI parts (Dialog,
 // Combobox, Listbox, Menu, RadioGroup) and our own (UiButton, UiConfirm, UiContextMenu).

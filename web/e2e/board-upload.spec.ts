@@ -1,4 +1,4 @@
-import {expect, test} from '@playwright/test'
+import {expect, test} from './test'
 import {OWNER, makeProject, projectApi} from './support'
 
 // A board's file brought in as a new board, through the real route (ORR-670); what it does with a file is in board-upload.test.ts.

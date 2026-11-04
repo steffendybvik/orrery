@@ -1,4 +1,4 @@
-import {expect, test} from '@playwright/test'
+import {expect, test} from './test'
 import {makeProject} from './support'
 
 // An unknown URL, project or issue: the same not-found block inside the app, titled so, with a way back.

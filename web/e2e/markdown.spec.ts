@@ -1,4 +1,4 @@
-import {expect, test} from '@playwright/test'
+import {expect, test} from './test'
 import {OWNER, makeProject, projectApi} from './support'
 
 // What an agent or an outside contributor writes in an issue's notes or a comment is drawn as Markdown, cleaned

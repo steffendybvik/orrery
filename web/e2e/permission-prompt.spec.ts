@@ -1,4 +1,4 @@
-import {expect, test} from '@playwright/test'
+import {expect, test} from './test'
 import {hold, makeProject, projectApi} from './support'
 
 // A session at a permission prompt pops up on any page (ORR-489), with a fake launcher and channel on the API where

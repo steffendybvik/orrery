@@ -1,4 +1,4 @@
-import {expect, test} from '@playwright/test'
+import {expect, test} from './test'
 import {PERMISSIONS, SESSION_KINDS, permissionAreas} from '../shared/permissions'
 
 // The Sessions page's tabs: Sessions, what's running, Setup, how sessions start and what they hear, and Permissions, what

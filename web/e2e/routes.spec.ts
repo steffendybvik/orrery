@@ -1,4 +1,4 @@
-import {expect, test} from '@playwright/test'
+import {expect, test} from './test'
 import {AGENT, OWNER, makeProject, projectApi} from './support'
 
 // The routes no other spec calls by name (ORR-746), through the real server, for what each does and who may call it.

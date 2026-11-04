@@ -1,4 +1,4 @@
-import {expect, test} from '@playwright/test'
+import {expect, test} from './test'
 import {OWNER, makeProject} from './support'
 
 // App settings → Projects (ORR-836): a starred project leads the sidebar's list, a hidden one folds away under Hidden

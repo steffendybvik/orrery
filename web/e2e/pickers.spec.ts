@@ -1,4 +1,4 @@
-import {expect, test} from '@playwright/test'
+import {expect, test} from './test'
 import {OWNER, hold, makeProject, projectApi} from './support'
 
 // The settings that were native selects pick through the app's own picker: a project's releases, a chunk's

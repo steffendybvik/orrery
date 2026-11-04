@@ -1,4 +1,4 @@
-import {expect, test} from '@playwright/test'
+import {expect, test} from './test'
 
 // The sidebar says when the live connection is lost, and clears once it's back. A browser's offline switch leaves an open
 // stream to localhost alone, so this drives the page's own stream through what it hears when one drops.

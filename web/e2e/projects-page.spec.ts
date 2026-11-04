@@ -1,4 +1,4 @@
-import {expect, test} from '@playwright/test'
+import {expect, test} from './test'
 import {OWNER, makeProject} from './support'
 
 // The Projects page (ORR-863): every project, hidden ones too, found by a search, kept to Starred or Hidden, and placed

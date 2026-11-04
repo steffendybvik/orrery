@@ -1,4 +1,4 @@
-import {expect, test} from '@playwright/test'
+import {expect, test} from './test'
 import {makeProject, projectApi} from './support'
 
 // A chunk made from the roadmap, renamed, given a summary and removed.

@@ -1,4 +1,4 @@
-import {expect, test} from '@playwright/test'
+import {expect, test} from './test'
 import {AGENT, makeProject} from './support'
 
 // An artifact is drawn on its doc's page, styled with Tailwind and the app's theme, and locked down (ORR-677). Only a real

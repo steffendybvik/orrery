@@ -1,5 +1,5 @@
 import type {APIRequestContext} from '@playwright/test'
-import {expect, test} from '@playwright/test'
+import {expect, test} from './test'
 
 // A schedule comes out from its edit dialog, or from the ⋯ on its row, not only a right-click (ORR-282).
 // A project of its own; the owner named if no one has yet.

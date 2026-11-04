@@ -1,5 +1,5 @@
 import type {APIRequestContext} from '@playwright/test'
-import {expect, test} from '@playwright/test'
+import {expect, test} from './test'
 
 // New schedule on the Schedules page opens the dialog on a project, and the project is picked in the dialog
 // (ORR-279). Two projects of its own; the owner named if no one has yet.

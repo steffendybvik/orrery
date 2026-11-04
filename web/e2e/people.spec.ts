@@ -1,4 +1,5 @@
-import {type Page, expect, test} from '@playwright/test'
+import type {Page} from '@playwright/test'
+import {expect, test} from './test'
 import {OWNER, dragCard, makeProject} from './support'
 
 // Two people on one machine (ORR-657), with login off: the owner adds someone, puts them on a board, and the page acts as
