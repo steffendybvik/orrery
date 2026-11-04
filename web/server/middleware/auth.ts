@@ -1,13 +1,13 @@
 // With auth on (ORR-664), every route under /api asks for a credential, reads included, so the checks after this are
 // against a verified person. There's no loopback exemption, as in Docker orrery can't tell loopback from the network.
-// Runs first. What stays open is what can't hold data: the login's own routes (claiming among them, which checks for itself
-// that it's this machine's page, ORR-832, and a phone's one-time link, ORR-837), and outside /api the page's files, the
+// Runs first. What stays open is what can't hold data: the login's own routes (a phone's one-time
+// link among them, ORR-837), and outside /api the page's files, the
 // channel's, and /llms* and /connect, which leave out what's on this orrery unless `mayRead` says otherwise (ORR-689).
 // Off, as on one person's own machine, this does nothing.
 import {authMode, canGetIn, credential, holdSession, noteOtherPerson, pathOf} from '../utils/auth'
 import {viaPhone} from '../utils/phone-port'
 
-const OPEN = new Set(['/api/auth/status', '/api/auth/login', '/api/auth/logout', '/api/auth/claim', '/api/auth/link', '/api/auth/oidc/start', '/api/auth/oidc/callback'])
+const OPEN = new Set(['/api/auth/status', '/api/auth/login', '/api/auth/logout', '/api/auth/link', '/api/auth/oidc/start', '/api/auth/oidc/callback'])
 const WRITES = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
 
 export default defineEventHandler(async event => {

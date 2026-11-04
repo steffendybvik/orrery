@@ -367,16 +367,6 @@ export const PERMISSIONS: Permission[] = [
         member: {level: 'free'},
     },
     {
-        id: 'auth.claim', area: 'This orrery', action: 'Claim this orrery from its page',
-        why: 'Claiming hands out the owner’s first person key, so only a page on the machine orrery runs on may, as near as its shell, and only while nobody has one. It needs no credential, as nobody can have one yet.',
-        routes: ['POST /api/auth/claim'],
-        unnamed: ['POST /api/auth/claim'],
-        session: refused,
-        chat: refused,
-        untrusted: refused,
-        member: ownerAlone,
-    },
-    {
         id: 'phone.link', area: 'This orrery', action: 'Make a sign-in link for a phone',
         why: 'The link signs a phone in as the owner (ORR-837), so only the owner’s own page on this machine makes one, never a session, which would get a login it must never have.',
         routes: ['POST /api/phone/link'],

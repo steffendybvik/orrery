@@ -36,7 +36,6 @@ async function ask(load: () => Promise<{default: unknown}>, path: string, asked:
 }
 const makeLink = (asked: Asked = {}) => ask(() => import('../server/api/phone/link.post'), '/api/phone/link', asked)
 const useLink = (token: unknown, asked: Asked = {}) => ask(() => import('../server/api/auth/link.post'), '/api/auth/link', {...asked, body: {token}})
-const claim = (asked: Asked = {}) => ask(() => import('../server/api/auth/claim.post'), '/api/auth/claim', asked)
 
 /** A person's browser, logged in with a person key, as the page is. */
 async function browser(person: string) {
@@ -84,7 +83,6 @@ beforeEach(async () => {
     const links = await import('../server/utils/phone-sign-in')
     vi.stubGlobal('makeSignInLink', links.makeSignInLink)
     vi.stubGlobal('takeSignInLink', links.takeSignInLink)
-    vi.stubGlobal('claimRefusal', (await import('../server/utils/claim-here')).claimRefusal)
     gate = (await import('../server/middleware/auth')).default as unknown as Route
     await store.nameOwner({name: 'Skoll'})
     await store.addPerson({name: 'Hati'})
@@ -219,10 +217,8 @@ describe("over the phone's port, nothing is this machine (ORR-837)", () => {
         expect(fromThisMachine(request('/', {}) as never)).toBe(true)
     })
 
-    it("so the owner's phone can't claim, move the database or set the backups", async () => {
+    it("so the owner's phone can't move the database or set the backups", async () => {
         const phone = await browser('skoll')
-        // Claiming: refused before it asks whether a person key exists, which would be a 409.
-        expect((await failure(() => claim({headers: phone, phone: true}))).status).toBe(403)
         const {mayMove} = await import('../server/utils/move')
         const {maySetBackups} = await import('../server/utils/backup-choice')
         for (const may of [mayMove, maySetBackups]) {

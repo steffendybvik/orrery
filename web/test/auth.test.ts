@@ -57,7 +57,7 @@ function routes(dir = 'server/api', at = '/api'): {method: string, path: string}
         return [{method: method.toUpperCase(), path: name === 'index' ? at : `${at}/${name}`}]
     })
 }
-const OPEN = ['/api/auth/status', '/api/auth/login', '/api/auth/logout', '/api/auth/claim', '/api/auth/link', '/api/auth/oidc/start', '/api/auth/oidc/callback']
+const OPEN = ['/api/auth/status', '/api/auth/login', '/api/auth/logout', '/api/auth/link', '/api/auth/oidc/start', '/api/auth/oidc/callback']
 
 describe('with auth on', () => {
     let agent: string
@@ -261,7 +261,7 @@ describe('adding a second person', () => {
     it('waits until someone could log in, unless only trying it out', async () => {
         const {status, message} = await failure(() => needsWayInForPeople())
         expect(status).toBe(409)
-        expect(message).toContain('App settings → You')
+        expect(message).toContain('orrery:claim')
         await store.makeKey('skoll', {kind: 'person', name: 'claim'})
         await expect(needsWayInForPeople()).resolves.toBeUndefined()
         await store.db.run('UPDATE keys SET revoked_at = ?', 'now')
@@ -362,11 +362,11 @@ describe("the phone's port (ORR-837)", () => {
         expect(await authMode(asking('/api/projects', {port: 9001}) as never)).toBe('closed')
     })
 
-    it("never counts as this machine, whatever Host it's sent, so nobody claims the orrery over it", async () => {
+    it("never counts as this machine, whatever Host it's sent, so nothing on it moves the database or sets the backups", async () => {
         config = {...config, auth: '', phoneListen: '9001'}
         vi.stubGlobal('getRequestHost', () => 'localhost')
         const {fromThisMachine} = await import('../server/utils/move')
-        expect(fromThisMachine(asking('/api/auth/claim', {method: 'POST', port: 9001}) as never)).toBe(false)
+        expect(fromThisMachine(asking('/api/database/move', {method: 'POST', port: 9001}) as never)).toBe(false)
     })
 })
 
