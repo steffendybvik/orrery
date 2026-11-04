@@ -665,3 +665,41 @@ test('Show screen draws what the launcher sends, read only, and asks for it only
         launcher.stop()
     }
 })
+
+test.describe('on a phone', () => {
+    test.use({viewport: {width: 390, height: 844}, isMobile: true, hasTouch: true})
+
+    test('Start session fits the screen: its projects show, its body scrolls, and its button stays in reach (ORR-851)', async ({page, request, baseURL}) => {
+        // Room under the limit whatever the tests before left running; put back after.
+        const before = (await (await request.get('/api/settings')).json()).starts
+        await request.patch('/api/settings', {data: {starts: {limit: 20, min: 2}}, headers: OWNER})
+        const launcher = hold(baseURL!, '/api/projects/kitchen/launches/stream')
+        try {
+            await expect.poll(async () => (await api(request, 'get', '/launches')).launchers).toBe(1)
+            await page.goto('/sessions')
+            await page.getByRole('button', {name: 'Start session'}).first().tap()
+            const dialog = page.getByRole('dialog', {name: 'Start session'})
+            const kitchen = dialog.getByRole('checkbox', {name: 'Kitchen'})
+            // The projects' list was squeezed to nothing once the rest of the dialog filled the screen.
+            await expect(kitchen).toBeInViewport()
+            await kitchen.check()
+            const start = dialog.getByRole('button', {name: /^Start session/})
+            await expect(start).toBeInViewport()
+            // The last field scrolls into view inside the dialog, and the button is still there.
+            const own = dialog.getByLabel('Your own instructions')
+            await own.scrollIntoViewIfNeeded()
+            await expect(own).toBeInViewport()
+            await expect(start).toBeInViewport()
+            // Nothing reaches past the screen's edges, and the button stays inside the panel.
+            const box = await dialog.locator('form').boundingBox()
+            expect(box!.x).toBeGreaterThanOrEqual(0)
+            expect(box!.x + box!.width).toBeLessThanOrEqual(390)
+            const button = await start.boundingBox()
+            expect(button!.y + button!.height).toBeLessThanOrEqual(box!.y + box!.height)
+            await page.keyboard.press('Escape')
+        } finally {
+            launcher.stop()
+            await request.patch('/api/settings', {data: {starts: before}, headers: OWNER})
+        }
+    })
+})
