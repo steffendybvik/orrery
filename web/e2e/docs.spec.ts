@@ -251,3 +251,22 @@ test("on a phone, the docs strip shows the doc you're on, marked (ORR-860)", asy
     await inStrip('Volume number 7')
     expect(await page.evaluate(() => window.scrollY)).toBe(0)
 })
+
+for (const colorScheme of ['light', 'dark'] as const) {
+    test(`on a phone, a name in a doc's table stays on one line, and the table scrolls (ORR-858, ${colorScheme})`, async ({page, request}) => {
+        await page.emulateMedia({colorScheme})
+        await request.put('/api/projects/library/docs/api-reference', {headers: AGENT, data: {
+            title: 'API reference',
+            body: '| Function | What it does |\n|---|---|\n| `primes_up_to(n)` | Every prime up to n, smallest first, as a list |\n| `count_primes(n)` | How many primes there are up to n |\n| `nth_prime(n)` | The nth prime, counting 2 as the first |\n',
+        }}).then(r => expect(r.ok(), 'the doc').toBeTruthy())
+        await page.setViewportSize({width: 390, height: 800})
+        await page.goto('/p/library/docs/api-reference')
+        const names = page.locator('.doc td code')
+        await expect(names).toHaveCount(3)
+        for (const code of await names.all()) {
+            // An inline box broken over two lines has a rect for each.
+            expect(await code.evaluate(el => el.getClientRects().length), await code.textContent() ?? '').toBe(1)
+        }
+        await expect(page.getByRole('table', {name: 'Table'})).toBeVisible()
+    })
+}
