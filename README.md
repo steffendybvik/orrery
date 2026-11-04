@@ -42,6 +42,8 @@ the owner directs sessions from the board. It runs locally, in Docker, on SQLite
 - **Secrets:** API keys that agents use through orrery's egress, without ever seeing the value.
 - **Event log:** orrery's errors and each change to the roadmap, and with Advanced on what it did, kept on the machine,
   on an Events page that sessions can read too.
+- **On your phone:** scan the QR code in App settings and the phone is signed in, driving the sessions on this machine.
+  End a lost phone's login from the Mac.
 - **Storage:** one SQLite file or Postgres, both backed up automatically, picked when you first open it or moved to
   later from App settings. Alone on your machine there's no login; with a second person or from another machine it asks for one. The first name given becomes the owner.
 
@@ -102,8 +104,9 @@ You need:
 
 ## Requirements and limits
 
-- **Local by default.** Only this machine can reach it. Read [SECURITY.md](SECURITY.md) before
-  exposing it.
+- **Local by default.** Only this machine reaches the board without a login. A phone on your network opens it on a
+  port of its own that always asks for one, signed in by App settings' QR code. Read [SECURITY.md](SECURITY.md) before
+  exposing it further.
 - **Channels are a Claude Code research preview**, hence the long flag in step 4. Without it a session still
   has the tools and can read and update the roadmap, but orrery can't send it work.
 - **Starting sessions** needs tmux 3.2 or newer, and the launcher installed once
