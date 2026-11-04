@@ -3,14 +3,22 @@ import type {Chunk, Column, Counts, Issue, Kinds} from '#shared/roadmap'
 
 // Top-level issues as rows with their sub-issues under them, in groups that fold: by status (Doing…Done, each row
 // saying its chunk; started first) or by chunk. Closed groups start folded, unless a filter is on. `#group-end` adds to a group's header.
-// An open group's header has a tick (GroupTick) for every row it shows, sub-issues included.
-const props = withDefaults(defineProps<{chunks: Chunk[], project: string, group: 'status' | 'chunk', showChunk?: boolean}>(), {showChunk: true})
+// An open group's header has a tick (GroupTick) for every row it shows, sub-issues included. With `riskFirst`, each
+// group's rows are riskiest first (ORR-879), else in the board's order.
+const props = withDefaults(defineProps<{chunks: Chunk[], project: string, group: 'status' | 'chunk', showChunk?: boolean, riskFirst?: boolean}>(), {showChunk: true, riskFirst: false})
 const {active} = useFilters()
 const {columns, look} = useStatuses()
 
 interface Group { key: string, title: string, column: Column, counts?: Counts, kinds?: Kinds, summary?: string, muted?: boolean, issues: {issue: Issue, chunk?: {id: string, title: string}}[] }
 
-const groups = computed<Group[]>(() => {
+const groups = computed<Group[]>(() => grouped.value.map(g => props.riskFirst ? {...g, issues: sortedByRisk(g.issues)} : g))
+
+function sortedByRisk(rows: Group['issues']): Group['issues'] {
+    const chunkOf = new Map(rows.map(row => [row.issue.id, row.chunk]))
+    return byRisk(rows.map(row => row.issue)).map(issue => ({issue, chunk: chunkOf.get(issue.id)}))
+}
+
+const grouped = computed<Group[]>(() => {
     if (props.group === 'chunk') {
         return props.chunks.map(chunk => ({
             key: `chunk:${chunk.id}`, title: chunk.title, column: chunk.column, counts: chunk.counts, kinds: chunk.kinds, summary: chunk.summary, muted: !chunk.id,
