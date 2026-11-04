@@ -24,6 +24,8 @@ test('stars a project to the top of the sidebar, hides another under Hidden', as
         await expect.poll(async () => (await projectLinks())[0]).toBe(`/p/${starredId}`)
         await expect(sidebar.getByRole('link', {name: /Zz Icehouse/})).toHaveCount(0)
         await sidebar.getByTestId('sidebar-hidden').click()
+        // Just the hidden projects: the Projects page is in the nav, not under the fold (ORR-905).
+        await expect(sidebar.locator('a[href="/projects?show=hidden"]')).toHaveCount(0)
         await sidebar.getByRole('link', {name: 'Zz Icehouse'}).click()
         await expect(page).toHaveURL(new RegExp(`/p/${hiddenId}`))
     } finally {
