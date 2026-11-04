@@ -1,5 +1,6 @@
 <script setup lang="ts">
-// A titled block of text to copy as it is: a brief for an agent, a config file, a command.
+// A titled block of text to copy as it is: a brief for an agent, a config file, a command. It wraps, a long URL
+// included, so it's read whole on a phone; a long one scrolls, and takes focus so a keyboard can scroll it (ORR-859).
 defineProps<{title: string, text: string, hint?: string}>()
 </script>
 
@@ -12,6 +13,10 @@ defineProps<{title: string, text: string, hint?: string}>()
       </div>
       <CopyButton :text="text" />
     </div>
-    <pre class="max-h-96 overflow-auto rounded-xl bg-well p-4 font-mono text-[12px] leading-relaxed whitespace-pre-wrap text-fg ring-1 ring-line">{{ text }}</pre>
+    <pre
+        tabindex="0"
+        :aria-label="title"
+        class="max-h-96 overflow-auto rounded-xl bg-well p-4 font-mono text-[12px] leading-relaxed whitespace-pre-wrap wrap-anywhere text-fg ring-1 ring-line outline-none focus-visible:ring-2 focus-visible:ring-accent-500/60"
+    >{{ text }}</pre>
   </section>
 </template>
