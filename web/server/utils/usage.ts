@@ -3,7 +3,8 @@
 // turned counting on (`count_use`, off by default) and the server allows it (`ORRERY_USAGE=off` doesn't): what gathered
 // while it was off is dropped at the next write, not kept. A count only: nothing about who, what or where.
 import {FEATURES, FEATURE_NAME} from '#shared/usage'
-import type {FeatureUse} from '#shared/usage'
+import type {H3Event} from 'h3'
+import type {Feature, FeatureUse} from '#shared/usage'
 
 const KEEP_DAYS = 365
 const pending = new Map<string, number>()
@@ -19,6 +20,12 @@ export function countUse(feature: string, at = new Date()) {
     if (!FEATURE_NAME.test(feature)) return
     const key = `${feature}\n${day(at)}`
     pending.set(key, (pending.get(key) ?? 0) + 1)
+}
+
+/** One use of `feature` by the owner themself, at a route: their page or their own sessions, never anyone else's. */
+export function countOwnUse(event: H3Event, feature: Feature) {
+    const who = event.context?.who as {owner: boolean} | undefined
+    if (!who || who.owner) countUse(feature)
 }
 
 /** Writes what's gathered, while counting is on, and drops rows over a year old. */

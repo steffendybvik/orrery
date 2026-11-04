@@ -1,25 +1,23 @@
 // Counting feature use (ORR-881): which of orrery's features the owner uses, so what goes unused can be pruned. Pages and
 // MCP tools are counted as they're used, by name (`page:<route>`, `tool:<name>`); the optional features below are
-// listed even before their first use, so one never used shows at the top of App settings' Usage.
+// listed even before their first use, so one never used shows at the top of App settings' Usage. Each is counted at its
+// one route on the server, or on the page for the three with none (the board view, the palette, the demo project).
 
 /** The optional features worth asking "is this used?" of, each counted where it's used. Core actions aren't here. */
 export const FEATURES = {
     'board-view': 'The board view',
-    'chunks': 'Chunks',
-    'schedules': 'Schedules',
-    'presets': 'Presets',
+    'command-palette': 'The command palette',
+    'chunks': 'Making a chunk',
+    'schedules': 'Making a schedule',
+    'presets': 'Making a preset',
     'message-sessions': 'Message sessions',
     'demo-project': 'The demo project',
     'backup-now': 'Back up now',
-    'tracker-link': 'The team tracker link',
     'focus-issue': 'Focus on this',
     'start-session': 'Start session',
     'watch-session': 'Watch a session',
     'phone-code': 'Open on your phone',
-    'chat': 'The chat',
-    'docs': 'Docs',
-    'releases': 'Releases',
-    'command-palette': 'The command palette',
+    'chat': 'Starting a chat',
 } as const
 
 export type Feature = keyof typeof FEATURES | `page:${string}` | `tool:${string}`

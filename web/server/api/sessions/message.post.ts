@@ -1,4 +1,5 @@
 import {SESSION_STATES, type SessionState} from '#shared/roadmap'
+import {countOwnUse} from '../../utils/usage'
 
 // `POST /api/sessions/message` {text, projects?, states?} → 201 `{sent: [{project, session, name, signal}]}`: the owner's
 // own words to every listening session at once, each its own message as if sent to it alone. Idle ones only unless
@@ -6,6 +7,7 @@ import {SESSION_STATES, type SessionState} from '#shared/roadmap'
 // them. A session hearing several projects gets it once. Nobody listening is an empty `sent`, not a launch. The owner's
 // chat can't send here: it asks the owner in the chat, and their Send sends it (`askSend`, ORR-416).
 export default defineEventHandler(async event => {
+    countOwnUse(event, 'message-sessions')
     const actor = await authorize(event, 'sessions.message')
     const body = await readBody(event).catch(() => null) as {text?: unknown, projects?: unknown, states?: unknown} | null
     const text = typeof body?.text === 'string' ? body.text.trim() : ''

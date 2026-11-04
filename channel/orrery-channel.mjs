@@ -81,6 +81,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({tools: toolsFor(p
 server.setRequestHandler(CallToolRequestSchema, async request => {
     const why = refused || (!projects.length && `orrery (${base}) hasn't been reached yet, so the projects it serves aren't known; try again shortly`)
     if (why) return {isError: true, content: [{type: 'text', text: why}]}
+    // One use of the tool, for App settings' Usage (ORR-881): orrery counts it only while the owner has counting on.
+    if (!untrusted) fetch(`${base}/api/usage`, {method: 'POST', headers: {'Content-Type': 'application/json', ...personHeaders}, body: JSON.stringify({feature: `tool:${request.params.name}`})}).catch(() => {})
     return callTool(request.params.name, request.params.arguments ?? {})
 })
 await server.connect(new StdioServerTransport())

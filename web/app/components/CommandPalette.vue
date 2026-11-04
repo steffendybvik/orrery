@@ -23,6 +23,9 @@ const TITLES: Record<SectionKey, string> = {top: 'Top hit', used: 'Most used', h
 const SCOPES: Record<string, SectionKey[]> = {'>': ['commands'], '#': ['issues'], '@': ['projects', 'chunks', 'docs']}
 
 const openPalette = useState('palette-open', () => false)
+// Each opening, for App settings' Usage (ORR-881).
+const {count: countUse} = useUsage()
+watch(openPalette, open => open && countUse('command-palette'))
 const {byId, partial} = useRoadmaps()
 const {ordered: projects} = useProjectOrder()
 const {open: openIssue, pathOf} = useIssueLink()

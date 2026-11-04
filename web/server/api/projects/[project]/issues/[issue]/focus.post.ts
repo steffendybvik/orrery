@@ -2,7 +2,10 @@
 // session (without `session`, the one on the issue or one orrery picks; only a chunk can go to every session) on the project to work on the issue now. `listeners`
 // says how many sessions were listening to hear it. `start: true`, from the owner, starts a session for it when nobody's
 // listening, even when work alone doesn't start one (`starts.on_signal` off).
+import {countOwnUse} from '../../../../../utils/usage'
+
 export default defineEventHandler(async event => {
+    countOwnUse(event, 'focus-issue')
     const project = param(event, 'project')
     const {start, ...body} = ((await readBody(event).catch(() => null)) ?? {}) as {start?: unknown, session?: unknown}
     // A session's name works as its id does; one the project doesn't know is a 404 (ORR-821).
