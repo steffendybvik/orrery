@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type {Session, SessionWork} from '#shared/roadmap'
-import {cutOffLabel} from '#shared/roadmap'
+import {cutOffLabel, modelLabel} from '#shared/roadmap'
 import {olderVersion} from '#shared/version'
 
 // One Claude session on the Sessions page. Its name, then one quiet line, wrapping as text does: what it's doing and since when, its time
@@ -67,6 +67,8 @@ const behind = computed(() => props.session.listening && olderVersion(props.sess
       <div class="flex min-w-0 flex-1 flex-col gap-0.5 max-sm:basis-[calc(100%-1.25rem)]">
         <div class="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
           <span class="min-w-0 truncate text-[14px] font-medium text-fg">{{ session.name }}</span>
+          <!-- The model it runs on, the default too (ORR-871), once its hook has said. -->
+          <span v-if="session.model" class="rounded bg-well px-1.5 py-px font-mono text-[10px] text-muted ring-1 ring-line" :title="session.model" data-testid="session-model">{{ modelLabel(session.model) }}</span>
           <span v-if="roles.length" class="flex items-center gap-1" :aria-label="`As ${roles.map(r => r.name).join(', ')}`">
             <span v-for="role in roles" :key="role.name" :title="role.name" class="inline-flex"><PresetBadge :preset="role" :size="18" /></span>
           </span>
