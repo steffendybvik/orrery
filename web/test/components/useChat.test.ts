@@ -88,14 +88,11 @@ describe('useChat', () => {
         expect(c.chat.value).toBeNull()
     })
 
-    it('leaves the chat running on close and on minimize; only end ends it, keeping it in the list (ORR-878)', async () => {
+    it('leaves the chat running on close, with no minimize (ORR-883); only end ends it, keeping it in the list (ORR-878)', async () => {
         const c = useChat()
+        expect('hide' in c).toBe(false)
         c.show('greenhouse')
         c.arrived(chat('c1'))
-        c.hide()
-        expect(c.open.value).toBe(false)
-        expect(c.chat.value?.id).toBe('c1')
-        c.show('greenhouse')
         c.close()
         expect(c.open.value).toBe(false)
         expect(posted).toEqual([])
