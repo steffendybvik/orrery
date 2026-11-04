@@ -23,10 +23,13 @@ let scoped: {chunk: string, body: Record<string, unknown>}[]
 let messages: {schedule: number, text: string, target?: string}[]
 /** The launches whose prompt the owner's Allow answered. */
 let answered: string[]
+/** The labels of the issues a session is started on, by id. */
+let issueLabels: Record<string, string[]>
 
 beforeEach(async () => {
     sent = []
     answered = []
+    issueLabels = {}
     listeners = 0
     started = {greenhouse: 0, all: 0}
     starts = {limit: 2, minutes: 30}
@@ -61,6 +64,10 @@ beforeEach(async () => {
     vi.stubGlobal('useStore', () => ({ownerOf: async () => ({name: 'skoll'}), 
         starts: () => new Promise(resolve => setTimeout(() => resolve(starts), 0)),
         lastSignal: async () => 41,
+        issue: async (_project: string, id: string) => {
+            if (id === 'GRE-404') throw Object.assign(new Error('No issue GRE-404'), {statusCode: 404})
+            return {id, labels: issueLabels[id] ?? []}
+        },
         focus: async (_project: string, issue: string, body: {session: string}) => {
             if (issue === 'GRE-404') throw Object.assign(new Error('No issue GRE-404'), {statusCode: 404})
             focused.push({issue, session: body.session})
@@ -839,6 +846,58 @@ describe("the owner's chat", () => {
     it('stays a chat when a launcher reports it after orrery restarted', () => {
         launches.reportRunning('greenhouse', [{id: 'c1c2c3c4c5c6', tmux: 'orrery-greenhouse-c1c2c3c4c5c6', chat: true}])
         expect(launches.launched('c1c2c3c4c5c6')).toMatchObject({chat: true})
+    })
+})
+
+describe('a session started on a model (ORR-868)', () => {
+    it('carries the model and effort asked for, onto the session once it connects', async () => {
+        const {token} = launches.addLauncher('greenhouse')
+        const launch = await launches.startLaunch('greenhouse', {model: 'haiku', effort: 'low'})
+        expect(launch).toMatchObject({model: 'haiku', effort: 'low'})
+        expect(launches.claim('greenhouse', launch.id, token, true, true, true)).toBe(true)
+        expect(launches.launched(launch.id)).toMatchObject({model: 'haiku', effort: 'low'})
+    })
+
+    it('goes only to a launcher that says it starts sessions on a model, as an older one would drop it', async () => {
+        const {token} = launches.addLauncher('greenhouse')
+        const launch = await launches.startLaunch('greenhouse', {model: 'sonnet'})
+        expect(launches.claim('greenhouse', launch.id, token, true, true)).toBe(false)
+        expect(noted).toEqual([expect.objectContaining({kind: 'launcher.outdated', message: expect.stringMatching(/chosen model/)})])
+        expect(launches.claim('greenhouse', launch.id, token, true, true, true)).toBe(true)
+    })
+
+    it('leaves one on the default to any launcher', async () => {
+        const {token} = launches.addLauncher('greenhouse')
+        const launch = await launches.startLaunch('greenhouse')
+        expect(launch.model).toBeUndefined()
+        expect(launches.claim('greenhouse', launch.id, token, true, true)).toBe(true)
+    })
+
+    it("starts one on an issue on its kind's model, its highest-ranked label's", async () => {
+        launches.addLauncher('greenhouse')
+        issueLabels = {'GRE-1': ['docs'], 'GRE-2': ['docs', 'security'], 'GRE-3': []}
+        expect(await launches.startLaunch('greenhouse', {issue: 'GRE-1'})).toMatchObject({model: 'sonnet'})
+        // Security outranks Docs, and best is Claude Code's own pick: no model asked for.
+        expect((await launches.startLaunch('greenhouse', {issue: 'GRE-2'})).model).toBeUndefined()
+        starts = {limit: 5}
+        expect((await launches.startLaunch('greenhouse', {issue: 'GRE-3'})).model).toBeUndefined()
+        // What the owner picks beats the kind's.
+        expect(await launches.startLaunch('greenhouse', {issue: 'GRE-1', model: 'opus'})).toMatchObject({model: 'opus'})
+    })
+
+    it('keeps the model a launcher reports after orrery restarted', () => {
+        launches.reportRunning('greenhouse', [{id: 'd1d2d3d4d5d6', tmux: 'orrery-greenhouse-d1d2d3d4d5d6', model: 'opus', effort: 'high'}])
+        expect(launches.launched('d1d2d3d4d5d6')).toMatchObject({model: 'opus', effort: 'high'})
+    })
+
+    it('takes an alias or a full id and an effort level, and refuses anything else', () => {
+        expect(launches.startInput({model: 'best', effort: 'max'})).toMatchObject({model: 'best', effort: 'max'})
+        expect(launches.startInput({model: 'claude-haiku-5-5'})).toMatchObject({model: 'claude-haiku-5-5'})
+        expect(launches.startInput({})).not.toHaveProperty('model')
+        vi.stubGlobal('badRequest', (message: string) => Object.assign(new Error(message), {statusCode: 400}))
+        expect(() => launches.startInput({model: 'gpt'})).toThrow('Send {model}')
+        expect(() => launches.startInput({model: 'haiku --dangerously-skip-permissions'})).toThrow('Send {model}')
+        expect(() => launches.startInput({effort: 'huge'})).toThrow('Send {effort}')
     })
 })
 
