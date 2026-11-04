@@ -36,7 +36,7 @@ async function mount(task: Issue) {
     return wrapper
 }
 async function open(wrapper: VueWrapper) {
-    await wrapper.find('button[aria-label="Model"]').trigger('click')
+    await wrapper.find('button[data-picker="Model"]').trigger('click')
     await settled()
     return wrapper.findAll('li').map(li => li.text())
 }
@@ -48,7 +48,7 @@ async function pick(wrapper: VueWrapper, text: string) {
 describe("IssueProperties, an issue's own model", () => {
     it("shows its kind's model while it has none, and offers the aliases a session takes", async () => {
         const wrapper = await mount(issue())
-        expect(wrapper.get('[data-testid="issue-model"]').text()).toBe('sonnet, as Docs')
+        expect(wrapper.get('[data-testid="issue-model"]').text()).toBe('Model: sonnet, as Docs')
         const options = await open(wrapper)
         expect(options[0]).toBe('sonnet, as Docs')
         expect(options).toEqual(expect.arrayContaining(['best', 'opus', 'sonnet', 'haiku', 'fable']))
@@ -59,7 +59,7 @@ describe("IssueProperties, an issue's own model", () => {
     it("follows the kind as the owner sets it in Sessions setup", async () => {
         useAppSettings().settings.value.work_kinds = WORK_KINDS.map(k => k.id === 'docs' ? {...k, model: 'haiku'} : k)
         const wrapper = await mount(issue())
-        expect(wrapper.get('[data-testid="issue-model"]').text()).toBe('haiku, as Docs')
+        expect(wrapper.get('[data-testid="issue-model"]').text()).toBe('Model: haiku, as Docs')
     })
 
     it('saves a pick as the owner', async () => {
@@ -71,7 +71,7 @@ describe("IssueProperties, an issue's own model", () => {
 
     it("sends null for the empty choice, so it follows its kind again", async () => {
         const wrapper = await mount(issue({model: 'opus'}))
-        expect(wrapper.get('[data-testid="issue-model"]').text()).toBe('opus')
+        expect(wrapper.get('[data-testid="issue-model"]').text()).toBe('Model: opus')
         await open(wrapper)
         await pick(wrapper, 'sonnet, as Docs')
         await vi.waitFor(() => expect(sent).toEqual([{actor: 'skoll', body: {model: null}}]))
@@ -79,7 +79,7 @@ describe("IssueProperties, an issue's own model", () => {
 
     it('keeps a full id set through the API as a choice', async () => {
         const wrapper = await mount(issue({model: 'claude-opus-5-5'}))
-        expect(wrapper.get('[data-testid="issue-model"]').text()).toBe('claude-opus-5-5')
+        expect(wrapper.get('[data-testid="issue-model"]').text()).toBe('Model: claude-opus-5-5')
         expect(await open(wrapper)).toContain('claude-opus-5-5')
     })
 })

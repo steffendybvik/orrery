@@ -94,13 +94,16 @@ function closing(vnode: VNode) {
         ref="trigger"
         type="button"
         tabindex="0"
+        :data-picker="label"
         :class="field && small
           ? 'flex h-7 max-w-44 min-w-0 shrink-0 items-center gap-1.5 rounded-md bg-well pr-1.5 pl-2 text-left text-xs text-fg ring-1 ring-line focus:ring-accent-500/50 focus:outline-none disabled:cursor-default disabled:opacity-60'
           : field
           ? 'flex h-8 max-w-56 min-w-0 items-center gap-2 field pr-2 text-left disabled:cursor-default disabled:opacity-60'
           : '-ml-1.5 flex min-h-7 w-full min-w-0 items-center gap-2 rounded-md px-1.5 py-0.5 text-left text-[13px] text-fg hover:bg-hover focus:bg-hover focus:outline-none disabled:cursor-default disabled:hover:bg-transparent'"
-        :aria-label="label"
     >
+      <!-- Its name is what it's for, then what it shows ("Status: In progress"), from its text rather than an aria-label,
+           so the words a person sees are in the name voice control goes by (WCAG 2.5.3, ORR-724). -->
+      <span class="sr-only">{{ label }}: </span>
       <slot />
       <svg v-if="field" class="ml-auto size-3.5 shrink-0 text-faint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6" /></svg>
     </ComboboxButton>

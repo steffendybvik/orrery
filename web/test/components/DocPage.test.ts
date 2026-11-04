@@ -21,7 +21,7 @@ afterEach(() => {
 async function mount() {
     const wrapper = await mountSuspended(DocPage, {route: '/p/greenhouse/docs/potting-mix', attachTo: document.body, global: {stubs: {DocsNav: true}}})
     mounted.push(wrapper)
-    await vi.waitFor(() => expect(wrapper.find('[aria-label="Copy this doc\'s URL"]').exists()).toBe(true))
+    await vi.waitFor(() => expect(wrapper.find('[title="Copy this doc\'s URL"]').exists()).toBe(true))
     return wrapper
 }
 
@@ -32,7 +32,7 @@ describe('a doc page', () => {
     ])('%s copies what it says', async (label, name, text) => {
         const writeText = vi.fn(async () => {})
         vi.stubGlobal('navigator', {...navigator, clipboard: {writeText}})
-        const button = (await mount()).find(`[aria-label="Copy ${name}"]`)
+        const button = (await mount()).find(`[title="Copy ${name}"]`)
         expect(button.text()).toBe(label)
         await button.trigger('click')
         await vi.waitFor(() => expect(button.text()).toBe('Copied'))
