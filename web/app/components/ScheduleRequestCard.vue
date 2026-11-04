@@ -31,6 +31,6 @@ const answered = computed(() => ({allowed: 'Allowed and saved', denied: 'Denied:
       <UiButton variant="primary" size="sm" :disabled="busy" @click="$emit('answer', true)">{{ request.drifted?.length ? 'Allow anyway' : 'Allow' }}</UiButton>
       <UiButton size="sm" :disabled="busy" @click="$emit('answer', false)">Deny</UiButton>
     </div>
-    <span v-else class="text-xs" :class="request.state === 'allowed' ? 'text-emerald-600 dark:text-emerald-400' : 'text-faint'">{{ answered }}</span>
+    <span v-else class="text-xs" :class="request.state === 'allowed' ? 'text-emerald-700 dark:text-emerald-400' : 'text-faint'">{{ answered }}</span>
   </div>
 </template>

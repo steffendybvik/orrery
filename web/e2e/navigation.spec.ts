@@ -76,6 +76,12 @@ test.beforeAll(async ({request}) => {
     made.doc = (await api(request, 'post', '/docs', {title: 'Projections', body: 'Mercator, mostly.'})).id
     await api(request, 'post', '/releases', {version: '2.0.0'})
     made.issue = (await api(request, 'post', '/issues', {title: 'Chart the fjords', chunk: made.chunk})).id
+    // What the contrast pass has to see (ORR-855): a row waiting on a decision, a schedule that has run and one paused.
+    const waiting = (await api(request, 'post', '/issues', {title: 'Pick a projection', chunk: made.chunk, status: 'in-progress'})).id
+    await api(request, 'post', `/issues/${waiting}/comments`, {body: 'Mercator or Robinson?', asks: 'decision'})
+    const ran = await api(request, 'post', '/schedules', {title: 'Survey the coast', cron: '0 9 * * *', timezone: 'UTC'})
+    await api(request, 'post', `/schedules/${ran.id}/run`)
+    await api(request, 'post', '/schedules', {title: 'Redraw the borders', cron: '0 9 * * 1', timezone: 'UTC', enabled: false})
 })
 
 test.afterAll(async ({request}) => {
@@ -156,16 +162,18 @@ test('an old address goes on to the page that took it over', async ({page}) => {
 
 test('no page breaks a WCAG A or AA rule, beyond those the UI/UX audit has (ORR-735)', async ({page}) => {
     test.setTimeout(240_000)
-    // A tint takes contrast away, so the walk has the harshest named one on a light page, and on this page only, as the
-    // setting is shared: chat.spec.ts changes it while this runs.
+    // A tint takes contrast away on a light page, so the light pass has the harshest named one. In dark it lightens the faint
+    // grey, so the dark pass has none (ORR-855). On this page only, as the setting is shared: chat.spec.ts changes it.
+    let tint: string | null = null
     await page.route(/\/api\/settings$/, async route => {
         const response = await route.fetch()
         if (route.request().method() !== 'GET') return route.fulfill({response})
-        await route.fulfill({response, json: {...await response.json(), tint: 'violet'}})
+        await route.fulfill({response, json: {...await response.json(), tint}})
     })
     await setAdvanced(page, true)
     for (const colorScheme of ['light', 'dark'] as const) {
         await page.emulateMedia({colorScheme})
+        tint = colorScheme === 'light' ? 'violet' : null
         for (const route of ROUTES()) {
             await test.step(`${route.path}, ${colorScheme}`, async () => {
                 await page.goto(route.path)

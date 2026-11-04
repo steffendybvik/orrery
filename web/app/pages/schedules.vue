@@ -67,10 +67,9 @@ function newSchedule() {
             :key="a.id"
             type="button"
             class="flex flex-col gap-0.5 border-b border-line/60 px-4 py-3 text-left text-sm last:border-b-0 hover:bg-hover"
-            :class="a.enabled === false && 'opacity-60'"
             @click="editAcross(a)"
         >
-          <span class="truncate font-medium text-fg">{{ a.title }}</span>
+          <span class="truncate font-medium" :class="a.enabled === false ? 'text-muted' : 'text-fg'">{{ a.title }}</span>
           <span class="truncate text-xs text-faint"><BoltIcon v-if="a.on" class="mr-0.5 inline size-3 align-[-2px] text-teal-600 dark:text-teal-400" aria-hidden="true" />{{ reach(a) }} · {{ a.on ? describe({on: a.on, on_filter: a.on_filter, timezone: a.timezone ?? localZone()}) : describe({cron: a.cron, timezone: a.timezone ?? localZone()}) }}<template v-if="a.enabled === false"> · paused</template></span>
         </button>
       </section>
