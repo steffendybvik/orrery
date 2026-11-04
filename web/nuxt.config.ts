@@ -22,7 +22,10 @@ export default defineNuxtConfig({
     // A local, single-user board: the page is drawn in the browser and fed by /api.
     ssr: false,
     spaLoadingTemplate: spaLoading,
-    devServer: {port: 9000},
+    // The host is always given (ORR-849): with none, nuxt 4.6.4 resolves it to `{}`, and the CLI's dev server stops on it
+    // (`options.hostname.toLowerCase is not a function`). The dev container's HOST still wins. A checkout that already ran
+    // into it keeps `{}` in node_modules/.cache/nuxt/dev-server.json, which the browser specs' servers clear first.
+    devServer: {port: 9000, host: process.env.NUXT_HOST || process.env.NITRO_HOST || process.env.HOST || 'localhost'},
 
     css: ['~/assets/css/fonts.css', '~/assets/css/main.css'],
 

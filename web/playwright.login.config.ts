@@ -13,7 +13,7 @@ export default defineConfig({
     outputDir: 'test-results-login',
     use: {baseURL: `http://localhost:${port}`, trace: 'retain-on-failure', ...devices['Desktop Chrome']},
     webServer: {
-        command: `rm -f .data/e2e-login.db .data/e2e-login.db-* .data/e2e-login.db.backups.json && nuxt dev --port ${port}`,
+        command: `rm -f node_modules/.cache/nuxt/dev-server.json .data/e2e-login.db .data/e2e-login.db-* .data/e2e-login.db.backups.json && nuxt dev --port ${port}`,
         env: {NUXT_DATABASE: '.data/e2e-login.db', NUXT_BACKUP_DIR: '', NUXT_UPDATE_CHECK: 'false', ORRERY_AUTH: 'on'},
         // Not a route that asks for a login, which answers 503 until someone claims the server.
         url: `http://localhost:${port}/api/auth/status`,
