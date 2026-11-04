@@ -189,7 +189,10 @@ Between pieces of work, a session it started gets a fresh context: once it goes 
 and no signal waiting, the launcher types `/clear` into it. Its channel stays connected, and the brief after the
 clear hands it the issues still in progress and what's left of a chunk or scope it was working through. When some of that
 chunk or scope is left, orrery also sends it a focus on the rest, to it alone, so it carries on rather than waiting. A
-focus on a single issue ends the chunk or scope it was working through.
+focus on a single issue ends the chunk or scope it was working through. Related work keeps the context: when the
+issue it worked last is a sub-issue it has just closed, and a sibling under the same parent is still in Backlog or
+Todo, it isn't cleared but sent on to the most urgent sibling instead. If it leaves that sibling as it was, its
+next idle clears it as usual.
 
 It needs [tmux](https://github.com/tmux/tmux) 3.2 or newer: each session runs detached (`tmux attach -t <name>` to
 watch it, as the launcher logs), with the channel and the hooks as usual, and is stopped once its minutes
