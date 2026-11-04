@@ -801,6 +801,8 @@ test('lists every chat down the left, two on one project and one on another, eac
         await expect(pane.getByRole('heading', {name: 'Ask about Observatory'})).toBeVisible()
         await box.fill('Who dusts the telescope?')
         await box.press('ControlOrMeta+Enter')
+        // Its row is named once the message has reached orrery, so leaving the page doesn't lose it.
+        await expect(row('Who dusts the telescope', 'running')).toBeVisible()
         await expect.poll(running).toEqual(['observatory', 'observatory'])
 
         // A third, on another project's page.
