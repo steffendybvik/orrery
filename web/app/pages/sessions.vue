@@ -110,12 +110,13 @@ watch(() => [route.hash, count.value] as const, ([hash]) => show(hash), {immedia
     <SegmentedControl v-model="tab" :options="tabs" />
     <span v-if="count" class="truncate text-xs text-muted">{{ `${count} ${count === 1 ? 'session' : 'sessions'}` }}</span>
     <template #end>
-      <CloseAllSessions :sessions="listed" />
       <UiButton v-if="count" class="shrink-0" @click="messaging = true">Message sessions</UiButton>
       <UiButton variant="primary" class="shrink-0" @click="open()">
         <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14" /></svg>
         Start session
       </UiButton>
+      <!-- Last, at the far right (ORR-979). -->
+      <CloseAllSessions :sessions="listed" />
     </template>
   </ViewToolbar>
 
