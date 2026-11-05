@@ -97,6 +97,10 @@ export default defineNuxtConfig({
             // Which orrery this is, each its own server and database (`personal`, `work`, …): a chip by
             // the name, and the start of every tab's title. Override with NUXT_PUBLIC_ENVIRONMENT.
             environment: 'personal',
+            // Where the page sends the API paths under a prefix instead of this server's /api (ORR-943): a JSON object
+            // of prefix to base, e.g. {"/projects/atlas/docs": "https://api.example.com/api"}. Empty: all same-origin.
+            // Override with NUXT_PUBLIC_API_BASES. See docs/development.md (The Rust API) for what a base must allow.
+            apiBases: {} as Record<string, string>,
             version,
         },
     },

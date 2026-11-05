@@ -1,8 +1,8 @@
 // The router in front of the Rust API (ORR-922, api/): with `apiUrl` and `apiToken` set, a request for a domain it serves
 // goes there, after everything here has checked it as ever (auth, the board's permissions, the chat's and untrusted
 // sessions' rails, the browser guards: the middleware before zz-api.ts). Both run on the same database, one writer per
-// table, so while the API serves docs nothing else here writes docs except what it can't yet reach (the chat's doc
-// requests, a board's upload or copy, deleting a project), which work on the same rows.
+// table, so while the API serves docs and the statuses nothing else here writes them except what it can't yet reach
+// (the chat's doc requests, a board's upload or copy, deleting a project), which work on the same rows.
 //
 // It sends who's asking (`actorOf`) and which database this server is on, and the API's reply says what a write changed,
 // which this tells as the store would: open pages read the project again, and the event log and schedules hear the event.
@@ -20,6 +20,8 @@ export const DOMAINS: readonly {domain: string, paths: RegExp, methods?: readonl
     // A project's docs, their revisions and sections (ORR-922). An artifact's page stays here: it's drawn with the
     // page's own sanitising and its locked-down headers (`artifact.get.ts`).
     {domain: 'docs', paths: /^projects\/[^/]+\/(docs(\/[^/]+(\/revisions(\/[^/]+(\/restore)?)?)?)?|deleted-docs|doc-sections(\/[^/]+)?)$/},
+    // The orrery's issue statuses (ORR-926).
+    {domain: 'statuses', paths: /^statuses(\/[^/]+)?$/},
     // An issue's comments, read (ORR-927). Writing one stays here until how a comment wakes sessions moves (ORR-929).
     {domain: 'comments, reading', paths: /^projects\/[^/]+\/issues\/[^/]+\/comments(\/[^/]+)?$/, methods: ['GET']},
 ]
@@ -52,6 +54,11 @@ export function actorHeaders(actor: Actor): Record<string, string> {
         'Orrery-Actor-Owner': actor.owner ? '1' : '0',
         ...actor.session ? {'Orrery-Actor-Session': encodeURIComponent(actor.session)} : {},
     }
+}
+
+/** The projects a reply's `Orrery-Changed` names: comma-separated, each percent-encoded (a status is every project's). */
+export function changedOf(header: string | null): string[] {
+    return header ? header.split(',').map(part => decodeURIComponent(part.trim())).filter(Boolean) : []
 }
 
 /** What a reply's `Orrery-Told` says happened: `<type> <project> <subject>, …`, each part percent-encoded. */
@@ -108,8 +115,9 @@ export async function forwardToApi(event: H3Event, api: {url: string, token: str
         throw createError({statusCode: response.status, statusMessage: String(json?.statusMessage ?? ''), message: String(json?.message ?? ''), ...json?.data === undefined ? {} : {data: json.data}})
     }
     const store = useStore()
-    const changed = response.headers.get('orrery-changed')
-    if (changed) store.changed(decodeURIComponent(changed))
+    for (const project of changedOf(response.headers.get('orrery-changed'))) store.changed(project)
+    // The statuses are in the settings, which open pages get again (ORR-926).
+    if (response.headers.get('orrery-settings') === '1') await store.settingsChanged()
     for (const {type, project, subject} of toldOf(response.headers.get('orrery-told'))) store.told(type, project, subject, actor)
     setResponseStatus(event, response.status)
     if (response.status === 204) return null
