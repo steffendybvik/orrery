@@ -15,7 +15,7 @@ import type {Actor, IssueFilter} from '../server/store/schema'
 import {SqliteDb} from '../server/utils/database'
 import {openDb} from '../server/utils/db'
 import {PostgresDb} from '../server/utils/postgres'
-import {actorHeaders, changedOf, databaseMark, domainOf, DOMAINS, loginHeaders, servedByApi, toldOf, whoHeaders} from '../server/utils/api-router'
+import {actorHeaders, changedOf, countedOf, databaseMark, domainOf, DOMAINS, loginHeaders, servedByApi, toldOf, whoHeaders} from '../server/utils/api-router'
 import {permission, refused} from '../server/utils/permission'
 
 const BIN = process.env.ORRERY_API_BIN || fileURLToPath(new URL('../../api/target/debug/orrery-api', import.meta.url))
@@ -489,6 +489,85 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         await expect(store.identity('https://id.example', 'sub-2', secret)).rejects.toMatchObject({statusCode: 409})
     })
 
+    it('lists, makes, changes, resets, restores and removes presets alike (ORR-949)', async () => {
+        // Presets are the orrery's, or a project's, in one table, so each side runs every step in turn, the table put
+        // back as it was between them. Ids are looked up by name at each step, and taken out of messages, as the two
+        // sides' new ones differ on Postgres.
+        type Step = [string, (project: string) => Promise<Outcome>, () => Promise<Outcome>]
+        await store.seedPresets()
+        const uid = (await store.settings()).uid
+        const idOf = async (name: string) => (await store.presets('through-api')).concat(await store.presets('through-store')).find(p => p.name === name)?.id ?? 0
+        const withoutIds = async (outcome: Promise<Outcome>) => {
+            const ids = (await store.presets('through-api')).concat(await store.presets('through-store')).map(p => p.id)
+            return JSON.parse(JSON.stringify(await outcome, (_key, value: unknown) => typeof value === 'string'
+                ? ids.reduce((text, id) => text.replaceAll(`preset ${id}`, 'preset <id>'), value) : value)) as Outcome
+        }
+        const ship = {name: ' Ship it ', text: ' Go. ', icon: 'rocket-launch', color: 'violet'}
+        const steps: Step[] = [
+            ['the presets', () => viaStore(() => store.presets()), () => viaApi('GET', '/api/presets')],
+            ['a project\'s', p => viaStore(() => store.presets(p)), () => viaApi('GET', '/presets')],
+            ['a project that isn\'t there', () => viaStore(() => store.presets('nowhere')), () => viaApi('GET', '/presets', undefined, AGENT, 'nowhere')],
+            ['made by a session', () => viaStore(() => store.createPreset(null, ship, SESSION)), () => viaApi('POST', '/api/presets', ship, SESSION)],
+            ['made', () => viaStore(() => store.createPreset(null, ship, OWNER), 201), () => viaApi('POST', '/api/presets', ship, OWNER)],
+            ['a project\'s own', p => viaStore(() => store.createPreset(p, {name: 'Local', text: 'Here.', color: '#AABBCC'}, OWNER), 201),
+                () => viaApi('POST', '/presets', {name: 'Local', text: 'Here.', color: '#AABBCC'}, OWNER)],
+            ['for a project that isn\'t there', () => viaStore(() => store.createPreset('nowhere', ship, OWNER)), () => viaApi('POST', '/presets', ship, OWNER, 'nowhere')],
+            ['several problems', () => viaStore(() => store.createPreset(null, {bogus: 1, name: null, icon: 'Bad Icon', color: 'pink'}, OWNER)),
+                () => viaApi('POST', '/api/presets', {bogus: 1, name: null, icon: 'Bad Icon', color: 'pink'}, OWNER)],
+            ['no text', () => viaStore(() => store.createPreset(null, {name: 'X'}, OWNER)), () => viaApi('POST', '/api/presets', {name: 'X'}, OWNER)],
+            ['a blank name', () => viaStore(() => store.createPreset(null, {name: '  ', text: 'x'}, OWNER)), () => viaApi('POST', '/api/presets', {name: '  ', text: 'x'}, OWNER)],
+            ['no body', () => viaStore(() => store.createPreset(null, undefined, OWNER)), () => viaApi('POST', '/api/presets', undefined, OWNER)],
+            ['a project\'s after', p => viaStore(() => store.presets(p)), () => viaApi('GET', '/presets')],
+            ['renamed, its icon taken off', async () => viaStore(async () => store.updatePreset(await idOf('Ship it'), {name: ' Ship it now ', icon: null}, OWNER)),
+                async () => viaApi('PATCH', `/api/presets/${await idOf('Ship it')}`, {name: ' Ship it now ', icon: null}, OWNER)],
+            ['by its full id', async () => viaStore(async () => store.updatePreset(await idOf('Ship it now'), {text: 'Go now.'}, OWNER)),
+                async () => viaApi('PATCH', `/api/presets/pst-${await idOf('Ship it now')}-${uid}`, {text: 'Go now.'}, OWNER)],
+            ['changed by a session', async () => viaStore(async () => store.updatePreset(await idOf('Ship it now'), {text: 'x'}, SESSION)),
+                async () => viaApi('PATCH', `/api/presets/${await idOf('Ship it now')}`, {text: 'x'}, SESSION)],
+            ['a blank text', async () => viaStore(async () => store.updatePreset(await idOf('Ship it now'), {text: ' '}, OWNER)),
+                async () => viaApi('PATCH', `/api/presets/${await idOf('Ship it now')}`, {text: ' '}, OWNER)],
+            ['one that isn\'t there', () => viaStore(() => store.updatePreset(99_999_999, {name: 'X'}, OWNER)), () => viaApi('PATCH', '/api/presets/99999999', {name: 'X'}, OWNER)],
+            ['one orrery ships, changed', async () => viaStore(async () => store.updatePreset(await idOf('Release'), {text: 'Changed.'}, OWNER)),
+                async () => viaApi('PATCH', `/api/presets/${await idOf('Release')}`, {text: 'Changed.'}, OWNER)],
+            ['reset', async () => viaStore(async () => store.resetPreset(await idOf('Release'), OWNER)), async () => viaApi('POST', `/api/presets/${await idOf('Release')}/reset`, undefined, OWNER)],
+            ['reset by a session', async () => viaStore(async () => store.resetPreset(await idOf('Release'), SESSION)), async () => viaApi('POST', `/api/presets/${await idOf('Release')}/reset`, undefined, SESSION)],
+            ['one it doesn\'t ship, reset', async () => withoutIds(viaStore(async () => store.resetPreset(await idOf('Ship it now'), OWNER))),
+                async () => withoutIds(viaApi('POST', `/api/presets/${await idOf('Ship it now')}/reset`, undefined, OWNER))],
+            ['removed by a session', async () => viaStore(async () => store.deletePreset(await idOf('Release'), SESSION)), async () => viaApi('DELETE', `/api/presets/${await idOf('Release')}`, undefined, SESSION)],
+            ['one it ships, removed', async () => viaStore(async () => store.deletePreset(await idOf('Release'), OWNER)), async () => viaApi('DELETE', `/api/presets/${await idOf('Release')}`, undefined, OWNER)],
+            ['one that isn\'t there, removed', () => viaStore(() => store.deletePreset(99_999_999, OWNER)), () => viaApi('DELETE', '/api/presets/99999999', undefined, OWNER)],
+            ['restored by a session', () => viaStore(() => store.restorePresets(SESSION)), () => viaApi('POST', '/api/presets/defaults', undefined, SESSION)],
+            ['the removed one restored', () => viaStore(() => store.restorePresets(OWNER)), () => viaApi('POST', '/api/presets/defaults', undefined, OWNER)],
+            ['none left to restore', () => viaStore(() => store.restorePresets(OWNER)), () => viaApi('POST', '/api/presets/defaults', undefined, OWNER)],
+            ['a project\'s at the end', p => viaStore(() => store.presets(p)), () => viaApi('GET', '/presets')],
+        ]
+        type Row = Record<string, unknown>
+        const before = await store.db.all<Row>('SELECT * FROM presets ORDER BY id')
+        const putBack = async () => {
+            await store.db.run('DELETE FROM presets')
+            for (const row of before) {
+                const columns = Object.keys(row)
+                await store.db.run(`INSERT INTO presets (${columns.join(', ')}) VALUES (${columns.map(() => '?').join(', ')})`, ...columns.map(c => row[c] as string | number | null))
+            }
+        }
+        const run = async (side: (step: Step) => Promise<Outcome>) => {
+            const outcomes: Outcome[] = []
+            for (const step of steps) outcomes.push(await side(step))
+            await putBack()
+            return outcomes
+        }
+        const viaTs = await run(([, ts]) => ts('through-store'))
+        const viaRs = await run(([, , rs]) => rs())
+        steps.forEach(([name], i) => expect(same(viaRs[i]!, 'through-api'), name).toEqual(same(viaTs[i]!, 'through-store')))
+        // The steps compared something: what the API made and changed is there.
+        expect(viaRs[4]).toMatchObject({status: 201, body: {name: 'Ship it', text: 'Go.', icon: 'rocket-launch', project: null}})
+        expect(viaRs[17]).toMatchObject({body: {default: {key: 'release', changed: true}}})
+        expect(viaRs[18]).toMatchObject({body: {default: {key: 'release', changed: false}}})
+        expect(viaRs[25]).toMatchObject({status: 200, body: [{name: 'Release', default: {key: 'release', changed: false}}]})
+        // Not a number: the route's `presetId` refuses it before the store is asked.
+        expect((await viaApi('PATCH', '/api/presets/abc', {name: 'X'}, OWNER)).body).toEqual({message: 'No preset abc'})
+    })
+
     it('answers only the server in front of it, on its own database', async () => {
         const ask = (headers: Record<string, string>) => fetch(`${url}/api/projects/through-api/docs`, {headers}).then(r => r.status)
         expect(await ask({})).toBe(401)
@@ -508,7 +587,7 @@ describe('the router', () => {
     })
 
     it('routes by a table with a line per domain, so taking one back is taking its line out (ORR-925)', () => {
-        expect(DOMAINS.map(({domain}) => domain)).toEqual(['docs', 'statuses', 'issues, reading', 'comments, reading', 'people, but removing one', 'invites', 'keys', 'logins'])
+        expect(DOMAINS.map(({domain}) => domain)).toEqual(['docs', 'statuses', 'issues, reading', 'comments, reading', 'people, but removing one', 'invites', 'keys', 'logins', 'presets'])
         expect(domainOf('PATCH', '/api/projects/p/docs/d')).toBe('docs')
         expect(domainOf('head', '/api/projects/p/doc-sections/')).toBe('docs')
         for (const path of ['/api/projects/p/issues/P-1/activity', '/api/', '/docs', '/api/projects/p/docs/d/artifact']) expect(domainOf('GET', path), path).toBeUndefined()
@@ -537,6 +616,14 @@ describe('the router', () => {
         for (const path of ['/api/auth/login', '/api/auth/logout', '/api/auth/status', '/api/auth/oidc/start', '/api/owner']) expect(domainOf('POST', path), path).toBeUndefined()
         expect(loginHeaders({provider: true, off: true}, 'https://orrery.example')).toEqual({'Orrery-Login-Ways': 'provider, off', 'Orrery-Origin': 'https%3A%2F%2Forrery.example'})
         expect(loginHeaders({provider: false, off: false}, 'http://localhost:9000')).toEqual({'Orrery-Origin': 'http%3A%2F%2Flocalhost%3A9000'})
+    })
+
+    it('sends presets there, and counts a new one of the orrery\'s toward the owner\'s use (ORR-949)', () => {
+        for (const path of ['/api/presets', '/api/presets/defaults', '/api/presets/12', '/api/presets/pst-12-x7k2m3qd/reset', '/api/projects/p/presets']) expect(domainOf('POST', path), path).toBe('presets')
+        for (const path of ['/api/presets/12/other', '/api/projects/p/presets/12', '/api/presetsx']) expect(domainOf('GET', path), path).toBeUndefined()
+        expect(countedOf('POST', '/api/presets')).toBe('presets')
+        expect(countedOf('POST', '/api/presets/')).toBe('presets')
+        for (const [method, path] of [['GET', '/api/presets'], ['POST', '/api/projects/p/presets'], ['POST', '/api/presets/defaults']]) expect(countedOf(method!, path!), `${method} ${path}`).toBeUndefined()
     })
 
     it('says what the credential was, and a login only hashed', () => {
@@ -585,7 +672,7 @@ describe('the contract (api/openapi.yaml)', () => {
     }
 
     it('has every route the router sends to the API, and no other', () => {
-        expect(contract()).toHaveLength(32)
+        expect(contract()).toHaveLength(40)
         expect(contract()).toEqual(routes())
     })
 

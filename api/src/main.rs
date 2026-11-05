@@ -1,4 +1,4 @@
-// orrery's API in Rust (ORR-922). For now it serves docs, the statuses (ORR-926), reading issues and their comments (ORR-927), and people, invites, keys and logins (ORR-928), on the database the Nuxt server opens, and only
+// orrery's API in Rust (ORR-922). For now it serves docs, the statuses (ORR-926), reading issues and their comments (ORR-927), people, invites, keys and logins (ORR-928), and presets (ORR-949), on the database the Nuxt server opens, and only
 // to that server: the router there (web/server/middleware/zz-api.ts) checks a request as it always has (auth, the
 // board's permissions, the chat's and untrusted sessions' rails, the browser guards) and then forwards it here with
 // who it's from. So this listens on loopback, and answers only a request that carries the token they share.
@@ -18,6 +18,7 @@ mod error;
 mod issues;
 mod migrate;
 mod people;
+mod presets;
 mod statuses;
 mod steps;
 mod text;
@@ -35,6 +36,7 @@ use error::{ApiError, Result};
 use issues::Issues;
 use people::{holder_of, People, Ways, Who};
 use percent_encoding::{percent_decode_str, utf8_percent_encode, NON_ALPHANUMERIC};
+use presets::{preset_id, Presets};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use sqlx::AnyPool;
@@ -342,8 +344,65 @@ async fn end_login(State(app): Shared, Path(login): Path<String>, headers: Heade
     Ok(StatusCode::NO_CONTENT.into_response())
 }
 
+async fn list_presets(State(app): Shared) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    Ok(Json(Presets::new(&mut conn).list(None).await?).into_response())
+}
+
+async fn list_project_presets(State(app): Shared, Path(project): Path<String>) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    Ok(Json(Presets::new(&mut conn).list(Some(&project)).await?).into_response())
+}
+
+async fn create_preset(State(app): Shared, headers: HeaderMap, body: Bytes) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    let preset = Presets::new(&mut conn).create(None, &body_of(&body), &actor_of(&headers)).await?;
+    Ok(reply(StatusCode::CREATED, Some(preset), Effects::default()))
+}
+
+async fn create_project_preset(State(app): Shared, Path(project): Path<String>, headers: HeaderMap, body: Bytes) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    let preset = Presets::new(&mut conn).create(Some(&project), &body_of(&body), &actor_of(&headers)).await?;
+    Ok(reply(StatusCode::CREATED, Some(preset), Effects::default()))
+}
+
+/// The preset the URL names, by its number or its full id on this server.
+async fn preset_named(presets: &mut Presets<'_>, sent: &str) -> Result<i64> {
+    let uid = presets.uid().await?;
+    preset_id(sent, &uid)
+}
+
+async fn patch_preset(State(app): Shared, Path(preset): Path<String>, headers: HeaderMap, body: Bytes) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    let mut presets = Presets::new(&mut conn);
+    let id = preset_named(&mut presets, &preset).await?;
+    Ok(Json(presets.update(id, &body_of(&body), &actor_of(&headers)).await?).into_response())
+}
+
+async fn delete_preset(State(app): Shared, Path(preset): Path<String>, headers: HeaderMap) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    let mut presets = Presets::new(&mut conn);
+    let id = preset_named(&mut presets, &preset).await?;
+    presets.delete(id, &actor_of(&headers)).await?;
+    Ok(reply(StatusCode::NO_CONTENT, None, Effects::default()))
+}
+
+async fn reset_preset(State(app): Shared, Path(preset): Path<String>, headers: HeaderMap) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    let mut presets = Presets::new(&mut conn);
+    let id = preset_named(&mut presets, &preset).await?;
+    Ok(Json(presets.reset(id, &actor_of(&headers)).await?).into_response())
+}
+
+async fn restore_presets(State(app): Shared, headers: HeaderMap) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    Ok(Json(Presets::new(&mut conn).restore(&actor_of(&headers)).await?).into_response())
+}
+
 async fn health() -> Json<Value> {
-    Json(json!({"ok": true, "domains": ["docs", "statuses", "issues, reading", "comments, reading", "people, but removing one", "invites", "keys", "logins"]}))
+    Json(
+        json!({"ok": true, "domains": ["docs", "statuses", "issues, reading", "comments, reading", "people, but removing one", "invites", "keys", "logins", "presets"]}),
+    )
 }
 
 fn router(app: Arc<App>) -> Router {
@@ -371,6 +430,11 @@ fn router(app: Arc<App>) -> Router {
         .route("/api/keys/{key}", axum::routing::delete(revoke_key))
         .route("/api/logins", get(list_logins).delete(end_other_logins))
         .route("/api/logins/{login}", axum::routing::delete(end_login))
+        .route("/api/presets", get(list_presets).post(create_preset))
+        .route("/api/presets/defaults", post(restore_presets))
+        .route("/api/presets/{preset}", patch(patch_preset).delete(delete_preset))
+        .route("/api/presets/{preset}/reset", post(reset_preset))
+        .route(&format!("{P}/presets"), get(list_project_presets).post(create_project_preset))
         .layer(middleware::from_fn_with_state(app.clone(), guard))
         .with_state(app)
 }
