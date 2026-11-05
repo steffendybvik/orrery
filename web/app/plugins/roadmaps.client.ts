@@ -112,7 +112,7 @@ export default defineNuxtPlugin(() => {
     /** How long to wait before opening a stream the browser gave up on again, longer each time. */
     let wait = 1000
     function connect() {
-        const events = new EventSource(apiUrl('/events?patch=1'))
+        const events = new EventSource(apiUrl('/events?patch=1'), {withCredentials: apiCrossOrigin('/events')})
         events.addEventListener('open', () => {
             live.value = 'connected'
             wait = 1000
