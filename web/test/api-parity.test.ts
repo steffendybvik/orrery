@@ -15,7 +15,8 @@ import type {Actor, IssueFilter} from '../server/store/schema'
 import {SqliteDb} from '../server/utils/database'
 import {openDb} from '../server/utils/db'
 import {PostgresDb} from '../server/utils/postgres'
-import {actorHeaders, changedOf, databaseMark, domainOf, DOMAINS, servedByApi, toldOf} from '../server/utils/api-router'
+import {actorHeaders, changedOf, databaseMark, domainOf, DOMAINS, servedByApi, toldOf, whoHeaders} from '../server/utils/api-router'
+import {permission, refused} from '../server/utils/permission'
 
 const BIN = process.env.ORRERY_API_BIN || fileURLToPath(new URL('../../api/target/debug/orrery-api', import.meta.url))
 const TOKEN = 'parity-token-0123456789'
@@ -85,11 +86,11 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
     }
 
     /** The same step through the API. */
-    async function viaApi(method: string, path: string, body?: unknown, actor: Actor = AGENT, project = 'through-api'): Promise<Outcome> {
+    async function viaApi(method: string, path: string, body?: unknown, actor: Actor = AGENT, project = 'through-api', extra: Record<string, string> = {}): Promise<Outcome> {
         // A path of the orrery's own (`/api/statuses`) as it is; else one of the project's.
         const response = await fetch(path.startsWith('/api/') ? `${url}${path}` : `${url}/api/projects/${project}${path}`, {
             method,
-            headers: {'Content-Type': 'application/json', 'Orrery-Api-Token': TOKEN, 'Orrery-Database': databaseMark(setting), ...actorHeaders(actor)},
+            headers: {'Content-Type': 'application/json', 'Orrery-Api-Token': TOKEN, 'Orrery-Database': databaseMark(setting), ...actorHeaders(actor), ...extra},
             ...body === undefined ? {} : {body: JSON.stringify(body)},
         })
         const text = await response.text()
@@ -371,6 +372,67 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         expect((await viaApi('GET', `/issues/${ids['through-api']}/comments/1.5`)).status).toBe(404)
     })
 
+    it('lists people, and makes, lists and revokes keys and ends logins alike (ORR-928)', async () => {
+        await store.nameOwner({name: 'Steffen'})
+        await store.addPerson({name: 'Ada'})
+        await store.addPerson({name: 'Bob'})
+        const ada = whoHeaders({person: 'ada', owner: false, via: 'browser'}, undefined)
+        const owner = whoHeaders({person: 'steffen', owner: true, via: 'browser'}, undefined)
+        /** A key's secret and id, and a login's listed id, are bound to differ between the two sides. */
+        const shape = (outcome: Outcome): Outcome => JSON.parse(JSON.stringify(outcome, (_key, value: unknown) => typeof value === 'string'
+            ? value.replace(/^orrery_(agent|person)_[\w-]{43}$/, 'orrery_$1_<secret>').replace(/^[0-9a-f]{12}$/, '<key id>').replace(/^[0-9a-f]{16}$/, '<login id>')
+            : value)) as Outcome
+        const alike = async (name: string, ts: () => Promise<Outcome>, rs: () => Promise<Outcome>) => {
+            const [a, b] = [await ts(), await rs()]
+            expect(same(shape(b), 'through-api'), name).toEqual(same(shape(a), 'through-store'))
+            return b
+        }
+        await alike('the people', () => viaStore(() => store.people()), () => viaApi('GET', '/api/people'))
+        const made = await alike('a key, its own', () => viaStore(() => store.makeKey('ada', {kind: 'agent', name: ' laptop '}), 201), () => viaApi('POST', '/api/keys', {kind: 'agent', name: ' laptop '}, AGENT, '', ada))
+        expect(made.body).toMatchObject({person: 'ada', kind: 'agent', name: 'laptop', key: expect.stringMatching(/^orrery_agent_/)})
+        await alike('a person key the owner gives', () => viaStore(() => store.makeKey('bob', {kind: 'person', name: 'phone'}), 201), () => viaApi('POST', '/api/keys', {kind: 'person', name: 'phone', person: 'bob'}, AGENT, '', owner))
+        await alike('a kind there isn\'t', () => viaStore(() => store.makeKey('ada', {kind: 'robot', name: 'x'})), () => viaApi('POST', '/api/keys', {kind: 'robot', name: 'x'}, AGENT, '', ada))
+        await alike('no name', () => viaStore(() => store.makeKey('ada', {kind: 'agent', name: '   '})), () => viaApi('POST', '/api/keys', {kind: 'agent', name: '   '}, AGENT, '', ada))
+        await alike('for nobody here', () => viaStore(() => store.makeKey('nobody', {kind: 'agent', name: 'x'})), () => viaApi('POST', '/api/keys', {kind: 'agent', name: 'x', person: 'nobody'}, AGENT, '', owner))
+        await alike('ada\'s keys', () => viaStore(() => store.keys('ada')), () => viaApi('GET', '/api/keys', undefined, AGENT, '', ada))
+        await alike('everyone\'s, for the owner by name with auth off', () => viaStore(() => store.keys()), () => viaApi('GET', '/api/keys', undefined, OWNER))
+        // The key the API made works as a credential.
+        expect(await store.keyHolder((made.body as {key: string}).key)).toMatchObject({person: 'ada', kind: 'agent'})
+        // Logins: two of ada's, one started with a key, and one of bob's.
+        const [byKey, other] = await store.keys('ada')
+        const mine = (await store.startLogin('ada', byKey!.id, 'Mac')).secret
+        await store.startLogin('ada', undefined, 'Phone')
+        await store.startLogin('bob')
+        await alike('ada\'s logins, hers marked', () => viaStore(() => store.logins('ada', mine)), () => viaApi('GET', '/api/logins', undefined, AGENT, '', {...ada, ...whoHeaders(undefined, mine)}))
+        await alike('everyone\'s', () => viaStore(() => store.logins()), () => viaApi('GET', '/api/logins', undefined, OWNER))
+        const bobs = (await store.logins('bob'))[0]!.id
+        expect((await viaApi('DELETE', `/api/logins/${bobs}`, undefined, AGENT, '', ada)).status).toBe(404)
+        expect((await viaApi('DELETE', '/api/logins/not-a-ref', undefined, OWNER)).body).toEqual({message: 'No login "not-a-ref"'})
+        expect((await viaApi('DELETE', `/api/logins/${bobs}`, undefined, AGENT, '', owner)).status).toBe(204)
+        expect(await store.logins('bob')).toEqual([])
+        expect((await viaApi('DELETE', '/api/logins', undefined, AGENT, '', {...ada, ...whoHeaders(undefined, mine)})).body).toEqual({ended: 1})
+        expect((await store.logins('ada')).map(l => l.name)).toEqual(['Mac'])
+        // Revoking a key ends the logins it started, and nobody else's key is yours to revoke.
+        expect((await viaApi('DELETE', `/api/keys/${other!.id}`, undefined, AGENT, '', whoHeaders({person: 'bob', owner: false, via: 'browser'}, undefined))).status).toBe(404)
+        expect((await viaApi('DELETE', `/api/keys/${byKey!.id}`, undefined, AGENT, '', ada)).status).toBe(204)
+        expect((await viaApi('DELETE', `/api/keys/${byKey!.id}`, undefined, AGENT, '', ada)).status).toBe(204)
+        expect(await store.logins('ada')).toEqual([])
+        expect((await store.keys('ada')).find(k => k.id === byKey!.id)?.revoked_at).toBeDefined()
+        // Only a person handles keys and logins, never a session, whatever key it has: in the table's words.
+        const session = (id: string) => ({message: refused(permission(id), 'session').message, data: {permission: id}})
+        const agent = whoHeaders({person: 'steffen', owner: true, via: 'agent'}, undefined)
+        for (const [method, path] of [['GET', '/api/keys'], ['POST', '/api/keys'], ['DELETE', '/api/keys/x']] as const) {
+            const body = method === 'POST' ? {kind: 'agent', name: 'x'} : undefined
+            expect((await viaApi(method, path, body, SESSION)).body, `${method} ${path}`).toEqual(session('keys.write'))
+            expect((await viaApi(method, path, body, OWNER, '', agent)).body, `${method} ${path} with an agent key`).toEqual(session('keys.write'))
+        }
+        for (const [method, path] of [['GET', '/api/logins'], ['DELETE', '/api/logins'], ['DELETE', '/api/logins/x']] as const) {
+            expect((await viaApi(method, path, undefined, SESSION)).body, `${method} ${path}`).toEqual(session('logins.write'))
+            expect((await viaApi(method, path, undefined, OWNER, '', agent)).body, `${method} ${path} with an agent key`).toEqual(session('logins.write'))
+        }
+        expect(await viaApi('POST', '/api/keys', {kind: 'agent', name: 'x', person: 'bob'}, AGENT, '', ada)).toMatchObject({status: 403, body: {message: 'A person makes their own keys; only the owner gives them to others'}})
+    })
+
     it('answers only the server in front of it, on its own database', async () => {
         const ask = (headers: Record<string, string>) => fetch(`${url}/api/projects/through-api/docs`, {headers}).then(r => r.status)
         expect(await ask({})).toBe(401)
@@ -390,7 +452,7 @@ describe('the router', () => {
     })
 
     it('routes by a table with a line per domain, so taking one back is taking its line out (ORR-925)', () => {
-        expect(DOMAINS.map(({domain}) => domain)).toEqual(['docs', 'statuses', 'issues, reading', 'comments, reading'])
+        expect(DOMAINS.map(({domain}) => domain)).toEqual(['docs', 'statuses', 'issues, reading', 'comments, reading', 'people, reading', 'keys', 'logins'])
         expect(domainOf('PATCH', '/api/projects/p/docs/d')).toBe('docs')
         expect(domainOf('head', '/api/projects/p/doc-sections/')).toBe('docs')
         for (const path of ['/api/projects/p/issues/P-1/activity', '/api/', '/docs', '/api/projects/p/docs/d/artifact']) expect(domainOf('GET', path), path).toBeUndefined()
@@ -408,6 +470,22 @@ describe('the router', () => {
         expect(domainOf('GET', '/api/projects/p/issues/P-1')).toBe('issues, reading')
         for (const method of ['POST', 'PATCH', 'DELETE']) expect(domainOf(method, '/api/projects/p/issues'), method).toBeUndefined()
         expect(domainOf('POST', '/api/projects/p/issues/decide')).toBeUndefined()
+    })
+
+    it('sends keys, logins and reading the people there, and keeps logging in, invites and changing who\'s here (ORR-928)', () => {
+        expect(domainOf('GET', '/api/people')).toBe('people, reading')
+        for (const method of ['POST', 'PATCH', 'DELETE']) expect(domainOf(method, method === 'POST' ? '/api/people' : '/api/people/ada'), method).toBeUndefined()
+        for (const [method, path] of [['GET', '/api/keys'], ['POST', '/api/keys'], ['DELETE', '/api/keys/abc']]) expect(domainOf(method!, path!), path).toBe('keys')
+        for (const [method, path] of [['GET', '/api/logins'], ['DELETE', '/api/logins'], ['DELETE', '/api/logins/0123456789abcdef']]) expect(domainOf(method!, path!), path).toBe('logins')
+        for (const path of ['/api/invites', '/api/auth/login', '/api/auth/logout', '/api/auth/status', '/api/auth/oidc/start', '/api/owner']) expect(domainOf('POST', path), path).toBeUndefined()
+    })
+
+    it('says what the credential was, and a login only hashed', () => {
+        expect(whoHeaders(undefined, undefined)).toEqual({})
+        expect(whoHeaders({person: 'åse', owner: false, via: 'browser'}, 'abc')).toEqual({
+            'Orrery-Who': 'browser', 'Orrery-Who-Person': '%C3%A5se', 'Orrery-Who-Owner': '0',
+            'Orrery-Login': 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad',
+        })
     })
 
     it('says who\'s asking in ASCII, and reads back what happened', () => {
@@ -448,7 +526,7 @@ describe('the contract (api/openapi.yaml)', () => {
     }
 
     it('has every route the router sends to the API, and no other', () => {
-        expect(contract()).toHaveLength(22)
+        expect(contract()).toHaveLength(29)
         expect(contract()).toEqual(routes())
     })
 

@@ -12,6 +12,9 @@ info:
       (web/server/api/projects/[project]/issues). Both serve them; the router sends only their `GET`s there, as
       writing an issue or a comment stays the Nuxt server's.
     - **Statuses** (ORR-926): the orrery's issue statuses (web/server/api/statuses). Served by both.
+    - **People, keys and logins** (ORR-928): who's on this orrery, read, and the keys and logins people hold
+      (web/server/api/people, keys, logins). Served by both; the router sends only `GET /api/people` there, as adding,
+      renaming and removing a person, invites, and logging in and out stay the Nuxt server's.
 
     An operation marked `x-served: false` is written ahead of the Rust API's: the router doesn't send it there yet, and
     the parity test holds it to that. The mark comes off in the pull request that serves it.
@@ -25,6 +28,10 @@ info:
       server answers the request itself (the owner moved the database, and the API hasn't been started again on it).
     - `Orrery-Actor-Name`, `Orrery-Actor-Owner` (`1` or `0`), `Orrery-Actor-Session`: who's asking, as the Nuxt server
       worked it out; the name and session percent-encoded.
+    - `Orrery-Who` (`browser` or `agent`), `Orrery-Who-Person` (percent-encoded), `Orrery-Who-Owner` (`1` or `0`): with
+      login on, what the request's credential said, as the Nuxt server checked it. None with login off.
+    - `Orrery-Login`: the SHA-256 of the asking browser's login cookie, as the logins table keeps it; the cookie itself
+      stays with the Nuxt server.
 
     A write's reply carries back what it changed, which the Nuxt server tells as its store would (open pages read the
     project again; the event log and schedules hear the event), and strips:
@@ -275,6 +282,67 @@ paths:
       responses:
         '200': {description: The comment, content: {application/json: {schema: {$ref: '#/components/schemas/Comment'}}}}
         '404': {description: 'No such project, issue or comment, a comment''s id that isn''t a whole number included', content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+  /api/people:
+    get:
+      summary: Everyone on this orrery
+      description: The owner first, then in the order they were added; those removed stay listed, with when. An id is what a session sets as `ORRERY_PERSON`.
+      responses:
+        '200': {description: The people, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/Person'}}}}}
+  /api/keys:
+    get:
+      summary: The asking person's keys, or everyone's for the owner
+      description: The newest first; a revoked one stays listed. Never a key's secret. A person in a browser, or with login off the owner by name; never a session, whatever key it has (403, keys.write).
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      responses:
+        '200': {description: The keys, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/Key'}}}}}
+        '403': {$ref: '#/components/responses/Forbidden'}
+    post:
+      summary: Makes a key, with its secret this once only
+      description: '`agent` goes in a machine''s ORRERY_KEY, and `person` signs in to the page. A person makes their own; `person` in the body is the owner''s to give, for handing someone a key on a server with no provider (403 for anyone else).'
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/KeyInput'}}}}
+      responses:
+        '201': {description: The key, with `key`, content: {application/json: {schema: {$ref: '#/components/schemas/NewKey'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/keys/{key}:
+    parameters:
+      - {name: key, in: path, required: true, description: The key's id, schema: {type: string}}
+    delete:
+      summary: Revokes a key, at once
+      description: With the logins it started. A person's own, or anyone's for the owner; another's is a 404. Revoking it again changes nothing.
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      responses:
+        '204': {description: Revoked}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/logins:
+    get:
+      summary: The asking person's live logins, or everyone's for the owner
+      description: Each browser or phone signed in, the latest used first, with `current` on the one asking. Never what's in a cookie. Never a session's (403, logins.write).
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      responses:
+        '200': {description: The logins, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/Login'}}}}}
+        '403': {$ref: '#/components/responses/Forbidden'}
+    delete:
+      summary: Ends every login but the asking browser's
+      description: A person's own, or everyone's for the owner. With login off there's no login to keep, so every one ends.
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      responses:
+        '200': {description: How many ended, content: {application/json: {schema: {type: object, required: [ended], properties: {ended: {type: integer}}}}}}
+        '403': {$ref: '#/components/responses/Forbidden'}
+  /api/logins/{login}:
+    parameters:
+      - {name: login, in: path, required: true, description: 'The login''s id, as listed: 16 hex digits', schema: {type: string}}
+    delete:
+      summary: Ends a login at once
+      description: A person's own, or anyone's for the owner; another's is a 404.
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      responses:
+        '204': {description: Ended}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
 components:
   parameters:
     project: {name: project, in: path, required: true, description: The project's id, schema: {type: string}}
@@ -290,7 +358,7 @@ components:
   responses:
     BadRequest: {description: 'The body is wrong: `data.problems` says each thing', content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
     Forbidden: {description: 'The owner''s call: `data.permission` names the row that says so', content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
-    NotFound: {description: 'No such project, doc, revision, section, issue, comment, milestone or release', content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+    NotFound: {description: 'No such project, doc, revision, section, issue, comment, milestone, release, person, key or login', content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
     Conflict: {description: Taken already, or not the same kind, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
   schemas:
     DocKind: {type: string, enum: [markdown, artifact], description: '`artifact`: its text is HTML, only drawn in a sandboxed frame. Fixed when it''s made.'}
@@ -375,6 +443,49 @@ components:
       required: [name]
       properties:
         name: {type: string, maxLength: 60, description: Trimmed; not empty}
+    Person:
+      type: object
+      required: [id, name, role, created_at]
+      properties:
+        id: {type: string}
+        name: {type: string}
+        role: {type: string, enum: [owner, member]}
+        created_at: {type: string, format: date-time}
+        removed_at: {type: string, format: date-time}
+    KeyKind: {type: string, enum: [agent, person], description: '`agent`: a machine''s sessions; `person`: swapped for a login on the page'}
+    Key:
+      type: object
+      required: [id, person, kind, name, created_at]
+      properties:
+        id: {type: string}
+        person: {type: string}
+        kind: {$ref: '#/components/schemas/KeyKind'}
+        name: {type: string}
+        created_at: {type: string, format: date-time}
+        last_used_at: {type: string, format: date-time}
+        revoked_at: {type: string, format: date-time}
+    NewKey:
+      allOf:
+        - {$ref: '#/components/schemas/Key'}
+        - {type: object, required: [key], properties: {key: {type: string, description: '`orrery_<kind>_…`: shown this once'}}}
+    KeyInput:
+      type: object
+      required: [kind, name]
+      properties:
+        kind: {$ref: '#/components/schemas/KeyKind'}
+        name: {type: string, description: What it's for, such as the machine it's on; trimmed to 60 characters, not empty}
+        person: {type: string, description: Whose it is; the owner's to give to another}
+    Login:
+      type: object
+      required: [id, person, expires_at]
+      properties:
+        id: {type: string, description: The first 16 hex digits of its hash}
+        person: {type: string}
+        name: {type: string, description: How it was made}
+        created_at: {type: string, format: date-time}
+        last_used_at: {type: string, format: date-time}
+        expires_at: {type: string, format: date-time}
+        current: {type: boolean, const: true, description: The asking browser's own}
     Status:
       type: object
       required: [id, name, kind, color, position]
