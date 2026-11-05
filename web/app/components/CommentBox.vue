@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type {Comment} from '#shared/roadmap'
 
-// Writing a comment on an issue, as the owner (so it's theirs: agents can't edit or delete it), or, given
+// Writing a comment on an issue, in a MarkdownField, as the owner (so it's theirs: agents can't edit or delete it), or, given
 // `comment`, editing one of theirs (Esc cancels). Markdown works; ⌘↵ posts. An image pasted or dropped anywhere on the
 // box, or picked, goes in as Markdown where the cursor is.
 const props = defineProps<{project: string, issue: string, comment?: Comment}>()
@@ -9,7 +9,8 @@ const emit = defineEmits<{posted: [comment: Comment], cancel: []}>()
 const body = ref(props.comment?.body ?? '')
 const posting = ref(false)
 const failed = ref(false)
-const field = ref<HTMLTextAreaElement>()
+const editor = ref<{el?: HTMLTextAreaElement}>()
+const field = computed(() => editor.value?.el)
 const {uploading, failed: uploadError, upload, over, on: drop} = useImageUpload(body, field)
 
 async function post() {
@@ -45,9 +46,10 @@ onMounted(() => {
       @keydown.esc.stop.prevent="comment && emit('cancel')"
   >
     <ImageDropOverlay v-if="over" />
-    <textarea
-        ref="field"
+    <MarkdownField
+        ref="editor"
         v-model="body"
+        toolbar
         rows="3"
         :placeholder="comment ? 'Edit the comment… (⌘↵ to save, esc to cancel)' : 'Leave a comment… (Markdown works, paste or drop an image, ⌘↵ to post)'"
         :aria-label="comment ? 'Edit comment' : 'Comment'"

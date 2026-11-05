@@ -56,7 +56,8 @@ const images = ref<{id: string, url: string}[]>([])
 const uploading = ref(0)
 const sending = ref(false)
 const list = ref<HTMLElement | null>(null)
-const field = ref<HTMLTextAreaElement | null>(null)
+const editor = ref<{el?: HTMLTextAreaElement}>()
+const field = computed(() => editor.value?.el)
 const picker = ref<HTMLInputElement | null>(null)
 const pane = ref<HTMLElement | null>(null)
 
@@ -639,9 +640,10 @@ v-if="m.milestone" class="flex w-full flex-col gap-2 rounded-xl bg-well p-3 ring
           </div>
           <span v-if="uploading" class="flex size-14 flex-col items-center justify-center gap-0.5 rounded-lg text-[11px] text-faint ring-1 ring-line"><UiSpinner />Adding…</span>
         </div>
-        <textarea
-            ref="field"
+        <MarkdownField
+            ref="editor"
             v-model="draft"
+            enter-sends
             rows="1"
             aria-label="Message"
             placeholder="Ask anything…"
