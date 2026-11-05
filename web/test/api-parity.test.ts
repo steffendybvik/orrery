@@ -13,6 +13,7 @@ import type {OrreryEvent} from '#shared/happenings'
 import {Store} from '../server/utils/store'
 import type {Actor, IssueFilter} from '../server/store/schema'
 import {SqliteDb} from '../server/utils/database'
+import {Secrets} from '../server/utils/secrets'
 import {openDb} from '../server/utils/db'
 import {PostgresDb} from '../server/utils/postgres'
 import {actorHeaders, changedOf, countedOf, databaseMark, domainOf, DOMAINS, loginHeaders, servedByApi, toldOf, whoHeaders} from '../server/utils/api-router'
@@ -116,6 +117,13 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
             }
             return value
         }))
+    }
+
+    /** The same read of the orrery's own rows (not a project's) through each side. */
+    async function alike0(name: string, ts: () => Promise<Outcome>, rs: () => Promise<Outcome>) {
+        const [a, b] = [await ts(), await rs()]
+        expect(b, name).toEqual(a)
+        return b
     }
 
     async function both(name: string, ts: (project: string) => Promise<Outcome>, rs: () => Promise<Outcome>) {
@@ -568,6 +576,23 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         await expect(store.identity('https://id.example', 'sub-2', secret)).rejects.toMatchObject({statusCode: 409})
     })
 
+    it('reads the secrets alike, and never a value (ORR-953)', async () => {
+        const secrets = new Secrets(store, () => 'parity-secret-key', undefined, async () => new Response('ok', {status: 200}))
+        await alike0('none yet', () => viaStore(() => secrets.list()), () => viaApi('GET', '/api/secrets'))
+        await secrets.set('STRIPE_KEY', {value: 'sk_live_0123456789', hosts: ['api.stripe.com']}, OWNER)
+        await secrets.set('DEPLOY_TOKEN', {value: 'deploy-0123456789', hosts: ['deploy.lan:8443', 'https://ci.example/x'], projects: ['through-api']}, OWNER)
+        await alike0('never used', () => viaStore(() => secrets.list()), () => viaApi('GET', '/api/secrets'))
+        await secrets.egress({url: 'https://api.stripe.com/v1/charges?key={{secret:STRIPE_KEY}}', method: 'POST', body: {a: 1}, issue: 'API-1'}, AGENT)
+        await secrets.egress({url: 'https://api.stripe.com/v1/refunds', headers: {Authorization: 'Bearer {{secret:STRIPE_KEY}}'}}, SESSION)
+        await secrets.own('https://deploy.lan:8443/hook', 'DEPLOY_TOKEN', 'through-api')
+        await alike0('used', () => viaStore(() => secrets.list()), () => viaApi('GET', '/api/secrets'))
+        await alike0('one, with its uses', () => viaStore(() => secrets.get('STRIPE_KEY')), () => viaApi('GET', '/api/secrets/STRIPE_KEY'))
+        await alike0('one kept to a project', () => viaStore(() => secrets.get('DEPLOY_TOKEN')), () => viaApi('GET', '/api/secrets/DEPLOY_TOKEN'))
+        await alike0('none by that name', () => viaStore(() => secrets.get('NOPE')), () => viaApi('GET', '/api/secrets/NOPE'))
+        const answer = JSON.stringify([await viaApi('GET', '/api/secrets'), await viaApi('GET', '/api/secrets/STRIPE_KEY')])
+        for (const value of ['sk_live_0123456789', 'deploy-0123456789', 'v1:']) expect(answer).not.toContain(value)
+    })
+
     it('reads and changes the settings alike, every one, and refuses a session (ORR-954)', async () => {
         // The settings are the orrery's, so each side runs every step in turn on the same table, put back between them.
         type Step = [string, () => Promise<Outcome>, () => Promise<Outcome>]
@@ -752,7 +777,7 @@ describe('the router', () => {
     })
 
     it('routes by a table with a line per domain, so taking one back is taking its line out (ORR-925)', () => {
-        expect(DOMAINS.map(({domain}) => domain)).toEqual(['docs', 'statuses', 'issues, reading', 'comments, reading', 'activity', 'milestones and releases, reading', 'people, but removing one', 'invites', 'keys', 'logins', 'presets', 'settings'])
+        expect(DOMAINS.map(({domain}) => domain)).toEqual(['docs', 'statuses', 'issues, reading', 'comments, reading', 'activity', 'milestones and releases, reading', 'people, but removing one', 'invites', 'keys', 'logins', 'presets', 'secrets, reading', 'settings'])
         expect(domainOf('PATCH', '/api/projects/p/docs/d')).toBe('docs')
         expect(domainOf('head', '/api/projects/p/doc-sections/')).toBe('docs')
         for (const path of ['/api/projects/p/issues/P-1/activity/x', '/api/', '/docs', '/api/projects/p/docs/d/artifact']) expect(domainOf('GET', path), path).toBeUndefined()
@@ -802,6 +827,15 @@ describe('the router', () => {
         for (const [method, path] of [['GET', '/api/presets'], ['POST', '/api/projects/p/presets'], ['POST', '/api/presets/defaults']]) expect(countedOf(method!, path!), `${method} ${path}`).toBeUndefined()
     })
 
+    it('sends the secrets\' reads there, and keeps every write and egress here (ORR-953)', () => {
+        for (const path of ['/api/secrets', '/api/secrets/STRIPE_KEY']) {
+            expect(domainOf('GET', path), path).toBe('secrets, reading')
+            for (const method of ['PUT', 'PATCH', 'DELETE', 'POST']) expect(domainOf(method, path), `${method} ${path}`).toBeUndefined()
+        }
+        for (const path of ['/api/secrets/STRIPE_KEY/uses', '/api/egress']) expect(domainOf('GET', path), path).toBeUndefined()
+        expect(domainOf('POST', '/api/egress')).toBeUndefined()
+    })
+
     it('says what the credential was, and a login only hashed', () => {
         expect(whoHeaders(undefined, undefined)).toEqual({})
         expect(whoHeaders({person: 'åse', owner: false, via: 'browser'}, 'abc')).toEqual({
@@ -848,7 +882,7 @@ describe('the contract (api/openapi.yaml)', () => {
     }
 
     it('has every route the router sends to the API, and no other', () => {
-        expect(contract()).toHaveLength(48)
+        expect(contract()).toHaveLength(50)
         expect(contract()).toEqual(routes())
     })
 

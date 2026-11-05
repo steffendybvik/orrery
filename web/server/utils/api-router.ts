@@ -47,6 +47,9 @@ export const DOMAINS: readonly {domain: string, paths: RegExp, methods?: readonl
     {domain: 'logins', paths: /^logins(\/[^/]+)?$/},
     // The orrery's presets and a project's own (ORR-949). Seeding the ones orrery ships, as this server starts, stays here.
     {domain: 'presets', paths: /^(presets(\/[^/]+(\/reset)?)?|projects\/[^/]+\/presets)$/},
+    // The orrery's secrets, read: never a value (ORR-953). Setting and narrowing one seal its value with the key, which
+    // stays with the local app, and every write is told to the event log, so they and egress stay here.
+    {domain: 'secrets, reading', paths: /^secrets(\/[^/]+)?$/, methods: ['GET']},
     // The orrery's stored settings, every one (ORR-954). What only this server knows is `GET /api/machine`, here. A
     // change's keys come back in `Orrery-Settings-Keys`, for the note in the event log the route here made.
     {domain: 'settings', paths: /^settings$/},
