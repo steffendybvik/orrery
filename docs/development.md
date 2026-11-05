@@ -74,6 +74,19 @@ How it fits together:
 - **Falling back.** When the API is down, not started yet, or on another database (the owner moved it in App settings),
   the request goes on to the Nuxt routes, which still answer it.
 
+**The page's side (ORR-943).** The page reaches the API through `web/app/utils/api.ts` alone, so where it sends a path is one
+setting: `NUXT_PUBLIC_API_BASES`, a JSON object of path prefix to base (`{"/projects/atlas/docs": "https://api.example.com/api"}`).
+The longest prefix a path is under wins, and the rest stay on the page's own `/api`, which is the default with nothing set.
+The live feed (`/events`) and upload and export addresses go by the same table. A base on another address gets the
+browser's login with each call (`credentials: 'include'`, `withCredentials`), so it has to allow that: CORS for the
+page's origin, with credentials, and the `Orrery-Actor` header.
+
+The Rust API can't take the page's calls straight yet, so leave its prefixes unset: it trusts the token it shares with
+Nuxt and the actor Nuxt sends, so a page calling it would need that token, and could say it's anyone. Before a page talks
+to it directly it has to check the login itself ([ORR-928](/p/orrery/issues/ORR-928)), answer CORS, and apply the rails
+Nuxt applies before forwarding (the board's permissions, the chat's and untrusted rails, the browser guards). Until then
+the way in stays through Nuxt (`zz-api.ts`).
+
 Running it: `cargo build` in `api/` (Rust 1.80 or later), then start the Nuxt server with
 `NUXT_API_BIN=../api/target/debug/orrery-api`, which starts it beside itself on its own database with a fresh token,
 and stops it with itself. Or run one yourself and point at it: `NUXT_API_TOKEN` (16 characters or more) and
