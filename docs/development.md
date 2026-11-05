@@ -110,6 +110,12 @@ contract, with the parity test saying when they differ. That includes how the bo
 `buildBoard` adds to an issue, or a change to how its column rolls up, goes into `issues.rs` too. The statuses are the orrery's, not a project's, so their parity steps run on each side in turn, with the table
 put back between.
 
+The people list, keys and logins (ORR-928, `api/src/people.rs`) are the same: a change to `web/server/store/people.ts`'s
+`people` or to `keys.ts` goes into `people.rs` too. Checking a key or a login cookie on each request stays in the Nuxt
+server (`web/server/utils/auth.ts`), which sends the API what it found (`Orrery-Who`) and the asking browser's login only
+hashed, so the API never sees a secret it didn't make. Who may handle keys and logins (`key-rights.ts`) is checked on
+both sides, so the parity test compares the refusals with the permissions table's own words.
+
 ## The page's pieces
 
 Buttons, dialogs, menus and confirmations come from a small kit in `web/app/components/ui/`, and the

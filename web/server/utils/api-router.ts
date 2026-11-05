@@ -9,8 +9,10 @@
 // When the API is down, or is on another database (the owner moved it), the request falls through to the routes here.
 import {createHash} from 'node:crypto'
 import type {H3Event} from 'h3'
-import {createError, getRequestHeader, readRawBody, setResponseHeader, setResponseStatus} from 'h3'
+import {createError, getCookie, getRequestHeader, readRawBody, setResponseHeader, setResponseStatus} from 'h3'
 import type {Actor} from '../store/schema'
+import type {Who} from './auth'
+import {LOGIN_COOKIE} from './auth'
 
 /** The domains the Rust API serves, a line each (ORR-925): moving a domain there is adding its line once the parity test
  * passes, and taking it back to the routes here is taking the line out. Each matches a whole path after `/api/`, with no
@@ -27,6 +29,13 @@ export const DOMAINS: readonly {domain: string, paths: RegExp, methods?: readonl
     {domain: 'issues, reading', paths: /^projects\/[^/]+\/issues(\/[^/]+)?$/, methods: ['GET']},
     // An issue's comments, read (ORR-927). Writing one stays here until how a comment wakes sessions moves (ORR-929).
     {domain: 'comments, reading', paths: /^projects\/[^/]+\/issues\/[^/]+\/comments(\/[^/]+)?$/, methods: ['GET']},
+    // Who's on this orrery, read (ORR-928). Adding, renaming and removing a person, and invites, stay here, as they read
+    // this server's settings (a provider, ORRERY_AUTH) or change issues.
+    {domain: 'people, reading', paths: /^people$/, methods: ['GET']},
+    // A person's keys and the browsers signed in as them (ORR-928). Checking a key or a login's cookie on each request,
+    // and logging in and out, stay here (auth.ts): the API hears what that found (`whoHeaders`).
+    {domain: 'keys', paths: /^keys(\/[^/]+)?$/},
+    {domain: 'logins', paths: /^logins(\/[^/]+)?$/},
 ]
 
 const WRITES = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
@@ -56,6 +65,15 @@ export function actorHeaders(actor: Actor): Record<string, string> {
         'Orrery-Actor-Name': encodeURIComponent(actor.name),
         'Orrery-Actor-Owner': actor.owner ? '1' : '0',
         ...actor.session ? {'Orrery-Actor-Session': encodeURIComponent(actor.session)} : {},
+    }
+}
+
+/** What the auth middleware's credential said (`Who`), as the API reads it, and the asking browser's login hashed as the
+ * logins table keeps it, so its cookie never leaves this server. Nothing with auth off. */
+export function whoHeaders(who: Who | undefined, login: string | undefined): Record<string, string> {
+    return {
+        ...who ? {'Orrery-Who': who.via, 'Orrery-Who-Person': encodeURIComponent(who.person), 'Orrery-Who-Owner': who.owner ? '1' : '0'} : {},
+        ...login ? {'Orrery-Login': createHash('sha256').update(login).digest('hex')} : {},
     }
 }
 
@@ -100,6 +118,7 @@ export async function forwardToApi(event: H3Event, api: {url: string, token: str
                 'Orrery-Api-Token': api.token,
                 'Orrery-Database': databaseMark(databaseSetting()),
                 ...actorHeaders(actor),
+                ...whoHeaders(event.context.who as Who | undefined, getCookie(event, LOGIN_COOKIE)),
             },
             body: body ? new Uint8Array(body) : undefined,
             redirect: 'manual',
