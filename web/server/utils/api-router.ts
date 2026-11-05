@@ -198,7 +198,7 @@ export async function forwardToApi(event: H3Event, api: {url: string, token: str
         throw createError({statusCode: response.status, statusMessage: String(json?.statusMessage ?? ''), message: String(json?.message ?? ''), ...json?.data === undefined ? {} : {data: json.data}})
     }
     const store = useStore()
-    for (const project of changedOf(response.headers.get('orrery-changed'))) store.changed(project)
+    for (const project of changedOf(response.headers.get('orrery-changed'))) store.changed(project, false)
     // The statuses are in the settings, which open pages get again (ORR-926).
     if (response.headers.get('orrery-settings') === '1') await store.settingsChanged()
     const keys = changedOf(response.headers.get('orrery-settings-keys'))

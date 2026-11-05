@@ -150,7 +150,7 @@ export abstract class StatusStore extends StoreBase {
 
     /** Every board is drawn again with them, and the page gets the new list with the settings. */
     protected async statusesChanged() {
-        await this.settingsChanged()
+        this.settingsSaid(await this.settings())
         for (const {id} of await this.all<{id: string}>('SELECT id FROM projects')) this.changed(id)
     }
 
@@ -170,7 +170,7 @@ export abstract class StatusStore extends StoreBase {
             }
         })
         const settings = await this.settings()
-        this.onSettings(settings)
+        this.settingsSaid(settings)
         // Every project says whether orrery starts its sessions.
         if (input.starts !== undefined) for (const {id} of await this.all<{id: string}>('SELECT id FROM projects')) this.changed(id)
         return settings

@@ -85,6 +85,7 @@ export function useStore(): Store {
     store.hears = hearing
     store.sessionPerson = session => sessionNow(session)?.person
     store.happened = changed
+    store.causeOf = () => scheduleRunning.getStore()
     store.epicsChanged = () => projectEvents.emit('epics')
     return store
 }

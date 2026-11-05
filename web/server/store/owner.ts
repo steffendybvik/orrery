@@ -66,7 +66,7 @@ export abstract class OwnerStore extends StatusStore {
         })
         if (name !== before.name) for (const {id} of await this.all<{id: string}>('SELECT id FROM projects')) this.changed(id)
         // Open pages hear it with the settings, and ask who the owner is now.
-        this.onSettings(await this.settings())
+        this.settingsSaid(await this.settings())
         return await this.ownerOf()
     }
 

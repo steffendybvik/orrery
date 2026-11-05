@@ -37,15 +37,61 @@ export abstract class StoreBase {
     /** Hears what happens (`issue.status`, `release.frozen`…), for the schedules that run on it; the server sets it. */
     happened: (event: OrreryEvent) => void = () => {}
 
-    /** Says what happened, as `actor` did it. */
-    protected tell(type: string, project: string, subject: string, actor: Actor, change: {from?: string | null, to?: string | null} = {}) {
-        this.happened({type, project, subject, by: {name: actor.name, owner: actor.owner, ...actor.person && !actor.owner ? {person: actor.person} : {}}, ...actor.untrusted ? {untrusted: true} : {},
-            ...change.from == null ? {} : {from: change.from}, ...change.to == null ? {} : {to: change.to}})
+    /** The schedule whose run the write is part of, if one's is (`scheduleRunning`): the outbox row's `cause`, for the
+     * guards. The server sets it. */
+    causeOf: () => number | undefined = () => undefined
+
+    /** Keeps what a write of the store's own set off in the outbox (ORR-929, the `rust-api-events` decision), as the
+     * Rust API keeps its own, so `changes` holds every write whichever side made it. Written once the write's
+     * transaction commits (nothing when it rolls back), beside the hooks; what the Rust API made and this server is only
+     * told of (`told`, `changed(project, false)`, `settingsChanged`) has its rows already. */
+    protected keep(kind: string, {project, subject, actor, payload}: {project?: string, subject?: string, actor?: Actor, payload?: unknown} = {}) {
+        const cause = this.causeOf()
+        const db = this.db
+        db.afterCommit(() => {
+            db.run('INSERT INTO changes (kind, project, subject, actor, owner, session, untrusted, cause, payload, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                kind, project ?? null, subject ?? null, actor?.name ?? null, actor?.owner ? 1 : 0, actor?.session ?? null, actor?.untrusted ? 1 : 0,
+                cause === undefined ? null : String(cause), payload === undefined ? null : JSON.stringify(payload), stamp())
+                .catch(error => console.error(`[orrery] keeping ${kind} in the outbox:`, error))
+        })
     }
 
-    /** Says what a write made elsewhere did (the Rust API's, ORR-922), as `tell` does for the store's own. */
+    /** Says what happened, as `actor` did it, and keeps it in the outbox. */
+    protected tell(type: string, project: string, subject: string, actor: Actor, change: {from?: string | null, to?: string | null} = {}) {
+        const said = this.say(type, project, subject, actor, change)
+        const person = said.by?.person
+        this.keep(type, {project, subject, actor, ...said.from !== undefined || said.to !== undefined || person ? {payload: {from: said.from, to: said.to, person}} : {}})
+    }
+
+    private say(type: string, project: string, subject: string, actor: Actor, change: {from?: string | null, to?: string | null} = {}): OrreryEvent {
+        const event: OrreryEvent = {type, project, subject, by: {name: actor.name, owner: actor.owner, ...actor.person && !actor.owner ? {person: actor.person} : {}}, ...actor.untrusted ? {untrusted: true} : {},
+            ...change.from == null ? {} : {from: change.from}, ...change.to == null ? {} : {to: change.to}}
+        this.happened(event)
+        return event
+    }
+
+    /** Says what a write made elsewhere did (the Rust API's, ORR-922), as `tell` does for the store's own; its outbox
+     * row is the API's. */
     told(type: string, project: string, subject: string, actor: Actor) {
-        this.tell(type, project, subject, actor)
+        this.say(type, project, subject, actor)
+    }
+
+    /** A signal for sessions, and its outbox row: its id, as the `signals` table holds the rest. */
+    protected signalled(signal: Signal) {
+        this.onSignal(signal)
+        this.keep('signal', {project: signal.project, subject: String(signal.id)})
+    }
+
+    /** An agent's comment for the owner's bell, and its outbox row. */
+    protected noticed(notice: Notice) {
+        this.onNotice(notice)
+        this.keep('notice', {project: notice.project, subject: String(notice.id), payload: {issue: notice.issue}})
+    }
+
+    /** The settings changed, by a write of the store's own: open pages get them, and the outbox a row. */
+    protected settingsSaid(settings: Settings) {
+        this.onSettings(settings)
+        this.keep('settings')
     }
 
     /** Projects changed while a batch runs, said once it ends rather than once per issue. */
@@ -53,10 +99,11 @@ export abstract class StoreBase {
 
     /** Tells the page the project changed (also after a write made outside the store, a schedule marking its
      * issue), and the projects sharing its releases: a source counts the issues of those drawing on it, and they
-     * show its releases. */
-    changed(project: string) {
+     * show its releases. Kept in the outbox, unless the Rust API made the write (`kept: false`) and kept it itself. */
+    changed(project: string, kept = true) {
         if (this.held) return void this.held.add(project)
         this.onChange(project)
+        if (kept) this.keep('project.changed', {project})
         this.all<{id: string}>('SELECT id FROM projects WHERE releases_from = ? OR id = (SELECT releases_from FROM projects WHERE id = ?)', project, project)
             .then(rows => rows.forEach(r => this.onChange(r.id)), () => {})
     }

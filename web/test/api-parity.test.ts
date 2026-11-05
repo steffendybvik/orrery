@@ -774,6 +774,15 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         await viaApi('POST', '/docs', {title: ' '})
         expect((await read(after.last)).changes).toEqual([])
         expect(await viaApi('GET', '/api/changes?after=x')).toMatchObject({status: 400})
+        // The Nuxt server's own write keeps the same rows (step 3); the project's change has no actor there.
+        const fromStore = (await read(after.last)).last
+        await store.createDoc('through-store', {title: 'Outbox'}, SESSION)
+        await new Promise(resolve => setImmediate(resolve))
+        const ours = await read(fromStore)
+        expect(ours.changes.map(({kind, project, subject, actor, owner, session}) => ({kind, project, subject, actor, owner, session}))).toEqual([
+            {kind: 'project.changed', project: 'through-store', subject: undefined, actor: undefined, owner: false, session: undefined},
+            {kind: 'doc.created', project: 'through-store', subject: 'outbox', actor: 'agent', owner: false, session: 'orrery · Njord'},
+        ])
     })
 
     it('answers only the server in front of it, on its own database', async () => {
