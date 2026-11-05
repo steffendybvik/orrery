@@ -422,8 +422,8 @@ mod tests {
 
     #[test]
     fn holds_keys_to_a_person() {
-        let session = Actor { name: "agent".into(), owner: false, session: Some("s".into()) };
-        let owner = Actor { name: "Steffen".into(), owner: true, session: None };
+        let session = Actor { name: "agent".into(), owner: false, session: Some("s".into()), ..Default::default() };
+        let owner = Actor { name: "Steffen".into(), owner: true, session: None, ..Default::default() };
         let browser = Who { person: "ada".into(), owner: false, browser: true };
         let agent = Who { person: "steffen".into(), owner: true, browser: false };
         assert_eq!(holder_of("keys.write", Some(&browser), &session).unwrap(), ("ada".into(), false));

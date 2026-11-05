@@ -79,10 +79,16 @@ fn header(headers: &HeaderMap, name: &str) -> Option<String> {
 
 /// Who the router says the request is from. It sends the name and session percent-encoded, as a header holds only ASCII.
 fn actor_of(headers: &HeaderMap) -> Actor {
+    let kind = header(headers, "orrery-actor-kind");
     Actor {
         name: header(headers, "orrery-actor-name").filter(|n| !n.is_empty()).unwrap_or_else(|| "agent".into()),
         owner: header(headers, "orrery-actor-owner").as_deref() == Some("1"),
         session: header(headers, "orrery-actor-session").filter(|s| !s.is_empty()),
+        person: header(headers, "orrery-actor-person").filter(|p| !p.is_empty()),
+        named: header(headers, "orrery-actor-named").filter(|n| !n.is_empty()),
+        asked: header(headers, "orrery-actor-asked").as_deref() == Some("1"),
+        untrusted: kind.as_deref() == Some("untrusted"),
+        chat: kind.as_deref() == Some("chat"),
     }
 }
 
@@ -623,4 +629,29 @@ async fn main() {
         })
         .await
         .unwrap_or_else(|e| fail(e.to_string()));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn actor_of_reads_the_rails_fields() {
+        let mut headers = HeaderMap::new();
+        for (name, value) in [
+            ("orrery-actor-name", "Ana%20Lu"),
+            ("orrery-actor-owner", "0"),
+            ("orrery-actor-kind", "untrusted"),
+            ("orrery-actor-person", "ana"),
+            ("orrery-actor-named", "Ana"),
+            ("orrery-actor-asked", "1"),
+        ] {
+            headers.insert(name, HeaderValue::from_static(value));
+        }
+        let actor = actor_of(&headers);
+        assert_eq!((actor.name.as_str(), actor.owner, actor.person.as_deref(), actor.named.as_deref()), ("Ana Lu", false, Some("ana"), Some("Ana")));
+        assert!(actor.asked && actor.untrusted && !actor.chat);
+        let bare = actor_of(&HeaderMap::new());
+        assert_eq!((bare.name.as_str(), bare.person, bare.named, bare.asked, bare.untrusted, bare.chat), ("agent", None, None, false, false, false));
+    }
 }

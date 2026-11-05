@@ -876,6 +876,14 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
 })
 
 describe('the router', () => {
+    it("sends who's asking, with what the rails between people need (ORR-927)", () => {
+        expect(actorHeaders({name: 'Ana Lu', owner: false, session: 'orrery · Ty', person: 'ana', named: 'Ana', asked: true})).toEqual({
+            'Orrery-Actor-Name': 'Ana%20Lu', 'Orrery-Actor-Owner': '0', 'Orrery-Actor-Kind': 'session', 'Orrery-Actor-Session': 'orrery%20%C2%B7%20Ty',
+            'Orrery-Actor-Person': 'ana', 'Orrery-Actor-Named': 'Ana', 'Orrery-Actor-Asked': '1',
+        })
+        expect(actorHeaders({name: 'steffen', owner: true})).toEqual({'Orrery-Actor-Name': 'steffen', 'Orrery-Actor-Owner': '1', 'Orrery-Actor-Kind': 'owner'})
+    })
+
     it('sends the docs domain and the statuses to the API, and keeps an artifact\'s page and everything else here', () => {
         for (const path of ['/api/projects/p/docs', '/api/projects/p/docs/', '/api/projects/p/docs/d', '/api/projects/p/docs/d/revisions', '/api/projects/p/docs/d/revisions/3',
             '/api/projects/p/docs/d/revisions/3/restore', '/api/projects/p/deleted-docs', '/api/projects/p/doc-sections', '/api/projects/p/doc-sections/how it works']) expect(servedByApi('GET', path), path).toBe(true)
