@@ -665,6 +665,39 @@ paths:
       summary: 'Every project''s schedules (the agenda): the soonest next run first, those with none last, ties by title'
       responses:
         '200': {description: The schedules, content: {application/json: {schema: {type: array, items: {type: object}}}}}
+  /api/chats:
+    get:
+      x-served: false
+      summary: The owner's chats as they're kept, running and ended, newest first, each with its messages
+      description: >-
+        Read from the `chats` table, as the Nuxt server reads them back as it starts. Written ahead: the Nuxt server
+        answers from its memory, which runs ahead of the table (a chat's change is kept just after it), and why a launcher
+        couldn't start one (`problem`) is never kept, so the router keeps these until the swap settles where that lives.
+      responses:
+        '200': {description: The chats, content: {application/json: {schema: {type: array, items: {type: object}}}}}
+  /api/chats/{chat}:
+    parameters: [{name: chat, in: path, required: true, description: The chat's id, its launch's, schema: {type: string}}]
+    get:
+      x-served: false
+      summary: One chat as it's kept, running or ended, with its messages
+      responses:
+        '200': {description: The chat, content: {application/json: {schema: {type: object}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
+    put:
+      x-served: false
+      summary: Keeps the chat as it is now, whole, but why its launcher couldn't start it
+      description: >-
+        The one write the local app makes of a chat (`keepChat`), as it changes: a chat runs as a session on the local
+        machine, so what it does stays there, and this keeps its record. Its project and start stay as first kept.
+      requestBody: {required: true, content: {application/json: {schema: {type: object, required: [id, project, started_at, messages], description: The chat, as `GET` gives it}}}}
+      responses:
+        '204': {description: Kept}
+        '400': {$ref: '#/components/responses/BadRequest'}
+    delete:
+      x-served: false
+      summary: Lets go of the chat's record, one that ended before anything was said, or deleted
+      responses:
+        '204': {description: Gone}
   /api/schedules/across:
     get:
       summary: The schedules across projects, oldest first, each with the projects it's made on

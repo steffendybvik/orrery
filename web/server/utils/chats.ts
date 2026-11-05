@@ -1,3 +1,4 @@
+import type {Db} from './database'
 import type {H3Event} from 'h3'
 import type {Chat, ChatRequestDrift, SessionContext, ChatMilestoneField, ChatMilestoneRequest, ChatDocRequest, ChatIssueRequest, ChatIssues, ChatMessage, ChatMoveRequest, ChatReleaseField, ChatReleaseRequest, ChatScheduleRequest, ChatSendRequest, ChatSessionRequest, ChatSetting, Release, Schedule, Session, SessionState} from '#shared/roadmap'
 import {CHAT_MILESTONE_FIELDS, CHAT_DOC_FIELDS, CHAT_ISSUES, CHAT_RELEASE_FIELDS, CHAT_SETTINGS, SESSION_STATES, scheduleValue, settingValue} from '#shared/roadmap'
@@ -44,17 +45,19 @@ const saving = new Map<string, Promise<void>>()
 /** Keeps the chat in the database as it is now (`gone`: drops it), after its writes before. Why its launcher couldn't
  * start it isn't kept: that's said again, if it still holds, once orrery is up again. */
 function save(chat: Chat, gone = false) {
-    const {problem: _problem, ...kept} = chat
-    const json = JSON.stringify(kept)
-    const write = async () => {
-        const db = useDatabase()
-        if (gone) await db.run('DELETE FROM chats WHERE id = ?', chat.id)
-        else await db.run('INSERT INTO chats (id, project, started_at, ended_at, chat) VALUES (?, ?, ?, ?, ?) ON CONFLICT (id) DO UPDATE SET ended_at = excluded.ended_at, chat = excluded.chat',
-            chat.id, chat.project, chat.started_at, chat.ended_at ?? null, json)
-    }
+    const write = () => keepChat(useDatabase(), chat, gone)
     const done = (saving.get(chat.id) ?? Promise.resolve()).then(write).catch(error => console.error(`[orrery] keeping chat ${chat.id}:`, error))
     saving.set(chat.id, done)
     void done.then(() => { if (saving.get(chat.id) === done) saving.delete(chat.id) })
+}
+
+/** The chat's row as it is now, or none (`gone`): its one write, as the Rust API takes it from the local app once it's
+ * swapped in (ORR-951). Why its launcher couldn't start it isn't kept. */
+export async function keepChat(db: Db, chat: Chat, gone = false) {
+    if (gone) return void await db.run('DELETE FROM chats WHERE id = ?', chat.id)
+    const {problem: _problem, ...kept} = chat
+    await db.run('INSERT INTO chats (id, project, started_at, ended_at, chat) VALUES (?, ?, ?, ?, ?) ON CONFLICT (id) DO UPDATE SET ended_at = excluded.ended_at, chat = excluded.chat',
+        chat.id, chat.project, chat.started_at, chat.ended_at ?? null, JSON.stringify(kept))
 }
 
 /** Waits for every chat's writes so far to land (tests, and a server closing). */
