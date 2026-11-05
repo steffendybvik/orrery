@@ -16,6 +16,7 @@ import {SqliteDb} from '../server/utils/database'
 import {Secrets} from '../server/utils/secrets'
 import {Pulls, pullForSession} from '../server/utils/pulls'
 import {known} from '../shared/known'
+import {Schedules} from '../server/utils/schedules'
 import {openDb} from '../server/utils/db'
 import {PostgresDb} from '../server/utils/postgres'
 import {actorHeaders, changedOf, countedOf, databaseMark, domainOf, DOMAINS, handedOn, loginHeaders, passedThrough, servedByApi, toldOf, whoHeaders} from '../server/utils/api-router'
@@ -157,7 +158,7 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         const revisions = new Map<number, number>()
         return JSON.parse(JSON.stringify(outcome, (key, value: unknown) => {
             if (typeof value === 'string') {
-                return value.replaceAll(project, '<project>').replace(/\b(STO|API)([DPSX]?)-(\d+)/g, 'KEY$2-$3').replace(/^\d{4}-\d{2}-\d{2}T[\d:.]+Z$/, '<time>').replace(/-[a-z2-7]{8}$/, '-<uid>')
+                return value.replaceAll(project, '<project>').replace(/\b(STO|API)([DPSXT]?)-(\d+)/g, 'KEY$2-$3').replace(/^\d{4}-\d{2}-\d{2}T[\d:.]+Z$/, '<time>').replace(/-[a-z2-7]{8}$/, '-<uid>')
             }
             if (typeof value === 'number' && (key === 'id' || key === 'revision') && Number.isInteger(value)) {
                 if (!revisions.has(value)) revisions.set(value, revisions.size + 1)
@@ -686,6 +687,51 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         expect(outcomes[21]!.body).toMatchObject([{version: '2.0.0-rc.1'}, {version: '1.0.0'}])
     })
 
+    it('reads the schedules alike: a project\'s, one with its runs, every project\'s and those across (ORR-930)', async () => {
+        const schedules = new Schedules(store)
+        const on = (p: string) => `${p}-timed`
+        for (const p of ['through-store', 'through-api']) await store.createProject({name: on(p), key: p === 'through-store' ? 'STOT' : 'APIT'})
+        await both('none yet', p => viaStore(() => schedules.list(on(p))), () => viaApi('GET', '/schedules', undefined, AGENT, 'through-api-timed'))
+        const ids: Record<string, number[]> = {}
+        for (const p of ['through-store', 'through-api']) {
+            const made = [
+                await schedules.create(on(p), {title: 'Water', cron: '0 9 * * *', timezone: 'Europe/Oslo', labels: ['garden'], priority: 'P2', notes: 'The beds.'}, OWNER),
+                await schedules.create(on(p), {title: 'air', cron: '0 7 * * 1', timezone: 'UTC', enabled: false}, OWNER),
+                await schedules.create(on(p), {title: 'Once', at: '2099-01-01T09:00:00Z', ask: true}),
+                await schedules.create(on(p), {title: 'Also once', at: '2099-01-01T09:00:00Z'}),
+                await schedules.create(on(p), {kind: 'message', title: 'Triage', notes: 'Read GitHub.', on: 'issue.status', on_filter: {to: 'in-review'}, untrusted: true}, OWNER),
+            ]
+            await schedules.runNow(on(p), made[0]!.id, OWNER)
+            await schedules.runNow(on(p), made[0]!.id, OWNER)
+            await store.db.run('INSERT INTO schedule_held (schedule, subject, event, at) VALUES (?, ?, ?, ?)', made[4]!.id, 'KEY-1', '{}', new Date().toISOString())
+            ids[p] = made.map(s => s.id)
+        }
+        await both('a project\'s, soonest first and none due last', p => viaStore(() => schedules.list(on(p))), () => viaApi('GET', '/schedules', undefined, AGENT, 'through-api-timed'))
+        for (const at of [0, 1, 4]) {
+            await both(`schedule ${at} with its runs`, p => viaStore(() => schedules.get(on(p), ids[p]![at]!)), () => viaApi('GET', `/schedules/${ids['through-api']![at]}`, undefined, AGENT, 'through-api-timed'))
+        }
+        const uid = (await store.settings()).uid
+        await both('by its full id', p => viaStore(() => schedules.get(on(p), ids[p]![0]!)), () => viaApi('GET', `/schedules/sch-${ids['through-api']![0]}-${uid}`, undefined, AGENT, 'through-api-timed'))
+        await both('one that isn\'t there', p => viaStore(() => schedules.get(on(p), 9999)), () => viaApi('GET', '/schedules/9999', undefined, AGENT, 'through-api-timed'))
+        expect((await viaApi('GET', '/schedules/nope', undefined, AGENT, 'through-api-timed'))).toMatchObject({status: 404, body: {message: 'No schedule nope'}})
+        await both('in a project that isn\'t there', () => viaStore(() => schedules.list('nowhere')), () => viaApi('GET', '/schedules', undefined, AGENT, 'nowhere'))
+        // The orrery's own lists hold both projects' schedules, so they're compared whole.
+        await schedules.createAcross({projects: [on('through-store'), on('through-api')], title: 'Weekly look', cron: '0 8 * * 1', timezone: 'UTC', enabled: false}, OWNER)
+        await schedules.createAcross({projects: '*', skip: ['through-store'], title: 'Daily', on: 'issue.created'}, OWNER)
+        for (const [path, read] of [['/api/schedules', () => schedules.list()], ['/api/schedules/across', () => schedules.listAcross()]] as const) {
+            const [api, kept] = [await viaApi('GET', path), JSON.parse(JSON.stringify(await read()))]
+            expect(api.status, path).toBe(200)
+            expect(api.body, path).toEqual(kept)
+        }
+        const all = (await viaApi('GET', '/api/schedules')).body as {title: string, next_run?: string}[]
+        const firstPaused = all.findIndex(s => !s.next_run)
+        expect(firstPaused).toBeGreaterThan(0)
+        expect(all.slice(firstPaused).every(s => !s.next_run)).toBe(true)
+        expect(domainOf('GET', '/api/schedules/across')).toBe('schedules, reading')
+        for (const [method, path] of [['POST', '/api/schedules'], ['PATCH', '/api/projects/p/schedules/3'], ['POST', '/api/projects/p/schedules/3/run'], ['POST', '/api/projects/p/schedules/enabled'], ['DELETE', '/api/schedules/across/2']])
+            expect(domainOf(method!, path!), `${method} ${path}`).toBeUndefined()
+    })
+
     it('lists people, and makes, lists and revokes keys and ends logins alike (ORR-928)', async () => {
         await store.nameOwner({name: 'Steffen'})
         await store.addPerson({name: 'Ada'})
@@ -1156,7 +1202,7 @@ describe('the router', () => {
     })
 
     it('routes by a table with a line per domain, so taking one back is taking its line out (ORR-925)', () => {
-        expect(DOMAINS.map(({domain}) => domain)).toEqual(['docs', 'statuses', 'issues, reading', 'comments', 'activity', 'milestones', 'releases', 'releases, every project\'s', 'people, but removing one', 'invites', 'keys', 'logins', 'uploads, reading', 'presets', 'secrets, reading', 'settings', 'a pull request, reading', "a pull request's risk"])
+        expect(DOMAINS.map(({domain}) => domain)).toEqual(['docs', 'statuses', 'issues, reading', 'comments', 'activity', 'milestones', 'releases', 'releases, every project\'s', 'people, but removing one', 'invites', 'keys', 'logins', 'uploads, reading', 'presets', 'secrets, reading', 'settings', 'a pull request, reading', "a pull request's risk", 'schedules, reading'])
         expect(domainOf('PATCH', '/api/projects/p/docs/d')).toBe('docs')
         expect(domainOf('head', '/api/projects/p/doc-sections/')).toBe('docs')
         for (const path of ['/api/projects/p/issues/P-1/activity/x', '/api/', '/docs', '/api/projects/p/docs/d/artifact']) expect(domainOf('GET', path), path).toBeUndefined()
@@ -1297,7 +1343,7 @@ describe('the contract (api/openapi.yaml)', () => {
     }
 
     it('has every route the router sends to the API, and no other', () => {
-        expect(contract()).toHaveLength(62)
+        expect(contract()).toHaveLength(66)
         expect(contract()).toEqual(routes())
     })
 
