@@ -6,7 +6,7 @@
 web/          the Nuxt app: app/ (the page), server/ (the API and the store), shared/ (both),
               public/, test/ (unit), e2e/ (browser), scripts/ (copy.ts, claim.mjs, worktrees.mjs), its package.json
 channel/      the channel, hooks and launcher Claude sessions run, which orrery serves to their machines
-api/          the Rust API (ORR-922): docs, the statuses and issue and comment reads so far, beside the Nuxt server; openapi.yaml is its contract
+api/          the Rust API (ORR-922): docs, the statuses and milestone, release, issue and comment reads so far, beside the Nuxt server; openapi.yaml is its contract
 docs/         these docs; docs/API.md is also served to agents (/api/guide, /llms-full.txt)
 ```
 
@@ -53,8 +53,10 @@ Without Docker: `pnpm install`, then `pnpm dev` on http://localhost:9000 (Node 2
 orrery's API is moving to Rust a domain at a time (ORR-921, ORR-922), the Nuxt server staying in front. Anything kept in
 the database goes there; what touches the machine (sessions, tmux, the launcher, local files) stays. So far it serves the
 **docs** domain (a project's docs, their sections and revisions), the orrery's **statuses** (`/api/statuses`,
-ORR-926) and **reading issues and their comments** (ORR-927: the list with its filters, one issue, its comments): the
-routes in `api/openapi.yaml`. An artifact's page (`…/docs/:doc/artifact`) and writing an issue or a comment stay in Nuxt.
+ORR-926), **reading milestones and releases** (ORR-926: a project's, one of each, and `/api/releases`) and **reading
+issues and their comments** (ORR-927: the list with its filters, one issue, its comments): the routes in
+`api/openapi.yaml`. An artifact's page (`…/docs/:doc/artifact`), a milestone's focus, and writing an issue, a comment, a
+milestone or a release stay in Nuxt.
 
 How it fits together:
 
