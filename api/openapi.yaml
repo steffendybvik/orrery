@@ -1,11 +1,12 @@
 openapi: 3.1.0
 info:
-  title: orrery API, docs
+  title: orrery API, docs and statuses
   version: 1.0.0-rc.18 # the orrery release it was written against
   description: |
-    The docs domain of orrery's HTTP API (ORR-922): a project's docs, their sections and their revisions. Written from
-    the Nuxt server's routes (web/server/api/projects/[project]/docs, doc-sections, deleted-docs) and served by both it
-    and the Rust API in api/, which answer alike (web/test/api-parity.test.ts holds them to it).
+    The docs domain of orrery's HTTP API (ORR-922): a project's docs, their sections and their revisions; and the
+    orrery's issue statuses (ORR-926). Written from the Nuxt server's routes (web/server/api/projects/[project]/docs,
+    doc-sections, deleted-docs; web/server/api/statuses) and served by both it and the Rust API in api/, which answer
+    alike (web/test/api-parity.test.ts holds them to it).
 
     Callers reach it at orrery's own address, as ever. The Nuxt server checks a request first (login or key, the board's
     permissions, the chat's and untrusted sessions' rails, the browser guards), then hands it to the Rust API when one is
@@ -20,7 +21,8 @@ info:
     A write's reply carries back what it changed, which the Nuxt server tells as its store would (open pages read the
     project again; the event log and schedules hear the event), and strips:
 
-    - `Orrery-Changed`: the project.
+    - `Orrery-Changed`: the projects, comma-separated, each percent-encoded (a status change is every project's).
+    - `Orrery-Settings`: `1` when the orrery's settings changed, as the statuses are in them: open pages get them again.
     - `Orrery-Told`: `<type> <project> <subject>`, comma-separated, each part percent-encoded (`doc.created`,
       `doc.changed`, `doc.deleted`).
 
@@ -167,6 +169,48 @@ paths:
       responses:
         '204': {description: Deleted}
         '404': {$ref: '#/components/responses/NotFound'}
+  /api/statuses:
+    get:
+      summary: The issue statuses, in board order
+      description: By kind (backlog, todo, started, done, canceled), then by position, then by id. Every board has them.
+      responses:
+        '200': {description: The statuses, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/Status'}}}}}
+    post:
+      summary: Adds a status, the owner's only
+      description: Its id is the one given, else the name as one; `proposed` is taken by proposals. With no position it goes last. Every project changes, and the settings.
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/StatusInput'}}}}
+      responses:
+        '201': {description: The new status, content: {application/json: {schema: {$ref: '#/components/schemas/Status'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+  /api/statuses/{status}:
+    parameters:
+      - {name: status, in: path, required: true, description: The status's id, schema: {type: string}}
+    patch:
+      summary: Renames, recolours or moves a status, or gives it another kind, the owner's only
+      description: Its id stays. The last status of a kind keeps its kind (409).
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/StatusInput'}}}}
+      responses:
+        '200': {description: The status now, content: {application/json: {schema: {$ref: '#/components/schemas/Status'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+    delete:
+      summary: Removes a status, the owner's only
+      description: Its issues, schedules and signals move to `into`, which it needs while any issue or schedule is in it (409). The last status of a kind stays (409).
+      parameters:
+        - {$ref: '#/components/parameters/actor'}
+        - {name: into, in: query, description: The status its issues and schedules move to, schema: {type: string}}
+      responses:
+        '204': {description: Removed}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
 components:
   parameters:
     project: {name: project, in: path, required: true, description: The project's id, schema: {type: string}}
@@ -265,6 +309,25 @@ components:
       required: [name]
       properties:
         name: {type: string, maxLength: 60, description: Trimmed; not empty}
+    Status:
+      type: object
+      required: [id, name, kind, color, position]
+      properties:
+        id: {type: string}
+        name: {type: string}
+        kind: {$ref: '#/components/schemas/StatusKind'}
+        color: {type: string, description: 'A named tint (slate, blue, teal, green, amber, rose, violet) or `#rrggbb`'}
+        position: {type: number}
+    StatusKind: {type: string, enum: [backlog, todo, started, done, canceled]}
+    StatusInput:
+      type: object
+      description: '`name` and `kind` are required to add one; a change sends any of them. Unknown fields are refused.'
+      properties:
+        id: {type: string, pattern: '^[a-z0-9][a-z0-9-]{0,39}$'}
+        name: {type: string, minLength: 1}
+        kind: {$ref: '#/components/schemas/StatusKind'}
+        color: {type: string, pattern: '^(slate|blue|teal|green|amber|rose|violet|#[0-9a-fA-F]{6})$'}
+        position: {type: number}
     Error:
       type: object
       required: [statusCode, statusMessage, message]

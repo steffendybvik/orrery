@@ -15,14 +15,15 @@ import type {Actor} from '../server/store/schema'
 import {SqliteDb} from '../server/utils/database'
 import {openDb} from '../server/utils/db'
 import {PostgresDb} from '../server/utils/postgres'
-import {actorHeaders, databaseMark, servedByApi, toldOf} from '../server/utils/api-router'
+import {actorHeaders, changedOf, databaseMark, servedByApi, toldOf} from '../server/utils/api-router'
 
 const BIN = process.env.ORRERY_API_BIN || fileURLToPath(new URL('../../api/target/debug/orrery-api', import.meta.url))
 const TOKEN = 'parity-token-0123456789'
 const POSTGRES = process.env.TEST_POSTGRES_URL
 
-/** What a step gave back, either side: its status and body, or its failure, and what it said changed. */
-interface Outcome {status: number, body: unknown, changed: string[], told: string[]}
+/** What a step gave back, either side: its status and body, or its failure, what it said changed, and whether the
+ * settings did (the statuses are in them, ORR-926). */
+interface Outcome {status: number, body: unknown, changed: string[], told: string[], settings: boolean}
 
 const AGENT: Actor = {name: 'agent', owner: false}
 const SESSION: Actor = {name: 'agent', owner: false, session: 'orrery · Njord'}
@@ -34,16 +35,17 @@ let url = ''
 let setting = ''
 const changes: string[] = []
 const events: OrreryEvent[] = []
+let settingsTold = 0
 
-describe.skipIf(!existsSync(BIN))('the Rust API serves docs as the store does', () => {
+describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses as the store does', () => {
     beforeAll(async () => {
         const schema = `test_api_${Date.now().toString(36)}`
         if (POSTGRES) {
             setting = POSTGRES
-            store = new Store(new PostgresDb(POSTGRES, schema), project => changes.push(project))
+            store = new Store(new PostgresDb(POSTGRES, schema), project => changes.push(project), undefined, undefined, () => settingsTold++)
         } else {
             setting = resolve(join(mkdtempSync(join(tmpdir(), 'orrery-api-')), 'orrery.db'))
-            store = new Store(new SqliteDb(openDb(setting)), project => changes.push(project))
+            store = new Store(new SqliteDb(openDb(setting)), project => changes.push(project), undefined, undefined, () => settingsTold++)
         }
         store.happened = event => events.push(event)
         // Both projects first, which on Postgres also lays the schema down before the API looks at it.
@@ -67,21 +69,25 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs as the store does', 
 
     /** A step through the store, as its route would answer it. */
     async function viaStore(step: () => Promise<unknown>, status = 200): Promise<Outcome> {
-        const [before, told] = [changes.length, events.length]
+        const [before, told, settings] = [changes.length, events.length, settingsTold]
         try {
             const value = await step()
             const made = value && typeof value === 'object' && 'created' in value && 'doc' in value
             const body = made ? (value as {doc: unknown}).doc : value === undefined ? null : value
-            return {status: made && (value as {created: boolean}).created ? 201 : body === null ? 204 : status, body, changed: [...new Set(changes.slice(before))], told: events.slice(told).map(e => `${e.type} ${e.subject}`)}
+            return {
+                status: made && (value as {created: boolean}).created ? 201 : body === null ? 204 : status, body, changed: [...new Set(changes.slice(before))].sort(),
+                told: events.slice(told).map(e => `${e.type} ${e.subject}`), settings: settingsTold > settings,
+            }
         } catch (error) {
             const {statusCode, message, data} = error as {statusCode: number, message: string, data?: unknown}
-            return {status: statusCode, body: {message, ...data === undefined ? {} : {data}}, changed: [], told: []}
+            return {status: statusCode, body: {message, ...data === undefined ? {} : {data}}, changed: [], told: [], settings: false}
         }
     }
 
     /** The same step through the API. */
     async function viaApi(method: string, path: string, body?: unknown, actor: Actor = AGENT, project = 'through-api'): Promise<Outcome> {
-        const response = await fetch(`${url}/api/projects/${project}${path}`, {
+        // A path of the orrery's own (`/api/statuses`) as it is; else one of the project's.
+        const response = await fetch(path.startsWith('/api/') ? `${url}${path}` : `${url}/api/projects/${project}${path}`, {
             method,
             headers: {'Content-Type': 'application/json', 'Orrery-Api-Token': TOKEN, 'Orrery-Database': databaseMark(setting), ...actorHeaders(actor)},
             ...body === undefined ? {} : {body: JSON.stringify(body)},
@@ -90,8 +96,8 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs as the store does', 
         const json = text ? JSON.parse(text) as Record<string, unknown> : null
         const changed = response.headers.get('orrery-changed')
         const told = toldOf(response.headers.get('orrery-told')).map(t => `${t.type} ${t.subject}`)
-        if (response.status >= 400) return {status: response.status, body: {message: json!.message, ...json!.data === undefined ? {} : {data: json!.data}}, changed: [], told: []}
-        return {status: response.status, body: json, changed: changed ? [decodeURIComponent(changed)] : [], told}
+        if (response.status >= 400) return {status: response.status, body: {message: json!.message, ...json!.data === undefined ? {} : {data: json!.data}}, changed: [], told: [], settings: false}
+        return {status: response.status, body: json, changed: [...new Set(changedOf(changed))].sort(), told, settings: response.headers.get('orrery-settings') === '1'}
     }
 
     /** Both sides' outcomes with what's bound to differ taken out: the project, its uid and key, times, revision ids
@@ -188,6 +194,69 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs as the store does', 
         for (const [name, ts, rs] of steps) await both(name, ts, rs)
     })
 
+    it('lists, adds, changes, refuses and removes statuses alike (ORR-926)', async () => {
+        // The statuses are the orrery's, not a project's, so each side runs every step in turn on the same table, put
+        // back as it was between them; a status with an issue in it has one on each side's own project.
+        type Step = [string, (project: string) => Promise<Outcome>, () => Promise<Outcome>]
+        const issueIn = async (project: string): Promise<Outcome> => {
+            await store.createIssue(project, {title: 'Check the hinges', status: 'review'})
+            return {status: 201, body: null, changed: [], told: [], settings: false}
+        }
+        const steps: Step[] = [
+            ['the statuses', () => viaStore(() => store.statuses()), () => viaApi('GET', '/api/statuses')],
+            ['added by a session', () => viaStore(() => store.createStatus({name: 'Review', kind: 'started'}, SESSION)), () => viaApi('POST', '/api/statuses', {name: 'Review', kind: 'started'}, SESSION)],
+            ['added', () => viaStore(() => store.createStatus({name: ' Review ', kind: 'started', color: 'violet'}, OWNER), 201), () => viaApi('POST', '/api/statuses', {name: ' Review ', kind: 'started', color: 'violet'}, OWNER)],
+            ['added again', () => viaStore(() => store.createStatus({name: 'Review', kind: 'started'}, OWNER)), () => viaApi('POST', '/api/statuses', {name: 'Review', kind: 'started'}, OWNER)],
+            ['with its own id and place', () => viaStore(() => store.createStatus({name: 'QA', id: 'qa', kind: 'started', position: 2.5, color: '#AABBCC'}, OWNER), 201),
+                () => viaApi('POST', '/api/statuses', {name: 'QA', id: 'qa', kind: 'started', position: 2.5, color: '#AABBCC'}, OWNER)],
+            ['several problems', () => viaStore(() => store.createStatus({bogus: 1, id: 'Bad Id', kind: 'later', color: 'pink', position: 'x'}, OWNER)),
+                () => viaApi('POST', '/api/statuses', {bogus: 1, id: 'Bad Id', kind: 'later', color: 'pink', position: 'x'}, OWNER)],
+            ['an empty name and a null colour', () => viaStore(() => store.createStatus({name: ' ', kind: 'todo', color: null}, OWNER)), () => viaApi('POST', '/api/statuses', {name: ' ', kind: 'todo', color: null}, OWNER)],
+            ['no body', () => viaStore(() => store.createStatus(undefined, OWNER)), () => viaApi('POST', '/api/statuses', undefined, OWNER)],
+            ['a name that makes no id', () => viaStore(() => store.createStatus({name: '!!!', kind: 'todo'}, OWNER)), () => viaApi('POST', '/api/statuses', {name: '!!!', kind: 'todo'}, OWNER)],
+            ['proposed', () => viaStore(() => store.createStatus({name: 'Proposed', kind: 'todo'}, OWNER)), () => viaApi('POST', '/api/statuses', {name: 'Proposed', kind: 'todo'}, OWNER)],
+            ['the statuses after', () => viaStore(() => store.statuses()), () => viaApi('GET', '/api/statuses')],
+            ['renamed and recoloured', () => viaStore(() => store.updateStatus('review', {name: ' In QA ', color: 'teal'}, OWNER)), () => viaApi('PATCH', '/api/statuses/review', {name: ' In QA ', color: 'teal'}, OWNER)],
+            ['moved to another kind', () => viaStore(() => store.updateStatus('qa', {kind: 'todo', position: 0.5}, OWNER)), () => viaApi('PATCH', '/api/statuses/qa', {kind: 'todo', position: 0.5}, OWNER)],
+            ['the same id sent', () => viaStore(() => store.updateStatus('qa', {id: 'qa'}, OWNER)), () => viaApi('PATCH', '/api/statuses/qa', {id: 'qa'}, OWNER)],
+            ['another id', () => viaStore(() => store.updateStatus('qa', {id: 'other'}, OWNER)), () => viaApi('PATCH', '/api/statuses/qa', {id: 'other'}, OWNER)],
+            ['the last of its kind, given another', () => viaStore(() => store.updateStatus('backlog', {kind: 'todo'}, OWNER)), () => viaApi('PATCH', '/api/statuses/backlog', {kind: 'todo'}, OWNER)],
+            ['a null name', () => viaStore(() => store.updateStatus('qa', {name: null}, OWNER)), () => viaApi('PATCH', '/api/statuses/qa', {name: null}, OWNER)],
+            ['one that isn\'t there', () => viaStore(() => store.updateStatus('nope', {name: 'X'}, OWNER)), () => viaApi('PATCH', '/api/statuses/nope', {name: 'X'}, OWNER)],
+            ['changed by a session', () => viaStore(() => store.updateStatus('qa', {name: 'X'}, SESSION)), () => viaApi('PATCH', '/api/statuses/qa', {name: 'X'}, SESSION)],
+            ['the last of its kind, removed', () => viaStore(() => store.deleteStatus('backlog', undefined, OWNER)), () => viaApi('DELETE', '/api/statuses/backlog', undefined, OWNER)],
+            ['removed by a session', () => viaStore(() => store.deleteStatus('qa', undefined, SESSION)), () => viaApi('DELETE', '/api/statuses/qa', undefined, SESSION)],
+            // Made through the store on both sides, not compared: only the issue it leaves in the status counts.
+            ['an issue in one', p => issueIn(p), () => issueIn('through-api')],
+            ['removed with an issue in it', () => viaStore(() => store.deleteStatus('review', undefined, OWNER)), () => viaApi('DELETE', '/api/statuses/review', undefined, OWNER)],
+            ['moved into itself', () => viaStore(() => store.deleteStatus('review', 'review', OWNER)), () => viaApi('DELETE', '/api/statuses/review?into=review', undefined, OWNER)],
+            ['moved into one that isn\'t there', () => viaStore(() => store.deleteStatus('review', 'nope', OWNER)), () => viaApi('DELETE', '/api/statuses/review?into=nope', undefined, OWNER)],
+            ['removed, its issue moved', () => viaStore(() => store.deleteStatus('review', 'todo', OWNER)), () => viaApi('DELETE', '/api/statuses/review?into=todo', undefined, OWNER)],
+            ['the issue where it went', p => viaStore(async () => (await store.listIssues(p)).map(i => ({title: i.title, status: i.status}))),
+                () => viaStore(async () => (await store.listIssues('through-api')).map(i => ({title: i.title, status: i.status})))],
+            ['an empty one removed', () => viaStore(() => store.deleteStatus('qa', undefined, OWNER)), () => viaApi('DELETE', '/api/statuses/qa', undefined, OWNER)],
+            ['the statuses at the end', () => viaStore(() => store.statuses()), () => viaApi('GET', '/api/statuses')],
+        ]
+        const before = await store.statuses()
+        const putBack = async () => {
+            const ids = before.map(s => s.id)
+            for (const s of before) await store.db.run('UPDATE statuses SET name = ?, kind = ?, color = ?, position = ? WHERE id = ?', s.name, s.kind, s.color, s.position, s.id)
+            for (const s of await store.statuses()) if (!ids.includes(s.id)) await store.db.run('DELETE FROM statuses WHERE id = ?', s.id)
+        }
+        const run = async (side: (step: Step) => Promise<Outcome>) => {
+            const outcomes: Outcome[] = []
+            for (const step of steps) outcomes.push(await side(step))
+            await putBack()
+            return outcomes
+        }
+        const viaTs = await run(([, ts]) => ts('through-store'))
+        const viaRs = await run(([, , rs]) => rs())
+        // Every project changed both ways: the two names are the same here.
+        const projects = (outcome: Outcome) => ({...outcome, changed: outcome.changed.map(() => '<a project>')})
+        steps.forEach(([name], i) => expect(same(projects(viaRs[i]!), 'through-api'), name).toEqual(same(projects(viaTs[i]!), 'through-store')))
+        expect(viaRs[2]).toMatchObject({status: 201, settings: true, changed: ['through-api', 'through-store']})
+    })
+
     it('answers only the server in front of it, on its own database', async () => {
         const ask = (headers: Record<string, string>) => fetch(`${url}/api/projects/through-api/docs`, {headers}).then(r => r.status)
         expect(await ask({})).toBe(401)
@@ -198,16 +267,20 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs as the store does', 
 })
 
 describe('the router', () => {
-    it('sends the docs domain to the API, and keeps an artifact\'s page and everything else here', () => {
+    it('sends the docs domain and the statuses to the API, and keeps an artifact\'s page and everything else here', () => {
         for (const path of ['/api/projects/p/docs', '/api/projects/p/docs/', '/api/projects/p/docs/d', '/api/projects/p/docs/d/revisions', '/api/projects/p/docs/d/revisions/3',
             '/api/projects/p/docs/d/revisions/3/restore', '/api/projects/p/deleted-docs', '/api/projects/p/doc-sections', '/api/projects/p/doc-sections/how it works']) expect(servedByApi(path), path).toBe(true)
-        for (const path of ['/api/projects/p/docs/d/artifact', '/api/projects/p/issues', '/api/projects/p', '/api/projects/p/docs/d/revisions/3/other', '/api/docs']) expect(servedByApi(path), path).toBe(false)
+        for (const path of ['/api/statuses', '/api/statuses/', '/api/statuses/in-review']) expect(servedByApi(path), path).toBe(true)
+        for (const path of ['/api/projects/p/docs/d/artifact', '/api/projects/p/issues', '/api/projects/p', '/api/projects/p/docs/d/revisions/3/other', '/api/docs',
+            '/api/statuses/x/y', '/api/projects/p/statuses', '/api/settings']) expect(servedByApi(path), path).toBe(false)
     })
 
     it('says who\'s asking in ASCII, and reads back what happened', () => {
         expect(actorHeaders({name: 'Åse', owner: true, session: 'orrery · Njord'})).toEqual({'Orrery-Actor-Name': '%C3%85se', 'Orrery-Actor-Owner': '1', 'Orrery-Actor-Session': 'orrery%20%C2%B7%20Njord'})
         expect(toldOf('doc.created orrery how%2Dit, doc.changed orrery x')).toEqual([{type: 'doc.created', project: 'orrery', subject: 'how-it'}, {type: 'doc.changed', project: 'orrery', subject: 'x'}])
         expect(toldOf(null)).toEqual([])
+        expect(changedOf('orrery, shop%20front')).toEqual(['orrery', 'shop front'])
+        expect(changedOf(null)).toEqual([])
     })
 })
 
@@ -238,7 +311,7 @@ describe('the contract (api/openapi.yaml)', () => {
     }
 
     it('has every route the router sends to the API, and no other', () => {
-        expect(contract()).toHaveLength(14)
+        expect(contract()).toHaveLength(18)
         expect(contract()).toEqual(routes())
     })
 })
