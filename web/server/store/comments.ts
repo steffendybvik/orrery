@@ -124,7 +124,7 @@ export abstract class CommentStore extends SignalStore {
 
     /** Whose a comment is (ORR-658): the person's own words, or one of their agents', or nobody's (orrery itself, and an
      * untrusted session or a session naming nobody). */
-    private async voiceOf(actor: Actor): Promise<{person: string | null, by_agent: number}> {
+    protected async voiceOf(actor: Actor): Promise<{person: string | null, by_agent: number}> {
         if (actor.owner) return {person: await this.ownerId(), by_agent: 0}
         if (actor.person) return {person: actor.person, by_agent: 0}
         const person = actor.asked && !actor.untrusted ? await this.personFor(actor.named ?? actor.name) : undefined
@@ -251,7 +251,7 @@ export abstract class CommentStore extends SignalStore {
 
     /** A member's comment is theirs, as the owner's are the owner's: only they and the owner change it. Their agents'
      * are theirs too, which only they, their agents and the owner change. */
-    private async leaveTheirWords(row: CommentRow, actor: Actor, action: string) {
+    protected async leaveTheirWords(row: Pick<CommentRow, 'person' | 'by_agent'>, actor: Actor, action: string) {
         if (row.person && !row.by_agent && !actor.owner && actor.person !== row.person) throw refusedFor('issues.delete', `${action} is ${row.person}'s call: they wrote it`)
         if (!row.person || !row.by_agent) return
         const rails = await this.railsFor(actor)

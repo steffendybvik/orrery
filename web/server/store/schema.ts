@@ -134,6 +134,8 @@ export interface IssueRow extends Made {
     choices: string, picks: string | null, explore: string | null, ships_in: string | null, epic?: number | null, claimed_by: string | null, claimed_at: string | null, claimed_session: string | null, created_person: string | null, session_name: string | null, model?: string | null, effort?: Effort | null
 }
 export interface CommentRow extends Made { id: number, project: string, issue: string, body: string, asks: Asks | null, answered?: number, session_name: string | null, person: string | null, by_agent: number }
+/** A comment on a milestone or an epic (ORR-977): `milestone_comments` has `project` and `milestone`, `epic_comments` `epic`. */
+export interface ThreadCommentRow extends Made { id: number, project?: string, milestone?: string, epic?: number, body: string, session_name: string | null, person: string | null, by_agent: number }
 export interface EventRow { id: number, project: string, issue: string, field: ActivityField, before: string | null, after: string | null, created_by: string, session_name: string | null, owned: number, created_at: string }
 export interface DocRow extends Made { project: string, id: string, title: string, body: string, position: number, section: string | null, kind: DocKind }
 export interface DocRevisionRow { id: number, project: string, doc: string, title: string, body: string, section: string | null, kind: DocKind, deleted: number, created_by: string, session_name: string | null, owned: number, created_at: string }

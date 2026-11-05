@@ -26,6 +26,7 @@ export const EXPORTED = {
     issue_links: OF_PROJECT,
     issue_events: OF_PROJECT,
     comments: OF_PROJECT,
+    milestone_comments: OF_PROJECT,
     schedule_requests: OF_COMMENTS,
     docs: OF_PROJECT,
     doc_sections: OF_PROJECT,
@@ -61,6 +62,7 @@ export const NOT_EXPORTED = {
     chats: "the owner's chats on this server",
     feature_use: "the owner's use of this server's features",
     epics: "the server's, across its boards: an upload clears its issues' epic, which names one here",
+    epic_comments: "the server's, as its epics are (ORR-977)",
 } as const satisfies Partial<Record<Table, string>>
 
 /** Taken as the board uses them, below. */

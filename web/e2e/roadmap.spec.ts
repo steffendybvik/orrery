@@ -90,3 +90,34 @@ test("a milestone's right-click menu sets its priority, files an issue in it, co
     const list = (Array.isArray(left) ? left : left.issues) as {title: string, milestone: unknown}[]
     expect(list.filter(i => ['Check the rungs', 'Oil the hinges'].includes(i.title)).map(i => i.milestone ?? null)).toEqual([null, null])
 })
+
+test("comments on a milestone's page: an agent's shows up live, and the owner's posts, edits and comes out (ORR-977)", async ({page, request}) => {
+    const milestone = await api(request, 'post', '/milestones', {title: 'Cider press'})
+    await page.goto(`/p/orchard/roadmap/${milestone.id}`)
+    const thread = page.getByRole('region', {name: 'Comments'})
+    await expect(thread.getByRole('heading', {name: 'Comments'})).toBeVisible()
+    // Said by an agent once the page is open: it comes in with the project's change.
+    await api(request, 'post', `/milestones/${milestone.id}/comments`, {body: 'The **press** first.'})
+    await expect(thread.locator('strong', {hasText: 'press'})).toBeVisible()
+
+    await thread.getByRole('textbox', {name: 'Comment'}).fill('Then the bottling.')
+    await thread.getByRole('button', {name: 'Comment', exact: true}).click()
+    await expect(thread.getByText('Then the bottling.')).toBeVisible()
+    await expect.poll(async () => (await api(request, 'get', `/milestones/${milestone.id}/comments`)).map((c: {body: string, protected: boolean}) => [c.body, c.protected]))
+        .toEqual([['The **press** first.', false], ['Then the bottling.', true]])
+
+    const mine = thread.locator('li', {hasText: 'Then the bottling.'})
+    await mine.hover()
+    await mine.getByRole('button', {name: 'Edit'}).click()
+    await thread.getByRole('textbox', {name: 'Edit comment'}).fill('Then the bottling, in May.')
+    await thread.getByRole('button', {name: 'Save'}).click()
+    await expect(thread.getByText('Then the bottling, in May.')).toBeVisible()
+
+    await thread.locator('li', {hasText: 'in May'}).hover()
+    await thread.locator('li', {hasText: 'in May'}).getByRole('button', {name: 'Delete'}).click()
+    await thread.getByRole('button', {name: 'Delete', exact: true}).click()
+    await expect(thread.getByText('in May')).toHaveCount(0)
+    // The agent's is no one's but its own to edit here: the page offers the owner's own only, as on an issue.
+    await thread.locator('li', {hasText: 'first.'}).hover()
+    await expect(thread.locator('li', {hasText: 'first.'}).getByRole('button', {name: 'Edit'})).toHaveCount(0)
+})

@@ -409,6 +409,21 @@ export interface Comment {
     updated_at: string
 }
 
+/** A comment on a milestone (`milestone`, with its `project`) or an epic (`epic`, ORR-977): words on its page, shown,
+ * edited and deleted by the same rules as an issue's, without an issue's asks, bell or sessions. */
+export interface ThreadComment {
+    id: number
+    project?: string
+    milestone?: string
+    epic?: number
+    body: string
+    created_by: string
+    session_name?: string
+    protected: boolean
+    created_at: string
+    updated_at: string
+}
+
 /** What an issue's activity records: a field that changed, `created` when it was made, `project` when it
  * moved in from another project. */
 /** Whether a project has releases: none, its own, or another project's (`releases_from`). */

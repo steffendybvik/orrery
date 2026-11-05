@@ -148,6 +148,8 @@ With more than one person, an agent works only what's assigned to its person (OR
 | `GET /projects/:project/milestones/:milestone` | with its issues |
 | `PATCH /projects/:project/milestones/:milestone` | `{title?, summary?, priority?, position?}`; `priority` is `P0`–`P3` (P0 urgent) or `null` |
 | `DELETE /projects/:project/milestones/:milestone` | its issues stay, in no milestone |
+| `GET` · `POST {body}` `/projects/:project/milestones/:milestone/comments` | its comments, oldest first, or a new one → 201: `{id, project, milestone, body, created_by, session_name?, protected, created_at, updated_at}`. Words on the milestone's page (ORR-977): no `asks`, no bell, no session hears them. Deleted with the milestone |
+| `PATCH {body}` · `DELETE /projects/:project/milestones/:milestone/comments/:comment` | as an issue's: the owner's are theirs, and a member's theirs and their agents' |
 
 ## Releases
 
@@ -220,6 +222,8 @@ keeps its epic.
 | `GET /epics/:epic` | as above, with `parts`: a section per project, `{project, name, issues, kinds, tasks}`, the issues set for it there (a sub-issue's when its parent isn't), each with its sub-issues |
 | `PATCH /epics/:epic` | `{title?, notes?, position?}`; `null` clears `notes` |
 | `DELETE /epics/:epic` | its issues stay where they are, in no epic; one the owner made is theirs to delete |
+| `GET` · `POST {body}` `/epics/:epic/comments` | its comments, oldest first, or a new one → 201: `{id, epic, body, created_by, session_name?, protected, created_at, updated_at}`. Words on the epic's page (ORR-977), as a milestone's are. Deleted with the epic. A member can't write them, as epics are the owner's |
+| `PATCH {body}` · `DELETE /epics/:epic/comments/:comment` | the owner's are theirs |
 
 An issue's `epic` changing is in its activity and the event log as `issue.epic` (`from` and `to` the numbers). A
 board's export leaves epics out, as they're the server's: uploading one clears its issues' `epic`.
