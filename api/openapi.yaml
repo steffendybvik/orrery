@@ -24,7 +24,8 @@ info:
     - **Secrets, reading** (ORR-953): the orrery's secrets and their uses, never a value (web/server/api/secrets). Both
       serve them; the router sends only their `GET`s there. Setting, narrowing and deleting one, and egress, stay the
       Nuxt server's: the key that seals a value stays with the local app, and the API never sees a value in the clear.
-    - **A pull request, reading** (ORR-952): one PR as orrery keeps it, with the issues it's on
+    - **A pull request, reading, and its risk** (ORR-952): one PR as orrery keeps it, with the issues it's on, and
+      rating an issue's PR's risk
       (web/server/api/pulls/[owner]/[name]/[number].get.ts). The other pull reads ask GitHub when what's kept is stale,
       which is the local app's to do, and the poll's writes wake sessions, so they stay the Nuxt server's.
     - **Presets** (ORR-949): the orrery's presets and a project's own (web/server/api/presets, and
@@ -546,6 +547,52 @@ paths:
                   - {$ref: '#/components/schemas/Secret'}
                   - {type: object, required: [uses], properties: {uses: {type: array, items: {$ref: '#/components/schemas/SecretUse'}}}}
         '404': {$ref: '#/components/responses/NotFound'}
+  /api/projects/{project}/issues/{issue}/pulls/{owner}/{name}/{number}/risk:
+    parameters:
+      - {$ref: '#/components/parameters/project'}
+      - {name: issue, in: path, required: true, description: The issue's id or an old one, schema: {type: string}}
+      - {name: owner, in: path, required: true, description: The GitHub repo's owner, in any case, schema: {type: string}}
+      - {name: name, in: path, required: true, description: The GitHub repo's name, in any case, schema: {type: string}}
+      - {name: number, in: path, required: true, description: 'The PR''s number: `788` or `#788`', schema: {type: string}}
+    put:
+      summary: Rates how risky the issue's PR is, or takes the rating away with `{level: null}`
+      description: >-
+        `why` is a line on what decided it, needed with a level, kept to 300 characters. The owner's rating
+        (`Orrery-Actor-Kind: owner`) stands: a session's doesn't replace it or take it away (409). 404 when orrery keeps no
+        such PR on the issue, as it keeps only those the poll has seen name it.
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [level]
+              properties:
+                level: {type: [string, 'null'], enum: [high, medium, low, null]}
+                why: {type: string}
+      responses:
+        '200':
+          description: The rating now
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [risk]
+                properties:
+                  risk:
+                    oneOf:
+                      - {type: 'null'}
+                      - type: object
+                        required: [level, why, by]
+                        properties:
+                          level: {type: string, enum: [high, medium, low]}
+                          why: {type: string}
+                          by: {type: string, enum: [owner, session]}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
   /api/pulls/{owner}/{name}/{number}:
     parameters:
       - {name: owner, in: path, required: true, description: The GitHub repo's owner, in any case, schema: {type: string}}
