@@ -83,7 +83,7 @@ You need:
 
    ```sh
    mkdir orrery && cd orrery
-   curl -LO https://github.com/steffendybvik/orrery/releases/download/v1.0.0-rc.17/compose.yml
+   curl -LO https://github.com/steffendybvik/orrery/releases/download/v1.0.0-rc.18/compose.yml
    docker compose up -d        # http://localhost:9000
    ```
 
