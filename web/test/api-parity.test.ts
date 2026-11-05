@@ -15,7 +15,7 @@ import type {Actor, IssueFilter} from '../server/store/schema'
 import {SqliteDb} from '../server/utils/database'
 import {openDb} from '../server/utils/db'
 import {PostgresDb} from '../server/utils/postgres'
-import {actorHeaders, changedOf, databaseMark, domainOf, DOMAINS, servedByApi, toldOf, whoHeaders} from '../server/utils/api-router'
+import {actorHeaders, changedOf, databaseMark, domainOf, DOMAINS, loginHeaders, servedByApi, toldOf, whoHeaders} from '../server/utils/api-router'
 import {permission, refused} from '../server/utils/permission'
 
 const BIN = process.env.ORRERY_API_BIN || fileURLToPath(new URL('../../api/target/debug/orrery-api', import.meta.url))
@@ -488,6 +488,62 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         expect(await viaApi('POST', '/api/keys', {kind: 'agent', name: 'x', person: 'bob'}, AGENT, '', ada)).toMatchObject({status: 403, body: {message: 'A person makes their own keys; only the owner gives them to others'}})
     })
 
+    it('adds and renames people, and invites them, alike (ORR-928)', async () => {
+        // The people are the orrery's, so each step runs on each side in turn, with the table put back between.
+        await store.db.run("INSERT INTO people (id, name, role, created_at, removed_at) VALUES ('gone', 'Gone', 'member', ?, ?)", new Date().toISOString(), new Date().toISOString())
+        const before = await store.people()
+        const putBack = async () => {
+            for (const p of before) await store.db.run('UPDATE people SET name = ? WHERE id = ?', p.name, p.id)
+            for (const p of await store.people()) if (!before.some(b => b.id === p.id)) await store.db.run('DELETE FROM people WHERE id = ?', p.id)
+        }
+        const off = loginHeaders({provider: false, off: true}, 'http://localhost:9000')
+        const inTurn = async (name: string, ts: () => Promise<Outcome>, rs: () => Promise<Outcome>) => {
+            const a = await ts()
+            await putBack()
+            const b = await rs()
+            await putBack()
+            expect(same(b, 'through-api'), name).toEqual(same(a, 'through-store'))
+            return b
+        }
+        await inTurn('a member', () => viaStore(() => store.addPerson({name: ' Åse Berg '}), 201), () => viaApi('POST', '/api/people', {name: ' Åse Berg '}, OWNER, '', off))
+        await inTurn('a long name', () => viaStore(() => store.addPerson({name: 'C'.repeat(80)}), 201), () => viaApi('POST', '/api/people', {name: 'C'.repeat(80)}, OWNER, '', off))
+        await inTurn('one already here', () => viaStore(() => store.addPerson({name: 'ADA'})), () => viaApi('POST', '/api/people', {name: 'ADA'}, OWNER, '', off))
+        await inTurn('what agents go by', () => viaStore(() => store.addPerson({name: 'Claude'})), () => viaApi('POST', '/api/people', {name: 'Claude'}, OWNER, '', off))
+        await inTurn('no letters', () => viaStore(() => store.addPerson({name: '!!!'})), () => viaApi('POST', '/api/people', {name: '!!!'}, OWNER, '', off))
+        await inTurn('several problems', () => viaStore(() => store.addPerson({name: 4, role: 'owner'})), () => viaApi('POST', '/api/people', {name: 4, role: 'owner'}, OWNER, '', off))
+        await inTurn('an empty name', () => viaStore(() => store.addPerson({name: '  '})), () => viaApi('POST', '/api/people', {name: '  '}, OWNER, '', off))
+        await inTurn('no body', () => viaStore(() => store.addPerson(undefined)), () => viaApi('POST', '/api/people', undefined, OWNER, '', off))
+        await inTurn('renamed', () => viaStore(() => store.renamePerson('ada', {name: ' Ada L. '})), () => viaApi('PATCH', '/api/people/ada', {name: ' Ada L. '}, OWNER))
+        await inTurn('the owner renamed', () => viaStore(() => store.renamePerson('steffen', {name: 'S'})), () => viaApi('PATCH', '/api/people/steffen', {name: 'S'}, OWNER))
+        await inTurn('nobody renamed', () => viaStore(() => store.renamePerson('nobody', {name: 'S'})), () => viaApi('PATCH', '/api/people/nobody', {name: 'S'}, OWNER))
+        await inTurn('renamed to nothing', () => viaStore(() => store.renamePerson('ada', {name: null})), () => viaApi('PATCH', '/api/people/ada', {name: null}, OWNER))
+        const removed = await viaApi('PATCH', '/api/people/gone', {name: 'Back'}, OWNER)
+        expect(removed.body).toEqual((await viaStore(() => store.renamePerson('gone', {name: 'Back'}))).body)
+        expect(await inTurn('a removed person\'s id', () => viaStore(() => store.addPerson({name: 'Gone'})), () => viaApi('POST', '/api/people', {name: 'Gone'}, OWNER, '', off))).toMatchObject({status: 409})
+        // The owner's alone, and a second person needs a way in first.
+        const people = (message: string) => ({message, data: {permission: 'people.write'}})
+        const session = people(refused(permission('people.write'), 'session').message)
+        expect((await viaApi('POST', '/api/people', {name: 'Eve'}, SESSION, '', off)).body).toEqual(session)
+        expect((await viaApi('PATCH', '/api/people/ada', {name: 'Eve'}, SESSION)).body).toEqual(session)
+        expect((await viaApi('POST', '/api/invites', {person: 'ada'}, SESSION, '', off)).body).toEqual(session)
+        expect((await viaApi('POST', '/api/people', {name: 'Eve'}, OWNER, '', whoHeaders({person: 'ada', owner: false, via: 'browser'}, undefined))).body).toEqual(session)
+        expect(await viaApi('POST', '/api/people', {name: 'Eve'}, OWNER)).toMatchObject({status: 409, body: {message: expect.stringMatching(/^A second person turns login on/)}})
+        expect(await viaApi('POST', '/api/people', {name: 'Eve'}, OWNER, '', loginHeaders({provider: true, off: false}, ''))).toMatchObject({status: 201, body: {id: 'eve'}})
+        const key = await store.makeKey('steffen', {kind: 'person', name: 'Mac'})
+        expect(await viaApi('POST', '/api/people', {name: 'Fay'}, OWNER)).toMatchObject({status: 201, body: {id: 'fay'}})
+        await store.revokeKey(key.id)
+        // Invites: only with a provider, for someone here, with a link at the request's own address that logs them in.
+        const provider = loginHeaders({provider: true, off: false}, 'https://orrery.example')
+        expect((await viaApi('POST', '/api/invites', {person: 'ada'}, OWNER, '', off)).body).toEqual({message: 'This orrery has no login provider to invite someone through: give them a person key instead (POST /api/keys)'})
+        expect((await viaApi('POST', '/api/invites', {}, OWNER, '', provider)).body).toMatchObject({message: '"person" is the id of who to invite'})
+        expect((await viaApi('POST', '/api/invites', {person: 'nobody'}, OWNER, '', provider)).body).toEqual((await viaStore(() => store.invite('nobody'))).body)
+        const invited = await viaApi('POST', '/api/invites', {person: 'ada'}, OWNER, '', provider)
+        expect(invited).toMatchObject({status: 201, body: {url: expect.stringMatching(/^https:\/\/orrery\.example\/login\?invite=[\w-]{43}$/)}})
+        const secret = new URL((invited.body as {url: string}).url).searchParams.get('invite')!
+        expect(await store.identity('https://id.example', 'sub-1', secret)).toBe('ada')
+        await expect(store.identity('https://id.example', 'sub-2', secret)).rejects.toMatchObject({statusCode: 409})
+    })
+
     it('answers only the server in front of it, on its own database', async () => {
         const ask = (headers: Record<string, string>) => fetch(`${url}/api/projects/through-api/docs`, {headers}).then(r => r.status)
         expect(await ask({})).toBe(401)
@@ -507,7 +563,7 @@ describe('the router', () => {
     })
 
     it('routes by a table with a line per domain, so taking one back is taking its line out (ORR-925)', () => {
-        expect(DOMAINS.map(({domain}) => domain)).toEqual(['docs', 'statuses', 'issues, reading', 'comments, reading', 'milestones and releases, reading', 'people, reading', 'keys', 'logins'])
+        expect(DOMAINS.map(({domain}) => domain)).toEqual(['docs', 'statuses', 'issues, reading', 'comments, reading', 'milestones and releases, reading', 'people, but removing one', 'invites', 'keys', 'logins'])
         expect(domainOf('PATCH', '/api/projects/p/docs/d')).toBe('docs')
         expect(domainOf('head', '/api/projects/p/doc-sections/')).toBe('docs')
         for (const path of ['/api/projects/p/issues/P-1/activity', '/api/', '/docs', '/api/projects/p/docs/d/artifact']) expect(domainOf('GET', path), path).toBeUndefined()
@@ -536,12 +592,15 @@ describe('the router', () => {
         expect(domainOf('POST', '/api/projects/p/milestones/3/focus')).toBeUndefined()
     })
 
-    it('sends keys, logins and reading the people there, and keeps logging in, invites and changing who\'s here (ORR-928)', () => {
-        expect(domainOf('GET', '/api/people')).toBe('people, reading')
-        for (const method of ['POST', 'PATCH', 'DELETE']) expect(domainOf(method, method === 'POST' ? '/api/people' : '/api/people/ada'), method).toBeUndefined()
+    it('sends people but removing one, invites, keys and logins there, and keeps logging in (ORR-928)', () => {
+        for (const [method, path] of [['GET', '/api/people'], ['POST', '/api/people'], ['PATCH', '/api/people/ada']]) expect(domainOf(method!, path!), path).toBe('people, but removing one')
+        expect(domainOf('DELETE', '/api/people/ada')).toBeUndefined()
+        expect(domainOf('POST', '/api/invites')).toBe('invites')
         for (const [method, path] of [['GET', '/api/keys'], ['POST', '/api/keys'], ['DELETE', '/api/keys/abc']]) expect(domainOf(method!, path!), path).toBe('keys')
         for (const [method, path] of [['GET', '/api/logins'], ['DELETE', '/api/logins'], ['DELETE', '/api/logins/0123456789abcdef']]) expect(domainOf(method!, path!), path).toBe('logins')
-        for (const path of ['/api/invites', '/api/auth/login', '/api/auth/logout', '/api/auth/status', '/api/auth/oidc/start', '/api/owner']) expect(domainOf('POST', path), path).toBeUndefined()
+        for (const path of ['/api/auth/login', '/api/auth/logout', '/api/auth/status', '/api/auth/oidc/start', '/api/owner']) expect(domainOf('POST', path), path).toBeUndefined()
+        expect(loginHeaders({provider: true, off: true}, 'https://orrery.example')).toEqual({'Orrery-Login-Ways': 'provider, off', 'Orrery-Origin': 'https%3A%2F%2Forrery.example'})
+        expect(loginHeaders({provider: false, off: false}, 'http://localhost:9000')).toEqual({'Orrery-Origin': 'http%3A%2F%2Flocalhost%3A9000'})
     })
 
     it('says what the credential was, and a login only hashed', () => {
@@ -590,7 +649,7 @@ describe('the contract (api/openapi.yaml)', () => {
     }
 
     it('has every route the router sends to the API, and no other', () => {
-        expect(contract()).toHaveLength(34)
+        expect(contract()).toHaveLength(37)
         expect(contract()).toEqual(routes())
     })
 

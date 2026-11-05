@@ -235,7 +235,7 @@ fn owner_person(value: &str) -> Option<(String, String)> {
 }
 
 /// A name as an actor's id, as `actorId` in web/server/store/schema.ts: accents off, lowercase, `_` between the rest.
-fn actor_id(name: &str) -> String {
+pub fn actor_id(name: &str) -> String {
     let plain: String = name.nfkd().filter(|c| !('\u{300}'..='\u{36f}').contains(c)).collect::<String>().to_lowercase();
     let mut id = String::with_capacity(plain.len());
     for c in plain.chars() {
