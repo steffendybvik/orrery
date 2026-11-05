@@ -8,7 +8,7 @@ import {existsSync, mkdtempSync, readdirSync, readFileSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import {join, relative, resolve} from 'node:path'
 import {fileURLToPath} from 'node:url'
-import {afterAll, beforeAll, describe, expect, it} from 'vitest'
+import {afterAll, beforeAll, beforeEach, describe, expect, it} from 'vitest'
 import type {OrreryEvent} from '#shared/happenings'
 import {Store} from '../server/utils/store'
 import type {Actor, IssueFilter} from '../server/store/schema'
@@ -64,6 +64,16 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
             api.on('exit', code => fail(new Error(`the API stopped (${code}): ${said}`)))
         })
     }, 30_000)
+
+    // The store tells a change once its write commits, and the projects sharing its releases a query later, so the last
+    // test's can land after it ends (ORR-976): settled before each, until nothing more comes, so none counts in its steps.
+    beforeEach(async () => {
+        let seen = -1
+        while (seen !== changes.length + events.length) {
+            seen = changes.length + events.length
+            await new Promise(settled => setTimeout(settled, 20))
+        }
+    })
 
     afterAll(async () => {
         api?.kill()
