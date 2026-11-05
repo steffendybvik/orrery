@@ -182,12 +182,16 @@ describe('comments that wait on the owner', () => {
         const ask = await store.createComment('greenhouse', id, {body: 'Ship it?', asks: 'decision'}, agent)
         await store.createComment('greenhouse', id, {body: 'later note'}, agent)
         expect(ask).toMatchObject({asks: 'decision'})
+        expect(await store.comment('greenhouse', id, ask.id)).toMatchObject({answered: false})
         expect((await store.notices()).map(n => [n.body, n.answered])).toEqual([['Ship it?', false], ['later note', undefined], ['note', undefined]])
         await store.clearNotices({before: new Date(Date.now() + 1000).toISOString()})
         expect((await store.notices()).map(n => n.body)).toEqual(['Ship it?'])
         await store.createComment('greenhouse', id, {body: 'Yes'}, {name: 'skoll', owner: true})
         expect((await store.notices())[0]).toMatchObject({body: 'Ship it?', answered: true})
         expect((await store.listComments('greenhouse', id)).find(c => c.id === ask.id)).toMatchObject({asks: 'decision', answered: true})
+        // Read alone, and as an edit hands it back, it says so too (ORR-942).
+        expect(await store.comment('greenhouse', id, ask.id)).toMatchObject({asks: 'decision', answered: true})
+        expect(await store.updateComment('greenhouse', id, ask.id, {body: 'Ship it now?'}, agent)).toMatchObject({answered: true})
         expect((await failure(() => store.createComment('greenhouse', id, {body: 'x', asks: 'vibes'}, agent))).status).toBe(400)
     })
 

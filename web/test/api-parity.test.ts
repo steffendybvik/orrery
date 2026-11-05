@@ -1,4 +1,4 @@
-// The Rust API's docs (ORR-922, api/) against the store's: the same steps, one project through each, on one database
+// The Rust API's docs (ORR-922, api/) and comment reads (ORR-927) against the store's: the same steps, one project through each, on one database
 // (SQLite, or Postgres with TEST_POSTGRES_URL), and the same replies, failures and changes told. The API is the binary
 // `cargo build` makes (api/target/debug/orrery-api, or ORRERY_API_BIN); without one this is skipped, and CI's `api` job
 // builds it first.
@@ -15,7 +15,7 @@ import type {Actor} from '../server/store/schema'
 import {SqliteDb} from '../server/utils/database'
 import {openDb} from '../server/utils/db'
 import {PostgresDb} from '../server/utils/postgres'
-import {actorHeaders, changedOf, databaseMark, servedByApi, toldOf} from '../server/utils/api-router'
+import {actorHeaders, changedOf, databaseMark, domainOf, DOMAINS, servedByApi, toldOf} from '../server/utils/api-router'
 
 const BIN = process.env.ORRERY_API_BIN || fileURLToPath(new URL('../../api/target/debug/orrery-api', import.meta.url))
 const TOKEN = 'parity-token-0123456789'
@@ -37,7 +37,7 @@ const changes: string[] = []
 const events: OrreryEvent[] = []
 let settingsTold = 0
 
-describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses as the store does', () => {
+describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, and reads comments, as the store does', () => {
     beforeAll(async () => {
         const schema = `test_api_${Date.now().toString(36)}`
         if (POSTGRES) {
@@ -100,13 +100,14 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses as 
         return {status: response.status, body: json, changed: [...new Set(changedOf(changed))].sort(), told, settings: response.headers.get('orrery-settings') === '1'}
     }
 
-    /** Both sides' outcomes with what's bound to differ taken out: the project, its uid and key, times, revision ids
-     * (numbered across the orrery, so the two projects' interleave), and the order a set came in. */
+    /** Both sides' outcomes with what's bound to differ taken out: the project, its uid and key (in an issue's id too),
+     * times, revision and comment ids (numbered across the orrery, so the two projects' interleave), and the order a set
+     * came in. */
     function same(outcome: Outcome, project: string): unknown {
         const revisions = new Map<number, number>()
         return JSON.parse(JSON.stringify(outcome, (key, value: unknown) => {
             if (typeof value === 'string') {
-                return value.replaceAll(project, '<project>').replace(/^\d{4}-\d{2}-\d{2}T[\d:.]+Z$/, '<time>').replace(/-[a-z2-7]{8}$/, '-<uid>')
+                return value.replaceAll(project, '<project>').replace(/\b(STO|API)-(\d+)/g, 'KEY-$2').replace(/^\d{4}-\d{2}-\d{2}T[\d:.]+Z$/, '<time>').replace(/-[a-z2-7]{8}$/, '-<uid>')
             }
             if (typeof value === 'number' && (key === 'id' || key === 'revision') && Number.isInteger(value)) {
                 if (!revisions.has(value)) revisions.set(value, revisions.size + 1)
@@ -257,6 +258,44 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses as 
         expect(viaRs[2]).toMatchObject({status: 201, settings: true, changed: ['through-api', 'through-store']})
     })
 
+    it('reads an issue\'s comments alike (ORR-927)', async () => {
+        const request = {title: 'Nightly', changes: [{field: 'cron' as const, to: '0 3 * * *'}], body: {cron: '0 3 * * *'}, state: 'asked' as const}
+        const ids: Record<string, string> = {}
+        for (const p of ['through-store', 'through-api']) {
+            const {id} = await store.createIssue(p, {title: 'Talk it over'}, OWNER)
+            const {id: quiet} = await store.createIssue(p, {title: 'Nobody spoke'})
+            ids[p] = id
+            ids[`${p} quiet`] = quiet
+            await store.createComment(p, id, {body: 'Which way?', asks: 'decision'}, SESSION)
+            await store.createComment(p, id, {body: 'Is this fine?', asks: 'feedback'})
+            await store.createComment(p, id, {body: 'The left one.'}, OWNER)
+            await store.askForSchedule(p, id, 'Make the nightly run?', request, SESSION)
+            await store.db.run('INSERT INTO issue_aliases (project, alias, issue) VALUES (?, ?, ?)', p, `${p === 'through-store' ? 'STO' : 'API'}-90`, id)
+        }
+        const full = async (p: string) => (await store.issue(p, ids[p]!)).full_id
+        const first = async (p: string) => (await store.listComments(p, ids[p]!))[0]!.id
+        const last = async (p: string) => (await store.listComments(p, ids[p]!)).at(-1)!.id
+        const steps: [string, (p: string) => Promise<Outcome>, () => Promise<Outcome>][] = [
+            ['the comments, answered and not, with a schedule request', p => viaStore(() => store.listComments(p, ids[p]!)), () => viaApi('GET', `/issues/${ids['through-api']}/comments`)],
+            ['none yet', p => viaStore(() => store.listComments(p, ids[`${p} quiet`]!)), () => viaApi('GET', `/issues/${ids['through-api quiet']}/comments`)],
+            ['by an id it had before', p => viaStore(() => store.listComments(p, 'X-90'.replace('X', p === 'through-store' ? 'STO' : 'API'))), () => viaApi('GET', '/issues/API-90/comments')],
+            ['by its full id', async p => viaStore(async () => store.listComments(p, await full(p))), async () => viaApi('GET', `/issues/${await full('through-api')}/comments`)],
+            ['an issue that isn\'t there', p => viaStore(() => store.listComments(p, 'X-404')), () => viaApi('GET', '/issues/X-404/comments')],
+            ['a project that isn\'t there', () => viaStore(() => store.listComments('nowhere', 'X-1')), () => viaApi('GET', '/issues/X-1/comments', undefined, AGENT, 'nowhere')],
+            ['one that asks, answered', async p => viaStore(async () => store.comment(p, ids[p]!, await first(p))), async () => viaApi('GET', `/issues/${ids['through-api']}/comments/${await first('through-api')}`)],
+            ['one with a schedule request', async p => viaStore(async () => store.comment(p, ids[p]!, await last(p))), async () => viaApi('GET', `/issues/${ids['through-api']}/comments/${await last('through-api')}`)],
+            ['one by its issue\'s full id', async p => viaStore(async () => store.comment(p, await full(p), await first(p))), async () => viaApi('GET', `/issues/${await full('through-api')}/comments/${await first('through-api')}`)],
+            ['one that isn\'t there', p => viaStore(() => store.comment(p, ids[p]!, 99_999_999)), () => viaApi('GET', `/issues/${ids['through-api']}/comments/99999999`)],
+        ]
+        for (const [name, ts, rs] of steps) await both(name, ts, rs)
+        // On another issue: the message names the comment's id, which differs between the two projects.
+        const elsewhere = await viaApi('GET', `/issues/${ids['through-api quiet']}/comments/${await first('through-api')}`)
+        expect(elsewhere).toMatchObject({status: 404, body: {message: `No comment ${await first('through-api')} on ${ids['through-api quiet']}`}})
+        // Not a whole number: the route's `commentId` refuses it before the store is asked.
+        expect((await viaApi('GET', `/issues/${ids['through-api']}/comments/abc`)).body).toEqual({message: 'No comment abc'})
+        expect((await viaApi('GET', `/issues/${ids['through-api']}/comments/1.5`)).status).toBe(404)
+    })
+
     it('answers only the server in front of it, on its own database', async () => {
         const ask = (headers: Record<string, string>) => fetch(`${url}/api/projects/through-api/docs`, {headers}).then(r => r.status)
         expect(await ask({})).toBe(401)
@@ -269,10 +308,27 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses as 
 describe('the router', () => {
     it('sends the docs domain and the statuses to the API, and keeps an artifact\'s page and everything else here', () => {
         for (const path of ['/api/projects/p/docs', '/api/projects/p/docs/', '/api/projects/p/docs/d', '/api/projects/p/docs/d/revisions', '/api/projects/p/docs/d/revisions/3',
-            '/api/projects/p/docs/d/revisions/3/restore', '/api/projects/p/deleted-docs', '/api/projects/p/doc-sections', '/api/projects/p/doc-sections/how it works']) expect(servedByApi(path), path).toBe(true)
-        for (const path of ['/api/statuses', '/api/statuses/', '/api/statuses/in-review']) expect(servedByApi(path), path).toBe(true)
-        for (const path of ['/api/projects/p/docs/d/artifact', '/api/projects/p/issues', '/api/projects/p', '/api/projects/p/docs/d/revisions/3/other', '/api/docs',
-            '/api/statuses/x/y', '/api/projects/p/statuses', '/api/settings']) expect(servedByApi(path), path).toBe(false)
+            '/api/projects/p/docs/d/revisions/3/restore', '/api/projects/p/deleted-docs', '/api/projects/p/doc-sections', '/api/projects/p/doc-sections/how it works']) expect(servedByApi('GET', path), path).toBe(true)
+        for (const path of ['/api/projects/p/docs/d/artifact', '/api/projects/p/issues', '/api/projects/p', '/api/projects/p/docs/d/revisions/3/other', '/api/docs']) expect(servedByApi('GET', path), path).toBe(false)
+        for (const path of ['/api/statuses', '/api/statuses/', '/api/statuses/in-review']) expect(servedByApi('GET', path), path).toBe(true)
+        for (const path of ['/api/statuses/x/y', '/api/projects/p/statuses', '/api/settings']) expect(servedByApi('GET', path), path).toBe(false)
+    })
+
+    it('routes by a table with a line per domain, so taking one back is taking its line out (ORR-925)', () => {
+        expect(DOMAINS.map(({domain}) => domain)).toEqual(['docs', 'statuses', 'comments, reading'])
+        expect(domainOf('PATCH', '/api/projects/p/docs/d')).toBe('docs')
+        expect(domainOf('head', '/api/projects/p/doc-sections/')).toBe('docs')
+        for (const path of ['/api/projects/p/issues', '/api/', '/docs', '/api/projects/p/docs/d/artifact']) expect(domainOf('GET', path), path).toBeUndefined()
+    })
+
+    it('sends only the methods a line names, so a domain\'s reads can move before its writes (ORR-927)', () => {
+        expect(domainOf('GET', '/api/projects/p/issues/P-1/comments')).toBe('comments, reading')
+        expect(domainOf('HEAD', '/api/projects/p/issues/P-1/comments/3')).toBe('comments, reading')
+        for (const method of ['POST', 'PATCH', 'DELETE']) {
+            expect(domainOf(method, '/api/projects/p/issues/P-1/comments'), method).toBeUndefined()
+            expect(domainOf(method, '/api/projects/p/issues/P-1/comments/3'), method).toBeUndefined()
+        }
+        for (const path of ['/api/projects/p/issues/P-1', '/api/projects/p/issues/P-1/comments/3/x', '/api/projects/p/issues/P-1/schedule-requests/3']) expect(domainOf('GET', path), path).toBeUndefined()
     })
 
     it('says who\'s asking in ASCII, and reads back what happened', () => {
@@ -309,16 +365,16 @@ describe('the contract (api/openapi.yaml)', () => {
         return walk(root).map(file => {
             const [, route = '', method = ''] = /^(.*?)\.(get|put|post|patch|delete)\.ts$/.exec(relative(root, file)) ?? []
             return {method: method.toUpperCase(), path: `/api/${route}`.replace(/\/index$/, '').replace(/\[(\w+)\]/g, '{$1}')}
-        }).filter(({method, path}) => method && servedByApi(path.replace(/\{\w+\}/g, 'x'))).map(({method, path}) => `${method} ${path}`).sort()
+        }).filter(({method, path}) => method && servedByApi(method, path.replace(/\{\w+\}/g, 'x'))).map(({method, path}) => `${method} ${path}`).sort()
     }
 
     it('has every route the router sends to the API, and no other', () => {
-        expect(contract()).toHaveLength(18)
+        expect(contract()).toHaveLength(20)
         expect(contract()).toEqual(routes())
     })
 
     it('sends none of the routes written ahead of the Rust API to it', () => {
-        expect(contract(true)).toHaveLength(4)
+        expect(contract(true)).toHaveLength(2)
         expect(contract(true).filter(operation => routes().includes(operation))).toEqual([])
     })
 })

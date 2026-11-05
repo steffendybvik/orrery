@@ -9,7 +9,8 @@ info:
     - **Docs** (ORR-922): a project's docs, their sections and their revisions (web/server/api/projects/[project]/docs,
       doc-sections, deleted-docs). Served by both.
     - **Issues and comments, reading** (ORR-927): the issue list with its filters, one issue, and its comments
-      (web/server/api/projects/[project]/issues). Only the Nuxt server serves them so far; the Rust API's come next.
+      (web/server/api/projects/[project]/issues). Both serve an issue's comments; the router sends only their `GET`s
+      there, as writing one stays the Nuxt server's. The issue reads are only the Nuxt server's so far.
     - **Statuses** (ORR-926): the orrery's issue statuses (web/server/api/statuses). Served by both.
 
     An operation marked `x-served: false` is written ahead of the Rust API's: the router doesn't send it there yet, and
@@ -265,7 +266,6 @@ paths:
   /api/projects/{project}/issues/{issue}/comments:
     parameters: [{$ref: '#/components/parameters/project'}, {$ref: '#/components/parameters/issue'}]
     get:
-      x-served: false
       summary: The issue's comments, oldest first
       responses:
         '200': {description: The comments, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/Comment'}}}}}
@@ -273,12 +273,10 @@ paths:
   /api/projects/{project}/issues/{issue}/comments/{comment}:
     parameters: [{$ref: '#/components/parameters/project'}, {$ref: '#/components/parameters/issue'}, {$ref: '#/components/parameters/comment'}]
     get:
-      x-served: false
       summary: One comment
       responses:
         '200': {description: The comment, content: {application/json: {schema: {$ref: '#/components/schemas/Comment'}}}}
-        '400': {description: The comment's id isn't a whole number, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
-        '404': {$ref: '#/components/responses/NotFound'}
+        '404': {description: 'No such project, issue or comment, a comment''s id that isn''t a whole number included', content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
 components:
   parameters:
     project: {name: project, in: path, required: true, description: The project's id, schema: {type: string}}

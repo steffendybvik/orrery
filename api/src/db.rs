@@ -5,13 +5,16 @@ use sqlx::any::{install_default_drivers, AnyPoolOptions};
 use sqlx::{AnyPool, Executor};
 use std::sync::OnceLock;
 
-/// What the docs domain and the statuses read and write, each a query that fails on a schema without it. Checked by the columns rather than a
+/// What the docs domain, the statuses and the comment reads take, each a query that fails on a schema without it. Checked by the columns rather than a
 /// schema version, as SQLite's and Postgres's steps are counted differently.
-const NEEDS: [&str; 8] = [
+const NEEDS: [&str; 11] = [
     "SELECT uid, doc_section_order, updated_at FROM projects WHERE 1 = 0",
     "SELECT project, id, title, body, kind, position, section, created_by, owned, created_at, updated_at FROM docs WHERE 1 = 0",
     "SELECT project, name, created_at FROM doc_sections WHERE 1 = 0",
     "SELECT id, project, doc, title, body, kind, section, deleted, created_by, session_name, owned, created_at FROM doc_revisions WHERE 1 = 0",
+    "SELECT id, project, issue, body, asks, created_by, session_name, owned, person, by_agent, created_at, updated_at FROM comments WHERE 1 = 0",
+    "SELECT project, alias, issue FROM issue_aliases WHERE 1 = 0",
+    "SELECT comment, schedule, title, changes, body, state FROM schedule_requests WHERE 1 = 0",
     "SELECT id, name, kind, color, position FROM statuses WHERE 1 = 0",
     "SELECT status FROM issues WHERE 1 = 0",
     "SELECT place, move_from FROM schedules WHERE 1 = 0",

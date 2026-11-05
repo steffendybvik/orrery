@@ -1,4 +1,4 @@
-// orrery's API in Rust (ORR-922). For now it serves docs and the statuses (ORR-926), on the database the Nuxt server opens, and only
+// orrery's API in Rust (ORR-922). For now it serves docs, the statuses (ORR-926) and reading an issue's comments (ORR-927), on the database the Nuxt server opens, and only
 // to that server: the router there (web/server/middleware/zz-api.ts) checks a request as it always has (auth, the
 // board's permissions, the chat's and untrusted sessions' rails, the browser guards) and then forwards it here with
 // who it's from. So this listens on loopback, and answers only a request that carries the token they share.
@@ -11,6 +11,7 @@
 //
 // `orrery-api migrate` brings NUXT_DATABASE's schema up to date instead (ORR-931), and exits. Nothing runs it yet: the
 // Nuxt server migrates the database as it opens it until the last domain has moved here.
+mod comments;
 mod db;
 mod docs;
 mod error;
@@ -26,6 +27,7 @@ use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, patch, post};
 use axum::{Json, Router};
+use comments::{comment_id, Comments};
 use docs::{Actor, Docs, Effects};
 use error::{ApiError, Result};
 use percent_encoding::{percent_decode_str, utf8_percent_encode, NON_ALPHANUMERIC};
@@ -198,6 +200,17 @@ async fn delete_section(State(app): Shared, Path((project, section)): Path<(Stri
     Ok(reply(StatusCode::NO_CONTENT, None, effects))
 }
 
+async fn list_comments(State(app): Shared, Path((project, issue)): Path<(String, String)>) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    Ok(Json(Comments::new(&mut conn).list(&project, &issue).await?).into_response())
+}
+
+async fn get_comment(State(app): Shared, Path((project, issue, comment)): Path<(String, String, String)>) -> Result<Response> {
+    let id = comment_id(&comment)?;
+    let mut conn = app.pool.acquire().await?;
+    Ok(Json(Comments::new(&mut conn).comment(&project, &issue, id).await?).into_response())
+}
+
 /// Runs `work` with the statuses on a connection of the pool's, as `with_docs` does with the docs.
 macro_rules! with_statuses {
     ($app:expr, |$statuses:ident| $work:expr) => {{
@@ -230,7 +243,7 @@ async fn delete_status(State(app): Shared, Path(status): Path<String>, Query(que
 }
 
 async fn health() -> Json<Value> {
-    Json(json!({"ok": true, "domains": ["docs", "statuses"]}))
+    Json(json!({"ok": true, "domains": ["docs", "statuses", "comments, reading"]}))
 }
 
 fn router(app: Arc<App>) -> Router {
@@ -245,6 +258,8 @@ fn router(app: Arc<App>) -> Router {
         .route(&format!("{P}/deleted-docs"), get(deleted_docs))
         .route(&format!("{P}/doc-sections"), get(list_sections).post(create_section))
         .route(&format!("{P}/doc-sections/{{section}}"), patch(patch_section).delete(delete_section))
+        .route(&format!("{P}/issues/{{issue}}/comments"), get(list_comments))
+        .route(&format!("{P}/issues/{{issue}}/comments/{{comment}}"), get(get_comment))
         .route("/api/statuses", get(list_statuses).post(create_status))
         .route("/api/statuses/{status}", patch(patch_status).delete(delete_status))
         .layer(middleware::from_fn_with_state(app.clone(), guard))
