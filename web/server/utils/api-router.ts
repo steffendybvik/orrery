@@ -64,6 +64,9 @@ export const DOMAINS: readonly {domain: string, paths: RegExp, methods?: readonl
     // One pull request as orrery keeps it, read (ORR-952). The other pull reads ask GitHub when what's kept is stale,
     // which is the local app's to do, and the poll's writes wake sessions (ORR-929), so they stay here.
     {domain: 'a pull request, reading', paths: /^pulls\/[^/]+\/[^/]+\/[^/]+$/, methods: ['GET']},
+    // Rating an issue's PR's risk (ORR-952): only its columns of `issue_pulls`, with the board told it changed. The poll
+    // keeping a PR stays here, as a merge sets an issue's release and posts orrery's comments.
+    {domain: "a pull request's risk", paths: /^projects\/[^/]+\/issues\/[^/]+\/pulls\/[^/]+\/[^/]+\/[^/]+\/risk$/, methods: ['PUT']},
 ]
 
 /** The headers a reply that isn't JSON keeps on its way through: what it is, how long the browser keeps it, and that

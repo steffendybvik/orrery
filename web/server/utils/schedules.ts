@@ -174,8 +174,10 @@ export class Schedules {
         const rows = project
             ? (await this.db.all<ScheduleRow>('SELECT * FROM schedules WHERE project = ?', project))
             : (await this.db.all<ScheduleRow>('SELECT * FROM schedules'))
+        // By plain order, as `localeCompare` puts any punctuation before digits: none due last (ORR-981).
+        const due = (s: Schedule) => s.next_run ?? '~'
         return (await Promise.all(rows.map(row => this.scheduleOf(row))))
-            .sort((a, b) => (a.next_run ?? '~').localeCompare(b.next_run ?? '~') || a.title.localeCompare(b.title))
+            .sort((a, b) => (due(a) < due(b) ? -1 : due(a) > due(b) ? 1 : 0) || a.title.localeCompare(b.title))
     }
 
     async get(project: string, id: number): Promise<Schedule> {
