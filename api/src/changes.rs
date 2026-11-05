@@ -1,8 +1,8 @@
 // The outbox (ORR-929, the `rust-api-events` decision): a row for each thing a write set off, so the local app can
 // follow a board it doesn't front, from `GET /api/changes?after=<id>`, and carry on from where it was after a gap. The
 // rows go in inside each write's own transaction (`finish`), so a rolled-back write says nothing and a committed one is
-// never lost. The Nuxt server's own writes add theirs next. Nothing reads them yet: the reply headers still carry what
-// changed.
+// never lost. The Nuxt server's own writes add theirs too (`keep` in web/server/store/base.ts). Nothing reads them yet:
+// the reply headers still carry what changed.
 use crate::db::sql;
 use crate::docs::{stamp, Actor, Effects};
 use crate::error::{ApiError, Result};

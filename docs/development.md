@@ -136,9 +136,12 @@ to the pull tables (the poll, a rating), which waits on how the local app hears 
 
 The outbox (ORR-929, `api/src/changes.rs`, the `rust-api-events` decision): each write the API makes adds a row to
 `changes` for each thing it set off (a project changed, the settings, each event told), and `GET /api/changes?after=<id>`
-reads them, oldest first, a page at a time, with `last` to ask after next. So far the rows go in just after the write, on
-its connection, rather than in its transaction, and only the API's writes add them. Nothing reads them yet: the reply
-headers still carry what changed to the Nuxt server.
+reads them, oldest first, a page at a time, with `last` to ask after next. The API's rows go in inside each write's
+transaction. The Nuxt server's own writes add theirs too (`keep` in `web/server/store/base.ts`), once their transaction
+commits, beside the hooks: a project changed, each event told (with where a value went), a signal, an agent's comment for
+the bell and the settings, with who did it, whether an untrusted session did, and the schedule run (`cause`). What the API
+made and Nuxt is only told of (`told`, `changed(project, false)`, `settingsChanged`) adds none, as the API kept it.
+Nothing reads them yet: the reply headers still carry what changed to the Nuxt server.
 
 ## The page's pieces
 
