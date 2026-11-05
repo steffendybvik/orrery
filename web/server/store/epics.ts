@@ -9,6 +9,7 @@ import type {EpicRow} from './schema'
 import {AGENT, EPIC_FIELDS, nullable, stamp, tallyEpics} from './schema'
 import {ReleaseStore} from './releases'
 import {readReleaseBoard} from './reads'
+import {known} from '#shared/known'
 
 export abstract class EpicStore extends ReleaseStore {
     /** Tells open pages the epics changed (`/api/events`' `epics`), so they ask for them again. */
@@ -53,7 +54,7 @@ export abstract class EpicStore extends ReleaseStore {
      * with its sub-issues. */
     async epic(id: number): Promise<EpicDetail> {
         const row = await this.epicRow(id)
-        const epic = (await this.epics()).find(e => e.id === row.id)!
+        const epic = known((await this.epics()).find(e => e.id === row.id), `epic ${row.id}`)
         const parts = await Promise.all((await this.projectsIn([row.id])).map(async project => {
             const p = await this.project(project)
             const tasks: Issue[] = []

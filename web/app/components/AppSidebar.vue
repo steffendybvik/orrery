@@ -276,6 +276,15 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
         <span v-if="preparingCount" class="font-mono text-[11px] text-faint tabular-nums" :title="`${preparingCount} being prepared`">{{ preparingCount }}</span>
       </NuxtLink>
 
+      <NuxtLink
+          to="/epics"
+          class="flex items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] transition-colors"
+          :class="route.path.startsWith('/epics') ? 'bg-active font-medium text-fg' : 'text-muted hover:bg-hover hover:text-fg'"
+      >
+        <SectionIcon section="epics" class="size-4 text-faint" />
+        <span class="flex-1">Epics</span>
+      </NuxtLink>
+
       <template v-if="appSettings.advanced">
         <NuxtLink
             to="/events"

@@ -10,6 +10,7 @@ defineProps<{section: Section}>()
     <template v-if="section === 'issues'"><circle cx="12" cy="12" r="8" /><circle cx="12" cy="12" r="2.5" fill="currentColor" stroke="none" /></template>
     <template v-else-if="section === 'roadmap'"><path d="M4 6h9M4 12h13M4 18h6" /><circle cx="17" cy="6" r="1.6" fill="currentColor" stroke="none" /><circle cx="20" cy="18" r="1.6" fill="currentColor" stroke="none" /></template>
     <template v-else-if="section === 'releases'"><path d="M3 12V4h8l10 10-7 7Z" /><circle cx="7.5" cy="8.5" r="1.5" fill="currentColor" stroke="none" /></template>
+    <template v-else-if="section === 'epics'"><path d="m12 3 9 4.5-9 4.5-9-4.5Z" /><path d="m3 12 9 4.5 9-4.5M3 16.5 12 21l9-4.5" /></template>
     <template v-else-if="section === 'schedules'"><circle cx="12" cy="13" r="8" /><path d="M12 9v4l2.5 2.5M9 2h6" /></template>
     <template v-else-if="section === 'sessions'"><circle cx="12" cy="12" r="8" /><circle cx="12" cy="12" r="3" /><path d="M12 2v3M12 19v3M2 12h3M19 12h3" /></template>
     <template v-else-if="section === 'settings'"><circle cx="12" cy="12" r="3" /><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1" /></template>

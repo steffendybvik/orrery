@@ -165,6 +165,7 @@ export default defineNuxtPlugin(() => {
             byProject.value = {...byProject.value, [project]: schedules}
             void useSchedules().loadAcross()
         })
+        events.addEventListener('epics', () => void useEpics().load())
         events.addEventListener('secrets', event => {
             useSecretList().secrets.value = JSON.parse((event as MessageEvent).data) as Secret[]
         })
