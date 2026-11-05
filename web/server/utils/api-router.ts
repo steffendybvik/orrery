@@ -12,15 +12,26 @@ import type {H3Event} from 'h3'
 import {createError, getRequestHeader, readRawBody, setResponseHeader, setResponseStatus} from 'h3'
 import type {Actor} from '../store/schema'
 
-/** The paths the Rust API serves: a project's docs, their revisions and sections. An artifact's page stays here: it's
- * drawn with the page's own sanitising and its locked-down headers (`artifact.get.ts`). */
-const SERVED = /^\/api\/projects\/[^/]+\/(docs(\/[^/]+(\/revisions(\/[^/]+(\/restore)?)?)?)?|deleted-docs|doc-sections(\/[^/]+)?)\/?$/
+/** The domains the Rust API serves, a line each (ORR-925): moving a domain there is adding its line once the parity test
+ * passes, and taking it back to the routes here is taking the line out. Each matches a whole path after `/api/`, with no
+ * slash at the end, and takes every method its routes do. */
+export const DOMAINS: readonly {domain: string, paths: RegExp}[] = [
+    // A project's docs, their revisions and sections (ORR-922). An artifact's page stays here: it's drawn with the
+    // page's own sanitising and its locked-down headers (`artifact.get.ts`).
+    {domain: 'docs', paths: /^projects\/[^/]+\/(docs(\/[^/]+(\/revisions(\/[^/]+(\/restore)?)?)?)?|deleted-docs|doc-sections(\/[^/]+)?)$/},
+]
 
 const WRITES = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
 
-/** Whether the Rust API serves `path` (as `pathOf` gives it), whatever the method: its routes take the same ones these do. */
+/** The domain whose line sends `path` (as `pathOf` gives it) to the Rust API, or undefined for the routes here. */
+export function domainOf(path: string): string | undefined {
+    const rest = /^\/api\/(.*?)\/?$/.exec(path)?.[1]
+    return rest === undefined ? undefined : DOMAINS.find(({paths}) => paths.test(rest))?.domain
+}
+
+/** Whether the Rust API serves `path`, whatever the method: its routes take the same ones these do. */
 export function servedByApi(path: string): boolean {
-    return SERVED.test(path)
+    return domainOf(path) !== undefined
 }
 
 /** The database as the API is told it: its setting hashed, as a Postgres URL holds a password. */

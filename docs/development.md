@@ -67,6 +67,9 @@ How it fits together:
   permissions, the chat's and untrusted rails, the browser guards), works out who's asking (`actorOf`) and sends the
   request on with a token both were given, the database it's on, and that actor (`web/server/utils/api-router.ts`).
   The API listens on loopback and answers nothing else.
+- **A line per domain.** `DOMAINS` in `api-router.ts` lists what goes to the API, one line each, matched on the path
+  after `/api/`. A domain moves there by adding its line once the parity test passes, and goes back to Nuxt by taking
+  the line out (ORR-925). The contract test holds `openapi.yaml` to whatever the lines send on.
 - **What a write sets off stays Nuxt's.** The API's reply says what changed (`Orrery-Changed`, `Orrery-Told`), and the
   router tells it as the store would: open pages read the project again, and the event log and schedules hear
   `doc.created`, `doc.changed`, `doc.deleted` ([Event flows](/p/orrery/docs/event-flows)).
@@ -82,8 +85,8 @@ and stops it with itself. Or run one yourself and point at it: `NUXT_API_TOKEN` 
 Its checks: `cargo fmt --check`, `cargo clippy -- -D warnings` and `cargo test` in `api/`. `web/test/api-parity.test.ts`
 runs the same steps through the store and through the API on one database (SQLite, or Postgres with
 `TEST_POSTGRES_URL`) and compares the replies, failures and what each said changed; it skips without a built binary,
-and CI's `api` job builds one first. It also holds `openapi.yaml` to the routes the router sends on. A browser spec runs
-through the API with `NUXT_API_BIN` set.
+and CI's `api` job builds one first. It also holds `openapi.yaml` to the routes the router sends on. No browser spec runs
+through the API yet: they all start Nuxt without `NUXT_API_BIN`.
 
 A change to a docs route is now a change in three places: the store (`web/server/store/docs.ts`), the API
 (`api/src/docs.rs`) and the contract, with the parity test saying when they differ.

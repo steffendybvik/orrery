@@ -15,7 +15,7 @@ import type {Actor} from '../server/store/schema'
 import {SqliteDb} from '../server/utils/database'
 import {openDb} from '../server/utils/db'
 import {PostgresDb} from '../server/utils/postgres'
-import {actorHeaders, databaseMark, servedByApi, toldOf} from '../server/utils/api-router'
+import {actorHeaders, databaseMark, domainOf, DOMAINS, servedByApi, toldOf} from '../server/utils/api-router'
 
 const BIN = process.env.ORRERY_API_BIN || fileURLToPath(new URL('../../api/target/debug/orrery-api', import.meta.url))
 const TOKEN = 'parity-token-0123456789'
@@ -202,6 +202,13 @@ describe('the router', () => {
         for (const path of ['/api/projects/p/docs', '/api/projects/p/docs/', '/api/projects/p/docs/d', '/api/projects/p/docs/d/revisions', '/api/projects/p/docs/d/revisions/3',
             '/api/projects/p/docs/d/revisions/3/restore', '/api/projects/p/deleted-docs', '/api/projects/p/doc-sections', '/api/projects/p/doc-sections/how it works']) expect(servedByApi(path), path).toBe(true)
         for (const path of ['/api/projects/p/docs/d/artifact', '/api/projects/p/issues', '/api/projects/p', '/api/projects/p/docs/d/revisions/3/other', '/api/docs']) expect(servedByApi(path), path).toBe(false)
+    })
+
+    it('routes by a table with a line per domain, so taking one back is taking its line out (ORR-925)', () => {
+        expect(DOMAINS.map(({domain}) => domain)).toEqual(['docs'])
+        expect(domainOf('/api/projects/p/docs/d')).toBe('docs')
+        expect(domainOf('/api/projects/p/doc-sections/')).toBe('docs')
+        for (const path of ['/api/projects/p/issues', '/api/', '/docs', '/api/projects/p/docs/d/artifact']) expect(domainOf(path), path).toBeUndefined()
     })
 
     it('says who\'s asking in ASCII, and reads back what happened', () => {
