@@ -49,6 +49,7 @@ describe('every open pull request', () => {
     it('reads the ids a PR names, its body\'s links first, as written', () => {
         expect(issueIdsIn({body: 'Issue: http://localhost:9010/p/shop/issues/SHO-2', head: {ref: 'feat/sho-1-cards'}})).toEqual(['SHO-2', 'SHO-1'])
         expect(issueIdsIn({body: 'fixes SHO-1', head: {ref: 'v1.0.0-rc.11'}})).toEqual([])
+        expect(issueIdsIn({body: 'Quotes `[SHO-3](/p/shop/issues/SHO-3)`. Issue: http://localhost:9010/p/shop/issues/SHO-2', head: {ref: 'main-work'}})).toEqual(['SHO-2'])
         expect(issueIdsIn({body: null, head: {ref: 'feat/sho-1-sho-1'}})).toEqual(['SHO-1'])
     })
 
