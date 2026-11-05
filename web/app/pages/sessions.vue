@@ -7,7 +7,8 @@ import type {Heading} from '~/utils/markdown'
 
 // Every Claude session, in one place, by project: what each is doing, what it's on and was last sent, with its
 // actions and a message box (SessionCard). A sidebar row opens its session (`#session-<id>`), lit up for a moment.
-// Start session starts one on any project, or several; Message sessions says one thing to all of them (idle ones by default).
+// Start session starts one on any project, or several; Message sessions says one thing to all of them (idle ones by default);
+// Close all stops every one listed but the owner's chat, asking first (ORR-970).
 // Three tabs keep them apart: Sessions, what's running; Setup (`?tab=setup`, or a link to one of its sections): first the
 // launcher's install command, always in view (ORR-473; once, with repos picked up after, ORR-600), with whether orrery may start sessions
 // and how, then the presets to start one with, and what sessions hear;
@@ -43,6 +44,8 @@ const groups = computed(() => ordered.value
     .filter(g => g.sessions.length))
 // With none, the toolbar says nothing and offers no Message sessions: the empty state below says it once (ORR-555).
 const count = computed(() => spanning.value.length + groups.value.reduce((n, g) => n + g.sessions.length, 0))
+// Every session the page lists, once each, for Close all (ORR-970).
+const listed = computed(() => [...spanning.value, ...groups.value.flatMap(g => g.sessions)])
 // What takes the place of a session with no channel: a line per project, on what to do about it (ORR-716).
 const unheard = computed(() => ordered.value.map(project => ({project, sessions: withoutChannel(known(project.id))})).filter(u => u.sessions.length))
 
@@ -107,6 +110,7 @@ watch(() => [route.hash, count.value] as const, ([hash]) => show(hash), {immedia
     <SegmentedControl v-model="tab" :options="tabs" />
     <span v-if="count" class="truncate text-xs text-muted">{{ `${count} ${count === 1 ? 'session' : 'sessions'}` }}</span>
     <template #end>
+      <CloseAllSessions :sessions="listed" />
       <UiButton v-if="count" class="shrink-0" @click="messaging = true">Message sessions</UiButton>
       <UiButton variant="primary" class="shrink-0" @click="open()">
         <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14" /></svg>
