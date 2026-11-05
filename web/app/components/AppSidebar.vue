@@ -12,11 +12,6 @@ const {newErrors} = useLoggedEvents()
 // Advanced. Pull requests counts those that need someone, asked every two minutes while Advanced is on.
 const {pulls, load: loadPulls} = useOpenPulls()
 let pullsTimer: ReturnType<typeof setInterval> | undefined
-/** Advanced's fold (ORR-967): open while one of its pages is, else as it was left. */
-const advancedFolded = ref(true)
-const advancedOpen = computed(() => ['/events', '/context', '/pulls'].includes(route.path) || !advancedFolded.value)
-/** What waits in it, shown on the folded row: new kinds of error, and pull requests that need someone. */
-const advancedNeeds = computed(() => newErrors.value.length + (pulls.value?.needs ?? 0))
 
 watch(() => appSettings.value.advanced, on => {
     clearInterval(pullsTimer)
@@ -253,48 +248,35 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
       </NuxtLink>
 
       <template v-if="appSettings.advanced">
-        <!-- Events, Context and Pull requests fold under one row (ORR-967), open while one of them is open. -->
-        <button
-            type="button"
-            class="flex items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[13px] text-muted transition-colors hover:bg-hover hover:text-fg max-md:py-2.5 max-md:text-[15px]"
-            :aria-expanded="advancedOpen"
-            @click="advancedFolded = advancedOpen"
+        <NuxtLink
+            to="/events"
+            class="flex items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] transition-colors"
+            :class="route.path === '/events' ? 'bg-active font-medium text-fg' : 'text-muted hover:bg-hover hover:text-fg'"
         >
-          <svg class="size-4 text-faint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path :d="advancedOpen ? 'm6 9 6 6 6-6' : 'm9 6 6 6-6 6'" /></svg>
-          <span class="flex-1">Advanced</span>
-          <ErrorBadge v-if="!advancedOpen && advancedNeeds" :count="advancedNeeds" :title="`${advancedNeeds} to look at in Events and Pull requests`" />
-        </button>
-        <template v-if="advancedOpen">
-          <NuxtLink
-              to="/events"
-              class="flex items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] transition-colors"
-              :class="route.path === '/events' ? 'bg-active font-medium text-fg' : 'text-muted hover:bg-hover hover:text-fg'"
-          >
-            <svg class="size-4 text-faint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h16M4 12h10M4 18h7" /><circle cx="18" cy="16" r="3" /></svg>
-            <span class="flex-1">Events</span>
-            <ErrorBadge v-if="newErrors.length" :count="newErrors.length" :title="`${newErrors.length} new kind${newErrors.length === 1 ? '' : 's'} of error`" />
-          </NuxtLink>
+          <svg class="size-4 text-faint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h16M4 12h10M4 18h7" /><circle cx="18" cy="16" r="3" /></svg>
+          <span class="flex-1">Events</span>
+          <ErrorBadge v-if="newErrors.length" :count="newErrors.length" :title="`${newErrors.length} new kind${newErrors.length === 1 ? '' : 's'} of error`" />
+        </NuxtLink>
 
-          <NuxtLink
-              to="/context"
-              class="flex items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] transition-colors"
-              :class="route.path === '/context' ? 'bg-active font-medium text-fg' : 'text-muted hover:bg-hover hover:text-fg'"
-          >
-            <svg class="size-4 text-faint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19V5M9 19v-8M14 19V9M19 19v-4" /></svg>
-            <span class="flex-1">Context</span>
-          </NuxtLink>
+        <NuxtLink
+            to="/context"
+            class="flex items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] transition-colors"
+            :class="route.path === '/context' ? 'bg-active font-medium text-fg' : 'text-muted hover:bg-hover hover:text-fg'"
+        >
+          <svg class="size-4 text-faint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19V5M9 19v-8M14 19V9M19 19v-4" /></svg>
+          <span class="flex-1">Context</span>
+        </NuxtLink>
 
-          <NuxtLink
-              to="/pulls"
-              class="flex items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] transition-colors"
-              :class="route.path === '/pulls' ? 'bg-active font-medium text-fg' : 'text-muted hover:bg-hover hover:text-fg'"
-          >
-            <svg class="size-4 text-faint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="6" r="2.5" /><circle cx="6" cy="18" r="2.5" /><circle cx="18" cy="18" r="2.5" /><path d="M6 8.5v7M18 15.5V9a3 3 0 0 0-3-3h-4m2-2-2 2 2 2" /></svg>
-            <span class="flex-1">Pull requests</span>
-            <ErrorBadge v-if="pulls?.needs" :count="pulls.needs" :title="`${pulls.needs} need${pulls.needs === 1 ? 's' : ''} someone: conflicts, failing checks or behind`" />
-            <span v-else-if="pulls?.open" class="font-mono text-[11px] text-faint tabular-nums">{{ pulls.open }}</span>
-          </NuxtLink>
-        </template>
+        <NuxtLink
+            to="/pulls"
+            class="flex items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] transition-colors"
+            :class="route.path === '/pulls' ? 'bg-active font-medium text-fg' : 'text-muted hover:bg-hover hover:text-fg'"
+        >
+          <svg class="size-4 text-faint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="6" r="2.5" /><circle cx="6" cy="18" r="2.5" /><circle cx="18" cy="18" r="2.5" /><path d="M6 8.5v7M18 15.5V9a3 3 0 0 0-3-3h-4m2-2-2 2 2 2" /></svg>
+          <span class="flex-1">Pull requests</span>
+          <ErrorBadge v-if="pulls?.needs" :count="pulls.needs" :title="`${pulls.needs} need${pulls.needs === 1 ? 's' : ''} someone: conflicts, failing checks or behind`" />
+          <span v-else-if="pulls?.open" class="font-mono text-[11px] text-faint tabular-nums">{{ pulls.open }}</span>
+        </NuxtLink>
       </template>
 
       <!-- On a touch screen its small buttons are 28px to tap, around the same icons (ORR-816). -->

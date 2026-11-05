@@ -48,17 +48,16 @@ describe('AppSidebar', () => {
         expect(link(wrapper, '/releases')!.text()).toBe('Releases1')
     })
 
-    it('shows Events, Context and Pull requests only with Advanced on, folded under its row (ORR-967)', async () => {
+    it('shows Events, Context and Pull requests only with Advanced on, each on its own row', async () => {
         const off = await mount()
         for (const to of ['/events', '/context', '/pulls']) expect(link(off, to)).toBeUndefined()
-        expect(off.findAll('button').some(b => b.text() === 'Advanced')).toBe(false)
         off.unmount()
 
         useAppSettings().settings.value.advanced = true
         const on = await mount()
-        for (const to of ['/events', '/context', '/pulls']) expect(link(on, to)).toBeUndefined()
-        await on.findAll('button').find(b => b.text() === 'Advanced')!.trigger('click')
         for (const to of ['/events', '/context', '/pulls']) expect(link(on, to)).toBeDefined()
+        // No row folds them away (ORR-973 took ORR-967's back out).
+        expect(on.findAll('button').some(b => b.text() === 'Advanced')).toBe(false)
     })
 
     it('says so with no projects yet, once it has read them, and not before', async () => {
