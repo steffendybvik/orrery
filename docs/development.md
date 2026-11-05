@@ -6,7 +6,7 @@
 web/          the Nuxt app: app/ (the page), server/ (the API and the store), shared/ (both),
               public/, test/ (unit), e2e/ (browser), scripts/ (copy.ts, claim.mjs, worktrees.mjs), its package.json
 channel/      the channel, hooks and launcher Claude sessions run, which orrery serves to their machines
-api/          the Rust API (ORR-922): the docs domain so far, beside the Nuxt server; openapi.yaml is its contract
+api/          the Rust API (ORR-922): docs and the statuses so far, beside the Nuxt server; openapi.yaml is its contract
 docs/         these docs; docs/API.md is also served to agents (/api/guide, /llms-full.txt)
 ```
 
@@ -52,8 +52,8 @@ Without Docker: `pnpm install`, then `pnpm dev` on http://localhost:9000 (Node 2
 
 orrery's API is moving to Rust a domain at a time (ORR-921, ORR-922), the Nuxt server staying in front. Anything kept in
 the database goes there; what touches the machine (sessions, tmux, the launcher, local files) stays. So far it serves the
-**docs** domain: a project's docs, their sections and revisions, the routes in `api/openapi.yaml`. An artifact's page
-(`…/docs/:doc/artifact`) stays in Nuxt.
+**docs** domain (a project's docs, their sections and revisions) and the orrery's **statuses** (`/api/statuses`,
+ORR-926): the routes in `api/openapi.yaml`. An artifact's page (`…/docs/:doc/artifact`) stays in Nuxt.
 
 How it fits together:
 
@@ -67,9 +67,10 @@ How it fits together:
   permissions, the chat's and untrusted rails, the browser guards), works out who's asking (`actorOf`) and sends the
   request on with a token both were given, the database it's on, and that actor (`web/server/utils/api-router.ts`).
   The API listens on loopback and answers nothing else.
-- **What a write sets off stays Nuxt's.** The API's reply says what changed (`Orrery-Changed`, `Orrery-Told`), and the
-  router tells it as the store would: open pages read the project again, and the event log and schedules hear
-  `doc.created`, `doc.changed`, `doc.deleted` ([Event flows](/p/orrery/docs/event-flows)).
+- **What a write sets off stays Nuxt's.** The API's reply says what changed (`Orrery-Changed`, a comma-separated list
+  of projects; `Orrery-Settings: 1`; `Orrery-Told`), and the router tells it as the store would: open pages read each
+  project again, they get the settings again when a status changed (every board has them), and the event log and
+  schedules hear `doc.created`, `doc.changed`, `doc.deleted` ([Event flows](/p/orrery/docs/event-flows)).
 - **Falling back.** When the API is down, not started yet, or on another database (the owner moved it in App settings),
   the request goes on to the Nuxt routes, which still answer it.
 
@@ -85,8 +86,10 @@ runs the same steps through the store and through the API on one database (SQLit
 and CI's `api` job builds one first. It also holds `openapi.yaml` to the routes the router sends on. A browser spec runs
 through the API with `NUXT_API_BIN` set.
 
-A change to a docs route is now a change in three places: the store (`web/server/store/docs.ts`), the API
-(`api/src/docs.rs`) and the contract, with the parity test saying when they differ.
+A change to a docs or statuses route is now a change in three places: the store (`web/server/store/docs.ts`,
+`statuses.ts`), the API (`api/src/docs.rs`, `statuses.rs`) and the contract, with the parity test saying when they
+differ. The statuses are the orrery's, not a project's, so their parity steps run on each side in turn, with the table
+put back between.
 
 ## The page's pieces
 
