@@ -211,6 +211,17 @@ describe('schedules', () => {
         expect(await schedules.get('greenhouse', s.id)).toMatchObject({enabled: false, next_run: undefined})
     })
 
+    it('list soonest first and those with no next run last, ties by title (ORR-981)', async () => {
+        const paused = await schedules.create('greenhouse', {title: 'Air', cron: '0 9 * * *', timezone: 'UTC', enabled: false}, me)
+        await schedules.create('greenhouse', {title: 'Later', at: '2099-06-01T09:00:00Z'}, me)
+        await schedules.create('greenhouse', {title: 'Sooner', at: '2099-01-01T09:00:00Z'}, me)
+        await schedules.create('greenhouse', {title: 'Also sooner', at: '2099-01-01T09:00:00Z'}, me)
+        expect(paused.next_run).toBeUndefined()
+        for (const listed of [await schedules.list('greenhouse'), await schedules.list()]) {
+            expect(listed.map(s => s.title)).toEqual(['Also sooner', 'Sooner', 'Later', 'Air'])
+        }
+    })
+
     it('pause and resume, keeping the owner’s from agents', async () => {
         const s = await schedules.create('greenhouse', {title: 'Groom', cron: '0 9 * * *', timezone: 'UTC'}, me)
         expect(await schedules.update('greenhouse', s.id, {enabled: false}, me)).toMatchObject({enabled: false, next_run: undefined})
