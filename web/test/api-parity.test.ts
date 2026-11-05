@@ -39,6 +39,7 @@ let setting = ''
 const changes: string[] = []
 const events: OrreryEvent[] = []
 let settingsTold = 0
+const inFlight = new Set<Promise<unknown>>()
 
 describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, and reads issues and comments, as the store does', () => {
     beforeAll(async () => {
@@ -51,6 +52,15 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
             store = new Store(new SqliteDb(openDb(setting)), project => changes.push(project), undefined, undefined, () => settingsTold++)
         }
         store.happened = event => events.push(event)
+        // `changed()` looks up the projects sharing a release after it returns, and tells them when that answers. On
+        // Postgres's pool that can land in a later step: `settle()` waits for the store's queries in flight first.
+        const all = (store as unknown as {all: (...args: unknown[]) => Promise<unknown>}).all.bind(store)
+        ;(store as unknown as {all: (...args: unknown[]) => Promise<unknown>}).all = (...args) => {
+            const query = all(...args)
+            inFlight.add(query)
+            void query.finally(() => inFlight.delete(query)).catch(() => {})
+            return query
+        }
         // Both projects first, which on Postgres also lays the schema down before the API looks at it.
         for (const name of ['through-store', 'through-api']) await store.createProject({name, key: name === 'through-store' ? 'STO' : 'API'})
         api = spawn(BIN, [], {env: {...process.env, NUXT_API_TOKEN: TOKEN, NUXT_DATABASE: setting, ORRERY_API_LISTEN: '127.0.0.1:0', ...POSTGRES ? {ORRERY_API_SCHEMA: schema} : {}}})
@@ -70,8 +80,15 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         if (store?.db instanceof PostgresDb) await store.db.close()
     })
 
+    /** Waits for the store's queries in flight, and what they tell once they answer. */
+    async function settle() {
+        while (inFlight.size) await Promise.allSettled([...inFlight])
+        await new Promise(done => setImmediate(done))
+    }
+
     /** A step through the store, as its route would answer it. */
     async function viaStore(step: () => Promise<unknown>, status = 200): Promise<Outcome> {
+        await settle()
         const [before, told, settings] = [changes.length, events.length, settingsTold]
         try {
             const value = await step()
