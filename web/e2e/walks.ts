@@ -15,7 +15,12 @@ export const A11Y_KNOWN = ['nested-interactive']
  * specs change it while these walk. */
 export async function withSettings(page: Page, changes: () => Record<string, unknown>) {
     await page.route(/\/api\/settings$/, async route => {
-        const response = await route.fetch()
+        // Asked again once when `nuxt dev` dropped a kept-alive connection as it went (ECONNRESET), as support.ts reads do:
+        // a read, so asking twice changes nothing.
+        const response = await route.fetch().catch(async (error: Error) => {
+            if (route.request().method() !== 'GET' || !/ECONNRESET/.test(error.message)) throw error
+            return await route.fetch()
+        })
         if (route.request().method() !== 'GET') return route.fulfill({response})
         await route.fulfill({response, json: {...await response.json(), ...changes()}})
     })
