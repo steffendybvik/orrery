@@ -50,7 +50,7 @@ import {onYes} from './permission-prompt.mjs'
 import {channelFor, channelsIn, projectsIn, servesEvery} from './repo-channels.mjs'
 import {follow} from './sse.mjs'
 import {openWatch} from './terminal.mjs'
-import {BOOTSTRAP, CODE, VERSION, codeOnDisk, launcherMove, servedOtherCode, versionOnDisk} from './version.mjs'
+import {BOOTSTRAP, CODE, VERSION, codeOnDisk, launcherMove, olderThan, servedOtherCode, versionOnDisk} from './version.mjs'
 
 const mode = process.env.ORRERY_PERMISSION_MODE || 'auto'
 const log = (...parts) => console.error('[orrery launcher]', ...parts)
@@ -515,8 +515,10 @@ function serve({url, project, dir, picked_at: picked, connected_at: connected}, 
         url: () => `${api}/launches/stream?dir=${encodeURIComponent(dir)}${servesEvery(dir, url, project) ? '&every=1' : ''}&version=${encodeURIComponent(VERSION)}${picked ? `&picked=${encodeURIComponent(picked)}` : ''}${connected ? `&connected=${encodeURIComponent(connected)}` : ''}`,
         onEvent: async ({event, data}) => {
             if (event === 'ready') {
-                const {starts, version, token: given} = JSON.parse(data)
+                const {starts, version, oldest, token: given} = JSON.parse(data)
                 token = given ?? ''
+                // Older than the oldest launcher the orrery takes (ORR-965): said plainly, rather than half working.
+                if (oldest && olderThan(VERSION, oldest)) log(`this launcher runs ${VERSION}, and ${project}'s orrery takes ${oldest} or newer: update the checkout it runs from (git pull), or sessions it's asked to start may be refused`)
                 await report(api)
                 if (version) orreryVersions.set(url, version)
                 await checkServed(url)
