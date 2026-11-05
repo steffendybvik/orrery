@@ -53,13 +53,13 @@ Without Docker: `pnpm install`, then `pnpm dev` on http://localhost:9000 (Node 2
 orrery's API is moving to Rust a domain at a time (ORR-921, ORR-922), the Nuxt server staying in front. Anything kept in
 the database goes there; what touches the machine (sessions, tmux, the launcher, local files) stays. So far it serves the
 **docs** domain (a project's docs, their sections and revisions), the orrery's **statuses** (`/api/statuses`,
-ORR-926), **reading milestones and releases** (ORR-926: a project's, one of each, and `/api/releases`), **reading
-issues and their comments**, and **making and deleting a comment** (ORR-927: the list with its filters, one issue, its
-comments) and **people, invites, keys
+ORR-926), **milestones and releases** (ORR-926: a project's, one of each, and `/api/releases`; made, changed, frozen,
+shipped and deleted too, ORR-974), **reading
+issues and their comments**, and **making and deleting a comment** (ORR-927: the list with its filters, one issue, its comments) and **people, invites, keys
 and logins** (ORR-928, removing a person aside) **reading the secrets** (ORR-953, never a value) and **reading one pull request** (ORR-952,
 `/api/pulls/:owner/:name/:number`): the routes in
-`api/openapi.yaml`. An artifact's page (`…/docs/:doc/artifact`), a milestone's focus, and writing an issue, editing a
-comment (its route checks the session's claim on the issue first), and writing a milestone or a release stay in Nuxt, and so do setting, narrowing and deleting a secret and egress.
+`api/openapi.yaml`. An artifact's page (`…/docs/:doc/artifact`), a milestone's focus, and writing an issue and editing a
+comment (its route checks the session's claim on the issue first) stay in Nuxt, and so do setting, narrowing and deleting a secret and egress.
 
 How it fits together:
 

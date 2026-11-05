@@ -1,4 +1,4 @@
-// orrery's API in Rust (ORR-922). For now it serves docs, the statuses (ORR-926), milestones (ORR-926, written in ORR-974), reading releases (ORR-926), reading issues, their comments, their activity and the images uploaded to them (ORR-927), people, invites, keys and logins (ORR-928), presets (ORR-949), reading the secrets, never a value (ORR-953), the settings (ORR-954) and reading one pull request as orrery keeps it (ORR-952), on the database the Nuxt server opens, and only
+// orrery's API in Rust (ORR-922). For now it serves docs, the statuses (ORR-926), milestones and releases (ORR-926, written in ORR-974), reading issues, their comments, their activity and the images uploaded to them (ORR-927), people, invites, keys and logins (ORR-928), presets (ORR-949), reading the secrets, never a value (ORR-953), the settings (ORR-954) and reading one pull request as orrery keeps it (ORR-952), on the database the Nuxt server opens, and only
 // to that server: the router there (web/server/middleware/zz-api.ts) checks a request as it always has (auth, the
 // board's permissions, the chat's and untrusted sessions' rails, the browser guards) and then forwards it here with
 // who it's from. So this listens on loopback, and answers only a request that carries the token they share.
@@ -23,6 +23,7 @@ mod people;
 mod plans;
 mod presets;
 mod pulls;
+mod releases;
 mod secrets;
 mod settings;
 mod statuses;
@@ -50,6 +51,7 @@ use percent_encoding::{percent_decode_str, utf8_percent_encode, NON_ALPHANUMERIC
 use plans::Plans;
 use presets::{preset_id, Presets};
 use pulls::{pull_number, Pulls};
+use releases::Releases;
 use secrets::Secrets;
 use serde_json::{json, Value};
 use settings::Settings;
@@ -386,6 +388,34 @@ async fn delete_milestone(State(app): Shared, Path((project, milestone)): Path<(
     Ok(reply(StatusCode::NO_CONTENT, None, std::mem::take(&mut milestones.effects)))
 }
 
+async fn create_release(State(app): Shared, Path(project): Path<String>, headers: HeaderMap, body: Bytes) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    let mut releases = Releases::new(&mut conn);
+    releases.outbox = Some(Outbox::new(actor_of(&headers)));
+    let version = releases.create(&project, &body_of(&body), &actor_of(&headers)).await?;
+    let effects = std::mem::take(&mut releases.effects);
+    let value = Plans::new(&mut Issues::new(&mut conn)).release(&project, &version).await?;
+    Ok(reply(StatusCode::CREATED, Some(value), effects))
+}
+
+async fn patch_release(State(app): Shared, Path((project, release)): Path<(String, String)>, headers: HeaderMap, body: Bytes) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    let mut releases = Releases::new(&mut conn);
+    releases.outbox = Some(Outbox::new(actor_of(&headers)));
+    releases.update(&project, &release, &body_of(&body)).await?;
+    let effects = std::mem::take(&mut releases.effects);
+    let value = Plans::new(&mut Issues::new(&mut conn)).release(&project, &release).await?;
+    Ok(reply(StatusCode::OK, Some(value), effects))
+}
+
+async fn delete_release(State(app): Shared, Path((project, release)): Path<(String, String)>, headers: HeaderMap) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    let mut releases = Releases::new(&mut conn);
+    releases.outbox = Some(Outbox::new(actor_of(&headers)));
+    releases.delete(&project, &release, &actor_of(&headers)).await?;
+    Ok(reply(StatusCode::NO_CONTENT, None, std::mem::take(&mut releases.effects)))
+}
+
 async fn list_releases(State(app): Shared, Path(project): Path<String>) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
     Ok(Json(Plans::new(&mut Issues::new(&mut conn)).releases(&project).await?).into_response())
@@ -603,7 +633,7 @@ async fn restore_presets(State(app): Shared, headers: HeaderMap) -> Result<Respo
 
 async fn health() -> Json<Value> {
     Json(
-        json!({"ok": true, "domains": ["docs", "statuses", "issues, reading", "comments, reading", "activity", "milestones", "releases, reading", "people, but removing one", "invites", "keys", "logins", "uploads, reading", "presets", "secrets, reading", "settings", "a pull request, reading"]}),
+        json!({"ok": true, "domains": ["docs", "statuses", "issues, reading", "comments, reading", "activity", "milestones", "releases", "people, but removing one", "invites", "keys", "logins", "uploads, reading", "presets", "secrets, reading", "settings", "a pull request, reading"]}),
     )
 }
 
@@ -626,8 +656,8 @@ fn router(app: Arc<App>) -> Router {
         .route(&format!("{P}/issues/{{issue}}/activity"), get(get_activity))
         .route(&format!("{P}/milestones"), get(list_milestones).post(create_milestone))
         .route(&format!("{P}/milestones/{{milestone}}"), get(get_milestone).patch(patch_milestone).delete(delete_milestone))
-        .route(&format!("{P}/releases"), get(list_releases))
-        .route(&format!("{P}/releases/{{release}}"), get(get_release))
+        .route(&format!("{P}/releases"), get(list_releases).post(create_release))
+        .route(&format!("{P}/releases/{{release}}"), get(get_release).patch(patch_release).delete(delete_release))
         .route("/api/releases", get(all_releases))
         .route("/api/uploads/{upload}", get(get_upload))
         .route("/api/changes", get(list_changes))

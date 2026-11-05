@@ -39,8 +39,10 @@ export const DOMAINS: readonly {domain: string, paths: RegExp, methods?: readonl
     // A project's milestones, read (ORR-926) and written (ORR-974): the API tells what a write set off, as `Orrery-Told`,
     // and puts it in the outbox (ORR-929). A milestone's focus stays here, as it signals sessions.
     {domain: 'milestones', paths: /^projects\/[^/]+\/milestones(\/[^/]+)?$/},
-    // A project's releases, read, and every project's (ORR-926). Writing them stays here for now (ORR-974).
-    {domain: 'releases, reading', paths: /^(projects\/[^/]+\/releases(\/[^/]+)?|releases)$/, methods: ['GET']},
+    // A project's releases, read, and every project's (ORR-926), and a project's written, frozen and shipped (ORR-974):
+    // what a write set off is told back, as `Orrery-Told`, and put in the outbox (ORR-929).
+    {domain: 'releases', paths: /^projects\/[^/]+\/releases(\/[^/]+)?$/},
+    {domain: 'releases, every project\'s', paths: /^releases$/, methods: ['GET']},
     // Who's on this orrery: listing, adding and renaming them, and inviting one (ORR-928). Removing a person stays here,
     // as it unassigns their issues, and an issue's change wakes sessions (ORR-929).
     {domain: 'people, but removing one', paths: /^people(\/[^/]+)?$/, methods: ['GET', 'POST', 'PATCH']},

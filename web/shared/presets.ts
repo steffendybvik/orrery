@@ -1,4 +1,4 @@
-import presets from './presets.json'
+import presets from './presets.json' with {type: 'json'}
 
 // The presets orrery ships (ORR-343): the orrery's own, for sessions on any project, seeded once into each orrery,
 // new or upgraded, by their `key`. The owner can change or remove them; Reset to default brings back what's here,

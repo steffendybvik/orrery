@@ -17,9 +17,10 @@ info:
     - **Uploads, reading** (ORR-927): an image kept for Markdown (web/server/api/uploads/[upload].get.ts), passed on by
       the router as it came. Keeping one stays the Nuxt server's, as it compresses the image there.
     - **Statuses** (ORR-926): the orrery's issue statuses (web/server/api/statuses). Served by both.
-    - **Milestones** (ORR-926, written in ORR-974) **and releases, reading** (ORR-926): a project's milestones,
-      made, changed and deleted too, and its releases, one of each, and every project's releases (web/server/api/projects/[project]/milestones, releases, and web/server/api/releases.get.ts).
-      Both serve them; the router sends only their `GET`s there, as writing them stays the Nuxt server's.
+    - **Milestones and releases** (ORR-926, written in ORR-974): a project's milestones and releases, one of each,
+      made, changed (a release frozen and shipped too) and deleted, and every project's releases
+      (web/server/api/projects/[project]/milestones, releases, and web/server/api/releases.get.ts). Served by both; a
+      milestone's focus stays the Nuxt server's, as it signals sessions.
     - **People, invites, keys and logins** (ORR-928): who's on this orrery, inviting them, and the keys and logins people
       hold (web/server/api/people, invites, keys, logins). Served by both; removing a person stays the Nuxt server's, as
       it unassigns their issues, and so do logging in and out.
@@ -406,6 +407,16 @@ paths:
       responses:
         '200': {description: The releases, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/Release'}}}}}
         '404': {$ref: '#/components/responses/NotFound'}
+    post:
+      summary: Makes a release, at the top of the project's unless `position` places it
+      description: Told as `release.created`. Made shipped, it marks the docs as they are. One the owner makes is theirs to delete. Refused (400) on a project with no releases of its own.
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/ReleaseInput'}}}}
+      responses:
+        '201': {description: The release, content: {application/json: {schema: {$ref: '#/components/schemas/ReleaseDetail'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
   /api/projects/{project}/releases/{release}:
     parameters: [{$ref: '#/components/parameters/project'}, {$ref: '#/components/parameters/release'}]
     get:
@@ -413,6 +424,24 @@ paths:
       responses:
         '200': {description: The release, content: {application/json: {schema: {$ref: '#/components/schemas/ReleaseDetail'}}}}
         '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+    patch:
+      summary: Changes a release's branch, notes, days or place; its version can't change
+      description: 'Setting `frozen_on` or `shipped_on` is told as `release.frozen` or `release.shipped`, clearing it as `release.thawed` or `release.unshipped`; a new day on one already set is no event. Shipping marks the docs as they are, and un-shipping lets the mark go.'
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/ReleaseInput'}}}}
+      responses:
+        '200': {description: The release now, content: {application/json: {schema: {$ref: '#/components/schemas/ReleaseDetail'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+    delete:
+      summary: Deletes a release; its issues stay, set for no release, in the projects drawing on it too
+      description: Told as `release.deleted`. One the owner made is theirs to delete (403).
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      responses:
+        '204': {description: Deleted}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
         '404': {$ref: '#/components/responses/NotFound'}
   /api/releases:
     get:
@@ -670,6 +699,17 @@ components:
     NotFound: {description: 'No such project, doc, revision, section, issue, comment, milestone, release, person, key, login, secret or pull request', content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
     Conflict: {description: Taken already, or not the same kind, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
   schemas:
+    ReleaseInput:
+      type: object
+      description: '`version` is needed to make one, and can''t change. A change takes any of the rest; all but `position` can be null.'
+      additionalProperties: false
+      properties:
+        version: {type: string, pattern: '^[0-9A-Za-z][0-9A-Za-z.+_-]{0,39}$'}
+        branch: {type: [string, 'null']}
+        notes: {type: [string, 'null']}
+        frozen_on: {type: [string, 'null'], pattern: '^\d{4}-\d{2}-\d{2}$'}
+        shipped_on: {type: [string, 'null'], pattern: '^\d{4}-\d{2}-\d{2}$'}
+        position: {type: number}
     MilestoneInput:
       type: object
       description: '`title` is needed to make one. A change takes any of them; `summary` and `priority` can be null.'
