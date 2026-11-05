@@ -85,11 +85,22 @@ test('chats with a session that answers on the page, and is listed nowhere', asy
         await expect(pane.locator('header')).not.toContainText('Thinking')
         // Its answer comes back through its channel's reply tool.
         const answered = await request.post(`/api/chats/${chat.id}/replies`, {
-            data: {text: 'Jars of **jam**.'},
+            data: {text: 'Jars of **jam**, as [OBS-1](/p/observatory/issues/OBS-1) says.'},
             headers: {'Orrery-Actor': 'claude', 'Orrery-Chat': 'yes', 'Orrery-Launch': chat.id},
         })
         expect(answered.ok(), await answered.text()).toBeTruthy()
         await expect(pane.locator('strong', {hasText: 'jam'})).toBeVisible()
+        // A link in it to one of orrery's own pages opens in a new tab, so the chat stays where it is (ORR-944).
+        const issueLink = pane.getByRole('link', {name: 'OBS-1'})
+        await expect(issueLink).toHaveAttribute('target', '_blank')
+        await expect(issueLink).toHaveAttribute('rel', 'noopener')
+        const opening = page.context().waitForEvent('page')
+        await issueLink.click()
+        const tab = await opening
+        await expect(tab).toHaveURL(/\/p\/observatory\/issues\/OBS-1$/)
+        await tab.close()
+        await expect(page).toHaveURL(/\/p\/observatory$/)
+        await expect(pane).toBeVisible()
         // Answered partway through its turn, it's still working: the spinner stays, after the reply, until the turn ends.
         await expect(pane.getByLabel('Thinking…')).toBeVisible()
         expect(await pane.locator('ol > li').last().getAttribute('aria-label')).toBe('Thinking…')
@@ -103,7 +114,7 @@ test('chats with a session that answers on the page, and is listed nowhere', asy
         await pane.getByLabel('Conversation', {exact: true}).getByText('Jars of').hover()
         await pane.getByRole('button', {name: 'Copy this reply'}).click()
         await expect(pane.getByRole('button', {name: 'Copy this reply'})).toHaveText('Copied')
-        expect(await page.evaluate(() => (window as unknown as {copied: string[]}).copied)).toEqual(['Jars of **jam**.'])
+        expect(await page.evaluate(() => (window as unknown as {copied: string[]}).copied)).toEqual(['Jars of **jam**, as [OBS-1](/p/observatory/issues/OBS-1) says.'])
         // Anything but making issues, commenting and answering is refused.
         const moved = await request.post('/api/projects/observatory/issues/OBS-1/focus', {data: {}, headers: {'Orrery-Actor': 'claude', 'Orrery-Chat': 'yes'}})
         expect(moved.status()).toBe(403)
