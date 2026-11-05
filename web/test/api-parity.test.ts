@@ -200,15 +200,28 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs as the store does', 
 describe('the router', () => {
     it('sends the docs domain to the API, and keeps an artifact\'s page and everything else here', () => {
         for (const path of ['/api/projects/p/docs', '/api/projects/p/docs/', '/api/projects/p/docs/d', '/api/projects/p/docs/d/revisions', '/api/projects/p/docs/d/revisions/3',
-            '/api/projects/p/docs/d/revisions/3/restore', '/api/projects/p/deleted-docs', '/api/projects/p/doc-sections', '/api/projects/p/doc-sections/how it works']) expect(servedByApi(path), path).toBe(true)
-        for (const path of ['/api/projects/p/docs/d/artifact', '/api/projects/p/issues', '/api/projects/p', '/api/projects/p/docs/d/revisions/3/other', '/api/docs']) expect(servedByApi(path), path).toBe(false)
+            '/api/projects/p/docs/d/revisions/3/restore', '/api/projects/p/deleted-docs', '/api/projects/p/doc-sections', '/api/projects/p/doc-sections/how it works']) expect(servedByApi('GET', path), path).toBe(true)
+        for (const path of ['/api/projects/p/docs/d/artifact', '/api/projects/p/issues', '/api/projects/p', '/api/projects/p/docs/d/revisions/3/other', '/api/docs']) expect(servedByApi('GET', path), path).toBe(false)
     })
 
     it('routes by a table with a line per domain, so taking one back is taking its line out (ORR-925)', () => {
         expect(DOMAINS.map(({domain}) => domain)).toEqual(['docs'])
-        expect(domainOf('/api/projects/p/docs/d')).toBe('docs')
-        expect(domainOf('/api/projects/p/doc-sections/')).toBe('docs')
-        for (const path of ['/api/projects/p/issues', '/api/', '/docs', '/api/projects/p/docs/d/artifact']) expect(domainOf(path), path).toBeUndefined()
+        expect(domainOf('PATCH', '/api/projects/p/docs/d')).toBe('docs')
+        expect(domainOf('head', '/api/projects/p/doc-sections/')).toBe('docs')
+        for (const path of ['/api/projects/p/issues', '/api/', '/docs', '/api/projects/p/docs/d/artifact']) expect(domainOf('GET', path), path).toBeUndefined()
+    })
+
+    it('sends only the methods a line names, so a domain\'s reads can move before its writes (ORR-927)', () => {
+        // A line for the test alone, taken out after: the table holds no method-limited domain yet.
+        const table = DOMAINS as (typeof DOMAINS[number])[]
+        table.push({domain: 'comments, reading', paths: /^projects\/[^/]+\/issues\/[^/]+\/comments(\/[^/]+)?$/, methods: ['GET']})
+        try {
+            expect(domainOf('GET', '/api/projects/p/issues/P-1/comments')).toBe('comments, reading')
+            expect(domainOf('HEAD', '/api/projects/p/issues/P-1/comments/3')).toBe('comments, reading')
+            for (const method of ['POST', 'PATCH', 'DELETE']) expect(domainOf(method, '/api/projects/p/issues/P-1/comments'), method).toBeUndefined()
+        } finally {
+            table.pop()
+        }
     })
 
     it('says who\'s asking in ASCII, and reads back what happened', () => {
@@ -243,7 +256,7 @@ describe('the contract (api/openapi.yaml)', () => {
         return walk(root).map(file => {
             const [, route = '', method = ''] = /^(.*?)\.(get|put|post|patch|delete)\.ts$/.exec(relative(root, file)) ?? []
             return {method: method.toUpperCase(), path: `/api/${route}`.replace(/\/index$/, '').replace(/\[(\w+)\]/g, '{$1}')}
-        }).filter(({method, path}) => method && servedByApi(path.replace(/\{\w+\}/g, 'x'))).map(({method, path}) => `${method} ${path}`).sort()
+        }).filter(({method, path}) => method && servedByApi(method, path.replace(/\{\w+\}/g, 'x'))).map(({method, path}) => `${method} ${path}`).sort()
     }
 
     it('has every route the router sends to the API, and no other', () => {

@@ -14,8 +14,9 @@ import type {Actor} from '../store/schema'
 
 /** The domains the Rust API serves, a line each (ORR-925): moving a domain there is adding its line once the parity test
  * passes, and taking it back to the routes here is taking the line out. Each matches a whole path after `/api/`, with no
- * slash at the end, and takes every method its routes do. */
-export const DOMAINS: readonly {domain: string, paths: RegExp}[] = [
+ * slash at the end. A line with `methods` sends only those there, so a domain's reads can move before its writes
+ * (`GET …/comments` before `POST …/comments`, ORR-927); one without takes every method its routes do. */
+export const DOMAINS: readonly {domain: string, paths: RegExp, methods?: readonly string[]}[] = [
     // A project's docs, their revisions and sections (ORR-922). An artifact's page stays here: it's drawn with the
     // page's own sanitising and its locked-down headers (`artifact.get.ts`).
     {domain: 'docs', paths: /^projects\/[^/]+\/(docs(\/[^/]+(\/revisions(\/[^/]+(\/restore)?)?)?)?|deleted-docs|doc-sections(\/[^/]+)?)$/},
@@ -23,15 +24,18 @@ export const DOMAINS: readonly {domain: string, paths: RegExp}[] = [
 
 const WRITES = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
 
-/** The domain whose line sends `path` (as `pathOf` gives it) to the Rust API, or undefined for the routes here. */
-export function domainOf(path: string): string | undefined {
+/** The domain whose line sends `method` on `path` (as `pathOf` gives it) to the Rust API, or undefined for the routes
+ * here. A HEAD goes where its GET does. */
+export function domainOf(method: string, path: string): string | undefined {
     const rest = /^\/api\/(.*?)\/?$/.exec(path)?.[1]
-    return rest === undefined ? undefined : DOMAINS.find(({paths}) => paths.test(rest))?.domain
+    if (rest === undefined) return undefined
+    const asked = method.toUpperCase() === 'HEAD' ? 'GET' : method.toUpperCase()
+    return DOMAINS.find(({paths, methods}) => paths.test(rest) && (!methods || methods.includes(asked)))?.domain
 }
 
-/** Whether the Rust API serves `path`, whatever the method: its routes take the same ones these do. */
-export function servedByApi(path: string): boolean {
-    return domainOf(path) !== undefined
+/** Whether the Rust API serves `method` on `path`. */
+export function servedByApi(method: string, path: string): boolean {
+    return domainOf(method, path) !== undefined
 }
 
 /** The database as the API is told it: its setting hashed, as a Postgres URL holds a password. */

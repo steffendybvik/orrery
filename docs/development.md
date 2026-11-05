@@ -69,7 +69,8 @@ How it fits together:
   The API listens on loopback and answers nothing else.
 - **A line per domain.** `DOMAINS` in `api-router.ts` lists what goes to the API, one line each, matched on the path
   after `/api/`. A domain moves there by adding its line once the parity test passes, and goes back to Nuxt by taking
-  the line out (ORR-925). The contract test holds `openapi.yaml` to whatever the lines send on.
+  the line out (ORR-925). A line can name its `methods`, so a domain's reads move before its writes, which share their
+  paths. The contract test holds `openapi.yaml` to whatever the lines send on, method by method.
 - **What a write sets off stays Nuxt's.** The API's reply says what changed (`Orrery-Changed`, `Orrery-Told`), and the
   router tells it as the store would: open pages read the project again, and the event log and schedules hear
   `doc.created`, `doc.changed`, `doc.deleted` ([Event flows](/p/orrery/docs/event-flows)).

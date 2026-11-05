@@ -5,7 +5,7 @@ import {pathOf} from '../utils/auth'
 
 export default defineEventHandler(async event => {
     const api = apiTarget(useRuntimeConfig())
-    if (!api || !servedByApi(pathOf(event))) return
+    if (!api || !servedByApi(event.method, pathOf(event))) return
     const reply = await forwardToApi(event, api)
     // A middleware that returns anything answers the request; undefined goes on to the routes here.
     if (reply !== undefined) return reply
