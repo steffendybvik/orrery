@@ -36,6 +36,7 @@ use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, patch, post};
 use axum::{Json, Router};
+use changes::Outbox;
 use comments::{comment_id, Comments};
 use docs::{Actor, Docs, Effects};
 use error::{ApiError, Result};
@@ -177,14 +178,13 @@ macro_rules! with_docs {
         let value = $work;
         (value, std::mem::take(&mut $docs.effects))
     }};
-    // A write: what it set off goes into the outbox on its own connection (ORR-929).
+    // A write: what it sets off goes into the outbox inside its transaction (ORR-929).
     ($app:expr, $headers:expr, |$docs:ident| $work:expr) => {{
         let mut conn = $app.pool.acquire().await?;
         let mut $docs = Docs::new(&mut *conn);
+        $docs.outbox = Some(Outbox::new(actor_of(&$headers)));
         let value = $work;
-        let effects = std::mem::take(&mut $docs.effects);
-        changes::record(&mut conn, &effects, &actor_of(&$headers)).await?;
-        (value, effects)
+        (value, std::mem::take(&mut $docs.effects))
     }};
 }
 
@@ -317,14 +317,13 @@ macro_rules! with_statuses {
         let value = $work;
         (value, std::mem::take(&mut $statuses.effects))
     }};
-    // A write: what it set off goes into the outbox on its own connection (ORR-929).
+    // A write: what it sets off goes into the outbox inside its transaction (ORR-929).
     ($app:expr, $headers:expr, |$statuses:ident| $work:expr) => {{
         let mut conn = $app.pool.acquire().await?;
         let mut $statuses = Statuses::new(&mut *conn);
+        $statuses.outbox = Some(Outbox::new(actor_of(&$headers)));
         let value = $work;
-        let effects = std::mem::take(&mut $statuses.effects);
-        changes::record(&mut conn, &effects, &actor_of(&$headers)).await?;
-        (value, effects)
+        (value, std::mem::take(&mut $statuses.effects))
     }};
 }
 
@@ -357,11 +356,10 @@ async fn get_settings(State(app): Shared) -> Result<Response> {
 async fn patch_settings(State(app): Shared, headers: HeaderMap, body: Bytes) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
     let mut settings = Settings::new(&mut conn);
+    // What it sets off goes into the outbox inside its transaction (ORR-929).
+    settings.outbox = Some(Outbox::new(actor_of(&headers)));
     let value = settings.update(&body_of(&body), &actor_of(&headers)).await?;
-    let effects = std::mem::take(&mut settings.effects);
-    // What it set off goes into the outbox on its own connection (ORR-929).
-    changes::record(&mut conn, &effects, &actor_of(&headers)).await?;
-    Ok(reply(StatusCode::OK, Some(value), effects))
+    Ok(reply(StatusCode::OK, Some(value), std::mem::take(&mut settings.effects)))
 }
 
 async fn list_people(State(app): Shared) -> Result<Response> {

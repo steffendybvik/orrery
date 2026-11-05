@@ -5,6 +5,7 @@
 // is Nuxt's `GET /api/machine`. A change tells the settings stream (`Effects.settings`), every project when `starts`
 // changed (each says whether orrery starts its sessions), and the keys changed (`Effects.settings_keys`), which the
 // router notes in the event log as the Nuxt route did.
+use crate::changes::{self, Outbox};
 use crate::db::sql;
 use crate::docs::{js, Actor, Effects};
 use crate::error::{ApiError, Result};
@@ -290,11 +291,13 @@ fn check_input(body: &Value) -> Result<Map<String, Value>> {
 pub struct Settings<'c> {
     pub conn: &'c mut AnyConnection,
     pub effects: Effects,
+    /// Set for a write: what it sets off goes into the outbox in its transaction (ORR-929).
+    pub outbox: Option<Outbox>,
 }
 
 impl<'c> Settings<'c> {
     pub fn new(conn: &'c mut AnyConnection) -> Self {
-        Settings { conn, effects: Effects::default() }
+        Settings { conn, effects: Effects::default(), outbox: None }
     }
 
     async fn rows(&mut self) -> Result<Vec<(String, Value)>> {
@@ -347,33 +350,24 @@ impl<'c> Settings<'c> {
     pub async fn update(&mut self, body: &Value, actor: &Actor) -> Result<Value> {
         owner_only(actor)?;
         let input = check_input(body)?;
-        sqlx::query(if crate::db::on_postgres() { "BEGIN" } else { "BEGIN IMMEDIATE" }).execute(&mut *self.conn).await?;
-        let mut done = Ok(());
-        for (key, value) in &input {
-            done = sqlx::query(&sql("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value"))
-                .bind(key)
-                .bind(js(value))
-                .execute(&mut *self.conn)
-                .await
-                .map(|_| ());
-            if done.is_err() {
-                break;
+        changes::begin(self.conn).await?;
+        let done: Result<()> = async {
+            for (key, value) in &input {
+                sqlx::query(&sql("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value"))
+                    .bind(key)
+                    .bind(js(value))
+                    .execute(&mut *self.conn)
+                    .await?;
             }
-        }
-        match done {
-            Ok(()) => {
-                sqlx::query("COMMIT").execute(&mut *self.conn).await?;
+            self.effects.settings = true;
+            if input.contains_key("starts") {
+                let rows = sqlx::query("SELECT id FROM projects").fetch_all(&mut *self.conn).await?;
+                self.effects.changed = rows.iter().map(|r| r.get::<String, _>("id")).collect();
             }
-            Err(error) => {
-                sqlx::query("ROLLBACK").execute(&mut *self.conn).await.ok();
-                return Err(error.into());
-            }
+            Ok(())
         }
-        self.effects.settings = true;
-        if input.contains_key("starts") {
-            let rows = sqlx::query("SELECT id FROM projects").fetch_all(&mut *self.conn).await?;
-            self.effects.changed = rows.iter().map(|r| r.get::<String, _>("id")).collect();
-        }
+        .await;
+        changes::finish(self.conn, self.outbox.as_mut(), &self.effects, done).await?;
         // The keys sent, as the route noted them: those given, even as null, sorted.
         let mut keys: Vec<String> = body.as_object().map(|b| b.keys().cloned().collect()).unwrap_or_default();
         keys.sort();
