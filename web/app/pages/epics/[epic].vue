@@ -27,7 +27,10 @@ const parts = computed(() => ordered.value.flatMap(p => {
     const tasks = milestones.flatMap(c => c.tasks)
     const kinds = emptyKinds()
     tasks.forEach(issue => (Object.keys(kinds) as (keyof Kinds)[]).forEach(kind => kinds[kind] += issue.kinds[kind]))
-    return [{project, milestones, issues: tasks.length, kinds}]
+    // Open issues first, then the closed ones, each keeping the board's order.
+    const rows = milestones.flatMap(milestone => milestone.tasks.map(issue => ({issue, milestone})))
+    rows.sort((a, b) => Number(isClosed(a.issue.kind)) - Number(isClosed(b.issue.kind)))
+    return [{project, milestones, rows, issues: tasks.length, kinds}]
 }))
 
 const saving = ref(false)
@@ -195,21 +198,25 @@ useHead(() => ({title: epic.value ? `${epic.value.title} · Epics · orrery` : '
           <span>{{ epic.issues }} {{ epic.issues === 1 ? 'issue' : 'issues' }}<template v-if="epic.projects.length"> in {{ epic.projects.length }} {{ epic.projects.length === 1 ? 'project' : 'projects' }}</template></span>
         </div>
       </header>
-      <!-- Each project as a child of the epic (ORR-955): compact cards, indented under its header, like an issue's pull
-           requests. overflow-clip rounds the corners without breaking the list's sticky status rows. -->
-      <div v-if="parts.length" class="mx-auto flex max-w-5xl flex-col gap-3 px-4 pb-10 sm:px-8">
-        <section
-            v-for="part in parts"
-            :key="part.project.id"
-            class="overflow-clip rounded-xl border border-line sm:ml-6 dark:bg-panel"
-            :aria-label="part.project.name"
-        >
-          <div class="flex items-center gap-2 border-b border-line px-3 py-2">
-            <NuxtLink :to="`/p/${part.project.id}`" class="label hover:text-fg">{{ part.project.name }}</NuxtLink>
-            <ProgressRing :kinds="part.kinds" :size="14" />
-            <span class="text-xs text-faint">{{ part.issues }} {{ part.issues === 1 ? 'issue' : 'issues' }}</span>
+      <!-- Each project's issues as children of the epic (ORR-955), laid out like an issue's sub-issues: a heading with
+           its progress, then the issues as one compact list, in the header's column. -->
+      <div v-if="parts.length" class="mx-auto flex max-w-5xl flex-col gap-6 px-4 pb-10 sm:px-8">
+        <section v-for="part in parts" :key="part.project.id" class="flex flex-col gap-2" :aria-label="part.project.name">
+          <h2 class="label flex items-center gap-2">
+            <NuxtLink :to="`/p/${part.project.id}`" class="hover:text-fg">{{ part.project.name }}</NuxtLink>
+            <ProgressRing :kinds="part.kinds" :size="13" />
+            <span class="font-mono normal-case">{{ part.kinds.done }}/{{ part.issues }}</span>
+          </h2>
+          <div class="overflow-hidden rounded-xl border border-line dark:bg-panel">
+            <IssueRow
+                v-for="{issue, milestone} in part.rows"
+                :key="issue.id"
+                :issue="issue"
+                :project="part.project.id"
+                :milestone="milestone"
+                nested
+            />
           </div>
-          <ListView :milestones="part.milestones" :project="part.project.id" group="status" risk-first class="-mb-px" />
         </section>
       </div>
       <p v-if="!parts.length" class="px-4 py-16 text-center text-sm text-muted">No issues in this epic yet. Pick it under Epic on an issue’s page, in any project.</p>
