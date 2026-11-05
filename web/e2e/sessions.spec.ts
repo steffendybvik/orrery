@@ -100,15 +100,15 @@ test("shows the model each session runs on, from its hook, and the new one after
     const channel = hold(baseURL!, '/api/projects/kitchen/signals/stream?session=e2e-model&name=kitchen%20pantry&format=text')
     try {
         await page.goto('/sessions')
-        const model = page.locator('#session-e2e-model').getByTestId('session-model')
+        const model = page.locator('#session-e2e-model').getByTestId('model-chip')
         await expect(model).toHaveText('Opus 5.5')
-        await expect(model).toHaveAttribute('title', 'claude-opus-5-5')
+        await expect(model).toHaveAttribute('title', 'Runs on Opus 5.5')
         await request.post('/api/sessions', {data: {id: 'e2e-model', project: 'kitchen', event: 'Stop', model: 'claude-sonnet-5-5'}})
         await expect(model).toHaveText('Sonnet 5.5')
         // Its effort level beside it, once its hook has said (ORR-894).
         await request.post('/api/sessions', {data: {id: 'e2e-model', project: 'kitchen', event: 'PreToolUse', effort: 'high'}})
         await expect(model).toHaveText('Sonnet 5.5 · high')
-        await expect(model).toHaveAttribute('title', 'claude-sonnet-5-5 · high effort')
+        await expect(model).toHaveAttribute('title', 'Runs on Sonnet 5.5, at high effort')
     } finally {
         channel.stop()
         await request.post('/api/sessions', {data: {id: 'e2e-model', project: 'kitchen', event: 'SessionEnd'}})
@@ -466,7 +466,7 @@ test("keeps a session's state that changes as the page opens, over the older rea
     }
 })
 
-test('a session orrery started has Stop out front, asked once more', async ({page, request, baseURL}) => {
+test('a session orrery started has Stop out front, which stops it on the first press (ORR-971)', async ({page, request, baseURL}) => {
     const launcher = hold(baseURL!, '/api/projects/kitchen/launches/stream')
     let stream: ReturnType<typeof hold> | undefined
     try {
@@ -484,8 +484,6 @@ test('a session orrery started has Stop out front, asked once more', async ({pag
         await expect(page).toHaveURL(/\/sessions#session-e2e-s$/)
         const card = page.locator('#session-e2e-s')
         await expect(card.getByRole('button', {name: 'Watch'})).toBeVisible()
-        await card.getByRole('button', {name: 'Stop', exact: true}).click()
-        await expect(card).toContainText('Stop e2e-started?')
         await card.getByRole('button', {name: 'Stop', exact: true}).click()
         await expect.poll(() => launcher.said.text).toContain('event: stop')
     } finally {
@@ -523,9 +521,7 @@ test('on a phone a started session keeps its name whole, with Watch and Stop und
         expect(Math.round((await meta.boundingBox())!.height / lineHeight)).toBeLessThan(items)
         await card.getByRole('button', {name: 'More for e2e-on-a-phone'}).click()
         await expect(page.getByRole('menuitem', {name: /Watch · opens on its launcher's machine/})).toBeVisible()
-        await page.getByRole('menuitem', {name: 'Stop…'}).click()
-        await expect(card).toContainText('Stop e2e-on-a-phone?')
-        await card.getByRole('button', {name: 'Stop', exact: true}).click()
+        await page.getByRole('menuitem', {name: 'Stop', exact: true}).click()
         await expect.poll(() => launcher.said.text).toContain('event: stop')
     } finally {
         stream?.stop()
@@ -700,7 +696,7 @@ test('marks a session cut off by a usage limit until its next turn gets going', 
     }
 })
 
-test('a session opened in a terminal has Stop, asked once more, which ends it through its channel', async ({page, baseURL}) => {
+test('a session opened in a terminal has Stop, which ends it through its channel on the first press (ORR-971)', async ({page, baseURL}) => {
     const channel = hold(baseURL!, '/api/projects/kitchen/signals/stream?session=e2e-terminal&name=e2e-terminal&stops=yes')
     try {
         await page.goto('/sessions')
@@ -709,8 +705,6 @@ test('a session opened in a terminal has Stop, asked once more, which ends it th
         await expect(stop).toBeVisible()
         await expect(card.getByRole('button', {name: 'Show screen'})).toHaveCount(0)
         await stop.click()
-        await expect.poll(() => channel.said.text).not.toContain('event: stop')
-        await card.getByRole('button', {name: 'Stop it?'}).click()
         await expect.poll(() => channel.said.text).toContain('event: stop')
     } finally {
         channel.stop()

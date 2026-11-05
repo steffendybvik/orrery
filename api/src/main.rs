@@ -1,4 +1,4 @@
-// orrery's API in Rust (ORR-922). For now it serves docs, the statuses (ORR-926), reading milestones and releases (ORR-926), reading issues, their comments, their activity and the images uploaded to them (ORR-927), people, invites, keys and logins (ORR-928), presets (ORR-949) and the settings (ORR-954), on the database the Nuxt server opens, and only
+// orrery's API in Rust (ORR-922). For now it serves docs, the statuses (ORR-926), reading milestones and releases (ORR-926), reading issues, their comments, their activity and the images uploaded to them (ORR-927), people, invites, keys and logins (ORR-928), presets (ORR-949), reading the secrets, never a value (ORR-953), and the settings (ORR-954), on the database the Nuxt server opens, and only
 // to that server: the router there (web/server/middleware/zz-api.ts) checks a request as it always has (auth, the
 // board's permissions, the chat's and untrusted sessions' rails, the browser guards) and then forwards it here with
 // who it's from. So this listens on loopback, and answers only a request that carries the token they share.
@@ -21,6 +21,7 @@ mod migrate;
 mod people;
 mod plans;
 mod presets;
+mod secrets;
 mod settings;
 mod statuses;
 mod steps;
@@ -42,6 +43,7 @@ use people::{holder_of, People, Ways, Who};
 use percent_encoding::{percent_decode_str, utf8_percent_encode, NON_ALPHANUMERIC};
 use plans::Plans;
 use presets::{preset_id, Presets};
+use secrets::Secrets;
 use serde_json::{json, Value};
 use settings::Settings;
 use sha2::{Digest, Sha256};
@@ -427,6 +429,16 @@ async fn get_upload(State(app): Shared, Path(upload): Path<String>) -> Result<Re
     uploads::upload(&mut conn, &upload).await
 }
 
+async fn list_secrets(State(app): Shared) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    Ok(Json(Secrets::new(&mut conn).list().await?).into_response())
+}
+
+async fn get_secret(State(app): Shared, Path(name): Path<String>) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    Ok(Json(Secrets::new(&mut conn).secret(&name).await?).into_response())
+}
+
 async fn list_presets(State(app): Shared) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
     Ok(Json(Presets::new(&mut conn).list(None).await?).into_response())
@@ -484,7 +496,7 @@ async fn restore_presets(State(app): Shared, headers: HeaderMap) -> Result<Respo
 
 async fn health() -> Json<Value> {
     Json(
-        json!({"ok": true, "domains": ["docs", "statuses", "issues, reading", "comments, reading", "activity", "milestones and releases, reading", "people, but removing one", "invites", "keys", "logins", "uploads, reading", "presets", "settings"]}),
+        json!({"ok": true, "domains": ["docs", "statuses", "issues, reading", "comments, reading", "activity", "milestones and releases, reading", "people, but removing one", "invites", "keys", "logins", "uploads, reading", "presets", "secrets, reading", "settings"]}),
     )
 }
 
@@ -527,6 +539,8 @@ fn router(app: Arc<App>) -> Router {
         .route("/api/presets/{preset}", patch(patch_preset).delete(delete_preset))
         .route("/api/presets/{preset}/reset", post(reset_preset))
         .route(&format!("{P}/presets"), get(list_project_presets).post(create_project_preset))
+        .route("/api/secrets", get(list_secrets))
+        .route("/api/secrets/{name}", get(get_secret))
         .layer(middleware::from_fn_with_state(app.clone(), guard))
         .with_state(app)
 }

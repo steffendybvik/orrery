@@ -7,7 +7,7 @@ import {getRouterParam, readBody, setResponseStatus} from 'h3'
 import type {Session} from '#shared/roadmap'
 import StartedSession from '~/components/StartedSession.vue'
 
-// A session orrery started, on its card (ORR-866): Watch, Show screen and Stop out front, Stop asking once more, and
+// A session orrery started, on its card (ORR-866): Watch, Show screen and Stop out front, Stop on the first press, and
 // under ⋯ the tmux command to copy and +30 minutes for one with a time. On a phone, Watch and Stop fold into ⋯ (ORR-828).
 let sent: {what: string, body: unknown}[] = []
 let failing = false
@@ -66,18 +66,13 @@ describe('StartedSession', () => {
         expect(sent).toEqual([{what: 'watch', body: {}}])
     })
 
-    it('asks once more before Stop, and Cancel goes back', async () => {
+    it('stops it on the first press, with no asking again (ORR-971)', async () => {
         const {wrapper, button} = await mount()
-        await button('Stop')!.trigger('click')
-        expect(wrapper.text()).toContain('Stop shop · Brokk?')
-        await button('Cancel')!.trigger('click')
-        expect(wrapper.text()).not.toContain('Stop shop · Brokk?')
-        expect(sent).toEqual([])
-        await button('Stop')!.trigger('click')
         await button('Stop')!.trigger('click')
         await settle()
         expect(sent).toEqual([{what: 'stop', body: {}}])
         expect(wrapper.text()).not.toContain('Stop shop · Brokk?')
+        expect(button('Cancel')).toBeUndefined()
     })
 
     it('shows and hides its screen', async () => {
@@ -117,8 +112,9 @@ describe('StartedSession', () => {
         await settle()
         expect(sent).toEqual([{what: 'watch', body: {}}])
         await more()
-        await button('Stop…')!.trigger('click')
-        expect(wrapper.text()).toContain('Stop shop · Brokk?')
+        await button('Stop')!.trigger('click')
+        await settle()
+        expect(sent).toEqual([{what: 'watch', body: {}}, {what: 'stop', body: {}}])
     })
 
     it('says why its launcher refused', async () => {

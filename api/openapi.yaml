@@ -20,6 +20,9 @@ info:
     - **People, invites, keys and logins** (ORR-928): who's on this orrery, inviting them, and the keys and logins people
       hold (web/server/api/people, invites, keys, logins). Served by both; removing a person stays the Nuxt server's, as
       it unassigns their issues, and so do logging in and out.
+    - **Secrets, reading** (ORR-953): the orrery's secrets and their uses, never a value (web/server/api/secrets). Both
+      serve them; the router sends only their `GET`s there. Setting, narrowing and deleting one, and egress, stay the
+      Nuxt server's: the key that seals a value stays with the local app, and the API never sees a value in the clear.
     - **Presets** (ORR-949): the orrery's presets and a project's own (web/server/api/presets, and
       web/server/api/projects/[project]/presets). Served by both; seeding the ones orrery ships as it starts stays the
       Nuxt server's.
@@ -464,6 +467,28 @@ paths:
         '204': {description: Ended}
         '403': {$ref: '#/components/responses/Forbidden'}
         '404': {$ref: '#/components/responses/NotFound'}
+  /api/secrets:
+    get:
+      summary: Every secret by name, never its value
+      description: Each with its last 4 characters, the hosts it may go to, the projects that may use it (null for any) and its latest use.
+      responses:
+        '200': {description: The secrets, by name, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/Secret'}}}}}
+  /api/secrets/{name}:
+    parameters:
+      - {name: name, in: path, required: true, description: 'The secret''s name: capitals, digits and `_`', schema: {type: string}}
+    get:
+      summary: One secret, never its value, with its latest uses
+      description: Its 20 latest uses, newest first; `last_used` is the first of them.
+      responses:
+        '200':
+          description: The secret
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - {$ref: '#/components/schemas/Secret'}
+                  - {type: object, required: [uses], properties: {uses: {type: array, items: {$ref: '#/components/schemas/SecretUse'}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
   /api/presets:
     get:
       summary: The orrery's presets, for sessions on any project, by name
@@ -552,7 +577,7 @@ components:
   responses:
     BadRequest: {description: 'The body is wrong: `data.problems` says each thing', content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
     Forbidden: {description: 'The owner''s call: `data.permission` names the row that says so', content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
-    NotFound: {description: 'No such project, doc, revision, section, issue, comment, milestone, release, person, key or login', content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+    NotFound: {description: 'No such project, doc, revision, section, issue, comment, milestone, release, person, key, login or secret', content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
     Conflict: {description: Taken already, or not the same kind, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
   schemas:
     DocKind: {type: string, enum: [markdown, artifact], description: '`artifact`: its text is HTML, only drawn in a sandboxed frame. Fixed when it''s made.'}
@@ -1002,6 +1027,33 @@ components:
         protected: {type: boolean, description: Written by the owner}
         created_at: {type: string, format: date-time}
         updated_at: {type: string, format: date-time}
+    Secret:
+      type: object
+      required: [name, last4, hosts, projects, created_by, created_at, updated_at, last_used]
+      properties:
+        name: {type: string}
+        last4: {type: string, description: The value's last 4 characters; nothing gives the rest back}
+        hosts: {type: array, items: {type: string}, description: 'Where it may be sent: `api.stripe.com`, `deploy.lan:8443`'}
+        projects: {type: [array, 'null'], items: {type: string}, description: The projects that may use it; null for any}
+        created_by: {type: string}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+        last_used: {oneOf: [{$ref: '#/components/schemas/SecretUse'}, {type: 'null'}]}
+    SecretUse:
+      type: object
+      required: [id, secret, method, host, path, project, issue, status, error, created_by, created_at]
+      properties:
+        id: {type: integer}
+        secret: {type: string}
+        method: {type: string}
+        host: {type: string}
+        path: {type: string, description: With any value scrubbed out}
+        project: {type: [string, 'null']}
+        issue: {type: [string, 'null']}
+        status: {type: [integer, 'null'], description: The answer's status; null when it failed}
+        error: {type: [string, 'null']}
+        created_by: {type: string, description: Who sent it; `orrery` for its own requests}
+        created_at: {type: string, format: date-time}
     IssueEvent:
       type: object
       required: [id, issue, field, created_by, protected, created_at]
