@@ -81,8 +81,8 @@ export abstract class ProjectStore extends KeyStore {
                 if (source) await this.run('UPDATE issues SET ships_in = NULL WHERE project = ? AND ships_in IS NOT NULL AND ships_in NOT IN (SELECT version FROM releases WHERE project = ?)', id, source)
                 else await this.run('UPDATE issues SET ships_in = NULL WHERE project = ?', id)
             }
+            this.changed(id)
         })
-        this.changed(id)
         // The old source counted its issues, and the new one does now.
         if (before && before !== from) this.changed(before)
         return await this.project(id)
@@ -173,7 +173,7 @@ export abstract class ProjectStore extends KeyStore {
             await this.run('DELETE FROM schedules WHERE project = ?', id)
             await this.run('DELETE FROM presets WHERE project = ?', id)
             await this.run('DELETE FROM projects WHERE id = ?', id)
+            this.changed(id)
         })
-        this.changed(id)
     }
 }

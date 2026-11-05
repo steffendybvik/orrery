@@ -32,10 +32,10 @@ export abstract class MilestoneStore extends PresetStore {
             await this.run('INSERT INTO milestones (project, id, title, summary, priority, position, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
                 project, id, title, nullable(input.summary), nullable(input.priority), Number(input.position ?? await this.nextPosition('milestones', project)), actor.name, Number(actor.owner), now, now)
             await this.touchProject(project)
+            this.changed(project)
+            this.tell('milestone.created', project, id, actor)
             return id
         })
-        this.changed(project)
-        this.tell('milestone.created', project, id, actor)
         return await this.milestone(project, id)
     }
 
@@ -51,8 +51,8 @@ export abstract class MilestoneStore extends PresetStore {
                 position: input.position,
             })
             await this.touchProject(project)
+            this.changed(project)
         })
-        this.changed(project)
         return await this.milestone(project, id)
     }
 
@@ -69,7 +69,7 @@ export abstract class MilestoneStore extends PresetStore {
             await this.run('UPDATE schedules SET milestone = NULL WHERE project = ? AND milestone = ?', project, id)
             await this.run('DELETE FROM milestones WHERE project = ? AND id = ?', project, id)
             await this.touchProject(project)
+            this.changed(project)
         })
-        this.changed(project)
     }
 }
