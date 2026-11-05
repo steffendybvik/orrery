@@ -33,7 +33,8 @@ info:
       rating an issue's PR's risk
       (web/server/api/pulls/[owner]/[name]/[number].get.ts). The other pull reads ask GitHub when what's kept is stale,
       which is the local app's to do. The poll's writes are written ahead, for the local app to call once the API is
-      swapped in: keeping a PR on its issues so far (`PUT`, ORR-952). Until then the poll writes through the Nuxt server.
+      swapped in: keeping a PR on its issues, a repo's poll, its failure and history page, and letting go of what's done
+      (ORR-952). Until then the poll writes through the Nuxt server.
     - **Presets** (ORR-949): the orrery's presets and a project's own (web/server/api/presets, and
       web/server/api/projects/[project]/presets). Served by both; seeding the ones orrery ships as it starts stays the
       Nuxt server's.
@@ -660,6 +661,63 @@ paths:
       summary: The schedules across projects, oldest first, each with the projects it's made on
       responses:
         '200': {description: The schedules across projects, content: {application/json: {schema: {type: array, items: {type: object}}}}}
+  /api/pulls/{owner}/{name}:
+    parameters:
+      - {name: owner, in: path, required: true, description: The GitHub repo's owner, schema: {type: string}}
+      - {name: name, in: path, required: true, description: The GitHub repo's name, schema: {type: string}}
+    put:
+      x-served: false
+      summary: 'A repo''s poll: each PR as read, those it missed kept as closed, and the repo as polled'
+      description: >-
+        What the local app's GitHub poll keeps each time it reads the repo (`keepPolled`). A PR open when last seen and in
+        neither list now is kept as closed, and so is its row on an issue, unless `more` says the open ones were cut short.
+        `token` says whether it read with one. It tells nobody: the poll tells what changed on its own.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [at, token, more, pulls]
+              properties:
+                at: {type: string}
+                token: {type: boolean}
+                more: {type: boolean}
+                pulls: {type: array, items: {type: object, description: 'A `pull_states` row but `repo` and `seen_at`, with `names` and `told` as lists'}}
+      responses:
+        '204': {description: Kept}
+        '400': {$ref: '#/components/responses/BadRequest'}
+  /api/pulls/{owner}/{name}/error:
+    parameters:
+      - {name: owner, in: path, required: true, schema: {type: string}}
+      - {name: name, in: path, required: true, schema: {type: string}}
+    put:
+      x-served: false
+      summary: What a repo's poll failed on, kept on a repo read before
+      requestBody: {required: true, content: {application/json: {schema: {type: object, additionalProperties: false, required: [error], properties: {error: {type: string}}}}}}
+      responses:
+        '204': {description: Kept}
+        '400': {$ref: '#/components/responses/BadRequest'}
+  /api/pulls/{owner}/{name}/history:
+    parameters:
+      - {name: owner, in: path, required: true, schema: {type: string}}
+      - {name: name, in: path, required: true, schema: {type: string}}
+    put:
+      x-served: false
+      summary: The page of the repo's closed PRs to read next, 0 once they're all on their issues
+      requestBody: {required: true, content: {application/json: {schema: {type: object, additionalProperties: false, required: [page], properties: {page: {type: integer, minimum: 0}}}}}}
+      responses:
+        '204': {description: Kept}
+        '400': {$ref: '#/components/responses/BadRequest'}
+  /api/pulls/forget:
+    post:
+      x-served: false
+      summary: Lets go of merged and closed PRs last seen before `before`, and of the repos not in `repos`
+      requestBody: {required: true, content: {application/json: {schema: {type: object, additionalProperties: false, required: [repos, before], properties: {repos: {type: array, items: {type: string}}, before: {type: string}}}}}}
+      responses:
+        '200': {description: The repos let go of, content: {application/json: {schema: {type: object, required: [gone], properties: {gone: {type: array, items: {type: string}}}}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
   /api/pulls/{owner}/{name}/{number}:
     parameters:
       - {name: owner, in: path, required: true, description: The GitHub repo's owner, in any case, schema: {type: string}}

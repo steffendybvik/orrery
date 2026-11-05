@@ -17,6 +17,8 @@ import {Secrets} from '../server/utils/secrets'
 import {Pulls, pullForSession} from '../server/utils/pulls'
 import {known} from '../shared/known'
 import {Schedules} from '../server/utils/schedules'
+import {PullPoll} from '../server/utils/pull-poll'
+import type {PolledRow} from '../server/utils/pull-poll'
 import {openDb} from '../server/utils/db'
 import {PostgresDb} from '../server/utils/postgres'
 import {actorHeaders, changedOf, countedOf, databaseMark, domainOf, DOMAINS, handedOn, loginHeaders, passedThrough, servedByApi, toldOf, whoHeaders} from '../server/utils/api-router'
@@ -780,6 +782,67 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         expect(domainOf('PUT', `/api/pulls/ada/${on('through-api')}/5`)).toBeUndefined()
     })
 
+    it('keeps a repo\'s poll, its failure, its history page and what it lets go of alike (ORR-952)', async () => {
+        const pulls = new Pulls(store, async () => { throw new Error('no GitHub here') })
+        const poll = new PullPoll(store, pulls, async () => false, () => {}, () => {})
+        const repo = (p: string) => `ada/${p}-polled`
+        const row = (p: string, number: number, extra: Partial<PolledRow> = {}): PolledRow => ({number, names: [`KEY-${number}`], title: `Pull ${number}`, url: `https://github.com/${repo(p)}/pull/${number}`,
+            branch: `feat/pull-${number}`, base: 'v1.0.0-rc.18', author: 'ada', draft: false, head_sha: `sha${number}`, state: 'clean', review: null, review_id: null, checks: 'success',
+            merged: false, closed: false, merge_sha: null, closed_by: null, created_at: '2026-11-05T10:00:00Z', updated_at: '2026-11-05T10:00:00Z', told: [], ...extra})
+        const step = (name: string, ts: (p: string) => Promise<unknown>, path: string, body: (p: string) => unknown, method = 'PUT') => both(name,
+            p => viaStore(() => ts(p)), () => viaApi(method, path.replace('<repo>', repo('through-api')), body('through-api')))
+        const kept = () => both('what\'s kept', p => viaStore(async () => ({
+            pulls: await store.db.all('SELECT number, names, title, url, branch, base, author, draft, head_sha, state, review, review_id, checks, merged, closed, merge_sha, closed_by, created_at, updated_at, seen_at, told FROM pull_states WHERE repo = ? ORDER BY number', repo(p)),
+            repo: await store.db.all('SELECT polled_at, token, error, history_page FROM pull_repos WHERE repo = ?', repo(p)),
+            issues: await store.db.all('SELECT number, state, updated_at FROM issue_pulls WHERE repo = ? ORDER BY number', repo(p)),
+        })), () => viaStore(async () => ({
+            pulls: await store.db.all('SELECT number, names, title, url, branch, base, author, draft, head_sha, state, review, review_id, checks, merged, closed, merge_sha, closed_by, created_at, updated_at, seen_at, told FROM pull_states WHERE repo = ? ORDER BY number', repo('through-api')),
+            repo: await store.db.all('SELECT polled_at, token, error, history_page FROM pull_repos WHERE repo = ?', repo('through-api')),
+            issues: await store.db.all('SELECT number, state, updated_at FROM issue_pulls WHERE repo = ? ORDER BY number', repo('through-api')),
+        })))
+        const first = (p: string) => ({at: '2026-11-05T10:01:00Z', token: true, more: false, pulls: [row(p, 1), row(p, 2, {draft: true, review: 'approved', review_id: 'r9'}), row(p, 3, {merged: true, merge_sha: 'm3', state: 'merged'})]})
+        const outcomes = [
+            await step('a first poll', p => poll.keepPolled(repo(p), first(p)), '/api/pulls/<repo>', first),
+            await step('history to read', p => poll.keepHistory(repo(p), 3), '/api/pulls/<repo>/history', () => ({page: 3})),
+        ]
+        for (const p of ['through-store', 'through-api']) {
+            const issue = (await store.createIssue('through-api' === p ? 'through-api' : 'through-store', {title: `On pull 2 of ${p}`}, OWNER)).id
+            await store.db.run(`INSERT INTO issue_pulls (project, issue, repo, number, title, url, branch, base, author, state, merged_at, created_at, updated_at) VALUES (?, ?, ?, 2, 'Pull 2', 'u', 'b', 'v', 'ada', 'open', NULL, ?, ?)`,
+                p, issue, repo(p), '2026-11-05T10:00:00Z', '2026-11-05T10:00:00Z')
+        }
+        const second = (p: string) => ({at: '2026-11-05T10:02:00Z', token: false, more: false, pulls: [row(p, 1, {told: [`${repo(p)}#1 checks_failed sha1`], checks: 'failure', updated_at: '2026-11-05T10:02:00Z'})]})
+        const cut = () => ({at: '2026-11-05T10:03:00Z', token: true, more: true, pulls: []})
+        outcomes.push(
+            await step('a poll that missed #2, so it\'s closed', p => poll.keepPolled(repo(p), second(p)), '/api/pulls/<repo>', second),
+            await kept(),
+            await step('one cut short closes nothing', p => poll.keepPolled(repo(p), cut(p)), '/api/pulls/<repo>', cut),
+            await step('a failure', p => poll.keepFailed(repo(p), 'GitHub said no'), '/api/pulls/<repo>/error', () => ({error: 'GitHub said no'})),
+            await kept(),
+        )
+        // Letting go works across every repo, so each side has a repo of its own to lose.
+        const all = async () => (await store.db.all<{repo: string}>('SELECT repo FROM pull_repos')).map(r => r.repo)
+        for (const p of ['through-store', 'through-api']) {
+            const gone = `ada/${p}-gone`
+            await poll.keepPolled(gone, {at: '2026-11-05T10:00:00Z', token: true, more: false, pulls: []})
+            const keep = (await all()).filter(r => r !== gone)
+            outcomes.push(p === 'through-store'
+                ? await viaStore(async () => ({gone: await poll.keepForgotten(keep, '2026-11-05T10:01:30Z')}))
+                : await viaApi('POST', '/api/pulls/forget', {repos: keep, before: '2026-11-05T10:01:30Z'}))
+        }
+        expect(same(outcomes.at(-1)!, 'through-api')).toEqual(same(outcomes.at(-2)!, 'through-store'))
+        outcomes.push(await kept())
+        expect(outcomes[0]).toMatchObject({status: 204, changed: [], told: []})
+        expect((outcomes[3]!.body as {pulls: {number: number, closed: number}[], issues: {state: string}[]}).pulls.find(p => p.number === 2)).toMatchObject({closed: 1})
+        expect((outcomes[3]!.body as {issues: {state: string}[]}).issues).toEqual([expect.objectContaining({state: 'closed'})])
+        expect((outcomes[6]!.body as {repo: {error: string, history_page: number}[]}).repo).toEqual([expect.objectContaining({error: 'GitHub said no', history_page: 3})])
+        expect(outcomes.at(-2)!.body).toEqual({gone: ['ada/through-api-gone']})
+        // The merged #3, last seen before the cut-off, is let go of.
+        expect((outcomes.at(-1)!.body as {pulls: {number: number}[]}).pulls.map(p => p.number)).toEqual([1, 2])
+        for (const [path, body] of [['/api/pulls/<repo>', {at: 1, pulls: [{number: -1}]}], ['/api/pulls/<repo>/error', {}], ['/api/pulls/<repo>/history', {page: 'next'}], ['/api/pulls/forget', {repos: 'all'}]] as const) {
+            expect((await viaApi(path === '/api/pulls/forget' ? 'POST' : 'PUT', path.replace('<repo>', repo('through-api')), body)).status, path).toBe(400)
+        }
+    })
+
     it('lists people, and makes, lists and revokes keys and ends logins alike (ORR-928)', async () => {
         await store.nameOwner({name: 'Steffen'})
         await store.addPerson({name: 'Ada'})
@@ -1414,7 +1477,7 @@ describe('the contract (api/openapi.yaml)', () => {
     })
 
     it('sends none of the routes written ahead of the Rust API to it', () => {
-        expect(contract(true)).toEqual(['PUT /api/pulls/{owner}/{name}/{number}'])
+        expect(contract(true)).toEqual(['POST /api/pulls/forget', 'PUT /api/pulls/{owner}/{name}', 'PUT /api/pulls/{owner}/{name}/error', 'PUT /api/pulls/{owner}/{name}/history', 'PUT /api/pulls/{owner}/{name}/{number}'])
         expect(contract(true).filter(operation => routes().includes(operation))).toEqual([])
     })
 })
