@@ -15,7 +15,7 @@ import type {Actor, IssueFilter} from '../server/store/schema'
 import {SqliteDb} from '../server/utils/database'
 import {openDb} from '../server/utils/db'
 import {PostgresDb} from '../server/utils/postgres'
-import {actorHeaders, changedOf, databaseMark, domainOf, DOMAINS, loginHeaders, servedByApi, toldOf, whoHeaders} from '../server/utils/api-router'
+import {actorHeaders, changedOf, databaseMark, domainOf, DOMAINS, loginHeaders, passedThrough, servedByApi, toldOf, whoHeaders} from '../server/utils/api-router'
 import {permission, refused} from '../server/utils/permission'
 
 const BIN = process.env.ORRERY_API_BIN || fileURLToPath(new URL('../../api/target/debug/orrery-api', import.meta.url))
@@ -544,6 +544,24 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         await expect(store.identity('https://id.example', 'sub-2', secret)).rejects.toMatchObject({statusCode: 409})
     })
 
+    it('serves an uploaded image alike, with the headers that keep it an image (ORR-927)', async () => {
+        const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=='
+        const {id} = await store.createUpload({data: PNG, name: 'dot.png'}, OWNER)
+        const kept = await store.upload(id)
+        const response = await fetch(`${url}/api/uploads/${id}`, {headers: {'Orrery-Api-Token': TOKEN, 'Orrery-Database': databaseMark(setting), ...actorHeaders(AGENT)}})
+        const passed = await passedThrough(response)
+        expect(passed?.body.equals(kept.data)).toBe(true)
+        // As web/server/api/uploads/[upload].get.ts sets them.
+        expect(passed?.headers).toEqual({
+            'content-type': kept.type, 'cache-control': 'private, max-age=31536000, immutable', 'x-content-type-options': 'nosniff',
+            'content-security-policy': "default-src 'none'; sandbox",
+        })
+        await both('one that isn\'t there', () => viaStore(() => store.upload('0'.repeat(24))), () => viaApi('GET', `/api/uploads/${'0'.repeat(24)}`))
+        await both('not an image\'s id', () => viaStore(() => store.upload('../x')), () => viaApi('GET', '/api/uploads/..%2Fx'))
+        // A failure is JSON, thrown again by the router rather than passed through.
+        expect(await passedThrough(await fetch(`${url}/api/uploads/nope`, {headers: {'Orrery-Api-Token': TOKEN, 'Orrery-Database': databaseMark(setting)}}))).toBeUndefined()
+    })
+
     it('answers only the server in front of it, on its own database', async () => {
         const ask = (headers: Record<string, string>) => fetch(`${url}/api/projects/through-api/docs`, {headers}).then(r => r.status)
         expect(await ask({})).toBe(401)
@@ -563,7 +581,7 @@ describe('the router', () => {
     })
 
     it('routes by a table with a line per domain, so taking one back is taking its line out (ORR-925)', () => {
-        expect(DOMAINS.map(({domain}) => domain)).toEqual(['docs', 'statuses', 'issues, reading', 'comments, reading', 'milestones and releases, reading', 'people, but removing one', 'invites', 'keys', 'logins'])
+        expect(DOMAINS.map(({domain}) => domain)).toEqual(['docs', 'statuses', 'issues, reading', 'comments, reading', 'milestones and releases, reading', 'people, but removing one', 'invites', 'keys', 'logins', 'uploads, reading'])
         expect(domainOf('PATCH', '/api/projects/p/docs/d')).toBe('docs')
         expect(domainOf('head', '/api/projects/p/doc-sections/')).toBe('docs')
         for (const path of ['/api/projects/p/issues/P-1/activity', '/api/', '/docs', '/api/projects/p/docs/d/artifact']) expect(domainOf('GET', path), path).toBeUndefined()
@@ -601,6 +619,12 @@ describe('the router', () => {
         for (const path of ['/api/auth/login', '/api/auth/logout', '/api/auth/status', '/api/auth/oidc/start', '/api/owner']) expect(domainOf('POST', path), path).toBeUndefined()
         expect(loginHeaders({provider: true, off: true}, 'https://orrery.example')).toEqual({'Orrery-Login-Ways': 'provider, off', 'Orrery-Origin': 'https%3A%2F%2Forrery.example'})
         expect(loginHeaders({provider: false, off: false}, 'http://localhost:9000')).toEqual({'Orrery-Origin': 'http%3A%2F%2Flocalhost%3A9000'})
+    })
+
+    it('sends an uploaded image\'s read there, and keeps uploading one here (ORR-927)', () => {
+        expect(domainOf('GET', '/api/uploads/0123456789abcdef01234567')).toBe('uploads, reading')
+        expect(domainOf('POST', '/api/uploads')).toBeUndefined()
+        for (const path of ['/api/uploads', '/api/uploads/x/y']) expect(domainOf('GET', path), path).toBeUndefined()
     })
 
     it('says what the credential was, and a login only hashed', () => {
@@ -649,7 +673,7 @@ describe('the contract (api/openapi.yaml)', () => {
     }
 
     it('has every route the router sends to the API, and no other', () => {
-        expect(contract()).toHaveLength(37)
+        expect(contract()).toHaveLength(38)
         expect(contract()).toEqual(routes())
     })
 

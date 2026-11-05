@@ -41,7 +41,25 @@ export const DOMAINS: readonly {domain: string, paths: RegExp, methods?: readonl
     // and logging in and out, stay here (auth.ts): the API hears what that found (`whoHeaders`).
     {domain: 'keys', paths: /^keys(\/[^/]+)?$/},
     {domain: 'logins', paths: /^logins(\/[^/]+)?$/},
+    // An image kept for Markdown, read (ORR-927). Keeping one stays here, as it's compressed here first.
+    {domain: 'uploads, reading', paths: /^uploads\/[^/]+$/, methods: ['GET']},
 ]
+
+/** The headers a reply that isn't JSON keeps on its way through: what it is, how long the browser keeps it, and that
+ * it's never run as a page. */
+export const PASSED_HEADERS = ['content-type', 'cache-control', 'x-content-type-options', 'content-security-policy'] as const
+
+/** A successful reply that isn't JSON (an uploaded image, ORR-927), to send on as it came with the headers that say
+ * what it is; undefined for JSON, and for a failure, which is thrown again here. */
+export async function passedThrough(response: Response): Promise<{headers: Record<string, string>, body: Buffer} | undefined> {
+    const type = response.headers.get('content-type') ?? ''
+    if (!response.ok || !type || type.startsWith('application/json')) return undefined
+    const headers = Object.fromEntries(PASSED_HEADERS.flatMap(name => {
+        const value = response.headers.get(name)
+        return value ? [[name, value]] : []
+    }))
+    return {headers, body: Buffer.from(await response.arrayBuffer())}
+}
 
 const WRITES = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
 
@@ -144,6 +162,12 @@ export async function forwardToApi(event: H3Event, api: {url: string, token: str
     unreachable = false
     // On another database than this server's: the owner moved it, and the API hasn't been started again on the new one.
     if (response.status === 421) return undefined
+    const passed = await passedThrough(response)
+    if (passed) {
+        setResponseStatus(event, response.status)
+        for (const [name, value] of Object.entries(passed.headers)) setResponseHeader(event, name, value)
+        return passed.body
+    }
     const text = await response.text()
     const json = text ? JSON.parse(text) as Record<string, unknown> : null
     if (response.status >= 400) {
