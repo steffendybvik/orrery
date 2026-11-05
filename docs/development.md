@@ -55,9 +55,9 @@ the database goes there; what touches the machine (sessions, tmux, the launcher,
 **docs** domain (a project's docs, their sections and revisions), the orrery's **statuses** (`/api/statuses`,
 ORR-926), **reading milestones and releases** (ORR-926: a project's, one of each, and `/api/releases`), **reading
 issues and their comments** (ORR-927: the list with its filters, one issue, its comments) and **people, invites, keys
-and logins** (ORR-928, removing a person aside): the routes in
+and logins** (ORR-928, removing a person aside) and **reading the secrets** (ORR-953, never a value): the routes in
 `api/openapi.yaml`. An artifact's page (`…/docs/:doc/artifact`), a milestone's focus, and writing an issue, a comment, a
-milestone or a release stay in Nuxt.
+milestone or a release stay in Nuxt, and so do setting, narrowing and deleting a secret and egress.
 
 How it fits together:
 
@@ -120,6 +120,12 @@ ORRERY_AUTH=off, the address for an invite's link) goes along as `Orrery-Login-W
 server (`web/server/utils/auth.ts`), which sends the API what it found (`Orrery-Who`) and the asking browser's login only
 hashed, so the API never sees a secret it didn't make. Who may handle people, keys and logins (`authorize`, `key-rights.ts`) is checked on
 both sides, the credential having the last word over the actor, so the parity test compares the refusals with the permissions table's own words.
+
+The secrets (ORR-953, `api/src/secrets.rs`) are read there and written here. A secret's value is sealed with the key
+in `orrery.key`, which stays with the local app (Decision: secrets and settings in the Rust API), so the API never reads
+the `value` column, and setting, narrowing (which seals it again) and deleting one stay in
+`web/server/utils/secrets.ts`, as do egress and orrery's own requests. A change to its `list` or `get`, or to
+`secretOf` or `useOf`, goes into `secrets.rs` too.
 
 The outbox (ORR-929, `api/src/changes.rs`, the `rust-api-events` decision): each write the API makes adds a row to
 `changes` for each thing it set off (a project changed, the settings, each event told), and `GET /api/changes?after=<id>`

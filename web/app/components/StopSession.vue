@@ -1,22 +1,12 @@
 <script setup lang="ts">
 import type {Session} from '#shared/roadmap'
 
-// The owner's Stop for a session opened in a terminal: its orrery channel ends it. It asks once more first,
-// as whatever the session was in the middle of goes with it.
+// The owner's Stop for a session opened in a terminal: its orrery channel ends it, on the first press (ORR-971).
 const props = defineProps<{session: Session}>()
-const sure = ref(false)
 const busy = ref(false)
 const failed = ref('')
-let timer: ReturnType<typeof setTimeout> | undefined
-onBeforeUnmount(() => clearTimeout(timer))
 
 async function stop() {
-    if (!sure.value) {
-        sure.value = true
-        clearTimeout(timer)
-        timer = setTimeout(() => sure.value = false, 3000)
-        return
-    }
     busy.value = true
     failed.value = ''
     try {
@@ -27,7 +17,6 @@ async function stop() {
         failed.value = errorMessage(error)
         busy.value = false
     }
-    sure.value = false
 }
 </script>
 
@@ -36,12 +25,11 @@ async function stop() {
     <UiButton
         variant="danger-outline"
         size="xs"
-        :class="{'bg-rose-500/10': sure}"
         :disabled="busy"
         :title="`End ${session.name}: it quits in its terminal`"
         @click="stop"
     >
-      <UiBusy :busy="busy" label="Stopping…">{{ sure ? 'Stop it?' : 'Stop' }}</UiBusy>
+      <UiBusy :busy="busy" label="Stopping…">Stop</UiBusy>
     </UiButton>
     <span v-if="failed" class="text-rose-700 dark:text-rose-400">{{ failed }}</span>
   </span>

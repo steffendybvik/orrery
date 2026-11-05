@@ -614,7 +614,7 @@ onBeforeUnmount(() => window.removeEventListener('message', heard))
             <span v-if="state" aria-hidden="true">·</span>
           </template>
           <!-- What it runs on, as the session cards say it (ORR-936); an ended chat, what it last ran on. -->
-          <ModelChip v-if="session ?? chat.ran_on" :session="(session ?? chat.ran_on)!" shown />
+          <ModelChip v-if="session ?? chat.ran_on" :session="(session ?? chat.ran_on)!" />
           <span v-if="state" class="min-w-0 truncate">{{ state }}</span>
         </span>
         <span v-if="away" class="truncate text-xs text-muted" data-testid="chat-away">You're on <em>{{ projectName(away) }}</em>; this chat is about <em>{{ projectName(about!) }}</em></span>
