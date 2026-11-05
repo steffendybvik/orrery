@@ -8,22 +8,27 @@ info:
 
     - **Docs** (ORR-922): a project's docs, their sections and their revisions (web/server/api/projects/[project]/docs,
       doc-sections, deleted-docs). Served by both.
-    - **Issues and comments, reading** (ORR-927): the issue list with its filters, one issue, its comments and its
-      activity (web/server/api/projects/[project]/issues). Both serve them; the router sends only their `GET`s there, as
-      writing an issue or a comment stays the Nuxt server's.
+    - **Issues and comments** (ORR-927): the issue list with its filters, one issue, its comments and its activity
+      (web/server/api/projects/[project]/issues), and making and deleting a comment. Both serve them; the router sends
+      their `GET`s there, and a comment's `POST` and `DELETE`. Writing an issue stays the Nuxt server's, as a change
+      wakes sessions, and so does editing a comment, which checks the session's claim on the issue first. A new
+      comment's reply says what the Nuxt server passes on to the sessions and the owner's bell (`Orrery-Carry`,
+      `Orrery-Notice`).
     - **Uploads, reading** (ORR-927): an image kept for Markdown (web/server/api/uploads/[upload].get.ts), passed on by
       the router as it came. Keeping one stays the Nuxt server's, as it compresses the image there.
     - **Statuses** (ORR-926): the orrery's issue statuses (web/server/api/statuses). Served by both.
-    - **Milestones** (ORR-926, written in ORR-974) **and releases, reading** (ORR-926): a project's milestones,
-      made, changed and deleted too, and its releases, one of each, and every project's releases (web/server/api/projects/[project]/milestones, releases, and web/server/api/releases.get.ts).
-      Both serve them; the router sends only their `GET`s there, as writing them stays the Nuxt server's.
+    - **Milestones and releases** (ORR-926, written in ORR-974): a project's milestones and releases, one of each,
+      made, changed (a release frozen and shipped too) and deleted, and every project's releases
+      (web/server/api/projects/[project]/milestones, releases, and web/server/api/releases.get.ts). Served by both; a
+      milestone's focus stays the Nuxt server's, as it signals sessions.
     - **People, invites, keys and logins** (ORR-928): who's on this orrery, inviting them, and the keys and logins people
       hold (web/server/api/people, invites, keys, logins). Served by both; removing a person stays the Nuxt server's, as
       it unassigns their issues, and so do logging in and out.
     - **Secrets, reading** (ORR-953): the orrery's secrets and their uses, never a value (web/server/api/secrets). Both
       serve them; the router sends only their `GET`s there. Setting, narrowing and deleting one, and egress, stay the
       Nuxt server's: the key that seals a value stays with the local app, and the API never sees a value in the clear.
-    - **A pull request, reading** (ORR-952): one PR as orrery keeps it, with the issues it's on
+    - **A pull request, reading, and its risk** (ORR-952): one PR as orrery keeps it, with the issues it's on, and
+      rating an issue's PR's risk
       (web/server/api/pulls/[owner]/[name]/[number].get.ts). The other pull reads ask GitHub when what's kept is stale,
       which is the local app's to do, and the poll's writes wake sessions, so they stay the Nuxt server's.
     - **Presets** (ORR-949): the orrery's presets and a project's own (web/server/api/presets, and
@@ -322,6 +327,20 @@ paths:
       responses:
         '200': {description: The comments, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/Comment'}}}}}
         '404': {$ref: '#/components/responses/NotFound'}
+    post:
+      summary: Comments on the issue
+      description: |
+        An agent's ask (`asks`) assigns the issue to the owner, and the owner's answer gives it back to the agent who
+        asked; with people, an agent's ask waits on its own person, and only on an issue that's theirs. Tells
+        `comment.added`, or `comment.asks` with `to`, and `issue.assignee` when it moved. The reply's `Orrery-Carry`
+        (the owner's or a member's words) and `Orrery-Notice` (an agent's), each `<project> <issue> <comment>`, say what
+        the Nuxt server passes on to the session on the issue and to the owner's bell.
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/CommentInput'}}}}
+      responses:
+        '201': {description: The new comment, content: {application/json: {schema: {$ref: '#/components/schemas/Comment'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
   /api/projects/{project}/issues/{issue}/activity:
     parameters: [{$ref: '#/components/parameters/project'}, {$ref: '#/components/parameters/issue'}]
     get:
@@ -335,6 +354,14 @@ paths:
       summary: One comment
       responses:
         '200': {description: The comment, content: {application/json: {schema: {$ref: '#/components/schemas/Comment'}}}}
+        '404': {description: 'No such project, issue or comment, a comment''s id that isn''t a whole number included', content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+    delete:
+      summary: Deletes the comment
+      description: The owner's is theirs to delete, and a member's (or their agents') theirs or the owner's.
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      responses:
+        '204': {description: Deleted}
+        '403': {$ref: '#/components/responses/Forbidden'}
         '404': {description: 'No such project, issue or comment, a comment''s id that isn''t a whole number included', content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
   /api/projects/{project}/milestones:
     parameters: [{$ref: '#/components/parameters/project'}]
@@ -381,6 +408,16 @@ paths:
       responses:
         '200': {description: The releases, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/Release'}}}}}
         '404': {$ref: '#/components/responses/NotFound'}
+    post:
+      summary: Makes a release, at the top of the project's unless `position` places it
+      description: Told as `release.created`. Made shipped, it marks the docs as they are. One the owner makes is theirs to delete. Refused (400) on a project with no releases of its own.
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/ReleaseInput'}}}}
+      responses:
+        '201': {description: The release, content: {application/json: {schema: {$ref: '#/components/schemas/ReleaseDetail'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
   /api/projects/{project}/releases/{release}:
     parameters: [{$ref: '#/components/parameters/project'}, {$ref: '#/components/parameters/release'}]
     get:
@@ -388,6 +425,24 @@ paths:
       responses:
         '200': {description: The release, content: {application/json: {schema: {$ref: '#/components/schemas/ReleaseDetail'}}}}
         '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+    patch:
+      summary: Changes a release's branch, notes, days or place; its version can't change
+      description: 'Setting `frozen_on` or `shipped_on` is told as `release.frozen` or `release.shipped`, clearing it as `release.thawed` or `release.unshipped`; a new day on one already set is no event. Shipping marks the docs as they are, and un-shipping lets the mark go.'
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/ReleaseInput'}}}}
+      responses:
+        '200': {description: The release now, content: {application/json: {schema: {$ref: '#/components/schemas/ReleaseDetail'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+    delete:
+      summary: Deletes a release; its issues stay, set for no release, in the projects drawing on it too
+      description: Told as `release.deleted`. One the owner made is theirs to delete (403).
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      responses:
+        '204': {description: Deleted}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
         '404': {$ref: '#/components/responses/NotFound'}
   /api/releases:
     get:
@@ -517,6 +572,52 @@ paths:
                   - {$ref: '#/components/schemas/Secret'}
                   - {type: object, required: [uses], properties: {uses: {type: array, items: {$ref: '#/components/schemas/SecretUse'}}}}
         '404': {$ref: '#/components/responses/NotFound'}
+  /api/projects/{project}/issues/{issue}/pulls/{owner}/{name}/{number}/risk:
+    parameters:
+      - {$ref: '#/components/parameters/project'}
+      - {name: issue, in: path, required: true, description: The issue's id or an old one, schema: {type: string}}
+      - {name: owner, in: path, required: true, description: The GitHub repo's owner, in any case, schema: {type: string}}
+      - {name: name, in: path, required: true, description: The GitHub repo's name, in any case, schema: {type: string}}
+      - {name: number, in: path, required: true, description: 'The PR''s number: `788` or `#788`', schema: {type: string}}
+    put:
+      summary: Rates how risky the issue's PR is, or takes the rating away with `{level: null}`
+      description: >-
+        `why` is a line on what decided it, needed with a level, kept to 300 characters. The owner's rating
+        (`Orrery-Actor-Kind: owner`) stands: a session's doesn't replace it or take it away (409). 404 when orrery keeps no
+        such PR on the issue, as it keeps only those the poll has seen name it.
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [level]
+              properties:
+                level: {type: [string, 'null'], enum: [high, medium, low, null]}
+                why: {type: string}
+      responses:
+        '200':
+          description: The rating now
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [risk]
+                properties:
+                  risk:
+                    oneOf:
+                      - {type: 'null'}
+                      - type: object
+                        required: [level, why, by]
+                        properties:
+                          level: {type: string, enum: [high, medium, low]}
+                          why: {type: string}
+                          by: {type: string, enum: [owner, session]}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
   /api/pulls/{owner}/{name}/{number}:
     parameters:
       - {name: owner, in: path, required: true, description: The GitHub repo's owner, in any case, schema: {type: string}}
@@ -645,6 +746,17 @@ components:
     NotFound: {description: 'No such project, doc, revision, section, issue, comment, milestone, release, person, key, login, secret or pull request', content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
     Conflict: {description: Taken already, or not the same kind, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
   schemas:
+    ReleaseInput:
+      type: object
+      description: '`version` is needed to make one, and can''t change. A change takes any of the rest; all but `position` can be null.'
+      additionalProperties: false
+      properties:
+        version: {type: string, pattern: '^[0-9A-Za-z][0-9A-Za-z.+_-]{0,39}$'}
+        branch: {type: [string, 'null']}
+        notes: {type: [string, 'null']}
+        frozen_on: {type: [string, 'null'], pattern: '^\d{4}-\d{2}-\d{2}$'}
+        shipped_on: {type: [string, 'null'], pattern: '^\d{4}-\d{2}-\d{2}$'}
+        position: {type: number}
     MilestoneInput:
       type: object
       description: '`title` is needed to make one. A change takes any of them; `summary` and `priority` can be null.'
@@ -1086,6 +1198,13 @@ components:
                 required: [projects]
                 properties:
                   projects: {type: array, items: {type: object, required: [project, issues, kinds], properties: {project: {type: string}, issues: {type: integer}, kinds: {$ref: '#/components/schemas/Kinds'}}}}
+    CommentInput:
+      type: object
+      additionalProperties: false
+      required: [body]
+      properties:
+        body: {type: string, description: Markdown; not blank}
+        asks: {type: [string, 'null'], enum: [decision, feedback, null], description: 'Waits on the owner until they comment after it'}
     Comment:
       type: object
       required: [id, issue, body, created_by, protected, created_at, updated_at]

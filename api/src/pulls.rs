@@ -1,9 +1,11 @@
 // One pull request as orrery keeps it (ORR-952): what `forPull` in web/server/utils/pulls.ts does, on the same
 // `issue_pulls` rows, answering as `GET /api/pulls/{owner}/{name}/{number}` does. The other pull reads (`GET /api/pulls`,
-// `/api/pulls/branches`) ask GitHub when what's kept is stale, which is the local app's to do, and every write (the poll
-// keeping a PR, a rating) wakes sessions or tells the event log (ORR-929), so they all stay the Nuxt server's. The
-// router sends only this read here.
+// `/api/pulls/branches`) ask GitHub when what's kept is stale, which is the local app's to do. Rating a PR's risk is
+// written here too (ORR-952), with its outbox row (ORR-929); the poll keeping a PR stays the Nuxt server's, as a merge
+// sets an issue's release and posts orrery's comments, and those writes are still Nuxt's.
+use crate::changes::{self, Outbox};
 use crate::db::sql;
+use crate::docs::{js, Effects};
 use crate::error::{ApiError, Result};
 use crate::text::natural_cmp;
 use regex::Regex;
@@ -41,13 +43,125 @@ fn for_session(pull: &mut Map<String, Value>) {
     }
 }
 
+/// A rating's body as the risk route checks it: `level` one of `RISK_LEVELS` or null, `why` a line (trimmed, at most
+/// 300 UTF-16 units, as `slice` counts), needed with a level.
+pub fn check_rating(body: &Value) -> Result<Option<(String, String)>> {
+    let Some(sent) = body.as_object() else {
+        return Err(ApiError::bad_request("The body should be a JSON object"));
+    };
+    let mut problems = vec![];
+    for key in sent.keys() {
+        if key != "level" && key != "why" {
+            problems.push(format!("unknown field \"{key}\"; this takes level, why"));
+        }
+    }
+    let level = match sent.get("level") {
+        None => {
+            problems.push("missing \"level\"".into());
+            None
+        }
+        Some(Value::Null) => None,
+        Some(Value::String(level)) if RISK_LEVELS.contains(&level.as_str()) => Some(level.clone()),
+        Some(Value::String(level)) => {
+            problems.push(format!("\"level\" is \"{level}\", not one of {} (or null)", RISK_LEVELS.join(", ")));
+            None
+        }
+        Some(other) => {
+            problems.push(format!("\"level\" should be a string, not {}", js(other)));
+            None
+        }
+    };
+    let why = match sent.get("why") {
+        None => String::new(),
+        Some(Value::String(why)) => String::from_utf16_lossy(&why.trim().encode_utf16().take(300).collect::<Vec<_>>()),
+        Some(Value::Null) => {
+            problems.push("\"why\" can't be null".into());
+            String::new()
+        }
+        Some(other) => {
+            problems.push(format!("\"why\" should be a string, not {}", js(other)));
+            String::new()
+        }
+    };
+    if !problems.is_empty() {
+        return Err(ApiError::problems(problems));
+    }
+    match level {
+        Some(_) if why.is_empty() => Err(ApiError::bad_request("Say why in a line, e.g. \"high: bug fix in signal routing\"")),
+        Some(level) => Ok(Some((level, why))),
+        None => Ok(None),
+    }
+}
+
 pub struct Pulls<'a> {
     conn: &'a mut AnyConnection,
+    pub effects: Effects,
+    /// Set for a write: what it sets off goes into the outbox in its transaction (ORR-929).
+    pub outbox: Option<Outbox>,
 }
 
 impl<'a> Pulls<'a> {
     pub fn new(conn: &'a mut AnyConnection) -> Self {
-        Self { conn }
+        Self { conn, effects: Effects::default(), outbox: None }
+    }
+
+    /// The issue's id from it or an old id, or a 404, as `ids` in web/server/utils/pulls.ts has it.
+    async fn issue_id(&mut self, project: &str, issue: &str) -> Result<String> {
+        let alias = sqlx::query(&sql("SELECT issue FROM issue_aliases WHERE project = ? AND alias = ?"))
+            .bind(project)
+            .bind(issue)
+            .fetch_optional(&mut *self.conn)
+            .await?;
+        let id = alias.map(|r| r.get::<String, _>("issue")).unwrap_or_else(|| issue.to_string());
+        let found = sqlx::query(&sql("SELECT 1 FROM issues WHERE project = ? AND id = ?")).bind(project).bind(&id).fetch_optional(&mut *self.conn).await?;
+        if found.is_none() {
+            return Err(ApiError::not_found(format!("No issue {issue} in {project}")));
+        }
+        Ok(id)
+    }
+
+    /// Rates the issue's PR `number` on `repo` (`rate`, ORR-879), or takes the rating away with none: `{risk}`. The
+    /// owner's rating stands, as a session's doesn't replace it (409); 404 when orrery keeps no such PR on the issue.
+    pub async fn rate(&mut self, project: &str, issue: &str, repo: &str, number: i64, risk: Option<(String, String)>, owner: bool) -> Result<Value> {
+        let found = sqlx::query(&sql("SELECT 1 FROM projects WHERE id = ?")).bind(project).fetch_optional(&mut *self.conn).await?;
+        if found.is_none() {
+            return Err(ApiError::not_found(format!("No project \"{project}\"")));
+        }
+        let id = self.issue_id(project, issue).await?;
+        let row = sqlx::query(&sql("SELECT repo, risk_by FROM issue_pulls WHERE project = ? AND issue = ? AND lower(repo) = lower(?) AND number = ?"))
+            .bind(project)
+            .bind(&id)
+            .bind(repo)
+            .bind(number)
+            .fetch_optional(&mut *self.conn)
+            .await?
+            .ok_or_else(|| {
+                ApiError::not_found(format!("orrery keeps no pull request #{number} on {repo} for {id}: it doesn't name the issue, or hasn't been polled yet"))
+            })?;
+        if !owner && row.get::<Option<String>, _>("risk_by").as_deref() == Some("owner") {
+            return Err(ApiError::conflict(format!("The owner rated #{number} on {id} themselves, and their rating stands")));
+        }
+        let kept: String = row.get("repo");
+        let by = if owner { "owner" } else { "session" };
+        changes::begin(self.conn).await?;
+        let done: Result<()> = async {
+            sqlx::query(&sql("UPDATE issue_pulls SET risk = ?, risk_why = ?, risk_by = ? WHERE project = ? AND issue = ? AND repo = ? AND number = ?"))
+                .bind(risk.as_ref().map(|(level, _)| level.clone()))
+                .bind(risk.as_ref().map(|(_, why)| why.clone()))
+                .bind(risk.as_ref().map(|_| by))
+                .bind(project)
+                .bind(&id)
+                .bind(&kept)
+                .bind(number)
+                .execute(&mut *self.conn)
+                .await?;
+            // The issue's risk is on its project's board, which open pages filter and sort by.
+            self.effects.changed = vec![project.into()];
+            Ok(())
+        }
+        .await;
+        changes::finish(self.conn, self.outbox.as_mut(), &self.effects, done).await?;
+        Ok(json!({"risk": risk.map(|(level, why)| json!({"level": level, "why": why, "by": by}))}))
     }
 
     /// PR `number` on `repo` with every issue it's kept on (`forPull`, ORR-880), riskiest first; in full for the owner.
@@ -123,6 +237,23 @@ impl<'a> Pulls<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn checks_a_rating_as_the_route_does() {
+        assert_eq!(check_rating(&json!({"level": "high", "why": "  a fix  "})).unwrap(), Some(("high".into(), "a fix".into())));
+        assert_eq!(check_rating(&json!({"level": null})).unwrap(), None);
+        assert_eq!(check_rating(&json!({"level": "low", "why": "x".repeat(400)})).unwrap().unwrap().1.len(), 300);
+        for body in [
+            json!({}),
+            json!({"level": "high"}),
+            json!({"level": "high", "why": " "}),
+            json!({"level": "huge", "why": "x"}),
+            json!({"level": null, "by": 1}),
+            json!([]),
+        ] {
+            assert!(check_rating(&body).is_err(), "{body}");
+        }
+    }
 
     #[test]
     fn reads_a_number_as_the_route_does() {

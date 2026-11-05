@@ -30,15 +30,19 @@ export const DOMAINS: readonly {domain: string, paths: RegExp, methods?: readonl
     // A project's issues, read: the list with its filters, and one issue (ORR-927). Writing them stays here, as a change
     // wakes sessions (ORR-929).
     {domain: 'issues, reading', paths: /^projects\/[^/]+\/issues(\/[^/]+)?$/, methods: ['GET']},
-    // An issue's comments, read (ORR-927). Writing one stays here until how a comment wakes sessions moves (ORR-929).
-    {domain: 'comments, reading', paths: /^projects\/[^/]+\/issues\/[^/]+\/comments(\/[^/]+)?$/, methods: ['GET']},
+    // An issue's comments: reading, making and deleting one (ORR-927). The API's reply says what a new one leaves this
+    // server to pass on to the sessions and the owner's bell (`handedOn`). Editing one stays here, as its route checks
+    // the session's claim on the issue first (`claimFor`).
+    {domain: 'comments, but editing one', paths: /^projects\/[^/]+\/issues\/[^/]+\/comments(\/[^/]+)?$/, methods: ['GET', 'POST', 'DELETE']},
     // Who changed what on an issue (ORR-927). Nothing writes it but the issue's own changes, which stay here (ORR-929).
     {domain: 'activity', paths: /^projects\/[^/]+\/issues\/[^/]+\/activity$/, methods: ['GET']},
     // A project's milestones, read (ORR-926) and written (ORR-974): the API tells what a write set off, as `Orrery-Told`,
     // and puts it in the outbox (ORR-929). A milestone's focus stays here, as it signals sessions.
     {domain: 'milestones', paths: /^projects\/[^/]+\/milestones(\/[^/]+)?$/},
-    // A project's releases, read, and every project's (ORR-926). Writing them stays here for now (ORR-974).
-    {domain: 'releases, reading', paths: /^(projects\/[^/]+\/releases(\/[^/]+)?|releases)$/, methods: ['GET']},
+    // A project's releases, read, and every project's (ORR-926), and a project's written, frozen and shipped (ORR-974):
+    // what a write set off is told back, as `Orrery-Told`, and put in the outbox (ORR-929).
+    {domain: 'releases', paths: /^projects\/[^/]+\/releases(\/[^/]+)?$/},
+    {domain: 'releases, every project\'s', paths: /^releases$/, methods: ['GET']},
     // Who's on this orrery: listing, adding and renaming them, and inviting one (ORR-928). Removing a person stays here,
     // as it unassigns their issues, and an issue's change wakes sessions (ORR-929).
     {domain: 'people, but removing one', paths: /^people(\/[^/]+)?$/, methods: ['GET', 'POST', 'PATCH']},
@@ -60,6 +64,9 @@ export const DOMAINS: readonly {domain: string, paths: RegExp, methods?: readonl
     // One pull request as orrery keeps it, read (ORR-952). The other pull reads ask GitHub when what's kept is stale,
     // which is the local app's to do, and the poll's writes wake sessions (ORR-929), so they stay here.
     {domain: 'a pull request, reading', paths: /^pulls\/[^/]+\/[^/]+\/[^/]+$/, methods: ['GET']},
+    // Rating an issue's PR's risk (ORR-952): only its columns of `issue_pulls`, with the board told it changed. The poll
+    // keeping a PR stays here, as a merge sets an issue's release and posts orrery's comments.
+    {domain: "a pull request's risk", paths: /^projects\/[^/]+\/issues\/[^/]+\/pulls\/[^/]+\/[^/]+\/[^/]+\/risk$/, methods: ['PUT']},
 ]
 
 /** The headers a reply that isn't JSON keeps on its way through: what it is, how long the browser keeps it, and that
@@ -149,11 +156,24 @@ export function changedOf(header: string | null): string[] {
     return header ? header.split(',').map(part => decodeURIComponent(part.trim())).filter(Boolean) : []
 }
 
-/** What a reply's `Orrery-Told` says happened: `<type> <project> <subject>, …`, each part percent-encoded. */
-export function toldOf(header: string | null): {type: string, project: string, subject: string}[] {
+/** What a reply's `Orrery-Told` says happened: `<type> <project> <subject>, …`, each part percent-encoded, and after
+ * them `<from> <to>` when a value changed, `~` for one that's none (ORR-927). */
+export function toldOf(header: string | null): {type: string, project: string, subject: string, from?: string | null, to?: string | null}[] {
     if (!header) return []
-    return header.split(',').map(part => part.trim().split(' ').map(decodeURIComponent)).filter(parts => parts.length === 3)
-        .map(([type = '', project = '', subject = '']) => ({type, project, subject}))
+    return header.split(',').map(part => part.trim().split(' ')).filter(parts => parts.length === 3 || parts.length === 5)
+        .map(([type = '', project = '', subject = '', ...change]) => {
+            const [from, to] = change.map(value => value === '~' ? null : decodeURIComponent(value))
+            return {type: decodeURIComponent(type), project: decodeURIComponent(project), subject: decodeURIComponent(subject), ...change.length ? {from, to} : {}}
+        })
+}
+
+/** What a new comment's reply leaves this server to do (ORR-927): `Orrery-Carry` and `Orrery-Notice`, each
+ * `<project> <issue> <comment>` percent-encoded, to pass it on to the session on its issue and to the owner's bell. */
+export function handedOn(headers: Headers): {project: string, issue: string, comment: number, carry: boolean, notice: boolean} | undefined {
+    const said = headers.get('orrery-carry') ?? headers.get('orrery-notice')
+    const [project, issue, comment] = said?.trim().split(' ').map(decodeURIComponent) ?? []
+    if (!project || !issue || !Number.isInteger(Number(comment))) return undefined
+    return {project, issue, comment: Number(comment), carry: headers.has('orrery-carry'), notice: headers.has('orrery-notice')}
 }
 
 /** The API this server started itself (`plugins/api.ts`), once it's listening. */
@@ -218,8 +238,11 @@ export async function forwardToApi(event: H3Event, api: {url: string, token: str
         if (response.headers.get('orrery-settings') === '1') await store.settingsChanged()
         const keys = changedOf(response.headers.get('orrery-settings-keys'))
         if (keys.length) useEventLog().note({level: 'info', kind: 'settings.changed', message: `${actor.name} changed the settings: ${keys.join(', ')}`, details: {by: actor.name, keys}})
-        for (const {type, project, subject} of toldOf(response.headers.get('orrery-told'))) store.told(type, project, subject, actor)
+        for (const {type, project, subject, from, to} of toldOf(response.headers.get('orrery-told'))) store.told(type, project, subject, actor, {from, to})
     })
+    // Outside `relaying`: the signal and the bell's notice are this server's own, with their own rows in the outbox.
+    const handoff = handedOn(response.headers)
+    if (handoff) await store.handOn(handoff.project, handoff.issue, handoff.comment, handoff, actor)
     const counted = countedOf(event.method, pathOf(event))
     if (counted) countOwnUse(event, counted)
     setResponseStatus(event, response.status)

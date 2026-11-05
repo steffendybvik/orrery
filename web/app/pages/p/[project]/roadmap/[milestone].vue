@@ -229,22 +229,29 @@ useHead(() => ({title: milestone.value ? `${milestone.value.title} · orrery` : 
         </div>
         <SessionsPanel v-if="!isClosed(milestone.kind)" :project="project.id" :milestone="milestone.id || 'none'" />
       </header>
-      <ViewToolbar>
-        <span class="label">Issues</span>
-        <template #end>
-          <FilterBar />
-          <UiButton variant="primary" class="shrink-0" title="New issue (c)" @click="useNewIssue().open(project.id, milestone.id || undefined)">
-            <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14" /></svg>
-            New issue
-          </UiButton>
-        </template>
-      </ViewToolbar>
-      <ListView v-if="shown[0]?.tasks.length" :milestones="shown" :project="project.id" group="status" :show-milestone="false">
-        <template #group-end="{column}">
-          <StatusFocus :project="project.id" :milestone="milestone.id || 'none'" :column="column" />
-        </template>
-      </ListView>
-      <p v-else class="px-4 py-16 text-center text-sm text-muted">{{ active ? 'No issue in this milestone matches the filters.' : 'No issues in this milestone yet.' }}</p>
+      <!-- Its issues in the header's column, as a card like an issue's sub-issues and an epic's page (ORR-978), still
+           grouped by status. `overflow-clip` rounds the card without stopping the group headings sticking. -->
+      <div class="mx-auto flex max-w-5xl flex-col gap-2 px-4 pb-10 sm:px-8">
+        <div class="flex flex-wrap items-center gap-2">
+          <h2 class="label">Issues</h2>
+          <div class="flex w-full min-w-0 items-center justify-end gap-2 sm:ml-auto sm:w-auto">
+            <FilterBar />
+            <UiButton variant="primary" class="shrink-0" title="New issue (c)" @click="useNewIssue().open(project.id, milestone.id || undefined)">
+              <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14" /></svg>
+              New issue
+            </UiButton>
+          </div>
+        </div>
+        <div v-if="shown[0]?.tasks.length" class="overflow-clip rounded-xl border border-line dark:bg-panel">
+          <!-- The page clears the Agent button already, so the card has no room for it at its foot. -->
+          <ListView :milestones="shown" :project="project.id" group="status" :show-milestone="false" class="pb-0!">
+            <template #group-end="{column}">
+              <StatusFocus :project="project.id" :milestone="milestone.id || 'none'" :column="column" />
+            </template>
+          </ListView>
+        </div>
+        <p v-else class="px-4 py-16 text-center text-sm text-muted">{{ active ? 'No issue in this milestone matches the filters.' : 'No issues in this milestone yet.' }}</p>
+      </div>
     </template>
     <NotFound v-else-if="ready" :to="`/p/${route.params.project}/roadmap`" back="Back to the roadmap">No milestone “{{ route.params.milestone }}”</NotFound>
     <UiLoading v-else />
