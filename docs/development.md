@@ -6,6 +6,7 @@
 web/          the Nuxt app: app/ (the page), server/ (the API and the store), shared/ (both),
               public/, test/ (unit), e2e/ (browser), scripts/ (copy.ts, claim.mjs, worktrees.mjs), its package.json
 channel/      the channel, hooks and launcher Claude sessions run, which orrery serves to their machines
+api/          the Rust API (ORR-922): the docs domain so far, beside the Nuxt server; openapi.yaml is its contract
 docs/         these docs; docs/API.md is also served to agents (/api/guide, /llms-full.txt)
 ```
 
@@ -32,8 +33,10 @@ stays in the repo's `.data/`.
 
 The [playground](../.playground/README.md) runs the repo with `nuxt dev`, so a saved change shows on the
 page straight away and the server reloads itself, with no rebuild. It's a compose project of its own on
-http://localhost:9001, with a demo database in `.playground/data`, so the branch you're on never touches
-the Orrerys you use:
+http://localhost:9001, with a demo database of its own, so the branch you're on never touches the Orrerys
+you use. That database is Postgres, a service of the playground's own (its data in the `orrery-playground_orrery-pg`
+volume); `ORRERY_DATABASE=/data/orrery.db` in `.playground/compose.env` runs it on a SQLite file in
+`.playground/data` instead:
 
 ```sh
 .playground/play          # start it, with a demo
@@ -44,6 +47,23 @@ It's this machine's only. The container has its own `node_modules` and `.nuxt` (
 packages as it starts.
 
 Without Docker: `pnpm install`, then `pnpm dev` on http://localhost:9000 (Node 24.22.1, pnpm 10.14.0).
+
+## The Rust API
+
+`api/` is a Rust API for the board's stored state (ORR-921, ORR-923), written a domain at a time. So far it has the
+**docs** domain: a project's docs, their sections and revisions, the routes in `api/openapi.yaml`, its contract.
+
+**Nothing uses it yet.** The Nuxt app neither starts it nor sends it a request, and the page only ever calls Nuxt's
+`/api`. It stays dead code until the owner decides to swap Nuxt's server logic out for it, domain by domain. Until then a
+change to a route is made in Nuxt alone.
+
+When it runs, it opens the database Nuxt is on (`NUXT_DATABASE`), listens on loopback (`ORRERY_API_LISTEN`,
+`127.0.0.1:9100` by default), and takes requests only with the token it was given (`NUXT_API_TOKEN`, 16 characters or
+more). It runs no migrations and refuses a schema without the columns it reads, so a database needs the Nuxt app to
+have opened it first. `ORRERY_API_LOG=1` has it say each request it answers.
+
+Its checks: `cargo fmt --check`, `cargo clippy -- -D warnings` and `cargo test` in `api/` (Rust 1.80 or later), run by
+CI's `api` job, which also runs `web/test/rust-migrations.test.ts` against the built binary.
 
 ## The page's pieces
 
@@ -115,6 +135,25 @@ beside them in `web/server/utils/migrations/postgres.ts`: add a step to both, ne
 on the same step with the same tables, columns, indexes and checks, and that a step changing data does the same on
 each; a step that changes data gets an upgrade test there. Before a SQLite file takes steps it's copied to
 `orrery-pre-<version>-step<n>.db`, and a database past the newest step the code knows (from a newer orrery) isn't opened.
+
+### Migrations in Rust
+
+The Rust API has the same steps (ORR-931): each SQL step as a numbered file in `api/migrations/sqlite` and
+`api/migrations/postgres` (Postgres's baseline as `023-baseline.sql`), listed in `api/src/steps.rs`, and the steps that are
+code here written again in `api/src/migrate.rs`. `orrery-api migrate` brings `NUXT_DATABASE` up to the newest step, counted
+as the Node app counts them, so a database either one migrated carries on with the other. Nothing runs it yet: the Node
+app migrates until the last domain has moved. It doesn't yet copy a SQLite file before upgrading it, which it needs before
+it takes over, and it leaves a database from before step 4 (when issues were renumbered per board) to the Node app.
+
+A new step is still written in `web/server/utils/migrations` first, then ported with
+
+```sh
+ORRERY_WRITE_MIGRATIONS=1 pnpm --dir web exec vitest run --project unit test/rust-migrations.test.ts
+```
+
+which writes the files. A step that's code needs its arm in `migrate.rs` by hand. `test/rust-migrations.test.ts` fails
+until both are done, and with the binary built it checks that `orrery-api migrate` makes the database Node makes: from
+empty, and carrying on from a step Node stopped at, on SQLite and (with `TEST_POSTGRES_URL`) on Postgres.
 
 ## Benchmarking the browser suite
 
