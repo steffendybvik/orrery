@@ -4,7 +4,7 @@ import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 
 // The clearing lives in the module, with Nitro's auto-imports stubbed: the session as it is, and the store's say on its work.
 let clearing: typeof import('../server/utils/clearing')
-let session: {project: string, state: string, started?: {launch: string}, idleAt?: number, listening?: boolean} | undefined
+let session: {project: string, state: string, started?: {launch: string}, idleAt?: number, listening?: boolean, context?: {tokens: number}, carried_over?: {from: string, to: string}} | undefined
 let working: string[]
 /** The issue the session worked last (ORR-903). */
 let lastWorked: string | undefined
@@ -432,6 +432,25 @@ describe("the owner's focus reaching a session orrery started that holds only wo
         expect(sent).toEqual([])
     })
 
+    it('goes at once to a session with a small context, which costs less to carry than a clear (ORR-968)', async () => {
+        session!.context = {tokens: 30_000}
+        expect(await reach('ORR-2')).toBe(false)
+        session!.context = {tokens: 80_000}
+        expect(await reach('ORR-2')).toBe(true)
+        expect(sent).toHaveLength(1)
+    })
+
+    it('keeps its context for an issue in the same milestone or epic (ORR-968)', async () => {
+        held = [{id: 'ORR-1', status: 'in-review', milestone: '3'} as never]
+        expect(await reach('ORR-2', {})).toBe(true)
+        clearing.clearDone('w')
+        issues = issues.map(i => i.id === 'ORR-2' ? {...i, milestone: '3'} : i)
+        expect(await reach('ORR-2')).toBe(false)
+        held = [{id: 'ORR-1', status: 'in-review', epic: 4} as never]
+        issues = issues.map(i => i.id === 'ORR-2' ? {...i, milestone: null, epic: 4} : i)
+        expect(await reach('ORR-2')).toBe(false)
+    })
+
     it("goes at once to a session that's working, opened by hand, a chat or an untrusted run", async () => {
         session!.state = 'working'
         expect(await reach('ORR-2')).toBe(false)
@@ -444,6 +463,53 @@ describe("the owner's focus reaching a session orrery started that holds only wo
         untrusted = false
         session!.started = undefined
         expect(await reach('ORR-2')).toBe(false)
+        expect(sent).toEqual([])
+    })
+})
+
+describe('a session orrery started, gone idle on the issue it carried another\'s context into (ORR-968)', () => {
+    let held: {id: string, project: string, status: string, waiting?: boolean}[]
+    beforeEach(() => {
+        session = {...session!, carried_over: {from: 'ORR-1', to: 'ORR-2'}}
+        held = [{id: 'ORR-2', project: 'orrery', status: 'in-progress'}]
+        const store = (globalThis as unknown as {useStore: () => Record<string, unknown>}).useStore()
+        vi.stubGlobal('useStore', () => ({...store, workingOn: async () => held}))
+    })
+
+    it('is cleared, and sent back to that issue alone once it is back', async () => {
+        clearing.considerClear('orrery', 'w')
+        await after()
+        expect(sent).toEqual([{type: 'clear', project: 'orrery', id: 'l1'}])
+        expect(carried).toEqual([])
+        expect(clearing.clearDone('w')).toBe(true)
+        expect(carried).toEqual([['orrery', 'ORR-2', {session: 'w', note: clearing.AFTER_CLEAR}, {name: 'steffen', owner: true}]])
+        // The focus back doesn't end a run it was working through.
+        clearing.startRun('w', {kind: 'focus', project: 'orrery', milestone: '1'} as never)
+        clearing.startRun('w', {kind: 'focus', project: 'orrery', issue: 'ORR-2', note: clearing.AFTER_CLEAR} as never)
+        expect(clearing.runOf('w')).toMatchObject({milestone: '1'})
+    })
+
+    it('is sent nothing when the clear never comes back, and may pick again', async () => {
+        clearing.considerClear('orrery', 'w')
+        await after()
+        await vi.advanceTimersByTimeAsync(clearing.CLEAR_DUE_FOR + 10)
+        expect(clearing.clearDone('w')).toBe(false)
+        expect(carried).toEqual([])
+        expect(clearing.clearPending('w')).toBe(false)
+        expect(rechecked).toBe(1)
+    })
+
+    it('is left as it is once that issue is done or waits on the owner, or for a session not listening', async () => {
+        held = [{id: 'ORR-2', project: 'orrery', status: 'in-review'}]
+        clearing.considerClear('orrery', 'w')
+        await after()
+        held = [{id: 'ORR-2', project: 'orrery', status: 'in-progress', waiting: true}]
+        clearing.considerClear('orrery', 'w')
+        await after()
+        held = [{id: 'ORR-2', project: 'orrery', status: 'in-progress'}]
+        session = {...session!, listening: false}
+        clearing.considerClear('orrery', 'w')
+        await after()
         expect(sent).toEqual([])
     })
 })

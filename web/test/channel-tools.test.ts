@@ -57,6 +57,12 @@ describe("the channel's tools", () => {
         expect(calls[0]!.headers).not.toHaveProperty('Orrery-Untrusted')
     })
 
+    it('tell a session starting an issue unrelated to its last one to end its turn, as orrery clears it (ORR-968)', async () => {
+        const {call} = harness({'PATCH /issues/GRE-1': {body: issue({status: 'in-progress', assignee: 'claude', carried_over: {from: 'GRE-9', tokens: 84_000}})}})
+        expect((await call('start_issue', {id: 'GRE-1'})).text).toBe('Started GRE-1 [in-progress, claude] Shelves\n\nThis is unrelated to GRE-9, and your context still holds about 84k tokens of it. '
+            + 'End your turn now without working on it: orrery clears your context, then sends you back to GRE-1 to start it fresh.')
+    })
+
     it("report each call's tool and answer, refusals too, for the Context page (ORR-549)", async () => {
         const reported: [string, string][] = []
         const fetch = async () => ({ok: true, status: 200, statusText: '', text: async () => JSON.stringify(issue())})
