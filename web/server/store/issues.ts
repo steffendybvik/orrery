@@ -123,10 +123,10 @@ export abstract class IssueStore extends ClaimStore {
             await this.record(project, id, actor, [['created', null, null]])
             if (depends) await this.setLinks(project, id, depends, actor)
             await this.touchProject(project)
+            this.changed(project)
+            for (const other of new Set(depends?.map(l => l.project))) if (other !== project) this.changed(other)
             return id
         })
-        this.changed(project)
-        for (const other of new Set(depends?.map(l => l.project))) if (other !== project) this.changed(other)
         if (urgent) await this.urgent(project, null, await this.issueRow(project, id), actor)
         return await this.issue(project, id)
     }
@@ -236,9 +236,9 @@ export abstract class IssueStore extends ClaimStore {
             })
             if (depends) await this.setLinks(project, id, depends, actor)
             await this.touchProject(project)
+            this.changed(project)
+            for (const other of linked) if (other !== project) this.changed(other)
         })
-        this.changed(project)
-        for (const other of linked) if (other !== project) this.changed(other)
         await this.urgent(project, row, await this.issueRow(project, id), actor)
         return await this.issue(project, id)
     }
@@ -259,8 +259,8 @@ export abstract class IssueStore extends ClaimStore {
             if (!Number(changes)) throw conflict(`${id} has just been reassigned; read it again`)
             await this.record(project, id, actor, [['assignee', row.assignee, assignee], ['claim', row.claimed_by, person ?? null]])
             await this.touchProject(project)
+            this.changed(project)
         })
-        this.changed(project)
         return await this.issue(project, id)
     }
 
@@ -276,8 +276,8 @@ export abstract class IssueStore extends ClaimStore {
             await this.update('issues', 'project = ? AND id = ?', [project, id], {claimed_by: null, claimed_at: null, claimed_session: null})
             await this.record(project, id, actor, [['claim', row.claimed_by, null]])
             await this.touchProject(project)
+            this.changed(project)
         })
-        this.changed(project)
         return await this.issue(project, id)
     }
 

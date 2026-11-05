@@ -113,9 +113,9 @@ export abstract class BulkStore extends CommentStore {
             await this.issuesMoved(project, new Map(subtree.map(old => [old, null])))
             await this.run('DELETE FROM issues WHERE project = ? AND id = ?', project, id)
             await this.touchProject(project)
+            this.changed(project)
+            this.tell('issue.deleted', project, id, actor)
         })
-        this.changed(project)
-        this.tell('issue.deleted', project, id, actor)
     }
 
     /** The owner's decision on a proposal: approved (which commits it, into Todo: approving means it's work), changes asked

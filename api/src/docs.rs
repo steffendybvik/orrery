@@ -10,13 +10,22 @@ use serde_json::{json, Map, Value};
 use sqlx::any::AnyRow;
 use sqlx::{AnyConnection, Row};
 
-/// Who a request is, as the Nuxt server's `actorOf` worked it out: only its name, whether it's the owner, and the
-/// session's name, which are all a doc keeps.
+/// Who a request is, as the Nuxt server's `actorOf` worked it out: its name, whether it's the owner, and the session's
+/// name, which are all a doc keeps; and, for the rails between people (ORR-927, as the store's `Actor` has them), the
+/// member acting themselves (`person`), who it says it works for (`named`), whether it came from a request (`asked`),
+/// and whether it's an untrusted session or the owner's chat.
 #[derive(Clone, Debug, Default)]
+// The rails' fields are read by the comment writes, next (ORR-927).
+#[allow(dead_code)]
 pub struct Actor {
     pub name: String,
     pub owner: bool,
     pub session: Option<String>,
+    pub person: Option<String>,
+    pub named: Option<String>,
+    pub asked: bool,
+    pub untrusted: bool,
+    pub chat: bool,
 }
 
 /// What a write changed, for the Nuxt server to tell: the projects (`changed`), whether the orrery's settings did, as

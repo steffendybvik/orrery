@@ -36,6 +36,30 @@ export function codeOnDisk() {
     }
 }
 
+/** Whether `version` is older than `than` (`1.0.0-rc.9` before `rc.10`, a prerelease before its release), as
+ * `olderVersion` in web/shared/version.ts has it (ORR-965); one that's unknown is. */
+export function olderThan(version, than) {
+    if (!version) return true
+    const parts = (a, b) => {
+        const [as, bs] = [a.split('.'), b.split('.')]
+        for (let i = 0; i < Math.max(as.length, bs.length); i++) {
+            const [x, y] = [as[i], bs[i]]
+            if (x === undefined || y === undefined) return x === undefined ? -1 : 1
+            const [nx, ny] = [Number(x), Number(y)]
+            const order = Number.isInteger(nx) && Number.isInteger(ny) ? nx - ny : x.localeCompare(y)
+            if (order) return Math.sign(order)
+        }
+        return 0
+    }
+    const [aMain = '', ...aPre] = version.split('-')
+    const [bMain = '', ...bPre] = than.split('-')
+    const main = parts(aMain, bMain)
+    if (main) return main < 0
+    const [ap, bp] = [aPre.join('-'), bPre.join('-')]
+    if (!ap || !bp) return !!ap && !bp
+    return parts(ap, bp) < 0
+}
+
 /** The version this process started on. */
 export const VERSION = versionOnDisk() ?? '0.0.0'
 

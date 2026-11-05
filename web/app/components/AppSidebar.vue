@@ -237,6 +237,17 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
         <span class="flex-1">Connect an agent</span>
       </NuxtLink>
 
+      <!-- Back in the nav (ORR-972): the panel at the foot hides when there's nothing to list or start. -->
+      <NuxtLink
+          to="/sessions"
+          class="flex items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] transition-colors"
+          :class="route.path === '/sessions' ? 'bg-active font-medium text-fg' : 'text-muted hover:bg-hover hover:text-fg'"
+      >
+        <SectionIcon section="sessions" class="size-4 text-faint" />
+        <span class="flex-1">Sessions</span>
+        <span v-if="allSessions.length" class="font-mono text-[11px] text-faint tabular-nums">{{ allSessions.length }}</span>
+      </NuxtLink>
+
       <NuxtLink
           to="/schedules"
           class="flex items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] transition-colors"

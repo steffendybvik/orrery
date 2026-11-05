@@ -44,3 +44,12 @@ describe('a launcher against this orrery (ORR-686)', () => {
         expect(works('1.0.0-rc.15', 2)).toBe(true)
     })
 })
+
+describe("the launcher's own comparison (ORR-965)", () => {
+    it('agrees with the page on which version is older', async () => {
+        const {olderThan} = await import('../../channel/version.mjs')
+        const versions = ['0.9.3', '1.0.0-beta.2', '1.0.0-rc.1', '1.0.0-rc.9', '1.0.0-rc.10', '1.0.0-rc.15', '1.0.0', '1.0.1', '1.1.0']
+        for (const a of versions) for (const b of versions) expect(olderThan(a, b), `${a} < ${b}`).toBe(olderVersion(a, b))
+        expect(olderThan(undefined, '1.0.0')).toBe(true)
+    })
+})

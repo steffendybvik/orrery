@@ -34,9 +34,11 @@ export const DOMAINS: readonly {domain: string, paths: RegExp, methods?: readonl
     {domain: 'comments, reading', paths: /^projects\/[^/]+\/issues\/[^/]+\/comments(\/[^/]+)?$/, methods: ['GET']},
     // Who changed what on an issue (ORR-927). Nothing writes it but the issue's own changes, which stay here (ORR-929).
     {domain: 'activity', paths: /^projects\/[^/]+\/issues\/[^/]+\/activity$/, methods: ['GET']},
-    // A project's milestones and releases, read, and every project's releases (ORR-926). Writing them stays here, as
-    // a milestone's or release's change is told to the event log and schedules (ORR-929).
-    {domain: 'milestones and releases, reading', paths: /^(projects\/[^/]+\/(milestones|releases)(\/[^/]+)?|releases)$/, methods: ['GET']},
+    // A project's milestones, read (ORR-926) and written (ORR-974): the API tells what a write set off, as `Orrery-Told`,
+    // and puts it in the outbox (ORR-929). A milestone's focus stays here, as it signals sessions.
+    {domain: 'milestones', paths: /^projects\/[^/]+\/milestones(\/[^/]+)?$/},
+    // A project's releases, read, and every project's (ORR-926). Writing them stays here for now (ORR-974).
+    {domain: 'releases, reading', paths: /^(projects\/[^/]+\/releases(\/[^/]+)?|releases)$/, methods: ['GET']},
     // Who's on this orrery: listing, adding and renaming them, and inviting one (ORR-928). Removing a person stays here,
     // as it unassigns their issues, and an issue's change wakes sessions (ORR-929).
     {domain: 'people, but removing one', paths: /^people(\/[^/]+)?$/, methods: ['GET', 'POST', 'PATCH']},
@@ -80,6 +82,7 @@ export async function passedThrough(response: Response): Promise<{headers: Recor
  * before it moved: counted once the API has said yes. */
 export const COUNTED: readonly {method: string, paths: RegExp, feature: Feature}[] = [
     {method: 'POST', paths: /^presets$/, feature: 'presets'},
+    {method: 'POST', paths: /^projects\/[^/]+\/milestones$/, feature: 'milestones'},
 ]
 
 /** The feature a successful `method` on `path` counts toward, if any. */
@@ -110,13 +113,18 @@ export function databaseMark(setting: string): string {
 }
 
 /** The headers saying who's asking, as the API reads them: its name and session percent-encoded, as a header is ASCII,
- * and its kind as `kindOf` has it, as the chat and an untrusted session may name the owner (ORR-952). */
+ * and its kind as `kindOf` has it, as the chat and an untrusted session may name the owner (ORR-952). For the rails
+ * between people (ORR-927), the member acting themselves (`person`), who it says it works for (`named`), and whether it
+ * came from a request (`asked`). */
 export function actorHeaders(actor: Actor): Record<string, string> {
     return {
         'Orrery-Actor-Name': encodeURIComponent(actor.name),
         'Orrery-Actor-Owner': actor.owner ? '1' : '0',
         'Orrery-Actor-Kind': actor.untrusted ? 'untrusted' : actor.chat ? 'chat' : actor.owner ? 'owner' : 'session',
         ...actor.session ? {'Orrery-Actor-Session': encodeURIComponent(actor.session)} : {},
+        ...actor.person ? {'Orrery-Actor-Person': encodeURIComponent(actor.person)} : {},
+        ...actor.named ? {'Orrery-Actor-Named': encodeURIComponent(actor.named)} : {},
+        ...actor.asked ? {'Orrery-Actor-Asked': '1'} : {},
     }
 }
 

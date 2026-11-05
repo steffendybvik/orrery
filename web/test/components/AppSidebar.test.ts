@@ -109,8 +109,8 @@ describe('AppSidebar', () => {
             blog: [session('shelves', 'blog', 'idle'), session('kitchen', 'blog', 'waiting')],
         }
         const wrapper = await mount()
-        // The Sessions panel's heading is the page's link: the nav's own row went (ORR-967).
-        expect(link(wrapper, '/sessions')!.text()).toContain('Sessions')
+        // The nav keeps its own Sessions row with the count (ORR-972), beside the panel's heading at the foot.
+        expect(wrapper.find('nav').findAll('a').find(a => a.attributes('href') === '/sessions')!.text()).toBe('Sessions3')
         const text = wrapper.text()
         expect(text.indexOf('kitchen')).toBeLessThan(text.indexOf('jars'))
         expect(text.indexOf('kitchen')).toBeLessThan(text.indexOf('shelves'))
