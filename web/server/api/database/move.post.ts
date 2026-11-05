@@ -1,6 +1,6 @@
 // `POST /api/database/move` `{kind, path | url, how: "copy" | "use"}`: orrery runs on that database from now on,
 // and from the next start. `copy` takes everything into an empty one, `use` runs on an orrery's own as it is. → the
-// check it passed, what was copied (rows per table), and `database` as `GET /api/settings` has it. The owner's,
+// check it passed, what was copied (rows per table), and `database` as `GET /api/machine` has it. The owner's,
 // from localhost; 409 when the database doesn't suit how (see server/utils/move.ts).
 export default defineEventHandler(async event => {
     await mayMove(event)

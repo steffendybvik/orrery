@@ -538,8 +538,10 @@ A session listens through orrery's channel (`channel/orrery-channel.mjs` in this
 server registered in the repo's `.mcp.json` as `orrery-<environment>`, one per orrery for all of the repo's
 projects in `ORRERY_PROJECTS`, followed on one stream; start Claude with `--dangerously-load-development-channels server:orrery-<environment>`),
 or by watching the text stream with the Monitor tool. The Connect page at `/connect` hands out both.
-`GET /settings` says the orrery's `id` (made once, when it first starts) and `environment`: a channel given
-`ORRERY_ID` refuses an orrery with another id. It also says where the data is, read only: `database: {kind, where,
+`GET /settings` says the orrery's `id` (made once, when it first starts): a channel given `ORRERY_ID` refuses an
+orrery with another id. `GET /machine` says what only the running server knows, none of it stored, so it stays this
+server's when the stored settings are the Rust API's (ORR-954): its `environment` (`personal`, `work`, …), and where
+the data is, read only: `database: {kind, where,
 host?, volume?, backup?, backup_host?, backup_volume?, backed_up_at?, backup_failed?, size?, backup_size?}`, `kind` `sqlite` (`where`
 the file's path, as orrery opens it) or `postgres` (`where` as `user@host:port/name`, never the password), `backup` the
 folder it's backed up to, if any (a Postgres one as a SQLite snapshot). Under Docker, `host` is where the SQLite file is
