@@ -20,6 +20,9 @@ info:
     - **People, invites, keys and logins** (ORR-928): who's on this orrery, inviting them, and the keys and logins people
       hold (web/server/api/people, invites, keys, logins). Served by both; removing a person stays the Nuxt server's, as
       it unassigns their issues, and so do logging in and out.
+    - **Presets** (ORR-949): the orrery's presets and a project's own (web/server/api/presets, and
+      web/server/api/projects/[project]/presets). Served by both; seeding the ones orrery ships as it starts stays the
+      Nuxt server's.
 
     An operation marked `x-served: false` is written ahead of the Rust API's: the router doesn't send it there yet, and
     the parity test holds it to that. The mark comes off in the pull request that serves it.
@@ -440,6 +443,76 @@ paths:
         '204': {description: Ended}
         '403': {$ref: '#/components/responses/Forbidden'}
         '404': {$ref: '#/components/responses/NotFound'}
+  /api/presets:
+    get:
+      summary: The orrery's presets, for sessions on any project, by name
+      responses:
+        '200': {description: The presets, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/Preset'}}}}}
+    post:
+      summary: Makes one of the orrery's presets
+      description: The owner's only (403, presets.write).
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/PresetInput'}}}}
+      responses:
+        '201': {description: The preset, content: {application/json: {schema: {$ref: '#/components/schemas/Preset'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+  /api/presets/defaults:
+    post:
+      summary: Adds back the presets orrery ships that were removed, as it ships them
+      description: The owner's only (403, presets.write).
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      responses:
+        '200': {description: The ones added back, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/Preset'}}}}}
+        '403': {$ref: '#/components/responses/Forbidden'}
+  /api/presets/{preset}:
+    parameters: [{$ref: '#/components/parameters/preset'}]
+    patch:
+      summary: Renames a preset, or changes its text or badge
+      description: The owner's only (403, presets.write). Null takes the icon or the colour off.
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/PresetInput'}}}}
+      responses:
+        '200': {description: The preset, content: {application/json: {schema: {$ref: '#/components/schemas/Preset'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+    delete:
+      summary: Removes a preset
+      description: The owner's only (403, presets.write). Sessions already started with it keep its text.
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      responses:
+        '204': {description: Removed}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/presets/{preset}/reset:
+    parameters: [{$ref: '#/components/parameters/preset'}]
+    post:
+      summary: Puts a preset orrery ships back as it ships it
+      description: The owner's only (403, presets.write). 409 for one it doesn't ship.
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      responses:
+        '200': {description: The preset, content: {application/json: {schema: {$ref: '#/components/schemas/Preset'}}}}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+  /api/projects/{project}/presets:
+    parameters: [{$ref: '#/components/parameters/project'}]
+    get:
+      summary: The presets a session on the project can have, the orrery's then its own
+      responses:
+        '200': {description: The presets, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/Preset'}}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
+    post:
+      summary: Makes one of the project's own presets
+      description: The owner's only (403, presets.write).
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/PresetInput'}}}}
+      responses:
+        '201': {description: The preset, content: {application/json: {schema: {$ref: '#/components/schemas/Preset'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
 components:
   parameters:
     project: {name: project, in: path, required: true, description: The project's id, schema: {type: string}}
@@ -448,6 +521,7 @@ components:
     issue: {name: issue, in: path, required: true, description: 'The issue''s id (`ORR-12`), an id it had before (an alias), or the full form of either on this board (`ORR-12-x7k2m3qd`)', schema: {type: string}}
     milestone: {name: milestone, in: path, required: true, description: 'The milestone''s id (`3`), an id it had before, or the full form of either on this board (`mls-3-x7k2m3qd`)', schema: {type: string}}
     release: {name: release, in: path, required: true, description: The release's version, schema: {type: string}}
+    preset: {name: preset, in: path, required: true, description: 'The preset''s number, or its full id on this server (`pst-12-x7k2m3qd`)', schema: {type: string}}
     comment: {name: comment, in: path, required: true, description: 'A comment''s id; ids run across the orrery', schema: {type: integer, minimum: 1}}
     actor:
       name: Orrery-Actor
@@ -591,6 +665,34 @@ components:
         last_used_at: {type: string, format: date-time}
         expires_at: {type: string, format: date-time}
         current: {type: boolean, const: true, description: The asking browser's own}
+    Preset:
+      type: object
+      required: [id, project, name, text, icon, color, created_at, updated_at]
+      properties:
+        id: {type: integer}
+        project: {type: [string, 'null'], description: The project's own, or null for the orrery's}
+        name: {type: string}
+        text: {type: string, description: What a session started with it is told}
+        icon: {type: [string, 'null'], description: A Heroicon's name}
+        color: {type: [string, 'null'], description: A named tint or a colour like #3b82f6}
+        default:
+          type: object
+          description: Only on one orrery ships
+          required: [key, changed]
+          properties:
+            key: {type: string}
+            changed: {type: boolean, description: Whether its name, text or badge differ from what orrery ships}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    PresetInput:
+      type: object
+      additionalProperties: false
+      description: '`name` and `text` are required to make one, and trimmed'
+      properties:
+        name: {type: string, minLength: 1}
+        text: {type: string, minLength: 1}
+        icon: {type: [string, 'null'], pattern: '^[a-z0-9]+(-[a-z0-9]+)*$'}
+        color: {type: [string, 'null'], pattern: '^(slate|blue|teal|green|amber|rose|violet|#[0-9a-fA-F]{6})$'}
     Status:
       type: object
       required: [id, name, kind, color, position]

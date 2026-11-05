@@ -10,10 +10,12 @@
 import {createHash} from 'node:crypto'
 import type {H3Event} from 'h3'
 import {createError, getCookie, getRequestHeader, getRequestURL, readRawBody, setResponseHeader, setResponseStatus} from 'h3'
+import type {Feature} from '#shared/usage'
 import type {Actor} from '../store/schema'
 import type {Who} from './auth'
-import {loginCookie, toldOff} from './auth'
+import {loginCookie, pathOf, toldOff} from './auth'
 import {oidcOn} from './oidc'
+import {countOwnUse} from './usage'
 
 /** The domains the Rust API serves, a line each (ORR-925): moving a domain there is adding its line once the parity test
  * passes, and taking it back to the routes here is taking the line out. Each matches a whole path after `/api/`, with no
@@ -45,6 +47,8 @@ export const DOMAINS: readonly {domain: string, paths: RegExp, methods?: readonl
     {domain: 'logins', paths: /^logins(\/[^/]+)?$/},
     // An image kept for Markdown, read (ORR-927). Keeping one stays here, as it's compressed here first.
     {domain: 'uploads, reading', paths: /^uploads\/[^/]+$/, methods: ['GET']},
+    // The orrery's presets and a project's own (ORR-949). Seeding the ones orrery ships, as this server starts, stays here.
+    {domain: 'presets', paths: /^(presets(\/[^/]+(\/reset)?)?|projects\/[^/]+\/presets)$/},
 ]
 
 /** The headers a reply that isn't JSON keeps on its way through: what it is, how long the browser keeps it, and that
@@ -61,6 +65,18 @@ export async function passedThrough(response: Response): Promise<{headers: Recor
         return value ? [[name, value]] : []
     }))
     return {headers, body: Buffer.from(await response.arrayBuffer())}
+}
+
+/** What a forwarded request counts toward the owner's own use of a feature (`countOwnUse`), as its route here did
+ * before it moved: counted once the API has said yes. */
+export const COUNTED: readonly {method: string, paths: RegExp, feature: Feature}[] = [
+    {method: 'POST', paths: /^presets$/, feature: 'presets'},
+]
+
+/** The feature a successful `method` on `path` counts toward, if any. */
+export function countedOf(method: string, path: string): Feature | undefined {
+    const rest = /^\/api\/(.*?)\/?$/.exec(path)?.[1]
+    return rest === undefined ? undefined : COUNTED.find(c => c.method === method.toUpperCase() && c.paths.test(rest))?.feature
 }
 
 const WRITES = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
@@ -180,6 +196,8 @@ export async function forwardToApi(event: H3Event, api: {url: string, token: str
     // The statuses are in the settings, which open pages get again (ORR-926).
     if (response.headers.get('orrery-settings') === '1') await store.settingsChanged()
     for (const {type, project, subject} of toldOf(response.headers.get('orrery-told'))) store.told(type, project, subject, actor)
+    const counted = countedOf(event.method, pathOf(event))
+    if (counted) countOwnUse(event, counted)
     setResponseStatus(event, response.status)
     if (response.status === 204) return null
     setResponseHeader(event, 'Content-Type', 'application/json')
