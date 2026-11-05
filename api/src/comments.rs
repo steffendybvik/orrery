@@ -83,8 +83,9 @@ const COMMENT_FIELDS: [&str; 2] = ["body", "asks"];
 const ASKS: [&str; 2] = ["decision", "feedback"];
 
 /// A comment's body as `checkInput` takes it against `COMMENT_FIELDS`: `body` a string that isn't blank, and `asks` one
-/// of `ASKS` or null.
-fn check_comment_input(body: &Value) -> Result<(String, Option<String>)> {
+/// of `ASKS` or null. `partial` is an edit, where `body` may be left out. Each is `None` when it isn't sent, and `asks`
+/// is `Some(None)` sent as null.
+fn check_comment_input(body: &Value, partial: bool) -> Result<(Option<String>, Option<Option<String>>)> {
     let Some(object) = body.as_object() else { return Err(ApiError::bad_request("The body should be a JSON object")) };
     let mut problems = vec![];
     for key in object.keys() {
@@ -94,7 +95,9 @@ fn check_comment_input(body: &Value) -> Result<(String, Option<String>)> {
     }
     let text = match object.get("body") {
         None => {
-            problems.push("missing \"body\"".into());
+            if !partial {
+                problems.push("missing \"body\"".into());
+            }
             None
         }
         Some(Value::Null) => {
@@ -112,8 +115,9 @@ fn check_comment_input(body: &Value) -> Result<(String, Option<String>)> {
         }
     };
     let asks = match object.get("asks") {
-        None | Some(Value::Null) => None,
-        Some(Value::String(asks)) if ASKS.contains(&asks.as_str()) => Some(asks.clone()),
+        None => None,
+        Some(Value::Null) => Some(None),
+        Some(Value::String(asks)) if ASKS.contains(&asks.as_str()) => Some(Some(asks.clone())),
         Some(Value::String(asks)) => {
             problems.push(format!("\"asks\" is \"{asks}\", not one of {} (or null)", ASKS.join(", ")));
             None
@@ -126,7 +130,7 @@ fn check_comment_input(body: &Value) -> Result<(String, Option<String>)> {
     if !problems.is_empty() {
         return Err(ApiError::problems(problems));
     }
-    Ok((text.unwrap_or_default(), asks))
+    Ok((text, asks))
 }
 
 /// What a new comment leaves the Nuxt server to do, as only it knows the sessions (ORR-929): pass it on to the session
@@ -138,10 +142,13 @@ pub struct Handoff {
     pub comment: i64,
     pub carry: bool,
     pub notice: bool,
+    /// The carried words replace ones a session may have read already (an edit).
+    pub edited: bool,
 }
 
 /// A comment's row, as far as who may change it goes.
 struct Whose {
+    body: String,
     owned: bool,
     person: Option<String>,
     by_agent: bool,
@@ -274,7 +281,8 @@ impl<'c> Comments<'c> {
             .fetch_one(&mut *self.conn)
             .await?
             .get("assignee");
-        let (text, asks) = check_comment_input(body)?;
+        let (text, asks) = check_comment_input(body, false)?;
+        let (text, asks) = (text.unwrap_or_default(), asks.flatten());
         let owner = self.owner_id().await?;
         let asker = if actor.owner && held.as_deref() == Some(owner.as_str()) { self.open_asker(project, &issue).await? } else { None };
         let assignee = match if asks.is_some() { self.rails_for(actor).await? } else { None } {
@@ -321,8 +329,58 @@ impl<'c> Comments<'c> {
             None => self.effects.tell("comment.added", project, &issue),
         }
         let id = changes::finish(self.conn, self.outbox.as_mut(), &self.effects, done).await?;
-        let handoff =
-            Handoff { project: project.into(), issue: issue.clone(), comment: id, carry: actor.owner || actor.person.is_some(), notice: !actor.owner };
+        let handoff = Handoff {
+            project: project.into(),
+            issue: issue.clone(),
+            comment: id,
+            carry: actor.owner || actor.person.is_some(),
+            notice: !actor.owner,
+            edited: false,
+        };
+        Ok((self.comment(project, &issue, id).await?, handoff))
+    }
+
+    /// Edits the comment's words or what it asks: the owner's only by them, and a member's (or their agents') only by
+    /// them or the owner (`updateComment`). New words by the comment's own person go to the session on the issue too, as
+    /// it may have read the first ones (`Handoff`, `edited`).
+    pub async fn update(&mut self, project: &str, sent: &str, id: i64, body: &Value, actor: &Actor) -> Result<(Value, Option<Handoff>)> {
+        let issue = self.issue_id(project, sent).await?;
+        self.issue_there(project, &issue).await?;
+        let whose = self.whose(project, &issue, id).await?;
+        let action = format!("Editing comment {id}");
+        if whose.owned && !actor.owner {
+            return Err(ApiError::refused_for("issues.delete", format!("{action} is the owner's call: comment {id} was made by the owner")));
+        }
+        self.leave_their_words(&whose, actor, &action).await?;
+        let (text, asks) = check_comment_input(body, true)?;
+        changes::begin(self.conn).await?;
+        let done: Result<()> = async {
+            let mut set = vec![];
+            if text.is_some() {
+                set.push("body = ?");
+            }
+            if asks.is_some() {
+                set.push("asks = ?");
+            }
+            set.push("updated_at = ?");
+            let query = format!("UPDATE comments SET {} WHERE id = ?", set.join(", "));
+            let query = sql(&query);
+            let mut update = sqlx::query(&query);
+            if let Some(text) = &text {
+                update = update.bind(text);
+            }
+            if let Some(asks) = &asks {
+                update = update.bind(asks.as_deref());
+            }
+            update.bind(stamp()).bind(id).execute(&mut *self.conn).await?;
+            self.touch_issue(project, &issue).await
+        }
+        .await;
+        self.effects.changed = vec![project.into()];
+        changes::finish(self.conn, self.outbox.as_mut(), &self.effects, done).await?;
+        let theirs = (actor.owner && whose.owned) || (actor.person.is_some() && !whose.by_agent && whose.person == actor.person);
+        let carry = theirs && text.as_ref().is_some_and(|t| *t != whose.body);
+        let handoff = carry.then(|| Handoff { project: project.into(), issue: issue.clone(), comment: id, carry: true, notice: false, edited: true });
         Ok((self.comment(project, &issue, id).await?, handoff))
     }
 
@@ -348,7 +406,7 @@ impl<'c> Comments<'c> {
 
     async fn whose(&mut self, project: &str, issue: &str, id: i64) -> Result<Whose> {
         let row = sqlx::query(&sql(
-            "SELECT CAST(owned AS BIGINT) AS owned, person, CAST(by_agent AS BIGINT) AS by_agent FROM comments WHERE project = ? AND issue = ? AND id = ?",
+            "SELECT body, CAST(owned AS BIGINT) AS owned, person, CAST(by_agent AS BIGINT) AS by_agent FROM comments WHERE project = ? AND issue = ? AND id = ?",
         ))
         .bind(project)
         .bind(issue)
@@ -356,7 +414,7 @@ impl<'c> Comments<'c> {
         .fetch_optional(&mut *self.conn)
         .await?
         .ok_or_else(|| ApiError::not_found(format!("No comment {id} on {issue}")))?;
-        Ok(Whose { owned: row.get::<i64, _>("owned") != 0, person: row.get("person"), by_agent: row.get::<i64, _>("by_agent") != 0 })
+        Ok(Whose { body: row.get("body"), owned: row.get::<i64, _>("owned") != 0, person: row.get("person"), by_agent: row.get::<i64, _>("by_agent") != 0 })
     }
 
     /// A member's comment is theirs, as the owner's are the owner's: only they and the owner change it. Their agents'
