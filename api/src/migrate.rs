@@ -60,6 +60,9 @@ async fn sqlite(conn: &mut AnyConnection, path: &str) -> Result<Migrated, String
             "{path} was written by a newer orrery (schema step {version}; this one knows up to {latest}). Run that version again, or restore the copy taken before it upgraded (orrery-pre-<version>-step<n>.db, in the backup folder or beside the database)."
         ));
     }
+    if version > 0 && version < latest {
+        keep_a_copy(conn, path, version, latest).await?;
+    }
     // Foreign keys are off while tables are rebuilt (SQLite can't turn them off inside a transaction).
     exec(conn, "PRAGMA busy_timeout = 5000; PRAGMA foreign_keys = OFF").await.map_err(|e| e.to_string())?;
     for (i, step) in SQLITE.iter().enumerate().skip(version as usize) {
@@ -84,6 +87,60 @@ async fn sqlite(conn: &mut AnyConnection, path: &str) -> Result<Migrated, String
     }
     exec(conn, "PRAGMA foreign_keys = ON").await.map_err(|e| e.to_string())?;
     Ok(Migrated { from: version, to: latest })
+}
+
+/// Where the copy of a SQLite file goes before an upgrade, as `beforeUpgrade` in web/server/utils/db.ts puts it: in the
+/// backup folder (`ORRERY_API_BACKUP_DIR`, the Nuxt server's backup setting), or beside the file, named by the version
+/// (`ORRERY_VERSION`) and the step it was at, so a later step under the same version gets one of its own (ORR-457).
+fn copy_path(path: &str, version: u32) -> std::path::PathBuf {
+    let dir = std::env::var("ORRERY_API_BACKUP_DIR")
+        .ok()
+        .filter(|d| !d.is_empty())
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::path::Path::new(path).parent().map(|p| p.to_path_buf()).unwrap_or_default());
+    let release = std::env::var("ORRERY_VERSION").ok().filter(|v| !v.is_empty()).unwrap_or_else(|| "upgrade".into());
+    dir.join(format!("orrery-pre-{release}-step{version}.db"))
+}
+
+/// Copies the file as it is before its steps run, as the Node app's `migrate` does (ORR-448): written beside the name and
+/// checked before it takes it, so a copy cut short never passes for one, and one already there (an earlier try at this
+/// same upgrade) stays. Without a copy, it doesn't upgrade.
+async fn keep_a_copy(conn: &mut AnyConnection, path: &str, version: u32, latest: u32) -> Result<(), String> {
+    let copy = copy_path(path, version);
+    if copy.exists() {
+        return Ok(());
+    }
+    let partial = std::path::PathBuf::from(format!("{}.partial", copy.display()));
+    let made = async {
+        if let Some(dir) = copy.parent().filter(|d| !d.as_os_str().is_empty()) {
+            std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+        }
+        if partial.exists() {
+            std::fs::remove_file(&partial).map_err(|e| e.to_string())?;
+        }
+        sqlx::query("VACUUM INTO ?").bind(partial.to_string_lossy().into_owned()).execute(&mut *conn).await.map_err(|e| e.to_string())?;
+        let mut check = AnyConnection::connect(&format!("sqlite://{}?mode=ro", partial.display())).await.map_err(|e| e.to_string())?;
+        let found: Vec<String> = sqlx::query("PRAGMA quick_check")
+            .fetch_all(&mut check)
+            .await
+            .map_err(|e| e.to_string())?
+            .iter()
+            .map(|r| r.try_get::<String, _>(0).unwrap_or_default())
+            .collect();
+        check.close().await.ok();
+        if found != ["ok"] {
+            return Err(format!("the copy isn't sound ({})", found.join("; ")));
+        }
+        std::fs::rename(&partial, &copy).map_err(|e| e.to_string())
+    }
+    .await;
+    made.map_err(|e| {
+        std::fs::remove_file(&partial).ok();
+        format!(
+            "orrery won't upgrade {path} (schema step {version} to {latest}) without a copy of it as it is, and couldn't make one at {}: {e}. Free some space or fix the folder, then start it again.",
+            copy.display()
+        )
+    })
 }
 
 async fn postgres(conn: &mut AnyConnection, schema: Option<&str>) -> Result<Migrated, String> {
@@ -156,10 +213,8 @@ async fn code(conn: &mut AnyConnection, dialect: Dialect, n: u32) -> Result<(), 
             Ok(())
         }
         // The owner moves from `settings` to `people` (ORR-653).
-        (Dialect::Sqlite, 63) => people(conn, SQLITE_PEOPLE, "INSERT INTO people (id, name, role, created_at) VALUES (?, ?, 'owner', ?)").await.map_err(fail),
-        (Dialect::Postgres, 63) => {
-            people(conn, POSTGRES_PEOPLE, "INSERT INTO people (id, name, role, created_at) VALUES ($1, $2, 'owner', $3)").await.map_err(fail)
-        }
+        (Dialect::Sqlite, 63) => people(conn, SQLITE_PEOPLE, "INSERT INTO people (id, name, role, created_at) VALUES (?, ?, 'owner', ?)", n).await,
+        (Dialect::Postgres, 63) => people(conn, POSTGRES_PEOPLE, "INSERT INTO people (id, name, role, created_at) VALUES ($1, $2, 'owner', $3)", n).await,
         // Each board and the server get a random id, for the full form of ids (ORR-674). Postgres's is SQL.
         (Dialect::Sqlite, 64) => {
             exec(conn, "ALTER TABLE projects ADD COLUMN uid TEXT NOT NULL DEFAULT ''").await.map_err(&fail)?;
@@ -212,26 +267,42 @@ const POSTGRES_PEOPLE: &str = r#"
     CREATE UNIQUE INDEX people_one_owner ON people(role) WHERE role = 'owner';
 "#;
 
-async fn people(conn: &mut AnyConnection, table: &str, insert: &str) -> Result<(), sqlx::Error> {
-    exec(conn, table).await?;
-    let owner: Option<String> =
-        sqlx::query("SELECT value FROM settings WHERE key = 'owner'").fetch_optional(&mut *conn).await?.map(|r| r.try_get(0)).transpose()?;
-    if let Some((id, name)) = owner.as_deref().and_then(owner_person) {
+async fn people(conn: &mut AnyConnection, table: &str, insert: &str, n: u32) -> Result<(), String> {
+    let fail = failed(n);
+    exec(conn, table).await.map_err(&fail)?;
+    let owner: Option<String> = sqlx::query("SELECT value FROM settings WHERE key = 'owner'")
+        .fetch_optional(&mut *conn)
+        .await
+        .map_err(&fail)?
+        .map(|r| r.try_get(0))
+        .transpose()
+        .map_err(&fail)?;
+    // A setting that isn't JSON stops the step, so the owner isn't dropped unnoticed, as the Node app's throws.
+    let person = owner.as_deref().map(owner_person).transpose().map_err(|e| format!("schema step {n} failed: the owner setting {e}"))?.flatten();
+    if let Some((id, name)) = person {
         let now = Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true);
-        sqlx::query(insert).bind(id).bind(name).bind(now).execute(&mut *conn).await?;
+        sqlx::query(insert).bind(id).bind(name).bind(now).execute(&mut *conn).await.map_err(&fail)?;
     }
-    exec(conn, "DELETE FROM settings WHERE key = 'owner'").await
+    exec(conn, "DELETE FROM settings WHERE key = 'owner'").await.map_err(fail)
+}
+
+/// What JavaScript's `String(value)` makes of a JSON value.
+fn js_string(value: &Value) -> String {
+    match value {
+        Value::String(s) => s.clone(),
+        Value::Null => "null".into(),
+        Value::Array(items) => items.iter().map(|v| if v.is_null() { String::new() } else { js_string(v) }).collect::<Vec<_>>().join(","),
+        Value::Object(_) => "[object Object]".into(),
+        other => other.to_string(),
+    }
 }
 
 /// The owner as they move to `people`, from their `settings` value (their name, as JSON): none for a name with nothing
-/// in it to make an id from. As web/server/utils/owner-person.ts.
-fn owner_person(value: &str) -> Option<(String, String)> {
-    let name = match serde_json::from_str::<Value>(value).ok()? {
-        Value::String(name) => name,
-        other => other.to_string(),
-    };
+/// in it to make an id from, and an error for a value that isn't JSON. As web/server/utils/owner-person.ts.
+fn owner_person(value: &str) -> Result<Option<(String, String)>, String> {
+    let name = js_string(&serde_json::from_str::<Value>(value).map_err(|e| format!("isn't JSON: {e}"))?);
     let id = actor_id(&name);
-    (!id.is_empty()).then_some((id, name))
+    Ok((!id.is_empty()).then_some((id, name)))
 }
 
 /// A name as an actor's id, as `actorId` in web/server/store/schema.ts: accents off, lowercase, `_` between the rest.
@@ -271,8 +342,13 @@ mod tests {
         assert_eq!(actor_id("  Åse  Ødegård! "), "ase_degard");
         assert_eq!(actor_id("Ziggy"), "ziggy");
         assert_eq!(actor_id("!!!"), "");
-        assert_eq!(owner_person("\"Ziggy\""), Some(("ziggy".into(), "Ziggy".into())));
-        assert_eq!(owner_person("\"…\""), None);
+        assert_eq!(owner_person("\"Ziggy\""), Ok(Some(("ziggy".into(), "Ziggy".into()))));
+        assert_eq!(owner_person("\"…\""), Ok(None));
+        // As `String(JSON.parse(value))`: not JSON fails the step, and what isn't a string is named as JavaScript names it.
+        assert!(owner_person("Ziggy").is_err());
+        assert_eq!(owner_person("[\"Ada\",\"Lovelace\"]"), Ok(Some(("ada_lovelace".into(), "Ada,Lovelace".into()))));
+        assert_eq!(owner_person("{\"a\":1}"), Ok(Some(("object_object".into(), "[object Object]".into()))));
+        assert_eq!(owner_person("12"), Ok(Some(("12".into(), "12".into()))));
     }
 
     #[test]

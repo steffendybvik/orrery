@@ -193,8 +193,10 @@ The Rust API has the same steps (ORR-931): each SQL step as a numbered file in `
 `api/migrations/postgres` (Postgres's baseline as `023-baseline.sql`), listed in `api/src/steps.rs`, and the steps that are
 code here written again in `api/src/migrate.rs`. `orrery-api migrate` brings `NUXT_DATABASE` up to the newest step, counted
 as the Node app counts them, so a database either one migrated carries on with the other. Nothing runs it yet: the Node
-app migrates until the last domain has moved. It doesn't yet copy a SQLite file before upgrading it, which it needs before
-it takes over, and it leaves a database from before step 4 (when issues were renumbered per board) to the Node app.
+app migrates until the last domain has moved. Like Node, it copies a SQLite file before upgrading it, and won't upgrade
+without the copy: `orrery-pre-<ORRERY_VERSION>-step<n>.db` in `ORRERY_API_BACKUP_DIR`, or beside the file. An owner
+setting that isn't JSON stops the step that moves the owner to `people`. It leaves a database from before step 4 (when
+issues were renumbered per board) to the Node app.
 
 A new step is still written in `web/server/utils/migrations` first, then ported with
 
