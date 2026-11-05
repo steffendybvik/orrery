@@ -110,7 +110,7 @@ export abstract class CommentStore extends SignalStore {
         this.changed(project)
         this.tell(input.asks ? 'comment.asks' : 'comment.added', project, issue, actor, input.asks ? {to: String(input.asks)} : {})
         if (actor.owner || actor.person) await this.carryComment(project, issue, String(input.body), actor)
-        if (!actor.owner) this.onNotice({...await this.comment(project, issue, id), project, title: (await this.issueRow(project, issue)).title})
+        if (!actor.owner) this.noticed({...await this.comment(project, issue, id), project, title: (await this.issueRow(project, issue)).title})
         return await this.comment(project, issue, id)
     }
 
@@ -197,7 +197,7 @@ export abstract class CommentStore extends SignalStore {
             carried++
             const row = await this.one<SignalRow>('INSERT INTO signals (project, issue, kind, note, target, person, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *',
                 project, comment.issue, 'comment', comment.body, session, to ?? null, comment.created_by, comment.owned, stamp())
-            this.onSignal(signalOf(row))
+            this.signalled(signalOf(row))
         }
         return carried
     }
@@ -219,7 +219,7 @@ export abstract class CommentStore extends SignalStore {
         if (member && !target && await this.holderOf(assignee) !== member) return
         const row = await this.one<SignalRow>('INSERT INTO signals (project, issue, kind, note, target, person, model, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *',
             project, issue, 'comment', body, target, person ?? null, await this.modelNeeded(project, issue), actor.name, member ? 0 : 1, stamp())
-        this.onSignal(signalOf(row))
+        this.signalled(signalOf(row))
     }
 
     /** The owner's comments are theirs: an agent can't reword them. */
