@@ -1,4 +1,4 @@
-// orrery's API in Rust (ORR-922). For now it serves docs, the statuses (ORR-926), reading issues and their comments (ORR-927), and people, invites, keys and logins (ORR-928), on the database the Nuxt server opens, and only
+// orrery's API in Rust (ORR-922). For now it serves docs, the statuses (ORR-926), reading milestones and releases (ORR-926), reading issues and their comments (ORR-927), and people, invites, keys and logins (ORR-928), on the database the Nuxt server opens, and only
 // to that server: the router there (web/server/middleware/zz-api.ts) checks a request as it always has (auth, the
 // board's permissions, the chat's and untrusted sessions' rails, the browser guards) and then forwards it here with
 // who it's from. So this listens on loopback, and answers only a request that carries the token they share.
@@ -19,6 +19,7 @@ mod error;
 mod issues;
 mod migrate;
 mod people;
+mod plans;
 mod statuses;
 mod steps;
 mod text;
@@ -36,6 +37,7 @@ use error::{ApiError, Result};
 use issues::Issues;
 use people::{holder_of, People, Ways, Who};
 use percent_encoding::{percent_decode_str, utf8_percent_encode, NON_ALPHANUMERIC};
+use plans::Plans;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use sqlx::AnyPool;
@@ -264,6 +266,31 @@ async fn get_comment(State(app): Shared, Path((project, issue, comment)): Path<(
     Ok(Json(Comments::new(&mut conn).comment(&project, &issue, id).await?).into_response())
 }
 
+async fn list_milestones(State(app): Shared, Path(project): Path<String>) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    Ok(Json(Plans::new(&mut Issues::new(&mut conn)).milestones(&project).await?).into_response())
+}
+
+async fn get_milestone(State(app): Shared, Path((project, milestone)): Path<(String, String)>) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    Ok(Json(Plans::new(&mut Issues::new(&mut conn)).milestone(&project, &milestone).await?).into_response())
+}
+
+async fn list_releases(State(app): Shared, Path(project): Path<String>) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    Ok(Json(Plans::new(&mut Issues::new(&mut conn)).releases(&project).await?).into_response())
+}
+
+async fn get_release(State(app): Shared, Path((project, release)): Path<(String, String)>) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    Ok(Json(Plans::new(&mut Issues::new(&mut conn)).release(&project, &release).await?).into_response())
+}
+
+async fn all_releases(State(app): Shared) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    Ok(Json(Plans::new(&mut Issues::new(&mut conn)).all_releases().await?).into_response())
+}
+
 /// Runs `work` with the statuses on a connection of the pool's, as `with_docs` does with the docs.
 macro_rules! with_statuses {
     ($app:expr, |$statuses:ident| $work:expr) => {{
@@ -367,7 +394,9 @@ async fn end_login(State(app): Shared, Path(login): Path<String>, headers: Heade
 }
 
 async fn health() -> Json<Value> {
-    Json(json!({"ok": true, "domains": ["docs", "statuses", "issues, reading", "comments, reading", "people, but removing one", "invites", "keys", "logins"]}))
+    Json(
+        json!({"ok": true, "domains": ["docs", "statuses", "issues, reading", "comments, reading", "milestones and releases, reading", "people, but removing one", "invites", "keys", "logins"]}),
+    )
 }
 
 fn router(app: Arc<App>) -> Router {
@@ -386,6 +415,11 @@ fn router(app: Arc<App>) -> Router {
         .route(&format!("{P}/issues/{{issue}}"), get(get_issue))
         .route(&format!("{P}/issues/{{issue}}/comments"), get(list_comments))
         .route(&format!("{P}/issues/{{issue}}/comments/{{comment}}"), get(get_comment))
+        .route(&format!("{P}/milestones"), get(list_milestones))
+        .route(&format!("{P}/milestones/{{milestone}}"), get(get_milestone))
+        .route(&format!("{P}/releases"), get(list_releases))
+        .route(&format!("{P}/releases/{{release}}"), get(get_release))
+        .route("/api/releases", get(all_releases))
         .route("/api/changes", get(list_changes))
         .route("/api/statuses", get(list_statuses).post(create_status))
         .route("/api/statuses/{status}", patch(patch_status).delete(delete_status))

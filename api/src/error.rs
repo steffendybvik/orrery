@@ -46,6 +46,11 @@ impl ApiError {
         Self::new(StatusCode::UNAUTHORIZED, message)
     }
 
+    /// What can't happen, as the store's `known` refuses it: a 500 naming what was missing.
+    pub fn internal(missing: impl Into<String>) -> Self {
+        Self::new(StatusCode::INTERNAL_SERVER_ERROR, format!("Expected {}", missing.into()))
+    }
+
     /// A request for another database than this API's: the router serves it from the Nuxt server instead.
     pub fn misdirected(message: impl Into<String>) -> Self {
         Self::new(StatusCode::MISDIRECTED_REQUEST, message)

@@ -62,32 +62,37 @@ fn short_id(id: &str, prefixes: &[&str], uid: &str) -> Option<String> {
 }
 
 /// A status as the board needs it: its id and kind, in board order.
-struct Status {
-    id: String,
-    kind: String,
+pub(crate) struct Status {
+    pub id: String,
+    pub kind: String,
 }
 
 /// How many of an issue's leaves are in each kind (`Kinds`), in `KINDS` order.
-type Kinds = [i64; 6];
+pub(crate) type Kinds = [i64; 6];
+
+/// Kinds as the board hands them out: `{proposed: 0, backlog: 2, …}`.
+pub(crate) fn kinds_json(kinds: &Kinds) -> Value {
+    Value::Object(KINDS.iter().zip(kinds).map(|(k, n)| (k.to_string(), json!(n))).collect())
+}
 
 fn kind_at(kind: &str) -> usize {
     KINDS.iter().position(|k| *k == kind).unwrap_or(1)
 }
 
 /// What `buildBoard`'s `Rules` decide from the statuses: each issue's column and kind.
-struct Rules<'s> {
+pub(crate) struct Rules<'s> {
     statuses: &'s [Status],
     /// The open statuses, least along first: started, then todo, then backlog, each in board order.
     open: Vec<&'s Status>,
 }
 
 impl<'s> Rules<'s> {
-    fn new(statuses: &'s [Status]) -> Self {
+    pub fn new(statuses: &'s [Status]) -> Self {
         let open = ["started", "todo", "backlog"].iter().flat_map(|kind| statuses.iter().filter(move |s| s.kind == *kind)).collect();
         Rules { statuses, open }
     }
 
-    fn kind_of(&self, column: &str) -> String {
+    pub fn kind_of(&self, column: &str) -> String {
         if column == "proposed" {
             return column.into();
         }
@@ -103,9 +108,22 @@ impl<'s> Rules<'s> {
         self.statuses.iter().find(|s| s.kind == kind).map(|s| s.id.clone()).unwrap_or_else(|| kind.into())
     }
 
+    /// A milestone's column, kind and counts, from its issues (`buildBoard`).
+    pub fn roll_up(&self, fields: &mut Map<String, Value>, tasks: &[Node]) {
+        let (mut counts, mut kinds) = (Map::new(), [0; 6]);
+        for task in tasks {
+            sum(&mut counts, &mut kinds, task);
+        }
+        let column = self.column_of(&counts, &kinds);
+        fields.insert("kind".into(), json!(self.kind_of(&column)));
+        fields.insert("column".into(), json!(column));
+        fields.insert("counts".into(), Value::Object(counts));
+        fields.insert("kinds".into(), kinds_json(&kinds));
+    }
+
     /// Closed when every committed leaf is: its first done status with leaves, or canceled when none was done. Else the
     /// least-along open status any leaf is in. Proposed when it's only proposals; nothing yet is in the backlog.
-    fn column_of(&self, counts: &Map<String, Value>, kinds: &Kinds) -> String {
+    pub fn column_of(&self, counts: &Map<String, Value>, kinds: &Kinds) -> String {
         let has = |s: &Status| counts.get(&s.id).and_then(Value::as_i64).unwrap_or(0) > 0;
         let [proposed, backlog, todo, started, done, canceled] = *kinds;
         if backlog + todo + started + done == 0 && canceled == 0 {
@@ -124,27 +142,27 @@ impl<'s> Rules<'s> {
 }
 
 /// An issue on the board: its own fields as the board hands them out, and what it rolls up into its parent.
-struct Node {
-    fields: Map<String, Value>,
-    counts: Map<String, Value>,
-    kinds: Kinds,
-    tasks: Vec<Node>,
+pub(crate) struct Node {
+    pub fields: Map<String, Value>,
+    pub counts: Map<String, Value>,
+    pub kinds: Kinds,
+    pub tasks: Vec<Node>,
 }
 
 impl Node {
     /// The issue as the board has it, its sub-issues within (`Issue`).
-    fn json(&self) -> Value {
+    pub fn json(&self) -> Value {
         let mut out = self.fields.clone();
         out.insert("tasks".into(), Value::Array(self.tasks.iter().map(Node::json).collect()));
         Value::Object(out)
     }
 
-    fn id(&self) -> &str {
+    pub fn id(&self) -> &str {
         self.fields["id"].as_str().unwrap_or_default()
     }
 }
 
-fn sum(into: &mut Map<String, Value>, kinds: &mut Kinds, from: &Node) {
+pub(crate) fn sum(into: &mut Map<String, Value>, kinds: &mut Kinds, from: &Node) {
     for (column, n) in &from.counts {
         let before = into.get(column).and_then(Value::as_i64).unwrap_or(0);
         into.insert(column.clone(), json!(before + n.as_i64().unwrap_or(0)));
@@ -185,9 +203,18 @@ fn link_ref(here: &str, project: &str, id: &str) -> String {
     }
 }
 
+/// A milestone on the board, as `buildBoard` hands it out (`Milestone`): its own fields, with its column, kind and
+/// counts rolled up from its issues, and its row's place and times (`milestoneRecord`). The issues in none are one more,
+/// with an empty id and no row.
+pub(crate) struct Group {
+    pub id: String,
+    pub fields: Map<String, Value>,
+    pub tasks: Vec<Node>,
+}
+
 /// An issue's board, as `readBoard` gives it: its milestones in order, each with its issues.
-struct Board {
-    milestones: Vec<(String, Vec<Node>)>,
+pub(crate) struct Board {
+    pub milestones: Vec<Group>,
 }
 
 impl Board {
@@ -205,8 +232,8 @@ impl Board {
             }
         }
         let mut out = Vec::new();
-        for (milestone, issues) in &self.milestones {
-            walk(&mut out, project, issues, None, milestone);
+        for group in &self.milestones {
+            walk(&mut out, project, &group.tasks, None, &group.id);
         }
         out
     }
@@ -224,16 +251,17 @@ impl Board {
             }
             None
         }
-        self.milestones.iter().find_map(|(milestone, issues)| search(issues, None, id).map(|(issue, parent)| (issue, parent, milestone.clone())))
+        self.milestones.iter().find_map(|group| search(&group.tasks, None, id).map(|(issue, parent)| (issue, parent, group.id.clone())))
     }
 }
 
 /// The project's row, as far as reading its issues takes.
-struct Project {
-    uid: String,
-    repo: Option<String>,
-    release_mode: String,
-    releases_from: Option<String>,
+pub(crate) struct Project {
+    pub name: String,
+    pub uid: String,
+    pub repo: Option<String>,
+    pub release_mode: String,
+    pub releases_from: Option<String>,
 }
 
 pub struct Issues<'c> {
@@ -245,11 +273,14 @@ impl<'c> Issues<'c> {
         Issues { conn }
     }
 
-    async fn project(&mut self, project: &str) -> Result<Project> {
-        let row =
-            sqlx::query(&sql("SELECT uid, repo, release_mode, releases_from FROM projects WHERE id = ?")).bind(project).fetch_optional(&mut *self.conn).await?;
+    pub(crate) async fn project(&mut self, project: &str) -> Result<Project> {
+        let row = sqlx::query(&sql("SELECT name, uid, repo, release_mode, releases_from FROM projects WHERE id = ?"))
+            .bind(project)
+            .fetch_optional(&mut *self.conn)
+            .await?;
         let row = row.ok_or_else(|| ApiError::not_found(format!("No project \"{project}\"")))?;
         Ok(Project {
+            name: row.get("name"),
             uid: row.get::<Option<String>, _>("uid").unwrap_or_default(),
             repo: row.get("repo"),
             release_mode: row.get::<Option<String>, _>("release_mode").unwrap_or_default(),
@@ -257,7 +288,7 @@ impl<'c> Issues<'c> {
         })
     }
 
-    async fn statuses(&mut self) -> Result<Vec<Status>> {
+    pub(crate) async fn statuses(&mut self) -> Result<Vec<Status>> {
         let listed = Statuses::new(&mut *self.conn).list().await?;
         Ok(listed
             .as_array()
@@ -267,7 +298,7 @@ impl<'c> Issues<'c> {
             .collect())
     }
 
-    async fn exists(&mut self, query: &str, binds: &[&str]) -> Result<bool> {
+    pub(crate) async fn exists(&mut self, query: &str, binds: &[&str]) -> Result<bool> {
         let query = sql(query);
         let mut asked = sqlx::query(&query);
         for bind in binds {
@@ -278,7 +309,7 @@ impl<'c> Issues<'c> {
 
     /// An issue's or a milestone's id, from its id, one it had before (an alias), or the full form of either on this
     /// board (`issueId`, `milestoneId`).
-    async fn resolve(&mut self, project: &str, sent: &str, milestone: bool) -> Result<String> {
+    pub(crate) async fn resolve(&mut self, project: &str, sent: &str, milestone: bool) -> Result<String> {
         let (table, aliases, column, prefixes): (&str, &str, &str, &[&str]) =
             if milestone { ("milestones", "milestone_aliases", "milestone", &["mls-", "chk-"]) } else { ("issues", "issue_aliases", "issue", &[""]) };
         let mut id = sent.to_string();
@@ -394,14 +425,14 @@ impl<'c> Issues<'c> {
 
     /// The project's board (`readBoard`, then `buildBoard`): its milestones and their issues, sub-issues within, each
     /// with its comment count, open question, the ids it had before, its dependency links and its risk.
-    async fn board(&mut self, project: &str, statuses: &[Status]) -> Result<Board> {
-        let milestones: Vec<String> = sqlx::query(&sql("SELECT id FROM milestones WHERE project = ? ORDER BY position, created_at"))
-            .bind(project)
-            .fetch_all(&mut *self.conn)
-            .await?
-            .iter()
-            .map(|r| r.get("id"))
-            .collect();
+    pub(crate) async fn board(&mut self, project: &str, statuses: &[Status]) -> Result<Board> {
+        let milestones = sqlx::query(&sql(
+            "SELECT id, title, summary, priority, created_by, CAST(owned AS BIGINT) AS owned, CAST(position AS BIGINT) AS position, created_at, updated_at \
+             FROM milestones WHERE project = ? ORDER BY position, created_at",
+        ))
+        .bind(project)
+        .fetch_all(&mut *self.conn)
+        .await?;
         let rows: Vec<IssueRow> = sqlx::query(&sql(&format!("SELECT {ISSUE_COLUMNS} FROM issues WHERE project = ? ORDER BY position, created_at")))
             .bind(project)
             .fetch_all(&mut *self.conn)
@@ -445,6 +476,7 @@ impl<'c> Issues<'c> {
         let links = self.links(project, statuses).await?;
         let risks = self.risks(project).await?;
         let issue_aliases = self.aliases(project, "issue_aliases", "issue").await?;
+        let milestone_aliases = self.aliases(project, "milestone_aliases", "milestone").await?;
         let mut children: HashMap<Option<String>, Vec<&IssueRow>> = HashMap::new();
         for row in &rows {
             children.entry(row.parent.clone()).or_default().push(row);
@@ -462,13 +494,38 @@ impl<'c> Issues<'c> {
             aliases: &issue_aliases,
         };
         let top = children.get(&None).cloned().unwrap_or_default();
-        let mut grouped: Vec<(String, Vec<Node>)> = milestones
+        let mut grouped: Vec<Group> = milestones
             .iter()
-            .map(|m| (m.clone(), top.iter().filter(|t| t.milestone.as_deref() == Some(m)).map(|t| context.issue(t, false)).collect()))
+            .map(|m| {
+                let id: String = m.get("id");
+                let tasks: Vec<Node> = top.iter().filter(|t| t.milestone.as_deref() == Some(id.as_str())).map(|t| context.issue(t, false)).collect();
+                let text = |key: &str| m.get::<Option<String>, _>(key);
+                let mut fields = Map::new();
+                fields.insert("id".into(), json!(id));
+                fields.insert("title".into(), json!(text("title").unwrap_or_default()));
+                if let Some(summary) = text("summary").filter(|s| !s.is_empty()) {
+                    fields.insert("summary".into(), json!(summary));
+                }
+                if let Some(priority) = text("priority") {
+                    fields.insert("priority".into(), json!(priority));
+                }
+                fields.insert("aliases".into(), json!(milestone_aliases.get(&id).cloned().unwrap_or_default()));
+                fields.insert("created_by".into(), json!(text("created_by").unwrap_or_default()));
+                fields.insert("protected".into(), json!(m.get::<i64, _>("owned") != 0));
+                fields.insert("project".into(), json!(project));
+                fields.insert("position".into(), json!(m.get::<i64, _>("position")));
+                fields.insert("created_at".into(), json!(text("created_at").unwrap_or_default()));
+                fields.insert("updated_at".into(), json!(text("updated_at").unwrap_or_default()));
+                rules.roll_up(&mut fields, &tasks);
+                Group { id, fields, tasks }
+            })
             .collect();
         let loose: Vec<&&IssueRow> = top.iter().filter(|t| t.milestone.as_deref().map_or(true, str::is_empty)).collect();
         if !loose.is_empty() {
-            grouped.push((String::new(), loose.into_iter().map(|t| context.issue(t, false)).collect()));
+            let tasks: Vec<Node> = loose.into_iter().map(|t| context.issue(t, false)).collect();
+            let mut fields = Map::new();
+            rules.roll_up(&mut fields, &tasks);
+            grouped.push(Group { id: String::new(), fields, tasks });
         }
         Ok(Board { milestones: grouped })
     }
@@ -605,7 +662,7 @@ impl<'c> Issues<'c> {
     }
 
     /// Refuses a release there isn't, in the project's source when it takes its releases from another (`releaseRow`).
-    async fn release_there(&mut self, project: &str, row: &Project, version: &str) -> Result<()> {
+    pub(crate) async fn release_there(&mut self, project: &str, row: &Project, version: &str) -> Result<()> {
         let source = match row.release_mode.as_str() {
             "shared" => row.releases_from.clone(),
             "own" => Some(project.to_string()),
@@ -758,7 +815,7 @@ impl Context<'_> {
         put("kind", Some(json!(self.rules.kind_of(&column))));
         put("column", Some(json!(column)));
         put("counts", Some(Value::Object(counts.clone())));
-        put("kinds", Some(Value::Object(KINDS.iter().zip(kinds).map(|(k, n)| (k.to_string(), json!(n))).collect())));
+        put("kinds", Some(kinds_json(&kinds)));
         Node { fields: f, counts, kinds, tasks }
     }
 }
