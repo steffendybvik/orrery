@@ -121,6 +121,9 @@ export default defineNuxtPlugin(() => {
             opened = true
         })
         events.addEventListener('ready', event => {
+            // A page hosted apart from its server (ORR-667) is a build of its own, never the server's, and is updated
+            // where it's hosted: reloading wouldn't bring a new one, only loop.
+            if (apiCrossOrigin('/events')) return
             const build = (event as MessageEvent).data as string
             if (build && build !== useRuntimeConfig().app.buildId) location.reload()
         })

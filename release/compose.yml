@@ -34,6 +34,8 @@ services:
       # Set when ORRERY_BACKUP names a folder: without one, App settings says the backups stay on this computer.
       NUXT_BACKUP_CHOSEN: ${ORRERY_BACKUP:+yes}
       NUXT_ALLOWED_HOSTS: ${ORRERY_ALLOWED_HOSTS:-}
+      NUXT_ALLOWED_ORIGINS: ${ORRERY_ALLOWED_ORIGINS:-}
+      NUXT_PAGES: ${ORRERY_PAGES:-}
       NUXT_USAGE: ${ORRERY_USAGE:-}
       NUXT_LISTEN_HOST: ${ORRERY_HOST:-127.0.0.1}
       NUXT_PHONE_URL: ${ORRERY_PHONE_URL:-}

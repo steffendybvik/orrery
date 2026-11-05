@@ -26,7 +26,7 @@ const asking = new Map<string, Promise<void>>()
 export function useLaunchState(project: MaybeRefOrGetter<string>) {
     const all = useState<Record<string, LaunchState | null>>('launch-state', () => ({}))
     const {launchers, sessions} = useRoadmaps()
-    const install = launcherInstall(useRequestURL().origin)
+    const install = launcherInstall(serverOrigin())
 
     function refresh(): Promise<void> {
         const id = toValue(project)

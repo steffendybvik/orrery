@@ -6,13 +6,17 @@
 //   name (`<name>.local`, for a phone on the Wi-Fi, ORR-874), or one listed in NUXT_ALLOWED_HOSTS
 //   (ORRERY_ALLOWED_HOSTS in compose), e.g. `orrery.lan`. A `.local` name is looked up on the local network
 //   alone (multicast DNS), never by a website's DNS, so it can't be used to rebind one onto this machine.
-// - A write from a page on another site (its `Origin`) is refused; agents, curl and the channel send none.
+// - A write from a page on another site (its `Origin`) is refused; agents, curl and the channel send none. The one
+//   exception is a site listed in NUXT_ALLOWED_ORIGINS (ORRERY_ALLOWED_ORIGINS in compose), for orrery's own frontend
+//   hosted there (ORR-667, 0-cors.ts); none is by default.
 // - A write's body must be JSON, which a page on another site can't send without the browser asking
 //   first, and orrery never says yes.
 // - The sessions' streams (`…/signals/stream`, `…/launches/stream`) change what orrery thinks is listening
 //   just by being opened, so they're guarded like a write; and since a picture (`<img>`, an agent's
 //   Markdown image) sends no Origin, a browser opening one has to be orrery's own page, as an EventSource.
 //   The channel, the launcher and curl send no Sec-Fetch headers.
+import {originAllowed} from '../utils/origins'
+
 const WRITES = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
 const STREAM = /^\/api\/(projects\/[^/]+\/(signals|launches)|signals)\/stream\/?(\?|$)/
 const LOCAL = /^(localhost|.+\.localhost|[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.local|\d{1,3}(\.\d{1,3}){3}|\[[0-9a-f:.]+\])$/i
@@ -28,7 +32,7 @@ export default defineEventHandler(event => {
     const stream = STREAM.test(event.path)
     if (!(WRITES.has(event.method) && event.path.startsWith('/api/')) && !stream) return
     const origin = getHeader(event, 'origin')
-    if (origin && (origin === 'null' || hostOf(origin) !== host)) {
+    if (origin && (origin === 'null' || hostOf(origin) !== host) && !originAllowed(origin)) {
         throw createError({statusCode: 403, statusMessage: "orrery takes writes from its own page, not another site's"})
     }
     if (stream) {

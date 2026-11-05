@@ -7,7 +7,15 @@ useHead({title: 'Log in'})
 const {status} = useAuth()
 const route = useRoute()
 const invite = computed(() => typeof route.query.invite === 'string' ? route.query.invite : '')
-const provider = computed(() => apiUrl(`/auth/oidc/start${invite.value ? `?invite=${encodeURIComponent(invite.value)}` : ''}`))
+// A page hosted apart from its server (ORR-667) asks the provider's way back to come here, which the server allows only for
+// an origin it lists.
+const provider = computed(() => {
+    const query = new URLSearchParams({
+        ...invite.value ? {invite: invite.value} : {},
+        ...import.meta.client && apiCrossOrigin('/auth/oidc/start') ? {back: location.origin} : {},
+    }).toString()
+    return apiUrl(`/auth/oidc/start${query ? `?${query}` : ''}`)
+})
 const key = ref('')
 const busy = ref(false)
 const failed = ref('')
