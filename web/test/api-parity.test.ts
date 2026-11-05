@@ -40,6 +40,16 @@ const changes: string[] = []
 const events: OrreryEvent[] = []
 let settingsTold = 0
 
+/** Until what the store's writes set off has all come in: the projects sharing a project's releases are told a query
+ * after it (ORR-976). */
+async function settle() {
+    let seen = -1
+    while (seen !== changes.length + events.length) {
+        seen = changes.length + events.length
+        await new Promise(settled => setTimeout(settled, 20))
+    }
+}
+
 describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, and reads issues and comments, as the store does', () => {
     beforeAll(async () => {
         const schema = `test_api_${Date.now().toString(36)}`
@@ -65,15 +75,9 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         })
     }, 30_000)
 
-    // The store tells a change once its write commits, and the projects sharing its releases a query later, so the last
-    // test's can land after it ends (ORR-976): settled before each, until nothing more comes, so none counts in its steps.
-    beforeEach(async () => {
-        let seen = -1
-        while (seen !== changes.length + events.length) {
-            seen = changes.length + events.length
-            await new Promise(settled => setTimeout(settled, 20))
-        }
-    })
+    // The store tells a change once its write commits, and the projects sharing its releases a query later, so a write
+    // outside a step can land in the next one (ORR-976): settled before each test, until nothing more comes.
+    beforeEach(() => settle())
 
     afterAll(async () => {
         api?.kill()
@@ -520,6 +524,8 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         await store.nameOwner({name: 'Steffen'})
         await store.addPerson({name: 'Ada'})
         await store.addPerson({name: 'Bob'})
+        // Naming the owner tells every project, and those sharing releases a moment later: in before the first step.
+        await settle()
         const ada = whoHeaders({person: 'ada', owner: false, via: 'browser'}, undefined)
         const owner = whoHeaders({person: 'steffen', owner: true, via: 'browser'}, undefined)
         /** A key's secret and id, and a login's listed id, are bound to differ between the two sides. */
