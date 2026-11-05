@@ -103,6 +103,10 @@ export const contextShare = ({tokens, window}: ContextUse) => Math.min(1, Math.m
  * channel can stop it, or orrery started it. Any other is known only from its hooks, and has no message box and no Stop. */
 export const listable = (session: Pick<Session, 'listening' | 'reachable' | 'started'>) => session.listening || !!session.reachable || !!session.started
 
+/** Whether Close all on the Sessions page stops a session (ORR-970): one a Stop reaches, orrery's through its launch or a
+ * terminal's through its channel, except the owner's chat, which is their conversation rather than work. */
+export const closable = (session: Pick<Session, 'reachable' | 'started'>) => (!!session.started || !!session.reachable) && !session.started?.chat
+
 /** The sessions the one-line hint is about (ORR-716): started by hand without the channel, so they can't hear the owner. */
 export const withoutChannel = <T extends Pick<Session, 'listening' | 'started'>>(sessions: T[]) => sessions.filter(s => !s.listening && !s.started)
 

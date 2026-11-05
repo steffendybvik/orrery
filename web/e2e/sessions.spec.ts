@@ -4,7 +4,7 @@ import {AGENT, OWNER, hold, makeProject, projectApi} from './support'
 // The session side, with a fake channel and launcher on the API where Claude would be: starting sessions turned on,
 // a session's card and a message to it alone, a session across two projects, where a focus goes, several projects
 // on one stream, a message to every idle session, Focus on this starting one and New session on this another, Stop on
-// one orrery started, one with no channel left out of the lists, the session on an issue shown on its page, the repos the
+// one orrery started, Close all, one with no channel left out of the lists, the session on an issue shown on its page, the repos the
 // launcher serves, and a preset.
 
 const api = projectApi('kitchen')
@@ -492,6 +492,37 @@ test('a session orrery started has Stop out front, which stops it on the first p
         await expect(card.getByRole('button', {name: 'Watch'})).toBeVisible()
         await card.getByRole('button', {name: 'Stop', exact: true}).click()
         await expect.poll(() => launcher.said.text).toContain('event: stop')
+    } finally {
+        stream?.stop()
+        launcher.stop()
+    }
+})
+
+test('Close all stops every listed session, after asking (ORR-970)', async ({page, request, baseURL}) => {
+    const launcher = hold(baseURL!, '/api/projects/kitchen/launches/stream')
+    let stream: ReturnType<typeof hold> | undefined
+    // The page's stops are caught here rather than sent: this group shares its orrery with specs running beside it, whose
+    // sessions a real Close all would stop.
+    const stopped: string[] = []
+    await page.route(/\/api\/projects\/[^/]+\/(launches|sessions)\/[^/]+\/stop$/, route => {
+        stopped.push(new URL(route.request().url()).pathname)
+        return route.fulfill({json: {ok: true}})
+    })
+    try {
+        await expect.poll(async () => (await api(request, 'get', '/launches')).launchers).toBe(1)
+        await request.post('/api/projects/kitchen/launches/running', {data: {launches: [{id: 'e2e970e2e970', tmux: 'orrery-e2e-close-all'}]}})
+        stream = hold(baseURL!, '/api/projects/kitchen/signals/stream?session=e2e-close&name=e2e-close-all&started=e2e970e2e970&format=text')
+        await page.goto('/sessions#session-e2e-close')
+        await expect(page.locator('#session-e2e-close')).toBeVisible()
+        await page.getByRole('button', {name: 'Close all', exact: true}).click()
+        await expect(page.getByText(/^Close \d+ sessions?(, \d+ working)?\?$/)).toBeVisible()
+        // Cancel stops nothing.
+        await page.getByRole('button', {name: 'Cancel', exact: true}).click()
+        expect(stopped).toEqual([])
+        await page.getByRole('button', {name: 'Close all', exact: true}).click()
+        await page.getByRole('button', {name: 'Close all', exact: true}).click()
+        await expect.poll(() => stopped).toContain('/api/projects/kitchen/launches/e2e970e2e970/stop')
+        await expect(page.getByRole('button', {name: 'Close all', exact: true})).toBeVisible()
     } finally {
         stream?.stop()
         launcher.stop()

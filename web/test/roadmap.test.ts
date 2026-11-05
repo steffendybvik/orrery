@@ -1,7 +1,7 @@
 import {readFileSync} from 'node:fs'
 import {describe, expect, it} from 'vitest'
 import type {IssueStatus} from '#shared/roadmap'
-import {DEFAULT_STATUSES, freezeNote, listable, nameBesideProject, total, trackerLinkOf, withoutChannel} from '#shared/roadmap'
+import {DEFAULT_STATUSES, closable, freezeNote, listable, nameBesideProject, total, trackerLinkOf, withoutChannel} from '#shared/roadmap'
 import type {BoardInput, IssueInput, TaskFile} from '../server/utils/roadmap'
 import {RoadmapError, buildBoard, checkRoadmap, issueLine, legacyStatus, readRoadmap} from '../server/utils/roadmap'
 
@@ -195,5 +195,12 @@ describe('which sessions are listed (ORR-716)', () => {
         const hooks = {id: 'hooks', listening: false}
         const stoppable = {id: 'stoppable', listening: false, reachable: true}
         expect(withoutChannel([hooks, stoppable, {id: 'heard', listening: true}, {id: 'ours', listening: false, started}])).toEqual([hooks, stoppable])
+    })
+
+    it('closes all that a Stop reaches, but not the owner\'s chat', () => {
+        expect(closable({started})).toBe(true)
+        expect(closable({reachable: true})).toBe(true)
+        expect(closable({})).toBe(false)
+        expect(closable({started: {...started, chat: true}})).toBe(false)
     })
 })
