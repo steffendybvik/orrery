@@ -195,14 +195,23 @@ useHead(() => ({title: epic.value ? `${epic.value.title} · Epics · orrery` : '
           <span>{{ epic.issues }} {{ epic.issues === 1 ? 'issue' : 'issues' }}<template v-if="epic.projects.length"> in {{ epic.projects.length }} {{ epic.projects.length === 1 ? 'project' : 'projects' }}</template></span>
         </div>
       </header>
-      <section v-for="part in parts" :key="part.project.id">
-        <ViewToolbar>
-          <NuxtLink :to="`/p/${part.project.id}`" class="label hover:text-fg">{{ part.project.name }}</NuxtLink>
-          <ProgressRing :kinds="part.kinds" :size="14" />
-          <span class="text-xs text-faint">{{ part.issues }} {{ part.issues === 1 ? 'issue' : 'issues' }}</span>
-        </ViewToolbar>
-        <ListView :milestones="part.milestones" :project="part.project.id" group="status" risk-first />
-      </section>
+      <!-- Each project as a child of the epic (ORR-955): compact cards, indented under its header, like an issue's pull
+           requests. overflow-clip rounds the corners without breaking the list's sticky status rows. -->
+      <div v-if="parts.length" class="mx-auto flex max-w-5xl flex-col gap-3 px-4 pb-10 sm:px-8">
+        <section
+            v-for="part in parts"
+            :key="part.project.id"
+            class="overflow-clip rounded-xl border border-line sm:ml-6 dark:bg-panel"
+            :aria-label="part.project.name"
+        >
+          <div class="flex items-center gap-2 border-b border-line px-3 py-2">
+            <NuxtLink :to="`/p/${part.project.id}`" class="label hover:text-fg">{{ part.project.name }}</NuxtLink>
+            <ProgressRing :kinds="part.kinds" :size="14" />
+            <span class="text-xs text-faint">{{ part.issues }} {{ part.issues === 1 ? 'issue' : 'issues' }}</span>
+          </div>
+          <ListView :milestones="part.milestones" :project="part.project.id" group="status" risk-first class="-mb-px" />
+        </section>
+      </div>
       <p v-if="!parts.length" class="px-4 py-16 text-center text-sm text-muted">No issues in this epic yet. Pick it under Epic on an issue’s page, in any project.</p>
     </template>
     <NotFound v-else-if="ready && epics" to="/epics" back="Back to the epics">No epic “{{ route.params.epic }}”</NotFound>
