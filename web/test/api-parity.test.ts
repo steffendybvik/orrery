@@ -1,4 +1,4 @@
-// The Rust API's docs (ORR-922, api/) and comment reads (ORR-927) against the store's: the same steps, one project through each, on one database
+// The Rust API's docs (ORR-922, api/), statuses and milestone and release reads (ORR-926), and issue and comment reads (ORR-927) against the store's: the same steps, one project through each, on one database
 // (SQLite, or Postgres with TEST_POSTGRES_URL), and the same replies, failures and changes told. The API is the binary
 // `cargo build` makes (api/target/debug/orrery-api, or ORRERY_API_BIN); without one this is skipped, and CI's `api` job
 // builds it first.
@@ -108,7 +108,7 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         const revisions = new Map<number, number>()
         return JSON.parse(JSON.stringify(outcome, (key, value: unknown) => {
             if (typeof value === 'string') {
-                return value.replaceAll(project, '<project>').replace(/\b(STO|API)-(\d+)/g, 'KEY-$2').replace(/^\d{4}-\d{2}-\d{2}T[\d:.]+Z$/, '<time>').replace(/-[a-z2-7]{8}$/, '-<uid>')
+                return value.replaceAll(project, '<project>').replace(/\b(STO|API)(D?)-(\d+)/g, 'KEY$2-$3').replace(/^\d{4}-\d{2}-\d{2}T[\d:.]+Z$/, '<time>').replace(/-[a-z2-7]{8}$/, '-<uid>')
             }
             if (typeof value === 'number' && (key === 'id' || key === 'revision') && Number.isInteger(value)) {
                 if (!revisions.has(value)) revisions.set(value, revisions.size + 1)
@@ -372,6 +372,61 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         expect((await viaApi('GET', `/issues/${ids['through-api']}/comments/1.5`)).status).toBe(404)
     })
 
+    it('reads milestones and releases alike, a shared release and every project\'s too (ORR-926)', async () => {
+        const read = (name: string, ts: (p: string) => Promise<unknown>, path: (p: string) => string | Promise<string>, project?: string) =>
+            both(name, p => viaStore(() => ts(project ?? p)), async () => viaApi('GET', await path('through-api'), undefined, AGENT, project ?? 'through-api'))
+        // Before either has milestones or releases.
+        await read('no milestones yet', p => store.listMilestones(p), () => '/milestones')
+        await read('releases off', p => store.listReleases(p), () => '/releases')
+        await read('a release with releases off', p => store.release(p, '1.0.0'), () => '/releases/1.0.0')
+        const ids: Record<string, Record<string, string>> = {}
+        for (const p of ['through-store', 'through-api']) {
+            const key = p === 'through-store' ? 'STO' : 'API'
+            await store.updateProject(p, {release_mode: 'own'}, OWNER)
+            for (const version of ['2.0.0', '2.1.0']) await store.createRelease(p, {version, branch: `release/${version}`, notes: 'Hinges, at last.'}, OWNER)
+            await store.updateRelease(p, '2.0.0', {shipped_on: '2026-11-01'}, OWNER)
+            const {id: frame} = await store.createMilestone(p, {title: 'The frame', summary: 'Square and glued', priority: 'P1'}, OWNER)
+            const {id: finish} = await store.createMilestone(p, {title: 'The finish'})
+            await store.createMilestone(p, {title: 'Nothing yet'}, OWNER)
+            const {id: legs} = await store.createIssue(p, {title: 'Cut the legs', milestone: frame, release: '2.0.0'}, OWNER)
+            await store.createIssue(p, {title: 'Square them', parent: legs, status: 'done'}, OWNER)
+            await store.createIssue(p, {title: 'Glue them', parent: legs, status: 'started', release: '2.1.0'}, OWNER)
+            await store.createIssue(p, {title: 'Oil it', milestone: finish, release: '2.1.0', status: 'todo'}, OWNER)
+            await store.createIssue(p, {title: 'Stain it?', milestone: finish, proposal: 'pending'})
+            await store.createIssue(p, {title: 'Loose end', release: '2.1.0'}, OWNER)
+            await store.db.run('INSERT INTO milestone_aliases (project, alias, milestone) VALUES (?, ?, ?)', p, '77', frame)
+            // A project drawing on this one's releases, with an issue of its own set for one.
+            const drawing = `${p}-drawing`
+            await store.createProject({name: drawing, key: `${key}D`})
+            await store.updateProject(drawing, {releases_from: p}, OWNER)
+            await store.createIssue(drawing, {title: 'Ship the legs too', release: '2.1.0', status: 'done'}, OWNER)
+            ids[p] = {frame, finish, legs, uid: (await store.milestone(p, frame)).full_id.split('-').at(-1)!}
+        }
+        await read('the milestones, rolled up', p => store.listMilestones(p), () => '/milestones')
+        await read('a milestone with its issues', p => store.milestone(p, ids[p]!.frame!), p => `/milestones/${ids[p]!.frame}`)
+        await read('one with a proposal', p => store.milestone(p, ids[p]!.finish!), p => `/milestones/${ids[p]!.finish}`)
+        await read('by an id it had before', p => store.milestone(p, '77'), () => '/milestones/77')
+        await read('by its full id', p => store.milestone(p, `mls-${ids[p]!.frame}-${ids[p]!.uid}`), p => `/milestones/mls-${ids[p]!.frame}-${ids[p]!.uid}`)
+        await read('by its full id from before', p => store.milestone(p, `chk-${ids[p]!.frame}-${ids[p]!.uid}`), p => `/milestones/chk-${ids[p]!.frame}-${ids[p]!.uid}`)
+        await read('a milestone that isn\'t there', p => store.milestone(p, '99'), () => '/milestones/99')
+        await read('milestones in a project that isn\'t there', p => store.listMilestones(p), () => '/milestones', 'nowhere')
+        await read('the releases, counting the project drawing on them', p => store.listReleases(p), () => '/releases')
+        await read('a release, with its part in each project', p => store.release(p, '2.1.0'), () => '/releases/2.1.0')
+        await read('a shipped one', p => store.release(p, '2.0.0'), () => '/releases/2.0.0')
+        await read('a release there isn\'t', p => store.release(p, '9.9'), () => '/releases/9.9')
+        await both('releases from the project drawing on them', p => viaStore(() => store.listReleases(`${p}-drawing`)), () => viaApi('GET', '/releases', undefined, AGENT, 'through-api-drawing'))
+        await both('a release from the project drawing on it', p => viaStore(() => store.release(`${p}-drawing`, '2.1.0')), () => viaApi('GET', '/releases/2.1.0', undefined, AGENT, 'through-api-drawing'))
+        await both('one its source hasn\'t', p => viaStore(() => store.release(`${p}-drawing`, '9.9')), () => viaApi('GET', '/releases/9.9', undefined, AGENT, 'through-api-drawing'))
+        await read('releases in a project that isn\'t there', p => store.listReleases(p), () => '/releases', 'nowhere')
+        // Every project's: one list for the orrery, so the same either way.
+        expect(await viaApi('GET', '/api/releases')).toEqual(await viaStore(() => store.allReleases()))
+        // The steps compared something.
+        const frame = await viaApi('GET', `/milestones/${ids['through-api']!.frame}`)
+        expect(frame.body).toMatchObject({column: 'in-progress', summary: 'Square and glued', aliases: ['77'], issues: [ids['through-api']!.legs]})
+        const shared = await viaApi('GET', '/releases/2.1.0')
+        expect(shared.body).toMatchObject({issues: 4, projects: [{project: 'through-api', issues: 3}, {project: 'through-api-drawing', issues: 1}]})
+    })
+
     it('lists people, and makes, lists and revokes keys and ends logins alike (ORR-928)', async () => {
         await store.nameOwner({name: 'Steffen'})
         await store.addPerson({name: 'Ada'})
@@ -508,7 +563,7 @@ describe('the router', () => {
     })
 
     it('routes by a table with a line per domain, so taking one back is taking its line out (ORR-925)', () => {
-        expect(DOMAINS.map(({domain}) => domain)).toEqual(['docs', 'statuses', 'issues, reading', 'comments, reading', 'people, but removing one', 'invites', 'keys', 'logins'])
+        expect(DOMAINS.map(({domain}) => domain)).toEqual(['docs', 'statuses', 'issues, reading', 'comments, reading', 'milestones and releases, reading', 'people, but removing one', 'invites', 'keys', 'logins'])
         expect(domainOf('PATCH', '/api/projects/p/docs/d')).toBe('docs')
         expect(domainOf('head', '/api/projects/p/doc-sections/')).toBe('docs')
         for (const path of ['/api/projects/p/issues/P-1/activity', '/api/', '/docs', '/api/projects/p/docs/d/artifact']) expect(domainOf('GET', path), path).toBeUndefined()
@@ -526,6 +581,15 @@ describe('the router', () => {
         expect(domainOf('GET', '/api/projects/p/issues/P-1')).toBe('issues, reading')
         for (const method of ['POST', 'PATCH', 'DELETE']) expect(domainOf(method, '/api/projects/p/issues'), method).toBeUndefined()
         expect(domainOf('POST', '/api/projects/p/issues/decide')).toBeUndefined()
+    })
+
+    it('sends milestones\' and releases\' reads to the API, and keeps their writes and a milestone\'s focus here (ORR-926)', () => {
+        for (const path of ['/api/projects/p/milestones', '/api/projects/p/milestones/3', '/api/projects/p/releases', '/api/projects/p/releases/1.0.0', '/api/releases']) {
+            expect(domainOf('GET', path), path).toBe('milestones and releases, reading')
+            for (const method of ['POST', 'PATCH', 'DELETE']) expect(domainOf(method, path), `${method} ${path}`).toBeUndefined()
+        }
+        for (const path of ['/api/projects/p/milestones/3/focus', '/api/projects/p/releases/1.0.0/notes', '/api/releases/x']) expect(domainOf('GET', path), path).toBeUndefined()
+        expect(domainOf('POST', '/api/projects/p/milestones/3/focus')).toBeUndefined()
     })
 
     it('sends people but removing one, invites, keys and logins there, and keeps logging in (ORR-928)', () => {
@@ -585,7 +649,7 @@ describe('the contract (api/openapi.yaml)', () => {
     }
 
     it('has every route the router sends to the API, and no other', () => {
-        expect(contract()).toHaveLength(32)
+        expect(contract()).toHaveLength(37)
         expect(contract()).toEqual(routes())
     })
 

@@ -12,6 +12,9 @@ info:
       (web/server/api/projects/[project]/issues). Both serve them; the router sends only their `GET`s there, as
       writing an issue or a comment stays the Nuxt server's.
     - **Statuses** (ORR-926): the orrery's issue statuses (web/server/api/statuses). Served by both.
+    - **Milestones and releases, reading** (ORR-926): a project's milestones and releases, one of each, and every
+      project's releases (web/server/api/projects/[project]/milestones, releases, and web/server/api/releases.get.ts).
+      Both serve them; the router sends only their `GET`s there, as writing them stays the Nuxt server's.
     - **People, invites, keys and logins** (ORR-928): who's on this orrery, inviting them, and the keys and logins people
       hold (web/server/api/people, invites, keys, logins). Served by both; removing a person stays the Nuxt server's, as
       it unassigns their issues, and so do logging in and out.
@@ -285,6 +288,40 @@ paths:
       responses:
         '200': {description: The comment, content: {application/json: {schema: {$ref: '#/components/schemas/Comment'}}}}
         '404': {description: 'No such project, issue or comment, a comment''s id that isn''t a whole number included', content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+  /api/projects/{project}/milestones:
+    parameters: [{$ref: '#/components/parameters/project'}]
+    get:
+      summary: The project's milestones in order, each with its column, counts and top-level issues by id
+      responses:
+        '200': {description: The milestones, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/Milestone'}}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/projects/{project}/milestones/{milestone}:
+    parameters: [{$ref: '#/components/parameters/project'}, {$ref: '#/components/parameters/milestone'}]
+    get:
+      summary: The milestone with its issues, nested
+      responses:
+        '200': {description: The milestone, content: {application/json: {schema: {$ref: '#/components/schemas/MilestoneDetail'}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/projects/{project}/releases:
+    parameters: [{$ref: '#/components/parameters/project'}]
+    get:
+      summary: 'The project''s releases (its source''s, when it takes them from another), as arranged, each with how far its issues are; none with releases off'
+      responses:
+        '200': {description: The releases, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/Release'}}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/projects/{project}/releases/{release}:
+    parameters: [{$ref: '#/components/parameters/project'}, {$ref: '#/components/parameters/release'}]
+    get:
+      summary: 'The release with the issues set for it: the project''s own as `tasks`, and by project in `projects`, with those drawing on it when it''s their source'
+      responses:
+        '200': {description: The release, content: {application/json: {schema: {$ref: '#/components/schemas/ReleaseDetail'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/releases:
+    get:
+      summary: Every project with releases of its own, with the projects drawing on it and their releases without notes, each with every project's part
+      responses:
+        '200': {description: The projects' releases, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/ProjectReleases'}}}}}
   /api/people:
     get:
       summary: Everyone on this orrery
@@ -392,6 +429,8 @@ components:
     doc: {name: doc, in: path, required: true, description: 'The doc''s id, or its full id on this board (`doc-ideas-x7k2m3qd`)', schema: {type: string}}
     revision: {name: revision, in: path, required: true, description: 'A revision''s id; ids run across the orrery', schema: {type: integer, minimum: 1}}
     issue: {name: issue, in: path, required: true, description: 'The issue''s id (`ORR-12`), an id it had before (an alias), or the full form of either on this board (`ORR-12-x7k2m3qd`)', schema: {type: string}}
+    milestone: {name: milestone, in: path, required: true, description: 'The milestone''s id (`3`), an id it had before, or the full form of either on this board (`mls-3-x7k2m3qd`)', schema: {type: string}}
+    release: {name: release, in: path, required: true, description: The release's version, schema: {type: string}}
     comment: {name: comment, in: path, required: true, description: 'A comment''s id; ids run across the orrery', schema: {type: integer, minimum: 1}}
     actor:
       name: Orrery-Actor
@@ -657,6 +696,87 @@ components:
             parent: {type: [string, 'null']}
             milestone: {type: [string, 'null']}
             tasks: {type: array, items: {$ref: '#/components/schemas/Issue'}, description: 'Each with its own `tasks`, to any depth'}
+    Milestone:
+      type: object
+      description: A milestone as the board draws it, its column rolled up from its issues as an issue's is from its sub-issues'
+      required: [id, title, column, kind, counts, kinds, aliases, created_by, protected, project, position, created_at, updated_at, issues]
+      properties:
+        id: {type: string}
+        title: {type: string}
+        summary: {type: string, description: Only with one}
+        priority: {type: string, enum: [P0, P1, P2, P3]}
+        column: {type: string}
+        kind: {$ref: '#/components/schemas/Place'}
+        counts: {$ref: '#/components/schemas/Counts'}
+        kinds: {$ref: '#/components/schemas/Kinds'}
+        aliases: {type: array, items: {type: string}, description: 'Ids it had before, A–Z'}
+        created_by: {type: string}
+        protected: {type: boolean}
+        project: {type: string}
+        position: {type: integer}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+        issues: {type: array, items: {type: string}, description: Its top-level issues by id, in board order}
+    MilestoneDetail:
+      description: One milestone, its issues in full
+      allOf:
+        - $ref: '#/components/schemas/Milestone'
+        - type: object
+          required: [tasks, full_id]
+          properties:
+            tasks: {type: array, items: {$ref: '#/components/schemas/Issue'}}
+            full_id: {type: string, description: '`mls-3-x7k2m3qd`: its id with the project''s uid'}
+    Release:
+      type: object
+      description: 'A release, with `issues` those set for it (a sub-issue''s when it differs from its parent''s) and `kinds` the leaves under them'
+      required: [version, created_by, protected, created_at, updated_at, issues, kinds]
+      properties:
+        version: {type: string}
+        branch: {type: string}
+        notes: {type: string}
+        frozen_on: {type: string}
+        shipped_on: {type: string}
+        doc_mark: {type: integer, description: 'The newest doc revision when it shipped'}
+        created_by: {type: string}
+        protected: {type: boolean}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+        issues: {type: integer}
+        kinds: {$ref: '#/components/schemas/Kinds'}
+    ReleaseDetail:
+      allOf:
+        - $ref: '#/components/schemas/Release'
+        - type: object
+          required: [project, tasks, projects]
+          properties:
+            project: {type: string}
+            tasks: {type: array, items: {$ref: '#/components/schemas/Issue'}}
+            projects:
+              type: array
+              items:
+                type: object
+                required: [project, name, issues, kinds, tasks]
+                properties:
+                  project: {type: string}
+                  name: {type: string}
+                  issues: {type: integer}
+                  kinds: {$ref: '#/components/schemas/Kinds'}
+                  tasks: {type: array, items: {$ref: '#/components/schemas/Issue'}}
+    ProjectReleases:
+      type: object
+      required: [project, projects, releases]
+      properties:
+        project: {type: string}
+        projects: {type: array, items: {type: string}, description: 'It, then those drawing on it, A–Z'}
+        releases:
+          type: array
+          items:
+            allOf:
+              - $ref: '#/components/schemas/Release'
+              - type: object
+                required: [projects]
+                properties:
+                  projects: {type: array, items: {type: object, required: [project, issues, kinds], properties: {project: {type: string}, issues: {type: integer}, kinds: {$ref: '#/components/schemas/Kinds'}}}}
     Comment:
       type: object
       required: [id, issue, body, created_by, protected, created_at, updated_at]
