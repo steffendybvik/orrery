@@ -6,8 +6,8 @@ import type {Project, Session} from '#shared/roadmap'
 import CommandPalette from '~/components/CommandPalette.vue'
 import {mostUsedCommands, recordCommand} from '~/utils/commandUse'
 
-// ⌘K's keyboard: what it shows with nothing typed, an exact id as the Top hit, ↑↓ round the ends, ⇥ by section, a scope
-// prefix, "N more" opening on ↵, and ↵ running the row in focus.
+// ⌘K's keyboard: what it shows with nothing typed, an exact id as the Top hit, ↑↓ round the ends, ⇥ by tab, a prefix
+// picking a tab, "N more" opening on ↵, and ↵ running the row in focus.
 const KINDS = {proposed: 0, backlog: 0, todo: 8, started: 0, done: 0, canceled: 0}
 const issue = (id: string, title: string, aliases: string[] = []) => ({id, title, aliases, labels: [], tasks: [], column: 'todo', kind: 'todo'})
 const project = (id: string, name: string, issues: ReturnType<typeof issue>[]) => ({
@@ -36,8 +36,9 @@ async function mount(route?: string) {
     const input = () => wrapper.find('input[aria-label="Type a command or search"]')
     const key = (k: string, more: Record<string, unknown> = {}) => input().trigger('keydown', {key: k, ...more})
     const sections = () => wrapper.findAll('section').map(s => s.attributes('aria-label'))
-    const chosen = () => wrapper.find('[aria-selected="true"]').text()
-    return {wrapper, input, key, sections, chosen}
+    const chosen = () => wrapper.find('[role="option"][aria-selected="true"]').text()
+    const tab = () => wrapper.find('[role="tab"][aria-selected="true"]').text()
+    return {wrapper, input, key, sections, chosen, tab}
 }
 
 const runs = (key: string, times: number, at = Date.now()) => {
@@ -177,7 +178,7 @@ describe('CommandPalette', () => {
         expect(lit().text()).not.toBe(first)
     })
 
-    it('moves with ↑↓ round the ends, and ⇥ to the next section', async () => {
+    it('moves with ↑↓ round the ends', async () => {
         const {input, key, chosen} = await mount()
         await input().setValue('greenhouse')
         const first = chosen()
@@ -186,16 +187,52 @@ describe('CommandPalette', () => {
         expect(last).not.toBe(first)
         await key('ArrowDown')
         expect(chosen()).toBe(first)
+    })
+
+    it('goes round the tabs on ⇥, each narrowing the list, and back to All on ⌫ (ORR-948)', async () => {
+        const {input, key, sections, tab, chosen, wrapper} = await mount()
+        expect(tab()).toBe('All')
         await key('Tab')
-        expect(chosen()).toContain('Label jar')
+        expect(tab()).toBe('Commands')
+        expect(sections()).toEqual(['Commands'])
+        await key('Tab')
+        expect(tab()).toBe('Issues')
+        expect(sections()).toEqual(['Issues'])
+        await key('Tab')
+        expect(sections()).toEqual(['Projects', 'Milestones'])
+        await key('Tab')
+        expect(sections()).toEqual(['Docs'])
+        await key('Tab')
+        expect(tab()).toBe('Pages')
+        expect(sections()).toEqual(['Go to'])
+        expect(wrapper.find('section[aria-label="Go to"]').text()).toContain('Events')
+        await key('Tab')
+        expect(tab()).toBe('All')
         await key('Tab', {shiftKey: true})
-        expect(chosen()).toBe(first)
+        expect(tab()).toBe('Pages')
+        await input().setValue('sched')
+        expect(chosen()).toContain('Schedules')
+        await input().setValue('')
+        await key('Backspace')
+        expect(tab()).toBe('All')
+    })
+
+    it('picks a tab with a prefix typed first, and takes it off the query', async () => {
+        const {input, sections, tab} = await mount()
+        await input().setValue('>sched')
+        expect(tab()).toBe('Commands')
+        expect((input().element as HTMLInputElement).value).toBe('sched')
+        await input().setValue('@pan')
+        expect(tab()).toBe('Projects')
+        expect(sections()).toEqual(['Projects', 'Milestones'])
     })
 
     it('narrows to issues with #, and opens the rest past "N more" on ↵', async () => {
         const {wrapper, input, key, sections} = await mount()
         await input().setValue('#jar')
         expect(sections()).toEqual(['Issues'])
+        await input().setValue('')
+        await key('Backspace')
         await input().setValue('jar')
         expect(wrapper.find('section[aria-label="Issues"]').text()).toContain('2 more…')
         for (let i = 0; i < 6; i++) await key('ArrowDown')
@@ -259,7 +296,7 @@ describe('CommandPalette', () => {
             useState('palette-open').value = true
             await nextTick()
             await input().setValue(words)
-            expect(wrapper.find('[aria-selected="true"]').text()).toContain('Message sessions')
+            expect(wrapper.find('[role="option"][aria-selected="true"]').text()).toContain('Message sessions')
         }
     })
 })

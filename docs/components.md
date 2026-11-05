@@ -306,6 +306,6 @@ being written again in each component:
 
 Something new that opens, picks or closes builds on the matching part and only draws it, in the classes above. Two
 things stay our own, as Headless UI (v1) has nothing that fits: the right-click menus (`UiContextMenu`), and ⌘K's
-list, which jumps a section on ⇥ and opens "N more" in place (it says the same to a screen reader, as a combobox).
+list, which switches its tabs on ⇥ and opens "N more" in place (it says the same to a screen reader, as a combobox).
 Folding (the sidebar's projects, a list's groups) stays a button with `aria-expanded`, since Headless UI's
 `Disclosure` can't be opened or closed from outside, and the folds are kept between visits.

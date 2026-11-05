@@ -5,10 +5,11 @@ import {PRIORITIES, fullId, githubRepo} from '#shared/roadmap'
 // ⌘K: every command and place, in sections. With nothing typed: Most used (the commands this browser runs most that
 // are on offer here, once there are any, ORR-782), Here (what fits the page, the rarely wanted left to a search, with Start and
 // Message sessions), Go to (the most wanted pages first) and Jump to (the projects, this one first), each of the last two with "N more" (ORR-947). Typing finds Projects, Issues, Milestones, Docs and Commands, a few of
-// each with "N more" to open the rest, best match first; an exact issue id is the Top hit, and so is a pull request by its number (`#788`, on the page's project's repo) or its link, which opens its page (ORR-880). `>` searches
-// commands only, `#` issues, `@` projects, milestones and docs. ↑↓ choose, ⇥ jumps a section, ↵ runs, Esc closes.
-// It's a Headless UI Dialog (UiDialog); the list keeps its own keys, as Headless UI's Combobox can't jump a
-// section on ⇥ or open "N more" in place, but says the same to a screen reader (the row the input points at).
+// each with "N more" to open the rest, best match first; an exact issue id is the Top hit, and so is a pull request by its number (`#788`, on the page's project's repo) or its link, which opens its page (ORR-880). Tabs under the input
+// narrow it to Commands, Issues, Projects (and milestones), Docs or Pages (ORR-948): ⇥ (⇧⇥) goes round them, and `>`, `#`
+// or `@` typed first picks Commands, Issues or Projects. ↑↓ choose, ↵ runs, ⌫ in an empty input goes back to All, Esc closes.
+// It's a Headless UI Dialog (UiDialog); the list keeps its own keys, as Headless UI's Combobox can't switch a
+// tab on ⇥ or open "N more" in place, but says the same to a screen reader (the row the input points at).
 // Closed issues of projects the page has without them (ORR-447) are asked of orrery as you type.
 interface Entry { key: string, group: string, label: string, detail?: string, hint?: string, also?: string, id?: string, run: () => unknown }
 type SectionKey = 'top' | 'used' | 'here' | 'jump' | 'go' | 'projects' | 'issues' | 'milestones' | 'docs' | 'commands'
@@ -28,8 +29,15 @@ const SEARCH_ONLY = new Set(['group:status', 'group:milestone', 'milestone:new']
 /** The session commands an empty palette puts in Here, when there are sessions to start or message. */
 const HERE_TOO = ['session:start', 'session:message-all']
 const TITLES: Record<SectionKey, string> = {top: 'Top hit', used: 'Most used', here: 'Here', jump: 'Jump to', go: 'Go to', projects: 'Projects', issues: 'Issues', milestones: 'Milestones', docs: 'Docs', commands: 'Commands'}
-/** Scope prefixes: what a search is narrowed to. */
-const SCOPES: Record<string, SectionKey[]> = {'>': ['commands'], '#': ['issues'], '@': ['projects', 'milestones', 'docs']}
+/** The tabs under the input (ORR-948): what each narrows the list to, All being everything. ⇥ goes to the next. */
+type TabKey = 'all' | 'commands' | 'issues' | 'projects' | 'docs' | 'pages'
+const TABS: {key: TabKey, label: string}[] = [
+    {key: 'all', label: 'All'}, {key: 'commands', label: 'Commands'}, {key: 'issues', label: 'Issues'},
+    {key: 'projects', label: 'Projects'}, {key: 'docs', label: 'Docs'}, {key: 'pages', label: 'Pages'},
+]
+const SCOPES: Record<Exclude<TabKey, 'all'>, SectionKey[]> = {commands: ['commands'], issues: ['issues'], projects: ['projects', 'milestones'], docs: ['docs'], pages: ['go']}
+/** Typed first, these pick a tab and are taken off the query. */
+const PREFIXES: Record<string, TabKey> = {'>': 'commands', '#': 'issues', '@': 'projects'}
 
 const openPalette = useState('palette-open', () => false)
 // Each opening, for App settings' Usage (ORR-881).
@@ -49,6 +57,7 @@ const route = useRoute()
 const router = useRouter()
 
 const query = ref('')
+const tab = ref<TabKey>('all')
 const active = ref(0)
 const input = ref<HTMLInputElement | null>(null)
 const list = ref<HTMLElement | null>(null)
@@ -172,10 +181,10 @@ watch(query, raw => {
 })
 onBeforeUnmount(() => clearTimeout(typing))
 async function findClosed(raw: string) {
-    const word = raw.replace(/^[>#@]/, '').trim().split(/\s+/).sort((a, b) => b.length - a.length)[0] ?? ''
+    const word = raw.trim().split(/\s+/).sort((a, b) => b.length - a.length)[0] ?? ''
     const ask = ++asking
     const lacking = projects.value.filter(p => partial.value[p.id])
-    if (word.length < 2 || raw.startsWith('>') || raw.startsWith('@') || !lacking.length) {
+    if (word.length < 2 || !['all', 'issues'].includes(tab.value) || !lacking.length) {
         closedFound.value = {}
         return
     }
@@ -225,8 +234,8 @@ function pullTyped(raw: string): Entry | null {
 
 const sections = computed<Section[]>(() => {
     const raw = query.value.trim()
-    const scope = SCOPES[raw[0] ?? ''] ?? null
-    const text = (scope ? raw.slice(1) : raw).trim().toLowerCase()
+    const scope = tab.value === 'all' ? null : SCOPES[tab.value]
+    const text = raw.toLowerCase()
     const words = text.split(/\s+/).filter(Boolean)
     const section = (key: SectionKey, entries: Entry[], cap = Infinity): Section => {
         // A scoped search shows more of its one kind before "N more".
@@ -257,14 +266,16 @@ const sections = computed<Section[]>(() => {
     const hits = found(issues.value)
     const pull = !scope || scope.includes('issues') ? pullTyped(raw) : null
     const top = [...hits.filter(h => h.score === 0).map(h => h.entry), ...pull ? [pull] : []]
-    const pool: Record<'projects' | 'issues' | 'milestones' | 'docs' | 'commands', Entry[]> = {
+    const pool: Record<'projects' | 'issues' | 'milestones' | 'docs' | 'commands' | 'go', Entry[]> = {
         projects: found(places.value.filter(e => e.key.startsWith('p:'))).map(h => h.entry),
         issues: hits.filter(h => h.score > 0).map(h => h.entry),
         milestones: found(places.value.filter(e => e.key.startsWith('c:'))).map(h => h.entry),
         docs: found(places.value.filter(e => e.key.startsWith('d:'))).map(h => h.entry),
         commands: found([...here.value, ...everywhere.value]).map(h => h.entry),
+        // Pages has a tab of its own, not a section in All, where they're among the commands.
+        go: scope?.includes('go') ? found([...here.value, ...everywhere.value].filter(e => e.group === 'Go to')).map(h => h.entry) : [],
     }
-    const order = (['projects', 'issues', 'milestones', 'docs', 'commands'] as const).filter(k => !scope || scope.includes(k))
+    const order = (['projects', 'issues', 'milestones', 'docs', 'commands', 'go'] as const).filter(k => !scope || scope.includes(k))
     return [
         ...(!scope || scope.includes('issues')) && top.length ? [section('top', top)] : [],
         ...order.map(k => section(k, pool[k], CAPS[k])),
@@ -279,14 +290,26 @@ const rows = computed<Row[]>(() => sections.value.flatMap(s => [
 const results = computed(() => rows.value.filter(r => r.kind === 'entry'))
 const rowIndex = computed(() => new Map(rows.value.map((r, i) => [r.key, i])))
 
-watch(query, () => {
+watch(query, raw => {
+    // A prefix typed first picks its tab, and comes off the query.
+    const picked = PREFIXES[raw[0] ?? '']
+    if (picked) {
+        tab.value = picked
+        query.value = raw.slice(1).trimStart()
+    }
     active.value = 0
     expanded.value = []
+})
+watch(tab, () => {
+    active.value = 0
+    expanded.value = []
+    findClosed(query.value)
 })
 watch(openPalette, isOpen => {
     if (!isOpen) return
     ranked.value = mostUsedCommands()
     query.value = ''
+    tab.value = 'all'
     active.value = 0
     nextTick(() => input.value?.focus())
 })
@@ -304,18 +327,19 @@ function run(row: Row | undefined) {
     row.entry.run()
 }
 
-/** ⇥ (⇧⇥ back): to the first row of the next section. */
-function jumpSection(step: 1 | -1) {
-    const starts = sections.value.flatMap(s => rowIndex.value.get(`${s.key}:${s.entries[0]?.key}`) ?? [])
-    const at = starts.findLastIndex(i => i <= active.value)
-    active.value = starts[(at + step + starts.length) % starts.length] ?? 0
+/** ⇥ (⇧⇥ back): to the next tab, round the ends. */
+function nextTab(step: 1 | -1) {
+    const at = TABS.findIndex(t => t.key === tab.value)
+    tab.value = TABS[(at + step + TABS.length) % TABS.length]?.key ?? 'all'
 }
 
 function onKey(event: KeyboardEvent) {
     const n = rows.value.length
     if (event.key === 'Escape') openPalette.value = false
     else if (event.key === 'Enter') run(rows.value[active.value])
-    else if (n && event.key === 'Tab') jumpSection(event.shiftKey ? -1 : 1)
+    else if (event.key === 'Tab') nextTab(event.shiftKey ? -1 : 1)
+    // ⌫ in an empty input goes back to All, as it would take off a prefix.
+    else if (event.key === 'Backspace' && !query.value && tab.value !== 'all') tab.value = 'all'
     else if (n && (event.key === 'ArrowDown' || (event.ctrlKey && event.key === 'n'))) active.value = (active.value + 1) % n
     else if (n && (event.key === 'ArrowUp' || (event.ctrlKey && event.key === 'p'))) active.value = (active.value + n - 1) % n
     else return
@@ -341,6 +365,22 @@ function onKey(event: KeyboardEvent) {
           @keydown="onKey"
       >
       <KeyHint>esc</KeyHint>
+    </div>
+    <div class="flex items-center gap-1 overflow-x-auto border-b border-line px-3 py-1.5" role="tablist" aria-label="Categories">
+      <button
+          v-for="t in TABS"
+          :key="t.key"
+          type="button"
+          role="tab"
+          tabindex="-1"
+          :aria-selected="tab === t.key"
+          aria-controls="palette-list"
+          class="shrink-0 rounded-md px-2.5 py-1 text-xs"
+          :class="tab === t.key ? 'bg-active font-medium text-fg' : 'text-muted hover:bg-hover hover:text-fg'"
+          @mousedown.prevent
+          @click="tab = t.key"
+      >{{ t.label }}</button>
+      <span class="ml-auto hidden shrink-0 text-[11px] text-faint sm:inline"><KeyHint>⇥</KeyHint> next · <KeyHint>⇧⇥</KeyHint> back</span>
     </div>
     <div id="palette-list" ref="list" class="overflow-y-auto p-1" role="listbox" aria-label="Results">
       <section v-for="(s, i) in sections" :key="s.key" :aria-label="s.title" class="pb-1" :class="i > 0 && 'mt-1 border-t border-line'">
@@ -378,9 +418,9 @@ function onKey(event: KeyboardEvent) {
     </div>
     <div class="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-line px-4 py-2 text-[11px] text-faint">
       <span><KeyHint>↑</KeyHint> <KeyHint>↓</KeyHint> choose</span>
-      <span><KeyHint>⇥</KeyHint> section</span>
+      <span><KeyHint>⇥</KeyHint> category</span>
       <span><KeyHint>↵</KeyHint> run</span>
-      <span class="hidden sm:inline"><KeyHint>&gt;</KeyHint> commands · <KeyHint>#</KeyHint> issues · <KeyHint>@</KeyHint> places</span>
+      <span class="hidden sm:inline"><KeyHint>&gt;</KeyHint> commands · <KeyHint>#</KeyHint> issues · <KeyHint>@</KeyHint> projects</span>
       <span class="ml-auto">{{ results.length }} {{ results.length === 1 ? 'result' : 'results' }}</span>
     </div>
   </UiDialog>
