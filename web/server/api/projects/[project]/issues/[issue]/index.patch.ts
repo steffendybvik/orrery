@@ -14,6 +14,15 @@ export default defineEventHandler(async event => {
     if (typeof to === 'string') await needsBoard(event, to)
     const update = async () => useStore().updateIssue(project, id, body, await actorOf(event))
     const issue = session ? await useStore().claimed(project, id, (body as {status?: string} | null)?.status, currentId(session), update) : await update()
+    // Started by a session: whether it carries another issue's context into it (ORR-968).
+    if (session && issue.kind === 'started' && (body as {status?: unknown} | null)?.status !== undefined) {
+        const carry = startedIssue(currentId(session), {project: issue.project, id: issue.id, parent: issue.parent, milestone: issue.milestone, epic: issue.epic})
+        // Kept, so how often it happens shows before sessions clear for it.
+        if (carry) {
+            const {session: on, carried: {from, to, tokens}} = carry
+            useEventLog().note({level: 'info', kind: 'session.carried_over', project: issue.project, message: `${on.name} started ${to} with ${Math.round(tokens / 1000)}k tokens of ${from} in its context`, details: {session: on.id, from, to, tokens}})
+        }
+    }
     // Moved, it's somewhere its address doesn't say.
     if (issue.project !== project) workedOn(event, issue)
     return issue
