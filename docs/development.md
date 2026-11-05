@@ -32,8 +32,10 @@ stays in the repo's `.data/`.
 
 The [playground](../.playground/README.md) runs the repo with `nuxt dev`, so a saved change shows on the
 page straight away and the server reloads itself, with no rebuild. It's a compose project of its own on
-http://localhost:9001, with a demo database in `.playground/data`, so the branch you're on never touches
-the Orrerys you use:
+http://localhost:9001, with a demo database of its own, so the branch you're on never touches the Orrerys
+you use. That database is Postgres, a service of the playground's own (its data in the `orrery-playground_orrery-pg`
+volume); `ORRERY_DATABASE=/data/orrery.db` in `.playground/compose.env` runs it on a SQLite file in
+`.playground/data` instead:
 
 ```sh
 .playground/play          # start it, with a demo
