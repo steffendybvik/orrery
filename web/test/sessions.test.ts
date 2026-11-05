@@ -867,3 +867,36 @@ describe("a session's context (ORR-968)", () => {
         expect(session('k')?.context).toEqual({tokens: 20_000, window: 200_000})
     })
 })
+
+describe('a session carrying context into another issue (ORR-968)', () => {
+    const session = (id: string) => sessions.listSessions('hub').find(s => s.id === id)
+    const issue = (id: string, more: object = {}) => ({project: 'hub', id, ...more})
+
+    it('is marked when it starts an issue out of scope with a full context, until a clear', () => {
+        sessions.report({id: 'c', project: 'hub', event: 'Stop', context: 80_000})
+        sessions.startedIssue('c', issue('HUB-1', {milestone: '1'}))
+        sessions.startedIssue('c', issue('HUB-2', {parent: 'HUB-1'}))
+        sessions.startedIssue('c', issue('HUB-3', {parent: 'HUB-1'}))
+        expect(session('c')?.carried_over).toBeUndefined()
+        sessions.startedIssue('c', issue('HUB-9', {milestone: '2'}))
+        expect(session('c')?.carried_over).toMatchObject({from: 'HUB-3', to: 'HUB-9', tokens: 80_000})
+        sessions.report({id: 'c', project: 'hub', event: 'SessionStart', source: 'clear'})
+        expect(session('c')?.carried_over).toBeUndefined()
+        sessions.report({id: 'c', project: 'hub', event: 'Stop', context: 80_000})
+        sessions.startedIssue('c', issue('HUB-20'))
+        expect(session('c')?.carried_over).toBeUndefined()
+    })
+
+    it('is not marked with a small context, or in the same milestone or epic', () => {
+        sessions.report({id: 's', project: 'hub', event: 'Stop', context: 30_000})
+        sessions.startedIssue('s', issue('HUB-1'))
+        expect(sessions.startedIssue('s', issue('HUB-9'))).toBeUndefined()
+        expect(session('s')?.carried_over).toBeUndefined()
+        sessions.report({id: 't', project: 'hub', event: 'Stop', context: 90_000})
+        sessions.startedIssue('t', issue('HUB-10', {milestone: '3'}))
+        sessions.startedIssue('t', issue('HUB-11', {milestone: '3', epic: 4}))
+        sessions.startedIssue('t', {project: 'pantry', id: 'PAN-1', epic: 4})
+        expect(session('t')?.carried_over).toBeUndefined()
+        expect(sessions.startedIssue('t', {project: 'pantry', id: 'PAN-2'})?.carried).toMatchObject({from: 'PAN-1', to: 'PAN-2'})
+    })
+})

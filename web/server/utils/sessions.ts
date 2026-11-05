@@ -6,11 +6,13 @@
 // can run a channel for every project in its repo's `.mcp.json`, only the flagged one heard, so it
 // listens (and can be stopped) through its own project's channel only.
 import {randomInt} from 'node:crypto'
-import type {Effort, Session, SessionState, SessionTool, StartedSession} from '#shared/roadmap'
-import {SESSION_NAMES, contextWindow, madeUpName} from '#shared/roadmap'
+import type {CarriedOver, Effort, IssueScope, Session, SessionState, SessionTool, StartedSession} from '#shared/roadmap'
+import {CARRY_FROM, SESSION_NAMES, contextWindow, madeUpName, sameScope} from '#shared/roadmap'
 
 interface Known extends Session {
     pid?: number
+    /** The issue it last started since its last clear, to tell whether its next one is the same work (ORR-968). */
+    worked?: IssueScope
     /** When a hook last spoke. */
     seenAt: number
     /** The project its hooks name: its own once a channel there is heard, whichever channel connected first. */
@@ -105,13 +107,29 @@ export interface Report {
  * marks it compacted, as the count drops without the work starting afresh; a `/clear` starts it afresh, with no count
  * until its next turn. */
 function noteContext(session: Known, input: Report) {
-    if (input.event === 'SessionStart' && input.source === 'clear') session.context = undefined
+    if (input.event === 'SessionStart' && input.source === 'clear') session.context = session.worked = session.carried_over = undefined
     if (input.event === 'SessionStart' && input.source === 'compact') {
         if (session.context) session.context = {...session.context, compacted: true}
     }
     if (input.context === undefined) return
     const compacted = session.context?.compacted
     session.context = {tokens: input.context, window: contextWindow(session.model, input.context), ...compacted ? {compacted} : {}}
+}
+
+/** A session started an issue (ORR-968). One out of the scope of the issue it started before, since its last clear,
+ * with more than `CARRY_FROM` tokens in its context, marks it as carrying that context over: the session, and what it
+ * carried, come back for the event log. */
+export function startedIssue(id: string, issue: IssueScope): {session: Session, carried: CarriedOver} | undefined {
+    const session = sessions.get(currentId(id))
+    if (!session) return undefined
+    const before = session.worked
+    session.worked = issue
+    const tokens = session.context?.tokens ?? 0
+    if (!before || sameScope(before, issue) || tokens < CARRY_FROM) return undefined
+    const carried = {from: before.id, to: issue.id, tokens, at: new Date().toISOString()}
+    session.carried_over = carried
+    changed(session.project)
+    return {session: publicOf(session), carried}
 }
 
 /** The id the session goes by now, for one it had before a `/clear`; any other id as it is. */
@@ -595,7 +613,7 @@ export function sessionName(id: string | undefined): string | undefined {
     return id ? sessions.get(currentId(id))?.name : undefined
 }
 
-function publicOf({pid: _pid, seenAt: _seen, idleAt: _idle, hooked: _hooked, channels, stoppable, served: _served, stopping: _stopping, cleared: _cleared, tool: _tool, asked: _asked, ...session}: Known): Session {
+function publicOf({pid: _pid, worked: _worked, seenAt: _seen, idleAt: _idle, hooked: _hooked, channels, stoppable, served: _served, stopping: _stopping, cleared: _cleared, tool: _tool, asked: _asked, ...session}: Known): Session {
     const others = [...channels ?? []].filter(([project, c]) => c.heard && project !== session.project).map(([project]) => project)
     return {...session, reachable: !!stoppable, ...others.length ? {also: others} : {}}
 }

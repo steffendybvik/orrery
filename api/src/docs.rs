@@ -2,6 +2,7 @@
 // tables, answering as its routes under web/server/api/projects/[project]/ do. api/openapi.yaml is the contract.
 // What a write sets off (open pages reading the project again, the event log, schedules hearing `doc.created`) stays
 // the Nuxt server's: each write says what changed in its reply (`Effects`), and the router there tells them.
+use crate::changes::{self, Outbox};
 use crate::db::sql;
 use crate::error::{ApiError, Result};
 use crate::text::{doc_summary_of, first_chars, full_doc_id, is_slug, looks_full_doc, match_of, natural_cmp, short_doc_id, slugify};
@@ -228,35 +229,23 @@ fn text_of(input: &Map<String, Value>, key: &str) -> Option<String> {
 pub struct Docs<'c> {
     pub conn: &'c mut AnyConnection,
     pub effects: Effects,
+    /// Set for a write: what it sets off goes into the outbox in its transaction (ORR-929).
+    pub outbox: Option<Outbox>,
 }
 
 impl<'c> Docs<'c> {
     pub fn new(conn: &'c mut AnyConnection) -> Self {
-        Docs { conn, effects: Effects::default() }
+        Docs { conn, effects: Effects::default(), outbox: None }
     }
 
     async fn begin(&mut self) -> Result<()> {
-        sqlx::query(if crate::db::on_postgres() { "BEGIN" } else { "BEGIN IMMEDIATE" }).execute(&mut *self.conn).await?;
-        Ok(())
+        changes::begin(self.conn).await
     }
 
-    async fn commit(&mut self) -> Result<()> {
-        sqlx::query("COMMIT").execute(&mut *self.conn).await?;
-        Ok(())
-    }
-
-    /// Ends the transaction `begin` started: kept when its work went through, else rolled back.
+    /// Ends the transaction `begin` started: kept, with its outbox rows, when its work went through, else rolled back.
+    /// What it set off is in `effects` by then.
     async fn finish<T>(&mut self, done: Result<T>) -> Result<T> {
-        match done {
-            Ok(value) => {
-                self.commit().await?;
-                Ok(value)
-            }
-            Err(error) => {
-                sqlx::query("ROLLBACK").execute(&mut *self.conn).await.ok();
-                Err(error)
-            }
-        }
+        changes::finish(self.conn, self.outbox.as_mut(), &self.effects, done).await
     }
 
     async fn exists(&mut self, query: &str, project: &str, key: &str) -> Result<bool> {
@@ -516,9 +505,9 @@ impl<'c> Docs<'c> {
             self.keep_revision(project, (&id, &title, &text, &kind), actor, None).await?;
             self.touch_project(project).await
         }.await;
-        self.finish(done).await?;
         self.changed(project);
         self.effects.tell("doc.created", project, &id);
+        self.finish(done).await?;
         self.doc(project, &id).await
     }
 
@@ -613,11 +602,11 @@ impl<'c> Docs<'c> {
             self.touch_project(project).await
         }
         .await;
-        self.finish(done).await?;
         self.changed(project);
         if input.contains_key("title") || input.contains_key("body") {
             self.effects.tell("doc.changed", project, &id);
         }
+        self.finish(done).await?;
         self.doc(project, &id).await
     }
 
@@ -634,9 +623,9 @@ impl<'c> Docs<'c> {
             self.touch_project(project).await
         }
         .await;
-        self.finish(done).await?;
         self.changed(project);
         self.effects.tell("doc.deleted", project, &id);
+        self.finish(done).await?;
         Ok(())
     }
 
@@ -668,9 +657,9 @@ impl<'c> Docs<'c> {
             self.keep_revision(project, (&id, &title, &body, &kind), actor, None).await?;
             self.touch_project(project).await
         }.await;
-        self.finish(done).await?;
         self.changed(project);
         self.effects.tell("doc.created", project, &id);
+        self.finish(done).await?;
         Ok((self.doc(project, &id).await?, true))
     }
 
@@ -693,8 +682,8 @@ impl<'c> Docs<'c> {
             self.touch_project(project).await
         }
         .await;
-        self.finish(done).await?;
         self.changed(project);
+        self.finish(done).await?;
         Ok(name)
     }
 
@@ -735,8 +724,8 @@ impl<'c> Docs<'c> {
             self.touch_project(project).await
         }
         .await;
-        self.finish(done).await?;
         self.changed(project);
+        self.finish(done).await?;
         Ok(name)
     }
 
@@ -764,8 +753,8 @@ impl<'c> Docs<'c> {
             self.touch_project(project).await
         }
         .await;
-        self.finish(done).await?;
         self.changed(project);
+        self.finish(done).await?;
         Ok(name)
     }
 
@@ -781,8 +770,8 @@ impl<'c> Docs<'c> {
             self.touch_project(project).await
         }
         .await;
-        self.finish(done).await?;
         self.changed(project);
+        self.finish(done).await?;
         Ok(())
     }
 }
