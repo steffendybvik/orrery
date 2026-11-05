@@ -47,6 +47,7 @@ export const NOT_EXPORTED = {
     preset_defaults: "the server's, not a board's",
     schedules_across: "the server's, not a board's: each project's copy goes with its schedules",
     events: "the server's log",
+    changes: "the server's outbox, for the local app following it (ORR-929)",
     signals: 'live state',
     issue_sessions: 'live state',
     session_people: 'live state',

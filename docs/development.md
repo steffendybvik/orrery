@@ -6,7 +6,7 @@
 web/          the Nuxt app: app/ (the page), server/ (the API and the store), shared/ (both),
               public/, test/ (unit), e2e/ (browser), scripts/ (copy.ts, claim.mjs, worktrees.mjs), its package.json
 channel/      the channel, hooks and launcher Claude sessions run, which orrery serves to their machines
-api/          the Rust API (ORR-922): docs, the statuses, people, invites, keys and logins, and milestone, release, issue and comment reads so far, beside the Nuxt server; openapi.yaml is its contract
+api/          the Rust API (ORR-922), beside the Nuxt server: the domains moved so far, listed in openapi.yaml, its contract
 docs/         these docs; docs/API.md is also served to agents (/api/guide, /llms-full.txt)
 ```
 
@@ -120,6 +120,12 @@ ORRERY_AUTH=off, the address for an invite's link) goes along as `Orrery-Login-W
 server (`web/server/utils/auth.ts`), which sends the API what it found (`Orrery-Who`) and the asking browser's login only
 hashed, so the API never sees a secret it didn't make. Who may handle people, keys and logins (`authorize`, `key-rights.ts`) is checked on
 both sides, the credential having the last word over the actor, so the parity test compares the refusals with the permissions table's own words.
+
+The outbox (ORR-929, `api/src/changes.rs`, the `rust-api-events` decision): each write the API makes adds a row to
+`changes` for each thing it set off (a project changed, the settings, each event told), and `GET /api/changes?after=<id>`
+reads them, oldest first, a page at a time, with `last` to ask after next. So far the rows go in just after the write, on
+its connection, rather than in its transaction, and only the API's writes add them. Nothing reads them yet: the reply
+headers still carry what changed to the Nuxt server.
 
 ## The page's pieces
 
