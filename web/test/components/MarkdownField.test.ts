@@ -80,4 +80,14 @@ describe('MarkdownField', () => {
         expect(renderMarkdown('a ==**big** deal== b').html).toContain('<mark><strong>big</strong> deal</mark>')
         expect(renderMarkdown('x == y').html).not.toContain('<mark>')
     })
+
+    it("opens orrery's own pages in a new tab only when asked, as the chat does (ORR-944)", () => {
+        const link = (html: string) => new DOMParser().parseFromString(html, 'text/html').querySelector('a')!
+        const own = '[ORR-943](/p/orrery/issues/ORR-943)'
+        expect(link(renderMarkdown(own).html).target).toBe('')
+        const opened = link(renderMarkdown(own, undefined, undefined, {newTab: true}).html)
+        expect([opened.getAttribute('href'), opened.target, opened.rel]).toEqual(['/p/orrery/issues/ORR-943', '_blank', 'noopener'])
+        expect(link(renderMarkdown('[x](//elsewhere.example/a)', undefined, undefined, {newTab: true}).html).rel).toBe('')
+        expect(link(renderMarkdown('[x](https://example.com)', undefined, undefined, {newTab: true}).html).rel).toBe('noopener noreferrer')
+    })
 })

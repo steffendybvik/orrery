@@ -36,7 +36,9 @@ function blocksOf(root: ParentNode): {element: Element, key: string}[] {
  * `# Heading` that repeats `title` is left out, as the page already shows it. Given `before` (the
  * Markdown as last read), each block that's new or different since gets the `changed` class; `changed`
  * counts them. */
-export function renderMarkdown(source: string, title?: string, before?: string): {html: string, headings: Heading[], changed: number} {
+/** `newTab`: a link to one of orrery's own pages opens in a new tab too, as a link to another site does (the chat's
+ * replies, ORR-944, so the chat stays where it is). */
+export function renderMarkdown(source: string, title?: string, before?: string, {newTab = false} = {}): {html: string, headings: Heading[], changed: number} {
     const [heading, text] = /^\s*#\s+(.+)\n/.exec(source) ?? []
     const body = heading && text && text.trim().toLowerCase() === title?.trim().toLowerCase() ? source.slice(heading.length) : source
     // No forms either: written by an agent or an outsider, one could ask the owner for a key and post it anywhere
@@ -79,6 +81,12 @@ export function renderMarkdown(source: string, title?: string, before?: string):
         link.target = '_blank'
         link.rel = 'noopener noreferrer'
     })
+    if (newTab) {
+        page.querySelectorAll<HTMLAnchorElement>('a[href^="/"]:not([href^="//"])').forEach(link => {
+            link.target = '_blank'
+            link.rel = 'noopener'
+        })
+    }
     compareImages(page)
     // An image orrery keeps opens larger, as a screenshot shrunk to a comment's width is hard to read: over the page
     // (plugins/image-view), or in a tab of its own on ⌘-click.
