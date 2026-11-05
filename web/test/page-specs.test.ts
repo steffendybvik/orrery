@@ -2,7 +2,7 @@ import {readdirSync, readFileSync} from 'node:fs'
 import {join, relative} from 'node:path'
 import {describe, expect, it} from 'vitest'
 
-// Every page has a browser test (ORR-730): the page walks (`navigation.spec.ts`, `a11y.spec.ts`) open it, by their list of
+// Every page has a browser test (ORR-730): the page walks (`navigation.spec.ts`, `a11y.spec.ts`, `wcag-*.spec.ts`) open it, by their list of
 // pages or of old addresses in `e2e/pages.ts`, or the spec named here does.
 const WEB = join(__dirname, '..')
 const PAGES = join(WEB, 'app', 'pages')

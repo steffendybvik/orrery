@@ -1,5 +1,5 @@
 {
-    "a11y.spec.ts": 282,
+    "a11y.spec.ts": 49,
     "artifacts.spec.ts": 48,
     "bell.spec.ts": 71,
     "board-drag.spec.ts": 34,
@@ -56,5 +56,7 @@
     "usage.spec.ts": 14,
     "visual.spec.ts": 6,
     "waiting.spec.ts": 15,
+    "wcag-dark.spec.ts": 116,
+    "wcag-light.spec.ts": 117,
     "whole-session.spec.ts": 14
 }

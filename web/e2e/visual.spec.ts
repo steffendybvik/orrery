@@ -32,6 +32,9 @@ test.beforeAll(async ({request}) => {
     starts = (await api(request, 'get', '/settings')).starts ?? null
     await api(request, 'patch', '/settings', {starts: null}, OWNER)
     await makeProject(request, {name: 'Gallery', key: 'GAL'})
+    // An issue's page has an Epic row once the orrery has an epic. The whole suite always made one before this file, a
+    // shard of it may not (ORR-920), so the image doesn't hang on which specs ran first.
+    if (!(await api(request, 'get', '/epics')).length) await api(request, 'post', '/epics', {title: 'Gallery tour'}, {'Orrery-Actor': 'claude'})
     // A retry finds the gallery as the first try left it: adding its issues again would put two of each in the image.
     if (test.info().retry > 0 && (await api(request, 'get', '/projects/gallery/issues')).length) return
     const {id: milestone} = await api(request, 'post', '/projects/gallery/milestones', {title: 'Hanging'})

@@ -197,13 +197,13 @@ jobs:
           # E2E_PAGE_COVERAGE set still collects it.
           E2E_PAGE_COVERAGE: ''
       - run: node web/scripts/coverage-lines.mjs --v8 .v8-e2e --pages .page-e2e --out web/e2e-lines.json
-        if: matrix.database == 'sqlite' && matrix.browser == 'chromium'
+        if: ${{ !cancelled() && matrix.database == 'sqlite' && matrix.browser == 'chromium' }}
         continue-on-error: true
       - run: pnpm test:e2e:login
         if: matrix.database == 'sqlite' && matrix.browser == 'chromium' && matrix.shard == 1
-      # This shard's results and lines, which e2e-report puts together with the other shards'.
+      # This shard's results and lines, which e2e-report puts together with the other shards'; a failed shard's too.
       - uses: actions/upload-artifact@v7
-        if: matrix.database == 'sqlite' && matrix.browser == 'chromium'
+        if: ${{ !cancelled() && matrix.database == 'sqlite' && matrix.browser == 'chromium' }}
         with:
           name: e2e-shard-${{ matrix.shard }}
           path: |
@@ -245,6 +245,8 @@ jobs:
             [ -f "$shard"e2e-lines.json ] && cp "$shard"e2e-lines.json "lines/$name.json"
           done
           ls blobs lines
+          # A shard missing would leave its tests out of the numbers without a word.
+          [ "$(ls blobs | wc -l)" -eq 3 ] || { echo "Expected 3 shards' blobs, found $(ls blobs | wc -l)"; exit 1; }
       - run: pnpm exec playwright merge-reports --reporter json ../blobs
         working-directory: web
         env:
