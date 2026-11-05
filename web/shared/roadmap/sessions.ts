@@ -133,6 +133,9 @@ export interface StartedSession {
 }
 
 /** The effort levels Claude Code takes at start (`--effort`). */
+/** What a session runs on, as ModelChip shows it: a session, or what an ended chat kept of its own (ORR-936). */
+export type RunsOn = Pick<Session, 'model' | 'effort'> & {started?: Pick<StartedSession, 'model' | 'effort'>}
+
 export const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const
 export type Effort = typeof EFFORTS[number]
 /** The models a session can be started on: an alias Claude Code takes (`best`, `opus`, `sonnet`, `haiku`, `fable`,

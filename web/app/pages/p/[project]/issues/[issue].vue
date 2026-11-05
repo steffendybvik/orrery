@@ -116,7 +116,8 @@ watch(readKey, async key => {
 const issueNotes = computed(() => read.value?.issue === issueKey.value ? read.value.notes : undefined)
 const editingNotes = ref(false)
 const notes = ref('')
-const notesInput = ref<HTMLTextAreaElement | null>(null)
+const notesEditor = ref<{el?: HTMLTextAreaElement}>()
+const notesInput = computed(() => notesEditor.value?.el)
 // An image pasted, dropped or picked goes in as Markdown where the cursor is.
 const {uploading, failed: uploadError, upload, reset: resetUploads, over, on: drop} = useImageUpload(notes, notesInput)
 function editNotes() {
@@ -291,9 +292,10 @@ useHead(() => ({title: issue.value ? `${issue.value.id} ${issue.value.title} · 
             @keydown.esc.stop.prevent="editingNotes = false"
         >
           <ImageDropOverlay v-if="over" />
-          <textarea
-              ref="notesInput"
+          <MarkdownField
+              ref="notesEditor"
               v-model="notes"
+              toolbar
               aria-label="Description"
               placeholder="Describe it, in Markdown (paste or drop an image)"
               rows="10"

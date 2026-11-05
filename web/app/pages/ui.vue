@@ -12,6 +12,7 @@ useHead({title: 'UI kit · orrery'})
 const VARIANTS = ['primary', 'secondary', 'ghost', 'danger', 'danger-outline', 'danger-ghost', 'success', 'success-outline', 'warning-outline'] as const
 const SIZES = ['xs', 'sm', 'md'] as const
 
+const markdown = ref('## Notes\nSome **bold**, _italic_ and ==highlighted== words, `code` and a [link](https://example.com).\n- one\n- two')
 const status = ref('todo')
 const statusOptions = [
     {value: 'backlog', label: 'Backlog'},
@@ -167,6 +168,13 @@ const tints = Object.keys(TINTS)
             <UiButton type="submit" variant="primary" size="md">Done</UiButton>
           </div>
         </UiDialog>
+      </section>
+
+      <section class="flex flex-col gap-3 border-t border-line pt-6">
+        <h2 class="label">MarkdownField</h2>
+        <div class="rounded-xl bg-well p-2 ring-1 ring-line focus-within:ring-accent-500/50">
+          <MarkdownField v-model="markdown" toolbar rows="5" aria-label="Example Markdown" class="min-h-24 resize-y bg-transparent px-2 py-1.5 text-[14px] leading-relaxed text-fg focus:outline-none" />
+        </div>
       </section>
 
       <header class="flex flex-col gap-1 border-t border-line pt-8">

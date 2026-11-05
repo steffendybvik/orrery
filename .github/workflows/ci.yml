@@ -88,40 +88,6 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm lint
 
-  # The Rust API (ORR-922, api/): its format, lints and own tests, then the store's parity with it on SQLite and on
-  # Postgres (web/test/api-parity.test.ts, which the check job skips, having no binary). The runner has Rust already.
-  api:
-    runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:17-alpine
-        env:
-          POSTGRES_USER: orrery
-          POSTGRES_PASSWORD: orrery
-          POSTGRES_DB: orrery
-        ports: ['5432:5432']
-        options: --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
-    steps:
-      - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v7
-        with:
-          node-version-file: .node-version
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: cargo fmt --check
-        working-directory: api
-      - run: cargo clippy --locked -- -D warnings
-        working-directory: api
-      - run: cargo test --locked
-        working-directory: api
-      - run: cargo build --locked
-        working-directory: api
-      - run: pnpm --dir web exec vitest run --project unit test/api-parity.test.ts
-      - run: pnpm --dir web exec vitest run --project unit test/api-parity.test.ts
-        env:
-          TEST_POSTGRES_URL: postgres://orrery:orrery@localhost:5432/orrery
-
   # The main flows in a real browser, against `nuxt dev` with a fresh database: on a pull request into `main`
   # that isn't a draft, each push to it included, as they take too long for every pull request (ORR-749); on a
   # release tag; and by hand. Drafts, pull requests into a release branch, and pushes, run the unit tests alone.

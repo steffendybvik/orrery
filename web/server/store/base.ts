@@ -43,11 +43,6 @@ export abstract class StoreBase {
             ...change.from == null ? {} : {from: change.from}, ...change.to == null ? {} : {to: change.to}})
     }
 
-    /** Says what a write made elsewhere did (the Rust API's, ORR-922), as `tell` does for the store's own. */
-    told(type: string, project: string, subject: string, actor: Actor) {
-        this.tell(type, project, subject, actor)
-    }
-
     /** Projects changed while a batch runs, said once it ends rather than once per issue. */
     protected held: Set<string> | null = null
 

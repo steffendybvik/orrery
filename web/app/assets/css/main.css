@@ -173,6 +173,36 @@ body {
     scrollbar-color: var(--active) transparent;
 }
 
+/* MarkdownField (ORR-932): the textarea's own text is see-through, with the source drawn over it in its formatting
+   (over, so a box with a background of its own, `field`, doesn't hide it; it takes no presses, and has none of its own).
+   Nothing here changes a character's width (bold is a shadow, italic the font's own slant, code keeps the font), so
+   the drawing lines up with the caret and the selection. */
+@layer components {
+    .md-input {
+        -webkit-text-fill-color: transparent;
+        caret-color: var(--color-fg, currentColor);
+        &::placeholder { -webkit-text-fill-color: initial; }
+    }
+    .md-draw {
+        @apply pointer-events-none absolute z-[1] overflow-hidden border-transparent text-fg;
+        white-space: pre-wrap;
+        overflow-wrap: break-word;
+        border-style: solid;
+        & .md-mark { @apply text-faint; }
+        & .md-bold, & .md-heading { text-shadow: 0.4px 0 0 currentColor, -0.2px 0 0 currentColor; }
+        & .md-heading { @apply text-fg; }
+        & .md-italic { font-style: italic; }
+        & .md-strike { @apply text-muted line-through; }
+        & .md-highlight { @apply rounded-sm bg-amber-300/40 dark:bg-amber-400/25; }
+        & .md-code { @apply rounded-sm bg-active text-accent-700 dark:text-accent-400; }
+        & .md-fence { @apply text-faint; }
+        & .md-codeblock { @apply text-accent-700 dark:text-accent-400; }
+        & .md-quote { @apply text-muted; }
+        & .md-list { @apply text-accent-700 dark:text-accent-400; }
+        & .md-link { @apply text-accent-700 underline decoration-accent-500/40 dark:text-accent-400; }
+    }
+}
+
 /* A doc's Markdown; `data-size` (sm, lg) is the reader's pick on the doc page.
    It's in the components layer, so a size given where it's used (`text-[14px]` on a comment) wins. */
 @layer components {
@@ -191,6 +221,7 @@ body {
         & a, & :not(pre) > code { overflow-wrap: anywhere; }
         & a { @apply text-accent-700 underline decoration-accent-500/40 underline-offset-2 hover:decoration-accent-500 dark:text-accent-400; }
         & strong { @apply font-semibold text-fg; }
+        & mark { @apply rounded-sm bg-amber-300/40 px-0.5 text-fg dark:bg-amber-400/25; }
         & ul { @apply list-disc pl-5; }
         & ol { @apply list-decimal pl-5; }
         & li + li { @apply mt-1; }

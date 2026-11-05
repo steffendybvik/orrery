@@ -1,6 +1,20 @@
 import DOMPurify from 'dompurify'
 import {marked} from 'marked'
 
+// `==text==` is highlighted (ORR-932), as the Markdown editor's toolbar writes it.
+marked.use({extensions: [{
+    name: 'highlight',
+    level: 'inline',
+    start: (src: string) => src.indexOf('=='),
+    tokenizer(src: string) {
+        const match = /^==(?=\S)([^\n]*?\S)==(?!=)/.exec(src)
+        if (match) return {type: 'highlight', raw: match[0], tokens: this.lexer.inlineTokens(match[1] ?? '')}
+    },
+    renderer(token) {
+        return `<mark>${this.parser.parseInline(token.tokens ?? [])}</mark>`
+    },
+}]})
+
 export interface Heading {
     id: string
     text: string
