@@ -175,9 +175,9 @@ export interface Settings {
     /** This orrery's id, made once when it first starts (`orr_7f3a9c`): a channel set up for it checks it's
      * talking to the same orrery (ORRERY_ID), whatever its address. */
     id: string
-    /** Which orrery this is (`personal`, `work`), as it's run; a channel serving it is named `orrery-<environment>`. */
+    /** Which orrery this is (`personal`, `work`), as it's run; a channel serving it is named `orrery-<environment>` (`GET /api/machine` only, ORR-954). */
     environment?: string
-    /** Where its data is (`GET /api/settings` only). */
+    /** Where its data is (`GET /api/machine` only, ORR-954). */
     database?: DatabaseInfo
     /** The colour the page's background takes on, so one orrery looks unlike another; none by default. */
     tint: string | null
