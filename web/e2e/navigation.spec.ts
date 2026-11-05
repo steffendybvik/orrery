@@ -46,6 +46,9 @@ function watchErrors(page: Page) {
  * Issues both go to the project. */
 const sidebarLink = (page: Page, path: string, text: string) => page.locator('aside nav').locator(`a[href="${path.split('?')[0]}"]`).filter({hasText: text})
 
+/** How the sidebar marks its entry for `path` active: a row is filled, the Projects heading just turns bright (ORR-967). */
+const active = (path: string) => path === '/projects' ? /(^|\s)text-fg(\s|$)/ : /\bbg-active\b/
+
 /** Where going to `path` ends up: Docs opens on the first doc. */
 const landsOn = (path: string) => new RegExp(`${path.split('?')[0]}${path.endsWith('/docs') ? '(/[^/]+)?' : ''}(\\?.*)?$`)
 
@@ -103,7 +106,7 @@ test('each sidebar entry goes to its page and shows as active there', async ({pa
         await test.step(route.path, async () => {
             await page.goto(route.path)
             const link = sidebarLink(page, entryPath(route), route.sidebar!)
-            await expect(link).toHaveClass(/\bbg-active\b/)
+            await expect(link).toHaveClass(active(entryPath(route)))
         })
     }
     // And a click on each goes there, from a page that isn't it.
@@ -113,13 +116,14 @@ test('each sidebar entry goes to its page and shows as active there', async ({pa
             await page.goto(elsewhere)
             await sidebarLink(page, route.path, route.sidebar!).click()
             await expect(page).toHaveURL(landsOn(route.path))
-            await expect(sidebarLink(page, route.path, route.sidebar!)).toHaveClass(/\bbg-active\b/)
+            await expect(sidebarLink(page, route.path, route.sidebar!)).toHaveClass(active(route.path))
             await expect(heading(page, route.heading)).toBeVisible()
         })
     }
 })
 
-// The pages ORR-561 and ORR-565 moved to App settings → Advanced are back in the sidebar under Schedules (ORR-578).
+// The pages ORR-561 and ORR-565 moved to App settings → Advanced are back in the sidebar under Schedules (ORR-578),
+// folded under its Advanced row, which is open while one of them is (ORR-967).
 test('Events, Context and Pull requests are in the sidebar only while Advanced is on', async ({page}) => {
     const entries = ROUTES().filter(r => r.advanced)
     await setAdvanced(page, true)
@@ -128,6 +132,8 @@ test('Events, Context and Pull requests are in the sidebar only while Advanced i
         await expect(sidebarLink(page, route.path, route.sidebar!)).toHaveClass(/\bbg-active\b/)
     }
     await page.goto('/mine')
+    await expect(sidebarLink(page, '/events', 'Events')).toHaveCount(0)
+    await page.locator('aside nav').getByRole('button', {name: 'Advanced', exact: true}).click()
     await sidebarLink(page, '/events', 'Events').click()
     await expect(heading(page, 'Events')).toBeVisible()
     await setAdvanced(page, false)
