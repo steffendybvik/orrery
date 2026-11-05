@@ -18,10 +18,12 @@ pub struct Actor {
     pub session: Option<String>,
 }
 
-/// What a write changed, for the Nuxt server to tell: the project (`changed`), and each event (`tell`).
+/// What a write changed, for the Nuxt server to tell: the projects (`changed`), whether the orrery's settings did, as
+/// the statuses are in them (`settings`, ORR-926), and each event (`tell`).
 #[derive(Default, Debug)]
 pub struct Effects {
-    pub changed: Option<String>,
+    pub changed: Vec<String>,
+    pub settings: bool,
     pub told: Vec<(String, String, String)>,
 }
 
@@ -136,7 +138,7 @@ pub fn stamp() -> String {
     chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string()
 }
 
-fn js(value: &Value) -> String {
+pub fn js(value: &Value) -> String {
     serde_json::to_string(value).unwrap_or_default()
 }
 
@@ -302,7 +304,7 @@ impl<'c> Docs<'c> {
     }
 
     fn changed(&mut self, project: &str) {
-        self.effects.changed = Some(project.into())
+        self.effects.changed = vec![project.into()]
     }
 
     // Reading.
