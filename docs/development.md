@@ -6,7 +6,7 @@
 web/          the Nuxt app: app/ (the page), server/ (the API and the store), shared/ (both),
               public/, test/ (unit), e2e/ (browser), scripts/ (copy.ts, claim.mjs, worktrees.mjs), its package.json
 channel/      the channel, hooks and launcher Claude sessions run, which orrery serves to their machines
-api/          the Rust API (ORR-922): the docs domain so far, beside the Nuxt server; openapi.yaml is its contract
+api/          the Rust API (ORR-922): docs, the statuses and comment reads so far, beside the Nuxt server; openapi.yaml is its contract
 docs/         these docs; docs/API.md is also served to agents (/api/guide, /llms-full.txt)
 ```
 
@@ -50,20 +50,64 @@ Without Docker: `pnpm install`, then `pnpm dev` on http://localhost:9000 (Node 2
 
 ## The Rust API
 
-`api/` is a Rust API for the board's stored state (ORR-921, ORR-923), written a domain at a time. So far it has the
-**docs** domain: a project's docs, their sections and revisions, the routes in `api/openapi.yaml`, its contract.
+orrery's API is moving to Rust a domain at a time (ORR-921, ORR-922), the Nuxt server staying in front. Anything kept in
+the database goes there; what touches the machine (sessions, tmux, the launcher, local files) stays. So far it serves the
+**docs** domain (a project's docs, their sections and revisions), the orrery's **statuses** (`/api/statuses`,
+ORR-926) and **reading an issue's comments** (ORR-927): the routes in `api/openapi.yaml`. An artifact's page
+(`…/docs/:doc/artifact`) and writing a comment stay in Nuxt.
 
-**Nothing uses it yet.** The Nuxt app neither starts it nor sends it a request, and the page only ever calls Nuxt's
-`/api`. It stays dead code until the owner decides to swap Nuxt's server logic out for it, domain by domain. Until then a
-change to a route is made in Nuxt alone.
+How it fits together:
 
-When it runs, it opens the database Nuxt is on (`NUXT_DATABASE`), listens on loopback (`ORRERY_API_LISTEN`,
-`127.0.0.1:9100` by default), and takes requests only with the token it was given (`NUXT_API_TOKEN`, 16 characters or
-more). It runs no migrations and refuses a schema without the columns it reads, so a database needs the Nuxt app to
-have opened it first. `ORRERY_API_LOG=1` has it say each request it answers.
+- **One database, one writer per table.** The API opens the database the Nuxt server is on and runs no migrations: those
+  stay in `web/server/utils/migrations`, and it refuses to start on a schema without the columns it reads, so start the
+  Nuxt server on a new database first. Their port is ready for when the last domain has moved (ORR-931): see
+  [Migrations in Rust](#migrations-in-rust). While it serves docs, the docs routes write through it alone. What still writes
+  docs in Nuxt, not through a route (the chat's doc requests, a board's upload or copy, deleting a project), works on
+  the same rows.
+- **Nuxt checks, then forwards.** `web/server/middleware/zz-api.ts` runs after every other middleware (login, the board's
+  permissions, the chat's and untrusted rails, the browser guards), works out who's asking (`actorOf`) and sends the
+  request on with a token both were given, the database it's on, and that actor (`web/server/utils/api-router.ts`).
+  The API listens on loopback and answers nothing else.
+- **A line per domain.** `DOMAINS` in `api-router.ts` lists what goes to the API, one line each, matched on the path
+  after `/api/`. A domain moves there by adding its line once the parity test passes, and goes back to Nuxt by taking
+  the line out (ORR-925). A line can name its `methods`, so a domain's reads move before its writes, which share their
+  paths. The contract test holds `openapi.yaml` to whatever the lines send on, method by method.
+- **What a write sets off stays Nuxt's.** The API's reply says what changed (`Orrery-Changed`, a comma-separated list
+  of projects; `Orrery-Settings: 1`; `Orrery-Told`), and the router tells it as the store would: open pages read each
+  project again, they get the settings again when a status changed (every board has them), and the event log and
+  schedules hear `doc.created`, `doc.changed`, `doc.deleted` ([Event flows](/p/orrery/docs/event-flows)).
+- **Falling back.** When the API is down, not started yet, or on another database (the owner moved it in App settings),
+  the request goes on to the Nuxt routes, which still answer it.
 
-Its checks: `cargo fmt --check`, `cargo clippy -- -D warnings` and `cargo test` in `api/` (Rust 1.80 or later), run by
-CI's `api` job, which also runs `web/test/rust-migrations.test.ts` against the built binary.
+**The page's side (ORR-943).** The page reaches the API through `web/app/utils/api.ts` alone, so where it sends a path is one
+setting: `NUXT_PUBLIC_API_BASES`, a JSON object of path prefix to base (`{"/projects/atlas/docs": "https://api.example.com/api"}`).
+The longest prefix a path is under wins, and the rest stay on the page's own `/api`, which is the default with nothing set.
+The live feed (`/events`) and upload and export addresses go by the same table. A base on another address gets the
+browser's login with each call (`credentials: 'include'`, `withCredentials`), so it has to allow that: CORS for the
+page's origin, with credentials, and the `Orrery-Actor` header.
+
+The Rust API can't take the page's calls straight yet, so leave its prefixes unset: it trusts the token it shares with
+Nuxt and the actor Nuxt sends, so a page calling it would need that token, and could say it's anyone. Before a page talks
+to it directly it has to check the login itself ([ORR-928](/p/orrery/issues/ORR-928)), answer CORS, and apply the rails
+Nuxt applies before forwarding (the board's permissions, the chat's and untrusted rails, the browser guards). Until then
+the way in stays through Nuxt (`zz-api.ts`).
+
+Running it: `cargo build` in `api/` (Rust 1.80 or later), then start the Nuxt server with
+`NUXT_API_BIN=../api/target/debug/orrery-api`, which starts it beside itself on its own database with a fresh token,
+and stops it with itself. Or run one yourself and point at it: `NUXT_API_TOKEN` (16 characters or more) and
+`NUXT_DATABASE` for both, `ORRERY_API_LISTEN` for the API (`127.0.0.1:9100` by default), `NUXT_API_URL` for Nuxt.
+`ORRERY_API_LOG=1` has the API say each request it answers. Without any of these, Nuxt answers every route as before.
+
+Its checks: `cargo fmt --check`, `cargo clippy -- -D warnings` and `cargo test` in `api/`. `web/test/api-parity.test.ts`
+runs the same steps through the store and through the API on one database (SQLite, or Postgres with
+`TEST_POSTGRES_URL`) and compares the replies, failures and what each said changed; it skips without a built binary,
+and CI's `api` job builds one first. It also holds `openapi.yaml` to the routes the router sends on. No browser spec runs
+through the API yet: they all start Nuxt without `NUXT_API_BIN`.
+
+A change to a docs or statuses route is now a change in three places: the store (`web/server/store/docs.ts`,
+`statuses.ts`), the API (`api/src/docs.rs`, `statuses.rs`) and the contract, with the parity test saying when they
+differ. The statuses are the orrery's, not a project's, so their parity steps run on each side in turn, with the table
+put back between.
 
 ## The page's pieces
 
