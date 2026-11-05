@@ -210,7 +210,7 @@ export class Pulls {
         const rated = await this.store.db.all<{project: string, issue: string, risk: RiskLevel, risk_why: string | null, risk_by: string | null}>(
             `SELECT q.project, q.issue, q.risk, q.risk_why, q.risk_by FROM issue_pulls q
              JOIN issue_pulls p ON p.project = q.project AND p.issue = q.issue
-             WHERE lower(p.repo) = lower(?) AND p.number = ? AND q.risk IS NOT NULL`, repo, number)
+             WHERE lower(p.repo) = lower(?) AND p.number = ? AND q.risk IS NOT NULL ORDER BY q.repo, q.number`, repo, number)
         const risks = new Map<string, PullRisk>()
         for (const r of rated) {
             const key = `${r.project}/${r.issue}`
@@ -572,7 +572,7 @@ const LOGIN = /^[\w-]+$/
 /** A PR as anyone but the owner reads it (ORR-532): never its title or head branch, which an outsider may have written,
  * as sessions read what they're given as the owner's; its author only when it's a plain login, so a session can tell
  * its own PR from an outsider's. */
-function pullForSession<T extends {title: string, branch: string, author: string}>({title: _title, branch: _branch, author, ...pull}: T) {
+export function pullForSession<T extends {title: string, branch: string, author: string}>({title: _title, branch: _branch, author, ...pull}: T) {
     return {...pull, ...LOGIN.test(author) ? {author} : {}}
 }
 

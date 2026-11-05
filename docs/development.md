@@ -55,7 +55,8 @@ the database goes there; what touches the machine (sessions, tmux, the launcher,
 **docs** domain (a project's docs, their sections and revisions), the orrery's **statuses** (`/api/statuses`,
 ORR-926), **reading milestones and releases** (ORR-926: a project's, one of each, and `/api/releases`), **reading
 issues and their comments** (ORR-927: the list with its filters, one issue, its comments) and **people, invites, keys
-and logins** (ORR-928, removing a person aside) and **reading the secrets** (ORR-953, never a value): the routes in
+and logins** (ORR-928, removing a person aside) **reading the secrets** (ORR-953, never a value) and **reading one pull request** (ORR-952,
+`/api/pulls/:owner/:name/:number`): the routes in
 `api/openapi.yaml`. An artifact's page (`…/docs/:doc/artifact`), a milestone's focus, and writing an issue, a comment, a
 milestone or a release stay in Nuxt, and so do setting, narrowing and deleting a secret and egress.
 
@@ -126,6 +127,12 @@ in `orrery.key`, which stays with the local app (Decision: secrets and settings 
 the `value` column, and setting, narrowing (which seals it again) and deleting one stay in
 `web/server/utils/secrets.ts`, as do egress and orrery's own requests. A change to its `list` or `get`, or to
 `secretOf` or `useOf`, goes into `secrets.rs` too.
+
+One pull request as orrery keeps it (ORR-952, `api/src/pulls.rs`) is read there: `forPull` in
+`web/server/utils/pulls.ts`, with `pullForSession` for anyone but the owner. The router sends the asker's kind
+(`Orrery-Actor-Kind`, as `kindOf` has it), so the chat naming the owner still doesn't get a PR's title or branch. The
+list of PRs and the branches stay here, as they ask GitHub when what the poll kept is stale, and so does every write
+to the pull tables (the poll, a rating), which waits on how the local app hears the board (ORR-929).
 
 The outbox (ORR-929, `api/src/changes.rs`, the `rust-api-events` decision): each write the API makes adds a row to
 `changes` for each thing it set off (a project changed, the settings, each event told), and `GET /api/changes?after=<id>`
