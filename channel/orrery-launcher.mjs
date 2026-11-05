@@ -218,7 +218,7 @@ let servedCode
 async function checkServed(url) {
     if (!BOOTSTRAP) return
     const served = await fetch(`${url}/channel/manifest.json`, {redirect: 'error', signal: AbortSignal.timeout(5000)}).then(r => r.ok ? r.json() : null, () => null)
-    if (servedOtherCode({served, url, from: (process.env.ORRERY_FROM ?? '').replace(/\/+$/, ''), mine: VERSION, code: CODE})) servedCode = served.code
+    if (servedOtherCode({served, url, from: (process.env.ORRERY_FROM ?? '').replace(/\/+$/, ''), code: CODE})) servedCode = served.code
 }
 /** Whether its sessions outlive it restarting itself. An older systemd unit that can't be brought up to date doesn't
  * let them, so it waits for them to end. */

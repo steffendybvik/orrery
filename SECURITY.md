@@ -333,6 +333,10 @@ machine**, as anything in a repo's `.mcp.json` would. The bootstrap holds to thi
   says why. That stops someone on the network swapping the code; it doesn't stop a server you've pointed a repo at.
 - **The right orrery.** With `ORRERY_ID` set, as Connect sets it, it runs nothing from an orrery with another id. An id isn't
   a secret, so this catches a repo pointed at the wrong orrery by mistake, not one pretending.
+- **The launcher's code from one orrery.** The launcher runs as you for every orrery on its list, so it takes its code
+  from one only: the one its install line came from (or `ORRERY_URL` where it's run), never whichever on the list says
+  it's newest, and it only restarts onto other code from that one (ORR-960). An orrery added later, by pick-up or Connect a
+  repo, can start sessions there but never supplies the launcher's code.
 - **Whole files.** A file has to match the sha256 orrery lists before it replaces the copy in `~/.orrery`, so a download
   cut short never runs. The hash comes from the same server, so it proves nothing about who wrote the file.
 - **No approval step.** Upgrading orrery changes what your machine runs without asking. Check the image you pull, as it

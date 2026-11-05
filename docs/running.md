@@ -26,8 +26,8 @@ sidebar (App settings → Advanced turns it back on).
    the database as it was, but one that worked can't be undone, and orrery's backups are of the new schema soon after it.
 3. **Everything else follows.** Each connected repo's channel and hooks, and the launcher, run on your machine through
    `~/.orrery/bootstrap.mjs`, which fetches what orrery serves (`/channel`) and keeps it in `~/.orrery`. A session gets the
-   new channel as it starts, and its hooks within a minute. The launcher restarts itself on the new code and takes its
-   sessions back, so they go on, and the Sessions page says something only about one too old for this orrery. A session already open keeps its channel until it
+   new channel as it starts, and its hooks within a minute. The launcher restarts itself on the new code of the orrery it was
+   installed from (never another on its list, ORR-960) and takes its sessions back, so they go on, and the Sessions page says something only about one too old for this orrery. A session already open keeps its channel until it
    restarts, and the Sessions page marks it. It fetches only from this machine or over https: see
    [what running served code means](../SECURITY.md#the-code-orrery-serves-your-machine).
 
