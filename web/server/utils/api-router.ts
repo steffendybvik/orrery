@@ -41,6 +41,9 @@ export const DOMAINS: readonly {domain: string, paths: RegExp, methods?: readonl
     // and logging in and out, stay here (auth.ts): the API hears what that found (`whoHeaders`).
     {domain: 'keys', paths: /^keys(\/[^/]+)?$/},
     {domain: 'logins', paths: /^logins(\/[^/]+)?$/},
+    // The orrery's secrets, read: never a value (ORR-953). Setting and narrowing one seal its value with the key, which
+    // stays with the local app, and every write is told to the event log, so they and egress stay here.
+    {domain: 'secrets, reading', paths: /^secrets(\/[^/]+)?$/, methods: ['GET']},
 ]
 
 const WRITES = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
