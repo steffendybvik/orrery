@@ -1,5 +1,6 @@
-// An issue's comments, reading them (ORR-927): what `listComments` and `comment` in web/server/store/comments.ts do, on
-// the same tables, answering as `GET …/issues/{issue}/comments` and `…/comments/{comment}` do. Writing them stays the
+// An issue's comments and activity, reading them (ORR-927): what `listComments`, `comment` and `listActivity` in
+// web/server/store/comments.ts do, on the same tables, answering as `GET …/issues/{issue}/comments`, `…/comments/{comment}`
+// and `…/activity` do. Writing them stays the
 // Nuxt server's for now, as a comment wakes sessions (ORR-929); the router sends only these reads here.
 use crate::db::sql;
 use crate::error::{ApiError, Result};
@@ -36,6 +37,26 @@ fn comment_of(row: &AnyRow) -> Map<String, Value> {
     out.insert("created_at".into(), json!(row.get::<String, _>("created_at")));
     out.insert("updated_at".into(), json!(row.get::<String, _>("updated_at")));
     out
+}
+
+/// A change to an issue as the store gives it (`eventOf`): `before`, `after` and `session_name` only when there.
+fn event_of(row: &AnyRow) -> Value {
+    let mut out = Map::new();
+    out.insert("id".into(), json!(row.get::<i64, _>("id")));
+    out.insert("issue".into(), json!(row.get::<String, _>("issue")));
+    out.insert("field".into(), json!(row.get::<String, _>("field")));
+    for column in ["before", "after"] {
+        if let Some(value) = row.get::<Option<String>, _>(column) {
+            out.insert(column.into(), json!(value));
+        }
+    }
+    out.insert("created_by".into(), json!(row.get::<String, _>("created_by")));
+    if let Some(name) = row.get::<Option<String>, _>("session_name").filter(|s| !s.is_empty()) {
+        out.insert("session_name".into(), json!(name));
+    }
+    out.insert("protected".into(), json!(row.get::<i64, _>("owned") != 0));
+    out.insert("created_at".into(), json!(row.get::<String, _>("created_at")));
+    Value::Object(out)
 }
 
 /// A comment's id from the URL, as `commentId` reads it (`Number`, then whole): anything else is no comment.
@@ -141,6 +162,17 @@ impl<'c> Comments<'c> {
         let query = format!("SELECT {} FROM comments c WHERE c.project = ? AND c.issue = ? ORDER BY c.created_at, c.id", columns());
         let rows = sqlx::query(&sql(&query)).bind(project).bind(&issue).fetch_all(&mut *self.conn).await?;
         Ok(Value::Array(self.with_schedule_requests(rows.iter().map(comment_of).collect()).await?))
+    }
+
+    /// Who changed what on the issue, and when, oldest first.
+    pub async fn activity(&mut self, project: &str, sent: &str) -> Result<Value> {
+        let issue = self.issue_id(project, sent).await?;
+        self.issue_there(project, &issue).await?;
+        let query =
+            "SELECT CAST(id AS BIGINT) AS id, issue, field, \"before\", \"after\", created_by, session_name, CAST(owned AS BIGINT) AS owned, created_at \
+                     FROM issue_events WHERE project = ? AND issue = ? ORDER BY created_at, id";
+        let rows = sqlx::query(&sql(query)).bind(project).bind(&issue).fetch_all(&mut *self.conn).await?;
+        Ok(Value::Array(rows.iter().map(event_of).collect()))
     }
 
     /// One comment on the issue.

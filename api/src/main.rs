@@ -1,4 +1,4 @@
-// orrery's API in Rust (ORR-922). For now it serves docs, the statuses (ORR-926), reading milestones and releases (ORR-926), reading issues and their comments (ORR-927), and people, invites, keys and logins (ORR-928), on the database the Nuxt server opens, and only
+// orrery's API in Rust (ORR-922). For now it serves docs, the statuses (ORR-926), reading milestones and releases (ORR-926), reading issues, their comments and their activity (ORR-927), and people, invites, keys and logins (ORR-928), on the database the Nuxt server opens, and only
 // to that server: the router there (web/server/middleware/zz-api.ts) checks a request as it always has (auth, the
 // board's permissions, the chat's and untrusted sessions' rails, the browser guards) and then forwards it here with
 // who it's from. So this listens on loopback, and answers only a request that carries the token they share.
@@ -260,6 +260,11 @@ async fn list_comments(State(app): Shared, Path((project, issue)): Path<(String,
     Ok(Json(Comments::new(&mut conn).list(&project, &issue).await?).into_response())
 }
 
+async fn get_activity(State(app): Shared, Path((project, issue)): Path<(String, String)>) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    Ok(Json(Comments::new(&mut conn).activity(&project, &issue).await?).into_response())
+}
+
 async fn get_comment(State(app): Shared, Path((project, issue, comment)): Path<(String, String, String)>) -> Result<Response> {
     let id = comment_id(&comment)?;
     let mut conn = app.pool.acquire().await?;
@@ -395,7 +400,7 @@ async fn end_login(State(app): Shared, Path(login): Path<String>, headers: Heade
 
 async fn health() -> Json<Value> {
     Json(
-        json!({"ok": true, "domains": ["docs", "statuses", "issues, reading", "comments, reading", "milestones and releases, reading", "people, but removing one", "invites", "keys", "logins"]}),
+        json!({"ok": true, "domains": ["docs", "statuses", "issues, reading", "comments, reading", "activity", "milestones and releases, reading", "people, but removing one", "invites", "keys", "logins"]}),
     )
 }
 
@@ -415,6 +420,7 @@ fn router(app: Arc<App>) -> Router {
         .route(&format!("{P}/issues/{{issue}}"), get(get_issue))
         .route(&format!("{P}/issues/{{issue}}/comments"), get(list_comments))
         .route(&format!("{P}/issues/{{issue}}/comments/{{comment}}"), get(get_comment))
+        .route(&format!("{P}/issues/{{issue}}/activity"), get(get_activity))
         .route(&format!("{P}/milestones"), get(list_milestones))
         .route(&format!("{P}/milestones/{{milestone}}"), get(get_milestone))
         .route(&format!("{P}/releases"), get(list_releases))
