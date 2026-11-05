@@ -575,17 +575,30 @@ export async function pullsForAsker<T extends {pulls: PullRequest[], done?: Past
     return {...answer, pulls: answer.pulls.map(pullForSession), ...answer.done ? {done: answer.done.map(pullForSession)} : {}}
 }
 
-/** `all` as `?page=&limit=` asks (ORR-615): every one when neither is given, else page `page` (from 1), `limit` to a
+/** Whether `pull` has every word of `q` (ORR-941), in any case: in its number (`#788` or `788`), title, branch, base,
+ * author or the issue it names. Only what the asker was given is searched, so a session can't find a title it isn't sent. */
+export function pullMatches(pull: OpenPull, q: string): boolean {
+    const text = `#${pull.number} ${pull.title ?? ''} ${pull.branch ?? ''} ${pull.base ?? ''} ${pull.author ?? ''} ${pull.issue?.id ?? ''}`.toLowerCase()
+    return q.toLowerCase().split(/\s+/).filter(Boolean).every(word => text.includes(word))
+}
+
+/** `all` as `?page=&limit=&q=` asks (ORR-615): every one when none is given, else page `page` (from 1), `limit` to a
  * page, in the same order. The counts, the repos' included, stay totals. A page past the last is the last, so a
- * refresh after PRs close still has a page to show. */
-export function pullsPage(all: AllPulls, query: {page?: unknown, limit?: unknown}): AllPulls {
-    if (query.page === undefined && query.limit === undefined) return all
+ * refresh after PRs close still has a page to show. With `q`, only those `pullMatches` keeps, paged across all of them,
+ * and `matched` counts them, overall and on each repo (ORR-941). */
+export function pullsPage(all: AllPulls, query: {page?: unknown, limit?: unknown, q?: unknown}): AllPulls {
+    const q = typeof query.q === 'string' ? query.q.trim() : ''
+    if (query.page === undefined && query.limit === undefined && !q) return all
     // A whole number from 1, else `or`.
     const counted = (value: unknown, or: number) => {
         const n = Math.floor(Number(value))
         return n >= 1 ? n : or
     }
+    const found = q ? all.pulls.filter(p => pullMatches(p, q)) : all.pulls
+    const searched = q
+        ? {matched: found.length, repos: all.repos.map(r => ({...r, matched: found.filter(p => p.repo === r.repo).length}))}
+        : {}
     const limit = Math.min(counted(query.limit, PULLS_PAGE), PULLS_PAGE_MOST)
-    const page = Math.min(counted(query.page, 1), Math.max(1, Math.ceil(all.pulls.length / limit)))
-    return {...all, pulls: all.pulls.slice((page - 1) * limit, page * limit), page, limit}
+    const page = Math.min(counted(query.page, 1), Math.max(1, Math.ceil(found.length / limit)))
+    return {...all, ...searched, pulls: found.slice((page - 1) * limit, page * limit), page, limit}
 }

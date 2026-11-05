@@ -1,6 +1,6 @@
 import {beforeEach, describe, expect, it} from 'vitest'
 import {focusNote, inProjectOrder, sendBackNote} from '#shared/roadmap'
-import {githubRepo, namesIssue, pullsPage, pullState, Pulls} from '../server/utils/pulls'
+import {githubRepo, namesIssue, pullMatches, pullsPage, pullState, Pulls} from '../server/utils/pulls'
 import {Secrets} from '../server/utils/secrets'
 import {Store} from '../server/utils/store'
 import {testDb} from './db'
@@ -343,5 +343,28 @@ describe('more than a page of them (ORR-615)', () => {
         expect(pullsPage(all, {page: '2'}).limit).toBe(50)
         expect(pullsPage(all, {limit: '1000'}).limit).toBe(200)
         expect(pullsPage(all, {page: 'x', limit: '-3'})).toMatchObject({page: 1, limit: 50})
+    })
+
+    it('searches every page by number, title, branch and author, and counts what it found (ORR-941)', async () => {
+        answers[LIST] = () => json([...page(1, 120), listed(500, {title: 'Refund the card', user: {login: 'mira'}, created_at: '2026-10-29T09:30:00Z'})])
+        answers['/repos/you/shop/pulls/500'] = () => json({draft: false, mergeable_state: 'clean'})
+        const all = await pulls.all()
+        const found = pullsPage(all, {page: '1', q: '  refund CARD '})
+        expect(found.pulls.map(p => p.number)).toEqual([500])
+        expect(found).toMatchObject({open: 121, matched: 1, page: 1, limit: 50})
+        expect(found.repos[0]).toMatchObject({open: 121, matched: 1})
+        expect(pullsPage(all, {q: '#500'}).pulls.map(p => p.number)).toEqual([500])
+        expect(pullsPage(all, {q: 'mira'}).matched).toBe(1)
+        expect(pullsPage(all, {q: 'feat/branch-11'}).pulls.map(p => p.number).sort((a, b) => a - b)).toEqual([11, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119])
+        // Pages run across the matches, not every one: branch-1 is in 1, 10–19 and 100–120.
+        const second = pullsPage(all, {page: '2', limit: '10', q: 'branch-1'})
+        expect(second).toMatchObject({page: 2, matched: 32})
+        expect(second.pulls).toHaveLength(10)
+        expect(pullsPage(all, {q: 'nothing like it'})).toMatchObject({matched: 0, pulls: []})
+        // A blank search is no search.
+        expect(pullsPage(all, {q: '  '})).toBe(all)
+        // Only what the asker is sent is searched: a PR without its title isn't found by it.
+        const {title: _title, ...untitled} = all.pulls[0]!
+        expect(pullMatches({...untitled, title: undefined} as never, 'Refund')).toBe(false)
     })
 })

@@ -7,10 +7,11 @@ import type {AllPulls} from '#shared/roadmap'
 // show only `open` and `needs`.
 // `poll` is the page's Poll now: GitHub asked at once, and the fresh list back (ORR-534).
 // Each read names the owner: anyone else gets a PR without its title, branch or odd author (ORR-532).
-export function useOpenPulls(page?: Ref<number>) {
+// With `search`, the page asks only for those matching it, across every page (ORR-941).
+export function useOpenPulls(page?: Ref<number>, search?: Ref<string>) {
     const {load: owner} = useOwner()
     const pulls = useState<AllPulls | null>(page ? 'open-pulls-page' : 'open-pulls', () => null)
-    const query = () => page ? {page: page.value} : {limit: 1}
+    const query = () => page ? {page: page.value, ...search?.value.trim() ? {q: search.value.trim()} : {}} : {limit: 1}
     async function load() {
         pulls.value = await owner()
             .then(actor => apiFetch<AllPulls>('/pulls', {query: query(), headers: {'Orrery-Actor': actor}}))
@@ -41,7 +42,16 @@ export function useOpenPulls(page?: Ref<number>) {
             }, every)
         })
         if (page) watch(page, () => void load())
-        onBeforeUnmount(() => clearInterval(timer))
+        // A search asks again once typing pauses, so each key isn't a request.
+        let typing: ReturnType<typeof setTimeout> | undefined
+        if (search) watch(search, () => {
+            clearTimeout(typing)
+            typing = setTimeout(() => void load(), 200)
+        })
+        onBeforeUnmount(() => {
+            clearInterval(timer)
+            clearTimeout(typing)
+        })
     }
     return {pulls, load, follow, poll, polling, failed}
 }

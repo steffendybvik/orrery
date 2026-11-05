@@ -1,4 +1,4 @@
-// `POST /api/pulls/poll?repo=&page=&limit=` → {pulls, open, needs, repos}: the owner's Poll now (ORR-534). Every repo (or
+// `POST /api/pulls/poll?repo=&page=&limit=&q=` → {pulls, open, needs, repos}: the owner's Poll now (ORR-534). Every repo (or
 // `repo`, `you/shop`) is polled at once, whenever it was last, as the background poll would, and the answer is `GET
 // /api/pulls`'s, fresh, paged as it pages (ORR-615). A repo GitHub is holding (its rate limit, a refused token), or
 // without a token one polled now in the last five minutes or read in the last minute, isn't asked: its `held` says why.
