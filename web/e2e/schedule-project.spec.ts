@@ -20,9 +20,11 @@ test('New schedule picks its project in the dialog', async ({page, request}) => 
     await dialog.getByRole('button', {name: 'Project'}).click()
     await dialog.getByRole('option', {name: 'Shed', exact: true}).click()
     await expect(dialog.getByRole('button', {name: 'Project'})).toContainText('Shed')
-    await dialog.getByLabel('Title').fill('Oil the hinges')
+    // A retry finds the first try's schedule if it got as far as making it, so each try's has a title of its own.
+    const title = test.info().retry ? `Oil the hinges (${test.info().retry})` : 'Oil the hinges'
+    await dialog.getByLabel('Title').fill(title)
     await dialog.getByRole('button', {name: /Create schedule/}).click()
     await expect(dialog).toBeHidden()
-    expect((await api(request, 'get', '/projects/shed/schedules')).map((s: {title: string}) => s.title)).toEqual(['Oil the hinges'])
+    expect((await api(request, 'get', '/projects/shed/schedules')).map((s: {title: string}) => s.title).filter((t: string) => t === title)).toEqual([title])
     expect(await api(request, 'get', '/projects/garden/schedules')).toEqual([])
 })

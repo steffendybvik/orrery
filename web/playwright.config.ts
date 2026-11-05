@@ -30,12 +30,14 @@ const beforeLast = ['free', 'sessions', 'settings']
 // One shard of the whole suite (`E2E_SHARD=2/3`, ORR-920): first-run, then its share of each group as above, on a server
 // of its own. CI runs each browser's suite as shards side by side; e2e-shards.ts says which spec goes where.
 const shard = whole ? shardSetting(process.env.E2E_SHARD) : null
+// The page walks, which load every page in turn: no two in one shard where it can be helped.
+const WALKS = specs(['navigation', 'a11y', 'wcag-light', 'wcag-dark'])
 const groupOf = (file: string): Group => {
     const name = file.replace(/\.spec\.ts$/, '')
     return SESSIONS.includes(name) ? 'sessions' : SETTINGS.includes(name) ? 'settings' : ALONE.includes(name) ? 'alone' : 'free'
 }
 const mine = shard ? (shards(
-    readdirSync(new URL('./e2e', import.meta.url)).filter(f => f.endsWith('.spec.ts') && f !== 'first-run.spec.ts').sort().map(name => ({name, group: groupOf(name)})),
+    readdirSync(new URL('./e2e', import.meta.url)).filter(f => f.endsWith('.spec.ts') && f !== 'first-run.spec.ts').sort().map(name => ({name, group: groupOf(name), heavy: WALKS.includes(name)})),
     shard.total, JSON.parse(readFileSync(new URL('./e2e/durations.json', import.meta.url), 'utf8')) as Record<string, number>,
 )[shard.index - 1]?.map(s => s.name) ?? []) : null
 /** A group's specs: all of them, or this shard's share. */

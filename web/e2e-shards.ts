@@ -8,7 +8,9 @@
 
 export type Group = 'free' | 'sessions' | 'settings' | 'alone'
 
-export interface Spec {name: string, group: Group}
+/** `heavy`: a page walk (ORR-920), minutes of pages loaded one after another. A few at once in one shard load its server
+ * past what a slow browser bears, so they're spread out as if they took turns. */
+export interface Spec {name: string, group: Group, heavy?: boolean}
 
 /** `E2E_SHARD` (`2/3`) as numbers; none, or not that shape, is the whole suite. */
 export function shardSetting(value: string | undefined): {index: number, total: number} | null {
@@ -23,7 +25,8 @@ export function shardSetting(value: string | undefined): {index: number, total: 
 export function shardSeconds(specs: Spec[], seconds: (name: string) => number, workers: number): number {
     const sum = (group: Group) => specs.filter(s => s.group === group).reduce((total, s) => total + seconds(s.name), 0)
     const [free, sessions, settings] = [sum('free'), sum('sessions'), sum('settings')]
-    return Math.max(sessions, settings, (free + sessions + settings) / workers) + sum('alone')
+    const heavy = specs.filter(s => s.heavy).reduce((total, s) => total + seconds(s.name), 0)
+    return Math.max(sessions, settings, heavy, (free + sessions + settings) / workers) + sum('alone')
 }
 
 /** The specs in each of `total` shards: every spec in one, the longest placed first wherever it makes the slowest shard
