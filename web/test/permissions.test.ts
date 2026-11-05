@@ -169,6 +169,13 @@ describe("a working session's column", () => {
         },
         'docs.write': async () => expect(await status(() => store.putDoc('greenhouse', 'shelves', {title: 'Shelves', body: 'Oak.'}, agent))).toBe(200),
         'milestones.write': async () => expect((await store.createMilestone('greenhouse', {title: 'Seed trays'}, agent)).title).toBe('Seed trays'),
+        'epics.write': async () => expect((await store.createEpic({title: 'Checkout tracking'}, agent)).title).toBe('Checkout tracking'),
+        'epics.delete': async () => {
+            const theirs = await store.createEpic({title: 'Attribution'}, me)
+            const mine = await store.createEpic({title: 'Tracking'}, agent)
+            expect(await status(() => store.deleteEpic(theirs.id, agent))).toBe(403)
+            expect(await status(() => store.deleteEpic(mine.id, agent))).toBe(200)
+        },
         'presets.write': async () => expect(await status(() => store.createPreset(null, {name: 'Review', text: 'Review the PRs.'}, agent))).toBe(403),
         'prompts.write': async () => {
             expect(await status(() => store.updateProject('greenhouse', {focus_prompt: 'Do it.'}, agent))).toBe(403)

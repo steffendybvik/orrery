@@ -59,6 +59,7 @@ export const NOT_EXPORTED = {
     pull_repos: 'the pull request cache',
     chats: "the owner's chats on this server",
     feature_use: "the owner's use of this server's features",
+    epics: "the server's, across its boards: an upload clears its issues' epic, which names one here",
 } as const satisfies Partial<Record<Table, string>>
 
 /** Taken as the board uses them, below. */

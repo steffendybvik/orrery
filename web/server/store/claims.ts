@@ -6,13 +6,13 @@ import type {Input} from '../utils/input'
 import {conflict} from '../utils/input'
 import type {Actor} from './schema'
 import {stamp} from './schema'
-import {ReleaseStore} from './releases'
+import {EpicStore} from './epics'
 import {doneIssues} from './reads'
 
 /** How long a session's mark on an issue it's starting holds off another before its status lands. */
 const LOCK_LANDS = 5000
 
-export abstract class ClaimStore extends ReleaseStore {
+export abstract class ClaimStore extends EpicStore {
     /** The session that last worked the issue, while it's there to hear; null otherwise (one session orrery picks). */
     protected async listeningWorker(project: string, issue: string): Promise<string | null> {
         const worker = (await this.get<{session: string}>('SELECT session FROM issue_sessions WHERE project = ? AND issue = ?', project, issue))?.session

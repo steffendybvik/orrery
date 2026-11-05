@@ -45,7 +45,7 @@ export interface BulkResult {
 }
 
 /** What one change to many issues can set. */
-export const BULK_FIELDS = ['status', 'priority', 'assignee', 'milestone', 'release']
+export const BULK_FIELDS = ['status', 'priority', 'assignee', 'milestone', 'release', 'epic']
 
 /** An issue with its sub-issues drawn out, as `GET …/issues/:issue` shows it. */
 export interface IssueDetail extends Issue {
@@ -131,12 +131,13 @@ export interface IssueRow extends Made {
     assignee: string | null, labels: string, external: string, github_issues: string, notes: string | null,
     parent: string | null, milestone: string | null, position: number, schedule: number | null,
     proposal: Proposal | null, decided_by: string | null, decided_at: string | null, decision_note: string | null,
-    choices: string, picks: string | null, explore: string | null, ships_in: string | null, claimed_by: string | null, claimed_at: string | null, claimed_session: string | null, created_person: string | null, session_name: string | null, model?: string | null, effort?: Effort | null
+    choices: string, picks: string | null, explore: string | null, ships_in: string | null, epic?: number | null, claimed_by: string | null, claimed_at: string | null, claimed_session: string | null, created_person: string | null, session_name: string | null, model?: string | null, effort?: Effort | null
 }
 export interface CommentRow extends Made { id: number, project: string, issue: string, body: string, asks: Asks | null, answered?: number, session_name: string | null, person: string | null, by_agent: number }
 export interface EventRow { id: number, project: string, issue: string, field: ActivityField, before: string | null, after: string | null, created_by: string, session_name: string | null, owned: number, created_at: string }
 export interface DocRow extends Made { project: string, id: string, title: string, body: string, position: number, section: string | null, kind: DocKind }
 export interface DocRevisionRow { id: number, project: string, doc: string, title: string, body: string, section: string | null, kind: DocKind, deleted: number, created_by: string, session_name: string | null, owned: number, created_at: string }
+export interface EpicRow extends Made { id: number, title: string, notes: string | null, position: number }
 export interface ReleaseRow extends Made { project: string, version: string, branch: string | null, notes: string | null, frozen_on: string | null, shipped_on: string | null, doc_mark: number | null, position: number }
 export interface PresetRow { id: number, project: string | null, name: string, text: string, icon: string | null, color: string | null, default_key: string | null, created_at: string, updated_at: string }
 export interface SignalRow { person?: string | null, model?: string | null, id: number, project: string, issue: string | null, milestone: string | null, status: string | null, release: string | null, schedule: number | null, kind: 'focus' | 'comment' | 'message', note: string | null, preset: string | null, via: string | null, target: string | null, delivered_to: string, instructions: string, created_by: string, owned: number, created_at: string }
@@ -249,11 +250,20 @@ export const ISSUE_FIELDS: Record<string, Field> = {
     milestone: {type: 'string', nullable: true},
     /** The version of a release it ships in; null takes it out of one. */
     release: {type: 'string', nullable: true},
+    /** The epic it's part of, by number (ORR-895); null takes it out of one. */
+    epic: {type: 'number', nullable: true},
     /** The issues it depends on (ORR-601), all of them: ids in its project, `project/ID` in another; null or [] for none. */
     depends_on: {type: 'strings', nullable: true},
     /** The model and effort a session for it starts on (ORR-868), over its kind's; null follows its kind. */
     model: {type: 'string', nullable: true, pattern: MODEL, hint: 'use best, opus, sonnet, haiku, fable, default, opusplan or a full id such as claude-sonnet-5-5'},
     effort: {type: 'string', nullable: true, values: EFFORTS},
+    position: {type: 'number'},
+}
+
+// An epic's number is handed out (ORR-895); `position` is where it goes among them, from 0 at the top, a new one on top.
+export const EPIC_FIELDS: Record<string, Field> = {
+    title: {type: 'string', required: true},
+    notes: {type: 'string', nullable: true},
     position: {type: 'number'},
 }
 
@@ -443,6 +453,26 @@ export function tallyReleases(versions: string[], boards: Board[]): Map<string, 
             if (issue.tasks.length) walk(issue.tasks, release)
             else {
                 const into = release ? tally.get(release)?.kinds : undefined
+                if (into) for (const kind of Object.keys(into) as (keyof Kinds)[]) into[kind] += issue.kinds[kind]
+            }
+        }
+    }
+    boards.forEach(b => b.milestones.forEach(c => walk(c.tasks, undefined)))
+    return tally
+}
+
+/** How far each of `epics` is, across `boards` (ORR-895), as `tallyReleases` counts a release: `issues` those set for it,
+ * and `kinds` their leaves'. A sub-issue with no epic of its own goes with its parent's. */
+export function tallyEpics(epics: number[], boards: Board[]): Map<number, {issues: number, kinds: Kinds}> {
+    const tally = new Map(epics.map(e => [e, {issues: 0, kinds: emptyKinds()}]))
+    const walk = (issues: Issue[], current: number | undefined) => {
+        for (const issue of issues) {
+            const epic = issue.epic ?? current
+            const own = issue.epic && issue.epic !== current ? tally.get(issue.epic) : undefined
+            if (own) own.issues++
+            if (issue.tasks.length) walk(issue.tasks, epic)
+            else {
+                const into = epic ? tally.get(epic)?.kinds : undefined
                 if (into) for (const kind of Object.keys(into) as (keyof Kinds)[]) into[kind] += issue.kinds[kind]
             }
         }
