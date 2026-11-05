@@ -10,10 +10,9 @@ info:
       doc-sections, deleted-docs). Served by both.
     - **Issues and comments** (ORR-927): the issue list with its filters, one issue, its comments and its activity
       (web/server/api/projects/[project]/issues), and making and deleting a comment. Both serve them; the router sends
-      their `GET`s there, and a comment's `POST` and `DELETE`. Writing an issue stays the Nuxt server's, as a change
-      wakes sessions, and so does editing a comment, which checks the session's claim on the issue first. A new
-      comment's reply says what the Nuxt server passes on to the sessions and the owner's bell (`Orrery-Carry`,
-      `Orrery-Notice`).
+      their `GET`s there, and a comment's `POST`, `PATCH` and `DELETE`, checking a session's claim on the issue first
+      for an edit. Writing an issue stays the Nuxt server's, as a change wakes sessions. A new or edited comment's reply
+      says what the Nuxt server passes on to the sessions and the owner's bell (`Orrery-Carry`, `Orrery-Notice`).
     - **Uploads, reading** (ORR-927): an image kept for Markdown (web/server/api/uploads/[upload].get.ts), passed on by
       the router as it came. Keeping one stays the Nuxt server's, as it compresses the image there.
     - **Statuses** (ORR-926): the orrery's issue statuses (web/server/api/statuses). Served by both.
@@ -354,6 +353,19 @@ paths:
       summary: One comment
       responses:
         '200': {description: The comment, content: {application/json: {schema: {$ref: '#/components/schemas/Comment'}}}}
+        '404': {description: 'No such project, issue or comment, a comment''s id that isn''t a whole number included', content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+    patch:
+      summary: Edits the comment's words or what it asks
+      description: |
+        The owner's is theirs to edit, and a member's (or their agents') theirs or the owner's. The Nuxt server refuses a
+        session first while another session is working on the issue. New words by the comment's own person come back in
+        `Orrery-Carry` (`<project> <issue> <comment> edited`), for the Nuxt server to pass on to the session on the issue.
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/CommentEdit'}}}}
+      responses:
+        '200': {description: The comment, content: {application/json: {schema: {$ref: '#/components/schemas/Comment'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
         '404': {description: 'No such project, issue or comment, a comment''s id that isn''t a whole number included', content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
     delete:
       summary: Deletes the comment
@@ -1198,6 +1210,12 @@ components:
                 required: [projects]
                 properties:
                   projects: {type: array, items: {type: object, required: [project, issues, kinds], properties: {project: {type: string}, issues: {type: integer}, kinds: {$ref: '#/components/schemas/Kinds'}}}}
+    CommentEdit:
+      type: object
+      additionalProperties: false
+      properties:
+        body: {type: string, description: Markdown; not blank}
+        asks: {type: [string, 'null'], enum: [decision, feedback, null]}
     CommentInput:
       type: object
       additionalProperties: false

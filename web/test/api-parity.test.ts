@@ -8,7 +8,7 @@ import {existsSync, mkdtempSync, readdirSync, readFileSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import {join, relative, resolve} from 'node:path'
 import {fileURLToPath} from 'node:url'
-import {afterAll, beforeAll, describe, expect, it} from 'vitest'
+import {afterAll, beforeAll, describe, expect, it, vi} from 'vitest'
 import type {OrreryEvent} from '#shared/happenings'
 import {Store} from '../server/utils/store'
 import type {Actor, IssueFilter} from '../server/store/schema'
@@ -474,6 +474,8 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
             [name, p => viaStore(() => store.createComment(p, ids[p]!, body, actor), 201), () => viaApi('POST', path('through-api'), body, actor)]
         const drop = (name: string, which: (p: string) => Promise<number>, actor: Actor): Step =>
             [name, p => masked(viaStore(async () => store.deleteComment(p, ids[p]!, await which(p), actor))), async () => masked(viaApi('DELETE', `${path('through-api')}/${await which('through-api')}`, undefined, actor))]
+        const edit = (name: string, which: (p: string) => Promise<number>, body: unknown, actor: Actor): Step =>
+            [name, p => masked(viaStore(async () => store.updateComment(p, ids[p]!, await which(p), body, actor))), async () => masked(viaApi('PATCH', `${path('through-api')}/${await which('through-api')}`, body, actor))]
         const steps: Step[] = [
             make('a session\'s word', {body: 'Started on it.'}, SESSION),
             make('an agent\'s ask, which the owner then has', {body: 'Which gear?', asks: 'decision'}, SESSION),
@@ -490,6 +492,16 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
             ['on an issue that isn\'t there', p => viaStore(() => store.createComment(p, 'X-404', {body: 'Hm.'}, SESSION)), () => viaApi('POST', '/issues/X-404/comments', {body: 'Hm.'}, SESSION)],
             ['the comments', p => viaStore(() => store.listComments(p, ids[p]!)), () => viaApi('GET', path('through-api'))],
             ['the activity', p => viaStore(() => store.listActivity(p, ids[p]!)), () => viaApi('GET', `/issues/${ids['through-api']}/activity`)],
+            edit('a session\'s own, reworded', p => nth(p, 0), {body: 'Started on it, gears first.'}, SESSION),
+            edit('the owner\'s, by a session', p => nth(p, 2), {body: 'The tin one.'}, SESSION),
+            // The owner's new words go to the session on the issue too, as it may have read the first ones.
+            edit('the owner\'s, reworded by them', p => nth(p, 2), {body: 'The brass one, polished.'}, OWNER),
+            edit('the owner\'s, the same words again', p => nth(p, 2), {body: 'The brass one, polished.'}, OWNER),
+            edit('asking nothing now', p => nth(p, 1), {asks: null}, SESSION),
+            edit('nothing sent', p => nth(p, 0), {}, SESSION),
+            edit('a blank body and a bad ask', p => nth(p, 0), {body: ' ', asks: 'maybe'}, SESSION),
+            edit('one that isn\'t there', async () => 99_999_999, {body: 'Hm.'}, SESSION),
+            ['the comments, edited', p => viaStore(() => store.listComments(p, ids[p]!)), () => viaApi('GET', path('through-api'))],
             drop('the owner\'s, by a session', p => nth(p, 2), SESSION),
             drop('a session\'s', p => nth(p, 0), SESSION),
             drop('one that isn\'t there', async () => 99_999_999, SESSION),
@@ -501,6 +513,7 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         const signals = async (p: string) => await store.db.all('SELECT issue, kind, note, target, person, created_by, owned FROM signals WHERE project = ? AND id > ? ORDER BY id', p, start.signal)
         expect(same({status: 0, body: await signals('through-api'), changed: [], told: [], settings: false}, 'through-api'))
             .toEqual(same({status: 0, body: await signals('through-store'), changed: [], told: [], settings: false}, 'through-store'))
+        expect((await signals('through-api') as {note: string}[]).map(signal => signal.note)).toContain('(Edited: this replaces their earlier comment.)\n\nThe brass one, polished.')
         const rows = async (p: string) => (await store.db.all<{kind: string, payload: string | null}>('SELECT kind, payload FROM changes WHERE project = ? AND id > ? ORDER BY id', p, start.change))
             .map(r => `${r.kind} ${(r.payload ?? '').replace(/\b(STO|API)-(\d+)/g, 'KEY-$2')}`).sort()
         expect(await rows('through-api')).toEqual(await rows('through-store'))
@@ -1143,19 +1156,18 @@ describe('the router', () => {
     })
 
     it('routes by a table with a line per domain, so taking one back is taking its line out (ORR-925)', () => {
-        expect(DOMAINS.map(({domain}) => domain)).toEqual(['docs', 'statuses', 'issues, reading', 'comments, but editing one', 'activity', 'milestones', 'releases', 'releases, every project\'s', 'people, but removing one', 'invites', 'keys', 'logins', 'uploads, reading', 'presets', 'secrets, reading', 'settings', 'a pull request, reading', "a pull request's risk"])
+        expect(DOMAINS.map(({domain}) => domain)).toEqual(['docs', 'statuses', 'issues, reading', 'comments', 'activity', 'milestones', 'releases', 'releases, every project\'s', 'people, but removing one', 'invites', 'keys', 'logins', 'uploads, reading', 'presets', 'secrets, reading', 'settings', 'a pull request, reading', "a pull request's risk"])
         expect(domainOf('PATCH', '/api/projects/p/docs/d')).toBe('docs')
         expect(domainOf('head', '/api/projects/p/doc-sections/')).toBe('docs')
         for (const path of ['/api/projects/p/issues/P-1/activity/x', '/api/', '/docs', '/api/projects/p/docs/d/artifact']) expect(domainOf('GET', path), path).toBeUndefined()
     })
 
     it('sends only the methods a line names, so a domain\'s reads can move before its writes (ORR-927)', () => {
-        expect(domainOf('GET', '/api/projects/p/issues/P-1/comments')).toBe('comments, but editing one')
-        expect(domainOf('HEAD', '/api/projects/p/issues/P-1/comments/3')).toBe('comments, but editing one')
-        expect(domainOf('POST', '/api/projects/p/issues/P-1/comments')).toBe('comments, but editing one')
-        expect(domainOf('DELETE', '/api/projects/p/issues/P-1/comments/3')).toBe('comments, but editing one')
-        // Editing one checks the session's claim on the issue first, here.
-        expect(domainOf('PATCH', '/api/projects/p/issues/P-1/comments/3')).toBeUndefined()
+        expect(domainOf('GET', '/api/projects/p/issues/P-1/comments')).toBe('comments')
+        expect(domainOf('HEAD', '/api/projects/p/issues/P-1/comments/3')).toBe('comments')
+        expect(domainOf('POST', '/api/projects/p/issues/P-1/comments')).toBe('comments')
+        expect(domainOf('DELETE', '/api/projects/p/issues/P-1/comments/3')).toBe('comments')
+        expect(domainOf('PATCH', '/api/projects/p/issues/P-1/comments/3')).toBe('comments')
         for (const path of ['/api/projects/p/issues/P-1/comments/3/x', '/api/projects/p/issues/P-1/schedule-requests/3', '/api/projects/p/issues/P-1/branches']) expect(domainOf('GET', path), path).toBeUndefined()
         expect(domainOf('GET', '/api/projects/p/issues')).toBe('issues, reading')
         expect(domainOf('GET', '/api/projects/p/issues/P-1')).toBe('issues, reading')
@@ -1163,6 +1175,21 @@ describe('the router', () => {
         expect(domainOf('POST', '/api/projects/p/issues/decide')).toBeUndefined()
         expect(domainOf('GET', '/api/projects/p/issues/P-1/activity')).toBe('activity')
         expect(domainOf('POST', '/api/projects/p/issues/P-1/activity')).toBeUndefined()
+    })
+
+    it('checks a session\'s claim on the issue here before a comment\'s edit goes on (ORR-927)', async () => {
+        const claimed: string[][] = []
+        vi.stubGlobal('claimFor', async (_event: unknown, project: string, issue: string) => {
+            claimed.push([project, issue])
+        })
+        try {
+            const line = DOMAINS.find(d => d.domain === 'comments')!
+            expect(Object.keys(line.first ?? {})).toEqual(['PATCH'])
+            await line.first!.PATCH!({} as never, 'projects/shop%20front/issues/SHO-4/comments/12')
+            expect(claimed).toEqual([['shop front', 'SHO-4']])
+        } finally {
+            vi.unstubAllGlobals()
+        }
     })
 
     it('sends milestones and releases there, reads and writes, and keeps a milestone\'s focus here (ORR-926, ORR-974)', () => {
@@ -1232,9 +1259,10 @@ describe('the router', () => {
         ])
         expect(toldOf('issue.assignee orrery ORR%2D1 claude %7E')[0]).toMatchObject({from: 'claude', to: '~'})
         const said = (headers: Record<string, string>) => handedOn(new Headers(headers))
-        expect(said({'Orrery-Carry': 'shop%20front ORR%2D1 12', 'Orrery-Notice': 'shop%20front ORR%2D1 12'})).toEqual({project: 'shop front', issue: 'ORR-1', comment: 12, carry: true, notice: true})
+        expect(said({'Orrery-Carry': 'shop%20front ORR%2D1 12', 'Orrery-Notice': 'shop%20front ORR%2D1 12'})).toEqual({project: 'shop front', issue: 'ORR-1', comment: 12, carry: true, notice: true, edited: false})
         expect(said({'Orrery-Notice': 'orrery ORR%2D1 12'})).toMatchObject({carry: false, notice: true})
         expect(said({})).toBeUndefined()
+        expect(said({'Orrery-Carry': 'orrery ORR%2D1 12 edited'})).toMatchObject({carry: true, notice: false, edited: true})
         expect(changedOf('orrery, shop%20front')).toEqual(['orrery', 'shop front'])
         expect(changedOf(null)).toEqual([])
     })
@@ -1269,7 +1297,7 @@ describe('the contract (api/openapi.yaml)', () => {
     }
 
     it('has every route the router sends to the API, and no other', () => {
-        expect(contract()).toHaveLength(61)
+        expect(contract()).toHaveLength(62)
         expect(contract()).toEqual(routes())
     })
 
