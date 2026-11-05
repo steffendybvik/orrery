@@ -30,6 +30,8 @@ import type {Chat, ChatIssues, ChatMessage} from '#shared/roadmap'
 // behind the button at the header's left, and opens over the conversation, closing on a tap outside it (ORR-899). Moving to another project, by page or
 // picker, shows its newest running chat and leaves the others running; the picker marks the projects with one. What's
 // held goes back in the box on a switch, so it never goes to another chat.
+// Under the header's project, its session's name and what it runs on (ModelChip, as the session cards have it), and for an
+// ended chat what it last ran on (ORR-936).
 // While no launcher runs for its project, LauncherHint above the box says so, with the install command to copy, in place
 // of the server's error (ORR-591).
 const {open, large, chat, session, project, pinned, failed, chats, running, lands, start, send, clear, land, fresh, view, remove, answer, close, pin, resize, upload, show} = useChat()
@@ -449,6 +451,8 @@ const {over, on: drop} = useImageDrop(attach)
             <span class="min-w-0 shrink-[100] truncate font-medium text-muted" :title="session.name" data-testid="chat-name">{{ nameBesideProject(session) }}</span>
             <span v-if="state" aria-hidden="true">·</span>
           </template>
+          <!-- What it runs on, as the session cards say it (ORR-936); an ended chat, what it last ran on. -->
+          <ModelChip v-if="session ?? chat.ran_on" :session="(session ?? chat.ran_on)!" shown />
           <span v-if="state" class="min-w-0 truncate">{{ state }}</span>
         </span>
         <span v-if="away" class="truncate text-xs text-muted" data-testid="chat-away">You're on <em>{{ projectName(away) }}</em>; this chat is about <em>{{ projectName(about!) }}</em></span>

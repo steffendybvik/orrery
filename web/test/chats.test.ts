@@ -244,6 +244,14 @@ describe("the owner's chat", () => {
             vi.stubGlobal('useEventLog', () => ({note: (note: {kind: string}) => notes.push(note)}))
         })
 
+        it('keeps the model and effort it ran on, and nothing else of its start (ORR-936)', async () => {
+            await chats.openChat('greenhouse')
+            await chats.say('c1c2c3c4c5c6', 'What is GRE-4 about?', [], owner)
+            vi.stubGlobal('sessionOfLaunch', () => ({id: CLAUDE, model: 'claude-opus-5-5', effort: 'high', started: {launch: 'c1c2c3c4c5c6', tmux: 't', context: {text: 'a long brief'}, model: 'best', effort: 'medium'}}))
+            chats.endChat('c1c2c3c4c5c6')
+            expect(chats.readChat('c1c2c3c4c5c6')?.ran_on).toEqual({model: 'claude-opus-5-5', effort: 'high', started: {model: 'best', effort: 'medium'}})
+        })
+
         it('takes up the Claude session it ran as, on the same chat, and the message goes to it', async () => {
             await chats.openChat('greenhouse')
             await chats.say('c1c2c3c4c5c6', 'What is GRE-4 about?', [], owner)

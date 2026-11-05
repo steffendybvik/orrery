@@ -1026,8 +1026,11 @@ export function chatEnded(id: string) {
     if (!chat) return
     chats.delete(id)
     // The Claude session it ran as, the one it goes by now (a `/clear` changes it), to take up again (ORR-884).
-    const ran = sessionOfLaunch(chat.project, id)?.id
-    const ended: Chat = {...chat, ...ran ? {claude_session: ran} : {}, ended: true, ended_at: new Date().toISOString()}
+    const session = sessionOfLaunch(chat.project, id)
+    const ran = session?.id
+    // And what it ran on, for the pane to keep saying (ORR-936).
+    const on = session && {...session.model ? {model: session.model} : {}, ...session.effort ? {effort: session.effort} : {}, ...session.started ? {started: {model: session.started.model, effort: session.started.effort}} : {}}
+    const ended: Chat = {...chat, ...ran ? {claude_session: ran} : {}, ...on && Object.keys(on).length ? {ran_on: on} : {}, ended: true, ended_at: new Date().toISOString()}
     delete ended.problem
     // One ended before anything was said has nothing to read.
     if (chat.messages.length) {

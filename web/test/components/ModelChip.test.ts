@@ -28,4 +28,12 @@ describe('ModelChip (ORR-868)', () => {
             expect((await mountSuspended(ModelChip, {props: {session}})).find('[data-testid="model-chip"]').exists()).toBe(false)
         }
     })
+
+    it('names what it runs on when none was picked, given shown (the chat pane, ORR-936)', async () => {
+        const chat = await mountSuspended(ModelChip, {props: {session: {...started({model: 'best', effort: 'medium'}), model: 'claude-opus-5-5'}, shown: true}})
+        expect(chat.text()).toBe('Opus 5.5 · medium')
+        expect(chat.attributes('title')).toBe('Started at medium effort')
+        const picked = await mountSuspended(ModelChip, {props: {session: {...started({model: 'sonnet'}), model: 'claude-sonnet-5-5'}, shown: true}})
+        expect(picked.text()).toBe('sonnet')
+    })
 })
