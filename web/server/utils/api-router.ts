@@ -27,6 +27,8 @@ export const DOMAINS: readonly {domain: string, paths: RegExp, methods?: readonl
     {domain: 'issues, reading', paths: /^projects\/[^/]+\/issues(\/[^/]+)?$/, methods: ['GET']},
     // An issue's comments, read (ORR-927). Writing one stays here until how a comment wakes sessions moves (ORR-929).
     {domain: 'comments, reading', paths: /^projects\/[^/]+\/issues\/[^/]+\/comments(\/[^/]+)?$/, methods: ['GET']},
+    // Who changed what on an issue (ORR-927). Nothing writes it but the issue's own changes, which stay here (ORR-929).
+    {domain: 'activity', paths: /^projects\/[^/]+\/issues\/[^/]+\/activity$/, methods: ['GET']},
 ]
 
 const WRITES = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
