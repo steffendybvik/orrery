@@ -75,6 +75,13 @@ const behind = computed(() => props.session.listening && olderVersion(props.sess
           <ModelChip v-else :session="session" />
           <!-- And how much context it carries (ORR-968). -->
           <ContextMeter :context="session.context" />
+          <!-- And whether it took another issue's context into the one it's on (ORR-968). -->
+          <span
+              v-if="session.carried_over"
+              class="text-[11px] text-amber-800 dark:text-amber-400"
+              :title="`Started ${session.carried_over.to} with ${Math.round(session.carried_over.tokens / 1000)}k tokens of ${session.carried_over.from} in its context, which every turn pays for again. A clear between unrelated issues starts each afresh.`"
+              data-testid="carried-over"
+          >carries {{ session.carried_over.from }}</span>
           <span v-if="roles.length" class="flex items-center gap-1" :aria-label="`As ${roles.map(r => r.name).join(', ')}`">
             <span v-for="role in roles" :key="role.name" :title="role.name" class="inline-flex"><PresetBadge :preset="role" :size="18" /></span>
           </span>

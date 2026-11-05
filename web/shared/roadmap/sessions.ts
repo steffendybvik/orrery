@@ -88,6 +88,28 @@ export interface Session {
      * was given, the model's `window`, and `compacted` once Claude Code has compacted it (which lowers the count)
      * since its last clear. None until it has said. */
     context?: ContextUse
+    /** It started an issue out of the scope of the one it worked before, with more than `CARRY_FROM` tokens in its context
+     * (ORR-968): it pays for the old issue's context on every turn of the new one. Until a clear. */
+    carried_over?: CarriedOver
+}
+
+/** An issue a session started without clearing what it worked before (ORR-968): the issue before, the one now, and the
+ * tokens it carried in. */
+export interface CarriedOver {from: string, to: string, tokens: number, at: string}
+
+/** The context a session may carry into an issue out of scope before it's marked (ORR-968): about what a fresh session
+ * holds once its tools and the brief are in, with room for a short look round. */
+export const CARRY_FROM = 50_000
+
+/** What says whether two issues are one piece of work (ORR-968). */
+export interface IssueScope {project: string, id: string, parent?: string | null, milestone?: string | null, epic?: number | null}
+
+/** Whether a session's next issue is the same work as its last (ORR-968): the same issue, one's sub-issue or a sibling,
+ * or in the same epic or milestone. Such a one keeps its context; any other is better started afresh. */
+export function sameScope(a: IssueScope, b: IssueScope): boolean {
+    if (a.epic && a.epic === b.epic) return true
+    if (a.project !== b.project) return false
+    return a.id === b.id || b.parent === a.id || a.parent === b.id || (!!a.parent && a.parent === b.parent) || (!!a.milestone && a.milestone === b.milestone)
 }
 
 /** How much context a session carries, as its hook last said (ORR-968). */
