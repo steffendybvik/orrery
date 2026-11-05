@@ -8,8 +8,8 @@ info:
 
     - **Docs** (ORR-922): a project's docs, their sections and their revisions (web/server/api/projects/[project]/docs,
       doc-sections, deleted-docs). Served by both.
-    - **Issues and comments, reading** (ORR-927): the issue list with its filters, one issue, and its comments
-      (web/server/api/projects/[project]/issues). Both serve them; the router sends only their `GET`s there, as
+    - **Issues and comments, reading** (ORR-927): the issue list with its filters, one issue, its comments and its
+      activity (web/server/api/projects/[project]/issues). Both serve them; the router sends only their `GET`s there, as
       writing an issue or a comment stays the Nuxt server's.
     - **Statuses** (ORR-926): the orrery's issue statuses (web/server/api/statuses). Served by both.
     - **Milestones and releases, reading** (ORR-926): a project's milestones and releases, one of each, and every
@@ -283,6 +283,13 @@ paths:
       summary: The issue's comments, oldest first
       responses:
         '200': {description: The comments, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/Comment'}}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/projects/{project}/issues/{issue}/activity:
+    parameters: [{$ref: '#/components/parameters/project'}, {$ref: '#/components/parameters/issue'}]
+    get:
+      summary: Who changed what on the issue, and when, oldest first
+      responses:
+        '200': {description: The changes, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/IssueEvent'}}}}}
         '404': {$ref: '#/components/responses/NotFound'}
   /api/projects/{project}/issues/{issue}/comments/{comment}:
     parameters: [{$ref: '#/components/parameters/project'}, {$ref: '#/components/parameters/issue'}, {$ref: '#/components/parameters/comment'}]
@@ -894,6 +901,19 @@ components:
         protected: {type: boolean, description: Written by the owner}
         created_at: {type: string, format: date-time}
         updated_at: {type: string, format: date-time}
+    IssueEvent:
+      type: object
+      required: [id, issue, field, created_by, protected, created_at]
+      properties:
+        id: {type: integer}
+        issue: {type: string}
+        field: {type: string, description: 'What changed: `created`, `status`, `title`, `claim`, `uploaded` and the like'}
+        before: {type: string, description: Only when it had a value}
+        after: {type: string, description: Only when it has one}
+        created_by: {type: string}
+        session_name: {type: string, description: Only with one}
+        protected: {type: boolean, description: Made by the owner}
+        created_at: {type: string, format: date-time}
     Error:
       type: object
       required: [statusCode, statusMessage, message]
