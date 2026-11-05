@@ -11,6 +11,8 @@ info:
     - **Issues and comments, reading** (ORR-927): the issue list with its filters, one issue, its comments and its
       activity (web/server/api/projects/[project]/issues). Both serve them; the router sends only their `GET`s there, as
       writing an issue or a comment stays the Nuxt server's.
+    - **Uploads, reading** (ORR-927): an image kept for Markdown (web/server/api/uploads/[upload].get.ts), passed on by
+      the router as it came. Keeping one stays the Nuxt server's, as it compresses the image there.
     - **Statuses** (ORR-926): the orrery's issue statuses (web/server/api/statuses). Served by both.
     - **Milestones and releases, reading** (ORR-926): a project's milestones and releases, one of each, and every
       project's releases (web/server/api/projects/[project]/milestones, releases, and web/server/api/releases.get.ts).
@@ -195,6 +197,14 @@ paths:
       summary: Deletes a section; its docs are kept, filed under none
       responses:
         '204': {description: Deleted}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/uploads/{upload}:
+    parameters: [{name: upload, in: path, required: true, description: The image's id, 24 hex digits, schema: {type: string}}]
+    get:
+      summary: An image kept for Markdown, as it was kept
+      description: It never changes, so the browser keeps it, and it's only ever an image (`nosniff`, a sandboxing Content-Security-Policy).
+      responses:
+        '200': {description: The image, content: {image/png: {}, image/jpeg: {}, image/gif: {}, image/webp: {}}}
         '404': {$ref: '#/components/responses/NotFound'}
   /api/statuses:
     get:

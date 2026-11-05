@@ -1,4 +1,4 @@
-// orrery's API in Rust (ORR-922). For now it serves docs, the statuses (ORR-926), reading milestones and releases (ORR-926), reading issues, their comments and their activity (ORR-927), people, invites, keys and logins (ORR-928), presets (ORR-949), reading the secrets, never a value (ORR-953), and the settings (ORR-954), on the database the Nuxt server opens, and only
+// orrery's API in Rust (ORR-922). For now it serves docs, the statuses (ORR-926), reading milestones and releases (ORR-926), reading issues, their comments, their activity and the images uploaded to them (ORR-927), people, invites, keys and logins (ORR-928), presets (ORR-949), reading the secrets, never a value (ORR-953), and the settings (ORR-954), on the database the Nuxt server opens, and only
 // to that server: the router there (web/server/middleware/zz-api.ts) checks a request as it always has (auth, the
 // board's permissions, the chat's and untrusted sessions' rails, the browser guards) and then forwards it here with
 // who it's from. So this listens on loopback, and answers only a request that carries the token they share.
@@ -26,6 +26,7 @@ mod settings;
 mod statuses;
 mod steps;
 mod text;
+mod uploads;
 
 use axum::body::Bytes;
 use axum::extract::{Path, Query, Request, State};
@@ -423,6 +424,11 @@ async fn end_login(State(app): Shared, Path(login): Path<String>, headers: Heade
     Ok(StatusCode::NO_CONTENT.into_response())
 }
 
+async fn get_upload(State(app): Shared, Path(upload): Path<String>) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    uploads::upload(&mut conn, &upload).await
+}
+
 async fn list_secrets(State(app): Shared) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
     Ok(Json(Secrets::new(&mut conn).list().await?).into_response())
@@ -490,7 +496,7 @@ async fn restore_presets(State(app): Shared, headers: HeaderMap) -> Result<Respo
 
 async fn health() -> Json<Value> {
     Json(
-        json!({"ok": true, "domains": ["docs", "statuses", "issues, reading", "comments, reading", "activity", "milestones and releases, reading", "people, but removing one", "invites", "keys", "logins", "presets", "secrets, reading", "settings"]}),
+        json!({"ok": true, "domains": ["docs", "statuses", "issues, reading", "comments, reading", "activity", "milestones and releases, reading", "people, but removing one", "invites", "keys", "logins", "uploads, reading", "presets", "secrets, reading", "settings"]}),
     )
 }
 
@@ -516,6 +522,7 @@ fn router(app: Arc<App>) -> Router {
         .route(&format!("{P}/releases"), get(list_releases))
         .route(&format!("{P}/releases/{{release}}"), get(get_release))
         .route("/api/releases", get(all_releases))
+        .route("/api/uploads/{upload}", get(get_upload))
         .route("/api/changes", get(list_changes))
         .route("/api/statuses", get(list_statuses).post(create_status))
         .route("/api/statuses/{status}", patch(patch_status).delete(delete_status))
