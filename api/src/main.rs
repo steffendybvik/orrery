@@ -327,8 +327,30 @@ async fn create_comment(State(app): Shared, Path((project, issue)): Path<(String
 /// The headers a new comment's `Handoff` is said in.
 fn handoff_headers(handoff: &Handoff) -> Vec<(&'static str, String)> {
     let encode = |s: &str| utf8_percent_encode(s, NON_ALPHANUMERIC).to_string();
-    let said = format!("{} {} {}", encode(&handoff.project), encode(&handoff.issue), handoff.comment);
+    let edited = if handoff.edited { " edited" } else { "" };
+    let said = format!("{} {} {}{edited}", encode(&handoff.project), encode(&handoff.issue), handoff.comment);
     [("orrery-carry", handoff.carry), ("orrery-notice", handoff.notice)].into_iter().filter(|(_, on)| *on).map(|(h, _)| (h, said.clone())).collect()
+}
+
+/// `PATCH …/issues/{issue}/comments/{comment}`: the comment, and in `Orrery-Carry` (`<project> <issue> <comment>
+/// edited`) the new words for the router to pass on to the session on the issue, when they're its person's own.
+async fn patch_comment(
+    State(app): Shared,
+    Path((project, issue, comment)): Path<(String, String, String)>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Response> {
+    let id = comment_id(&comment)?;
+    let mut conn = app.pool.acquire().await?;
+    let mut comments = Comments::new(&mut conn);
+    comments.outbox = Some(Outbox::new(actor_of(&headers)));
+    let (value, handoff) = comments.update(&project, &issue, id, &body_of(&body), &actor_of(&headers)).await?;
+    let effects = std::mem::take(&mut comments.effects);
+    let mut response = reply(StatusCode::OK, Some(value), effects);
+    for (header, said) in handoff.as_ref().map(handoff_headers).unwrap_or_default() {
+        response.headers_mut().insert(header, HeaderValue::from_str(&said).unwrap());
+    }
+    Ok(response)
 }
 
 async fn delete_comment(State(app): Shared, Path((project, issue, comment)): Path<(String, String, String)>, headers: HeaderMap) -> Result<Response> {
@@ -690,7 +712,7 @@ fn router(app: Arc<App>) -> Router {
         .route(&format!("{P}/issues"), get(list_issues))
         .route(&format!("{P}/issues/{{issue}}"), get(get_issue))
         .route(&format!("{P}/issues/{{issue}}/comments"), get(list_comments).post(create_comment))
-        .route(&format!("{P}/issues/{{issue}}/comments/{{comment}}"), get(get_comment).delete(delete_comment))
+        .route(&format!("{P}/issues/{{issue}}/comments/{{comment}}"), get(get_comment).patch(patch_comment).delete(delete_comment))
         .route(&format!("{P}/issues/{{issue}}/activity"), get(get_activity))
         .route(&format!("{P}/milestones"), get(list_milestones).post(create_milestone))
         .route(&format!("{P}/milestones/{{milestone}}"), get(get_milestone).patch(patch_milestone).delete(delete_milestone))

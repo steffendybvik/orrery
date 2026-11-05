@@ -114,11 +114,12 @@ export abstract class CommentStore extends SignalStore {
         return await this.comment(project, issue, id)
     }
 
-    /** What a comment the Rust API made leaves here, as `createComment` does after its row (ORR-927): passing it on to
-     * the session on its issue (`carry`), and to the owner's bell (`notice`). Only this server knows the sessions. */
-    async handOn(project: string, issue: string, id: number, {carry, notice}: {carry: boolean, notice: boolean}, actor: Actor) {
+    /** What a comment the Rust API made or edited leaves here, as `createComment` and `updateComment` do after its row
+     * (ORR-927): passing it on to the session on its issue (`carry`, `edited` for new words), and to the owner's bell
+     * (`notice`). Only this server knows the sessions. */
+    async handOn(project: string, issue: string, id: number, {carry, notice, edited = false}: {carry: boolean, notice: boolean, edited?: boolean}, actor: Actor) {
         const comment = await this.comment(project, issue, id)
-        if (carry) await this.carryComment(project, issue, comment.body, actor)
+        if (carry) await this.carryComment(project, issue, edited ? `(Edited: this replaces their earlier comment.)\n\n${comment.body}` : comment.body, actor)
         if (notice) this.noticed({...comment, project, title: (await this.issueRow(project, issue)).title})
     }
 

@@ -22,7 +22,7 @@ import {countOwnUse} from './usage'
  * passes, and taking it back to the routes here is taking the line out. Each matches a whole path after `/api/`, with no
  * slash at the end. A line with `methods` sends only those there, so a domain's reads can move before its writes
  * (`GET …/comments` before `POST …/comments`, ORR-927); one without takes every method its routes do. */
-export const DOMAINS: readonly {domain: string, paths: RegExp, methods?: readonly string[]}[] = [
+export const DOMAINS: readonly {domain: string, paths: RegExp, methods?: readonly string[], first?: Partial<Record<string, LocalCheck>>}[] = [
     // A project's docs, their revisions and sections (ORR-922). An artifact's page stays here: it's drawn with the
     // page's own sanitising and its locked-down headers (`artifact.get.ts`).
     {domain: 'docs', paths: /^projects\/[^/]+\/(docs(\/[^/]+(\/revisions(\/[^/]+(\/restore)?)?)?)?|deleted-docs|doc-sections(\/[^/]+)?)$/},
@@ -31,10 +31,10 @@ export const DOMAINS: readonly {domain: string, paths: RegExp, methods?: readonl
     // A project's issues, read: the list with its filters, and one issue (ORR-927). Writing them stays here, as a change
     // wakes sessions (ORR-929).
     {domain: 'issues, reading', paths: /^projects\/[^/]+\/issues(\/[^/]+)?$/, methods: ['GET']},
-    // An issue's comments: reading, making and deleting one (ORR-927). The API's reply says what a new one leaves this
-    // server to pass on to the sessions and the owner's bell (`handedOn`). Editing one stays here, as its route checks
-    // the session's claim on the issue first (`claimFor`).
-    {domain: 'comments, but editing one', paths: /^projects\/[^/]+\/issues\/[^/]+\/comments(\/[^/]+)?$/, methods: ['GET', 'POST', 'DELETE']},
+    // An issue's comments: reading, making, editing and deleting one (ORR-927). The API's reply says what a new or
+    // edited one leaves this server to pass on to the sessions and the owner's bell (`handedOn`). An edit checks the
+    // session's claim on the issue here first, as only this server knows the sessions (`claimFor`, ORR-627).
+    {domain: 'comments', paths: /^projects\/[^/]+\/issues\/[^/]+\/comments(\/[^/]+)?$/, first: {PATCH: claimOnComment}},
     // Who changed what on an issue (ORR-927). Nothing writes it but the issue's own changes, which stay here (ORR-929).
     {domain: 'activity', paths: /^projects\/[^/]+\/issues\/[^/]+\/activity$/, methods: ['GET']},
     // A project's milestones, read (ORR-926) and written (ORR-974): the API tells what a write set off, as `Orrery-Told`,
@@ -73,6 +73,15 @@ export const DOMAINS: readonly {domain: string, paths: RegExp, methods?: readonl
     {domain: 'schedules, reading', paths: /^(projects\/[^/]+\/schedules(\/[^/]+)?|schedules(\/across)?)$/, methods: ['GET']},
 ]
 
+/** What this server checks itself before a request goes on, as only it knows (the sessions): refusing it throws. */
+type LocalCheck = (event: H3Event, rest: string) => Promise<void>
+
+/** A comment's edit, refused while another session is working on its issue (ORR-627), as its route here does. */
+async function claimOnComment(event: H3Event, rest: string) {
+    const [, project, issue] = /^projects\/([^/]+)\/issues\/([^/]+)\//.exec(rest) ?? []
+    if (project && issue) await claimFor(event, decodeURIComponent(project), decodeURIComponent(issue))
+}
+
 /** The headers a reply that isn't JSON keeps on its way through: what it is, how long the browser keeps it, and that
  * it's never run as a page. */
 export const PASSED_HEADERS = ['content-type', 'cache-control', 'x-content-type-options', 'content-security-policy'] as const
@@ -107,10 +116,16 @@ const WRITES = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
 /** The domain whose line sends `method` on `path` (as `pathOf` gives it) to the Rust API, or undefined for the routes
  * here. A HEAD goes where its GET does. */
 export function domainOf(method: string, path: string): string | undefined {
+    return lineOf(method, path)?.line.domain
+}
+
+/** The line that sends `method` on `path` to the Rust API, with the path after `/api/`. */
+function lineOf(method: string, path: string): {line: typeof DOMAINS[number], rest: string} | undefined {
     const rest = /^\/api\/(.*?)\/?$/.exec(path)?.[1]
     if (rest === undefined) return undefined
     const asked = method.toUpperCase() === 'HEAD' ? 'GET' : method.toUpperCase()
-    return DOMAINS.find(({paths, methods}) => paths.test(rest) && (!methods || methods.includes(asked)))?.domain
+    const line = DOMAINS.find(({paths, methods}) => paths.test(rest) && (!methods || methods.includes(asked)))
+    return line && {line, rest}
 }
 
 /** Whether the Rust API serves `method` on `path`. */
@@ -171,13 +186,14 @@ export function toldOf(header: string | null): {type: string, project: string, s
         })
 }
 
-/** What a new comment's reply leaves this server to do (ORR-927): `Orrery-Carry` and `Orrery-Notice`, each
- * `<project> <issue> <comment>` percent-encoded, to pass it on to the session on its issue and to the owner's bell. */
-export function handedOn(headers: Headers): {project: string, issue: string, comment: number, carry: boolean, notice: boolean} | undefined {
+/** What a new or edited comment's reply leaves this server to do (ORR-927): `Orrery-Carry` and `Orrery-Notice`, each
+ * `<project> <issue> <comment>` percent-encoded, to pass it on to the session on its issue and to the owner's bell; an
+ * edit's carry ends ` edited`, as its words replace ones the session may have read. */
+export function handedOn(headers: Headers): {project: string, issue: string, comment: number, carry: boolean, notice: boolean, edited: boolean} | undefined {
     const said = headers.get('orrery-carry') ?? headers.get('orrery-notice')
-    const [project, issue, comment] = said?.trim().split(' ').map(decodeURIComponent) ?? []
+    const [project, issue, comment, mark] = said?.trim().split(' ').map(decodeURIComponent) ?? []
     if (!project || !issue || !Number.isInteger(Number(comment))) return undefined
-    return {project, issue, comment: Number(comment), carry: headers.has('orrery-carry'), notice: headers.has('orrery-notice')}
+    return {project, issue, comment: Number(comment), carry: headers.has('orrery-carry'), notice: headers.has('orrery-notice'), edited: mark === 'edited'}
 }
 
 /** The API this server started itself (`plugins/api.ts`), once it's listening. */
@@ -198,6 +214,8 @@ let unreachable = false
 
 /** Sends the request to the API and gives back its reply, or undefined to leave it to the routes here. */
 export async function forwardToApi(event: H3Event, api: {url: string, token: string}): Promise<unknown> {
+    const found = lineOf(event.method, pathOf(event))
+    await found?.line.first?.[event.method.toUpperCase()]?.(event, found.rest)
     const actor = await actorOf(event)
     const body = WRITES.has(event.method) ? await readRawBody(event, false) : undefined
     let response: Response
