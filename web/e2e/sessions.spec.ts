@@ -100,15 +100,15 @@ test("shows the model each session runs on, from its hook, and the new one after
     const channel = hold(baseURL!, '/api/projects/kitchen/signals/stream?session=e2e-model&name=kitchen%20pantry&format=text')
     try {
         await page.goto('/sessions')
-        const model = page.locator('#session-e2e-model').getByTestId('session-model')
+        const model = page.locator('#session-e2e-model').getByTestId('model-chip')
         await expect(model).toHaveText('Opus 5.5')
-        await expect(model).toHaveAttribute('title', 'claude-opus-5-5')
+        await expect(model).toHaveAttribute('title', 'Runs on Opus 5.5')
         await request.post('/api/sessions', {data: {id: 'e2e-model', project: 'kitchen', event: 'Stop', model: 'claude-sonnet-5-5'}})
         await expect(model).toHaveText('Sonnet 5.5')
         // Its effort level beside it, once its hook has said (ORR-894).
         await request.post('/api/sessions', {data: {id: 'e2e-model', project: 'kitchen', event: 'PreToolUse', effort: 'high'}})
         await expect(model).toHaveText('Sonnet 5.5 · high')
-        await expect(model).toHaveAttribute('title', 'claude-sonnet-5-5 · high effort')
+        await expect(model).toHaveAttribute('title', 'Runs on Sonnet 5.5, at high effort')
     } finally {
         channel.stop()
         await request.post('/api/sessions', {data: {id: 'e2e-model', project: 'kitchen', event: 'SessionEnd'}})
