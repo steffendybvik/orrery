@@ -1,11 +1,11 @@
 // The store's reads that need nothing but the database: a project's board, its releases with how far their issues are,
 // its docs without their text, and the board's issues as records (ORR-501). StoreBase builds a project from them.
-import type {Asks, Board, Choice, Chunk, DocSummary, Issue, IssueStatus, Picks, Release} from '#shared/roadmap'
-import {CLOSED, linkRef} from '#shared/roadmap'
+import type {Asks, Board, Choice, Milestone, DocSummary, Issue, IssueStatus, Picks, PullRisk, Release, RiskLevel} from '#shared/roadmap'
+import {CLOSED, highestRisk, linkRef} from '#shared/roadmap'
 import type {IssueInput} from '../utils/roadmap'
 import {buildBoard} from '../utils/roadmap'
 import type {Db} from '../utils/database'
-import type {IssueRecord, ChunkRecord, ProjectRow, ChunkRow, IssueRow, DocRow, ReleaseRow} from './schema'
+import type {IssueRecord, MilestoneRecord, ProjectRow, MilestoneRow, IssueRow, DocRow, ReleaseRow} from './schema'
 import {OPEN_ASK, tallyReleases, releaseOf, docSummaryOf, matchOf} from './schema'
 import {known} from '#shared/known'
 
@@ -42,17 +42,29 @@ async function readLinks(db: Db, project: string, statuses: IssueStatus[]) {
     return {dependsOn, blockedBy, blocks}
 }
 
-/** The project's board: its chunks and their issues, sub-issues within, each with its comment count, open question,
- * the ids it had before and its dependency links. */
+/** Each of the project's issues with a rated PR (ORR-879), and the riskiest of them. */
+async function readRisks(db: Db, project: string): Promise<Map<string, PullRisk>> {
+    const rows = await db.all<{issue: string, risk: RiskLevel, risk_why: string | null, risk_by: string | null}>(
+        'SELECT issue, risk, risk_why, risk_by FROM issue_pulls WHERE project = ? AND risk IS NOT NULL ORDER BY number', project)
+    const risks = new Map<string, PullRisk>()
+    for (const row of rows) {
+        const risk: PullRisk = {level: row.risk, why: row.risk_why ?? '', by: row.risk_by === 'owner' ? 'owner' : 'session'}
+        risks.set(row.issue, highestRisk([risks.get(row.issue), risk]) ?? risk)
+    }
+    return risks
+}
+
+/** The project's board: its milestones and their issues, sub-issues within, each with its comment count, open question,
+ * the ids it had before, its dependency links and its risk. */
 export async function readBoard(db: Db, project: string, statuses: IssueStatus[]): Promise<Board> {
-    const chunks = await db.all<ChunkRow>('SELECT * FROM chunks WHERE project = ? ORDER BY position, created_at', project)
+    const milestones = await db.all<MilestoneRow>('SELECT * FROM milestones WHERE project = ? ORDER BY position, created_at', project)
     const issues = await db.all<IssueRow>('SELECT * FROM issues WHERE project = ? ORDER BY position, created_at', project)
     const comments = new Map((await db.all<{issue: string, n: number}>('SELECT issue, count(*) AS n FROM comments WHERE project = ? GROUP BY issue', project))
         .map(r => [r.issue, r.n]))
     // Each issue's latest question from an agent that no comment of the owner's has come after.
     const waiting = new Map((await db.all<{issue: string, asks: Asks}>(`SELECT c.issue, c.asks FROM comments c WHERE c.project = ? AND ${OPEN_ASK} ORDER BY c.id`, project))
         .map(r => [r.issue, r.asks]))
-    const aliases = async (table: 'issue_aliases' | 'chunk_aliases', column: 'issue' | 'chunk') => {
+    const aliases = async (table: 'issue_aliases' | 'milestone_aliases', column: 'issue' | 'milestone') => {
         const found = new Map<string, string[]>()
         for (const row of await db.all<{alias: string, of: string}>(`SELECT alias, ${column} AS of FROM ${table} WHERE project = ? ORDER BY alias`, project)) {
             found.set(row.of, [...found.get(row.of) ?? [], row.alias])
@@ -68,8 +80,9 @@ export async function readBoard(db: Db, project: string, statuses: IssueStatus[]
     // One that's done or canceled waits on nobody, whatever was left unanswered on it (ORR-640).
     const closed = new Set(statuses.filter(s => CLOSED.includes(s.kind)).map(s => s.id))
     const links = await readLinks(db, project, statuses)
+    const risks = await readRisks(db, project)
     const issueAliases = await aliases('issue_aliases', 'issue')
-    const chunkAliases = await aliases('chunk_aliases', 'chunk')
+    const milestoneAliases = await aliases('milestone_aliases', 'milestone')
     const children = new Map<string | null, IssueRow[]>()
     for (const row of issues) children.set(row.parent, [...children.get(row.parent) ?? [], row])
 
@@ -95,6 +108,8 @@ export async function readBoard(db: Db, project: string, statuses: IssueStatus[]
         aliases: issueAliases.get(row.id) ?? [],
         schedule: row.schedule ?? undefined,
         release: row.ships_in ?? undefined,
+        ...row.model ? {model: row.model} : {},
+        ...row.effort ? {effort: row.effort} : {},
         created_by: row.created_by,
         ...row.session_name ? {session_name: row.session_name} : {},
         ...row.claimed_by ? {claimed_by: row.claimed_by, ...row.claimed_at ? {claimed_at: row.claimed_at} : {}} : {},
@@ -102,22 +117,23 @@ export async function readBoard(db: Db, project: string, statuses: IssueStatus[]
         ...links.dependsOn.has(row.id) ? {depends_on: links.dependsOn.get(row.id)} : {},
         ...links.blockedBy.has(row.id) ? {blocked_by: links.blockedBy.get(row.id)} : {},
         ...links.blocks.has(row.id) ? {blocks: links.blocks.get(row.id)} : {},
+        ...risks.has(row.id) ? {risk: risks.get(row.id)} : {},
         created_at: row.created_at,
         updated_at: row.updated_at,
         tasks: (children.get(row.id) ?? []).map(input),
     })
     const top = children.get(null) ?? []
-    const grouped = chunks.map(c => ({
-        id: c.id, title: c.title, summary: c.summary ?? '', priority: c.priority ?? undefined, aliases: chunkAliases.get(c.id) ?? [], created_by: c.created_by, protected: !!c.owned,
-        tasks: top.filter(t => t.chunk === c.id).map(input),
+    const grouped = milestones.map(c => ({
+        id: c.id, title: c.title, summary: c.summary ?? '', priority: c.priority ?? undefined, aliases: milestoneAliases.get(c.id) ?? [], created_by: c.created_by, protected: !!c.owned,
+        tasks: top.filter(t => t.milestone === c.id).map(input),
     }))
-    const loose = top.filter(t => !t.chunk)
-    if (loose.length) grouped.push({id: '', title: 'No chunk', summary: '', priority: undefined, aliases: [], created_by: '', protected: false, tasks: loose.map(input)})
-    return buildBoard({chunks: grouped}, statuses)
+    const loose = top.filter(t => !t.milestone)
+    if (loose.length) grouped.push({id: '', title: 'No milestone', summary: '', priority: undefined, aliases: [], created_by: '', protected: false, tasks: loose.map(input)})
+    return buildBoard({milestones: grouped}, statuses)
 }
 
 
-/** The project's issues as far as tallying its releases takes (`tallyReleases`), all in one chunk: no comments, links,
+/** The project's issues as far as tallying its releases takes (`tallyReleases`), all in one milestone: no comments, links,
  * aliases or notes, so `GET /api/releases` doesn't build every project's board (ORR-671). */
 export async function readReleaseBoard(db: Db, project: string, statuses: IssueStatus[]): Promise<Board> {
     const rows = await db.all<Pick<IssueRow, 'id' | 'parent' | 'status' | 'proposal' | 'ships_in'>>('SELECT id, parent, status, proposal, ships_in FROM issues WHERE project = ?', project)
@@ -127,7 +143,7 @@ export async function readReleaseBoard(db: Db, project: string, statuses: IssueS
         id: row.id, title: '', labels: [], status: row.status, proposal: row.proposal ?? undefined, release: row.ships_in ?? undefined,
         tasks: (children.get(row.id) ?? []).map(input),
     })
-    return buildBoard({chunks: [{id: '', title: '', summary: '', tasks: (children.get(null) ?? []).map(input)}]}, statuses)
+    return buildBoard({milestones: [{id: '', title: '', summary: '', tasks: (children.get(null) ?? []).map(input)}]}, statuses)
 }
 
 /** The project's releases (its source's, when it takes them from another), in the order they're arranged in; each with how far its issues are
@@ -170,38 +186,38 @@ export async function readDocSections(db: Db, project: string): Promise<string[]
     return [...arranged, ...rest]
 }
 
-/** The board's issues as records, each with its parent and chunk, in board order. */
+/** The board's issues as records, each with its parent and milestone, in board order. */
 export function issueRecords(project: string, board: Board): IssueRecord[] {
     const records: IssueRecord[] = []
-    const walk = (issues: Issue[], parent: string | null, chunk: string) => {
+    const walk = (issues: Issue[], parent: string | null, milestone: string) => {
         for (const {tasks, ...issue} of issues) {
-            records.push({...issue, project, parent, chunk: chunk || null, sub_issues: tasks.map(t => t.id)})
-            walk(tasks, issue.id, chunk)
+            records.push({...issue, project, parent, milestone: milestone || null, sub_issues: tasks.map(t => t.id)})
+            walk(tasks, issue.id, milestone)
         }
     }
-    board.chunks.forEach(c => walk(c.tasks, null, c.id))
+    board.milestones.forEach(c => walk(c.tasks, null, c.id))
     return records
 }
 
-/** The issue on the board, with its parent and chunk; null when it isn't there. */
-export function findIssue(board: Board, id: string): {issue: Issue, parent: string | null, chunk: string} | null {
-    const search = (issues: Issue[], parent: string | null, chunk: string): {issue: Issue, parent: string | null, chunk: string} | null => {
+/** The issue on the board, with its parent and milestone; null when it isn't there. */
+export function findIssue(board: Board, id: string): {issue: Issue, parent: string | null, milestone: string} | null {
+    const search = (issues: Issue[], parent: string | null, milestone: string): {issue: Issue, parent: string | null, milestone: string} | null => {
         for (const issue of issues) {
-            if (issue.id === id) return {issue, parent, chunk}
-            const found = search(issue.tasks, issue.id, chunk)
+            if (issue.id === id) return {issue, parent, milestone}
+            const found = search(issue.tasks, issue.id, milestone)
             if (found) return found
         }
         return null
     }
-    for (const chunk of board.chunks) {
-        const found = search(chunk.tasks, null, chunk.id)
+    for (const milestone of board.milestones) {
+        const found = search(milestone.tasks, null, milestone.id)
         if (found) return found
     }
     return null
 }
 
-/** A chunk as it's handed out: its row's place and times, and its issues by id. */
-export function chunkRecord(row: ChunkRow, view: Chunk): ChunkRecord {
-    const {tasks, ...chunk} = view
-    return {...chunk, project: row.project, position: row.position, created_at: row.created_at, updated_at: row.updated_at, issues: tasks.map(t => t.id)}
+/** A milestone as it's handed out: its row's place and times, and its issues by id. */
+export function milestoneRecord(row: MilestoneRow, view: Milestone): MilestoneRecord {
+    const {tasks, ...milestone} = view
+    return {...milestone, project: row.project, position: row.position, created_at: row.created_at, updated_at: row.updated_at, issues: tasks.map(t => t.id)}
 }

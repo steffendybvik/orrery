@@ -17,7 +17,7 @@ export function untrustedWrite(event: H3Event): boolean {
 export const EXTERNAL = 'external'
 
 /** An issue as an untrusted run's session asks to make it, made a proposal labelled `external` for the owner to weigh,
- * with nothing that would put it among the owner's work or ask a session to act on it: no parent, chunk, release,
+ * with nothing that would put it among the owner's work or ask a session to act on it: no parent, milestone, release,
  * status, priority, assignee or labels of its own, which an event schedule's filter could match once it's approved. The
  * GitHub issues it came from stay (ORR-635): only numbers or `owner/name#523`, checked as any issue's are. */
 export function asProposal(body: unknown): Record<string, unknown> {

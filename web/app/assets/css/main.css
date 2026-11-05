@@ -91,7 +91,7 @@
     --line: rgb(255 255 255 / 0.08);
     --fg: #f4f4f5;
     --muted: #a1a1aa;
-    --faint: #8b8b94;
+    --faint: #9a9aa3;
     --hover: rgb(255 255 255 / 0.05);
     --active: rgb(255 255 255 / 0.1);
     --well: rgb(0 0 0 / 0.25);
@@ -200,8 +200,12 @@ body {
         & :not(pre) > code { @apply rounded bg-well px-1 py-px font-mono text-[0.88em] text-fg ring-1 ring-line; }
         & pre { @apply overflow-x-auto rounded-xl bg-well p-4 font-mono text-[13.5px] leading-relaxed text-fg ring-1 ring-line; }
         & table { @apply block w-full overflow-x-auto border-collapse text-[14.5px]; }
+        /* Focusable so a keyboard can scroll them (ORR-859): a ring only for the keyboard. */
+        & pre:focus-visible, & table:focus-visible { @apply outline-none ring-2 ring-accent-500/60; }
         & th, & td { @apply border border-line px-3 py-1.5 text-left; }
         & th { @apply bg-well font-medium text-fg; }
+        /* A name in a table stays whole on a phone: the table scrolls in its box rather than squeeze it (ORR-858). */
+        & :is(th, td) code { @apply whitespace-nowrap; overflow-wrap: normal; }
         /* A picture sits in a frame (a band of the well colour, a hairline and a soft shadow), so a screenshot
            doesn't read as more of the page. */
         & img { @apply max-w-full rounded-xl border-4 border-well shadow-sm ring-1 ring-line; }
@@ -280,5 +284,14 @@ body {
         content: "";
         display: block;
         height: 3.5rem;
+    }
+}
+
+/* iOS zooms the page in on a field whose text is under 16px as it takes the focus, which pushed the chat's Send off the
+   screen (ORR-843). So on a touch screen a field's text is 16px; a desktop's stays as small as its class says. Outside
+   any layer, so it outranks the utilities' smaller sizes, but not a field set larger (`text-lg` and up). Pinch-zoom stays. */
+@media (pointer: coarse) {
+    :is(input, textarea, select):not(.text-lg, .text-xl, .text-2xl, .text-3xl) {
+        font-size: 16px;
     }
 }

@@ -217,8 +217,8 @@ export abstract class CommentStore extends SignalStore {
         const held = worker && this.sessionPerson(worker)
         const target = person && worker && (member ? held !== member : held && held !== person) ? null : worker
         if (member && !target && await this.holderOf(assignee) !== member) return
-        const row = await this.one<SignalRow>('INSERT INTO signals (project, issue, kind, note, target, person, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *',
-            project, issue, 'comment', body, target, person ?? null, actor.name, member ? 0 : 1, stamp())
+        const row = await this.one<SignalRow>('INSERT INTO signals (project, issue, kind, note, target, person, model, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *',
+            project, issue, 'comment', body, target, person ?? null, await this.modelNeeded(project, issue), actor.name, member ? 0 : 1, stamp())
         this.onSignal(signalOf(row))
     }
 

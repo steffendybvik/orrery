@@ -186,7 +186,7 @@ describe('the event log', () => {
         expect(describeChange({type: 'comment.asks', subject: 'HUB-1', by, to: 'decision'})).toBe('claude asked the owner for a decision on HUB-1')
         expect(describeChange({type: 'release.frozen', subject: '1.0.0', by})).toBe('claude set release 1.0.0 frozen')
         expect(describeChange({type: 'doc.changed', subject: 'api', by})).toBe('claude wrote doc api')
-        expect(describeChange({type: 'chunk.created', subject: '3'})).toBe('Someone made chunk 3')
+        expect(describeChange({type: 'milestone.created', subject: '3'})).toBe('Someone made milestone 3')
     })
 
     it('takes a 403 or 409 as a refusal, with who asked and the route without its query', () => {

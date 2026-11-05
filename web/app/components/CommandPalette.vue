@@ -1,28 +1,31 @@
 <script setup lang="ts">
 import type {Column} from '#shared/roadmap'
-import {PRIORITIES, fullId} from '#shared/roadmap'
+import {PRIORITIES, fullId, githubRepo} from '#shared/roadmap'
 
 // ⌘K: every command and place, in sections. With nothing typed: Most used (the commands this browser runs most that
-// are on offer here, once there are any, ORR-782), Here (what fits the page), Jump to (the projects, this one first) and Go to. Typing finds Projects, Issues, Chunks, Docs and Commands, a few of
-// each with "N more" to open the rest, best match first; an exact issue id is the Top hit. `>` searches
-// commands only, `#` issues, `@` projects, chunks and docs. ↑↓ choose, ⇥ jumps a section, ↵ runs, Esc closes.
+// are on offer here, once there are any, ORR-782), Here (what fits the page), Jump to (the projects, this one first) and Go to. Typing finds Projects, Issues, Milestones, Docs and Commands, a few of
+// each with "N more" to open the rest, best match first; an exact issue id is the Top hit, and so is a pull request by its number (`#788`, on the page's project's repo) or its link, which opens its page (ORR-880). `>` searches
+// commands only, `#` issues, `@` projects, milestones and docs. ↑↓ choose, ⇥ jumps a section, ↵ runs, Esc closes.
 // It's a Headless UI Dialog (UiDialog); the list keeps its own keys, as Headless UI's Combobox can't jump a
 // section on ⇥ or open "N more" in place, but says the same to a screen reader (the row the input points at).
 // Closed issues of projects the page has without them (ORR-447) are asked of orrery as you type.
 interface Entry { key: string, group: string, label: string, detail?: string, hint?: string, also?: string, id?: string, run: () => unknown }
-type SectionKey = 'top' | 'used' | 'here' | 'jump' | 'go' | 'projects' | 'issues' | 'chunks' | 'docs' | 'commands'
+type SectionKey = 'top' | 'used' | 'here' | 'jump' | 'go' | 'projects' | 'issues' | 'milestones' | 'docs' | 'commands'
 interface Section { key: SectionKey, title: string, entries: Entry[], hidden: number }
 type Row = {kind: 'entry', key: string, entry: Entry, section: SectionKey} | {kind: 'more', key: string, section: SectionKey, n: number}
 
 /** How many of each a search shows before "N more". */
-const CAPS: Partial<Record<SectionKey, number>> = {projects: 3, issues: 6, chunks: 3, docs: 3, commands: 5}
+const CAPS: Partial<Record<SectionKey, number>> = {projects: 3, issues: 6, milestones: 3, docs: 3, commands: 5}
 /** How many Most used shows. */
 const MOST_USED = 5
-const TITLES: Record<SectionKey, string> = {top: 'Top hit', used: 'Most used', here: 'Here', jump: 'Jump to', go: 'Go to', projects: 'Projects', issues: 'Issues', chunks: 'Chunks', docs: 'Docs', commands: 'Commands'}
+const TITLES: Record<SectionKey, string> = {top: 'Top hit', used: 'Most used', here: 'Here', jump: 'Jump to', go: 'Go to', projects: 'Projects', issues: 'Issues', milestones: 'Milestones', docs: 'Docs', commands: 'Commands'}
 /** Scope prefixes: what a search is narrowed to. */
-const SCOPES: Record<string, SectionKey[]> = {'>': ['commands'], '#': ['issues'], '@': ['projects', 'chunks', 'docs']}
+const SCOPES: Record<string, SectionKey[]> = {'>': ['commands'], '#': ['issues'], '@': ['projects', 'milestones', 'docs']}
 
 const openPalette = useState('palette-open', () => false)
+// Each opening, for App settings' Usage (ORR-881).
+const {count: countUse} = useUsage()
+watch(openPalette, open => open && countUse('command-palette'))
 const {byId, partial} = useRoadmaps()
 const {ordered: projects} = useProjectOrder()
 const {open: openIssue, pathOf} = useIssueLink()
@@ -30,6 +33,8 @@ const {filters, changed: filtering, clear} = useFilters()
 const {view, group} = useLastView()
 const {set: setTheme} = useTheme()
 const {all: messageAll, one: messageOne, listening} = useMessageSessions()
+/** Open on your phone in a dialog of its own (ORR-876), the code App settings shows. */
+const phoneOpen = ref(false)
 const {columns} = useStatuses()
 const route = useRoute()
 const router = useRouter()
@@ -71,7 +76,7 @@ const here = computed<Entry[]>(() => {
         if (previous) entries.push({key: 'issue:previous', group: 'Issue', label: 'Previous issue', detail: previous, hint: 'k', run: () => router.replace(pathOf(p.id, previous))})
         if (parent) entries.push({key: 'issue:parent', group: 'Issue', label: 'Open its parent', detail: parent.id, run: () => openIssue(p.id, parent.id)})
         entries.push(
-            {key: 'issue:chunk', group: 'Issue', label: 'Open its chunk', detail: found.chunk.title, run: () => router.push(chunkPath(p.id, found.chunk.id))},
+            {key: 'issue:milestone', group: 'Issue', label: 'Open its milestone', detail: found.milestone.title, run: () => router.push(milestonePath(p.id, found.milestone.id))},
             {key: 'issue:id', group: 'Copy', label: 'Copy the id', detail: found.issue.id, run: () => copy(fullId('issue', found.issue.id, p.uid), 'id')},
             {key: 'issue:link', group: 'Copy', label: 'Copy the link', run: () => copy(`${location.origin}${path}`, 'link')},
             {key: 'issue:curl', group: 'Copy', label: 'Copy a curl to update it', detail: 'for an agent', run: () => copy(
@@ -87,12 +92,12 @@ const here = computed<Entry[]>(() => {
             {key: 'view:list', group: 'View', label: 'Show as a list', hint: '1', run: () => show('list')},
             {key: 'view:board', group: 'View', label: 'Show as a board', hint: '2', run: () => show('board')},
             {key: 'group:status', group: 'View', label: 'Group the list by status', run: () => (group.value = 'status', show('list'))},
-            {key: 'group:chunk', group: 'View', label: 'Group the list by chunk', run: () => (group.value = 'chunk', show('list'))},
+            {key: 'group:milestone', group: 'View', label: 'Group the list by milestone', run: () => (group.value = 'milestone', show('list'))},
         )
     }
     if (p) {
-        entries.push({key: 'issue:new', group: 'Issue', label: `New issue in ${p.name}`, hint: 'c', run: () => useNewIssue().open(p.id, route.name === 'p-project-roadmap-chunk' && route.params.chunk !== 'none' ? String(route.params.chunk) : undefined)})
-        entries.push({key: 'chunk:new', group: 'Chunk', label: `New chunk in ${p.name}`, run: () => useNewChunk().open(p.id)})
+        entries.push({key: 'issue:new', group: 'Issue', label: `New issue in ${p.name}`, hint: 'c', run: () => useNewIssue().open(p.id, route.name === 'p-project-roadmap-milestone' && route.params.milestone !== 'none' ? String(route.params.milestone) : undefined)})
+        entries.push({key: 'milestone:new', group: 'Milestone', label: `New milestone in ${p.name}`, run: () => useNewMilestone().open(p.id)})
         entries.push({key: 'doc:new', group: 'Doc', label: `New doc in ${p.name}`, run: () => useNewDoc().open(p.id)})
         for (const section of sectionsOf(p, route.path).filter(s => !s.active)) {
             entries.push({key: `here:${section.id}`, group: 'Go to', label: `${p.name} ${section.label.toLowerCase()}`, run: () => router.push(section.to)})
@@ -104,6 +109,7 @@ const here = computed<Entry[]>(() => {
 const everywhere = computed<Entry[]>(() => [
     {key: 'go:mine', group: 'Go to', label: 'My issues and urgent', hint: 'g m', run: () => router.push('/mine')},
     {key: 'go:notifications', group: 'Go to', label: 'Notifications', run: () => router.push('/notifications')},
+    {key: 'go:projects', group: 'Go to', label: 'Projects', detail: 'every project, hidden ones too', run: () => router.push('/projects')},
     {key: 'go:connect', group: 'Go to', label: 'Connect an agent', run: () => router.push('/connect')},
     {key: 'go:sessions', group: 'Go to', label: 'Sessions', run: () => router.push('/sessions')},
     {key: 'go:schedules', group: 'Go to', label: 'Schedules', run: () => router.push('/schedules')},
@@ -116,6 +122,7 @@ const everywhere = computed<Entry[]>(() => [
         router.push('/getting-started')
     }},
     {key: 'go:settings', group: 'Go to', label: 'App settings', run: () => router.push('/settings')},
+    {key: 'phone', group: 'Phone', label: 'Open on your phone', detail: 'its QR code', run: () => phoneOpen.value = true},
     ...(projects.value.some(p => p.starts) ? [{key: 'session:start', group: 'Session', label: 'Start session', detail: project.value?.name, run: () => useStartSession().open(project.value?.id ?? null)}] : []),
     ...(listening.value.length ? [{key: 'session:message-all', group: 'Session', label: 'Message sessions', detail: 'every one listening', run: () => messageAll.value = true}] : []),
     ...listening.value.map(s => ({key: `session:message:${s.id}`, group: 'Session', label: `Message ${s.name}`, detail: 'only it hears', run: () => messageOne.value = s})),
@@ -140,7 +147,7 @@ const everywhere = computed<Entry[]>(() => [
 
 const places = computed<Entry[]>(() => projects.value.flatMap(p => [
     ...sectionsOf(p, '').map(s => ({key: `p:${p.id}:${s.id}`, group: s.id === 'issues' ? 'Project' : s.label, label: s.id === 'issues' ? p.name : `${p.name} ${s.label.toLowerCase()}`, detail: s.id === 'issues' ? `${p.board.kinds.done}/${progress(p.board.kinds).total}` : undefined, run: () => router.push(s.to)})),
-    ...p.board.chunks.map(c => ({key: `c:${p.id}/${c.id}`, group: 'Chunk', label: c.title, detail: p.name, run: () => router.push(chunkPath(p.id, c.id))})),
+    ...p.board.milestones.map(c => ({key: `c:${p.id}/${c.id}`, group: 'Milestone', label: c.title, detail: p.name, run: () => router.push(milestonePath(p.id, c.id))})),
     ...p.docs.map(d => ({key: `d:${p.id}/${d.id}`, group: 'Doc', label: d.title, detail: p.name, run: () => router.push(`/p/${p.id}/docs/${d.id}`)})),
 ]))
 
@@ -194,6 +201,17 @@ function rank(entry: Entry, text: string, words: string[]): number | null {
     return 3
 }
 
+/** A pull request typed in (ORR-880): its link on GitHub, or `#788` or `788` on the page's project's repo, as an entry
+ * that opens its page; null for anything else, or a number on a page with no project on GitHub. */
+function pullTyped(raw: string): Entry | null {
+    const link = raw.match(/^https?:\/\/(?:www\.)?github\.com\/([\w.-]+\/[\w.-]+)\/pull\/(\d+)/i)
+    const bare = raw.match(/^#?(\d+)$/)
+    const repo = link?.[1] ?? (bare ? githubRepo(project.value?.repo) : null)
+    const number = link?.[2] ?? bare?.[1]
+    if (!repo || !number || Number(number) < 1) return null
+    return {key: `pull:${repo}#${number}`, group: 'Pull request', label: `Pull request #${number}`, detail: `${repo}, and the issues it's linked to`, run: () => router.push(`/pulls/${repo}/${number}`)}
+}
+
 const sections = computed<Section[]>(() => {
     const raw = query.value.trim()
     const scope = SCOPES[raw[0] ?? ''] ?? null
@@ -223,15 +241,16 @@ const sections = computed<Section[]>(() => {
         return score === null ? [] : [{entry, score, i}]
     }).sort((a, b) => a.score - b.score || a.i - b.i)
     const hits = found(issues.value)
-    const top = hits.filter(h => h.score === 0).map(h => h.entry)
-    const pool: Record<'projects' | 'issues' | 'chunks' | 'docs' | 'commands', Entry[]> = {
+    const pull = !scope || scope.includes('issues') ? pullTyped(raw) : null
+    const top = [...hits.filter(h => h.score === 0).map(h => h.entry), ...pull ? [pull] : []]
+    const pool: Record<'projects' | 'issues' | 'milestones' | 'docs' | 'commands', Entry[]> = {
         projects: found(places.value.filter(e => e.key.startsWith('p:'))).map(h => h.entry),
         issues: hits.filter(h => h.score > 0).map(h => h.entry),
-        chunks: found(places.value.filter(e => e.key.startsWith('c:'))).map(h => h.entry),
+        milestones: found(places.value.filter(e => e.key.startsWith('c:'))).map(h => h.entry),
         docs: found(places.value.filter(e => e.key.startsWith('d:'))).map(h => h.entry),
         commands: found([...here.value, ...everywhere.value]).map(h => h.entry),
     }
-    const order = (['projects', 'issues', 'chunks', 'docs', 'commands'] as const).filter(k => !scope || scope.includes(k))
+    const order = (['projects', 'issues', 'milestones', 'docs', 'commands'] as const).filter(k => !scope || scope.includes(k))
     return [
         ...(!scope || scope.includes('issues')) && top.length ? [section('top', top)] : [],
         ...order.map(k => section(k, pool[k], CAPS[k])),
@@ -298,7 +317,7 @@ function onKey(event: KeyboardEvent) {
           ref="input"
           v-model="query"
           class="h-12 flex-1 bg-transparent text-sm text-fg placeholder:text-faint focus:outline-none"
-          placeholder="Type a command, or find a project, chunk, doc or issue…"
+          placeholder="Type a command, or find a project, milestone, doc or issue…"
           aria-label="Type a command or search"
           role="combobox"
           aria-expanded="true"
@@ -350,6 +369,13 @@ function onKey(event: KeyboardEvent) {
       <span class="hidden sm:inline"><KeyHint>&gt;</KeyHint> commands · <KeyHint>#</KeyHint> issues · <KeyHint>@</KeyHint> places</span>
       <span class="ml-auto">{{ results.length }} {{ results.length === 1 ? 'result' : 'results' }}</span>
     </div>
+  </UiDialog>
+  <UiDialog :open="phoneOpen" label="Open on your phone" width="md" @close="phoneOpen = false">
+    <div class="flex items-center gap-2 pb-3 text-xs text-faint">
+      <span class="text-[13px] font-medium text-fg">Open on your phone</span>
+      <KeyHint class="ml-auto">esc</KeyHint>
+    </div>
+    <PhoneLink v-if="phoneOpen" />
   </UiDialog>
   <Teleport to="body">
     <div v-if="copied" class="glass fixed bottom-4 left-1/2 z-50 -translate-x-1/2 animate-fade-up rounded-full px-4 py-2 text-xs text-fg">Copied the {{ copied }}</div>

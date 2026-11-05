@@ -7,10 +7,22 @@ import {expect, test} from '@playwright/test'
 export const AGENT = {'Orrery-Actor': 'claude'}
 export const OWNER = {'Orrery-Actor': 'ada_lovelace'}
 
+const send = <T>(go: () => Promise<T>) => go()
+/** A read, asked once more when the server dropped a kept-alive connection just as it went (ECONNRESET), as `nuxt dev`
+ * can under a whole run's load. Only reads: a write might have landed. */
+async function getAgain<T>(go: () => Promise<T>): Promise<T> {
+    try {
+        return await go()
+    } catch (error) {
+        if (!String(error).includes('ECONNRESET')) throw error
+        return go()
+    }
+}
+
 /** The API under one project (`''` is the project itself), as an agent unless other headers are given. */
 export function projectApi(project: string) {
     return (request: APIRequestContext, method: 'get' | 'post' | 'patch', path: string, data?: object, headers: Record<string, string> = AGENT) =>
-        request[method](`/api/projects/${project}${path}`, {data, headers}).then(async r => {
+        (method === 'get' ? getAgain : send)(() => request[method](`/api/projects/${project}${path}`, {data, headers})).then(async r => {
             expect(r.ok(), `${method} ${path}: ${await r.text()}`).toBeTruthy()
             return r.json()
         })
@@ -30,6 +42,8 @@ export async function dragCard(page: Page, card: Locator, column: Locator) {
     await card.hover()
     await page.mouse.down()
     await page.mouse.move(10, 10, {steps: 2})
+    // Twice, as a browser may only send a dragover on the second move, and a drop needs one.
+    await column.hover()
     await column.hover()
     await page.mouse.up()
 }

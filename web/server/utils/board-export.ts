@@ -19,8 +19,8 @@ export const EXPORTED = {
     projects: 'id = ?',
     project_members: OF_PROJECT,
     releases: OF_PROJECT,
-    chunks: OF_PROJECT,
-    chunk_aliases: OF_PROJECT,
+    milestones: OF_PROJECT,
+    milestone_aliases: OF_PROJECT,
     issues: OF_PROJECT,
     issue_aliases: OF_PROJECT,
     issue_links: OF_PROJECT,
@@ -57,6 +57,8 @@ export const NOT_EXPORTED = {
     issue_pulls: 'read again from GitHub where the board lands',
     pull_states: 'the pull request cache',
     pull_repos: 'the pull request cache',
+    chats: "the owner's chats on this server",
+    feature_use: "the owner's use of this server's features",
 } as const satisfies Partial<Record<Table, string>>
 
 /** Taken as the board uses them, below. */

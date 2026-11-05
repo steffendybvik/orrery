@@ -11,6 +11,9 @@
 // starts a new round of LOOP_LIMIT told; checks going green start one too, as the poll counts failures since (ORR-529).
 // Green again, or approved, is an event and nothing more (`pr.ready`, `pr.approved`). A merge into a release's branch also
 // sets the issue's release, when it has none (ORR-791), before the news goes out, so a schedule on `pr.merged` sees it.
+// A merged PR its session rated high risk, or the owner did (ORR-879), also asks the owner to review it, on their bell
+// (`pr.risky_merged`); its why is the session's words, so it's quoted as theirs. So does one that changed a migration, auth,
+// a permission, secrets or egress, however it was rated, so a misjudged or talked-down rating can't skip the review.
 import type {LandedIn} from '../store/releases'
 import type {PullChange, PullChangeKind} from './pull-poll'
 import type {Store} from './store'
@@ -87,6 +90,34 @@ async function failedChecks(store: Store, {project, issue, repo, pull, failures 
     return Number(told?.n ?? 0) < LOOP_LIMIT ? 'tell' : 'ask'
 }
 
+/** A path in what everything rests on (ORR-879): a migration, auth, a permission, secrets, egress, or what's let in
+ * untrusted, by a part of its name, in any repo. */
+const CRITICAL = /(^|\/)[^/]*(migrat|auth(?!or)|permission|secret|egress|untrusted)[^/]*(\/|$)/i
+
+/** The paths of `files` in what everything rests on. */
+export function criticalFiles(files: string[] = []): string[] {
+    return files.filter(file => CRITICAL.test(file))
+}
+
+/** Asks the owner to review a merged PR rated high risk on the issue (ORR-879), or one that changed a critical path
+ * whatever it was rated: the rest wait their turn on the list. */
+async function askToReview(store: Store, {project, issue, repo, pull, files}: PullChange): Promise<void> {
+    const rated = await store.db.get<{risk: string | null, risk_why: string | null, risk_by: string | null}>(
+        'SELECT risk, risk_why, risk_by FROM issue_pulls WHERE project = ? AND issue = ? AND repo = ? AND number = ?', project, issue, repo, pull.number)
+    const critical = criticalFiles(files)
+    const high = rated?.risk === 'high'
+    if (!high && !critical.length) return
+    const pr = `[#${pull.number}](https://github.com/${repo}/pull/${pull.number})`
+    const why = (rated?.risk_why ?? '').replace(/\s+/g, ' ').trim()
+    const by = rated?.risk_by === 'owner' ? 'you rated it' : 'its session rated it'
+    const level = rated?.risk ? `${by} **${rated.risk} risk**${why ? `: “${why}”` : ''}` : 'nobody rated it'
+    const shown = critical.slice(0, 5).map(f => `\`${f}\``).join(', ') + (critical.length > 5 ? ` and ${critical.length - 5} more` : '')
+    const said = high
+        ? `${by} **high risk**${why ? `: “${why}”` : ''}${critical.length ? `. It also changed ${shown}` : ''}`
+        : `${level}, but it changed ${shown}, which is always reviewed`
+    await store.systemAsk(project, issue, `${pr} merged into \`${pull.base}\`, and ${said}. Review what it changed ([the files](https://github.com/${repo}/pull/${pull.number}/files)), and answer here once you have.`, 'pr.risky_merged')
+}
+
 /** Tells the change on its issue, if it's one that's told; a PR's failed checks go by `failedChecks`, asking the owner
  * past LOOP_LIMIT; a quiet one is an event only. A failure is logged, not thrown: the poll goes on. */
 export async function commentOnPull(store: Store, change: PullChange): Promise<void> {
@@ -102,6 +133,7 @@ export async function commentOnPull(store: Store, change: PullChange): Promise<v
         const body = pullComment(change, (await store.settings()).handle)
         if (!body) return
         await store.systemComment(change.project, change.issue, body + landedComment(landed), `pr.${change.kind}`)
+        if (change.kind === 'merged') await askToReview(store, change)
     } catch (error) {
         console.error(`[orrery] telling ${change.issue} about ${change.repo}#${change.pull.number}:`, error)
     }

@@ -1,4 +1,4 @@
-import {expect, test} from '@playwright/test'
+import {expect, test} from './test'
 import {AGENT, makeProject, projectApi} from './support'
 
 // Pictures and comments: an image picked into a new issue and a comment, the owner editing and deleting their own
@@ -66,7 +66,12 @@ test('takes an image dropped or pasted anywhere on the dialog or the comment box
     // Pasted while typing the title, it goes into the description too.
     await title.focus()
     const clipboard = await carrying('lid')
-    await title.evaluate((field, clipboardData) => field.dispatchEvent(new ClipboardEvent('paste', {clipboardData, bubbles: true, cancelable: true})), clipboard)
+    // Firefox's ClipboardEvent ignores a clipboardData handed to it and makes an empty one, so it's put on the event instead.
+    await title.evaluate((field, clipboardData) => {
+        const paste = new ClipboardEvent('paste', {bubbles: true, cancelable: true})
+        Object.defineProperty(paste, 'clipboardData', {value: clipboardData})
+        field.dispatchEvent(paste)
+    }, clipboard)
     await expect(dialog.getByLabel('Description')).toHaveValue(/!\[lid\]/)
     await dialog.getByRole('button', {name: /Create issue/}).click()
     await expect(page).toHaveURL(/\/p\/studio\/issues\/STU-\d+/)
@@ -127,7 +132,7 @@ test('turns a Before and an After picture into a slider between them', async ({p
 })
 
 test('copies the whole issue, with every comment or none, and no description', async ({page, request}) => {
-    const copy = page.getByRole('button', {name: 'Copy the whole issue'})
+    const copy = page.getByTitle('Copy the whole issue')
     const copied = async () => {
         await copy.click()
         await expect(copy).toHaveText('Copied')

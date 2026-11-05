@@ -52,6 +52,12 @@ export function renderMarkdown(source: string, title?: string, before?: string):
         element.replaceWith(h2)
     })
     page.querySelectorAll('input:not([type="checkbox"])').forEach(input => input.remove())
+    // A code block or table can be wider than a phone and scroll sideways: a keyboard scrolls it once it can take
+    // focus (ORR-859, WCAG 2.1.1). Added after cleaning, as only orrery sets them.
+    page.querySelectorAll('pre, table').forEach(box => {
+        box.setAttribute('tabindex', '0')
+        box.setAttribute('aria-label', box.tagName === 'PRE' ? 'Code' : 'Table')
+    })
     page.querySelectorAll('img').forEach(image => {
         if (loadsFromAway(image)) image.replaceWith(awayImageOf(page, image))
     })

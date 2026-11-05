@@ -1,3 +1,4 @@
+import {createHash} from 'node:crypto'
 import {readdirSync} from 'node:fs'
 import {join} from 'node:path'
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
@@ -15,9 +16,9 @@ let actorOf: typeof import('../server/utils/actor').actorOf
 let personOf: typeof import('../server/utils/actor').personOf
 let authMode: typeof import('../server/utils/auth').authMode
 
-const asking = (path: string, {method = 'GET', headers = {}, bound = '127.0.0.1'}: {method?: string, headers?: Record<string, string>, bound?: string} = {}): Event => ({
+const asking = (path: string, {method = 'GET', headers = {}, bound = '127.0.0.1', port = 9000}: {method?: string, headers?: Record<string, string>, bound?: string, port?: number} = {}): Event => ({
     path, method, headers, context: {},
-    node: {req: {headers, socket: {remoteAddress: '127.0.0.1', server: {address: () => ({address: bound})}}}},
+    node: {req: {headers, socket: {remoteAddress: '127.0.0.1', localPort: port, server: {address: () => ({address: bound})}}}},
 })
 const bearer = (key: string, more: Record<string, string> = {}) => ({authorization: `Bearer ${key}`, ...more})
 
@@ -56,7 +57,7 @@ function routes(dir = 'server/api', at = '/api'): {method: string, path: string}
         return [{method: method.toUpperCase(), path: name === 'index' ? at : `${at}/${name}`}]
     })
 }
-const OPEN = ['/api/auth/status', '/api/auth/login', '/api/auth/logout', '/api/auth/oidc/start', '/api/auth/oidc/callback']
+const OPEN = ['/api/auth/status', '/api/auth/login', '/api/auth/logout', '/api/auth/link', '/api/auth/oidc/start', '/api/auth/oidc/callback']
 
 describe('with auth on', () => {
     let agent: string
@@ -162,6 +163,24 @@ describe('with auth on', () => {
         expect((await failure(() => gate(asking('/api/projects', {headers: {cookie: `orrery_login=${secret}`}})))).status).toBe(401)
     })
 
+    it("a revoked person key's logins stop at once, and so do its person's from before logins kept their key, not a provider's or another key's (ORR-786)", async () => {
+        const cookie = (secret: string) => asking('/api/projects', {headers: {cookie: `orrery_login=${secret}`}})
+        const [lost, kept] = [await store.makeKey('hati', {kind: 'person', name: 'lost'}), await store.makeKey('hati', {kind: 'person', name: 'kept'})]
+        const login = async (key: string) => {
+            const holder = await store.keyHolder(key)
+            return (await store.startLogin(holder!.person, holder!.key)).secret
+        }
+        const [fromLost, fromKept, provider] = [await login(lost.key), await login(kept.key), (await store.startLogin('hati')).secret]
+        const old = (await store.startLogin('hati')).secret
+        await store.db.run('UPDATE logins SET known = 0 WHERE id = ?', createHash('sha256').update(old).digest('hex'))
+        const skoll = (await store.startLogin('skoll')).secret
+        await store.db.run("UPDATE logins SET known = 0 WHERE person = 'skoll'")
+        for (const secret of [fromLost, fromKept, provider, old, skoll]) await gate(cookie(secret))
+        await store.revokeKey(lost.id)
+        for (const secret of [fromLost, old]) expect((await failure(() => gate(cookie(secret)))).status).toBe(401)
+        for (const secret of [fromKept, provider, skoll]) await expect(gate(cookie(secret))).resolves.toBeUndefined()
+    })
+
     it('a login is its person, and its writes have to come from a page', async () => {
         const {secret} = await store.startLogin('skoll')
         const cookie = `orrery_login=${secret}`
@@ -179,7 +198,7 @@ describe('with auth on', () => {
         await store.revokeKey(claim!.id)
         const {status, message} = await failure(() => gate(asking('/api/projects')))
         expect(status).toBe(503)
-        expect(message).toContain('orrery:claim')
+        expect(message).toContain('App settings → You')
     })
 })
 
@@ -257,7 +276,7 @@ describe('keys', () => {
         expect(made.key).toMatch(/^orrery_agent_/)
         expect(JSON.stringify(await store.db.all('SELECT * FROM keys'))).not.toContain(made.key)
         expect((await store.keys('hati'))[0]).not.toHaveProperty('key')
-        expect(await store.keyHolder(made.key)).toEqual({person: 'hati', owner: false, kind: 'agent'})
+        expect(await store.keyHolder(made.key)).toEqual({person: 'hati', owner: false, kind: 'agent', key: made.id})
         expect(await store.keyHolder(`${made.key}x`)).toBeUndefined()
     })
 
@@ -327,3 +346,27 @@ describe('identities', () => {
         expect(await store.identity('https://id.example', 'sub-1')).toBe('hati')
     })
 })
+
+describe("the phone's port (ORR-837)", () => {
+    it('asks for a login on the phone port alone, while the main port on loopback stays open to the sessions', async () => {
+        config = {...config, auth: ''}
+        const main = await authMode(asking('/api/projects') as never)
+        config = {...config, phoneListen: '9001'}
+        expect(await authMode(asking('/api/projects') as never)).toBe(main)
+        expect(await authMode(asking('/api/projects', {port: 9001}) as never)).toBe('on')
+        await expect(gate(asking('/api/projects', {port: 9001}))).rejects.toMatchObject({statusCode: 401})
+    })
+
+    it('refuses rather than opens the phone port when told ORRERY_AUTH=off', async () => {
+        config = {...config, auth: 'off', phoneListen: '9001'}
+        expect(await authMode(asking('/api/projects', {port: 9001}) as never)).toBe('closed')
+    })
+
+    it("never counts as this machine, whatever Host it's sent, so nothing on it moves the database or sets the backups", async () => {
+        config = {...config, auth: '', phoneListen: '9001'}
+        vi.stubGlobal('getRequestHost', () => 'localhost')
+        const {fromThisMachine} = await import('../server/utils/move')
+        expect(fromThisMachine(asking('/api/database/move', {method: 'POST', port: 9001}) as never)).toBe(false)
+    })
+})
+

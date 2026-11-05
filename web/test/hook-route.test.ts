@@ -86,4 +86,17 @@ describe("the hook's route", () => {
         await hook({project: 'greenhouse', event: 'Stop', id: 'def'})
         expect(calls).toEqual(['letGo greenhouse abc overloaded', 'considerClear greenhouse abc', 'considerClear greenhouse def', 'carryOn greenhouse def', 'pickWhenIdle greenhouse def'])
     })
+
+    it('keeps the model a session runs on, and drops one that is no model id (ORR-871)', async () => {
+        await hook({project: 'greenhouse', event: 'Stop', id: 'abc', model: 'claude-opus-5-5[1m]'})
+        await hook({project: 'greenhouse', event: 'Stop', id: 'def', model: 'claude <script>'})
+        await hook({project: 'greenhouse', event: 'Stop', id: 'ghi', model: 'x'.repeat(101)})
+        expect(reported.map(r => r.model)).toEqual(['claude-opus-5-5[1m]', undefined, undefined])
+    })
+
+    it("keeps the effort level a session runs at, and drops one that isn't Claude Code's (ORR-894)", async () => {
+        await hook({project: 'greenhouse', event: 'PreToolUse', id: 'abc', effort: 'xhigh'})
+        await hook({project: 'greenhouse', event: 'PreToolUse', id: 'def', effort: 'extreme'})
+        expect(reported.map(r => r.effort)).toEqual(['xhigh', undefined])
+    })
 })

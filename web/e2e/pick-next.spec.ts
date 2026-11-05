@@ -1,4 +1,4 @@
-import {expect, test} from '@playwright/test'
+import {expect, test} from './test'
 import {OWNER} from './support'
 
 // The owner letting sessions out of work pick their next issue (ORR-452), on Sessions → Setup, and back off.

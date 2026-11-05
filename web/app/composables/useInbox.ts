@@ -137,6 +137,8 @@ interface Loaded {
     /** Older ones wait on the server. */
     more: boolean
     loaded: boolean
+    /** Why its last read failed, until one doesn't (ORR-854). */
+    failed?: string
 }
 const PAGE = 50
 
@@ -184,8 +186,13 @@ export function useInbox() {
         const loaded = lists.value[list]
         // Pages go by comment; cleared proposals all come on the first.
         const before = older ? loaded.items.filter(n => !n.proposal).at(-1)?.id : undefined
-        const items = await apiFetch<Notice[]>('/notices', {query: {list, before, limit: PAGE}}).catch(() => null)
-        if (!items) return
+        let items: Notice[]
+        try {
+            items = await apiFetch<Notice[]>('/notices', {query: {list, before, limit: PAGE}})
+        } catch (error) {
+            lists.value[list] = {...lists.value[list], failed: errorMessage(error, 'load them')}
+            return
+        }
         lists.value[list] = {items: older ? [...loaded.items, ...items] : items, more: list !== 'waiting' && items.filter(n => !n.proposal).length === PAGE, loaded: true}
     }
 
@@ -256,7 +263,7 @@ export function useInbox() {
             if (i.proposal === 'pending' && !i.protected) pending.push(`${project.id}/${i.id}@${i.updated_at}`)
             else if (!i.proposal) walk(i.tasks)
         })
-        project.board.chunks.forEach(c => walk(c.tasks))
+        project.board.milestones.forEach(c => walk(c.tasks))
         const shown = () => notices.value.filter(n => n.proposal && n.project === project.id).map(n => `${noticeKey(n)}@${n.updated_at}`)
         if (pending.filter(p => !hidden.value.includes(p)).sort().join() === shown().sort().join()) return
         refresh().then(() => {

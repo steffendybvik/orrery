@@ -1,4 +1,4 @@
-import {expect, test} from '@playwright/test'
+import {expect, test} from './test'
 import {OWNER, hold, makeProject} from './support'
 
 // Connect a repo with a click (ORR-708), on the page: with no launcher that can open a picker, the install line; with one

@@ -17,7 +17,10 @@
 # ORRERY_DATA puts the database (orrery.db, with its -wal and -shm beside it) in a folder of yours instead
 # of the orrery-data volume; on Linux it must be writable by uid 1000, the image's `node` user.
 #
-# Only this machine can reach it (there are no accounts): ORRERY_HOST=0.0.0.0 opens it to the network,
+# A phone on the network opens it on its own port, 1 before ORRERY_PORT (19000; ORRERY_PHONE_PORT to change it), which
+# always asks for a login: App settings → You shows a QR code that signs it in. ORRERY_PHONE_HOST=127.0.0.1 keeps it here.
+#
+# Only this machine can reach ORRERY_PORT (there are no accounts there): ORRERY_HOST=0.0.0.0 opens it to the network,
 # and ORRERY_ALLOWED_HOSTS names any host name it's reached by besides localhost and an IP (see SECURITY.md).
 #
 # Secrets, keys agents use to call outside services without seeing them, are encrypted with a key orrery makes on its
@@ -44,6 +47,9 @@ services:
     build: {context: "${ORRERY_BUILD_CONTEXT:-.}", target: prod}
     ports:
       - "${ORRERY_HOST:-127.0.0.1}:${ORRERY_PORT:-9000}:9000"
+      # The phone's own port (ORR-837): always asks for a login, so a phone on the network signs in with App settings'
+      # QR code while the address above stays trusted for the sessions. 1 before ORRERY_PORT (19000) unless set.
+      - "${ORRERY_PHONE_HOST:-0.0.0.0}:${ORRERY_PHONE_PORT:-1${ORRERY_PORT:-9000}}:9001"
     environment:
       NUXT_PUBLIC_ENVIRONMENT: ${ORRERY_ENVIRONMENT:-personal}
       NUXT_PUBLIC_REPO_DIR: ${PWD}
@@ -56,7 +62,12 @@ services:
       # Set when ORRERY_BACKUP names a folder: without one, App settings says the backups stay on this computer.
       NUXT_BACKUP_CHOSEN: ${ORRERY_BACKUP:+yes}
       NUXT_ALLOWED_HOSTS: ${ORRERY_ALLOWED_HOSTS:-}
+      NUXT_USAGE: ${ORRERY_USAGE:-}
       NUXT_LISTEN_HOST: ${ORRERY_HOST:-127.0.0.1}
+      NUXT_PHONE_URL: ${ORRERY_PHONE_URL:-}
+      NUXT_PHONE_LISTEN: 9001
+      NUXT_PHONE_PORT: ${ORRERY_PHONE_PORT:-1${ORRERY_PORT:-9000}}
+      NUXT_PHONE_HOST: ${ORRERY_PHONE_HOST:-0.0.0.0}
       NUXT_SECRET_KEY: ${ORRERY_SECRET_KEY:-}
       NUXT_AUTH: ${ORRERY_AUTH:-}
       NUXT_OIDC_ISSUER: ${ORRERY_OIDC_ISSUER:-}

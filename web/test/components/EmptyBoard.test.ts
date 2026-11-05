@@ -9,7 +9,7 @@ registerEndpoint('/api/owner', () => ({name: 'skoll', display: 'Sköll', named: 
 
 const mounted: VueWrapper[] = []
 beforeEach(() => {
-    useRoadmaps().projects.value = [{id: 'greenhouse', name: 'Greenhouse', key: 'GRE', uid: 'x7k2m9qd', releases: [], docs: [], board: {chunks: [], kinds: {}}} as unknown as Project]
+    useRoadmaps().projects.value = [{id: 'greenhouse', name: 'Greenhouse', key: 'GRE', uid: 'x7k2m9qd', releases: [], docs: [], board: {milestones: [], kinds: {}}} as unknown as Project]
     useRoadmaps().sessions.value = {}
     useNewIssue().close()
 })

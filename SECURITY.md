@@ -7,14 +7,27 @@ else.
 
 ## Who can reach it
 
-- **This machine only, by default.** Compose publishes the port on `127.0.0.1`, and the dev server
-  (`docker-compose.dev.yml`) is always this machine's only, since it also hands out the source.
+- **The sessions' address is this machine's only, by default.** Compose publishes `ORRERY_PORT` on `127.0.0.1`, and the
+  dev server (`docker-compose.dev.yml`) is always this machine's only, since it also hands out the source.
+- **The phone's port is on your network, and always asks for a login.** Compose also publishes `ORRERY_PHONE_PORT`
+  (`19000` by default) on every address, for App settings' QR code ([how it's kept apart](#what-only-the-owner-writes)).
+  `ORRERY_PHONE_HOST=127.0.0.1` keeps it to this machine.
 - **Off this machine, it asks for a login.** With `ORRERY_HOST=0.0.0.0` or any address but loopback, or a plain
   `docker run`, every route refuses anything without a login or a key, reads included, and until someone
   has claimed the server it answers nothing else ([Login and keys](#login-and-keys)).
-- **Host names.** orrery answers to `localhost` (and `*.localhost`) and IP addresses. Reaching it by
-  another name, say `orrery.lan`, needs `ORRERY_ALLOWED_HOSTS=orrery.lan` (`NUXT_ALLOWED_HOSTS` without
-  Docker). This is what stops DNS rebinding, a website pointing its own domain at your machine.
+- **From a phone**, away from the Mac ([Using orrery from a phone](/p/orrery/docs/phone)), the ways in, safest first:
+  hosted on a server of its own over https ([Hosting on a server](/p/orrery/docs/hosting)); a private VPN, which
+  keeps it to your own devices, with https on top for the phone to install the page or get pushes; and a public
+  tunnel only with `ORRERY_AUTH=on`, and better not at all, as a tunnel looks like loopback and the login is then
+  the Mac's only lock against the internet.
+- **A signed-in phone is the owner.** It can press **Allow** on the Mac's sessions' prompts, and do all else the owner
+  does, for as long as its cookie lasts (30 days). Give the phone a screen lock, and log out on it when you're done. End a
+  lost phone's login from the Mac, under App settings → You → Signed in.
+- **Host names.** orrery answers to `localhost` (and `*.localhost`), IP addresses, and a machine's Bonjour name on
+  the Wi-Fi, `<name>.local`, for a phone. Reaching it by another name, say `orrery.lan`, needs
+  `ORRERY_ALLOWED_HOSTS=orrery.lan` (`NUXT_ALLOWED_HOSTS` without Docker). This is what stops DNS rebinding, a
+  website pointing its own domain at your machine. A `.local` name is looked up on the local network alone
+  (multicast DNS), never in a website's DNS, so a website can't point one at your machine.
 
 ## Login and keys
 
@@ -36,7 +49,7 @@ every project, there or not, saying to ask again with a key. The orrery's id sta
 in a session's environment (`ORRERY_KEY`) and acts as an agent of its person: it can never be that person, sign in to the
 page, make a key, or do what only the owner may, even when its person is the owner. A **person key** signs in to the page
 and is swapped for a cookie at once: it's refused as a bearer, and the channel won't start with one. Only a hash of either is
-stored. Revoking works at once, and removing a person revokes theirs.
+stored. Revoking works at once, and ends the logins that key started, and removing a person revokes theirs.
 
 **What an agent key still can do.** Act as any session of its own person, so the lock between one person's sessions keeps
 honest agents apart and isn't a boundary. The boundary is between people, and between a person and their agents.
@@ -70,7 +83,8 @@ with two stores on one database, not two machines.
 **Logging in.** Through any standard OIDC provider, by setting its issuer, client id and secret (the authorization code flow with
 PKCE), with no passwords in orrery. An account is matched by issuer and subject, never email, and only attaches through the
 owner's single-use invite, so having an account with the provider gets nobody in. With no provider, the owner's person key signs in.
-`orrery:claim`, run on the server, makes the first one, so nothing on the network can race for it.
+Claiming makes the first one: `orrery:claim`, run in a shell on the server, so nothing on the network can race for it. That's
+no more than a shell there could do, and an agent with one is out of scope already (above).
 
 ## With login off, the owner is a name, not a password
 
@@ -149,7 +163,7 @@ reach orrery without its channel's mark, and the guards below don't hold there. 
 So it can edit files and run commands where your settings let it. It goes without only the tools that take up or finish work
 (`start_issue`, `finish_issue`, and `update_issue`, as that sets a status). What your settings would ask about shows as
 **Allow** and **Deny**, in its pane while that's open and in a pop-up otherwise. orrery holds what it sends through its channel to making issues (unstarted and
-unassigned), changing an issue's title, description, priority, labels, team tasks, chunk, release, parent or what it depends on (any other
+unassigned), changing an issue's title, description, priority, labels, team tasks, milestone, release, parent or what it depends on (any other
 change is refused), commenting, writing docs (never removing one or changing a section), `egress` under each secret's own rules, marking events dealt with, and
 answering you. It changes those fields even on an issue another session is working: the check that refuses one
 session's writes to another's issue lets you and your chat through, since it changes one only when you ask.
@@ -183,8 +197,8 @@ Five more go further, and you should know how far:
   Nothing is saved until you press **Allow**, and then a new one is yours, so a schedule that starts sessions starts
   them as you. A change to an agent's schedule leaves it the agent's: only **Make it mine** makes it yours. Read what it would send before allowing it. Whether a schedule is untrusted, and deleting one, stay yours on
   the Schedules page.
-- **Sessions, releases, chunks and moves** it can only ask for as well: starting a session for anything but work on an
-  issue you named, stopping or giving more time to a session, adding or changing a release or a chunk, and moving issues to another status or assigning them. Each shows
+- **Sessions, releases, milestones and moves** it can only ask for as well: starting a session for anything but work on an
+  issue you named, stopping or giving more time to a session, adding or changing a release or a milestone, and moving issues to another status or assigning them. Each shows
   what it would do, and nothing happens until you press **Allow**.
 - **Docs** it writes itself now, and can also ask for: a new one shows its title, section and full text, and a change shows what changes,
   the text as a diff. Nothing is saved until you press **Allow**, and then it's yours. Docs are material later sessions
@@ -207,7 +221,7 @@ orrery has two tiers of text a session reads:
 
 - **Material**: issues, comments, docs. A session reads it as it works and weighs it like anything else
   it reads. Agents write it freely; deleting what the owner made stays the owner's call.
-- **Instructions**: what a session is told it must do, in the owner's voice. That's the focus and chunk
+- **Instructions**: what a session is told it must do, in the owner's voice. That's the focus and milestone
   prompts and standing instructions (`PATCH /settings`), the signals that reach sessions, and **presets**,
   whose text a session is started with as "the owner gave this session more context … it holds for all
   its work". Only the owner writes these, and an agent gets a 403, **on purpose**.
@@ -231,7 +245,7 @@ if the agent changed it after you opened it, so you never take on text you haven
 or editing it leaves it the agent's, and it's tinted as unseen whenever the agent changes it (ORR-456).
 
 What an event schedule passes on follows the same rule. A session schedule's instructions and a message schedule's
-message end with what happened, said by ids: the change for a status, priority, chunk, release or parent, never a
+message end with what happened, said by ids: the change for a status, priority, milestone, release or parent, never a
 label's text, and an agent by its handle. A launcher's report of what it runs can't give a session a context
 orrery didn't start it with. A launcher's claim on a session waiting to start counts only with the token its stream
 was given as it connected (ORR-443), so a program posting claims can't take a launch and keep it from starting. Anything
@@ -253,6 +267,30 @@ server as it always does. It keeps what's in each file, and says what it wrote: 
 It won't take your home folder or the root. Anything that can open a launcher stream is a launcher (above), so it could say it
 took a request, and the page would show what it said, which is all it gets.
 
+**Open on your phone** (ORR-833): a launcher's stream also says its machine's IPv4 addresses on its networks, so App
+settings can show a phone where to open orrery when it runs in Docker. They're kept in memory while the stream is open,
+and only ever shown as links; anything that isn't an address is dropped. A launcher could say a wrong one, and the page
+would offer it, so check the address before scanning. The QR code is drawn on the page, and nothing is
+sent anywhere to make it.
+
+**The phone's port** (ORR-837): orrery listens twice. The sessions' address (`ORRERY_PORT`, on `127.0.0.1`) is as above.
+The phone's own (`ORRERY_PHONE_PORT`, `1` before `ORRERY_PORT`, on every address unless `ORRERY_PHONE_HOST` says otherwise)
+**always asks for a login**, whatever the other does, and `ORRERY_AUTH=off` closes it rather than opens it. A request is
+known by the port it came in on inside the server, which nothing outside can change, not by its address or its `Host`.
+Over that port nothing counts as this machine (`fromThisMachine`), so moving the database and the backup
+settings are refused there, whatever `Host` is sent.
+
+App settings' QR code carries a one-time sign-in link to that port: a random token, kept only as its hash, in memory, good
+once and for 5 minutes, at most 20 at a time. Opened, it signs that browser in as the owner with a login of its own, named
+so in App settings → You → Signed in, where the owner ends it from the Mac when a phone is lost (ORR-838, the `logins.write`
+row: a person their own logins, the owner anyone's, never a session, the chat or an untrusted one). Only
+the owner makes one (`POST /api/phone/link`, the `phone.link` row): from their page on the sessions' address, never over the
+phone's port, and never a session, the chat or an untrusted one, as it would hand them the owner's login. Over plain
+Wi-Fi the link and the login's cookie travel unencrypted, so someone else on it who reads the link first gets the login:
+App settings says so beside the code, and a private VPN (`ORRERY_PHONE_HOST` set to its address) keeps it to your own
+devices. As the link goes to the address shown, a launcher reporting a wrong one would send it there: check the address
+before scanning.
+
 **Allow** on a session at a permission prompt (ORR-489) is the owner's alone, and no session's or chat's: a prompt is
 there for a person to answer. Its launcher presses Enter only while the pane still shows a permission prompt with the
 cursor on "Yes", so an Allow that arrives late can't answer a later prompt or pick "don't ask again". The pop-up shows the
@@ -273,7 +311,7 @@ and each is asked:
 - **Starting a session for anything but work on an issue you named, stopping or extending one:** you see what would start (its project, focus, presets and words) or
   which session, and nothing happens until you press **Allow**. A session started this way is yours, with the context
   shown, so read it. The launch routes refuse the chat itself, and watching one (a window on your machine) stays yours.
-- **Adding or changing a release or a chunk, or moving or assigning issues:** you see what would change, and nothing
+- **Adding or changing a release or a milestone, or moving or assigning issues:** you see what would change, and nothing
   is saved until you press **Allow**.
 - **Making or changing a doc, when it asks rather than writing it itself:** you see the title, section and full text, or a diff of what changes, and nothing is
   saved until you press **Allow**. A change that no longer fits the doc as it stands is refused (ORR-661).
@@ -323,7 +361,7 @@ Comments, descriptions, docs and the chat's answers are drawn from Markdown that
 have written, so they're cleaned first. Nothing in them runs, or sends a form. They load nothing from another site by themselves, as
 opening the page would send that site whatever the address holds (ORR-751): a picture from elsewhere shows as a link naming the
 site, and video, audio, inline styles and `<style>` are dropped, so they can't restyle or cover the page either. A link is still a
-link, and clicking one sends what its address holds, so look at where it goes. The page itself still loads its fonts from Google Fonts.
+link, and clicking one sends what its address holds, so look at where it goes.
 
 ## The browser can't be used against it
 
@@ -336,7 +374,8 @@ at all, not even as a picture in orrery's own page; only the channel, the launch
 Nor can what's written in orrery send anything out just by being shown (ORR-748). Issues, comments, docs and the chat's
 replies are drawn as Markdown, and an agent that has read something could put it in an image's address, which a browser would
 ask for by itself. So orrery's pages carry a `Content-Security-Policy` that loads images and media only from orrery, and fonts
-and styles only from orrery and Google Fonts. Browsers' DNS prefetching
+and styles only from orrery, which serves its own fonts (ORR-766). `navigation.spec.ts` holds both: its walk over every
+page expects no request to another host, and the policy's `font-src` and `style-src` to name no other (ORR-846). Browsers' DNS prefetching
 is off too, as looking up a link's host would send a name out. A link sends something only when you click it.
 
 ## Secrets
@@ -396,8 +435,12 @@ are. Only a review by your own handle (`handle` in App settings) is quoted (ORR-
   it. A session can mark an error resolved, but the row then says which agent did, and the bell keeps showing it
   until you've looked. Anything can add a page error, so those are marked as reports and held to 5 of a kind and 20
   in all a minute. Read the log as a lead, not proof (ORR-420).
+- **Usage** (App settings → Usage), off unless the owner turns it on, keeps how often each feature was used: a count a
+  day per page, per orrery tool your sessions call, and per one of a few optional features. Nothing about what was
+  done, by whom, or with what, and only the owner's own use. Rows over a year old go, and turning it off offers to
+  delete them. `ORRERY_USAGE=off` stops it for a whole server (ORR-881).
 - orrery itself sends nothing anywhere, except your roadmap to a Postgres you chose, and the requests your
-  agents make with a secret, to the hosts you allowed it. The page loads its fonts from Google Fonts.
+  agents make with a secret, to the hosts you allowed it. The page loads nothing from elsewhere, its fonts included.
 
 ## Reporting a problem
 

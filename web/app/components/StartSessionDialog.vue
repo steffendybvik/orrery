@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type {Issue, Preset, Project} from '#shared/roadmap'
+import {MODEL_ALIASES, kindOf, modelFor} from '#shared/roadmap'
 import type {LaunchState} from '~/composables/useLaunchState'
 
 // Starting Claude sessions from anywhere, as the owner: pick the projects (every one, those that can't start one
@@ -15,12 +16,13 @@ const {target, close} = useStartSession()
 const {launchers, sessions, byId} = useRoadmaps()
 const {ordered} = useProjectOrder()
 const {places} = useStatuses()
-const router = useRouter()
 
 /** The most sessions to start at once of each, when the limit isn't known yet. */
 const MOST = 9
 const chosen = ref<string[]>([])
 const issue = ref('')
+/** The model picked for this one session (ORR-869); empty starts it on what orrery works out. */
+const model = ref('')
 /** The statuses ticked for the scope; the open work that's ready to begin with. */
 const statuses = ref<string[]>([])
 const release = ref('')
@@ -49,7 +51,7 @@ const open = computed(() => places.value.filter(p => p.kind !== 'proposed' && !i
 watch(target, now => {
     if (!now) return
     chosen.value = now.project ? [now.project] : []
-    issue.value = release.value = failed.value = instructions.value = ''
+    issue.value = release.value = failed.value = instructions.value = model.value = ''
     picked.value = []
     together.value = 'one'
     count.value = 1
@@ -101,18 +103,29 @@ const releases = computed(() => {
     return lists.length ? lists.reduce((all, list) => all.filter(v => list.includes(v))) : []
 })
 const scoped = computed(() => !issue.value && (statuses.value.length > 0 || !!release.value))
+
+// The model it starts on (ORR-869): what orrery works out, its issue's own or its kind's, unless the owner picks another
+// for this one session. Without an issue it's Claude Code's default there.
+const {settings: appSettings} = useAppSettings()
+const worked = computed(() => {
+    const focused = openIssues.value.find(i => i.id === issue.value)
+    if (!focused) return "Claude Code's default"
+    const picked = modelFor(focused, appSettings.value.work_kinds).model ?? 'best'
+    return focused.model ? `${picked}, its own` : `${picked}, as ${kindOf(focused.labels, appSettings.value.work_kinds)?.name ?? 'its kind'}`
+})
+const modelOptions = computed(() => [{value: '', label: worked.value}, ...MODEL_ALIASES.filter(a => a !== 'default' && a !== 'opusplan').map(m => ({value: m, label: m}))])
 // For the pickers, which find as you type, as on an issue's page.
 const issueOptions = computed(() => [{value: '', label: "No one issue: it works through what's below"}, ...openIssues.value.map(i => ({value: i.id, label: `${i.id} · ${i.title}`}))])
 const issueLabel = computed(() => issueOptions.value.find(o => o.value === issue.value)?.label)
 const releaseOptions = computed(() => [{value: '', label: 'Any release'}, ...releases.value.map(v => ({value: v, label: `Release ${v}`}))])
 
-/** The project's issues a session started now would work through, as the server picks them: every chunk's,
+/** The project's issues a session started now would work through, as the server picks them: every milestone's,
  * or with a release those set for it at any depth, of the ticked statuses (or, with none, the open work that's ready:
  * Todo and In progress, as the server's `SCOPE_STATUSES`). */
 function scopeOf(project: Project): Issue[] {
     const tasks: Issue[] = []
     const pick = (issues: Issue[]) => issues.forEach(t => t.release === release.value ? tasks.push(t) : pick(t.tasks))
-    const top = project.board.chunks.flatMap(c => c.tasks)
+    const top = project.board.milestones.flatMap(c => c.tasks)
     if (release.value) pick(top)
     else tasks.push(...top)
     return tasks.filter(t => statuses.value.length ? statuses.value.includes(t.column) : t.kind === 'todo' || t.kind === 'started')
@@ -165,6 +178,7 @@ async function start() {
         ...work,
         presets: picked.value.filter(id => presets.value.some(p => p.id === id && (!p.project || p.project === project))),
         ...own,
+        ...model.value ? {model: model.value} : {},
     })
     const refused = new Map<string, string>()
     // The count of them through the project's launcher, stopping at the first refused, as the rest would be too.
@@ -194,23 +208,25 @@ async function start() {
         loadStates()
         return
     }
+    // The owner stays where they were (ORR-864); the Sessions page shows them arriving.
     close()
-    // They're listed with every other session, on the Sessions page.
-    router.push('/sessions')
 }
 
 </script>
 
 <template>
-  <UiDialog :open="target" label="Start session" class="max-h-[76vh]" @close="close" @submit="start">
+  <!-- Its body scrolls between the heading and the footer, so Start session is always in reach, on a phone too (ORR-851).
+       dvh, as a phone's toolbars take some of vh. -->
+  <UiDialog :open="target" label="Start session" class="max-h-[76dvh]" @close="close" @submit="start">
     <div class="flex items-center gap-2 text-xs text-faint">
       <span>Start a session</span>
       <KeyHint class="ml-auto">esc</KeyHint>
     </div>
 
-    <div class="flex min-h-0 flex-col gap-1">
+    <div class="-mx-5 flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-5" data-dialog-body>
+    <div class="flex flex-col gap-1">
       <span class="label px-1">Projects <span class="font-normal normal-case text-faint">· {{ !projects.length ? 'none ticked: one session hearing every project' : oneSession ? 'one session hearing them all' : 'a session each' }}</span></span>
-      <div class="flex min-h-0 flex-col gap-0.5 overflow-y-auto" role="group" aria-label="Projects">
+      <div class="flex flex-col gap-0.5" role="group" aria-label="Projects">
         <label
             v-for="p in ordered"
             :key="p.id"
@@ -270,6 +286,13 @@ async function start() {
       </p>
     </div>
 
+    <div v-if="projects.length || everywhere" class="flex flex-col gap-1" data-testid="start-model">
+      <span class="label px-1">Model</span>
+      <PropertyPicker v-model="model" :options="modelOptions" label="Model" wide>
+        <span class="truncate font-mono text-xs" :class="!model && 'font-sans text-faint'">{{ model || worked }}</span>
+      </PropertyPicker>
+    </div>
+
     <div v-if="projects.length || everywhere" class="flex flex-col gap-1.5">
       <span class="label px-1">Context <span class="font-normal normal-case text-faint">· optional, goes with every signal to it</span></span>
       <div v-if="presets.length" class="grid grid-cols-1 gap-1.5 sm:grid-cols-2" role="group" aria-label="Presets">
@@ -307,8 +330,9 @@ async function start() {
         Context you give often can be saved as a preset under <NuxtLink to="/sessions#presets" class="text-accent-700 hover:underline dark:text-accent-400" @click="close">Presets</NuxtLink> on the Sessions page.
       </p>
     </div>
+    </div>
 
-    <div class="flex items-center gap-2 border-t border-line pt-3">
+    <div class="flex shrink-0 items-center gap-2 border-t border-line pt-3">
       <span v-if="failed" class="text-xs text-rose-700 dark:text-rose-400">{{ failed }}</span>
       <label v-if="most > 1" class="ml-auto flex shrink-0 items-center gap-1.5 text-xs text-faint" :title="`At most ${most} under the limit`">
         <input v-model.number="count" type="number" min="1" :max="most" aria-label="Sessions to start" class="h-8 w-14 field" @change="count = Math.min(Math.max(Math.floor(count) || 1, 1), most)">

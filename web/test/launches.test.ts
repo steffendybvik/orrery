@@ -1,10 +1,12 @@
 import {EventEmitter} from 'node:events'
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
-import type {Signal, Starts} from '#shared/roadmap'
+import type {Signal, Starts, WorkKind} from '#shared/roadmap'
+import {WORK_KINDS} from '#shared/roadmap'
 
 // The launches live in the module, so each test gets a fresh one, with Nitro's auto-imports stubbed.
 let launches: typeof import('../server/utils/launches')
 let chatsEnded: string[]
+let chatsRunning: string[]
 let problems: [string, string | null][]
 let noted: {level: string, kind: string, message: string}[]
 let sent: {type: string, project?: string, id?: string, after?: number, minutes?: number, stops_at?: string}[]
@@ -19,14 +21,20 @@ let waiting: string[]
 let waitingForAll: boolean
 let adopted: string[]
 let focused: {issue: string, session: string}[]
-let scoped: {chunk: string, body: Record<string, unknown>}[]
+let scoped: {milestone: string, body: Record<string, unknown>}[]
 let messages: {schedule: number, text: string, target?: string}[]
 /** The launches whose prompt the owner's Allow answered. */
 let answered: string[]
+/** The labels of the issues a session is started on, by id. */
+let issueLabels: Record<string, string[]>
+/** The kinds of work the owner has set (ORR-868). */
+let kinds: readonly WorkKind[]
 
 beforeEach(async () => {
     sent = []
     answered = []
+    issueLabels = {}
+    kinds = WORK_KINDS
     listeners = 0
     started = {greenhouse: 0, all: 0}
     starts = {limit: 2, minutes: 30}
@@ -49,7 +57,9 @@ beforeEach(async () => {
     vi.stubGlobal('notFound', (message: string) => Object.assign(new Error(message), {statusCode: 404}))
     vi.stubGlobal('conflict', (message: string) => Object.assign(new Error(message), {statusCode: 409}))
     vi.stubGlobal('chatEnded', (id: string) => chatsEnded.push(id))
+    vi.stubGlobal('chatRunning', (id: string) => chatsRunning.push(id))
     chatsEnded = []
+    chatsRunning = []
     problems = []
     noted = []
     vi.stubGlobal('chatProblem', (id: string, problem: string | null) => problems.push([id, problem]))
@@ -58,16 +68,20 @@ beforeEach(async () => {
     focused = []
     scoped = []
     messages = []
-    vi.stubGlobal('useStore', () => ({ownerOf: async () => ({name: 'skoll'}), 
+    vi.stubGlobal('useStore', () => ({ownerOf: async () => ({name: 'skoll'}), workKinds: async () => kinds,
         starts: () => new Promise(resolve => setTimeout(() => resolve(starts), 0)),
         lastSignal: async () => 41,
+        issue: async (_project: string, id: string) => {
+            if (id === 'GRE-404') throw Object.assign(new Error('No issue GRE-404'), {statusCode: 404})
+            return {id, labels: issueLabels[id] ?? []}
+        },
         focus: async (_project: string, issue: string, body: {session: string}) => {
             if (issue === 'GRE-404') throw Object.assign(new Error('No issue GRE-404'), {statusCode: 404})
             focused.push({issue, session: body.session})
             return {id: 42}
         },
-        focusChunk: async (_project: string, chunk: string, body: Record<string, unknown>) => {
-            scoped.push({chunk, body})
+        focusMilestone: async (_project: string, milestone: string, body: Record<string, unknown>) => {
+            scoped.push({milestone, body})
             return {id: 43}
         },
         message: async (_project: string, schedule: number, text: string, _actor: unknown, target?: string) => {
@@ -108,6 +122,24 @@ describe('starting a session', () => {
         expect(launches.launchState('greenhouse').starting).toBe(0)
         // Focus on this, pressed with nobody listening.
         expect(await launches.startAsked.run(true, () => launches.considerLaunch(signal(6)))).toMatchObject({after: 5, minutes: 30})
+    })
+
+    it('happens on the model its work needs when every session listening is on a lighter one (ORR-868)', async () => {
+        launches.addLauncher('greenhouse')
+        listeners = 1
+        vi.stubGlobal('listSessions', () => [{id: 'a', project: 'greenhouse', state: 'idle', listening: true, started: {launch: 'x', tmux: 'x', model: 'haiku'}}])
+        // Nothing needed: the haiku session hears it.
+        expect(await launches.considerLaunch(signal(5))).toBeNull()
+        // Docs work on sonnet starts a session on sonnet.
+        issueLabels = {'GRE-2': ['docs']}
+        const docs = await launches.considerLaunch(signal(6, {issue: 'GRE-2', model: 'sonnet'}))
+        expect(docs).toMatchObject({after: 5, model: 'sonnet'})
+        // A sonnet launch on its way doesn't cover security work, which starts one on Claude Code's default.
+        const security = await launches.considerLaunch(signal(7, {issue: 'GRE-3', model: 'best'}))
+        expect(security).not.toBeNull()
+        expect(security!.model).toBeUndefined()
+        // And that one on its way covers what comes after it.
+        expect(await launches.considerLaunch(signal(8, {model: 'sonnet'}))).toBeNull()
     })
 
     it("happens for the owner's signal that nobody is listening for, once a launcher is there", async () => {
@@ -240,7 +272,7 @@ describe('starting a session', () => {
         expect(problems).toEqual([[chat.id, expect.stringMatching(/restart it/)]])
         vi.useFakeTimers({now: Date.now() + 2 * 60 * 60 * 1000, toFake: ['Date']})
         expect(launches.unclaimedLaunches('greenhouse').map(l => l.id)).toEqual([chat.id])
-        expect(launches.claim('greenhouse', chat.id, launches.addLauncher('greenhouse').token, false, true)).toBe(true)
+        expect(launches.claim('greenhouse', chat.id, launches.addLauncher('greenhouse').token, false, true, true)).toBe(true)
         expect(problems.at(-1)).toEqual([chat.id, null])
     })
 
@@ -359,8 +391,8 @@ describe('the owner starting a session by hand', () => {
         const launch = await launches.startLaunch('greenhouse', {statuses: ['backlog', 'todo'], release: '1.0.0'})
         await launches.startLaunch('greenhouse', {release: '1.0.0'})
         expect(scoped).toEqual([
-            {chunk: 'all', body: {session: `launch-${launch.id}`, status: 'backlog,todo', release: '1.0.0'}},
-            {chunk: 'all', body: expect.objectContaining({status: 'todo,started', release: '1.0.0'})},
+            {milestone: 'all', body: {session: `launch-${launch.id}`, status: 'backlog,todo', release: '1.0.0'}},
+            {milestone: 'all', body: expect.objectContaining({status: 'todo,started', release: '1.0.0'})},
         ])
         expect(launch.after).toBe(42)
     })
@@ -755,7 +787,7 @@ describe("an untrusted schedule's run", () => {
 
     it('makes what its session raises a proposal labelled external, and nothing more', async () => {
         const {asProposal} = await import('../server/utils/untrusted')
-        expect(asProposal({title: 'Crash on save', notes: 'From #12', labels: ['bug'], priority: 'P0', status: 'in-progress', assignee: 'claude', parent: 'GRE-1', chunk: '2', release: '1.0.0'}))
+        expect(asProposal({title: 'Crash on save', notes: 'From #12', labels: ['bug'], priority: 'P0', status: 'in-progress', assignee: 'claude', parent: 'GRE-1', milestone: '2', release: '1.0.0'}))
             .toEqual({title: 'Crash on save', notes: 'From #12', proposal: 'pending', labels: ['external']})
         expect(asProposal({title: 'x', labels: ['external']}).labels).toEqual(['external'])
         expect(asProposal({title: 'x', github_issues: [12]})).toMatchObject({github_issues: [12], labels: ['external']})
@@ -790,6 +822,36 @@ describe("the owner's chat", () => {
         expect(launches.launchState('greenhouse')).toMatchObject({starting: 0, total: 1})
     })
 
+    describe('written in again once ended (ORR-884)', () => {
+        const fresh = {presets: [], text: 'Chat. What was said before: …'}
+        const CLAUDE = '0b5c3a8e-2f4d-4c1a-9e7b-6d2f8a1c3e5b'
+
+        it('starts on the same id, taking its Claude session up again, with a launcher that can', async () => {
+            const {token} = launches.addLauncher('greenhouse')
+            const launch = await launches.resumeChat('greenhouse', 'c1c2c3c4c5c6', context, fresh, CLAUDE)
+            expect(launch).toMatchObject({id: 'c1c2c3c4c5c6', tmux: 'orrery-greenhouse-c1c2c3c4c5c6', chat: true, resume: CLAUDE, context, after: 41})
+            // What the launcher hears names no fallback.
+            expect(launch).not.toHaveProperty('fresh')
+            expect(launches.claim('greenhouse', launch.id, token, false, true, true, true)).toBe(true)
+            expect(launches.launched(launch.id)).toMatchObject({launch: 'c1c2c3c4c5c6', chat: true, context})
+        })
+
+        it('starts fresh, told what was said, with a launcher that can\'t resume', async () => {
+            const {token} = launches.addLauncher('greenhouse')
+            const launch = await launches.resumeChat('greenhouse', 'c1c2c3c4c5c6', context, fresh, CLAUDE)
+            expect(launches.claim('greenhouse', launch.id, token, false, true, true)).toBe(true)
+            expect(launches.launched(launch.id)).toMatchObject({context: fresh})
+        })
+
+        it('starts fresh with no Claude session to take up, and needs a launcher', async () => {
+            await expect(launches.resumeChat('greenhouse', 'c1c2c3c4c5c6', context, fresh)).rejects.toMatchObject({statusCode: 409})
+            launches.addLauncher('greenhouse')
+            const launch = await launches.resumeChat('greenhouse', 'c1c2c3c4c5c6', context, fresh)
+            expect(launch.resume).toBeUndefined()
+            expect(launch.context).toEqual(fresh)
+        })
+    })
+
     it('says it stops as a chat, so the log leaves it out', async () => {
         launches.addLauncher('greenhouse')
         const launch = await launches.startChat('greenhouse', context)
@@ -797,11 +859,16 @@ describe("the owner's chat", () => {
         expect(sent.at(-1)).toEqual({type: 'stop', project: 'greenhouse', id: launch.id, chat: true})
     })
 
+    it("starts on the Chat kind's model, sonnet (ORR-868)", async () => {
+        launches.addLauncher('greenhouse')
+        expect(await launches.startChat('greenhouse', context)).toMatchObject({chat: true, model: 'sonnet'})
+    })
+
     it('goes only to a launcher that says it starts chats', async () => {
         const {token} = launches.addLauncher('greenhouse')
         const launch = await launches.startChat('greenhouse', context)
         expect(launches.claim('greenhouse', launch.id, token, true)).toBe(false)
-        expect(launches.claim('greenhouse', launch.id, token, true, true)).toBe(true)
+        expect(launches.claim('greenhouse', launch.id, token, true, true, true)).toBe(true)
     })
 
     it('says a launcher too old to start it was refused, once, and lets that go as its session connects', async () => {
@@ -813,7 +880,7 @@ describe("the owner's chat", () => {
         expect(noted).toEqual([expect.objectContaining({level: 'warn', kind: 'launcher.outdated', message: expect.stringMatching(/start a chat.*Restart the launcher/)})])
         expect(problems).toEqual([[launch.id, noted[0]!.message]])
         // Restarted on the new code, it takes the chat on, and the chat stops saying so.
-        expect(launches.claim('greenhouse', launch.id, token, true, true)).toBe(true)
+        expect(launches.claim('greenhouse', launch.id, token, true, true, true)).toBe(true)
         launches.launched(launch.id)
         expect(problems.at(-1)).toEqual([launch.id, null])
     })
@@ -831,7 +898,7 @@ describe("the owner's chat", () => {
         const launch = await launches.startChat('greenhouse', context)
         launches.endLaunch('greenhouse', launch.id)
         expect(sent.at(-1)).toEqual({type: 'stop', project: 'greenhouse', id: launch.id})
-        expect(launches.claim('greenhouse', launch.id, token, true, true)).toBe(false)
+        expect(launches.claim('greenhouse', launch.id, token, true, true, true)).toBe(false)
         launches.launchGone(launch.id)
         expect(chatsEnded).toEqual([launch.id])
     })
@@ -839,6 +906,70 @@ describe("the owner's chat", () => {
     it('stays a chat when a launcher reports it after orrery restarted', () => {
         launches.reportRunning('greenhouse', [{id: 'c1c2c3c4c5c6', tmux: 'orrery-greenhouse-c1c2c3c4c5c6', chat: true}])
         expect(launches.launched('c1c2c3c4c5c6')).toMatchObject({chat: true})
+        // The chat kept in the database runs on (ORR-877).
+        expect(chatsRunning).toEqual(['c1c2c3c4c5c6'])
+        expect(launches.launchKnown('c1c2c3c4c5c6')).toBe(true)
+    })
+})
+
+describe('a session started on a model (ORR-868)', () => {
+    it('carries the model and effort asked for, onto the session once it connects', async () => {
+        const {token} = launches.addLauncher('greenhouse')
+        const launch = await launches.startLaunch('greenhouse', {model: 'haiku', effort: 'low'})
+        expect(launch).toMatchObject({model: 'haiku', effort: 'low'})
+        expect(launches.claim('greenhouse', launch.id, token, true, true, true)).toBe(true)
+        expect(launches.launched(launch.id)).toMatchObject({model: 'haiku', effort: 'low'})
+    })
+
+    it('goes only to a launcher that says it starts sessions on a model, as an older one would drop it', async () => {
+        const {token} = launches.addLauncher('greenhouse')
+        const launch = await launches.startLaunch('greenhouse', {model: 'sonnet'})
+        expect(launches.claim('greenhouse', launch.id, token, true, true)).toBe(false)
+        expect(noted).toEqual([expect.objectContaining({kind: 'launcher.outdated', message: expect.stringMatching(/chosen model/)})])
+        expect(launches.claim('greenhouse', launch.id, token, true, true, true)).toBe(true)
+    })
+
+    it('leaves one on the default to any launcher', async () => {
+        const {token} = launches.addLauncher('greenhouse')
+        const launch = await launches.startLaunch('greenhouse')
+        expect(launch.model).toBeUndefined()
+        expect(launches.claim('greenhouse', launch.id, token, true, true, true)).toBe(true)
+    })
+
+    it("starts one on an issue on its kind's model, its highest-ranked label's", async () => {
+        launches.addLauncher('greenhouse')
+        issueLabels = {'GRE-1': ['docs'], 'GRE-2': ['docs', 'security'], 'GRE-3': []}
+        expect(await launches.startLaunch('greenhouse', {issue: 'GRE-1'})).toMatchObject({model: 'sonnet'})
+        // Security outranks Docs, and best is Claude Code's own pick: no model asked for.
+        expect((await launches.startLaunch('greenhouse', {issue: 'GRE-2'})).model).toBeUndefined()
+        starts = {limit: 5}
+        expect((await launches.startLaunch('greenhouse', {issue: 'GRE-3'})).model).toBeUndefined()
+        // What the owner picks beats the kind's.
+        expect(await launches.startLaunch('greenhouse', {issue: 'GRE-1', model: 'opus'})).toMatchObject({model: 'opus'})
+    })
+
+    it("starts one on what the owner set a kind to, the chat's too (ORR-868)", async () => {
+        launches.addLauncher('greenhouse')
+        starts = {limit: 5}
+        kinds = WORK_KINDS.map(k => k.id === 'docs' ? {...k, model: 'haiku', effort: 'low' as const} : k.id === 'chat' ? {...k, model: 'opus'} : k)
+        issueLabels = {'GRE-1': ['docs']}
+        expect(await launches.startLaunch('greenhouse', {issue: 'GRE-1'})).toMatchObject({model: 'haiku', effort: 'low'})
+        expect(await launches.startChat('greenhouse', {presets: [], text: ''})).toMatchObject({model: 'opus'})
+    })
+
+    it('keeps the model a launcher reports after orrery restarted', () => {
+        launches.reportRunning('greenhouse', [{id: 'd1d2d3d4d5d6', tmux: 'orrery-greenhouse-d1d2d3d4d5d6', model: 'opus', effort: 'high'}])
+        expect(launches.launched('d1d2d3d4d5d6')).toMatchObject({model: 'opus', effort: 'high'})
+    })
+
+    it('takes an alias or a full id and an effort level, and refuses anything else', () => {
+        expect(launches.startInput({model: 'best', effort: 'max'})).toMatchObject({model: 'best', effort: 'max'})
+        expect(launches.startInput({model: 'claude-haiku-5-5'})).toMatchObject({model: 'claude-haiku-5-5'})
+        expect(launches.startInput({})).not.toHaveProperty('model')
+        vi.stubGlobal('badRequest', (message: string) => Object.assign(new Error(message), {statusCode: 400}))
+        expect(() => launches.startInput({model: 'gpt'})).toThrow('Send {model}')
+        expect(() => launches.startInput({model: 'haiku --dangerously-skip-permissions'})).toThrow('Send {model}')
+        expect(() => launches.startInput({effort: 'huge'})).toThrow('Send {effort}')
     })
 })
 

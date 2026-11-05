@@ -9,11 +9,18 @@ export interface Chat {
     started_at: string
     messages: ChatMessage[]
     ended?: boolean
+    /** On the last word of one the owner deleted (ORR-882): the page drops it. */
+    deleted?: boolean
+    /** When it ended, once it has: it's kept to read until orrery restarts (ORR-870). */
+    ended_at?: string
     /** Why its session can't start, while that holds: a launcher too old to start a chat refused it (ORR-383). */
     problem?: string
     /** Where the issues it makes land, the first status of that kind, whatever its session asks: the owner picks it
      * beside Send (ORR-408). */
     issues: ChatIssues
+    /** The Claude Code session it last ran as, kept as it ends, so writing in it again takes that up (`claude --resume`,
+     * ORR-884). */
+    claude_session?: string
 }
 
 /** Where a chat's issues land: Todo or Backlog. */
@@ -43,8 +50,8 @@ export interface ChatMessage {
     cleared?: boolean
     /** The session asking to make or change a release, which waits on the owner's Allow (ORR-504). */
     release?: ChatReleaseRequest
-    /** The session asking to make or change a chunk, which waits on the owner's Allow (ORR-510). */
-    chunk?: ChatChunkRequest
+    /** The session asking to make or change a milestone, which waits on the owner's Allow (ORR-510). */
+    milestone?: ChatMilestoneRequest
     /** The session asking to make or change a doc, which waits on the owner's Allow (ORR-661). */
     doc?: ChatDocRequest
     /** The session offering to file an issue the owner didn't ask for, which waits on their File issue (ORR-711). */
@@ -97,12 +104,14 @@ export const CHAT_SCHEDULE_FIELDS = {
     presets: 'Presets',
     column: 'Issues start in, or an action moves them to',
     move_from: 'An action moves them from',
-    chunk: 'Chunk',
+    milestone: 'Milestone',
     priority: 'Priority',
     labels: 'Labels',
     ask: 'Ask sessions',
     skip_open: 'Skip while open',
     only_if_changed: 'Only if changed',
+    model: 'Model',
+    effort: 'Effort',
     enabled: 'Running',
 } as const
 export type ChatScheduleField = keyof typeof CHAT_SCHEDULE_FIELDS
@@ -141,22 +150,22 @@ export interface ChatReleaseRequest {
     state: ChatRequest['state']
 }
 
-/** What of a chunk the owner's chat may ask to set (ORR-510), by what the chunk's page calls it. Removing one stays the
+/** What of a milestone the owner's chat may ask to set (ORR-510), by what the milestone's page calls it. Removing one stays the
  * owner's, on the page. */
-export const CHAT_CHUNK_FIELDS = {
+export const CHAT_MILESTONE_FIELDS = {
     title: 'Name',
     summary: 'Summary',
     priority: 'Priority',
 } as const
-export type ChatChunkField = keyof typeof CHAT_CHUNK_FIELDS
+export type ChatMilestoneField = keyof typeof CHAT_MILESTONE_FIELDS
 
-/** A chunk the chat asked to make (no `id`) or change (`id`), each field it sets from → to: saved as the owner's only
+/** A milestone the chat asked to make (no `id`) or change (`id`), each field it sets from → to: saved as the owner's only
  * once they allow it, and `expired` as a setting's request is. */
-export interface ChatChunkRequest {
+export interface ChatMilestoneRequest {
     id?: string
     title: string
-    changes: {field: ChatChunkField, from?: unknown, to: unknown}[]
-    body: Partial<Record<ChatChunkField, unknown>>
+    changes: {field: ChatMilestoneField, from?: unknown, to: unknown}[]
+    body: Partial<Record<ChatMilestoneField, unknown>>
     drifted?: ChatRequestDrift[]
     state: ChatRequest['state']
 }
@@ -190,7 +199,7 @@ export interface ChatIssueRequest {
     notes?: string
     priority?: string
     labels?: string[]
-    chunk?: string
+    milestone?: string
     state: ChatRequest['state']
 }
 

@@ -792,3 +792,52 @@ describe("a session's stream catching up", () => {
         failed.mockRestore()
     })
 })
+
+describe('aiming a signal at a session (ORR-821)', () => {
+    beforeEach(() => {
+        vi.stubGlobal('EVERY', '*')
+        vi.stubGlobal('namedStream', (project: string, name: string) => project === 'hub' && name === 'bridge')
+        vi.stubGlobal('notFound', (message: string) => Object.assign(new Error(message), {statusCode: 404}))
+    })
+
+    it('takes its id, its name whole or without the project in any case, a launch, or a stream with only a name', () => {
+        sessions.attend('hub', 'w', undefined, 'hub · Nide')
+        expect(['w', 'hub · Nide', 'HUB · NIDE', 'nide', 'launch-9', 'bridge'].map(given => sessions.aimFor('hub', given)))
+            .toEqual(['w', 'w', 'w', 'w', 'launch-9', 'bridge'])
+    })
+
+    it('finds nothing for a name nobody has, or a session on another project, and refuses it with a 404', () => {
+        sessions.attend('pantry', 'p', undefined, 'pantry · Eir')
+        expect([sessions.aimFor('hub', 'nobody'), sessions.aimFor('hub', 'p'), sessions.aimFor('hub', 'Eir'), sessions.aimFor('pantry', 'bridge')])
+            .toEqual([undefined, undefined, undefined, undefined])
+        expect(() => sessions.aimSession('hub', 'nobody')).toThrow('No session nobody in hub')
+        expect([sessions.aimSession('hub', '*'), sessions.aimSession('hub', undefined), sessions.aimSession('pantry', 'eir')]).toEqual(['*', undefined, 'p'])
+    })
+})
+
+describe("a session's model (ORR-871)", () => {
+    it('is kept from the report that says it, through the ones that don\'t, and changes with a switch', () => {
+        sessions.report({id: 'm', project: 'hub', event: 'SessionStart'})
+        const session = () => sessions.listSessions('hub').find(s => s.id === 'm')
+        expect(session()?.model).toBeUndefined()
+        sessions.report({id: 'm', project: 'hub', event: 'Stop', model: 'claude-opus-5-5'})
+        sessions.report({id: 'm', project: 'hub', event: 'UserPromptSubmit'})
+        expect(session()?.model).toBe('claude-opus-5-5')
+        sessions.report({id: 'm', project: 'hub', event: 'Stop', model: 'claude-sonnet-5-5'})
+        expect(session()?.model).toBe('claude-sonnet-5-5')
+    })
+
+    it('keeps its effort level the same way, through reports that say none (ORR-894)', () => {
+        sessions.report({id: 'e', project: 'hub', event: 'PreToolUse', effort: 'high'})
+        sessions.report({id: 'e', project: 'hub', event: 'Stop'})
+        const session = () => sessions.listSessions('hub').find(s => s.id === 'e')
+        expect(session()?.effort).toBe('high')
+        sessions.report({id: 'e', project: 'hub', event: 'PreToolUse', effort: 'low'})
+        expect(session()?.effort).toBe('low')
+    })
+
+    it('comes with the first report when that one says it', () => {
+        sessions.report({id: 'n', project: 'hub', event: 'SessionStart', model: 'claude-fable-5-1'})
+        expect(sessions.listSessions('hub').find(s => s.id === 'n')?.model).toBe('claude-fable-5-1')
+    })
+})

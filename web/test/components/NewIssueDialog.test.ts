@@ -23,7 +23,7 @@ registerEndpoint('/api/projects/greenhouse/issues/GRE-7/focus', {method: 'POST',
     return {}
 }})
 
-const GREENHOUSE = {id: 'greenhouse', name: 'Greenhouse', key: 'GRE', board: {chunks: [{id: 'pantry', title: 'Pantry', tasks: []}, {id: '', title: 'No chunk', tasks: []}]}} as unknown as Project
+const GREENHOUSE = {id: 'greenhouse', name: 'Greenhouse', key: 'GRE', board: {milestones: [{id: 'pantry', title: 'Pantry', tasks: []}, {id: '', title: 'No milestone', tasks: []}]}} as unknown as Project
 const mounted: VueWrapper[] = []
 beforeEach(() => {
     sent = []
@@ -48,13 +48,13 @@ async function mount() {
 }
 
 describe('NewIssueDialog', () => {
-    it('creates the issue as the owner, in the chunk it was opened on, then closes', async () => {
+    it('creates the issue as the owner, in the milestone it was opened on, then closes', async () => {
         const wrapper = await mount()
         await wrapper.find('input[aria-label="Title"]').setValue('  Label the jars ')
         await wrapper.find('textarea').setValue('Flour, sugar, salt\n')
         await wrapper.find('form').trigger('submit')
         await vi.waitFor(() => expect(useNewIssue().target.value).toBeNull())
-        expect(sent).toEqual([{path: 'issues', actor: 'skoll', body: {title: 'Label the jars', notes: 'Flour, sugar, salt', chunk: 'pantry', status: 'backlog'}}])
+        expect(sent).toEqual([{path: 'issues', actor: 'skoll', body: {title: 'Label the jars', notes: 'Flour, sugar, salt', milestone: 'pantry', status: 'backlog'}}])
     })
 
     it('asks a session to pick it up when ticked', async () => {

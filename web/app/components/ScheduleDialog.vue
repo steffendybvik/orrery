@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import {COMMON_EVENTS, EVENT_PATTERN} from '#shared/happenings'
 import type {OnFilter} from '#shared/happenings'
-import type {Preset, Priority, Schedule} from '#shared/roadmap'
-import {EVENT_LEVELS} from '#shared/roadmap'
+import type {Effort, Preset, Priority, Schedule} from '#shared/roadmap'
+import {EFFORTS, EVENT_LEVELS, MODEL_ALIASES, kindOf} from '#shared/roadmap'
 import type {Repeat} from '~/utils/schedule'
 
 // Writing a schedule, or changing one, as the owner: in a project (picked here for a new one), whether each run makes an issue or
@@ -14,7 +14,7 @@ import type {Repeat} from '~/utils/schedule'
 // run, before its own words), and a schedule can start a session with presets instead (ORR-332, ORR-342). An agent's says
 // so at the top, and whether it runs, with Make it mine: changing it here leaves it the agent's (ORR-456). Or it moves what
 // its event is about to a status, with no session (ORR-636), so it only runs on an event. Or it's across projects (ORR-638):
-// All projects, with those to leave out unticked, or several, ticked; it then can't name a chunk, or run once or untrusted.
+// All projects, with those to leave out unticked, or several, ticked; it then can't name a milestone, or run once or untrusted.
 const {editing, pause, adopt, loadAcross} = useSchedules()
 const {seeSchedule} = useUnseen()
 const {byId} = useRoadmaps()
@@ -104,9 +104,11 @@ const once = ref('')
 const cron = ref('0 9 * * 1-5')
 const timezone = ref(localZone())
 const column = ref('todo')
-const chunk = ref('')
+const milestone = ref('')
 const priority = ref<Priority | ''>('')
 const labels = ref<string[]>([])
+const model = ref('')
+const effort = ref<Effort | ''>('')
 const ask = ref(false)
 const skipOpen = ref(true)
 const onlyIfChanged = ref(false)
@@ -117,14 +119,25 @@ const saving = ref(false)
 const failed = ref('')
 const titleInput = ref<HTMLInputElement | null>(null)
 
+// Its own model and effort (ORR-869): empty takes its kind's. An issue schedule's kind is its labels', as its issues' is; a
+// session's or a message's follows the issue it's about, else Claude Code's default. A full id set through the API stays a choice.
+const {settings: appSettings} = useAppSettings()
+const workKind = computed(() => sends.value === 'issue' ? kindOf(labels.value, appSettings.value.work_kinds) : undefined)
+const modelOptions = computed(() => [
+    {value: '', label: workKind.value ? `${workKind.value.model}, as ${workKind.value.name}` : sends.value === 'message' ? 'Any session' : "The issue's, or Claude Code's default"},
+    ...[...MODEL_ALIASES.filter(a => a !== 'default' && a !== 'opusplan'), ...model.value && !(MODEL_ALIASES as readonly string[]).includes(model.value) ? [model.value] : []]
+        .map(m => ({value: m, label: m})),
+])
+const effortOptions = computed(() => [{value: '', label: workKind.value?.effort ? `${workKind.value.effort}, as ${workKind.value.name}` : 'Default effort'}, ...EFFORTS.map(e => ({value: e, label: e}))])
+
 const existing = computed(() => editing.value?.schedule)
 const group = computed(() => editing.value?.across)
 const here = computed(() => byId(project.value))
-const chunks = computed(() => here.value?.board.chunks.filter(c => c.id) ?? [])
+const milestones = computed(() => here.value?.board.milestones.filter(c => c.id) ?? [])
 const known = computed(() => here.value ? [...new Set(allIssues(here.value).flatMap(({issue}) => issue.labels))] : [])
-// Another project picked for a new one: a chunk of the last one isn't one of this one's.
+// Another project picked for a new one: a milestone of the last one isn't one of this one's.
 watch(project, () => {
-    if (chunk.value && !chunks.value.some(c => c.id === chunk.value)) chunk.value = ''
+    if (milestone.value && !milestones.value.some(c => c.id === milestone.value)) milestone.value = ''
 })
 
 /** A time as `datetime-local` wants it, in this browser's zone. */
@@ -148,9 +161,11 @@ watch(editing, now => {
     moveFrom.value = [...s?.move_from ?? []]
     timezone.value = s?.timezone ?? localZone()
     column.value = s?.column ?? starts.value.find(p => p.kind === 'todo')?.id ?? 'todo'
-    chunk.value = s?.chunk ?? ''
+    milestone.value = s?.milestone ?? ''
     priority.value = s?.priority ?? ''
     labels.value = [...s?.labels ?? []]
+    model.value = s?.model ?? ''
+    effort.value = s?.effort ?? ''
     ask.value = s?.ask ?? false
     skipOpen.value = s?.skip_open ?? true
     onlyIfChanged.value = s?.only_if_changed ?? false
@@ -248,9 +263,11 @@ async function save() {
         ...trigger.value === 'event' ? {on: on.value, on_filter: onFilter.value} : cronText.value ? {cron: cronText.value} : {at: atText.value},
         timezone: timezone.value,
         column: column.value,
-        chunk: chunk.value || null,
+        milestone: milestone.value || null,
         priority: priority.value || null,
         labels: labels.value,
+        // An action runs no session, so it has no model.
+        ...sends.value === 'action' ? {} : {model: model.value || null, effort: effort.value || null},
         ask: ask.value,
         skip_open: skipOpen.value,
         only_if_changed: onlyIfChanged.value,
@@ -260,7 +277,7 @@ async function save() {
     }
     try {
         if (isAcross.value) {
-            const across = {...body, chunk: undefined, untrusted: undefined, projects: project.value === ALL ? ALL : listed.value, skip: project.value === ALL ? skipped.value : []}
+            const across = {...body, milestone: undefined, untrusted: undefined, projects: project.value === ALL ? ALL : listed.value, skip: project.value === ALL ? skipped.value : []}
             await (group.value ? apiFetch(`/schedules/across/${group.value.id}`, {method: 'PATCH', body: across}) : apiFetch('/schedules', {method: 'POST', body: across}))
             await loadAcross()
             close()
@@ -562,8 +579,8 @@ const labelOf = (options: {value: string, label: string}[], value: string) => op
             <span class="min-w-0 flex-1 truncate">{{ option.label }}</span>
           </template>
         </PropertyPicker>
-        <PropertyPicker v-if="!isAcross" v-model="chunk" :options="chunkOptions(chunks)" label="Chunk" field>
-          <span class="truncate" :class="!chunk && 'text-faint'">{{ labelOf(chunkOptions(chunks), chunk) }}</span>
+        <PropertyPicker v-if="!isAcross" v-model="milestone" :options="milestoneOptions(milestones)" label="Milestone" field>
+          <span class="truncate" :class="!milestone && 'text-faint'">{{ labelOf(milestoneOptions(milestones), milestone) }}</span>
         </PropertyPicker>
         <LabelPicker v-model="labels" :labels="known" />
       </div>
@@ -575,6 +592,16 @@ const labelOf = (options: {value: string, label: string}[], value: string) => op
         <input v-model="skipOpen" type="checkbox" class="accent-accent-fill">
         Skip a run while the last run's issue isn't done
       </label>
+    </section>
+
+    <section v-if="sends !== 'action'" class="flex flex-wrap items-center gap-2 border-t border-line pt-3" data-testid="schedule-model">
+      <span class="label mr-0.5">Runs on</span>
+      <PropertyPicker v-model="model" :options="modelOptions" label="Model" field>
+        <span class="truncate" :class="model ? 'font-mono text-xs' : 'text-faint'">{{ labelOf(modelOptions, model) }}</span>
+      </PropertyPicker>
+      <PropertyPicker v-model="effort" :options="effortOptions" label="Effort" field>
+        <span class="truncate" :class="!effort && 'text-faint'">{{ labelOf(effortOptions, effort) }}</span>
+      </PropertyPicker>
     </section>
 
     <div class="flex items-center gap-2 border-t border-line pt-3">

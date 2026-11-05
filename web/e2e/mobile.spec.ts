@@ -1,5 +1,5 @@
 import type {APIRequestContext, Page} from '@playwright/test'
-import {expect, test} from '@playwright/test'
+import {expect, test} from './test'
 
 // On a phone: the sidebar is a drawer behind the menu button that closes once a page is picked, and the
 // project and an issue's page fit the screen's width. A project of its own; the owner named if no one has yet.
@@ -68,4 +68,56 @@ test("the project and an issue's page fit the screen", async ({page}) => {
     await expect(page).toHaveURL(`/p/pocket/issues/${id}`)
     await expect(page.getByRole('heading', {name: /A title long enough/})).toBeVisible()
     expect(await scrollsSideways(page)).toBe(false)
+})
+
+test('key hints aren\'t drawn on a touch screen, which has no keys to press (ORR-817)', async ({page}) => {
+    await page.goto('/mine')
+    await page.getByRole('button', {name: 'Open the sidebar'}).tap()
+    const drawer = page.locator('aside')
+    await expect(drawer.getByRole('button', {name: /Jump to/})).toBeVisible()
+    await expect(drawer.locator('kbd')).not.toHaveCount(0)
+    for (const hint of await drawer.locator('kbd').all()) await expect(hint).toBeHidden()
+})
+
+test("the sidebar's small buttons are at least 24px to tap, WCAG 2.2's minimum (ORR-816)", async ({page}) => {
+    await page.goto('/mine')
+    await page.getByRole('button', {name: 'Open the sidebar'}).tap()
+    const drawer = page.locator('aside')
+    await expect(drawer).toBeInViewport()
+    const small = [
+        drawer.getByRole('button', {name: /^(Open|Fold) every project$/}),
+        drawer.getByRole('button', {name: 'New project'}),
+        drawer.getByRole('button', {name: /^(Open|Fold) Pocket$/}),
+    ]
+    const start = drawer.getByRole('button', {name: 'Start a session'})
+    if (await start.count()) small.push(start)
+    for (const button of small) {
+        const box = (await button.boundingBox())!
+        expect(box.width, await button.getAttribute('aria-label') ?? '').toBeGreaterThanOrEqual(24)
+        expect(box.height, await button.getAttribute('aria-label') ?? '').toBeGreaterThanOrEqual(24)
+    }
+})
+
+/** The text size of each field on the page a person can type in, by its label or placeholder. */
+const fieldSizes = (page: Page) => page.evaluate(() => [...document.querySelectorAll<HTMLElement>('input, textarea, select')]
+    .filter(f => !['checkbox', 'radio', 'hidden', 'range', 'color', 'file'].includes((f as HTMLInputElement).type) && f.getClientRects().length)
+    .map(f => ({field: f.getAttribute('aria-label') || f.getAttribute('placeholder') || f.tagName, size: parseFloat(getComputedStyle(f).fontSize)})))
+
+test("a field's text is 16px on a touch screen, so iOS doesn't zoom in as it takes the focus (ORR-843)", async ({page}) => {
+    await page.goto(`/p/pocket/issues/${id}`)
+    await expect(page.getByRole('heading', {level: 1})).toBeVisible()
+    const sizes = await fieldSizes(page)
+    expect(sizes.length).toBeGreaterThan(0)
+    for (const {field, size} of sizes) expect(size, field).toBeGreaterThanOrEqual(16)
+})
+
+test.describe('on a desktop', () => {
+    test.use({viewport: {width: 1280, height: 800}, isMobile: false, hasTouch: false})
+
+    test("a field's text stays as small as its class says (ORR-843)", async ({page}) => {
+        await page.goto(`/p/pocket/issues/${id}`)
+        await expect(page.getByRole('heading', {level: 1})).toBeVisible()
+        const sizes = await fieldSizes(page)
+        expect(sizes.some(({size}) => size < 16), JSON.stringify(sizes)).toBe(true)
+    })
 })

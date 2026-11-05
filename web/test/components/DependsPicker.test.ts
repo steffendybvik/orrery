@@ -3,7 +3,7 @@ import {nextTick} from 'vue'
 import type {VueWrapper} from '@vue/test-utils'
 import {mountSuspended, registerEndpoint} from '@nuxt/test-utils/runtime'
 import {getHeader, readBody, setResponseStatus} from 'h3'
-import type {Chunk, Issue, Project} from '#shared/roadmap'
+import type {Milestone, Issue, Project} from '#shared/roadmap'
 import DependsPicker from '~/components/DependsPicker.vue'
 import IssueProperties from '~/components/IssueProperties.vue'
 
@@ -40,9 +40,9 @@ const STOCK = {id: 'stock', title: 'Stock', tasks: [
     issue('GRE-1', 'Label the jars', {blocks: ['GRE-2']}),
     issue('GRE-2', 'Fill the jars', {depends_on: ['GRE-1'], blocked_by: ['GRE-1'], blocks: ['pantry/PAN-4']}),
     issue('GRE-3', 'Shelve the jars', {column: 'done', kind: 'done'}),
-]} as unknown as Chunk
-const GREENHOUSE = {id: 'greenhouse', name: 'Greenhouse', key: 'GRE', releases: [], board: {chunks: [STOCK]}} as unknown as Project
-const PANTRY = {id: 'pantry', name: 'Pantry', key: 'PAN', releases: [], board: {chunks: [{id: '', title: 'No chunk', tasks: [issue('PAN-4', 'Buy lids')]}]}} as unknown as Project
+]} as unknown as Milestone
+const GREENHOUSE = {id: 'greenhouse', name: 'Greenhouse', key: 'GRE', releases: [], board: {milestones: [STOCK]}} as unknown as Project
+const PANTRY = {id: 'pantry', name: 'Pantry', key: 'PAN', releases: [], board: {milestones: [{id: '', title: 'No milestone', tasks: [issue('PAN-4', 'Buy lids')]}]}} as unknown as Project
 
 const settled = () => new Promise(resolve => requestAnimationFrame(resolve)).then(() => nextTick())
 const mounted: VueWrapper[] = []
@@ -91,7 +91,7 @@ describe('DependsPicker', () => {
 
 describe('IssueProperties, folded for a small screen', () => {
     it('keeps status, priority and assignee out, and the rest behind More (ORR-692)', async () => {
-        const wrapper = await mountSuspended(IssueProperties, {props: {issue: STOCK.tasks[1]!, project: GREENHOUSE, chunk: STOCK, fold: true}, attachTo: document.body})
+        const wrapper = await mountSuspended(IssueProperties, {props: {issue: STOCK.tasks[1]!, project: GREENHOUSE, milestone: STOCK, fold: true}, attachTo: document.body})
         mounted.push(wrapper)
         const terms = () => wrapper.findAll('dt').map(dt => dt.text())
         expect(terms()).toEqual(['Status', 'Priority', 'Assignee'])
@@ -105,7 +105,7 @@ describe('IssueProperties, folded for a small screen', () => {
 
 describe('IssueProperties, Blocked by and Blocks', () => {
     async function mount() {
-        const wrapper = await mountSuspended(IssueProperties, {props: {issue: STOCK.tasks[1]!, project: GREENHOUSE, chunk: STOCK}, attachTo: document.body})
+        const wrapper = await mountSuspended(IssueProperties, {props: {issue: STOCK.tasks[1]!, project: GREENHOUSE, milestone: STOCK}, attachTo: document.body})
         mounted.push(wrapper)
         return wrapper
     }
@@ -119,7 +119,7 @@ describe('IssueProperties, Blocked by and Blocks', () => {
 
     it('saves the whole list as the owner, and says why one is refused', async () => {
         const wrapper = await mount()
-        await wrapper.find('button[aria-label="Blocked by"]').trigger('click')
+        await wrapper.find('button[data-picker="Blocked by"]').trigger('click')
         await settled()
         const option = (text: string) => wrapper.findAll('li').find(li => li.text().startsWith(text))!
         await option('GRE-3').trigger('mousedown', {button: 0})
@@ -138,7 +138,7 @@ describe('IssueProperties, Blocked by and Blocks', () => {
     it("sets what it blocks on the other issue's list, read fresh, adding and dropping itself (ORR-680)", async () => {
         const wrapper = await mount()
         // In its own project, GRE-3 waits on nothing yet; in another, this issue is named with its project.
-        await wrapper.find('button[aria-label="Blocks"]').trigger('click')
+        await wrapper.find('button[data-picker="Blocks"]').trigger('click')
         await settled()
         await wrapper.findAll('li').find(li => li.text().startsWith('GRE-3'))!.trigger('mousedown', {button: 0})
         await vi.waitFor(() => expect(others).toContainEqual({issue: 'GRE-3', actor: 'skoll', body: {depends_on: ['GRE-9', 'GRE-2']}}))

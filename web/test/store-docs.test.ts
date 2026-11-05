@@ -186,12 +186,13 @@ describe('images', () => {
         expect((await store.createUpload({data: jpeg.toString('base64')})).type).toBe('image/webp')
     })
 
+    // A 20,000 px image through sharp can take past the 5s default under coverage on a busy machine (ORR-890).
     it('keeps a screenshot taller than WebP holds as WebP too, scaled only to fit (ORR-465)', async () => {
         const {compressImage, MAX_HEIGHT} = await import('../server/utils/compress')
         const kept = await compressImage(await noise(200, 20_000), 'image/png')
         expect(kept.type).toBe('image/webp')
         expect(await sharp(kept.data).metadata()).toMatchObject({format: 'webp', height: MAX_HEIGHT, width: 164})
-    })
+    }, 20_000)
 
     it("drops a photo's metadata, its place included, whichever way it's kept smaller (ORR-465)", async () => {
         const {compressImage} = await import('../server/utils/compress')
@@ -207,7 +208,7 @@ describe('images', () => {
         expect((await store.createUpload({data: gif.toString('base64')})).type).toBe('image/gif')
         expect((await store.createUpload({data: png})).type).toBe('image/png')
         const frames = await noise(300, 300)
-        // An `acTL` chunk before the image data is what makes a PNG animated.
+        // An `acTL` milestone before the image data is what makes a PNG animated.
         const apng = Buffer.concat([frames.subarray(0, 33), Buffer.from('\0\0\0\x08acTL\0\0\0\x02\0\0\0\0\0\0\0\0', 'latin1'), frames.subarray(33)])
         expect((await store.createUpload({data: apng.toString('base64')})).type).toBe('image/png')
     })

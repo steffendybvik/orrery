@@ -1,19 +1,19 @@
 <script setup lang="ts">
-import type {Chunk, Column, Issue, Project, Session} from '#shared/roadmap'
-import {githubIssueLabel, githubIssueOf, githubRepo, isFrozen, taskUrl} from '#shared/roadmap'
+import type {Milestone, Column, Issue, Project, Session} from '#shared/roadmap'
+import {MODEL_ALIASES, githubIssueLabel, githubIssueOf, githubRepo, isFrozen, kindOf, taskUrl} from '#shared/roadmap'
 
 // An issue's properties, as the right-hand column of its page: status, priority, assignee, labels and
-// chunk are menus to type in (`PropertyPicker`), and change in place, as the owner, saving at once. The issues it
+// milestone are menus to type in (`PropertyPicker`), and change in place, as the owner, saving at once. The issues it
 // waits on (Blocked by, ORR-601) and those waiting on it (Blocks, ORR-680) are picked the same way, each with a × to let it go.
-/** `sub`: it's a sub-issue, in its parent's chunk. `worker`: the session working it, which an agent's assignee names.
+/** `sub`: it's a sub-issue, in its parent's milestone. `worker`: the session working it, which an agent's assignee names.
  *  `fold`: all but status, priority and assignee wait behind More, so a phone's first screen reaches the description (ORR-692). */
-const props = defineProps<{issue: Issue, project: Project, chunk: Chunk, sub?: boolean, worker?: Session, fold?: boolean}>()
+const props = defineProps<{issue: Issue, project: Project, milestone: Milestone, sub?: boolean, worker?: Session, fold?: boolean}>()
 const more = ref(false)
 const {who, name: owner} = useOwner()
 const {shared} = usePeople()
 const {save, saving, failed} = useIssueSave(() => props.project.id, () => props.issue.id)
 
-// A parent's status follows its sub-issues, and a sub-issue is in its parent's chunk.
+// A parent's status follows its sub-issues, and a sub-issue is in its parent's milestone.
 const hasSubs = computed(() => props.issue.tasks.length > 0)
 const isSub = computed(() => !!props.sub)
 
@@ -26,9 +26,9 @@ const priority = computed({
     get: () => props.issue.priority ?? '',
     set: (next: string) => save({priority: next || null}),
 })
-const chunkId = computed({
-    get: () => props.chunk.id,
-    set: (next: string) => save({chunk: next || null}),
+const milestoneId = computed({
+    get: () => props.milestone.id,
+    set: (next: string) => save({milestone: next || null}),
 })
 const statusOptions = computed(() => places.value.map(p => ({value: p.id, label: p.label})))
 // The release it ships in, newest first; a shipped or frozen one says so.
@@ -37,6 +37,19 @@ const release = computed({
     set: (next: string) => save({release: next || null}),
 })
 const releaseOptions = computed(() => [{value: '', label: 'No release'}, ...props.project.releases.map(r => ({value: r.version, label: r.shipped_on ? `${r.version} · shipped` : isFrozen(r) ? `${r.version} · frozen` : r.version}))])
+// Its own model (ORR-869), over its kind's: empty follows the kind, whose model shows as the empty choice. A full id set
+// through the API stays a choice.
+const {settings: appSettings} = useAppSettings()
+const kind = computed(() => kindOf(props.issue.labels, appSettings.value.work_kinds))
+const model = computed({
+    get: () => props.issue.model ?? '',
+    set: (next: string) => save({model: next || null}),
+})
+const modelOptions = computed(() => [
+    {value: '', label: kind.value ? `${kind.value.model}, as ${kind.value.name}` : "Claude Code's default"},
+    ...[...MODEL_ALIASES.filter(a => a !== 'default' && a !== 'opusplan'), ...props.issue.model && !(MODEL_ALIASES as readonly string[]).includes(props.issue.model) ? [props.issue.model] : []]
+        .map(m => ({value: m, label: m})),
+])
 // Only a heads-up: a frozen release still takes the issue.
 const frozen = computed(() => isFrozen(props.project.releases.find(r => r.version === props.issue.release)))
 
@@ -210,15 +223,22 @@ const assigneeOptions = computed(() => [{value: '', label: 'Unassigned'}, ...peo
       <dt class="label">Project</dt>
       <dd class="flex min-h-7 items-center"><NuxtLink :to="`/p/${project.id}`" class="hover:underline">{{ project.name }}</NuxtLink></dd>
 
-      <dt class="label">Chunk</dt>
+      <dt class="label">Milestone</dt>
       <dd class="flex min-w-0 items-center gap-1">
-        <PropertyPicker v-if="!isSub" v-model="chunkId" :options="chunkOptions(project.board.chunks)" label="Chunk" :disabled="saving">
-          <span class="truncate" :class="!chunk.id && 'text-faint'">{{ chunk.id ? chunk.title : 'No chunk' }}</span>
+        <PropertyPicker v-if="!isSub" v-model="milestoneId" :options="milestoneOptions(project.board.milestones)" label="Milestone" :disabled="saving">
+          <span class="truncate" :class="!milestone.id && 'text-faint'">{{ milestone.id ? milestone.title : 'No milestone' }}</span>
         </PropertyPicker>
-        <NuxtLink v-else :to="chunkPath(project.id, chunk.id)" class="truncate hover:underline" :class="!chunk.id && 'text-faint'" title="A sub-issue is in its parent's chunk">{{ chunk.title }}</NuxtLink>
-        <UiButton v-if="!isSub && chunk.id" :to="chunkPath(project.id, chunk.id)" variant="ghost" size="xs" square class="shrink-0" title="Open the chunk" aria-label="Open the chunk">
+        <NuxtLink v-else :to="milestonePath(project.id, milestone.id)" class="truncate hover:underline" :class="!milestone.id && 'text-faint'" title="A sub-issue is in its parent's milestone">{{ milestone.title }}</NuxtLink>
+        <UiButton v-if="!isSub && milestone.id" :to="milestonePath(project.id, milestone.id)" variant="ghost" size="xs" square class="shrink-0" title="Open the milestone" aria-label="Open the milestone">
           <svg class="size-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M9 7h8v8" /></svg>
         </UiButton>
+      </dd>
+
+      <dt class="label">Model</dt>
+      <dd class="flex min-w-0 items-center gap-1" data-testid="issue-model">
+        <PropertyPicker v-model="model" :options="modelOptions" label="Model" :disabled="saving">
+          <span class="truncate font-mono text-xs" :class="!issue.model && 'font-sans text-faint'">{{ issue.model ?? modelOptions[0]?.label }}</span>
+        </PropertyPicker>
       </dd>
 
       <template v-if="project.releases.length || issue.release">

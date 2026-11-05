@@ -2,7 +2,7 @@
 import type {Column, Priority} from '#shared/roadmap'
 import {PRIORITIES, fullId} from '#shared/roadmap'
 
-// Right-clicking an issue's row or card: move it to a column, set its priority, put it in a chunk, ask
+// Right-clicking an issue's row or card: move it to a column, set its priority, put it in a milestone, ask
 // the Claude sessions to focus on it, copy its id, open or remove it, all as the owner, without
 // opening its page. The board updates live once a change is saved. Esc or a click outside closes it.
 const {target, close} = useIssueMenu()
@@ -12,20 +12,20 @@ const {open: openIssue} = useIssueLink()
 const project = computed(() => byId(target.value?.project))
 const found = computed(() => target.value ? findIssue(project.value, target.value.issue) : null)
 const issue = computed(() => found.value?.issue)
-const chunks = computed(() => project.value?.board.chunks.filter(c => c.id) ?? [])
+const milestones = computed(() => project.value?.board.milestones.filter(c => c.id) ?? [])
 const listening = computed(() => (sessions.value[target.value?.project ?? ''] ?? []).filter(s => s.listening).length)
 const {places: WHERE} = useStatuses()
 
 const busy = ref(false)
 const failed = ref('')
 const confirming = ref(false)
-const choosingChunk = ref(false)
+const choosingMilestone = ref(false)
 const note = ref('')
 
 watch(target, () => {
     failed.value = ''
     confirming.value = false
-    choosingChunk.value = false
+    choosingMilestone.value = false
     note.value = ''
 })
 // Closed if the issue goes away (removed elsewhere).
@@ -49,8 +49,8 @@ async function send(path: string, method: 'PATCH' | 'POST' | 'DELETE', body?: Re
 
 const moveTo = (column: Column) => send('', 'PATCH', columnPatch(column, issue.value?.proposal))
 const setPriority = (priority: Priority | null) => send('', 'PATCH', {priority})
-const setChunk = (chunk: string | null) => send('', 'PATCH', {chunk})
-// Aimed at no session, orrery picks one (the one already on it, else an idle one). Only a chunk can go to them all (ORR-681).
+const setMilestone = (milestone: string | null) => send('', 'PATCH', {milestone})
+// Aimed at no session, orrery picks one (the one already on it, else an idle one). Only a milestone can go to them all (ORR-681).
 const focus = () => send('/focus', 'POST', {}, () => {
     note.value = listening.value === 1 ? 'Sent to the listening session' : 'Sent to one session, the first free'
 })
@@ -74,7 +74,7 @@ const pick = 'grid size-7 place-items-center rounded-md ring-1 hover:bg-hover di
         <span class="min-w-0 flex-1 truncate text-muted">{{ issue.title }}</span>
       </div>
 
-      <template v-if="!confirming && !choosingChunk">
+      <template v-if="!confirming && !choosingMilestone">
         <div v-if="!issue.tasks.length" class="flex flex-col gap-1 border-t border-line px-2 pt-2 pb-1">
           <span class="label">Move to</span>
           <div class="flex gap-1">
@@ -111,10 +111,10 @@ const pick = 'grid size-7 place-items-center rounded-md ring-1 hover:bg-hover di
         </div>
 
         <div class="flex flex-col border-t border-line pt-1">
-          <UiMenuItem v-if="!found?.parents.length" :disabled="busy" @click="choosingChunk = true">
+          <UiMenuItem v-if="!found?.parents.length" :disabled="busy" @click="choosingMilestone = true">
             <svg class="size-3.5 text-faint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="6" rx="1.5" /><rect x="3" y="14" width="18" height="6" rx="1.5" /></svg>
-            <span class="flex-1">Move to chunk</span>
-            <span class="max-w-24 truncate text-xs text-faint">{{ found?.chunk.id ? found.chunk.title : 'None' }}</span>
+            <span class="flex-1">Move to milestone</span>
+            <span class="max-w-24 truncate text-xs text-faint">{{ found?.milestone.id ? found.milestone.title : 'None' }}</span>
           </UiMenuItem>
           <UiMenuItem v-if="listening && !isClosed(issue.kind)" :disabled="busy" @click="focus()">
             <svg class="size-3.5 text-accent-fill" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="8" /><circle cx="12" cy="12" r="3" /></svg>
@@ -135,16 +135,16 @@ const pick = 'grid size-7 place-items-center rounded-md ring-1 hover:bg-hover di
         </div>
       </template>
 
-      <div v-else-if="choosingChunk" class="flex max-h-64 flex-col overflow-y-auto border-t border-line pt-1">
-        <UiMenuItem muted @click="choosingChunk = false">‹ Back</UiMenuItem>
+      <div v-else-if="choosingMilestone" class="flex max-h-64 flex-col overflow-y-auto border-t border-line pt-1">
+        <UiMenuItem muted @click="choosingMilestone = false">‹ Back</UiMenuItem>
         <UiMenuItem
-            v-for="c in [{id: '', title: 'No chunk'}, ...chunks]"
+            v-for="c in [{id: '', title: 'No milestone'}, ...milestones]"
             :key="c.id"
-            :active="found?.chunk.id === c.id"
+            :active="found?.milestone.id === c.id"
             :muted="!c.id"
             :class="!c.id && 'italic'"
             :disabled="busy"
-            @click="setChunk(c.id || null)"
+            @click="setMilestone(c.id || null)"
         >
           <span class="flex-1 truncate">{{ c.title }}</span>
         </UiMenuItem>

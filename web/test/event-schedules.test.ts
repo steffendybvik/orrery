@@ -44,7 +44,7 @@ describe('event types', () => {
         expect(matchesType('*', 'server.error')).toBe(true)
     })
 
-    it('come out of what the store writes: every issue field, comments, releases, chunks and docs', async () => {
+    it('come out of what the store writes: every issue field, comments, releases, milestones and docs', async () => {
         const issue = await store.createIssue('greenhouse', {title: 'Shelf labels'}, me)
         await store.updateIssue('greenhouse', issue.id, {status: 'in-review', labels: ['ui'], title: 'Shelf labels, printed'}, agent)
         await store.createComment('greenhouse', issue.id, {body: 'Which printer?', asks: 'decision'}, agent)
@@ -52,12 +52,12 @@ describe('event types', () => {
         await store.updateRelease('greenhouse', '1.0.0', {frozen_on: '2026-10-27'}, me)
         await store.updateRelease('greenhouse', '1.0.0', {frozen_on: '2026-10-28'}, me)
         await store.updateRelease('greenhouse', '1.0.0', {shipped_on: '2026-10-29'}, me)
-        await store.createChunk('greenhouse', {title: 'Upkeep'}, me)
+        await store.createMilestone('greenhouse', {title: 'Upkeep'}, me)
         await store.putDoc('greenhouse', 'readme', {title: 'Readme', body: '# Greenhouse'}, me)
         await store.putDoc('greenhouse', 'readme', {title: 'Readme', body: '# Greenhouse, again'}, me)
         const types = heard.map(h => h.event.type)
         expect(types).toEqual(expect.arrayContaining(['issue.created', 'issue.status', 'issue.labels', 'issue.title', 'comment.asks',
-            'release.created', 'release.frozen', 'release.shipped', 'chunk.created', 'doc.created', 'doc.changed']))
+            'release.created', 'release.frozen', 'release.shipped', 'milestone.created', 'doc.created', 'doc.changed']))
         // A new day on a frozen release isn't a second freeze.
         expect(types.filter(t => t === 'release.frozen')).toHaveLength(1)
         expect(heard.find(h => h.event.type === 'issue.status')?.event).toMatchObject({project: 'greenhouse', subject: 'GRE-1', from: 'backlog', to: 'in-review', by: agent})

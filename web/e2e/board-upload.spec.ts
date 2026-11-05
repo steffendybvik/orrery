@@ -1,4 +1,4 @@
-import {expect, test} from '@playwright/test'
+import {expect, test} from './test'
 import {OWNER, makeProject, projectApi} from './support'
 
 // A board's file brought in as a new board, through the real route (ORR-670); what it does with a file is in board-upload.test.ts.
@@ -14,9 +14,11 @@ test('uploads a board\'s export as a new board, which opens with its issues, and
     const agent = await request.post('/api/projects/upload?id=sawmill&key=SAW', {data: file, headers: {'Orrery-Actor': 'claude'}})
     expect(agent.status()).toBe(403)
 
-    const uploaded = await request.post('/api/projects/upload?id=sawmill&key=SAW&name=Sawmill', {data: file, headers: OWNER})
+    // A retry's board has its own id and key, as the first try may have made Sawmill already.
+    const [id, key] = test.info().retry ? ['sawmill-again', 'SWA'] : ['sawmill', 'SAW']
+    const uploaded = await request.post(`/api/projects/upload?id=${id}&key=${key}&name=Sawmill`, {data: file, headers: OWNER})
     expect(uploaded.status()).toBe(201)
-    await page.goto(`/p/sawmill/issues/${issue.id}`)
+    await page.goto(`/p/${id}/issues/${issue.id}`)
     await expect(page.getByRole('heading', {name: 'Prune the pears'})).toBeVisible()
     await expect(page.getByText('brought it in from a file')).toBeVisible()
 })

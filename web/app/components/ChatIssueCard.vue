@@ -6,7 +6,7 @@ import type {ChatIssueRequest} from '#shared/roadmap'
 const props = defineProps<{request: ChatIssueRequest, project: string, busy: boolean, ended: boolean}>()
 const emit = defineEmits<{decide: [file: boolean]}>()
 
-const details = computed(() => [props.request.priority, props.request.chunk && `chunk ${props.request.chunk}`, ...props.request.labels ?? []].filter(Boolean).join(' · '))
+const details = computed(() => [props.request.priority, props.request.milestone && `milestone ${props.request.milestone}`, ...props.request.labels ?? []].filter(Boolean).join(' · '))
 const answered = computed(() => ({asked: 'Not filed', denied: 'Not filed: you said not to', expired: 'Not filed: not answered in time, or offered again', allowed: 'Filed'})[props.request.state])
 </script>
 

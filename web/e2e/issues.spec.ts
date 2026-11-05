@@ -1,4 +1,4 @@
-import {expect, test} from '@playwright/test'
+import {expect, test} from './test'
 import {AGENT, OWNER, makeProject, newIssue, projectApi} from './support'
 
 // Issues on a project of their own: made from the page and moved on the board, the board leaving out the columns
@@ -20,7 +20,7 @@ test('adds issues and moves one on the board', async ({page, request}) => {
     await page.getByRole('radio', {name: /Board/}).or(page.getByRole('button', {name: /Board/})).first().click()
     const card = page.locator('[data-issue="SCU-1"]')
     await expect(card.getByRole('img', {name: 'Todo'})).toBeVisible()
-    // The chunk's name is plain text: the whole card opens the issue.
+    // The milestone's name is plain text: the whole card opens the issue.
     await expect(card.getByRole('link')).toHaveCount(0)
     await card.click({button: 'right'})
     await page.getByRole('menu').getByRole('button', {name: 'Move to In progress'}).click()

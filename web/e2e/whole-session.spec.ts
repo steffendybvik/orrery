@@ -6,7 +6,7 @@ import {join} from 'node:path'
 import {fileURLToPath} from 'node:url'
 import {Client} from '@modelcontextprotocol/sdk/client/index.js'
 import {StdioClientTransport} from '@modelcontextprotocol/sdk/client/stdio.js'
-import {expect, test} from '@playwright/test'
+import {expect, test} from './test'
 import {FAKE_TMUX} from '../test/fake-tmux'
 import {OWNER, makeProject, projectApi} from './support'
 
@@ -79,7 +79,9 @@ test('a session goes from its start to its stop through the real launcher, chann
     const api = projectApi(project)
     const sessions = async () => await api(request, 'get', '/sessions') as Listed[]
     const issue = async (id: string) => api(request, 'get', `/issues/${id}`) as Promise<{status: string, assignee?: string}>
-    await request.patch('/api/settings', {data: {starts: {limit: 3}}, headers: OWNER})
+    // The limit counts every project's launches on their way, and the specs before this one leave some that no launcher takes,
+    // held up to 30 minutes when an outdated launcher refused them: at 3 it had no room, so its focus started nothing (ORR-912).
+    await request.patch('/api/settings', {data: {starts: {limit: 20}}, headers: OWNER})
     const box = machine(baseURL!, project)
     const running: ChildProcess[] = []
     let window: Awaited<ReturnType<typeof claude>> | undefined

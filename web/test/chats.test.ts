@@ -3,6 +3,7 @@ import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 import type {Chat} from '#shared/roadmap'
 import {Store} from '../server/utils/store'
 import {testDb} from './db'
+import type {Db} from '../server/utils/database'
 
 // The owner's chats live in the module, with Nitro's auto-imports stubbed: its launch, and the message to its session.
 let chats: typeof import('../server/utils/chats')
@@ -24,6 +25,9 @@ beforeEach(async () => {
     vi.stubGlobal('notFound', (message: string) => Object.assign(new Error(message), {statusCode: 404}))
     vi.stubGlobal('badRequest', (message: string) => Object.assign(new Error(message), {statusCode: 400}))
     vi.stubGlobal('currentId', (id: string) => id)
+    vi.stubGlobal('sessionOfLaunch', () => undefined)
+    // Where a chat is kept (ORR-877): nowhere, but in the tests of it below.
+    vi.stubGlobal('useDatabase', () => ({run: async () => ({changes: 0}), all: async () => []}))
     vi.resetModules()
     chats = await import('../server/utils/chats')
 })
@@ -208,14 +212,103 @@ describe("the owner's chat", () => {
         expect(() => chats.clearChat('c1c2c3c4c5c6')).toThrow(/has ended/)
     })
 
-    it('ends when the owner ends it: its session is stopped and the chat goes, saying so', async () => {
+    it('ends when the owner ends it: its session is stopped, and the chat stays to read, saying so (ORR-870)', async () => {
         await chats.openChat('greenhouse')
+        await chats.say('c1c2c3c4c5c6', 'What is GRE-4 about?', [], owner)
         chats.endChat('c1c2c3c4c5c6')
         expect(stopped).toEqual(['c1c2c3c4c5c6'])
-        expect(chats.listChats()).toEqual([])
+        expect(chats.listChats()).toEqual([expect.objectContaining({id: 'c1c2c3c4c5c6', ended: true, ended_at: expect.any(String)})])
+        expect(chats.readChat('c1c2c3c4c5c6')).toMatchObject({ended: true})
         expect(changes.at(-1)).toMatchObject({id: 'c1c2c3c4c5c6', ended: true})
         expect(() => chats.chatOf('c1c2c3c4c5c6')).toThrow(/has ended/)
-        await expect(chats.say('c1c2c3c4c5c6', 'Still there?', [], owner)).rejects.toMatchObject({statusCode: 404})
+        expect(() => chats.readChat('nope')).toThrow(/No chat nope/)
+        // One ended before anything was said has nothing to read, and goes.
+        vi.stubGlobal('startChat', async (project: string) => ({id: 'd1d2d3d4d5d6', project}))
+        await chats.openChat('greenhouse')
+        chats.endChat('d1d2d3d4d5d6')
+        expect(chats.listChats().map(c => c.id)).toEqual(['c1c2c3c4c5c6'])
+        await expect(chats.say('d1d2d3d4d5d6', 'Still there?', [], owner)).rejects.toMatchObject({statusCode: 404})
+    })
+
+    describe('written in again once ended (ORR-884)', () => {
+        const CLAUDE = '0b5c3a8e-2f4d-4c1a-9e7b-6d2f8a1c3e5b'
+        let resumed: {project: string, id: string, context: {text: string}, fresh: {text: string}, resume?: string}[]
+        let notes: {kind: string}[]
+        beforeEach(() => {
+            resumed = []
+            notes = []
+            vi.stubGlobal('resumeChat', async (project: string, id: string, context: {text: string}, fresh: {text: string}, resume?: string) => {
+                resumed.push({project, id, context, fresh, resume})
+                return {id, project}
+            })
+            vi.stubGlobal('useEventLog', () => ({note: (note: {kind: string}) => notes.push(note)}))
+        })
+
+        it('takes up the Claude session it ran as, on the same chat, and the message goes to it', async () => {
+            await chats.openChat('greenhouse')
+            await chats.say('c1c2c3c4c5c6', 'What is GRE-4 about?', [], owner)
+            chats.reply('c1c2c3c4c5c6', 'Jars.')
+            vi.stubGlobal('sessionOfLaunch', (_project: string, launch: string) => launch === 'c1c2c3c4c5c6' ? {id: CLAUDE} : undefined)
+            chats.endChat('c1c2c3c4c5c6')
+            expect(chats.readChat('c1c2c3c4c5c6')).toMatchObject({ended: true, claude_session: CLAUDE})
+            await chats.say('c1c2c3c4c5c6', 'And GRE-5?', [], owner)
+            expect(resumed).toEqual([expect.objectContaining({project: 'greenhouse', id: 'c1c2c3c4c5c6', resume: CLAUDE})])
+            // A launcher that can't resume starts it fresh, told what was said.
+            expect(resumed[0]!.fresh.text).toContain('The owner: What is GRE-4 about?')
+            expect(resumed[0]!.fresh.text).toContain('You: Jars.')
+            const chat = chats.chatOf('c1c2c3c4c5c6')
+            expect(chat.ended).toBeUndefined()
+            expect(chat.ended_at).toBeUndefined()
+            expect(chat.messages.map(m => m.text)).toEqual(['What is GRE-4 about?', 'Jars.', 'And GRE-5?'])
+            expect(messages.at(-1)).toMatchObject({target: 'launch-c1c2c3c4c5c6', text: expect.stringContaining('And GRE-5?')})
+            expect(changes.at(-1)).toMatchObject({id: 'c1c2c3c4c5c6'})
+            expect(changes.at(-1)?.ended).toBeUndefined()
+            expect(notes.map(n => n.kind)).toContain('chat.resumed')
+        })
+
+        it('starts it fresh, told what was said, when no Claude session is known', async () => {
+            await chats.openChat('greenhouse')
+            await chats.say('c1c2c3c4c5c6', 'What is GRE-4 about?', [], owner)
+            chats.endChat('c1c2c3c4c5c6')
+            await chats.say('c1c2c3c4c5c6', 'Still there?', [], owner)
+            expect(resumed[0]!.resume).toBeUndefined()
+            expect(resumed[0]!.fresh.text).toContain('The owner: What is GRE-4 about?')
+        })
+
+        it('stays ended when its session can\'t start again, the message not kept', async () => {
+            await chats.openChat('greenhouse')
+            await chats.say('c1c2c3c4c5c6', 'What is GRE-4 about?', [], owner)
+            chats.endChat('c1c2c3c4c5c6')
+            vi.stubGlobal('resumeChat', async () => { throw Object.assign(new Error('No launcher is running for greenhouse'), {statusCode: 409}) })
+            await expect(chats.say('c1c2c3c4c5c6', 'Still there?', [], owner)).rejects.toMatchObject({statusCode: 409})
+            expect(chats.readChat('c1c2c3c4c5c6')).toMatchObject({ended: true})
+            expect(chats.readChat('c1c2c3c4c5c6').messages).toHaveLength(1)
+        })
+    })
+
+    it('deletes a chat when the owner deletes it: a running one is ended first, and the page hears it go (ORR-882)', async () => {
+        const notes: {kind: string, details?: object}[] = []
+        vi.stubGlobal('useEventLog', () => ({note: (note: {kind: string}) => notes.push(note)}))
+        await chats.openChat('greenhouse')
+        await chats.say('c1c2c3c4c5c6', 'File one for the grow lights', [], owner)
+        chats.deleteChat('c1c2c3c4c5c6', {name: 'skoll', owner: true})
+        expect(stopped).toEqual(['c1c2c3c4c5c6'])
+        expect(chats.listChats()).toEqual([])
+        expect(() => chats.readChat('c1c2c3c4c5c6')).toThrow(/No chat/)
+        expect(changes.at(-1)).toMatchObject({id: 'c1c2c3c4c5c6', deleted: true, messages: []})
+        expect(notes).toEqual([expect.objectContaining({kind: 'chat.deleted', project: 'greenhouse', details: {chat: 'c1c2c3c4c5c6'}})])
+        // Its launch ending after doesn't bring it back to read.
+        chats.chatEnded('c1c2c3c4c5c6')
+        expect(chats.listChats()).toEqual([])
+        // An ended one, kept to read, goes too, with no session to stop.
+        vi.stubGlobal('startChat', async (project: string) => ({id: 'd1d2d3d4d5d6', project}))
+        await chats.openChat('greenhouse')
+        await chats.say('d1d2d3d4d5d6', 'Hello', [], owner)
+        chats.endChat('d1d2d3d4d5d6')
+        chats.deleteChat('d1d2d3d4d5d6', {name: 'skoll', owner: true})
+        expect(stopped).toEqual(['c1c2c3c4c5c6', 'd1d2d3d4d5d6'])
+        expect(chats.listChats()).toEqual([])
+        expect(() => chats.deleteChat('nope', {name: 'skoll', owner: true})).toThrow(/No chat nope/)
     })
 
     it('asks the owner to message sessions, sending only once they press Send, as theirs through the chat', async () => {
@@ -512,48 +605,48 @@ describe("the owner's chat", () => {
         expect(messages.at(-1)!.text).toContain('nothing was filed')
     })
 
-    it('asks to make a chunk or change one, and saves it as the owner\'s only once they allow it (ORR-510)', async () => {
+    it('asks to make a milestone or change one, and saves it as the owner\'s only once they allow it (ORR-510)', async () => {
         const notes: {kind: string}[] = []
         const made: unknown[][] = []
         const shelves = {id: '3', title: 'Shelves', summary: 'Everything on the shelves', priority: null}
         vi.stubGlobal('useStore', () => ({
-            chunk: async (_project: string, id: string) => {
-                if (id !== '3') throw Object.assign(new Error(`No chunk ${id}`), {statusCode: 404})
+            milestone: async (_project: string, id: string) => {
+                if (id !== '3') throw Object.assign(new Error(`No milestone ${id}`), {statusCode: 404})
                 return shelves
             },
-            createChunk: async (project: string, body: {title: string}, actor: unknown) => (made.push(['create', project, body, actor]), {id: '7', title: body.title}),
-            updateChunk: async (project: string, id: string, body: unknown) => (made.push(['update', project, id, body]), {...shelves, priority: 'P1'}),
+            createMilestone: async (project: string, body: {title: string}, actor: unknown) => (made.push(['create', project, body, actor]), {id: '7', title: body.title}),
+            updateMilestone: async (project: string, id: string, body: unknown) => (made.push(['update', project, id, body]), {...shelves, priority: 'P1'}),
             messageSession: async (project: string, target: string, text: string) => void messages.push({project, target, text}),
         }))
         vi.stubGlobal('useEventLog', () => ({note: (entry: {kind: string}) => notes.push(entry)}))
         vi.stubGlobal('conflict', (message: string) => Object.assign(new Error(message), {statusCode: 409}))
         vi.stubGlobal('forbidden', (message: string) => Object.assign(new Error(message), {statusCode: 403}))
         await chats.openChat('greenhouse')
-        const fresh = await chats.ask('c1c2c3c4c5c6', {chunk: {title: 'Seed trays', priority: 'P2'}, why: 'As you asked.'})
-        expect(fresh).toMatchObject({from: 'claude', text: 'As you asked.', chunk: {title: 'Seed trays', state: 'asked', changes: [{field: 'title', to: 'Seed trays'}, {field: 'priority', to: 'P2'}]}})
+        const fresh = await chats.ask('c1c2c3c4c5c6', {milestone: {title: 'Seed trays', priority: 'P2'}, why: 'As you asked.'})
+        expect(fresh).toMatchObject({from: 'claude', text: 'As you asked.', milestone: {title: 'Seed trays', state: 'asked', changes: [{field: 'title', to: 'Seed trays'}, {field: 'priority', to: 'P2'}]}})
         expect(made).toEqual([])
         await chats.answer('c1c2c3c4c5c6', fresh.id, true, owner)
         expect(made).toEqual([['create', 'greenhouse', {title: 'Seed trays', priority: 'P2'}, {...owner, via: 'chat'}]])
-        expect(chats.chatOf('c1c2c3c4c5c6').messages.find(m => m.id === fresh.id)!.chunk).toMatchObject({id: '7', state: 'allowed'})
-        expect(messages.at(-1)!.text).toBe('(I allowed your request: chunk 7 ("Seed trays") is saved.)')
-        // A change shows each field from → to; asking again for the same chunk lets the one before go.
-        const first = await chats.ask('c1c2c3c4c5c6', {id: '3', chunk: {priority: 'P2'}})
-        const second = await chats.ask('c1c2c3c4c5c6', {id: '3', chunk: {priority: 'P1'}})
-        expect(first.chunk!.state).toBe('expired')
-        expect(second.chunk).toMatchObject({id: '3', title: 'Shelves', changes: [{field: 'priority', from: null, to: 'P1'}]})
+        expect(chats.chatOf('c1c2c3c4c5c6').messages.find(m => m.id === fresh.id)!.milestone).toMatchObject({id: '7', state: 'allowed'})
+        expect(messages.at(-1)!.text).toBe('(I allowed your request: milestone 7 ("Seed trays") is saved.)')
+        // A change shows each field from → to; asking again for the same milestone lets the one before go.
+        const first = await chats.ask('c1c2c3c4c5c6', {id: '3', milestone: {priority: 'P2'}})
+        const second = await chats.ask('c1c2c3c4c5c6', {id: '3', milestone: {priority: 'P1'}})
+        expect(first.milestone!.state).toBe('expired')
+        expect(second.milestone).toMatchObject({id: '3', title: 'Shelves', changes: [{field: 'priority', from: null, to: 'P1'}]})
         await chats.answer('c1c2c3c4c5c6', second.id, false, owner)
         expect(made).toHaveLength(1)
-        expect(messages.at(-1)!.text).toMatch(/denied your request to change chunk 3 .*nothing changed/)
-        // What it may not ask for, or what the chunk routes would refuse, fails as it asks.
-        for (const [body, status] of [[{chunk: {}}, 400], [{chunk: {title: 'X', position: 2}}, 403], [{chunk: {summary: 'No name'}}, 400],
-            [{chunk: {title: 'X', priority: 'P9'}}, 400], [{id: '4', chunk: {priority: 'P1'}}, 404]] as const)
+        expect(messages.at(-1)!.text).toMatch(/denied your request to change milestone 3 .*nothing changed/)
+        // What it may not ask for, or what the milestone routes would refuse, fails as it asks.
+        for (const [body, status] of [[{milestone: {}}, 400], [{milestone: {title: 'X', position: 2}}, 403], [{milestone: {summary: 'No name'}}, 400],
+            [{milestone: {title: 'X', priority: 'P9'}}, 400], [{id: '4', milestone: {priority: 'P1'}}, 404]] as const)
             await expect(chats.ask('c1c2c3c4c5c6', body)).rejects.toMatchObject({statusCode: status})
         expect(notes.map(n => n.kind)).toEqual(['chat.asked', 'chat.answered', 'chat.asked', 'chat.asked', 'chat.answered'])
     })
 
     it('makes what its session asks for with nobody on it, in Todo whatever status it asks for', () => {
-        expect(chats.asChatIssue({title: 'Shelf labels', notes: 'From the chat', status: 'in-progress', assignee: 'claude', priority: 'P2', chunk: '3'}))
-            .toEqual({title: 'Shelf labels', notes: 'From the chat', priority: 'P2', chunk: '3', status: 'todo'})
+        expect(chats.asChatIssue({title: 'Shelf labels', notes: 'From the chat', status: 'in-progress', assignee: 'claude', priority: 'P2', milestone: '3'}))
+            .toEqual({title: 'Shelf labels', notes: 'From the chat', priority: 'P2', milestone: '3', status: 'todo'})
         for (const status of [undefined, 'backlog', 'done', 'canceled']) expect(chats.asChatIssue({title: 'Seed trays', status, plan: null})).toEqual({title: 'Seed trays', status: 'todo'})
     })
 
@@ -576,8 +669,8 @@ describe("the owner's chat", () => {
 
     it("changes an issue's fields, but never its state of work", () => {
         vi.stubGlobal('forbidden', (message: string) => Object.assign(new Error(message), {statusCode: 403}))
-        expect(chats.asChatEdit({priority: 'P0', labels: ['chat'], chunk: '3', release: '1.0.0', parent: null, title: 'Jars', notes: 'Glass'}))
-            .toEqual({priority: 'P0', labels: ['chat'], chunk: '3', release: '1.0.0', parent: null, title: 'Jars', notes: 'Glass'})
+        expect(chats.asChatEdit({priority: 'P0', labels: ['chat'], milestone: '3', release: '1.0.0', parent: null, title: 'Jars', notes: 'Glass'}))
+            .toEqual({priority: 'P0', labels: ['chat'], milestone: '3', release: '1.0.0', parent: null, title: 'Jars', notes: 'Glass'})
         for (const field of ['status', 'assignee', 'proposal', 'project', 'position', 'plan', 'choices'])
             expect(() => chats.asChatEdit({priority: 'P1', [field]: 'x'})).toThrow(expect.objectContaining({statusCode: 403}))
         expect(() => chats.asChatEdit('P0')).toThrow(expect.objectContaining({statusCode: 400}))
@@ -735,15 +828,15 @@ describe("the owner's chat moving issues", () => {
         expect(messages.at(-1)!.text).toBe('(That had changed since you asked: Background tint was (none) and is rose now.)')
     })
 
-    it('holds a chunk change the same way, and tells the session on Deny too', async () => {
-        const {id} = await store.createChunk('greenhouse', {title: 'Shelves'}, skoll)
-        const asked = await chats.ask(chatId, {id, chunk: {title: 'Racks'}})
-        await store.updateChunk('greenhouse', id, {title: 'Benches'})
+    it('holds a milestone change the same way, and tells the session on Deny too', async () => {
+        const {id} = await store.createMilestone('greenhouse', {title: 'Shelves'}, skoll)
+        const asked = await chats.ask(chatId, {id, milestone: {title: 'Racks'}})
+        await store.updateMilestone('greenhouse', id, {title: 'Benches'})
         await chats.answer(chatId, asked.id, true, skoll)
-        expect(asked.chunk).toMatchObject({state: 'asked', drifted: [{label: 'Name', from: 'Shelves', to: 'Benches'}]})
-        expect((await store.chunk('greenhouse', id)).title).toBe('Benches')
+        expect(asked.milestone).toMatchObject({state: 'asked', drifted: [{label: 'Name', from: 'Shelves', to: 'Benches'}]})
+        expect((await store.milestone('greenhouse', id)).title).toBe('Benches')
         await chats.answer(chatId, asked.id, false, skoll)
-        expect(asked.chunk!.state).toBe('denied')
+        expect(asked.milestone!.state).toBe('denied')
         expect(messages.at(-1)!.text).toBe('(That had changed since you asked: Name was Shelves and is Benches now.)')
     })
 
@@ -885,9 +978,9 @@ describe("a chat session's writes", () => {
         expect(await refused('POST', '/api/projects/greenhouse/sessions/abc/message')).toBe(403)
         expect(await refused('POST', '/api/projects/greenhouse/sessions/abc/stop')).toBe(403)
         expect(await refused('POST', '/api/projects/greenhouse/launches')).toBe(403)
-        // A chunk only through the owner's Allow (ORR-510), never made or changed straight.
-        expect(await refused('POST', '/api/projects/greenhouse/chunks')).toBe(403)
-        expect(await refused('PATCH', '/api/projects/greenhouse/chunks/3')).toBe(403)
+        // A milestone only through the owner's Allow (ORR-510), never made or changed straight.
+        expect(await refused('POST', '/api/projects/greenhouse/milestones')).toBe(403)
+        expect(await refused('PATCH', '/api/projects/greenhouse/milestones/3')).toBe(403)
         // A doc only through the owner's Allow (ORR-661), and sections never.
         // It writes docs itself (ORR-750), and calls outside services, but removing a doc or a section stays the owner's.
         expect(await refused('PUT', '/api/projects/greenhouse/docs/watering')).toBeUndefined()
@@ -914,7 +1007,105 @@ describe("a chat session's writes", () => {
         expect(await refused('DELETE', '/api/projects/greenhouse/docs/shelving')).toBe(403)
         expect(await refused('POST', '/api/chats/c1c2c3c4c5c6/messages')).toBe(403)
         expect(await refused('PATCH', '/api/chats/c1c2c3c4c5c6')).toBe(403)
+        // Deleting a chat, its own included, is the owner's (ORR-888).
+        expect(await refused('DELETE', '/api/chats/c1c2c3c4c5c6')).toBe(403)
         // Anyone else's go on to their own checks.
         expect(await refused('PATCH', '/api/projects/greenhouse/issues/GRE-4', false)).toBeUndefined()
+    })
+})
+
+describe('chats kept across a restart (ORR-877)', () => {
+    const CHAT = 'c1c2c3c4c5c6'
+    let db: Db
+    let known: Set<string>
+
+    beforeEach(async () => {
+        db = testDb()
+        const store = new Store(db)
+        await store.nameOwner({name: 'Skoll'})
+        await store.createProject({name: 'Greenhouse', key: 'GRE'}, owner)
+        known = new Set()
+        vi.stubGlobal('useDatabase', () => db)
+        vi.stubGlobal('useEventLog', () => ({note: () => {}}))
+        vi.stubGlobal('launchKnown', (id: string) => known.has(id))
+        vi.stubGlobal('sessionOfLaunch', () => undefined)
+    })
+
+    /** orrery starting again: the module as new, reading what's kept. */
+    async function restart() {
+        await chats.chatsSaved()
+        vi.resetModules()
+        chats = await import('../server/utils/chats')
+        await chats.chatsLoaded()
+    }
+
+    const kept = async () => db.all<{id: string, ended_at: string | null}>('SELECT id, ended_at FROM chats ORDER BY id')
+
+    it('keeps a running chat and what was said in it, numbering on past its messages', async () => {
+        await chats.openChat('greenhouse', 'backlog')
+        await chats.say(CHAT, 'What is GRE-4 about?', [], owner)
+        chats.reply(CHAT, 'Grow lights.')
+        await restart()
+        expect(chats.listChats()).toEqual([expect.objectContaining({id: CHAT, project: 'greenhouse', issues: 'backlog'})])
+        const chat = chats.chatOf(CHAT)
+        expect(chat.ended).toBeUndefined()
+        expect(chat.messages.map(m => [m.from, m.text])).toEqual([['owner', 'What is GRE-4 about?'], ['claude', 'Grow lights.']])
+        const next = chats.reply(CHAT, 'Anything else?')
+        expect(next.id).toBeGreaterThan(Math.max(...chat.messages.slice(0, 2).map(m => m.id)))
+    })
+
+    it('keeps an ended chat to read, and drops one ended before anything was said', async () => {
+        await chats.openChat('greenhouse')
+        await chats.say(CHAT, 'Hello', [], owner)
+        chats.endChat(CHAT)
+        vi.stubGlobal('startChat', async (project: string) => ({id: 'd1d2d3d4d5d6', project}))
+        await chats.openChat('greenhouse')
+        await chats.chatsSaved()
+        expect((await kept()).map(r => r.id)).toEqual([CHAT, 'd1d2d3d4d5d6'])
+        chats.endChat('d1d2d3d4d5d6')
+        await restart()
+        expect(await kept()).toEqual([{id: CHAT, ended_at: expect.any(String)}])
+        expect(chats.listChats()).toEqual([expect.objectContaining({id: CHAT, ended: true})])
+        expect(chats.readChat(CHAT).messages.map(m => m.text)).toEqual(['Hello'])
+    })
+
+    it('drops a deleted chat from the database, so a restart brings back none of it (ORR-882)', async () => {
+        vi.stubGlobal('useEventLog', () => ({note: () => {}}))
+        await chats.openChat('greenhouse')
+        await chats.say(CHAT, 'Hello', [], owner)
+        await chats.chatsSaved()
+        expect((await kept()).map(r => r.id)).toEqual([CHAT])
+        chats.deleteChat(CHAT, {name: 'skoll', owner: true})
+        await restart()
+        expect(await kept()).toEqual([])
+        expect(chats.listChats()).toEqual([])
+    })
+
+    it('ends one whose session no launcher says still runs, and brings it back when one does', async () => {
+        await chats.openChat('greenhouse')
+        await chats.say(CHAT, 'Hello', [], owner)
+        await restart()
+        chats.endUnconfirmed()
+        expect(chats.readChat(CHAT)).toMatchObject({ended: true})
+        await chats.chatsSaved()
+        expect((await kept())[0]!.ended_at).toEqual(expect.any(String))
+        // Its launcher took longer to connect again.
+        chats.chatRunning(CHAT)
+        expect(chats.chatOf(CHAT).ended).toBeUndefined()
+        await chats.chatsSaved()
+        expect(await kept()).toEqual([{id: CHAT, ended_at: null}])
+    })
+
+    it('keeps one running whose launcher says it runs, and never brings back one the owner ended', async () => {
+        await chats.openChat('greenhouse')
+        await chats.say(CHAT, 'Hello', [], owner)
+        await restart()
+        chats.chatRunning(CHAT)
+        chats.endUnconfirmed()
+        expect(chats.chatOf(CHAT).ended).toBeUndefined()
+        known.add(CHAT)
+        chats.endChat(CHAT)
+        chats.chatRunning(CHAT)
+        expect(chats.readChat(CHAT)).toMatchObject({ended: true})
     })
 })

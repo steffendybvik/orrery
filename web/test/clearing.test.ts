@@ -1,10 +1,13 @@
 import {EventEmitter} from 'node:events'
+import {WORK_KINDS} from '#shared/roadmap'
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 
 // The clearing lives in the module, with Nitro's auto-imports stubbed: the session as it is, and the store's say on its work.
 let clearing: typeof import('../server/utils/clearing')
 let session: {project: string, state: string, started?: {launch: string}, idleAt?: number, listening?: boolean} | undefined
 let working: string[]
+/** The issue the session worked last (ORR-903). */
+let lastWorked: string | undefined
 let issues: {id: string, parent: string | null, kind: string, column: string, priority?: string, updated_at: string}[]
 let untrusted: boolean
 let chat: boolean
@@ -26,6 +29,7 @@ beforeEach(async () => {
     vi.useFakeTimers()
     session = {project: 'orrery', state: 'idle', started: {launch: 'l1'}, idleAt: 1, listening: true}
     working = []
+    lastWorked = undefined
     issues = []
     untrusted = false
     chat = false
@@ -45,14 +49,15 @@ beforeEach(async () => {
     vi.stubGlobal('untrustedSession', () => untrusted)
     vi.stubGlobal('chatSession', () => chat)
     vi.stubGlobal('recheckIdle', () => void rechecked++)
-    vi.stubGlobal('useStore', () => ({
+    vi.stubGlobal('useStore', () => ({workKinds: async () => WORK_KINDS,
         whoseWork: async (_project: string, assignee?: string | null) => whoseWork(assignee),
         workingOn: async (_project: string, _ids: string[]) => working.map(id => ({id})), waiting: async (_project: string, _ids: string[]) => waiting,
         async busy(project: string, ids: string[]) {
             return (await this.workingOn(project, ids)).length > 0 || await this.waiting(project, ids)
         },
-        focusChunk: async (...args: unknown[]) => void focused.push(args),
+        focusMilestone: async (...args: unknown[]) => void focused.push(args),
         listIssues: async () => issues,
+        lastWorked: async () => lastWorked,
         focus: async (...args: unknown[]) => void carried.push(args),
         ownerOf: async () => ({name: 'steffen'}),
     }))
@@ -164,27 +169,27 @@ describe('a session orrery started, gone idle', () => {
 describe("a session's run", () => {
     const signal = (more: object) => ({id: 1, project: 'orrery', kind: 'focus', delivered_to: [], instructions: [], created_by: 'steffen', protected: true, created_at: '', ...more}) as never
 
-    it('is the last chunk or scope focus it was handed, found by any id it has had', () => {
-        clearing.startRun('w-before', signal({chunk: 'all', status: 'todo'}))
+    it('is the last milestone or scope focus it was handed, found by any id it has had', () => {
+        clearing.startRun('w-before', signal({milestone: 'all', status: 'todo'}))
         clearing.startRun('w-before', signal({kind: 'message', note: 'hi'}))
-        expect(clearing.runOf('w')).toMatchObject({chunk: 'all', status: 'todo'})
+        expect(clearing.runOf('w')).toMatchObject({milestone: 'all', status: 'todo'})
         expect(clearing.runOf('other')).toBeUndefined()
     })
 
     it('ends with a focus on one issue, and is let go once its session is gone', () => {
-        clearing.startRun('w', signal({chunk: '3'}))
+        clearing.startRun('w', signal({milestone: '3'}))
         clearing.startRun('w', signal({issue: 'ORR-98', note: clearing.CARRY_ON}))
-        expect(clearing.runOf('w')).toMatchObject({chunk: '3'})
+        expect(clearing.runOf('w')).toMatchObject({milestone: '3'})
         clearing.startRun('w-before', signal({issue: 'ORR-99'}))
         expect(clearing.runOf('w')).toBeUndefined()
-        clearing.startRun('gone', signal({chunk: '3'}))
-        clearing.startRun('w', signal({chunk: '4'}))
+        clearing.startRun('gone', signal({milestone: '3'}))
+        clearing.startRun('w', signal({milestone: '4'}))
         expect(clearing.runOf('gone')).toBeUndefined()
-        expect(clearing.runOf('w')).toMatchObject({chunk: '4'})
+        expect(clearing.runOf('w')).toMatchObject({milestone: '4'})
     })
 
     it("goes on after a clear: what's left of it is sent to the session alone, as its owner sent it", async () => {
-        clearing.startRun('w', signal({chunk: 'all', status: 'todo,started', release: '1.2'}))
+        clearing.startRun('w', signal({milestone: 'all', status: 'todo,started', release: '1.2'}))
         expect(await clearing.resumeRun('orrery', 'w')).toBe(false)
         left = [{id: 'ORR-2'}]
         expect(await clearing.resumeRun('elsewhere', 'w')).toBe(false)
@@ -196,7 +201,7 @@ describe("a session's run", () => {
         expect(await clearing.resumeRun('orrery', 'w')).toBe(true)
         expect(focused).toHaveLength(2)
         // A new run starts afresh.
-        clearing.startRun('w', signal({chunk: 'all', status: 'todo'}))
+        clearing.startRun('w', signal({milestone: 'all', status: 'todo'}))
         expect(await clearing.resumeRun('orrery', 'w')).toBe(true)
         // One someone opened themselves isn't sent on.
         session = {project: 'orrery', state: 'idle', idleAt: 1}
@@ -205,7 +210,7 @@ describe("a session's run", () => {
 })
 
 describe('a session gone idle on an issue with sub-issues to do', () => {
-    const sub = (id: string, more: object = {}) => ({id, parent: 'ORR-1', kind: 'todo', column: 'todo', updated_at: 't1', ...more})
+    const sub = (id: string, more: object = {}) => ({id, parent: 'ORR-1', kind: 'todo', column: 'todo', labels: [], updated_at: 't1', ...more})
     const owners = (id: string) => ['orrery', id, {session: 'w', note: clearing.CARRY_ON}, {name: 'steffen', owner: true}]
 
     beforeEach(() => {
@@ -218,6 +223,14 @@ describe('a session gone idle on an issue with sub-issues to do', () => {
         expect(carried).toEqual([])
         await after()
         expect(carried).toEqual([owners('ORR-3')])
+    })
+
+    it('passes over a sub-issue heavier than its model, started on a lighter one (ORR-868)', async () => {
+        session = {...session!, started: {launch: 'l', tmux: 't', model: 'sonnet'}}
+        issues = issues.map(i => i.id === 'ORR-3' ? {...i, labels: ['security']} : i.id === 'ORR-2' ? {...i, labels: ['docs']} : i)
+        clearing.carryOn('orrery', 'w')
+        await after()
+        expect(carried).toEqual([owners('ORR-2')])
     })
 
     it('passes over a sub-issue of someone else\'s, with more than one person (ORR-656)', async () => {
@@ -277,5 +290,160 @@ describe('a session gone idle on an issue with sub-issues to do', () => {
         clearing.carryOn('orrery', 'w')
         await after()
         expect(carried).toEqual([owners('ORR-3'), owners('ORR-3')])
+    })
+})
+
+describe('a session orrery started, gone idle after closing a sub-issue (ORR-903)', () => {
+    const sub = (id: string, more: object = {}) => ({id, parent: 'ORR-1', kind: 'todo', column: 'todo', labels: [], updated_at: 't1', ...more})
+    const owners = (id: string) => ['orrery', id, {session: 'w', note: clearing.CARRY_ON}, {name: 'steffen', owner: true}]
+    const idle = async (at: number) => {
+        session = {...session!, idleAt: at}
+        clearing.considerClear('orrery', 'w')
+        clearing.carryOn('orrery', 'w')
+        await after()
+    }
+
+    beforeEach(() => {
+        lastWorked = 'ORR-2'
+        issues = [{id: 'ORR-1', parent: null, kind: 'started', column: 'in-progress', updated_at: 't0'}, sub('ORR-2', {kind: 'done', column: 'done'}),
+            sub('ORR-3', {priority: 'P2'}), sub('ORR-4', {priority: 'P1'}), sub('ORR-5', {parent: 'ORR-9', priority: 'P0'})]
+    })
+
+    it('keeps its context and is sent on to the most urgent sibling, once', async () => {
+        await idle(2)
+        expect(sent).toEqual([])
+        expect(carried).toEqual([owners('ORR-4')])
+        expect(clearing.clearPending('w')).toBe(false)
+    })
+
+    it('is cleared on its next idle when it leaves that sibling as it was', async () => {
+        await idle(2)
+        await idle(3)
+        expect(carried).toHaveLength(1)
+        expect(sent).toEqual([{type: 'clear', project: 'orrery', id: 'l1'}])
+    })
+
+    it('is cleared when what it worked last has no parent, is still open, or has no sibling left to do', async () => {
+        issues = issues.map(i => i.id === 'ORR-2' ? {...i, parent: null} : i)
+        await idle(2)
+        issues = issues.map(i => i.id === 'ORR-2' ? {...i, parent: 'ORR-1', kind: 'todo', column: 'todo'} : i)
+        await idle(3)
+        issues = issues.filter(i => i.id !== 'ORR-3' && i.id !== 'ORR-4').map(i => i.id === 'ORR-2' ? {...i, kind: 'canceled', column: 'canceled'} : i)
+        await idle(4)
+        expect(carried).toEqual([])
+        expect(sent).toHaveLength(3)
+    })
+
+    it("is cleared, never sent on, when it's an untrusted schedule's run or not listening", async () => {
+        untrusted = true
+        await idle(2)
+        untrusted = false
+        session = {...session!, listening: false}
+        await idle(3)
+        expect(carried).toEqual([])
+        expect(sent).toHaveLength(2)
+    })
+})
+
+describe('a session someone opened themselves, gone idle after closing a sub-issue (ORR-903)', () => {
+    it("isn't sent on to a sibling: it keeps its context anyway, and picks", async () => {
+        session = {project: 'orrery', state: 'idle', idleAt: 1, listening: true}
+        lastWorked = 'ORR-2'
+        issues = [{id: 'ORR-2', parent: 'ORR-1', kind: 'done', column: 'done', updated_at: 't1'}, {id: 'ORR-3', parent: 'ORR-1', kind: 'todo', column: 'todo', updated_at: 't1'}]
+        clearing.carryOn('orrery', 'w')
+        await after()
+        expect(carried).toEqual([])
+    })
+})
+
+describe("the owner's focus reaching a session orrery started that holds only work in review (ORR-904)", () => {
+    /** What it holds: each issue with its status and parent, and whether it waits on the owner. */
+    let held: {id: string, parent?: string | null, status: string, waiting?: boolean}[]
+    let delivered: string[]
+    beforeEach(() => {
+        held = [{id: 'ORR-1', status: 'in-review'}]
+        delivered = []
+        issues = [
+            {id: 'ORR-1', parent: null, kind: 'started', column: 'in-review', updated_at: 'a'},
+            {id: 'ORR-2', parent: null, kind: 'todo', column: 'todo', updated_at: 'a'},
+            {id: 'ORR-3', parent: 'ORR-1', kind: 'todo', column: 'todo', updated_at: 'a'},
+            {id: 'ORR-4', parent: 'ORR-9', kind: 'todo', column: 'todo', updated_at: 'a'},
+            {id: 'ORR-5', parent: 'ORR-9', kind: 'started', column: 'in-review', updated_at: 'a'},
+        ]
+        const store = (globalThis as unknown as {useStore: () => Record<string, unknown>}).useStore()
+        vi.stubGlobal('useStore', () => ({...store, workingOn: async () => held}))
+    })
+    const focus = (issue: string, more: object = {}) => ({id: 7, kind: 'focus', project: 'orrery', issue, protected: true, ...more}) as never
+    const reach = (issue: string, more: object = {}) => clearing.clearBefore('orrery', 'w', focus(issue, more), () => void delivered.push(issue))
+
+    it('is held while its launcher clears it, and goes once it is back', async () => {
+        expect(await reach('ORR-2')).toBe(true)
+        expect(sent).toEqual([{type: 'clear', project: 'orrery', id: 'l1'}])
+        expect(clearing.clearPending('w')).toBe(true)
+        expect(delivered).toEqual([])
+        expect(clearing.clearDone('w')).toBe(true)
+        expect(delivered).toEqual(['ORR-2'])
+        expect(clearing.clearPending('w')).toBe(false)
+        expect(clearing.clearDone('w')).toBe(false)
+    })
+
+    it('waits behind one already held, and both go after the one clear', async () => {
+        await reach('ORR-2')
+        expect(await reach('ORR-4')).toBe(true)
+        expect(sent).toHaveLength(1)
+        clearing.clearDone('w')
+        expect(delivered).toEqual(['ORR-2', 'ORR-4'])
+    })
+
+    it("goes anyway, uncleared, when the clear never comes back", async () => {
+        await reach('ORR-2')
+        await vi.advanceTimersByTimeAsync(clearing.CLEAR_DUE_FOR + 10)
+        expect(delivered).toEqual(['ORR-2'])
+        expect(clearing.clearPending('w')).toBe(false)
+    })
+
+    it('waits on the owner counts as held work too', async () => {
+        held = [{id: 'ORR-1', status: 'in-progress', waiting: true}]
+        expect(await reach('ORR-2')).toBe(true)
+    })
+
+    it('keeps its context for the same issue, a sub-issue, its parent or a sibling', async () => {
+        expect(await reach('ORR-1')).toBe(false)
+        expect(await reach('ORR-3')).toBe(false)
+        held = [{id: 'ORR-3', parent: 'ORR-1', status: 'in-review'}]
+        expect(await reach('ORR-1')).toBe(false)
+        held = [{id: 'ORR-5', parent: 'ORR-9', status: 'in-review'}]
+        expect(await reach('ORR-4')).toBe(false)
+        expect(sent).toEqual([])
+    })
+
+    it('goes at once with work still in progress, or none held', async () => {
+        held = [{id: 'ORR-1', status: 'in-review'}, {id: 'ORR-5', status: 'in-progress'}]
+        expect(await reach('ORR-2')).toBe(false)
+        held = []
+        expect(await reach('ORR-2')).toBe(false)
+        expect(sent).toEqual([])
+    })
+
+    it("goes at once when it isn't the owner's focus on an issue, or is orrery's own carry-on", async () => {
+        expect(await reach('ORR-2', {protected: false})).toBe(false)
+        expect(await reach('ORR-2', {kind: 'message'})).toBe(false)
+        expect(await reach('ORR-2', {note: clearing.CARRY_ON})).toBe(false)
+        expect(sent).toEqual([])
+    })
+
+    it("goes at once to a session that's working, opened by hand, a chat or an untrusted run", async () => {
+        session!.state = 'working'
+        expect(await reach('ORR-2')).toBe(false)
+        session!.state = 'idle'
+        chat = true
+        expect(await reach('ORR-2')).toBe(false)
+        chat = false
+        untrusted = true
+        expect(await reach('ORR-2')).toBe(false)
+        untrusted = false
+        session!.started = undefined
+        expect(await reach('ORR-2')).toBe(false)
+        expect(sent).toEqual([])
     })
 })

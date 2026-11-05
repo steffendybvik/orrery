@@ -1,7 +1,7 @@
-import type {Chunk, Issue, Place} from '#shared/roadmap'
+import type {Milestone, Issue, Place} from '#shared/roadmap'
 
 // A small sample project to try orrery on before connecting a repo (Getting started): a board with issues in
-// each status, a sub-issue, chunks, a proposal from Claude and a question waiting in the bell. It's an ordinary
+// each status, a sub-issue, milestones, a proposal from Claude and a question waiting in the bell. It's an ordinary
 // project the owner made, so its Settings delete it like any other.
 export function useDemoProject() {
     const {load} = useOwner()
@@ -10,6 +10,7 @@ export function useDemoProject() {
     const failed = ref('')
 
     async function make(): Promise<string | undefined> {
+        useUsage().count('demo-project')
         making.value = true
         failed.value = ''
         try {
@@ -21,20 +22,20 @@ export function useDemoProject() {
 
             const project = await post<{id: string}>('', {name: 'Demo', id: DEMO, key: 'DEM', description: 'A sample board to try orrery on: delete it from its Settings when you like'})
             const at = `/${encodeURIComponent(project.id)}`
-            const basics = await post<Chunk>(`${at}/chunks`, {title: 'Getting around', summary: 'Open an issue, move it, give it a priority. Right-click a row for more.'})
-            const later = await post<Chunk>(`${at}/chunks`, {title: 'Later'})
+            const basics = await post<Milestone>(`${at}/milestones`, {title: 'Getting around', summary: 'Open an issue, move it, give it a priority. Right-click a row for more.'})
+            const later = await post<Milestone>(`${at}/milestones`, {title: 'Later'})
             const issue = (body: object, headers?: Record<string, string>) => post<Issue>(`${at}/issues`, body, headers)
 
-            await issue({title: 'Open this issue and read its page', status: status('done'), chunk: basics.id})
-            await issue({title: 'Drag me to another column on the board', status: status('started'), priority: 'P1', chunk: basics.id, notes: 'Switch to **Board** above, or right-click the row and pick a status.'})
+            await issue({title: 'Open this issue and read its page', status: status('done'), milestone: basics.id})
+            await issue({title: 'Drag me to another column on the board', status: status('started'), priority: 'P1', milestone: basics.id, notes: 'Switch to **Board** above, or right-click the row and pick a status.'})
             // A parent's status follows its sub-issues'.
-            const parent = await issue({title: 'Split work into sub-issues', status: status('todo'), chunk: basics.id})
+            const parent = await issue({title: 'Split work into sub-issues', status: status('todo'), milestone: basics.id})
             await issue({title: 'Tick me as done: my parent is done when its sub-issues are', status: status('todo'), parent: parent.id})
-            await issue({title: 'Press ⌘K and find this issue by typing "find"', status: status('todo'), priority: 'P2', chunk: basics.id})
-            await issue({title: 'Ideas go to the backlog', status: status('backlog'), chunk: later.id})
+            await issue({title: 'Press ⌘K and find this issue by typing "find"', status: status('todo'), priority: 'P2', milestone: basics.id})
+            await issue({title: 'Ideas go to the backlog', status: status('backlog'), milestone: later.id})
             // What Claude does: proposes work for you to approve, and asks when it needs you.
-            await issue({title: 'Add a dark-mode toggle to the settings page', proposal: 'pending', chunk: later.id, notes: 'Proposed by an agent: approve it, ask for changes, or reject it.'}, claude)
-            const asking = await issue({title: 'Pick a default page size', status: status('todo'), chunk: later.id}, claude)
+            await issue({title: 'Add a dark-mode toggle to the settings page', proposal: 'pending', milestone: later.id, notes: 'Proposed by an agent: approve it, ask for changes, or reject it.'}, claude)
+            const asking = await issue({title: 'Pick a default page size', status: status('todo'), milestone: later.id}, claude)
             await post(`${at}/issues/${encodeURIComponent(asking.id)}/comments`, {body: 'Should lists show 25 or 50 rows by default? Answer here and I carry on.', asks: 'decision'}, claude)
             return project.id
         } catch (error) {

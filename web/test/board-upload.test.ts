@@ -27,7 +27,7 @@ async function fullBoard() {
     await store.addMember('greenhouse', {person: 'hati'}, owner)
     await store.updateProject('greenhouse', {release_mode: 'own'}, owner)
     const image = await store.createUpload({data: PNG, name: 'tray.png'}, owner)
-    await store.createChunk('greenhouse', {title: 'Joints'}, owner)
+    await store.createMilestone('greenhouse', {title: 'Joints'}, owner)
     await store.createRelease('greenhouse', {version: '1.0.0'}, owner)
     const parent = await store.createIssue('greenhouse', {title: 'Seed trays', notes: image.markdown, assignee: 'hati', status: 'in-progress'}, owner)
     const sub = await store.createIssue('greenhouse', {title: 'Sub', parent: parent.id, status: 'todo'}, owner)
@@ -55,7 +55,7 @@ function same(file: File) {
         members: (t.project_members ?? []).map(m => m.person),
         issues: strip(t.issues, 'owned', 'claimed_by', 'claimed_at', 'claimed_session', 'session_name'),
         comments: (t.comments ?? []).map(c => ({issue: c.issue, body: c.body, by: String(c.created_by).replace(' (from a file)', ''), at: c.created_at})),
-        docs: strip(t.docs, 'owned'), sections: t.doc_sections, chunks: strip(t.chunks, 'owned'), releases: strip(t.releases, 'owned'),
+        docs: strip(t.docs, 'owned'), sections: t.doc_sections, milestones: strip(t.milestones, 'owned'), releases: strip(t.releases, 'owned'),
         revisions: strip(t.doc_revisions, 'id', 'owned'),
         events: strip(t.issue_events?.filter(e => e.field !== 'uploaded'), 'id', 'owned'),
         schedules: strip(t.schedules, 'id', 'owned', 'enabled', 'next_run', 'created_by', 'presets'),
@@ -109,11 +109,11 @@ describe('uploading a board\'s file', () => {
         const {db, store} = await server('Hati', 'Fenrir')
         await uploadBoard(db, file, {}, {name: 'fenrir', owner: false}, 'fenrir')
         expect(await db.all("SELECT 1 FROM schedules WHERE enabled != 0 OR next_run IS NOT NULL OR owned != 0")).toEqual([])
-        for (const table of ['issues', 'docs', 'doc_revisions', 'chunks', 'releases', 'presets', 'issue_events']) {
+        for (const table of ['issues', 'docs', 'doc_revisions', 'milestones', 'releases', 'presets', 'issue_events']) {
             expect(await db.all(`SELECT 1 FROM ${table} WHERE owned != 0`), table).toEqual([])
         }
         const project = await db.get<Record<string, unknown>>("SELECT * FROM projects WHERE id = 'greenhouse'")
-        expect(project).toMatchObject({owned: 0, created_by: 'fenrir', repo: null, starts: null, instructions: '[]', focus_prompt: null, chunk_prompt: null})
+        expect(project).toMatchObject({owned: 0, created_by: 'fenrir', repo: null, starts: null, instructions: '[]', focus_prompt: null, milestone_prompt: null})
         expect(await store.onBoard('greenhouse', 'fenrir')).toBeTruthy()
         expect(await db.all("SELECT person, role FROM project_members WHERE project = 'greenhouse' ORDER BY person")).toEqual([{person: 'fenrir', role: 'owner'}, {person: 'hati', role: 'member'}, {person: 'skoll', role: 'member'}])
     })
@@ -202,11 +202,24 @@ describe('uploading a board\'s file', () => {
         expect(step).toBeGreaterThan(0)
         const gone = MIGRATIONS.slice(step).flatMap(adds)
         for (const [, table, column] of gone) for (const row of file.tables[table!]!) delete row[column!]
+        // And the names it had then, undoing the renames since, latest first.
+        const tables = file.tables as Record<string, Record<string, unknown>[]>
+        for (const m of MIGRATIONS.slice(step).reverse()) {
+            if (typeof m !== 'string') continue
+            for (const [, table, from, to] of [...m.matchAll(/ALTER TABLE (\w+) RENAME COLUMN (\w+) TO (\w+)/g)].reverse()) {
+                for (const row of tables[table!] ?? []) if (to! in row) [row[from!], row[to!]] = [row[to!], undefined]
+                for (const row of tables[table!] ?? []) delete row[to!]
+            }
+            for (const [, from, to] of [...m.matchAll(/ALTER TABLE (\w+) RENAME TO (\w+)/g)].reverse()) if (tables[to!]) [tables[from!], tables[to!]] = [tables[to!]!, undefined!]
+            for (const name of Object.keys(tables)) if (!tables[name]) delete tables[name]
+        }
         file.schema_step = step
         expect(await uploadBoard(db, file, {}, owner, 'skoll')).toBe('greenhouse')
         // Each one is there again, as this schema has it, with what the step gives it.
         const [, table, column] = gone[0]!
         expect(await db.all(`SELECT "${column}" FROM ${table} WHERE ${table === 'projects' ? 'id' : 'project'} = 'greenhouse'`)).toBeTruthy()
         expect((await db.all("SELECT 1 FROM issues WHERE project = 'greenhouse'")).length).toBe(2)
+        // Its chunks came across as milestones, with its issue still in one.
+        expect(await db.all("SELECT title FROM milestones WHERE project = 'greenhouse'")).toEqual([{title: 'Joints'}])
     })
 })

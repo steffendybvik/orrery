@@ -5,6 +5,7 @@ import {actorId} from '../store/schema'
 import {inDocker} from './backup-choice'
 import {LOOPBACK, proxied} from './move'
 import {oidcOn} from './oidc'
+import {viaPhone} from './phone-port'
 
 /** A checked credential: a person in a browser, or an agent of that person, which can never act as them. */
 export interface Who {
@@ -42,7 +43,7 @@ const toldOff = () => String(useRuntimeConfig().auth || process.env.ORRERY_AUTH 
 /** A second person turns auth on, so without a way in that would lock the owner out: they claim the server first. */
 export async function needsWayInForPeople() {
     if (toldOff() || await canGetIn()) return
-    throw conflict('A second person turns login on, and nobody could log in yet: run `pnpm orrery:claim` on this machine first (or `docker compose exec orrery node /app/server/claim.mjs`). To only try people out on this machine, start orrery with ORRERY_AUTH=off')
+    throw conflict('A second person turns login on, and nobody could log in yet: claim it first, with `pnpm orrery:claim` on this machine (or `docker compose exec orrery node /app/server/claim.mjs`). To only try people out on this machine, start orrery with ORRERY_AUTH=off')
 }
 
 const otherPersonNoted = new Set<string>()
@@ -71,6 +72,8 @@ export async function holdSession(event: H3Event, session: string | undefined) {
 /** `off`, as orrery has always been; `on`, asking for a credential; `closed` when told off on a server others can reach,
  * which refuses rather than opens. A database that can't say counts as on. */
 export async function authMode(event: H3Event): Promise<'off' | 'on' | 'closed'> {
+    // The phone's port always asks (ORR-837), whatever the main one does.
+    if (viaPhone(event)) return toldOff() ? 'closed' : 'on'
     const loopback = onLoopback(event)
     if (toldOff()) return loopback ? 'off' : 'closed'
     const on = String(useRuntimeConfig().auth || process.env.ORRERY_AUTH || '').toLowerCase() === 'on'
@@ -105,9 +108,10 @@ export async function credential(event: H3Event): Promise<Who | undefined> {
     return holder && {person: holder.person, owner: holder.owner, via: 'browser'}
 }
 
-/** The login's cookie: http-only so tokens stay out of the page's scripts, `Secure` whenever the request came over https. */
-export async function logIn(event: H3Event, person: string) {
-    const {secret, days} = await useStore().startLogin(person)
+/** The login's cookie: http-only so tokens stay out of the page's scripts, `Secure` whenever the request came over https.
+ * `key` is the id of the person key it was swapped for, so revoking that ends it (ORR-786). */
+export async function logIn(event: H3Event, person: string, key?: string, name?: string) {
+    const {secret, days} = await useStore().startLogin(person, key, name)
     setCookie(event, LOGIN_COOKIE, secret, {httpOnly: true, sameSite: 'lax', path: '/', maxAge: days * 86_400, secure: overHttps(event)})
 }
 

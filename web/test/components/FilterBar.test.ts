@@ -6,8 +6,8 @@ import FilterBar from '~/components/FilterBar.vue'
 
 // The Project filter: on My issues, across projects, it narrows it to the projects ticked, a
 // project's own pages don't offer it, and Clear unticks it with the rest. Blocked or Ready (ORR-601) splits the issues
-// by whether they wait on others.
-const project = (id: string) => ({id, name: id[0]!.toUpperCase() + id.slice(1), key: id.toUpperCase(), releases: [], board: {chunks: []}}) as unknown as Project
+// by whether they wait on others, and Risk (ORR-879) by how risky their change is.
+const project = (id: string) => ({id, name: id[0]!.toUpperCase() + id.slice(1), key: id.toUpperCase(), releases: [], board: {milestones: []}}) as unknown as Project
 
 const mounted: VueWrapper[] = []
 beforeEach(() => {
@@ -56,6 +56,23 @@ describe('FilterBar', () => {
         expect(changed.value).toBe(true)
         useFilters().clear()
         expect(filters.value.blocked).toEqual([])
+    })
+
+    it('offers Risk once an issue is rated, and keeps the issues at the levels ticked (ORR-879)', async () => {
+        expect((await mount('/p/greenhouse')).menu('Risk')).toBeUndefined()
+        const risky = {id: 'GRE-1', title: 'Move the shelves', labels: [], column: 'todo', tasks: [], risk: {level: 'high', why: 'adds a migration', by: 'session'}} as unknown as Issue
+        const unrated = {id: 'GRE-2', title: 'Dust the jars', labels: [], column: 'todo', tasks: []} as unknown as Issue
+        useRoadmaps().projects.value = [{...project('greenhouse'), board: {milestones: [{id: '', title: '', tasks: [risky, unrated]}]}} as unknown as Project]
+        const {wrapper, menu} = await mount('/p/greenhouse')
+        const {filters, matches, changed} = useFilters()
+        filters.value.columns = []
+        await menu('Risk')!.trigger('click')
+        await wrapper.findAll('[role=option]').find(o => o.text() === 'High risk')!.trigger('click')
+        expect(filters.value.risks).toEqual(['high'])
+        expect([matches(risky), matches(unrated)]).toEqual([true, false])
+        filters.value.risks = ['none']
+        expect([matches(risky), matches(unrated)]).toEqual([false, true])
+        expect(changed.value).toBe(true)
     })
 
     it("isn't offered on a project's own pages", async () => {

@@ -15,4 +15,8 @@ export default createConfigForNuxt({features: {stylistic: false}}, {
 }, {
     files: ['test/**', 'e2e/**'],
     rules: {'@typescript-eslint/no-non-null-assertion': 'off'},
+}, {
+    // The browser suite's specs take `test` and `expect` from e2e/test.ts, which counts what the page ran (ORR-784).
+    files: ['e2e/*.spec.ts'],
+    rules: {'no-restricted-imports': ['error', {paths: [{name: '@playwright/test', importNames: ['test', 'expect'], allowTypeImports: true, message: "Import them from './test', so the page's coverage counts this spec too (ORR-784)."}]}]},
 })

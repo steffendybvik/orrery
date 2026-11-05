@@ -1,7 +1,7 @@
 // Signals: what sessions are told, who hears it, and what each session is on. The store, against a fresh database with
 // the project `greenhouse` (store-setup.ts).
 import {beforeEach, describe, expect, it, vi} from 'vitest'
-import {DEFAULT_CHUNK_PROMPT, DEFAULT_FOCUS_PROMPT} from '#shared/prompt'
+import {DEFAULT_MILESTONE_PROMPT, DEFAULT_FOCUS_PROMPT} from '#shared/prompt'
 import {Store} from '../server/utils/store'
 import {testDb} from './db'
 import type {Actor} from '../server/utils/store'
@@ -18,13 +18,13 @@ describe('what sessions are told', () => {
     const owner: Actor = {name: 'skoll', owner: true}
 
     it("uses the project's templates, else the orrery's, else the defaults", async () => {
-        expect(await store.prompts('greenhouse')).toEqual({focus: DEFAULT_FOCUS_PROMPT, chunk: DEFAULT_CHUNK_PROMPT})
+        expect(await store.prompts('greenhouse')).toEqual({focus: DEFAULT_FOCUS_PROMPT, milestone: DEFAULT_MILESTONE_PROMPT})
         await store.updateSettings({focus_prompt: 'Look at {issue}.'}, owner)
-        await store.updateProject('greenhouse', {chunk_prompt: 'Do chunk {chunk}.'}, owner)
-        expect(await store.prompts('greenhouse')).toEqual({focus: 'Look at {issue}.', chunk: 'Do chunk {chunk}.'})
-        await store.updateProject('greenhouse', {chunk_prompt: '  '}, owner)
+        await store.updateProject('greenhouse', {milestone_prompt: 'Do milestone {milestone}.'}, owner)
+        expect(await store.prompts('greenhouse')).toEqual({focus: 'Look at {issue}.', milestone: 'Do milestone {milestone}.'})
+        await store.updateProject('greenhouse', {milestone_prompt: '  '}, owner)
         await store.updateSettings({focus_prompt: ''}, owner)
-        expect(await store.prompts('greenhouse')).toEqual({focus: DEFAULT_FOCUS_PROMPT, chunk: DEFAULT_CHUNK_PROMPT})
+        expect(await store.prompts('greenhouse')).toEqual({focus: DEFAULT_FOCUS_PROMPT, milestone: DEFAULT_MILESTONE_PROMPT})
     })
 
     it("are the owner's to change", async () => {
@@ -41,7 +41,7 @@ describe('what sessions are told', () => {
         expect((await store.focus('greenhouse', id, {}, owner)).instructions).toEqual(['Commit whenever a piece works', 'Run the tests'])
         await store.updateProject('greenhouse', {muted: [commit!.id]}, owner)
         expect((await store.focus('greenhouse', id, {}, owner)).instructions).toEqual(['Run the tests'])
-        expect((await store.focusChunk('greenhouse', '1', {instructions: [branch!.id, tests!.id]}, owner)).instructions).toEqual(['Make a branch', 'Run the tests'])
+        expect((await store.focusMilestone('greenhouse', '1', {instructions: [branch!.id, tests!.id]}, owner)).instructions).toEqual(['Make a branch', 'Run the tests'])
         expect((await store.focus('greenhouse', id, {instructions: []}, owner)).instructions).toEqual([])
         expect((await failure(() => store.focus('greenhouse', id, {instructions: ['nope']}, owner))).status).toBe(400)
         expect((await failure(() => store.updateSettings({instructions: [{text: ''}]}, owner))).status).toBe(400)
@@ -104,14 +104,14 @@ describe('a signal reaching sessions', () => {
     })
 })
 describe('a focus on every session', () => {
-    it('is refused on an issue, saying why, and goes through on a chunk (ORR-681)', async () => {
+    it('is refused on an issue, saying why, and goes through on a milestone (ORR-681)', async () => {
         const owner = {name: 'skoll', owner: true}
         const jars = (await store.createIssue('greenhouse', {title: 'Jars'})).id
         const refused = store.focus('greenhouse', jars, {session: '*'}, owner)
         await expect(refused).rejects.toMatchObject({statusCode: 400})
-        await expect(refused).rejects.toThrow('Only a chunk can go to every session')
+        await expect(refused).rejects.toThrow('Only a milestone can go to every session')
         expect(await store.listSignals('greenhouse', 0, 50, {issue: jars})).toEqual([])
-        expect((await store.focusChunk('greenhouse', 'all', {session: '*'}, owner)).target).toBe('*')
+        expect((await store.focusMilestone('greenhouse', 'all', {session: '*'}, owner)).target).toBe('*')
     })
 })
 describe('a focus aimed at no session', () => {
@@ -131,10 +131,10 @@ describe('a focus aimed at no session', () => {
         const jars = (await store.createIssue('greenhouse', {title: 'Jars'})).id
         const one = await store.focus('greenhouse', jars, {}, owner)
         await store.focus('greenhouse', jars, {session: 'b'}, owner)
-        const chunk = await store.focusChunk('greenhouse', 'all', {}, owner)
-        expect((await store.pooledWaiting('greenhouse')).map(s => s.id)).toEqual([one.id, chunk.id])
+        const milestone = await store.focusMilestone('greenhouse', 'all', {}, owner)
+        expect((await store.pooledWaiting('greenhouse')).map(s => s.id)).toEqual([one.id, milestone.id])
         await store.delivered('greenhouse', one.id, 'pantry')
-        expect((await store.pooledWaiting('greenhouse')).map(s => s.id)).toEqual([chunk.id])
+        expect((await store.pooledWaiting('greenhouse')).map(s => s.id)).toEqual([milestone.id])
     })
 })
 describe("what a project's sessions are on", () => {
@@ -150,7 +150,7 @@ describe("what a project's sessions are on", () => {
         store.hears = (_project, session) => session !== 'a'
         await store.focus('greenhouse', shelves, {session: 'b'}, owner)
         store.hears = () => true
-        // One from before only a chunk could go to every session (ORR-681) still reads as it did.
+        // One from before only a milestone could go to every session (ORR-681) still reads as it did.
         const everyone = await store.db.get<{id: number}>("INSERT INTO signals (project, issue, kind, target, created_by, owned, created_at) VALUES ('greenhouse', ?, 'focus', '*', 'skoll', 1, 'x') RETURNING id", jars)
         await store.delivered('greenhouse', everyone!.id, 'pantry')
         const work = await store.sessionWork('greenhouse', [{id: 'a', name: 'greenhouse 1'}, {id: 'b', name: 'pantry'}])
@@ -186,6 +186,65 @@ describe("what a project's sessions are on", () => {
         }
     })
 })
+describe('the model a signal needs (ORR-868)', () => {
+    const owner: Actor = {name: 'skoll', owner: true}
+
+    it("is its issue's kind's on a focus or a comment, and a milestone's heaviest open issue's", async () => {
+        const docs = (await store.createIssue('greenhouse', {title: 'Docs', labels: ['docs']})).id
+        const both = (await store.createIssue('greenhouse', {title: 'Both', labels: ['docs', 'security']})).id
+        expect((await store.focus('greenhouse', docs, {}, owner)).model).toBe('sonnet')
+        expect((await store.focus('greenhouse', both, {}, owner)).model).toBe('best')
+        await store.createComment('greenhouse', docs, {body: 'And this.'}, owner)
+        const signals = await store.listSignals('greenhouse', 0)
+        expect(signals.find(s => s.kind === 'comment')?.model).toBe('sonnet')
+        expect((await store.focusMilestone('greenhouse', 'all', {}, owner)).model).toBe('best')
+    })
+})
+
+describe("an issue's own model (ORR-868)", () => {
+    const owner: Actor = {name: 'skoll', owner: true}
+
+    it("beats its kind's, shows on the issue and in its activity, and null follows its kind again", async () => {
+        const {id} = await store.createIssue('greenhouse', {title: 'Heavy docs', labels: ['docs'], model: 'opus', effort: 'high'})
+        expect(await store.issue('greenhouse', id)).toMatchObject({model: 'opus', effort: 'high'})
+        expect((await store.focus('greenhouse', id, {}, owner)).model).toBe('opus')
+        await store.updateIssue('greenhouse', id, {model: null, effort: null}, owner)
+        const issue = await store.issue('greenhouse', id)
+        expect([issue.model, issue.effort]).toEqual([undefined, undefined])
+        expect((await store.focus('greenhouse', id, {}, owner)).model).toBe('sonnet')
+        expect((await store.listActivity('greenhouse', id)).map(e => e.field)).toEqual(expect.arrayContaining(['model', 'effort']))
+    })
+
+    it('is refused when it names no model or effort Claude Code takes', async () => {
+        const {id} = await store.createIssue('greenhouse', {title: 'A'})
+        for (const bad of [{model: 'gpt-5'}, {model: 'Opus'}, {effort: 'huge'}]) {
+            expect((await failure(() => store.updateIssue('greenhouse', id, bad, owner))).status).toBe(400)
+        }
+    })
+})
+
+describe('the kinds of work (ORR-868)', () => {
+    const owner: Actor = {name: 'skoll', owner: true}
+
+    it("are orrery's own until the owner sets them, which the signals then follow, and null brings orrery's back", async () => {
+        const {WORK_KINDS} = await import('#shared/roadmap')
+        expect((await store.settings()).work_kinds).toEqual(WORK_KINDS)
+        const mine = [{id: 'docs', name: 'Docs', labels: ['Docs', 'writing'], model: 'haiku', effort: 'low'}, {id: 'other', name: 'Other', labels: [], model: 'best'}]
+        expect((await store.updateSettings({work_kinds: mine}, owner)).work_kinds).toEqual([{...mine[0], labels: ['docs', 'writing']}, mine[1]])
+        const writing = (await store.createIssue('greenhouse', {title: 'Write', labels: ['writing']})).id
+        expect((await store.focus('greenhouse', writing, {}, owner)).model).toBe('haiku')
+        expect((await store.updateSettings({work_kinds: null}, owner)).work_kinds).toEqual(WORK_KINDS)
+    })
+
+    it('are refused with a model, effort, id or label that makes no sense, and are the owner\'s to set', async () => {
+        const kind = {id: 'docs', name: 'Docs', labels: ['docs'], model: 'sonnet'}
+        for (const bad of [[], [{...kind, model: 'gpt'}], [{...kind, effort: 'huge'}], [kind, kind], [kind, {...kind, id: 'more'}], [{...kind, id: 'Has Space'}], [{...kind, extra: 1}]]) {
+            expect((await failure(() => store.updateSettings({work_kinds: bad}, owner))).status).toBe(400)
+        }
+        expect((await failure(() => store.updateSettings({work_kinds: [kind]}, {name: 'claude', owner: false}))).status).toBe(403)
+    })
+})
+
 describe('a session that connects', () => {
     it("knows an owner's focus on an issue is on its way until a session hears it (ORR-515)", async () => {
         const local = new Store(testDb())

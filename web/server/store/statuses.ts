@@ -1,7 +1,7 @@
 // The orrery's statuses (every project's board has them) and its own settings.
 import {randomBytes} from 'node:crypto'
-import type {IssueStatus, Kind, Settings, Starts, TerminalApp} from '#shared/roadmap'
-import {KINDS, slugify} from '#shared/roadmap'
+import type {IssueStatus, Kind, Settings, Starts, TerminalApp, WorkKind} from '#shared/roadmap'
+import {KINDS, WORK_KINDS, slugify} from '#shared/roadmap'
 import type {Input} from '../utils/input'
 import {badRequest, checkInput, conflict, notFound} from '../utils/input'
 import type {Instruction} from '#shared/prompt'
@@ -23,12 +23,13 @@ export abstract class StatusStore extends StoreBase {
             const row = rows.find(r => r.key === key)
             return row ? JSON.parse(row.value) as unknown : undefined
         }
+        const ids = (key: string) => (value(key) as string[] | null | undefined) ?? []
         return {
             id: value('id') as string,
             tint: (value('tint') as string | undefined) ?? null,
             statuses: await this.statuses(),
             focus_prompt: (value('focus_prompt') as string | undefined) || null,
-            chunk_prompt: (value('chunk_prompt') as string | undefined) || null,
+            milestone_prompt: (value('milestone_prompt') as string | undefined) || null,
             instructions: (value('instructions') as Instruction[] | undefined) ?? [],
             handle: (value('handle') as string | undefined) || null,
             uid: (value('uid') as string | undefined) ?? '',
@@ -38,7 +39,17 @@ export abstract class StatusStore extends StoreBase {
             restrict_proposals: (value('restrict_proposals') as boolean | undefined) ?? true,
             advanced: (value('advanced') as boolean | undefined) ?? true,
             pick_next: (value('pick_next') as boolean | undefined) ?? false,
+            count_use: (value('count_use') as boolean | undefined) ?? false,
+            work_kinds: (value('work_kinds') as WorkKind[] | null | undefined) ?? [...WORK_KINDS],
+            starred: ids('starred').filter(id => !ids('hidden').includes(id)),
+            hidden: ids('hidden'),
         }
+    }
+
+    /** The kinds of work, highest-ranked first (ORR-868): the owner's, else orrery's own. */
+    async workKinds(): Promise<readonly WorkKind[]> {
+        const row = await this.get<{value: string}>("SELECT value FROM settings WHERE key = 'work_kinds'")
+        return (row && JSON.parse(row.value) as WorkKind[] | null) ?? WORK_KINDS
     }
 
     /** The issue statuses, in board order: by kind, then as arranged. */
@@ -146,10 +157,10 @@ export abstract class StatusStore extends StoreBase {
             for (const [key, sent] of Object.entries(input)) {
                 if (sent === undefined) continue
                 // An empty template is none: the default.
-                const value = (key === 'focus_prompt' || key === 'chunk_prompt') && typeof sent === 'string' ? sent.trim() || null
+                const value = (key === 'focus_prompt' || key === 'milestone_prompt') && typeof sent === 'string' ? sent.trim() || null
                     : key === 'handle' && typeof sent === 'string' ? sent.toLowerCase()
                     // Checked and given back as JSON text: kept as the value it stands for.
-                    : key === 'starts' && typeof sent === 'string' ? JSON.parse(sent) as unknown : sent
+                    : (key === 'starts' || key === 'work_kinds') && typeof sent === 'string' ? JSON.parse(sent) as unknown : sent
                 await this.run('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value', key, JSON.stringify(value))
             }
         })

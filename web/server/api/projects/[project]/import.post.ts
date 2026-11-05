@@ -1,5 +1,5 @@
-// `POST /api/projects/:project/import` {chunks: […]} in `docs/roadmap.json`'s format → the project.
-// Refused when the project already has chunks or issues, unless `?replace=true`.
+// `POST /api/projects/:project/import` {milestones: […]} in `docs/roadmap.json`'s format → the project.
+// Refused when the project already has milestones or issues, unless `?replace=true`.
 export default defineEventHandler(async event => {
     let roadmap
     try {

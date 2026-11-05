@@ -1,7 +1,7 @@
 // What happens in an orrery, as a schedule hears it (ORR-341). Nothing here is a list kept by hand: an issue's
 // change is `issue.<field>` for whichever field changed (`issue.status`, `issue.release`, and any field added later),
 // each kind the event log records is one as it's named (`backup.failed`, `session.started`), and releases, comments,
-// chunks and docs say `<thing>.<what>` as they're written. A schedule's `on` is a pattern over the type, `*` standing
+// milestones and docs say `<thing>.<what>` as they're written. A schedule's `on` is a pattern over the type, `*` standing
 // for any part (`release.*`, `*.failed`), and `on_filter` what the event must also say.
 import type {EventLevel} from './roadmap'
 
@@ -10,7 +10,7 @@ export interface OrreryEvent {
     type: string
     /** None for what happens to the orrery as a whole (a server error), which every project's schedules hear. */
     project?: string
-    /** What it's about: an issue's id, a release's version, a chunk's or doc's id, the event log's row (`event 12`). */
+    /** What it's about: an issue's id, a release's version, a milestone's or doc's id, the event log's row (`event 12`). */
     subject?: string
     /** Who did it, when someone did. */
     by?: {name: string, owner: boolean, person?: string}
@@ -56,10 +56,11 @@ export const COMMON_EVENTS: {type: string, label: string, family: string, filter
     {type: 'release.frozen', label: 'A release is frozen', family: 'Releases'},
     {type: 'release.shipped', label: 'A release ships', family: 'Releases'},
     {type: 'release.created', label: 'A release is made', family: 'Releases'},
-    {type: 'chunk.created', label: 'A chunk is made', family: 'Chunks and docs'},
-    {type: 'doc.changed', label: 'A doc is written', family: 'Chunks and docs'},
+    {type: 'milestone.created', label: 'A milestone is made', family: 'Milestones and docs'},
+    {type: 'doc.changed', label: 'A doc is written', family: 'Milestones and docs'},
     {type: 'pr.conflicting', label: "An issue's pull request conflicts", family: 'Pull requests'},
     {type: 'pr.merged', label: "An issue's pull request is merged", family: 'Pull requests'},
+    {type: 'pr.risky_merged', label: "An issue's high-risk pull request is merged", family: 'Pull requests'},
     {type: 'pr.closed', label: "An issue's pull request is closed unmerged", family: 'Pull requests'},
     {type: 'pr.checks_failed', label: "An issue's pull request fails its checks", family: 'Pull requests'},
     {type: 'pr.changes_requested', label: "An issue's pull request is asked for changes", family: 'Pull requests'},

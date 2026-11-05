@@ -2,6 +2,7 @@
 import {TINTS, issueRef, trackerLinkOf} from '#shared/roadmap'
 import type {Backups, DatabaseInfo} from '#shared/roadmap'
 import type {Heading} from '~/utils/markdown'
+import {PROJECT_PLACES, type ProjectPlace} from '~/composables/useProjectOrder'
 
 // This orrery's own settings (a project's are on its Settings tab): whose it is, how issues work in every project, and
 // the orrery itself: its tint, a colour the backgrounds take on, so one orrery (personal, work) looks unlike another at a
@@ -13,13 +14,18 @@ const failed = ref('')
 // The settings by what they reach (ORR-285), each tab saying so: you, how issues work in every project, this orrery as
 // a whole, and Advanced, the pages for looking into problems (ORR-561). A link to a section (`#tint`) opens its tab, even
 // one naming the tab it used to be on (`?tab=orrery#advanced`). How sessions start and what they hear is on the Sessions page.
-type Tab = 'you' | 'issues' | 'orrery' | 'advanced'
+type Tab = 'you' | 'projects' | 'issues' | 'orrery' | 'usage' | 'advanced'
 const TABS: {value: Tab, label: string, scope: string, sections: Heading[]}[] = [
     {value: 'you', label: 'You', scope: 'Who you are on this orrery, and how your issues are named outside it.', sections: [
         {id: 'name', text: 'Your name', level: 2},
         {id: 'handle', text: 'Your handle', level: 2},
         // Only when this orrery asks for a login (ORR-664): alone on your own machine, none of it shows.
         ...useAuth().status.value?.mode === 'on' ? [{id: 'keys', text: 'Your keys', level: 2 as const}] : [],
+        {id: 'phone', text: 'Open on your phone', level: 2},
+        {id: 'logins', text: 'Signed in', level: 2},
+    ]},
+    {value: 'projects', label: 'Projects', scope: 'Every project on this orrery, and where the sidebar lists it.', sections: [
+        {id: 'projects', text: 'Projects in the sidebar', level: 2},
     ]},
     {value: 'issues', label: 'Issues', scope: "How issues work in every project on this orrery. A project's own settings are on its Settings tab.", sections: [
         {id: 'proposals', text: 'Proposals', level: 2},
@@ -31,6 +37,10 @@ const TABS: {value: Tab, label: string, scope: string, sections: Heading[]}[] = 
         {id: 'people', text: 'People', level: 2},
         {id: 'secrets', text: 'Secrets', level: 2},
         {id: 'database', text: 'Database', level: 2},
+    ]},
+    // Usage has a tab of its own (ORR-900): counting what you use is your choice, not a tool for looking into problems.
+    {value: 'usage', label: 'Usage', scope: 'What you use on this orrery, counted only while you let it, to find what could go.', sections: [
+        {id: 'usage', text: 'Usage', level: 2},
     ]},
     {value: 'advanced', label: 'Advanced', scope: 'For looking into problems: what orrery records, its event log, what it puts into a session\'s context, and the open pull requests on GitHub.', sections: [
         {id: 'advanced', text: 'Advanced', level: 2},
@@ -134,6 +144,18 @@ async function restrictProposals(on: boolean) {
         await save({restrict_proposals: on})
     } catch (error) {
         proposalsFailed.value = errorMessage(error)
+    }
+}
+
+// Projects (ORR-836): each starred (first in the sidebar), as it is, or hidden (folded away under Hidden there).
+const {ordered: allProjects, isHidden, placeOf, place} = useProjectOrder()
+const projectsFailed = ref('')
+async function placeProject(id: string, as: ProjectPlace) {
+    projectsFailed.value = ''
+    try {
+        await place(id, as)
+    } catch (error) {
+        projectsFailed.value = errorMessage(error)
     }
 }
 
@@ -312,6 +334,53 @@ async function pick(tint: string | null) {
           </p>
         </header>
         <KeySettings />
+      </section>
+
+      <section v-if="tab === 'you'" id="phone" class="scroll-mt-6 flex flex-col gap-3">
+        <header class="flex flex-col gap-0.5">
+          <h2 class="text-[15px] font-semibold text-fg">{{ title.phone }}</h2>
+          <p class="text-xs text-muted">
+            The address to open this orrery at from your phone, with a QR code to scan the first time. The code is made here, with nothing sent anywhere.
+          </p>
+        </header>
+        <PhoneLink />
+      </section>
+
+      <section v-if="tab === 'you'" id="logins" class="scroll-mt-6 flex flex-col gap-3">
+        <header class="flex flex-col gap-0.5">
+          <h2 class="text-[15px] font-semibold text-fg">{{ title.logins }}</h2>
+          <p class="text-xs text-muted">
+            Each browser and phone signed in to this orrery. End one you've lost, and it has to sign in again.
+          </p>
+        </header>
+        <LoginSettings />
+      </section>
+
+      <section v-if="tab === 'projects'" id="projects" class="scroll-mt-6 flex flex-col gap-3">
+        <header class="flex flex-col gap-0.5">
+          <h2 class="text-[15px] font-semibold text-fg">{{ title.projects }}</h2>
+          <p class="text-xs text-muted">
+            Star the projects you're on to keep them at the top of the sidebar, and hide the ones you're leaving for a while.
+            A hidden one folds away under Hidden at the foot of the list. Its issues, sessions and schedules carry on, and its pages still open.
+          </p>
+        </header>
+        <ul v-if="allProjects.length" class="flex flex-col divide-y divide-line rounded-xl ring-1 ring-line" data-testid="settings-projects">
+          <li v-for="project in allProjects" :key="project.id" class="flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2">
+            <NuxtLink :to="`/p/${project.id}`" class="flex min-w-0 flex-1 items-center gap-2 text-[13px] hover:underline" :class="isHidden(project.id) ? 'text-muted' : 'text-fg'">
+              <ProjectIcon v-if="project.icon && heroicon(project.icon)" :icon="project.icon" :color="project.icon_color" class="size-3.5" />
+              <ProgressRing v-else :kinds="project.board.kinds" bare :size="14" />
+              <span class="truncate">{{ project.name }}</span>
+            </NuxtLink>
+            <SegmentedControl
+                :model-value="placeOf(project.id)"
+                :options="PROJECT_PLACES"
+                :aria-label="`Where the sidebar lists ${project.name}`"
+                @update:model-value="placeProject(project.id, $event)"
+            />
+          </li>
+        </ul>
+        <p v-else class="text-xs text-faint">No projects yet.</p>
+        <p v-if="projectsFailed" class="text-xs text-rose-700 dark:text-rose-400">{{ projectsFailed }}</p>
       </section>
 
       <section v-if="tab === 'issues'" id="proposals" class="scroll-mt-6 flex flex-col gap-3">
@@ -573,6 +642,18 @@ async function pick(tint: string | null) {
           Record what orrery does, tell me about new errors, and show Events, Context and Pull requests in the sidebar
         </label>
         <p v-if="advancedFailed" class="text-xs text-rose-700 dark:text-rose-400">{{ advancedFailed }}</p>
+      </section>
+
+      <section v-if="tab === 'usage'" id="usage" class="scroll-mt-6 flex flex-col gap-3">
+        <header class="flex flex-col gap-0.5">
+          <h2 class="text-[15px] font-semibold text-fg">{{ title.usage }}</h2>
+          <p class="text-xs text-muted">
+            Which features you use, the coldest first, to find what could go. Off unless you turn it on. It counts only your
+            own use (the pages you open, the tools your sessions call, and a few optional features), a number a day, on
+            this machine only: nothing about what you did, and nothing sent anywhere.
+          </p>
+        </header>
+        <UsageSettings />
       </section>
 
       <section v-if="tab === 'advanced'" id="events" class="scroll-mt-6 flex flex-col gap-3">

@@ -3,19 +3,22 @@
 import type {Issue} from './board'
 
 /** A word to the Claude sessions on a project: `focus` asks one to work on the issue (or work through
- * the chunk) now; `comment` brings the owner's comment on an issue (in `note`) to the session working
+ * the milestone) now; `comment` brings the owner's comment on an issue (in `note`) to the session working
  * on it, to answer; `message` is a schedule's message (in `note`), about no issue. */
 export interface Signal {
     /** A member's signal (ORR-658): only their sessions hear it. The owner's say `protected` instead. */
     person?: string
+    /** The model its work needs, pooled (ORR-868): its issue's, or a milestone's heaviest. No session started on a lighter one
+     * takes it; none, any session can. */
+    model?: string
     id: number
     project: string
-    /** The issue it's about, or for a focus on a whole chunk, `chunk` (`none`: the issues in no chunk; `all`: every chunk's). */
+    /** The issue it's about, or for a focus on a whole milestone, `milestone` (`none`: the issues in no milestone; `all`: every milestone's). */
     issue?: string
-    chunk?: string
-    /** For a chunk: only its issues of these statuses (ids or kinds, comma-separated), not all its open ones. */
+    milestone?: string
+    /** For a milestone: only its issues of these statuses (ids or kinds, comma-separated), not all its open ones. */
     status?: string
-    /** For a chunk: only its issues set for this release. */
+    /** For a milestone: only its issues set for this release. */
     release?: string
     /** The schedule that sent it (a message). */
     schedule?: number
@@ -75,6 +78,12 @@ export interface Session {
     /** Its last turn was cut off by an API error (Claude Code's StopFailure), until its next turn gets going (ORR-646):
      * the `error` it named (`rate_limit`…), and what Claude Code told it, cut short. */
     cut_off?: {error?: string, text?: string, at: string}
+    /** The model it runs on, as Claude Code names it (`claude-opus-5-5`), from its hook: the latest reply's model in its
+     * transcript, so a `/model` switch shows after its next turn (ORR-871). None until it has said. */
+    model?: string
+    /** The effort level it runs at, from its hook on tool events, so an `/effort` switch shows too (ORR-894). None until it
+     * has said: then the one it was started at (`started.effort`), if any. */
+    effort?: Effort
 }
 
 /** Whether a session goes in a list of sessions (ORR-716): something can be done with it there, as it hears signals, its
@@ -117,7 +126,21 @@ export interface StartedSession {
     /** Started for the owner's chat: it hears only the chat's messages, reads and answers, and makes issues and
      * comments when asked; nothing else. */
     chat?: boolean
+    /** The model and effort it was started on (`claude --model … --effort …`), when it asked for any; none, on
+     * Claude Code's default there (ORR-868). */
+    model?: string
+    effort?: Effort
 }
+
+/** The effort levels Claude Code takes at start (`--effort`). */
+export const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const
+export type Effort = typeof EFFORTS[number]
+/** The models a session can be started on: an alias Claude Code takes (`best`, `opus`, `sonnet`, `haiku`, `fable`,
+ * `default`, `opusplan`), which follows its family's newest model, or a full id (`claude-sonnet-5-5`), which never moves. */
+export const MODEL_ALIASES = ['best', 'opus', 'sonnet', 'haiku', 'fable', 'default', 'opusplan'] as const
+export const isModel = (value: unknown): value is string =>
+    typeof value === 'string' && value.length <= 64 && ((MODEL_ALIASES as readonly string[]).includes(value) || /^claude-[a-z0-9.-]+(\[1m\])?$/.test(value))
+export const isEffort = (value: unknown): value is Effort => (EFFORTS as readonly unknown[]).includes(value)
 
 /** More context for a session, from the owner as they start it: the presets they picked (by name) and their own
  * words (`instructions`), joined in `text`. It goes with every signal to the session, and back to it after a `/clear`. */
@@ -166,3 +189,14 @@ export const madeUpName = (session: {name: string, project: string}) => session.
 /** Its name where its project already shows beside it: `Odin` for `orrery · Odin`; any other name as it is. */
 export const nameBesideProject = (session: {name: string, project: string}) =>
     session.name.startsWith(`${session.project} · `) ? session.name.slice(session.project.length + 3) || session.name : session.name
+
+/** A model's id as people say it (ORR-871): `claude-opus-5-5` is Opus 5.5, `claude-sonnet-5-20260101` Sonnet 5, and a
+ * 1M context (`[1m]`) says so. An id it can't read is shown as it is. */
+export function modelLabel(id: string): string {
+    const long = /\[1m\]$/i.test(id)
+    const match = /^(?:anthropic\.)?claude-([a-z]+)-(\d+)(?:-(\d{1,2}))?(?:-\d{8})?(?:-v\d+(?::\d+)?)?(?:\[1m\])?$/i.exec(id.trim())
+    if (!match) return id
+    const [, family, major, minor] = match as unknown as [string, string, string, string | undefined]
+    const name = `${family.charAt(0).toUpperCase()}${family.slice(1).toLowerCase()} ${major}${minor ? `.${minor}` : ''}`
+    return long ? `${name} · 1M` : name
+}

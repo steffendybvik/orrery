@@ -12,6 +12,21 @@ const key = ref('')
 const busy = ref(false)
 const failed = ref('')
 
+// A one-time link from App settings' QR code (ORR-837): it signs this browser in, nothing to type.
+const link = typeof route.query.t === 'string' ? route.query.t : ''
+const linking = ref(!!link)
+onMounted(async () => {
+    if (!link) return
+    try {
+        await apiFetch('/auth/link', {method: 'POST', headers: {}, body: {token: link}})
+        location.replace('/')
+    } catch (error) {
+        failed.value = errorMessage(error)
+        linking.value = false
+        history.replaceState(null, '', '/login')
+    }
+})
+
 async function submit() {
     busy.value = true
     failed.value = ''
@@ -31,8 +46,12 @@ async function submit() {
   <main class="flex min-h-dvh items-center justify-center p-6">
     <div class="flex w-96 max-w-full flex-col gap-4">
       <h1 class="text-[15px] font-semibold text-fg">Log in to this orrery</h1>
+      <p v-if="linking" class="flex items-center gap-2 text-xs text-muted"><UiSpinner />Signing you in…</p>
       <p v-if="status?.mode === 'closed'" class="text-xs text-rose-700 dark:text-rose-400">
         ORRERY_AUTH=off only works while orrery listens on loopback, and this one is reachable from other machines. Unset it, and restart.
+      </p>
+      <p v-else-if="status?.phone && !linking" class="text-xs text-muted">
+        On your computer, open orrery's App settings → You and scan its QR code with this phone's camera: that signs you in.
       </p>
       <p v-else-if="status && !status.can_get_in" class="text-xs text-muted">
         Nobody can log in yet. On the machine it runs on, run <code class="font-mono">pnpm orrery:claim</code>

@@ -14,7 +14,7 @@ beforeEach(async () => {
     signals = []
     store = new Store(testDb(), () => {}, signal => signals.push(signal))
     await store.createProject({name: 'greenhouse', key: 'GRE'})
-    await store.createChunk('greenhouse', {title: 'Upkeep'})
+    await store.createMilestone('greenhouse', {title: 'Upkeep'})
     schedules = new Schedules(store)
 })
 
@@ -51,11 +51,11 @@ describe('schedules', () => {
         expect((await failure(() => schedules.create('greenhouse', {title: 'x', cron: '0 9 * * *', timezone: 'Mars/Olympus'}))).status).toBe(400)
         expect((await failure(() => schedules.create('greenhouse', {title: 'x', at: '2001-01-01T00:00:00Z'}))).status).toBe(400)
         expect((await failure(() => schedules.create('greenhouse', {title: 'x', cron: '0 9 * * *', at: '2099-01-01T00:00:00Z'}))).status).toBe(400)
-        expect((await failure(() => schedules.create('greenhouse', {title: 'x', cron: '0 9 * * *', chunk: '9'}))).status).toBe(404)
+        expect((await failure(() => schedules.create('greenhouse', {title: 'x', cron: '0 9 * * *', milestone: '9'}))).status).toBe(404)
     })
 
     it('make an issue when due, placed and marked, and run once after downtime', async () => {
-        const s = await schedules.create('greenhouse', {title: 'Groom', cron: '0 9 * * *', timezone: 'UTC', chunk: '1', priority: 'P2', labels: ['upkeep'], column: 'in-review'}, me)
+        const s = await schedules.create('greenhouse', {title: 'Groom', cron: '0 9 * * *', timezone: 'UTC', milestone: '1', priority: 'P2', labels: ['upkeep'], column: 'in-review'}, me)
         // A week late: it runs once, then waits for its next time.
         const late = new Date(new Date(s.next_run!).getTime() + 7 * 86_400_000 + 60_000)
         expect(await schedules.runDue(late)).toBe(1)
@@ -63,7 +63,7 @@ describe('schedules', () => {
         const run = (await schedules.get('greenhouse', s.id)).runs[0]!
         expect(run.outcome).toBe('made')
         const issue = await store.issue('greenhouse', run.issue!)
-        expect(issue).toMatchObject({chunk: '1', priority: 'P2', labels: ['upkeep'], status: 'in-review', schedule: s.id, created_by: 'skoll', protected: true})
+        expect(issue).toMatchObject({milestone: '1', priority: 'P2', labels: ['upkeep'], status: 'in-review', schedule: s.id, created_by: 'skoll', protected: true})
         expect(issue.title).toMatch(/^Groom · \w{3} \d+ \w{3}$/)
         expect(new Date((await schedules.get('greenhouse', s.id)).next_run!).getTime()).toBeGreaterThan(late.getTime())
     })

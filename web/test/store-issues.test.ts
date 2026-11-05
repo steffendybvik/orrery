@@ -24,21 +24,21 @@ describe('issues', () => {
     })
 
     it('get the project prefix and the next number, and land in a column', async () => {
-        const a = await store.createIssue('greenhouse', {title: 'Joint editor', chunk: '1', status: 'todo', priority: 'P1'})
+        const a = await store.createIssue('greenhouse', {title: 'Joint editor', milestone: '1', status: 'todo', priority: 'P1'})
         const b = await store.createIssue('greenhouse', {title: 'Unplanned'})
-        expect([a.id, a.column, a.chunk]).toEqual(['GRE-1', 'todo', '1'])
-        expect([b.id, b.column, b.chunk]).toEqual(['GRE-2', 'backlog', null])
-        expect((await store.project('greenhouse')).board.chunks.map(c => c.title)).toEqual(['Moving parts: joints', 'No chunk'])
+        expect([a.id, a.column, a.milestone]).toEqual(['GRE-1', 'todo', '1'])
+        expect([b.id, b.column, b.milestone]).toEqual(['GRE-2', 'backlog', null])
+        expect((await store.project('greenhouse')).board.milestones.map(c => c.title)).toEqual(['Moving parts: joints', 'No milestone'])
         expect(changes.at(-1)).toBe('greenhouse')
     })
 
     it("can't be given an id", async () => {
         expect((await failure(() => store.createIssue('greenhouse', {id: 'MOT-5', title: 'x'}))).message).toMatch(/^unknown field "id"/)
-        expect((await failure(() => store.createChunk('greenhouse', {id: 'joints', title: 'x'}))).message).toMatch(/^unknown field "id"/)
+        expect((await failure(() => store.createMilestone('greenhouse', {id: 'joints', title: 'x'}))).message).toMatch(/^unknown field "id"/)
     })
 
-    it('nest in their parent and its chunk', async () => {
-        const parent = await add({title: 'Joints', chunk: '1', status: 'todo'})
+    it('nest in their parent and its milestone', async () => {
+        const parent = await add({title: 'Joints', milestone: '1', status: 'todo'})
         const hinge = await add({title: 'Hinge', parent, status: 'in-progress'})
         const slider = await add({title: 'Slider', parent, status: 'done'})
 
@@ -46,9 +46,9 @@ describe('issues', () => {
         expect(shown.column).toBe('in-progress')
         expect(shown.tasks.map(t => t.id)).toEqual([hinge, slider])
         expect([shown.kinds.done, total(shown.kinds)]).toEqual([1, 2])
-        expect(await store.issue('greenhouse', hinge)).toMatchObject({parent, chunk: '1'})
+        expect(await store.issue('greenhouse', hinge)).toMatchObject({parent, milestone: '1'})
         expect((await store.listIssues('greenhouse', {parent: 'none'})).map(i => i.id)).toEqual([parent])
-        expect((await failure(() => add({title: 'x', parent, chunk: '1'}))).status).toBe(400)
+        expect((await failure(() => add({title: 'x', parent, milestone: '1'}))).status).toBe(400)
     })
 
     it("can't become their own ancestor", async () => {
@@ -58,10 +58,10 @@ describe('issues', () => {
         expect((await failure(() => store.updateIssue('greenhouse', a, {parent: a}))).status).toBe(400)
     })
 
-    it('lift into the chunk they were in', async () => {
-        const a = await add({title: 'A', chunk: '1'})
+    it('lift into the milestone they were in', async () => {
+        const a = await add({title: 'A', milestone: '1'})
         const b = await add({title: 'B', parent: a})
-        expect(await store.updateIssue('greenhouse', b, {parent: null})).toMatchObject({parent: null, chunk: '1'})
+        expect(await store.updateIssue('greenhouse', b, {parent: null})).toMatchObject({parent: null, milestone: '1'})
     })
 
     it('clear fields with null and go with their parent', async () => {
@@ -84,14 +84,14 @@ describe('issues', () => {
 
     it("move to another project with their sub-issues and comments, taking that project's ids", async () => {
         await store.createProject({name: 'orrery', key: 'ORR'})
-        await store.createChunk('orrery', {title: 'v1'})
+        await store.createMilestone('orrery', {title: 'v1'})
         await store.createIssue('orrery', {title: 'already there'})
-        const a = await add({title: 'A', chunk: '1'})
+        const a = await add({title: 'A', milestone: '1'})
         const b = await add({title: 'B', parent: a})
         await store.createComment('greenhouse', b, {body: 'hi'})
 
-        const moved = await store.updateIssue('greenhouse', a, {project: 'orrery', chunk: '1', priority: 'P2'})
-        expect(moved).toMatchObject({id: 'ORR-2', project: 'orrery', chunk: '1', parent: null, priority: 'P2', aliases: ['GRE-1']})
+        const moved = await store.updateIssue('greenhouse', a, {project: 'orrery', milestone: '1', priority: 'P2'})
+        expect(moved).toMatchObject({id: 'ORR-2', project: 'orrery', milestone: '1', parent: null, priority: 'P2', aliases: ['GRE-1']})
         expect(moved.tasks.map(t => t.id)).toEqual(['ORR-3'])
         expect((await store.listComments('orrery', b)).map(c => c.body)).toEqual(['hi'])
         expect((await store.issue('orrery', 'GRE-1')).id).toBe('ORR-2')
@@ -129,10 +129,10 @@ describe('issues', () => {
         expect((await store.listIssues('orrery', {parent: moved.id})).map(i => i.title)).toEqual(['B'])
     })
 
-    it('stay when their chunk is deleted', async () => {
-        const a = await add({title: 'A', chunk: '1'})
-        await store.deleteChunk('greenhouse', '1')
-        expect((await store.issue('greenhouse', a)).chunk).toBeNull()
+    it('stay when their milestone is deleted', async () => {
+        const a = await add({title: 'A', milestone: '1'})
+        await store.deleteMilestone('greenhouse', '1')
+        expect((await store.issue('greenhouse', a)).milestone).toBeNull()
     })
 })
 describe('activity', () => {
@@ -143,7 +143,7 @@ describe('activity', () => {
     it('notes who changed which field, from what to what', async () => {
         const {id} = await store.createIssue('greenhouse', {title: 'A', notes: 'first'}, owner)
         await store.updateIssue('greenhouse', id, {title: 'A', status: 'in-progress', assignee: 'claude', priority: 'P2'}, claude)
-        await store.updateIssue('greenhouse', id, {notes: 'second', labels: ['ui'], chunk: '1'}, claude)
+        await store.updateIssue('greenhouse', id, {notes: 'second', labels: ['ui'], milestone: '1'}, claude)
         await store.updateIssue('greenhouse', id, {notes: 'second', priority: null}, owner)
         expect(await changed(id)).toEqual([
             ['created', undefined, undefined, 'skoll'],
@@ -152,7 +152,7 @@ describe('activity', () => {
             ['assignee', undefined, 'claude', 'claude'],
             ['labels', '[]', '["ui"]', 'claude'],
             ['notes', undefined, undefined, 'claude'],
-            ['chunk', undefined, '1', 'claude'],
+            ['milestone', undefined, '1', 'claude'],
             ['priority', 'P2', undefined, 'skoll'],
         ])
         expect((await store.listActivity('greenhouse', id))[0]).toMatchObject({issue: id, protected: true})
@@ -169,9 +169,9 @@ describe('activity', () => {
         expect((await store.listComments('greenhouse', id)).map(c => c.session_name)).toEqual(['orrery · Frøya', undefined])
     })
 
-    it('notes a new parent, not the chunk that comes with it', async () => {
-        const parent = (await store.createIssue('greenhouse', {title: 'P', chunk: '1'})).id
-        const {id} = await store.createIssue('greenhouse', {title: 'A', chunk: '1'})
+    it('notes a new parent, not the milestone that comes with it', async () => {
+        const parent = (await store.createIssue('greenhouse', {title: 'P', milestone: '1'})).id
+        const {id} = await store.createIssue('greenhouse', {title: 'A', milestone: '1'})
         await store.updateIssue('greenhouse', id, {parent})
         await store.updateIssue('greenhouse', id, {parent: null})
         expect((await changed(id)).slice(1)).toEqual([['parent', undefined, parent, 'agent'], ['parent', parent, undefined, 'agent']])

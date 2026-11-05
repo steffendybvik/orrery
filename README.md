@@ -1,6 +1,6 @@
 # orrery
 
-A self-hosted roadmap board for working with Claude Code sessions. Each project has issues, chunks
+A self-hosted roadmap board for working with Claude Code sessions. Each project has issues, milestones
 (milestones), releases and docs. Sessions read and update them through an HTTP API or MCP tools, and
 the owner directs sessions from the board. It runs locally, in Docker, on SQLite or Postgres.
 
@@ -21,12 +21,12 @@ the owner directs sessions from the board. It runs locally, in Docker, on SQLite
 
 ## Features
 
-- **Issues:** sub-issues to any depth, grouped into chunks, shown as a list or a board. The statuses
+- **Issues:** sub-issues to any depth, grouped into milestones, shown as a list or a board. The statuses
   are configurable, and every change is kept as activity. **My issues**, the home page, spans all projects.
 - **Agent access:** a JSON API, MCP tools (`issue`, `start_issue`, `comment`, `finish_issue`, …) and
   `/llms.txt`. Agents can propose issues for the owner to approve, and ask for a decision or feedback.
 - **Directing sessions:** through a Claude Code channel, the owner can ask a session to focus on an
-  issue, work through a chunk, or read a message. Hooks report whether each session is working, idle
+  issue, work through a milestone, or read a message. Hooks report whether each session is working, idle
   or waiting. Only one session can work on an issue at a time, and its page shows who's on it.
 - **Starting sessions:** optionally, a launcher on the host starts Claude sessions in tmux when work
   arrives with nobody listening, or when you start one, within limits set on the Sessions page.
@@ -42,6 +42,8 @@ the owner directs sessions from the board. It runs locally, in Docker, on SQLite
 - **Secrets:** API keys that agents use through orrery's egress, without ever seeing the value.
 - **Event log:** orrery's errors and each change to the roadmap, and with Advanced on what it did, kept on the machine,
   on an Events page that sessions can read too.
+- **On your phone:** scan the QR code in App settings and the phone is signed in, driving the sessions on this machine.
+  End a lost phone's login from the Mac.
 - **Storage:** one SQLite file or Postgres, both backed up automatically, picked when you first open it or moved to
   later from App settings. Alone on your machine there's no login; with a second person or from another machine it asks for one. The first name given becomes the owner.
 
@@ -81,7 +83,7 @@ You need:
 
    ```sh
    mkdir orrery && cd orrery
-   curl -LO https://github.com/steffendybvik/orrery/releases/download/v1.0.0-rc.16/compose.yml
+   curl -LO https://github.com/steffendybvik/orrery/releases/download/v1.0.0-rc.17/compose.yml
    docker compose up -d        # http://localhost:9000
    ```
 
@@ -102,8 +104,9 @@ You need:
 
 ## Requirements and limits
 
-- **Local by default.** Only this machine can reach it. Read [SECURITY.md](SECURITY.md) before
-  exposing it.
+- **Local by default.** Only this machine reaches the board without a login. A phone on your network opens it on a
+  port of its own that always asks for one, signed in by App settings' QR code. Read [SECURITY.md](SECURITY.md) before
+  exposing it further.
 - **Channels are a Claude Code research preview**, hence the long flag in step 4. Without it a session still
   has the tools and can read and update the roadmap, but orrery can't send it work.
 - **Starting sessions** needs tmux 3.2 or newer, and the launcher installed once

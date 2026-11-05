@@ -27,8 +27,9 @@ import {AsyncLocalStorage} from 'node:async_hooks'
 import {Cron} from 'croner'
 import type {OnFilter, OrreryEvent} from '#shared/happenings'
 import {EVENT_PATTERN, matchesType} from '#shared/happenings'
-import type {Issue, Preset, Priority, Schedule, ScheduleAcross, ScheduleRun} from '#shared/roadmap'
-import {canActivate, CLOSED, EVENT_LEVELS, KINDS, PRIORITIES} from '#shared/roadmap'
+import type {Effort, Issue, Preset, Priority, Schedule, ScheduleAcross, ScheduleRun} from '#shared/roadmap'
+import {canActivate, CLOSED, EFFORTS, EVENT_LEVELS, KINDS, PRIORITIES} from '#shared/roadmap'
+import {MODEL} from '../store/schema'
 import type {Db} from './database'
 import {one} from './database'
 import type {Field, Input} from './input'
@@ -41,14 +42,14 @@ import {splitChecklist} from './schedule-checklist'
 
 interface ScheduleRow {
     id: number, project: string, kind: Schedule['kind'], title: string, notes: string | null, cron: string | null, at: string | null, timezone: string,
-    place: string, chunk: string | null, priority: Priority | null, labels: string, ask: number, skip_open: number, only_if_changed: number, untrusted: number, enabled: number,
-    next_run: string | null, on_event: string | null, on_filter: string | null, presets: string, move_from: string, across: number | null, created_by: string, owned: number, created_at: string, updated_at: string
+    place: string, milestone: string | null, priority: Priority | null, labels: string, ask: number, skip_open: number, only_if_changed: number, untrusted: number, enabled: number,
+    next_run: string | null, on_event: string | null, on_filter: string | null, presets: string, move_from: string, across: number | null, model?: string | null, effort?: Effort | null, created_by: string, owned: number, created_at: string, updated_at: string
 }
 interface AcrossRow { id: number, projects: string, skip: string, body: string, created_by: string, created_at: string, updated_at: string }
 interface RunRow { id: number, schedule: number, at: string, outcome: ScheduleRun['outcome'], issue: string | null, note: string | null, subject: string | null }
 
 /** What a session schedule's run starts: as `POST …/launches` takes it. */
-export interface SessionStart { presets: number[], instructions: string, issue?: string, release?: string }
+export interface SessionStart { presets: number[], instructions: string, issue?: string, release?: string, model?: string, effort?: Effort }
 
 /** The schedule whose run is under way, so what its run does (the issue it makes) runs no schedule. */
 export const scheduleRunning = new AsyncLocalStorage<number>()
@@ -94,7 +95,7 @@ const SCHEDULE_FIELDS: Record<string, Field> = {
     column: {type: 'string'},
     /** The statuses (ids or kinds) an action schedule moves issues out of; none, any open one. */
     move_from: {type: 'strings', nullable: true},
-    chunk: {type: 'string', nullable: true},
+    milestone: {type: 'string', nullable: true},
     priority: {type: 'string', values: PRIORITIES, nullable: true},
     labels: {type: 'strings', nullable: true},
     ask: {type: 'boolean'},
@@ -104,6 +105,10 @@ const SCHEDULE_FIELDS: Record<string, Field> = {
     /** A message schedule that brings in what others wrote: each run gets a locked-down session of its own. */
     untrusted: {type: 'boolean'},
     enabled: {type: 'boolean'},
+    /** The model and effort its work runs on (ORR-869): its session starts on them, its message needs a session on the model,
+     * and its issues carry them. Null takes its kind's. */
+    model: {type: 'string', nullable: true, pattern: MODEL, hint: 'use best, opus, sonnet, haiku, fable, default, opusplan or a full id such as claude-sonnet-5-5'},
+    effort: {type: 'string', nullable: true, values: EFFORTS},
 }
 
 /** How many runs a schedule shows. */
@@ -179,8 +184,8 @@ export class Schedules {
 
     async create(project: string, body: unknown, actor = AGENT, across: number | null = null): Promise<Schedule> {
         const insert = await this.toCreate(project, body, actor)
-        const {id} = await one<{id: number}>(this.db, `INSERT INTO schedules (project, kind, title, notes, cron, at, on_event, on_filter, presets, move_from, timezone, place, chunk, priority, labels, ask, skip_open, only_if_changed,
-            untrusted, enabled, next_run, created_by, owned, created_at, updated_at, across) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`, ...insert, across)
+        const {id} = await one<{id: number}>(this.db, `INSERT INTO schedules (project, kind, title, notes, cron, at, on_event, on_filter, presets, move_from, timezone, place, milestone, priority, labels, ask, skip_open, only_if_changed,
+            untrusted, enabled, next_run, created_by, owned, created_at, updated_at, model, effort, across) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`, ...insert, across)
         this.listeners = null
         this.onChange(project)
         return await this.get(project, id)
@@ -198,17 +203,17 @@ export class Schedules {
         await this.store.project(project)
         const input = checkInput(body, SCHEDULE_FIELDS)
         const when = this.when({cron: input.cron, at: input.at, on: input.on, timezone: input.timezone}, true)
-        const chunk = await this.chunk(project, input.chunk)
+        const milestone = await this.milestone(project, input.milestone)
         const now = new Date().toISOString()
         const enabled = input.enabled ?? true
         const kind = String(input.kind ?? 'issue') as Schedule['kind']
         const presets = await this.presets(project, kind, input.presets ?? '[]')
         this.checkKind(kind, text(input.notes), presets, !!input.untrusted, actor, when.on)
         if (kind === 'action' && input.column === undefined) throw badRequest('An action schedule moves issues to a status: send it in "column"')
-        return [project, kind, String(input.title).trim(), text(input.notes), when.cron, when.at, when.on, filterOf(when.on, input.on_filter), presets, await this.moveFrom(input.move_from), when.timezone, await this.place(input.column ?? 'todo', kind), chunk,
+        return [project, kind, String(input.title).trim(), text(input.notes), when.cron, when.at, when.on, filterOf(when.on, input.on_filter), presets, await this.moveFrom(input.move_from), when.timezone, await this.place(input.column ?? 'todo', kind), milestone,
             text(input.priority), JSON.stringify(input.labels ?? []), Number(input.ask ?? false), Number(input.skip_open ?? true), Number(input.only_if_changed ?? false),
             Number(input.untrusted ?? false), Number(enabled),
-            enabled ? nextRun(when, new Date()) : null, actor.name, Number(actor.owner), now, now]
+            enabled ? nextRun(when, new Date()) : null, actor.name, Number(actor.owner), now, now, text(input.model), text(input.effort)]
     }
 
     /** Changing when it runs, or turning it back on, works out its next run again. The owner's schedules are
@@ -282,13 +287,15 @@ export class Schedules {
             // A status an action schedule moved issues to may be closed, which is no place for another kind's issues to start.
             place: input.column !== undefined ? await this.place(input.column, kind) : kind === row.kind ? undefined : await this.place(row.place, kind),
             move_from: input.move_from === undefined ? undefined : await this.moveFrom(input.move_from),
-            chunk: input.chunk === undefined ? undefined : await this.chunk(project, input.chunk),
+            milestone: input.milestone === undefined ? undefined : await this.milestone(project, input.milestone),
             priority: input.priority === undefined ? undefined : text(input.priority),
             labels: input.labels === undefined ? undefined : JSON.stringify(input.labels ?? []),
             ask: input.ask === undefined ? undefined : Number(input.ask),
             skip_open: input.skip_open === undefined ? undefined : Number(input.skip_open),
             only_if_changed: input.only_if_changed === undefined ? undefined : Number(input.only_if_changed),
             untrusted: input.untrusted === undefined ? undefined : Number(input.untrusted),
+            model: input.model === undefined ? undefined : text(input.model),
+            effort: input.effort === undefined ? undefined : text(input.effort),
             enabled: Number(enabled),
             next_run: next,
             // An agent's schedule stays the agent's whoever changes it, a pause or a rename by the owner included:
@@ -424,7 +431,7 @@ export class Schedules {
         const isList = (value: unknown) => Array.isArray(value) && value.every(id => typeof id === 'string')
         if (projects !== undefined && projects !== '*' && !(isList(projects) && (projects as string[]).length)) throw badRequest('"projects" is "*", or a list of ids')
         if (skip !== undefined && !isList(skip)) throw badRequest('"skip" is a list of ids')
-        if (fields.chunk) throw badRequest("A schedule across projects can't name a chunk: a chunk is one project's")
+        if (fields.milestone) throw badRequest("A schedule across projects can't name a milestone: a milestone is one project's")
         if (fields.at) throw badRequest('A schedule across projects runs on a cron or an event, not once')
         if (fields.untrusted) throw badRequest("A schedule across projects can't be untrusted")
         return {projects: projects as '*' | string[] | undefined, skip: skip as string[] | undefined, fields}
@@ -655,6 +662,7 @@ export class Schedules {
                 instructions: [row.notes, about].filter(Boolean).join('\n\n'),
                 ...subject && event?.type.startsWith('issue.') ? {issue: subject} : {},
                 ...subject && event?.type.startsWith('release.') ? {release: subject} : {},
+                ...modelOf(row),
             }, actor)
             return await record('sent', null, `started a session (${tmux})`)
         } catch (error) {
@@ -680,7 +688,7 @@ export class Schedules {
                 return await record('failed', null, `untrusted, so it needs a session of its own: ${error instanceof Error ? error.message : String(error)}`)
             }
         }
-        await this.store.message(row.project, row.id, words, actor, undefined, presets.map(p => p.name).join(', ') || undefined)
+        await this.store.message(row.project, row.id, words, actor, undefined, presets.map(p => p.name).join(', ') || undefined, row.model ?? undefined)
         const heard = this.listening(row.project)
         return await record('sent', null, heard ? `sent to ${heard} listening` : 'nobody listening; the next session to connect gets it')
     }
@@ -698,9 +706,10 @@ export class Schedules {
             const issue = await this.store.createIssue(row.project, {
                 title: `${row.title} · ${event ? event.subject ?? event.type : day(now, row.timezone)}`,
                 ...words ? {notes: words} : {},
-                ...row.chunk ? {chunk: row.chunk} : {},
+                ...row.milestone ? {milestone: row.milestone} : {},
                 ...row.priority ? {priority: row.priority} : {},
                 ...row.labels !== '[]' ? {labels: JSON.parse(row.labels) as string[]} : {},
+                ...modelOf(row),
                 status: row.place,
             }, actor, {urgent: false})
             try {
@@ -844,10 +853,10 @@ export class Schedules {
         return row
     }
 
-    /** The chunk its issues go in, checked: its id, or one it had before. */
-    private async chunk(project: string, chunk: unknown): Promise<string | null> {
-        if (chunk === undefined || chunk === null || chunk === '') return null
-        return (await this.store.chunk(project, String(chunk))).id
+    /** The milestone its issues go in, checked: its id, or one it had before. */
+    private async milestone(project: string, milestone: unknown): Promise<string | null> {
+        if (milestone === undefined || milestone === null || milestone === '') return null
+        return (await this.store.milestone(project, String(milestone))).id
     }
 
     /** Exactly one of a cron (that parses), a time to run once (in the future, when `strict`) and an event, in a known zone. */
@@ -890,12 +899,13 @@ export class Schedules {
             id: row.id, project: row.project, kind: row.kind, title: row.title, notes: row.notes ?? undefined,
             cron: row.cron ?? undefined, at: row.at ?? undefined, on: row.on_event ?? undefined,
             ...row.on_filter ? {on_filter: JSON.parse(row.on_filter) as OnFilter} : {}, presets: JSON.parse(row.presets) as number[], move_from: JSON.parse(row.move_from) as string[], timezone: row.timezone,
-            column: row.place, chunk: row.chunk ?? undefined, priority: row.priority ?? undefined, labels: JSON.parse(row.labels) as string[],
+            column: row.place, milestone: row.milestone ?? undefined, priority: row.priority ?? undefined, labels: JSON.parse(row.labels) as string[],
             ask: !!row.ask, skip_open: !!row.skip_open, only_if_changed: !!row.only_if_changed, untrusted: !!row.untrusted, enabled: !!row.enabled, next_run: row.next_run ?? undefined,
             runs: runs.map(r => ({at: r.at, outcome: r.outcome, issue: r.issue ?? undefined, note: r.note ?? undefined, ...r.subject ? {subject: r.subject} : {}})),
             ...held ? {held} : {},
             created_by: row.created_by, protected: !!row.owned, created_at: row.created_at, updated_at: row.updated_at,
             ...row.across ? {across: row.across} : {},
+            ...modelOf(row),
         }
     }
 }
@@ -918,6 +928,11 @@ function time(at: Date, timezone: string): string {
     return new Intl.DateTimeFormat('en-GB', {timeZone: timezone, hour: '2-digit', minute: '2-digit'}).format(at)
 }
 
+/** A schedule's own model and effort, as a run passes them on: none when it takes its kind's. */
+function modelOf(row: Pick<ScheduleRow, 'model' | 'effort'>): {model?: string, effort?: Effort} {
+    return {...row.model ? {model: row.model} : {}, ...row.effort ? {effort: row.effort} : {}}
+}
+
 function text(value: unknown): string | null {
     return value === undefined || value === null || value === '' ? null : String(value)
 }
@@ -929,7 +944,7 @@ function filterOf(on: string | null, filter: unknown): string | null {
 
 /** The changes whose values are ids or fixed words, so passing them on passes on nobody's text: a label or an
  * assignee is whatever an agent typed. */
-const SAID_BY_ID = new Set(['issue.status', 'issue.priority', 'issue.chunk', 'issue.release', 'issue.parent', 'issue.proposal', 'issue.project', 'comment.asks'])
+const SAID_BY_ID = new Set(['issue.status', 'issue.priority', 'issue.milestone', 'issue.release', 'issue.parent', 'issue.proposal', 'issue.project', 'comment.asks'])
 
 /** A name as a handle (`claude`, `ada_lovelace`): one with spaces or more could be words to a session. */
 const HANDLE = /^[\w.-]{1,40}$/

@@ -1000,4 +1000,70 @@ export const MIGRATIONS: (string | ((db: DatabaseSync) => void))[] = [`
 `, `
     -- The order a project's doc sections are arranged in (ORR-767), by name. Empty keeps them A–Z, as every project had them.
     ALTER TABLE projects ADD COLUMN doc_section_order TEXT NOT NULL DEFAULT '[]';
+`, `
+    -- The key a login was started with (ORR-786), so revoking it ends them; a provider's login has none. known is 0 on
+    -- those from before this step, which nothing ties to a key, so a revoke of any of their person's keys ends them too.
+    ALTER TABLE logins ADD COLUMN by_key TEXT;
+    ALTER TABLE logins ADD COLUMN known INTEGER NOT NULL DEFAULT 0;
+`, `
+    -- What a login is and when it was made and last used (ORR-838), so App settings lists them with End on each. name is
+    -- set on a phone's QR login; older logins have none of the three.
+    ALTER TABLE logins ADD COLUMN name TEXT;
+    ALTER TABLE logins ADD COLUMN created_at TEXT;
+    ALTER TABLE logins ADD COLUMN last_used_at TEXT;
+`, `
+    -- The owner's chats (ORR-877), kept so a restart or rebuild loses none: the chat as the page reads it, its messages
+    -- in it, as JSON. ended_at is set once it has ended, kept to read.
+    CREATE TABLE chats (
+        id TEXT PRIMARY KEY,
+        project TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        started_at TEXT NOT NULL,
+        ended_at TEXT,
+        chat TEXT NOT NULL
+    );
+`, `
+    -- The model a pooled signal's work needs (ORR-868), from its issue's kind: no session on a lighter one takes it.
+    -- None on those from before, and on a message, which any session takes.
+    ALTER TABLE signals ADD COLUMN model TEXT;
+`, `
+    -- An issue's own model and effort (ORR-868): a session for it starts on them, over its kind's. None follows its kind.
+    ALTER TABLE issues ADD COLUMN model TEXT;
+    ALTER TABLE issues ADD COLUMN effort TEXT;
+`, `
+    -- How often each feature got used, a row a day (ORR-881), to find what goes unused: the owner's own use alone, only
+    -- once they turn counting on (count_use, off by default). A count, nothing about who or what. Rows over a year go.
+    CREATE TABLE feature_use (
+        feature TEXT NOT NULL,
+        day TEXT NOT NULL,
+        count INTEGER NOT NULL,
+        PRIMARY KEY (feature, day)
+    );
+`, `
+    -- A schedule's own model and effort (ORR-869): what its session starts on, its message needs, and its issues carry.
+    -- None takes its kind's.
+    ALTER TABLE schedules ADD COLUMN model TEXT;
+    ALTER TABLE schedules ADD COLUMN effort TEXT;
+`, `
+    -- A change's risk (ORR-879): high, medium or low, with a line on why, rated by the session that opens the PR. by is
+    -- 'owner' once the owner sets it, and then a session's rating doesn't replace it. None on those from before.
+    ALTER TABLE issue_pulls ADD COLUMN risk TEXT CHECK (risk IN ('high', 'medium', 'low'));
+    ALTER TABLE issue_pulls ADD COLUMN risk_why TEXT;
+    ALTER TABLE issue_pulls ADD COLUMN risk_by TEXT;
+`, `
+    -- Chunks are milestones (ORR-896): the tables, columns and stored names that said chunk say milestone.
+    ALTER TABLE chunks RENAME TO milestones;
+    ALTER TABLE chunk_aliases RENAME TO milestone_aliases;
+    ALTER TABLE milestone_aliases RENAME COLUMN chunk TO milestone;
+    ALTER TABLE projects RENAME COLUMN next_chunk TO next_milestone;
+    ALTER TABLE projects RENAME COLUMN chunk_prompt TO milestone_prompt;
+    ALTER TABLE issues RENAME COLUMN chunk TO milestone;
+    ALTER TABLE signals RENAME COLUMN chunk TO milestone;
+    ALTER TABLE schedules RENAME COLUMN chunk TO milestone;
+    UPDATE settings SET key = 'milestone_prompt' WHERE key = 'chunk_prompt';
+    UPDATE issue_events SET field = 'milestone' WHERE field = 'chunk';
+    UPDATE events SET kind = 'milestone' || substr(kind, 6) WHERE kind LIKE 'chunk.%';
+    UPDATE feature_use SET feature = 'milestones' WHERE feature = 'chunks';
+    -- The prompts' {chunk} is {milestone} now.
+    UPDATE settings SET value = replace(value, '{chunk}', '{milestone}') WHERE key IN ('focus_prompt', 'milestone_prompt');
+    UPDATE projects SET focus_prompt = replace(focus_prompt, '{chunk}', '{milestone}'), milestone_prompt = replace(milestone_prompt, '{chunk}', '{milestone}');
 `]

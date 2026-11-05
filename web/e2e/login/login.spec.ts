@@ -1,7 +1,7 @@
 import {execFileSync} from 'node:child_process'
 import {fileURLToPath} from 'node:url'
 import type {Page} from '@playwright/test'
-import {expect, test} from '@playwright/test'
+import {devices, expect, test} from '@playwright/test'
 
 // The story of a new server with login on (ORR-699), in order: nobody can log in, it's claimed, and the owner signs in, makes
 // keys and logs out. So the tests share one server's state, and run in turn.
@@ -58,6 +58,7 @@ test('a logged-out browser lands on the login page, reads nothing, and is told t
 test('a wrong key shows the error and stays on the page', async ({page}) => {
     personKey = claim()
     await page.goto('/login')
+    await expect(page.getByRole('heading', {name: 'Log in to this orrery'})).toBeVisible()
     await expect(page.getByText('pnpm orrery:claim')).toBeHidden()
     await refusedAtTheDoor(page, NOT_A_KEY)
 })
@@ -128,4 +129,46 @@ test('a login ended while the page is open goes back to the login page', async (
     // The next thing the first tab asks for is refused.
     await page.getByRole('link', {name: 'Sessions'}).first().click()
     await expect(page).toHaveURL(/\/login$/)
+})
+
+// Signing a phone in by App settings' QR code (ORR-837, ORR-845), as the owner does: the code carries a one-time link to
+// the phone's own port, read here from the request that makes it, as a camera reads it off the code. Under `nuxt dev` the
+// phone's listener serves the server alone, not Vite's modules (a built orrery serves both), so the page is opened on the
+// sessions' address with the same link, and the phone's port is checked through its API: a login's cookie is the same on
+// every port of `localhost`.
+test("App settings' QR link signs a phone in on its own port, once, and lists its login", async ({page, browser}) => {
+    await signedIn(page)
+    const made = page.waitForResponse(response => response.url().endsWith('/api/phone/link') && response.request().method() === 'POST')
+    await page.goto('/settings?tab=you#phone')
+    const {token} = await (await made).json() as {token: string}
+    const section = page.locator('#phone')
+    const address = await section.getByRole('button', {name: /^Show the QR code for /}).first().innerText()
+    // The phone port's address, not the sessions' one the page is on.
+    expect(new URL(address).port).not.toBe(new URL(page.url()).port)
+    await expect(section.getByRole('img', {name: `QR code for ${address}`})).toBeVisible()
+    const path = `/login?t=${token}`
+
+    const phone = await browser.newContext({...devices['iPhone 13']})
+    expect((await phone.request.get(`${address}/api/projects`)).status()).toBe(401)
+    const scanned = await phone.newPage()
+    await scanned.goto(new URL(path, page.url()).href)
+    await expect(scanned).not.toHaveURL(/\/login/)
+    await expect(scanned.getByRole('heading', {name: 'My issues'}).first()).toBeVisible()
+    // Signed in, the phone reads through its own port, which asked for a login a moment ago.
+    expect((await phone.request.get(`${address}/api/projects`)).status()).toBe(200)
+    await phone.close()
+
+    // The list is read as the section shows, so it's opened afresh, as the owner coming back to it would.
+    await page.goto('/settings?tab=you#logins')
+    await page.reload()
+    await expect(page.locator('#logins').getByRole('listitem').filter({hasText: 'Phone, signed in by QR code'})).toHaveCount(1)
+
+    // Used once, the same link signs nobody else in, on either port.
+    const another = await browser.newContext()
+    expect((await another.request.post(`${address}/api/auth/link`, {data: {token}})).status()).toBe(401)
+    const again = await another.newPage()
+    await again.goto(new URL(path, page.url()).href)
+    await expect(again.getByText(/used or has run out/)).toBeVisible()
+    await expect(again).toHaveURL(/\/login$/)
+    await another.close()
 })

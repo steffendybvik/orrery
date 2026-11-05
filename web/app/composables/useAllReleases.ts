@@ -10,6 +10,7 @@ export function useAllReleases() {
     let latest = 0
     async function load() {
         const asked = ++latest
+        failed.value = ''
         try {
             const read = await apiFetch<ProjectReleases[]>('/releases')
             if (asked !== latest) return
@@ -22,5 +23,5 @@ export function useAllReleases() {
     const heard = computed(() => JSON.stringify(projects.value.map(p => [p.id, p.release_mode, p.releases_from, p.releases])))
     watch(heard, () => void load())
     onMounted(load)
-    return {cards, failed}
+    return {cards, failed, load}
 }

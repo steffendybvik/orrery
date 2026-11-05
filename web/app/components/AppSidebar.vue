@@ -51,7 +51,10 @@ const LIVE = {
 }
 
 // Projects are dragged by their name to rearrange them (or moved with ⌥↑/⌥↓); a line shows where one lands.
-const {ordered, move} = useProjectOrder()
+// Starred ones lead, and hidden ones fold away under Hidden at the foot (App settings → Projects, ORR-836). The
+// Projects page, every project on one page (ORR-863), is in the nav above, so the fold doesn't link to it (ORR-905).
+const {ordered, shown, hidden, isStarred, move} = useProjectOrder()
+const showHidden = useState('sidebar-hidden-open', () => false)
 const {sessions} = useRoadmaps()
 const dragging = ref<string | null>(null)
 const dropAt = ref<number | null>(null)
@@ -65,8 +68,8 @@ function onDragOver(event: DragEvent, index: number) {
 
 function onDrop() {
     if (dragging.value === null || dropAt.value === null) return
-    const from = ordered.value.findIndex(p => p.id === dragging.value)
-    move(dragging.value, dropAt.value > from ? dropAt.value - 1 : dropAt.value)
+    const from = shown.value.findIndex(p => p.id === dragging.value)
+    move(dragging.value, dropAt.value > from ? dropAt.value - 1 : dropAt.value, shown.value)
     onDragEnd()
 }
 
@@ -77,7 +80,7 @@ function onDragEnd() {
 
 // A project's pages fold away under it (→ / ← on its name), so a long list stays short.
 const {isOpen, set: setFolds, toggle} = useProjectFolds()
-const allOpen = computed(() => ordered.value.length > 0 && ordered.value.every(p => isOpen(p.id)))
+const allOpen = computed(() => shown.value.length > 0 && shown.value.every(p => isOpen(p.id)))
 
 // Every Claude session, at the bottom: the ones waiting on you first, then by project as arranged. One that hears
 // several projects is listed once, as spanning them (All projects, or how many), with them in its tooltip.
@@ -91,6 +94,76 @@ const allSessions = computed(() => ordered.value
     .flatMap(project => (sessions.value[project.id] ?? []).filter(s => s.project === project.id && listable(s)).map(session => ({session, project})))
     .sort((a, b) => Number(b.session.state === 'waiting') - Number(a.session.state === 'waiting')))
 
+// The sessions list is a panel of its own (ORR-897): its top edge drags to make it taller or shorter, and its heading's
+// arrow folds it away, both remembered in this browser. Left alone it's as tall as its sessions, up to SESSIONS_HEIGHT;
+// resized, it's the height it was given. It never takes more than leaves the nav SESSIONS_KEEP.
+const SESSIONS_HEIGHT = 224
+const SESSIONS_MIN = 64
+const SESSIONS_KEEP = 120
+const {width: sessionsHeight} = usePaneWidth('orrery-sidebar-sessions-height', SESSIONS_HEIGHT)
+const sessionsFolded = ref((() => {
+    try {
+        return localStorage.getItem('orrery-sidebar-sessions') === 'folded'
+    } catch {
+        return false
+    }
+})())
+watch(sessionsFolded, folded => {
+    try {
+        if (folded) localStorage.setItem('orrery-sidebar-sessions', 'folded')
+        else localStorage.removeItem('orrery-sidebar-sessions')
+    } catch {
+        // Private windows may refuse; it still holds until a reload.
+    }
+})
+const sessionsPanel = ref<HTMLElement>()
+const sessionsDragging = ref(false)
+// Popped out, it floats over the page wherever it's put (ORR-901), its resize edge on the side away from its corner.
+const float = useSessionsFloat(sessionsPanel)
+const floating = float.floating
+/** The most the panel can be: floating, what the window has; in the sidebar, what it has less what the nav keeps. */
+function sessionsMax() {
+    if (floating.value) return float.maxHeight()
+    const panel = sessionsPanel.value
+    const aside = panel?.parentElement
+    if (!panel || !aside) return SESSIONS_HEIGHT
+    return Math.max(SESSIONS_MIN, panel.offsetHeight + (aside.querySelector('nav')?.clientHeight ?? 0) - SESSIONS_KEEP)
+}
+const clampSessions = (to: number) => Math.round(Math.min(Math.max(to, SESSIONS_MIN), sessionsMax()))
+let dragFromY = 0
+let dragFromHeight = 0
+function sessionsDown(event: PointerEvent) {
+    if (event.button !== 0) return
+    event.preventDefault()
+    ;(event.currentTarget as HTMLElement).setPointerCapture(event.pointerId)
+    dragFromY = event.clientY
+    // What shows, which may be less than the height kept when there are few sessions.
+    dragFromHeight = sessionsPanel.value?.offsetHeight ?? sessionsHeight.value
+    sessionsDragging.value = true
+}
+function sessionsMove(event: PointerEvent) {
+    // Its edge at the bottom (floating from a top corner), dragging down makes it taller; at the top, dragging up.
+    const by = floating.value && float.top.value ? event.clientY - dragFromY : dragFromY - event.clientY
+    if (sessionsDragging.value) sessionsHeight.value = clampSessions(dragFromHeight + by)
+}
+function sessionsUp(event: PointerEvent) {
+    if (!sessionsDragging.value) return
+    sessionsDragging.value = false
+    ;(event.currentTarget as HTMLElement).releasePointerCapture(event.pointerId)
+}
+watch(sessionsDragging, on => {
+    document.documentElement.classList.toggle('cursor-row-resize', on)
+    document.documentElement.classList.toggle('select-none', on)
+})
+onBeforeUnmount(() => document.documentElement.classList.remove('cursor-row-resize', 'select-none'))
+function sessionsKey(event: KeyboardEvent) {
+    const step = event.shiftKey ? 64 : 16
+    const to = {ArrowUp: sessionsHeight.value + step, ArrowDown: sessionsHeight.value - step, Home: SESSIONS_MIN, End: Infinity}[event.key]
+    if (to === undefined) return
+    event.preventDefault()
+    sessionsHeight.value = clampSessions(to)
+}
+
 /** The other projects a session hears, by name. */
 const alsoNames = (session: Session) => (session.also ?? []).map(id => projects.value.find(p => p.id === id)?.name ?? id)
 /** Where a session that spans projects says it is, in place of its own project's name. */
@@ -100,8 +173,8 @@ const spanLabel = (session: Session) => {
 }
 
 function nudge(id: string, by: number, event: KeyboardEvent) {
-    const from = ordered.value.findIndex(p => p.id === id)
-    move(id, from + by)
+    const from = shown.value.findIndex(p => p.id === id)
+    move(id, from + by, shown.value)
     nextTick(() => (event.target as HTMLElement).focus())
 }
 
@@ -161,6 +234,16 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
       >
         <svg class="size-4 text-faint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 7H7a5 5 0 0 0 0 10h2M15 7h2a5 5 0 0 1 0 10h-2M8 12h8" /></svg>
         <span class="flex-1">Connect an agent</span>
+      </NuxtLink>
+
+      <NuxtLink
+          to="/projects"
+          class="flex items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] transition-colors"
+          :class="route.path === '/projects' ? 'bg-active font-medium text-fg' : 'text-muted hover:bg-hover hover:text-fg'"
+      >
+        <svg class="size-4 text-faint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="7" height="7" rx="1.5" /><rect x="14" y="4" width="7" height="7" rx="1.5" /><rect x="3" y="14" width="7" height="7" rx="1.5" /><rect x="14" y="14" width="7" height="7" rx="1.5" /></svg>
+        <span class="flex-1">Projects</span>
+        <span v-if="projects.length" class="font-mono text-[11px] text-faint tabular-nums">{{ projects.length }}</span>
       </NuxtLink>
 
       <NuxtLink
@@ -225,26 +308,27 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
         </NuxtLink>
       </template>
 
+      <!-- On a touch screen its small buttons are 28px to tap, around the same icons (ORR-816). -->
       <div class="label mt-4 mb-1 flex items-center gap-1 px-2">
         <span class="flex-1">Projects</span>
         <span v-if="projects.length" class="font-mono normal-case tabular-nums">{{ projects.length }}</span>
         <button
             v-if="projects.length"
             type="button"
-            class="grid size-5 place-items-center rounded text-faint hover:bg-hover hover:text-fg"
+            class="grid size-5 place-items-center rounded text-faint hover:bg-hover hover:text-fg pointer-coarse:size-7"
             :title="allOpen ? 'Fold every project' : 'Open every project'"
             :aria-label="allOpen ? 'Fold every project' : 'Open every project'"
-            @click="setFolds(ordered.map(p => p.id), !allOpen)"
+            @click="setFolds(shown.map(p => p.id), !allOpen)"
         >
           <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path :d="allOpen ? 'm7 4 5 5 5-5M7 20l5-5 5 5' : 'm7 9 5-5 5 5M7 15l5 5 5-5'" /></svg>
         </button>
-        <button type="button" class="grid size-5 place-items-center rounded text-faint hover:bg-hover hover:text-fg" title="New project" aria-label="New project" @click="newProject = true">
+        <button type="button" class="grid size-5 place-items-center rounded text-faint hover:bg-hover hover:text-fg pointer-coarse:size-7" title="New project" aria-label="New project" @click="newProject = true">
           <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14" /></svg>
         </button>
       </div>
       <!-- Every project, with its pages under it when it's open: Issues, Roadmap, Docs, Settings. -->
       <div
-          v-for="(project, index) in ordered"
+          v-for="(project, index) in shown"
           :key="project.id"
           class="relative flex flex-col gap-0.5 transition-opacity"
           :class="dragging === project.id && 'opacity-40'"
@@ -252,7 +336,7 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
           @drop.prevent="onDrop"
       >
         <span v-if="dropAt === index && dragging" class="pointer-events-none absolute inset-x-2 -top-1.5 h-0.5 rounded-full bg-accent-fill" />
-        <span v-if="dropAt === index + 1 && index === ordered.length - 1 && dragging" class="pointer-events-none absolute inset-x-2 -bottom-1.5 h-0.5 rounded-full bg-accent-fill" />
+        <span v-if="dropAt === index + 1 && index === shown.length - 1 && dragging" class="pointer-events-none absolute inset-x-2 -bottom-1.5 h-0.5 rounded-full bg-accent-fill" />
         <div class="group flex items-center rounded-lg transition-colors hover:bg-hover">
           <NuxtLink
               :to="`/p/${project.id}`"
@@ -271,6 +355,7 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
             <ProjectIcon v-if="project.icon && heroicon(project.icon)" :icon="project.icon" :color="project.icon_color" class="size-3.5" />
             <ProgressRing v-else :kinds="project.board.kinds" bare :size="14" />
             <span class="min-w-0 flex-1 truncate">{{ project.name }}</span>
+            <svg v-if="isStarred(project.id)" class="size-3 shrink-0 fill-amber-400 text-amber-400" viewBox="0 0 24 24" role="img" aria-label="Starred"><title>Starred</title><path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z" /></svg>
             <span v-if="unseenIn(project)" class="unseen-dot" :title="`${unseenIn(project)} changed since you last looked`" />
             <span v-if="project.board.kinds.started" class="flex items-center gap-1 rounded-full bg-accent-500/12 px-1.5 font-mono text-[10px] text-accent-700 tabular-nums dark:text-accent-300" :title="`${project.board.kinds.started} being worked on`">
               <span class="size-1 rounded-full bg-accent-fill" />{{ project.board.kinds.started }}
@@ -279,7 +364,7 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
           </NuxtLink>
           <button
               type="button"
-              class="mr-1 ml-0.5 grid size-5 shrink-0 place-items-center rounded text-faint hover:text-fg"
+              class="mr-1 ml-0.5 grid size-5 shrink-0 place-items-center rounded text-faint hover:text-fg pointer-coarse:size-7"
               :title="isOpen(project.id) ? 'Fold its pages (←)' : 'Show its pages (→)'"
               :aria-label="isOpen(project.id) ? `Fold ${project.name}` : `Open ${project.name}`"
               :aria-expanded="isOpen(project.id)"
@@ -302,19 +387,130 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
           </NuxtLink>
         </div>
       </div>
+      <!-- Hidden projects, folded away until asked for: their pages and sessions carry on as before. -->
+      <template v-if="hidden.length">
+        <button
+            type="button"
+            class="flex items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[13px] text-faint transition-colors hover:bg-hover hover:text-muted"
+            :aria-expanded="showHidden"
+            data-testid="sidebar-hidden"
+            @click="showHidden = !showHidden"
+        >
+          <svg class="size-3 transition-transform duration-150" :class="showHidden && 'rotate-90'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6" /></svg>
+          <span class="flex-1">Hidden</span>
+          <span class="font-mono text-[11px] tabular-nums">{{ hidden.length }}</span>
+        </button>
+        <template v-if="showHidden">
+          <NuxtLink
+              v-for="project in hidden"
+              :key="project.id"
+              :to="`/p/${project.id}`"
+              class="ml-5 flex min-w-0 items-center gap-2 rounded-lg px-2 py-1 text-[13px] transition-colors"
+              :class="route.params.project === project.id ? 'bg-active font-medium text-fg' : 'text-muted hover:bg-hover hover:text-fg'"
+          >
+            <ProjectIcon v-if="project.icon && heroicon(project.icon)" :icon="project.icon" :color="project.icon_color" class="size-3.5" />
+            <ProgressRing v-else :kinds="project.board.kinds" bare :size="14" />
+            <span class="min-w-0 flex-1 truncate">{{ project.name }}</span>
+          </NuxtLink>
+        </template>
+      </template>
       <p v-if="ready && !projects.length" class="px-2 py-1 text-xs text-faint">None yet: start one with +.</p>
     </nav>
 
-    <!-- Every Claude session working on a project, apart from the projects so they stay short. -->
-    <div v-if="allSessions.length || canStart" class="flex max-h-56 shrink-0 flex-col border-t border-line px-2 pt-2 pb-2">
-      <div class="label mb-1 flex items-center gap-1 px-2">
+    <!-- Every Claude session working on a project, apart from the projects so they stay short; popped out, floating
+         over the page (ORR-901). -->
+    <Teleport to="body" :disabled="!floating">
+    <div
+        v-if="allSessions.length || canStart"
+        ref="sessionsPanel"
+        class="flex shrink-0 flex-col px-2 pt-2 pb-2"
+        :class="floating ? 'fixed z-40 rounded-xl border border-line bg-panel shadow-xl' : 'relative border-t border-line'"
+        :style="{...float.style.value, ...sessionsFolded ? {} : sessionsHeight === SESSIONS_HEIGHT ? {maxHeight: `${SESSIONS_HEIGHT}px`} : {height: `${sessionsHeight}px`}}"
+        :role="floating ? 'region' : undefined"
+        :aria-label="floating ? 'Sessions' : undefined"
+        data-testid="sidebar-sessions"
+        @keydown.esc="floating && !sessionsFolded && (sessionsFolded = true)"
+    >
+      <!-- Its top edge, dragged (or the arrows) to make it taller or shorter; double-click puts it back. -->
+      <div
+          v-if="!sessionsFolded"
+          role="separator"
+          aria-orientation="horizontal"
+          tabindex="0"
+          aria-label="Resize the sessions list"
+          :aria-valuenow="sessionsHeight"
+          :aria-valuemin="SESSIONS_MIN"
+          title="Drag to resize, double-click to reset"
+          class="group absolute inset-x-0 z-10 h-2 cursor-row-resize touch-none outline-none"
+          :class="floating && float.top.value ? '-bottom-1' : '-top-1'"
+          data-testid="sidebar-sessions-resize"
+          @pointerdown="sessionsDown"
+          @pointermove="sessionsMove"
+          @pointerup="sessionsUp"
+          @pointercancel="sessionsUp"
+          @lostpointercapture="sessionsDragging = false"
+          @dblclick="sessionsHeight = SESSIONS_HEIGHT"
+          @keydown="sessionsKey"
+      >
+        <span
+            class="pointer-events-none absolute inset-x-0 top-[3px] h-0.5 transition-colors group-hover:bg-accent-fill/40 group-focus-visible:bg-accent-fill"
+            :class="{'bg-accent-fill/60': sessionsDragging}"
+            aria-hidden="true"
+        />
+      </div>
+      <!-- Floating, its heading is where it's dragged from. -->
+      <div
+          class="label flex items-center gap-1 px-2"
+          :class="[!sessionsFolded && 'mb-1', floating && 'cursor-grab touch-none']"
+          @pointerdown="float.down"
+          @pointermove="float.move"
+          @pointerup="float.up"
+          @pointercancel="float.up"
+      >
+        <button
+            type="button"
+            class="-ml-1 grid place-items-center rounded p-0.5 text-faint hover:bg-hover hover:text-fg pointer-coarse:size-7"
+            :aria-expanded="!sessionsFolded"
+            :title="sessionsFolded ? 'Show the sessions' : 'Fold the sessions away'"
+            :aria-label="sessionsFolded ? 'Show the sessions' : 'Fold the sessions away'"
+            data-testid="sidebar-sessions-fold"
+            @click="sessionsFolded = !sessionsFolded"
+        >
+          <svg class="size-3 transition-transform duration-150" :class="!sessionsFolded && 'rotate-90'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6" /></svg>
+        </button>
         <NuxtLink to="/sessions" class="flex-1 hover:text-fg">Sessions</NuxtLink>
         <span v-if="allSessions.length" class="font-mono normal-case tabular-nums">{{ allSessions.length }}</span>
-        <button type="button" class="rounded p-0.5 text-faint hover:bg-hover hover:text-fg" title="Start a session" aria-label="Start a session" @click="startSession()">
+        <button type="button" class="grid place-items-center rounded p-0.5 text-faint hover:bg-hover hover:text-fg pointer-coarse:size-7" title="Start a session" aria-label="Start a session" @click="startSession()">
           <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14" /></svg>
         </button>
+        <template v-if="floating">
+          <button
+              type="button"
+              data-grip
+              class="grid cursor-grab place-items-center rounded p-0.5 text-faint hover:bg-hover hover:text-fg"
+              title="Move the panel: drag, or the arrow keys"
+              aria-label="Move the sessions panel"
+              data-testid="sessions-float-grip"
+              @keydown="float.key"
+          >
+            <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v18M3 12h18M12 3l-3 3m3-3 3 3M12 21l-3-3m3 3 3-3M3 12l3-3m-3 3 3 3M21 12l-3-3m3 3-3 3" /></svg>
+          </button>
+          <button type="button" class="grid place-items-center rounded p-0.5 text-faint hover:bg-hover hover:text-fg" title="Back to the sidebar" aria-label="Back to the sidebar" @click="float.dock()">
+            <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M9 4v16" /></svg>
+          </button>
+        </template>
+        <button
+            v-else
+            type="button"
+            class="hidden place-items-center rounded p-0.5 text-faint hover:bg-hover hover:text-fg md:grid"
+            title="Pop out: float the sessions anywhere on the page"
+            aria-label="Pop out the sessions"
+            @click="float.popOut()"
+        >
+          <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 4h6v6M20 4l-8 8M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5" /></svg>
+        </button>
       </div>
-      <div class="flex min-h-0 flex-col gap-0.5 overflow-y-auto">
+      <div v-if="!sessionsFolded" class="flex min-h-0 flex-col gap-0.5 overflow-y-auto">
         <div v-for="{session, project} in allSessions" :key="session.id" class="flex flex-col rounded-lg transition-colors hover:bg-hover">
           <NuxtLink
               :to="`/sessions#session-${session.id}`"
@@ -329,6 +525,7 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
               <span class="max-w-[75%] shrink-0 truncate">{{ spanLabel(session) ?? project.name }}</span>
               <span class="min-w-0 truncate text-[11px] text-faint">{{ nameBesideProject(session) }}</span>
             </span>
+            <ModelChip :session="session" />
             <span v-if="session.cut_off" class="shrink-0 text-[11px] text-amber-800 dark:text-amber-400" :title="session.cut_off.text">{{ cutOffLabel(session.cut_off) }}</span>
             <span v-else class="shrink-0 text-[11px]" :class="session.state === 'waiting' ? 'text-rose-700 dark:text-rose-400' : 'text-faint'">{{ SESSION_STATE[session.state] }}</span>
           </NuxtLink>
@@ -346,6 +543,7 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
         </div>
       </div>
     </div>
+    </Teleport>
 
     <div class="shrink-0 border-t border-line p-2">
       <!-- GitHub keeps the row; orrery's own releases sit small at its right (ORR-609), apart from the Releases page above. -->

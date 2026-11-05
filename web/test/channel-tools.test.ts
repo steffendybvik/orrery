@@ -45,7 +45,7 @@ describe('whose a session is', () => {
 
 describe("the channel's tools", () => {
     it('each have a name, a description and an object schema', () => {
-        expect(TOOLS.map((t: {name: string}) => t.name)).toEqual(['issues', 'issue', 'create_issue', 'update_issue', 'start_issue', 'finish_issue', 'comment', 'chunks', 'releases', 'docs', 'doc', 'write_doc', 'presets', 'preset', 'schedules', 'sessions', 'secrets', 'egress', 'events', 'guide', 'resolve_event'])
+        expect(TOOLS.map((t: {name: string}) => t.name)).toEqual(['issues', 'issue', 'create_issue', 'update_issue', 'start_issue', 'finish_issue', 'rate_pull', 'comment', 'milestones', 'releases', 'docs', 'doc', 'write_doc', 'presets', 'preset', 'schedules', 'sessions', 'secrets', 'egress', 'events', 'guide', 'resolve_event'])
         for (const tool of TOOLS) expect(tool).toMatchObject({description: expect.any(String), inputSchema: {type: 'object'}})
     })
 
@@ -327,8 +327,8 @@ describe("the channel's tools", () => {
         expect(listed).toEqual(expect.arrayContaining(['request', 'request_fields']))
         for (const request of CHAT_REQUESTS as {name: string}[]) expect(listed, request.name).not.toContain(request.name)
         expect(requestActions()).toEqual((CHAT_REQUESTS as {name: string}[]).map(r => r.name))
-        const fields = (await call('request_fields', {action: 'create_chunk'})).content[0]!.text
-        expect(fields).toMatch(/^create_chunk: Makes a chunk/)
+        const fields = (await call('request_fields', {action: 'create_milestone'})).content[0]!.text
+        expect(fields).toMatch(/^create_milestone: Makes a milestone/)
         expect(fields).toContain('"required":["title"]')
         expect(calls).toEqual([])
         expect((await call('request_fields', {action: 'update_doc'})).content[0]!.text).toMatch(/^update_doc: Changes one of this project's docs/)
@@ -336,9 +336,9 @@ describe("the channel's tools", () => {
         expect((await call('request_fields', {action: 'nope'})).content[0]!.text).toMatch(/No action "nope": one of start_session/)
         // A work session has neither.
         const work = orreryTools({api: 'http://o/api/projects/greenhouse', session: 'w', fetch}) as (name: string, args?: object) => Promise<{isError?: boolean}>
-        expect((await work('request', {action: 'create_chunk', fields: {title: 'X'}})).isError).toBe(true)
+        expect((await work('request', {action: 'create_milestone', fields: {title: 'X'}})).isError).toBe(true)
         expect((await work('request', {action: 'offer_issue', fields: {title: 'X'}})).isError).toBe(true)
-        expect((await work('request_fields', {action: 'create_chunk'})).isError).toBe(true)
+        expect((await work('request_fields', {action: 'create_milestone'})).isError).toBe(true)
         expect(calls).toEqual([])
     })
 
@@ -371,7 +371,7 @@ describe("the channel's tools", () => {
         expect((await call('edit_issue', {id: 'GRE-4', priority: 'P0'})).content[0]!.text).toMatch(/^Now GRE-4/)
         expect(calls.at(-1)).toEqual({url: 'http://o/api/projects/greenhouse/issues/GRE-4', method: 'PATCH', body: {priority: 'P0'}})
         const edit = toolsFor(['greenhouse'], {chat: true}).find((t: {name: string}) => t.name === 'edit_issue')
-        expect(Object.keys(edit.inputSchema.properties)).toEqual(['id', 'title', 'notes', 'priority', 'labels', 'external', 'github_issues', 'chunk', 'release', 'parent', 'depends_on'])
+        expect(Object.keys(edit.inputSchema.properties)).toEqual(['id', 'title', 'notes', 'priority', 'labels', 'external', 'github_issues', 'milestone', 'release', 'parent', 'depends_on'])
         expect(toolsFor(['greenhouse']).map((t: {name: string}) => t.name)).not.toContain('edit_issue')
     })
 
@@ -417,6 +417,16 @@ describe("the channel's tools", () => {
         expect(calls).toEqual([])
     })
 
+    it('rate a PR\'s risk on its issue, by owner/name#number or its link (ORR-879)', async () => {
+        const risk = {level: 'high', why: 'adds a migration', by: 'session'}
+        const {calls, call} = harness({'PUT /issues/GRE-4/pulls/you/greenhouse/7/risk': {body: {risk}}})
+        expect((await call('rate_pull', {id: 'GRE-4', pull: 'you/greenhouse#7', level: 'high', why: 'adds a migration'})).text).toBe('Rated you/greenhouse#7 on GRE-4: high risk, adds a migration')
+        expect((await call('rate_pull', {id: 'GRE-4', pull: 'https://github.com/you/greenhouse/pull/7', level: 'high', why: 'adds a migration'})).text).toMatch(/^Rated you\/greenhouse#7/)
+        expect(calls.map(c => c.url)).toEqual(['/issues/GRE-4/pulls/you/greenhouse/7/risk', '/issues/GRE-4/pulls/you/greenhouse/7/risk'])
+        expect((await call('rate_pull', {id: 'GRE-4', pull: '7', level: 'low', why: 'x'})).text).toMatch(/^Give the PR as owner\/name#number/)
+        expect(calls).toHaveLength(2)
+    })
+
     it("read the orrery's event log and resolve what they fixed", async () => {
         const event = {id: 4, level: 'error', kind: 'page.error', message: 'x is undefined', details: {page: '/mine', stack: 'at setup'}, count: 3, first_seen: '2026-10-27T20:00:00Z', last_seen: '2026-10-27T20:05:00Z'}
         const {calls, call} = harness({'GET /events/log': {body: [event]}, 'POST /events/log/4/resolve': {body: {...event, resolved_at: '2026-10-27T21:00:00Z'}}})
@@ -445,14 +455,25 @@ describe("the channel's tools", () => {
         for (const listed of [toolsFor(['greenhouse']), toolsFor(['greenhouse'], {chat: true}), toolsFor(['greenhouse', 'pantry'])]) {
             expect(listed.map((t: {name: string}) => t.name)).toContain('guide')
         }
-        const served = harness({'GET /guide/using': {raw: '# Using orrery\n\nSchedules run on their own.'}})
-        expect(await served.call('guide')).toEqual({error: false, text: '# Using orrery\n\nSchedules run on their own.'})
+        const guide = '# Using orrery\n\nThe map.\n\n## The bell\n\nIt rings.\n\n## Pages\n\n| Page | What\'s there |\n|---|---|\n| **Schedules** (`/schedules`) | Run on their own. |\n| An **issue\'s page** | Its notes. |\n'
+        const served = harness({'GET /guide/using': {raw: guide}})
+        // Its contents, rather than all of it (ORR-848): the opening, then the sections, with a table's rows by name.
+        expect(await served.call('guide')).toEqual({error: false, text: '# Using orrery\n\nThe map.\n\n## Contents\n\n' +
+            'Call guide with a section, or a page from Pages, for its text (one per call):\n- The bell\n- Pages: Schedules, An issue\'s page'})
         expect(served.calls[0]).toMatchObject({method: 'GET', url: '/guide/using'})
+        // A section in full; a page by its row, whatever the case, under its table's head.
+        expect((await served.call('guide', {section: 'The bell'})).text).toBe('## The bell\n\nIt rings.')
+        expect((await served.call('guide', {section: 'schedules'})).text).toBe('## Pages\n\n| Page | What\'s there |\n|---|---|\n| **Schedules** (`/schedules`) | Run on their own. |')
+        expect((await served.call('guide', {section: "issue's page"})).text).toContain('Its notes.')
+        expect((await served.call('guide', {section: 'bell'})).text).toBe('## The bell\n\nIt rings.')
+        // Nothing by that name: says so, with the contents to pick from.
+        expect((await served.call('guide', {section: 'Gardens'})).text).toMatch(/^No section or page called "Gardens" in the guide\.\n\n# Using orrery[\s\S]*- The bell/)
         // An orrery from before it served the guide: the docs beside the channel.
         const older = await harness({}).call('guide')
         expect(older.error).toBe(false)
         expect(older.text).toMatch(/^# Using orrery/)
-        expect(older.text).toContain('## How it fits together')
+        expect(older.text).toContain('- How it fits together')
+        expect((await harness({}).call('guide', {section: 'How it fits together'})).text).toMatch(/^## How it fits together\n/)
     })
 
     it('list the open issues unless asked for a status', async () => {
@@ -606,19 +627,19 @@ describe("the channel's tools", () => {
         expect(calls[1]!.url).toBe('/issues?release=1.1.0')
     })
 
-    it('list of the shipped releases only the latest, and of the chunks none done, unless asked for all', async () => {
+    it('list of the shipped releases only the latest, and of the milestones none done, unless asked for all', async () => {
         const kinds = {proposed: 0, backlog: 0, todo: 0, started: 0, done: 1, canceled: 0}
         const release = (version: string, shipped_on?: string) => ({version, ...shipped_on ? {shipped_on} : {}, issues: 1, kinds})
-        const chunk = (id: number, kind: string) => ({id, title: `Chunk ${id}`, column: kind, kind, kinds})
-        // The chat's, as only the chat has chunks (ORR-544).
+        const milestone = (id: number, kind: string) => ({id, title: `Milestone ${id}`, column: kind, kind, kinds})
+        // The chat's, as only the chat has milestones (ORR-544).
         const {call} = harness({
             'GET /releases': {body: [release('1.1.0'), release('1.0.2', '2026-10-20'), release('1.0.1', '2026-10-10'), release('1.0.0', '2026-10-01')]},
-            'GET /chunks': {body: [chunk(1, 'done'), chunk(2, 'started'), chunk(3, 'done')]},
+            'GET /milestones': {body: [milestone(1, 'done'), milestone(2, 'started'), milestone(3, 'done')]},
         }, {chat: 'c1c2c3c4c5c6'})
         expect((await call('releases')).text).toBe('1.1.0: 1 issue, 1/1 done\n1.0.2 (shipped 2026-10-20): 1 issue, 1/1 done\n2 older shipped releases not shown: all lists them')
         expect((await call('releases', {all: true})).text.split('\n')).toHaveLength(4)
-        expect((await call('chunks')).text).toBe('2 [started] Chunk 2: 1/1 done\n2 done chunks not shown: all lists them')
-        expect((await call('chunks', {all: true})).text.split('\n')).toHaveLength(3)
+        expect((await call('milestones')).text).toBe('2 [started] Milestone 2: 1/1 done\n2 done milestones not shown: all lists them')
+        expect((await call('milestones', {all: true})).text.split('\n')).toHaveLength(3)
     })
 
     it("say orrery's reason when it refuses", async () => {
@@ -677,7 +698,7 @@ describe('one channel serving several projects', () => {
         expect(docs.inputSchema.required).toEqual(['project'])
         expect(docs.inputSchema.properties.project!.enum).toEqual(['greenhouse', 'pantry'])
         expect(tools.find(t => t.name === 'issue')!.inputSchema.properties).not.toHaveProperty('project')
-        expect(toolsFor(['greenhouse'], {loaded: ['schedules', 'secrets', 'debug']})).toEqual([...TOOLS.filter((t: {name: string}) => !CHAT_READS.includes(t.name)), ...ASK_TOOLS])
+        expect(toolsFor(['greenhouse'], {loaded: ['schedules', 'secrets', 'debug', 'review']})).toEqual([...TOOLS.filter((t: {name: string}) => !CHAT_READS.includes(t.name)), ...ASK_TOOLS])
     })
 })
 
@@ -697,7 +718,7 @@ describe('tools loaded on demand', () => {
         expect(await call('more_tools', {group: 'everything'})).toMatchObject({isError: true})
         // Not listed yet, it still answers when called by its name.
         expect(await call('secrets')).not.toMatchObject({isError: true})
-        expect(tools({loaded: ['schedules', 'secrets', 'debug']})).not.toContain('more_tools')
+        expect(tools({loaded: ['schedules', 'secrets', 'debug', 'review']})).not.toContain('more_tools')
     })
 
     it("isn't the chat's or an untrusted run's, and an untrusted run can't call what it isn't given", async () => {

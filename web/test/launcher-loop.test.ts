@@ -311,6 +311,10 @@ describe.concurrent("a launcher's own loop", {timeout: 40_000}, () => {
         writeList([{url: orrery.url, project: 'greenhouse', dir: repo}])
         await start({service: true})
         await vi.waitFor(() => expect(orrery.connecting()).toBe(1), WAIT)
+        // With its machine's Bonjour name for a phone, a Mac's LocalHostName (ORR-874).
+        const local = orrery.asked.find(a => a.path === '/api/connects/stream')!.query.get('local')
+        if (process.platform === 'darwin') expect(local).toMatch(/^[\w-]+\.local$/)
+        else expect(local).toBe('')
         orrery.connectEvent('pick', {id: 'c1'})
         await vi.waitFor(() => expect(orrery.connectReports().at(-1)).toMatchObject({state: 'picked', folder: 'repo'}), WAIT)
         expect(JSON.stringify(orrery.connectReports())).not.toContain(repo)

@@ -39,13 +39,13 @@
 // the channel command once by hand in the repo first, to accept the folder's trust prompt, which it leaves to you.
 import {execFileSync} from 'node:child_process'
 import {mkdirSync, unwatchFile, watchFile, writeFileSync} from 'node:fs'
-import {hostname} from 'node:os'
+import {hostname, networkInterfaces} from 'node:os'
 import {dirname, join} from 'node:path'
 import {fileURLToPath} from 'node:url'
 import {connector, pickerFor} from './connect-repo.mjs'
 import {authHeaders, keyFor, keysFile} from './credentials.mjs'
 import {addToList, adoptable, configFile, inWsl, install, listChanges, listIn, readConfig, removeService, restartKeepsSessions, servedElsewhere, serviceProblem, uninstall, wslLocalhost} from './launcher-service.mjs'
-import {chatOnly, lockedDown} from './locked-down.mjs'
+import {chatOnly, lockedDown, modelArgs, resumeArgs} from './locked-down.mjs'
 import {onYes} from './permission-prompt.mjs'
 import {channelFor, channelsIn, projectsIn, servesEvery} from './repo-channels.mjs'
 import {follow} from './sse.mjs'
@@ -369,6 +369,9 @@ function keepStopTime(id, stopsAt) {
  * or the owner's chat, the same way. */
 const UNTRUSTED = '@orrery_untrusted'
 const CHAT = '@orrery_chat'
+/** The model and effort it was started on, when orrery asked for them (ORR-868), kept the same way. */
+const MODEL = '@orrery_model'
+const EFFORT = '@orrery_effort'
 
 /** The tmux session a launch on the project runs in, as orrery names it. */
 const tmuxName = (project, id) => `orrery-${project}-${id}`.replace(/[^\w-]/g, '-')
@@ -431,6 +434,14 @@ function adopt(project, api) {
         } catch {
             // Not a chat.
         }
+        for (const [key, option] of [['model', MODEL], ['effort', EFFORT]]) {
+            try {
+                const value = tmux('show-options', '-v', '-t', name, option)
+                if (value) running.get(id)[key] = value
+            } catch {
+                // Started on Claude Code's default.
+            }
+        }
         log(`took back ${name}, running ${stopsAt === NEVER ? 'until stopped' : `until ${new Date(stopsAt).toLocaleTimeString()}`}`)
     }
 }
@@ -438,7 +449,7 @@ function adopt(project, api) {
 /** Tells the project's orrery which of its sessions this launcher runs, so one that restarted knows them again. */
 async function report(api) {
     const launches = [...running.entries()].filter(([, s]) => s.api === api)
-        .map(([id, s]) => ({id, tmux: s.tmux, ...s.stops_at ? {stops_at: s.stops_at} : {}, ...s.context ? {context: s.context} : {}, ...s.untrusted ? {untrusted: true} : {}, ...s.chat ? {chat: true} : {}}))
+        .map(([id, s]) => ({id, tmux: s.tmux, ...s.stops_at ? {stops_at: s.stops_at} : {}, ...s.context ? {context: s.context} : {}, ...s.untrusted ? {untrusted: true} : {}, ...s.chat ? {chat: true} : {}, ...s.model ? {model: s.model} : {}, ...s.effort ? {effort: s.effort} : {}}))
     await fetch(`${api}/launches/running`, {method: 'POST', headers: {'Content-Type': 'application/json', ...authHeaders(api)}, body: JSON.stringify({launches})})
         .catch(() => {})
 }
@@ -473,18 +484,21 @@ function serve({url, project, dir, picked_at: picked, connected_at: connected}, 
 
     /** Starts the launch's session, once this launcher has claimed it (another may have first). */
     async function start(launch) {
-        // It says it locks an untrusted launch down with no Bash, and starts a chat as `chatOnly` says: orrery
-        // gives either only to a launcher that does.
-        const claim = await fetch(`${api}/launches/${launch.id}/claim?untrusted=no-bash&chat=yes`, {method: 'POST', headers: {'Orrery-Launcher': token, ...authHeaders(api)}}).then(r => r.json()).catch(() => ({claimed: false}))
+        // It says it locks an untrusted launch down with no Bash, starts a chat as `chatOnly` says, and starts a session
+        // on the model and effort asked for, and takes a chat's Claude session up again (ORR-884): orrery gives each only
+        // to a launcher that does.
+        const claim = await fetch(`${api}/launches/${launch.id}/claim?untrusted=no-bash&chat=yes&model=yes&resume=yes`, {method: 'POST', headers: {'Orrery-Launcher': token, ...authHeaders(api)}}).then(r => r.json()).catch(() => ({claimed: false}))
         if (!claim.claimed) return
         // An untrusted one's channel says so on everything it sends, so orrery holds it to that even when it has
         // restarted and doesn't know the launch yet.
         const env = {ORRERY_URL: url, ORRERY_PROJECT: project, ORRERY_STARTED: launch.id, ORRERY_AFTER: String(launch.after), ...launch.hears?.length ? {ORRERY_HEAR: launch.hears.join(',')} : {}, ...launch.untrusted ? {ORRERY_UNTRUSTED: 'yes'} : {}, ...launch.chat ? {ORRERY_CHAT: 'yes'} : {}, ...launch.person ? {ORRERY_PERSON: launch.person} : {}, ...keyFor(url) ? {ORRERY_KEY: keyFor(url)} : {}}
         const server = channelFor(dir, url, project)?.name ?? project
         tmux('new-session', '-d', '-s', launch.tmux, '-c', dir, ...Object.entries(env).flatMap(([k, v]) => ['-e', `${k}=${v}`]),
-            'claude', '--dangerously-load-development-channels', `server:${server}`, ...launch.untrusted ? lockedDown(dir, server) : launch.chat ? chatOnly(dir, server) : ['--permission-mode', mode])
+            'claude', '--dangerously-load-development-channels', `server:${server}`, ...launch.untrusted ? lockedDown(dir, server) : launch.chat ? chatOnly(dir, server) : ['--permission-mode', mode], ...modelArgs(launch), ...resumeArgs(launch))
         tmux('set-option', '-t', launch.tmux, LAUNCHER, String(process.pid))
-        running.set(launch.id, {tmux: launch.tmux, api, context: launch.context, ...launch.untrusted ? {untrusted: true} : {}, ...launch.chat ? {chat: true} : {}})
+        running.set(launch.id, {tmux: launch.tmux, api, context: launch.context, ...launch.untrusted ? {untrusted: true} : {}, ...launch.chat ? {chat: true} : {}, ...launch.model ? {model: launch.model} : {}, ...launch.effort ? {effort: launch.effort} : {}})
+        if (launch.model) tmux('set-option', '-t', launch.tmux, MODEL, launch.model)
+        if (launch.effort) tmux('set-option', '-t', launch.tmux, EFFORT, launch.effort)
         if (launch.context) tmux('set-option', '-t', launch.tmux, CONTEXT, JSON.stringify(launch.context))
         if (launch.untrusted) tmux('set-option', '-t', launch.tmux, UNTRUSTED, 'yes')
         if (launch.chat) tmux('set-option', '-t', launch.tmux, CHAT, 'yes')
@@ -539,6 +553,29 @@ function serve({url, project, dir, picked_at: picked, connected_at: connected}, 
     })
 }
 
+/** This machine's IPv4 addresses on its networks (Wi-Fi, a VPN), read each time the stream opens, as they change: in
+ * Docker orrery only sees its container's, so App settings' link for a phone comes from here (ORR-833). */
+/** A virtual machine's or container's network on this machine (a Mac's `bridge100`, Docker's), which a phone can't reach. */
+const VIRTUAL = /^(bridge|vmnet|vboxnet|docker|veth|br-|virbr)/
+
+const networkAddresses = () => Object.entries(networkInterfaces())
+    .filter(([name]) => !VIRTUAL.test(name)).flatMap(([, all]) => all ?? [])
+    .filter(i => i.family === 'IPv4' && !i.internal && !i.address.startsWith('169.254.')).map(i => i.address).slice(0, 8)
+
+/** The name this machine goes by on its Wi-Fi, Bonjour's `<name>.local`, which a phone on it finds with no setup and
+ * which outlasts a new IP (ORR-874). A Mac's is its LocalHostName; elsewhere only a hostname that already says `.local`. */
+function localName() {
+    if (process.platform === 'darwin') {
+        try {
+            const name = execFileSync('/usr/sbin/scutil', ['--get', 'LocalHostName'], {encoding: 'utf8', timeout: 2000, stdio: ['ignore', 'pipe', 'ignore']}).trim()
+            return name ? `${name}.local` : ''
+        } catch {
+            return ''
+        }
+    }
+    return /\.local$/i.test(hostname()) ? hostname() : ''
+}
+
 /** Follows one orrery for the owner's Connect a repo (ORR-708), whatever it serves: only a service does, as it's what
  * follows its list, and only with a picker on this machine, which having the stream tells orrery. */
 function connectFor(url, signal) {
@@ -549,7 +586,7 @@ function connectFor(url, signal) {
     const serve = (dir, projects) => addToList(projects.map(project => ({url, project, dir})), dir)
     return follow({
         headers: authHeaders(url),
-        url: () => `${url}/api/connects/stream?host=${encodeURIComponent(hostname())}`,
+        url: () => `${url}/api/connects/stream?host=${encodeURIComponent(hostname())}&addresses=${encodeURIComponent(networkAddresses().join(','))}&local=${encodeURIComponent(localName())}`,
         onEvent: async ({event, data}) => {
             if (event === 'ready') {
                 const ready = JSON.parse(data)

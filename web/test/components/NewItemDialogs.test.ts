@@ -4,11 +4,11 @@ import {DOMWrapper} from '@vue/test-utils'
 import {mountSuspended, registerEndpoint} from '@nuxt/test-utils/runtime'
 import {readBody, setResponseStatus} from 'h3'
 import type {Project} from '#shared/roadmap'
-import NewChunkDialog from '~/components/NewChunkDialog.vue'
+import NewMilestoneDialog from '~/components/NewMilestoneDialog.vue'
 import NewDocDialog from '~/components/NewDocDialog.vue'
 import NewProjectDialog from '~/components/NewProjectDialog.vue'
 
-// New chunk, New doc and New project: what each sends, where it goes after, what it won't send, and that a refusal leaves
+// New milestone, New doc and New project: what each sends, where it goes after, what it won't send, and that a refusal leaves
 // the words in it. The browser specs walk a good create; these hold the rest.
 let sent: {path: string, body: Record<string, unknown>}[] = []
 let refusal = ''
@@ -22,7 +22,7 @@ function endpoint(path: string, answer: Record<string, unknown>) {
         return answer
     }})
 }
-endpoint('/projects/greenhouse/chunks', {id: '3'})
+endpoint('/projects/greenhouse/milestones', {id: '3'})
 endpoint('/projects/greenhouse/docs', {id: 'how-it-grows'})
 endpoint('/projects', {id: 'my-app'})
 registerEndpoint('/api/owner', () => ({name: 'skoll', display: 'Skoll', named: true}))
@@ -32,12 +32,12 @@ let push: ReturnType<typeof vi.spyOn>
 beforeEach(() => {
     sent = []
     refusal = ''
-    useRoadmaps().projects.value = [{id: 'greenhouse', name: 'Greenhouse', key: 'GRE', board: {chunks: []}}] as unknown as Project[]
+    useRoadmaps().projects.value = [{id: 'greenhouse', name: 'Greenhouse', key: 'GRE', board: {milestones: []}}] as unknown as Project[]
     push = vi.spyOn(useRouter(), 'push').mockResolvedValue(undefined)
 })
 afterEach(() => {
     mounted.splice(0).forEach(w => w.unmount())
-    useNewChunk().close()
+    useNewMilestone().close()
     useNewDoc().close()
     useState('new-project').value = false
     push.mockRestore()
@@ -51,24 +51,24 @@ async function mount(component: Parameters<typeof mountSuspended>[0]) {
 const value = (wrapper: DOMWrapper<Element>, label: string) => (wrapper.find(`[aria-label="${label}"]`).element as HTMLInputElement).value
 const submitDisabled = (wrapper: DOMWrapper<Element>) => (wrapper.find('button[type="submit"]').element as HTMLButtonElement).disabled
 
-describe('NewChunkDialog', () => {
-    it('sends the trimmed title, a summary only when there is one, and opens the chunk', async () => {
-        useNewChunk().open('greenhouse')
-        const wrapper = await mount(NewChunkDialog)
-        expect(wrapper.text()).toContain('New chunk in Greenhouse')
+describe('NewMilestoneDialog', () => {
+    it('sends the trimmed title, a summary only when there is one, and opens the milestone', async () => {
+        useNewMilestone().open('greenhouse')
+        const wrapper = await mount(NewMilestoneDialog)
+        expect(wrapper.text()).toContain('New milestone in Greenhouse')
         expect(submitDisabled(wrapper)).toBe(true)
         await wrapper.find('[aria-label="Title"]').setValue('  Moving parts ')
         expect(submitDisabled(wrapper)).toBe(false)
         await wrapper.find('[aria-label="Summary"]').setValue('   ')
         await wrapper.find('form').trigger('submit')
-        await expect.poll(() => sent).toEqual([{path: '/projects/greenhouse/chunks', body: {title: 'Moving parts'}}])
+        await expect.poll(() => sent).toEqual([{path: '/projects/greenhouse/milestones', body: {title: 'Moving parts'}}])
         await expect.poll(() => push.mock.calls[0]?.[0]).toContain('/p/greenhouse/roadmap/3')
-        expect(useNewChunk().target.value).toBeNull()
+        expect(useNewMilestone().target.value).toBeNull()
     })
 
     it("won't send without a title, says why it was refused, and starts empty next time", async () => {
-        useNewChunk().open('greenhouse')
-        const wrapper = await mount(NewChunkDialog)
+        useNewMilestone().open('greenhouse')
+        const wrapper = await mount(NewMilestoneDialog)
         await wrapper.find('form').trigger('submit')
         await wrapper.find('[aria-label="Title"]').setValue('   ')
         await wrapper.find('form').trigger('submit')
@@ -78,13 +78,13 @@ describe('NewChunkDialog', () => {
         await wrapper.find('[aria-label="Title"]').setValue('Moving parts')
         await wrapper.find('form').trigger('submit')
         await expect.poll(() => wrapper.text()).toContain('Greenhouse is archived')
-        expect(useNewChunk().target.value).toBe('greenhouse')
+        expect(useNewMilestone().target.value).toBe('greenhouse')
         expect(value(wrapper, 'Title')).toBe('Moving parts')
         expect(push).not.toHaveBeenCalled()
 
-        useNewChunk().close()
+        useNewMilestone().close()
         await nextTick()
-        useNewChunk().open('greenhouse')
+        useNewMilestone().open('greenhouse')
         await expect.poll(() => value(new DOMWrapper(document.body), 'Title')).toBe('')
     })
 })

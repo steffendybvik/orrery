@@ -1,4 +1,4 @@
-import {expect, test} from '@playwright/test'
+import {expect, test} from './test'
 import {OWNER, makeProject} from './support'
 
 // The Pull requests page's Poll (ORR-534): GitHub asked at once, and a repo read without a token a moment ago held back,
@@ -104,6 +104,55 @@ test('lists where each pull request stands, and Focus on this sends the note it 
     expect(signals.map(signal => signal.note)).toContain('Mind the ladder')
 })
 
+test("opens a pull request by its number, listing every issue it's linked to (ORR-880)", async ({page, request}) => {
+    await makeProject(request, {name: 'Hayloft', key: 'HAY'})
+    const issues = await Promise.all(['Muck out', 'Mend the gate'].map(async title => (await (await request.post('/api/projects/hayloft/issues', {data: {title}, headers: OWNER})).json()).id as string))
+    await page.route(/\/api\/pulls\?/, route => route.fulfill({json: {
+        pulls: [{number: 21, title: 'Spring clean', state: 'ready', repo: 'orrery-e2e/hayloft', url: 'https://github.com/orrery-e2e/hayloft/pull/21', branch: 'feat/21', base: 'main', author: 'ada',
+            created_at: '2026-10-01T00:00:00.000Z', updated_at: '2026-10-01T00:00:00.000Z', issue: {project: 'hayloft', id: issues[0], title: 'Muck out'}}],
+        open: 1, needs: 0, page: 1, limit: 50, repos: [{repo: 'orrery-e2e/hayloft', projects: ['hayloft'], token: true, open: 1, needs: 0}],
+    }}))
+    // orrery keeps a PR once a poll finds it naming an issue, so the page's answer is stood in for here; the store's is unit tested.
+    await page.route('**/api/pulls/orrery-e2e/hayloft/21', route => route.fulfill({json: {
+        repo: 'orrery-e2e/hayloft',
+        pull: {number: 21, title: 'Spring clean', url: 'https://github.com/orrery-e2e/hayloft/pull/21', branch: 'feat/21', base: 'main', author: 'ada', state: 'merged', merged_at: '2026-10-02T00:00:00.000Z', updated_at: '2026-10-02T00:00:00.000Z'},
+        // Riskiest first, as the store sorts them (ORR-914): only the gate's change is rated.
+        issues: [
+            {project: 'hayloft', project_name: 'Hayloft', id: issues[1], title: 'Mend the gate', status: 'todo', risk: {level: 'high', why: 'high: moves the hinges', by: 'session'}},
+            {project: 'hayloft', project_name: 'Hayloft', id: issues[0], title: 'Muck out', status: 'todo'},
+        ],
+    }}))
+    await page.goto('/pulls')
+    // Its number and title open its page (ORR-893); GitHub stays on the row's ↗.
+    await expect(page.getByRole('link', {name: '#21 on GitHub'})).toHaveAttribute('href', 'https://github.com/orrery-e2e/hayloft/pull/21')
+    await page.getByRole('link', {name: '#21 Spring clean'}).click()
+    await expect(page).toHaveURL(/\/pulls\/orrery-e2e\/hayloft\/21$/)
+    await expect(page.getByRole('heading', {name: '#21 Spring clean'})).toBeVisible()
+    await expect(page.getByRole('region', {name: 'The pull request'})).toContainText('Merged')
+    const linked = page.getByRole('list', {name: 'Linked issues'}).getByRole('listitem')
+    await expect(linked).toHaveCount(2)
+    await expect(linked.first()).toContainText('Mend the gate')
+    await expect(linked.first().getByText('High risk')).toHaveAttribute('title', 'high: moves the hinges (rated by the session that opened it)')
+    await expect(linked.filter({hasText: 'Muck out'}).getByText(/ risk$/)).toHaveCount(0)
+    await linked.filter({hasText: 'Mend the gate'}).getByRole('link').click()
+    await expect(page).toHaveURL(new RegExp(`/p/hayloft/issues/${issues[1]}$`))
+    // Its address opens it straight away too.
+    await page.goto('/pulls/orrery-e2e/hayloft/21')
+    await expect(page.getByRole('heading', {name: '#21 Spring clean'})).toBeVisible()
+    // ⌘K opens it by its number, on the page's project's repo, or by its link from anywhere.
+    await request.patch('/api/projects/hayloft', {data: {repo: 'https://github.com/orrery-e2e/hayloft'}, headers: OWNER}).then(r => expect(r.ok()).toBeTruthy())
+    const palette = page.getByRole('dialog', {name: 'Commands'})
+    for (const [from, heading, typed] of [['/p/hayloft', 'Hayloft', '#21'], ['/mine', 'My issues', 'https://github.com/orrery-e2e/hayloft/pull/21']]) {
+        await page.goto(from!)
+        await expect(page.getByRole('heading', {name: heading, exact: true}).first()).toBeVisible()
+        await page.keyboard.press('ControlOrMeta+k')
+        await palette.getByLabel('Type a command or search').fill(typed!)
+        await expect(palette.getByRole('option', {name: /Pull request #21/})).toBeVisible()
+        await page.keyboard.press('Enter')
+        await expect(page.getByRole('heading', {name: '#21 Spring clean'})).toBeVisible()
+    }
+})
+
 test("Send back, on an issue's page, sends what its pull request needs", async ({page, request}) => {
     await makeProject(request, {name: 'Byre', key: 'BYR'})
     const issue = await (await request.post('/api/projects/byre/issues', {data: {title: 'Lime the walls'}, headers: OWNER})).json()
@@ -119,4 +168,43 @@ test("Send back, on an issue's page, sends what its pull request needs", async (
     await expect(pulls.getByText('Sent', {exact: true})).toBeVisible()
     const signals = await (await request.get('/api/projects/byre/signals')).json() as {note?: string}[]
     expect(signals.map(signal => signal.note).join()).toMatch(/#21 .*conflicts with main/)
+    // Its row opens the PR's own page, with the issues linked to it, and keeps a way to GitHub (ORR-893).
+    await expect(pulls.getByRole('link', {name: '#21 on GitHub'})).toHaveAttribute('href', pull.url)
+    await pulls.getByRole('link', {name: '#21 Lime the walls'}).click()
+    await expect(page).toHaveURL(/\/pulls\/orrery-e2e\/byre\/21$/)
+})
+
+test("shows each pull request's risk on an issue's page, the riskiest in the heading (ORR-879)", async ({page, request}) => {
+    await makeProject(request, {name: 'Woodshed', key: 'WDS'})
+    const issue = await (await request.post('/api/projects/woodshed/issues', {data: {title: 'New roof'}, headers: OWNER})).json()
+    const at = '2026-10-01T00:00:00.000Z'
+    const pull = {number: 31, title: 'Roof felt', state: 'ready', url: 'https://github.com/orrery-e2e/woodshed/pull/31', branch: 'feat/31', base: 'main', author: 'ada', created_at: at, updated_at: at,
+        risk: {level: 'medium', why: 'medium: changes how the roof page saves', by: 'session'}}
+    const done = {number: 30, title: 'Gutter copy', state: 'merged', url: 'https://github.com/orrery-e2e/woodshed/pull/30', branch: 'docs/30', base: 'main', author: 'ada', merged_at: at, updated_at: at,
+        risk: {level: 'low', why: 'low: copy only', by: 'owner'}}
+    await page.route(`**/api/projects/woodshed/issues/${issue.id}/pulls`, route => route.fulfill({json: {repo: 'orrery-e2e/woodshed', pulls: [pull], done: [done], token: true, checked_at: at}}))
+    await page.goto(`/p/woodshed/issues/${issue.id}`)
+    // On Postgres, under the suite's load, the page was still loading at 5s (ORR-912): it's given longer to open.
+    await expect(page.getByRole('heading', {name: 'New roof'})).toBeVisible({timeout: 15_000})
+    const pulls = page.getByRole('region', {name: 'Pull requests'})
+    await expect(pulls.getByRole('heading').getByText('Medium risk')).toBeVisible()
+    const open = pulls.getByRole('listitem').filter({hasText: 'Roof felt'})
+    await expect(open.getByText('Medium risk')).toHaveAttribute('title', 'medium: changes how the roof page saves (rated by the session that opened it)')
+    await expect(open).toContainText('changes how the roof page saves')
+    await expect(pulls.getByRole('listitem').filter({hasText: 'Gutter copy'}).getByText('Low risk')).toHaveAttribute('title', /rated by you/)
+
+    // Rating it yourself: High, with a why, sent to the PR's own path.
+    let sent: unknown
+    await page.route('**/api/projects/woodshed/issues/*/pulls/orrery-e2e/woodshed/31/risk', route => {
+        sent = route.request().postDataJSON()
+        return route.fulfill({json: {risk: {level: 'high', why: 'touches the store', by: 'owner'}}})
+    })
+    await open.getByRole('button', {name: 'Rate'}).click()
+    const dialog = page.getByRole('dialog', {name: 'Rate the risk of #31'})
+    await expect(dialog.getByLabel('Why')).toHaveValue('medium: changes how the roof page saves')
+    await dialog.getByRole('radio', {name: 'High'}).click()
+    await dialog.getByLabel('Why').fill('touches the store')
+    await dialog.getByRole('button', {name: 'Save'}).click()
+    await expect(dialog).toBeHidden()
+    expect(sent).toEqual({level: 'high', why: 'touches the store'})
 })

@@ -1,4 +1,4 @@
-import {expect, test} from '@playwright/test'
+import {expect, test} from './test'
 import {OWNER, makeProject, projectApi} from './support'
 
 // Issues that depend on others (ORR-601): linked from an issue's page, the waiting one marked Blocked on the list and the
@@ -44,14 +44,14 @@ test('blocks another from the page of the one in the way, and lets it go from ei
     const second = await api(request, 'post', '/issues', {title: 'Turn the cap'})
     await page.goto(`/p/windmill/issues/${first.id}`)
     const side = page.locator('aside')
-    await side.getByRole('button', {name: 'Blocks', exact: true}).click()
+    await side.locator('[data-picker="Blocks"]').click()
     await page.getByRole('option', {name: new RegExp(`${second.id} · Turn the cap`)}).click()
     await expect.poll(async () => (await api(request, 'get', `/issues/${second.id}`)).depends_on).toEqual([first.id])
     await expect(side.getByRole('link', {name: second.id})).toBeVisible()
 
     // The other way is refused, and says why.
     await page.goto(`/p/windmill/issues/${second.id}`)
-    await page.locator('aside').getByRole('button', {name: 'Blocks', exact: true}).click()
+    await page.locator('aside').locator('[data-picker="Blocks"]').click()
     await page.getByRole('option', {name: new RegExp(`${first.id} · Oil the sails`)}).click()
     await expect(page.locator('aside').getByText(/already depends on/)).toBeVisible()
     await page.reload()

@@ -1,5 +1,5 @@
 import type {Locator, Page} from '@playwright/test'
-import {expect, test} from '@playwright/test'
+import {expect, test} from './test'
 
 // Every piece of the kit on /ui (dev only), from the mouse and the keyboard: the Headless UI parts (Dialog,
 // Combobox, Listbox, Menu, RadioGroup) and our own (UiButton, UiConfirm, UiContextMenu).
@@ -21,7 +21,7 @@ test('everything you can click shows the pointer, a disabled button the arrow', 
     const cursor = (target: Locator) => target.evaluate(el => getComputedStyle(el).cursor)
     expect(await cursor(page.getByRole('button', {name: 'primary', exact: true}).first())).toBe('pointer')
     expect(await cursor(page.getByRole('radio', {name: /Board/}))).toBe('pointer')
-    await page.getByRole('button', {name: 'Status', exact: true}).click()
+    await page.locator('[data-picker="Status"]').click()
     expect(await cursor(page.getByRole('option').first())).toBe('pointer')
     await page.keyboard.press('Escape')
     await page.getByRole('button', {name: 'primary', exact: true}).first().evaluate(el => (el as HTMLButtonElement).disabled = true)
@@ -29,7 +29,7 @@ test('everything you can click shows the pointer, a disabled button the arrow', 
 })
 
 test('PropertyPicker: types to narrow, ↵ picks, and the focus comes back', async ({page}) => {
-    const status = page.getByRole('button', {name: 'Status', exact: true})
+    const status = page.locator('[data-picker="Status"]')
     await status.click()
     await page.keyboard.type('pro')
     await lit(page, /In progress/)
@@ -49,7 +49,7 @@ test('PropertyPicker: types to narrow, ↵ picks, and the focus comes back', asy
 })
 
 test('PropertyPicker, multiple and creatable: ticks many, makes one, stays open', async ({page}) => {
-    const labels = page.getByRole('button', {name: 'Labels', exact: true})
+    const labels = page.locator('[data-picker="Labels"]')
     await labels.click()
     await page.keyboard.type('urgent')
     await lit(page, /Add/)
@@ -71,8 +71,8 @@ test('PropertyPicker as a field: Tab reaches it, ↓ opens it', async ({page}) =
     await lit(page, /Done/)
     await page.keyboard.press('Enter')
     await expect(small).toHaveText('Done')
-    await expect(page.getByRole('button', {name: 'Status', exact: true})).toHaveText(/Done/)
-    await expect(page.getByRole('button', {name: 'Priority', exact: true})).toHaveAttribute('tabindex', '0')
+    await expect(page.locator('[data-picker="Status"]')).toHaveText(/Done/)
+    await expect(page.locator('[data-picker="Priority"]')).toHaveAttribute('tabindex', '0')
 })
 
 test('FilterMenu: ticks from the keys, counts them, Clear and Esc', async ({page}) => {
@@ -187,4 +187,26 @@ test('UiConfirm: asks in place, Cancel goes back, Remove does it', async ({page}
     await page.getByRole('button', {name: 'Remove…'}).click()
     await page.getByRole('button', {name: 'Remove', exact: true}).click()
     await expect(last(page)).toHaveText('Last: Removed')
+})
+
+// The atlas of building blocks under the kit (ORR-757): each shared piece drawn in its states, under its name.
+test('the building blocks: each shared piece drawn in its states', async ({page}) => {
+    await expect(page.getByRole('heading', {name: 'Building blocks'})).toBeVisible()
+    const section = (name: string) => page.locator('section').filter({has: page.getByRole('heading', {name, exact: true})})
+    const status = section('StatusIcon, PriorityIcon, ProgressRing and ColumnBar')
+    for (const name of ['Backlog', 'Todo', 'In progress', 'Done', 'Canceled']) await expect(status.getByText(name, {exact: true})).toBeVisible()
+    await expect(status.getByRole('img', {name: 'No priority'})).toBeVisible()
+    await expect(status.getByText('5/12')).toBeVisible()
+    const chips = section('LabelChip, WaitingChip, BlockedChip, PullStateChip and ErrorBadge')
+    for (const name of ['Decision needed', 'Feedback needed', 'Conflicts', 'Checks failing', 'Behind']) await expect(chips.getByText(name, {exact: true})).toBeVisible()
+    await expect(chips.getByText(/Proposal: decision needed · 2 choices/)).toBeVisible()
+    const people = section('PersonAvatar, SessionDot and PresetBadge')
+    for (const name of ['idle', 'working', 'waiting on you', 'not listening', 'cut off']) await expect(people.getByText(name, {exact: true})).toBeVisible()
+    const icons = section('ProjectIcon, SectionIcon and OrreryMark')
+    for (const name of ['issues', 'roadmap', 'docs', 'sessions']) await expect(icons.getByText(name, {exact: true})).toBeVisible()
+    const text = section('KeyHint, StepMark, InlineText and MarkdownView')
+    await expect(text.getByRole('heading', {name: 'A heading'})).toBeVisible()
+    await expect(text.getByRole('link', {name: 'a link'}).first()).toBeVisible()
+    await expect(section('CopyButton and CopyBlock').getByText('Install the launcher')).toBeVisible()
+    await expect(section('Styles: field, label, glass, tint, unseen-row and waiting-row').getByRole('textbox', {name: 'A field'})).toBeVisible()
 })

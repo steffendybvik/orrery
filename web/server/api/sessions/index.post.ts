@@ -1,11 +1,11 @@
-// `POST /api/sessions` {id?, pid?, project, name?, cwd?, event, message?, command?, tool?, reason?, source?, started?, error?} →
+// `POST /api/sessions` {id?, pid?, project, name?, cwd?, event, message?, command?, tool?, reason?, source?, started?, error?, model?, effort?} →
 // the session: a Claude session's hook saying who it is and what it's doing (see channel/orrery-hook.mjs). `event` is
 // the hook's event name; a `StopFailure` (with its `error`) lets go of the issues the session has in progress. A
 // `SessionStart` after a `/clear`, a compaction or a resume (`source`) also brings `brief`: what the session was working
 // on, for the hook to hand the fresh context so the work carries on. A session orrery started (`started`, its launch)
 // with context gets that in the brief on every `SessionStart`, its first included. `tool` ({name, detail?}, on
 // `PreToolUse` and `PermissionRequest`) is what a permission prompt it waits at is for.
-import {cutOffLabel} from '#shared/roadmap'
+import {cutOffLabel, isEffort} from '#shared/roadmap'
 export default defineEventHandler(async event => {
     const body = await readBody(event).catch(() => null) as Record<string, unknown> | null
     if (!body || typeof body.project !== 'string' || typeof body.event !== 'string' || (!body.id && !body.pid)) {
@@ -24,6 +24,10 @@ export default defineEventHandler(async event => {
         id: text('id'), pid: Number(body.pid) || undefined, project: body.project, name: text('name'),
         cwd: text('cwd'), event: body.event, message: text('message'), command: untrusted ? undefined : text('command')?.slice(0, 4000), reason: text('reason'), source: text('source'),
         error: text('error'), errorText: text('error_text')?.slice(0, 300),
+        // The model it runs on (ORR-871): an id, kept only when it looks like one.
+        model: /^[\w.:@/[\]-]{1,100}$/.test(text('model') ?? '') ? text('model') : undefined,
+        // And its effort level (ORR-894), one of Claude Code's.
+        effort: isEffort(body.effort) ? body.effort : undefined,
         tool: tool && typeof tool.name === 'string' && tool.name ? {
             name: tool.name.slice(0, 200), ...typeof tool.detail === 'string' && tool.detail ? {detail: tool.detail.slice(0, 300)} : {},
         } : undefined,
@@ -47,10 +51,12 @@ export default defineEventHandler(async event => {
     // With none, it picks its next issue, when the owner lets sessions (ORR-452).
     if (source === 'clear' && session.started) {
         const project = body.project
-        clearDone(session.id)
-        resumeRun(project, session.id)
-            .then(resumed => resumed || pickNext(project, session.id))
-            .catch(error => console.error(`[orrery] resuming ${session.id}'s run:`, error))
+        // A focus held for this clear (ORR-904) goes out now, and is its next turn: nothing goes on top of it.
+        if (!clearDone(session.id)) {
+            resumeRun(project, session.id)
+                .then(resumed => resumed || pickNext(project, session.id))
+                .catch(error => console.error(`[orrery] resuming ${session.id}'s run:`, error))
+        }
     }
     const api = `${getRequestURL(event).origin}/api/projects/${encodeURIComponent(body.project)}`
     // Its launch as its hook says (before its channel has connected) or as orrery knows it.

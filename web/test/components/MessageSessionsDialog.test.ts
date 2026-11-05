@@ -17,7 +17,7 @@ registerEndpoint('/api/sessions/message', {method: 'POST', handler: async event 
 
 const session = (id: string, project: string, state: Session['state'], more: Partial<Session> = {}) =>
     ({id, name: id, project, state, listening: true, since: '', started_at: '', ...more}) as Session
-const project = (id: string, name: string) => ({id, name, key: id.toUpperCase(), board: {chunks: []}}) as unknown as Project
+const project = (id: string, name: string) => ({id, name, key: id.toUpperCase(), board: {milestones: []}}) as unknown as Project
 const kitchen = session('kitchen', 'greenhouse', 'idle', {also: ['pantry']})
 
 const mounted: VueWrapper[] = []

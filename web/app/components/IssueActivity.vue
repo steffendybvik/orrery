@@ -41,9 +41,9 @@ function said(event: IssueEvent): string[] {
     if (field === 'project') return [`moved it here from ${before}`]
     if (field === 'uploaded') return ['brought it in from a file']
     if (field === 'proposal') return [after ? PROPOSAL_SAID[after] ?? after : before === 'approved' ? 'put it on the roadmap' : 'committed it']
-    if (field === 'chunk') {
-        const title = props.project.board.chunks.find(c => c.id === after)?.title ?? after
-        return [after ? `put it in ${title}` : 'took it out of its chunk']
+    if (field === 'milestone') {
+        const title = props.project.board.milestones.find(c => c.id === after)?.title ?? after
+        return [after ? `put it in ${title}` : 'took it out of its milestone']
     }
     if (field === 'labels') {
         const [was, now] = [list(before), list(after)]
@@ -66,6 +66,8 @@ function said(event: IssueEvent): string[] {
             ...was.filter(g => !now.includes(g)).map(g => `unlinked the GitHub issue ${g}`),
         ]
     }
+    if (field === 'model') return [after ? `set its model to ${after}` : 'let its kind pick its model']
+    if (field === 'effort') return [after ? `set its effort to ${after}` : 'let its kind pick its effort']
     if (field === 'depends') {
         const [was, now] = [list(before), list(after)]
         return [

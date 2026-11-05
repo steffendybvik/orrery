@@ -16,7 +16,7 @@ app/pages/              one file per page; app/layouts/default.vue holds the sid
 app/components/         the page's pieces, ui/ the kit (see UI components below)
 app/composables/, utils/  shared state and behaviour, auto-imported
 server/api/             the routes, one file per method and path (/api/…)
-server/store/           the store, a file per domain (issues, chunks, comments, signals, releases, docs, presets…),
+server/store/           the store, a file per domain (issues, milestones, comments, signals, releases, docs, presets…),
                         each class extending the one before; server/utils/store.ts is the last, `Store`, which the routes use
 server/utils/           the rest of the server: the database and its migrations, sessions and launches, schedules, secrets
 shared/                 types and rules both sides use: roadmap/ a file per area (board, sessions, schedules, settings…),
@@ -72,8 +72,8 @@ project) runs first as a project the others depend on; each other file makes a p
 touched, on a port of the checkout's own (3100–3299, from its path, `web/e2e-port.ts`; `E2E_PORT` picks one), so
 sessions running it from their own worktrees at once don't share a server (`pnpm worktrees` tidies up those left behind). The first time, and after `@playwright/test` is bumped, get its browser with `pnpm exec playwright install
 chromium`. With `E2E_POSTGRES_URL` set it runs on that Postgres instead, emptied first, so its database's name
-has to say e2e (`postgres://orrery:orrery@localhost:5432/orrery_e2e`). CI runs it in Playwright's own image of that
-version, once on each database. A failed run leaves a trace to replay with `pnpm exec playwright show-trace test-results/…/trace.zip`.
+has to say e2e (`postgres://orrery:orrery@localhost:5432/orrery_e2e`). `E2E_BROWSER=webkit` or `firefox` runs it in that browser
+instead of Chrome. CI runs it in Playwright's own image of that version, once on each database, then on SQLite in each of those two. A failed run leaves a trace to replay with `pnpm exec playwright show-trace test-results/…/trace.zip`.
 
 `e2e/visual.spec.ts` compares the board, the list and an issue's page to stored images. They're Linux's, so off
 Linux the spec skips; `pnpm test:e2e:visual` (in `web/`) runs it in CI's Playwright image through Docker, and
@@ -81,6 +81,9 @@ Linux the spec skips; `pnpm test:e2e:visual` (in `web/`) runs it in CI's Playwri
 
 `pnpm test:e2e:login` runs `e2e/login/` on an orrery of its own with `ORRERY_AUTH=on` and a fresh `web/.data/e2e-login.db`, as
 the flows' stays one person's: the login page, signing in with a key, Settings' keys and logging out.
+
+`pnpm test:e2e:restart` builds the app and runs `e2e/restart/` on it, with a fresh `web/.data/e2e-restart.db`: the spec
+stops and starts the server itself, to check what outlives a restart (the owner's chats). `RESTART_NO_BUILD=1` skips the build.
 
 `pnpm images:readme` takes the README's images into `docs/images`, all 1440×900, from the playground's demo on an orrery of
 its own with a fresh `web/.data/readme.db`. It's a script rather than a test, so it isn't part of `pnpm test:e2e`. It rewrites only the images that differ by more than a run's own noise. A machine that isn't Linux renders every image differently, so the real ones come from the **Images** workflow, in CI's Playwright image: `gh workflow run images.yml --ref v<version>`, on a release branch. Any that changed go on `images/v<version>`, as one commit on that branch's tip, and the run's summary links the pull request to open. Actions can't open it here, and its checks wouldn't start if it did. Someone looks at the images, so it doesn't merge itself. A later run updates an open one and starts its checks again.

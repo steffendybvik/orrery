@@ -1,4 +1,4 @@
-import {expect, test} from '@playwright/test'
+import {expect, test} from './test'
 import {AGENT, makeProject, projectApi} from './support'
 
 // A release made, an issue set for it from its page, its changelog drafted and it shipped; and a project drawing on

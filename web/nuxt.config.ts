@@ -22,16 +22,21 @@ export default defineNuxtConfig({
     // A local, single-user board: the page is drawn in the browser and fed by /api.
     ssr: false,
     spaLoadingTemplate: spaLoading,
-    devServer: {port: 9000},
+    // The host is always given (ORR-849): with none, nuxt 4.6.4 resolves it to `{}`, and the CLI's dev server stops on it
+    // (`options.hostname.toLowerCase is not a function`). The dev container's HOST still wins. A checkout that already ran
+    // into it keeps `{}` in node_modules/.cache/nuxt/dev-server.json, which the browser specs' servers clear first.
+    // `127.0.0.1`, not `localhost`: in the CI image `localhost` binds `::1` alone, while Node's fetch of `localhost` goes
+    // to `127.0.0.1`, so the specs' own requests from Node (the seed, `hold`) were refused there.
+    devServer: {port: 9000, host: process.env.NUXT_HOST || process.env.NITRO_HOST || process.env.HOST || '127.0.0.1'},
 
-    css: ['~/assets/css/main.css'],
+    css: ['~/assets/css/fonts.css', '~/assets/css/main.css'],
 
     vite: {
         plugins: [tailwindcss()],
     },
 
     runtimeConfig: {
-        // Where the projects, chunks, issues and comments live: a SQLite file (the repo's own .data, wherever the server
+        // Where the projects, milestones, issues and comments live: a SQLite file (the repo's own .data, wherever the server
         // starts: ORR-596), or a postgres:// URL. Override with NUXT_DATABASE.
         database: fileURLToPath(new URL('../.data/orrery.db', import.meta.url)),
         // A folder to keep a copy of the database in (e.g. in iCloud Drive). Override with NUXT_BACKUP_DIR.
@@ -46,9 +51,22 @@ export default defineNuxtConfig({
         // Host names orrery answers to besides localhost and IP addresses, comma-separated (e.g. `orrery.lan`).
         // Override with NUXT_ALLOWED_HOSTS.
         allowedHosts: '',
+        // `off` stops anyone counting feature use on this server (ORR-881), whatever App settings says.
+        // Override with NUXT_USAGE.
+        usage: '',
         // In Docker, the address compose publishes orrery on (ORRERY_HOST): moving the database and setting backups
         // from the app need it to be loopback, as the container can't tell who's connecting. Compose sets NUXT_LISTEN_HOST.
         listenHost: '',
+        // The address to open orrery at from a phone, when it's one orrery can't see for itself: an https name, a VPN's
+        // (ORR-833). Shown in App settings with a QR code. Override with NUXT_PHONE_URL (ORRERY_PHONE_URL in compose).
+        phoneUrl: '',
+        // The phone's own port (ORR-837): a second listener that always asks for a login, so the address the sessions use
+        // stays trusted. `phoneListen` is the port it listens on (ORRERY_PHONE_LISTEN, in the container 9001; outside it,
+        // ORRERY_PHONE_PORT), `phonePort` the one it's published on and `phoneHost` the address (NUXT_PHONE_PORT and
+        // NUXT_PHONE_HOST, which compose sets from ORRERY_PHONE_PORT and ORRERY_PHONE_HOST). Empty: no phone port.
+        phoneListen: '',
+        phonePort: '',
+        phoneHost: '',
         // A Postgres database's URL for the backups, in place of the folder (ORR-427). Compose sets NUXT_BACKUP_DATABASE
         // from ORRERY_BACKUP_DATABASE.
         backupDatabase: '',
@@ -82,16 +100,18 @@ export default defineNuxtConfig({
 
     // docs/API.md is served to agents (/api/guide, /llms-full.txt).
     // Nothing on the page loads from elsewhere by itself, so what an agent writes in Markdown can't send what it read to
-    // another server just by being shown (ORR-748). Fonts are Google's. A route with a policy of its own replaces this.
+    // another server just by being shown (ORR-748), fonts included, which orrery serves itself (ORR-766). A route with a policy of its own replaces this.
     routeRules: {
         '/**': {
             headers: {
-                'Content-Security-Policy': "img-src 'self' data: blob:; media-src 'self' data: blob:; font-src 'self' data: https://fonts.gstatic.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; object-src 'none'",
+                'Content-Security-Policy': "img-src 'self' data: blob:; media-src 'self' data: blob:; font-src 'self' data:; style-src 'self' 'unsafe-inline'; object-src 'none'",
                 'X-DNS-Prefetch-Control': 'off',
             },
         },
     },
     nitro: {
+        // Its files gzipped and brotli'd at build, served so to a browser that takes it; API answers are by a plugin (ORR-766).
+        compressPublicAssets: true,
         // And the bundled channel, hook and launcher are served to the machines that run them (/channel, ORR-435).
         serverAssets: [
             {baseName: 'docs', dir: fileURLToPath(new URL('../docs', import.meta.url))},
@@ -113,12 +133,8 @@ export default defineNuxtConfig({
                 {rel: 'icon', type: 'image/svg+xml', href: '/favicon.svg'},
                 {rel: 'apple-touch-icon', href: '/apple-touch-icon.png'},
                 {rel: 'manifest', href: '/site.webmanifest'},
-                {rel: 'preconnect', href: 'https://fonts.googleapis.com'},
-                {rel: 'preconnect', href: 'https://fonts.gstatic.com', crossorigin: ''},
-                {
-                    rel: 'stylesheet',
-                    href: 'https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap',
-                },
+                // Fetched with the page rather than once its stylesheet is read: nearly every page's text is in it (ORR-766).
+                {rel: 'preload', href: '/fonts/geist-latin.woff2', as: 'font', type: 'font/woff2', crossorigin: ''},
             ],
             // Sets the theme before the first paint, so a light page doesn't flash dark.
             script: [{

@@ -160,7 +160,7 @@ describe("an untrusted schedule's session", () => {
         expect(await said('POST', '/api/projects/greenhouse/issues', 'abc')).toBe('ok')
         // And what it raises is still made a proposal, though orrery doesn't know its session.
         const create = (await import('../server/api/projects/[project]/issues/index.post')).default as unknown as (event: object) => Promise<unknown>
-        const e = event('POST', '/api/projects/greenhouse/issues', {project: 'greenhouse'}, {title: 'Run this', status: 'in-progress', chunk: '1'})
+        const e = event('POST', '/api/projects/greenhouse/issues', {project: 'greenhouse'}, {title: 'Run this', status: 'in-progress', milestone: '1'})
         await create({...e, headers: {...e.headers, 'orrery-untrusted': 'yes'}})
         expect(made).toEqual([{title: 'Run this', notes: undefined, proposal: 'pending', labels: ['external']}])
     })

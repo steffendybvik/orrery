@@ -1,7 +1,7 @@
-import {existsSync, mkdtempSync} from 'node:fs'
+import {existsSync, mkdtempSync, statSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
-import {expect, test} from '@playwright/test'
+import {expect, test} from './test'
 import {OWNER} from './support'
 
 // App settings says where this orrery keeps its data (ORR-284), and how big it is (ORR-323): the SQLite file, or the Postgres database the
@@ -83,6 +83,48 @@ test('backs up to a folder chosen in App settings, and turns them off again', as
     await backUp.uncheck()
     await expect(section).not.toContainText('Backed up to')
     await expect(section.getByRole('textbox', {name: 'Backup folder'})).toHaveValue(folder)
+})
+
+// Back up now (ORR-847): the backup a change makes a few seconds after, made at once. The run has no NUXT_BACKUP_DIR, so
+// a folder is given, backed up to as they're turned on. The button is busy while it works, and the latest backup's time
+// is the new one after. Then backups are turned off again, as the files after this one expect.
+test('backs up at once with Back up now, and shows the new time', async ({page, request}) => {
+    test.skip(!!process.env.E2E_POSTGRES_URL, 'ORRERY_DATABASE names Postgres, so the backups are set as it starts')
+    const folder = mkdtempSync(join(tmpdir(), 'orrery-e2e-back-up-now-'))
+    const file = join(folder, 'orrery.db')
+    expect((await request.put('/api/backups', {headers: OWNER, data: {on: true, folder}})).ok()).toBe(true)
+    try {
+        expect(existsSync(file)).toBe(true)
+        const before = (await (await request.get('/api/settings')).json()).database.backed_up_at as string
+        const copied = statSync(file).mtimeMs
+        await page.goto('/settings#database')
+        const section = page.locator('#database')
+        const latest = section.locator('[data-backup-latest]')
+        await expect(latest).toHaveAttribute('title', await page.evaluate(at => new Date(at).toLocaleString(), before))
+        // Held until it's seen busy, so a quick backup can't skip past it.
+        let release!: () => void
+        const held = new Promise<void>(resolve => release = resolve)
+        await page.route('**/api/backups', async route => {
+            if (route.request().method() !== 'POST') return route.fallback()
+            await held
+            await route.fallback()
+        })
+        // A second on, so the time it shows can't be the one it had.
+        await page.waitForTimeout(1_100)
+        await section.getByRole('button', {name: 'Back up now'}).click()
+        await expect(section.getByRole('button', {name: 'Backing up…'})).toBeDisabled()
+        const done = page.waitForResponse(r => r.url().endsWith('/api/backups') && r.request().method() === 'POST')
+        release()
+        expect((await done).ok()).toBe(true)
+        await expect(section.getByRole('button', {name: 'Back up now'})).toBeEnabled()
+        const after = (await (await request.get('/api/settings')).json()).database.backed_up_at as string
+        expect(new Date(after).getTime()).toBeGreaterThan(new Date(before).getTime())
+        expect(statSync(file).mtimeMs).toBeGreaterThan(copied)
+        await expect(latest).toHaveAttribute('title', await page.evaluate(at => new Date(at).toLocaleString(), after))
+        await expect(latest).toHaveText('just now')
+    } finally {
+        await request.put('/api/backups', {headers: OWNER, data: {on: false}})
+    }
 })
 
 // Restoring a backup from App settings (ORR-448): a project made after the day's copy is gone once that copy is

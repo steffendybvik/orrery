@@ -15,9 +15,20 @@ export function useSchedules() {
         across.value = await apiFetch<ScheduleAcross[]>('/schedules/across').catch(() => across.value)
     }
 
+    /** Whether the schedules have been read, and why the last read failed ('' when it didn't): the Schedules page waits
+     * on the one and shows the other, rather than saying nothing's scheduled (ORR-854). */
+    const loaded = useState('schedules-loaded', () => false)
+    const failed = useState('schedules-failed', () => '')
     async function load() {
-        const list = await apiFetch<Schedule[]>('/schedules').catch(() => [] as Schedule[])
-        byProject.value = Object.groupBy(list, s => s.project) as Record<string, Schedule[]>
+        failed.value = ''
+        try {
+            const list = await apiFetch<Schedule[]>('/schedules')
+            byProject.value = Object.groupBy(list, s => s.project) as Record<string, Schedule[]>
+            loaded.value = true
+        } catch (error) {
+            failed.value = errorMessage(error, 'load them')
+            return
+        }
         await loadAcross()
     }
 
@@ -83,5 +94,5 @@ export function useSchedules() {
         }
     }
 
-    return {byProject, of, load, across, loadAcross, editing, edit, editAcross, menu, openMenu, pause, setAll, adopt, ran, run}
+    return {byProject, of, load, loaded, failed, across, loadAcross, editing, edit, editAcross, menu, openMenu, pause, setAll, adopt, ran, run}
 }

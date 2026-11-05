@@ -6,15 +6,19 @@ let pool: typeof import('../server/utils/pool')
 let states: Record<string, string>
 /** The other projects each session hears (`also`), for one that spans several; its own project is greenhouse. */
 let spans: Record<string, string[]>
+/** The model each session was started on, for one orrery started on a chosen one (ORR-868). */
+let models: Record<string, string>
 
 beforeEach(async () => {
     states = {}
     spans = {}
+    models = {}
     vi.stubGlobal('currentId', (id: string) => id === 'old' ? 'a' : id)
     vi.stubGlobal('untrustedSession', (id: string) => id === 'locked')
     vi.stubGlobal('chatSession', (id: string) => id === 'chat')
-    vi.stubGlobal('sessionNow', (id: string) => states[id] ? {state: states[id], ...spans[id] ? {also: spans[id]} : {}} : undefined)
-    vi.stubGlobal('listSessions', () => Object.keys(states).map(id => ({id, project: 'greenhouse', state: states[id], listening: true, ...spans[id] ? {also: spans[id]} : {}})))
+    const started = (id: string) => models[id] ? {started: {launch: id, tmux: id, model: models[id]}} : {}
+    vi.stubGlobal('sessionNow', (id: string) => states[id] ? {state: states[id], ...spans[id] ? {also: spans[id]} : {}, ...started(id)} : undefined)
+    vi.stubGlobal('listSessions', () => Object.keys(states).map(id => ({id, project: 'greenhouse', state: states[id], listening: true, ...spans[id] ? {also: spans[id]} : {}, ...started(id)})))
     vi.resetModules()
     pool = await import('../server/utils/pool')
 })
@@ -70,6 +74,27 @@ describe('a signal aimed at no session', () => {
         expect(pool.take(signal(2), 'greenhouse', 'b')).toBe(true)
     })
 
+    it('goes only to a session on a model heavy enough for its work (ORR-868)', () => {
+        states = {light: 'idle', heavy: 'idle', plain: 'idle'}
+        models = {light: 'haiku', heavy: 'opus'}
+        // A security issue needs best: only a session on Claude Code's default takes it.
+        const security = signal(1, {model: 'best'})
+        expect([pool.take(security, 'greenhouse', 'light'), pool.take(security, 'greenhouse', 'heavy')]).toEqual([false, false])
+        expect(pool.take(security, 'greenhouse', 'plain')).toBe(true)
+        // Docs on sonnet: a haiku session can't, an opus one can.
+        const docs = signal(2, {model: 'sonnet'})
+        expect([pool.take(docs, 'greenhouse', 'light'), pool.take(docs, 'greenhouse', 'heavy')]).toEqual([false, true])
+        // One that names no model (a message, or from before) goes to any.
+        expect(pool.take(signal(3), 'greenhouse', 'light')).toBe(true)
+    })
+
+    it("lets a session spanning projects take what the project's idle sessions are too light for (ORR-868)", () => {
+        states = {span: 'idle', own: 'idle'}
+        spans = {span: ['pantry']}
+        models = {own: 'haiku'}
+        expect(pool.take(signal(1, {model: 'best'}), 'greenhouse', 'span')).toBe(true)
+    })
+
     it('goes to a stream with no session (the Monitor tool) as it comes', () => {
         expect(pool.take(signal(1), 'greenhouse', undefined)).toBe(true)
         expect(pool.take(signal(1), 'greenhouse', undefined)).toBe(false)
@@ -85,6 +110,22 @@ describe('a signal', () => {
     it("is for an untrusted schedule's session only when aimed at it", () => {
         expect([pool.aimedAt(signal(1), 'locked'), pool.aimedAt(signal(1, {target: '*'}), 'locked'), pool.aimedAt(signal(1, {target: 'locked'}), 'locked')])
             .toEqual([false, false, true])
+    })
+
+    it('is for a stream with no session when aimed at its name, and not for a session of that name by it (ORR-821)', () => {
+        expect([pool.aimedAt(signal(1, {target: 'bridge'}), undefined, 'bridge'), pool.aimedAt(signal(1, {target: 'bridge'}), undefined, 'other'),
+            pool.aimedAt(signal(1, {target: 'bridge'}), undefined), pool.aimedAt(signal(1, {target: 'bridge'}), 'a', 'bridge')])
+            .toEqual([true, false, false, false])
+    })
+
+    it('knows a name a stream with no session listens under until its last such stream closes (ORR-821)', () => {
+        const [one, two] = [pool.nameStream('greenhouse', 'bridge'), pool.nameStream('greenhouse', 'bridge')]
+        expect([pool.namedStream('greenhouse', 'bridge'), pool.namedStream('pantry', 'bridge')]).toEqual([true, false])
+        one()
+        one()
+        expect(pool.namedStream('greenhouse', 'bridge')).toBe(true)
+        two()
+        expect(pool.namedStream('greenhouse', 'bridge')).toBe(false)
     })
 
     it("is for the owner's chat only when aimed at it", () => {

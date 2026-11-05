@@ -1,4 +1,4 @@
-import {expect, test} from '@playwright/test'
+import {expect, test} from './test'
 import {OWNER, projectApi} from './support'
 
 // A fresh orrery opened for the first time: the owner names themselves, makes a project from the page, and My issues

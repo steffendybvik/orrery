@@ -1,10 +1,15 @@
 // `POST /api/projects/:project/issues/:issue/focus` {note?, session?, start?} → {signal, listeners}: asks the Claude
-// session (without `session`, the one on the issue or one orrery picks; only a chunk can go to every session) on the project to work on the issue now. `listeners`
+// session (without `session`, the one on the issue or one orrery picks; only a milestone can go to every session) on the project to work on the issue now. `listeners`
 // says how many sessions were listening to hear it. `start: true`, from the owner, starts a session for it when nobody's
 // listening, even when work alone doesn't start one (`starts.on_signal` off).
+import {countOwnUse} from '../../../../../utils/usage'
+
 export default defineEventHandler(async event => {
+    countOwnUse(event, 'focus-issue')
     const project = param(event, 'project')
-    const {start, ...body} = ((await readBody(event).catch(() => null)) ?? {}) as {start?: unknown}
+    const {start, ...body} = ((await readBody(event).catch(() => null)) ?? {}) as {start?: unknown, session?: unknown}
+    // A session's name works as its id does; one the project doesn't know is a 404 (ORR-821).
+    if (body.session !== undefined) body.session = aimSession(project, body.session)
     const actor = await actorOf(event)
     // The owner asking for a session for it when nobody's listening: one starts even when work alone doesn't start one.
     const send = () => useStore().focus(project, param(event, 'issue'), body, actor)

@@ -1,10 +1,14 @@
 <script setup lang="ts">
 // Getting started: the steps from a new orrery to a Claude session working from it, each ticked from what the
 // orrery knows (useGettingStarted), with what to do for the one you're on. As a page it's the first run (in place
-// of "No projects yet", and at /getting-started); `card` is its fold-away form at the top of My issues.
+// of "No projects yet", and at /getting-started); `card` is its fold-away form at the top of My issues. Opening it on a
+// phone comes last, optional and out of the count (ORR-876).
 defineProps<{card?: boolean}>()
 
-const {steps, done, current, finished, project, hide, planning, plan, WITHOUT_CLAUDE} = useGettingStarted()
+const {steps, phone, checkPhone, done, current, finished, project, hide, planning, plan, WITHOUT_CLAUDE} = useGettingStarted()
+// The optional last step (ORR-876): the phone's code, shown on a press, as each showing makes a sign-in link.
+const showPhone = ref(false)
+onMounted(checkPhone)
 const pieces = useConnect(project)
 const newProject = useState('new-project', () => false)
 const {open: newIssue} = useNewIssue()
@@ -19,6 +23,8 @@ const TEXT = [
     {title: 'Start a session with the channel', text: 'So orrery can send the session work. Ticked once a session is listening.'},
     {title: 'Send it work', text: 'Make an issue and press Focus on this on its page, or ask from the Sessions page. Ticked when a session starts one.'},
 ]
+
+const PHONE = {title: 'Open it on your phone', text: "Scan the code with the phone's camera, at home on the same Wi-Fi. Ticked once a phone is signed in."}
 
 async function tryDemo() {
     const id = await demo.make()
@@ -57,6 +63,17 @@ async function tryDemo() {
       </template>
       <li v-if="current >= WITHOUT_CLAUDE && !finished">
         <button type="button" class="text-xs text-accent-700 hover:underline dark:text-accent-400" @click="plan()">Just planning? You're set</button>
+      </li>
+      <li class="flex gap-3" data-step="phone">
+        <StepMark :done="phone.done" :n="steps.length + 1" />
+        <div class="flex min-w-0 flex-1 flex-col gap-1.5">
+          <span class="font-medium" :class="phone.done ? 'text-muted line-through decoration-faint' : 'text-fg'">{{ PHONE.title }} <span class="font-normal text-faint">· optional</span></span>
+          <template v-if="!phone.done">
+            <span>{{ PHONE.text }}</span>
+            <PhoneLink v-if="showPhone" />
+            <UiButton v-else class="self-start" @click="showPhone = true">Show the code</UiButton>
+          </template>
+        </div>
       </li>
     </ol>
   </section>
@@ -104,6 +121,17 @@ async function tryDemo() {
       <li v-else-if="planning && done < steps.length" class="px-4 text-xs text-faint">
         You're set for planning.
         <button type="button" class="text-accent-700 hover:underline dark:text-accent-400" @click="plan(false)">Working with agents after all?</button>
+      </li>
+      <li class="flex gap-3 px-4" data-step="phone">
+        <StepMark :done="phone.done" :n="steps.length + 1" />
+        <div class="flex min-w-0 flex-1 flex-col gap-2">
+          <span class="font-medium" :class="phone.done ? 'text-muted' : 'text-fg'">{{ PHONE.title }} <span class="font-normal text-faint">· optional</span></span>
+          <template v-if="!phone.done">
+            <span>{{ PHONE.text }}</span>
+            <PhoneLink v-if="showPhone" />
+            <UiButton v-else size="md" class="self-start" @click="showPhone = true">Show the code</UiButton>
+          </template>
+        </div>
       </li>
     </ol>
     <p class="text-xs text-faint">

@@ -1,4 +1,4 @@
-import {expect, test} from '@playwright/test'
+import {expect, test} from './test'
 import {AGENT, makeProject} from './support'
 
 // The owner writes, edits and removes docs from the page. A doc an agent changed is tinted in the list, and in it
@@ -225,3 +225,48 @@ test("a doc's text keeps its reading width, and On this page shows only where th
     await expect(contents).toBeVisible()
     expect((await article.boundingBox())!.width).toBeGreaterThanOrEqual(760)
 })
+
+test("on a phone, the docs strip shows the doc you're on, marked (ORR-860)", async ({page, request}) => {
+    await makeProject(request, {name: 'Shelf', key: 'SHF'})
+    for (const n of [1, 2, 3, 4, 5, 6, 7, 8]) {
+        await request.put(`/api/projects/shelf/docs/volume-${n}`, {data: {title: `Volume number ${n}`, body: `Volume ${n}.`}, headers: AGENT})
+            .then(r => expect(r.ok()).toBeTruthy())
+    }
+    await page.setViewportSize({width: 390, height: 800})
+    const strip = page.getByRole('navigation', {name: 'Docs'})
+    const inStrip = async (name: string) => {
+        const tab = strip.getByRole('link', {name})
+        await expect(tab).toHaveAttribute('aria-current', 'page')
+        await expect.poll(async () => {
+            const [box, at] = await Promise.all([strip.boundingBox(), tab.boundingBox()])
+            return !!box && !!at && at.x >= box.x - 1 && at.x + at.width <= box.x + box.width + 1
+        }).toBe(true)
+    }
+    await page.goto('/p/shelf/docs/volume-8')
+    await inStrip('Volume number 8')
+    // Opening another from the strip brings that one in, and leaves the page where it was.
+    await strip.getByRole('link', {name: 'Volume number 1'}).click()
+    await inStrip('Volume number 1')
+    await page.goto('/p/shelf/docs/volume-7')
+    await inStrip('Volume number 7')
+    expect(await page.evaluate(() => window.scrollY)).toBe(0)
+})
+
+for (const colorScheme of ['light', 'dark'] as const) {
+    test(`on a phone, a name in a doc's table stays on one line, and the table scrolls (ORR-858, ${colorScheme})`, async ({page, request}) => {
+        await page.emulateMedia({colorScheme})
+        await request.put('/api/projects/library/docs/api-reference', {headers: AGENT, data: {
+            title: 'API reference',
+            body: '| Function | What it does |\n|---|---|\n| `primes_up_to(n)` | Every prime up to n, smallest first, as a list |\n| `count_primes(n)` | How many primes there are up to n |\n| `nth_prime(n)` | The nth prime, counting 2 as the first |\n',
+        }}).then(r => expect(r.ok(), 'the doc').toBeTruthy())
+        await page.setViewportSize({width: 390, height: 800})
+        await page.goto('/p/library/docs/api-reference')
+        const names = page.locator('.doc td code')
+        await expect(names).toHaveCount(3)
+        for (const code of await names.all()) {
+            // An inline box broken over two lines has a rect for each.
+            expect(await code.evaluate(el => el.getClientRects().length), await code.textContent() ?? '').toBe(1)
+        }
+        await expect(page.getByRole('table', {name: 'Table'})).toBeVisible()
+    })
+}

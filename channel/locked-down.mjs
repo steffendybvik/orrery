@@ -47,3 +47,17 @@ function settingsIn(path) {
         return {}
     }
 }
+
+/** What starts a launch's session on the model and effort orrery asked for (ORR-868); none, on Claude Code's own default.
+ * Only a model or effort of the shape orrery sends is passed on, as separate words to tmux, never through a shell. */
+/** `--resume <id>` for a chat taken up again on its Claude session (ORR-884), when the launch asks for one that's a
+ * Claude Code session id; nothing otherwise. */
+export function resumeArgs(launch) {
+    return launch.chat && typeof launch.resume === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(launch.resume) ? ['--resume', launch.resume] : []
+}
+
+export function modelArgs(launch) {
+    const model = typeof launch.model === 'string' && /^[a-z][a-z0-9.\-]*(\[1m\])?$/.test(launch.model) && launch.model.length <= 64 ? launch.model : ''
+    const effort = ['low', 'medium', 'high', 'xhigh', 'max'].includes(launch.effort) ? launch.effort : ''
+    return [...model ? ['--model', model] : [], ...effort ? ['--effort', effort] : []]
+}

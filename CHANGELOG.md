@@ -7,6 +7,126 @@ Each version's changes are grouped under **Features**, **Changes** and **Fixes**
 **Internal** where they help, and a group with nothing in it is left out. 1.0.0, the first release's
 overview, is one list.
 
+## 1.0.0-rc.17 (2026-11-04)
+
+### Features
+
+- **Sign a phone in with a QR code:** App settings → You → **Open on your phone** shows the address a phone can open
+  orrery at, with Copy and a QR code made on the page. Scanning it opens orrery on the phone already signed in. The
+  phone gets a port of its own (`1` before `ORRERY_PORT`, so 19010 for 9010) that always asks for a login, while the
+  sessions' `127.0.0.1` address stays trusted with no keys. A signed-in phone acts as the owner, Allow included, for
+  its login's 30 days.
+- **End a phone's login:** App settings → You → **Signed in** lists each browser and phone with a login, with **End** on
+  each and **End every other login**.
+- **An easier phone address:** Open on your phone leads with the Mac's `http://<name>.local:<port>`, which can be typed
+  and outlasts a new IP, and orrery now answers to it. The QR code is also the last step of Getting started and an
+  entry in ⌘K.
+- **A chat per project, and a list of chats:** each project has its own chat, and moving to another project shows its
+  chat and leaves the one you had running. A list down the chat pane's left holds every chat, several on one project,
+  running and ended, each a click away. Chats are kept in the database, so the list outlasts a restart; writing in an
+  ended chat carries it on in place (`claude --resume`); and a chat can be deleted from the list.
+- **Each session's model and effort:** the Sessions page, the sidebar and an issue's page show the model and effort
+  every session runs on (Opus 5.5, the full id on hover), read from what Claude Code actually used, so a `/model` or
+  `/effort` switch shows after its next turn.
+- **Start a session on a model and effort:** `POST …/launches` takes `model` and `effort`, and the launcher starts
+  `claude --model … --effort …`. A launcher on older code is refused such a launch rather than dropping the model.
+- **A model for each kind of work:** Sessions → Setup → Starting sessions has a **Models** list, kept in the
+  `work_kinds` setting, of the kinds of work, the labels that make an issue one, and the model and effort each starts
+  sessions on: a `docs` issue starts on Sonnet, and the owner's chat on the Chat kind's. An issue's page has a **Model**
+  of its own that beats its kind's, a schedule can name one for the work it starts, and Start session has a **Model**
+  row to pick another for one session.
+- **Work goes only to a heavy enough model:** a focus or comment about an issue names the model its kind needs, so a
+  `security` issue never reaches a session on Sonnet or Haiku. With only lighter sessions listening, orrery starts one
+  on the right model.
+- **A pull request's own page:** a pull request's number or title, on an issue's page, Branches or Pull requests, opens
+  a page of its own listing every issue it's linked to, merged and closed ones too, with a GitHub button beside it. In
+  ⌘K, a PR's number or link opens it.
+- **A change's risk:** a session rates its pull request high, medium or low with a line on why, and **Rate** on the
+  issue's page lets the owner set it over a session's. A high-risk merge, or one that touches a migration, auth, a
+  permission, secrets or egress whatever its rating, asks the owner to review it on the issue. Issues can be filtered and
+  sorted by risk, and a release lists its risky ones first.
+- **A sessions panel of its own:** the sidebar's sessions list can be resized by its top edge, folded to its heading, or
+  popped out to float anywhere on the page, and this browser remembers which.
+- **Count what you use:** App settings → **Usage** lists which features the owner uses, coldest first, to find what
+  could go. It's off until **Count what I use** is on, keeps a number a day, and sends nothing anywhere.
+- **A session keeps its context for a sibling:** having closed a sub-issue, a session orrery started carries on to a
+  sibling still to do without being cleared. Unrelated work still starts clean, and a session still holding an issue in
+  review is now cleared before an unrelated focus reaches it.
+- **Star and hide projects:** App settings → Projects lists every project as Starred, Shown or Hidden. Starred ones lead
+  the sidebar, and hidden ones fold away under a Hidden row at its foot, with their work unchanged.
+- **A Projects page** lists every project, hidden ones included, so the sidebar can stay short.
+- **Filter Notifications by project:** with notices from more than one project, a Project picker keeps the timeline,
+  Clear read and Clear all to one, kept in `?project=`.
+- **Restore a backup on a new server:** `claim.mjs --restore <file>`, run from a shell on the box, puts a backup in place
+  of the empty database, people and keys included, instead of claiming it.
+
+### Changes
+
+- **Breaking, chunks are milestones:** "chunk" is **Milestone** everywhere, in the pages, API, channel tools, docs and
+  schema, with no old names kept. `/api/projects/:project/chunks` is `/milestones`, the `chunk` field and filter are
+  `milestone`, the `chunks` tool is `milestones`, the chat's `create_chunk` and `update_chunk` are `create_milestone` and
+  `update_milestone`, and a prompt template's `{chunk}` is `{milestone}`. The channel needs this release's code to call
+  the new routes.
+- **The chat pane is open or closed:** its × or Esc hides it and leaves the chat running, and it no longer says whether
+  the chat is ready or live. Only a chat's × in the list ends it.
+- **Faster loads:** API answers and public files go compressed, about a fifth off a cold load over a network, and the
+  start-up reads run side by side, so the bell and sidebar fill about 600 ms sooner on a remote link.
+- **orrery serves its own fonts:** Geist and Geist Mono come from orrery rather than Google Fonts, which takes a
+  render-blocking stylesheet and three outside requests off every page. The CSP now allows orrery alone.
+- **The guide tool sends its contents,** and one section when a session names it, rather than all of `using.md` (about
+  10k tokens) on every call.
+- **No more in-app claim:** with the phone's QR sign-in, nothing on the Mac needs claiming from its page. A hosted box
+  still claims from its shell (`orrery:claim`, `--restore`).
+- **Starting sessions keeps you where you were:** the Start session dialog closes and leaves you on your page rather
+  than going to Sessions.
+- **An unread repo is a muted line** on an issue's page, linking to Pull requests, rather than an error in red.
+- **Every project tab has the same top bar,** project / tab, with the key and progress from phone width up.
+- **A new agent key comes with its `keys.json` line,** so the launcher service and its sessions can use it with login on.
+- **Dependencies updated:** `pnpm audit` goes from 18 advisories (6 high) to 3 (1 low, 2 moderate).
+
+### Fixes
+
+- **Revoking a person key ends its logins at once,** rather than leaving them signed in for up to 30 days.
+- **A focus aimed at a session by its name reaches it:** it went to nobody before. A session the project doesn't know is
+  a 404.
+- **Typing in another field no longer jumps to the chat** after one letter while the chat pane is open.
+- **A phone no longer zooms in on a field it types in:** on a touch screen, fields' text is 16px, so Send stays in view.
+  A desktop keeps its size, and pinch-zoom still works.
+- **On a phone:** key hints are hidden; a session card keeps its name whole, with Watch and Stop under ⋯; the sidebar's
+  small buttons are big enough to tap; Start session fits, with its footer in reach; the open doc scrolls into the docs
+  strip; and code in a doc's table stays on one line.
+- **A page whose read fails says so,** with the reason and **Try again**, rather than spinning for ever or saying there's
+  nothing there.
+- **Skip to content:** the first Tab on every page shows the link, so a keyboard needn't go through the sidebar first.
+- **A keyboard can scroll code boxes and tables** that scroll sideways on a phone.
+- **Text contrast holds** on paused schedules, a run's outcome, the active sidebar row in dark, and status chips on a
+  waiting row.
+- **On a phone, the chat** fills the screen rather than stopping at 40rem, and a tap outside its list of chats closes the
+  list.
+- **A focused link in the docs list shows a ring,** so tabbing onto the doc you're on shows where you are.
+- **Connect an agent's brief link** no longer sits inside the summary it opens, a control inside a control.
+- **A picker is named by what it shows** ("Status: Done", not only "Status"), so voice control reaches it by the words on
+  screen.
+- **`nuxt dev` starts again** with no host set, after the nuxt 4.6.4 update. It listens on `127.0.0.1` unless `HOST` says
+  otherwise, so Node's requests to `localhost` reach it where that looks up as `::1` first.
+
+### Docs
+
+- **Reaching orrery from a phone:** `SECURITY.md` lists the ways, safest first, and the README and `SECURITY.md` say the
+  phone's port is on the network by default. `using.md` has what this release added to App settings and Notifications.
+
+### Internal
+
+- **README images:** the Images workflow retook all six in the browser suite's own image, for rc.17. The dark and light
+  atlases are reshot, with rc.16 as their Before.
+- **An atlas of the shared building blocks** on `/ui`, in development only.
+- **The browser suite runs on WebKit and Firefox** next to Chrome, on the pull request into `main` and on a release tag.
+- **Coverage counts the page's own code** that runs in Chrome during the browser suite, so a component only the browser
+  tests mount stops reading 0%.
+- **Tests:** the chat pane's sending, the QR sign-in's routes and its flow in a browser, Back up now, that a page loads
+  nothing from another host, and the milestone, status, schedule and people flows through the least covered components;
+  then Presets, a session's card, Branches, Signed in, uploading a board, Usage's guards and picking a model.
+
 ## 1.0.0-rc.16 (2026-10-30)
 
 ### Features

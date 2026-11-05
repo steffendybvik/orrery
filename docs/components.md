@@ -4,7 +4,9 @@ The page is built from a small set of pieces. Reach for one of these before writ
 menu by hand, and add to the set rather than copy markup from another page. Components in
 `web/app/components/` are auto-imported by their file name; those in `components/ui/` get a `Ui` prefix.
 
-Under `pnpm dev`, `/ui` shows the kit on one page, each piece in its states.
+Under `pnpm dev`, `/ui` shows the kit on one page, each piece in its states, and under it **Building blocks**: an atlas of the
+shared display pieces below (status and priority icons, chips, avatars, session dots, icons, text, copy and the style classes),
+each drawn in its states with made-up data. A new shared piece goes there too, with a line in `ui-kit.spec.ts`.
 
 ## The kit (`components/ui/`)
 
@@ -52,10 +54,10 @@ closed (its open state, `useNewIssue().target` say, back to `null`), not only un
 on its way closes the next test's dialog when it lands (ORR-409).
 
 ```vue
-<UiDialog :open="target" label="New chunk" @close="close" @submit="create">
+<UiDialog :open="target" label="New milestone" @close="close" @submit="create">
   <input v-model="title" ...>
   <div class="flex items-center gap-2 border-t border-line pt-3">
-    <UiButton type="submit" variant="primary" size="md" class="ml-auto">Create chunk</UiButton>
+    <UiButton type="submit" variant="primary" size="md" class="ml-auto">Create milestone</UiButton>
   </div>
 </UiDialog>
 ```
@@ -102,7 +104,7 @@ focus or changing size.
 </UiContextMenu>
 ```
 
-`at` is where the right-click was (`{x, y}`); nothing closes it. Its lines can change in place (a chunk list, a
+`at` is where the right-click was (`{x, y}`); nothing closes it. Its lines can change in place (a milestone list, a
 confirm), as a Headless UI `Menu` can't: one closes on any pick.
 
 ### UiConfirm
@@ -112,7 +114,7 @@ side.
 
 ```vue
 <UiConfirm v-if="confirming" :busy="busy" @confirm="remove" @cancel="confirming = false">
-  Remove chunk {{ chunk.id }}? Its issues stay, in no chunk.
+  Remove milestone {{ milestone.id }}? Its issues stay, in no milestone.
 </UiConfirm>
 ```
 
@@ -132,7 +134,7 @@ toolbar, a comment), with `size="xs"` beside small text. `action` and `busyActio
 
 - **`UiSpinner`:** the cycle `⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏`, drawn rather than typed, as Geist Mono has no braille and a fallback font changes by machine. It's 1em tall and takes `currentColor`, so `text-lg` sizes it and it works on a primary button. It runs on CSS with no timer, and reduced motion holds one frame. It's hidden from screen readers: the words beside it say what's loading, or `label` where there are none.
 - **`UiBusy`:** a button's words while it's at work, the slot at rest and the spinner with `label` while `busy`. Both keep the same cell, so the button holds its width. `UiConfirm` uses it for `busyAction`.
-- **`UiLoading`:** a page or panel with nothing to show yet, the spinner in the middle of it, coming in a moment late so a quick answer doesn't flash it.
+- **`UiLoading`:** a page or panel with nothing to show yet, the spinner in the middle of it, coming in a moment late so a quick answer doesn't flash it. A read it waits on that fails takes the spinner's place: "Couldn't load …" with a warning sign, the server's reason (`errorMessage`) and **Try again**. A page passes its own read's failure as `failed`, naming it with `what` (`the schedules`), and reads again on `retry`. Without one, it shows the projects' first read failing (`useRoadmaps().failed`), which every page waits on, and Try again reads them again. A page never shows a spinner that can't end, or an empty state ("Nothing scheduled", "Make a project") for data it hasn't read.
 - **The start-up screen:** what a fresh open or a refresh shows until the app has started: the logo with the spinner under it, and no words. There's no Vue yet, so it's plain HTML and CSS, made by `scripts/spa-loading.ts` as Nuxt's `spaLoadingTemplate`. It inlines `public/favicon.svg` and takes `UiSpinner`'s frames from `shared/spinner.ts`, so it follows both. It matches `UiLoading`'s size, colour and late start, and follows the theme the head's script set.
 
 These aren't loading, so they stay as they are: `WorkingDot` and `SessionDot` (a session's state), the status icon's pulse on the board and the chat button's pulse.
@@ -189,7 +191,7 @@ Already one component each; use them rather than drawing the same thing again.
 
 | Component | For |
 |---|---|
-| `PropertyPicker` | a property as a button with a menu to type in (status, priority, chunk, release, assignee, labels with `multiple`). Use it rather than a native `<select>`; `field` draws it as a boxed field for a row of them in a form (New issue), and `field small` at a toolbar's height (the Schedules project filter). `PRIORITY_OPTIONS` and `chunkOptions(chunks)` (utils/roadmap) are the usual option lists. `disabled` shuts an open menu, so a `multiple` one stays enabled while it saves: show the pick at once and send each in turn (an issue's labels, team tasks and depends on) |
+| `PropertyPicker` | a property as a button with a menu to type in (status, priority, milestone, release, assignee, labels with `multiple`). Use it rather than a native `<select>`; `field` draws it as a boxed field for a row of them in a form (New issue), and `field small` at a toolbar's height (the Schedules project filter). `PRIORITY_OPTIONS` and `milestoneOptions(milestones)` (utils/roadmap) are the usual option lists. `disabled` shuts an open menu, so a `multiple` one stays enabled while it saves: show the pick at once and send each in turn (an issue's labels, team tasks and depends on) |
 | `SegmentedControl` | a choice of two to four shown side by side (List \| Board, issue \| message, a page's tabs): Headless UI's `RadioGroup`, one Tab stop with ←→ moving the choice; the chosen option takes the accent fill on the `bg-well` track, like the schedule dialog's weekday picker |
 | `FilterMenu` | a toolbar filter: a button with options to tick, empty meaning any: Headless UI's `Listbox` (`multiple`) |
 | `LabelPicker` | a new issue's or a schedule's labels: tick the project's or make one, a `PropertyPicker` (`multiple`, `creatable`) |
@@ -214,6 +216,7 @@ Already one component each; use them rather than drawing the same thing again.
 | `SessionDot` | a Claude session's state as a dot |
 | `ErrorBadge` | a count of what's gone wrong: red with a warning sign, on the bell, the sidebar and App settings |
 | `PullStateChip` | where an open pull request stands (Conflicts, Behind, Ready to merge…), red to green |
+| `PullGithubLink` | a pull request on GitHub, as the GitHub mark in a small button beside its number and title (which open its orrery page), opening a new tab |
 | `ScheduleRunButton` | **Run schedule** in a project's issues toolbar: a popover of the schedules Run now can run, each run at once; the confirmation is `ScheduleMenu`'s |
 | `PullFocus` | **Focus on this** on a pull request: a popover with the note `focusNote` writes from its state, to edit and send as a focus on its issue |
 | `KeyHint` | a key, as `<KeyHint>⌘↵</KeyHint>` |
@@ -255,8 +258,8 @@ Already one component each; use them rather than drawing the same thing again.
 **Dialogs**
 
 The layout (`layouts/default.vue`) mounts the dialogs any page can open, each as `Lazy…` behind `openedOnce`: it
-loads the first time it opens, in its own chunk, and then stays. A dialog is opened through the state its composable
-shares (`useNewIssue`, `useNewChunk`, `useNewDoc`, `useStartSession`, `useMessageSessions`, `useSchedules`, and `useState('new-project')`),
+loads the first time it opens, in its own milestone, and then stays. A dialog is opened through the state its composable
+shares (`useNewIssue`, `useNewMilestone`, `useNewDoc`, `useStartSession`, `useMessageSessions`, `useSchedules`, and `useState('new-project')`),
 so any page or ⌘K can open it without holding it. `OwnerDialog` is mounted from the start; a dialog that belongs to
 one page (`PresetDialog`) stays on that page. A new one goes in the same way, built on `UiDialog`. ⌘K's palette, the menus and the bulk bar are
 mounted from the start, as they listen for keys or show on a right-click.

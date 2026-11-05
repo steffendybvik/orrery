@@ -15,7 +15,7 @@ const {docUnseen} = useUnseen()
 <template>
   <PageHeader>
     <template v-if="project">
-      <h1 class="truncate text-sm font-medium">{{ project.name }}</h1>
+      <ProjectTopBar :project="project" tab="Docs" />
     </template>
     <h1 v-else-if="ready" class="truncate text-sm font-medium">Not found</h1>
   </PageHeader>
@@ -44,7 +44,7 @@ const {docUnseen} = useUnseen()
         <p class="text-sm text-muted">{{ project.name }} has no docs yet.</p>
         <UiButton variant="primary" class="self-center" @click="useNewDoc().open(project.id)">New doc</UiButton>
         <p class="mt-3 text-xs text-faint">Or ask a session in its repo to add some, e.g. its README:</p>
-        <pre class="overflow-x-auto rounded-xl bg-well p-3 text-left font-mono text-[11px] text-muted ring-1 ring-line">PUT /api/projects/{{ project.id }}/docs/readme
+        <pre tabindex="0" aria-label="Code" class="overflow-x-auto rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-accent-500/60 bg-well p-3 text-left font-mono text-[11px] text-muted ring-1 ring-line">PUT /api/projects/{{ project.id }}/docs/readme
 {"title": "README", "body": "# …markdown…"}</pre>
         <DeletedDocs :project="project.id" :docs="0" class="mt-3 text-left" />
       </div>

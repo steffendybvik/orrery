@@ -1,5 +1,5 @@
 import type {APIRequestContext, Page} from '@playwright/test'
-import {expect, test} from '@playwright/test'
+import {expect, test} from './test'
 import {makeProject, OWNER} from './support'
 
 // What the board and an issue's page look like, against images kept in `visual.spec.ts-snapshots/`, so a change
@@ -8,6 +8,7 @@ import {makeProject, OWNER} from './support'
 // it makes them anew). A project of its own, so the page holds only what this file made; the owner named if no
 // one has yet; and starting sessions off, as earlier files may leave it on, which changes what the sessions panel says.
 test.skip(process.platform !== 'linux', "The images are Linux's: run `pnpm test:e2e:visual`")
+test.skip(({browserName}) => browserName !== 'chromium', "The images are Chrome's")
 test.describe.configure({mode: 'serial'})
 test.use({viewport: {width: 1280, height: 800}, colorScheme: 'light'})
 
@@ -33,7 +34,7 @@ test.beforeAll(async ({request}) => {
     await makeProject(request, {name: 'Gallery', key: 'GAL'})
     // A retry finds the gallery as the first try left it: adding its issues again would put two of each in the image.
     if (test.info().retry > 0 && (await api(request, 'get', '/projects/gallery/issues')).length) return
-    const {id: chunk} = await api(request, 'post', '/projects/gallery/chunks', {title: 'Hanging'})
+    const {id: milestone} = await api(request, 'post', '/projects/gallery/milestones', {title: 'Hanging'})
     const issues = [
         {title: 'Hang the portraits in the east wing', status: 'in-progress', priority: 'P1', labels: ['bug']},
         {title: 'Light the sculpture hall', status: 'todo', priority: 'P2'},
@@ -41,7 +42,7 @@ test.beforeAll(async ({request}) => {
         {title: 'Reframe the watercolours', status: 'backlog'},
         {title: 'Open the doors', status: 'done', priority: 'P2'},
     ]
-    for (const issue of issues) await api(request, 'post', '/projects/gallery/issues', {...issue, chunk})
+    for (const issue of issues) await api(request, 'post', '/projects/gallery/issues', {...issue, milestone})
     await api(request, 'post', '/projects/gallery/issues/GAL-1/comments', {body: 'Started on the **east wing**: three of eight up.'}, {'Orrery-Actor': 'claude'})
 })
 

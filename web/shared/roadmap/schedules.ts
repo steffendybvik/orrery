@@ -1,6 +1,7 @@
 // Schedules: recurring work in a project, and each time one ran.
 import type {OnFilter} from '../happenings'
 import type {Priority} from './board'
+import type {Effort} from './sessions'
 
 /** One time a schedule ran: the issue it made, or why it didn't. */
 export interface ScheduleRun {
@@ -36,7 +37,7 @@ export interface Schedule {
     column: string
     /** The statuses (ids or kinds) an action schedule moves issues out of; none, any open one. */
     move_from: string[]
-    chunk?: string
+    milestone?: string
     priority?: Priority
     labels: string[]
     ask: boolean
@@ -52,6 +53,10 @@ export interface Schedule {
     next_run?: string
     /** The schedule across projects it's made from (ORR-638), which says what it does; it can only be paused here. */
     across?: number
+    /** Its own model and effort (ORR-869): its session starts on them, its message goes to a session on the model, and its
+     * issues carry them. None takes its kind's. */
+    model?: string
+    effort?: Effort
     /** The latest runs, newest first. */
     runs: ScheduleRun[]
     /** How many subjects its minute held back, waiting their turn at one a minute (ORR-357); none when none are. */

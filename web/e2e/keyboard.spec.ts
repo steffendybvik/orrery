@@ -1,5 +1,5 @@
 import type {APIRequestContext, Page} from '@playwright/test'
-import {expect, test} from '@playwright/test'
+import {expect, test} from './test'
 
 // The keys (useHotkeys), on a project of their own: j/k between rows and group headers and Enter to open, j/k and Esc on
 // an issue's page, 1/2 for List and Board, / and c, x and Esc to tick and clear, ⌘A to tick them all, ⌥↑ and ⌥↓ to move a project, g m.
@@ -21,6 +21,8 @@ async function open(page: Page) {
 
 test.beforeAll(async ({request}) => {
     if (!(await api(request, 'get', '/owner')).named) await api(request, 'put', '/owner', {name: 'Ada Lovelace'})
+    // A retry's new worker finds the project and its three issues its first try made, rather than failing on a 409.
+    if ((await request.get('/api/projects/keys')).ok()) return
     await api(request, 'post', '/projects', {name: 'Keys', key: 'KEY'})
     for (const title of ['First key', 'Second key', 'Third key']) await api(request, 'post', '/projects/keys/issues', {title, status: 'todo'})
 })
@@ -146,4 +148,27 @@ test('g m goes to My issues', async ({page}) => {
     await page.keyboard.press('g')
     await page.keyboard.press('m')
     await expect(page).toHaveURL('/mine')
+})
+
+test('the first Tab shows Skip to content, and Enter puts the next Tab in the page, past the sidebar (ORR-856)', async ({page}) => {
+    for (const path of ['/p/keys?view=list', '/sessions', '/settings']) {
+        await page.goto(path)
+        await expect(page.locator('main h1').first()).toBeVisible()
+        await page.keyboard.press('Tab')
+        const skip = page.getByRole('link', {name: 'Skip to content'})
+        await expect(skip, path).toBeFocused()
+        await expect(skip).toBeInViewport()
+        await page.keyboard.press('Enter')
+        await expect(page.locator('main#main')).toBeFocused()
+        // The address is left alone, as Settings reads its hash.
+        expect(new URL(page.url()).hash).toBe('')
+        await page.keyboard.press('Tab')
+        expect(await page.evaluate(() => !!document.activeElement?.closest('main') && !document.activeElement.closest('aside')), path).toBe(true)
+    }
+    // Hidden until then: unfocused, it's sr-only again, clipped away. WebKit and Firefox count its clipped box as in the
+    // viewport, where Chromium leaves it out, so it's held to its clip (ORR-912).
+    await page.locator('main#main').click({position: {x: 5, y: 5}})
+    const skip = page.getByRole('link', {name: 'Skip to content'})
+    await expect(skip).not.toBeFocused()
+    await expect.poll(() => skip.evaluate(el => getComputedStyle(el).clipPath)).toBe('inset(50%)')
 })

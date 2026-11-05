@@ -84,17 +84,19 @@ The same server gives the session **tools** for its projects' roadmaps, so it wo
 `issues`, `issue`, `start_issue`, `comment` (with `asks` for a decision or feedback), `finish_issue`,
 `create_issue` (a proposal too, with choices), `update_issue`, `releases`, `docs`, `doc` and
 `write_doc`; `sessions`, to read who's working on what; and `guide`, how orrery itself works ([Using orrery](using.md),
-from the orrery it's connected to), so a session in any repo can answer "how do schedules work?". Those it needs less
+from the orrery it's connected to): its contents, or one section or page with `section`, so a session in any repo can
+answer "how do schedules work?" without reading all of it. Those it needs less
 often wait behind `more_tools`, so they don't take up its context until it asks for them: `create_schedule` and
 `update_schedule`, to ask you on its issue for a schedule (saved only once you allow it); `secrets` and `egress`, to
 call an outside service with a [secret](API.md#secrets) it never sees; and `events` and `resolve_event`, to debug
-orrery from its [event log](API.md#event-log). `chunks`, `presets`, `preset` and `schedules`, which read the project's chunks, presets and schedules,
+orrery from its [event log](API.md#event-log). `milestones`, `presets`, `preset` and `schedules`, which read the project's milestones, presets and schedules,
 are the [chat](API.md#chats)'s. They write as `claude`, from that session, so your comments on an issue it worked go back
 to it. Tools work in any session with the server in `.mcp.json`, even one started without the
 channels flag; only the pushed messages need the flag.
 
-An orrery that asks for a login ([when it does](../SECURITY.md#login-and-keys)) needs an agent key from App settings → You → Your keys. Set `ORRERY_KEY`
-where you start Claude Code, or keep it in `~/.config/orrery/keys.json`, and never in `.mcp.json`, which is committed ([how](running.md#claiming-it-and-logging-in)). The
+An orrery that asks for a login ([when it does](../SECURITY.md#login-and-keys)) needs an agent key from App settings → You → Your keys. Keep it in `~/.config/orrery/keys.json`, which the page gives a line to
+write, as the launcher (a service, with nothing from your shell) and the sessions it starts read it only from there; `ORRERY_KEY` does for a session you start
+from a terminal. Never put it in `.mcp.json`, which is committed ([how](running.md#claiming-it-and-logging-in)). The
 channel, hooks and launcher all send it. A session on your own machine, alone, needs none. Without a key, the brief at
 `/connect` says only to get one and read it again, and `/llms.txt` leaves out the projects, so send `Authorization: Bearer $ORRERY_KEY` with those `curl`s.
 
@@ -185,9 +187,12 @@ that launcher's sessions alone: each session keeps its launcher's pid, and only 
 
 Between pieces of work, a session it started gets a fresh context: once it goes idle with no issue in progress
 and no signal waiting, the launcher types `/clear` into it. Its channel stays connected, and the brief after the
-clear hands it the issues still in progress and what's left of a chunk or scope it was working through. When some of that
-chunk or scope is left, orrery also sends it a focus on the rest, to it alone, so it carries on rather than waiting. A
-focus on a single issue ends the chunk or scope it was working through.
+clear hands it the issues still in progress and what's left of a milestone or scope it was working through. When some of that
+milestone or scope is left, orrery also sends it a focus on the rest, to it alone, so it carries on rather than waiting. A
+focus on a single issue ends the milestone or scope it was working through. Related work keeps the context: when the
+issue it worked last is a sub-issue it has just closed, and a sibling under the same parent is still in Backlog or
+Todo, it isn't cleared but sent on to the most urgent sibling instead. If it leaves that sibling as it was, its
+next idle clears it as usual.
 
 It needs [tmux](https://github.com/tmux/tmux) 3.2 or newer: each session runs detached (`tmux attach -t <name>` to
 watch it, as the launcher logs), with the channel and the hooks as usual, and is stopped once its minutes

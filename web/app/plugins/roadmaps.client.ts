@@ -9,7 +9,7 @@ import {applyPatch} from '#shared/patch'
 export default defineNuxtPlugin(() => {
     // On the login page there's nothing yet it may read.
     if (useAuth().loggedOut.value) return
-    const {projects, ready, live, changed, listeners, launchers, sessions, chatSessions, signals, partial, whole} = useRoadmaps()
+    const {projects, ready, failed, retries, live, changed, listeners, launchers, sessions, chatSessions, signals, partial, whole} = useRoadmaps()
     const router = useRouter()
     /** The project the page is on, read whole once the projects are in, and those it shares releases with, whose
      * issues its release pages show. */
@@ -36,14 +36,18 @@ export default defineNuxtPlugin(() => {
         partial.value = Object.fromEntries(read.map(p => [p.id, p.id !== own]))
         projects.value = read
         ready.value = true
+        failed.value = ''
         wholeForPage()
-        useInbox().notices.value = await apiFetch<Notice[]>('/notices').catch(() => [])
-        await useLoggedEvents().loadNew()
-        await useSchedules().load()
-        await useChat().fetchChats()
+        // What the bell, the sidebar and the chat need, side by side: none waits on another (ORR-766).
         // A session can change while this is read: what the `sessions` event says by then is the newer.
         pushed.clear()
-        const all = await apiFetch<Session[]>('/sessions').catch(() => [])
+        const [, , , , all] = await Promise.all([
+            apiFetch<Notice[]>('/notices').catch(() => []).then(notices => { useInbox().notices.value = notices }),
+            useLoggedEvents().loadNew(),
+            useSchedules().load(),
+            useChat().fetchChats(),
+            apiFetch<Session[]>('/sessions').catch(() => [] as Session[]),
+        ])
         // Under each project it's on, as the `sessions` event lists them: its own and the others its channel hears.
         const grouped: Record<string, Session[]> = {}
         for (const s of all) for (const p of [s.project, ...s.also ?? []]) (grouped[p] ??= []).push(s)
@@ -59,10 +63,10 @@ export default defineNuxtPlugin(() => {
             visit(i)
             walk(i.tasks, visit)
         })
-        before?.board.chunks.forEach(c => walk(c.tasks, i => stamps.set(i.id, i.updated_at)))
+        before?.board.milestones.forEach(c => walk(c.tasks, i => stamps.set(i.id, i.updated_at)))
         const now = Date.now()
         const next = {...changed.value}
-        after.board.chunks.forEach(c => walk(c.tasks, i => {
+        after.board.milestones.forEach(c => walk(c.tasks, i => {
             if (before && stamps.get(i.id) !== i.updated_at) next[`${after.id}/${i.id}`] = now
         }))
         changed.value = next
@@ -92,7 +96,7 @@ export default defineNuxtPlugin(() => {
         if (before && have !== undefined && patch.rev <= have) return
         const fits = before ? have !== undefined && patch.base <= have : patch.base === 0
         const lacking = !!partial.value[patch.id]
-        const project = fits ? applyPatch(before ?? {board: {chunks: []}} as unknown as Project, patch, lacking) : null
+        const project = fits ? applyPatch(before ?? {board: {milestones: []}} as unknown as Project, patch, lacking) : null
         if (project) {
             revs.set(patch.id, Math.max(have ?? 0, patch.rev))
             return received(project)
@@ -178,8 +182,15 @@ export default defineNuxtPlugin(() => {
         })
     }
 
-    load().catch(() => {
-        ready.value = true
-    })
+    // A first read that fails says so, in place of each page's spinner, rather than leaving it spinning, or showing no
+    // projects as if there were none (ORR-854); Try again reads them again.
+    async function first() {
+        failed.value = ''
+        await load().catch(error => {
+            failed.value = errorMessage(error, 'load them')
+        })
+    }
+    watch(retries, first)
+    void first()
     connect()
 })

@@ -1,4 +1,4 @@
-import {expect, test} from '@playwright/test'
+import {expect, test} from './test'
 import {OWNER, makeProject, projectApi} from './support'
 
 // The Events page kept to a kind (ORR-401): a family picked shows every kind in it, one kind only itself, and the

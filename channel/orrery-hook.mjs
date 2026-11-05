@@ -9,6 +9,7 @@
 import {basename} from 'node:path'
 import {authHeaders} from './credentials.mjs'
 import {claudeWindow} from './session.mjs'
+import {effortOf, modelOf} from './transcript.mjs'
 
 const base = (process.env.ORRERY_URL ?? 'http://localhost:9000').replace(/\/+$/, '')
 let input = ''
@@ -42,6 +43,10 @@ try {
             command: hook.hook_event_name === 'PreToolUse' && hook.tool_name === 'Bash' ? String(hook.tool_input?.command ?? '').slice(0, 4000) : undefined,
             // The tool it's about to use, or asks permission for, in a line: what the owner's prompt says it wants.
             tool: hook.tool_name ? {name: String(hook.tool_name).slice(0, 200), detail: toolDetail(hook.tool_name, hook.tool_input)} : undefined,
+            // The model it runs on, for the Sessions page (ORR-871).
+            model: modelOf(hook),
+            // And the effort level it runs at, when its hook says (ORR-894).
+            effort: effortOf(hook),
         }),
     })
     const {brief} = response.ok ? await response.json() ?? {} : {}
@@ -62,3 +67,4 @@ function toolDetail(name, input) {
     const value = field ? input?.[field] : undefined
     return typeof value === 'string' && value ? value.slice(0, 300) : undefined
 }
+

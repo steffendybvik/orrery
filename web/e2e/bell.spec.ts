@@ -1,4 +1,4 @@
-import {expect, test} from '@playwright/test'
+import {expect, test} from './test'
 import {OWNER, makeProject, projectApi} from './support'
 
 // An agent's question waits in the bell until the owner answers it.
@@ -179,4 +179,38 @@ test('dragging the border between the list and the open line resizes the list, r
     await border.dblclick()
     await expect.poll(width).toBe(416)
     expect(await page.evaluate(() => localStorage.getItem('orrery-notifications-list-width'))).toBeNull()
+})
+
+test('A project picker keeps Notifications to one project, through a reload, and Clear read to what it shows (ORR-822)', async ({page, request}) => {
+    if (!(await request.get('/api/projects/shed')).ok()) await makeProject(request, {name: 'Shed', key: 'SHD'})
+    const shed = projectApi('shed')
+    const porch = await api(request, 'post', '/issues', {title: 'Sweep the porch', status: 'todo'})
+    const roof = await shed(request, 'post', '/issues', {title: 'Felt the roof', status: 'todo'})
+    await api(request, 'post', `/issues/${porch.id}/comments`, {body: 'Swept.'})
+    await shed(request, 'post', `/issues/${roof.id}/comments`, {body: 'Felted.'})
+    await page.setViewportSize({width: 1400, height: 900})
+    await page.goto('/notifications')
+    const line = (id: string, title: string) => page.getByRole('listitem').filter({has: page.getByRole('button', {name: `${id}: ${title}`})})
+    const sweep = line(porch.id, 'Sweep the porch')
+    const felt = line(roof.id, 'Felt the roof')
+    // Both read, by opening each.
+    for (const [row, id, title] of [[sweep, porch.id, 'Sweep the porch'], [felt, roof.id, 'Felt the roof']] as const) {
+        await row.getByRole('button', {name: `${id}: ${title}`}).click()
+        await expect(row.locator('[data-state]')).not.toHaveAttribute('data-state', 'unread')
+    }
+    await page.locator('[data-picker="Project"]').click()
+    await page.getByRole('option', {name: 'Shed', exact: true}).click()
+    await expect(page).toHaveURL(/project=shed/)
+    await expect(felt).toBeVisible()
+    await expect(sweep).toBeHidden()
+    await page.reload()
+    await expect(felt).toBeVisible()
+    await expect(sweep).toBeHidden()
+
+    await page.getByRole('button', {name: 'Clear read'}).click()
+    await expect(felt).toBeHidden()
+    await page.locator('[data-picker="Project"]').click()
+    await page.getByRole('option', {name: 'All projects'}).click()
+    await expect(page).not.toHaveURL(/project=/)
+    await expect(sweep).toBeVisible()
 })

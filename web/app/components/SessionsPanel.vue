@@ -2,15 +2,15 @@
 import type {Session, Signal} from '#shared/roadmap'
 import {listable, withoutChannel} from '#shared/roadmap'
 
-// On an issue's (or a chunk's) page: the Claude sessions working on its project, what each is doing, and
-// a button to point one at this issue, or one or all at working through this chunk. With nobody listening, when
+// On an issue's (or a milestone's) page: the Claude sessions working on its project, what each is doing, and
+// a button to point one at this issue, or one or all at working through this milestone. With nobody listening, when
 // orrery may start sessions and the project's launcher is there, the same focus starts one; with some listening,
 // New session on this starts another, on this issue alone. Under them, the focus signals sent about it and who
 // got them. The session working the issue (`worker`) comes first, marked. A session's own controls (watch, stop, more time) live on its card on the Sessions page, which its name
 // links to; here a row only points it at this. An issue still blocked (ORR-601) says so first: a focus starts it anyway.
-const props = defineProps<{project: string, issue?: string, chunk?: string, worker?: string, blockedBy?: string[]}>()
-const about = computed(() => props.issue ? {issue: props.issue} : {chunk: props.chunk})
-const path = computed(() => props.issue ? `issues/${encodeURIComponent(props.issue)}` : `chunks/${encodeURIComponent(props.chunk ?? '')}`)
+const props = defineProps<{project: string, issue?: string, milestone?: string, worker?: string, blockedBy?: string[]}>()
+const about = computed(() => props.issue ? {issue: props.issue} : {milestone: props.milestone})
+const path = computed(() => props.issue ? `issues/${encodeURIComponent(props.issue)}` : `milestones/${encodeURIComponent(props.milestone ?? '')}`)
 const {sessions: all, signals: live, byId} = useRoadmaps()
 const {settings} = useAppSettings()
 const {who} = useOwner()
@@ -19,7 +19,7 @@ const {look} = useStatuses()
 const sessions = computed(() => (all.value[props.project] ?? []).filter(listable).sort((a, b) => Number(b.id === props.worker) - Number(a.id === props.worker)))
 const listening = computed(() => sessions.value.filter(s => s.listening))
 // On an issue's page, the sessions it can go to now are what matters (ORR-790): the idle ones, and the one already on it.
-// The rest wait behind a row, which stays as the owner left it as sessions move between the two. A chunk lists them all.
+// The rest wait behind a row, which stays as the owner left it as sessions move between the two. A milestone lists them all.
 const available = (session: Session) => !props.issue || session.state === 'idle' || session.id === props.worker
 const free = computed(() => sessions.value.filter(available))
 const busy = computed(() => sessions.value.filter(s => !available(s)))
@@ -45,7 +45,7 @@ watch(path, loadSent, {immediate: true})
 // Signals sent or delivered just now, from the live stream.
 watch(live, now => {
     for (const signal of now) {
-        if (signal.project !== props.project || (props.issue ? signal.issue !== props.issue : signal.chunk !== props.chunk)) continue
+        if (signal.project !== props.project || (props.issue ? signal.issue !== props.issue : signal.milestone !== props.milestone)) continue
         sent.value = [...sent.value.filter(s => s.id !== signal.id), signal].sort((a, b) => a.id - b.id)
     }
 })
@@ -59,7 +59,7 @@ const offered = computed(() => {
 const ticked = ref<string[]>([])
 watch(() => offered.value.map(i => `${i.id}:${i.on}`).join(), () => ticked.value = offered.value.filter(i => i.on).map(i => i.id), {immediate: true})
 
-/** Sends the focus, to a session, to every one (a chunk's alone, ORR-681) or to one orrery picks; `start` asks orrery
+/** Sends the focus, to a session, to every one (a milestone's alone, ORR-681) or to one orrery picks; `start` asks orrery
  * to start a session for it, nobody being there to hear it. */
 async function focus(session: Session | '*' | null, start = false) {
     const target = session === '*' ? '*' : session?.id
@@ -122,7 +122,7 @@ const aimed = (signal: Signal) => signal.target === '*' || !signal.target && sig
           type="button"
           class="ml-auto h-7 rounded-md bg-accent-500/10 px-2.5 text-xs font-medium text-accent-700 ring-1 ring-accent-500/40 hover:bg-accent-500/20 disabled:opacity-50 dark:text-accent-300"
           :disabled="!!sending"
-          :title="`orrery starts a session on ${project} and asks it to ${issue ? 'work on this' : 'work through this chunk'}`"
+          :title="`orrery starts a session on ${project} and asks it to ${issue ? 'work on this' : 'work through this milestone'}`"
           @click="focus(null, true)"
       ><UiBusy :busy="sending === 'all'" label="Starting…">{{ issue ? 'Focus on this (starts a session)' : 'Work through this (starts a session)' }}</UiBusy></button>
     </div>

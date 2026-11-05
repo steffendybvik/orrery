@@ -3,7 +3,7 @@ import {signalPayload} from '../server/utils/signal-payload'
 import {Store} from '../server/utils/store'
 import {testDb} from './db'
 
-// What a signal says as its stream sends it to a session (ORR-500): a message (and whose schedule it is), a chunk focus
+// What a signal says as its stream sends it to a session (ORR-500): a message (and whose schedule it is), a milestone focus
 // with its open issues (marking those another session is on), a focus with its prompt and a release's freeze, and
 // anything else on an issue with where it sits. Against a real store; only the schedules are stubbed.
 const me = {name: 'skoll', owner: true}
@@ -30,7 +30,7 @@ afterEach(() => vi.unstubAllGlobals())
 describe('a signal as a session is told it', () => {
     it("is a message as written, saying when the owner's chat sent it", async () => {
         const sent = await store.messageSession('shop', 's-1', 'Wrap up first.', {...me, via: 'chat'})
-        expect(await signalPayload(store, 'shop', sent, {api})).toMatchObject({note: 'Wrap up first.\n\n(Sent by the owner through their chat.)', title: null, column: null, chunk: null})
+        expect(await signalPayload(store, 'shop', sent, {api})).toMatchObject({note: 'Wrap up first.\n\n(Sent by the owner through their chat.)', title: null, column: null, milestone: null})
         const plain = await store.messageSession('shop', 's-1', 'Wrap up first.', me)
         expect((await signalPayload(store, 'shop', plain, {api})).note).toBe('Wrap up first.')
     })
@@ -45,16 +45,16 @@ describe('a signal as a session is told it', () => {
         await store.addPerson({name: 'Hati'})
         await store.addMember('shop', {person: 'hati'}, {name: 'skoll', owner: true})
         await store.updateIssue('shop', 'SHO-1', {assignee: 'hati'}, {name: 'skoll', owner: true})
-        const sent = await store.focusChunk('shop', 'all', {}, {name: 'skoll', owner: true})
+        const sent = await store.focusMilestone('shop', 'all', {}, {name: 'skoll', owner: true})
         const told = await signalPayload(store, 'shop', sent, {api, person: 'hati'})
         expect(told.issues?.map(i => i.id)).toEqual(['SHO-1'])
     })
 
-    it("lists a chunk's open issues most urgent first, by their statuses' names, marking one another session is on", async () => {
+    it("lists a milestone's open issues most urgent first, by their statuses' names, marking one another session is on", async () => {
         // Started by another session that's there: that's what holds it.
         await store.updateIssue('shop', 'SHO-1', {status: 'in-progress'}, me)
         await store.workedBy('shop', 'SHO-1', 's-other')
-        const told = await signalPayload(store, 'shop', await store.focusChunk('shop', 'all', {}, me), {api, me: 's-me'})
+        const told = await signalPayload(store, 'shop', await store.focusMilestone('shop', 'all', {}, me), {api, me: 's-me'})
         expect(told.issues).toEqual([
             {id: 'SHO-2', title: 'Refunds', column: 'Todo', priority: 'P0'},
             {id: 'SHO-1', title: 'Pay with cards', column: 'In progress', priority: 'P2'},
@@ -63,7 +63,7 @@ describe('a signal as a session is told it', () => {
         expect(told.prompt).toMatch(/SHO-1[^\n]*another session is on it: skip it/)
         expect(told.prompt).not.toMatch(/SHO-2[^\n]*skip it/)
         // The session on it is told nothing to skip.
-        expect((await signalPayload(store, 'shop', await store.focusChunk('shop', 'all', {}, me), {api, me: 's-other'})).prompt).not.toContain('skip it')
+        expect((await signalPayload(store, 'shop', await store.focusMilestone('shop', 'all', {}, me), {api, me: 's-other'})).prompt).not.toContain('skip it')
     })
 
     it("gives a focus its prompt, with the issue's address as the session reaches it", async () => {
@@ -85,7 +85,7 @@ describe('a signal as a session is told it', () => {
         await store.createComment('shop', 'SHO-1', {body: 'Use the new gateway.'}, me)
         const [comment] = (await store.listSignals('shop', 0)).filter(s => s.kind === 'comment')
         const told = await signalPayload(store, 'shop', comment!, {api})
-        expect(told).toMatchObject({title: 'Pay with cards', column: 'Todo', priority: 'P2', chunk: 'No chunk'})
+        expect(told).toMatchObject({title: 'Pay with cards', column: 'Todo', priority: 'P2', milestone: 'No milestone'})
         expect(told).not.toHaveProperty('prompt')
     })
 })

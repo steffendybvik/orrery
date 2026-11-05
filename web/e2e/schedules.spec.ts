@@ -1,4 +1,4 @@
-import {expect, test} from '@playwright/test'
+import {expect, test} from './test'
 import {makeProject, projectApi} from './support'
 
 // A schedule made on its project, kept to it, paused and removed.
@@ -27,7 +27,7 @@ test('makes a schedule, keeps to its project, pauses and removes it', async ({pa
     // The same big button now offers to resume it.
     await expect(page.getByRole('button', {name: 'Resume Groom the backlog', exact: true})).toBeVisible()
     // Kept to another project, it isn't there; the old tab comes here kept to vineyard.
-    await page.getByRole('button', {name: 'Project', exact: true}).click()
+    await page.locator('[data-picker="Project"]').click()
     await page.getByRole('option', {name: 'Cottage'}).click()
     await expect(page.getByText('Groom the backlog')).toBeHidden()
     await page.goto('/p/vineyard/schedules')
@@ -155,7 +155,7 @@ test('makes a schedule across projects, leaves one out, and removes it (ORR-638)
     await page.goto('/schedules')
     await page.getByRole('button', {name: 'New schedule', exact: true}).click()
     const dialog = page.getByRole('dialog', {name: 'New schedule'})
-    await dialog.getByRole('button', {name: 'Project', exact: true}).click()
+    await dialog.locator('[data-picker="Project"]').click()
     await dialog.getByRole('option', {name: 'All projects'}).click()
     await dialog.getByLabel('Title').fill('Weekly tidy everywhere')
     await dialog.getByRole('group', {name: "Projects it's for"}).getByRole('button', {name: 'Cottage'}).click()
@@ -185,7 +185,7 @@ test('makes a schedule that moves issues, which runs on an event and has no Run 
     await dialog.getByLabel('Title').fill('Merged PR closes its issue')
     // On an event, with no clock to pick.
     await expect(dialog.getByRole('radio', {name: 'Time', exact: true})).toBeHidden()
-    await dialog.getByRole('button', {name: 'Event', exact: true}).click()
+    await dialog.locator('[data-picker="Event"]').click()
     await dialog.getByRole('option', {name: "An issue's pull request is merged"}).click()
     await dialog.getByRole('group', {name: 'Moves it from'}).getByRole('button', {name: 'In review'}).click()
     await dialog.getByRole('button', {name: /Create schedule/}).click()
@@ -238,4 +238,36 @@ test('Pause all goes at once, and Activate all asks first with the count', async
     await card.getByRole('button', {name: 'Activate', exact: true}).click()
     await expect(card.getByRole('status')).toHaveText('Activated 2 schedules.')
     await expect.poll(running).toBe(2)
+})
+
+test("a schedule's right-click menu pauses and resumes it, opens it to edit, and Cancel on Remove keeps it (ORR-792)", async ({page, request}) => {
+    const made = await api(request, 'post', '/schedules', {title: 'Prune the rows', cron: '0 7 * * 1', timezone: 'UTC'})
+    const enabled = async () => (await api(request, 'get', `/schedules/${made.id}`)).enabled
+    await page.goto('/schedules?project=vineyard')
+    const menu = page.getByRole('menu')
+    const open = () => page.getByText('Prune the rows').first().click({button: 'right'})
+
+    await open()
+    await menu.getByRole('button', {name: '❙❙ Pause'}).click()
+    await expect.poll(enabled).toBe(false)
+    await expect(menu).toBeHidden()
+    await open()
+    await menu.getByRole('button', {name: '▶ Resume'}).click()
+    await expect.poll(enabled).toBe(true)
+
+    await open()
+    await menu.getByRole('button', {name: '✎ Edit'}).click()
+    const dialog = page.getByRole('dialog', {name: /Edit schedule/})
+    await expect(dialog.getByLabel('Title')).toHaveValue('Prune the rows')
+    await page.keyboard.press('Escape')
+    await expect(dialog).toBeHidden()
+
+    await open()
+    await menu.getByRole('button', {name: 'Remove…'}).click()
+    await expect(menu).toContainText('Remove this schedule? The issues it made stay.')
+    await menu.getByRole('button', {name: 'Cancel'}).click()
+    await expect(menu.getByRole('button', {name: 'Remove…'})).toBeVisible()
+    await page.keyboard.press('Escape')
+    expect((await request.get(`/api/projects/vineyard/schedules/${made.id}`)).ok()).toBe(true)
+    await request.delete(`/api/projects/vineyard/schedules/${made.id}`, {headers: {'Orrery-Actor': 'claude'}})
 })

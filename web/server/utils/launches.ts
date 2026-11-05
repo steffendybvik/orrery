@@ -8,9 +8,10 @@
 // way is replaced by one like it once it has ended, so the count doesn't fall to nothing when no new work comes in.
 import {AsyncLocalStorage} from 'node:async_hooks'
 import {randomBytes} from 'node:crypto'
-import type {LauncherRepo, RepoAdded, Session, SessionContext, Signal, StartedSession, Starts, TerminalApp} from '#shared/roadmap'
+import type {Effort, LauncherRepo, RepoAdded, Session, SessionContext, Signal, StartedSession, Starts, TerminalApp} from '#shared/roadmap'
+import {EFFORTS, isEffort, isModel, modelFor} from '#shared/roadmap'
 import type {Actor} from './store'
-import {EVERY} from './pool'
+import {EVERY, heavyEnough} from './pool'
 import {scheduleRunning} from './schedules'
 import {startsNone} from './starts-none'
 
@@ -33,6 +34,13 @@ export interface Launch {
     chat?: boolean
     /** Who started it: its session's `ORRERY_PERSON`, so it's theirs. */
     person?: string
+    /** The model and effort to start it on (`--model`, `--effort`); none, Claude Code's default. Only a launcher that
+     * says it can (`?model=yes` on its claim) may take one with either, as an older one would drop them (ORR-868). */
+    model?: string
+    effort?: Effort
+    /** The Claude Code session to take up again (`claude --resume`): an ended chat written in again (ORR-884). Only a
+     * launcher that says it can (`?resume=yes` on its claim) gets it; to an older one it's started fresh, on `fresh`. */
+    resume?: string
 }
 
 /** What goes down a project's launcher stream: a session to start, or one of its sessions to stop, keep longer,
@@ -60,14 +68,14 @@ export function asLaunch<T>(id: string, note: () => T): T {
 
 /** Launches asked for whose session hasn't connected yet; one that never does is let go after a while.
  * `claimed` once a launcher has taken it on. */
-const pending = new Map<string, Launch & {at: number, claimed: boolean}>()
+const pending = new Map<string, Launch & {at: number, claimed: boolean, fresh?: SessionContext}>()
 const PENDING_FOR = 3 * 60 * 1000
 /** How long one an outdated launcher was refused waits for a launcher that can take it, as it's offered again to each
  * that connects (ORR-471); a chat waits until the owner ends it. */
 const REFUSED_FOR = 30 * 60 * 1000
 /** The launches its launchers say they run, kept across this server's restarts by the launchers themselves:
  * each reports its sessions when it connects, so one that reconnects to a restarted orrery is known again. */
-const reported = new Map<string, {project: string, tmux: string, stops_at?: string, context?: SessionContext, untrusted?: boolean, chat?: boolean}>()
+const reported = new Map<string, {project: string, tmux: string, stops_at?: string, context?: SessionContext, untrusted?: boolean, chat?: boolean, model?: string, effort?: Effort}>()
 /** Stops the owner asked for that no launcher has said it carried out, by launch: each launcher that connects hears them,
  * so one with no launcher there to hear it, and no channel to go through, isn't lost (ORR-789). Kept a day at most, as one
  * for a session that ended meanwhile is never answered. */
@@ -149,11 +157,11 @@ function emit(event: LaunchEvent) {
 }
 
 /** A launch waiting for a launcher to take it, and since when. */
-type Held = Launch & {at: number, claimed: boolean}
+/** A launch on its way; `fresh`, what a resumed one starts on instead with a launcher that can't resume (ORR-884). */
+type Held = Launch & {at: number, claimed: boolean, fresh?: SessionContext}
 
 /** Holds a new launch on the project from here, so the limit counts it as on its way while it's readied. */
-function hold(project: string, fields: Omit<Launch, 'id' | 'project' | 'tmux'>): Held {
-    const id = randomBytes(6).toString('hex')
+function hold(project: string, fields: Omit<Held, 'id' | 'project' | 'tmux' | 'at' | 'claimed'>, id = randomBytes(6).toString('hex')): Held {
     const held: Held = {id, project, tmux: `orrery-${project}-${id}`.replace(/[^\w-]/g, '-'), ...fields, at: Date.now(), claimed: false}
     pending.set(id, held)
     return held
@@ -167,7 +175,7 @@ function release(held: Held, error: unknown): never {
 
 /** Offers a held launch to the project's launchers, as a run of the schedule `cause` when one started it. */
 function send(held: Held, cause?: number): Launch {
-    const {at: _at, claimed: _claimed, ...launch} = held
+    const {at: _at, claimed: _claimed, fresh: _fresh, ...launch} = held
     if (cause !== undefined) causes.set(held.id, cause)
     emit({type: 'launch', launch})
     return launch
@@ -180,7 +188,7 @@ const room = (limit: number) => limit - startedSessions() - pendingOn()
  * launcher is started once that launcher restarts on new code (ORR-471). */
 export function unclaimedLaunches(project: string): Launch[] {
     pendingOn()
-    return [...pending.values()].filter(l => l.project === project && !l.claimed).map(({at: _at, claimed: _claimed, ...launch}) => launch)
+    return [...pending.values()].filter(l => l.project === project && !l.claimed).map(({at: _at, claimed: _claimed, fresh: _fresh, ...launch}) => launch)
 }
 
 /** Set while the owner sends work asking for a session to be started for it when nobody's listening (Focus on this,
@@ -200,9 +208,15 @@ export async function considerLaunch(signal: Signal): Promise<Launch | null> {
     if (signal.person && signal.person !== (await useStore().ownerOf()).name) return null
     // The owner's answer that asks for no work (ORR-606).
     if (startsNone.getStore()) return null
-    if (listening(project) || !launchersOf(project) || pendingOn(project)) return null
+    if (hearsIt(project, signal) || !launchersOf(project) || pendingFor(project, signal)) return null
     const asked = !!startAsked.getStore()
-    const held = hold(project, {after: signal.id - 1})
+    // On the model its work needs (ORR-868); `best` asks for none, so any launcher can take it.
+    const needs = signal.model && signal.model !== 'best' ? signal.model : undefined
+    const effort = !needs ? undefined
+        : signal.issue ? await Promise.all([useStore().issue(project, signal.issue), useStore().workKinds()]).then(([i, kinds]) => modelFor(i, kinds)).then(p => p.model === needs ? p.effort : undefined, () => undefined)
+            // A schedule's message on the schedule's own model (ORR-869) starts on its effort too.
+            : signal.schedule !== undefined ? await useScheduler().get(project, signal.schedule).then(s => s.model === needs ? s.effort : undefined, () => undefined) : undefined
+    const held = hold(project, {after: signal.id - 1, ...needs ? {model: needs} : {}, ...effort ? {effort} : {}})
     const starts = await allowedStarts(project).catch(error => release(held, error))
     if (!starts || starts.on_signal === false && !asked) {
         pending.delete(held.id)
@@ -210,6 +224,20 @@ export async function considerLaunch(signal: Signal): Promise<Launch | null> {
     }
     if (starts.minutes) held.minutes = starts.minutes
     return send(held)
+}
+
+/** Whether a session listening on the project can take the signal: any, unless it needs a model (ORR-868), and then one
+ * started on a heavy enough one, or a stream with no session to say (the Monitor tool's), which takes what comes. */
+function hearsIt(project: string, signal: Signal): boolean {
+    const hearing = listening(project)
+    if (!hearing || !signal.model) return !!hearing
+    const sessions = listSessions(project).filter(s => s.project === project && s.listening && !s.started?.chat && !s.started?.untrusted)
+    return sessions.length < hearing || sessions.some(s => heavyEnough(signal, s.started?.model))
+}
+
+/** Whether a launch on its way to the project will take the signal: one heavy enough for its work. */
+function pendingFor(project: string, signal: Signal): boolean {
+    return pendingOn(project) > 0 && [...pending.values()].some(l => l.project === project && !l.chat && !l.untrusted && heavyEnough(signal, l.model))
 }
 
 /** The session id a focus made for a launch is aimed at: its session takes it as one of its ids when it connects,
@@ -221,19 +249,25 @@ export const launchTarget = (launch: string) => `launch-${launch}`
  * (`statuses`, `release`), from a focus on the project's issues in it, made the same way. Needs the
  * owner's opt-in and a launcher, and counts the sessions on their way against the limit, as it doesn't stand
  * in for them the way a signal's launch does. */
-export async function startLaunch(project: string, {issue, statuses, release: version, context, hears, actor}: {issue?: string, statuses?: string[], release?: string, context?: SessionContext, hears?: string[], actor?: Actor} = {}): Promise<Launch> {
+export async function startLaunch(project: string, {issue, statuses, release: version, context, hears, model, effort, actor}: {issue?: string, statuses?: string[], release?: string, context?: SessionContext, hears?: string[], model?: string, effort?: Effort, actor?: Actor} = {}): Promise<Launch> {
     if (hears) hears = [project, ...new Set(hears.filter(p => p !== project))]
     const apart = hears?.filter(p => p !== project && !foldersOf(project).some(dir => foldersOf(p).includes(dir)))
     if (apart?.length) throw conflict(`${apart.join(', ')} ${apart.length === 1 ? "isn't" : "aren't"} served from ${project}'s repo, so one session there can't hear ${apart.length === 1 ? 'it' : 'them'}: start a session for each`)
     const starts = await roomFor(project)
+    // Focused on an issue with no model asked for, it starts on what the issue's kind is set to (ORR-868). `best` is
+    // Claude Code's own pick, so it asks for none and any launcher can take it.
+    if (issue && !model && !effort) {
+        const picked = modelFor(await useStore().issue(project, issue), await useStore().workKinds())
+        if (picked.model !== 'best') ({model, effort} = picked)
+    }
     // Held from here, so the limit counts it while its focus is made.
-    const held = hold(project, {after: 0, ...starts.minutes ? {minutes: starts.minutes} : {}, ...context ? {context} : {}, ...hears ? {hears} : {}, ...actor?.owner ? {person: actor.name} : {}})
+    const held = hold(project, {after: 0, ...starts.minutes ? {minutes: starts.minutes} : {}, ...context ? {context} : {}, ...hears ? {hears} : {}, ...model ? {model} : {}, ...effort ? {effort} : {}, ...actor?.owner ? {person: actor.name} : {}})
     try {
         const session = launchTarget(held.id)
         held.after = issue
             ? (await useStore().focus(project, issue, {session}, actor)).id - 1
             : statuses?.length || version
-                ? (await useStore().focusChunk(project, 'all', {session, status: (statuses?.length ? statuses : SCOPE_STATUSES).join(','), release: version ?? null}, actor)).id - 1
+                ? (await useStore().focusMilestone(project, 'all', {session, status: (statuses?.length ? statuses : SCOPE_STATUSES).join(','), release: version ?? null}, actor)).id - 1
                 : await useStore().lastSignal(project)
     } catch (error) {
         release(held, error)
@@ -270,10 +304,24 @@ export async function startUntrusted(project: string, schedule: number, text: st
 /** The owner's chat (chats.ts): a session started for it alone, which its launcher starts able only to read and to
  * answer, told what it's for in its `context`. It runs until the owner ends the chat, whatever the project gives
  * sessions, and hears only what's aimed at it. It counts towards nothing: it needs only a launcher, not starts turned
- * on or room under the limit, and takes up none. */
+ * on or room under the limit, and takes up none. It starts on the Chat kind's model (ORR-868): it answers and asks, and
+ * builds nothing itself, so a lighter model fits; what it hands over starts on its issue's own. */
 export async function startChat(project: string, context: SessionContext): Promise<Launch> {
     if (!launchersOf(project)) throw noLauncher(project)
-    return send(hold(project, {after: await useStore().lastSignal(project), context, chat: true}))
+    const kind = (await useStore().workKinds()).find(k => k.id === 'chat')
+    const model = kind?.model && kind.model !== 'best' ? {model: kind.model, ...kind.effort ? {effort: kind.effort} : {}} : {}
+    return send(hold(project, {after: await useStore().lastSignal(project), context, chat: true, ...model}))
+}
+
+/** An ended chat written in again (ORR-884): its session started once more on the same launch id, so it's the same
+ * chat, taking its Claude session up again (`resume`) where there is one, else fresh on `fresh`, which tells it what was
+ * said. Needs what a chat does: a launcher. */
+export async function resumeChat(project: string, id: string, context: SessionContext, fresh: SessionContext, resume?: string): Promise<Launch> {
+    if (!launchersOf(project)) throw noLauncher(project)
+    pending.delete(id)
+    const kind = (await useStore().workKinds()).find(k => k.id === 'chat')
+    const model = kind?.model && kind.model !== 'best' ? {model: kind.model, ...kind.effort ? {effort: kind.effort} : {}} : {}
+    return send(hold(project, {after: await useStore().lastSignal(project), chat: true, ...model, ...resume ? {context, resume, fresh} : {context: fresh}}, id))
 }
 
 const noLauncher = (project: string) => conflict(`No launcher is running for ${project}: install it once with node ~/.orrery/bootstrap.mjs launcher --install, then open a Claude session in its repo, or run that in the repo`)
@@ -297,10 +345,13 @@ export interface StartInput {
     presets: number[]
     instructions: string
     hears?: string[]
+    /** The model and effort to start it on; none, Claude Code's default (ORR-868). */
+    model?: string
+    effort?: Effort
 }
 
 export function startInput(body: unknown): StartInput {
-    const {issue, statuses, release, presets, instructions, hears} = (body && typeof body === 'object' ? body : {}) as Record<string, unknown>
+    const {issue, statuses, release, presets, instructions, hears, model, effort} = (body && typeof body === 'object' ? body : {}) as Record<string, unknown>
     if (issue !== undefined && issue !== null && typeof issue !== 'string') throw badRequest('Send {issue}: the id of an issue for the session to focus on, or nothing')
     if (statuses !== undefined && statuses !== null && (!Array.isArray(statuses) || statuses.some(s => typeof s !== 'string' || !s))) {
         throw badRequest('Send {statuses}: a list of status ids or kinds for the session to work through, e.g. ["todo", "started"]')
@@ -314,7 +365,13 @@ export function startInput(body: unknown): StartInput {
     if (hears !== undefined && hears !== null && (!Array.isArray(hears) || !hears.length || hears.some(p => typeof p !== 'string' || !p))) {
         throw badRequest('Send {hears}: the ids of the projects the session hears, e.g. ["hub", "css"]')
     }
+    if (model !== undefined && model !== null && !isModel(model)) {
+        throw badRequest('Send {model}: best, opus, sonnet, haiku, fable, default, opusplan, or a full model id such as claude-sonnet-5-5')
+    }
+    if (effort !== undefined && effort !== null && !isEffort(effort)) throw badRequest(`Send {effort}: one of ${EFFORTS.join(', ')}`)
     return {
+        ...model ? {model: model as string} : {},
+        ...effort ? {effort: effort as Effort} : {},
         ...issue ? {issue: issue as string} : {},
         ...(statuses as string[] | null)?.length ? {statuses: statuses as string[]} : {},
         ...release ? {release: release as string} : {},
@@ -366,7 +423,7 @@ async function allowedStarts(project: string): Promise<Starts | null> {
 /** A launcher taking the launch on: only the first gets it, so several launchers start one session between them. Only
  * a launcher connected for the project counts, by the `token` its stream gave it. An untrusted launch only goes to one
  * that `locksDown`, and a chat to one that `chats`: an older launcher would start either with every tool. */
-export function claim(project: string, id: string, token: string | undefined, locksDown = false, chats = false): boolean {
+export function claim(project: string, id: string, token: string | undefined, locksDown = false, chats = false, models = false, resumes = false): boolean {
     const launch = pending.get(id)
     if (!launch || launch.project !== project || launch.claimed) return false
     if (!token || tokens.get(token) !== project) {
@@ -378,6 +435,16 @@ export function claim(project: string, id: string, token: string | undefined, lo
         outdated(project, id, `A launcher on ${project} is running older code that can't start ${what}, so it was refused it. Restart the launcher, and it's offered it again (it runs the channel folder's code when it starts).`)
         return false
     }
+    if ((launch.model || launch.effort) && !models) {
+        outdated(project, id, `A launcher on ${project} is running older code that can't start a session on a chosen model or effort, so it was refused it. Restart the launcher, and it's offered it again (it runs the channel folder's code when it starts).`)
+        return false
+    }
+    // A launcher that can't take a session up again starts it fresh, told what was said (ORR-884).
+    if (launch.resume && !resumes) {
+        delete launch.resume
+        if (launch.fresh) launch.context = launch.fresh
+    }
+    delete launch.fresh
     launch.claimed = true
     // Refused before: it's on its way now, with the usual time to connect.
     if (told.delete(id)) {
@@ -407,7 +474,8 @@ export function launched(id: string): StartedSession | undefined {
     if (told.delete(id)) chatProblem(id, null)
     const known = launch ? {...launch, stops_at: launch.minutes ? new Date(Date.now() + launch.minutes * 60_000).toISOString() : undefined} : reported.get(id)
     return known && {launch: id, tmux: known.tmux, ...known.stops_at ? {stops_at: known.stops_at} : {}, ...known.context ? {context: known.context} : {},
-        ...launch?.hears ? {hears: launch.hears} : {}, ...known.untrusted ? {untrusted: true} : {}, ...known.chat ? {chat: true} : {}}
+        ...launch?.hears ? {hears: launch.hears} : {}, ...known.untrusted ? {untrusted: true} : {}, ...known.chat ? {chat: true} : {},
+        ...known.model ? {model: known.model} : {}, ...known.effort ? {effort: known.effort} : {}}
 }
 
 /** A launcher saying which of the project's sessions it runs, as it connects: they count as started again,
@@ -415,8 +483,8 @@ export function launched(id: string): StartedSession | undefined {
  * and stop time it keeps count only for a launch orrery has forgotten (it restarted): what orrery knows stands, a
  * launch started with no context and none to stop at among it, as anyone can send this. Untrusted is kept whichever
  * says so, and so is a chat. */
-export function reportRunning(project: string, launches: {id: string, tmux: string, stops_at?: string, context?: SessionContext, untrusted?: boolean, chat?: boolean}[]) {
-    for (const {id, tmux, stops_at: keptStop, context: kept, untrusted: said, chat: chatSaid} of launches) {
+export function reportRunning(project: string, launches: {id: string, tmux: string, stops_at?: string, context?: SessionContext, untrusted?: boolean, chat?: boolean, model?: string, effort?: Effort}[]) {
+    for (const {id, tmux, stops_at: keptStop, context: kept, untrusted: said, chat: chatSaid, model: modelSaid, effort: effortSaid} of launches) {
         const was = pending.get(id) ?? reported.get(id)
         const started = sessionOfLaunch(project, id)?.started
         const context = was || started ? launchContext(project, id) : kept
@@ -427,11 +495,19 @@ export function reportRunning(project: string, launches: {id: string, tmux: stri
             : was ? reported.get(id)?.stops_at : keptStop
         const untrusted = said || !!was?.untrusted || !!sessionOfLaunch(project, id)?.started?.untrusted
         const chat = chatSaid || !!was?.chat || !!sessionOfLaunch(project, id)?.started?.chat
-        const known = {tmux, ...stops_at ? {stops_at} : {}, ...context ? {context} : {}, ...untrusted ? {untrusted} : {}, ...chat ? {chat} : {}}
+        // What it was started on: what orrery asked for, when it still knows, else what its launcher kept.
+        const model = was || started ? (was?.model ?? started?.model) : modelSaid
+        const effort = was || started ? (was?.effort ?? started?.effort) : effortSaid
+        const known = {tmux, ...stops_at ? {stops_at} : {}, ...context ? {context} : {}, ...untrusted ? {untrusted} : {}, ...chat ? {chat} : {},
+            ...model ? {model} : {}, ...effort ? {effort} : {}}
         reported.set(id, {project, ...known})
         adoptLaunch(project, {launch: id, ...known})
+        if (chat) chatRunning(id)
     }
 }
+
+/** Whether orrery knows of the launch: on its way, or said by its launcher to run. */
+export const launchKnown = (id: string) => pending.has(id) || reported.has(id)
 
 /** The launch has ended, whether or not its session ever connected: it no longer holds the project's place. */
 export function launchGone(id: string) {
@@ -485,7 +561,8 @@ export async function stopDue(now = Date.now()): Promise<string[]> {
         if (!overdue && await store.busy(session.project, ids, !!started.untrusted)) continue
         stopping.set(started.launch, now)
         if (starts.get(session.project)?.min && !started.untrusted) {
-            replacing.set(started.launch, {project: session.project, ...started.context ? {context: started.context} : {}, ...started.hears ? {hears: started.hears} : {}, ended: false})
+            replacing.set(started.launch, {project: session.project, ...started.context ? {context: started.context} : {}, ...started.hears ? {hears: started.hears} : {},
+                ...started.model ? {model: started.model} : {}, ...started.effort ? {effort: started.effort} : {}, ended: false})
         }
         emit({type: 'stop', project: session.project, id: started.launch})
         stopped.push(started.launch)
@@ -494,10 +571,10 @@ export async function stopDue(now = Date.now()): Promise<string[]> {
 }
 
 /** The sessions orrery stopped as done (time up, or idle too long) while the owner keeps a minimum running, by launch:
- * once one has `ended`, one like it (its project, context and the projects it hears) is started in its place, with a
+ * once one has `ended`, one like it (its project, context, the projects it hears and its model) is started in its place, with a
  * fresh context. One the owner stops isn't among them, nor an untrusted run's. Kept in memory: an orrery that restarts
  * before one has been replaced forgets it, and its launchers' sessions carry on as they were. */
-const replacing = new Map<string, {project: string, context?: SessionContext, hears?: string[], ended: boolean}>()
+const replacing = new Map<string, {project: string, context?: SessionContext, hears?: string[], model?: string, effort?: Effort, ended: boolean}>()
 /** The launches that have ended lately, and when: their sessions' channels may not have closed yet. */
 const ended = new Map<string, number>()
 const ENDED_FOR = 5 * 60 * 1000
@@ -521,7 +598,7 @@ async function fill(): Promise<Launch[]> {
     // take its place once it's gone (ORR-481).
     for (const [id, at] of ended) if (Date.now() - at > ENDED_FOR) ended.delete(id)
     const dying = listSessions().filter(s => s.started && !s.started.chat && s.listening && ended.has(s.started.launch)).length
-    for (const [id, {project, context, hears, ended}] of replacing) {
+    for (const [id, {project, context, hears, model, effort, ended}] of replacing) {
         if (!ended) continue
         const starts = await useStore().starts(project).catch(() => undefined)
         if (!starts?.min || startedSessions() - dying + pendingOn() >= starts.min) {
@@ -530,7 +607,7 @@ async function fill(): Promise<Launch[]> {
         }
         if (!launchersOf(project)) continue
         try {
-            started.push(await startLaunch(project, {...context ? {context} : {}, ...hears ? {hears} : {}}))
+            started.push(await startLaunch(project, {...context ? {context} : {}, ...hears ? {hears} : {}, ...model ? {model} : {}, ...effort ? {effort} : {}}))
             replacing.delete(id)
         } catch {
             // No room under the limit, or its repo no longer serves what it heard: tried again at the next check.

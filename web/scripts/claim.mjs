@@ -1,11 +1,13 @@
 #!/usr/bin/env node
-// `pnpm orrery:claim [--name "Your Name"] [--replace]`, or in the container `node /app/server/claim.mjs`: claims this server
+// `pnpm orrery:claim [--name "Your Name"] [--replace] [--restore <file>]`, or in the container `node /app/server/claim.mjs`: claims this server
 // for whoever has a shell on it (ORR-664), and prints the owner a person key, once. It writes to the database directly, so
 // nothing on the network can race for it. On a server already claimed it refuses, unless `--replace`, which revokes the
 // owner's person keys first, for someone who has lost theirs. `--move-issuer <old> <new>` moves the logins to the same
-// provider's new address instead (ORR-706), printing no key. Plain Node, as the image has no build tools.
+// provider's new address instead (ORR-706), printing no key. `--restore <file>` puts a backup in place of a new server's
+// empty database instead of claiming it (ORR-826): the backup's people and keys come with it, so it prints no key either.
+// Plain Node, as the image has no build tools.
 import {createHash, randomBytes} from 'node:crypto'
-import {existsSync, readFileSync} from 'node:fs'
+import {existsSync, readFileSync, renameSync, writeFileSync} from 'node:fs'
 import {dirname, join, resolve} from 'node:path'
 import {DatabaseSync} from 'node:sqlite'
 import {fileURLToPath} from 'node:url'
@@ -74,7 +76,61 @@ async function moveIssuer(db, [old, to]) {
     console.log(`Moved ${n} login${Number(n) === 1 ? '' : 's'} from ${from} to ${target}. Set ORRERY_OIDC_ISSUER to ${target} and restart orrery.`)
 }
 
+/** A time for a file name, as the server's restore names them: `2026-10-28T19-30-05`. */
+const stamp = () => new Date().toISOString().slice(0, 19).replace(/:/g, '-')
+
+/** What SQLite's full check finds in `path`, opened read-only, and what the backup holds. Throws unless it's whole. */
+function readBackup(path) {
+    let opened
+    try {
+        opened = new DatabaseSync(path, {readOnly: true})
+        const found = opened.prepare('PRAGMA integrity_check').all().map(row => String(Object.values(row)[0]))
+        if (found.length !== 1 || found[0] !== 'ok') throw new Error(`${path} is damaged (${found.slice(0, 3).join('; ')})`)
+        const {n} = opened.prepare('SELECT count(*) AS n FROM projects').get()
+        const owner = opened.prepare("SELECT id, name FROM people WHERE role = 'owner'").get()
+        const keyed = owner && opened.prepare("SELECT 1 AS yes FROM sqlite_master WHERE name = 'keys'").get()
+            && opened.prepare("SELECT 1 AS yes FROM keys WHERE person = ? AND kind = 'person' AND revoked_at IS NULL").get(owner.id)
+        return {projects: Number(n), owner, keyed: !!keyed}
+    } catch (error) {
+        if (/no such table/.test(error.message)) throw new Error(`${path} isn't an orrery's database`, {cause: error})
+        throw error
+    } finally {
+        opened?.close()
+    }
+}
+
+/** Restores the backup at `file` in place of this server's database, for the server to open as it starts again. Only on
+ * a SQLite one with no projects yet: anything else is the owner's to restore from App settings, where what it was is kept. */
+async function restore(file) {
+    if (!file || file.startsWith('--')) throw new Error('Give the backup to restore: --restore <file>')
+    const from = resolve(file)
+    if (!existsSync(from)) throw new Error(`There's no file at ${from}`)
+    const setting = process.env.NUXT_DATABASE || join(here, '../../.data/orrery.db')
+    const live = database()
+    if (/^postgres(ql)?:/.test(live)) throw new Error('orrery runs on Postgres: restore into it with Postgres\'s own tools')
+    const db = await open(live)
+    const {n} = await db.get('SELECT count(*) AS n FROM projects')
+    await db.close()
+    if (Number(n)) throw new Error('This orrery has projects, so it isn\'t restored from a shell: open it and use App settings → This orrery → Restore a backup…, which keeps a copy of it as it is')
+    const backup = readBackup(from)
+    const to = join(dirname(live), `orrery-restored-${stamp()}.db`)
+    // A copy of its own, made whole by SQLite, even from a database still open with a write-ahead log beside it.
+    const copying = new DatabaseSync(from, {readOnly: true})
+    try {
+        copying.prepare('VACUUM INTO ?').run(`${to}.partial`)
+    } finally {
+        copying.close()
+    }
+    renameSync(`${to}.partial`, to)
+    writeFileSync(`${resolve(setting)}.moved.json`, `${JSON.stringify({database: to, moved_at: new Date().toISOString()}, null, 2)}\n`, {mode: 0o600})
+    const what = `${backup.projects} project${backup.projects === 1 ? '' : 's'}${backup.owner ? `, ${backup.owner.name}'s` : ''}`
+    const then = backup.keyed ? 'then sign in with the person key you had there.'
+        : 'then run this again without --restore to get a person key.'
+    console.log(`Restored ${from} (${what}) into ${to}. Restart orrery to open it (in Docker, \`docker compose restart orrery\`), ${then}`)
+}
+
 async function main() {
+    if (args.includes('--restore')) return await restore(args[args.indexOf('--restore') + 1])
     const db = await open(database())
     if (args.includes('--move-issuer')) {
         if (!await db.get("SELECT 1 AS yes FROM information_schema.tables WHERE table_name = 'identities'").catch(() => db.get("SELECT 1 AS yes FROM sqlite_master WHERE name = 'identities'"))) {
@@ -86,10 +142,16 @@ async function main() {
         throw new Error('This database is from before keys: start this version of orrery once first')
     }
     const now = new Date().toISOString()
+    // Whether its logins keep the key that started them (ORR-786), asked before the transaction, as a failed query ends one on Postgres.
+    const keyed = await db.get('SELECT known FROM logins LIMIT 1').then(() => true, () => false)
     await db.begin()
     let owner = await db.get("SELECT id, name FROM people WHERE role = 'owner'")
     if (owner && await db.get("SELECT 1 AS yes FROM keys WHERE person = ? AND kind = 'person' AND revoked_at IS NULL", owner.id)) {
         if (!replace) throw new Error(`This server is claimed: ${owner.name} has a person key. --replace revokes it and prints a new one`)
+        // Their logins go with them (ORR-786): those the keys started, and those from before orrery kept which did. A
+        // database from before that step keeps no key on any, so every login of theirs goes.
+        if (keyed) await db.run("DELETE FROM logins WHERE person = ? AND (known = 0 OR by_key IN (SELECT id FROM keys WHERE person = ? AND kind = 'person' AND revoked_at IS NULL))", owner.id, owner.id)
+        else await db.run('DELETE FROM logins WHERE person = ?', owner.id)
         await db.run("UPDATE keys SET revoked_at = ? WHERE person = ? AND kind = 'person' AND revoked_at IS NULL", now, owner.id)
     }
     if (!owner) {

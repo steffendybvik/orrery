@@ -23,7 +23,7 @@ export default defineConfig({
         colorScheme: 'light',
     },
     webServer: {
-        command: `rm -f .data/readme.db .data/readme.db-* .data/readme.db.backups.json && nuxt dev --port ${port}`,
+        command: `rm -f node_modules/.cache/nuxt/dev-server.json .data/readme.db .data/readme.db-* .data/readme.db.backups.json && nuxt dev --port ${port}`,
         env: {NUXT_DATABASE: '.data/readme.db', NUXT_BACKUP_DIR: '', NUXT_UPDATE_CHECK: 'false', ORRERY_AUTH: 'off'},
         url: `http://localhost:${port}/api/settings`,
         reuseExistingServer: false,

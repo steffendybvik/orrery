@@ -4,7 +4,7 @@ import {total} from '#shared/roadmap'
 
 // One issue as a row (id, title, labels, status, priority, assignee); a parent shows its
 // sub-issues' progress, and with `nested` its sub-issues under it, joined by tree lines. One waiting on others not
-// closed yet has a Blocked chip (ORR-601).
+// closed yet has a Blocked chip (ORR-601), and one whose change is rated high or medium risk its risk (ORR-879).
 // Clicking opens its page, right-clicking its menu (IssueMenu); `j`/`k` move between rows (`data-nav`). Its tick
 // (SelectBox) takes the priority's place on hover, for changing many at once; with any ticked, a shift- or ⌘-click ticks.
 //
@@ -12,8 +12,8 @@ import {total} from '#shared/roadmap'
 // parent's first icon (RAIL from the row's edge) and turns into it. `rails` says, for each level
 // above the parent, whether that level's line carries on past this row; `last` whether this one does.
 const {byId} = useRoadmaps()
-const props = withDefaults(defineProps<{issue: Issue, project: string, depth?: number, chunk?: {id: string, title: string}, nested?: boolean, rails?: boolean[], last?: boolean}>(),
-    {depth: 0, chunk: undefined, nested: false, rails: () => [], last: true})
+const props = withDefaults(defineProps<{issue: Issue, project: string, depth?: number, milestone?: {id: string, title: string}, nested?: boolean, rails?: boolean[], last?: boolean}>(),
+    {depth: 0, milestone: undefined, nested: false, rails: () => [], last: true})
 const INDENT = 24
 const RAIL = 19
 const railAt = (level: number) => `${RAIL + level * INDENT}px`
@@ -75,16 +75,17 @@ const shown = computed(() => isParent.value ? props.issue.column : props.issue.s
         <span class="size-2 shrink-0 rounded-full bg-violet-500 sm:hidden" role="img" :aria-label="issue.waiting === 'decision' ? 'Decision needed' : 'Feedback needed'" :title="issue.waiting === 'decision' ? 'Decision needed' : 'Feedback needed'" />
       </template>
       <BlockedChip v-if="issue.blocked_by?.length" :blockers="issue.blocked_by" class="max-sm:hidden" />
+      <RiskChip v-if="issue.risk && issue.risk.level !== 'low'" :risk="issue.risk" class="max-sm:hidden" />
       <span v-if="issue.schedule" class="shrink-0 text-faint" title="Made by a schedule"><SectionIcon section="schedules" class="size-3" /></span>
       <span v-if="isParent" class="flex h-6 shrink-0 items-center gap-1.5 rounded-full px-2 ring-1 ring-line max-sm:hidden" :title="`${issue.kinds.done} of ${total(issue.kinds)} sub-issues done`"><ProgressRing :kinds="issue.kinds" :size="13" /></span>
     </span>
     <NuxtLink
-        v-if="chunk"
-        :to="chunkPath(project, chunk.id)"
+        v-if="milestone"
+        :to="milestonePath(project, milestone.id)"
         class="hidden max-w-40 shrink-0 truncate text-xs text-faint hover:text-fg hover:underline lg:inline"
-        :title="`Open ${chunk.id ? chunk.title : 'the issues in no chunk'}`"
+        :title="`Open ${milestone.id ? milestone.title : 'the issues in no milestone'}`"
         @click.stop
-    >{{ chunk.title }}</NuxtLink>
+    >{{ milestone.title }}</NuxtLink>
     <span
         v-if="issue.proposal && issue.proposal !== 'pending'"
         class="shrink-0 rounded-full px-1.5 py-px text-[10px] font-medium ring-1"

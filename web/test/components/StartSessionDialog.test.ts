@@ -39,7 +39,7 @@ for (const [n, id] of Object.keys(STATES).entries()) {
 const issue = (id: string, column: string, kind: string) => ({id, title: id, column, kind, tasks: [], labels: []})
 const project = (id: string, starts: object | null) => ({
     id, name: id[0]!.toUpperCase() + id.slice(1), key: id.toUpperCase(), starts, releases: [],
-    board: {chunks: [{id: '', title: 'No chunk', tasks: [issue(`${id}-1`, 'todo', 'todo'), issue(`${id}-2`, 'in-progress', 'started'), issue(`${id}-3`, 'backlog', 'backlog')]}]},
+    board: {milestones: [{id: '', title: 'No milestone', tasks: [issue(`${id}-1`, 'todo', 'todo'), issue(`${id}-2`, 'in-progress', 'started'), issue(`${id}-3`, 'backlog', 'backlog')]}]},
 }) as unknown as Project
 
 const mounted: VueWrapper[] = []
@@ -92,11 +92,15 @@ describe('StartSessionDialog', () => {
 
     it('starts one on the project it opened on, through its Todo and In progress issues, as the owner', async () => {
         const {row, submit, wrapper} = await mount('greenhouse')
+        const push = vi.spyOn(useRouter(), 'push')
         expect(row('greenhouse')).toContain('2 issues')
         await vi.waitFor(() => expect(submit().attributes('disabled')).toBeUndefined())
         await wrapper.find('form').trigger('submit')
         await vi.waitFor(() => expect(useStartSession().target.value).toBeNull())
         expect(sent).toEqual([{project: 'greenhouse', actor: 'skoll', body: {statuses: ['todo', 'in-progress'], presets: [], hears: ['greenhouse']}}])
+        // It closes and leaves the owner on their page, not the Sessions page (ORR-864).
+        expect(push).not.toHaveBeenCalled()
+        push.mockRestore()
     })
 
     it("gives each project's session the orrery's presets ticked and only its own", async () => {
@@ -198,11 +202,34 @@ describe('StartSessionDialog', () => {
         await wrapper.find('input[value="pantry"]').setValue(false)
         await vi.waitFor(() => expect(count().exists()).toBe(true))
         // A session on one issue is never joined by another.
-        await wrapper.find('button[aria-label="Issue"]').trigger('click')
+        await wrapper.find('button[data-picker="Issue"]').trigger('click')
         await vi.waitFor(() => expect(wrapper.findAll('[role="option"]').length).toBeGreaterThan(1))
         // Headless UI picks on the press.
         await wrapper.findAll('[role="option"]').find(o => o.text().includes('greenhouse-1 ·'))!.trigger('mousedown', {button: 0})
         await vi.waitFor(() => expect(count().exists()).toBe(false))
+    })
+
+    it('shows the model it works out for an issue (ORR-869)', async () => {
+        const {wrapper} = await mount('greenhouse')
+        const picker = () => wrapper.find('[data-testid="start-model"]')
+        await vi.waitFor(() => expect(picker().text()).toContain("Claude Code's default"))
+        await wrapper.find('button[data-picker="Issue"]').trigger('click')
+        await vi.waitFor(() => expect(wrapper.findAll('[role="option"]').length).toBeGreaterThan(1))
+        await wrapper.findAll('[role="option"]').find(o => o.text().includes('greenhouse-1 ·'))!.trigger('mousedown', {button: 0})
+        await vi.waitFor(() => expect(picker().text()).toContain('best, as Other'))
+    })
+
+    it('starts it on a model picked for this one session (ORR-869)', async () => {
+        const {wrapper, submit} = await mount('greenhouse')
+        await vi.waitFor(() => expect(wrapper.find('button[data-picker="Model"]').exists()).toBe(true))
+        await wrapper.find('button[data-picker="Model"]').trigger('click')
+        await vi.waitFor(() => expect(wrapper.findAll('[role="option"]').some(o => o.text().trim() === 'haiku')).toBe(true))
+        await wrapper.findAll('[role="option"]').find(o => o.text().trim() === 'haiku')!.trigger('mousedown', {button: 0})
+        await vi.waitFor(() => expect(wrapper.find('[data-testid="start-model"]').text()).toContain('haiku'))
+        await vi.waitFor(() => expect(submit().attributes('disabled')).toBeUndefined())
+        await wrapper.find('form').trigger('submit')
+        await vi.waitFor(() => expect(sent).toHaveLength(1))
+        expect(sent[0]!.body).toMatchObject({model: 'haiku'})
     })
 
     it('says how many started when the limit refuses the rest', async () => {

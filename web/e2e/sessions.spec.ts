@@ -1,4 +1,4 @@
-import {expect, test} from '@playwright/test'
+import {expect, test} from './test'
 import {AGENT, OWNER, hold, makeProject, projectApi} from './support'
 
 // The session side, with a fake channel and launcher on the API where Claude would be: starting sessions turned on,
@@ -94,6 +94,27 @@ test("shows a listening session on the Sessions page, and sends it a message onl
     }
 })
 
+test("shows the model each session runs on, from its hook, and the new one after a switch (ORR-871)", async ({page, request, baseURL}) => {
+    const said = await request.post('/api/sessions', {data: {id: 'e2e-model', project: 'kitchen', event: 'Stop', name: 'kitchen pantry', model: 'claude-opus-5-5'}})
+    expect(said.ok(), await said.text()).toBeTruthy()
+    const channel = hold(baseURL!, '/api/projects/kitchen/signals/stream?session=e2e-model&name=kitchen%20pantry&format=text')
+    try {
+        await page.goto('/sessions')
+        const model = page.locator('#session-e2e-model').getByTestId('session-model')
+        await expect(model).toHaveText('Opus 5.5')
+        await expect(model).toHaveAttribute('title', 'claude-opus-5-5')
+        await request.post('/api/sessions', {data: {id: 'e2e-model', project: 'kitchen', event: 'Stop', model: 'claude-sonnet-5-5'}})
+        await expect(model).toHaveText('Sonnet 5.5')
+        // Its effort level beside it, once its hook has said (ORR-894).
+        await request.post('/api/sessions', {data: {id: 'e2e-model', project: 'kitchen', event: 'PreToolUse', effort: 'high'}})
+        await expect(model).toHaveText('Sonnet 5.5 · high')
+        await expect(model).toHaveAttribute('title', 'claude-sonnet-5-5 · high effort')
+    } finally {
+        channel.stop()
+        await request.post('/api/sessions', {data: {id: 'e2e-model', project: 'kitchen', event: 'SessionEnd'}})
+    }
+})
+
 test('leaves a session with no channel out of the lists, with a line on restarting it, until its channel connects', async ({page, request, baseURL}) => {
     // Those the tests before it left behind would count on the line too.
     for (const {id} of await api(request, 'get', '/sessions')) await request.post('/api/sessions', {data: {id, project: 'kitchen', event: 'SessionEnd'}})
@@ -158,8 +179,8 @@ test('sends a focus aimed at no session to one, the first free, and to every one
         await expect.poll(() => heard('Sort the spices').filter(Boolean).length).toBe(1)
         await quiet()
         expect(heard('Sort the spices').filter(Boolean)).toHaveLength(1)
-        // A chunk's, aimed at every session: both do.
-        sent.push((await api(request, 'post', '/chunks/all/focus', {note: 'Label the tins', session: '*'}, OWNER)).signal.id as number)
+        // A milestone's, aimed at every session: both do.
+        sent.push((await api(request, 'post', '/milestones/all/focus', {note: 'Label the tins', session: '*'}, OWNER)).signal.id as number)
         await expect.poll(() => heard('Label the tins')).toEqual([true, true])
         // With both busy it waits, and goes to the first to go idle.
         for (const id of ids) await request.post('/api/sessions', {data: {id, project: 'kitchen', event: 'UserPromptSubmit'}})
@@ -171,6 +192,43 @@ test('sends a focus aimed at no session to one, the first free, and to every one
     } finally {
         for (const id of sent) await request.post(`/api/projects/kitchen/signals/${id}/delivered?name=e2e`)
         for (const stream of streams) stream.stop()
+    }
+})
+
+test("sends a focus aimed at a session's name to it, and one at a name nobody has nowhere (ORR-821)", async ({request, baseURL}) => {
+    await request.post('/api/sessions', {data: {id: 'e2e-larder', project: 'kitchen', event: 'SessionStart', name: 'kitchen larder'}})
+    const session = hold(baseURL!, '/api/projects/kitchen/signals/stream?session=e2e-larder&name=kitchen%20larder&format=text')
+    // A plain stream with only a name, as a bridge or `curl` opens one.
+    const bare = hold(baseURL!, '/api/projects/kitchen/signals/stream?name=e2e-bridge&format=text')
+    const sent: number[] = []
+    const focus = async (title: string, session: string) => {
+        const issue = await api(request, 'post', '/issues', {title, status: 'todo'})
+        return request.post(`/api/projects/kitchen/issues/${issue.id}/focus`, {data: {session}, headers: OWNER})
+    }
+    try {
+        await expect.poll(() => bare.said.text).toContain('Listening')
+        await expect.poll(async () => (await api(request, 'get', '/sessions')).some((s: {id: string, listening: boolean}) => s.id === 'e2e-larder' && s.listening)).toBe(true)
+        // By its name, in another case: stored as its id, and heard.
+        const byName = await focus('Count the jars', 'Kitchen Larder')
+        expect(byName.status(), await byName.text()).toBe(201)
+        const signal = (await byName.json()).signal
+        sent.push(signal.id)
+        expect(signal.target).toBe('e2e-larder')
+        await expect.poll(() => session.said.text).toContain('Count the jars')
+        // The stream with only a name hears one aimed at that name, and the session doesn't.
+        const toBridge = await focus('Stack the crates', 'e2e-bridge')
+        expect(toBridge.status(), await toBridge.text()).toBe(201)
+        sent.push((await toBridge.json()).signal.id)
+        await expect.poll(() => bare.said.text).toContain('Stack the crates')
+        expect(session.said.text).not.toContain('Stack the crates')
+        // A name nobody has is a 404, not a signal sent to nobody.
+        const nobody = await focus('Mop the floor', 'kitchen nobody')
+        expect(nobody.status()).toBe(404)
+        expect(await nobody.text()).toContain('No session kitchen nobody')
+    } finally {
+        for (const id of sent) await request.post(`/api/projects/kitchen/signals/${id}/delivered?name=e2e`)
+        session.stop()
+        bare.stop()
     }
 })
 
@@ -251,6 +309,59 @@ test('with a session listening, New session on this starts another on the issue'
     } finally {
         launcher.stop()
         stream.stop()
+    }
+})
+
+test("starts a session on the model picked on its issue's page, and on its kind's when it has none (ORR-889)", async ({page, request, baseURL}) => {
+    const before = (await (await request.get('/api/settings')).json()) as {starts: unknown, work_kinds: {id: string, model: string}[]}
+    await request.patch('/api/settings', {data: {starts: {limit: 20}}, headers: OWNER})
+    const own = await api(request, 'post', '/issues', {title: 'Write the oiling guide', status: 'todo', labels: ['docs']})
+    const plain = await api(request, 'post', '/issues', {title: 'Write the sweeping guide', status: 'todo', labels: ['docs']})
+    await expect.poll(async () => (await api(request, 'get', '/sessions')).some((s: {listening: boolean}) => s.listening)).toBe(false)
+    const launcher = hold(baseURL!, '/api/projects/kitchen/launches/stream')
+    // The models of the launches it's sent since `from`, as the launcher hears them.
+    const models = (from: number) => [...launcher.said.text.matchAll(/^data: (.+)$/gm)].slice(from).map(m => (JSON.parse(m[1]!) as {model?: string}).model)
+    const sent = () => models(0).length
+    try {
+        await expect.poll(async () => (await api(request, 'get', '/launches')).launchers).toBe(1)
+        // Its page shows its kind's model until it has one of its own, which it saves.
+        await page.goto(`/p/kitchen/issues/${own.id}`)
+        const model = page.getByTestId('issue-model')
+        await expect(model).toHaveText('sonnet, as Docs')
+        await model.getByRole('button', {name: 'Model'}).click()
+        await page.getByRole('option', {name: 'opus', exact: true}).click()
+        await expect(model).toHaveText('opus')
+        await expect.poll(async () => (await api(request, 'get', `/issues/${own.id}`)).model).toBe('opus')
+
+        // Start session works it out from the issue, and starts on it.
+        await page.goto('/sessions')
+        await page.getByRole('button', {name: 'Start session'}).first().click()
+        const dialog = page.getByRole('dialog', {name: 'Start session'})
+        await dialog.getByRole('checkbox', {name: 'Kitchen'}).check()
+        await dialog.locator('[data-picker="Issue"]').click()
+        await page.getByRole('option', {name: new RegExp(own.id)}).click()
+        await expect(dialog.getByTestId('start-model')).toContainText('opus, its own')
+        const first = sent()
+        await dialog.getByRole('button', {name: /^Start session/}).click()
+        await expect.poll(() => models(first)).toEqual(['opus'])
+
+        // One with no model of its own follows its kind, as the owner sets it.
+        await request.patch('/api/settings', {data: {work_kinds: before.work_kinds.map(k => k.id === 'docs' ? {...k, model: 'haiku'} : k)}, headers: OWNER})
+        await page.goto(`/p/kitchen/issues/${plain.id}`)
+        await expect(page.getByTestId('issue-model')).toHaveText('haiku, as Docs')
+        // Through Start session, as Focus on this would hand it to the opus session still starting, heavy enough for it.
+        await page.goto('/sessions')
+        await page.getByRole('button', {name: 'Start session'}).first().click()
+        await dialog.getByRole('checkbox', {name: 'Kitchen'}).check()
+        await dialog.locator('[data-picker="Issue"]').click()
+        await page.getByRole('option', {name: new RegExp(plain.id)}).click()
+        await expect(dialog.getByTestId('start-model')).toContainText('haiku, as Docs')
+        const second = sent()
+        await dialog.getByRole('button', {name: /^Start session/}).click()
+        await expect.poll(() => models(second)).toEqual(['haiku'])
+    } finally {
+        launcher.stop()
+        await request.patch('/api/settings', {data: {starts: before.starts, work_kinds: null}, headers: OWNER})
     }
 })
 
@@ -375,6 +486,45 @@ test('a session orrery started has Stop out front, asked once more', async ({pag
         await expect(card.getByRole('button', {name: 'Watch'})).toBeVisible()
         await card.getByRole('button', {name: 'Stop', exact: true}).click()
         await expect(card).toContainText('Stop e2e-started?')
+        await card.getByRole('button', {name: 'Stop', exact: true}).click()
+        await expect.poll(() => launcher.said.text).toContain('event: stop')
+    } finally {
+        stream?.stop()
+        launcher.stop()
+    }
+})
+
+test('on a phone a started session keeps its name whole, with Watch and Stop under ⋯ (ORR-828)', async ({page, request, baseURL}) => {
+    const launcher = hold(baseURL!, '/api/projects/kitchen/launches/stream')
+    let stream: ReturnType<typeof hold> | undefined
+    try {
+        await page.setViewportSize({width: 390, height: 844})
+        await expect.poll(async () => (await api(request, 'get', '/launches')).launchers).toBe(1)
+        await request.post('/api/projects/kitchen/launches/running', {data: {launches: [{id: 'e2e828e2e828', tmux: 'orrery-e2e-phone', stops_at: new Date(Date.now() + 40 * 60_000).toISOString()}]}})
+        stream = hold(baseURL!, '/api/projects/kitchen/signals/stream?session=e2e-phone&name=e2e-on-a-phone&started=e2e828e2e828&format=text')
+        await page.goto('/sessions#session-e2e-phone')
+        const card = page.locator('#session-e2e-phone')
+        const name = card.getByText('e2e-on-a-phone', {exact: true})
+        await expect(name).toBeVisible()
+        // The name isn't cut: it's as wide as it needs to be.
+        expect(await name.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true)
+        // Show screen stays out, on a row under the name; Watch and Stop are under ⋯.
+        const show = card.getByRole('button', {name: 'Show screen'})
+        await expect(show).toBeVisible()
+        expect((await show.boundingBox())!.y).toBeGreaterThan((await name.boundingBox())!.y + 10)
+        await expect(card.getByRole('button', {name: 'Watch', exact: true})).toHaveCount(0)
+        await expect(card.getByRole('button', {name: 'Stop', exact: true})).toHaveCount(0)
+        // The meta line wraps as text, not a line per item: fewer lines than its items. How many lines it takes depends on
+        // its words ("just now" or "1 min ago"), so it isn't held to two (ORR-912).
+        const meta = card.locator('p').first()
+        const items = (await meta.innerText()).split('·').length
+        const lineHeight = await meta.evaluate(el => parseFloat(getComputedStyle(el).lineHeight))
+        expect(items).toBeGreaterThan(3)
+        expect(Math.round((await meta.boundingBox())!.height / lineHeight)).toBeLessThan(items)
+        await card.getByRole('button', {name: 'More for e2e-on-a-phone'}).click()
+        await expect(page.getByRole('menuitem', {name: /Watch · opens on its launcher's machine/})).toBeVisible()
+        await page.getByRole('menuitem', {name: 'Stop…'}).click()
+        await expect(card).toContainText('Stop e2e-on-a-phone?')
         await card.getByRole('button', {name: 'Stop', exact: true}).click()
         await expect.poll(() => launcher.said.text).toContain('event: stop')
     } finally {
@@ -592,4 +742,45 @@ test('Show screen draws what the launcher sends, read only, and asks for it only
         stream?.stop()
         launcher.stop()
     }
+})
+
+test.describe('on a phone', () => {
+    test.use({viewport: {width: 390, height: 844}, isMobile: true, hasTouch: true})
+
+    test('Start session fits the screen: its projects show, its body scrolls, and its button stays in reach (ORR-851)', async ({page, request, baseURL}) => {
+        // Room under the limit whatever the tests before left running; put back after.
+        const before = (await (await request.get('/api/settings')).json()).starts
+        await request.patch('/api/settings', {data: {starts: {limit: 20, min: 2}}, headers: OWNER})
+        const launcher = hold(baseURL!, '/api/projects/kitchen/launches/stream')
+        try {
+            await expect.poll(async () => (await api(request, 'get', '/launches')).launchers).toBe(1)
+            await page.goto('/sessions')
+            await page.getByRole('button', {name: 'Start session'}).first().tap()
+            const dialog = page.getByRole('dialog', {name: 'Start session'})
+            const kitchen = dialog.getByRole('checkbox', {name: 'Kitchen'})
+            // The projects' list was squeezed to nothing once the rest of the dialog filled the screen. With the suite's
+            // other projects before it, Kitchen can be further down the scrolling body (ORR-912), so the first one shows.
+            await expect(dialog.getByRole('group', {name: 'Projects'}).getByRole('checkbox').first()).toBeInViewport()
+            await kitchen.scrollIntoViewIfNeeded()
+            await expect(kitchen).toBeInViewport()
+            await kitchen.check()
+            const start = dialog.getByRole('button', {name: /^Start session/})
+            await expect(start).toBeInViewport()
+            // The last field scrolls into view inside the dialog, and the button is still there.
+            const own = dialog.getByLabel('Your own instructions')
+            await own.scrollIntoViewIfNeeded()
+            await expect(own).toBeInViewport()
+            await expect(start).toBeInViewport()
+            // Nothing reaches past the screen's edges, and the button stays inside the panel.
+            const box = await dialog.locator('form').boundingBox()
+            expect(box!.x).toBeGreaterThanOrEqual(0)
+            expect(box!.x + box!.width).toBeLessThanOrEqual(390)
+            const button = await start.boundingBox()
+            expect(button!.y + button!.height).toBeLessThanOrEqual(box!.y + box!.height)
+            await page.keyboard.press('Escape')
+        } finally {
+            launcher.stop()
+            await request.patch('/api/settings', {data: {starts: before}, headers: OWNER})
+        }
+    })
 })

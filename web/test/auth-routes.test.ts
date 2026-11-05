@@ -23,7 +23,7 @@ const bearer = (key: string) => ({authorization: `Bearer ${key}`})
 /** The request through the middleware and on to the route, with what the route returned and the status it set. */
 async function ask(load: () => Promise<{default: unknown}>, path: string, {method = 'GET', headers = {}, body, key}: Asked = {}) {
     const event: Event = {
-        path, method, headers, context: {}, body, params: key ? {key} : {},
+        path, method, headers, context: {}, body, params: key ? {key, login: key} : {},
         node: {req: {headers, socket: {remoteAddress: '127.0.0.1', server: {address: () => ({address: '127.0.0.1'})}}}},
     }
     await gate(event)
@@ -34,6 +34,9 @@ const makeKey = (headers: Record<string, string>, body: Record<string, unknown>)
 const listKeys = (headers: Record<string, string>) => ask(() => import('../server/api/keys/index.get'), '/api/keys', {headers})
 const revokeKey = (headers: Record<string, string>, key: string) => ask(() => import('../server/api/keys/[key].delete'), `/api/keys/${key}`, {method: 'DELETE', headers, key})
 const invite = (headers: Record<string, string>, person = 'hati') => ask(() => import('../server/api/invites/index.post'), '/api/invites', {method: 'POST', headers, body: {person}})
+const listLogins = (headers: Record<string, string>) => ask(() => import('../server/api/logins/index.get'), '/api/logins', {headers})
+const endLogin = (headers: Record<string, string>, login: string) => ask(() => import('../server/api/logins/[login].delete'), `/api/logins/${login}`, {method: 'DELETE', headers, key: login})
+const endOthers = (headers: Record<string, string>) => ask(() => import('../server/api/logins/index.delete'), '/api/logins', {method: 'DELETE', headers})
 const logIn = (key: unknown) => ask(() => import('../server/api/auth/login.post'), '/api/auth/login', {method: 'POST', body: {key}})
 
 /** A person's browser: logged in with a person key, as the page is, its writes saying they come from a page. */
@@ -163,6 +166,84 @@ describe('with auth off, the key routes', () => {
         expect((await failure(() => makeKey(headers, {kind: 'person', name: 'mine', person: 'skoll'}))).status).toBe(403)
         expect((await failure(() => listKeys(headers))).status).toBe(403)
         expect((await failure(() => revokeKey(headers, id))).status).toBe(403)
+    })
+})
+
+describe('the login routes (ORR-838)', () => {
+    type Listed = {id: string, person: string, name?: string, created_at?: string, current?: boolean}
+    const listed = async (headers: Record<string, string>) => (await listLogins(headers)).data as Listed[]
+    const phone = async (person = 'skoll') => (await store.startLogin(person, undefined, 'Phone, signed in by QR code')).secret
+
+    it("list a person's own, named and dated, marking this browser, and never what's in a cookie", async () => {
+        const skoll = await browser('skoll')
+        const secret = await phone()
+        const mine = await listed(skoll)
+        expect(mine).toHaveLength(2)
+        expect(mine.find(l => l.current)).toMatchObject({person: 'skoll', created_at: expect.any(String)})
+        expect(mine.find(l => !l.current)).toMatchObject({name: 'Phone, signed in by QR code'})
+        expect(JSON.stringify(mine)).not.toContain(secret)
+        expect(mine.every(l => /^[0-9a-f]{16}$/.test(l.id))).toBe(true)
+    })
+
+    it("end a lost phone's login at once, so its cookie no longer works", async () => {
+        const skoll = await browser('skoll')
+        const secret = await phone()
+        const lost = (await listed(skoll)).find(l => !l.current)!
+        expect((await endLogin(skoll, lost.id)).status).toBe(204)
+        expect(await store.loginHolder(secret)).toBeUndefined()
+        expect((await listed(skoll)).map(l => l.current)).toEqual([true])
+    })
+
+    it('end every other login but the browser asking', async () => {
+        const skoll = await browser('skoll')
+        const phones = [await phone(), await phone()]
+        expect((await endOthers(skoll)).data).toEqual({ended: 2})
+        for (const secret of phones) expect(await store.loginHolder(secret)).toBeUndefined()
+        expect(await store.loginHolder(skoll.cookie.split('=')[1]!)).toMatchObject({person: 'skoll'})
+    })
+
+    it("let a member see and end only their own, and the owner everyone's", async () => {
+        const hati = await browser('hati')
+        const skolls = await phone()
+        expect((await listed(hati)).map(l => l.person)).toEqual(['hati'])
+        const ref = (await listed(await browser('skoll'))).find(l => l.person === 'skoll' && l.name)!.id
+        expect((await failure(() => endLogin(hati, ref))).status).toBe(404)
+        expect((await failure(() => endLogin(hati, 'not-a-login'))).status).toBe(404)
+        expect(await store.loginHolder(skolls)).toBeDefined()
+        expect((await listed(await browser('skoll'))).map(l => l.person)).toEqual(expect.arrayContaining(['skoll', 'hati']))
+    })
+
+    it("refuse an agent key, as a session has no business with anyone's login", async () => {
+        const {key} = await store.makeKey('skoll', {kind: 'agent', name: 'desk'})
+        expect((await failure(() => listLogins(bearer(key)))).status).toBe(403)
+        expect((await failure(() => endOthers(bearer(key)))).status).toBe(403)
+    })
+
+    describe('with auth off', () => {
+        beforeEach(() => {
+            config.auth = 'off'
+        })
+        const named = (name: string, more: Record<string, string> = {}) => ({'orrery-actor': name, ...more})
+
+        it("let the owner's page on this machine list and end the phone's login", async () => {
+            const secret = await phone()
+            const [only] = await listed(named('skoll'))
+            expect(only).toMatchObject({name: 'Phone, signed in by QR code', person: 'skoll'})
+            expect((await endLogin(named('skoll'), only!.id)).status).toBe(204)
+            expect(await store.loginHolder(secret)).toBeUndefined()
+        })
+
+        it.each([
+            ['a session', named('claude')],
+            ['a member by name', named('hati')],
+            ["the owner's chat naming the owner", named('skoll', {'orrery-chat': 'yes'})],
+            ['an untrusted session naming the owner', named('skoll', {'orrery-untrusted': 'yes'})],
+        ])('refuse %s', async (_, headers) => {
+            const secret = await phone()
+            expect((await failure(() => listLogins(headers))).status).toBe(403)
+            expect((await failure(() => endOthers(headers))).status).toBe(403)
+            expect(await store.loginHolder(secret)).toBeDefined()
+        })
     })
 })
 

@@ -6,7 +6,8 @@ import type {NoticeRow} from '~/composables/useInbox'
 // what happened. The list has the page until a line is chosen: that opens its history beside the list (on a narrow window, in
 // its place) and marks it read, and choosing it again or closing the pane gives the list the page back. Dragging the border
 // between them resizes the list. Opening the page only
-// resets the bell's count, so the filled dots stay what's still to read.
+// resets the bell's count, so the filled dots stay what's still to read. With notices from more than one project, a picker
+// keeps the page to one of them (`?project=`, ORR-822), and its Clear buttons to what that leaves shown.
 useHead({title: 'Notifications · orrery'})
 const {notices, lists, seen, load, loadChanges, markRead, clear} = useInbox()
 const {byId} = useRoadmaps()
@@ -14,33 +15,56 @@ const {newErrors} = useLoggedEvents()
 const route = useRoute()
 const router = useRouter()
 
-onMounted(() => {
-    seen()
+function loadLists() {
     load('waiting')
     load('inbox')
+}
+onMounted(() => {
+    seen()
+    loadLists()
 })
 // Those arriving while it's open count as seen too, for the bell.
 watch(notices, () => seen())
 
-const waiting = computed(() => waitingRows(lists.value.waiting.items))
-const days = computed(() => noticeDays(lists.value.inbox.items))
-const shown = computed(() => [...lists.value.waiting.items, ...lists.value.inbox.items])
-const loaded = computed(() => lists.value.inbox.loaded && lists.value.waiting.loaded)
-const clearable = computed(() => shown.value.filter(n => !n.cleared))
-const anyRead = computed(() => shown.value.some(n => n.read && !isWaiting(n)))
 const projectName = (id: string) => byId(id)?.name ?? id
+const listed = computed(() => [...lists.value.waiting.items, ...lists.value.inbox.items])
+/** The project the page keeps to, or '' for all of them. */
+const only = computed({
+    get: () => (route.query.project as string | undefined) ?? '',
+    set: id => router.replace({query: {...route.query, project: id || undefined}}),
+})
+const inOnly = (n: {project: string}) => !only.value || n.project === only.value
+/** The projects with notices listed, and the one kept to even if it has none now. */
+const noticeProjects = computed(() => [...new Set([...listed.value.map(n => n.project), ...only.value ? [only.value] : []])]
+    .sort((a, b) => projectName(a).localeCompare(projectName(b))))
+const projectOptions = computed(() => [{value: '', label: 'All projects'}, ...noticeProjects.value.map(id => ({value: id, label: projectName(id)}))])
+const waiting = computed(() => waitingRows(lists.value.waiting.items.filter(inOnly)))
+const days = computed(() => noticeDays(lists.value.inbox.items.filter(inOnly)))
+const shown = computed(() => listed.value.filter(inOnly))
+const loaded = computed(() => lists.value.inbox.loaded && lists.value.waiting.loaded)
+/** Why a list the page waits on couldn't be read, so it says so rather than spinning (ORR-854). */
+const failed = computed(() => [lists.value.waiting, lists.value.inbox].find(l => !l.loaded && l.failed)?.failed ?? '')
+function retry() {
+    for (const list of [lists.value.waiting, lists.value.inbox]) list.failed = undefined
+    loadLists()
+}
+const clearable = computed(() => shown.value.filter(n => !n.cleared))
+const readShown = computed(() => shown.value.filter(n => n.read && !isWaiting(n) && !n.cleared))
+const anyRead = computed(() => readShown.value.length > 0)
+// All projects clears every read one on the server, loaded or not; one project only those it shows.
+const clearRead = () => only.value ? clear(readShown.value) : clear()
 /** A list from one project needn't say so on every line. */
 const manyProjects = computed(() => new Set(shown.value.map(n => n.project)).size > 1)
 
 // The status changes on what's listed, from the start of the day of its oldest. Read again as the list changes.
 const since = computed(() => {
-    const oldest = shown.value.reduce((at, n) => !at || n.created_at < at ? n.created_at : at, '')
+    const oldest = listed.value.reduce((at, n) => !at || n.created_at < at ? n.created_at : at, '')
     if (!oldest) return ''
     const start = new Date(oldest)
     start.setHours(0, 0, 0, 0)
     return start.toISOString()
 })
-watch(() => [since.value, shown.value.length] as const, ([from]) => {
+watch(() => [since.value, listed.value.length] as const, ([from]) => {
     if (from) loadChanges(from)
 }, {immediate: true})
 
@@ -76,8 +100,11 @@ const {width: listWidth, initial: initialListWidth} = usePaneWidth('orrery-notif
   </PageHeader>
 
   <ViewToolbar>
+    <PropertyPicker v-if="noticeProjects.length > 1" v-model="only" :options="projectOptions" label="Project" field small>
+      <span class="truncate">{{ projectOptions.find(o => o.value === only)?.label ?? only }}</span>
+    </PropertyPicker>
     <template #end>
-      <UiButton v-if="anyRead" variant="ghost" size="xs" title="Clear every read one, not those waiting on you" @click="clear()">Clear read</UiButton>
+      <UiButton v-if="anyRead" variant="ghost" size="xs" :title="only ? `Clear the read ones in ${projectName(only)}, not those waiting on you` : 'Clear every read one, not those waiting on you'" @click="clearRead()">Clear read</UiButton>
       <UiButton v-if="clearable.length" variant="ghost" size="xs" :title="`Clear these ${clearable.length}; a proposal stays pending on its issue`" @click="clear(clearable)">Clear all</UiButton>
     </template>
   </ViewToolbar>
@@ -88,7 +115,11 @@ const {width: listWidth, initial: initialListWidth} = usePaneWidth('orrery-notif
     <span class="shrink-0 text-xs text-faint">Events →</span>
   </NuxtLink>
 
-  <UiLoading v-if="!loaded" />
+  <UiLoading v-if="!loaded" :failed="failed" what="the notifications" @retry="retry" />
+  <div v-else-if="!shown.length && only && listed.length" class="flex min-h-0 flex-1 flex-col items-center gap-2 overflow-y-auto px-4 py-24 text-center">
+    <p class="text-sm text-muted">No notifications in {{ projectName(only) }}.</p>
+    <UiButton variant="ghost" size="xs" @click="only = ''">Show all projects</UiButton>
+  </div>
   <div v-else-if="!shown.length" class="flex min-h-0 flex-1 flex-col items-center gap-2 overflow-y-auto px-4 py-24 text-center">
     <p class="text-sm text-muted">No notifications.</p>
     <p class="text-xs text-faint">Agents' comments on issues land here and in the bell; their questions and proposals for you stay, marked in violet, until you answer or decide them on the issue, or clear them.</p>

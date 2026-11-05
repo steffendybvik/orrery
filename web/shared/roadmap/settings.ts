@@ -1,6 +1,7 @@
 // This orrery's own settings: its owner, the sessions it may start, its database and backups.
 import type {Instruction} from '../prompt'
 import type {IssueStatus} from './board'
+import type {WorkKind} from './work-kinds'
 
 /** The tints a page can take on: a few named colours, or any `#rrggbb`. */
 export const TINTS = {slate: '#64748b', blue: '#3b82f6', teal: '#14b8a6', green: '#22c55e', amber: '#f59e0b', rose: '#f43f5e', violet: '#8b5cf6'} as const
@@ -18,6 +19,18 @@ export interface KeyRecord {
     created_at: string
     last_used_at?: string
     revoked_at?: string
+}
+
+/** A browser's login as it's listed (ORR-838): `id` is a short part of its hash, never what's in the cookie. `name` says
+ * how it was made, such as a phone's QR code; `current` marks the browser asking. Older logins have no dates. */
+export interface LoginRecord {
+    id: string
+    person: string
+    name?: string
+    created_at?: string
+    last_used_at?: string
+    expires_at: string
+    current?: boolean
 }
 
 export interface Person {
@@ -170,10 +183,10 @@ export interface Settings {
     tint: string | null
     /** The issue statuses, in board order. */
     statuses: IssueStatus[]
-    /** What a session hears when asked to focus on an issue, or to work through a chunk; none is the default
-     * (`DEFAULT_FOCUS_PROMPT`, `DEFAULT_CHUNK_PROMPT`). A project can have its own. */
+    /** What a session hears when asked to focus on an issue, or to work through a milestone; none is the default
+     * (`DEFAULT_FOCUS_PROMPT`, `DEFAULT_MILESTONE_PROMPT`). A project can have its own. */
     focus_prompt: string | null
-    chunk_prompt: string | null
+    milestone_prompt: string | null
     /** Lines added to every focus, such as `commit whenever a piece works`. */
     instructions: Instruction[]
     /** The owner's handle in an issue's reference (`orrery-<handle>: DOC-132`), such as their GitHub login;
@@ -196,4 +209,14 @@ export interface Settings {
     advanced: boolean
     /** A listening session out of work is handed the issues it may start, in Todo, to pick one (ORR-452, ORR-759). */
     pick_next: boolean
+    /** Counts the owner's own use of features, for App settings' Usage (ORR-881). Off unless turned on. */
+    count_use: boolean
+    /** The kinds of work, highest-ranked first, each with the model a session for it starts on (ORR-868): the owner's,
+     * else orrery's own (`WORK_KINDS`). An issue's kind is its highest-ranked label's. */
+    work_kinds: WorkKind[]
+    /** Projects the sidebar lists first, by id, and projects it folds away under Hidden (ORR-836). Only where
+     * they show: a hidden project's issues, sessions and schedules carry on, and its pages still open. A project
+     * is never both: hidden wins. */
+    starred: string[]
+    hidden: string[]
 }

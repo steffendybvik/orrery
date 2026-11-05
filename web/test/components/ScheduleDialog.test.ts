@@ -24,7 +24,7 @@ const record = (path: string) => async (event: H3Event) => {
 registerEndpoint('/api/projects/greenhouse/schedules', {method: 'POST', handler: record('schedules')})
 for (const method of ['PATCH', 'DELETE'] as const) registerEndpoint('/api/projects/greenhouse/schedules/3', {method, handler: record('schedules/3')})
 
-const project = (id: string, name: string) => ({id, name, key: id.toUpperCase(), board: {chunks: [{id: 'pantry', title: 'Pantry', tasks: []}]}}) as unknown as Project
+const project = (id: string, name: string) => ({id, name, key: id.toUpperCase(), board: {milestones: [{id: 'pantry', title: 'Pantry', tasks: []}]}}) as unknown as Project
 const SWEEP = {id: 3, kind: 'message', title: 'Nudge', notes: 'Idle? Pick one.', cron: '*/15 * * * *', timezone: 'Europe/Oslo', column: 'todo', labels: [],
     ask: false, skip_open: true, only_if_changed: true, enabled: true} as unknown as Schedule
 
@@ -59,8 +59,19 @@ describe('ScheduleDialog', () => {
         await vi.waitFor(() => expect(useSchedules().editing.value).toBeNull())
         expect(sent).toEqual([{method: 'POST', path: 'schedules', actor: 'skoll', body: {
             kind: 'issue', title: 'Code maintenance', notes: null, cron: '0 9 * * 1-5', timezone: 'Europe/Oslo', column: 'todo',
-            chunk: null, priority: null, labels: [], ask: false, skip_open: true, only_if_changed: false, untrusted: false,
+            milestone: null, priority: null, labels: [], model: null, effort: null, ask: false, skip_open: true, only_if_changed: false, untrusted: false,
         }}])
+    })
+
+    it("names its kind's model as the empty choice, and keeps one of its own (ORR-869)", async () => {
+        const {wrapper, submit} = await mount({...SWEEP, kind: 'issue', labels: ['docs'], model: 'haiku', effort: 'low'})
+        const row = wrapper.find('[data-testid="schedule-model"]')
+        expect(row.text()).toContain('haiku')
+        expect(row.text()).toContain('low')
+        await submit()
+        await vi.waitFor(() => expect(sent).toHaveLength(1))
+        expect(sent[0]?.body).toMatchObject({model: 'haiku', effort: 'low'})
+        await vi.waitFor(() => expect(useSchedules().editing.value).toBeNull())
     })
 
     it("won't send a message schedule without its words", async () => {

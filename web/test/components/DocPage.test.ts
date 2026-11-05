@@ -11,7 +11,7 @@ registerEndpoint('/api/projects/greenhouse/docs/potting-mix', () => doc)
 
 const mounted: VueWrapper[] = []
 beforeEach(() => {
-    useRoadmaps().projects.value = [{id: 'greenhouse', name: 'Greenhouse', key: 'GRE', uid: 'x7k2m9qd', releases: [], docs: [doc], board: {chunks: []}} as unknown as Project]
+    useRoadmaps().projects.value = [{id: 'greenhouse', name: 'Greenhouse', key: 'GRE', uid: 'x7k2m9qd', releases: [], docs: [doc], board: {milestones: [], kinds: {backlog: 0, todo: 0, started: 0, done: 0, canceled: 0}}} as unknown as Project]
 })
 afterEach(() => {
     mounted.splice(0).forEach(w => w.unmount())
@@ -21,7 +21,7 @@ afterEach(() => {
 async function mount() {
     const wrapper = await mountSuspended(DocPage, {route: '/p/greenhouse/docs/potting-mix', attachTo: document.body, global: {stubs: {DocsNav: true}}})
     mounted.push(wrapper)
-    await vi.waitFor(() => expect(wrapper.find('[aria-label="Copy this doc\'s URL"]').exists()).toBe(true))
+    await vi.waitFor(() => expect(wrapper.find('[title="Copy this doc\'s URL"]').exists()).toBe(true))
     return wrapper
 }
 
@@ -32,7 +32,7 @@ describe('a doc page', () => {
     ])('%s copies what it says', async (label, name, text) => {
         const writeText = vi.fn(async () => {})
         vi.stubGlobal('navigator', {...navigator, clipboard: {writeText}})
-        const button = (await mount()).find(`[aria-label="Copy ${name}"]`)
+        const button = (await mount()).find(`[title="Copy ${name}"]`)
         expect(button.text()).toBe(label)
         await button.trigger('click')
         await vi.waitFor(() => expect(button.text()).toBe('Copied'))

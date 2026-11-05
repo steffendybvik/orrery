@@ -2,7 +2,7 @@
 // that tie a provider's account to a person. Only hashes are kept, looked up on each request, so revoking works at once.
 // Below the projects, above the people.
 import {createHash, randomBytes} from 'node:crypto'
-import type {KeyKind, KeyRecord} from '#shared/roadmap'
+import type {KeyKind, KeyRecord, LoginRecord} from '#shared/roadmap'
 import {badRequest, conflict, notFound} from '../utils/input'
 import {PeopleStore} from './people'
 import {actorId, stamp} from './schema'
@@ -12,9 +12,17 @@ export interface Holder {
     person: string
     owner: boolean
     kind?: KeyKind
+    /** The key's id, when it was one. */
+    key?: string
 }
 
 type KeyRow = {id: string, person: string, kind: KeyKind, name: string, created_at: string, last_used_at: string | null, revoked_at: string | null}
+type LoginRow = {id: string, person: string, name: string | null, created_at: string | null, last_used_at: string | null, expires_at: string}
+/** How much of a login's hash names it in the list: enough to tell them apart, nothing a cookie could be made from. */
+const LOGIN_REF = 16
+const loginOf = ({id, person, name, created_at, last_used_at, expires_at}: LoginRow): LoginRecord =>
+    ({id: id.slice(0, LOGIN_REF), person, ...name ? {name} : {}, ...created_at ? {created_at} : {}, ...last_used_at ? {last_used_at} : {}, expires_at})
+
 const keyOf = ({id, person, kind, name, created_at, last_used_at, revoked_at}: KeyRow): KeyRecord =>
     ({id, person, kind, name, created_at, ...last_used_at ? {last_used_at} : {}, ...revoked_at ? {revoked_at} : {}})
 
@@ -47,11 +55,16 @@ export abstract class KeyStore extends PeopleStore {
         return {id, person, kind, name: label, created_at: created, key}
     }
 
-    /** Revokes a key, at once; revoking it again changes nothing. `mine`, when given, is whose it has to be. */
+    /** Revokes a key, at once, with the logins it started (ORR-786), and its person's logins from before orrery kept
+     * which key started one; revoking it again changes nothing. `mine`, when given, is whose it has to be. */
     async revokeKey(id: string, mine?: string): Promise<void> {
         const key = await this.get<KeyRow>('SELECT * FROM keys WHERE id = ?', id)
         if (!key || mine && key.person !== mine) throw notFound(`No key "${id}"`)
-        if (!key.revoked_at) await this.run('UPDATE keys SET revoked_at = ? WHERE id = ?', stamp(), id)
+        if (key.revoked_at) return
+        await this.db.transaction(async () => {
+            await this.run('UPDATE keys SET revoked_at = ? WHERE id = ?', stamp(), id)
+            await this.run('DELETE FROM logins WHERE by_key = ? OR person = ? AND known = 0', id, key.person)
+        })
     }
 
     /** Who a key is, if it's live and its person is still here. */
@@ -61,26 +74,57 @@ export abstract class KeyStore extends PeopleStore {
              WHERE k.hash = ? AND k.revoked_at IS NULL AND p.removed_at IS NULL`, hashOf(secret))
         if (!row) return undefined
         if (!row.last_used_at || Date.now() - Date.parse(row.last_used_at) > USED_EVERY) await this.run('UPDATE keys SET last_used_at = ? WHERE id = ?', stamp(), row.id)
-        return {person: row.person, owner: row.role === 'owner', kind: row.kind}
+        return {person: row.person, owner: row.role === 'owner', kind: row.kind, key: row.id}
     }
 
-    /** Starts a browser's login for `person`: what goes in its cookie. */
-    async startLogin(person: string): Promise<{secret: string, days: number}> {
+    /** Starts a browser's login for `person`: what goes in its cookie. `key` is the id of the key it was started with,
+     * so revoking that ends it; none for a provider's. `name` says how it was made, for the list (ORR-838). */
+    async startLogin(person: string, key?: string, name?: string): Promise<{secret: string, days: number}> {
         const secret = token()
-        await this.run('DELETE FROM logins WHERE expires_at < ?', stamp())
-        await this.run('INSERT INTO logins (id, person, expires_at) VALUES (?, ?, ?)', hashOf(secret), person, days(LOGIN_DAYS))
+        const now = stamp()
+        await this.run('DELETE FROM logins WHERE expires_at < ?', now)
+        await this.run('INSERT INTO logins (id, person, expires_at, by_key, known, name, created_at, last_used_at) VALUES (?, ?, ?, ?, 1, ?, ?, ?)',
+            hashOf(secret), person, days(LOGIN_DAYS), key ?? null, name ?? null, now, now)
         return {secret, days: LOGIN_DAYS}
     }
 
     /** Who a login's cookie is, if it hasn't run out and they're still here. */
     async loginHolder(secret: string): Promise<Holder | undefined> {
-        const row = await this.get<{person: string, role: string}>(
-            `SELECT l.person, p.role FROM logins l JOIN people p ON p.id = l.person WHERE l.id = ? AND l.expires_at > ? AND p.removed_at IS NULL`, hashOf(secret), stamp())
-        return row && {person: row.person, owner: row.role === 'owner'}
+        const id = hashOf(secret)
+        const row = await this.get<{person: string, role: string, last_used_at: string | null}>(
+            `SELECT l.person, p.role, l.last_used_at FROM logins l JOIN people p ON p.id = l.person WHERE l.id = ? AND l.expires_at > ? AND p.removed_at IS NULL`, id, stamp())
+        if (!row) return undefined
+        if (!row.last_used_at || Date.now() - Date.parse(row.last_used_at) > USED_EVERY) await this.run('UPDATE logins SET last_used_at = ? WHERE id = ?', stamp(), id)
+        return {person: row.person, owner: row.role === 'owner'}
     }
 
     async endLogin(secret: string): Promise<void> {
         await this.run('DELETE FROM logins WHERE id = ?', hashOf(secret))
+    }
+
+    /** The live logins of `person`, or everyone's, the latest used first (ORR-838); `secret` is the asking browser's
+     * cookie, to mark it. */
+    async logins(person?: string, secret?: string): Promise<LoginRecord[]> {
+        const rows = await this.all<LoginRow>(
+            `SELECT id, person, name, created_at, last_used_at, expires_at FROM logins WHERE expires_at > ?${person ? ' AND person = ?' : ''}
+             ORDER BY COALESCE(last_used_at, created_at, '') DESC, id`, stamp(), ...person ? [person] : [])
+        const mine = secret && hashOf(secret)
+        return rows.map(row => ({...loginOf(row), ...row.id === mine ? {current: true} : {}}))
+    }
+
+    /** Ends a login by its listed id, at once: `mine`, when given, is whose it has to be. */
+    async endLoginById(ref: string, mine?: string): Promise<void> {
+        const row = /^[0-9a-f]{16}$/.test(ref) ? await this.get<{id: string, person: string}>(`SELECT id, person FROM logins WHERE substr(id, 1, ${LOGIN_REF}) = ?`, ref) : undefined
+        if (!row || mine && row.person !== mine) throw notFound(`No login "${ref}"`)
+        await this.run('DELETE FROM logins WHERE id = ?', row.id)
+    }
+
+    /** Ends every login of `person`, or everyone's, but the asking browser's: what a lost phone calls for. How many ended. */
+    async endOtherLogins(person?: string, secret?: string): Promise<number> {
+        const keep = secret ? hashOf(secret) : ''
+        const ended = await this.all<{id: string}>(`SELECT id FROM logins WHERE id <> ?${person ? ' AND person = ?' : ''}`, keep, ...person ? [person] : [])
+        await this.run(`DELETE FROM logins WHERE id <> ?${person ? ' AND person = ?' : ''}`, keep, ...person ? [person] : [])
+        return ended.length
     }
 
     /** Whether anyone could get in by a key: the owner has a live person key. */
