@@ -71,6 +71,19 @@ Comments, the new-issue dialog and an issue's description take images: **paste**
 
 Every text box takes code blocks: type ``` and press **Enter**, and the block closes below the cursor, or press **⌘E** (Ctrl-E) to put what's selected in backticks, or in a block if it runs over several lines. Inside a block, **Enter** is a new line, even in a box where it sends; **⌘-Enter** still sends.
 
+## Writing Markdown
+
+The chat, comments and an issue's description show their Markdown as you type it: the markers stay, faint, and the words between them come out bold, *italic*, ==highlighted==, struck through, as code, a heading, a quote or a list. What's kept is the Markdown you typed, so it reads the same anywhere. Comments and descriptions have buttons above the box for each; the keys work in all three:
+
+| Key | Does |
+|---|---|
+| **⌘B**, **⌘I** | bold, italic |
+| **⌘⇧H**, **⌘⇧X** | highlight (`==words==`), strikethrough |
+| **⌘E** | code (see above) |
+| **⌘⇧8**, **⌘⇧7**, **⌘⇧.** | a bulleted list, a numbered list, a quote, on every line selected |
+
+Each one takes the formatting off again when it's already there. **Enter** on a list or quote line starts the next one (the next number, an open task), and on an empty one ends the list. In the chat, where Enter sends, that's **Shift-Enter**.
+
 ## Pages
 
 | Page | What's there |

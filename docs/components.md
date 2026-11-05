@@ -230,6 +230,7 @@ Already one component each; use them rather than drawing the same thing again.
 |---|---|
 | `CopyButton` | Copy, then Copied with a tick (Couldn't copy where the browser won't) |
 | `CopyBlock` | a titled block of text to copy as it is (a command, a config) |
+| `MarkdownField` | a text box for Markdown (the chat, comments, an issue's description): a real textarea with the source drawn over it in its formatting, keys (⌘B, ⌘I, ⌘⇧H…) and, with `toolbar`, buttons; Enter carries a list on (Shift-Enter with `enterSends`). Classes and listeners go on the textarea, which it exposes as `el` (for `useImageUpload`), and its own keys run first. The drawing changes no character's width, so it lines up with the caret: keep it that way (`md-draw` in `main.css`) |
 | `ImageButton` | picks images for a Markdown field |
 | `ImageDropOverlay` | covers an area taking images while one is dragged over it: "Drop image to add" |
 

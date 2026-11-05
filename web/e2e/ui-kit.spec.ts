@@ -153,6 +153,30 @@ test('SegmentedControl: one choice, a click or ←→ moves it', async ({page}) 
     await expect(list).toBeFocused()
 })
 
+test('MarkdownField: formats from the keys and the toolbar, keeping plain Markdown under its drawing', async ({page}) => {
+    const box = page.getByLabel('Example Markdown')
+    await box.fill('')
+    await box.pressSequentially('make ')
+    await page.keyboard.press('ControlOrMeta+b')
+    await page.keyboard.type('this')
+    // Past the closing `**` (End scrolls on a Mac).
+    await page.keyboard.press('ArrowRight')
+    await page.keyboard.press('ArrowRight')
+    await page.keyboard.type(' bold')
+    await page.keyboard.press('Enter')
+    await page.getByRole('button', {name: /^Bulleted list/}).click()
+    await page.keyboard.type('one')
+    await page.keyboard.press('Enter')
+    await page.keyboard.type('two')
+    await expect(box).toHaveValue('make **this** bold\n- one\n- two')
+    await expect(box).toBeFocused()
+    // The drawing says the same, in its formatting, over the box.
+    const drawing = page.locator('.md-draw').filter({hasText: 'make'})
+    await expect(drawing.locator('.md-bold')).toHaveText('**this**')
+    const [a, b] = await Promise.all([box.boundingBox(), drawing.boundingBox()])
+    expect(b).toEqual(a)
+})
+
 test('UiDialog: keeps the focus inside, closes on Esc or a press outside, submits on ↵', async ({page}) => {
     const open = page.getByRole('button', {name: 'Open a dialog'})
     const dialog = page.getByRole('dialog', {name: 'Example dialog'})

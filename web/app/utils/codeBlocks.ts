@@ -41,3 +41,13 @@ export function enterInCode(text: string, at: number): CodeEdit | null {
     }
     return inside ? {from: at, to: at, insert: '\n', cursor: at + 1} : null
 }
+
+/** Makes `edit` in `box` through the browser's editing, so ⌘Z takes it back and the box's v-model hears it. */
+export function applyEdit(box: HTMLTextAreaElement, {from, to, insert, cursor}: CodeEdit) {
+    box.setSelectionRange(from, to)
+    if (!document.execCommand('insertText', false, insert)) {
+        box.setRangeText(insert, from, to, 'end')
+        box.dispatchEvent(new Event('input', {bubbles: true}))
+    }
+    box.setSelectionRange(cursor, cursor)
+}
