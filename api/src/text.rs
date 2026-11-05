@@ -129,7 +129,7 @@ pub fn short_doc_id(id: &str, uid: &str) -> Option<String> {
     Some(id[4..id.len() - tail.len()].to_string())
 }
 
-fn base_letters(text: &str) -> Vec<char> {
+pub fn base_letters(text: &str) -> Vec<char> {
     text.nfkd().filter(|c| !is_combining_mark(*c)).flat_map(char::to_lowercase).collect()
 }
 

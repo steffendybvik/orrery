@@ -131,13 +131,19 @@ fn preset_of(row: &AnyRow) -> Value {
 
 /// A preset's number from the URL, or from its full form on this server (`serverId`, ORR-674): `pst-12-x7k2m9qd`.
 pub fn preset_id(sent: &str, uid: &str) -> Result<i64> {
+    server_id("pst-", "preset", sent, uid)
+}
+
+/// A preset's or schedule's number from the URL, or from its full form on this server (`serverId`): `prefix`, the
+/// number, then `-` and the server's uid.
+pub fn server_id(prefix: &str, kind: &str, sent: &str, uid: &str) -> Result<i64> {
     let tail = format!("-{uid}");
-    let short =
-        (!uid.is_empty() && sent.starts_with("pst-") && sent.ends_with(&tail) && sent.len() > 4 + tail.len()).then(|| &sent[4..sent.len() - tail.len()]);
+    let short = (!uid.is_empty() && sent.starts_with(prefix) && sent.ends_with(&tail) && sent.len() > prefix.len() + tail.len())
+        .then(|| &sent[prefix.len()..sent.len() - tail.len()]);
     let id = short.unwrap_or(sent).trim();
     match id.parse::<f64>() {
         Ok(n) if !id.is_empty() && n.is_finite() && n.fract() == 0.0 && n.abs() < 9e15 => Ok(n as i64),
-        _ => Err(ApiError::not_found(format!("No preset {sent}"))),
+        _ => Err(ApiError::not_found(format!("No {kind} {sent}"))),
     }
 }
 

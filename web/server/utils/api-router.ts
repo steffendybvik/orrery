@@ -65,6 +65,9 @@ export const DOMAINS: readonly {domain: string, paths: RegExp, methods?: readonl
     // Rating an issue's PR's risk (ORR-952): only its columns of `issue_pulls`, with the board told it changed. The poll
     // keeping a PR stays here, as a merge sets an issue's release and posts orrery's comments.
     {domain: "a pull request's risk", paths: /^projects\/[^/]+\/issues\/[^/]+\/pulls\/[^/]+\/[^/]+\/[^/]+\/risk$/, methods: ['PUT']},
+    // The schedules, read (ORR-930): a project's, one with its runs, every project's and those across projects. Making,
+    // changing and running them stays here, as a run starts a session and a write can set one off (ORR-929).
+    {domain: 'schedules, reading', paths: /^(projects\/[^/]+\/schedules(\/[^/]+)?|schedules(\/across)?)$/, methods: ['GET']},
 ]
 
 /** The headers a reply that isn't JSON keeps on its way through: what it is, how long the browser keeps it, and that

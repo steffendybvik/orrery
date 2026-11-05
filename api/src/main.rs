@@ -24,6 +24,7 @@ mod plans;
 mod presets;
 mod pulls;
 mod releases;
+mod schedules;
 mod secrets;
 mod settings;
 mod statuses;
@@ -52,6 +53,7 @@ use plans::Plans;
 use presets::{preset_id, Presets};
 use pulls::{check_rating, pull_number, Pulls};
 use releases::Releases;
+use schedules::Schedules;
 use secrets::Secrets;
 use serde_json::{json, Value};
 use settings::Settings;
@@ -548,6 +550,27 @@ async fn rate_pull(
     Ok(reply(StatusCode::OK, Some(value), std::mem::take(&mut pulls.effects)))
 }
 
+async fn all_schedules(State(app): Shared) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    Ok(Json(Schedules::new(&mut conn).list(None).await?).into_response())
+}
+
+async fn list_schedules(State(app): Shared, Path(project): Path<String>) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    Ok(Json(Schedules::new(&mut conn).list(Some(&project)).await?).into_response())
+}
+
+async fn get_schedule(State(app): Shared, Path((project, schedule)): Path<(String, String)>) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    let uid = Presets::new(&mut conn).uid().await?;
+    Ok(Json(Schedules::new(&mut conn).get(&project, &schedule, &uid).await?).into_response())
+}
+
+async fn schedules_across(State(app): Shared) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    Ok(Json(Schedules::new(&mut conn).across().await?).into_response())
+}
+
 async fn list_presets(State(app): Shared) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
     Ok(Json(Presets::new(&mut conn).list(None).await?).into_response())
@@ -605,7 +628,7 @@ async fn restore_presets(State(app): Shared, headers: HeaderMap) -> Result<Respo
 
 async fn health() -> Json<Value> {
     Json(
-        json!({"ok": true, "domains": ["docs", "statuses", "issues, reading", "comments, reading", "activity", "milestones", "releases", "people, but removing one", "invites", "keys", "logins", "uploads, reading", "presets", "secrets, reading", "settings", "a pull request, reading", "a pull request's risk"]}),
+        json!({"ok": true, "domains": ["docs", "statuses", "issues, reading", "comments, reading", "activity", "milestones", "releases", "people, but removing one", "invites", "keys", "logins", "uploads, reading", "presets", "secrets, reading", "settings", "a pull request, reading", "a pull request's risk", "schedules, reading"]}),
     )
 }
 
@@ -652,6 +675,10 @@ fn router(app: Arc<App>) -> Router {
         .route("/api/secrets/{name}", get(get_secret))
         .route("/api/pulls/{owner}/{name}/{number}", get(get_pull))
         .route(&format!("{P}/issues/{{issue}}/pulls/{{owner}}/{{name}}/{{number}}/risk"), put(rate_pull))
+        .route(&format!("{P}/schedules"), get(list_schedules))
+        .route(&format!("{P}/schedules/{{schedule}}"), get(get_schedule))
+        .route("/api/schedules", get(all_schedules))
+        .route("/api/schedules/across", get(schedules_across))
         .layer(middleware::from_fn_with_state(app.clone(), guard))
         .with_state(app)
 }
