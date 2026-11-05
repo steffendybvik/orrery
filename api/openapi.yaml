@@ -674,6 +674,21 @@ paths:
       responses:
         '200': {description: The chat, content: {application/json: {schema: {type: object}}}}
         '404': {$ref: '#/components/responses/NotFound'}
+    put:
+      x-served: false
+      summary: Keeps the chat as it is now, whole, but why its launcher couldn't start it
+      description: >-
+        The one write the local app makes of a chat (`keepChat`), as it changes: a chat runs as a session on the local
+        machine, so what it does stays there, and this keeps its record. Its project and start stay as first kept.
+      requestBody: {required: true, content: {application/json: {schema: {type: object, required: [id, project, started_at, messages], description: The chat, as `GET` gives it}}}}
+      responses:
+        '204': {description: Kept}
+        '400': {$ref: '#/components/responses/BadRequest'}
+    delete:
+      x-served: false
+      summary: Lets go of the chat's record, one that ended before anything was said, or deleted
+      responses:
+        '204': {description: Gone}
   /api/schedules/across:
     get:
       summary: The schedules across projects, oldest first, each with the projects it's made on

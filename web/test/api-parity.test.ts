@@ -841,6 +841,8 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         for (const [path, body] of [['/api/pulls/<repo>', {at: 1, pulls: [{number: -1}]}], ['/api/pulls/<repo>/error', {}], ['/api/pulls/<repo>/history', {page: 'next'}], ['/api/pulls/forget', {repos: 'all'}]] as const) {
             expect((await viaApi(path === '/api/pulls/forget' ? 'POST' : 'PUT', path.replace('<repo>', repo('through-api')), body)).status, path).toBe(400)
         }
+    })
+
     it('reads the chats as they\'re kept alike, running and ended (ORR-951)', async () => {
         const kept = (id: string, project: string, started: string, extra: Record<string, unknown> = {}) => ({id, project: 'not this', started_at: started, issues: 'todo',
             messages: [{id: 1, from: 'owner', text: `Hello from ${id}`, images: [], at: started}, {id: 2, from: 'claude', text: 'Hi.', images: [], at: started}], ...extra})
@@ -866,8 +868,28 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         let missing: unknown
         try { chats.readChat('nope') } catch (error) { missing = (error as Error).message }
         expect(await viaApi('GET', '/api/chats/nope')).toMatchObject({status: 404, body: {message: missing}})
+        // Keeping one, as the module does as it changes: through the store, and through the API, alike.
+        const row = (id: string) => store.db.get<{project: string, started_at: string, ended_at: string | null, chat: string}>('SELECT project, started_at, ended_at, chat FROM chats WHERE id = ?', id)
+        const said = (id: string, project: string) => ({...kept(id, project, '2026-11-05T13:00:00.000Z'), project, problem: 'A launcher too old', ended: true, ended_at: '2026-11-05T13:10:00.000Z',
+            messages: [{id: 9, from: 'owner', text: 'Ünïcode, "quotes" and a\nline', images: ['up1'], at: '2026-11-05T13:00:00.000Z'}]})
+        await chats.keepChat(store.db, said('c0ffee000010', 'through-store') as never)
+        expect(await viaApi('PUT', '/api/chats/c0ffee000011', said('c0ffee000011', 'through-api'))).toMatchObject({status: 204, changed: [], told: []})
+        const [byStore, byApi] = [await row('c0ffee000010'), await row('c0ffee000011')]
+        expect(byApi!.chat).toBe(byStore!.chat.replace('c0ffee000010', 'c0ffee000011').replace('"project":"through-store"', '"project":"through-api"'))
+        expect(JSON.parse(byApi!.chat)).not.toHaveProperty('problem')
+        expect({...byApi, chat: undefined}).toEqual({...byStore, chat: undefined, project: 'through-api'})
+        // Changed again: its project and start stay as first kept.
+        await chats.keepChat(store.db, {...said('c0ffee000010', 'through-api'), started_at: '2027-01-01T00:00:00.000Z'} as never)
+        await viaApi('PUT', '/api/chats/c0ffee000011', {...said('c0ffee000011', 'through-store'), started_at: '2027-01-01T00:00:00.000Z'})
+        expect([(await row('c0ffee000010'))!.project, (await row('c0ffee000011'))!.project]).toEqual(['through-store', 'through-api'])
+        expect((await row('c0ffee000011'))!.started_at).toBe('2026-11-05T13:00:00.000Z')
+        expect(await viaApi('PUT', '/api/chats/c0ffee000011', {id: 'another', project: 1})).toMatchObject({status: 400})
+        await chats.keepChat(store.db, said('c0ffee000010', 'through-store') as never, true)
+        expect(await viaApi('DELETE', '/api/chats/c0ffee000011')).toMatchObject({status: 204})
+        expect([await row('c0ffee000010'), await row('c0ffee000011')]).toEqual([undefined, undefined])
         vi.unstubAllGlobals()
         expect(domainOf('GET', '/api/chats')).toBeUndefined()
+        expect(domainOf('PUT', '/api/chats/c0ffee000011')).toBeUndefined()
     })
 
     it('lists people, and makes, lists and revokes keys and ends logins alike (ORR-928)', async () => {
@@ -1504,7 +1526,7 @@ describe('the contract (api/openapi.yaml)', () => {
     })
 
     it('sends none of the routes written ahead of the Rust API to it', () => {
-        expect(contract(true)).toEqual(['GET /api/chats', 'GET /api/chats/{chat}', 'POST /api/pulls/forget', 'PUT /api/pulls/{owner}/{name}', 'PUT /api/pulls/{owner}/{name}/error', 'PUT /api/pulls/{owner}/{name}/history', 'PUT /api/pulls/{owner}/{name}/{number}'])
+        expect(contract(true)).toEqual(['DELETE /api/chats/{chat}', 'GET /api/chats', 'GET /api/chats/{chat}', 'POST /api/pulls/forget', 'PUT /api/chats/{chat}', 'PUT /api/pulls/{owner}/{name}', 'PUT /api/pulls/{owner}/{name}/error', 'PUT /api/pulls/{owner}/{name}/history', 'PUT /api/pulls/{owner}/{name}/{number}'])
         expect(contract(true).filter(operation => routes().includes(operation))).toEqual([])
     })
 })

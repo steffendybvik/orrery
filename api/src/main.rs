@@ -689,6 +689,22 @@ async fn list_chats(State(app): Shared) -> Result<Response> {
     Ok(Json(Chats::new(&mut conn).list().await?).into_response())
 }
 
+async fn keep_chat(State(app): Shared, Path(chat): Path<String>, headers: HeaderMap, body: Bytes) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    let mut chats = Chats::new(&mut conn);
+    chats.outbox = Some(Outbox::new(actor_of(&headers)));
+    chats.keep(&chat, &body_of(&body)).await?;
+    Ok(reply(StatusCode::NO_CONTENT, None, std::mem::take(&mut chats.effects)))
+}
+
+async fn forget_chat(State(app): Shared, Path(chat): Path<String>, headers: HeaderMap) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    let mut chats = Chats::new(&mut conn);
+    chats.outbox = Some(Outbox::new(actor_of(&headers)));
+    chats.forget(&chat).await?;
+    Ok(reply(StatusCode::NO_CONTENT, None, std::mem::take(&mut chats.effects)))
+}
+
 async fn get_chat(State(app): Shared, Path(chat): Path<String>) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
     Ok(Json(Chats::new(&mut conn).get(&chat).await?).into_response())
@@ -806,7 +822,7 @@ fn router(app: Arc<App>) -> Router {
         .route(&format!("{P}/schedules/{{schedule}}"), get(get_schedule))
         .route("/api/schedules", get(all_schedules))
         .route("/api/chats", get(list_chats))
-        .route("/api/chats/{chat}", get(get_chat))
+        .route("/api/chats/{chat}", get(get_chat).put(keep_chat).delete(forget_chat))
         .route("/api/schedules/across", get(schedules_across))
         .layer(middleware::from_fn_with_state(app.clone(), guard))
         .with_state(app)
