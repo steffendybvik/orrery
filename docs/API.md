@@ -11,6 +11,17 @@ JSON, and its fields are snake_case (`created_at`, `icon_color`), as the databas
 the issue it made, its comments and its activity, which the page shows instead of Agent; none for the owner's writes,
 older ones, or a session orrery doesn't know.
 
+## Versions
+
+Within a major version, a server keeps answering what it answered: a route, a field it sent or a value it took isn't
+taken away or changed in meaning, and what's new is optional, so an older client keeps working (ORR-965). A request
+field a server doesn't know is refused (400, naming the fields it takes), so a newer client sends a new field only to a
+server whose `version` takes it. The channel and the launcher send their own `version` as they
+connect. The launcher's stream's `ready` says the server's `version` and the `oldest` launcher it takes
+(`1.0.0-rc.10`, or `1.0.0-rc.15` with more than one person); a launcher older than that says so on its log instead of
+half working. The claim flags (`untrusted`, `chat`, `model`, `resume`) say what a launcher can do, so a server never
+hands one a launch it can't start safely.
+
 ## Ids
 
 orrery hands ids out; you can't pick them. An issue is the project's prefix and a number:
