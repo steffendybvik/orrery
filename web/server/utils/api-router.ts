@@ -20,6 +20,8 @@ export const DOMAINS: readonly {domain: string, paths: RegExp, methods?: readonl
     // A project's docs, their revisions and sections (ORR-922). An artifact's page stays here: it's drawn with the
     // page's own sanitising and its locked-down headers (`artifact.get.ts`).
     {domain: 'docs', paths: /^projects\/[^/]+\/(docs(\/[^/]+(\/revisions(\/[^/]+(\/restore)?)?)?)?|deleted-docs|doc-sections(\/[^/]+)?)$/},
+    // An issue's comments, read (ORR-927). Writing one stays here until how a comment wakes sessions moves (ORR-929).
+    {domain: 'comments, reading', paths: /^projects\/[^/]+\/issues\/[^/]+\/comments(\/[^/]+)?$/, methods: ['GET']},
 ]
 
 const WRITES = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
