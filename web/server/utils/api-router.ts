@@ -49,6 +49,9 @@ export const DOMAINS: readonly {domain: string, paths: RegExp, methods?: readonl
     {domain: 'uploads, reading', paths: /^uploads\/[^/]+$/, methods: ['GET']},
     // The orrery's presets and a project's own (ORR-949). Seeding the ones orrery ships, as this server starts, stays here.
     {domain: 'presets', paths: /^(presets(\/[^/]+(\/reset)?)?|projects\/[^/]+\/presets)$/},
+    // The orrery's stored settings, every one (ORR-954). What only this server knows is `GET /api/machine`, here. A
+    // change's keys come back in `Orrery-Settings-Keys`, for the note in the event log the route here made.
+    {domain: 'settings', paths: /^settings$/},
 ]
 
 /** The headers a reply that isn't JSON keeps on its way through: what it is, how long the browser keeps it, and that
@@ -195,6 +198,8 @@ export async function forwardToApi(event: H3Event, api: {url: string, token: str
     for (const project of changedOf(response.headers.get('orrery-changed'))) store.changed(project)
     // The statuses are in the settings, which open pages get again (ORR-926).
     if (response.headers.get('orrery-settings') === '1') await store.settingsChanged()
+    const keys = changedOf(response.headers.get('orrery-settings-keys'))
+    if (keys.length) useEventLog().note({level: 'info', kind: 'settings.changed', message: `${actor.name} changed the settings: ${keys.join(', ')}`, details: {by: actor.name, keys}})
     for (const {type, project, subject} of toldOf(response.headers.get('orrery-told'))) store.told(type, project, subject, actor)
     const counted = countedOf(event.method, pathOf(event))
     if (counted) countOwnUse(event, counted)

@@ -25,7 +25,7 @@ async function store(kinds: WorkKind[] | null) {
     try {
         // Reset is null on the server, so orrery's own kinds follow it as they change; the page shows them at once.
         if (kinds) await save({work_kinds: kinds})
-        else settings.value = await apiFetch<Settings>('/settings', {method: 'PATCH', body: {work_kinds: null}})
+        else settings.value = {...settings.value, ...await apiFetch<Settings>('/settings', {method: 'PATCH', body: {work_kinds: null}})}
     } catch (error) {
         failed.value = errorMessage(error)
         rows.value = toRows(settings.value.work_kinds)

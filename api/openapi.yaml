@@ -245,6 +245,27 @@ paths:
         '403': {$ref: '#/components/responses/Forbidden'}
         '404': {$ref: '#/components/responses/NotFound'}
         '409': {$ref: '#/components/responses/Conflict'}
+  /api/settings:
+    get:
+      summary: This orrery's own settings, every one that's stored
+      description: |
+        Its id (made the first time it's asked for, and kept), the statuses, and every setting, the machine's own
+        (`terminal`, `starts`, `advanced`) too, each with its default when it isn't set. What only the running server
+        knows, `environment` and `database`, is the Nuxt server's `GET /api/machine`, not this.
+      responses:
+        '200': {description: The settings, content: {application/json: {schema: {$ref: '#/components/schemas/Settings'}}}}
+    patch:
+      summary: Changes the settings, the owner's only
+      description: |
+        Only the fields sent change; null puts one back to its default. An empty prompt is none, a handle is kept
+        lowercase, and `starts` and `work_kinds` are checked and kept as sent. The settings change, every project when
+        `starts` did (`Orrery-Changed`), and `Orrery-Settings-Keys` says which were sent, for the event log.
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/SettingsInput'}}}}
+      responses:
+        '200': {description: The settings now, content: {application/json: {schema: {$ref: '#/components/schemas/Settings'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
   /api/projects/{project}/issues:
     parameters: [{$ref: '#/components/parameters/project'}]
     get:
@@ -712,6 +733,76 @@ components:
         kind: {$ref: '#/components/schemas/StatusKind'}
         color: {type: string, pattern: '^(slate|blue|teal|green|amber|rose|violet|#[0-9a-fA-F]{6})$'}
         position: {type: number}
+    Instruction:
+      type: object
+      required: [id, text, on]
+      properties:
+        id: {type: string}
+        text: {type: string, minLength: 1}
+        on: {type: boolean}
+    Starts:
+      type: object
+      description: 'orrery starts sessions for any project with a launcher: at most `limit` at once, `min` kept running, each for `minutes`, stopped after `idle_minutes` idle; `on_signal` false keeps work that finds nobody listening from starting one.'
+      required: [limit]
+      additionalProperties: false
+      properties:
+        limit: {type: integer, minimum: 1, maximum: 20}
+        min: {type: integer, minimum: 1}
+        minutes: {type: integer, minimum: 1, maximum: 1440}
+        idle_minutes: {type: integer, minimum: 1, maximum: 1440}
+        on_signal: {type: boolean}
+    WorkKind:
+      type: object
+      required: [id, name, labels, model]
+      additionalProperties: false
+      properties:
+        id: {type: string, pattern: '^[a-z0-9][a-z0-9-]{0,39}$'}
+        name: {type: string, minLength: 1}
+        labels: {type: array, items: {type: string}, description: Lowercase; a label is in one kind only}
+        model: {type: string, description: 'best, opus, sonnet, haiku, fable, default, opusplan, or a full id (claude-…)'}
+        effort: {type: string, enum: [low, medium, high, xhigh, max]}
+    Settings:
+      type: object
+      required: [id, tint, statuses, focus_prompt, milestone_prompt, instructions, handle, uid, tracker, starts, terminal, restrict_proposals, advanced, pick_next, count_use, work_kinds, starred, hidden]
+      properties:
+        id: {type: string, description: 'This orrery''s id, `orr_` and six hex digits'}
+        tint: {type: [string, 'null']}
+        statuses: {type: array, items: {$ref: '#/components/schemas/Status'}}
+        focus_prompt: {type: [string, 'null']}
+        milestone_prompt: {type: [string, 'null']}
+        instructions: {type: array, items: {$ref: '#/components/schemas/Instruction'}}
+        handle: {type: [string, 'null']}
+        uid: {type: string}
+        tracker: {type: [string, 'null']}
+        starts: {oneOf: [{$ref: '#/components/schemas/Starts'}, {type: 'null'}]}
+        terminal: {type: string, enum: [terminal, iterm, warp, ghostty]}
+        restrict_proposals: {type: boolean}
+        advanced: {type: boolean}
+        pick_next: {type: boolean}
+        count_use: {type: boolean}
+        work_kinds: {type: array, items: {$ref: '#/components/schemas/WorkKind'}}
+        starred: {type: array, items: {type: string}, description: Project ids listed first; none that are hidden}
+        hidden: {type: array, items: {type: string}}
+    SettingsInput:
+      type: object
+      description: Any of them; null puts one back to its default. Unknown fields are refused.
+      additionalProperties: false
+      properties:
+        tint: {type: [string, 'null'], pattern: '^(slate|blue|teal|green|amber|rose|violet|#[0-9a-fA-F]{6})$'}
+        focus_prompt: {type: [string, 'null']}
+        milestone_prompt: {type: [string, 'null']}
+        instructions: {type: [array, 'null'], items: {type: object, required: [text], properties: {id: {type: string}, text: {type: string, minLength: 1}, on: {type: boolean}}}}
+        tracker: {type: [string, 'null'], pattern: '^https?://\S*\{id\}\S*$'}
+        handle: {type: [string, 'null'], pattern: '^[A-Za-z0-9][A-Za-z0-9._-]{0,38}$'}
+        starts: {oneOf: [{$ref: '#/components/schemas/Starts'}, {type: 'null'}]}
+        terminal: {type: [string, 'null'], enum: [terminal, iterm, warp, ghostty, null]}
+        restrict_proposals: {type: boolean}
+        advanced: {type: boolean}
+        pick_next: {type: boolean}
+        work_kinds: {type: [array, 'null'], minItems: 1, items: {$ref: '#/components/schemas/WorkKind'}}
+        count_use: {type: boolean}
+        starred: {type: [array, 'null'], items: {type: string, minLength: 1}}
+        hidden: {type: [array, 'null'], items: {type: string, minLength: 1}}
     Asks: {type: string, enum: [decision, feedback], description: What a question waits on the owner for}
     Counts: {type: object, additionalProperties: {type: integer}, description: 'How many leaf issues are in each column, by its id; only columns with some'}
     Kinds:

@@ -25,6 +25,8 @@ pub struct Effects {
     pub changed: Vec<String>,
     pub settings: bool,
     pub told: Vec<(String, String, String)>,
+    /// The settings sent in a change (ORR-954), for the router's note in the event log.
+    pub settings_keys: Vec<String>,
 }
 
 impl Effects {
