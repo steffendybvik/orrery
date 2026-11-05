@@ -656,6 +656,24 @@ paths:
       summary: 'Every project''s schedules (the agenda): the soonest next run first, those with none last, ties by title'
       responses:
         '200': {description: The schedules, content: {application/json: {schema: {type: array, items: {type: object}}}}}
+  /api/chats:
+    get:
+      x-served: false
+      summary: The owner's chats as they're kept, running and ended, newest first, each with its messages
+      description: >-
+        Read from the `chats` table, as the Nuxt server reads them back as it starts. Written ahead: the Nuxt server
+        answers from its memory, which runs ahead of the table (a chat's change is kept just after it), and why a launcher
+        couldn't start one (`problem`) is never kept, so the router keeps these until the swap settles where that lives.
+      responses:
+        '200': {description: The chats, content: {application/json: {schema: {type: array, items: {type: object}}}}}
+  /api/chats/{chat}:
+    parameters: [{name: chat, in: path, required: true, description: The chat's id, its launch's, schema: {type: string}}]
+    get:
+      x-served: false
+      summary: One chat as it's kept, running or ended, with its messages
+      responses:
+        '200': {description: The chat, content: {application/json: {schema: {type: object}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
   /api/schedules/across:
     get:
       summary: The schedules across projects, oldest first, each with the projects it's made on

@@ -12,6 +12,7 @@
 // `orrery-api migrate` brings NUXT_DATABASE's schema up to date instead (ORR-931), and exits. Nothing runs it yet: the
 // Nuxt server migrates the database as it opens it until the last domain has moved here.
 mod changes;
+mod chats;
 mod comments;
 mod db;
 mod docs;
@@ -43,6 +44,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, patch, post, put};
 use axum::{Json, Router};
 use changes::Outbox;
+use chats::Chats;
 use comments::{comment_id, Comments, Handoff};
 use docs::{Actor, Docs, Effects};
 use error::{ApiError, Result};
@@ -682,6 +684,16 @@ async fn schedules_across(State(app): Shared) -> Result<Response> {
     Ok(Json(Schedules::new(&mut conn).across().await?).into_response())
 }
 
+async fn list_chats(State(app): Shared) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    Ok(Json(Chats::new(&mut conn).list().await?).into_response())
+}
+
+async fn get_chat(State(app): Shared, Path(chat): Path<String>) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    Ok(Json(Chats::new(&mut conn).get(&chat).await?).into_response())
+}
+
 async fn list_presets(State(app): Shared) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
     Ok(Json(Presets::new(&mut conn).list(None).await?).into_response())
@@ -793,6 +805,8 @@ fn router(app: Arc<App>) -> Router {
         .route(&format!("{P}/schedules"), get(list_schedules))
         .route(&format!("{P}/schedules/{{schedule}}"), get(get_schedule))
         .route("/api/schedules", get(all_schedules))
+        .route("/api/chats", get(list_chats))
+        .route("/api/chats/{chat}", get(get_chat))
         .route("/api/schedules/across", get(schedules_across))
         .layer(middleware::from_fn_with_state(app.clone(), guard))
         .with_state(app)

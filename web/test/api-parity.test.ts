@@ -841,6 +841,33 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         for (const [path, body] of [['/api/pulls/<repo>', {at: 1, pulls: [{number: -1}]}], ['/api/pulls/<repo>/error', {}], ['/api/pulls/<repo>/history', {page: 'next'}], ['/api/pulls/forget', {repos: 'all'}]] as const) {
             expect((await viaApi(path === '/api/pulls/forget' ? 'POST' : 'PUT', path.replace('<repo>', repo('through-api')), body)).status, path).toBe(400)
         }
+    it('reads the chats as they\'re kept alike, running and ended (ORR-951)', async () => {
+        const kept = (id: string, project: string, started: string, extra: Record<string, unknown> = {}) => ({id, project: 'not this', started_at: started, issues: 'todo',
+            messages: [{id: 1, from: 'owner', text: `Hello from ${id}`, images: [], at: started}, {id: 2, from: 'claude', text: 'Hi.', images: [], at: started}], ...extra})
+        const rows = [
+            kept('c0ffee000001', 'through-store', '2026-11-05T10:00:00.000Z'),
+            kept('c0ffee000002', 'through-api', '2026-11-05T12:00:00.000Z', {ended: true, ended_at: '2026-11-05T12:30:00.000Z', claude_session: 's-1', ran_on: {model: 'opus'}}),
+            kept('c0ffee000003', 'through-api', '2026-11-05T11:00:00.000Z', {issues: 'backlog'}),
+        ]
+        for (const [chat, project] of rows.map((c, i) => [c, ['through-store', 'through-api', 'through-api'][i]!] as const)) {
+            await store.db.run('INSERT INTO chats (id, project, started_at, ended_at, chat) VALUES (?, ?, ?, ?, ?)', chat.id, project, chat.started_at, (chat as {ended_at?: string}).ended_at ?? null, JSON.stringify(chat))
+        }
+        // The store's side is the chats module reading them back as orrery starts, with Nitro's globals stubbed.
+        vi.stubGlobal('useDatabase', () => store.db)
+        vi.stubGlobal('notFound', (await import('../server/utils/input')).notFound)
+        vi.resetModules()
+        const chats = await import('../server/utils/chats')
+        await chats.chatsLoaded()
+        const listed = await viaApi('GET', '/api/chats')
+        expect(listed.status).toBe(200)
+        expect(listed.body).toEqual(JSON.parse(JSON.stringify(chats.listChats())))
+        expect((listed.body as {id: string, project: string}[]).map(c => `${c.id} ${c.project}`)).toEqual(['c0ffee000002 through-api', 'c0ffee000003 through-api', 'c0ffee000001 through-store'])
+        for (const id of ['c0ffee000001', 'c0ffee000002']) expect((await viaApi('GET', `/api/chats/${id}`)).body, id).toEqual(JSON.parse(JSON.stringify(chats.readChat(id))))
+        let missing: unknown
+        try { chats.readChat('nope') } catch (error) { missing = (error as Error).message }
+        expect(await viaApi('GET', '/api/chats/nope')).toMatchObject({status: 404, body: {message: missing}})
+        vi.unstubAllGlobals()
+        expect(domainOf('GET', '/api/chats')).toBeUndefined()
     })
 
     it('lists people, and makes, lists and revokes keys and ends logins alike (ORR-928)', async () => {
@@ -1477,7 +1504,7 @@ describe('the contract (api/openapi.yaml)', () => {
     })
 
     it('sends none of the routes written ahead of the Rust API to it', () => {
-        expect(contract(true)).toEqual(['POST /api/pulls/forget', 'PUT /api/pulls/{owner}/{name}', 'PUT /api/pulls/{owner}/{name}/error', 'PUT /api/pulls/{owner}/{name}/history', 'PUT /api/pulls/{owner}/{name}/{number}'])
+        expect(contract(true)).toEqual(['GET /api/chats', 'GET /api/chats/{chat}', 'POST /api/pulls/forget', 'PUT /api/pulls/{owner}/{name}', 'PUT /api/pulls/{owner}/{name}/error', 'PUT /api/pulls/{owner}/{name}/history', 'PUT /api/pulls/{owner}/{name}/{number}'])
         expect(contract(true).filter(operation => routes().includes(operation))).toEqual([])
     })
 })
