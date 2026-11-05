@@ -70,6 +70,15 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         if (store?.db instanceof PostgresDb) await store.db.close()
     })
 
+    /** The projects told of a change to `projects`: each, and those sharing its releases, as `store.changed` tells them.
+     * The router hands it each project the API names; the store finds the sharing ones after the commit, too late for
+     * a step to see every time, so both sides are counted this way (ORR-974). */
+    async function sharing(projects: string[]): Promise<string[]> {
+        const each = await Promise.all(projects.map(async p => [p, ...(await store.db.all<{id: string}>(
+            'SELECT id FROM projects WHERE releases_from = ? OR id = (SELECT releases_from FROM projects WHERE id = ?)', p, p)).map(r => r.id)]))
+        return [...new Set(each.flat())].sort()
+    }
+
     /** Until the changes a write set off have all been heard. Each project a write changes also changes the projects
      * sharing its releases, found by a query nobody waits for, so on Postgres those can land in the next step's. */
     async function quiet() {
@@ -88,7 +97,7 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
             const made = value && typeof value === 'object' && 'created' in value && 'doc' in value
             const body = made ? (value as {doc: unknown}).doc : value === undefined ? null : value
             return {
-                status: made && (value as {created: boolean}).created ? 201 : body === null ? 204 : status, body, changed: [...new Set(changes.slice(before))].sort(),
+                status: made && (value as {created: boolean}).created ? 201 : body === null ? 204 : status, body, changed: await sharing(changes.slice(before)),
                 told: events.slice(told).map(e => `${e.type} ${e.subject}`), settings: settingsTold > settings,
             }
         } catch (error) {
@@ -110,7 +119,7 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         const changed = response.headers.get('orrery-changed')
         const told = toldOf(response.headers.get('orrery-told')).map(t => `${t.type} ${t.subject}`)
         if (response.status >= 400) return {status: response.status, body: {message: json!.message, ...json!.data === undefined ? {} : {data: json!.data}}, changed: [], told: [], settings: false}
-        return {status: response.status, body: json, changed: [...new Set(changedOf(changed))].sort(), told, settings: response.headers.get('orrery-settings') === '1'}
+        return {status: response.status, body: json, changed: await sharing(changedOf(changed)), told, settings: response.headers.get('orrery-settings') === '1'}
     }
 
     /** Both sides' outcomes with what's bound to differ taken out: the project, its uid and key (in an issue's id too),
@@ -120,7 +129,7 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         const revisions = new Map<number, number>()
         return JSON.parse(JSON.stringify(outcome, (key, value: unknown) => {
             if (typeof value === 'string') {
-                return value.replaceAll(project, '<project>').replace(/\b(STO|API)([DP]?)-(\d+)/g, 'KEY$2-$3').replace(/^\d{4}-\d{2}-\d{2}T[\d:.]+Z$/, '<time>').replace(/-[a-z2-7]{8}$/, '-<uid>')
+                return value.replaceAll(project, '<project>').replace(/\b(STO|API)([DPSX]?)-(\d+)/g, 'KEY$2-$3').replace(/^\d{4}-\d{2}-\d{2}T[\d:.]+Z$/, '<time>').replace(/-[a-z2-7]{8}$/, '-<uid>')
             }
             if (typeof value === 'number' && (key === 'id' || key === 'revision') && Number.isInteger(value)) {
                 if (!revisions.has(value)) revisions.set(value, revisions.size + 1)
@@ -514,6 +523,69 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         expect(outcomes[12]).toMatchObject({status: 204, changed: ['through-api-plans']})
         expect(outcomes[13]!.body).toMatchObject([{title: 'Wax it', milestone: null}])
         expect(outcomes[16]).toMatchObject({status: 201, body: {id: '3'}})
+    })
+
+    it('makes, changes, freezes, ships, refuses and deletes releases alike, and tells what each did (ORR-974)', async () => {
+        const on = (p: string) => `${p}-ships`
+        const drawing = (p: string) => `${p}-ships-drawing`
+        for (const p of ['through-store', 'through-api']) {
+            await store.createProject({name: on(p), key: p === 'through-store' ? 'STOS' : 'APIS'})
+            await store.createProject({name: drawing(p), key: p === 'through-store' ? 'STOX' : 'APIX'})
+        }
+        const api = (method: string, path: string, body?: unknown, actor: Actor = AGENT, project = 'through-api-ships') => viaApi(method, path, body, actor, project)
+        const outcomes: Outcome[] = []
+        const step = async (name: string, ts: (p: string) => Promise<Outcome>, rs: () => Promise<Outcome>) => outcomes.push(await both(name, ts, rs))
+        await step('with releases off', p => viaStore(() => store.createRelease(on(p), {version: '1.0.0'})), () => api('POST', '/releases', {version: '1.0.0'}))
+        for (const p of ['through-store', 'through-api']) {
+            await store.updateProject(on(p), {release_mode: 'own'}, OWNER)
+            await store.updateProject(drawing(p), {releases_from: on(p)}, OWNER)
+        }
+        await step('the owner\'s, with a branch to trim', p => viaStore(() => store.createRelease(on(p), {version: '1.0.0', branch: '  release/1.0  ', notes: 'Hinges.'}, OWNER), 201),
+            () => api('POST', '/releases', {version: '1.0.0', branch: '  release/1.0  ', notes: 'Hinges.'}, OWNER))
+        await step('a session\'s, shipped and placed', p => viaStore(() => store.createRelease(on(p), {version: '1.1.0', shipped_on: '2026-11-01', position: 5}, SESSION), 201),
+            () => api('POST', '/releases', {version: '1.1.0', shipped_on: '2026-11-01', position: 5}, SESSION))
+        await step('a third, at the top', p => viaStore(() => store.createRelease(on(p), {version: '2.0.0-rc.1', branch: null}), 201),
+            () => api('POST', '/releases', {version: '2.0.0-rc.1', branch: null}))
+        await step('a version taken', p => viaStore(() => store.createRelease(on(p), {version: '1.0.0'})), () => api('POST', '/releases', {version: '1.0.0'}))
+        await step('an empty version, a day that isn\'t one and a field it doesn\'t take', p => viaStore(() => store.createRelease(on(p), {version: '', frozen_on: 'soon', colour: 1})),
+            () => api('POST', '/releases', {version: '', frozen_on: 'soon', colour: 1}))
+        await step('no version, and a place that isn\'t a number', p => viaStore(() => store.createRelease(on(p), {position: 'top', notes: 3})), () => api('POST', '/releases', {position: 'top', notes: 3}))
+        await step('from a project drawing on it', p => viaStore(() => store.createRelease(drawing(p), {version: '3.0.0'})),
+            () => api('POST', '/releases', {version: '3.0.0'}, AGENT, 'through-api-ships-drawing'))
+        await step('frozen, its notes and branch cleared', p => viaStore(() => store.updateRelease(on(p), '1.0.0', {frozen_on: '2026-11-02', notes: null, branch: '  '})),
+            () => api('PATCH', '/releases/1.0.0', {frozen_on: '2026-11-02', notes: null, branch: '  '}))
+        await step('a new day on one frozen', p => viaStore(() => store.updateRelease(on(p), '1.0.0', {frozen_on: '2026-11-03'})), () => api('PATCH', '/releases/1.0.0', {frozen_on: '2026-11-03'}))
+        await step('thawed and shipped, and moved', p => viaStore(() => store.updateRelease(on(p), '1.0.0', {frozen_on: null, shipped_on: '2026-11-04', position: 9})),
+            () => api('PATCH', '/releases/1.0.0', {frozen_on: null, shipped_on: '2026-11-04', position: 9}))
+        await step('unshipped', p => viaStore(() => store.updateRelease(on(p), '1.0.0', {shipped_on: null})), () => api('PATCH', '/releases/1.0.0', {shipped_on: null}))
+        await step('its own version again', p => viaStore(() => store.updateRelease(on(p), '1.0.0', {version: '1.0.0'})), () => api('PATCH', '/releases/1.0.0', {version: '1.0.0'}))
+        await step('a new version', p => viaStore(() => store.updateRelease(on(p), '1.0.0', {version: '1.0.1'})), () => api('PATCH', '/releases/1.0.0', {version: '1.0.1'}))
+        await step('one that isn\'t there', p => viaStore(() => store.updateRelease(on(p), '9.9.9', {notes: 'x'})), () => api('PATCH', '/releases/9.9.9', {notes: 'x'}))
+        await step('changed from a project drawing on it', p => viaStore(() => store.updateRelease(drawing(p), '1.0.0', {notes: 'x'})),
+            () => api('PATCH', '/releases/1.0.0', {notes: 'x'}, AGENT, 'through-api-ships-drawing'))
+        for (const p of ['through-store', 'through-api']) {
+            await store.createIssue(on(p), {title: 'Oil it', release: '1.1.0'}, OWNER)
+            await store.createIssue(drawing(p), {title: 'Oil theirs', release: '1.1.0'}, OWNER)
+        }
+        await step('the owner\'s, deleted by a session', p => viaStore(() => store.deleteRelease(on(p), '1.0.0', SESSION)), () => api('DELETE', '/releases/1.0.0', undefined, SESSION))
+        await step('one with issues, here and drawing on it', p => viaStore(() => store.deleteRelease(on(p), '1.1.0', SESSION)), () => api('DELETE', '/releases/1.1.0', undefined, SESSION))
+        await step('its issues, set for none', p => viaStore(() => store.listIssues(on(p))), () => api('GET', '/issues'))
+        await step('theirs too', p => viaStore(() => store.listIssues(drawing(p))), () => api('GET', '/issues', undefined, AGENT, 'through-api-ships-drawing'))
+        await step('one that isn\'t there, deleted', p => viaStore(() => store.deleteRelease(on(p), '1.1.0', OWNER)), () => api('DELETE', '/releases/1.1.0', undefined, OWNER))
+        await step('the releases at the end', p => viaStore(() => store.listReleases(on(p))), () => api('GET', '/releases'))
+        // The steps compared something: what the API made, told and refused.
+        expect(outcomes[0]).toMatchObject({status: 400})
+        expect(outcomes[1]).toMatchObject({status: 201, body: {version: '1.0.0', branch: 'release/1.0'}, changed: ['through-api-ships', 'through-api-ships-drawing'], told: ['release.created 1.0.0']})
+        expect(outcomes[4]).toMatchObject({status: 409})
+        expect(outcomes[8]).toMatchObject({status: 200, told: ['release.frozen 1.0.0']})
+        expect(outcomes[9]).toMatchObject({status: 200, told: []})
+        expect(outcomes[10]).toMatchObject({status: 200, told: ['release.thawed 1.0.0', 'release.shipped 1.0.0']})
+        expect(outcomes[11]).toMatchObject({status: 200, told: ['release.unshipped 1.0.0']})
+        expect(outcomes[16]).toMatchObject({status: 403})
+        expect(outcomes[17]).toMatchObject({status: 204, told: ['release.deleted 1.1.0']})
+        expect(outcomes[19]!.body).toMatchObject([{title: 'Oil theirs'}])
+        expect((outcomes[19]!.body as object[])[0]).not.toHaveProperty('release')
+        expect(outcomes[21]!.body).toMatchObject([{version: '2.0.0-rc.1'}, {version: '1.0.0'}])
     })
 
     it('lists people, and makes, lists and revokes keys and ends logins alike (ORR-928)', async () => {
@@ -951,7 +1023,7 @@ describe('the router', () => {
     })
 
     it('routes by a table with a line per domain, so taking one back is taking its line out (ORR-925)', () => {
-        expect(DOMAINS.map(({domain}) => domain)).toEqual(['docs', 'statuses', 'issues, reading', 'comments, reading', 'activity', 'milestones', 'releases, reading', 'people, but removing one', 'invites', 'keys', 'logins', 'uploads, reading', 'presets', 'secrets, reading', 'settings', 'a pull request, reading'])
+        expect(DOMAINS.map(({domain}) => domain)).toEqual(['docs', 'statuses', 'issues, reading', 'comments, reading', 'activity', 'milestones', 'releases', 'releases, every project\'s', 'people, but removing one', 'invites', 'keys', 'logins', 'uploads, reading', 'presets', 'secrets, reading', 'settings', 'a pull request, reading'])
         expect(domainOf('PATCH', '/api/projects/p/docs/d')).toBe('docs')
         expect(domainOf('head', '/api/projects/p/doc-sections/')).toBe('docs')
         for (const path of ['/api/projects/p/issues/P-1/activity/x', '/api/', '/docs', '/api/projects/p/docs/d/artifact']) expect(domainOf('GET', path), path).toBeUndefined()
@@ -973,13 +1045,13 @@ describe('the router', () => {
         expect(domainOf('POST', '/api/projects/p/issues/P-1/activity')).toBeUndefined()
     })
 
-    it('sends milestones there, reads and writes, and releases\' reads, and keeps releases\' writes and a milestone\'s focus here (ORR-926, ORR-974)', () => {
+    it('sends milestones and releases there, reads and writes, and keeps a milestone\'s focus here (ORR-926, ORR-974)', () => {
         for (const [method, path] of [['GET', '/api/projects/p/milestones'], ['POST', '/api/projects/p/milestones'], ['GET', '/api/projects/p/milestones/3'],
             ['PATCH', '/api/projects/p/milestones/3'], ['DELETE', '/api/projects/p/milestones/3']]) expect(domainOf(method!, path!), `${method} ${path}`).toBe('milestones')
-        for (const path of ['/api/projects/p/releases', '/api/projects/p/releases/1.0.0', '/api/releases']) {
-            expect(domainOf('GET', path), path).toBe('releases, reading')
-            for (const method of ['POST', 'PATCH', 'DELETE']) expect(domainOf(method, path), `${method} ${path}`).toBeUndefined()
-        }
+        for (const [method, path] of [['GET', '/api/projects/p/releases'], ['POST', '/api/projects/p/releases'], ['GET', '/api/projects/p/releases/1.0.0'],
+            ['PATCH', '/api/projects/p/releases/1.0.0'], ['DELETE', '/api/projects/p/releases/1.0.0']]) expect(domainOf(method!, path!), `${method} ${path}`).toBe('releases')
+        expect(domainOf('GET', '/api/releases')).toBe('releases, every project\'s')
+        for (const method of ['POST', 'PATCH', 'DELETE']) expect(domainOf(method, '/api/releases'), method).toBeUndefined()
         for (const path of ['/api/projects/p/milestones/3/focus', '/api/projects/p/releases/1.0.0/notes', '/api/releases/x']) expect(domainOf('GET', path), path).toBeUndefined()
         expect(domainOf('POST', '/api/projects/p/milestones/3/focus')).toBeUndefined()
     })
@@ -1068,7 +1140,7 @@ describe('the contract (api/openapi.yaml)', () => {
     }
 
     it('has every route the router sends to the API, and no other', () => {
-        expect(contract()).toHaveLength(55)
+        expect(contract()).toHaveLength(58)
         expect(contract()).toEqual(routes())
     })
 

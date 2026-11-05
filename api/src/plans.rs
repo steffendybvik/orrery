@@ -1,7 +1,7 @@
 // A project's milestones and releases, reading them (ORR-926): what `listMilestones`, `milestone`, `listReleases`,
 // `release` and `allReleases` do (web/server/store/milestones.ts, releases.ts), answering as their `GET` routes do. Each
 // is worked out from the board as `issues.rs` reads it, as the store works them out from `readBoard`'s. Writing them
-// stays the Nuxt server's, one writer per table; the router sends only these reads here.
+// is `milestones.rs` and `releases.rs` (ORR-974).
 use crate::db::sql;
 use crate::error::{ApiError, Result};
 use crate::issues::{kinds_json, Board, Issues, Kinds, Node, Project, Status};
