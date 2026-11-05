@@ -25,14 +25,14 @@ import type {Chat, ChatIssues, ChatMessage} from '#shared/roadmap'
 // The pane's project follows the page you're on; picking one by hand pins it (the pin beside the picker), so it stays put
 // whatever page you open, until unpinned. While the chat's project isn't the page's, a line under the header says so
 // (ORR-588). The owner's chats, as many as they like and several on a project, are listed down the pane's left (ORR-870),
-// newest first, running and ended: each row names its project and its first message, a running one is marked and has
-// an × to end it, and a click opens it, an ended one as it was: writing in it starts its session again (ORR-884). New chat heads the list. On a narrow screen the list folds
+// newest first, running and ended: each row names its project and its first message, a running one is marked, each has
+// an × that removes it at once, ending it first if it runs (ORR-935; what it filed stays), and a click opens it, an ended one as it was: writing in it starts its session again (ORR-884). New chat heads the list. On a narrow screen the list folds
 // behind the button at the header's left, and opens over the conversation, closing on a tap outside it (ORR-899). Moving to another project, by page or
 // picker, shows its newest running chat and leaves the others running; the picker marks the projects with one. What's
 // held goes back in the box on a switch, so it never goes to another chat.
 // While no launcher runs for its project, LauncherHint above the box says so, with the install command to copy, in place
 // of the server's error (ORR-591).
-const {open, large, chat, session, project, pinned, failed, chats, running, lands, start, send, clear, land, fresh, view, end: endChat, remove, answer, close, pin, resize, upload, show} = useChat()
+const {open, large, chat, session, project, pinned, failed, chats, running, lands, start, send, clear, land, fresh, view, remove, answer, close, pin, resize, upload, show} = useChat()
 const answering = ref<number | null>(null)
 async function decide(message: number, allow: boolean, anyway = false) {
     answering.value = message
@@ -118,20 +118,15 @@ function pick(id: string) {
     view(id)
     if (!wide.value) listing.value = false
 }
-/** The chat in the list asking to be deleted, and why its delete failed (ORR-882). */
-const deleting = ref<string | null>(null)
-const deleteBusy = ref(false)
-const deleteFailed = ref('')
-async function deleteChat(id: string) {
-    deleteBusy.value = true
-    deleteFailed.value = ''
+/** Removes a chat from the list at once, ending it first if it runs (ORR-935): pressing it is the decision, so it asks
+ * nothing. `removeFailed` says which one didn't go, and why. */
+const removeFailed = ref<{id: string, why: string} | null>(null)
+async function removeChat(id: string) {
+    removeFailed.value = null
     try {
         await remove(id)
-        deleting.value = null
     } catch (error) {
-        deleteFailed.value = errorMessage(error, 'delete')
-    } finally {
-        deleteBusy.value = false
+        removeFailed.value = {id, why: errorMessage(error, 'remove')}
     }
 }
 /** New chat: what's held for the one on screen goes back in the box, and the next message starts a fresh one. */
@@ -385,7 +380,7 @@ const {over, on: drop} = useImageDrop(attach)
           <button
               type="button"
               class="flex w-full min-w-0 flex-col rounded-lg px-2.5 py-1.5 text-left transition hover:bg-hover"
-              :class="[c.id === chat?.id && 'bg-hover', c.ended ? 'pr-7' : 'pr-12']"
+              :class="[c.id === chat?.id && 'bg-hover', 'pr-7']"
               :aria-current="c.id === chat?.id ? 'true' : undefined"
               :title="`${projectName(c.project)}: ${firstLine(c)}${c.ended ? ' (ended, to read)' : ''}`"
               @click="pick(c.id)"
@@ -398,29 +393,15 @@ const {over, on: drop} = useImageDrop(attach)
             <span class="truncate text-[13px]" :class="c.ended ? 'text-muted' : 'text-fg'">{{ firstLine(c) }}</span>
           </button>
           <button
-              v-if="!c.ended"
               type="button"
               class="absolute top-1.5 right-1 grid size-5 place-items-center rounded text-faint transition hover:bg-panel hover:text-fg sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100"
-              :aria-label="`End the chat on ${projectName(c.project)}: ${firstLine(c)}`"
-              title="End this chat"
-              @click="endChat(c.id)"
+              :aria-label="`Remove the chat on ${projectName(c.project)}: ${firstLine(c)}`"
+              :title="c.ended ? 'Remove this chat' : 'End and remove this chat'"
+              @click="removeChat(c.id)"
           >
             <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 18 18 6M6 6l12 12" /></svg>
           </button>
-          <button
-              type="button"
-              class="absolute top-1.5 grid size-5 place-items-center rounded text-faint transition hover:bg-panel hover:text-rose-600 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100"
-              :class="c.ended ? 'right-1' : 'right-6'"
-              :aria-label="`Delete the chat on ${projectName(c.project)}: ${firstLine(c)}`"
-              title="Delete this chat"
-              @click="deleting = c.id; deleteFailed = ''"
-          >
-            <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3" /></svg>
-          </button>
-          <UiConfirm v-if="deleting === c.id" class="px-2.5 py-1.5" size="xs" action="Delete" busy-action="Deleting…" :busy="deleteBusy" data-testid="chat-delete" @confirm="deleteChat(c.id)" @cancel="deleting = null">
-            Delete this chat{{ c.ended ? '' : ', ending it' }}? What it filed stays.
-          </UiConfirm>
-          <p v-if="deleting === c.id && deleteFailed" class="px-2.5 pb-1.5 text-xs text-rose-700 dark:text-rose-400">{{ deleteFailed }}</p>
+          <p v-if="removeFailed?.id === c.id" role="alert" class="px-2.5 pb-1.5 text-xs text-rose-700 dark:text-rose-400">{{ removeFailed.why }}</p>
         </li>
         <li v-if="!chats.length" class="px-2.5 py-1.5 text-xs text-faint">No chats yet</li>
       </ul>
