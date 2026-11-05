@@ -121,6 +121,12 @@ server (`web/server/utils/auth.ts`), which sends the API what it found (`Orrery-
 hashed, so the API never sees a secret it didn't make. Who may handle people, keys and logins (`authorize`, `key-rights.ts`) is checked on
 both sides, the credential having the last word over the actor, so the parity test compares the refusals with the permissions table's own words.
 
+The outbox (ORR-929, `api/src/changes.rs`, the `rust-api-events` decision): each write the API makes adds a row to
+`changes` for each thing it set off (a project changed, the settings, each event told), and `GET /api/changes?after=<id>`
+reads them, oldest first, a page at a time, with `last` to ask after next. So far the rows go in just after the write, on
+its connection, rather than in its transaction, and only the API's writes add them. Nothing reads them yet: the reply
+headers still carry what changed to the Nuxt server.
+
 ## The page's pieces
 
 Buttons, dialogs, menus and confirmations come from a small kit in `web/app/components/ui/`, and the
