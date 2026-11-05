@@ -23,7 +23,7 @@ ready() {
 case "${1:-up}" in
     up) compose up -d; ready; node .playground/seed.mjs "$url" ;;
     seed) node .playground/seed.mjs "$url" ;;
-    reset) compose down; rm -rf .playground/data .playground/backup; compose up -d; ready; node .playground/seed.mjs "$url" ;;
+    reset) compose down; docker volume rm -f "${COMPOSE_PROJECT_NAME}_orrery-pg" >/dev/null; rm -rf .playground/data .playground/backup; compose up -d; ready; node .playground/seed.mjs "$url" ;;
     down) compose down ;;
     logs) compose logs -f orrery ;;
     *) sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
