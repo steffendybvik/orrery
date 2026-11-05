@@ -1,0 +1,239 @@
+// orrery's API in Rust (ORR-922). For now it serves one domain, docs, on the database the Nuxt server opens, and only
+// to that server: the router there (web/server/middleware/zz-api.ts) checks a request as it always has (auth, the
+// board's permissions, the chat's and untrusted sessions' rails, the browser guards) and then forwards it here with
+// who it's from. So this listens on loopback, and answers only a request that carries the token they share.
+//
+//   NUXT_API_TOKEN     the token they share, as the Nuxt server's setting of that name; required
+//   NUXT_DATABASE      the database, as the Nuxt server's setting names it: a SQLite file or a postgres:// URL
+//   ORRERY_API_LISTEN  where to listen; 127.0.0.1:9100 by default
+//   ORRERY_API_SCHEMA  on Postgres, the schema to work in (the tests' own)
+//   ORRERY_API_LOG     1: says each request it answers, and how
+mod db;
+mod docs;
+mod error;
+mod text;
+
+use axum::body::Bytes;
+use axum::extract::{Path, Query, Request, State};
+use axum::http::{HeaderMap, HeaderValue, StatusCode};
+use axum::middleware::{self, Next};
+use axum::response::{IntoResponse, Response};
+use axum::routing::{get, patch, post};
+use axum::{Json, Router};
+use docs::{Actor, Docs, Effects};
+use error::{ApiError, Result};
+use percent_encoding::{percent_decode_str, utf8_percent_encode, NON_ALPHANUMERIC};
+use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
+use sqlx::AnyPool;
+use std::collections::HashMap;
+use std::sync::Arc;
+
+struct App {
+    pool: AnyPool,
+    token: String,
+    /// The database's setting, hashed: what the router sends, so a request for another database (the owner moved it in
+    /// App settings, and this API wasn't restarted) is turned back rather than written to the old one.
+    database: String,
+    log: bool,
+}
+
+type Shared = State<Arc<App>>;
+
+fn database_hash(setting: &str) -> String {
+    Sha256::digest(setting.as_bytes()).iter().map(|b| format!("{b:02x}")).collect()
+}
+
+fn header(headers: &HeaderMap, name: &str) -> Option<String> {
+    let raw = headers.get(name)?.to_str().ok()?;
+    Some(percent_decode_str(raw).decode_utf8_lossy().into_owned())
+}
+
+/// Who the router says the request is from. It sends the name and session percent-encoded, as a header holds only ASCII.
+fn actor_of(headers: &HeaderMap) -> Actor {
+    Actor {
+        name: header(headers, "orrery-actor-name").filter(|n| !n.is_empty()).unwrap_or_else(|| "agent".into()),
+        owner: header(headers, "orrery-actor-owner").as_deref() == Some("1"),
+        session: header(headers, "orrery-actor-session").filter(|s| !s.is_empty()),
+    }
+}
+
+async fn guard(State(app): Shared, request: Request, next: Next) -> Response {
+    if request.uri().path() == "/health" {
+        return next.run(request).await;
+    }
+    let headers = request.headers();
+    let token = headers.get("orrery-api-token").and_then(|v| v.to_str().ok()).unwrap_or("");
+    // Compared in full whatever it holds, so how long the reply takes says nothing of the token.
+    let same = token.len() == app.token.len() && token.bytes().zip(app.token.bytes()).fold(0, |d, (a, b)| d | (a ^ b)) == 0;
+    if !same {
+        return ApiError::unauthorized("This API answers the orrery server in front of it, which sends its token").into_response();
+    }
+    if headers.get("orrery-database").and_then(|v| v.to_str().ok()) != Some(app.database.as_str()) {
+        return ApiError::misdirected("This API is on another database than the one asked for").into_response();
+    }
+    let said = app.log.then(|| format!("{} {}", request.method(), request.uri()));
+    let response = next.run(request).await;
+    if let Some(said) = said {
+        eprintln!("[orrery-api] {said} {}", response.status().as_u16());
+    }
+    response
+}
+
+fn body_of(bytes: &Bytes) -> Value {
+    if bytes.is_empty() {
+        Value::Null
+    } else {
+        serde_json::from_slice(bytes).unwrap_or(Value::Null)
+    }
+}
+
+/// A write's reply, with what it changed for the router to tell: `Orrery-Changed: <project>` and `Orrery-Told:
+/// <type> <project> <subject>, …`, each part percent-encoded.
+fn reply(status: StatusCode, body: Option<Value>, effects: Effects) -> Response {
+    let mut response = match body {
+        Some(body) => (status, Json(body)).into_response(),
+        None => status.into_response(),
+    };
+    let encode = |s: &str| utf8_percent_encode(s, NON_ALPHANUMERIC).to_string();
+    if let Some(project) = effects.changed {
+        response.headers_mut().insert("orrery-changed", HeaderValue::from_str(&encode(&project)).unwrap());
+    }
+    if !effects.told.is_empty() {
+        let told = effects.told.iter().map(|(t, p, s)| format!("{} {} {}", encode(t), encode(p), encode(s))).collect::<Vec<_>>().join(", ");
+        response.headers_mut().insert("orrery-told", HeaderValue::from_str(&told).unwrap());
+    }
+    response
+}
+
+/// Runs `work` with the docs on a connection of the pool's: what it gives back, and what it changed.
+macro_rules! with_docs {
+    ($app:expr, |$docs:ident| $work:expr) => {{
+        let mut conn = $app.pool.acquire().await?;
+        let mut $docs = Docs::new(&mut *conn);
+        let value = $work;
+        (value, std::mem::take(&mut $docs.effects))
+    }};
+}
+
+async fn list_docs(State(app): Shared, Path(project): Path<String>, Query(query): Query<HashMap<String, String>>) -> Result<Response> {
+    let (value, _) = with_docs!(app, |docs| docs.list(&project, query.get("q").map(String::as_str)).await?);
+    Ok(Json(value).into_response())
+}
+
+async fn create_doc(State(app): Shared, Path(project): Path<String>, headers: HeaderMap, body: Bytes) -> Result<Response> {
+    let (value, effects) = with_docs!(app, |docs| docs.create(&project, &body_of(&body), &actor_of(&headers)).await?);
+    Ok(reply(StatusCode::CREATED, Some(value), effects))
+}
+
+async fn get_doc(State(app): Shared, Path((project, doc)): Path<(String, String)>) -> Result<Response> {
+    let (value, _) = with_docs!(app, |docs| docs.doc(&project, &doc).await?);
+    Ok(Json(value).into_response())
+}
+
+async fn put_doc(State(app): Shared, Path((project, doc)): Path<(String, String)>, headers: HeaderMap, body: Bytes) -> Result<Response> {
+    let ((value, made), effects) = with_docs!(app, |docs| docs.put(&project, &doc, &body_of(&body), &actor_of(&headers)).await?);
+    Ok(reply(if made { StatusCode::CREATED } else { StatusCode::OK }, Some(value), effects))
+}
+
+async fn patch_doc(State(app): Shared, Path((project, doc)): Path<(String, String)>, headers: HeaderMap, body: Bytes) -> Result<Response> {
+    let (value, effects) = with_docs!(app, |docs| docs.update(&project, &doc, &body_of(&body), &actor_of(&headers)).await?);
+    Ok(reply(StatusCode::OK, Some(value), effects))
+}
+
+async fn delete_doc(State(app): Shared, Path((project, doc)): Path<(String, String)>, headers: HeaderMap) -> Result<Response> {
+    let ((), effects) = with_docs!(app, |docs| docs.delete(&project, &doc, &actor_of(&headers)).await?);
+    Ok(reply(StatusCode::NO_CONTENT, None, effects))
+}
+
+async fn list_revisions(State(app): Shared, Path((project, doc)): Path<(String, String)>) -> Result<Response> {
+    let (value, _) = with_docs!(app, |docs| docs.revisions(&project, &doc).await?);
+    Ok(Json(value).into_response())
+}
+
+async fn get_revision(State(app): Shared, Path((project, doc, revision)): Path<(String, String, String)>) -> Result<Response> {
+    let (value, _) = with_docs!(app, |docs| docs.revision(&project, &doc, &revision).await?);
+    Ok(Json(value).into_response())
+}
+
+async fn restore_revision(State(app): Shared, Path((project, doc, revision)): Path<(String, String, String)>, headers: HeaderMap) -> Result<Response> {
+    let ((value, made), effects) = with_docs!(app, |docs| docs.restore(&project, &doc, &revision, &actor_of(&headers)).await?);
+    Ok(reply(if made { StatusCode::CREATED } else { StatusCode::OK }, Some(value), effects))
+}
+
+async fn deleted_docs(State(app): Shared, Path(project): Path<String>) -> Result<Response> {
+    let (value, _) = with_docs!(app, |docs| docs.deleted(&project).await?);
+    Ok(Json(value).into_response())
+}
+
+async fn list_sections(State(app): Shared, Path(project): Path<String>) -> Result<Response> {
+    let (value, _) = with_docs!(app, |docs| docs.sections(&project).await?);
+    Ok(Json(value).into_response())
+}
+
+async fn create_section(State(app): Shared, Path(project): Path<String>, body: Bytes) -> Result<Response> {
+    let (name, effects) = with_docs!(app, |docs| docs.create_section(&project, &body_of(&body)).await?);
+    Ok(reply(StatusCode::CREATED, Some(json!({"name": name})), effects))
+}
+
+async fn patch_section(State(app): Shared, Path((project, section)): Path<(String, String)>, body: Bytes) -> Result<Response> {
+    let (name, effects) = with_docs!(app, |docs| docs.update_section(&project, &section, &body_of(&body)).await?);
+    Ok(reply(StatusCode::OK, Some(json!({"name": name})), effects))
+}
+
+async fn delete_section(State(app): Shared, Path((project, section)): Path<(String, String)>) -> Result<Response> {
+    let ((), effects) = with_docs!(app, |docs| docs.delete_section(&project, &section).await?);
+    Ok(reply(StatusCode::NO_CONTENT, None, effects))
+}
+
+async fn health() -> Json<Value> {
+    Json(json!({"ok": true, "domains": ["docs"]}))
+}
+
+fn router(app: Arc<App>) -> Router {
+    const P: &str = "/api/projects/{project}";
+    Router::new()
+        .route("/health", get(health))
+        .route(&format!("{P}/docs"), get(list_docs).post(create_doc))
+        .route(&format!("{P}/docs/{{doc}}"), get(get_doc).put(put_doc).patch(patch_doc).delete(delete_doc))
+        .route(&format!("{P}/docs/{{doc}}/revisions"), get(list_revisions))
+        .route(&format!("{P}/docs/{{doc}}/revisions/{{revision}}"), get(get_revision))
+        .route(&format!("{P}/docs/{{doc}}/revisions/{{revision}}/restore"), post(restore_revision))
+        .route(&format!("{P}/deleted-docs"), get(deleted_docs))
+        .route(&format!("{P}/doc-sections"), get(list_sections).post(create_section))
+        .route(&format!("{P}/doc-sections/{{section}}"), patch(patch_section).delete(delete_section))
+        .layer(middleware::from_fn_with_state(app.clone(), guard))
+        .with_state(app)
+}
+
+#[tokio::main]
+async fn main() {
+    let fail = |message: String| -> ! {
+        eprintln!("[orrery-api] {message}");
+        std::process::exit(1)
+    };
+    let token = std::env::var("NUXT_API_TOKEN")
+        .ok()
+        .filter(|t| t.len() >= 16)
+        .unwrap_or_else(|| fail("set NUXT_API_TOKEN (16 characters or more), the same as the Nuxt server's".into()));
+    let setting =
+        std::env::var("NUXT_DATABASE").ok().filter(|s| !s.is_empty()).unwrap_or_else(|| fail("set NUXT_DATABASE to the database the Nuxt server opens".into()));
+    let listen = std::env::var("ORRERY_API_LISTEN").unwrap_or_else(|_| "127.0.0.1:9100".into());
+    let pool = db::open(&setting, std::env::var("ORRERY_API_SCHEMA").ok()).await.unwrap_or_else(|e| fail(e));
+    // A SQLite file as the Nuxt server names it (`databaseSetting`): its whole path.
+    let named = if db::is_postgres(&setting) {
+        setting.clone()
+    } else {
+        std::path::absolute(&setting).map(|p| p.to_string_lossy().into_owned()).unwrap_or_else(|e| fail(format!("can't place {setting}: {e}")))
+    };
+    let app = Arc::new(App { pool, token, database: database_hash(&named), log: std::env::var("ORRERY_API_LOG").is_ok_and(|v| v == "1") });
+    let listener = tokio::net::TcpListener::bind(&listen).await.unwrap_or_else(|e| fail(format!("can't listen on {listen}: {e}")));
+    let at = listener.local_addr().map(|a| a.to_string()).unwrap_or(listen);
+    eprintln!("[orrery-api] serving docs on http://{at}, {}", if db::is_postgres(&setting) { "Postgres" } else { "SQLite" });
+    axum::serve(listener, router(app))
+        .with_graceful_shutdown(async {
+            tokio::signal::ctrl_c().await.ok();
+        })
+        .await
+        .unwrap_or_else(|e| fail(e.to_string()));
+}

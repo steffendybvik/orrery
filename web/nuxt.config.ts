@@ -73,6 +73,13 @@ export default defineNuxtConfig({
         // Encrypts the secrets agents use without seeing (a long random string; without it there are none).
         // Override with NUXT_SECRET_KEY (ORRERY_SECRET_KEY in compose).
         secretKey: '',
+        // The Rust API (ORR-922, api/), which serves the docs routes while the rest stay here. `apiBin`: its binary, which
+        // this server starts beside itself on its own database (NUXT_API_BIN, e.g. ../api/target/release/orrery-api). Or
+        // one already running: `apiUrl` where it listens (http://127.0.0.1:9100) and `apiToken` the token both are given
+        // (NUXT_API_URL, NUXT_API_TOKEN). Neither: this server answers every route, as before.
+        apiBin: '',
+        apiUrl: '',
+        apiToken: '',
         // Login and keys (ORR-664): `on` always asks for them; `off` never, for trying people out, and only on loopback.
         // Unset, they're on when the server is reachable from other machines or has a second person. Override with
         // NUXT_AUTH (ORRERY_AUTH in compose).
