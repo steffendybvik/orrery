@@ -42,7 +42,8 @@ export function serviceProblem({platform = process.platform, wsl = platform === 
 
 /** The launcher's list: `{projects: [{url, project, dir}], pickUp, skip, orreries}`, empty when there's none yet. `pickUp`:
  * whether a repo's channel adds the repo as it connects; `skip`: the repos `--uninstall` took off, which it doesn't;
- * `orreries`: those it was installed for with no project, which it follows for Connect a repo (ORR-708). */
+ * `orreries`: those it was installed for with no project, which it follows for Connect a repo (ORR-708), the latest first:
+ * the first is where its code comes from (ORR-960). */
 export function readConfig(file = configFile()) {
     return listIn(file) ?? empty()
 }
@@ -263,12 +264,18 @@ function apply(where, config, opts) {
     return true
 }
 
+/** The orrerys a launcher was installed from, once each, with `orrery` now first: the one it takes its code from
+ * (ORR-960), so installing from another orrery's line moves it there. */
+export function installedFrom(orreries, orrery) {
+    return [...new Set([orrery.replace(/\/+$/, ''), ...orreries ?? []])]
+}
+
 /** Adds the projects of the repo at `dir` to the list (none, and no `dir`, to install the service alone), sets
  * pick-up, and starts the service if it isn't running on the same file. A restart stops the sessions it was running. */
 export function install(entries, {node = process.execPath, script, path = process.env.PATH ?? '', dir, pickUp = true, orrery}) {
     const where = platform()
     const before = readConfig()
-    const listed = {...entries.reduce(withProject, before), pickUp, ...orrery ? {orreries: [...new Set([...before.orreries ?? [], orrery.replace(/\/+$/, '')])]} : {}}
+    const listed = {...entries.reduce(withProject, before), pickUp, ...orrery ? {orreries: installedFrom(before.orreries, orrery)} : {}}
     const config = dir ? skipping(listed, dir, false) : listed
     const restarted = apply(where, config, {node, script, path})
     return {config, file: where.file, logs: where.logs, restarted}

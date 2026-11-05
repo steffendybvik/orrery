@@ -62,8 +62,8 @@ function writeWhole(file, data) {
 /** The orreries a role's script comes from: a channel's or hook's own; for the launcher, the one orrery it takes its code
  * from (ORR-960). The launcher runs as you for every orrery on its list, so its code never comes from whichever of them
  * says it's newest, as one you don't run could then run its code here. It's the orrery named where it's run
- * (`ORRERY_URL`, as the install line does), else the first it was installed from (`orreries`), else the one its copy came
- * from, else the first on its list. Pick-up and Connect a repo add to the list but never to `orreries`. */
+ * (`ORRERY_URL`, as the install line does), else the one it was last installed from (`orreries`' first), else the one its
+ * copy came from, else the first on its list. Pick-up and Connect a repo add to the list but never to `orreries`. */
 export function orreriesFor(role, env = process.env, home = homedir()) {
     if (env.ORRERY_URL) return [trim(env.ORRERY_URL)]
     if (role !== 'launcher') return ['http://localhost:9000']
