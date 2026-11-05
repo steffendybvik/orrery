@@ -367,6 +367,7 @@ function onKey(event: KeyboardEvent) {
       <KeyHint>esc</KeyHint>
     </div>
     <div class="flex items-center gap-1 overflow-x-auto border-b border-line px-3 py-1.5" role="tablist" aria-label="Categories">
+      <!-- An unseen copy of the label in the selected weight holds each tab at that width, so ⇥ doesn't nudge the row (ORR-975). -->
       <button
           v-for="t in TABS"
           :key="t.key"
@@ -375,7 +376,8 @@ function onKey(event: KeyboardEvent) {
           tabindex="-1"
           :aria-selected="tab === t.key"
           aria-controls="palette-list"
-          class="shrink-0 rounded-md px-2.5 py-1 text-xs"
+          :data-label="t.label"
+          class="flex shrink-0 flex-col rounded-md px-2.5 py-1 text-xs after:invisible after:h-0 after:overflow-hidden after:font-medium after:content-[attr(data-label)]"
           :class="tab === t.key ? 'bg-active font-medium text-fg' : 'text-muted hover:bg-hover hover:text-fg'"
           @mousedown.prevent
           @click="tab = t.key"
