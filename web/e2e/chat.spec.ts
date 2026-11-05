@@ -1132,3 +1132,52 @@ test('opened by its address, the chat fills the window, and its links open in a 
     await tab.close()
     await expect(page).toHaveURL(/\/chat\?project=observatory$/)
 })
+
+test('moves by its whole header, past a few pixels, keeping its buttons clicks, and goes back on a double-click (ORR-939)', async ({page}) => {
+    await page.setViewportSize({width: 1280, height: 800})
+    await page.goto('/p/observatory')
+    await page.getByRole('button', {name: 'Agent', exact: true}).click()
+    const pane = page.getByRole('region', {name: 'Chat'})
+    const header = pane.getByTestId('chat-header')
+    const home = (await pane.boundingBox())!
+    // Pressed on the header's empty part, beside the title, and dragged up and left.
+    const title = (await header.getByText('Chat', {exact: true}).boundingBox())!
+    const from = {x: title.x + title.width + 4, y: title.y + title.height / 2}
+    await page.mouse.move(from.x, from.y)
+    await page.mouse.down()
+    await page.mouse.move(from.x - 2, from.y - 1)
+    // A couple of pixels is still a click, not a move.
+    expect((await pane.boundingBox())!.x).toBeCloseTo(home.x, 0)
+    await page.mouse.move(from.x - 300, from.y - 100, {steps: 5})
+    await page.mouse.up()
+    const moved = (await pane.boundingBox())!
+    expect(moved.x).toBeCloseTo(home.x - 300, -1)
+    expect(moved.y).toBeCloseTo(home.y - 100, -1)
+    // A press on a button that moves stays a click: Larger still works, and the pane didn't move with it.
+    const larger = pane.getByRole('button', {name: 'Make the chat larger'})
+    const button = (await larger.boundingBox())!
+    await page.mouse.move(button.x + button.width / 2, button.y + button.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(button.x - 100, button.y + 50, {steps: 5})
+    await page.mouse.up()
+    expect((await pane.boundingBox())!.x).toBeCloseTo(moved.x, 0)
+    await larger.click()
+    await pane.getByRole('button', {name: 'Make the chat smaller'}).click()
+    // It stays where it was put after a reload, inside the window.
+    await page.reload()
+    await page.getByRole('button', {name: 'Agent', exact: true}).click()
+    await expect.poll(async () => Math.round((await pane.boundingBox())!.x)).toBe(Math.round(moved.x))
+    // Dragged past the window's edge, it stops at it.
+    const again = (await header.getByText('Chat', {exact: true}).boundingBox())!
+    await page.mouse.move(again.x + again.width + 4, again.y + 4)
+    await page.mouse.down()
+    await page.mouse.move(-500, -500, {steps: 5})
+    await page.mouse.up()
+    const edge = (await pane.boundingBox())!
+    expect(edge.x).toBeGreaterThanOrEqual(0)
+    expect(edge.y).toBeGreaterThanOrEqual(0)
+    // A double-click on the header puts it back in its corner.
+    await header.getByText('Chat', {exact: true}).dblclick()
+    await expect.poll(async () => Math.round((await pane.boundingBox())!.x)).toBe(Math.round(home.x))
+    await pane.getByRole('button', {name: 'Close the chat'}).click()
+})
