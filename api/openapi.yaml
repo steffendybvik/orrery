@@ -12,9 +12,9 @@ info:
       activity (web/server/api/projects/[project]/issues). Both serve them; the router sends only their `GET`s there, as
       writing an issue or a comment stays the Nuxt server's.
     - **Statuses** (ORR-926): the orrery's issue statuses (web/server/api/statuses). Served by both.
-    - **People, keys and logins** (ORR-928): who's on this orrery, read, and the keys and logins people hold
-      (web/server/api/people, keys, logins). Served by both; the router sends only `GET /api/people` there, as adding,
-      renaming and removing a person, invites, and logging in and out stay the Nuxt server's.
+    - **People, invites, keys and logins** (ORR-928): who's on this orrery, inviting them, and the keys and logins people
+      hold (web/server/api/people, invites, keys, logins). Served by both; removing a person stays the Nuxt server's, as
+      it unassigns their issues, and so do logging in and out.
 
     An operation marked `x-served: false` is written ahead of the Rust API's: the router doesn't send it there yet, and
     the parity test holds it to that. The mark comes off in the pull request that serves it.
@@ -30,6 +30,9 @@ info:
       worked it out; the name and session percent-encoded.
     - `Orrery-Who` (`browser` or `agent`), `Orrery-Who-Person` (percent-encoded), `Orrery-Who-Owner` (`1` or `0`): with
       login on, what the request's credential said, as the Nuxt server checked it. None with login off.
+    - `Orrery-Login-Ways`: what the Nuxt server's settings say about getting in, comma-separated: `provider` with a
+      login provider set up, `off` with ORRERY_AUTH=off. `Orrery-Origin`: the address the request came to,
+      percent-encoded, for an invite's link.
     - `Orrery-Login`: the SHA-256 of the asking browser's login cookie, as the logins table keeps it; the cookie itself
       stays with the Nuxt server.
 
@@ -295,6 +298,46 @@ paths:
       description: The owner first, then in the order they were added; those removed stay listed, with when. An id is what a session sets as `ORRERY_PERSON`.
       responses:
         '200': {description: The people, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/Person'}}}}}
+    post:
+      summary: Adds a person, a member, the owner's only
+      description: |
+        Their id is the name in lowercase snake case, and never changes; one a removed person had stays theirs (409), and
+        `owner`, `agent`, `claude` and `orrery` are what agents and orrery go by (400). The owner names themselves first
+        (400). A second person turns login on, so it's refused (409) until someone could log in: a login provider, or the
+        owner's person key, unless ORRERY_AUTH=off.
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/PersonInput'}}}}
+      responses:
+        '201': {description: The person, content: {application/json: {schema: {$ref: '#/components/schemas/Person'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+  /api/people/{person}:
+    parameters:
+      - {name: person, in: path, required: true, description: The person's id, schema: {type: string}}
+    patch:
+      summary: Renames a member, the owner's only
+      description: Their id stays. The owner's own name is changed with `PUT /api/owner` (400); a removed person's stays (409). Removing a person (`DELETE`) stays the Nuxt server's for now, as it unassigns their issues.
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/PersonInput'}}}}
+      responses:
+        '200': {description: The person, renamed, content: {application/json: {schema: {$ref: '#/components/schemas/Person'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+  /api/invites:
+    post:
+      summary: Invites a person to attach their first login, the owner's only
+      description: A link good once and for a week, at the address the request came to, whose first login through the provider attaches that account to the person. Only with a login provider (409).
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      requestBody: {required: true, content: {application/json: {schema: {type: object, required: [person], properties: {person: {type: string, description: Who to invite, by id}}}}}}
+      responses:
+        '201': {description: The link, content: {application/json: {schema: {type: object, required: [url, expires_at], properties: {url: {type: string}, expires_at: {type: string, format: date-time}}}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
   /api/keys:
     get:
       summary: The asking person's keys, or everyone's for the owner
@@ -459,6 +502,12 @@ components:
         role: {type: string, enum: [owner, member]}
         created_at: {type: string, format: date-time}
         removed_at: {type: string, format: date-time}
+    PersonInput:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name: {type: string, description: Trimmed to 60 characters; needs a letter or a digit}
     KeyKind: {type: string, enum: [agent, person], description: '`agent`: a machine''s sessions; `person`: swapped for a login on the page'}
     Key:
       type: object

@@ -5,8 +5,10 @@
 // leaves that server. Logging in and out, an OIDC provider's accounts, invites and changing who's here stay there too,
 // as they set cookies, read its settings or change issues.
 use crate::db::sql;
+use crate::docs::js;
 use crate::docs::{stamp, Actor};
 use crate::error::{ApiError, Result};
+use crate::migrate::actor_id;
 use crate::text::first_chars;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
@@ -21,6 +23,61 @@ pub struct Who {
     pub person: String,
     pub owner: bool,
     pub browser: bool,
+}
+
+/// What the router's settings say about getting in (`Orrery-Login-Ways`), which only it can read: whether a login
+/// provider is set up, and whether ORRERY_AUTH=off is.
+#[derive(Clone, Debug, Default)]
+pub struct Ways {
+    pub provider: bool,
+    pub off: bool,
+}
+
+/// What agents and orrery send or stand for (`RESERVED`): as a person's id, each would make them all that person.
+const RESERVED: [&str; 4] = ["owner", "agent", "claude", "orrery"];
+const INVITE_DAYS: i64 = 7;
+
+/// The 403 for anyone but the owner, as `authorize(event, 'people.write')` words it for a session. With login on the
+/// credential has the last word: only the owner in their browser, whatever the actor says.
+fn owner_only(actor: &Actor, who: Option<&Who>) -> Result<()> {
+    if actor.owner && who.map_or(true, |who| who.browser && who.owner) {
+        return Ok(());
+    }
+    Err(ApiError::refused_for(
+        "people.write",
+        "Add, rename, remove or invite a person: owner only for a session (people.write). Who works on this orrery is the owner’s to decide. Send Orrery-Actor: <owner>",
+    ))
+}
+
+/// A person's name from a body, as `personName` takes it: `checkInput(body, OWNER_FIELDS)`, trimmed to 60.
+fn person_name(body: &Value) -> Result<String> {
+    let Some(sent) = body.as_object() else {
+        return Err(ApiError::bad_request("The body should be a JSON object"));
+    };
+    let mut problems: Vec<String> = sent.keys().filter(|k| *k != "name").map(|k| format!("unknown field \"{k}\"; this takes name")).collect();
+    match sent.get("name") {
+        None => problems.push("missing \"name\"".into()),
+        Some(Value::Null) => problems.push("\"name\" can't be null".into()),
+        Some(Value::String(name)) if name.trim().is_empty() => problems.push("\"name\" can't be empty".into()),
+        Some(Value::String(_)) => {}
+        Some(other) => problems.push(format!("\"name\" should be a string, not {}", js(other))),
+    }
+    if !problems.is_empty() {
+        return Err(ApiError::problems(problems));
+    }
+    let name = first_chars(sent["name"].as_str().unwrap_or_default().trim(), 60);
+    if name.is_empty() {
+        return Err(ApiError::bad_request("The name needs a letter or a digit in it"));
+    }
+    Ok(name)
+}
+
+fn person_json(r: &sqlx::any::AnyRow) -> Value {
+    let mut person = json!({"id": r.get::<String, _>("id"), "name": r.get::<String, _>("name"), "role": r.get::<String, _>("role"), "created_at": r.get::<String, _>("created_at")});
+    if let Some(at) = r.get::<Option<String>, _>("removed_at") {
+        person["removed_at"] = Value::String(at);
+    }
+    person
 }
 
 /// How much of a login's hash names it in the list (`LOGIN_REF`): enough to tell them apart, nothing a cookie could be
@@ -102,17 +159,99 @@ impl<'c> People<'c> {
         let rows = sqlx::query("SELECT id, name, role, created_at, removed_at FROM people ORDER BY role = 'owner' DESC, created_at, id")
             .fetch_all(&mut *self.conn)
             .await?;
-        Ok(Value::Array(
-            rows.iter()
-                .map(|r| {
-                    let mut person = json!({"id": r.get::<String, _>("id"), "name": r.get::<String, _>("name"), "role": r.get::<String, _>("role"), "created_at": r.get::<String, _>("created_at")});
-                    if let Some(at) = r.get::<Option<String>, _>("removed_at") {
-                        person["removed_at"] = Value::String(at);
-                    }
-                    person
-                })
-                .collect(),
-        ))
+        Ok(Value::Array(rows.iter().map(person_json).collect()))
+    }
+
+    async fn person(&mut self, id: &str) -> Result<sqlx::any::AnyRow> {
+        sqlx::query(&sql("SELECT id, name, role, created_at, removed_at FROM people WHERE id = ?"))
+            .bind(id)
+            .fetch_optional(&mut *self.conn)
+            .await?
+            .ok_or_else(|| ApiError::not_found(format!("No person \"{id}\"")))
+    }
+
+    /// A second person turns login on, so without a way in that would lock the owner out (`needsWayInForPeople`).
+    async fn needs_way_in(&mut self, ways: &Ways) -> Result<()> {
+        if ways.off || ways.provider {
+            return Ok(());
+        }
+        let key = "SELECT 1 FROM keys k JOIN people p ON p.id = k.person WHERE p.role = 'owner' AND k.kind = 'person' AND k.revoked_at IS NULL";
+        if sqlx::query(key).fetch_optional(&mut *self.conn).await?.is_some() {
+            return Ok(());
+        }
+        Err(ApiError::conflict("A second person turns login on, and nobody could log in yet: claim it first, with `pnpm orrery:claim` on this machine (or `docker compose exec orrery node /app/server/claim.mjs`). To only try people out on this machine, start orrery with ORRERY_AUTH=off"))
+    }
+
+    /// Adds a person, a member (`POST /api/people`): the owner's only. Their id comes from the name as the owner's does,
+    /// and never changes. One a removed person had stays theirs, so history can't come to mean someone else.
+    pub async fn add_person(&mut self, body: &Value, actor: &Actor, who: Option<&Who>, ways: &Ways) -> Result<Value> {
+        owner_only(actor, who)?;
+        self.needs_way_in(ways).await?;
+        if sqlx::query("SELECT id FROM people WHERE role = 'owner'").fetch_optional(&mut *self.conn).await?.is_none() {
+            return Err(ApiError::bad_request("Give your own name first (PUT /api/owner): you are the first person"));
+        }
+        let name = person_name(body)?;
+        let id = actor_id(&name);
+        if id.is_empty() {
+            return Err(ApiError::bad_request("The name needs a letter or a digit in it"));
+        }
+        if RESERVED.contains(&id.as_str()) {
+            return Err(ApiError::bad_request(format!("\"{id}\" is what agents or orrery go by; pick another name")));
+        }
+        let taken = sqlx::query(&sql("SELECT name, removed_at FROM people WHERE id = ?")).bind(&id).fetch_optional(&mut *self.conn).await?;
+        if let Some(taken) = taken {
+            let what = match taken.get::<Option<String>, _>("removed_at") {
+                Some(_) => "was someone who has been removed".to_string(),
+                None => format!("is {}", taken.get::<String, _>("name")),
+            };
+            return Err(ApiError::conflict(format!("\"{id}\" {what}; pick another name")));
+        }
+        sqlx::query(&sql("INSERT INTO people (id, name, role, created_at) VALUES (?, ?, 'member', ?)"))
+            .bind(&id)
+            .bind(&name)
+            .bind(stamp())
+            .execute(&mut *self.conn)
+            .await?;
+        Ok(person_json(&self.person(&id).await?))
+    }
+
+    /// Renames a member (`PATCH /api/people/:person`): the owner's only. Only the name changes, as their id stays what
+    /// history holds. The owner's own goes through `PUT /api/owner`.
+    pub async fn rename_person(&mut self, id: &str, body: &Value, actor: &Actor, who: Option<&Who>) -> Result<Value> {
+        owner_only(actor, who)?;
+        let person = self.person(id).await?;
+        if person.get::<String, _>("role") == "owner" {
+            return Err(ApiError::bad_request("The owner's name is changed with PUT /api/owner"));
+        }
+        if person.get::<Option<String>, _>("removed_at").is_some() {
+            return Err(ApiError::conflict(format!("{} has been removed", person.get::<String, _>("name"))));
+        }
+        let name = person_name(body)?;
+        let id: String = person.get("id");
+        sqlx::query(&sql("UPDATE people SET name = ? WHERE id = ?")).bind(&name).bind(&id).execute(&mut *self.conn).await?;
+        Ok(person_json(&self.person(&id).await?))
+    }
+
+    /// An invite for a person to attach their first login (`POST /api/invites`): the owner's only, and only with a login
+    /// provider to log in through. A link good once and for a week, at `origin`, the address the request came to.
+    pub async fn invite(&mut self, body: &Value, actor: &Actor, who: Option<&Who>, ways: &Ways, origin: &str) -> Result<Value> {
+        owner_only(actor, who)?;
+        if !ways.provider {
+            return Err(ApiError::conflict("This orrery has no login provider to invite someone through: give them a person key instead (POST /api/keys)"));
+        }
+        let Some(person) = body.get("person").and_then(Value::as_str) else {
+            return Err(ApiError::bad_request("\"person\" is the id of who to invite"));
+        };
+        self.needs_person(person).await?;
+        let secret = URL_SAFE_NO_PAD.encode(random(32));
+        let expires = (chrono::Utc::now() + chrono::Duration::days(INVITE_DAYS)).format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
+        sqlx::query(&sql("INSERT INTO invites (id, person, expires_at) VALUES (?, ?, ?)"))
+            .bind(hash_of(&secret))
+            .bind(person)
+            .bind(&expires)
+            .execute(&mut *self.conn)
+            .await?;
+        Ok(json!({"url": format!("{origin}/login?invite={secret}"), "expires_at": expires}))
     }
 
     async fn needs_person(&mut self, id: &str) -> Result<()> {
