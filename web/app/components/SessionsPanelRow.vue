@@ -14,7 +14,7 @@ defineEmits<{focus: []}>()
         class="min-w-0 truncate text-[13px] text-fg hover:underline"
         :title="`Open ${session.name} on the Sessions page`"
     >{{ session.name }}</NuxtLink>
-    <ModelChip :session="session" />
+    <ModelChip :session="session" size="condensed" />
     <ContextMeter :context="session.context" />
     <span v-if="session.id === worker" class="rounded-full bg-accent-500/10 px-1.5 text-[11px] font-medium text-accent-700 ring-1 ring-accent-500/30 dark:text-accent-300">on this issue</span>
     <span class="whitespace-nowrap text-xs" :class="session.state === 'waiting' ? 'text-rose-700 dark:text-rose-400' : 'text-faint'">

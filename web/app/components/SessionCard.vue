@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type {Session, SessionWork} from '#shared/roadmap'
-import {cutOffLabel, modelLabel} from '#shared/roadmap'
+import {cutOffLabel} from '#shared/roadmap'
 import {olderVersion} from '#shared/version'
 
 // One Claude session on the Sessions page. Its name, then one quiet line, wrapping as text does: what it's doing and since when, its time
@@ -25,8 +25,6 @@ const viewing = ref(false)
 const {load, badgesFor} = usePresetBadges()
 watchEffect(() => props.session.started?.context?.presets.length && load(props.session.project))
 const roles = computed(() => badgesFor(props.session.project, props.session.started?.context?.presets ?? []))
-// The effort level it runs at, as its hook last said, else the one it was started at (ORR-894).
-const effort = computed(() => props.session.effort ?? props.session.started?.effort)
 
 const signalText = (s: SessionWork['signals'][number]) => s.kind === 'comment' ? `${who(s.created_by)}'s comment on ${s.issue}`
     : s.kind === 'message' ? (s.schedule === undefined ? `${who(s.created_by)}'s message${s.via === 'chat' ? ' via chat' : ''}: ${s.preset ?? s.note ?? ''}` : `${who(s.created_by)}'s scheduled message`)
@@ -69,10 +67,8 @@ const behind = computed(() => props.session.listening && olderVersion(props.sess
       <div class="flex min-w-0 flex-1 flex-col gap-0.5 max-sm:basis-[calc(100%-1.25rem)]">
         <div class="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
           <span class="min-w-0 truncate text-[14px] font-medium text-fg">{{ session.name }}</span>
-          <!-- The model it runs on, the default too (ORR-871), once its hook has said, and its effort level beside it (ORR-894). -->
-          <span v-if="session.model" class="rounded bg-well px-1.5 py-px font-mono text-[10px] text-muted ring-1 ring-line" :title="[session.model, effort && `${effort} effort`].filter(Boolean).join(' · ')" data-testid="session-model">{{ [modelLabel(session.model), effort].filter(Boolean).join(' · ') }}</span>
-          <!-- Until it has said, the model orrery started it on, when it chose one (ORR-868). -->
-          <ModelChip v-else :session="session" />
+          <!-- What it runs on and at what effort (ORR-871, ORR-894), as every place draws it (ORR-969). -->
+          <ModelChip :session="session" />
           <!-- And how much context it carries (ORR-968). -->
           <ContextMeter :context="session.context" />
           <!-- And whether it took another issue's context into the one it's on (ORR-968). -->

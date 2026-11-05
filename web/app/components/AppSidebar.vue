@@ -256,7 +256,7 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
         <!-- Events, Context and Pull requests fold under one row (ORR-967), open while one of them is open. -->
         <button
             type="button"
-            class="flex items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[13px] text-muted transition-colors hover:bg-hover hover:text-fg"
+            class="flex items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[13px] text-muted transition-colors hover:bg-hover hover:text-fg max-md:py-2.5 max-md:text-[15px]"
             :aria-expanded="advancedOpen"
             @click="advancedFolded = advancedOpen"
         >
@@ -299,8 +299,9 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
 
       <!-- On a touch screen its small buttons are 28px to tap, around the same icons (ORR-816). -->
       <div class="label mt-4 mb-1 flex items-center gap-1 px-2">
-        <!-- The heading is the Projects page's link (ORR-967), with Epics and Releases, which gather work across them, under it. -->
-        <NuxtLink to="/projects" class="flex-1 hover:text-fg" :class="route.path === '/projects' && 'text-fg'">Projects</NuxtLink>
+        <!-- The heading is the Projects page's link (ORR-967), with Epics and Releases, which gather work across them, under it.
+             It keeps the label's size in the phone drawer, which makes its other links bigger to tap. -->
+        <NuxtLink to="/projects" class="flex-1 hover:text-fg max-md:!py-0 max-md:!text-[length:inherit]" :class="route.path === '/projects' && 'text-fg'">Projects</NuxtLink>
         <span v-if="projects.length" class="font-mono normal-case tabular-nums">{{ projects.length }}</span>
         <button
             v-if="projects.length"
@@ -532,7 +533,7 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
               <span class="max-w-[75%] shrink-0 truncate">{{ spanLabel(session) ?? project.name }}</span>
               <span class="min-w-0 truncate text-[11px] text-faint">{{ nameBesideProject(session) }}</span>
             </span>
-            <ModelChip :session="session" />
+            <ModelChip :session="session" size="condensed" />
             <ContextMeter :context="session.context" condensed />
             <span v-if="session.cut_off" class="shrink-0 text-[11px] text-amber-800 dark:text-amber-400" :title="session.cut_off.text">{{ cutOffLabel(session.cut_off) }}</span>
             <span v-else class="shrink-0 text-[11px]" :class="session.state === 'waiting' ? 'text-rose-700 dark:text-rose-400' : 'text-faint'">{{ SESSION_STATE[session.state] }}</span>

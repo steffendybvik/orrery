@@ -1,4 +1,4 @@
-// `PUT /api/backups {on?, folder?, postgres?, every?, keep?}` → `database` as `GET /api/settings` has it: the owner's
+// `PUT /api/backups {on?, folder?, postgres?, every?, keep?}` → `database` as `GET /api/machine` has it: the owner's
 // choice of whether the database is backed up, where (a folder or a Postgres database), how often and how many daily
 // copies stay, from App settings (see
 // server/utils/backup-choice.ts). The owner's, from localhost;

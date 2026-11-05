@@ -13,6 +13,7 @@ import type {OrreryEvent} from '#shared/happenings'
 import {Store} from '../server/utils/store'
 import type {Actor, IssueFilter} from '../server/store/schema'
 import {SqliteDb} from '../server/utils/database'
+import {Secrets} from '../server/utils/secrets'
 import {openDb} from '../server/utils/db'
 import {PostgresDb} from '../server/utils/postgres'
 import {actorHeaders, changedOf, countedOf, databaseMark, domainOf, DOMAINS, loginHeaders, servedByApi, toldOf, whoHeaders} from '../server/utils/api-router'
@@ -116,6 +117,13 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
             }
             return value
         }))
+    }
+
+    /** The same read of the orrery's own rows (not a project's) through each side. */
+    async function alike0(name: string, ts: () => Promise<Outcome>, rs: () => Promise<Outcome>) {
+        const [a, b] = [await ts(), await rs()]
+        expect(b, name).toEqual(a)
+        return b
     }
 
     async function both(name: string, ts: (project: string) => Promise<Outcome>, rs: () => Promise<Outcome>) {
@@ -568,6 +576,91 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         await expect(store.identity('https://id.example', 'sub-2', secret)).rejects.toMatchObject({statusCode: 409})
     })
 
+    it('reads the secrets alike, and never a value (ORR-953)', async () => {
+        const secrets = new Secrets(store, () => 'parity-secret-key', undefined, async () => new Response('ok', {status: 200}))
+        await alike0('none yet', () => viaStore(() => secrets.list()), () => viaApi('GET', '/api/secrets'))
+        await secrets.set('STRIPE_KEY', {value: 'sk_live_0123456789', hosts: ['api.stripe.com']}, OWNER)
+        await secrets.set('DEPLOY_TOKEN', {value: 'deploy-0123456789', hosts: ['deploy.lan:8443', 'https://ci.example/x'], projects: ['through-api']}, OWNER)
+        await alike0('never used', () => viaStore(() => secrets.list()), () => viaApi('GET', '/api/secrets'))
+        await secrets.egress({url: 'https://api.stripe.com/v1/charges?key={{secret:STRIPE_KEY}}', method: 'POST', body: {a: 1}, issue: 'API-1'}, AGENT)
+        await secrets.egress({url: 'https://api.stripe.com/v1/refunds', headers: {Authorization: 'Bearer {{secret:STRIPE_KEY}}'}}, SESSION)
+        await secrets.own('https://deploy.lan:8443/hook', 'DEPLOY_TOKEN', 'through-api')
+        await alike0('used', () => viaStore(() => secrets.list()), () => viaApi('GET', '/api/secrets'))
+        await alike0('one, with its uses', () => viaStore(() => secrets.get('STRIPE_KEY')), () => viaApi('GET', '/api/secrets/STRIPE_KEY'))
+        await alike0('one kept to a project', () => viaStore(() => secrets.get('DEPLOY_TOKEN')), () => viaApi('GET', '/api/secrets/DEPLOY_TOKEN'))
+        await alike0('none by that name', () => viaStore(() => secrets.get('NOPE')), () => viaApi('GET', '/api/secrets/NOPE'))
+        const answer = JSON.stringify([await viaApi('GET', '/api/secrets'), await viaApi('GET', '/api/secrets/STRIPE_KEY')])
+        for (const value of ['sk_live_0123456789', 'deploy-0123456789', 'v1:']) expect(answer).not.toContain(value)
+    })
+
+    it('reads and changes the settings alike, every one, and refuses a session (ORR-954)', async () => {
+        // The settings are the orrery's, so each side runs every step in turn on the same table, put back between them.
+        type Step = [string, () => Promise<Outcome>, () => Promise<Outcome>]
+        const step = (name: string, body: unknown, actor: Actor = OWNER): Step =>
+            // The store tells a project sharing releases a moment later: settled first, so it lands in this step.
+            [name, () => viaStore(async () => {
+                try {
+                    return await store.updateSettings(body, actor)
+                } finally {
+                    await new Promise(settled => setTimeout(settled, 20))
+                }
+            }), () => viaApi('PATCH', '/api/settings', body, actor)]
+        const read: Step = ['the settings', () => viaStore(() => store.settings()), () => viaApi('GET', '/api/settings')]
+        const steps: Step[] = [
+            read,
+            step('changed by a session', {tint: 'blue'}, SESSION),
+            step('a tint, prompts and a handle', {tint: '#AABBCC', focus_prompt: '  Work on {id}  ', milestone_prompt: '   ', handle: 'Steffen.D'}),
+            step('the machine\'s own', {terminal: 'ghostty', advanced: false, restrict_proposals: false, pick_next: true, count_use: true}),
+            step('instructions, a tracker and the sidebar', {instructions: [{id: 'a1', text: ' Be brief ', on: false}, {id: 'b2', text: 'Test first'}], tracker: 'https://t.example/i/{id}', starred: [' api ', 'web', 'api', 'gone'], hidden: ['gone']}),
+            step('starts', {starts: {limit: 3, min: 1, minutes: 60, idle_minutes: 30, on_signal: false}}),
+            step('work kinds', {work_kinds: [{id: 'bug', name: ' Bug ', labels: ['Bug', 'bug', 'defect'], model: 'claude-opus-5-5', effort: 'high'}, {id: 'other', name: 'Other', labels: [], model: 'best'}]}),
+            read,
+            step('everything wrong at once', {bogus: 1, tint: 'pink', terminal: 'xterm', handle: '-x', tracker: 'https://t.example/i', advanced: 'yes', pick_next: null, starred: [''], instructions: [{text: ' '}], focus_prompt: 5}),
+            step('starts out of range', {starts: {limit: 30}}),
+            step('starts with more', {starts: {limit: 2, min: 3, extra: true}}),
+            step('work kinds, none', {work_kinds: []}),
+            step('work kinds, a label twice', {work_kinds: [{id: 'a', name: 'A', labels: ['x'], model: 'best'}, {id: 'b', name: 'B', labels: ['X'], model: 'best'}]}),
+            step('work kinds, a bad model', {work_kinds: [{id: 'a', name: 'A', labels: [], model: 'gpt'}]}),
+            step('work kinds, an id twice', {work_kinds: [{id: 'a', name: 'A', labels: [], model: 'best'}, {id: 'a', name: 'B', labels: [], model: 'best'}]}),
+            step('no body', undefined),
+            step('back to the defaults', {tint: null, focus_prompt: null, handle: null, tracker: null, starts: null, terminal: null, work_kinds: null, starred: null, hidden: null, instructions: null}),
+            read,
+        ]
+        await store.settings()
+        const before = await store.db.all<{key: string, value: string}>('SELECT key, value FROM settings')
+        const putBack = async () => {
+            await store.db.run('DELETE FROM settings')
+            for (const {key, value} of before) await store.db.run('INSERT INTO settings (key, value) VALUES (?, ?)', key, value)
+        }
+        const run = async (side: (step: Step) => Promise<Outcome>) => {
+            const outcomes: Outcome[] = []
+            for (const one of steps) outcomes.push(await side(one))
+            await putBack()
+            return outcomes
+        }
+        const viaTs = await run(([, ts]) => ts())
+        const viaRs = await run(([, , rs]) => rs())
+        // Every project changed both ways when `starts` did: the two names are the same here.
+        const projects = (outcome: Outcome) => ({...outcome, changed: outcome.changed.map(() => '<a project>')})
+        steps.forEach(([name], i) => expect(same(projects(viaRs[i]!), 'through-api'), name).toEqual(same(projects(viaTs[i]!), 'through-store')))
+        expect(viaRs[5]).toMatchObject({status: 200, settings: true})
+        expect(viaRs[5]!.changed).toEqual(expect.arrayContaining(['through-api', 'through-store']))
+        expect(viaRs[2]).toMatchObject({settings: true, changed: []})
+    })
+
+    it('says which settings a change sent, for the event log (ORR-954)', async () => {
+        const response = await fetch(`${url}/api/settings`, {
+            method: 'PATCH',
+            headers: {'Content-Type': 'application/json', 'Orrery-Api-Token': TOKEN, 'Orrery-Database': databaseMark(setting), ...actorHeaders(OWNER)},
+            body: JSON.stringify({tint: null, advanced: true}),
+        })
+        expect(response.status).toBe(200)
+        expect(changedOf(response.headers.get('orrery-settings-keys'))).toEqual(['advanced', 'tint'])
+        expect(domainOf('GET', '/api/settings')).toBe('settings')
+        expect(domainOf('PATCH', '/api/settings/')).toBe('settings')
+        expect(domainOf('GET', '/api/machine')).toBeUndefined()
+    })
+
     it('lists, makes, changes, resets, restores and removes presets alike (ORR-949)', async () => {
         // Presets are the orrery's, or a project's, in one table, so each side runs every step in turn, the table put
         // back as it was between them. Ids are looked up by name at each step, and taken out of messages, as the two
@@ -680,11 +773,11 @@ describe('the router', () => {
             '/api/projects/p/docs/d/revisions/3/restore', '/api/projects/p/deleted-docs', '/api/projects/p/doc-sections', '/api/projects/p/doc-sections/how it works']) expect(servedByApi('GET', path), path).toBe(true)
         for (const path of ['/api/projects/p/docs/d/artifact', '/api/projects/p', '/api/projects/p/docs/d/revisions/3/other', '/api/docs']) expect(servedByApi('GET', path), path).toBe(false)
         for (const path of ['/api/statuses', '/api/statuses/', '/api/statuses/in-review']) expect(servedByApi('GET', path), path).toBe(true)
-        for (const path of ['/api/statuses/x/y', '/api/projects/p/statuses', '/api/settings']) expect(servedByApi('GET', path), path).toBe(false)
+        for (const path of ['/api/statuses/x/y', '/api/projects/p/statuses', '/api/machine']) expect(servedByApi('GET', path), path).toBe(false)
     })
 
     it('routes by a table with a line per domain, so taking one back is taking its line out (ORR-925)', () => {
-        expect(DOMAINS.map(({domain}) => domain)).toEqual(['docs', 'statuses', 'issues, reading', 'comments, reading', 'activity', 'milestones and releases, reading', 'people, but removing one', 'invites', 'keys', 'logins', 'presets'])
+        expect(DOMAINS.map(({domain}) => domain)).toEqual(['docs', 'statuses', 'issues, reading', 'comments, reading', 'activity', 'milestones and releases, reading', 'people, but removing one', 'invites', 'keys', 'logins', 'presets', 'secrets, reading', 'settings'])
         expect(domainOf('PATCH', '/api/projects/p/docs/d')).toBe('docs')
         expect(domainOf('head', '/api/projects/p/doc-sections/')).toBe('docs')
         for (const path of ['/api/projects/p/issues/P-1/activity/x', '/api/', '/docs', '/api/projects/p/docs/d/artifact']) expect(domainOf('GET', path), path).toBeUndefined()
@@ -734,6 +827,15 @@ describe('the router', () => {
         for (const [method, path] of [['GET', '/api/presets'], ['POST', '/api/projects/p/presets'], ['POST', '/api/presets/defaults']]) expect(countedOf(method!, path!), `${method} ${path}`).toBeUndefined()
     })
 
+    it('sends the secrets\' reads there, and keeps every write and egress here (ORR-953)', () => {
+        for (const path of ['/api/secrets', '/api/secrets/STRIPE_KEY']) {
+            expect(domainOf('GET', path), path).toBe('secrets, reading')
+            for (const method of ['PUT', 'PATCH', 'DELETE', 'POST']) expect(domainOf(method, path), `${method} ${path}`).toBeUndefined()
+        }
+        for (const path of ['/api/secrets/STRIPE_KEY/uses', '/api/egress']) expect(domainOf('GET', path), path).toBeUndefined()
+        expect(domainOf('POST', '/api/egress')).toBeUndefined()
+    })
+
     it('says what the credential was, and a login only hashed', () => {
         expect(whoHeaders(undefined, undefined)).toEqual({})
         expect(whoHeaders({person: 'åse', owner: false, via: 'browser'}, 'abc')).toEqual({
@@ -780,7 +882,7 @@ describe('the contract (api/openapi.yaml)', () => {
     }
 
     it('has every route the router sends to the API, and no other', () => {
-        expect(contract()).toHaveLength(46)
+        expect(contract()).toHaveLength(50)
         expect(contract()).toEqual(routes())
     })
 
