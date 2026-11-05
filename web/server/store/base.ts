@@ -90,8 +90,8 @@ export abstract class StoreBase {
     }
 
     /** Says what a write made elsewhere did (the Rust API's, ORR-922), as `tell` does for the store's own. */
-    told(type: string, project: string, subject: string, actor: Actor) {
-        this.tell(type, project, subject, actor)
+    told(type: string, project: string, subject: string, actor: Actor, change: {from?: string | null, to?: string | null} = {}) {
+        this.tell(type, project, subject, actor, change)
     }
 
     /** Projects changed while a batch runs, said once it ends rather than once per issue. */

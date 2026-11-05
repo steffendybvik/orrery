@@ -166,7 +166,7 @@ impl<'c> Milestones<'c> {
                 .await?;
             self.touch_project(project).await?;
             self.effects.changed = vec![project.into()];
-            self.effects.told.push(("milestone.created".into(), project.into(), id.clone()));
+            self.effects.tell("milestone.created", project, &id);
             Ok(id)
         }
         .await;

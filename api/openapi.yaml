@@ -8,9 +8,12 @@ info:
 
     - **Docs** (ORR-922): a project's docs, their sections and their revisions (web/server/api/projects/[project]/docs,
       doc-sections, deleted-docs). Served by both.
-    - **Issues and comments, reading** (ORR-927): the issue list with its filters, one issue, its comments and its
-      activity (web/server/api/projects/[project]/issues). Both serve them; the router sends only their `GET`s there, as
-      writing an issue or a comment stays the Nuxt server's.
+    - **Issues and comments** (ORR-927): the issue list with its filters, one issue, its comments and its activity
+      (web/server/api/projects/[project]/issues), and making and deleting a comment. Both serve them; the router sends
+      their `GET`s there, and a comment's `POST` and `DELETE`. Writing an issue stays the Nuxt server's, as a change
+      wakes sessions, and so does editing a comment, which checks the session's claim on the issue first. A new
+      comment's reply says what the Nuxt server passes on to the sessions and the owner's bell (`Orrery-Carry`,
+      `Orrery-Notice`).
     - **Uploads, reading** (ORR-927): an image kept for Markdown (web/server/api/uploads/[upload].get.ts), passed on by
       the router as it came. Keeping one stays the Nuxt server's, as it compresses the image there.
     - **Schedules, reading** (ORR-930): a project's schedules, one with its runs, every project's and those across
@@ -327,6 +330,20 @@ paths:
       responses:
         '200': {description: The comments, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/Comment'}}}}}
         '404': {$ref: '#/components/responses/NotFound'}
+    post:
+      summary: Comments on the issue
+      description: |
+        An agent's ask (`asks`) assigns the issue to the owner, and the owner's answer gives it back to the agent who
+        asked; with people, an agent's ask waits on its own person, and only on an issue that's theirs. Tells
+        `comment.added`, or `comment.asks` with `to`, and `issue.assignee` when it moved. The reply's `Orrery-Carry`
+        (the owner's or a member's words) and `Orrery-Notice` (an agent's), each `<project> <issue> <comment>`, say what
+        the Nuxt server passes on to the session on the issue and to the owner's bell.
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/CommentInput'}}}}
+      responses:
+        '201': {description: The new comment, content: {application/json: {schema: {$ref: '#/components/schemas/Comment'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
   /api/projects/{project}/issues/{issue}/activity:
     parameters: [{$ref: '#/components/parameters/project'}, {$ref: '#/components/parameters/issue'}]
     get:
@@ -340,6 +357,14 @@ paths:
       summary: One comment
       responses:
         '200': {description: The comment, content: {application/json: {schema: {$ref: '#/components/schemas/Comment'}}}}
+        '404': {description: 'No such project, issue or comment, a comment''s id that isn''t a whole number included', content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+    delete:
+      summary: Deletes the comment
+      description: The owner's is theirs to delete, and a member's (or their agents') theirs or the owner's.
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      responses:
+        '204': {description: Deleted}
+        '403': {$ref: '#/components/responses/Forbidden'}
         '404': {description: 'No such project, issue or comment, a comment''s id that isn''t a whole number included', content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
   /api/projects/{project}/milestones:
     parameters: [{$ref: '#/components/parameters/project'}]
@@ -1202,6 +1227,13 @@ components:
                 required: [projects]
                 properties:
                   projects: {type: array, items: {type: object, required: [project, issues, kinds], properties: {project: {type: string}, issues: {type: integer}, kinds: {$ref: '#/components/schemas/Kinds'}}}}
+    CommentInput:
+      type: object
+      additionalProperties: false
+      required: [body]
+      properties:
+        body: {type: string, description: Markdown; not blank}
+        asks: {type: [string, 'null'], enum: [decision, feedback, null], description: 'Waits on the owner until they comment after it'}
     Comment:
       type: object
       required: [id, issue, body, created_by, protected, created_at, updated_at]

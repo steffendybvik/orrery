@@ -114,6 +114,14 @@ export abstract class CommentStore extends SignalStore {
         return await this.comment(project, issue, id)
     }
 
+    /** What a comment the Rust API made leaves here, as `createComment` does after its row (ORR-927): passing it on to
+     * the session on its issue (`carry`), and to the owner's bell (`notice`). Only this server knows the sessions. */
+    async handOn(project: string, issue: string, id: number, {carry, notice}: {carry: boolean, notice: boolean}, actor: Actor) {
+        const comment = await this.comment(project, issue, id)
+        if (carry) await this.carryComment(project, issue, comment.body, actor)
+        if (notice) this.noticed({...comment, project, title: (await this.issueRow(project, issue)).title})
+    }
+
     /** Whose a comment is (ORR-658): the person's own words, or one of their agents', or nobody's (orrery itself, and an
      * untrusted session or a session naming nobody). */
     private async voiceOf(actor: Actor): Promise<{person: string | null, by_agent: number}> {
