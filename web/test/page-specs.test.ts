@@ -2,11 +2,11 @@ import {readdirSync, readFileSync} from 'node:fs'
 import {join, relative} from 'node:path'
 import {describe, expect, it} from 'vitest'
 
-// Every page has a browser test (ORR-730): the page walk in `navigation.spec.ts` opens it, by its list of pages or of
-// old addresses, or the spec named here does.
+// Every page has a browser test (ORR-730): the page walks (`navigation.spec.ts`, `a11y.spec.ts`) open it, by their list of
+// pages or of old addresses in `e2e/pages.ts`, or the spec named here does.
 const WEB = join(__dirname, '..')
 const PAGES = join(WEB, 'app', 'pages')
-const NAVIGATION = readFileSync(join(WEB, 'e2e', 'navigation.spec.ts'), 'utf8')
+const NAVIGATION = readFileSync(join(WEB, 'e2e', 'pages.ts'), 'utf8')
 const ELSEWHERE: Record<string, string> = {
     // Only with login on, which the walk's orrery has off.
     'login.vue': 'e2e/login/login.spec.ts',
