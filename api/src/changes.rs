@@ -5,7 +5,7 @@
 // woken by `wake()` once a write has committed, and rows older than a week are pruned. Nothing reads them yet: the
 // reply headers still carry what changed.
 use crate::db::sql;
-use crate::docs::{stamp, Actor, Effects};
+use crate::docs::{stamp, Actor, Effects, Told};
 use crate::error::{ApiError, Result};
 use axum::response::sse::Event;
 use futures_util::stream::{self, Stream};
@@ -72,31 +72,53 @@ pub async fn finish<T>(conn: &mut AnyConnection, outbox: Option<&mut Outbox>, ef
 }
 
 /// Writes the rows for what a write by `actor` set off: each project it changed, the settings, and each event told.
-async fn record(conn: &mut AnyConnection, changed: &[&String], settings: bool, told: &[(String, String, String)], actor: &Actor) -> Result<()> {
-    let mut rows: Vec<(&str, Option<&str>, Option<&str>)> = vec![];
+async fn record(conn: &mut AnyConnection, changed: &[&String], settings: bool, told: &[Told], actor: &Actor) -> Result<()> {
+    // Each row's kind, project, subject and payload.
+    type Row<'a> = (&'a str, Option<&'a str>, Option<&'a str>, Option<String>);
+    let mut rows: Vec<Row> = vec![];
     for project in changed {
-        rows.push(("project.changed", Some(project.as_str()), None));
+        rows.push(("project.changed", Some(project.as_str()), None, None));
     }
     if settings {
-        rows.push(("settings", None, None));
+        rows.push(("settings", None, None, None));
     }
-    for (kind, project, subject) in told {
-        rows.push((kind.as_str(), Some(project.as_str()), Some(subject.as_str())));
+    for told in told {
+        rows.push((told.kind.as_str(), Some(told.project.as_str()), Some(told.subject.as_str()), payload_of(told, actor)));
     }
     let now = stamp();
-    for (kind, project, subject) in rows {
-        sqlx::query(&sql("INSERT INTO changes (kind, project, subject, actor, owner, session, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)"))
-            .bind(kind)
-            .bind(project)
-            .bind(subject)
-            .bind(&actor.name)
-            .bind(i32::from(actor.owner))
-            .bind(actor.session.as_deref())
-            .bind(&now)
-            .execute(&mut *conn)
-            .await?;
+    for (kind, project, subject, payload) in rows {
+        sqlx::query(&sql(
+            "INSERT INTO changes (kind, project, subject, actor, owner, session, untrusted, payload, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        ))
+        .bind(kind)
+        .bind(project)
+        .bind(subject)
+        .bind(&actor.name)
+        .bind(i32::from(actor.owner))
+        .bind(actor.session.as_deref())
+        .bind(i32::from(actor.untrusted))
+        .bind(payload)
+        .bind(&now)
+        .execute(&mut *conn)
+        .await?;
     }
     Ok(())
+}
+
+/// An event's `payload`, as the store's `tell` writes it: where its value went (`from`, `to`), and whose agent did it
+/// (`person`, a member's, not the owner's); none when there's nothing to say.
+fn payload_of(told: &Told, actor: &Actor) -> Option<String> {
+    let mut payload = serde_json::Map::new();
+    if let Some(from) = &told.from {
+        payload.insert("from".into(), json!(from));
+    }
+    if let Some(to) = &told.to {
+        payload.insert("to".into(), json!(to));
+    }
+    if let Some(person) = actor.person.as_ref().filter(|_| !actor.owner) {
+        payload.insert("person".into(), json!(person));
+    }
+    (!payload.is_empty()).then(|| Value::Object(payload).to_string())
 }
 
 /// The id a read asks after: none, or empty, for the oldest kept; else a whole number.
