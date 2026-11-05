@@ -594,7 +594,9 @@ export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''),
             const base = at(await projectOf({id}))
             const issue = await call('PATCH', issuePath(id), {status: 'started', assignee: 'claude'}, base)
             if (comment) await call('POST', `${issuePath(id)}/comments`, {body: comment}, base)
-            return `Started ${line(issue)}`
+            // Unrelated to the issue it worked before, with that one's context still in: cleared once idle (ORR-968).
+            const carried = issue.carried_over
+            return `Started ${line(issue)}${carried ? `\n\nThis is unrelated to ${carried.from}, and your context still holds about ${Math.round(carried.tokens / 1000)}k tokens of it. End your turn now without working on it: orrery clears your context, then sends you back to ${issue.id} to start it fresh.` : ''}`
         },
         async finish_issue({id, comment, status = 'done'}) {
             const base = at(await projectOf({id}))

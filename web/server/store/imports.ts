@@ -50,8 +50,8 @@ export abstract class ImportStore extends BulkStore {
             }
             await renumber(this.db, project)
             await this.touchProject(project)
+            this.changed(project)
         })
-        this.changed(project)
         return await this.project(project)
     }
 }

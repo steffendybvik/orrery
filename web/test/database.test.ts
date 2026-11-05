@@ -88,6 +88,22 @@ describe('the SQLite driver', () => {
         expect((await db.all<{what: string}>('SELECT what FROM log ORDER BY id')).map(r => r.what)).toEqual(['write', 'changed', 'told', 'alone'])
     })
 
+    it('runs what waits for the commit itself before the transaction hands back, and never after a rollback (ORR-929)', async () => {
+        const db = await fresh()
+        const ran: string[] = []
+        await db.transaction(async () => {
+            db.atCommit(() => ran.push('kept'))
+            expect(ran).toEqual([])
+        })
+        expect(ran).toEqual(['kept'])
+        await db.transaction(async () => {
+            db.atCommit(() => ran.push('lost'))
+            throw new Error('take it back')
+        }).catch(() => {})
+        db.atCommit(() => ran.push('alone'))
+        expect(ran).toEqual(['kept', 'alone'])
+    })
+
     it('hands over the raw connection only between transactions', async () => {
         const db = await fresh()
         const seen: number[] = []

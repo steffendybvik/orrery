@@ -51,13 +51,14 @@ export abstract class StoreBase {
 
     /** A row in the outbox (ORR-929) for what a write set off, as the Rust API writes for its own: in the write's
      * transaction when there is one, else at once. A project's change or the settings go in once a transaction. */
-    protected outbox(kind: string, at: {project?: string, subject?: string, actor?: Actor} = {}) {
+    protected outbox(kind: string, at: {project?: string, subject?: string, actor?: Actor, payload?: unknown} = {}) {
         if (relayed.getStore()) return
-        const {project = null, subject = null, actor} = at
+        const {project = null, subject = null, actor, payload} = at
         const cause = this.cause() ?? null
         const once = kind === 'project.changed' || kind === 'settings' ? `${kind} ${project ?? ''}` : undefined
-        this.db.beforeCommit(() => this.db.run('INSERT INTO changes (kind, project, subject, actor, owner, session, untrusted, cause, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-            kind, project, subject, actor?.name ?? null, actor?.owner ? 1 : 0, actor?.session ?? null, actor?.untrusted ? 1 : 0, cause, stamp()), once)
+        this.db.beforeCommit(() => this.db.run('INSERT INTO changes (kind, project, subject, actor, owner, session, untrusted, cause, payload, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            kind, project, subject, actor?.name ?? null, actor?.owner ? 1 : 0, actor?.session ?? null, actor?.untrusted ? 1 : 0, cause,
+            payload === undefined ? null : JSON.stringify(payload), stamp()), once)
     }
 
     /** Open pages get the settings, and the outbox says they changed. */
@@ -68,9 +69,24 @@ export abstract class StoreBase {
 
     /** Says what happened, as `actor` did it. */
     protected tell(type: string, project: string, subject: string, actor: Actor, change: {from?: string | null, to?: string | null} = {}) {
-        this.outbox(type, {project, subject, actor})
-        this.happened({type, project, subject, by: {name: actor.name, owner: actor.owner, ...actor.person && !actor.owner ? {person: actor.person} : {}}, ...actor.untrusted ? {untrusted: true} : {},
-            ...change.from == null ? {} : {from: change.from}, ...change.to == null ? {} : {to: change.to}})
+        const event: OrreryEvent = {type, project, subject, by: {name: actor.name, owner: actor.owner, ...actor.person && !actor.owner ? {person: actor.person} : {}}, ...actor.untrusted ? {untrusted: true} : {},
+            ...change.from == null ? {} : {from: change.from}, ...change.to == null ? {} : {to: change.to}}
+        // Where a value went, and whose agent did it: what a schedule's `on` matches beyond the kind (ORR-929).
+        const payload = {...event.from === undefined ? {} : {from: event.from}, ...event.to === undefined ? {} : {to: event.to}, ...event.by?.person ? {person: event.by.person} : {}}
+        this.outbox(type, {project, subject, actor, ...Object.keys(payload).length ? {payload} : {}})
+        this.happened(event)
+    }
+
+    /** A signal for sessions, and its row in the outbox: its id, as the `signals` table holds the rest (ORR-929). */
+    protected signalled(signal: Signal) {
+        this.outbox('signal', {project: signal.project, subject: String(signal.id)})
+        this.onSignal(signal)
+    }
+
+    /** An agent's comment for the owner's bell, and its row in the outbox: the comment's id, and its issue (ORR-929). */
+    protected noticed(notice: Notice) {
+        this.outbox('notice', {project: notice.project, subject: String(notice.id), payload: {issue: notice.issue}})
+        this.onNotice(notice)
     }
 
     /** Says what a write made elsewhere did (the Rust API's, ORR-922), as `tell` does for the store's own. */
@@ -87,6 +103,12 @@ export abstract class StoreBase {
     changed(project: string) {
         this.outbox('project.changed', {project})
         if (this.held) return void this.held.add(project)
+        // Inside a write's transaction, open pages hear it the moment it commits, and never when it's taken back.
+        this.db.atCommit(() => this.pushChanged(project))
+    }
+
+    /** Tells open pages the project changed, and the projects sharing its releases. */
+    private pushChanged(project: string) {
         this.onChange(project)
         this.all<{id: string}>('SELECT id FROM projects WHERE releases_from = ? OR id = (SELECT releases_from FROM projects WHERE id = ?)', project, project)
             .then(rows => rows.forEach(r => this.onChange(r.id)), () => {})

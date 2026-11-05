@@ -83,8 +83,8 @@ export abstract class ReleaseStore extends DocStore {
             await this.record(project, id, ORRERY, [['release', null, release.version]])
             await this.update('issues', 'project = ? AND id = ?', [project, id], {ships_in: release.version})
             await this.touchProject(project)
+            this.changed(project)
         })
-        this.changed(project)
         return {set: release.version}
     }
 
@@ -112,9 +112,9 @@ export abstract class ReleaseStore extends DocStore {
                 project, version, nullable(input.branch)?.trim() || null, nullable(input.notes), nullable(input.frozen_on), nullable(input.shipped_on), input.shipped_on ? await this.docMark() : null, top - 1, actor.name, Number(actor.owner), now, now)
             if (input.position !== undefined) await this.placeRelease(project, version, Number(input.position))
             await this.touchProject(project)
+            this.changed(project)
+            this.tell('release.created', project, version, actor)
         })
-        this.changed(project)
-        this.tell('release.created', project, version, actor)
         return await this.release(project, version)
     }
 
@@ -135,8 +135,8 @@ export abstract class ReleaseStore extends DocStore {
             })
             if (input.position !== undefined) await this.placeRelease(project, version, Number(input.position))
             await this.touchProject(project)
+            this.changed(project)
         })
-        this.changed(project)
         // Frozen or shipped as the day is set, thawed or unshipped as it's cleared; a new day on one already set is no event.
         for (const [field, on, off] of [['frozen_on', 'frozen', 'thawed'], ['shipped_on', 'shipped', 'unshipped']] as const) {
             if (input[field] === undefined || !!input[field] === !!before[field]) continue
@@ -177,8 +177,8 @@ export abstract class ReleaseStore extends DocStore {
             await this.run('UPDATE issues SET ships_in = NULL WHERE (project = ? OR project IN (SELECT id FROM projects WHERE releases_from = ?)) AND ships_in = ?', project, project, version)
             await this.run('DELETE FROM releases WHERE project = ? AND version = ?', project, version)
             await this.touchProject(project)
+            this.changed(project)
+            this.tell('release.deleted', project, version, actor)
         })
-        this.changed(project)
-        this.tell('release.deleted', project, version, actor)
     }
 }

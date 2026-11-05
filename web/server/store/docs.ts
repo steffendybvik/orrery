@@ -62,9 +62,9 @@ export abstract class DocStore extends MilestoneStore {
                 project, id, title, String(input.body ?? ''), kind, Number(input.position ?? await this.nextPosition('docs', project)), sectionOf(input.section) ?? null, actor.name, Number(actor.owner), now, now)
             await this.keepRevision(project, {id, title, body: String(input.body ?? ''), kind}, actor)
             await this.touchProject(project)
+            this.changed(project)
+            this.tell('doc.created', project, id, actor)
         })
-        this.changed(project)
-        this.tell('doc.created', project, id, actor)
         return await this.doc(project, id)
     }
 
@@ -103,9 +103,9 @@ export abstract class DocStore extends MilestoneStore {
             await this.sectionLast(project, section)
             if (section !== undefined) await this.run('UPDATE docs SET section = ? WHERE project = ? AND id = ?', section, project, id)
             await this.touchProject(project)
+            this.changed(project)
+            if (input.title !== undefined || input.body !== undefined) this.tell('doc.changed', project, id, actor)
         })
-        this.changed(project)
-        if (input.title !== undefined || input.body !== undefined) this.tell('doc.changed', project, id, actor)
         return await this.doc(project, id)
     }
 
@@ -163,9 +163,9 @@ export abstract class DocStore extends MilestoneStore {
                 project, id, title, body, kind, await this.nextPosition('docs', project), last.section, first.created_by, first.owned, first.created_at, now)
             await this.keepRevision(project, {id, title, body, kind}, actor)
             await this.touchProject(project)
+            this.changed(project)
+            this.tell('doc.created', project, id, actor)
         })
-        this.changed(project)
-        this.tell('doc.created', project, id, actor)
         return {doc: await this.doc(project, id), created: true}
     }
 
@@ -183,8 +183,8 @@ export abstract class DocStore extends MilestoneStore {
             await this.sectionLast(project, name)
             await this.run('INSERT INTO doc_sections (project, name, created_at) VALUES (?, ?, ?)', project, name, stamp())
             await this.touchProject(project)
+            this.changed(project)
         })
-        this.changed(project)
         return name
     }
 
@@ -199,8 +199,8 @@ export abstract class DocStore extends MilestoneStore {
             await this.run('UPDATE docs SET section = ? WHERE project = ? AND section = ?', name, project, from)
             await this.run('UPDATE doc_sections SET name = ? WHERE project = ? AND name = ?', name, project, from)
             await this.touchProject(project)
+            this.changed(project)
         })
-        this.changed(project)
         return name
     }
 
@@ -216,8 +216,8 @@ export abstract class DocStore extends MilestoneStore {
             others.splice(Number(position), 0, name)
             await this.arrangeSections(project, others)
             await this.touchProject(project)
+            this.changed(project)
         })
-        this.changed(project)
         return name
     }
 
@@ -240,8 +240,8 @@ export abstract class DocStore extends MilestoneStore {
             await this.run('UPDATE docs SET section = NULL WHERE project = ? AND section = ?', project, name)
             await this.run('DELETE FROM doc_sections WHERE project = ? AND name = ?', project, name)
             await this.touchProject(project)
+            this.changed(project)
         })
-        this.changed(project)
     }
 
     private async sectionThere(project: string, name: string) {
@@ -257,8 +257,8 @@ export abstract class DocStore extends MilestoneStore {
             await this.keepRevision(project, row, actor, {section: row.section})
             await this.run('DELETE FROM docs WHERE project = ? AND id = ?', project, id)
             await this.touchProject(project)
+            this.changed(project)
+            this.tell('doc.deleted', project, id, actor)
         })
-        this.changed(project)
-        this.tell('doc.deleted', project, id, actor)
     }
 }
