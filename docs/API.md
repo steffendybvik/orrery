@@ -823,7 +823,7 @@ problem. **Errors** are recorded always: a 5xx the server answers with (`server.
 (`page.error`; an unknown URL isn't one, it only shows Not found), a schedule run or backup that failed (`schedule.failed`, `backup.failed`). **What orrery did** is
 recorded only while the owner has Advanced on (`PATCH /settings {advanced: true}`, App settings → Advanced; on in an orrery that never set it):
 sessions started, stopped and refused (`session.started`, `session.stopping`, `session.stopped`,
-`session.refused`), any session's channel joining and leaving the feed (`channel.connected`, `channel.left`),
+`session.refused`), a session that started an issue out of the scope of its last with more than 50k tokens in its context (`session.carried_over`, ORR-968), any session's channel joining and leaving the feed (`channel.connected`, `channel.left`),
 launchers coming and going (`launcher.connected`, `launcher.gone`) or refused a launch because
 their code is older than it (`launcher.outdated`, a warning: one from before chats offered a chat), GitHub turning down the `GITHUB_TOKEN` secret as pull requests are polled (`github.refused`, a warning, once until it works again), a session whose `Orrery-Person` disagrees with its agent key (`auth.person_mismatch`, a warning, once per session), schedule runs and skips
 (`schedule.ran`, `schedule.skipped`), backups, migrations, moves, what orrery cleaned up and server starts (`backup.made`, `backup.set`, `migration.ran`, `housekeeping.cleaned`,
