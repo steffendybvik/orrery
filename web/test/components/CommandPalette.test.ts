@@ -222,5 +222,13 @@ describe('CommandPalette', () => {
         await key('Enter')
         expect(all.value).toBe(true)
         all.value = false
+
+        // Its other words find it too (ORR-937).
+        for (const words of ['>message all', '>all sessions']) {
+            useState('palette-open').value = true
+            await nextTick()
+            await input().setValue(words)
+            expect(wrapper.find('[aria-selected="true"]').text()).toContain('Message sessions')
+        }
     })
 })

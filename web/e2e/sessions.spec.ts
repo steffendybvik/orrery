@@ -259,7 +259,7 @@ test('messages every idle session at once from the Sessions page, not the busy o
         await expect.poll(async () => (await api(request, 'get', '/sessions')).filter((s: {id: string, listening: boolean}) => ids.includes(s.id) && s.listening).length).toBe(2)
         await request.post('/api/sessions', {data: {id: 'e2e-b2', project: 'kitchen', event: 'UserPromptSubmit'}})
         await page.goto('/sessions')
-        await page.getByRole('button', {name: 'Message sessions'}).click()
+        await page.getByRole('button', {name: 'Message sessions', exact: true}).click()
         const dialog = page.getByRole('dialog', {name: 'Message sessions'})
         await expect(dialog).toContainText('Reaches e2e-b1')
         await dialog.getByLabel('Message', {exact: true}).fill('Pick a Todo issue if you are free.')

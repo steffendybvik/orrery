@@ -125,7 +125,7 @@ const everywhere = computed<Entry[]>(() => [
     {key: 'go:settings', group: 'Go to', label: 'App settings', run: () => router.push('/settings')},
     {key: 'phone', group: 'Phone', label: 'Open on your phone', detail: 'its QR code', run: () => phoneOpen.value = true},
     ...(projects.value.some(p => p.starts) ? [{key: 'session:start', group: 'Session', label: 'Start session', detail: project.value?.name, run: () => useStartSession().open(project.value?.id ?? null)}] : []),
-    ...(listening.value.length ? [{key: 'session:message-all', group: 'Session', label: 'Message sessions', detail: 'every one listening', run: () => messageAll.value = true}] : []),
+    ...(listening.value.length ? [{key: 'session:message-all', group: 'Session', label: 'Message sessions', detail: 'every one listening', also: 'message all sessions', run: () => messageAll.value = true}] : []),
     ...listening.value.map(s => ({key: `session:message:${s.id}`, group: 'Session', label: `Message ${s.name}`, detail: 'only it hears', run: () => messageOne.value = s})),
     {key: 'chat', group: 'Chat', label: chatAbout.value ? `Chat about ${chatAbout.value.name}` : 'Chat', detail: 'answers and makes issues', run: () => useChat().show(project.value?.id)},
     {key: 'project:new', group: 'Project', label: 'New project', run: () => useState('new-project').value = true},
