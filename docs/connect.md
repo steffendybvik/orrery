@@ -192,7 +192,10 @@ milestone or scope is left, orrery also sends it a focus on the rest, to it alon
 focus on a single issue ends the milestone or scope it was working through. Related work keeps the context: when the
 issue it worked last is a sub-issue it has just closed, and a sibling under the same parent is still in Backlog or
 Todo, it isn't cleared but sent on to the most urgent sibling instead. If it leaves that sibling as it was, its
-next idle clears it as usual.
+next idle clears it as usual. Unrelated work starts clean, once its context holds more than 50k tokens: a session
+that starts an issue outside the scope of its last one (not its parent, a sub-issue, a sibling, or the same milestone
+or epic) is told to end its turn, then cleared and sent back to that issue alone. Your focus on unrelated work waits
+for a clear the same way, when the session holds only work in review.
 
 It needs [tmux](https://github.com/tmux/tmux) 3.2 or newer: each session runs detached (`tmux attach -t <name>` to
 watch it, as the launcher logs), with the channel and the hooks as usual, and is stopped once its minutes
