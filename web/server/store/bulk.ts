@@ -7,12 +7,13 @@ import {describePicks, resolvePicks} from '../utils/choices'
 import {UPSERT_ISSUE_ALIAS} from '../utils/renumber'
 import type {BulkResult, IssueDetail, Actor} from './schema'
 import {BULK_FIELDS, AGENT, DECISION_FIELDS, DECIDED, stamp} from './schema'
-import {CommentStore, ORRERY} from './comments'
+import {ORRERY} from './comments'
+import {ThreadStore} from './threads'
 import {known} from '#shared/known'
 import {ownerOnly} from '../utils/permission'
 import {startsNone} from '../utils/starts-none'
 
-export abstract class BulkStore extends CommentStore {
+export abstract class BulkStore extends ThreadStore {
     /** Runs `work` for each issue on its own, so one refusal doesn't stop the rest, and says each one's outcome. */
     protected async each(ids: unknown, work: (id: string) => Promise<unknown>): Promise<BulkResult[]> {
         if (!Array.isArray(ids) || !ids.length || ids.some(id => typeof id !== 'string')) throw badRequest('Send "ids": the issues, as a list of their ids')

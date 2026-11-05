@@ -53,3 +53,19 @@ test('makes an epic, picks it on issues in two projects, and shows each part on 
     await expect.poll(async () => (await front(request, 'get', `/issues/${shown.id}`)).epic).toBeUndefined()
     expect((await request.get(`/api/epics/${id}`, {headers: AGENT})).status()).toBe(404)
 })
+
+test('comments on an epic\'s page, the owner\'s and an agent\'s (ORR-977)', async ({page, request}) => {
+    const epic = await (await request.post('/api/epics', {data: {title: 'Seasonal menu'}, headers: AGENT})).json() as {id: number}
+    await request.post(`/api/epics/${epic.id}/comments`, {data: {body: 'Spring dishes first.'}, headers: AGENT})
+    await page.goto(`/epics/${epic.id}`)
+    const thread = page.getByRole('region', {name: 'Comments'})
+    await expect(thread.getByText('Spring dishes first.')).toBeVisible()
+    await thread.getByRole('textbox', {name: 'Comment'}).fill('And the summer ones by June.')
+    await thread.getByRole('button', {name: 'Comment', exact: true}).click()
+    await expect(thread.getByText('And the summer ones by June.')).toBeVisible()
+    await expect.poll(async () => (await (await request.get(`/api/epics/${epic.id}/comments`)).json() as {body: string}[]).map(c => c.body))
+        .toEqual(['Spring dishes first.', 'And the summer ones by June.'])
+    // An agent can't take the owner's words away.
+    const [, mine] = await (await request.get(`/api/epics/${epic.id}/comments`)).json() as {id: number}[]
+    expect((await request.delete(`/api/epics/${epic.id}/comments/${mine!.id}`, {headers: AGENT})).status()).toBe(403)
+})

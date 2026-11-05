@@ -251,6 +251,8 @@ useHead(() => ({title: milestone.value ? `${milestone.value.title} · orrery` : 
           </ListView>
         </div>
         <p v-else class="px-4 py-16 text-center text-sm text-muted">{{ active ? 'No issue in this milestone matches the filters.' : 'No issues in this milestone yet.' }}</p>
+        <!-- Words on the milestone (ORR-977), read again as its project changes. -->
+        <ThreadComments v-if="milestone.id" :url="`${api}/comments`" :reload="project.updated_at" class="mt-6" />
       </div>
     </template>
     <NotFound v-else-if="ready" :to="`/p/${route.params.project}/roadmap`" back="Back to the roadmap">No milestone “{{ route.params.milestone }}”</NotFound>

@@ -229,6 +229,9 @@ export async function uploadBoard(db: Db, file: unknown, as: {id?: string, key?:
         for (const comment of tables.comments) {
             newId.comments.set(comment.id, await insertNew(db, 'comments', onThisBoard({...without(comment), created_by: `${comment.created_by} (from a file)`, person: null, cleared: 1, asks: null, session_name: null})))
         }
+        for (const comment of tables.milestone_comments) {
+            await insertNew(db, 'milestone_comments', onThisBoard({...without(comment), created_by: `${comment.created_by} (from a file)`, person: null, session_name: null}))
+        }
         for (const request of tables.schedule_requests) {
             const comment = newId.comments.get(request.comment)
             if (comment) await insert(db, 'schedule_requests', {...request, comment, schedule: newId.schedules.get(request.schedule) ?? null, state: request.state === 'asked' ? 'expired' : request.state})

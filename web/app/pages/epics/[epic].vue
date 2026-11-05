@@ -220,6 +220,10 @@ useHead(() => ({title: epic.value ? `${epic.value.title} · Epics · orrery` : '
         </section>
       </div>
       <p v-if="!parts.length" class="px-4 py-16 text-center text-sm text-muted">No issues in this epic yet. Pick it under Epic on an issue’s page, in any project.</p>
+      <!-- Words on the epic (ORR-977), read again as it changes. -->
+      <div class="mx-auto max-w-5xl px-4 pb-10 sm:px-8">
+        <ThreadComments :url="`${api}/comments`" :reload="epic.updated_at" />
+      </div>
     </template>
     <NotFound v-else-if="ready && epics" to="/epics" back="Back to the epics">No epic “{{ route.params.epic }}”</NotFound>
     <UiLoading v-else :failed="readFailed" what="the epic" @retry="load" />
