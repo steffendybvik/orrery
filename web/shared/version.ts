@@ -16,6 +16,15 @@ export function launcherMinimum(people: number): string {
     return people > 1 ? '1.0.0-rc.15' : '1.0.0-rc.10'
 }
 
+/** The oldest channel that does all this orrery asks of one (ORR-965), going by what changed for the channel: since
+ * 1.0.0-rc.10 it says its version on the signal streams, which Sessions goes by. With several people, its streams have to
+ * say whose session it is (`Orrery-Person`), or they're refused, which came in 1.0.0-rc.15. The same versions as the
+ * launcher's today, kept apart so either can move on its own. Raise this when the server comes to need something new of a
+ * channel. */
+export function channelMinimum(people: number): string {
+    return people > 1 ? '1.0.0-rc.15' : '1.0.0-rc.10'
+}
+
 function compare(a: string, b: string): number {
     const [aMain = '', ...aPre] = a.split('-')
     const [bMain = '', ...bPre] = b.split('-')

@@ -28,7 +28,7 @@ import {claudeWindow} from './session.mjs'
 import {instructionsFor} from './instructions.mjs'
 import {follow} from './sse.mjs'
 import {orreryTools, toolsFor} from './tools.mjs'
-import {BOOTSTRAP, VERSION} from './version.mjs'
+import {BOOTSTRAP, VERSION, olderThan} from './version.mjs'
 
 const base = (process.env.ORRERY_URL ?? 'http://localhost:9000').replace(/\/+$/, '')
 const listed = (process.env.ORRERY_PROJECTS || process.env.ORRERY_PROJECT || basename(process.cwd())).split(',').map(p => p.trim()).filter(Boolean)
@@ -207,6 +207,20 @@ async function nameIs(name) {
     }})
 }
 
+/** An orrery that takes only newer channels than this (ORR-965, its stream's `ready` saying `oldest`): said plainly, as
+ * the session's first words and on the log, rather than half working. Once for each oldest it hears. */
+let toldOldest = ''
+async function oldestIs(oldest) {
+    if (!oldest || oldest === toldOldest || !olderThan(VERSION, oldest)) return
+    toldOldest = oldest
+    const fix = BOOTSTRAP ? 'restart this session to load the newer channel' : 'update the checkout this channel runs from (git pull), then restart this session'
+    log(`this channel runs ${VERSION}, and the orrery at ${base} takes ${oldest} or newer`)
+    await server.notification({method: 'notifications/claude/channel', params: {
+        content: `This session's orrery channel runs ${VERSION}, and the orrery at ${base} takes channels from ${oldest} on, so some of what it sends may not arrive or work. Tell the owner, and ask them to ${fix}.`,
+        meta: {kind: 'version', version: VERSION, oldest},
+    }})
+}
+
 /** The owner stopped this session from orrery: ends its claude process, which takes this server with it. */
 function quit() {
     if (!window.pid) return log("asked to stop, but can't tell which claude process this is")
@@ -236,6 +250,7 @@ function listen({url, started, label}) {
         onEvent: async ({event, data, id}) => {
             if (event === 'stop') return quit()
             if (event === 'name') return nameIs(JSON.parse(data).name)
+            if (event === 'ready') return oldestIs(JSON.parse(data).oldest)
             if (event !== 'signal') return
             last = Math.max(last, Number(id) || 0)
             const signal = JSON.parse(data)
