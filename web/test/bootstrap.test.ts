@@ -121,18 +121,46 @@ describe('the bootstrap', () => {
         expect(asked).toBe(1)
     })
 
-    it('gives a launcher the newest orrery on its list', async () => {
-        const older = createServer((_, response) => response.end(JSON.stringify({id: 'old', version: '0.9.0', code: 'cccc', files: {}})))
-        await new Promise<void>(done => older.listen(0, '127.0.0.1', done))
-        const oldUrl = `http://127.0.0.1:${(older.address() as AddressInfo).port}`
+    /** A launcher's list in a config folder of its own, and the environment that points at it. */
+    async function listed(list: object) {
         const config = join(home, 'config')
         const {mkdirSync} = await import('node:fs')
         mkdirSync(join(config, 'orrery'), {recursive: true})
-        writeFileSync(join(config, 'orrery', 'launcher.json'), JSON.stringify({projects: [{url: `${oldUrl}/`, project: 'a'}, {url, project: 'b'}, {url, project: 'c'}]}))
-        const listEnv = {XDG_CONFIG_HOME: config} as NodeJS.ProcessEnv
-        expect(orreriesFor('launcher', listEnv, home)).toEqual([oldUrl, url])
-        expect(await resolve('launcher', {env: listEnv, home})).toMatchObject({version: '1.0.0', from: url})
-        older.close()
+        writeFileSync(join(config, 'orrery', 'launcher.json'), JSON.stringify(list))
+        return {XDG_CONFIG_HOME: config, ORRERY_HOME: join(home, '.orrery')} as NodeJS.ProcessEnv
+    }
+
+    it('takes a launcher\'s code from one orrery, never the newest on its list (ORR-960)', async () => {
+        // Another orrery on the list, which says it runs a much newer version and serves other code.
+        const loud = createServer((request, response) => {
+            if (request.url === '/channel/manifest.json') response.end(JSON.stringify({id: 'theirs', version: '99.0.0', code: 'eeee', files: {'orrery-launcher.mjs': sha256('evil')}}))
+            else response.end('evil')
+        })
+        await new Promise<void>(done => loud.listen(0, '127.0.0.1', done))
+        const loudUrl = `http://127.0.0.1:${(loud.address() as AddressInfo).port}`
+        try {
+            // Installed from `url`, with the other one added later, by pick-up or Connect a repo.
+            const listEnv = await listed({orreries: [`${url}/`], projects: [{url: loudUrl, project: 'a'}, {url, project: 'b'}]})
+            expect(orreriesFor('launcher', listEnv, home)).toEqual([url])
+            expect(await resolve('launcher', {env: listEnv, home})).toMatchObject({version: '1.0.0', code: 'aaaa', from: url})
+        } finally {
+            loud.close()
+        }
+    })
+
+    it('names a launcher\'s orrery where it\'s run, else where it was installed from, its copy came from, or the list starts', async () => {
+        const other = 'http://localhost:9020'
+        expect(orreriesFor('launcher', {...await listed({orreries: [url], projects: [{url: other, project: 'a'}]}), ORRERY_URL: `${other}/`}, home)).toEqual([other])
+        expect(orreriesFor('launcher', await listed({orreries: [url, other], projects: [{url: other, project: 'a'}]}), home)).toEqual([url])
+        // An older list, with no `orreries`: the orrery its copy came from stays its source.
+        const env = await listed({projects: [{url: other, project: 'a'}, {url, project: 'b'}]})
+        expect(orreriesFor('launcher', env, home)).toEqual([other])
+        const {mkdirSync} = await import('node:fs')
+        mkdirSync(join(home, '.orrery', 'launcher'), {recursive: true})
+        writeFileSync(join(home, '.orrery', 'launcher', 'current-launcher.json'), JSON.stringify({folder: 'x', from: url}))
+        expect(orreriesFor('launcher', env, home)).toEqual([url])
+        expect(orreriesFor('launcher', await listed({}), home)).toEqual([url])
+        expect(orreriesFor('launcher', {XDG_CONFIG_HOME: join(home, 'nowhere'), ORRERY_HOME: join(home, 'nowhere')} as NodeJS.ProcessEnv, home)).toEqual(['http://localhost:9000'])
     })
 
     const run = (args: string[], extra: Record<string, string>) => new Promise<{code: number, stdout: string, stderr: string}>(done => {
