@@ -16,6 +16,9 @@ info:
       `Orrery-Notice`).
     - **Uploads, reading** (ORR-927): an image kept for Markdown (web/server/api/uploads/[upload].get.ts), passed on by
       the router as it came. Keeping one stays the Nuxt server's, as it compresses the image there.
+    - **Schedules, reading** (ORR-930): a project's schedules, one with its runs, every project's and those across
+      projects (web/server/api/projects/[project]/schedules, schedules.get.ts, schedules/across). Served by both; making,
+      changing and running them stays the Nuxt server's, as a run starts a session.
     - **Statuses** (ORR-926): the orrery's issue statuses (web/server/api/statuses). Served by both.
     - **Milestones and releases** (ORR-926, written in ORR-974): a project's milestones and releases, one of each,
       made, changed (a release frozen and shipped too) and deleted, and every project's releases
@@ -618,6 +621,32 @@ paths:
         '400': {$ref: '#/components/responses/BadRequest'}
         '404': {$ref: '#/components/responses/NotFound'}
         '409': {$ref: '#/components/responses/Conflict'}
+  /api/projects/{project}/schedules:
+    parameters: [{$ref: '#/components/parameters/project'}]
+    get:
+      summary: 'The project''s schedules: the soonest next run first, those with none last, ties by title'
+      responses:
+        '200': {description: The schedules, content: {application/json: {schema: {type: array, items: {type: object}}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/projects/{project}/schedules/{schedule}:
+    parameters:
+      - {$ref: '#/components/parameters/project'}
+      - {name: schedule, in: path, required: true, description: 'Its number, or its full id: `sch-12-x7k2m9qd`', schema: {type: string}}
+    get:
+      summary: The schedule, with its latest ten runs, newest first
+      responses:
+        '200': {description: The schedule, content: {application/json: {schema: {type: object}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/schedules:
+    get:
+      summary: 'Every project''s schedules (the agenda): the soonest next run first, those with none last, ties by title'
+      responses:
+        '200': {description: The schedules, content: {application/json: {schema: {type: array, items: {type: object}}}}}
+  /api/schedules/across:
+    get:
+      summary: The schedules across projects, oldest first, each with the projects it's made on
+      responses:
+        '200': {description: The schedules across projects, content: {application/json: {schema: {type: array, items: {type: object}}}}}
   /api/pulls/{owner}/{name}/{number}:
     parameters:
       - {name: owner, in: path, required: true, description: The GitHub repo's owner, in any case, schema: {type: string}}
