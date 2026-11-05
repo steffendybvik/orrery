@@ -30,8 +30,10 @@ mod uploads;
 
 use axum::body::Bytes;
 use axum::extract::{Path, Query, Request, State};
+use axum::http::header::ACCEPT;
 use axum::http::{HeaderMap, HeaderValue, StatusCode};
 use axum::middleware::{self, Next};
+use axum::response::sse::{KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, patch, post};
 use axum::{Json, Router};
@@ -139,6 +141,10 @@ fn body_of(bytes: &Bytes) -> Value {
 /// when the orrery's settings changed (the statuses are in them), and `Orrery-Told: <type> <project> <subject>, …`, each
 /// part percent-encoded.
 fn reply(status: StatusCode, body: Option<Value>, effects: Effects) -> Response {
+    // The write is committed by now, with its outbox rows: the open streams can send them (ORR-929).
+    if !effects.changed.is_empty() || effects.settings || !effects.told.is_empty() {
+        changes::wake();
+    }
     let mut response = match body {
         Some(body) => (status, Json(body)).into_response(),
         None => status.into_response(),
@@ -162,7 +168,14 @@ fn reply(status: StatusCode, body: Option<Value>, effects: Effects) -> Response 
     response
 }
 
-async fn list_changes(State(app): Shared, Query(query): Query<HashMap<String, String>>) -> Result<Response> {
+/// `GET /api/changes?after=<id>`: a page of the outbox as JSON, or, asked with `Accept: text/event-stream`, the rows as
+/// server-sent events, oldest first, then live. A reconnecting stream's `Last-Event-ID` stands for `after`.
+async fn list_changes(State(app): Shared, headers: HeaderMap, Query(query): Query<HashMap<String, String>>) -> Result<Response> {
+    let streamed = headers.get(ACCEPT).and_then(|v| v.to_str().ok()).is_some_and(|a| a.contains("text/event-stream"));
+    if streamed {
+        let after = changes::cursor(header(&headers, "last-event-id").or_else(|| query.get("after").cloned()).as_deref())?;
+        return Ok(Sse::new(changes::stream(app.pool.clone(), after)).keep_alive(KeepAlive::default()).into_response());
+    }
     let mut conn = app.pool.acquire().await?;
     Ok(Json(changes::after(&mut conn, query.get("after").map(String::as_str)).await?).into_response())
 }
@@ -576,6 +589,14 @@ async fn main() {
     } else {
         std::path::absolute(&setting).map(|p| p.to_string_lossy().into_owned()).unwrap_or_else(|e| fail(format!("can't place {setting}: {e}")))
     };
+    // The outbox keeps a week (ORR-929): pruned now, then hourly.
+    let pruning = pool.clone();
+    tokio::spawn(async move {
+        loop {
+            changes::prune(&pruning).await.ok();
+            tokio::time::sleep(std::time::Duration::from_secs(3600)).await;
+        }
+    });
     let app = Arc::new(App { pool, token, database: database_hash(&named), log: std::env::var("ORRERY_API_LOG").is_ok_and(|v| v == "1") });
     let listener = tokio::net::TcpListener::bind(&listen).await.unwrap_or_else(|e| fail(format!("can't listen on {listen}: {e}")));
     let at = listener.local_addr().map(|a| a.to_string()).unwrap_or(listen);

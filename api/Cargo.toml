@@ -10,7 +10,7 @@ description = "orrery's API in Rust: the docs domain first (ORR-922), beside the
 
 [dependencies]
 axum = "0.8"
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "signal"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "signal", "time", "sync"] }
 sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "any", "sqlite", "postgres", "macros"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
@@ -21,3 +21,4 @@ unicode-normalization = "0.1"
 getrandom = "0.2"
 base64 = "0.22"
 percent-encoding = "2"
+futures-util = { version = "0.3", default-features = false }
