@@ -15,8 +15,6 @@ use sqlx::{AnyConnection, Row};
 /// member acting themselves (`person`), who it says it works for (`named`), whether it came from a request (`asked`),
 /// and whether it's an untrusted session or the owner's chat.
 #[derive(Clone, Debug, Default)]
-// The rails' fields are read by the comment writes, next (ORR-927).
-#[allow(dead_code)]
 pub struct Actor {
     pub name: String,
     pub owner: bool,
@@ -34,14 +32,30 @@ pub struct Actor {
 pub struct Effects {
     pub changed: Vec<String>,
     pub settings: bool,
-    pub told: Vec<(String, String, String)>,
+    pub told: Vec<Told>,
     /// The settings sent in a change (ORR-954), for the router's note in the event log.
     pub settings_keys: Vec<String>,
 }
 
+/// An event a write told: its kind, project and subject, and where a value went (`from`, `to`) when one changed, as a
+/// schedule's `on` matches on them (ORR-929).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Told {
+    pub kind: String,
+    pub project: String,
+    pub subject: String,
+    pub from: Option<String>,
+    pub to: Option<String>,
+}
+
 impl Effects {
-    fn tell(&mut self, kind: &str, project: &str, subject: &str) {
-        self.told.push((kind.into(), project.into(), subject.into()))
+    pub fn tell(&mut self, kind: &str, project: &str, subject: &str) {
+        self.told.push(Told { kind: kind.into(), project: project.into(), subject: subject.into(), ..Told::default() })
+    }
+
+    /// Tells an event with where its value went (`issue.assignee`, `comment.asks`), as the store's `tell` does.
+    pub fn tell_change(&mut self, kind: &str, project: &str, subject: &str, from: Option<&str>, to: Option<&str>) {
+        self.told.push(Told { kind: kind.into(), project: project.into(), subject: subject.into(), from: from.map(Into::into), to: to.map(Into::into) })
     }
 }
 

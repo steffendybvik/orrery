@@ -17,7 +17,7 @@ import {Secrets} from '../server/utils/secrets'
 import {Pulls, pullForSession} from '../server/utils/pulls'
 import {openDb} from '../server/utils/db'
 import {PostgresDb} from '../server/utils/postgres'
-import {actorHeaders, changedOf, countedOf, databaseMark, domainOf, DOMAINS, loginHeaders, passedThrough, servedByApi, toldOf, whoHeaders} from '../server/utils/api-router'
+import {actorHeaders, changedOf, countedOf, databaseMark, domainOf, DOMAINS, handedOn, loginHeaders, passedThrough, servedByApi, toldOf, whoHeaders} from '../server/utils/api-router'
 import {permission, refused} from '../server/utils/permission'
 
 const BIN = process.env.ORRERY_API_BIN || fileURLToPath(new URL('../../api/target/debug/orrery-api', import.meta.url))
@@ -87,7 +87,8 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         }
     }
 
-    /** The same step through the API. */
+    /** The same step through the API, with what the router does after it: a new comment passed on to the sessions and the
+     * owner's bell (`handedOn`, ORR-927). */
     async function viaApi(method: string, path: string, body?: unknown, actor: Actor = AGENT, project = 'through-api', extra: Record<string, string> = {}): Promise<Outcome> {
         // A path of the orrery's own (`/api/statuses`) as it is; else one of the project's.
         const response = await fetch(path.startsWith('/api/') ? `${url}${path}` : `${url}/api/projects/${project}${path}`, {
@@ -100,6 +101,8 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         const changed = response.headers.get('orrery-changed')
         const told = toldOf(response.headers.get('orrery-told')).map(t => `${t.type} ${t.subject}`)
         if (response.status >= 400) return {status: response.status, body: {message: json!.message, ...json!.data === undefined ? {} : {data: json!.data}}, changed: [], told: [], settings: false}
+        const handoff = handedOn(response.headers)
+        if (handoff) await store.handOn(handoff.project, handoff.issue, handoff.comment, handoff, actor)
         return {status: response.status, body: json, changed: [...new Set(changedOf(changed))].sort(), told, settings: response.headers.get('orrery-settings') === '1'}
     }
 
@@ -403,6 +406,63 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         const {body} = await viaApi('GET', `/issues/${ids['through-api']}/activity`)
         expect(body).toEqual(expect.arrayContaining([expect.objectContaining({field: 'status', after: 'in-progress', session_name: expect.any(String)})]))
         expect((body as {field: string, after?: string}[]).find(e => e.field === 'priority' && e.after === undefined)).toBeDefined()
+    })
+
+    it('makes and deletes comments alike, and passes a new one on to the sessions and the bell as the store does (ORR-927)', async () => {
+        const key = (p: string) => p === 'through-store' ? 'STO' : 'API'
+        const ids: Record<string, string> = {}
+        for (const p of ['through-store', 'through-api']) {
+            ids[p] = (await store.createIssue(p, {title: 'Weigh the gears'}, OWNER)).id
+            await store.db.run('INSERT INTO issue_aliases (project, alias, issue) VALUES (?, ?, ?)', p, `${key(p)}-96`, ids[p])
+        }
+        const since = async () => ({
+            signal: (await store.db.get<{n: number | null}>('SELECT max(id) AS n FROM signals'))?.n ?? 0,
+            change: (await store.db.get<{n: number | null}>('SELECT max(id) AS n FROM changes'))?.n ?? 0,
+        })
+        const start = await since()
+        const path = (p: string) => `/issues/${ids[p]}/comments`
+        const assignee = (p: string) => viaStore(async () => ({assignee: (await store.issue(p, ids[p]!)).assignee ?? null}))
+        const nth = async (p: string, n: number) => (await store.listComments(p, ids[p]!)).at(n)!.id
+        // A comment's id is in a refusal's words, and ids differ between the two projects.
+        const masked = async (outcome: Promise<Outcome>) => JSON.parse(JSON.stringify(await outcome).replace(/comment \d+/g, 'comment <n>')) as Outcome
+        type Step = [string, (p: string) => Promise<Outcome>, () => Promise<Outcome>]
+        const make = (name: string, body: unknown, actor: Actor): Step =>
+            [name, p => viaStore(() => store.createComment(p, ids[p]!, body, actor), 201), () => viaApi('POST', path('through-api'), body, actor)]
+        const drop = (name: string, which: (p: string) => Promise<number>, actor: Actor): Step =>
+            [name, p => masked(viaStore(async () => store.deleteComment(p, ids[p]!, await which(p), actor))), async () => masked(viaApi('DELETE', `${path('through-api')}/${await which('through-api')}`, undefined, actor))]
+        const steps: Step[] = [
+            make('a session\'s word', {body: 'Started on it.'}, SESSION),
+            make('an agent\'s ask, which the owner then has', {body: 'Which gear?', asks: 'decision'}, SESSION),
+            ['the issue, the owner\'s', p => assignee(p), () => assignee('through-api')],
+            make('the owner\'s answer, which gives it back', {body: 'The brass one.'}, OWNER),
+            ['the issue, the agent\'s again', p => assignee(p), () => assignee('through-api')],
+            make('asking nothing', {body: 'Noted.', asks: null}, AGENT),
+            make('asking for feedback', {body: 'Look at it?', asks: 'feedback'}, AGENT),
+            make('nothing in it', {body: '  '}, SESSION),
+            make('no body', {asks: 'decision'}, SESSION),
+            make('several problems', {body: 3, asks: 'maybe', bogus: true}, SESSION),
+            make('not an object', ['Started.'], SESSION),
+            ['by an id it had before', p => viaStore(() => store.createComment(p, `${key(p)}-96`, {body: 'Aliased.'}, SESSION), 201), () => viaApi('POST', '/issues/API-96/comments', {body: 'Aliased.'}, SESSION)],
+            ['on an issue that isn\'t there', p => viaStore(() => store.createComment(p, 'X-404', {body: 'Hm.'}, SESSION)), () => viaApi('POST', '/issues/X-404/comments', {body: 'Hm.'}, SESSION)],
+            ['the comments', p => viaStore(() => store.listComments(p, ids[p]!)), () => viaApi('GET', path('through-api'))],
+            ['the activity', p => viaStore(() => store.listActivity(p, ids[p]!)), () => viaApi('GET', `/issues/${ids['through-api']}/activity`)],
+            drop('the owner\'s, by a session', p => nth(p, 2), SESSION),
+            drop('a session\'s', p => nth(p, 0), SESSION),
+            drop('one that isn\'t there', async () => 99_999_999, SESSION),
+            drop('the owner\'s, by them', p => nth(p, 1), OWNER),
+            ['the comments at the end', p => viaStore(() => store.listComments(p, ids[p]!)), () => viaApi('GET', path('through-api'))],
+        ]
+        for (const [name, ts, rs] of steps) await both(name, ts, rs)
+        // The same signals for the sessions, and the same rows in the outbox, the bell's notices among them.
+        const signals = async (p: string) => await store.db.all('SELECT issue, kind, note, target, person, created_by, owned FROM signals WHERE project = ? AND id > ? ORDER BY id', p, start.signal)
+        expect(same({status: 0, body: await signals('through-api'), changed: [], told: [], settings: false}, 'through-api'))
+            .toEqual(same({status: 0, body: await signals('through-store'), changed: [], told: [], settings: false}, 'through-store'))
+        const rows = async (p: string) => (await store.db.all<{kind: string, payload: string | null}>('SELECT kind, payload FROM changes WHERE project = ? AND id > ? ORDER BY id', p, start.change))
+            .map(r => `${r.kind} ${(r.payload ?? '').replace(/\b(STO|API)-(\d+)/g, 'KEY-$2')}`).sort()
+        expect(await rows('through-api')).toEqual(await rows('through-store'))
+        // The ask moved the unassigned issue to the owner (`owner`, as nobody here has given their name).
+        const issue = ids['through-api']!.replace('API', 'KEY')
+        expect(await rows('through-api')).toEqual(expect.arrayContaining(['comment.asks {"to":"decision"}', 'issue.assignee {"to":"owner"}', `notice {"issue":"${issue}"}`, 'signal ']))
     })
 
     it('reads milestones and releases alike, a shared release and every project\'s too (ORR-926)', async () => {
@@ -893,19 +953,19 @@ describe('the router', () => {
     })
 
     it('routes by a table with a line per domain, so taking one back is taking its line out (ORR-925)', () => {
-        expect(DOMAINS.map(({domain}) => domain)).toEqual(['docs', 'statuses', 'issues, reading', 'comments, reading', 'activity', 'milestones and releases, reading', 'people, but removing one', 'invites', 'keys', 'logins', 'uploads, reading', 'presets', 'secrets, reading', 'settings', 'a pull request, reading'])
+        expect(DOMAINS.map(({domain}) => domain)).toEqual(['docs', 'statuses', 'issues, reading', 'comments, but editing one', 'activity', 'milestones and releases, reading', 'people, but removing one', 'invites', 'keys', 'logins', 'uploads, reading', 'presets', 'secrets, reading', 'settings', 'a pull request, reading'])
         expect(domainOf('PATCH', '/api/projects/p/docs/d')).toBe('docs')
         expect(domainOf('head', '/api/projects/p/doc-sections/')).toBe('docs')
         for (const path of ['/api/projects/p/issues/P-1/activity/x', '/api/', '/docs', '/api/projects/p/docs/d/artifact']) expect(domainOf('GET', path), path).toBeUndefined()
     })
 
     it('sends only the methods a line names, so a domain\'s reads can move before its writes (ORR-927)', () => {
-        expect(domainOf('GET', '/api/projects/p/issues/P-1/comments')).toBe('comments, reading')
-        expect(domainOf('HEAD', '/api/projects/p/issues/P-1/comments/3')).toBe('comments, reading')
-        for (const method of ['POST', 'PATCH', 'DELETE']) {
-            expect(domainOf(method, '/api/projects/p/issues/P-1/comments'), method).toBeUndefined()
-            expect(domainOf(method, '/api/projects/p/issues/P-1/comments/3'), method).toBeUndefined()
-        }
+        expect(domainOf('GET', '/api/projects/p/issues/P-1/comments')).toBe('comments, but editing one')
+        expect(domainOf('HEAD', '/api/projects/p/issues/P-1/comments/3')).toBe('comments, but editing one')
+        expect(domainOf('POST', '/api/projects/p/issues/P-1/comments')).toBe('comments, but editing one')
+        expect(domainOf('DELETE', '/api/projects/p/issues/P-1/comments/3')).toBe('comments, but editing one')
+        // Editing one checks the session's claim on the issue first, here.
+        expect(domainOf('PATCH', '/api/projects/p/issues/P-1/comments/3')).toBeUndefined()
         for (const path of ['/api/projects/p/issues/P-1/comments/3/x', '/api/projects/p/issues/P-1/schedule-requests/3', '/api/projects/p/issues/P-1/branches']) expect(domainOf('GET', path), path).toBeUndefined()
         expect(domainOf('GET', '/api/projects/p/issues')).toBe('issues, reading')
         expect(domainOf('GET', '/api/projects/p/issues/P-1')).toBe('issues, reading')
@@ -974,6 +1034,15 @@ describe('the router', () => {
         expect(actorHeaders({name: 'agent', owner: false})['Orrery-Actor-Kind']).toBe('session')
         expect(toldOf('doc.created orrery how%2Dit, doc.changed orrery x')).toEqual([{type: 'doc.created', project: 'orrery', subject: 'how-it'}, {type: 'doc.changed', project: 'orrery', subject: 'x'}])
         expect(toldOf(null)).toEqual([])
+        // Where a value went, `~` for none (ORR-927).
+        expect(toldOf('issue.assignee orrery ORR%2D1 ~ steffen, comment.asks orrery ORR%2D1 ~ decision')).toEqual([
+            {type: 'issue.assignee', project: 'orrery', subject: 'ORR-1', from: null, to: 'steffen'}, {type: 'comment.asks', project: 'orrery', subject: 'ORR-1', from: null, to: 'decision'},
+        ])
+        expect(toldOf('issue.assignee orrery ORR%2D1 claude %7E')[0]).toMatchObject({from: 'claude', to: '~'})
+        const said = (headers: Record<string, string>) => handedOn(new Headers(headers))
+        expect(said({'Orrery-Carry': 'shop%20front ORR%2D1 12', 'Orrery-Notice': 'shop%20front ORR%2D1 12'})).toEqual({project: 'shop front', issue: 'ORR-1', comment: 12, carry: true, notice: true})
+        expect(said({'Orrery-Notice': 'orrery ORR%2D1 12'})).toMatchObject({carry: false, notice: true})
+        expect(said({})).toBeUndefined()
         expect(changedOf('orrery, shop%20front')).toEqual(['orrery', 'shop front'])
         expect(changedOf(null)).toEqual([])
     })
@@ -1008,7 +1077,7 @@ describe('the contract (api/openapi.yaml)', () => {
     }
 
     it('has every route the router sends to the API, and no other', () => {
-        expect(contract()).toHaveLength(52)
+        expect(contract()).toHaveLength(54)
         expect(contract()).toEqual(routes())
     })
 
