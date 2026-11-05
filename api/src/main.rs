@@ -1,4 +1,4 @@
-// orrery's API in Rust (ORR-922). For now it serves docs, the statuses (ORR-926), milestones and releases (ORR-926, written in ORR-974), reading issues, their comments, their activity and the images uploaded to them (ORR-927), people, invites, keys and logins (ORR-928), presets (ORR-949), reading the secrets, never a value (ORR-953), the settings (ORR-954) and reading one pull request as orrery keeps it (ORR-952), on the database the Nuxt server opens, and only
+// orrery's API in Rust (ORR-922). For now it serves docs, the statuses (ORR-926), milestones and releases (ORR-926, written in ORR-974), reading issues, their comments, their activity and the images uploaded to them (ORR-927), people, invites, keys and logins (ORR-928), presets (ORR-949), reading the secrets, never a value (ORR-953), the settings (ORR-954) reading one pull request as orrery keeps it and rating its risk (ORR-952), on the database the Nuxt server opens, and only
 // to that server: the router there (web/server/middleware/zz-api.ts) checks a request as it always has (auth, the
 // board's permissions, the chat's and untrusted sessions' rails, the browser guards) and then forwards it here with
 // who it's from. So this listens on loopback, and answers only a request that carries the token they share.
@@ -38,10 +38,10 @@ use axum::http::{HeaderMap, HeaderValue, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::sse::{KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, patch, post};
+use axum::routing::{get, patch, post, put};
 use axum::{Json, Router};
 use changes::Outbox;
-use comments::{comment_id, Comments};
+use comments::{comment_id, Comments, Handoff};
 use docs::{Actor, Docs, Effects};
 use error::{ApiError, Result};
 use issues::Issues;
@@ -50,7 +50,7 @@ use people::{holder_of, People, Ways, Who};
 use percent_encoding::{percent_decode_str, utf8_percent_encode, NON_ALPHANUMERIC};
 use plans::Plans;
 use presets::{preset_id, Presets};
-use pulls::{pull_number, Pulls};
+use pulls::{check_rating, pull_number, Pulls};
 use releases::Releases;
 use secrets::Secrets;
 use serde_json::{json, Value};
@@ -150,6 +150,17 @@ fn body_of(bytes: &Bytes) -> Value {
     }
 }
 
+/// One event as `Orrery-Told` says it: `<type> <project> <subject>`, then `<from> <to>` when a value changed, `~` for
+/// one that's none (an encoded value is never a bare `~`).
+fn told_of(told: &docs::Told, encode: &impl Fn(&str) -> String) -> String {
+    let mut said = format!("{} {} {}", encode(&told.kind), encode(&told.project), encode(&told.subject));
+    if told.from.is_some() || told.to.is_some() {
+        let part = |v: &Option<String>| v.as_deref().map(encode).unwrap_or_else(|| "~".into());
+        said = format!("{said} {} {}", part(&told.from), part(&told.to));
+    }
+    said
+}
+
 /// A write's reply, with what it changed for the router to tell: `Orrery-Changed: <project>, …`, `Orrery-Settings: 1`
 /// when the orrery's settings changed (the statuses are in them), and `Orrery-Told: <type> <project> <subject>, …`, each
 /// part percent-encoded.
@@ -175,7 +186,7 @@ fn reply(status: StatusCode, body: Option<Value>, effects: Effects) -> Response 
         response.headers_mut().insert("orrery-settings-keys", HeaderValue::from_str(&keys).unwrap());
     }
     if !effects.told.is_empty() {
-        let told = effects.told.iter().map(|(t, p, s)| format!("{} {} {}", encode(t), encode(p), encode(s))).collect::<Vec<_>>().join(", ");
+        let told = effects.told.iter().map(|t| told_of(t, &encode)).collect::<Vec<_>>().join(", ");
         response.headers_mut().insert("orrery-told", HeaderValue::from_str(&told).unwrap());
     }
     response
@@ -294,6 +305,38 @@ async fn get_issue(State(app): Shared, Path((project, issue)): Path<(String, Str
 async fn list_comments(State(app): Shared, Path((project, issue)): Path<(String, String)>) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
     Ok(Json(Comments::new(&mut conn).list(&project, &issue).await?).into_response())
+}
+
+/// `POST …/issues/{issue}/comments`: the new comment, and in `Orrery-Carry` and `Orrery-Notice` (`<project> <issue>
+/// <comment>`, each part percent-encoded) what the router passes on to the session on the issue and the owner's bell.
+async fn create_comment(State(app): Shared, Path((project, issue)): Path<(String, String)>, headers: HeaderMap, body: Bytes) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    let mut comments = Comments::new(&mut conn);
+    comments.outbox = Some(Outbox::new(actor_of(&headers)));
+    let (value, handoff) = comments.create(&project, &issue, &body_of(&body), &actor_of(&headers)).await?;
+    let effects = std::mem::take(&mut comments.effects);
+    let mut response = reply(StatusCode::CREATED, Some(value), effects);
+    for (header, said) in handoff_headers(&handoff) {
+        response.headers_mut().insert(header, HeaderValue::from_str(&said).unwrap());
+    }
+    Ok(response)
+}
+
+/// The headers a new comment's `Handoff` is said in.
+fn handoff_headers(handoff: &Handoff) -> Vec<(&'static str, String)> {
+    let encode = |s: &str| utf8_percent_encode(s, NON_ALPHANUMERIC).to_string();
+    let said = format!("{} {} {}", encode(&handoff.project), encode(&handoff.issue), handoff.comment);
+    [("orrery-carry", handoff.carry), ("orrery-notice", handoff.notice)].into_iter().filter(|(_, on)| *on).map(|(h, _)| (h, said.clone())).collect()
+}
+
+async fn delete_comment(State(app): Shared, Path((project, issue, comment)): Path<(String, String, String)>, headers: HeaderMap) -> Result<Response> {
+    let id = comment_id(&comment)?;
+    let mut conn = app.pool.acquire().await?;
+    let mut comments = Comments::new(&mut conn);
+    comments.outbox = Some(Outbox::new(actor_of(&headers)));
+    comments.delete(&project, &issue, id, &actor_of(&headers)).await?;
+    let effects = std::mem::take(&mut comments.effects);
+    Ok(reply(StatusCode::NO_CONTENT, None, effects))
 }
 
 async fn get_activity(State(app): Shared, Path((project, issue)): Path<(String, String)>) -> Result<Response> {
@@ -533,6 +576,21 @@ async fn get_pull(State(app): Shared, Path((owner, name, number)): Path<(String,
     Ok(Json(Pulls::new(&mut conn).for_pull(&format!("{owner}/{name}"), number, owner_asking(&headers)).await?).into_response())
 }
 
+async fn rate_pull(
+    State(app): Shared,
+    Path((project, issue, owner, name, number)): Path<(String, String, String, String, String)>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Response> {
+    let number = pull_number(&number)?;
+    let risk = check_rating(&body_of(&body))?;
+    let mut conn = app.pool.acquire().await?;
+    let mut pulls = Pulls::new(&mut conn);
+    pulls.outbox = Some(Outbox::new(actor_of(&headers)));
+    let value = pulls.rate(&project, &issue, &format!("{owner}/{name}"), number, risk, owner_asking(&headers)).await?;
+    Ok(reply(StatusCode::OK, Some(value), std::mem::take(&mut pulls.effects)))
+}
+
 async fn list_presets(State(app): Shared) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
     Ok(Json(Presets::new(&mut conn).list(None).await?).into_response())
@@ -590,7 +648,7 @@ async fn restore_presets(State(app): Shared, headers: HeaderMap) -> Result<Respo
 
 async fn health() -> Json<Value> {
     Json(
-        json!({"ok": true, "domains": ["docs", "statuses", "issues, reading", "comments, reading", "activity", "milestones", "releases", "people, but removing one", "invites", "keys", "logins", "uploads, reading", "presets", "secrets, reading", "settings", "a pull request, reading"]}),
+        json!({"ok": true, "domains": ["docs", "statuses", "issues, reading", "comments, reading", "activity", "milestones", "releases", "people, but removing one", "invites", "keys", "logins", "uploads, reading", "presets", "secrets, reading", "settings", "a pull request, reading", "a pull request's risk"]}),
     )
 }
 
@@ -608,8 +666,8 @@ fn router(app: Arc<App>) -> Router {
         .route(&format!("{P}/doc-sections/{{section}}"), patch(patch_section).delete(delete_section))
         .route(&format!("{P}/issues"), get(list_issues))
         .route(&format!("{P}/issues/{{issue}}"), get(get_issue))
-        .route(&format!("{P}/issues/{{issue}}/comments"), get(list_comments))
-        .route(&format!("{P}/issues/{{issue}}/comments/{{comment}}"), get(get_comment))
+        .route(&format!("{P}/issues/{{issue}}/comments"), get(list_comments).post(create_comment))
+        .route(&format!("{P}/issues/{{issue}}/comments/{{comment}}"), get(get_comment).delete(delete_comment))
         .route(&format!("{P}/issues/{{issue}}/activity"), get(get_activity))
         .route(&format!("{P}/milestones"), get(list_milestones).post(create_milestone))
         .route(&format!("{P}/milestones/{{milestone}}"), get(get_milestone).patch(patch_milestone).delete(delete_milestone))
@@ -636,6 +694,7 @@ fn router(app: Arc<App>) -> Router {
         .route("/api/secrets", get(list_secrets))
         .route("/api/secrets/{name}", get(get_secret))
         .route("/api/pulls/{owner}/{name}/{number}", get(get_pull))
+        .route(&format!("{P}/issues/{{issue}}/pulls/{{owner}}/{{name}}/{{number}}/risk"), put(rate_pull))
         .layer(middleware::from_fn_with_state(app.clone(), guard))
         .with_state(app)
 }

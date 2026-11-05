@@ -10,7 +10,7 @@
 import type {H3Event} from 'h3'
 import type {AllPulls, IssuePulls, OpenPull, PastPull, PullIssues, PullRequest, PullRisk, PullState, RiskLevel} from '#shared/roadmap'
 import {PULL_NEEDS, RISK_LEVELS, githubRepo, highestRisk} from '#shared/roadmap'
-import {conflict, notFound} from './input'
+import {badRequest, checkInput, conflict, notFound} from './input'
 import type {Store} from './store'
 
 /** The secret orrery sends to api.github.com, when there's one that may go there. */
@@ -179,6 +179,23 @@ export class Pulls {
         const rows = await this.store.db.all<{repo: string, number: number, risk: RiskLevel, risk_why: string | null, risk_by: string | null}>(
             'SELECT repo, number, risk, risk_why, risk_by FROM issue_pulls WHERE project = ? AND issue = ? AND risk IS NOT NULL', project, issue)
         return new Map(rows.map(r => [`${r.repo.toLowerCase()}#${r.number}`, {level: r.risk, why: r.risk_why ?? '', by: r.risk_by === 'owner' ? 'owner' : 'session'}]))
+    }
+
+    /** The risk route's rating (`PUT …/pulls/:owner/:name/:number/risk`): `number` as sent (`788` or `#788`), the body
+     * checked, then rated, and the project's board told it changed, as its open pages filter and sort by the issue's
+     * risk. The Rust API answers the same (ORR-952), and the parity test holds it to this. */
+    async rateAsAsked(project: string, issue: string, repo: string, sent: string, body: unknown, owner: boolean): Promise<{risk: PullRisk | null}> {
+        const number = Number(sent.replace(/^#/, ''))
+        if (!Number.isInteger(number) || number < 1) throw badRequest('Give the pull request by its number, e.g. 788')
+        const input = checkInput(body, {
+            level: {type: 'string', required: true, nullable: true, values: RISK_LEVELS},
+            why: {type: 'string'},
+        })
+        const why = typeof input.why === 'string' ? input.why.trim().slice(0, 300) : ''
+        if (input.level !== null && !why) throw badRequest('Say why in a line, e.g. "high: bug fix in signal routing"')
+        const risk = await this.rate(project, issue, repo, number, input.level === null ? null : {level: input.level as RiskLevel, why}, owner)
+        this.store.changed(await this.store.projectId(project))
+        return {risk}
     }
 
     /** Rates PR `number` on `repo` for the issue (ORR-879): `level` with a line on why, or null to take the rating away.

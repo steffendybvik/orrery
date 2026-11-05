@@ -8,9 +8,12 @@ info:
 
     - **Docs** (ORR-922): a project's docs, their sections and their revisions (web/server/api/projects/[project]/docs,
       doc-sections, deleted-docs). Served by both.
-    - **Issues and comments, reading** (ORR-927): the issue list with its filters, one issue, its comments and its
-      activity (web/server/api/projects/[project]/issues). Both serve them; the router sends only their `GET`s there, as
-      writing an issue or a comment stays the Nuxt server's.
+    - **Issues and comments** (ORR-927): the issue list with its filters, one issue, its comments and its activity
+      (web/server/api/projects/[project]/issues), and making and deleting a comment. Both serve them; the router sends
+      their `GET`s there, and a comment's `POST` and `DELETE`. Writing an issue stays the Nuxt server's, as a change
+      wakes sessions, and so does editing a comment, which checks the session's claim on the issue first. A new
+      comment's reply says what the Nuxt server passes on to the sessions and the owner's bell (`Orrery-Carry`,
+      `Orrery-Notice`).
     - **Uploads, reading** (ORR-927): an image kept for Markdown (web/server/api/uploads/[upload].get.ts), passed on by
       the router as it came. Keeping one stays the Nuxt server's, as it compresses the image there.
     - **Statuses** (ORR-926): the orrery's issue statuses (web/server/api/statuses). Served by both.
@@ -24,7 +27,8 @@ info:
     - **Secrets, reading** (ORR-953): the orrery's secrets and their uses, never a value (web/server/api/secrets). Both
       serve them; the router sends only their `GET`s there. Setting, narrowing and deleting one, and egress, stay the
       Nuxt server's: the key that seals a value stays with the local app, and the API never sees a value in the clear.
-    - **A pull request, reading** (ORR-952): one PR as orrery keeps it, with the issues it's on
+    - **A pull request, reading, and its risk** (ORR-952): one PR as orrery keeps it, with the issues it's on, and
+      rating an issue's PR's risk
       (web/server/api/pulls/[owner]/[name]/[number].get.ts). The other pull reads ask GitHub when what's kept is stale,
       which is the local app's to do, and the poll's writes wake sessions, so they stay the Nuxt server's.
     - **Presets** (ORR-949): the orrery's presets and a project's own (web/server/api/presets, and
@@ -323,6 +327,20 @@ paths:
       responses:
         '200': {description: The comments, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/Comment'}}}}}
         '404': {$ref: '#/components/responses/NotFound'}
+    post:
+      summary: Comments on the issue
+      description: |
+        An agent's ask (`asks`) assigns the issue to the owner, and the owner's answer gives it back to the agent who
+        asked; with people, an agent's ask waits on its own person, and only on an issue that's theirs. Tells
+        `comment.added`, or `comment.asks` with `to`, and `issue.assignee` when it moved. The reply's `Orrery-Carry`
+        (the owner's or a member's words) and `Orrery-Notice` (an agent's), each `<project> <issue> <comment>`, say what
+        the Nuxt server passes on to the session on the issue and to the owner's bell.
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/CommentInput'}}}}
+      responses:
+        '201': {description: The new comment, content: {application/json: {schema: {$ref: '#/components/schemas/Comment'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
   /api/projects/{project}/issues/{issue}/activity:
     parameters: [{$ref: '#/components/parameters/project'}, {$ref: '#/components/parameters/issue'}]
     get:
@@ -336,6 +354,14 @@ paths:
       summary: One comment
       responses:
         '200': {description: The comment, content: {application/json: {schema: {$ref: '#/components/schemas/Comment'}}}}
+        '404': {description: 'No such project, issue or comment, a comment''s id that isn''t a whole number included', content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+    delete:
+      summary: Deletes the comment
+      description: The owner's is theirs to delete, and a member's (or their agents') theirs or the owner's.
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      responses:
+        '204': {description: Deleted}
+        '403': {$ref: '#/components/responses/Forbidden'}
         '404': {description: 'No such project, issue or comment, a comment''s id that isn''t a whole number included', content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
   /api/projects/{project}/milestones:
     parameters: [{$ref: '#/components/parameters/project'}]
@@ -546,6 +572,52 @@ paths:
                   - {$ref: '#/components/schemas/Secret'}
                   - {type: object, required: [uses], properties: {uses: {type: array, items: {$ref: '#/components/schemas/SecretUse'}}}}
         '404': {$ref: '#/components/responses/NotFound'}
+  /api/projects/{project}/issues/{issue}/pulls/{owner}/{name}/{number}/risk:
+    parameters:
+      - {$ref: '#/components/parameters/project'}
+      - {name: issue, in: path, required: true, description: The issue's id or an old one, schema: {type: string}}
+      - {name: owner, in: path, required: true, description: The GitHub repo's owner, in any case, schema: {type: string}}
+      - {name: name, in: path, required: true, description: The GitHub repo's name, in any case, schema: {type: string}}
+      - {name: number, in: path, required: true, description: 'The PR''s number: `788` or `#788`', schema: {type: string}}
+    put:
+      summary: Rates how risky the issue's PR is, or takes the rating away with `{level: null}`
+      description: >-
+        `why` is a line on what decided it, needed with a level, kept to 300 characters. The owner's rating
+        (`Orrery-Actor-Kind: owner`) stands: a session's doesn't replace it or take it away (409). 404 when orrery keeps no
+        such PR on the issue, as it keeps only those the poll has seen name it.
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [level]
+              properties:
+                level: {type: [string, 'null'], enum: [high, medium, low, null]}
+                why: {type: string}
+      responses:
+        '200':
+          description: The rating now
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [risk]
+                properties:
+                  risk:
+                    oneOf:
+                      - {type: 'null'}
+                      - type: object
+                        required: [level, why, by]
+                        properties:
+                          level: {type: string, enum: [high, medium, low]}
+                          why: {type: string}
+                          by: {type: string, enum: [owner, session]}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
   /api/pulls/{owner}/{name}/{number}:
     parameters:
       - {name: owner, in: path, required: true, description: The GitHub repo's owner, in any case, schema: {type: string}}
@@ -1126,6 +1198,13 @@ components:
                 required: [projects]
                 properties:
                   projects: {type: array, items: {type: object, required: [project, issues, kinds], properties: {project: {type: string}, issues: {type: integer}, kinds: {$ref: '#/components/schemas/Kinds'}}}}
+    CommentInput:
+      type: object
+      additionalProperties: false
+      required: [body]
+      properties:
+        body: {type: string, description: Markdown; not blank}
+        asks: {type: [string, 'null'], enum: [decision, feedback, null], description: 'Waits on the owner until they comment after it'}
     Comment:
       type: object
       required: [id, issue, body, created_by, protected, created_at, updated_at]

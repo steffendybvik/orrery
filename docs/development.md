@@ -55,10 +55,11 @@ the database goes there; what touches the machine (sessions, tmux, the launcher,
 **docs** domain (a project's docs, their sections and revisions), the orrery's **statuses** (`/api/statuses`,
 ORR-926), **milestones and releases** (ORR-926: a project's, one of each, and `/api/releases`; made, changed, frozen,
 shipped and deleted too, ORR-974), **reading
-issues and their comments** (ORR-927: the list with its filters, one issue, its comments) and **people, invites, keys
-and logins** (ORR-928, removing a person aside) **reading the secrets** (ORR-953, never a value) and **reading one pull request** (ORR-952,
+issues and their comments**, and **making and deleting a comment** (ORR-927: the list with its filters, one issue, its comments) and **people, invites, keys
+and logins** (ORR-928, removing a person aside) **reading the secrets** (ORR-953, never a value) and **reading one pull request, and rating its risk** (ORR-952,
 `/api/pulls/:owner/:name/:number`): the routes in
-`api/openapi.yaml`. An artifact's page (`…/docs/:doc/artifact`), a milestone's focus, and writing an issue or a comment stay in Nuxt, and so do setting, narrowing and deleting a secret and egress.
+`api/openapi.yaml`. An artifact's page (`…/docs/:doc/artifact`), a milestone's focus, and writing an issue and editing a
+comment (its route checks the session's claim on the issue first) stay in Nuxt, and so do setting, narrowing and deleting a secret and egress.
 
 How it fits together:
 
@@ -79,7 +80,11 @@ How it fits together:
 - **What a write sets off stays Nuxt's.** The API's reply says what changed (`Orrery-Changed`, a comma-separated list
   of projects; `Orrery-Settings: 1`; `Orrery-Told`), and the router tells it as the store would: open pages read each
   project again, they get the settings again when a status changed (every board has them), and the event log and
-  schedules hear `doc.created`, `doc.changed`, `doc.deleted` ([Event flows](/p/orrery/docs/event-flows)).
+  schedules hear `doc.created`, `doc.changed`, `doc.deleted` ([Event flows](/p/orrery/docs/event-flows)). An event
+  that moved a value says where, `<from> <to>` after its subject (`~` for none), as a schedule's `on` matches on them.
+  A new comment's reply also says what only Nuxt can do, as it knows the sessions: `Orrery-Carry` passes the owner's or
+  a member's words on to the session on the issue, and `Orrery-Notice` puts an agent's on the owner's bell
+  (`handOn` in `store/comments.ts`), each with its own outbox row.
 - **Falling back.** When the API is down, not started yet, or on another database (the owner moved it in App settings),
   the request goes on to the Nuxt routes, which still answer it.
 

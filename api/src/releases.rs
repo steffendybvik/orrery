@@ -219,7 +219,7 @@ impl<'c> Releases<'c> {
             }
             self.touch_project(project).await?;
             self.effects.changed = vec![project.into()];
-            self.effects.told.push(("release.created".into(), project.into(), version.clone()));
+            self.effects.tell("release.created", project, &version);
             Ok(())
         }
         .await;
@@ -274,7 +274,7 @@ impl<'c> Releases<'c> {
             self.effects.changed = vec![project.into()];
             for (now, was, on, off) in [(frozen, before.frozen, "frozen", "thawed"), (shipped, before.shipped, "shipped", "unshipped")] {
                 if let Some(now) = now.filter(|now| *now != was) {
-                    self.effects.told.push((format!("release.{}", if now { on } else { off }), project.into(), version.into()));
+                    self.effects.tell(&format!("release.{}", if now { on } else { off }), project, version);
                 }
             }
             Ok(())
@@ -307,7 +307,7 @@ impl<'c> Releases<'c> {
             sqlx::query(&sql("DELETE FROM releases WHERE project = ? AND version = ?")).bind(project).bind(version).execute(&mut *self.conn).await?;
             self.touch_project(project).await?;
             self.effects.changed = vec![project.into()];
-            self.effects.told.push(("release.deleted".into(), project.into(), version.into()));
+            self.effects.tell("release.deleted", project, version);
             Ok(())
         }
         .await;
