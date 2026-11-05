@@ -1,4 +1,4 @@
-// orrery's API in Rust (ORR-922). For now it serves docs, the statuses (ORR-926), reading milestones and releases (ORR-926), reading issues, their comments, their activity and the images uploaded to them (ORR-927), people, invites, keys and logins (ORR-928), presets (ORR-949), reading the secrets, never a value (ORR-953), the settings (ORR-954) and reading one pull request as orrery keeps it (ORR-952), on the database the Nuxt server opens, and only
+// orrery's API in Rust (ORR-922). For now it serves docs, the statuses (ORR-926), milestones (ORR-926, written in ORR-974), reading releases (ORR-926), reading issues, their comments, their activity and the images uploaded to them (ORR-927), people, invites, keys and logins (ORR-928), presets (ORR-949), reading the secrets, never a value (ORR-953), the settings (ORR-954) and reading one pull request as orrery keeps it (ORR-952), on the database the Nuxt server opens, and only
 // to that server: the router there (web/server/middleware/zz-api.ts) checks a request as it always has (auth, the
 // board's permissions, the chat's and untrusted sessions' rails, the browser guards) and then forwards it here with
 // who it's from. So this listens on loopback, and answers only a request that carries the token they share.
@@ -18,6 +18,7 @@ mod docs;
 mod error;
 mod issues;
 mod migrate;
+mod milestones;
 mod people;
 mod plans;
 mod presets;
@@ -43,6 +44,7 @@ use comments::{comment_id, Comments, Handoff};
 use docs::{Actor, Docs, Effects};
 use error::{ApiError, Result};
 use issues::Issues;
+use milestones::Milestones;
 use people::{holder_of, People, Ways, Who};
 use percent_encoding::{percent_decode_str, utf8_percent_encode, NON_ALPHANUMERIC};
 use plans::Plans;
@@ -356,6 +358,34 @@ async fn get_milestone(State(app): Shared, Path((project, milestone)): Path<(Str
     Ok(Json(Plans::new(&mut Issues::new(&mut conn)).milestone(&project, &milestone).await?).into_response())
 }
 
+async fn create_milestone(State(app): Shared, Path(project): Path<String>, headers: HeaderMap, body: Bytes) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    let mut milestones = Milestones::new(&mut conn);
+    milestones.outbox = Some(Outbox::new(actor_of(&headers)));
+    let id = milestones.create(&project, &body_of(&body), &actor_of(&headers)).await?;
+    let effects = std::mem::take(&mut milestones.effects);
+    let value = Plans::new(&mut Issues::new(&mut conn)).milestone(&project, &id).await?;
+    Ok(reply(StatusCode::CREATED, Some(value), effects))
+}
+
+async fn patch_milestone(State(app): Shared, Path((project, milestone)): Path<(String, String)>, headers: HeaderMap, body: Bytes) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    let mut milestones = Milestones::new(&mut conn);
+    milestones.outbox = Some(Outbox::new(actor_of(&headers)));
+    let id = milestones.update(&project, &milestone, &body_of(&body)).await?;
+    let effects = std::mem::take(&mut milestones.effects);
+    let value = Plans::new(&mut Issues::new(&mut conn)).milestone(&project, &id).await?;
+    Ok(reply(StatusCode::OK, Some(value), effects))
+}
+
+async fn delete_milestone(State(app): Shared, Path((project, milestone)): Path<(String, String)>, headers: HeaderMap) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    let mut milestones = Milestones::new(&mut conn);
+    milestones.outbox = Some(Outbox::new(actor_of(&headers)));
+    milestones.delete(&project, &milestone, &actor_of(&headers)).await?;
+    Ok(reply(StatusCode::NO_CONTENT, None, std::mem::take(&mut milestones.effects)))
+}
+
 async fn list_releases(State(app): Shared, Path(project): Path<String>) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
     Ok(Json(Plans::new(&mut Issues::new(&mut conn)).releases(&project).await?).into_response())
@@ -573,7 +603,7 @@ async fn restore_presets(State(app): Shared, headers: HeaderMap) -> Result<Respo
 
 async fn health() -> Json<Value> {
     Json(
-        json!({"ok": true, "domains": ["docs", "statuses", "issues, reading", "comments, reading", "activity", "milestones and releases, reading", "people, but removing one", "invites", "keys", "logins", "uploads, reading", "presets", "secrets, reading", "settings", "a pull request, reading"]}),
+        json!({"ok": true, "domains": ["docs", "statuses", "issues, reading", "comments, reading", "activity", "milestones", "releases, reading", "people, but removing one", "invites", "keys", "logins", "uploads, reading", "presets", "secrets, reading", "settings", "a pull request, reading"]}),
     )
 }
 
@@ -594,8 +624,8 @@ fn router(app: Arc<App>) -> Router {
         .route(&format!("{P}/issues/{{issue}}/comments"), get(list_comments).post(create_comment))
         .route(&format!("{P}/issues/{{issue}}/comments/{{comment}}"), get(get_comment).delete(delete_comment))
         .route(&format!("{P}/issues/{{issue}}/activity"), get(get_activity))
-        .route(&format!("{P}/milestones"), get(list_milestones))
-        .route(&format!("{P}/milestones/{{milestone}}"), get(get_milestone))
+        .route(&format!("{P}/milestones"), get(list_milestones).post(create_milestone))
+        .route(&format!("{P}/milestones/{{milestone}}"), get(get_milestone).patch(patch_milestone).delete(delete_milestone))
         .route(&format!("{P}/releases"), get(list_releases))
         .route(&format!("{P}/releases/{{release}}"), get(get_release))
         .route("/api/releases", get(all_releases))

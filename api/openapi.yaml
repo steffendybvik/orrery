@@ -17,8 +17,8 @@ info:
     - **Uploads, reading** (ORR-927): an image kept for Markdown (web/server/api/uploads/[upload].get.ts), passed on by
       the router as it came. Keeping one stays the Nuxt server's, as it compresses the image there.
     - **Statuses** (ORR-926): the orrery's issue statuses (web/server/api/statuses). Served by both.
-    - **Milestones and releases, reading** (ORR-926): a project's milestones and releases, one of each, and every
-      project's releases (web/server/api/projects/[project]/milestones, releases, and web/server/api/releases.get.ts).
+    - **Milestones** (ORR-926, written in ORR-974) **and releases, reading** (ORR-926): a project's milestones,
+      made, changed and deleted too, and its releases, one of each, and every project's releases (web/server/api/projects/[project]/milestones, releases, and web/server/api/releases.get.ts).
       Both serve them; the router sends only their `GET`s there, as writing them stays the Nuxt server's.
     - **People, invites, keys and logins** (ORR-928): who's on this orrery, inviting them, and the keys and logins people
       hold (web/server/api/people, invites, keys, logins). Served by both; removing a person stays the Nuxt server's, as
@@ -367,6 +367,15 @@ paths:
       summary: The project's milestones in order, each with its column, counts and top-level issues by id
       responses:
         '200': {description: The milestones, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/Milestone'}}}}}
+    post:
+      summary: Makes a milestone with the project's next number
+      description: Told as `milestone.created`. One the owner makes is theirs to delete.
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/MilestoneInput'}}}}
+      responses:
+        '201': {description: The milestone, content: {application/json: {schema: {$ref: '#/components/schemas/MilestoneDetail'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
         '404': {$ref: '#/components/responses/NotFound'}
   /api/projects/{project}/milestones/{milestone}:
     parameters: [{$ref: '#/components/parameters/project'}, {$ref: '#/components/parameters/milestone'}]
@@ -374,6 +383,21 @@ paths:
       summary: The milestone with its issues, nested
       responses:
         '200': {description: The milestone, content: {application/json: {schema: {$ref: '#/components/schemas/MilestoneDetail'}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
+    patch:
+      summary: Changes a milestone's title, summary, priority or position
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/MilestoneInput'}}}}
+      responses:
+        '200': {description: The milestone now, content: {application/json: {schema: {$ref: '#/components/schemas/MilestoneDetail'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+    delete:
+      summary: Deletes a milestone; its issues stay, in no milestone
+      description: Its signals go, and schedules that made issues in it make them in none. One the owner made is theirs to delete (403).
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      responses:
+        '204': {description: Deleted}
+        '403': {$ref: '#/components/responses/Forbidden'}
         '404': {$ref: '#/components/responses/NotFound'}
   /api/projects/{project}/releases:
     parameters: [{$ref: '#/components/parameters/project'}]
@@ -646,6 +670,15 @@ components:
     NotFound: {description: 'No such project, doc, revision, section, issue, comment, milestone, release, person, key, login, secret or pull request', content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
     Conflict: {description: Taken already, or not the same kind, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
   schemas:
+    MilestoneInput:
+      type: object
+      description: '`title` is needed to make one. A change takes any of them; `summary` and `priority` can be null.'
+      additionalProperties: false
+      properties:
+        title: {type: string}
+        summary: {type: [string, 'null']}
+        priority: {type: [string, 'null'], enum: [P0, P1, P2, P3, null]}
+        position: {type: number}
     DocKind: {type: string, enum: [markdown, artifact], description: '`artifact`: its text is HTML, only drawn in a sandboxed frame. Fixed when it''s made.'}
     DocInput:
       type: object

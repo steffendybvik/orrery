@@ -113,7 +113,7 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         const revisions = new Map<number, number>()
         return JSON.parse(JSON.stringify(outcome, (key, value: unknown) => {
             if (typeof value === 'string') {
-                return value.replaceAll(project, '<project>').replace(/\b(STO|API)(D?)-(\d+)/g, 'KEY$2-$3').replace(/^\d{4}-\d{2}-\d{2}T[\d:.]+Z$/, '<time>').replace(/-[a-z2-7]{8}$/, '-<uid>')
+                return value.replaceAll(project, '<project>').replace(/\b(STO|API)([DP]?)-(\d+)/g, 'KEY$2-$3').replace(/^\d{4}-\d{2}-\d{2}T[\d:.]+Z$/, '<time>').replace(/-[a-z2-7]{8}$/, '-<uid>')
             }
             if (typeof value === 'number' && (key === 'id' || key === 'revision') && Number.isInteger(value)) {
                 if (!revisions.has(value)) revisions.set(value, revisions.size + 1)
@@ -518,6 +518,52 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         expect(frame.body).toMatchObject({column: 'in-progress', summary: 'Square and glued', aliases: ['77'], issues: [ids['through-api']!.legs]})
         const shared = await viaApi('GET', '/releases/2.1.0')
         expect(shared.body).toMatchObject({issues: 4, projects: [{project: 'through-api', issues: 3}, {project: 'through-api-drawing', issues: 1}]})
+    })
+
+    it('makes, changes, refuses and deletes milestones alike, and tells what each did (ORR-974)', async () => {
+        for (const p of ['through-store', 'through-api']) await store.createProject({name: `${p}-plans`, key: p === 'through-store' ? 'STOP' : 'APIP'})
+        const on = (p: string) => `${p}-plans`
+        const api = (method: string, path: string, body?: unknown, actor: Actor = AGENT, project = 'through-api-plans') => viaApi(method, path, body, actor, project)
+        const steps: [string, (p: string) => Promise<Outcome>, () => Promise<Outcome>][] = [
+            ['the owner\'s', p => viaStore(() => store.createMilestone(on(p), {title: '  Frame  '}, OWNER), 201), () => api('POST', '/milestones', {title: '  Frame  '}, OWNER)],
+            ['a session\'s, placed and summed up', p => viaStore(() => store.createMilestone(on(p), {title: 'Finish', summary: 'Oil and wax', priority: 'P1', position: 7}, SESSION), 201),
+                () => api('POST', '/milestones', {title: 'Finish', summary: 'Oil and wax', priority: 'P1', position: 7}, SESSION)],
+            ['no title', p => viaStore(() => store.createMilestone(on(p), {summary: 'x'})), () => api('POST', '/milestones', {summary: 'x'})],
+            ['an empty title, a bad priority and a field it doesn\'t take', p => viaStore(() => store.createMilestone(on(p), {title: ' ', priority: 'P9', colour: 'red'})),
+                () => api('POST', '/milestones', {title: ' ', priority: 'P9', colour: 'red'})],
+            ['in a project that isn\'t there', () => viaStore(() => store.createMilestone('nowhere', {title: 'x'})), () => api('POST', '/milestones', {title: 'x'}, AGENT, 'nowhere')],
+            ['renamed, its summary and priority cleared, moved', p => viaStore(() => store.updateMilestone(on(p), '2', {title: ' Finishing ', summary: null, priority: null, position: 0})),
+                () => api('PATCH', '/milestones/2', {title: ' Finishing ', summary: null, priority: null, position: 0})],
+            ['nothing changed', p => viaStore(() => store.updateMilestone(on(p), '1', {})), () => api('PATCH', '/milestones/1', {})],
+            ['a title that can\'t be null', p => viaStore(() => store.updateMilestone(on(p), '1', {title: null})), () => api('PATCH', '/milestones/1', {title: null})],
+            ['one that isn\'t there', p => viaStore(() => store.updateMilestone(on(p), '9', {title: 'x'})), () => api('PATCH', '/milestones/9', {title: 'x'})],
+            ['by an id it had before', async p => {
+                await store.db.run('INSERT INTO milestone_aliases (project, alias, milestone) VALUES (?, ?, ?)', on(p), '77', '2')
+                return viaStore(() => store.updateMilestone(on(p), '77', {summary: 'Waxed'}))
+            }, async () => {
+                await store.db.run('INSERT INTO milestone_aliases (project, alias, milestone) VALUES (?, ?, ?)', 'through-api-plans', '77', '2')
+                return api('PATCH', '/milestones/77', {summary: 'Waxed'})
+            }],
+            ['the owner\'s, deleted by a session', p => viaStore(() => store.deleteMilestone(on(p), '1', SESSION)), () => api('DELETE', '/milestones/1', undefined, SESSION)],
+            ['an issue in one', p => viaStore(() => store.createIssue(on(p), {title: 'Wax it', milestone: '2'}, OWNER), 201),
+                () => viaStore(() => store.createIssue('through-api-plans', {title: 'Wax it', milestone: '2'}, OWNER), 201)],
+            ['that one deleted, by an id it had', p => viaStore(() => store.deleteMilestone(on(p), '77', SESSION)), () => api('DELETE', '/milestones/77', undefined, SESSION)],
+            ['its issue, in none now', p => viaStore(() => store.listIssues(on(p))), () => api('GET', '/issues')],
+            ['the owner\'s, deleted by the owner', p => viaStore(() => store.deleteMilestone(on(p), '1', OWNER)), () => api('DELETE', '/milestones/1', undefined, OWNER)],
+            ['one that isn\'t there, deleted', p => viaStore(() => store.deleteMilestone(on(p), '1', OWNER)), () => api('DELETE', '/milestones/1', undefined, OWNER)],
+            ['a new one gets the next number', p => viaStore(() => store.createMilestone(on(p), {title: 'Ship'}), 201), () => api('POST', '/milestones', {title: 'Ship'})],
+            ['the milestones at the end', p => viaStore(() => store.listMilestones(on(p))), () => api('GET', '/milestones')],
+        ]
+        const outcomes: Outcome[] = []
+        for (const [name, ts, rs] of steps) outcomes.push(await both(name, ts, rs))
+        // The steps compared something: what the API made, told and refused.
+        expect(outcomes[1]).toMatchObject({status: 201, body: {id: '2', title: 'Finish', summary: 'Oil and wax', priority: 'P1'}, changed: ['through-api-plans'], told: ['milestone.created 2']})
+        expect(outcomes[5]).toMatchObject({status: 200, body: {title: 'Finishing', position: 0}})
+        expect(outcomes[5]!.body).not.toHaveProperty('summary')
+        expect(outcomes[10]).toMatchObject({status: 403})
+        expect(outcomes[12]).toMatchObject({status: 204, changed: ['through-api-plans']})
+        expect(outcomes[13]!.body).toMatchObject([{title: 'Wax it', milestone: null}])
+        expect(outcomes[16]).toMatchObject({status: 201, body: {id: '3'}})
     })
 
     it('lists people, and makes, lists and revokes keys and ends logins alike (ORR-928)', async () => {
@@ -953,7 +999,7 @@ describe('the router', () => {
     })
 
     it('routes by a table with a line per domain, so taking one back is taking its line out (ORR-925)', () => {
-        expect(DOMAINS.map(({domain}) => domain)).toEqual(['docs', 'statuses', 'issues, reading', 'comments, but editing one', 'activity', 'milestones and releases, reading', 'people, but removing one', 'invites', 'keys', 'logins', 'uploads, reading', 'presets', 'secrets, reading', 'settings', 'a pull request, reading'])
+        expect(DOMAINS.map(({domain}) => domain)).toEqual(['docs', 'statuses', 'issues, reading', 'comments, but editing one', 'activity', 'milestones', 'releases, reading', 'people, but removing one', 'invites', 'keys', 'logins', 'uploads, reading', 'presets', 'secrets, reading', 'settings', 'a pull request, reading'])
         expect(domainOf('PATCH', '/api/projects/p/docs/d')).toBe('docs')
         expect(domainOf('head', '/api/projects/p/doc-sections/')).toBe('docs')
         for (const path of ['/api/projects/p/issues/P-1/activity/x', '/api/', '/docs', '/api/projects/p/docs/d/artifact']) expect(domainOf('GET', path), path).toBeUndefined()
@@ -975,9 +1021,11 @@ describe('the router', () => {
         expect(domainOf('POST', '/api/projects/p/issues/P-1/activity')).toBeUndefined()
     })
 
-    it('sends milestones\' and releases\' reads to the API, and keeps their writes and a milestone\'s focus here (ORR-926)', () => {
-        for (const path of ['/api/projects/p/milestones', '/api/projects/p/milestones/3', '/api/projects/p/releases', '/api/projects/p/releases/1.0.0', '/api/releases']) {
-            expect(domainOf('GET', path), path).toBe('milestones and releases, reading')
+    it('sends milestones there, reads and writes, and releases\' reads, and keeps releases\' writes and a milestone\'s focus here (ORR-926, ORR-974)', () => {
+        for (const [method, path] of [['GET', '/api/projects/p/milestones'], ['POST', '/api/projects/p/milestones'], ['GET', '/api/projects/p/milestones/3'],
+            ['PATCH', '/api/projects/p/milestones/3'], ['DELETE', '/api/projects/p/milestones/3']]) expect(domainOf(method!, path!), `${method} ${path}`).toBe('milestones')
+        for (const path of ['/api/projects/p/releases', '/api/projects/p/releases/1.0.0', '/api/releases']) {
+            expect(domainOf('GET', path), path).toBe('releases, reading')
             for (const method of ['POST', 'PATCH', 'DELETE']) expect(domainOf(method, path), `${method} ${path}`).toBeUndefined()
         }
         for (const path of ['/api/projects/p/milestones/3/focus', '/api/projects/p/releases/1.0.0/notes', '/api/releases/x']) expect(domainOf('GET', path), path).toBeUndefined()
@@ -1077,7 +1125,7 @@ describe('the contract (api/openapi.yaml)', () => {
     }
 
     it('has every route the router sends to the API, and no other', () => {
-        expect(contract()).toHaveLength(54)
+        expect(contract()).toHaveLength(57)
         expect(contract()).toEqual(routes())
     })
 
