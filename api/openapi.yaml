@@ -11,6 +11,9 @@ info:
     - **Issues and comments, reading** (ORR-927): the issue list with its filters, one issue, and its comments
       (web/server/api/projects/[project]/issues). Only the Nuxt server serves them so far; the Rust API's come next.
 
+    An operation marked `x-served: false` is written ahead of the Rust API's: the router doesn't send it there yet, and
+    the parity test holds it to that. The mark comes off in the pull request that serves it.
+
     Callers reach it at orrery's own address, as ever. The Nuxt server checks a request first (login or key, the board's
     permissions, the chat's and untrusted sessions' rails, the browser guards), then hands it to the Rust API when one is
     set up (`NUXT_API_BIN`, or `NUXT_API_URL` and `NUXT_API_TOKEN`). That hop, on loopback only, adds:
@@ -174,6 +177,7 @@ paths:
   /api/projects/{project}/issues:
     parameters: [{$ref: '#/components/parameters/project'}]
     get:
+      x-served: false
       summary: Every issue, sub-issues included, as a flat list in board order
       description: |
         Board order is each milestone in turn (by position, then when made), then the issues in no milestone; within
@@ -209,6 +213,7 @@ paths:
   /api/projects/{project}/issues/{issue}:
     parameters: [{$ref: '#/components/parameters/project'}, {$ref: '#/components/parameters/issue'}]
     get:
+      x-served: false
       summary: The issue with its column, counts and sub-issues, nested
       responses:
         '200': {description: The issue, content: {application/json: {schema: {$ref: '#/components/schemas/IssueDetail'}}}}
@@ -216,6 +221,7 @@ paths:
   /api/projects/{project}/issues/{issue}/comments:
     parameters: [{$ref: '#/components/parameters/project'}, {$ref: '#/components/parameters/issue'}]
     get:
+      x-served: false
       summary: The issue's comments, oldest first
       responses:
         '200': {description: The comments, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/Comment'}}}}}
@@ -223,6 +229,7 @@ paths:
   /api/projects/{project}/issues/{issue}/comments/{comment}:
     parameters: [{$ref: '#/components/parameters/project'}, {$ref: '#/components/parameters/issue'}, {$ref: '#/components/parameters/comment'}]
     get:
+      x-served: false
       summary: One comment
       responses:
         '200': {description: The comment, content: {application/json: {schema: {$ref: '#/components/schemas/Comment'}}}}
