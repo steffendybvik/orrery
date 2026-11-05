@@ -14,6 +14,7 @@ import type {Feature} from '#shared/usage'
 import type {Actor} from '../store/schema'
 import type {Who} from './auth'
 import {loginCookie, pathOf, toldOff} from './auth'
+import {followingOutbox} from './outbox-follower'
 import {oidcOn} from './oidc'
 import {countOwnUse} from './usage'
 
@@ -252,14 +253,16 @@ export async function forwardToApi(event: H3Event, api: {url: string, token: str
         throw createError({statusCode: response.status, statusMessage: String(json?.statusMessage ?? ''), message: String(json?.message ?? ''), ...json?.data === undefined ? {} : {data: json.data}})
     }
     const store = useStore()
-    // The API put what it set off in the outbox already, so the store's hooks don't again (ORR-929).
+    // The API put what it set off in the outbox already, so the store's hooks don't again (ORR-929). While this server
+    // follows the outbox, they hear it from there instead of from these headers (ORR-983).
+    const relayHeaders = !followingOutbox()
     await store.relaying(async () => {
-        for (const project of changedOf(response.headers.get('orrery-changed'))) store.changed(project)
+        if (relayHeaders) for (const project of changedOf(response.headers.get('orrery-changed'))) store.changed(project)
         // The statuses are in the settings, which open pages get again (ORR-926).
-        if (response.headers.get('orrery-settings') === '1') await store.settingsChanged()
+        if (relayHeaders && response.headers.get('orrery-settings') === '1') await store.settingsChanged()
         const keys = changedOf(response.headers.get('orrery-settings-keys'))
         if (keys.length) useEventLog().note({level: 'info', kind: 'settings.changed', message: `${actor.name} changed the settings: ${keys.join(', ')}`, details: {by: actor.name, keys}})
-        for (const {type, project, subject, from, to} of toldOf(response.headers.get('orrery-told'))) store.told(type, project, subject, actor, {from, to})
+        if (relayHeaders) for (const {type, project, subject, from, to} of toldOf(response.headers.get('orrery-told'))) store.told(type, project, subject, actor, {from, to})
     })
     // Outside `relaying`: the signal and the bell's notice are this server's own, with their own rows in the outbox.
     const handoff = handedOn(response.headers)

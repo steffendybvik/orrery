@@ -21,6 +21,7 @@ import {openDb} from '../server/utils/db'
 import {PostgresDb} from '../server/utils/postgres'
 import {actorHeaders, changedOf, countedOf, databaseMark, domainOf, DOMAINS, handedOn, loginHeaders, passedThrough, servedByApi, toldOf, whoHeaders} from '../server/utils/api-router'
 import {permission, refused} from '../server/utils/permission'
+import {followOutbox, readPage} from '../server/utils/outbox-follower'
 
 const BIN = process.env.ORRERY_API_BIN || fileURLToPath(new URL('../../api/target/debug/orrery-api', import.meta.url))
 const TOKEN = 'parity-token-0123456789'
@@ -1173,6 +1174,24 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         await viaApi('POST', '/docs', {title: ' '})
         expect((await read(after.last)).changes).toEqual([])
         expect(await viaApi('GET', '/api/changes?after=x')).toMatchObject({status: 400})
+    })
+
+    it("is followed by the local app, which tells its hooks what the API's writes set off (ORR-983)", async () => {
+        const last = await newestChange()
+        const [before, told] = [changes.length, events.length]
+        expect((await viaApi('POST', '/docs', {title: 'Followed'}, SESSION)).status).toBe(201)
+        let reads = 0
+        let cursor = last
+        await followOutbox(store, {
+            read: from => (reads++, readPage({url, token: TOKEN}, databaseMark(setting), from)),
+            after: last,
+            saved: at => cursor = at,
+            stopped: () => reads >= 2,
+            every: 1,
+        })
+        expect(changes.slice(before)).toContain('through-api')
+        expect(events.slice(told).map(e => `${e.type} ${e.project} ${e.subject} ${e.by.name}`)).toEqual(['doc.created through-api followed agent'])
+        expect(cursor).toBe(await newestChange())
     })
 
     it('streams the outbox as server-sent events, live, and says when a cursor has gone (ORR-929)', async () => {

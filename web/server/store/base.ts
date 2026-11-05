@@ -56,9 +56,25 @@ export abstract class StoreBase {
         const {project = null, subject = null, actor, payload} = at
         const cause = this.cause() ?? null
         const once = kind === 'project.changed' || kind === 'settings' ? `${kind} ${project ?? ''}` : undefined
-        this.db.beforeCommit(() => this.db.run('INSERT INTO changes (kind, project, subject, actor, owner, session, untrusted, cause, payload, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-            kind, project, subject, actor?.name ?? null, actor?.owner ? 1 : 0, actor?.session ?? null, actor?.untrusted ? 1 : 0, cause,
-            payload === undefined ? null : JSON.stringify(payload), stamp()), once)
+        this.db.beforeCommit(async () => {
+            const row = await this.db.get<{id: number | string}>('INSERT INTO changes (kind, project, subject, actor, owner, session, untrusted, cause, payload, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id',
+                kind, project, subject, actor?.name ?? null, actor?.owner ? 1 : 0, actor?.session ?? null, actor?.untrusted ? 1 : 0, cause,
+                payload === undefined ? null : JSON.stringify(payload), stamp())
+            if (row) this.own?.add(Number(row.id))
+        }, once)
+    }
+
+    /** The outbox rows this server wrote, kept only while it follows the feed (ORR-983): its own hooks heard those. */
+    private own: Set<number> | null = null
+
+    /** From now on, keeps the ids of the outbox rows this server writes, for the follower to skip (ORR-983). */
+    keepOwnChanges() {
+        this.own ??= new Set()
+    }
+
+    /** Whether this server wrote the outbox row `id`, forgetting it: each is read once. */
+    wroteChange(id: number): boolean {
+        return this.own?.delete(id) ?? false
     }
 
     /** Open pages get the settings, and the outbox says they changed. */
