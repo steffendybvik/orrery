@@ -50,6 +50,9 @@ export const DOMAINS: readonly {domain: string, paths: RegExp, methods?: readonl
     // The orrery's secrets, read: never a value (ORR-953). Setting and narrowing one seal its value with the key, which
     // stays with the local app, and every write is told to the event log, so they and egress stay here.
     {domain: 'secrets, reading', paths: /^secrets(\/[^/]+)?$/, methods: ['GET']},
+    // The orrery's stored settings, every one (ORR-954). What only this server knows is `GET /api/machine`, here. A
+    // change's keys come back in `Orrery-Settings-Keys`, for the note in the event log the route here made.
+    {domain: 'settings', paths: /^settings$/},
 ]
 
 /** What a forwarded request counts toward the owner's own use of a feature (`countOwnUse`), as its route here did
@@ -174,6 +177,8 @@ export async function forwardToApi(event: H3Event, api: {url: string, token: str
     for (const project of changedOf(response.headers.get('orrery-changed'))) store.changed(project)
     // The statuses are in the settings, which open pages get again (ORR-926).
     if (response.headers.get('orrery-settings') === '1') await store.settingsChanged()
+    const keys = changedOf(response.headers.get('orrery-settings-keys'))
+    if (keys.length) useEventLog().note({level: 'info', kind: 'settings.changed', message: `${actor.name} changed the settings: ${keys.join(', ')}`, details: {by: actor.name, keys}})
     for (const {type, project, subject} of toldOf(response.headers.get('orrery-told'))) store.told(type, project, subject, actor)
     const counted = countedOf(event.method, pathOf(event))
     if (counted) countOwnUse(event, counted)

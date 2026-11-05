@@ -1,4 +1,4 @@
-// orrery's API in Rust (ORR-922). For now it serves docs, the statuses (ORR-926), reading milestones and releases (ORR-926), reading issues, their comments and their activity (ORR-927), people, invites, keys and logins (ORR-928), presets (ORR-949), and reading the secrets, never a value (ORR-953), on the database the Nuxt server opens, and only
+// orrery's API in Rust (ORR-922). For now it serves docs, the statuses (ORR-926), reading milestones and releases (ORR-926), reading issues, their comments and their activity (ORR-927), people, invites, keys and logins (ORR-928), presets (ORR-949), reading the secrets, never a value (ORR-953), and the settings (ORR-954), on the database the Nuxt server opens, and only
 // to that server: the router there (web/server/middleware/zz-api.ts) checks a request as it always has (auth, the
 // board's permissions, the chat's and untrusted sessions' rails, the browser guards) and then forwards it here with
 // who it's from. So this listens on loopback, and answers only a request that carries the token they share.
@@ -22,6 +22,7 @@ mod people;
 mod plans;
 mod presets;
 mod secrets;
+mod settings;
 mod statuses;
 mod steps;
 mod text;
@@ -43,6 +44,7 @@ use plans::Plans;
 use presets::{preset_id, Presets};
 use secrets::Secrets;
 use serde_json::{json, Value};
+use settings::Settings;
 use sha2::{Digest, Sha256};
 use sqlx::AnyPool;
 use statuses::Statuses;
@@ -147,6 +149,10 @@ fn reply(status: StatusCode, body: Option<Value>, effects: Effects) -> Response 
     }
     if effects.settings {
         response.headers_mut().insert("orrery-settings", HeaderValue::from_static("1"));
+    }
+    if !effects.settings_keys.is_empty() {
+        let keys = effects.settings_keys.iter().map(|k| encode(k)).collect::<Vec<_>>().join(", ");
+        response.headers_mut().insert("orrery-settings-keys", HeaderValue::from_str(&keys).unwrap());
     }
     if !effects.told.is_empty() {
         let told = effects.told.iter().map(|(t, p, s)| format!("{} {} {}", encode(t), encode(p), encode(s))).collect::<Vec<_>>().join(", ");
@@ -340,6 +346,21 @@ async fn delete_status(State(app): Shared, Path(status): Path<String>, Query(que
     Ok(reply(StatusCode::NO_CONTENT, None, effects))
 }
 
+async fn get_settings(State(app): Shared) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    Ok(Json(Settings::new(&mut conn).get().await?).into_response())
+}
+
+async fn patch_settings(State(app): Shared, headers: HeaderMap, body: Bytes) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    let mut settings = Settings::new(&mut conn);
+    let value = settings.update(&body_of(&body), &actor_of(&headers)).await?;
+    let effects = std::mem::take(&mut settings.effects);
+    // What it set off goes into the outbox on its own connection (ORR-929).
+    changes::record(&mut conn, &effects, &actor_of(&headers)).await?;
+    Ok(reply(StatusCode::OK, Some(value), effects))
+}
+
 async fn list_people(State(app): Shared) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
     Ok(Json(People::new(&mut conn).people().await?).into_response())
@@ -469,7 +490,7 @@ async fn restore_presets(State(app): Shared, headers: HeaderMap) -> Result<Respo
 
 async fn health() -> Json<Value> {
     Json(
-        json!({"ok": true, "domains": ["docs", "statuses", "issues, reading", "comments, reading", "activity", "milestones and releases, reading", "people, but removing one", "invites", "keys", "logins", "presets", "secrets, reading"]}),
+        json!({"ok": true, "domains": ["docs", "statuses", "issues, reading", "comments, reading", "activity", "milestones and releases, reading", "people, but removing one", "invites", "keys", "logins", "presets", "secrets, reading", "settings"]}),
     )
 }
 
@@ -498,6 +519,7 @@ fn router(app: Arc<App>) -> Router {
         .route("/api/changes", get(list_changes))
         .route("/api/statuses", get(list_statuses).post(create_status))
         .route("/api/statuses/{status}", patch(patch_status).delete(delete_status))
+        .route("/api/settings", get(get_settings).patch(patch_settings))
         .route("/api/people", get(list_people).post(add_person))
         .route("/api/people/{person}", patch(rename_person))
         .route("/api/invites", post(invite))

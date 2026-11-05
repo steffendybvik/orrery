@@ -5,9 +5,9 @@ use sqlx::any::{install_default_drivers, AnyPoolOptions};
 use sqlx::{AnyPool, Executor};
 use std::sync::OnceLock;
 
-/// What the docs domain, the statuses, the issue, comment and activity reads and the people, keys and logins and the secrets take, each a query that fails on a schema without it. Checked by the columns rather than a
+/// What the docs domain, the statuses, the issue, comment and activity reads and the people, keys and logins, the secrets and the settings take, each a query that fails on a schema without it. Checked by the columns rather than a
 /// schema version, as SQLite's and Postgres's steps are counted differently.
-const NEEDS: [&str; 18] = [
+const NEEDS: [&str; 19] = [
     "SELECT uid, doc_section_order, updated_at FROM projects WHERE 1 = 0",
     "SELECT project, id, title, body, kind, position, section, created_by, owned, created_at, updated_at FROM docs WHERE 1 = 0",
     "SELECT project, name, created_at FROM doc_sections WHERE 1 = 0",
@@ -26,6 +26,7 @@ const NEEDS: [&str; 18] = [
     "SELECT name, last4, hosts, projects, created_by, created_at, updated_at FROM secrets WHERE 1 = 0",
     "SELECT id, secret, method, host, path, project, issue, status, error, created_by, created_at FROM secret_uses WHERE 1 = 0",
     "SELECT id, kind, project, subject, actor, owner, session, untrusted, cause, payload, created_at FROM changes WHERE 1 = 0",
+    "SELECT key, value FROM settings WHERE 1 = 0",
 ];
 
 static POSTGRES: OnceLock<bool> = OnceLock::new();

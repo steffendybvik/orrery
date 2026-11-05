@@ -15,8 +15,8 @@ const KINDS: [&str; 5] = ["backlog", "todo", "started", "done", "canceled"];
 /// `STATUS_FIELDS` in web/server/store/schema.ts, in its order, which is the order its problems are found in.
 const FIELDS: [&str; 5] = ["id", "name", "kind", "color", "position"];
 /// The named tints (`TINTS` in web/shared/roadmap/settings.ts), in their order.
-const TINTS: [&str; 7] = ["slate", "blue", "teal", "green", "amber", "rose", "violet"];
-static TINT: LazyLock<Regex> = LazyLock::new(|| Regex::new(&format!("^({}|#[0-9a-fA-F]{{6}})$", TINTS.join("|"))).unwrap());
+pub const TINTS: [&str; 7] = ["slate", "blue", "teal", "green", "amber", "rose", "violet"];
+pub static TINT: LazyLock<Regex> = LazyLock::new(|| Regex::new(&format!("^({}|#[0-9a-fA-F]{{6}})$", TINTS.join("|"))).unwrap());
 
 /// The 403 for a session changing them, as `ownerOnly(actor, 'settings.write')` words it.
 fn owner_only(actor: &Actor) -> Result<()> {
