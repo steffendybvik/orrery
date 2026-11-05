@@ -59,14 +59,19 @@ function writeWhole(file, data) {
     renameSync(part, file)
 }
 
-/** The orreries a role's script comes from: a channel's or hook's own, or every one on the launcher's list. */
+/** The orreries a role's script comes from: a channel's or hook's own; for the launcher, the one orrery it takes its code
+ * from (ORR-960). The launcher runs as you for every orrery on its list, so its code never comes from whichever of them
+ * says it's newest, as one you don't run could then run its code here. It's the orrery named where it's run
+ * (`ORRERY_URL`, as the install line does), else the one it was last installed from (`orreries`' first), else the one its
+ * copy came from, else the first on its list. Pick-up and Connect a repo add to the list but never to `orreries`. */
 export function orreriesFor(role, env = process.env, home = homedir()) {
-    const own = env.ORRERY_URL ? [trim(env.ORRERY_URL)] : []
-    if (role !== 'launcher') return own.length ? own : ['http://localhost:9000']
-    const list = readJson(join(env.XDG_CONFIG_HOME || join(home, '.config'), 'orrery', 'launcher.json'))
-    const listed = Array.isArray(list?.projects) ? list.projects.map(entry => entry?.url).filter(url => typeof url === 'string').map(trim) : []
-    const all = [...new Set([...own, ...listed])]
-    return all.length ? all : ['http://localhost:9000']
+    if (env.ORRERY_URL) return [trim(env.ORRERY_URL)]
+    if (role !== 'launcher') return ['http://localhost:9000']
+    const strings = list => Array.isArray(list) ? list.filter(url => typeof url === 'string' && url).map(trim) : []
+    const config = readJson(join(env.XDG_CONFIG_HOME || join(home, '.config'), 'orrery', 'launcher.json'))
+    const copy = readJson(join(env.ORRERY_HOME ?? join(home, '.orrery'), 'launcher', 'current-launcher.json'))
+    const source = strings(config?.orreries)[0] ?? strings([copy?.from])[0] ?? strings((config?.projects ?? []).map(entry => entry?.url))[0]
+    return [source ?? 'http://localhost:9000']
 }
 
 /** What each orrery serves now, the newest first; and why any wouldn't do. */

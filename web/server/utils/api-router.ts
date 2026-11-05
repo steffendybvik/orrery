@@ -13,7 +13,7 @@ import {createError, getCookie, getRequestHeader, getRequestURL, readRawBody, se
 import type {Feature} from '#shared/usage'
 import type {Actor} from '../store/schema'
 import type {Who} from './auth'
-import {LOGIN_COOKIE, pathOf, toldOff} from './auth'
+import {loginCookie, pathOf, toldOff} from './auth'
 import {oidcOn} from './oidc'
 import {countOwnUse} from './usage'
 
@@ -146,7 +146,7 @@ export async function forwardToApi(event: H3Event, api: {url: string, token: str
                 'Orrery-Api-Token': api.token,
                 'Orrery-Database': databaseMark(databaseSetting()),
                 ...actorHeaders(actor),
-                ...whoHeaders(event.context.who as Who | undefined, getCookie(event, LOGIN_COOKIE)),
+                ...whoHeaders(event.context.who as Who | undefined, getCookie(event, loginCookie(event))),
                 ...loginHeaders({provider: oidcOn(), off: toldOff()}, getRequestURL(event, {xForwardedHost: true, xForwardedProto: true}).origin),
             },
             body: body ? new Uint8Array(body) : undefined,

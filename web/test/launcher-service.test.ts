@@ -4,7 +4,7 @@ import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {describe, expect, it, vi} from 'vitest'
 // @ts-expect-error: the launcher is plain JavaScript, run by node on the host
-import {addToList, adoptable, inWsl, keepingSessions, launcherAlive, listChanges, listIn, pickUp, plist, readConfig, RELOADS, servedElsewhere, serviceProblem, skipping, systemdUnit, withProject, withoutProject, wslLocalhost} from '../../channel/launcher-service.mjs'
+import {addToList, adoptable, inWsl, installedFrom, keepingSessions, launcherAlive, listChanges, listIn, pickUp, plist, readConfig, RELOADS, servedElsewhere, serviceProblem, skipping, systemdUnit, withProject, withoutProject, wslLocalhost} from '../../channel/launcher-service.mjs'
 // @ts-expect-error: the same
 import {follow} from '../../channel/sse.mjs'
 
@@ -60,6 +60,14 @@ describe("the launcher's list", () => {
         expect(listIn(join(dir, 'none.json'))).toEqual({projects: [], pickUp: false, skip: []})
         writeFileSync(join(dir, 'half.json'), '{"projects": [{"url"')
         expect(listIn(join(dir, 'half.json'))).toBeNull()
+    })
+})
+
+describe('the orrerys a launcher was installed from', () => {
+    it('puts the latest first, once, as its code comes from the first (ORR-960)', () => {
+        expect(installedFrom(undefined, 'http://localhost:9010/')).toEqual(['http://localhost:9010'])
+        expect(installedFrom(['http://localhost:9010'], 'http://localhost:9020')).toEqual(['http://localhost:9020', 'http://localhost:9010'])
+        expect(installedFrom(['http://localhost:9020', 'http://localhost:9010'], 'http://localhost:9010')).toEqual(['http://localhost:9010', 'http://localhost:9020'])
     })
 })
 
