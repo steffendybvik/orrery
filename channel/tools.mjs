@@ -29,7 +29,7 @@ const FIELDS = {
     milestone: {type: ['string', 'null'], description: "A milestone's id"},
     parent: {type: ['string', 'null'], description: 'Makes it a sub-issue of this issue'},
     release: {type: ['string', 'null'], description: 'The release version it ships in'},
-    epic: {type: ['integer', 'null'], description: "The epic it's part of, by number (epics lists them): one piece of work across projects"},
+    epic: {type: ['integer', 'null'], description: 'An epic: work across projects'},
     depends_on: {type: 'array', items: {type: 'string'}, description: 'Issues it waits on (all); chain ordered follow-ups'},
     choices: CHOICES,
 }
@@ -400,18 +400,18 @@ export const ON_DEMAND = {
     secrets: ['secrets', 'egress'],
     debug: ['events', 'resolve_event'],
     review: ['rate_pull'],
-    epics: ['create_epic', 'update_epic'],
+    epics: ['epics', 'create_epic', 'update_epic'],
 }
 
 const MORE_TOOLS = {
     name: 'more_tools',
-    description: "Adds tools: schedules (ask the owner on your issue for one), secrets (egress: call an outside service with a key), debug (orrery's event log), review (rate each PR you open), epics (make and change epics across projects).",
+    description: "Adds tools: schedules (ask the owner on your issue for one), secrets (egress: call an outside service with a key), debug (orrery's event log), review (rate each PR you open), epics (work across projects).",
     inputSchema: {type: 'object', required: ['group'], properties: {group: {type: 'string', enum: Object.keys(ON_DEMAND)}}},
 }
 
 /** What an untrusted schedule's session goes without: what orrery refuses it (the permissions' untrusted column: it
  * only raises proposals and comments on them), and orrery's own log. */
-export const NOT_FOR_UNTRUSTED = ['create_epic', 'update_epic', 'update_issue', 'start_issue', 'finish_issue', 'rate_pull', 'write_doc', 'secrets', 'egress', 'events', 'resolve_event']
+export const NOT_FOR_UNTRUSTED = ['epics', 'create_epic', 'update_epic', 'update_issue', 'start_issue', 'finish_issue', 'rate_pull', 'write_doc', 'secrets', 'egress', 'events', 'resolve_event']
 
 /** The tools a chat goes without: those that take up or finish work, its one rule (ORR-750), `update_issue` among them as
  * it sets a status; `edit_issue` is its way to change the rest (its launcher refuses them too, `chatOnly`). */
