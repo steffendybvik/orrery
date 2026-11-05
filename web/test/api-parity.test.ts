@@ -15,6 +15,7 @@ import type {Actor, IssueFilter} from '../server/store/schema'
 import {SqliteDb} from '../server/utils/database'
 import {Secrets} from '../server/utils/secrets'
 import {Pulls, pullForSession} from '../server/utils/pulls'
+import {known} from '../shared/known'
 import {openDb} from '../server/utils/db'
 import {PostgresDb} from '../server/utils/postgres'
 import {actorHeaders, changedOf, countedOf, databaseMark, domainOf, DOMAINS, loginHeaders, passedThrough, servedByApi, toldOf, whoHeaders} from '../server/utils/api-router'
@@ -778,6 +779,43 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         expect((await viaApi('GET', '/api/pulls/ada/through-api/0')).status).toBe(400)
         expect((await viaApi('GET', '/api/pulls/ada/through-api/nope')).status).toBe(400)
         expect(domainOf('GET', '/api/pulls/ada/box/41')).toBe('a pull request, reading')
+
+        // Rating one (ORR-952), as the risk route does, on the issues above: #41 is on a, b (the owner's rating) and c.
+        const listed = {'through-store': await store.listIssues('through-store'), 'through-api': await store.listIssues('through-api')}
+        const on = (p: string, title: string) => known(listed[p as keyof typeof listed].find(i => i.title === title), title).id
+        const rate = (title: string, number: string, body: unknown, actor: Actor = SESSION) => both(`${title} #${number} ${JSON.stringify(body)}`,
+            p => viaStore(() => pulls.rateAsAsked(p, on(p, title), `ada/${p}`, number, body, actor.owner && !actor.chat)),
+            () => viaApi('PUT', `/issues/${on('through-api', title)}/pulls/ada/through-api/${encodeURIComponent(number)}/risk`, body, actor))
+        const outcomes = [
+            await rate('Fit the latch', '41', {level: 'high', why: '  Moves the poll  '}),
+            await rate('Fit the latch', '#41', {level: 'low', why: 'x'.repeat(320)}),
+            await rate('Fit the hinge', '41', {level: 'low', why: 'Only copy'}),
+            await rate('Fit the hinge', '41', {level: null}),
+            await rate('Fit the hinge', '41', {level: 'high', why: 'Mine to say'}, OWNER),
+            await rate('Fit the hinge', '41', {level: 'high', why: 'The chat naming the owner'}, CHAT),
+            await rate('Fit the lid', '41', {level: null}),
+            await rate('Fit the lid', '41', {level: 'medium'}),
+            await rate('Fit the lid', '41', {level: 'huge', why: 'x', by: 'me'}),
+            await rate('Fit the lid', '41', {why: 5}),
+            await rate('Fit the lid', '0', {level: null}),
+            await rate('Fit the lid', '99', {level: 'low', why: 'Not kept'}),
+            await rate('Fit the key', '41', {level: 'low', why: 'Not on it'}),
+            await both('an issue that isn\'t there', p => viaStore(() => pulls.rateAsAsked(p, 'NOPE-1', `ada/${p}`, '41', {level: null}, false)),
+                () => viaApi('PUT', '/issues/NOPE-1/pulls/ada/through-api/41/risk', {level: null})),
+            await both('the PR after', p => viaStore(() => read('41', p)), () => viaApi('GET', '/api/pulls/ada/through-api/41', undefined, OWNER)),
+        ]
+        // The steps compared something: what was rated, told and refused.
+        expect(outcomes[0]).toMatchObject({status: 200, body: {risk: {level: 'high', why: 'Moves the poll', by: 'session'}}, changed: ['through-api', 'through-api-drawing']})
+        expect((outcomes[1]!.body as {risk: {why: string}}).risk.why).toHaveLength(300)
+        expect(outcomes[2]).toMatchObject({status: 409})
+        expect(outcomes[3]).toMatchObject({status: 409})
+        expect(outcomes[4]).toMatchObject({status: 200, body: {risk: {by: 'owner'}}})
+        expect(outcomes[5]).toMatchObject({status: 409})
+        expect(outcomes[6]).toMatchObject({status: 200, body: {risk: null}})
+        for (const at of [7, 8, 9, 10]) expect(outcomes[at], String(at)).toMatchObject({status: 400})
+        for (const at of [11, 12, 13]) expect(outcomes[at], String(at)).toMatchObject({status: 404})
+        expect(domainOf('PUT', '/api/projects/p/issues/P-1/pulls/ada/box/41/risk')).toBe("a pull request's risk")
+        expect(domainOf('GET', '/api/projects/p/issues/P-1/pulls/ada/box/41/risk')).toBeUndefined()
         for (const [method, path] of [['GET', '/api/pulls'], ['GET', '/api/pulls/branches'], ['POST', '/api/pulls/poll'], ['DELETE', '/api/pulls/branches']])
             expect(servedByApi(method!, path!), `${method} ${path}`).toBe(false)
     })
@@ -1023,7 +1061,7 @@ describe('the router', () => {
     })
 
     it('routes by a table with a line per domain, so taking one back is taking its line out (ORR-925)', () => {
-        expect(DOMAINS.map(({domain}) => domain)).toEqual(['docs', 'statuses', 'issues, reading', 'comments, reading', 'activity', 'milestones', 'releases', 'releases, every project\'s', 'people, but removing one', 'invites', 'keys', 'logins', 'uploads, reading', 'presets', 'secrets, reading', 'settings', 'a pull request, reading'])
+        expect(DOMAINS.map(({domain}) => domain)).toEqual(['docs', 'statuses', 'issues, reading', 'comments, reading', 'activity', 'milestones', 'releases', 'releases, every project\'s', 'people, but removing one', 'invites', 'keys', 'logins', 'uploads, reading', 'presets', 'secrets, reading', 'settings', 'a pull request, reading', "a pull request's risk"])
         expect(domainOf('PATCH', '/api/projects/p/docs/d')).toBe('docs')
         expect(domainOf('head', '/api/projects/p/doc-sections/')).toBe('docs')
         for (const path of ['/api/projects/p/issues/P-1/activity/x', '/api/', '/docs', '/api/projects/p/docs/d/artifact']) expect(domainOf('GET', path), path).toBeUndefined()
@@ -1140,7 +1178,7 @@ describe('the contract (api/openapi.yaml)', () => {
     }
 
     it('has every route the router sends to the API, and no other', () => {
-        expect(contract()).toHaveLength(58)
+        expect(contract()).toHaveLength(59)
         expect(contract()).toEqual(routes())
     })
 
