@@ -1,0 +1,279 @@
+openapi: 3.1.0
+info:
+  title: orrery API, docs
+  version: 1.0.0-rc.18 # the orrery release it was written against
+  description: |
+    The docs domain of orrery's HTTP API (ORR-922): a project's docs, their sections and their revisions. Written from
+    the Nuxt server's routes (web/server/api/projects/[project]/docs, doc-sections, deleted-docs) and served by both it
+    and the Rust API in api/, which answer alike (web/test/api-parity.test.ts holds them to it).
+
+    Callers reach it at orrery's own address, as ever. The Nuxt server checks a request first (login or key, the board's
+    permissions, the chat's and untrusted sessions' rails, the browser guards), then hands it to the Rust API when one is
+    set up (`NUXT_API_BIN`, or `NUXT_API_URL` and `NUXT_API_TOKEN`). That hop, on loopback only, adds:
+
+    - `Orrery-Api-Token`: the token both were given; anything else is a 401.
+    - `Orrery-Database`: the SHA-256 of the database setting the Nuxt server is on; another is a 421, and the Nuxt
+      server answers the request itself (the owner moved the database, and the API hasn't been started again on it).
+    - `Orrery-Actor-Name`, `Orrery-Actor-Owner` (`1` or `0`), `Orrery-Actor-Session`: who's asking, as the Nuxt server
+      worked it out; the name and session percent-encoded.
+
+    A write's reply carries back what it changed, which the Nuxt server tells as its store would (open pages read the
+    project again; the event log and schedules hear the event), and strips:
+
+    - `Orrery-Changed`: the project.
+    - `Orrery-Told`: `<type> <project> <subject>`, comma-separated, each part percent-encoded (`doc.created`,
+      `doc.changed`, `doc.deleted`).
+
+    Not here: an artifact's page (`GET …/docs/{doc}/artifact`), which the Nuxt server keeps, as it's drawn with the
+    page's sanitising and locked-down headers.
+servers:
+  - url: http://localhost:9000
+paths:
+  /api/projects/{project}/docs:
+    parameters: [{$ref: '#/components/parameters/project'}]
+    get:
+      summary: The project's docs, without their text but with a summary
+      description: Title hits first, then A–Z by title (ignoring case and accents, numbers by value), then by id.
+      parameters:
+        - name: q
+          in: query
+          description: Words every doc listed has, in its title or text, any case; each gets a `match`.
+          schema: {type: string}
+      responses:
+        '200': {description: The docs, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/DocSummary'}}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
+    post:
+      summary: Makes a doc
+      description: |
+        Its id is the one given, else the title as one (`How joints work` → `how-joints-work`), numbered when taken
+        (`how-joints-work-2`). Kept as its first revision. Tells `doc.created`.
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/DocInput'}}}}
+      responses:
+        '201': {description: The new doc, content: {application/json: {schema: {$ref: '#/components/schemas/Doc'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+  /api/projects/{project}/docs/{doc}:
+    parameters: [{$ref: '#/components/parameters/project'}, {$ref: '#/components/parameters/doc'}]
+    get:
+      summary: A doc with its text
+      responses:
+        '200': {description: The doc, content: {application/json: {schema: {$ref: '#/components/schemas/Doc'}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
+    put:
+      summary: Makes the doc at this id, or replaces its title and text
+      description: |
+        How a repo's Markdown file is kept in sync. `body` left out is empty; `section` left out keeps the one it has.
+        Another board's full id is a 404, not a new doc.
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/DocInput'}}}}
+      responses:
+        '200': {description: Replaced, content: {application/json: {schema: {$ref: '#/components/schemas/Doc'}}}}
+        '201': {description: Made, content: {application/json: {schema: {$ref: '#/components/schemas/Doc'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+    patch:
+      summary: Changes a doc
+      description: |
+        Only a change to its title or text is a revision, and tells `doc.changed`; a new position or section isn't, and
+        leaves `updated_at`. Its id and kind don't change.
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/DocChange'}}}}
+      responses:
+        '200': {description: The doc, content: {application/json: {schema: {$ref: '#/components/schemas/Doc'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+    delete:
+      summary: Deletes a doc, keeping its last text as a revision it can come back from
+      description: One the owner made is theirs to delete. Tells `doc.deleted`.
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      responses:
+        '204': {description: Deleted}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/projects/{project}/docs/{doc}/revisions:
+    parameters: [{$ref: '#/components/parameters/project'}, {$ref: '#/components/parameters/doc'}]
+    get:
+      summary: A doc's revisions, newest first, without their text; a deleted doc's too
+      responses:
+        '200': {description: The revisions, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/DocRevisionSummary'}}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/projects/{project}/docs/{doc}/revisions/{revision}:
+    parameters: [{$ref: '#/components/parameters/project'}, {$ref: '#/components/parameters/doc'}, {$ref: '#/components/parameters/revision'}]
+    get:
+      summary: A revision with its text
+      responses:
+        '200': {description: The revision, content: {application/json: {schema: {$ref: '#/components/schemas/DocRevision'}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/projects/{project}/docs/{doc}/revisions/{revision}/restore:
+    parameters: [{$ref: '#/components/parameters/project'}, {$ref: '#/components/parameters/doc'}, {$ref: '#/components/parameters/revision'}]
+    post:
+      summary: Puts a revision's title and text back, as a new revision
+      description: |
+        On a deleted doc it comes back where it was filed, with who made it (so the owner's stays theirs), and tells
+        `doc.created`. The same text it has already changes nothing.
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      responses:
+        '200': {description: Restored onto the doc, content: {application/json: {schema: {$ref: '#/components/schemas/Doc'}}}}
+        '201': {description: The deleted doc brought back, content: {application/json: {schema: {$ref: '#/components/schemas/Doc'}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+  /api/projects/{project}/deleted-docs:
+    parameters: [{$ref: '#/components/parameters/project'}]
+    get:
+      summary: The project's docs that are gone and can come back, the latest removed first
+      responses:
+        '200': {description: The deleted docs, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/DeletedDoc'}}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/projects/{project}/doc-sections:
+    parameters: [{$ref: '#/components/parameters/project'}]
+    get:
+      summary: The project's doc sections, as arranged, then the rest A–Z
+      description: The ones docs are filed under, and empty ones made.
+      responses:
+        '200': {description: The sections' names, content: {application/json: {schema: {type: array, items: {type: string}}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
+    post:
+      summary: Makes a section with no docs in it yet, at the end of the list
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/SectionName'}}}}
+      responses:
+        '201': {description: Made, content: {application/json: {schema: {$ref: '#/components/schemas/SectionName'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+  /api/projects/{project}/doc-sections/{section}:
+    parameters:
+      - {$ref: '#/components/parameters/project'}
+      - {name: section, in: path, required: true, description: The section's name, schema: {type: string}}
+    patch:
+      summary: Renames a section on every doc in it, or moves it in the list
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: {type: string, maxLength: 60}
+                position: {type: integer, minimum: 0, description: 0 the top; past the end is the end}
+      responses:
+        '200': {description: Its name now, content: {application/json: {schema: {$ref: '#/components/schemas/SectionName'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+    delete:
+      summary: Deletes a section; its docs are kept, filed under none
+      responses:
+        '204': {description: Deleted}
+        '404': {$ref: '#/components/responses/NotFound'}
+components:
+  parameters:
+    project: {name: project, in: path, required: true, description: The project's id, schema: {type: string}}
+    doc: {name: doc, in: path, required: true, description: 'The doc''s id, or its full id on this board (`doc-ideas-x7k2m3qd`)', schema: {type: string}}
+    revision: {name: revision, in: path, required: true, description: 'A revision''s id; ids run across the orrery', schema: {type: integer, minimum: 1}}
+    actor:
+      name: Orrery-Actor
+      in: header
+      description: Who's writing; the owner's name writes as the owner. With login on, the credential decides.
+      schema: {type: string, maxLength: 60}
+  responses:
+    BadRequest: {description: 'The body is wrong: `data.problems` says each thing', content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+    Forbidden: {description: 'The owner''s call: `data.permission` names the row that says so', content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+    NotFound: {description: No such project, doc, revision or section, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+    Conflict: {description: Taken already, or not the same kind, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+  schemas:
+    DocKind: {type: string, enum: [markdown, artifact], description: '`artifact`: its text is HTML, only drawn in a sandboxed frame. Fixed when it''s made.'}
+    DocInput:
+      type: object
+      additionalProperties: false
+      required: [title]
+      properties:
+        id: {type: string, pattern: '^[a-z0-9][a-z0-9-]{0,39}$'}
+        title: {type: string, minLength: 1, description: Trimmed; not only spaces}
+        body: {type: string, description: Markdown, or HTML for an artifact}
+        position: {type: number}
+        section: {type: [string, 'null'], description: Trimmed to 60 characters; empty or null is none}
+        kind: {$ref: '#/components/schemas/DocKind'}
+    DocChange:
+      type: object
+      additionalProperties: false
+      description: A doc's fields, all optional; `id` and `kind` only as they are.
+      properties:
+        id: {type: string}
+        title: {type: string, minLength: 1}
+        body: {type: string}
+        position: {type: number}
+        section: {type: [string, 'null']}
+        kind: {$ref: '#/components/schemas/DocKind'}
+    DocSummary:
+      type: object
+      required: [id, title, kind, summary, created_by, protected, created_at, updated_at]
+      properties:
+        id: {type: string}
+        title: {type: string}
+        kind: {$ref: '#/components/schemas/DocKind'}
+        summary: {type: string, description: 'Its first paragraph as plain text, cut to about 160 characters; empty for an artifact'}
+        match: {type: string, description: 'With `q`: the text around its first hit; empty when only the title has it'}
+        section: {type: string, description: Left out when it's under none}
+        created_by: {type: string}
+        protected: {type: boolean, description: The owner made it}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    Doc:
+      allOf:
+        - $ref: '#/components/schemas/DocSummary'
+        - type: object
+          required: [project, body, full_id]
+          properties:
+            project: {type: string}
+            body: {type: string}
+            full_id: {type: string, description: 'Its id to paste anywhere: `doc-<id>-<the board''s uid>`'}
+    DocRevisionSummary:
+      type: object
+      required: [id, title, kind, deleted, created_by, created_at]
+      properties:
+        id: {type: integer}
+        title: {type: string}
+        kind: {$ref: '#/components/schemas/DocKind'}
+        deleted: {type: boolean, description: The doc being removed here; this holds its last text}
+        created_by: {type: string}
+        session_name: {type: string, description: The session that wrote it, by its name then}
+        created_at: {type: string, format: date-time}
+    DocRevision:
+      allOf:
+        - $ref: '#/components/schemas/DocRevisionSummary'
+        - type: object
+          required: [project, doc, body]
+          properties:
+            project: {type: string}
+            doc: {type: string}
+            body: {type: string}
+    DeletedDoc:
+      type: object
+      required: [id, title, kind, summary, revision, deleted_by, deleted_at]
+      properties:
+        id: {type: string}
+        title: {type: string}
+        kind: {$ref: '#/components/schemas/DocKind'}
+        summary: {type: string}
+        revision: {type: integer, description: The revision that says it was removed}
+        deleted_by: {type: string}
+        deleted_at: {type: string, format: date-time}
+    SectionName:
+      type: object
+      required: [name]
+      properties:
+        name: {type: string, maxLength: 60, description: Trimmed; not empty}
+    Error:
+      type: object
+      required: [statusCode, statusMessage, message]
+      properties:
+        statusCode: {type: integer}
+        statusMessage: {type: string}
+        message: {type: string}
+        data:
+          type: object
+          properties:
+            problems: {type: array, items: {type: string}}
+            permission: {type: string}
