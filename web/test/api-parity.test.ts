@@ -612,6 +612,24 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         expect(domainOf('GET', '/api/machine')).toBeUndefined()
     })
 
+    it('keeps what each write set off in the outbox, in order, to read after an id (ORR-929)', async () => {
+        const read = async (after?: number) => (await viaApi('GET', `/api/changes${after === undefined ? '' : `?after=${after}`}`)).body as {changes: {id: number, kind: string, project?: string, subject?: string, actor?: string, owner: boolean, session?: string}[], last: number}
+        const {last} = await read()
+        expect((await viaApi('POST', '/docs', {title: 'Outbox'}, SESSION)).status).toBe(201)
+        const after = await read(last)
+        expect(after.changes.map(({kind, project, subject, actor, owner, session}) => ({kind, project, subject, actor, owner, session}))).toEqual([
+            {kind: 'project.changed', project: 'through-api', subject: undefined, actor: 'agent', owner: false, session: 'orrery · Njord'},
+            {kind: 'doc.created', project: 'through-api', subject: 'outbox', actor: 'agent', owner: false, session: 'orrery · Njord'},
+        ])
+        expect(after.last).toBe(after.changes.at(-1)!.id)
+        expect(await read(after.last)).toEqual({changes: [], last: after.last})
+        // A read changes nothing, and a refused write sets nothing off.
+        await viaApi('GET', '/docs')
+        await viaApi('POST', '/docs', {title: ' '})
+        expect((await read(after.last)).changes).toEqual([])
+        expect(await viaApi('GET', '/api/changes?after=x')).toMatchObject({status: 400})
+    })
+
     it('answers only the server in front of it, on its own database', async () => {
         const ask = (headers: Record<string, string>) => fetch(`${url}/api/projects/through-api/docs`, {headers}).then(r => r.status)
         expect(await ask({})).toBe(401)

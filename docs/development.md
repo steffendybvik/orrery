@@ -34,9 +34,9 @@ stays in the repo's `.data/`.
 The [playground](../.playground/README.md) runs the repo with `nuxt dev`, so a saved change shows on the
 page straight away and the server reloads itself, with no rebuild. It's a compose project of its own on
 http://localhost:9001, with a demo database of its own, so the branch you're on never touches the Orrerys
-you use. That database is Postgres, a service of the playground's own (its data in the `orrery-playground_orrery-pg`
-volume); `ORRERY_DATABASE=/data/orrery.db` in `.playground/compose.env` runs it on a SQLite file in
-`.playground/data` instead:
+you use. That database is a SQLite file in `.playground/data`, as the Rust API stays on SQLite until the Nuxt
+server is gone. For Postgres, `COMPOSE_PROFILES=postgres` and `ORRERY_DATABASE=postgres://orrery:orrery@postgres:5432/orrery`
+in `.playground/compose.env` add a service of the playground's own (its data in the `orrery-playground_orrery-pg` volume):
 
 ```sh
 .playground/play          # start it, with a demo
@@ -120,6 +120,12 @@ ORRERY_AUTH=off, the address for an invite's link) goes along as `Orrery-Login-W
 server (`web/server/utils/auth.ts`), which sends the API what it found (`Orrery-Who`) and the asking browser's login only
 hashed, so the API never sees a secret it didn't make. Who may handle people, keys and logins (`authorize`, `key-rights.ts`) is checked on
 both sides, the credential having the last word over the actor, so the parity test compares the refusals with the permissions table's own words.
+
+The outbox (ORR-929, `api/src/changes.rs`, the `rust-api-events` decision): each write the API makes adds a row to
+`changes` for each thing it set off (a project changed, the settings, each event told), and `GET /api/changes?after=<id>`
+reads them, oldest first, a page at a time, with `last` to ask after next. So far the rows go in just after the write, on
+its connection, rather than in its transaction, and only the API's writes add them. Nothing reads them yet: the reply
+headers still carry what changed to the Nuxt server.
 
 ## The page's pieces
 
