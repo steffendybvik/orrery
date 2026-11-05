@@ -23,6 +23,9 @@ info:
     - **Secrets, reading** (ORR-953): the orrery's secrets and their uses, never a value (web/server/api/secrets). Both
       serve them; the router sends only their `GET`s there. Setting, narrowing and deleting one, and egress, stay the
       Nuxt server's: the key that seals a value stays with the local app, and the API never sees a value in the clear.
+    - **A pull request, reading** (ORR-952): one PR as orrery keeps it, with the issues it's on
+      (web/server/api/pulls/[owner]/[name]/[number].get.ts). The other pull reads ask GitHub when what's kept is stale,
+      which is the local app's to do, and the poll's writes wake sessions, so they stay the Nuxt server's.
     - **Presets** (ORR-949): the orrery's presets and a project's own (web/server/api/presets, and
       web/server/api/projects/[project]/presets). Served by both; seeding the ones orrery ships as it starts stays the
       Nuxt server's.
@@ -38,7 +41,8 @@ info:
     - `Orrery-Database`: the SHA-256 of the database setting the Nuxt server is on; another is a 421, and the Nuxt
       server answers the request itself (the owner moved the database, and the API hasn't been started again on it).
     - `Orrery-Actor-Name`, `Orrery-Actor-Owner` (`1` or `0`), `Orrery-Actor-Session`: who's asking, as the Nuxt server
-      worked it out; the name and session percent-encoded.
+      worked it out; the name and session percent-encoded. `Orrery-Actor-Kind` (`owner`, `session`, `chat` or
+      `untrusted`): its kind, as the chat and an untrusted session may name the owner and aren't (ORR-952).
     - `Orrery-Who` (`browser` or `agent`), `Orrery-Who-Person` (percent-encoded), `Orrery-Who-Owner` (`1` or `0`): with
       login on, what the request's credential said, as the Nuxt server checked it. None with login off.
     - `Orrery-Login-Ways`: what the Nuxt server's settings say about getting in, comma-separated: `provider` with a
@@ -489,6 +493,43 @@ paths:
                   - {$ref: '#/components/schemas/Secret'}
                   - {type: object, required: [uses], properties: {uses: {type: array, items: {$ref: '#/components/schemas/SecretUse'}}}}
         '404': {$ref: '#/components/responses/NotFound'}
+  /api/pulls/{owner}/{name}/{number}:
+    parameters:
+      - {name: owner, in: path, required: true, description: The GitHub repo's owner, in any case, schema: {type: string}}
+      - {name: name, in: path, required: true, description: The GitHub repo's name, in any case, schema: {type: string}}
+      - {name: number, in: path, required: true, description: 'The PR''s number: `788` or `#788`', schema: {type: string}}
+    get:
+      summary: One pull request as orrery keeps it, with every issue it's on
+      description: >-
+        Merged and closed ones too: orrery keeps a PR that names an issue, and a release PR on every issue in its release.
+        The issues come riskiest first, each with its riskiest rated PR. Anyone but the owner (`Orrery-Actor-Kind: owner`)
+        gets the PR without its title and branch, which an outsider may have written, and its author only when it's a
+        plain login.
+      responses:
+        '200':
+          description: The pull request
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [repo, pull, issues]
+                properties:
+                  repo: {type: string, description: As asked}
+                  pull: {$ref: '#/components/schemas/KeptPull'}
+                  issues:
+                    type: array
+                    items:
+                      type: object
+                      required: [project, project_name, id, title, status]
+                      properties:
+                        project: {type: string}
+                        project_name: {type: string}
+                        id: {type: string}
+                        title: {type: string}
+                        status: {type: string}
+                        risk: {$ref: '#/components/schemas/PullRisk'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
   /api/presets:
     get:
       summary: The orrery's presets, for sessions on any project, by name
@@ -577,7 +618,7 @@ components:
   responses:
     BadRequest: {description: 'The body is wrong: `data.problems` says each thing', content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
     Forbidden: {description: 'The owner''s call: `data.permission` names the row that says so', content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
-    NotFound: {description: 'No such project, doc, revision, section, issue, comment, milestone, release, person, key, login or secret', content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+    NotFound: {description: 'No such project, doc, revision, section, issue, comment, milestone, release, person, key, login, secret or pull request', content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
     Conflict: {description: Taken already, or not the same kind, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
   schemas:
     DocKind: {type: string, enum: [markdown, artifact], description: '`artifact`: its text is HTML, only drawn in a sandboxed frame. Fixed when it''s made.'}
@@ -1039,6 +1080,19 @@ components:
         created_at: {type: string, format: date-time}
         updated_at: {type: string, format: date-time}
         last_used: {oneOf: [{$ref: '#/components/schemas/SecretUse'}, {type: 'null'}]}
+    KeptPull:
+      type: object
+      required: [number, url, base, state, merged_at, updated_at]
+      properties:
+        number: {type: integer}
+        title: {type: string, description: The owner's only}
+        url: {type: string}
+        branch: {type: string, description: The head branch; the owner's only}
+        base: {type: string}
+        author: {type: string, description: 'For anyone but the owner, only when it''s a plain login'}
+        state: {type: string, enum: [open, merged, closed]}
+        merged_at: {type: [string, 'null'], format: date-time}
+        updated_at: {type: string, format: date-time}
     SecretUse:
       type: object
       required: [id, secret, method, host, path, project, issue, status, error, created_by, created_at]
