@@ -10,7 +10,7 @@
 import {spawnSync} from 'node:child_process'
 import {existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync} from 'node:fs'
 import {tmpdir} from 'node:os'
-import {join} from 'node:path'
+import {dirname, join} from 'node:path'
 import {DatabaseSync} from 'node:sqlite'
 import {fileURLToPath} from 'node:url'
 import pg from 'pg'
@@ -95,8 +95,8 @@ describe("the Rust API's migrations", () => {
 })
 
 /** Runs `orrery-api migrate` on `setting`, failing with what it said if it didn't finish. */
-function rustMigrate(setting: string, schema?: string): string {
-    const run = spawnSync(BIN, ['migrate'], {env: {...process.env, NUXT_DATABASE: setting, ...schema ? {ORRERY_API_SCHEMA: schema} : {}}, encoding: 'utf8'})
+function rustMigrate(setting: string, schema?: string, env: Record<string, string> = {}): string {
+    const run = spawnSync(BIN, ['migrate'], {env: {...process.env, NUXT_DATABASE: setting, ...schema ? {ORRERY_API_SCHEMA: schema} : {}, ...env}, encoding: 'utf8'})
     if (run.status !== 0) throw new Error(`orrery-api migrate stopped (${run.status}): ${run.stderr}`)
     return run.stderr
 }
@@ -156,6 +156,45 @@ describe.skipIf(!existsSync(BIN))('orrery-api migrate on SQLite', () => {
         expect((after.prepare('SELECT uid FROM projects').get() as {uid: string}).uid).toMatch(/^[a-z2-7]{8}$/)
         expect(JSON.parse((after.prepare("SELECT value FROM settings WHERE key = 'uid'").get() as {value: string}).value)).toMatch(/^[a-z2-7]{8}$/)
         after.close()
+    })
+
+    it('keeps a copy of the file as it was before it upgrades it, as Node does (ORR-448)', () => {
+        const path = nodeSqlite(BEFORE_PEOPLE)
+        const copy = join(dirname(path), `orrery-pre-1.2.3-step${BEFORE_PEOPLE}.db`)
+        const run = spawnSync(BIN, ['migrate'], {env: {...process.env, NUXT_DATABASE: path, ORRERY_VERSION: '1.2.3'}, encoding: 'utf8'})
+        expect(run.status, run.stderr).toBe(0)
+        expect(readdirSync(dirname(path)).filter(name => name.startsWith('orrery-pre-'))).toEqual([`orrery-pre-1.2.3-step${BEFORE_PEOPLE}.db`])
+        const kept = new DatabaseSync(copy, {readOnly: true})
+        expect((kept.prepare('PRAGMA user_version').get() as {user_version: number}).user_version).toBe(BEFORE_PEOPLE)
+        kept.close()
+        // Into the backup folder, when there is one; and none for a new file, which has nothing to keep.
+        const backups = join(mkdtempSync(join(tmpdir(), 'orrery-backups-')), 'nested')
+        rustMigrate(nodeSqlite(BEFORE_PEOPLE), undefined, {ORRERY_API_BACKUP_DIR: backups})
+        expect(readdirSync(backups)).toEqual([`orrery-pre-upgrade-step${BEFORE_PEOPLE}.db`])
+        const fresh = join(mkdtempSync(join(tmpdir(), 'orrery-migrate-')), 'orrery.db')
+        rustMigrate(fresh)
+        expect(readdirSync(dirname(fresh))).toEqual(['orrery.db'])
+    })
+
+    it('won\'t upgrade without that copy', () => {
+        const path = nodeSqlite(BEFORE_PEOPLE)
+        const nowhere = join(dirname(path), 'a-file')
+        writeFileSync(nowhere, '')
+        const run = spawnSync(BIN, ['migrate'], {env: {...process.env, NUXT_DATABASE: path, ORRERY_API_BACKUP_DIR: join(nowhere, 'backups')}, encoding: 'utf8'})
+        expect(run.status).toBe(1)
+        expect(run.stderr).toMatch(`won't upgrade ${path} (schema step ${BEFORE_PEOPLE} to ${MIGRATIONS.length}) without a copy of it as it is`)
+        expect(sqliteState(path).step).toBe(BEFORE_PEOPLE)
+    })
+
+    it('stops at the owner\'s step on an owner setting that isn\'t JSON, rather than lose them', () => {
+        const path = nodeSqlite(BEFORE_PEOPLE, db => db.prepare("INSERT INTO settings (key, value) VALUES ('owner', 'Åse')").run())
+        const run = spawnSync(BIN, ['migrate'], {env: {...process.env, NUXT_DATABASE: path}, encoding: 'utf8'})
+        expect(run.status).toBe(1)
+        expect(run.stderr).toMatch(`schema step ${BEFORE_PEOPLE + 1} failed: the owner setting isn't JSON`)
+        const db = new DatabaseSync(path, {readOnly: true})
+        expect(db.prepare("SELECT value FROM settings WHERE key = 'owner'").get()).toEqual({value: 'Åse'})
+        expect((db.prepare('PRAGMA user_version').get() as {user_version: number}).user_version).toBe(BEFORE_PEOPLE)
+        db.close()
     })
 
     it('refuses a database from a newer orrery', () => {
