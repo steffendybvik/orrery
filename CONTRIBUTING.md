@@ -34,7 +34,7 @@ or, without Docker, `pnpm install` and `pnpm dev` (Node 24.22.1, pnpm 10.14.0).
 `type(scope): what changed`, lowercase and imperative, at most 72 characters:
 
 - **type:** `feat`, `fix`, `refactor`, `perf`, `test`, `docs`, `chore` or `revert`
-- **scope:** `orrery` for the app, `repo` for CI, config and tooling
+- **scope:** `orrery` for the app, `api` for the Rust API and its contract, `repo` for CI, config and tooling
 
 ```
 fix(orrery): keep a milestone's priority when it's renamed
