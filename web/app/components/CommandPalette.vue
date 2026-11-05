@@ -3,7 +3,8 @@ import type {Column} from '#shared/roadmap'
 import {PRIORITIES, fullId, githubRepo} from '#shared/roadmap'
 
 // ⌘K: every command and place, in sections. With nothing typed: Most used (the commands this browser runs most that
-// are on offer here, once there are any, ORR-782), Here (what fits the page), Jump to (the projects, this one first) and Go to. Typing finds Projects, Issues, Milestones, Docs and Commands, a few of
+// are on offer here, once there are any, ORR-782), Here (what fits the page, the rarely wanted left to a search, with Start and
+// Message sessions), Go to (the most wanted pages first) and Jump to (the projects, this one first), each of the last two with "N more" (ORR-947). Typing finds Projects, Issues, Milestones, Docs and Commands, a few of
 // each with "N more" to open the rest, best match first; an exact issue id is the Top hit, and so is a pull request by its number (`#788`, on the page's project's repo) or its link, which opens its page (ORR-880). `>` searches
 // commands only, `#` issues, `@` projects, milestones and docs. ↑↓ choose, ⇥ jumps a section, ↵ runs, Esc closes.
 // It's a Headless UI Dialog (UiDialog); the list keeps its own keys, as Headless UI's Combobox can't jump a
@@ -18,6 +19,14 @@ type Row = {kind: 'entry', key: string, entry: Entry, section: SectionKey} | {ki
 const CAPS: Partial<Record<SectionKey, number>> = {projects: 3, issues: 6, milestones: 3, docs: 3, commands: 5}
 /** How many Most used shows. */
 const MOST_USED = 5
+/** The pages an empty palette's Go to keeps behind "N more", as they're rarely wanted (ORR-947). */
+const RARE_PAGES = new Set(['go:connect', 'go:epics', 'go:events', 'go:context', 'go:getting-started'])
+/** How many projects an empty palette's Jump to shows before "N more". */
+const JUMP_SHOWN = 3
+/** What the page offers that an empty palette leaves to a search, as it's rarely wanted (ORR-947). */
+const SEARCH_ONLY = new Set(['group:status', 'group:milestone', 'milestone:new'])
+/** The session commands an empty palette puts in Here, when there are sessions to start or message. */
+const HERE_TOO = ['session:start', 'session:message-all']
 const TITLES: Record<SectionKey, string> = {top: 'Top hit', used: 'Most used', here: 'Here', jump: 'Jump to', go: 'Go to', projects: 'Projects', issues: 'Issues', milestones: 'Milestones', docs: 'Docs', commands: 'Commands'}
 /** Scope prefixes: what a search is narrowed to. */
 const SCOPES: Record<string, SectionKey[]> = {'>': ['commands'], '#': ['issues'], '@': ['projects', 'milestones', 'docs']}
@@ -107,22 +116,23 @@ const here = computed<Entry[]>(() => {
 })
 
 const everywhere = computed<Entry[]>(() => [
+    // Go to's order is how often each is wanted (ORR-947).
     {key: 'go:mine', group: 'Go to', label: 'My issues and urgent', hint: 'g m', run: () => router.push('/mine')},
     {key: 'go:notifications', group: 'Go to', label: 'Notifications', run: () => router.push('/notifications')},
-    {key: 'go:projects', group: 'Go to', label: 'Projects', detail: 'every project, hidden ones too', run: () => router.push('/projects')},
-    {key: 'go:connect', group: 'Go to', label: 'Connect an agent', run: () => router.push('/connect')},
     {key: 'go:sessions', group: 'Go to', label: 'Sessions', run: () => router.push('/sessions')},
-    {key: 'go:schedules', group: 'Go to', label: 'Schedules', run: () => router.push('/schedules')},
+    {key: 'go:pulls', group: 'Go to', label: 'Pull requests', run: () => router.push('/pulls')},
     {key: 'go:releases', group: 'Go to', label: 'Releases', detail: 'across projects', run: () => router.push('/releases')},
+    {key: 'go:schedules', group: 'Go to', label: 'Schedules', run: () => router.push('/schedules')},
+    {key: 'go:projects', group: 'Go to', label: 'Projects', detail: 'every project, hidden ones too', run: () => router.push('/projects')},
+    {key: 'go:settings', group: 'Go to', label: 'App settings', run: () => router.push('/settings')},
+    {key: 'go:connect', group: 'Go to', label: 'Connect an agent', run: () => router.push('/connect')},
     {key: 'go:epics', group: 'Go to', label: 'Epics', detail: 'work across projects', run: () => router.push('/epics')},
     {key: 'go:events', group: 'Go to', label: 'Events', detail: 'the event log', run: () => router.push('/events')},
     {key: 'go:context', group: 'Go to', label: 'Context', detail: 'what a session is sent', run: () => router.push('/context')},
-    {key: 'go:pulls', group: 'Go to', label: 'Pull requests', run: () => router.push('/pulls')},
     {key: 'go:getting-started', group: 'Go to', label: 'Getting started', run: () => {
         useGettingStarted().hide(false)
         router.push('/getting-started')
     }},
-    {key: 'go:settings', group: 'Go to', label: 'App settings', run: () => router.push('/settings')},
     {key: 'phone', group: 'Phone', label: 'Open on your phone', detail: 'its QR code', run: () => phoneOpen.value = true},
     ...(projects.value.some(p => p.starts) ? [{key: 'session:start', group: 'Session', label: 'Start session', detail: project.value?.name, run: () => useStartSession().open(project.value?.id ?? null)}] : []),
     ...(listening.value.length ? [{key: 'session:message-all', group: 'Session', label: 'Message sessions', detail: 'every one listening', also: 'message all sessions', run: () => messageAll.value = true}] : []),
@@ -230,11 +240,14 @@ const sections = computed<Section[]>(() => {
         const commands = [...here.value, ...everywhere.value]
         const used = ranked.value.flatMap(key => commands.find(e => e.key === key) ?? []).slice(0, MOST_USED)
         const rest = (entries: Entry[]) => entries.filter(e => !used.includes(e))
+        const go = rest(commands.filter(e => e.group === 'Go to'))
+        const wanted = go.filter(e => !RARE_PAGES.has(e.key))
+        const sessions = HERE_TOO.flatMap(key => everywhere.value.find(e => e.key === key) ?? [])
         return [
             section('used', used),
-            section('here', rest(here.value.filter(e => e.group !== 'Go to'))),
-            section('jump', jump),
-            section('go', rest(commands.filter(e => e.group === 'Go to'))),
+            section('here', rest([...here.value.filter(e => e.group !== 'Go to' && !SEARCH_ONLY.has(e.key)), ...sessions])),
+            section('go', [...wanted, ...go.filter(e => RARE_PAGES.has(e.key))], wanted.length),
+            section('jump', jump, JUMP_SHOWN),
         ].filter(s => s.entries.length)
     }
     const found = (entries: Entry[]) => entries.flatMap((entry, i) => {

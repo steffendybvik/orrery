@@ -125,7 +125,7 @@ On your own machine, alone, there's no login. With a second person, or from anot
 
 | Key | Does |
 |---|---|
-| ⌘K | Command palette: every page, issue, milestone, doc and command (views, filters, theme, sessions, chat), led by the ones this browser runs most. A pull request's number (`#788`, on the page's project's repo) or its GitHub link opens its page |
+| ⌘K | Command palette: every page, issue, milestone, doc and command (views, filters, theme, sessions, chat), led by the ones this browser runs most. With nothing typed it offers what fits the page and the main pages, the rarer ones and the rest of the projects behind "N more". A pull request's number (`#788`, on the page's project's repo) or its GitHub link opens its page |
 | j / k | Next and previous row or card. On an issue's page, the next and previous issue |
 | Enter | Open the focused row or card |
 | Esc | Back, close, or leave a field |
