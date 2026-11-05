@@ -182,6 +182,13 @@ function keyOf(repo: string, pull: Polled, kind: PullChangeKind): string {
     return `${repo}#${pull.number} ${kind}${on ? ` ${on}` : ''}`
 }
 
+/** A PR as a poll keeps it (`pull_states`): what it read, with what it has told of it. */
+export interface PolledRow {
+    number: number, names: string[], title: string, url: string, branch: string, base: string, author: string, draft: boolean,
+    head_sha: string | null, state: string, review: string | null, review_id: string | null, checks: string | null, merged: boolean, closed: boolean,
+    merge_sha: string | null, closed_by: string | null, created_at: string, updated_at: string, told: string[]
+}
+
 export class PullPoll {
     /** When each repo was last polled (or tried), and with a token or not, in this process. */
     private readonly last = new Map<string, {at: number, token: boolean}>()
@@ -294,7 +301,7 @@ export class PullPoll {
                 }
             }
             // Said on a repo it has read before; one it never has stays unread, so its first good poll still only records (ORR-525).
-            await this.store.db.run('UPDATE pull_repos SET error = ? WHERE repo = ?', message, repo)
+            await this.keepFailed(repo, message)
             // And the pages say it too, rather than asking GitHub again straight after.
             this.pulls.failed(repo, message)
             return
@@ -310,6 +317,7 @@ export class PullPoll {
         // What's kept for good, by PR: one not changed since needn't be looked up and written again each minute.
         const recorded = new Map((await this.store.db.all<{number: number, updated_at: string}>('SELECT number, updated_at FROM issue_pulls WHERE repo = ?', repo)).map(r => [r.number, r.updated_at]))
         const changes: PullChange[] = []
+        const rows: PolledRow[] = []
         const seen = new Set<number>()
         for (const pull of [...read.open, ...read.done]) {
             if (seen.has(pull.number)) continue
@@ -338,26 +346,12 @@ export class PullPoll {
             }
             // A state this poll can't tell keeps the one it had; GitHub still working it out keeps the last it knew.
             const state = pull.state && (pull.state !== 'checking' || !was) ? pull.state : was?.state ?? 'checking'
-            await this.store.db.run(`INSERT INTO pull_states (repo, number, names, title, url, branch, base, author, draft, head_sha, state, review, review_id, checks,
-                merged, closed, merge_sha, closed_by, created_at, updated_at, seen_at, told) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT (repo, number) DO UPDATE SET names = excluded.names, title = excluded.title, url = excluded.url, branch = excluded.branch,
-                base = excluded.base, author = excluded.author, draft = excluded.draft, head_sha = excluded.head_sha, state = excluded.state,
-                review = excluded.review, review_id = excluded.review_id, checks = excluded.checks, merged = excluded.merged, closed = excluded.closed,
-                merge_sha = excluded.merge_sha, closed_by = excluded.closed_by, updated_at = excluded.updated_at, seen_at = excluded.seen_at, told = excluded.told`,
-                repo, pull.number, JSON.stringify(names), pull.title, pull.url, pull.branch, pull.base, pull.author, pull.draft ? 1 : 0, pull.head_sha, state,
-                pull.review ?? (token ? null : was?.review ?? null), pull.review_id ?? (token ? null : was?.review_id ?? null), pull.checks ?? (token ? null : was?.checks ?? null),
-                pull.merged ? 1 : 0, pull.closed ? 1 : 0, pull.merge_sha, pull.closed_by, pull.created_at, pull.updated_at, at, JSON.stringify(told))
+            rows.push({number: pull.number, names, title: pull.title, url: pull.url, branch: pull.branch, base: pull.base, author: pull.author, draft: !!pull.draft,
+                head_sha: pull.head_sha, state, review: pull.review ?? (token ? null : was?.review ?? null), review_id: pull.review_id ?? (token ? null : was?.review_id ?? null),
+                checks: pull.checks ?? (token ? null : was?.checks ?? null), merged: !!pull.merged, closed: !!pull.closed, merge_sha: pull.merge_sha, closed_by: pull.closed_by,
+                created_at: pull.created_at, updated_at: pull.updated_at, told})
         }
-        // Open when last seen, and in neither list now: closed or merged in a rush the lists missed. Kept as closed, told
-        // nothing. Not when the open ones were cut short: those past the cut are still open (ORR-615).
-        for (const [number, was] of kept) {
-            if (!read.more && !seen.has(number) && !was.merged && !was.closed) {
-                await this.store.db.run('UPDATE pull_states SET closed = 1, seen_at = ? WHERE repo = ? AND number = ?', at, repo, number)
-                await this.store.db.run("UPDATE issue_pulls SET state = 'closed', updated_at = ? WHERE repo = ? AND number = ? AND state = 'open'", at, repo, number)
-            }
-        }
-        await this.store.db.run(`INSERT INTO pull_repos (repo, polled_at, token, error) VALUES (?, ?, ?, NULL)
-            ON CONFLICT (repo) DO UPDATE SET polled_at = excluded.polled_at, token = excluded.token, error = NULL`, repo, at, token ? 1 : 0)
+        await this.keepPolled(repo, {at, token: !!token, more: read.more, pulls: rows})
         for (const change of changes) {
             if (change.kind === 'merged') change.files = await this.changedFiles(repo, asker, change.pull.number)
             this.onChange(change)
@@ -385,7 +379,7 @@ export class PullPoll {
         try {
             const {value} = await this.pulls.ask<ListedPull[]>(repo, asker, `/repos/${repo}/pulls?state=closed&sort=created&direction=desc&per_page=${PAGE}&page=${page}`)
             for (const pull of value) await this.pulls.remember(repo, projects, {...fromList(pull), names: issueIdsIn(pull)})
-            await this.store.db.run('UPDATE pull_repos SET history_page = ? WHERE repo = ?', value.length < PAGE ? 0 : page + 1, repo)
+            await this.keepHistory(repo, value.length < PAGE ? 0 : page + 1)
         } catch (error) {
             console.error(`[orrery] reading ${repo}'s older pull requests:`, error)
         }
@@ -422,14 +416,60 @@ export class PullPoll {
 
     /** Lets go of merged and closed PRs a week on, and of repos nobody's project points at any more. */
     private async forget(repos: string[]) {
-        const before = new Date(this.now() - KEEP).toISOString()
+        for (const repo of await this.keepForgotten(repos, new Date(this.now() - KEEP).toISOString())) {
+            this.last.delete(repo)
+            this.pressed.delete(repo)
+        }
+    }
+
+    // The poll's writes, each one step, as the Rust API takes them from the local app once it's swapped in (ORR-952).
+
+    /** A repo's poll: each PR as read, those open when last seen and in neither list now kept as closed (not when the
+     * open ones were cut short, `more`: those past the cut are still open, ORR-615), and the repo as polled. */
+    async keepPolled(repo: string, polled: {at: string, token: boolean, more: boolean, pulls: PolledRow[]}) {
+        const {at, token, more, pulls} = polled
+        const before = await this.store.db.all<{number: number, merged: number, closed: number}>('SELECT number, merged, closed FROM pull_states WHERE repo = ?', repo)
+        for (const pull of pulls) {
+            await this.store.db.run(`INSERT INTO pull_states (repo, number, names, title, url, branch, base, author, draft, head_sha, state, review, review_id, checks,
+                merged, closed, merge_sha, closed_by, created_at, updated_at, seen_at, told) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT (repo, number) DO UPDATE SET names = excluded.names, title = excluded.title, url = excluded.url, branch = excluded.branch,
+                base = excluded.base, author = excluded.author, draft = excluded.draft, head_sha = excluded.head_sha, state = excluded.state,
+                review = excluded.review, review_id = excluded.review_id, checks = excluded.checks, merged = excluded.merged, closed = excluded.closed,
+                merge_sha = excluded.merge_sha, closed_by = excluded.closed_by, updated_at = excluded.updated_at, seen_at = excluded.seen_at, told = excluded.told`,
+                repo, pull.number, JSON.stringify(pull.names), pull.title, pull.url, pull.branch, pull.base, pull.author, pull.draft ? 1 : 0, pull.head_sha, pull.state,
+                pull.review, pull.review_id, pull.checks, pull.merged ? 1 : 0, pull.closed ? 1 : 0, pull.merge_sha, pull.closed_by, pull.created_at, pull.updated_at, at, JSON.stringify(pull.told))
+        }
+        // Closed or merged in a rush the lists missed: kept as closed, told nothing.
+        const seen = new Set(pulls.map(p => p.number))
+        for (const was of before) {
+            if (!more && !seen.has(was.number) && !was.merged && !was.closed) {
+                await this.store.db.run('UPDATE pull_states SET closed = 1, seen_at = ? WHERE repo = ? AND number = ?', at, repo, was.number)
+                await this.store.db.run("UPDATE issue_pulls SET state = 'closed', updated_at = ? WHERE repo = ? AND number = ? AND state = 'open'", at, repo, was.number)
+            }
+        }
+        await this.store.db.run(`INSERT INTO pull_repos (repo, polled_at, token, error) VALUES (?, ?, ?, NULL)
+            ON CONFLICT (repo) DO UPDATE SET polled_at = excluded.polled_at, token = excluded.token, error = NULL`, repo, at, token ? 1 : 0)
+    }
+
+    /** What a repo's poll failed on: said on a repo read before; one never read stays unread, so its first good poll
+     * still only records (ORR-525). */
+    async keepFailed(repo: string, error: string) {
+        await this.store.db.run('UPDATE pull_repos SET error = ? WHERE repo = ?', error, repo)
+    }
+
+    /** The page of a repo's closed PRs to read next, 0 once they're all on their issues (ORR-795). */
+    async keepHistory(repo: string, page: number) {
+        await this.store.db.run('UPDATE pull_repos SET history_page = ? WHERE repo = ?', page, repo)
+    }
+
+    /** Lets go of merged and closed PRs last seen before `before`, and of repos not in `repos`: those let go of. */
+    async keepForgotten(repos: string[], before: string): Promise<string[]> {
         await this.store.db.run('DELETE FROM pull_states WHERE (merged = 1 OR closed = 1) AND seen_at < ?', before)
         const gone = (await this.store.db.all<{repo: string}>('SELECT repo FROM pull_repos')).map(r => r.repo).filter(r => !repos.includes(r))
         for (const repo of gone) {
             await this.store.db.run('DELETE FROM pull_states WHERE repo = ?', repo)
             await this.store.db.run('DELETE FROM pull_repos WHERE repo = ?', repo)
-            this.last.delete(repo)
-            this.pressed.delete(repo)
         }
+        return gone
     }
 }
