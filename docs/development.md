@@ -6,7 +6,7 @@
 web/          the Nuxt app: app/ (the page), server/ (the API and the store), shared/ (both),
               public/, test/ (unit), e2e/ (browser), scripts/ (copy.ts, claim.mjs, worktrees.mjs), its package.json
 channel/      the channel, hooks and launcher Claude sessions run, which orrery serves to their machines
-api/          the Rust API (ORR-922): docs, the statuses and issue, comment and activity reads so far, beside the Nuxt server; openapi.yaml is its contract
+api/          the Rust API (ORR-922), beside the Nuxt server: the domains moved so far, listed in openapi.yaml, its contract
 docs/         these docs; docs/API.md is also served to agents (/api/guide, /llms-full.txt)
 ```
 
@@ -34,9 +34,9 @@ stays in the repo's `.data/`.
 The [playground](../.playground/README.md) runs the repo with `nuxt dev`, so a saved change shows on the
 page straight away and the server reloads itself, with no rebuild. It's a compose project of its own on
 http://localhost:9001, with a demo database of its own, so the branch you're on never touches the Orrerys
-you use. That database is Postgres, a service of the playground's own (its data in the `orrery-playground_orrery-pg`
-volume); `ORRERY_DATABASE=/data/orrery.db` in `.playground/compose.env` runs it on a SQLite file in
-`.playground/data` instead:
+you use. That database is a SQLite file in `.playground/data`, as the Rust API stays on SQLite until the Nuxt
+server is gone. For Postgres, `COMPOSE_PROFILES=postgres` and `ORRERY_DATABASE=postgres://orrery:orrery@postgres:5432/orrery`
+in `.playground/compose.env` add a service of the playground's own (its data in the `orrery-playground_orrery-pg` volume):
 
 ```sh
 .playground/play          # start it, with a demo
@@ -53,8 +53,11 @@ Without Docker: `pnpm install`, then `pnpm dev` on http://localhost:9000 (Node 2
 orrery's API is moving to Rust a domain at a time (ORR-921, ORR-922), the Nuxt server staying in front. Anything kept in
 the database goes there; what touches the machine (sessions, tmux, the launcher, local files) stays. So far it serves the
 **docs** domain (a project's docs, their sections and revisions), the orrery's **statuses** (`/api/statuses`,
-ORR-926) and **reading issues and their comments** (ORR-927: the list with its filters, one issue, its comments): the
-routes in `api/openapi.yaml`. An artifact's page (`…/docs/:doc/artifact`) and writing an issue or a comment stay in Nuxt.
+ORR-926), **reading milestones and releases** (ORR-926: a project's, one of each, and `/api/releases`), **reading
+issues and their comments** (ORR-927: the list with its filters, one issue, its comments) and **people, invites, keys
+and logins** (ORR-928, removing a person aside): the routes in
+`api/openapi.yaml`. An artifact's page (`…/docs/:doc/artifact`), a milestone's focus, and writing an issue, a comment, a
+milestone or a release stay in Nuxt.
 
 How it fits together:
 
@@ -195,8 +198,10 @@ The Rust API has the same steps (ORR-931): each SQL step as a numbered file in `
 `api/migrations/postgres` (Postgres's baseline as `023-baseline.sql`), listed in `api/src/steps.rs`, and the steps that are
 code here written again in `api/src/migrate.rs`. `orrery-api migrate` brings `NUXT_DATABASE` up to the newest step, counted
 as the Node app counts them, so a database either one migrated carries on with the other. Nothing runs it yet: the Node
-app migrates until the last domain has moved. It doesn't yet copy a SQLite file before upgrading it, which it needs before
-it takes over, and it leaves a database from before step 4 (when issues were renumbered per board) to the Node app.
+app migrates until the last domain has moved. Like Node, it copies a SQLite file before upgrading it, and won't upgrade
+without the copy: `orrery-pre-<ORRERY_VERSION>-step<n>.db` in `ORRERY_API_BACKUP_DIR`, or beside the file. An owner
+setting that isn't JSON stops the step that moves the owner to `people`. It leaves a database from before step 4 (when
+issues were renumbered per board) to the Node app.
 
 A new step is still written in `web/server/utils/migrations` first, then ported with
 

@@ -24,4 +24,12 @@ describe('the API base', () => {
         expect(baseFor('/projects/atlas/docsx', bases)).toBe('http://127.0.0.1:9100/api')
         expect(baseFor('/settings', {settings: 'https://elsewhere/api'})).toBe('/api')
     })
+
+    it('sends every path to another server with a `/` prefix, the longer ones still winning (ORR-667)', () => {
+        const apart = {'/': 'https://orrery.example.com/api', '/projects/atlas/docs': 'https://api.example.com/api'}
+        expect(baseFor('/', apart)).toBe('https://orrery.example.com/api')
+        expect(baseFor('/settings', apart)).toBe('https://orrery.example.com/api')
+        expect(baseFor('/events?patch=1', apart)).toBe('https://orrery.example.com/api')
+        expect(baseFor('/projects/atlas/docs/readme', apart)).toBe('https://api.example.com/api')
+    })
 })

@@ -2,9 +2,10 @@
 
 orrery's dev server with a demo database of its own, to try changes on: `nuxt dev` on this checkout (a saved
 file reloads the page), as its own compose project, `orrery-playground`, on http://localhost:9001. Its
-database is a Postgres of its own (the project's `orrery-pg` volume), so it never touches the Orrerys you use,
-and `reset` throws it away. `ORRERY_DATABASE=/data/orrery.db` in `compose.env` runs it on a SQLite file in
-`.playground/data` instead.
+database is a SQLite file of its own in `.playground/data`, so it never touches the Orrerys you use, and `reset`
+throws it away. For Postgres instead, add `COMPOSE_PROFILES=postgres` and
+`ORRERY_DATABASE=postgres://orrery:orrery@postgres:5432/orrery` to `compose.env`: its data goes in the project's
+`orrery-pg` volume, which `reset` throws away too.
 
 ```sh
 .playground/play          # start it; an empty database gets the demo

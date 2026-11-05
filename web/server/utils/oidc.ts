@@ -5,6 +5,7 @@ import {createHash, randomBytes} from 'node:crypto'
 import type {H3Event} from 'h3'
 import {createRemoteJWKSet, jwtVerify} from 'jose'
 import {overHttps} from './auth'
+import {originAllowed} from './origins'
 
 interface Provider {
     authorization_endpoint: string
@@ -44,11 +45,12 @@ async function provider(): Promise<Provider> {
 const redirectUri = (event: H3Event) => `${getRequestURL(event, {xForwardedHost: true, xForwardedProto: true}).origin}${COOKIE_PATH}/callback`
 const random = () => randomBytes(32).toString('base64url')
 
-/** Where to send the browser to log in, with what the way back has to match kept in a short http-only cookie. */
-export async function startOidc(event: H3Event, invite?: string): Promise<string> {
+/** Where to send the browser to log in, with what the way back has to match kept in a short http-only cookie. `back` is
+ * the page's own origin when it's hosted on another site, which the callback returns to (ORR-667): only a listed one. */
+export async function startOidc(event: H3Event, invite?: string, back?: string): Promise<string> {
     const {authorization_endpoint} = await provider()
     const [state, nonce, verifier] = [random(), random(), random()]
-    setCookie(event, COOKIE, Buffer.from(JSON.stringify({state, nonce, verifier, invite})).toString('base64url'),
+    setCookie(event, COOKIE, Buffer.from(JSON.stringify({state, nonce, verifier, invite, ...back && originAllowed(back) ? {back} : {}})).toString('base64url'),
         {httpOnly: true, sameSite: 'lax', path: COOKIE_PATH, maxAge: 600, secure: overHttps(event)})
     const url = new URL(authorization_endpoint)
     url.search = new URLSearchParams({
@@ -61,7 +63,7 @@ export async function startOidc(event: H3Event, invite?: string): Promise<string
 const refused = (message: string) => createError({statusCode: 401, statusMessage: 'Unauthorized', message})
 
 /** What `startOidc` kept in its cookie; none when the cookie isn't that, as a browser can send anything. */
-function readKept(kept: string): {state: string, nonce: string, verifier: string, invite?: string} | undefined {
+function readKept(kept: string): {state: string, nonce: string, verifier: string, invite?: string, back?: string} | undefined {
     try {
         return JSON.parse(Buffer.from(kept, 'base64url').toString()) ?? undefined
     } catch {
@@ -70,8 +72,9 @@ function readKept(kept: string): {state: string, nonce: string, verifier: string
 }
 
 /** The way back: checks it answers this browser's own request, swaps the code for an ID token, verifies that against the
- * provider's keys, and says who the provider vouches for, and which invite this browser came with. */
-export async function finishOidc(event: H3Event): Promise<{issuer: string, subject: string, invite?: string}> {
+ * provider's keys, and says who the provider vouches for, which invite this browser came with, and the listed origin
+ * its page is on when that's another site's. */
+export async function finishOidc(event: H3Event): Promise<{issuer: string, subject: string, invite?: string, back?: string}> {
     const {state, code} = getQuery(event)
     const kept = getCookie(event, COOKIE)
     deleteCookie(event, COOKIE, {path: COOKIE_PATH})
@@ -91,5 +94,7 @@ export async function finishOidc(event: H3Event): Promise<{issuer: string, subje
     })
     if (payload.nonce !== asked.nonce || !payload.sub) throw refused("The provider's ID token doesn't check out")
     // With no trailing slash, as the setting's read, so a login is found the same way whichever the provider writes.
-    return {issuer: issuer.replace(/\/+$/, ''), subject: payload.sub, ...asked.invite ? {invite: asked.invite} : {}}
+    // `back` is checked again, as the list may have changed since the login started.
+    const back = asked.back && originAllowed(asked.back) ? asked.back : undefined
+    return {issuer: issuer.replace(/\/+$/, ''), subject: payload.sub, ...asked.invite ? {invite: asked.invite} : {}, ...back ? {back} : {}}
 }

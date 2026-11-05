@@ -32,6 +32,9 @@ export const DOMAINS: readonly {domain: string, paths: RegExp, methods?: readonl
     {domain: 'comments, reading', paths: /^projects\/[^/]+\/issues\/[^/]+\/comments(\/[^/]+)?$/, methods: ['GET']},
     // Who changed what on an issue (ORR-927). Nothing writes it but the issue's own changes, which stay here (ORR-929).
     {domain: 'activity', paths: /^projects\/[^/]+\/issues\/[^/]+\/activity$/, methods: ['GET']},
+    // A project's milestones and releases, read, and every project's releases (ORR-926). Writing them stays here, as
+    // a milestone's or release's change is told to the event log and schedules (ORR-929).
+    {domain: 'milestones and releases, reading', paths: /^(projects\/[^/]+\/(milestones|releases)(\/[^/]+)?|releases)$/, methods: ['GET']},
     // Who's on this orrery: listing, adding and renaming them, and inviting one (ORR-928). Removing a person stays here,
     // as it unassigns their issues, and an issue's change wakes sessions (ORR-929).
     {domain: 'people, but removing one', paths: /^people(\/[^/]+)?$/, methods: ['GET', 'POST', 'PATCH']},

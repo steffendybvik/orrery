@@ -6,7 +6,7 @@ import {launcherInstall} from '#shared/connect'
 import type {ConnectRequest} from '#shared/connects'
 
 const {ordered} = useProjectOrder()
-const install = launcherInstall(useRequestURL().origin)
+const install = launcherInstall(serverOrigin())
 const pickers = ref<number>()
 const request = ref<ConnectRequest>()
 const ticked = ref<string[]>([])

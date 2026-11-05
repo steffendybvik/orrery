@@ -7,7 +7,7 @@ import {connectPieces, idsFor} from '#shared/connect'
 export function useConnect(project: Ref<Project | undefined>, options: {name?: Ref<string>, session?: Ref<string>} = {}) {
     const config = useRuntimeConfig()
     const {settings} = useAppSettings()
-    const origin = import.meta.client ? location.origin : 'http://localhost:9000'
+    const origin = serverOrigin()
     return computed(() => {
         const name = project.value?.name ?? (options.name?.value.trim() || 'my-app')
         return connectPieces({

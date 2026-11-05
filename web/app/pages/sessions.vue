@@ -26,7 +26,7 @@ const scope = ref('')
 const scoped = computed(() => projects.value.find(p => p.id === scope.value))
 const scopeOptions = computed(() => [{value: '', label: 'Every project'}, ...ordered.value.map(p => ({value: p.id, label: p.name}))])
 const terminalOptions = Object.entries(TERMINALS).map(([value, label]) => ({value, label}))
-const install = launcherInstall(useRequestURL().origin)
+const install = launcherInstall(serverOrigin())
 
 // A session that hears several projects spans them (heardBy): it's listed once, on top under Across projects, and in
 // each project it hears that has sessions of its own as a line saying so (`via`).

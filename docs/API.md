@@ -877,7 +877,8 @@ an issue another session is on, a request already answered); 415 for a write who
 `Content-Type: application/json`; 413 for a body too big, over 32 MB (256 MB for a board's file or an import, 64 KB on the login's routes). Creating answers 201 and deleting 204.
 
 orrery answers only to `localhost`, IP addresses, a Bonjour name (`<name>.local`) and the names in `NUXT_ALLOWED_HOSTS` (`ORRERY_ALLOWED_HOSTS` in
-Docker), and takes writes only from its own page or a client with no `Origin`: anything else is a 403.
+Docker), and takes writes only from its own page, a site listed in `NUXT_ALLOWED_ORIGINS` (`ORRERY_ALLOWED_ORIGINS`), or a client
+with no `Origin`: anything else is a 403. Only a listed site gets CORS headers, with credentials.
 
 ## Live updates
 
