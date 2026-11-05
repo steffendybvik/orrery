@@ -521,6 +521,14 @@ async fn add_person(State(app): Shared, headers: HeaderMap, body: Bytes) -> Resu
     Ok((StatusCode::CREATED, Json(person)).into_response())
 }
 
+async fn remove_person(State(app): Shared, Path(person): Path<String>, headers: HeaderMap) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    let mut people = People::new(&mut conn);
+    people.outbox = Some(Outbox::new(actor_of(&headers)));
+    people.remove_person(&person, &actor_of(&headers), who_of(&headers).as_ref()).await?;
+    Ok(reply(StatusCode::NO_CONTENT, None, std::mem::take(&mut people.effects)))
+}
+
 async fn rename_person(State(app): Shared, Path(person): Path<String>, headers: HeaderMap, body: Bytes) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
     Ok(Json(People::new(&mut conn).rename_person(&person, &body_of(&body), &actor_of(&headers), who_of(&headers).as_ref()).await?).into_response())
@@ -739,7 +747,7 @@ async fn restore_presets(State(app): Shared, headers: HeaderMap) -> Result<Respo
 
 async fn health() -> Json<Value> {
     Json(
-        json!({"ok": true, "domains": ["docs", "statuses", "issues, reading", "comments, reading", "activity", "milestones", "releases", "people, but removing one", "invites", "keys", "logins", "uploads, reading", "presets", "secrets, reading", "settings", "a pull request, reading", "a pull request's risk", "schedules, reading"]}),
+        json!({"ok": true, "domains": ["docs", "statuses", "issues, reading", "comments, reading", "activity", "milestones", "releases", "people", "invites", "keys", "logins", "uploads, reading", "presets", "secrets, reading", "settings", "a pull request, reading", "a pull request's risk", "schedules, reading"]}),
     )
 }
 
@@ -771,7 +779,7 @@ fn router(app: Arc<App>) -> Router {
         .route("/api/statuses/{status}", patch(patch_status).delete(delete_status))
         .route("/api/settings", get(get_settings).patch(patch_settings))
         .route("/api/people", get(list_people).post(add_person))
-        .route("/api/people/{person}", patch(rename_person))
+        .route("/api/people/{person}", patch(rename_person).delete(remove_person))
         .route("/api/invites", post(invite))
         .route("/api/keys", get(list_keys).post(make_key))
         .route("/api/keys/{key}", axum::routing::delete(revoke_key))

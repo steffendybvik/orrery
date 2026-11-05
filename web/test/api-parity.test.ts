@@ -962,6 +962,56 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         await expect(store.identity('https://id.example', 'sub-2', secret)).rejects.toMatchObject({statusCode: 409})
     })
 
+    it('removes a person alike: their open issues unassigned and told, their seats the owner\'s, their keys and logins ended (ORR-928)', async () => {
+        /** A member with work on `p`: a seat on its board, an open issue and a done one, a key and a login. */
+        const hire = async (p: string) => {
+            await store.addPerson({name: 'Hal'})
+            await store.db.run("INSERT INTO project_members (project, person, role, created_at) VALUES (?, 'hal', 'member', ?)", p, new Date().toISOString())
+            const open = (await store.createIssue(p, {title: 'Hal\'s open one', assignee: 'hal'}, OWNER)).id
+            const done = (await store.createIssue(p, {title: 'Hal\'s done one', assignee: 'hal', status: 'done'}, OWNER)).id
+            await store.makeKey('hal', {kind: 'person', name: 'Laptop'})
+            await store.startLogin('hal')
+            return {open, done}
+        }
+        /** What the removal left on `p`. */
+        const left = async (p: string, issues: {open: string, done: string}) => ({
+            removed: !!(await store.people()).find(person => person.id === 'hal')?.removed_at,
+            keys: (await store.keys('hal')).map(key => !!key.revoked_at),
+            logins: (await store.logins('hal')).length,
+            seats: await store.db.all('SELECT person, role FROM project_members WHERE project = ? ORDER BY person', p),
+            assignees: [(await store.issue(p, issues.open)).assignee ?? null, (await store.issue(p, issues.done)).assignee ?? null],
+            noted: await store.db.all("SELECT issue, field, before, after, created_by FROM issue_events WHERE project = ? AND field = 'assignee' AND after IS NULL ORDER BY id", p),
+        })
+        /** Hal gone without a trace, so the other side hires them afresh. */
+        const fire = async () => {
+            for (const table of ['keys', 'logins', 'invites', 'project_members']) await store.db.run(`DELETE FROM ${table} WHERE person = 'hal'`)
+            await store.db.run("DELETE FROM people WHERE id = 'hal'")
+        }
+        const sides: Record<string, {outcome: Outcome, left: unknown}> = {}
+        for (const p of ['through-store', 'through-api']) {
+            const issues = await hire(p)
+            await quiet()
+            const outcome = p === 'through-store'
+                ? await viaStore(() => store.removePerson('hal', OWNER), 204)
+                : await viaApi('DELETE', '/api/people/hal', undefined, OWNER)
+            // Removed again, nothing more happens.
+            const again = p === 'through-store' ? await viaStore(() => store.removePerson('hal', OWNER), 204) : await viaApi('DELETE', '/api/people/hal', undefined, OWNER)
+            expect(again, `${p}: removed again`).toMatchObject({status: 204, changed: [], told: []})
+            sides[p] = {outcome, left: await left(p, issues)}
+            await fire()
+        }
+        const a = sides['through-store']!, b = sides['through-api']!
+        expect(same(b.outcome, 'through-api')).toEqual(same(a.outcome, 'through-store'))
+        expect(same(b.left as Outcome, 'through-api')).toEqual(same(a.left as Outcome, 'through-store'))
+        expect(b.outcome).toMatchObject({status: 204, changed: expect.arrayContaining(['through-api']), told: [expect.stringMatching(/^issue\.assignee API-\d+$/)]})
+        expect(b.left).toMatchObject({removed: true, keys: [true], logins: 0, assignees: [null, 'hal']})
+        // The owner, nobody, and a session are refused alike.
+        await both('the owner', () => viaStore(() => store.removePerson('steffen', OWNER)), () => viaApi('DELETE', '/api/people/steffen', undefined, OWNER))
+        await both('nobody', () => viaStore(() => store.removePerson('nobody', OWNER)), () => viaApi('DELETE', '/api/people/nobody', undefined, OWNER))
+        expect((await viaApi('DELETE', '/api/people/ada', undefined, SESSION)).body).toEqual({message: refused(permission('people.write'), 'session').message, data: {permission: 'people.write'}})
+        expect((await store.people()).find(person => person.id === 'ada')?.removed_at).toBeUndefined()
+    })
+
     it('serves an uploaded image alike, with the headers that keep it an image (ORR-927)', async () => {
         const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=='
         const {id} = await store.createUpload({data: PNG, name: 'dot.png'}, OWNER)
@@ -1331,7 +1381,7 @@ describe('the router', () => {
     })
 
     it('routes by a table with a line per domain, so taking one back is taking its line out (ORR-925)', () => {
-        expect(DOMAINS.map(({domain}) => domain)).toEqual(['docs', 'statuses', 'issues, reading', 'comments', 'activity', 'milestones', 'releases', 'releases, every project\'s', 'people, but removing one', 'invites', 'keys', 'logins', 'uploads, reading', 'presets', 'secrets, reading', 'settings', 'a pull request, reading', "a pull request's risk", 'schedules, reading'])
+        expect(DOMAINS.map(({domain}) => domain)).toEqual(['docs', 'statuses', 'issues, reading', 'comments', 'activity', 'milestones', 'releases', 'releases, every project\'s', 'people', 'invites', 'keys', 'logins', 'uploads, reading', 'presets', 'secrets, reading', 'settings', 'a pull request, reading', "a pull request's risk", 'schedules, reading'])
         expect(domainOf('PATCH', '/api/projects/p/docs/d')).toBe('docs')
         expect(domainOf('head', '/api/projects/p/doc-sections/')).toBe('docs')
         for (const path of ['/api/projects/p/issues/P-1/activity/x', '/api/', '/docs', '/api/projects/p/docs/d/artifact']) expect(domainOf('GET', path), path).toBeUndefined()
@@ -1378,9 +1428,8 @@ describe('the router', () => {
         expect(domainOf('POST', '/api/projects/p/milestones/3/focus')).toBeUndefined()
     })
 
-    it('sends people but removing one, invites, keys and logins there, and keeps logging in (ORR-928)', () => {
-        for (const [method, path] of [['GET', '/api/people'], ['POST', '/api/people'], ['PATCH', '/api/people/ada']]) expect(domainOf(method!, path!), path).toBe('people, but removing one')
-        expect(domainOf('DELETE', '/api/people/ada')).toBeUndefined()
+    it('sends people, removing one included, invites, keys and logins there, and keeps logging in (ORR-928)', () => {
+        for (const [method, path] of [['GET', '/api/people'], ['POST', '/api/people'], ['PATCH', '/api/people/ada'], ['DELETE', '/api/people/ada']]) expect(domainOf(method!, path!), path).toBe('people')
         expect(domainOf('POST', '/api/invites')).toBe('invites')
         for (const [method, path] of [['GET', '/api/keys'], ['POST', '/api/keys'], ['DELETE', '/api/keys/abc']]) expect(domainOf(method!, path!), path).toBe('keys')
         for (const [method, path] of [['GET', '/api/logins'], ['DELETE', '/api/logins'], ['DELETE', '/api/logins/0123456789abcdef']]) expect(domainOf(method!, path!), path).toBe('logins')
@@ -1472,7 +1521,7 @@ describe('the contract (api/openapi.yaml)', () => {
     }
 
     it('has every route the router sends to the API, and no other', () => {
-        expect(contract()).toHaveLength(66)
+        expect(contract()).toHaveLength(67)
         expect(contract()).toEqual(routes())
     })
 
