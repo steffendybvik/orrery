@@ -1,5 +1,5 @@
 import {describe, expect, it} from 'vitest'
-import {launcherMinimum, olderVersion} from '#shared/version'
+import {channelMinimum, launcherMinimum, olderVersion} from '#shared/version'
 
 describe('a version', () => {
     it('is older than a later release, a prerelease before its release, rc.9 before rc.10', () => {
@@ -40,6 +40,22 @@ describe('a launcher against this orrery (ORR-686)', () => {
     })
 
     it('has to say whose a session is once there are several people', () => {
+        expect(works('1.0.0-rc.14', 2)).toBe(false)
+        expect(works('1.0.0-rc.15', 2)).toBe(true)
+    })
+})
+
+describe('a channel against this orrery (ORR-965)', () => {
+    const works = (version: string | undefined, people = 1) => !olderVersion(version, channelMinimum(people))
+
+    it('works from when it says its version, and newer than this orrery too', () => {
+        expect(works('1.0.0-rc.10')).toBe(true)
+        expect(works('1.1.0')).toBe(true)
+        expect(works('1.0.0-rc.9')).toBe(false)
+        expect(works(undefined)).toBe(false)
+    })
+
+    it('has to say whose session it is once there are several people', () => {
         expect(works('1.0.0-rc.14', 2)).toBe(false)
         expect(works('1.0.0-rc.15', 2)).toBe(true)
     })

@@ -86,6 +86,16 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         await new Promise(done => setImmediate(done))
     }
 
+    /** Until the changes a write set off have all been heard. Each project a write changes also changes the projects
+     * sharing its releases, found by a query nobody waits for, so on Postgres those can land in the next step's. */
+    async function quiet() {
+        let heard: number
+        do {
+            heard = changes.length
+            await new Promise(resolve => setTimeout(resolve, 50))
+        } while (changes.length !== heard)
+    }
+
     /** A step through the store, as its route would answer it. */
     async function viaStore(step: () => Promise<unknown>, status = 200): Promise<Outcome> {
         await settle()
@@ -587,6 +597,8 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         await store.nameOwner({name: 'Steffen'})
         await store.addPerson({name: 'Ada'})
         await store.addPerson({name: 'Bob'})
+        // Naming the owner changed every project, so the first step mustn't hear that.
+        await quiet()
         const ada = whoHeaders({person: 'ada', owner: false, via: 'browser'}, undefined)
         const owner = whoHeaders({person: 'steffen', owner: true, via: 'browser'}, undefined)
         /** A key's secret and id, and a login's listed id, are bound to differ between the two sides. */

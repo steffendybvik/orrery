@@ -1,7 +1,8 @@
 import type {Feed} from '../../utils/signal-feed'
+import {channelMinimum} from '#shared/version'
 
 // `GET /api/signals/stream?projects=hub,css` (or `*`) → the owner's signals to a session on several projects, on one
-// server-sent event stream: each `signal` event as `…/projects/:project/signals/stream` sends it (its `project` says
+// server-sent event stream: `ready` {projects, listeners, version, oldest}, the orrery's version and the oldest channel it takes (ORR-965), then each `signal` event as `…/projects/:project/signals/stream` sends it (its `project` says
 // whose), and `stop` when the owner stops the session. `*` follows every project, and each one made later too. The
 // session counts as listening on each. `?after=` or `Last-Event-ID` catches up on every one of them (signal ids run
 // across projects); a session orrery started names its project (`started_for`), whose feed takes its launch. `name`
@@ -72,7 +73,9 @@ export default defineEventHandler(async event => {
         left()
         await stream.close()
     })
-    stream.push({event: 'ready', data: JSON.stringify({projects, listeners: Object.fromEntries(projects.map(p => [p, listening(p)]))})})
+    // The orrery's version and the oldest channel it takes (ORR-965), so one older than that says so.
+    const oldest = channelMinimum((await store.people()).length)
+    stream.push({event: 'ready', data: JSON.stringify({projects, listeners: Object.fromEntries(projects.map(p => [p, listening(p)])), version: useRuntimeConfig().public.version, oldest})})
     for (const project of projects) await add(project, after)
     if (!closed) left = noteChannel(projects, every, listenerOf(text, false), () => feeds.find(f => f.attended)?.attended?.id)
     return stream.send()

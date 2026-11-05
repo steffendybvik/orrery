@@ -285,6 +285,21 @@ describe.concurrent('a channel and its stream', {timeout: 30_000}, () => {
         expect(heard.filter(h => h.meta.kind === 'name')).toHaveLength(2)
     })
 
+    it("says so once when the orrery's ready takes only newer channels, and nothing when this one is new enough (ORR-965)", async context => {
+        const {orrery, heard, nth} = await fresh(context)
+        orrery.event('ready', {projects: ['greenhouse'], version: '1.0.0', oldest: '1.0.0-rc.1'})
+        orrery.event('ready', {projects: ['greenhouse'], version: '9.0.0', oldest: '9.0.0'})
+        orrery.event('ready', {projects: ['greenhouse'], version: '9.0.0', oldest: '9.0.0'})
+        const told = await nth(1)
+        expect(told.content).toMatch(/^This session's orrery channel runs \S+, and the orrery at http:\/\/127\.0\.0\.1:\d+ takes channels from 9\.0\.0 on/)
+        expect(told.content).toContain('Tell the owner')
+        expect(told.meta).toMatchObject({kind: 'version', oldest: '9.0.0'})
+        // What it hears after still comes, and the version isn't told again.
+        orrery.signal({kind: 'message', note: 'hello'})
+        expect((await nth(2)).meta.kind).toBe('message')
+        expect(heard.filter(h => h.meta.kind === 'version')).toHaveLength(1)
+    })
+
     it('with ORRERY_KEY, sends the key on the stream and on delivered', async context => {
         const {orrery, nth} = await fresh(context, {ORRERY_KEY: 'orrery_agent_abc'})
         orrery.signal({kind: 'message', note: 'hello'})

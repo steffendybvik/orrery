@@ -19,7 +19,9 @@ field a server doesn't know is refused (400, naming the fields it takes), so a n
 server whose `version` takes it. The channel and the launcher send their own `version` as they
 connect. The launcher's stream's `ready` says the server's `version` and the `oldest` launcher it takes
 (`1.0.0-rc.10`, or `1.0.0-rc.15` with more than one person); a launcher older than that says so on its log instead of
-half working. The claim flags (`untrusted`, `chat`, `model`, `resume`) say what a launcher can do, so a server never
+half working. The signal streams' `ready` says the server's `version` and the `oldest` channel it takes (the same
+versions, today); a channel older than that tells its session so as it connects, and logs it. A client from before
+`oldest` was sent hears nothing of it, which is why Sessions still marks one that's behind. The claim flags (`untrusted`, `chat`, `model`, `resume`) say what a launcher can do, so a server never
 hands one a launch it can't start safely.
 
 ## Ids

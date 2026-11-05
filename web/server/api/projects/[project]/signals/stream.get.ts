@@ -1,7 +1,8 @@
 import type {Told} from '../../../../utils/signal-feed'
+import {channelMinimum} from '#shared/version'
 
 // `GET /api/projects/:project/signals/stream` → the owner's signals to this project's sessions, as they're
-// sent: server-sent `signal` events, `name` (what orrery calls the session, and again when that changes) (each an id, so a reconnect with `Last-Event-ID` or `?after=` gets
+// sent: `ready` {project, listeners, version, oldest}, the orrery's version and the oldest channel it takes (ORR-965), then server-sent `signal` events, `name` (what orrery calls the session, and again when that changes) (each an id, so a reconnect with `Last-Event-ID` or `?after=` gets
 // what it missed), and `stop` when the owner stops the session; or with `?format=text` one plain line each, for Claude Code's Monitor tool. Each
 // open stream counts as a listening session. A channel on several projects can follow them all on one stream
 // instead (`/api/signals/stream`); both go through signal-feed.ts. With more than one person, a session whose person isn't
@@ -58,7 +59,9 @@ export default defineEventHandler(async event => {
         left()
         await stream.close()
     })
-    stream.push({event: 'ready', data: JSON.stringify({project, listeners: listening(project)})})
+    // The orrery's version and the oldest channel it takes (ORR-965), so one older than that says so.
+    const oldest = channelMinimum((await useStore().people()).length)
+    stream.push({event: 'ready', data: JSON.stringify({project, listeners: listening(project), version: useRuntimeConfig().public.version, oldest})})
     unnamed = sayName(stream, () => feed.attended?.id)
     await streamFeed(sseSink(stream), feed, text('name'))
     return stream.send()
