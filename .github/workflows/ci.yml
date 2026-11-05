@@ -88,8 +88,9 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm lint
 
-  # The Rust API (ORR-922, api/): its format, lints and own tests, then its migrations against Node's on SQLite and on
-  # Postgres (web/test/rust-migrations.test.ts): what the check job skips, having no binary. The runner has Rust already.
+  # The Rust API (ORR-922, api/): its format, lints and own tests, then the store's parity with it on SQLite and on
+  # Postgres (web/test/api-parity.test.ts), and its migrations against Node's (web/test/rust-migrations.test.ts): what the
+  # check job skips, having no binary. The runner has Rust already.
   api:
     runs-on: ubuntu-latest
     services:
@@ -117,8 +118,8 @@ jobs:
         working-directory: api
       - run: cargo build --locked
         working-directory: api
-      - run: pnpm --dir web exec vitest run --project unit test/rust-migrations.test.ts
-      - run: pnpm --dir web exec vitest run --project unit test/rust-migrations.test.ts
+      - run: pnpm --dir web exec vitest run --project unit test/api-parity.test.ts test/rust-migrations.test.ts
+      - run: pnpm --dir web exec vitest run --project unit test/api-parity.test.ts test/rust-migrations.test.ts
         env:
           TEST_POSTGRES_URL: postgres://orrery:orrery@localhost:5432/orrery
 
