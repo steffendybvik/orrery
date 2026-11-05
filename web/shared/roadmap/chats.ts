@@ -1,5 +1,5 @@
 // The owner's chat with a session, and what it may ask the owner to allow.
-import type {SessionState} from './sessions'
+import type {RunsOn, SessionState} from './sessions'
 
 /** The owner's chat with a session started for it (chats.ts): its id is its launch's. `ended` on the last word of one
  * that's gone. */
@@ -21,6 +21,9 @@ export interface Chat {
     /** The Claude Code session it last ran as, kept as it ends, so writing in it again takes that up (`claude --resume`,
      * ORR-884). */
     claude_session?: string
+    /** The model and effort its session last ran on, kept as it ends, so an ended chat still says (ORR-936). Read from
+     * its session as the session cards are. */
+    ran_on?: RunsOn
 }
 
 /** Where a chat's issues land: Todo or Backlog. */
