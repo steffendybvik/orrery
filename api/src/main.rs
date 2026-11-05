@@ -1,4 +1,4 @@
-// orrery's API in Rust (ORR-922). For now it serves docs, the statuses (ORR-926), reading issues and their comments (ORR-927), and the people list, keys and logins (ORR-928), on the database the Nuxt server opens, and only
+// orrery's API in Rust (ORR-922). For now it serves docs, the statuses (ORR-926), reading issues and their comments (ORR-927), and people, invites, keys and logins (ORR-928), on the database the Nuxt server opens, and only
 // to that server: the router there (web/server/middleware/zz-api.ts) checks a request as it always has (auth, the
 // board's permissions, the chat's and untrusted sessions' rails, the browser guards) and then forwards it here with
 // who it's from. So this listens on loopback, and answers only a request that carries the token they share.
@@ -33,7 +33,7 @@ use comments::{comment_id, Comments};
 use docs::{Actor, Docs, Effects};
 use error::{ApiError, Result};
 use issues::Issues;
-use people::{holder_of, People, Who};
+use people::{holder_of, People, Ways, Who};
 use percent_encoding::{percent_decode_str, utf8_percent_encode, NON_ALPHANUMERIC};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -81,6 +81,13 @@ fn who_of(headers: &HeaderMap) -> Option<Who> {
     };
     let person = header(headers, "orrery-who-person").filter(|p| !p.is_empty())?;
     Some(Who { person, owner: header(headers, "orrery-who-owner").as_deref() == Some("1"), browser })
+}
+
+/// What the router's settings say about getting in: `Orrery-Login-Ways: provider, off`, either or both.
+fn ways_of(headers: &HeaderMap) -> Ways {
+    let said = header(headers, "orrery-login-ways").unwrap_or_default();
+    let has = |way: &str| said.split(',').any(|w| w.trim() == way);
+    Ways { provider: has("provider"), off: has("off") }
 }
 
 /// The asking browser's login, hashed as the logins table keeps it: the cookie itself stays with the router.
@@ -278,6 +285,24 @@ async fn list_people(State(app): Shared) -> Result<Response> {
     Ok(Json(People::new(&mut conn).people().await?).into_response())
 }
 
+async fn add_person(State(app): Shared, headers: HeaderMap, body: Bytes) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    let person = People::new(&mut conn).add_person(&body_of(&body), &actor_of(&headers), who_of(&headers).as_ref(), &ways_of(&headers)).await?;
+    Ok((StatusCode::CREATED, Json(person)).into_response())
+}
+
+async fn rename_person(State(app): Shared, Path(person): Path<String>, headers: HeaderMap, body: Bytes) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    Ok(Json(People::new(&mut conn).rename_person(&person, &body_of(&body), &actor_of(&headers), who_of(&headers).as_ref()).await?).into_response())
+}
+
+async fn invite(State(app): Shared, headers: HeaderMap, body: Bytes) -> Result<Response> {
+    let origin = header(&headers, "orrery-origin").unwrap_or_default();
+    let mut conn = app.pool.acquire().await?;
+    let invite = People::new(&mut conn).invite(&body_of(&body), &actor_of(&headers), who_of(&headers).as_ref(), &ways_of(&headers), &origin).await?;
+    Ok((StatusCode::CREATED, Json(invite)).into_response())
+}
+
 async fn list_keys(State(app): Shared, headers: HeaderMap) -> Result<Response> {
     let (person, owner) = holder_of("keys.write", who_of(&headers).as_ref(), &actor_of(&headers))?;
     let mut conn = app.pool.acquire().await?;
@@ -318,7 +343,7 @@ async fn end_login(State(app): Shared, Path(login): Path<String>, headers: Heade
 }
 
 async fn health() -> Json<Value> {
-    Json(json!({"ok": true, "domains": ["docs", "statuses", "issues, reading", "comments, reading", "people, reading", "keys", "logins"]}))
+    Json(json!({"ok": true, "domains": ["docs", "statuses", "issues, reading", "comments, reading", "people, but removing one", "invites", "keys", "logins"]}))
 }
 
 fn router(app: Arc<App>) -> Router {
@@ -339,7 +364,9 @@ fn router(app: Arc<App>) -> Router {
         .route(&format!("{P}/issues/{{issue}}/comments/{{comment}}"), get(get_comment))
         .route("/api/statuses", get(list_statuses).post(create_status))
         .route("/api/statuses/{status}", patch(patch_status).delete(delete_status))
-        .route("/api/people", get(list_people))
+        .route("/api/people", get(list_people).post(add_person))
+        .route("/api/people/{person}", patch(rename_person))
+        .route("/api/invites", post(invite))
         .route("/api/keys", get(list_keys).post(make_key))
         .route("/api/keys/{key}", axum::routing::delete(revoke_key))
         .route("/api/logins", get(list_logins).delete(end_other_logins))

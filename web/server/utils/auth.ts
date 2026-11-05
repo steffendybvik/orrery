@@ -38,7 +38,7 @@ function onLoopback(event: H3Event): boolean {
 }
 
 /** Whether ORRERY_AUTH=off is set, for trying people out on one machine. */
-const toldOff = () => String(useRuntimeConfig().auth || process.env.ORRERY_AUTH || '').toLowerCase() === 'off'
+export const toldOff = () => String(useRuntimeConfig().auth || process.env.ORRERY_AUTH || '').toLowerCase() === 'off'
 
 /** A second person turns auth on, so without a way in that would lock the owner out: they claim the server first. */
 export async function needsWayInForPeople() {

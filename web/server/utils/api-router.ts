@@ -9,10 +9,11 @@
 // When the API is down, or is on another database (the owner moved it), the request falls through to the routes here.
 import {createHash} from 'node:crypto'
 import type {H3Event} from 'h3'
-import {createError, getCookie, getRequestHeader, readRawBody, setResponseHeader, setResponseStatus} from 'h3'
+import {createError, getCookie, getRequestHeader, getRequestURL, readRawBody, setResponseHeader, setResponseStatus} from 'h3'
 import type {Actor} from '../store/schema'
 import type {Who} from './auth'
-import {LOGIN_COOKIE} from './auth'
+import {LOGIN_COOKIE, toldOff} from './auth'
+import {oidcOn} from './oidc'
 
 /** The domains the Rust API serves, a line each (ORR-925): moving a domain there is adding its line once the parity test
  * passes, and taking it back to the routes here is taking the line out. Each matches a whole path after `/api/`, with no
@@ -29,9 +30,10 @@ export const DOMAINS: readonly {domain: string, paths: RegExp, methods?: readonl
     {domain: 'issues, reading', paths: /^projects\/[^/]+\/issues(\/[^/]+)?$/, methods: ['GET']},
     // An issue's comments, read (ORR-927). Writing one stays here until how a comment wakes sessions moves (ORR-929).
     {domain: 'comments, reading', paths: /^projects\/[^/]+\/issues\/[^/]+\/comments(\/[^/]+)?$/, methods: ['GET']},
-    // Who's on this orrery, read (ORR-928). Adding, renaming and removing a person, and invites, stay here, as they read
-    // this server's settings (a provider, ORRERY_AUTH) or change issues.
-    {domain: 'people, reading', paths: /^people$/, methods: ['GET']},
+    // Who's on this orrery: listing, adding and renaming them, and inviting one (ORR-928). Removing a person stays here,
+    // as it unassigns their issues, and an issue's change wakes sessions (ORR-929).
+    {domain: 'people, but removing one', paths: /^people(\/[^/]+)?$/, methods: ['GET', 'POST', 'PATCH']},
+    {domain: 'invites', paths: /^invites$/},
     // A person's keys and the browsers signed in as them (ORR-928). Checking a key or a login's cookie on each request,
     // and logging in and out, stay here (auth.ts): the API hears what that found (`whoHeaders`).
     {domain: 'keys', paths: /^keys(\/[^/]+)?$/},
@@ -77,6 +79,13 @@ export function whoHeaders(who: Who | undefined, login: string | undefined): Rec
     }
 }
 
+/** What this server's settings say about getting in, which the API can't read: `provider` with a login provider set up
+ * (`oidcOn`), `off` with ORRERY_AUTH=off; and the address the request came to, for an invite's link. */
+export function loginHeaders(ways: {provider: boolean, off: boolean}, origin: string): Record<string, string> {
+    const said = [...ways.provider ? ['provider'] : [], ...ways.off ? ['off'] : []]
+    return {...said.length ? {'Orrery-Login-Ways': said.join(', ')} : {}, 'Orrery-Origin': encodeURIComponent(origin)}
+}
+
 /** The projects a reply's `Orrery-Changed` names: comma-separated, each percent-encoded (a status is every project's). */
 export function changedOf(header: string | null): string[] {
     return header ? header.split(',').map(part => decodeURIComponent(part.trim())).filter(Boolean) : []
@@ -119,6 +128,7 @@ export async function forwardToApi(event: H3Event, api: {url: string, token: str
                 'Orrery-Database': databaseMark(databaseSetting()),
                 ...actorHeaders(actor),
                 ...whoHeaders(event.context.who as Who | undefined, getCookie(event, LOGIN_COOKIE)),
+                ...loginHeaders({provider: oidcOn(), off: toldOff()}, getRequestURL(event, {xForwardedHost: true, xForwardedProto: true}).origin),
             },
             body: body ? new Uint8Array(body) : undefined,
             redirect: 'manual',
