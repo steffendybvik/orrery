@@ -73,6 +73,8 @@ const behind = computed(() => props.session.listening && olderVersion(props.sess
           <span v-if="session.model" class="rounded bg-well px-1.5 py-px font-mono text-[10px] text-muted ring-1 ring-line" :title="[session.model, effort && `${effort} effort`].filter(Boolean).join(' · ')" data-testid="session-model">{{ [modelLabel(session.model), effort].filter(Boolean).join(' · ') }}</span>
           <!-- Until it has said, the model orrery started it on, when it chose one (ORR-868). -->
           <ModelChip v-else :session="session" />
+          <!-- And how much context it carries (ORR-968). -->
+          <ContextMeter :context="session.context" />
           <span v-if="roles.length" class="flex items-center gap-1" :aria-label="`As ${roles.map(r => r.name).join(', ')}`">
             <span v-for="role in roles" :key="role.name" :title="role.name" class="inline-flex"><PresetBadge :preset="role" :size="18" /></span>
           </span>

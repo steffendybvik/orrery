@@ -2,7 +2,7 @@ import {mkdtempSync, writeFileSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {describe, expect, it} from 'vitest'
-import {effortOf, lastModel, modelOf} from '../../channel/transcript.mjs'
+import {contextOf, effortOf, lastModel, modelOf} from '../../channel/transcript.mjs'
 import {modelLabel} from '../shared/roadmap'
 
 // Each session's model on the Sessions page (ORR-871): the hook reads it off the session's transcript, the latest
@@ -46,6 +46,24 @@ describe("a session's effort level, from its hook (ORR-894)", () => {
         expect(effortOf({hook_event_name: 'PreToolUse', effort: {level: 'xhigh'}})).toBe('xhigh')
         expect(effortOf({hook_event_name: 'PreToolUse', effort: 'extreme'})).toBeUndefined()
         expect(effortOf({hook_event_name: 'Stop'})).toBeUndefined()
+    })
+})
+
+describe("a session's context, from its transcript (ORR-968)", () => {
+    const used = (usage: object) => ({type: 'assistant', message: {role: 'assistant', model: 'claude-opus-5-5', usage, content: []}})
+
+    it('is the whole input of the latest reply: input, cache read and cache written', () => {
+        const path = transcript('usage.jsonl', [used({input_tokens: 1, cache_read_input_tokens: 2, cache_creation_input_tokens: 3}), {type: 'user'},
+            used({input_tokens: 10, cache_read_input_tokens: 40_000, cache_creation_input_tokens: 2_000, output_tokens: 500})])
+        expect(contextOf({hook_event_name: 'Stop', transcript_path: path})).toBe(42_010)
+        expect(contextOf({hook_event_name: 'PreToolUse', transcript_path: path})).toBe(42_010)
+    })
+
+    it('says nothing on other events, or for a reply with no usage', () => {
+        const path = transcript('no-usage.jsonl', [reply('claude-opus-5-5')])
+        expect(contextOf({hook_event_name: 'Stop', transcript_path: path})).toBeUndefined()
+        expect(contextOf({hook_event_name: 'UserPromptSubmit', transcript_path: path})).toBeUndefined()
+        expect(contextOf({hook_event_name: 'Stop'})).toBeUndefined()
     })
 })
 
