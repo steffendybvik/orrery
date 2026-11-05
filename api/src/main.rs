@@ -22,6 +22,7 @@ mod milestones;
 mod people;
 mod plans;
 mod presets;
+mod pull_poll;
 mod pulls;
 mod releases;
 mod schedules;
@@ -51,6 +52,7 @@ use people::{holder_of, People, Ways, Who};
 use percent_encoding::{percent_decode_str, utf8_percent_encode, NON_ALPHANUMERIC};
 use plans::Plans;
 use presets::{preset_id, Presets};
+use pull_poll::PullPoll;
 use pulls::{check_rating, pull_number, Pulls};
 use releases::Releases;
 use schedules::Schedules;
@@ -600,6 +602,40 @@ async fn get_pull(State(app): Shared, Path((owner, name, number)): Path<(String,
     Ok(Json(Pulls::new(&mut conn).for_pull(&format!("{owner}/{name}"), number, owner_asking(&headers)).await?).into_response())
 }
 
+/// A repo's GitHub poll, its failure, its history page and letting go of what's done (ORR-952): the local app's poll,
+/// written ahead of the swap.
+async fn polled_repo(State(app): Shared, Path((owner, name)): Path<(String, String)>, headers: HeaderMap, body: Bytes) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    let mut poll = PullPoll::new(&mut conn);
+    poll.outbox = Some(Outbox::new(actor_of(&headers)));
+    poll.polled(&format!("{owner}/{name}"), &body_of(&body)).await?;
+    Ok(reply(StatusCode::NO_CONTENT, None, std::mem::take(&mut poll.effects)))
+}
+
+async fn polled_repo_failed(State(app): Shared, Path((owner, name)): Path<(String, String)>, headers: HeaderMap, body: Bytes) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    let mut poll = PullPoll::new(&mut conn);
+    poll.outbox = Some(Outbox::new(actor_of(&headers)));
+    poll.failed(&format!("{owner}/{name}"), &body_of(&body)).await?;
+    Ok(reply(StatusCode::NO_CONTENT, None, std::mem::take(&mut poll.effects)))
+}
+
+async fn polled_repo_history(State(app): Shared, Path((owner, name)): Path<(String, String)>, headers: HeaderMap, body: Bytes) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    let mut poll = PullPoll::new(&mut conn);
+    poll.outbox = Some(Outbox::new(actor_of(&headers)));
+    poll.history(&format!("{owner}/{name}"), &body_of(&body)).await?;
+    Ok(reply(StatusCode::NO_CONTENT, None, std::mem::take(&mut poll.effects)))
+}
+
+async fn forget_pulls(State(app): Shared, headers: HeaderMap, body: Bytes) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    let mut poll = PullPoll::new(&mut conn);
+    poll.outbox = Some(Outbox::new(actor_of(&headers)));
+    let value = poll.forget(&body_of(&body)).await?;
+    Ok(reply(StatusCode::OK, Some(value), std::mem::take(&mut poll.effects)))
+}
+
 /// Keeps the PR on the issues it names (ORR-952): the local app's poll, written ahead of the swap.
 async fn keep_pull(State(app): Shared, Path((owner, name, number)): Path<(String, String, String)>, headers: HeaderMap, body: Bytes) -> Result<Response> {
     let number = pull_number(&number)?;
@@ -749,6 +785,10 @@ fn router(app: Arc<App>) -> Router {
         .route("/api/secrets", get(list_secrets))
         .route("/api/secrets/{name}", get(get_secret))
         .route("/api/pulls/{owner}/{name}/{number}", get(get_pull).put(keep_pull))
+        .route("/api/pulls/{owner}/{name}", put(polled_repo))
+        .route("/api/pulls/{owner}/{name}/error", put(polled_repo_failed))
+        .route("/api/pulls/{owner}/{name}/history", put(polled_repo_history))
+        .route("/api/pulls/forget", post(forget_pulls))
         .route(&format!("{P}/issues/{{issue}}/pulls/{{owner}}/{{name}}/{{number}}/risk"), put(rate_pull))
         .route(&format!("{P}/schedules"), get(list_schedules))
         .route(&format!("{P}/schedules/{{schedule}}"), get(get_schedule))
