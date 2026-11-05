@@ -67,6 +67,18 @@ describe('pull requests', () => {
         expect(namesIssue({body: null, head: {ref: 'fix/old-5'}}, ['SHO-1', 'OLD-5'])).toBe(true)
     })
 
+    it("don't name an issue whose link the body only quotes in code (ORR-945)", () => {
+        const body = (text: string) => ({body: text, head: {ref: 'main-work'}})
+        expect(namesIssue(body('A link such as `[SHO-1](/p/shop/issues/SHO-1)` now opens a new tab.'), ['SHO-1'])).toBe(false)
+        expect(namesIssue(body('Written ``like `[SHO-1](/p/shop/issues/SHO-1)` here``.'), ['SHO-1'])).toBe(false)
+        expect(namesIssue(body('Before:\n\n```md\n[SHO-1](/p/shop/issues/SHO-1)\n```\n'), ['SHO-1'])).toBe(false)
+        expect(namesIssue(body('~~~\n/p/shop/issues/SHO-1'), ['SHO-1'])).toBe(false)
+        // Outside the code, it still counts.
+        expect(namesIssue(body('Quotes `/p/shop/issues/SHO-2`.\n\nIssue: http://localhost:9010/p/shop/issues/SHO-1'), ['SHO-1'])).toBe(true)
+        expect(namesIssue(body('```\ncode\n```\nIssue: http://localhost:9010/p/shop/issues/SHO-1'), ['SHO-1'])).toBe(true)
+        expect(namesIssue(body('An unclosed ` and then /p/shop/issues/SHO-1'), ['SHO-1'])).toBe(true)
+    })
+
     it('say what each waits on', () => {
         expect(pullState(true, 'clean')).toBe('draft')
         expect(pullState(false, 'dirty')).toBe('conflicting')

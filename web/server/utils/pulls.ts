@@ -102,20 +102,28 @@ interface Read<T> {
 // The repo's `owner/name` on GitHub lives with the issue's GitHub references (ORR-635).
 export {githubRepo}
 
-/** Whether a PR names one of the issue's ids: a link to its page in the body, or the id in its branch. */
+/** A PR's body without its code (fenced blocks and inline spans): a link quoted there is an example, not the issue the
+ * PR is for (ORR-945). */
+function prose(body: string | null): string {
+    return (body ?? '')
+        .replace(/^ {0,3}(`{3,}|~{3,})[^\n]*\n[\s\S]*?(?:^ {0,3}\1[`~]*[ \t]*$|(?![\s\S]))/gm, '')
+        .replace(/(`+)(?!`)[\s\S]*?(?<!`)\1(?!`)/g, '')
+}
+
+/** Whether a PR names one of the issue's ids: a link to its page in the body, outside code, or the id in its branch. */
 export function namesIssue(pull: Pick<ListedPull, 'body' | 'head'>, ids: string[]): boolean {
     return ids.some(id => {
         const escaped = id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-        return new RegExp(`/issues/${escaped}(?![\\w-])`, 'i').test(pull.body ?? '')
+        return new RegExp(`/issues/${escaped}(?![\\w-])`, 'i').test(prose(pull.body))
             || new RegExp(`(?:^|[^a-z0-9])${escaped}(?![0-9])`, 'i').test(pull.head.ref)
     })
 }
 
-/** The issue ids a PR names, most likely first: those its body links to (`…/issues/ORR-12`), then its branch's
+/** The issue ids a PR names, most likely first: those its body links to outside code (`…/issues/ORR-12`), then its branch's
  * (`feat/orr-12-…`), as they'd be written (upper case). */
 export function issueIdsIn(pull: Pick<ListedPull, 'body' | 'head'>): string[] {
     const ids = [
-        ...[...(pull.body ?? '').matchAll(/\/issues\/([a-z][a-z0-9]*-\d+)(?![\w-])/gi)].map(m => m[1]),
+        ...[...prose(pull.body).matchAll(/\/issues\/([a-z][a-z0-9]*-\d+)(?![\w-])/gi)].map(m => m[1]),
         ...[...pull.head.ref.matchAll(/(?:^|[^a-z0-9])([a-z][a-z0-9]*-\d+)(?![0-9])/gi)].map(m => m[1]),
     ]
     return [...new Set(ids.filter(id => id !== undefined).map(id => id.toUpperCase()))]
