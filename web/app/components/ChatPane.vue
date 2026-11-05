@@ -666,7 +666,7 @@ onBeforeUnmount(() => window.removeEventListener('message', heard))
         </template>
         <div v-else-if="m.text" class="group flex max-w-[92%] flex-col items-start gap-1">
           <div class="rounded-2xl rounded-bl-md bg-well px-3.5 py-2.5 ring-1 ring-line/60">
-            <MarkdownView :source="m.text" class="text-[13px]" />
+            <MarkdownView :source="m.text" new-tab class="text-[13px]" />
           </div>
           <CopyButton :text="m.text" name="this reply" class="transition-opacity sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100" />
         </div>
