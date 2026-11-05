@@ -151,7 +151,8 @@ test("App settings' QR link signs a phone in on its own port, once, and lists it
     const phone = await browser.newContext({...devices['iPhone 13']})
     expect((await phone.request.get(`${address}/api/projects`)).status()).toBe(401)
     const scanned = await phone.newPage()
-    await scanned.goto(new URL(path, page.url()).href)
+    // Where the code leads: the phone's port, whose login cookie is its own since it's named for the port (#889).
+    await scanned.goto(`${address}${path}`)
     await expect(scanned).not.toHaveURL(/\/login/)
     await expect(scanned.getByRole('heading', {name: 'My issues'}).first()).toBeVisible()
     // Signed in, the phone reads through its own port, which asked for a login a moment ago.
