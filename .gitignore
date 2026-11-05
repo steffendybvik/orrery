@@ -33,3 +33,6 @@ spawned-lines.json
 # The playground's database and backups
 /.playground/data
 /.playground/backup
+
+# The Rust API's build (ORR-922)
+/api/target
