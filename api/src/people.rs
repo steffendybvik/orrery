@@ -2,11 +2,13 @@
 // holds, as web/server/store/people.ts and keys.ts do them, answering as web/server/api/{people,keys,logins}/ do. Turning a
 // credential into a person (`credential` in web/server/utils/auth.ts) stays with the router in front, which checks every
 // request before it gets here and sends what it found (`Who`), with the asking browser's login hashed: its cookie never
-// leaves that server. Logging in and out, an OIDC provider's accounts, invites and changing who's here stay there too,
-// as they set cookies, read its settings or change issues.
+// leaves that server. Logging in and out and an OIDC provider's accounts stay there too, as they set cookies or read its
+// settings. Removing a person unassigns their open issues, so it writes what it set off to the outbox in its own
+// transaction (ORR-929), as the milestones do.
+use crate::changes::{self, Outbox};
 use crate::db::sql;
 use crate::docs::js;
-use crate::docs::{stamp, Actor};
+use crate::docs::{stamp, Actor, Effects};
 use crate::error::{ApiError, Result};
 use crate::migrate::actor_id;
 use crate::text::first_chars;
@@ -147,11 +149,15 @@ fn key_of(row: &sqlx::any::AnyRow) -> Value {
 
 pub struct People<'c> {
     pub conn: &'c mut AnyConnection,
+    /// What a removal set off: the projects whose issues it unassigned, and each `issue.assignee` it told.
+    pub effects: Effects,
+    /// Set for a removal: what it sets off goes into the outbox in its transaction (ORR-929).
+    pub outbox: Option<Outbox>,
 }
 
 impl<'c> People<'c> {
     pub fn new(conn: &'c mut AnyConnection) -> Self {
-        People { conn }
+        People { conn, effects: Effects::default(), outbox: None }
     }
 
     /// Everyone, the owner first, then in the order they were added; those removed stay listed, with `removed_at`.
@@ -230,6 +236,72 @@ impl<'c> People<'c> {
         let id: String = person.get("id");
         sqlx::query(&sql("UPDATE people SET name = ? WHERE id = ?")).bind(&name).bind(&id).execute(&mut *self.conn).await?;
         Ok(person_json(&self.person(&id).await?))
+    }
+
+    /// Removes a member (`DELETE /api/people/:person`, `removePerson`): the owner's only. Their name stays on history,
+    /// what they held goes to the owner, their keys are revoked and their logins and invites end, and their open issues go
+    /// back to unassigned, each noted and told. One already removed is left as it is.
+    pub async fn remove_person(&mut self, id: &str, actor: &Actor, who: Option<&Who>) -> Result<()> {
+        owner_only(actor, who)?;
+        let person = self.person(id).await?;
+        if person.get::<String, _>("role") == "owner" {
+            return Err(ApiError::bad_request("The owner can't be removed"));
+        }
+        if person.get::<Option<String>, _>("removed_at").is_some() {
+            return Ok(());
+        }
+        let id: String = person.get("id");
+        let open = sqlx::query(&sql(
+            "SELECT project, id, assignee FROM issues WHERE lower(assignee) = ? AND status NOT IN (SELECT id FROM statuses WHERE kind IN ('done', 'canceled'))",
+        ))
+        .bind(&id)
+        .fetch_all(&mut *self.conn)
+        .await?;
+        let open: Vec<(String, String, String)> = open.iter().map(|r| (r.get("project"), r.get("id"), r.get("assignee"))).collect();
+        let owner: String = sqlx::query("SELECT id FROM people WHERE role = 'owner'").fetch_one(&mut *self.conn).await?.get("id");
+        changes::begin(self.conn).await?;
+        let done: Result<()> = async {
+            let now = stamp();
+            sqlx::query(&sql("UPDATE people SET removed_at = ? WHERE id = ?")).bind(&now).bind(&id).execute(&mut *self.conn).await?;
+            // What they held goes to the owner, who may already be on it.
+            sqlx::query(&sql("DELETE FROM project_members WHERE person = ? AND role = 'member'")).bind(&id).execute(&mut *self.conn).await?;
+            sqlx::query(&sql("DELETE FROM project_members WHERE person = ? AND project IN (SELECT project FROM project_members WHERE person = ?)"))
+                .bind(&owner)
+                .bind(&id)
+                .execute(&mut *self.conn)
+                .await?;
+            sqlx::query(&sql("UPDATE project_members SET person = ? WHERE person = ?")).bind(&owner).bind(&id).execute(&mut *self.conn).await?;
+            sqlx::query(&sql("UPDATE keys SET revoked_at = ? WHERE person = ? AND revoked_at IS NULL")).bind(&now).bind(&id).execute(&mut *self.conn).await?;
+            sqlx::query(&sql("DELETE FROM logins WHERE person = ?")).bind(&id).execute(&mut *self.conn).await?;
+            sqlx::query(&sql("DELETE FROM invites WHERE person = ?")).bind(&id).execute(&mut *self.conn).await?;
+            for (project, issue, assignee) in &open {
+                sqlx::query(&sql("UPDATE issues SET assignee = NULL, updated_at = ? WHERE project = ? AND id = ?"))
+                    .bind(stamp())
+                    .bind(project)
+                    .bind(issue)
+                    .execute(&mut *self.conn)
+                    .await?;
+                sqlx::query(&sql(
+                    "INSERT INTO issue_events (project, issue, field, \"before\", \"after\", created_by, session_name, owned, created_at) VALUES (?, ?, 'assignee', ?, NULL, ?, ?, ?, ?)",
+                ))
+                .bind(project)
+                .bind(issue)
+                .bind(assignee)
+                .bind(&actor.name)
+                .bind(actor.session.as_deref())
+                .bind(i64::from(actor.owner))
+                .bind(stamp())
+                .execute(&mut *self.conn)
+                .await?;
+                self.effects.tell_change("issue.assignee", project, issue, Some(assignee), None);
+                if !self.effects.changed.contains(project) {
+                    self.effects.changed.push(project.clone());
+                }
+            }
+            Ok(())
+        }
+        .await;
+        changes::finish(self.conn, self.outbox.as_mut(), &self.effects, done).await
     }
 
     /// An invite for a person to attach their first login (`POST /api/invites`): the owner's only, and only with a login

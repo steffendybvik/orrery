@@ -45,7 +45,7 @@ export const DOMAINS: readonly {domain: string, paths: RegExp, methods?: readonl
     {domain: 'releases, every project\'s', paths: /^releases$/, methods: ['GET']},
     // Who's on this orrery: listing, adding and renaming them, and inviting one (ORR-928). Removing a person stays here,
     // as it unassigns their issues, and an issue's change wakes sessions (ORR-929).
-    {domain: 'people, but removing one', paths: /^people(\/[^/]+)?$/, methods: ['GET', 'POST', 'PATCH']},
+    {domain: 'people', paths: /^people(\/[^/]+)?$/, methods: ['GET', 'POST', 'PATCH', 'DELETE']},
     {domain: 'invites', paths: /^invites$/},
     // A person's keys and the browsers signed in as them (ORR-928). Checking a key or a login's cookie on each request,
     // and logging in and out, stay here (auth.ts): the API hears what that found (`whoHeaders`).

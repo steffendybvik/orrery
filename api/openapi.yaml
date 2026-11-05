@@ -25,8 +25,8 @@ info:
       (web/server/api/projects/[project]/milestones, releases, and web/server/api/releases.get.ts). Served by both; a
       milestone's focus stays the Nuxt server's, as it signals sessions.
     - **People, invites, keys and logins** (ORR-928): who's on this orrery, inviting them, and the keys and logins people
-      hold (web/server/api/people, invites, keys, logins). Served by both; removing a person stays the Nuxt server's, as
-      it unassigns their issues, and so do logging in and out.
+      hold (web/server/api/people, invites, keys, logins). Served by both, removing a person included, which unassigns
+      their open issues and tells each. Logging in and out stay the Nuxt server's.
     - **Secrets, reading** (ORR-953): the orrery's secrets and their uses, never a value (web/server/api/secrets). Both
       serve them; the router sends only their `GET`s there. Setting, narrowing and deleting one, and egress, stay the
       Nuxt server's: the key that seals a value stays with the local app, and the API never sees a value in the clear.
@@ -477,7 +477,7 @@ paths:
       - {name: person, in: path, required: true, description: The person's id, schema: {type: string}}
     patch:
       summary: Renames a member, the owner's only
-      description: Their id stays. The owner's own name is changed with `PUT /api/owner` (400); a removed person's stays (409). Removing a person (`DELETE`) stays the Nuxt server's for now, as it unassigns their issues.
+      description: Their id stays. The owner's own name is changed with `PUT /api/owner` (400); a removed person's stays (409).
       parameters: [{$ref: '#/components/parameters/actor'}]
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/PersonInput'}}}}
       responses:
@@ -486,6 +486,15 @@ paths:
         '403': {$ref: '#/components/responses/Forbidden'}
         '404': {$ref: '#/components/responses/NotFound'}
         '409': {$ref: '#/components/responses/Conflict'}
+    delete:
+      summary: Removes a member, the owner's only
+      description: Their name stays on history. What they held goes to the owner, their keys are revoked, their logins and invites end, and their open issues go back to unassigned, each noted and told (`issue.assignee`). The owner can't be removed (400); one already removed is left as it is.
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      responses:
+        '204': {description: Removed}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
   /api/invites:
     post:
       summary: Invites a person to attach their first login, the owner's only
