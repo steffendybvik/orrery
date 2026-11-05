@@ -115,7 +115,7 @@ export abstract class SignalStore extends IssueStore {
         const signal = signalOf(row)
         // A started issue another session is still on stays its: the one asked gets the claim's 409 if it starts it.
         if (signal.target && signal.target !== EVERY && !await this.takenFrom(project, issue, signal.target)) await this.workedBy(project, issue, signal.target)
-        this.onSignal(signal)
+        this.signalled(signal)
         return signal
     }
 
@@ -170,7 +170,7 @@ export abstract class SignalStore extends IssueStore {
         const row = await this.one<SignalRow>('INSERT INTO signals (project, milestone, status, release, kind, note, target, person, instructions, model, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *',
             project, milestone, status, release, 'focus', nullable(input.note), nullable(input.session), this.memberAiming(actor, input.session) ?? null, instructions, await this.milestoneModelNeeded(project, milestone), actor.name, Number(actor.owner), stamp())
         const signal = signalOf(row)
-        this.onSignal(signal)
+        this.signalled(signal)
         return signal
     }
 
@@ -258,7 +258,7 @@ export abstract class SignalStore extends IssueStore {
         const row = await this.one<SignalRow>('INSERT INTO signals (project, schedule, kind, note, preset, target, model, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *',
             project, schedule, 'message', text, preset ?? null, target ?? null, model && model !== 'best' ? model : null, actor.name, Number(actor.owner), stamp())
         const signal = signalOf(row)
-        this.onSignal(signal)
+        this.signalled(signal)
         return signal
     }
 
@@ -276,7 +276,7 @@ export abstract class SignalStore extends IssueStore {
         const row = await this.one<SignalRow>('INSERT INTO signals (project, kind, note, preset, via, target, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *',
             project, 'message', note, from, actor.via ?? null, session, actor.name, 1, stamp())
         const signal = signalOf(row)
-        this.onSignal(signal)
+        this.signalled(signal)
         return signal
     }
 
@@ -335,7 +335,7 @@ export abstract class SignalStore extends IssueStore {
             if (tries === 9) throw conflict(`Signal ${id} is being marked by too many sessions at once; try again`)
         }
         const signal = signalOf({...row, delivered_to: JSON.stringify(names)})
-        this.onSignal(signal)
+        this.signalled(signal)
         return signal
     }
 }

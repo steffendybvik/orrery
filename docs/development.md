@@ -140,6 +140,12 @@ reads them, oldest first, a page at a time, with `last` to ask after next. So fa
 its connection, rather than in its transaction, and only the API's writes add them. Nothing reads them yet: the reply
 headers still carry what changed to the Nuxt server.
 
+The Nuxt server's own writes keep their rows too (`outbox()` in `web/server/store/base.ts`), the relayed ones aside. Beside
+what the API keeps, they keep a `signal` row for each signal sessions are sent (its id; the `signals` table holds the
+rest) and a `notice` row for an agent's comment going to the owner's bell (the comment's id, its issue in `payload`). An
+event that changed a value carries `{from, to}` in `payload`, and `person` for a member's agent, as a schedule's `on`
+matches on them.
+
 ## The page's pieces
 
 Buttons, dialogs, menus and confirmations come from a small kit in `web/app/components/ui/`, and the
