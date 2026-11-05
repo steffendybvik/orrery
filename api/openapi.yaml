@@ -1,11 +1,15 @@
 openapi: 3.1.0
 info:
-  title: orrery API, docs
+  title: orrery API
   version: 1.0.0-rc.18 # the orrery release it was written against
   description: |
-    The docs domain of orrery's HTTP API (ORR-922): a project's docs, their sections and their revisions. Written from
-    the Nuxt server's routes (web/server/api/projects/[project]/docs, doc-sections, deleted-docs) and served by both it
-    and the Rust API in api/, which answer alike (web/test/api-parity.test.ts holds them to it).
+    The domains of orrery's HTTP API that move to the Rust API in api/, each written from the Nuxt server's routes
+    first, as the contract both answer alike to (web/test/api-parity.test.ts holds them to it):
+
+    - **Docs** (ORR-922): a project's docs, their sections and their revisions (web/server/api/projects/[project]/docs,
+      doc-sections, deleted-docs). Served by both.
+    - **Issues and comments, reading** (ORR-927): the issue list with its filters, one issue, and its comments
+      (web/server/api/projects/[project]/issues). Only the Nuxt server serves them so far; the Rust API's come next.
 
     Callers reach it at orrery's own address, as ever. The Nuxt server checks a request first (login or key, the board's
     permissions, the chat's and untrusted sessions' rails, the browser guards), then hands it to the Rust API when one is
@@ -167,11 +171,70 @@ paths:
       responses:
         '204': {description: Deleted}
         '404': {$ref: '#/components/responses/NotFound'}
+  /api/projects/{project}/issues:
+    parameters: [{$ref: '#/components/parameters/project'}]
+    get:
+      summary: Every issue, sub-issues included, as a flat list in board order
+      description: |
+        Board order is each milestone in turn (by position, then when made), then the issues in no milestone; within
+        each, an issue comes before its sub-issues, depth first, each level by position, then when made.
+
+        Each filter given narrows the list; one left out or empty doesn't. `none` asks for issues without the field
+        where the parameter says so. A milestone, parent or release that isn't there is a 404, as in its other routes.
+      parameters:
+        - {name: status, in: query, description: 'Status ids or kinds (`started`, `todo`, …), comma-separated; the old names of kinds count too', schema: {type: string}}
+        - {name: priority, in: query, description: '`P0` to `P3`, or `none`', schema: {type: string}}
+        - {name: column, in: query, description: 'The column it shows in: a status id or kind, or `proposed`', schema: {type: string}}
+        - {name: assignee, in: query, description: 'A name, `owner` for the owner whatever their name, or `none`', schema: {type: string}}
+        - {name: label, in: query, description: One label it has, exactly, schema: {type: string}}
+        - {name: external, in: query, description: 'A task on the team''s tracker it names, exactly (`ENG-1567`)', schema: {type: string}}
+        - {name: github_issue, in: query, description: 'A GitHub issue it came from: `523` on the project''s repo, `owner/name#523` or its link; any case', schema: {type: string}}
+        - {name: milestone, in: query, description: 'A milestone''s id, an alias or full id of one, or `none`', schema: {type: string}}
+        - {name: release, in: query, description: 'A release''s version, or `none`; 400 when the project has no releases', schema: {type: string}}
+        - {name: parent, in: query, description: 'An issue''s id (an alias or full id finds it), for its sub-issues one level down; `none` for top-level ones', schema: {type: string}}
+        - {name: proposal, in: query, description: 'A proposal state (`pending`, …), or `none` for committed work', schema: {type: string}}
+        - {name: blocked, in: query, description: '`true`: waiting on an issue not done yet (`blocked_by`); `false`: not', schema: {type: string, enum: ['true', 'false']}}
+        - {name: q, in: query, description: 'In the id or title, any case. With `in=all`, every word, anywhere: see `in`', schema: {type: string}}
+        - name: in
+          in: query
+          description: |
+            `all`: every word of `q` in its id and title, its description or a comment not orrery's own. Those with
+            them in the id and title come first; then the rest, each with `match_in` and, unless it's labelled
+            `external`, `match`.
+          schema: {type: string, enum: [all]}
+      responses:
+        '200': {description: The issues, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/IssueRecord'}}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/projects/{project}/issues/{issue}:
+    parameters: [{$ref: '#/components/parameters/project'}, {$ref: '#/components/parameters/issue'}]
+    get:
+      summary: The issue with its column, counts and sub-issues, nested
+      responses:
+        '200': {description: The issue, content: {application/json: {schema: {$ref: '#/components/schemas/IssueDetail'}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/projects/{project}/issues/{issue}/comments:
+    parameters: [{$ref: '#/components/parameters/project'}, {$ref: '#/components/parameters/issue'}]
+    get:
+      summary: The issue's comments, oldest first
+      responses:
+        '200': {description: The comments, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/Comment'}}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/projects/{project}/issues/{issue}/comments/{comment}:
+    parameters: [{$ref: '#/components/parameters/project'}, {$ref: '#/components/parameters/issue'}, {$ref: '#/components/parameters/comment'}]
+    get:
+      summary: One comment
+      responses:
+        '200': {description: The comment, content: {application/json: {schema: {$ref: '#/components/schemas/Comment'}}}}
+        '400': {description: The comment's id isn't a whole number, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
 components:
   parameters:
     project: {name: project, in: path, required: true, description: The project's id, schema: {type: string}}
     doc: {name: doc, in: path, required: true, description: 'The doc''s id, or its full id on this board (`doc-ideas-x7k2m3qd`)', schema: {type: string}}
     revision: {name: revision, in: path, required: true, description: 'A revision''s id; ids run across the orrery', schema: {type: integer, minimum: 1}}
+    issue: {name: issue, in: path, required: true, description: 'The issue''s id (`ORR-12`), an id it had before (an alias), or the full form of either on this board (`ORR-12-x7k2m3qd`)', schema: {type: string}}
+    comment: {name: comment, in: path, required: true, description: 'A comment''s id; ids run across the orrery', schema: {type: integer, minimum: 1}}
     actor:
       name: Orrery-Actor
       in: header
@@ -180,7 +243,7 @@ components:
   responses:
     BadRequest: {description: 'The body is wrong: `data.problems` says each thing', content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
     Forbidden: {description: 'The owner''s call: `data.permission` names the row that says so', content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
-    NotFound: {description: No such project, doc, revision or section, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+    NotFound: {description: 'No such project, doc, revision, section, issue, comment, milestone or release', content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
     Conflict: {description: Taken already, or not the same kind, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
   schemas:
     DocKind: {type: string, enum: [markdown, artifact], description: '`artifact`: its text is HTML, only drawn in a sandboxed frame. Fixed when it''s made.'}
@@ -265,6 +328,124 @@ components:
       required: [name]
       properties:
         name: {type: string, maxLength: 60, description: Trimmed; not empty}
+    Asks: {type: string, enum: [decision, feedback], description: What a question waits on the owner for}
+    Counts: {type: object, additionalProperties: {type: integer}, description: 'How many leaf issues are in each column, by its id; only columns with some'}
+    Kinds:
+      type: object
+      description: How many leaf issues are of each kind of column, every kind listed
+      required: [backlog, todo, started, done, canceled, proposed]
+      properties:
+        backlog: {type: integer}
+        todo: {type: integer}
+        started: {type: integer}
+        done: {type: integer}
+        canceled: {type: integer}
+        proposed: {type: integer}
+    Place: {type: string, enum: [backlog, todo, started, done, canceled, proposed], description: What a column means}
+    Choice:
+      type: object
+      description: A question on a proposal, for the owner to pick from; stored and handed back as written
+      additionalProperties: true
+    PullRisk:
+      type: object
+      required: [level, why, by]
+      properties:
+        level: {type: string, enum: [low, medium, high]}
+        why: {type: string}
+        by: {type: string, enum: [owner, session]}
+    Issue:
+      type: object
+      description: |
+        An issue as the board draws it. Its column comes from its sub-issues' when it has any: closed when every
+        committed one is (its first done status with some, else canceled), else the least-along open status any is in;
+        `proposed` when it is a proposal or under one. Fields marked "only with some" are left out rather than empty.
+      required: [id, title, labels, external, github_issues, status, choices, column, kind, counts, kinds, comments, aliases, created_by, protected, created_at, updated_at]
+      properties:
+        id: {type: string}
+        title: {type: string}
+        priority: {type: string, enum: [P0, P1, P2, P3]}
+        assignee: {type: string, description: 'A person''s id, or `claude`'}
+        labels: {type: array, items: {type: string}}
+        external: {type: array, items: {type: string}}
+        github_issues: {type: array, items: {type: string}, description: 'Each `owner/name#523`'}
+        status: {type: string, description: Its own status as written; a parent's columns come from its sub-issues}
+        notes: {type: string}
+        proposal: {type: string, enum: [pending, approved, changes, rejected]}
+        decided_by: {type: string}
+        decided_at: {type: string, format: date-time}
+        decision_note: {type: string}
+        choices: {type: array, items: {$ref: '#/components/schemas/Choice'}}
+        picks: {type: object, additionalProperties: {type: array, items: {type: string}}}
+        explore: {type: object, required: [choice, option], properties: {choice: {type: string}, option: {type: string}}}
+        column: {type: string}
+        kind: {$ref: '#/components/schemas/Place'}
+        counts: {$ref: '#/components/schemas/Counts'}
+        kinds: {$ref: '#/components/schemas/Kinds'}
+        comments: {type: integer}
+        waiting:
+          allOf: [{$ref: '#/components/schemas/Asks'}]
+          description: |
+            Its latest question from an agent with no comment of the owner's after it; else `decision` for a pending
+            proposal an agent made that isn't under another proposal. Never on one that's done or canceled.
+        aliases: {type: array, items: {type: string}, description: 'Ids it had before, A–Z'}
+        schedule: {type: integer}
+        release: {type: string}
+        model: {type: string, description: Only with one}
+        effort: {type: string, description: Only with one}
+        created_by: {type: string}
+        session_name: {type: string, description: Only with one}
+        claimed_by: {type: string, description: Only with one}
+        claimed_at: {type: string, format: date-time, description: Only with `claimed_by`}
+        protected: {type: boolean, description: Made by the owner}
+        depends_on: {type: array, items: {type: string}, description: 'Only with some: `ID` here, `project/ID` in another, in the order linked'}
+        blocked_by: {type: array, items: {type: string}, description: 'Only with some: those of `depends_on` not done (a proposal isn''t done)'}
+        blocks: {type: array, items: {type: string}, description: 'Only with some: the issues that depend on it'}
+        risk: {allOf: [{$ref: '#/components/schemas/PullRisk'}], description: 'Only once a PR is rated: its riskiest'}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    IssueRecord:
+      description: An issue in a list, flat
+      allOf:
+        - $ref: '#/components/schemas/Issue'
+        - type: object
+          required: [project, ref, full_id, parent, milestone, sub_issues]
+          properties:
+            project: {type: string}
+            ref: {type: string, description: '`orrery-<handle>: <id>`, the handle being the setting''s, else the owner''s id'}
+            full_id: {type: string, description: '`ORR-12-x7k2m3qd`: its id with the project''s uid'}
+            parent: {type: [string, 'null']}
+            milestone: {type: [string, 'null'], description: 'The milestone it''s in, a sub-issue''s being its top-level issue''s'}
+            sub_issues: {type: array, items: {type: string}, description: Its sub-issues one level down, by id, in board order}
+            match_in: {type: string, enum: [description, comment], description: 'Only from `in=all`, when the words aren''t in its id and title'}
+            match: {type: string, description: 'Only with `match_in`, and not on an `external` one: up to 60 characters before the first word and 100 after, cut at spaces, `…` where cut'}
+    IssueDetail:
+      description: One issue, its sub-issues nested in `tasks`
+      allOf:
+        - $ref: '#/components/schemas/Issue'
+        - type: object
+          required: [project, ref, full_id, parent, milestone, tasks]
+          properties:
+            project: {type: string}
+            ref: {type: string}
+            full_id: {type: string}
+            parent: {type: [string, 'null']}
+            milestone: {type: [string, 'null']}
+            tasks: {type: array, items: {$ref: '#/components/schemas/Issue'}, description: 'Each with its own `tasks`, to any depth'}
+    Comment:
+      type: object
+      required: [id, issue, body, created_by, protected, created_at, updated_at]
+      properties:
+        id: {type: integer}
+        issue: {type: string}
+        body: {type: string, description: Markdown}
+        asks: {$ref: '#/components/schemas/Asks'}
+        answered: {type: boolean, description: 'Only with `asks`: whether the owner has commented on the issue since'}
+        schedule: {type: object, additionalProperties: true, description: 'A session''s request to make or change a schedule (ORR-458), with its state'}
+        created_by: {type: string}
+        session_name: {type: string, description: Only with one}
+        protected: {type: boolean, description: Written by the owner}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
     Error:
       type: object
       required: [statusCode, statusMessage, message]
