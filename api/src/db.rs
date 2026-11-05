@@ -1,6 +1,6 @@
-// The database: the same SQLite file or Postgres the Nuxt server opens, already migrated by it. This API runs no
-// migrations of its own (web/server/utils/migrations stay the schema's one source), and refuses to start on one
-// that lacks what it reads.
+// The database: the same SQLite file or Postgres the Nuxt server opens, already migrated by it. Serving, this API runs
+// no migrations (web/server/utils/migrations stay the schema's source until the last domain has moved; `orrery-api
+// migrate`, migrate.rs, is their port, which nothing runs yet), and refuses to start on one that lacks what it reads.
 use sqlx::any::{install_default_drivers, AnyPoolOptions};
 use sqlx::{AnyPool, Executor};
 use std::sync::OnceLock;

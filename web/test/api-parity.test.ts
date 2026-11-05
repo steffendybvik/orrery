@@ -285,19 +285,21 @@ describe('the router', () => {
 })
 
 describe('the contract (api/openapi.yaml)', () => {
-    /** Its operations, `METHOD /path`, read off its lines: a path at two spaces in, its methods at four. */
-    function contract(): string[] {
+    /** Its operations, `METHOD /path`, read off its lines: a path at two spaces in, its methods at four. One with
+     * `x-served: false` at six is written ahead of the Rust API's (the contract comes first): `ahead` has those. */
+    function contract(ahead = false): string[] {
         const text = readFileSync(fileURLToPath(new URL('../../api/openapi.yaml', import.meta.url)), 'utf8')
-        const operations: string[] = []
+        const operations: {operation: string, ahead: boolean}[] = []
         let path = ''
         for (const line of text.split('\n')) {
             const at = /^ {2}(\/api\/\S+):$/.exec(line)
             if (at) path = at[1]!
             else if (/^\S/.test(line)) path = ''
             const method = /^ {4}(get|put|post|patch|delete):/.exec(line)
-            if (path && method) operations.push(`${method[1]!.toUpperCase()} ${path}`)
+            if (path && method) operations.push({operation: `${method[1]!.toUpperCase()} ${path}`, ahead: false})
+            else if (path && operations.length && /^ {6}x-served: false\s*$/.test(line)) operations.at(-1)!.ahead = true
         }
-        return operations.sort()
+        return operations.filter(o => o.ahead === ahead).map(o => o.operation).sort()
     }
 
     /** The Nuxt server's routes the router sends on, as `METHOD /path` with `{param}`s. */
@@ -313,5 +315,10 @@ describe('the contract (api/openapi.yaml)', () => {
     it('has every route the router sends to the API, and no other', () => {
         expect(contract()).toHaveLength(18)
         expect(contract()).toEqual(routes())
+    })
+
+    it('sends none of the routes written ahead of the Rust API to it', () => {
+        expect(contract(true)).toHaveLength(4)
+        expect(contract(true).filter(operation => routes().includes(operation))).toEqual([])
     })
 })

@@ -8,10 +8,15 @@
 //   ORRERY_API_LISTEN  where to listen; 127.0.0.1:9100 by default
 //   ORRERY_API_SCHEMA  on Postgres, the schema to work in (the tests' own)
 //   ORRERY_API_LOG     1: says each request it answers, and how
+//
+// `orrery-api migrate` brings NUXT_DATABASE's schema up to date instead (ORR-931), and exits. Nothing runs it yet: the
+// Nuxt server migrates the database as it opens it until the last domain has moved here.
 mod db;
 mod docs;
 mod error;
+mod migrate;
 mod statuses;
+mod steps;
 mod text;
 
 use axum::body::Bytes;
@@ -252,6 +257,17 @@ async fn main() {
         eprintln!("[orrery-api] {message}");
         std::process::exit(1)
     };
+    if std::env::args().nth(1).as_deref() == Some("migrate") {
+        let setting =
+            std::env::var("NUXT_DATABASE").ok().filter(|s| !s.is_empty()).unwrap_or_else(|| fail("set NUXT_DATABASE to the database to migrate".into()));
+        let done = migrate::migrate(&setting, std::env::var("ORRERY_API_SCHEMA").ok().as_deref()).await.unwrap_or_else(|e| fail(e));
+        if done.from == done.to {
+            eprintln!("[orrery-api] the schema is at step {} already", done.to);
+        } else {
+            eprintln!("[orrery-api] migrated the schema from step {} to {}", done.from, done.to);
+        }
+        return;
+    }
     let token = std::env::var("NUXT_API_TOKEN")
         .ok()
         .filter(|t| t.len() >= 16)
