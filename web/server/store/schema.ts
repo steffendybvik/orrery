@@ -416,8 +416,10 @@ export const IMAGE_TYPES: [string, (bytes: Buffer) => boolean][] = [
 export const PERSONS_WORDS = (c: string) => `(${c}.owned = 1 OR (${c}.person IS NOT NULL AND ${c}.by_agent = 0))`
 export const SINCE = `EXISTS (SELECT 1 FROM comments o WHERE o.project = c.project AND o.issue = c.issue AND ${PERSONS_WORDS('o')} AND o.id > c.id)`
 export const ANSWERED = `${SINCE} AS answered`
-/** Comment `c` is an agent's question the owner hasn't answered yet: what its issue waits on them for. */
-export const OPEN_ASK = `c.asks IS NOT NULL AND c.owned = 0 AND NOT ${SINCE}`
+/** Comment `c` is an agent's question the owner hasn't answered yet: what its issue waits on them for. Asked of a
+ * project's comments: `+c.owned` keeps SQLite on the project's index (comments_issue), as on `owned` alone it would read
+ * every agent's comment in the orrery, once for each project's board (ORR-934). */
+export const OPEN_ASK = `c.asks IS NOT NULL AND +c.owned = 0 AND NOT ${SINCE}`
 
 
 export function commentOf(row: CommentRow): Comment {
