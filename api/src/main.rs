@@ -1,4 +1,4 @@
-// orrery's API in Rust (ORR-922). For now it serves docs, the statuses (ORR-926) and reading an issue's comments (ORR-927), on the database the Nuxt server opens, and only
+// orrery's API in Rust (ORR-922). For now it serves docs, the statuses (ORR-926) and reading issues and their comments (ORR-927), on the database the Nuxt server opens, and only
 // to that server: the router there (web/server/middleware/zz-api.ts) checks a request as it always has (auth, the
 // board's permissions, the chat's and untrusted sessions' rails, the browser guards) and then forwards it here with
 // who it's from. So this listens on loopback, and answers only a request that carries the token they share.
@@ -15,6 +15,7 @@ mod comments;
 mod db;
 mod docs;
 mod error;
+mod issues;
 mod migrate;
 mod statuses;
 mod steps;
@@ -30,6 +31,7 @@ use axum::{Json, Router};
 use comments::{comment_id, Comments};
 use docs::{Actor, Docs, Effects};
 use error::{ApiError, Result};
+use issues::Issues;
 use percent_encoding::{percent_decode_str, utf8_percent_encode, NON_ALPHANUMERIC};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -200,6 +202,16 @@ async fn delete_section(State(app): Shared, Path((project, section)): Path<(Stri
     Ok(reply(StatusCode::NO_CONTENT, None, effects))
 }
 
+async fn list_issues(State(app): Shared, Path(project): Path<String>, Query(query): Query<HashMap<String, String>>) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    Ok(Json(Issues::new(&mut conn).list(&project, &query).await?).into_response())
+}
+
+async fn get_issue(State(app): Shared, Path((project, issue)): Path<(String, String)>) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    Ok(Json(Issues::new(&mut conn).issue(&project, &issue).await?).into_response())
+}
+
 async fn list_comments(State(app): Shared, Path((project, issue)): Path<(String, String)>) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
     Ok(Json(Comments::new(&mut conn).list(&project, &issue).await?).into_response())
@@ -243,7 +255,7 @@ async fn delete_status(State(app): Shared, Path(status): Path<String>, Query(que
 }
 
 async fn health() -> Json<Value> {
-    Json(json!({"ok": true, "domains": ["docs", "statuses", "comments, reading"]}))
+    Json(json!({"ok": true, "domains": ["docs", "statuses", "issues, reading", "comments, reading"]}))
 }
 
 fn router(app: Arc<App>) -> Router {
@@ -258,6 +270,8 @@ fn router(app: Arc<App>) -> Router {
         .route(&format!("{P}/deleted-docs"), get(deleted_docs))
         .route(&format!("{P}/doc-sections"), get(list_sections).post(create_section))
         .route(&format!("{P}/doc-sections/{{section}}"), patch(patch_section).delete(delete_section))
+        .route(&format!("{P}/issues"), get(list_issues))
+        .route(&format!("{P}/issues/{{issue}}"), get(get_issue))
         .route(&format!("{P}/issues/{{issue}}/comments"), get(list_comments))
         .route(&format!("{P}/issues/{{issue}}/comments/{{comment}}"), get(get_comment))
         .route("/api/statuses", get(list_statuses).post(create_status))

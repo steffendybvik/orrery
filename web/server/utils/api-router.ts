@@ -22,6 +22,9 @@ export const DOMAINS: readonly {domain: string, paths: RegExp, methods?: readonl
     {domain: 'docs', paths: /^projects\/[^/]+\/(docs(\/[^/]+(\/revisions(\/[^/]+(\/restore)?)?)?)?|deleted-docs|doc-sections(\/[^/]+)?)$/},
     // The orrery's issue statuses (ORR-926).
     {domain: 'statuses', paths: /^statuses(\/[^/]+)?$/},
+    // A project's issues, read: the list with its filters, and one issue (ORR-927). Writing them stays here, as a change
+    // wakes sessions (ORR-929).
+    {domain: 'issues, reading', paths: /^projects\/[^/]+\/issues(\/[^/]+)?$/, methods: ['GET']},
     // An issue's comments, read (ORR-927). Writing one stays here until how a comment wakes sessions moves (ORR-929).
     {domain: 'comments, reading', paths: /^projects\/[^/]+\/issues\/[^/]+\/comments(\/[^/]+)?$/, methods: ['GET']},
 ]

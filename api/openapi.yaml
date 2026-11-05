@@ -9,8 +9,8 @@ info:
     - **Docs** (ORR-922): a project's docs, their sections and their revisions (web/server/api/projects/[project]/docs,
       doc-sections, deleted-docs). Served by both.
     - **Issues and comments, reading** (ORR-927): the issue list with its filters, one issue, and its comments
-      (web/server/api/projects/[project]/issues). Both serve an issue's comments; the router sends only their `GET`s
-      there, as writing one stays the Nuxt server's. The issue reads are only the Nuxt server's so far.
+      (web/server/api/projects/[project]/issues). Both serve them; the router sends only their `GET`s there, as
+      writing an issue or a comment stays the Nuxt server's.
     - **Statuses** (ORR-926): the orrery's issue statuses (web/server/api/statuses). Served by both.
 
     An operation marked `x-served: false` is written ahead of the Rust API's: the router doesn't send it there yet, and
@@ -222,7 +222,6 @@ paths:
   /api/projects/{project}/issues:
     parameters: [{$ref: '#/components/parameters/project'}]
     get:
-      x-served: false
       summary: Every issue, sub-issues included, as a flat list in board order
       description: |
         Board order is each milestone in turn (by position, then when made), then the issues in no milestone; within
@@ -258,7 +257,6 @@ paths:
   /api/projects/{project}/issues/{issue}:
     parameters: [{$ref: '#/components/parameters/project'}, {$ref: '#/components/parameters/issue'}]
     get:
-      x-served: false
       summary: The issue with its column, counts and sub-issues, nested
       responses:
         '200': {description: The issue, content: {application/json: {schema: {$ref: '#/components/schemas/IssueDetail'}}}}
