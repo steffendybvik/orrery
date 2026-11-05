@@ -48,13 +48,16 @@ describe('AppSidebar', () => {
         expect(link(wrapper, '/releases')!.text()).toBe('Releases1')
     })
 
-    it('shows Events, Context and Pull requests only with Advanced on', async () => {
+    it('shows Events, Context and Pull requests only with Advanced on, folded under its row (ORR-967)', async () => {
         const off = await mount()
         for (const to of ['/events', '/context', '/pulls']) expect(link(off, to)).toBeUndefined()
+        expect(off.findAll('button').some(b => b.text() === 'Advanced')).toBe(false)
         off.unmount()
 
         useAppSettings().settings.value.advanced = true
         const on = await mount()
+        for (const to of ['/events', '/context', '/pulls']) expect(link(on, to)).toBeUndefined()
+        await on.findAll('button').find(b => b.text() === 'Advanced')!.trigger('click')
         for (const to of ['/events', '/context', '/pulls']) expect(link(on, to)).toBeDefined()
     })
 
@@ -107,7 +110,8 @@ describe('AppSidebar', () => {
             blog: [session('shelves', 'blog', 'idle'), session('kitchen', 'blog', 'waiting')],
         }
         const wrapper = await mount()
-        expect(link(wrapper, '/sessions')!.text()).toBe('Sessions3')
+        // The Sessions panel's heading is the page's link: the nav's own row went (ORR-967).
+        expect(link(wrapper, '/sessions')!.text()).toContain('Sessions')
         const text = wrapper.text()
         expect(text.indexOf('kitchen')).toBeLessThan(text.indexOf('jars'))
         expect(text.indexOf('kitchen')).toBeLessThan(text.indexOf('shelves'))
