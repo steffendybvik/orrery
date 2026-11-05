@@ -21,6 +21,32 @@ export interface Db {
     /** Runs `work` once the transaction the code running now is part of commits (never, when it rolls back), outside
      * it; when there's none, on the next turn. */
     afterCommit(work: () => void): void
+    /** Runs `work` inside the transaction the code running now is part of, just before it commits, so it lands or
+     * rolls back with it: the outbox's rows (ORR-929). One with a `key` already waiting isn't added again. When there's
+     * no transaction, it runs at once, on its own. */
+    beforeCommit(work: () => Promise<unknown>, key?: string): void
+}
+
+/** What waits on a transaction: `before`, run inside it just before it commits, and `after`, once it has. */
+export interface Waiting {
+    before: Map<string | symbol, () => Promise<unknown>>
+    after: (() => void)[]
+}
+
+/** Runs what waits to go in just before the commit, in the order it came, in the transaction. */
+export async function runBefore(waiting: Waiting) {
+    for (const work of waiting.before.values()) await work()
+}
+
+/** Adds `work` to run before the commit, unless one with its `key` is there already. */
+export function addBefore(waiting: Waiting, work: () => Promise<unknown>, key?: string) {
+    const at = key ?? Symbol('before')
+    if (!waiting.before.has(at)) waiting.before.set(at, work)
+}
+
+/** Runs `work` now, on its own, as there's no transaction to wait for; a failure is said, not thrown, as nothing awaits it. */
+export function runAlone(work: () => Promise<unknown>) {
+    work().catch(error => console.error('[orrery] writing to the outbox:', error))
 }
 
 /** The row of a statement that always gives one (an insert or update `RETURNING`, a `count(*)`); none is a bug, not a missing record. */
@@ -31,7 +57,7 @@ export async function one<T>(db: Db, sql: string, ...params: Value[]): Promise<T
 }
 
 /** The transaction the code running now is part of, if any, with what waits for it to commit. */
-const current = new AsyncLocalStorage<{after: (() => void)[]}>()
+const current = new AsyncLocalStorage<Waiting>()
 
 /** Runs each of `after`, outside every transaction of `storage`, on the next turn. */
 export function runAfter(storage: AsyncLocalStorage<unknown>, after: (() => void)[]) {
@@ -43,7 +69,7 @@ export class SqliteDb implements Db {
     /** The end of the line: what's asked waits for what was asked before it. */
     private tail: Promise<unknown> = Promise.resolve()
     /** The transaction holding the connection, if one is. */
-    private open: {after: (() => void)[]} | null = null
+    private open: Waiting | null = null
 
     constructor(readonly raw: DatabaseSync) {}
 
@@ -72,12 +98,13 @@ export class SqliteDb implements Db {
     async transaction<T>(work: () => Promise<T>): Promise<T> {
         if (this.inside()) return work()
         return this.queue(() => {
-            const token = {after: [] as (() => void)[]}
+            const token: Waiting = {before: new Map(), after: []}
             this.open = token
             return current.run(token, async () => {
                 this.raw.exec('BEGIN IMMEDIATE')
                 try {
                     const result = await work()
+                    await runBefore(token)
                     this.raw.exec('COMMIT')
                     runAfter(current, token.after)
                     return result
@@ -94,6 +121,11 @@ export class SqliteDb implements Db {
     afterCommit(work: () => void) {
         if (this.inside()) this.open?.after.push(work)
         else runAfter(current, [work])
+    }
+
+    beforeCommit(work: () => Promise<unknown>, key?: string) {
+        if (this.inside() && this.open) addBefore(this.open, work, key)
+        else runAlone(work)
     }
 
     /** Hands the raw connection to `work` when nothing else holds it, e.g. for a backup (`VACUUM INTO`

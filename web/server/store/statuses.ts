@@ -145,7 +145,7 @@ export abstract class StatusStore extends StoreBase {
 
     /** Open pages get the settings again: after a write the Rust API made to the statuses (ORR-926). */
     async settingsChanged() {
-        this.onSettings(await this.settings())
+        this.saySettings(await this.settings())
     }
 
     /** Every board is drawn again with them, and the page gets the new list with the settings. */
@@ -170,7 +170,7 @@ export abstract class StatusStore extends StoreBase {
             }
         })
         const settings = await this.settings()
-        this.onSettings(settings)
+        this.saySettings(settings, actor)
         // Every project says whether orrery starts its sessions.
         if (input.starts !== undefined) for (const {id} of await this.all<{id: string}>('SELECT id FROM projects')) this.changed(id)
         return settings

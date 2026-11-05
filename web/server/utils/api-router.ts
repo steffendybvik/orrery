@@ -198,12 +198,15 @@ export async function forwardToApi(event: H3Event, api: {url: string, token: str
         throw createError({statusCode: response.status, statusMessage: String(json?.statusMessage ?? ''), message: String(json?.message ?? ''), ...json?.data === undefined ? {} : {data: json.data}})
     }
     const store = useStore()
-    for (const project of changedOf(response.headers.get('orrery-changed'))) store.changed(project)
-    // The statuses are in the settings, which open pages get again (ORR-926).
-    if (response.headers.get('orrery-settings') === '1') await store.settingsChanged()
-    const keys = changedOf(response.headers.get('orrery-settings-keys'))
-    if (keys.length) useEventLog().note({level: 'info', kind: 'settings.changed', message: `${actor.name} changed the settings: ${keys.join(', ')}`, details: {by: actor.name, keys}})
-    for (const {type, project, subject} of toldOf(response.headers.get('orrery-told'))) store.told(type, project, subject, actor)
+    // The API put what it set off in the outbox already, so the store's hooks don't again (ORR-929).
+    await store.relaying(async () => {
+        for (const project of changedOf(response.headers.get('orrery-changed'))) store.changed(project)
+        // The statuses are in the settings, which open pages get again (ORR-926).
+        if (response.headers.get('orrery-settings') === '1') await store.settingsChanged()
+        const keys = changedOf(response.headers.get('orrery-settings-keys'))
+        if (keys.length) useEventLog().note({level: 'info', kind: 'settings.changed', message: `${actor.name} changed the settings: ${keys.join(', ')}`, details: {by: actor.name, keys}})
+        for (const {type, project, subject} of toldOf(response.headers.get('orrery-told'))) store.told(type, project, subject, actor)
+    })
     const counted = countedOf(event.method, pathOf(event))
     if (counted) countOwnUse(event, counted)
     setResponseStatus(event, response.status)

@@ -1,5 +1,6 @@
 // What every part of the store stands on: the database, telling open pages of a change, reading rows and
 // records, the owner's protection, and writing.
+import {AsyncLocalStorage} from 'node:async_hooks'
 import type {ActivityField, Board, IssueStatus, Notice, Project, Settings, Signal, Starts} from '#shared/roadmap'
 import {shortId} from '#shared/roadmap'
 import type {Input} from '../utils/input'
@@ -12,6 +13,9 @@ import {ANSWERED, noReleases, nullable, stamp} from './schema'
 import type {OrreryEvent} from '#shared/happenings'
 import {refusedFor} from '../utils/permission'
 import {drawingOn, readBoard, readDocSections, readDocSummaries, readReleases} from './reads'
+
+/** Set while the router tells what a write the Rust API made set off: the API put it in the outbox already (ORR-929). */
+const relayed = new AsyncLocalStorage<true>()
 
 export abstract class StoreBase {
     constructor(
@@ -37,8 +41,34 @@ export abstract class StoreBase {
     /** Hears what happens (`issue.status`, `release.frozen`…), for the schedules that run on it; the server sets it. */
     happened: (event: OrreryEvent) => void = () => {}
 
+    /** The schedule whose run the code running now is part of, if any; the server sets it. */
+    cause: () => string | undefined = () => undefined
+
+    /** Tells what a write the Rust API made set off (`work`, the router's hooks), without a second row in the outbox. */
+    async relaying<T>(work: () => Promise<T>): Promise<T> {
+        return await relayed.run(true, work)
+    }
+
+    /** A row in the outbox (ORR-929) for what a write set off, as the Rust API writes for its own: in the write's
+     * transaction when there is one, else at once. A project's change or the settings go in once a transaction. */
+    protected outbox(kind: string, at: {project?: string, subject?: string, actor?: Actor} = {}) {
+        if (relayed.getStore()) return
+        const {project = null, subject = null, actor} = at
+        const cause = this.cause() ?? null
+        const once = kind === 'project.changed' || kind === 'settings' ? `${kind} ${project ?? ''}` : undefined
+        this.db.beforeCommit(() => this.db.run('INSERT INTO changes (kind, project, subject, actor, owner, session, untrusted, cause, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            kind, project, subject, actor?.name ?? null, actor?.owner ? 1 : 0, actor?.session ?? null, actor?.untrusted ? 1 : 0, cause, stamp()), once)
+    }
+
+    /** Open pages get the settings, and the outbox says they changed. */
+    protected saySettings(settings: Settings, actor?: Actor) {
+        this.outbox('settings', {actor})
+        this.onSettings(settings)
+    }
+
     /** Says what happened, as `actor` did it. */
     protected tell(type: string, project: string, subject: string, actor: Actor, change: {from?: string | null, to?: string | null} = {}) {
+        this.outbox(type, {project, subject, actor})
         this.happened({type, project, subject, by: {name: actor.name, owner: actor.owner, ...actor.person && !actor.owner ? {person: actor.person} : {}}, ...actor.untrusted ? {untrusted: true} : {},
             ...change.from == null ? {} : {from: change.from}, ...change.to == null ? {} : {to: change.to}})
     }
@@ -55,6 +85,7 @@ export abstract class StoreBase {
      * issue), and the projects sharing its releases: a source counts the issues of those drawing on it, and they
      * show its releases. */
     changed(project: string) {
+        this.outbox('project.changed', {project})
         if (this.held) return void this.held.add(project)
         this.onChange(project)
         this.all<{id: string}>('SELECT id FROM projects WHERE releases_from = ? OR id = (SELECT releases_from FROM projects WHERE id = ?)', project, project)

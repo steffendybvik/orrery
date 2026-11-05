@@ -85,6 +85,10 @@ export function useStore(): Store {
     store.hears = hearing
     store.sessionPerson = session => sessionNow(session)?.person
     store.happened = changed
+    store.cause = () => {
+        const run = scheduleRunning.getStore()
+        return run === undefined ? undefined : String(run)
+    }
     store.epicsChanged = () => projectEvents.emit('epics')
     return store
 }
