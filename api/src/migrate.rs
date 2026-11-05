@@ -1,0 +1,284 @@
+// The schema's migrations, ported from web/server/utils/migrations (ORR-931): `orrery-api migrate` brings a database to
+// the latest step, as the Node app does as it opens one. Nothing runs this yet. The Node app owns the migrations until the
+// last domain has moved here, and a new step is still written there first. web/test/rust-migrations.test.ts copies each
+// SQL step into api/migrations and the list into steps.rs, and fails until a step that's code there has an arm here.
+//
+// The steps are the same ones, counted the same way: SQLite's in `PRAGMA user_version`, Postgres's in `schema_version`
+// from its baseline. So a database either one migrated carries on with the other, with no reset.
+use crate::steps::{POSTGRES, POSTGRES_BASELINE, POSTGRES_SCHEMA, SQLITE};
+use chrono::{SecondsFormat, Utc};
+use serde_json::Value;
+use sqlx::any::install_default_drivers;
+use sqlx::{AnyConnection, Connection, Row};
+use unicode_normalization::UnicodeNormalization;
+
+/// A step: SQL, or one that's code (numbered as it brings the schema to that step), for what SQL can't say.
+pub enum Step {
+    Sql(&'static str),
+    Code(u32),
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Dialect {
+    Sqlite,
+    Postgres,
+}
+
+/// What a run did: the step it found the database at, and the one it left it at.
+pub struct Migrated {
+    pub from: u32,
+    pub to: u32,
+}
+
+/// Brings `setting`'s database (a SQLite file's path, made if it isn't there, or a `postgres://` URL) up to the latest
+/// step. `schema`, on Postgres, is the one to work in, made if it isn't there, as the Node app does.
+pub async fn migrate(setting: &str, schema: Option<&str>) -> Result<Migrated, String> {
+    install_default_drivers();
+    if crate::db::is_postgres(setting) {
+        let mut conn = AnyConnection::connect(setting).await.map_err(|e| format!("can't open the database: {e}"))?;
+        postgres(&mut conn, schema).await
+    } else {
+        let mut conn = AnyConnection::connect(&format!("sqlite://{setting}?mode=rwc")).await.map_err(|e| format!("can't open {setting}: {e}"))?;
+        sqlite(&mut conn, setting).await
+    }
+}
+
+fn failed(step: u32) -> impl Fn(sqlx::Error) -> String {
+    move |e| format!("schema step {step} failed: {e}")
+}
+
+async fn exec(conn: &mut AnyConnection, sql: &str) -> Result<(), sqlx::Error> {
+    sqlx::raw_sql(sql).execute(conn).await.map(|_| ())
+}
+
+async fn sqlite(conn: &mut AnyConnection, path: &str) -> Result<Migrated, String> {
+    let latest = SQLITE.len() as u32;
+    let version: i64 = sqlx::query("PRAGMA user_version").fetch_one(&mut *conn).await.and_then(|r| r.try_get(0)).map_err(|e| e.to_string())?;
+    let version = version as u32;
+    if version > latest {
+        return Err(format!(
+            "{path} was written by a newer orrery (schema step {version}; this one knows up to {latest}). Run that version again, or restore the copy taken before it upgraded (orrery-pre-<version>-step<n>.db, in the backup folder or beside the database)."
+        ));
+    }
+    // Foreign keys are off while tables are rebuilt (SQLite can't turn them off inside a transaction).
+    exec(conn, "PRAGMA busy_timeout = 5000; PRAGMA foreign_keys = OFF").await.map_err(|e| e.to_string())?;
+    for (i, step) in SQLITE.iter().enumerate().skip(version as usize) {
+        let n = i as u32 + 1;
+        exec(conn, "BEGIN IMMEDIATE").await.map_err(failed(n))?;
+        let done = async {
+            match step {
+                Step::Sql(sql) => exec(conn, sql).await.map_err(failed(n))?,
+                Step::Code(n) => code(conn, Dialect::Sqlite, *n).await?,
+            }
+            exec(conn, &format!("PRAGMA user_version = {n}")).await.map_err(failed(n))
+        }
+        .await;
+        if let Err(e) = done {
+            exec(conn, "ROLLBACK").await.ok();
+            return Err(e);
+        }
+        exec(conn, "COMMIT").await.map_err(failed(n))?;
+    }
+    if !sqlx::query("PRAGMA foreign_key_check").fetch_all(&mut *conn).await.map_err(|e| e.to_string())?.is_empty() {
+        return Err(format!("{path}: a migration left rows pointing at nothing"));
+    }
+    exec(conn, "PRAGMA foreign_keys = ON").await.map_err(|e| e.to_string())?;
+    Ok(Migrated { from: version, to: latest })
+}
+
+async fn postgres(conn: &mut AnyConnection, schema: Option<&str>) -> Result<Migrated, String> {
+    let latest = POSTGRES_BASELINE + POSTGRES.len() as u32;
+    if let Some(schema) = schema {
+        let schema = schema.replace('"', "");
+        exec(conn, &format!("CREATE SCHEMA IF NOT EXISTS \"{schema}\"; SET search_path TO \"{schema}\"")).await.map_err(|e| e.to_string())?;
+    }
+    exec(conn, "BEGIN").await.map_err(|e| e.to_string())?;
+    let done = async {
+        // Two servers starting at once wait for each other here, the Node app's included: it takes the same lock.
+        exec(conn, "SELECT pg_advisory_xact_lock(4207); CREATE TABLE IF NOT EXISTS schema_version (version integer NOT NULL)").await.map_err(|e| e.to_string())?;
+        let row = sqlx::query("SELECT CAST(version AS bigint) FROM schema_version").fetch_optional(&mut *conn).await.map_err(|e| e.to_string())?;
+        let found = match row {
+            Some(row) => Some(row.try_get::<i64, _>(0).map_err(|e| e.to_string())? as u32),
+            None => None,
+        };
+        let mut version = found.unwrap_or(0);
+        if version > latest {
+            return Err(format!(
+                "This Postgres database was written by a newer orrery (schema step {version}; this one knows up to {latest}). Run that version again, or restore a backup from before it upgraded."
+            ));
+        }
+        if found.is_none() {
+            exec(conn, POSTGRES_SCHEMA).await.map_err(failed(POSTGRES_BASELINE))?;
+            exec(conn, &format!("INSERT INTO schema_version (version) VALUES ({POSTGRES_BASELINE})")).await.map_err(failed(POSTGRES_BASELINE))?;
+            version = POSTGRES_BASELINE;
+        }
+        for (i, step) in POSTGRES.iter().enumerate() {
+            let n = POSTGRES_BASELINE + i as u32 + 1;
+            if version >= n {
+                continue;
+            }
+            match step {
+                Step::Sql(sql) => exec(conn, sql).await.map_err(failed(n))?,
+                Step::Code(n) => code(conn, Dialect::Postgres, *n).await?,
+            }
+            exec(conn, &format!("UPDATE schema_version SET version = {n}")).await.map_err(failed(n))?;
+            version = n;
+        }
+        Ok(found.unwrap_or(0))
+    }
+    .await;
+    match done {
+        Ok(from) => {
+            exec(conn, "COMMIT").await.map_err(|e| e.to_string())?;
+            Ok(Migrated { from, to: latest })
+        }
+        Err(e) => {
+            exec(conn, "ROLLBACK").await.ok();
+            Err(e)
+        }
+    }
+}
+
+/// The steps that are code in the Node app, written again here.
+async fn code(conn: &mut AnyConnection, dialect: Dialect, n: u32) -> Result<(), String> {
+    let fail = failed(n);
+    match (dialect, n) {
+        // Renumbered each board's issues by their order (renumberSync), back when ids were first counted per board.
+        // Only a database from before then has any to renumber, and that's the Node app's to bring forward.
+        (Dialect::Sqlite, 4) => {
+            let boards: i64 = sqlx::query("SELECT count(*) FROM projects").fetch_one(&mut *conn).await.and_then(|r| r.try_get(0)).map_err(&fail)?;
+            if boards > 0 {
+                return Err(
+                    "this database is from before schema step 4, which renumbers its boards' issues: open it with the Node app first, which brings it forward"
+                        .into(),
+                );
+            }
+            Ok(())
+        }
+        // The owner moves from `settings` to `people` (ORR-653).
+        (Dialect::Sqlite, 63) => people(conn, SQLITE_PEOPLE, "INSERT INTO people (id, name, role, created_at) VALUES (?, ?, 'owner', ?)").await.map_err(fail),
+        (Dialect::Postgres, 63) => {
+            people(conn, POSTGRES_PEOPLE, "INSERT INTO people (id, name, role, created_at) VALUES ($1, $2, 'owner', $3)").await.map_err(fail)
+        }
+        // Each board and the server get a random id, for the full form of ids (ORR-674). Postgres's is SQL.
+        (Dialect::Sqlite, 64) => {
+            exec(conn, "ALTER TABLE projects ADD COLUMN uid TEXT NOT NULL DEFAULT ''").await.map_err(&fail)?;
+            let boards: Vec<String> = sqlx::query("SELECT id FROM projects")
+                .fetch_all(&mut *conn)
+                .await
+                .map_err(&fail)?
+                .iter()
+                .map(|r| r.try_get(0))
+                .collect::<Result<_, _>>()
+                .map_err(&fail)?;
+            for id in boards {
+                let uid = random_uid(conn).await.map_err(&fail)?;
+                sqlx::query("UPDATE projects SET uid = ? WHERE id = ?").bind(uid).bind(id).execute(&mut *conn).await.map_err(&fail)?;
+            }
+            let uid = random_uid(conn).await.map_err(&fail)?;
+            sqlx::query("INSERT INTO settings (key, value) VALUES ('uid', ?)").bind(Value::String(uid).to_string()).execute(&mut *conn).await.map_err(&fail)?;
+            Ok(())
+        }
+        _ => Err(format!("schema step {n} is code in the Node app that hasn't been written here yet (api/src/migrate.rs)")),
+    }
+}
+
+// Each as the Node app's step writes it, so the table's SQL as SQLite keeps it is the same.
+const SQLITE_PEOPLE: &str = r#"
+    -- The people on this orrery (ORR-653): the owner, moved over from settings, and the members they add. A person's id
+    -- never changes once they're a member; the owner's follows their name, as it always has.
+    CREATE TABLE people (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        role TEXT NOT NULL CHECK (role IN ('owner', 'member')),
+        handle TEXT,
+        created_at TEXT NOT NULL,
+        removed_at TEXT
+    );
+    CREATE UNIQUE INDEX people_one_owner ON people(role) WHERE role = 'owner';
+"#;
+
+const POSTGRES_PEOPLE: &str = r#"
+    -- The people on this orrery (ORR-653): the owner, moved over from settings, and the members they add. A person's id
+    -- never changes once they're a member; the owner's follows their name, as it always has.
+    CREATE TABLE people (
+        id text PRIMARY KEY,
+        name text NOT NULL,
+        role text NOT NULL CHECK (role IN ('owner', 'member')),
+        handle text,
+        created_at text NOT NULL,
+        removed_at text
+    );
+    CREATE UNIQUE INDEX people_one_owner ON people(role) WHERE role = 'owner';
+"#;
+
+async fn people(conn: &mut AnyConnection, table: &str, insert: &str) -> Result<(), sqlx::Error> {
+    exec(conn, table).await?;
+    let owner: Option<String> =
+        sqlx::query("SELECT value FROM settings WHERE key = 'owner'").fetch_optional(&mut *conn).await?.map(|r| r.try_get(0)).transpose()?;
+    if let Some((id, name)) = owner.as_deref().and_then(owner_person) {
+        let now = Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true);
+        sqlx::query(insert).bind(id).bind(name).bind(now).execute(&mut *conn).await?;
+    }
+    exec(conn, "DELETE FROM settings WHERE key = 'owner'").await
+}
+
+/// The owner as they move to `people`, from their `settings` value (their name, as JSON): none for a name with nothing
+/// in it to make an id from. As web/server/utils/owner-person.ts.
+fn owner_person(value: &str) -> Option<(String, String)> {
+    let name = match serde_json::from_str::<Value>(value).ok()? {
+        Value::String(name) => name,
+        other => other.to_string(),
+    };
+    let id = actor_id(&name);
+    (!id.is_empty()).then_some((id, name))
+}
+
+/// A name as an actor's id, as `actorId` in web/server/store/schema.ts: accents off, lowercase, `_` between the rest.
+fn actor_id(name: &str) -> String {
+    let plain: String = name.nfkd().filter(|c| !('\u{300}'..='\u{36f}').contains(c)).collect::<String>().to_lowercase();
+    let mut id = String::with_capacity(plain.len());
+    for c in plain.chars() {
+        if c.is_ascii_lowercase() || c.is_ascii_digit() {
+            id.push(c)
+        } else if !id.ends_with('_') {
+            id.push('_')
+        }
+    }
+    id.trim_matches('_').to_string()
+}
+
+/// A board's or a server's random id (ORR-674), as `randomUid` in web/server/utils/uid.ts: 40 random bits, SQLite's own,
+/// as 8 characters of base32.
+async fn random_uid(conn: &mut AnyConnection) -> Result<String, sqlx::Error> {
+    let hex: String = sqlx::query("SELECT hex(randomblob(5))").fetch_one(&mut *conn).await?.try_get(0)?;
+    Ok(uid_of(&hex))
+}
+
+fn uid_of(hex: &str) -> String {
+    const ALPHABET: &[u8] = b"abcdefghijklmnopqrstuvwxyz234567";
+    let bits = u64::from_str_radix(hex, 16).unwrap_or(0);
+    (0..8).map(|i| ALPHABET[(bits >> (5 * i) & 31) as usize] as char).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn names_become_ids_as_the_node_app_makes_them() {
+        assert_eq!(actor_id("Steffen Dybvik"), "steffen_dybvik");
+        assert_eq!(actor_id("  Åse  Ødegård! "), "ase_degard");
+        assert_eq!(actor_id("Ziggy"), "ziggy");
+        assert_eq!(actor_id("!!!"), "");
+        assert_eq!(owner_person("\"Ziggy\""), Some(("ziggy".into(), "Ziggy".into())));
+        assert_eq!(owner_person("\"…\""), None);
+    }
+
+    #[test]
+    fn uids_are_eight_base32_characters() {
+        assert_eq!(uid_of("0000000000"), "aaaaaaaa");
+        assert_eq!(uid_of("FFFFFFFFFF"), "77777777");
+        assert_eq!(uid_of("0000000001"), "baaaaaaa");
+    }
+}
