@@ -64,16 +64,26 @@ With `TEST_POSTGRES_URL` set (`postgres://orrery:orrery@localhost:5432/orrery`),
 each test in a schema of its own, and the ones that only make sense there run too. CI runs every unit test both ways.
 
 `pnpm test:e2e` runs the flows in a real browser with Playwright, a file per area in `web/e2e/` (issues, proposals,
-roadmap, releases, sessions, schedules, the keys, the phone layout…). `navigation.spec.ts` walks the whole app from one
-list of pages: each renders with no error, breaks no WCAG A or AA rule axe checks beyond the known ones listed in the
-spec, and the sidebar, ⌘K and App settings → Advanced lead to it, so a new page is a line there, and `test/page-specs.test.ts` fails on a page that isn't, unless it names the spec that opens it. `first-run.spec.ts` (naming the owner, the first
+roadmap, releases, sessions, schedules, the keys, the phone layout…). The page walks go over the whole app from one
+list of pages, `e2e/pages.ts`: `navigation.spec.ts` checks each renders with no error and that the sidebar, ⌘K and App
+settings → Advanced lead to it, and `a11y.spec.ts` that it breaks no WCAG A or AA rule axe checks beyond the known ones
+listed there, scrolls by keyboard on a phone and leaves nothing under the Agent button. A new page is a line in
+`pages.ts`, and `test/page-specs.test.ts` fails on a page that isn't, unless it names the spec that opens it. `a11y.spec.ts`
+sets Advanced on the settings its page reads, not the shared one, so it needn't take turns with the specs that change them. `first-run.spec.ts` (naming the owner, the first
 project) runs first as a project the others depend on; each other file makes a project of its own, with the helpers in
 `e2e/support.ts`, so it can run alone. The whole suite runs on four workers, grouped in `playwright.config.ts` by what specs share on the one orrery: specs in no group run side by side, the `sessions` and `settings` groups each take turns inside themselves, and the specs that affect everyone (`people`, `settings-database`, `visual`) run alone, last, and are skipped if an earlier spec fails. A spec that changes something others read goes in a group, as a new spec is in none unless it's named there. `pnpm exec playwright test e2e/x.spec.ts` runs one spec, a test at a time, rather than `pnpm test:e2e e2e/x.spec.ts`, which runs the suite before it. It starts `nuxt dev` with a fresh `web/.data/e2e.db`, so your own database isn't
 touched, on a port of the checkout's own (3100–3299, from its path, `web/e2e-port.ts`; `E2E_PORT` picks one), so
 sessions running it from their own worktrees at once don't share a server (`pnpm worktrees` tidies up those left behind). The first time, and after `@playwright/test` is bumped, get its browser with `pnpm exec playwright install
 chromium`. With `E2E_POSTGRES_URL` set it runs on that Postgres instead, emptied first, so its database's name
 has to say e2e (`postgres://orrery:orrery@localhost:5432/orrery_e2e`). `E2E_BROWSER=webkit` or `firefox` runs it in that browser
-instead of Chrome. CI runs it in Playwright's own image of that version, once on each database, then on SQLite in each of those two. A failed run leaves a trace to replay with `pnpm exec playwright show-trace test-results/…/trace.zip`.
+instead of Chrome. `E2E_SHARD=2/3` runs one shard of the whole suite (ORR-920): first-run, then its share of each group's
+specs, as the whole suite runs them, on a server of its own. `web/e2e-shards.ts` shares them out by how long each took
+(`e2e/durations.json`; a spec it doesn't list counts as a middling one), and `test/e2e-shards.test.ts` checks every spec
+lands in one shard. When the shards drift apart, refresh the times from a run's report with
+`node scripts/e2e-durations.mjs e2e-results.json`. Playwright's own `--shard` doesn't do here: the last group depends on
+the others, so it would run them whole in every shard. CI runs it in Playwright's own image of that version, once on
+each database, then on SQLite in each of those two, each as three shards at once, and its `e2e-report` job merges the
+SQLite and Chrome shards' results and coverage into the one `test-results-e2e` artifact. A failed run leaves a trace to replay with `pnpm exec playwright show-trace test-results/…/trace.zip`.
 
 `e2e/visual.spec.ts` compares the board, the list and an issue's page to stored images. They're Linux's, so off
 Linux the spec skips; `pnpm test:e2e:visual` (in `web/`) runs it in CI's Playwright image through Docker, and
