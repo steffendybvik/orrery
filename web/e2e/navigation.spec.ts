@@ -161,6 +161,23 @@ test('each page the ⌘K palette lists opens it', async ({page}) => {
     }
 })
 
+test('⇥ in the ⌘K palette moves between its tabs without resizing them (ORR-975)', async ({page}) => {
+    await page.goto('/sessions')
+    await expect(page.getByRole('heading', {level: 1}).first()).toBeVisible()
+    await page.keyboard.press('ControlOrMeta+k')
+    const tabs = page.getByRole('dialog', {name: 'Commands'}).getByRole('tab')
+    const boxes = () => tabs.evaluateAll(els => els.map(el => {
+        const r = el.getBoundingClientRect()
+        return [Math.round(r.left), Math.round(r.width), getComputedStyle(el).fontSize].join()
+    }))
+    const before = await boxes()
+    for (let i = 0; i < await tabs.count(); i++) {
+        await page.keyboard.press('Tab')
+        await expect(tabs.nth((i + 1) % await tabs.count())).toHaveAttribute('aria-selected', 'true')
+        expect(await boxes()).toEqual(before)
+    }
+})
+
 test('the links on App settings → Advanced lead to their pages, with Advanced off too', async ({page}) => {
     await setAdvanced(page, false)
     for (const [link, route] of [['Open the event log', '/events'], ['See what a session is sent', '/context'], ['Open pull requests', '/pulls']] as const) {
