@@ -53,8 +53,11 @@ Without Docker: `pnpm install`, then `pnpm dev` on http://localhost:9000 (Node 2
 orrery's API is moving to Rust a domain at a time (ORR-921, ORR-922), the Nuxt server staying in front. Anything kept in
 the database goes there; what touches the machine (sessions, tmux, the launcher, local files) stays. So far it serves the
 **docs** domain (a project's docs, their sections and revisions), the orrery's **statuses** (`/api/statuses`,
-ORR-926) and **reading issues and their comments** (ORR-927: the list with its filters, one issue, its comments): the
-routes in `api/openapi.yaml`. An artifact's page (`…/docs/:doc/artifact`) and writing an issue or a comment stay in Nuxt.
+ORR-926), **reading milestones and releases** (ORR-926: a project's, one of each, and `/api/releases`), **reading
+issues and their comments** (ORR-927: the list with its filters, one issue, its comments) and **people, invites, keys
+and logins** (ORR-928, removing a person aside): the routes in
+`api/openapi.yaml`. An artifact's page (`…/docs/:doc/artifact`), a milestone's focus, and writing an issue, a comment, a
+milestone or a release stay in Nuxt.
 
 How it fits together:
 
