@@ -1,6 +1,7 @@
 // The orrery's issue statuses (ORR-926): what web/server/store/statuses.ts does with them, on the same table, answering
 // as web/server/api/statuses/ does. Every board has them, so a change tells every project and the settings stream
 // (`Effects.settings`), which the router in front fires as the store's `statusesChanged` would.
+use crate::changes::{self, Outbox};
 use crate::db::sql;
 use crate::docs::{js, Actor, Effects};
 use crate::error::{ApiError, Result};
@@ -103,11 +104,13 @@ impl Status {
 pub struct Statuses<'c> {
     pub conn: &'c mut AnyConnection,
     pub effects: Effects,
+    /// Set for a write: what it sets off goes into the outbox in its transaction (ORR-929).
+    pub outbox: Option<Outbox>,
 }
 
 impl<'c> Statuses<'c> {
     pub fn new(conn: &'c mut AnyConnection) -> Self {
-        Statuses { conn, effects: Effects::default() }
+        Statuses { conn, effects: Effects::default(), outbox: None }
     }
 
     /// In board order: by kind, then as arranged.
@@ -170,15 +173,20 @@ impl<'c> Statuses<'c> {
             }
         };
         let color = input.get("color").and_then(Value::as_str).unwrap_or("slate");
-        sqlx::query(&sql("INSERT INTO statuses (id, name, kind, color, position) VALUES (?, ?, ?, ?, ?)"))
-            .bind(&id)
-            .bind(&name)
-            .bind(input["kind"].as_str().unwrap_or_default())
-            .bind(color)
-            .bind(position)
-            .execute(&mut *self.conn)
-            .await?;
-        self.changed().await?;
+        changes::begin(self.conn).await?;
+        let done: Result<()> = async {
+            sqlx::query(&sql("INSERT INTO statuses (id, name, kind, color, position) VALUES (?, ?, ?, ?, ?)"))
+                .bind(&id)
+                .bind(&name)
+                .bind(input["kind"].as_str().unwrap_or_default())
+                .bind(color)
+                .bind(position)
+                .execute(&mut *self.conn)
+                .await?;
+            self.changed().await
+        }
+        .await;
+        self.finish(done).await?;
         Ok(self.status(&id).await?.json())
     }
 
@@ -193,17 +201,22 @@ impl<'c> Statuses<'c> {
         if kind.is_some_and(|k| k != before.kind) {
             self.keep_one_of(&before).await?;
         }
-        sqlx::query(&sql(
-            "UPDATE statuses SET name = coalesce(?, name), kind = coalesce(?, kind), color = coalesce(?, color), position = coalesce(?, position) WHERE id = ?",
-        ))
-        .bind(input.get("name").and_then(Value::as_str).map(|n| n.trim().to_string()))
-        .bind(kind.map(str::to_string))
-        .bind(input.get("color").and_then(Value::as_str).map(str::to_string))
-        .bind(input.get("position").and_then(Value::as_f64))
-        .bind(id)
-        .execute(&mut *self.conn)
-        .await?;
-        self.changed().await?;
+        changes::begin(self.conn).await?;
+        let done: Result<()> = async {
+            sqlx::query(&sql(
+                "UPDATE statuses SET name = coalesce(?, name), kind = coalesce(?, kind), color = coalesce(?, color), position = coalesce(?, position) WHERE id = ?",
+            ))
+            .bind(input.get("name").and_then(Value::as_str).map(|n| n.trim().to_string()))
+            .bind(kind.map(str::to_string))
+            .bind(input.get("color").and_then(Value::as_str).map(str::to_string))
+            .bind(input.get("position").and_then(Value::as_f64))
+            .bind(id)
+            .execute(&mut *self.conn)
+            .await?;
+            self.changed().await
+        }
+        .await;
+        self.finish(done).await?;
         Ok(self.status(id).await?.json())
     }
 
@@ -231,18 +244,17 @@ impl<'c> Statuses<'c> {
         if used > 0 && into.is_none() {
             return Err(ApiError::conflict(format!("{used} issues or schedules are in {}; say which status they move to with ?into=", status.name)));
         }
-        sqlx::query(if crate::db::on_postgres() { "BEGIN" } else { "BEGIN IMMEDIATE" }).execute(&mut *self.conn).await?;
-        let done = self.move_and_delete(id, into, &like).await;
-        match done {
-            Ok(()) => {
-                sqlx::query("COMMIT").execute(&mut *self.conn).await?;
-            }
-            Err(error) => {
-                sqlx::query("ROLLBACK").execute(&mut *self.conn).await.ok();
-                return Err(error);
-            }
-        }
-        self.changed().await
+        changes::begin(self.conn).await?;
+        let done = match self.move_and_delete(id, into, &like).await {
+            Ok(()) => self.changed().await,
+            failed => failed,
+        };
+        self.finish(done).await
+    }
+
+    /// Ends the transaction `changes::begin` started: kept, with its outbox rows, when its work went through.
+    async fn finish<T>(&mut self, done: Result<T>) -> Result<T> {
+        changes::finish(self.conn, self.outbox.as_mut(), &self.effects, done).await
     }
 
     async fn move_and_delete(&mut self, id: &str, into: Option<&str>, like: &str) -> Result<()> {

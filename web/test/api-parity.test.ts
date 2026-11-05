@@ -776,6 +776,17 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         expect(await viaApi('GET', '/api/changes?after=x')).toMatchObject({status: 400})
     })
 
+    it('records a request that runs two transactions once (ORR-929)', async () => {
+        const last = async () => ((await viaApi('GET', '/api/changes')).body as {last: number}).last
+        const read = async (after: number) => ((await viaApi('GET', `/api/changes?after=${after}`)).body as {changes: {kind: string, project?: string}[]}).changes
+        expect((await viaApi('POST', '/doc-sections', {name: 'Outbound'})).status).toBe(201)
+        const made = await last()
+        // Renaming it and moving it are two transactions, but one project changed.
+        expect((await viaApi('PATCH', '/doc-sections/Outbound', {name: 'Inbound', position: 0})).status).toBe(200)
+        expect((await read(made)).map(({kind, project}) => ({kind, project}))).toEqual([{kind: 'project.changed', project: 'through-api'}])
+        expect((await viaApi('DELETE', '/doc-sections/Inbound')).status).toBe(204)
+    })
+
     it('answers only the server in front of it, on its own database', async () => {
         const ask = (headers: Record<string, string>) => fetch(`${url}/api/projects/through-api/docs`, {headers}).then(r => r.status)
         expect(await ask({})).toBe(401)
