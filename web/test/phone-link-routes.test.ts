@@ -41,7 +41,8 @@ const useLink = (token: unknown, asked: Asked = {}) => ask(() => import('../serv
 async function browser(person: string) {
     const {key} = await store.makeKey(person, {kind: 'person', name: 'browser'})
     await ask(() => import('../server/api/auth/login.post'), '/api/auth/login', {body: {key}})
-    return {cookie: `orrery_login=${cookies.at(-1)!.value}`}
+    const {name, value} = cookies.at(-1)!
+    return {cookie: `${name}=${value}`}
 }
 
 beforeEach(async () => {
@@ -72,7 +73,7 @@ beforeEach(async () => {
     vi.stubGlobal('chatWrite', (await import('../server/utils/chats')).chatWrite)
     vi.stubGlobal('untrustedWrite', (await import('../server/utils/untrusted')).untrustedWrite)
     const auth = await import('../server/utils/auth')
-    for (const name of ['logIn', 'authMode', 'canGetIn', 'overHttps', 'LOGIN_COOKIE'] as const) vi.stubGlobal(name, auth[name])
+    for (const name of ['logIn', 'authMode', 'canGetIn', 'overHttps', 'LOGIN_COOKIE', 'loginCookie'] as const) vi.stubGlobal(name, auth[name])
     vi.stubGlobal('oidcOn', (await import('../server/utils/oidc')).oidcOn)
     const {authorize, memberAsking} = await import('../server/utils/authorize')
     vi.stubGlobal('authorize', authorize)
@@ -179,7 +180,7 @@ describe('POST /api/auth/link', () => {
         expect(status).toBe(201)
         expect(data).toEqual({person: 'skoll'})
         const cookie = cookies.at(-1)!
-        expect(cookie).toMatchObject({name: 'orrery_login', options: {httpOnly: true, sameSite: 'lax'}})
+        expect(cookie).toMatchObject({name: 'orrery_login_9000', options: {httpOnly: true, sameSite: 'lax'}})
         const logins = await store.logins('skoll')
         expect(logins.find(l => l.name === PHONE_LOGIN)).toBeDefined()
         expect(await store.loginHolder(cookie.value)).toMatchObject({person: 'skoll'})

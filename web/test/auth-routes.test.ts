@@ -76,6 +76,7 @@ beforeEach(async () => {
     const auth = await import('../server/utils/auth')
     vi.stubGlobal('logIn', auth.logIn)
     vi.stubGlobal('LOGIN_COOKIE', auth.LOGIN_COOKIE)
+    vi.stubGlobal('loginCookie', auth.loginCookie)
     vi.stubGlobal('oidcOn', (await import('../server/utils/oidc')).oidcOn)
     const {authorize, memberAsking} = await import('../server/utils/authorize')
     vi.stubGlobal('authorize', authorize)

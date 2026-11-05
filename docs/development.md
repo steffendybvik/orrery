@@ -6,7 +6,7 @@
 web/          the Nuxt app: app/ (the page), server/ (the API and the store), shared/ (both),
               public/, test/ (unit), e2e/ (browser), scripts/ (copy.ts, claim.mjs, worktrees.mjs), its package.json
 channel/      the channel, hooks and launcher Claude sessions run, which orrery serves to their machines
-api/          the Rust API (ORR-922): docs, the statuses and milestone, release, issue and comment reads so far, beside the Nuxt server; openapi.yaml is its contract
+api/          the Rust API (ORR-922): docs, the statuses, keys and logins, and milestone, release, issue, comment and people reads so far, beside the Nuxt server; openapi.yaml is its contract
 docs/         these docs; docs/API.md is also served to agents (/api/guide, /llms-full.txt)
 ```
 
@@ -53,8 +53,9 @@ Without Docker: `pnpm install`, then `pnpm dev` on http://localhost:9000 (Node 2
 orrery's API is moving to Rust a domain at a time (ORR-921, ORR-922), the Nuxt server staying in front. Anything kept in
 the database goes there; what touches the machine (sessions, tmux, the launcher, local files) stays. So far it serves the
 **docs** domain (a project's docs, their sections and revisions), the orrery's **statuses** (`/api/statuses`,
-ORR-926), **reading milestones and releases** (ORR-926: a project's, one of each, and `/api/releases`) and **reading
-issues and their comments** (ORR-927: the list with its filters, one issue, its comments): the routes in
+ORR-926), **reading milestones and releases** (ORR-926: a project's, one of each, and `/api/releases`), **reading
+issues and their comments** (ORR-927: the list with its filters, one issue, its comments) and **the people list, keys
+and logins** (ORR-928): the routes in
 `api/openapi.yaml`. An artifact's page (`…/docs/:doc/artifact`), a milestone's focus, and writing an issue, a comment, a
 milestone or a release stay in Nuxt.
 
@@ -111,6 +112,12 @@ A change to a docs, statuses or issue-reading route is now a change in three pla
 contract, with the parity test saying when they differ. That includes how the board is built: a field `readBoard` or
 `buildBoard` adds to an issue, or a change to how its column rolls up, goes into `issues.rs` too. The statuses are the orrery's, not a project's, so their parity steps run on each side in turn, with the table
 put back between.
+
+The people list, keys and logins (ORR-928, `api/src/people.rs`) are the same: a change to `web/server/store/people.ts`'s
+`people` or to `keys.ts` goes into `people.rs` too. Checking a key or a login cookie on each request stays in the Nuxt
+server (`web/server/utils/auth.ts`), which sends the API what it found (`Orrery-Who`) and the asking browser's login only
+hashed, so the API never sees a secret it didn't make. Who may handle keys and logins (`key-rights.ts`) is checked on
+both sides, so the parity test compares the refusals with the permissions table's own words.
 
 ## The page's pieces
 

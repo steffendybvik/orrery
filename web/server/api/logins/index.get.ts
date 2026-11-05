@@ -4,5 +4,5 @@ import {loginHolderOf} from '../../utils/key-rights'
 
 export default defineEventHandler(async event => {
     const {person, owner} = await loginHolderOf(event, () => authorize(event, 'logins.write'))
-    return useStore().logins(owner ? undefined : person, getCookie(event, LOGIN_COOKIE))
+    return useStore().logins(owner ? undefined : person, getCookie(event, loginCookie(event)))
 })

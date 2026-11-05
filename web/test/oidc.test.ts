@@ -88,6 +88,7 @@ beforeEach(async () => {
     vi.stubGlobal('notFound', (message: string) => error({statusCode: 404, message}))
     vi.stubGlobal('getQuery', (event: Event) => event.query)
     vi.stubGlobal('getCookie', (event: Event, name: string) => event.cookies[name])
+    vi.stubGlobal('getHeader', () => undefined)
     vi.stubGlobal('setCookie', (event: Event, name: string, value: string, options: Record<string, unknown>) => event.set[name] = {value, options})
     vi.stubGlobal('deleteCookie', (event: Event, name: string) => event.gone.push(name))
     vi.stubGlobal('getRequestURL', () => new URL(`${ORRERY}/api/auth/oidc/x`))
