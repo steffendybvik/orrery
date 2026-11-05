@@ -14,6 +14,8 @@ const ELSEWHERE: Record<string, string> = {
     'ui.vue': 'e2e/ui-kit.spec.ts',
     // Only for a PR a poll of GitHub has found naming an issue, which the walk's orrery never polls (ORR-880).
     'pulls/[owner]/[name]/[number].vue': 'e2e/pulls.spec.ts',
+    // The chat in a window of its own, opened by the pane's Pop out rather than from the sidebar (ORR-938).
+    'chat.vue': 'e2e/chat.spec.ts',
 }
 
 const pageFiles = (dir: string): string[] => readdirSync(dir, {withFileTypes: true}).flatMap(entry => {

@@ -1063,3 +1063,72 @@ test('opens from ⌘K ready to type into, and leaves typing elsewhere on the pag
     await expect(box).toHaveValue('')
     await page.getByRole('region', {name: 'Chat'}).getByRole('button', {name: 'Close the chat'}).click()
 })
+
+test('pops out into a window of its own, which the corner button brings back, and docks back into the pane (ORR-938)', async ({page}) => {
+    await page.goto('/p/observatory')
+    await page.getByRole('button', {name: 'Agent', exact: true}).click()
+    const pane = page.getByRole('region', {name: 'Chat'})
+    await pane.getByLabel('Message').fill('kept in this window')
+    const opening = page.waitForEvent('popup')
+    await pane.getByRole('button', {name: 'Pop out: the chat in a window of its own'}).click()
+    const popup = await opening
+    // The pane here closes; the window is the chat, on the same project, with no corner button, Larger or Close.
+    await expect(pane).toHaveCount(0)
+    await expect(popup).toHaveURL(/\/chat\?project=observatory$/)
+    const own = popup.getByRole('region', {name: 'Chat'})
+    await expect(own.getByRole('heading', {name: 'Ask about Observatory'})).toBeVisible()
+    await expect(popup.getByRole('button', {name: 'Agent', exact: true})).toHaveCount(0)
+    await expect(own.getByRole('button', {name: /^Close the chat/})).toHaveCount(0)
+    await expect(own.getByRole('button', {name: /Make the chat (larger|smaller)/})).toHaveCount(0)
+    // Its draft is its own: what was typed here stays here.
+    await expect(own.getByLabel('Message')).toHaveValue('')
+    // While it's open, the corner button goes to it rather than opening a second pane.
+    await page.getByRole('button', {name: 'Agent', exact: true}).click()
+    await expect(pane).toHaveCount(0)
+    // A link in it to a page of orrery, as a reply's would be, opens in this window, and the chat stays there.
+    await popup.evaluate(() => {
+        const link = document.createElement('a')
+        link.href = '/p/observatory/roadmap'
+        link.textContent = 'the roadmap'
+        document.querySelector('section[aria-label="Chat"] h2')?.after(link)
+    })
+    await own.getByRole('link', {name: 'the roadmap'}).click()
+    await expect(page).toHaveURL(/\/p\/observatory\/roadmap$/)
+    await expect(popup).toHaveURL(/\/chat\?project=observatory$/)
+    // Dock back: the window closes, and the pane opens here on the same project, the draft as it was.
+    const closing = popup.waitForEvent('close')
+    await own.getByRole('button', {name: 'Dock back: the chat in the pane of the window it came from'}).click()
+    await closing
+    await expect(pane.getByRole('heading', {name: 'Ask about Observatory'})).toBeVisible()
+    await expect(pane.getByLabel('Message')).toHaveValue('kept in this window')
+    await pane.getByLabel('Message').fill('')
+    await pane.getByRole('button', {name: 'Close the chat'}).click()
+    // Closed, the window is gone: the corner button opens the pane again.
+    await page.getByRole('button', {name: 'Agent', exact: true}).click()
+    await expect(pane).toBeVisible()
+    await pane.getByRole('button', {name: 'Close the chat'}).click()
+})
+
+test('opened by its address, the chat fills the window, and its links open in a new tab with no window to go back to (ORR-938)', async ({page, context}) => {
+    await page.goto('/chat?project=observatory')
+    await expect(page).toHaveTitle(/Chat/)
+    const own = page.getByRole('region', {name: 'Chat'})
+    await expect(own.getByRole('heading', {name: 'Ask about Observatory'})).toBeVisible()
+    await expect(page.getByRole('navigation')).toHaveCount(0)
+    // Esc doesn't close it: there's nothing behind it.
+    await own.getByLabel('Message').press('Escape')
+    await expect(own).toBeVisible()
+    // A link to a page of orrery, as a reply's would be, opens beside it rather than in its place.
+    await page.evaluate(() => {
+        const link = document.createElement('a')
+        link.href = '/p/observatory'
+        link.textContent = 'the board'
+        document.querySelector('section[aria-label="Chat"] h2')?.after(link)
+    })
+    const opening = context.waitForEvent('page')
+    await own.getByRole('link', {name: 'the board'}).click()
+    const tab = await opening
+    await expect(tab).toHaveURL(/\/p\/observatory$/)
+    await tab.close()
+    await expect(page).toHaveURL(/\/chat\?project=observatory$/)
+})
