@@ -147,12 +147,12 @@ test('chats with a session that answers on the page, and is listed nowhere', asy
         expect(launcher.said.text).not.toContain('event: stop')
         await page.getByRole('button', {name: 'Agent', exact: true}).click()
         await expect(pane).toContainText('Jars of')
-        // Only its row's × in the list ends it, and the pane then opens ready for another.
-        await pane.getByRole('button', {name: /^End the chat on Observatory/}).click()
+        // Only its row's × in the list ends it, removing it at once with nothing to confirm (ORR-935), and the pane then
+        // opens ready for another.
+        await pane.getByRole('button', {name: /^Remove the chat on Observatory/}).click()
         await expect.poll(() => launcher.said.text).toContain('event: stop')
+        await expect.poll(async () => (await (await request.get('/api/chats', {headers: OWNER})).json() as unknown[]).length).toBe(0)
         await pane.getByRole('button', {name: 'Close the chat', exact: true}).click()
-        // It stays listed, ended, to read (ORR-870).
-        await expect.poll(async () => (await (await request.get('/api/chats', {headers: OWNER})).json() as {ended?: boolean}[]).map(c => !!c.ended)).toEqual([true])
         await page.getByRole('button', {name: 'Agent', exact: true}).click()
         await expect(pane.getByRole('heading', {name: /^Ask about/})).toBeVisible()
     } finally {
@@ -835,8 +835,9 @@ test('lists every chat down the left, two on one project and one on another, eac
         await expect(pane.getByLabel('Conversation', {exact: true}).getByText('Who dusts the telescope?')).toBeVisible()
         await expect(pane.getByLabel('Conversation', {exact: true}).getByText('Where are the star charts?')).toHaveCount(0)
 
-        // A row's × ends that chat alone, which stays listed, and reopens as it was.
-        await list.getByRole('button', {name: 'End the chat on Observatory: Where are the star charts?'}).click()
+        // A chat that ends (its session stopping) stays listed, and reopens as it was.
+        const chart = (await (await request.get('/api/chats')).json() as {id: string, messages: {text: string}[]}[]).find(c => c.messages[0]?.text === 'Where are the star charts?')!
+        expect((await request.post(`/api/chats/${chart.id}/end`, {headers: OWNER})).ok()).toBeTruthy()
         await expect.poll(running).toEqual(['crypt', 'observatory'])
         await expect(row('Where are the star charts', 'ended')).toBeVisible()
         const [ended] = (await (await request.get('/api/chats')).json() as {id: string, ended?: boolean}[]).filter(c => c.ended)
@@ -850,15 +851,11 @@ test('lists every chat down the left, two on one project and one on another, eac
         await expect(row('Where are the star charts', 'running')).toBeVisible()
         await expect(pane.getByLabel('Conversation', {exact: true}).getByText('And the moon maps?')).toBeVisible()
 
-        // Deleting the open one, after a confirm, lands on another chat; what it filed stays (ORR-882).
+        // Removing the open one, with nothing to confirm (ORR-935), lands on another chat; what it filed stays (ORR-882).
         const listed = await (await request.get('/api/chats')).json() as {id: string, ended?: boolean, messages: {text: string}[]}[]
         const charts = listed.find(c => c.messages[0]?.text === 'Where are the star charts?')!
         const filed = await (await request.post('/api/projects/observatory/issues', {data: {title: 'Find the star charts'}, headers: {'Orrery-Actor': 'claude', 'Orrery-Chat': 'yes', 'Orrery-Launch': charts.id}})).json()
-        await list.getByRole('button', {name: 'Delete the chat on Observatory: Where are the star charts?'}).click()
-        await list.getByTestId('chat-delete').getByRole('button', {name: 'Cancel'}).click()
-        await expect(row('Where are the star charts')).toBeVisible()
-        await list.getByRole('button', {name: 'Delete the chat on Observatory: Where are the star charts?'}).click()
-        await list.getByTestId('chat-delete').getByRole('button', {name: 'Delete', exact: true}).click()
+        await list.getByRole('button', {name: 'Remove the chat on Observatory: Where are the star charts?'}).click()
         await expect(row('Where are the star charts')).toHaveCount(0)
         // The pane goes on to the next in the list, not to a blank one.
         await expect(list.locator('[aria-current="true"]')).toHaveCount(1)
@@ -867,8 +864,7 @@ test('lists every chat down the left, two on one project and one on another, eac
         // A running one is ended as it goes, and neither comes back on a reload.
         await page.goto('/p/crypt')
         await page.getByRole('button', {name: /^Agent/}).click()
-        await list.getByRole('button', {name: 'Delete the chat on Crypt: How cold is the vault?'}).click()
-        await list.getByTestId('chat-delete').getByRole('button', {name: 'Delete', exact: true}).click()
+        await list.getByRole('button', {name: 'Remove the chat on Crypt: How cold is the vault?'}).click()
         await expect.poll(running).toEqual(['observatory'])
         await page.reload()
         await page.getByRole('button', {name: /^Agent/}).click()
