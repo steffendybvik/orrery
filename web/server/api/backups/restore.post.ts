@@ -1,4 +1,4 @@
-// `POST /api/backups/restore` `{name}` → `database` as `GET /api/settings` has it, once orrery runs on a copy of that
+// `POST /api/backups/restore` `{name}` → `database` as `GET /api/machine` has it, once orrery runs on a copy of that
 // backup (ORR-448). The copy is checked whole first, and the database as it was goes in the backup folder
 // (`orrery-pre-restore-<time>.db`) before orrery switches, as a move does, without a restart; the file it ran on stays
 // as it was. The owner's, from localhost, on a SQLite orrery; on a new one (no projects, no owner) anyone on this

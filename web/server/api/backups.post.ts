@@ -1,4 +1,4 @@
-// `POST /api/backups` → `database` as `GET /api/settings` has it, once the database is backed up: the owner's
+// `POST /api/backups` → `database` as `GET /api/machine` has it, once the database is backed up: the owner's
 // Back up now, as each change does a few seconds after. 409 when backups are off, or there's no folder for them.
 import {countOwnUse} from '../utils/usage'
 

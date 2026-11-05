@@ -9,7 +9,7 @@ import {OWNER} from './support'
 // names, so the checks look for it as `:password@`, the way a URL would carry it.
 test('App settings shows where the data is, without a password', async ({page, request}) => {
     if (!(await (await request.get('/api/owner')).json()).named) await request.put('/api/owner', {data: {name: 'Ada Lovelace'}})
-    const {database} = await (await request.get('/api/settings')).json()
+    const {database} = await (await request.get('/api/machine')).json()
     const postgres = process.env.E2E_POSTGRES_URL
     expect(database.size).toBeGreaterThan(0)
     if (postgres) {
@@ -33,7 +33,7 @@ test('App settings shows where the data is, without a password', async ({page, r
 // so the files after this one run where they did. On Postgres (set as it starts) it's moved where it's set, not here.
 test('moves the data to another database from App settings, and back', async ({page, request}) => {
     test.skip(!!process.env.E2E_POSTGRES_URL, 'ORRERY_DATABASE names Postgres, so the database is changed where it is set')
-    const {database: before} = await (await request.get('/api/settings')).json()
+    const {database: before} = await (await request.get('/api/machine')).json()
     const projects = (await (await request.get('/api/projects')).json()).length
     const file = `e2e-moved-${Date.now()}.db`
     try {
@@ -47,7 +47,7 @@ test('moves the data to another database from App settings, and back', async ({p
         await section.getByRole('button', {name: 'Copy and move'}).click()
         // It loads again on the database it moved to, with everything in it.
         await expect(section).toContainText(file)
-        const {database: after} = await (await request.get('/api/settings')).json()
+        const {database: after} = await (await request.get('/api/machine')).json()
         expect(after).toMatchObject({kind: 'sqlite', moved: true})
         expect(after.where).toMatch(new RegExp(`/${file}$`))
         expect((await (await request.get('/api/projects')).json()).length).toBe(projects)
@@ -55,7 +55,7 @@ test('moves the data to another database from App settings, and back', async ({p
         const back = await request.post('/api/database/move', {headers: OWNER, data: {kind: 'sqlite', path: before.where, how: 'use'}})
         expect(back.ok()).toBe(true)
     }
-    expect((await (await request.get('/api/settings')).json()).database).toMatchObject({where: before.where})
+    expect((await (await request.get('/api/machine')).json()).database).toMatchObject({where: before.where})
 })
 
 // Backups set from App settings (ORR-320): the run has no NUXT_BACKUP_DIR, so a folder is given, backed up to at once,
@@ -95,7 +95,7 @@ test('backs up at once with Back up now, and shows the new time', async ({page, 
     expect((await request.put('/api/backups', {headers: OWNER, data: {on: true, folder}})).ok()).toBe(true)
     try {
         expect(existsSync(file)).toBe(true)
-        const before = (await (await request.get('/api/settings')).json()).database.backed_up_at as string
+        const before = (await (await request.get('/api/machine')).json()).database.backed_up_at as string
         const copied = statSync(file).mtimeMs
         await page.goto('/settings#database')
         const section = page.locator('#database')
@@ -117,7 +117,7 @@ test('backs up at once with Back up now, and shows the new time', async ({page, 
         release()
         expect((await done).ok()).toBe(true)
         await expect(section.getByRole('button', {name: 'Back up now'})).toBeEnabled()
-        const after = (await (await request.get('/api/settings')).json()).database.backed_up_at as string
+        const after = (await (await request.get('/api/machine')).json()).database.backed_up_at as string
         expect(new Date(after).getTime()).toBeGreaterThan(new Date(before).getTime())
         expect(statSync(file).mtimeMs).toBeGreaterThan(copied)
         await expect(latest).toHaveAttribute('title', await page.evaluate(at => new Date(at).toLocaleString(), after))
@@ -133,7 +133,7 @@ test('backs up at once with Back up now, and shows the new time', async ({page, 
 test('restores a backup picked in App settings', async ({page, request}) => {
     test.skip(!!process.env.E2E_POSTGRES_URL, 'orrery restores from the app only on SQLite')
     const folder = mkdtempSync(join(tmpdir(), 'orrery-e2e-restore-'))
-    const before = (await (await request.get('/api/settings')).json()).database
+    const before = (await (await request.get('/api/machine')).json()).database
     expect((await request.put('/api/backups', {headers: OWNER, data: {on: true, folder, every: 'hour'}})).ok()).toBe(true)
     expect(existsSync(join(folder, 'orrery.db'))).toBe(true)
     const name = `Restored away ${Date.now()}`
@@ -146,7 +146,7 @@ test('restores a backup picked in App settings', async ({page, request}) => {
         await list.locator('label', {hasText: 'Daily'}).getByRole('radio').check()
         await list.getByRole('button', {name: 'Restore it'}).click()
         await expect(section).toContainText('moved here from App settings')
-        const after = (await (await request.get('/api/settings')).json()).database
+        const after = (await (await request.get('/api/machine')).json()).database
         expect(after.where).toMatch(/orrery-restored-[\dT-]+\.db$/)
         expect((await (await request.get('/api/projects')).json()).map((p: {name: string}) => p.name)).not.toContain(name)
         // The database as it was, the project in it, waits in the backup folder.
@@ -157,5 +157,5 @@ test('restores a backup picked in App settings', async ({page, request}) => {
         await request.delete(`/api/projects/${made.id}`, {headers: OWNER})
         await request.put('/api/backups', {headers: OWNER, data: {on: false}})
     }
-    expect((await (await request.get('/api/settings')).json()).database).toMatchObject({where: before.where})
+    expect((await (await request.get('/api/machine')).json()).database).toMatchObject({where: before.where})
 })

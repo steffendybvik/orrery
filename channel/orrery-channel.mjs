@@ -137,6 +137,9 @@ async function reach() {
         try {
             const settings = await fetch(`${base}/api/settings`, {headers: personHeaders}).then(r => r.ok ? r.json() : Promise.reject(new Error(`${r.status} ${r.statusText}`)))
             orrery.id = settings.id
+            // Which orrery it's run as is `GET /api/machine` since ORR-954; an older orrery has it in its settings.
+            const machine = await fetch(`${base}/api/machine`, {headers: personHeaders}).then(r => r.ok ? r.json() : {}).catch(() => ({}))
+            settings.environment = machine.environment ?? settings.environment
             orrery.environment = settings.environment
             if (process.env.ORRERY_ID && settings.id && settings.id !== process.env.ORRERY_ID) {
                 refused = `The orrery at ${base} is ${settings.id} (${settings.environment ?? 'no environment'}), not ${process.env.ORRERY_ID}, the one this repo is set up for (ORRERY_ID): it won't be read or written. Point ORRERY_URL at the right one.`

@@ -544,6 +544,74 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         await expect(store.identity('https://id.example', 'sub-2', secret)).rejects.toMatchObject({statusCode: 409})
     })
 
+    it('reads and changes the settings alike, every one, and refuses a session (ORR-954)', async () => {
+        // The settings are the orrery's, so each side runs every step in turn on the same table, put back between them.
+        type Step = [string, () => Promise<Outcome>, () => Promise<Outcome>]
+        const step = (name: string, body: unknown, actor: Actor = OWNER): Step =>
+            // The store tells a project sharing releases a moment later: settled first, so it lands in this step.
+            [name, () => viaStore(async () => {
+                try {
+                    return await store.updateSettings(body, actor)
+                } finally {
+                    await new Promise(settled => setTimeout(settled, 20))
+                }
+            }), () => viaApi('PATCH', '/api/settings', body, actor)]
+        const read: Step = ['the settings', () => viaStore(() => store.settings()), () => viaApi('GET', '/api/settings')]
+        const steps: Step[] = [
+            read,
+            step('changed by a session', {tint: 'blue'}, SESSION),
+            step('a tint, prompts and a handle', {tint: '#AABBCC', focus_prompt: '  Work on {id}  ', milestone_prompt: '   ', handle: 'Steffen.D'}),
+            step('the machine\'s own', {terminal: 'ghostty', advanced: false, restrict_proposals: false, pick_next: true, count_use: true}),
+            step('instructions, a tracker and the sidebar', {instructions: [{id: 'a1', text: ' Be brief ', on: false}, {id: 'b2', text: 'Test first'}], tracker: 'https://t.example/i/{id}', starred: [' api ', 'web', 'api', 'gone'], hidden: ['gone']}),
+            step('starts', {starts: {limit: 3, min: 1, minutes: 60, idle_minutes: 30, on_signal: false}}),
+            step('work kinds', {work_kinds: [{id: 'bug', name: ' Bug ', labels: ['Bug', 'bug', 'defect'], model: 'claude-opus-5-5', effort: 'high'}, {id: 'other', name: 'Other', labels: [], model: 'best'}]}),
+            read,
+            step('everything wrong at once', {bogus: 1, tint: 'pink', terminal: 'xterm', handle: '-x', tracker: 'https://t.example/i', advanced: 'yes', pick_next: null, starred: [''], instructions: [{text: ' '}], focus_prompt: 5}),
+            step('starts out of range', {starts: {limit: 30}}),
+            step('starts with more', {starts: {limit: 2, min: 3, extra: true}}),
+            step('work kinds, none', {work_kinds: []}),
+            step('work kinds, a label twice', {work_kinds: [{id: 'a', name: 'A', labels: ['x'], model: 'best'}, {id: 'b', name: 'B', labels: ['X'], model: 'best'}]}),
+            step('work kinds, a bad model', {work_kinds: [{id: 'a', name: 'A', labels: [], model: 'gpt'}]}),
+            step('work kinds, an id twice', {work_kinds: [{id: 'a', name: 'A', labels: [], model: 'best'}, {id: 'a', name: 'B', labels: [], model: 'best'}]}),
+            step('no body', undefined),
+            step('back to the defaults', {tint: null, focus_prompt: null, handle: null, tracker: null, starts: null, terminal: null, work_kinds: null, starred: null, hidden: null, instructions: null}),
+            read,
+        ]
+        await store.settings()
+        const before = await store.db.all<{key: string, value: string}>('SELECT key, value FROM settings')
+        const putBack = async () => {
+            await store.db.run('DELETE FROM settings')
+            for (const {key, value} of before) await store.db.run('INSERT INTO settings (key, value) VALUES (?, ?)', key, value)
+        }
+        const run = async (side: (step: Step) => Promise<Outcome>) => {
+            const outcomes: Outcome[] = []
+            for (const one of steps) outcomes.push(await side(one))
+            await putBack()
+            return outcomes
+        }
+        const viaTs = await run(([, ts]) => ts())
+        const viaRs = await run(([, , rs]) => rs())
+        // Every project changed both ways when `starts` did: the two names are the same here.
+        const projects = (outcome: Outcome) => ({...outcome, changed: outcome.changed.map(() => '<a project>')})
+        steps.forEach(([name], i) => expect(same(projects(viaRs[i]!), 'through-api'), name).toEqual(same(projects(viaTs[i]!), 'through-store')))
+        expect(viaRs[5]).toMatchObject({status: 200, settings: true})
+        expect(viaRs[5]!.changed).toEqual(expect.arrayContaining(['through-api', 'through-store']))
+        expect(viaRs[2]).toMatchObject({settings: true, changed: []})
+    })
+
+    it('says which settings a change sent, for the event log (ORR-954)', async () => {
+        const response = await fetch(`${url}/api/settings`, {
+            method: 'PATCH',
+            headers: {'Content-Type': 'application/json', 'Orrery-Api-Token': TOKEN, 'Orrery-Database': databaseMark(setting), ...actorHeaders(OWNER)},
+            body: JSON.stringify({tint: null, advanced: true}),
+        })
+        expect(response.status).toBe(200)
+        expect(changedOf(response.headers.get('orrery-settings-keys'))).toEqual(['advanced', 'tint'])
+        expect(domainOf('GET', '/api/settings')).toBe('settings')
+        expect(domainOf('PATCH', '/api/settings/')).toBe('settings')
+        expect(domainOf('GET', '/api/machine')).toBeUndefined()
+    })
+
     it('answers only the server in front of it, on its own database', async () => {
         const ask = (headers: Record<string, string>) => fetch(`${url}/api/projects/through-api/docs`, {headers}).then(r => r.status)
         expect(await ask({})).toBe(401)
@@ -559,11 +627,11 @@ describe('the router', () => {
             '/api/projects/p/docs/d/revisions/3/restore', '/api/projects/p/deleted-docs', '/api/projects/p/doc-sections', '/api/projects/p/doc-sections/how it works']) expect(servedByApi('GET', path), path).toBe(true)
         for (const path of ['/api/projects/p/docs/d/artifact', '/api/projects/p/issues/P-1/activity', '/api/projects/p', '/api/projects/p/docs/d/revisions/3/other', '/api/docs']) expect(servedByApi('GET', path), path).toBe(false)
         for (const path of ['/api/statuses', '/api/statuses/', '/api/statuses/in-review']) expect(servedByApi('GET', path), path).toBe(true)
-        for (const path of ['/api/statuses/x/y', '/api/projects/p/statuses', '/api/settings']) expect(servedByApi('GET', path), path).toBe(false)
+        for (const path of ['/api/statuses/x/y', '/api/projects/p/statuses', '/api/machine']) expect(servedByApi('GET', path), path).toBe(false)
     })
 
     it('routes by a table with a line per domain, so taking one back is taking its line out (ORR-925)', () => {
-        expect(DOMAINS.map(({domain}) => domain)).toEqual(['docs', 'statuses', 'issues, reading', 'comments, reading', 'milestones and releases, reading', 'people, but removing one', 'invites', 'keys', 'logins'])
+        expect(DOMAINS.map(({domain}) => domain)).toEqual(['docs', 'statuses', 'issues, reading', 'comments, reading', 'milestones and releases, reading', 'people, but removing one', 'invites', 'keys', 'logins', 'settings'])
         expect(domainOf('PATCH', '/api/projects/p/docs/d')).toBe('docs')
         expect(domainOf('head', '/api/projects/p/doc-sections/')).toBe('docs')
         for (const path of ['/api/projects/p/issues/P-1/activity', '/api/', '/docs', '/api/projects/p/docs/d/artifact']) expect(domainOf('GET', path), path).toBeUndefined()
@@ -649,7 +717,7 @@ describe('the contract (api/openapi.yaml)', () => {
     }
 
     it('has every route the router sends to the API, and no other', () => {
-        expect(contract()).toHaveLength(37)
+        expect(contract()).toHaveLength(39)
         expect(contract()).toEqual(routes())
     })
 

@@ -24,7 +24,12 @@ export default defineNuxtPlugin(() => {
 
     async function load() {
         const app = useAppSettings()
-        app.settings.value = await apiFetch<Settings>('/settings').catch(() => app.settings.value)
+        // The stored settings and what only this server knows (ORR-954), side by side.
+        const [stored, machine] = await Promise.all([
+            apiFetch<Settings>('/settings').catch(() => app.settings.value),
+            apiFetch<Pick<Settings, 'environment' | 'database'>>('/machine').catch(() => ({})),
+        ])
+        app.settings.value = {...stored, ...machine}
         app.apply()
         await useOwner().refresh()
         // The page's own project comes whole in the same call.
