@@ -129,7 +129,8 @@ function onKey(event: KeyboardEvent) {
           @click="b.run"
       >
         <component :is="b.icon" v-if="b.icon" class="size-4" />
-        <span v-else-if="b.glyph === 'highlight'" class="rounded-sm bg-amber-300/50 px-0.5 text-[11px] leading-4 font-semibold text-fg dark:bg-amber-400/30" aria-hidden="true">ab</span>
+        <!-- The letters drawn by CSS, not text: as text they'd be the button's visible name, which its label doesn't hold (ORR-916). -->
+        <span v-else-if="b.glyph === 'highlight'" class="rounded-sm bg-amber-300/50 px-0.5 text-[11px] leading-4 font-semibold text-fg before:content-['ab'] dark:bg-amber-400/30" aria-hidden="true" />
         <span v-else class="text-base leading-none font-semibold" aria-hidden="true">”</span>
       </UiButton>
     </div>
