@@ -34,8 +34,9 @@ describe('the outbox, from the store', () => {
     })
 
     it('keeps the rows in the write\'s own transaction: a row that fails takes the write back with it', async () => {
-        const run = store.db.run.bind(store.db)
-        const spy = vi.spyOn(store.db, 'run').mockImplementation((sql, ...params) => sql.startsWith('INSERT INTO changes') ? Promise.reject(new Error('outbox down')) : run(sql, ...params))
+        // The row goes in with `get`, for its id (ORR-983).
+        const get = store.db.get.bind(store.db)
+        const spy = vi.spyOn(store.db, 'get').mockImplementation((sql, ...params) => sql.startsWith('INSERT INTO changes') ? Promise.reject(new Error('outbox down')) : get(sql, ...params))
         await expect(store.createIssue('greenhouse', {title: 'Lost with its row'}, SESSION)).rejects.toThrow('outbox down')
         await expect(store.createDoc('greenhouse', {title: 'Lost doc'}, SESSION)).rejects.toThrow('outbox down')
         spy.mockRestore()
