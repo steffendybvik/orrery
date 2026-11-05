@@ -8,7 +8,7 @@ import type {Db, Value} from '../utils/database'
 import {one} from '../utils/database'
 import type {Instruction} from '#shared/prompt'
 import type {Actor, ProjectRow, MilestoneRow, IssueRow, CommentRow, DocRow, ReleaseRow} from './schema'
-import {noReleases, nullable, stamp} from './schema'
+import {ANSWERED, noReleases, nullable, stamp} from './schema'
 import type {OrreryEvent} from '#shared/happenings'
 import {refusedFor} from '../utils/permission'
 import {drawingOn, readBoard, readDocSections, readDocSummaries, readReleases} from './reads'
@@ -187,9 +187,10 @@ export abstract class StoreBase {
         return row
     }
 
+    /** The comment, with whether the owner has answered it since (`answered` isn't stored: it's worked out, ORR-942). */
     protected async commentRow(project: string, issue: string, id: number): Promise<CommentRow> {
         await this.issueRow(project, issue)
-        const row = await this.get<CommentRow>('SELECT * FROM comments WHERE project = ? AND issue = ? AND id = ?', project, issue, id)
+        const row = await this.get<CommentRow>(`SELECT c.*, ${ANSWERED} FROM comments c WHERE c.project = ? AND c.issue = ? AND c.id = ?`, project, issue, id)
         if (!row) throw notFound(`No comment ${id} on ${issue}`)
         return row
     }
