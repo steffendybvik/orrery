@@ -93,6 +93,95 @@ pub fn check_rating(body: &Value) -> Result<Option<(String, String)>> {
     }
 }
 
+/// A PR as the poll keeps it on its issues (`RememberedPull`), with the projects whose issues it can name.
+struct Kept {
+    projects: Vec<String>,
+    names: Vec<String>,
+    title: String,
+    url: String,
+    branch: String,
+    base: String,
+    author: String,
+    merged: bool,
+    closed: bool,
+    merged_at: Option<String>,
+    created_at: String,
+    updated_at: String,
+}
+
+/// The body of `PUT /api/pulls/{owner}/{name}/{number}`: `{projects, names, title, url, branch, base, author, merged,
+/// closed, merged_at, created_at, updated_at}`, each problem said.
+fn check_kept(body: &Value) -> Result<Kept> {
+    const FIELDS: [&str; 12] = ["projects", "names", "title", "url", "branch", "base", "author", "merged", "closed", "merged_at", "created_at", "updated_at"];
+    let Some(sent) = body.as_object() else {
+        return Err(ApiError::bad_request("The body should be a JSON object"));
+    };
+    let mut problems = vec![];
+    for key in sent.keys() {
+        if !FIELDS.contains(&key.as_str()) {
+            problems.push(format!("unknown field \"{key}\"; this takes {}", FIELDS.join(", ")));
+        }
+    }
+    let mut list = |key: &str| match sent.get(key) {
+        Some(Value::Array(items)) if items.iter().all(Value::is_string) => items.iter().filter_map(|i| i.as_str().map(str::to_string)).collect(),
+        Some(other) => {
+            problems.push(format!("\"{key}\" should be a list of strings, not {}", js(other)));
+            vec![]
+        }
+        None => {
+            problems.push(format!("missing \"{key}\""));
+            vec![]
+        }
+    };
+    let (projects, names) = (list("projects"), list("names"));
+    let mut text = |key: &str, nullable: bool| match sent.get(key) {
+        Some(Value::String(t)) => Some(t.clone()),
+        Some(Value::Null) if nullable => None,
+        Some(other) => {
+            problems.push(format!("\"{key}\" should be a string, not {}", js(other)));
+            None
+        }
+        None => {
+            problems.push(format!("missing \"{key}\""));
+            None
+        }
+    };
+    let strings: Vec<Option<String>> = ["title", "url", "branch", "base", "author", "created_at", "updated_at"].iter().map(|k| text(k, false)).collect();
+    let merged_at = text("merged_at", true);
+    let mut flag = |key: &str| match sent.get(key) {
+        Some(Value::Bool(b)) => *b,
+        Some(other) => {
+            problems.push(format!("\"{key}\" should be true or false, not {}", js(other)));
+            false
+        }
+        None => {
+            problems.push(format!("missing \"{key}\""));
+            false
+        }
+    };
+    let (merged, closed) = (flag("merged"), flag("closed"));
+    if !problems.is_empty() {
+        return Err(ApiError::problems(problems));
+    }
+    let [title, url, branch, base, author, created_at, updated_at] =
+        <[Option<String>; 7]>::try_from(strings).map_err(|_| ApiError::internal("the kept PR's fields"))?;
+    let take = |v: Option<String>| v.unwrap_or_default();
+    Ok(Kept {
+        projects,
+        names,
+        title: take(title),
+        url: take(url),
+        branch: take(branch),
+        base: take(base),
+        author: take(author),
+        merged,
+        closed,
+        merged_at,
+        created_at: take(created_at),
+        updated_at: take(updated_at),
+    })
+}
+
 pub struct Pulls<'a> {
     conn: &'a mut AnyConnection,
     pub effects: Effects,
@@ -118,6 +207,116 @@ impl<'a> Pulls<'a> {
             return Err(ApiError::not_found(format!("No issue {issue} in {project}")));
         }
         Ok(id)
+    }
+
+    /// The first issue among `projects` that one of `ids` is, by its id or an old one (`issueOf`).
+    async fn issue_of(&mut self, projects: &[String], ids: &[String]) -> Result<Option<(String, String)>> {
+        if projects.is_empty() {
+            return Ok(None);
+        }
+        let among = vec!["?"; projects.len()].join(", ");
+        for id in ids {
+            for statement in [
+                format!("SELECT project, id FROM issues WHERE project IN ({among}) AND id = ?"),
+                format!("SELECT i.project, i.id FROM issue_aliases a JOIN issues i ON i.project = a.project AND i.id = a.issue WHERE a.project IN ({among}) AND a.alias = ?"),
+            ] {
+                let statement = sql(&statement);
+                let mut query = sqlx::query(&statement);
+                for project in projects {
+                    query = query.bind(project);
+                }
+                if let Some(row) = query.bind(id).fetch_optional(&mut *self.conn).await? {
+                    return Ok(Some((row.get("project"), row.get("id"))));
+                }
+            }
+        }
+        Ok(None)
+    }
+
+    /// The issues in the releases of `projects` whose branch is `branch`, those of the projects sharing them included
+    /// (`releaseIssues`).
+    async fn release_issues(&mut self, projects: &[String], branch: &str) -> Result<Vec<(String, String)>> {
+        if projects.is_empty() || branch.is_empty() {
+            return Ok(vec![]);
+        }
+        let among = vec!["?"; projects.len()].join(", ");
+        let statement = sql(&format!(
+            "SELECT i.project, i.id FROM releases r JOIN issues i ON i.ships_in = r.version
+                AND (i.project = r.project OR i.project IN (SELECT id FROM projects WHERE release_mode = 'shared' AND releases_from = r.project))
+             WHERE r.project IN ({among}) AND r.branch = ?"
+        ));
+        let mut query = sqlx::query(&statement);
+        for project in projects {
+            query = query.bind(project);
+        }
+        Ok(query.bind(branch).fetch_all(&mut *self.conn).await?.iter().map(|r| (r.get("project"), r.get("id"))).collect())
+    }
+
+    /// Keeps PR `number` on `repo` on each issue it names, for good, and off any it no longer names (`remember`,
+    /// ORR-795): a release PR, from a release's branch, is on every issue in that release too (ORR-913). What the local
+    /// app's poll calls for each PR it reads that changed (ORR-952). It tells nobody, as the store's doesn't: what a PR
+    /// does next is the poll's news, told on its own.
+    pub async fn remember(&mut self, repo: &str, number: i64, body: &Value) -> Result<()> {
+        let pull = check_kept(body)?;
+        let mut issues: Vec<(String, String)> = vec![];
+        for name in &pull.names {
+            if let Some(issue) = self.issue_of(&pull.projects, std::slice::from_ref(name)).await? {
+                if !issues.contains(&issue) {
+                    issues.push(issue);
+                }
+            }
+        }
+        for issue in self.release_issues(&pull.projects, &pull.branch).await? {
+            if !issues.contains(&issue) {
+                issues.push(issue);
+            }
+        }
+        let state = if pull.merged {
+            "merged"
+        } else if pull.closed {
+            "closed"
+        } else {
+            "open"
+        };
+        changes::begin(self.conn).await?;
+        let done: Result<()> = async {
+            let rows = sqlx::query(&sql("SELECT project, issue FROM issue_pulls WHERE repo = ? AND number = ?")).bind(repo).bind(number).fetch_all(&mut *self.conn).await?;
+            for row in rows {
+                let on: (String, String) = (row.get("project"), row.get("issue"));
+                if !issues.contains(&on) {
+                    sqlx::query(&sql("DELETE FROM issue_pulls WHERE project = ? AND issue = ? AND repo = ? AND number = ?"))
+                        .bind(&on.0)
+                        .bind(&on.1)
+                        .bind(repo)
+                        .bind(number)
+                        .execute(&mut *self.conn)
+                        .await?;
+                }
+            }
+            for (project, id) in &issues {
+                sqlx::query(&sql("INSERT INTO issue_pulls (project, issue, repo, number, title, url, branch, base, author, state, merged_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT (project, issue, repo, number) DO UPDATE SET title = excluded.title, url = excluded.url, branch = excluded.branch, base = excluded.base, author = excluded.author,
+                    state = excluded.state, merged_at = excluded.merged_at, updated_at = excluded.updated_at"))
+                    .bind(project)
+                    .bind(id)
+                    .bind(repo)
+                    .bind(number)
+                    .bind(&pull.title)
+                    .bind(&pull.url)
+                    .bind(&pull.branch)
+                    .bind(&pull.base)
+                    .bind(&pull.author)
+                    .bind(state)
+                    .bind(&pull.merged_at)
+                    .bind(&pull.created_at)
+                    .bind(&pull.updated_at)
+                    .execute(&mut *self.conn)
+                    .await?;
+            }
+            Ok(())
+        }
+        .await;
+        changes::finish(self.conn, self.outbox.as_mut(), &self.effects, done).await
     }
 
     /// Rates the issue's PR `number` on `repo` (`rate`, ORR-879), or takes the rating away with none: `{risk}`. The

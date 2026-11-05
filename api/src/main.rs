@@ -600,6 +600,16 @@ async fn get_pull(State(app): Shared, Path((owner, name, number)): Path<(String,
     Ok(Json(Pulls::new(&mut conn).for_pull(&format!("{owner}/{name}"), number, owner_asking(&headers)).await?).into_response())
 }
 
+/// Keeps the PR on the issues it names (ORR-952): the local app's poll, written ahead of the swap.
+async fn keep_pull(State(app): Shared, Path((owner, name, number)): Path<(String, String, String)>, headers: HeaderMap, body: Bytes) -> Result<Response> {
+    let number = pull_number(&number)?;
+    let mut conn = app.pool.acquire().await?;
+    let mut pulls = Pulls::new(&mut conn);
+    pulls.outbox = Some(Outbox::new(actor_of(&headers)));
+    pulls.remember(&format!("{owner}/{name}"), number, &body_of(&body)).await?;
+    Ok(reply(StatusCode::NO_CONTENT, None, std::mem::take(&mut pulls.effects)))
+}
+
 async fn rate_pull(
     State(app): Shared,
     Path((project, issue, owner, name, number)): Path<(String, String, String, String, String)>,
@@ -738,7 +748,7 @@ fn router(app: Arc<App>) -> Router {
         .route(&format!("{P}/presets"), get(list_project_presets).post(create_project_preset))
         .route("/api/secrets", get(list_secrets))
         .route("/api/secrets/{name}", get(get_secret))
-        .route("/api/pulls/{owner}/{name}/{number}", get(get_pull))
+        .route("/api/pulls/{owner}/{name}/{number}", get(get_pull).put(keep_pull))
         .route(&format!("{P}/issues/{{issue}}/pulls/{{owner}}/{{name}}/{{number}}/risk"), put(rate_pull))
         .route(&format!("{P}/schedules"), get(list_schedules))
         .route(&format!("{P}/schedules/{{schedule}}"), get(get_schedule))

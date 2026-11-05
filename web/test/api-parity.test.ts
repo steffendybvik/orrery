@@ -158,7 +158,7 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         const revisions = new Map<number, number>()
         return JSON.parse(JSON.stringify(outcome, (key, value: unknown) => {
             if (typeof value === 'string') {
-                return value.replaceAll(project, '<project>').replace(/\b(STO|API)([DPSXT]?)-(\d+)/g, 'KEY$2-$3').replace(/^\d{4}-\d{2}-\d{2}T[\d:.]+Z$/, '<time>').replace(/-[a-z2-7]{8}$/, '-<uid>')
+                return value.replaceAll(project, '<project>').replace(/\b(STO|API)([DPSXTK]?)-(\d+)/g, 'KEY$2-$3').replace(/^\d{4}-\d{2}-\d{2}T[\d:.]+Z$/, '<time>').replace(/-[a-z2-7]{8}$/, '-<uid>')
             }
             if (typeof value === 'number' && (key === 'id' || key === 'revision') && Number.isInteger(value)) {
                 if (!revisions.has(value)) revisions.set(value, revisions.size + 1)
@@ -730,6 +730,53 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         expect(domainOf('GET', '/api/schedules/across')).toBe('schedules, reading')
         for (const [method, path] of [['POST', '/api/schedules'], ['PATCH', '/api/projects/p/schedules/3'], ['POST', '/api/projects/p/schedules/3/run'], ['POST', '/api/projects/p/schedules/enabled'], ['DELETE', '/api/schedules/across/2']])
             expect(domainOf(method!, path!), `${method} ${path}`).toBeUndefined()
+    })
+
+    it('keeps a pull request on the issues it names alike, as the poll does (ORR-952)', async () => {
+        const pulls = new Pulls(store, async () => { throw new Error('no GitHub here') })
+        const on = (p: string) => `${p}-kept`
+        const ids: Record<string, {lid: string, hinge: string, old: string, shipped: string}> = {}
+        for (const p of ['through-store', 'through-api']) {
+            await store.createProject({name: on(p), key: p === 'through-store' ? 'STOK' : 'APIK'})
+            await store.updateProject(on(p), {release_mode: 'own'}, OWNER)
+            await store.createRelease(on(p), {version: '2.0.0', branch: 'release/2.0'}, OWNER)
+            const lid = (await store.createIssue(on(p), {title: 'Fit the lid'}, OWNER)).id
+            const hinge = (await store.createIssue(on(p), {title: 'Fit the hinge'}, OWNER)).id
+            const shipped = (await store.createIssue(on(p), {title: 'Ship the box', release: '2.0.0'}, OWNER)).id
+            const old = `${p === 'through-store' ? 'STOK' : 'APIK'}-77`
+            await store.db.run('INSERT INTO issue_aliases (project, alias, issue) VALUES (?, ?, ?)', on(p), old, hinge)
+            ids[p] = {lid, hinge, old, shipped}
+        }
+        const pull = (p: string, number: number, names: string[], extra: Record<string, unknown> = {}) => ({number, title: `Pull ${number}`, url: `https://github.com/ada/${on(p)}/pull/${number}`,
+            branch: `feat/pull-${number}`, base: 'v1.0.0-rc.18', author: 'ada', merged: false, closed: false, merged_at: null, created_at: '2026-11-05T10:00:00Z', updated_at: '2026-11-05T10:00:00Z', names, ...extra})
+        const keep = (name: string, made: (p: string) => ReturnType<typeof pull>) => both(name,
+            p => viaStore(() => pulls.remember(`ada/${on(p)}`, [on(p)], made(p))),
+            () => {
+                const {number, ...rest} = made('through-api')
+                return viaApi('PUT', `/api/pulls/ada/${on('through-api')}/${number}`, {projects: [on('through-api')], ...rest}, AGENT)
+            })
+        const kept = () => both('what\'s kept', p => viaStore(() => store.db.all(
+            'SELECT issue, number, title, url, branch, base, author, state, merged_at, created_at, updated_at, risk FROM issue_pulls WHERE project = ? ORDER BY issue, number', on(p))),
+            () => viaStore(() => store.db.all('SELECT issue, number, title, url, branch, base, author, state, merged_at, created_at, updated_at, risk FROM issue_pulls WHERE project = ? ORDER BY issue, number', on('through-api'))))
+        const outcomes = [
+            await keep('on the issue it names', p => pull(p, 1, [ids[p]!.lid])),
+            await keep('on two, one by an id it had', p => pull(p, 2, [ids[p]!.lid, ids[p]!.old])),
+            await keep('naming one that isn\'t there', p => pull(p, 3, ['NOPE-1'])),
+            await kept(),
+            await keep('no longer naming the lid, and merged', p => pull(p, 2, [ids[p]!.hinge], {merged: true, merged_at: '2026-11-05T12:00:00Z', updated_at: '2026-11-05T12:00:00Z'})),
+            await keep('a release PR, on its release\'s issues', p => pull(p, 4, [], {branch: 'release/2.0'})),
+            await keep('closed', p => pull(p, 1, [ids[p]!.lid], {closed: true, updated_at: '2026-11-05T13:00:00Z'})),
+            await kept(),
+        ]
+        expect(outcomes[0]).toMatchObject({status: 204})
+        expect(outcomes[3]!.body).toHaveLength(3)
+        expect(outcomes[7]!.body).toEqual(expect.arrayContaining([expect.objectContaining({number: 2, state: 'merged'}), expect.objectContaining({number: 4}), expect.objectContaining({number: 1, state: 'closed'})]))
+        expect(outcomes[7]!.body).toHaveLength(3)
+        // Refused as a body the poll would never send.
+        const refused = await viaApi('PUT', `/api/pulls/ada/${on('through-api')}/5`, {projects: 'all', names: [1], title: 2, colour: 'red'})
+        expect(refused).toMatchObject({status: 400})
+        expect((refused.body as {data: {problems: string[]}}).data.problems).toEqual(expect.arrayContaining(['unknown field "colour"; this takes projects, names, title, url, branch, base, author, merged, closed, merged_at, created_at, updated_at']))
+        expect(domainOf('PUT', `/api/pulls/ada/${on('through-api')}/5`)).toBeUndefined()
     })
 
     it('lists people, and makes, lists and revokes keys and ends logins alike (ORR-928)', async () => {
@@ -1348,7 +1395,7 @@ describe('the contract (api/openapi.yaml)', () => {
     })
 
     it('sends none of the routes written ahead of the Rust API to it', () => {
-        expect(contract(true)).toHaveLength(0)
+        expect(contract(true)).toEqual(['PUT /api/pulls/{owner}/{name}/{number}'])
         expect(contract(true).filter(operation => routes().includes(operation))).toEqual([])
     })
 })

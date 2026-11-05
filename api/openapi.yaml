@@ -32,7 +32,8 @@ info:
     - **A pull request, reading, and its risk** (ORR-952): one PR as orrery keeps it, with the issues it's on, and
       rating an issue's PR's risk
       (web/server/api/pulls/[owner]/[name]/[number].get.ts). The other pull reads ask GitHub when what's kept is stale,
-      which is the local app's to do, and the poll's writes wake sessions, so they stay the Nuxt server's.
+      which is the local app's to do. The poll's writes are written ahead, for the local app to call once the API is
+      swapped in: keeping a PR on its issues so far (`PUT`, ORR-952). Until then the poll writes through the Nuxt server.
     - **Presets** (ORR-949): the orrery's presets and a project's own (web/server/api/presets, and
       web/server/api/projects/[project]/presets). Served by both; seeding the ones orrery ships as it starts stays the
       Nuxt server's.
@@ -696,6 +697,37 @@ paths:
                         risk: {$ref: '#/components/schemas/PullRisk'}
         '400': {$ref: '#/components/responses/BadRequest'}
         '404': {$ref: '#/components/responses/NotFound'}
+    put:
+      x-served: false
+      summary: Keeps the PR on each issue it names, and off any it no longer names
+      description: >-
+        What the local app's poll does with each PR it reads that changed (`remember`, ORR-795): `names` are the issue ids
+        in its body and branch, looked up by id or an old one among `projects`, and a release PR (from a release's branch)
+        is on every issue in that release too. It tells nobody: what a PR does next is the poll's news, told on its own.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [projects, names, title, url, branch, base, author, merged, closed, merged_at, created_at, updated_at]
+              properties:
+                projects: {type: array, items: {type: string}, description: The projects whose issues it can name}
+                names: {type: array, items: {type: string}}
+                title: {type: string}
+                url: {type: string}
+                branch: {type: string}
+                base: {type: string}
+                author: {type: string}
+                merged: {type: boolean}
+                closed: {type: boolean}
+                merged_at: {type: [string, 'null']}
+                created_at: {type: string}
+                updated_at: {type: string}
+      responses:
+        '204': {description: Kept}
+        '400': {$ref: '#/components/responses/BadRequest'}
   /api/presets:
     get:
       summary: The orrery's presets, for sessions on any project, by name
