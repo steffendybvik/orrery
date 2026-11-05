@@ -4,17 +4,18 @@ import type {NitroFetchOptions, NitroFetchRequest} from 'nitropack'
 // by its path under `/api`, so the page isn't tied to the server that served it. Same-origin by default; `apiBases`
 // (public runtime config, NUXT_PUBLIC_API_BASES) sends the paths under a prefix to another base instead, a domain at a
 // time (ORR-943), e.g. `{"/projects/atlas/docs": "https://api.example.com/api"}`. The longest prefix that matches
-// wins, and what none matches stays on `/api`.
+// wins, and what none matches stays on `/api`. A `/` prefix takes every path: a frontend hosted apart from its server
+// (ORR-667).
 const API_BASE = '/api'
 
 /** The base for `path`: the longest prefix in `bases` that it's under (the prefix itself, or past a `/` or `?` after
- * it), else the same-origin `/api`. A base is written without its trailing `/`. */
+ * it; every path is under `/`), else the same-origin `/api`. A base is written without its trailing `/`. */
 export function baseFor(path: string, bases: Record<string, string> | undefined): string {
     let best = ''
     for (const prefix of Object.keys(bases ?? {})) {
         if (prefix.length <= best.length || !prefix.startsWith('/')) continue
         const at = path.charAt(prefix.length)
-        if (path.startsWith(prefix) && (at === '' || at === '/' || at === '?')) best = prefix
+        if (path.startsWith(prefix) && (prefix === '/' || at === '' || at === '/' || at === '?')) best = prefix
     }
     const base = best ? bases?.[best] : undefined
     return base ? base.replace(/\/+$/, '') : API_BASE
@@ -32,6 +33,13 @@ function bases(): Record<string, string> | undefined {
 
 /** The full address of an API path, for what isn't a fetch: the live feed, an image. */
 export const apiUrl = (path: string) => `${baseFor(path, bases())}${path}`
+
+/** The address of the server this page uses: where sessions, the launcher and curl reach it (`/connect`, `/channel`,
+ * keys.json's line). The page's own origin, unless it's hosted apart from its server (ORR-667), when it's the API's. */
+export function serverOrigin(): string {
+    if (!import.meta.client) return 'http://localhost:9000'
+    return new URL(apiUrl('/'), location.href).origin
+}
 
 /** Whether `path` goes to another address than the page's: a call there sends this browser's login with it
  * (`credentials`, `withCredentials`), which that server has to allow (CORS with credentials, for this page's origin). */

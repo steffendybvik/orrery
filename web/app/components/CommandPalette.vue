@@ -98,7 +98,7 @@ const here = computed<Entry[]>(() => {
             {key: 'issue:id', group: 'Copy', label: 'Copy the id', detail: found.issue.id, run: () => copy(fullId('issue', found.issue.id, p.uid), 'id')},
             {key: 'issue:link', group: 'Copy', label: 'Copy the link', run: () => copy(`${location.origin}${path}`, 'link')},
             {key: 'issue:curl', group: 'Copy', label: 'Copy a curl to update it', detail: 'for an agent', run: () => copy(
-                `curl -X PATCH ${location.origin}/api/projects/${p.id}/issues/${found.issue.id} -H 'Content-Type: application/json' -H 'Orrery-Actor: claude' -d '{"status": "in-progress"}'`, 'curl')},
+                `curl -X PATCH ${serverOrigin()}/api/projects/${p.id}/issues/${found.issue.id} -H 'Content-Type: application/json' -H 'Orrery-Actor: claude' -d '{"status": "in-progress"}'`, 'curl')},
         )
     }
     if (p && route.name === 'p-project') {

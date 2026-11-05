@@ -51,6 +51,11 @@ export default defineNuxtConfig({
         // Host names orrery answers to besides localhost and IP addresses, comma-separated (e.g. `orrery.lan`).
         // Override with NUXT_ALLOWED_HOSTS.
         allowedHosts: '',
+        // Other sites whose pages may use the API from a browser, for orrery's frontend hosted there (ORR-667): exact
+        // origins, comma-separated (`https://app.example.com`). None by default. Override with NUXT_ALLOWED_ORIGINS.
+        allowedOrigins: '',
+        // `off` serves the API alone, without the pages, for a frontend hosted elsewhere (ORR-667). Override with NUXT_PAGES.
+        pages: '',
         // `off` stops anyone counting feature use on this server (ORR-881), whatever App settings says.
         // Override with NUXT_USAGE.
         usage: '',
@@ -98,7 +103,8 @@ export default defineNuxtConfig({
             // the name, and the start of every tab's title. Override with NUXT_PUBLIC_ENVIRONMENT.
             environment: 'personal',
             // Where the page sends the API paths under a prefix instead of this server's /api (ORR-943): a JSON object
-            // of prefix to base, e.g. {"/projects/atlas/docs": "https://api.example.com/api"}. Empty: all same-origin.
+            // of prefix to base, e.g. {"/projects/atlas/docs": "https://api.example.com/api"}, or {"/": …} for every path,
+            // as a frontend hosted on its own does (ORR-667). Empty: all same-origin.
             // Override with NUXT_PUBLIC_API_BASES. See docs/development.md (The Rust API) for what a base must allow.
             apiBases: {} as Record<string, string>,
             version,
