@@ -87,6 +87,12 @@ export abstract class StoreBase {
     changed(project: string) {
         this.outbox('project.changed', {project})
         if (this.held) return void this.held.add(project)
+        // Inside a write's transaction, open pages hear it the moment it commits, and never when it's taken back.
+        this.db.atCommit(() => this.pushChanged(project))
+    }
+
+    /** Tells open pages the project changed, and the projects sharing its releases. */
+    private pushChanged(project: string) {
         this.onChange(project)
         this.all<{id: string}>('SELECT id FROM projects WHERE releases_from = ? OR id = (SELECT releases_from FROM projects WHERE id = ?)', project, project)
             .then(rows => rows.forEach(r => this.onChange(r.id)), () => {})

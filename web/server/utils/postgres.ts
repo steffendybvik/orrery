@@ -8,7 +8,7 @@
 // and Postgres's in migrations/postgres.ts.
 import {AsyncLocalStorage} from 'node:async_hooks'
 import pg from 'pg'
-import {addBefore, runAfter, runAlone, runBefore, type Db, type Value, type Waiting} from './database'
+import {addBefore, runAfter, runAlone, runAt, runBefore, type Db, type Value, type Waiting} from './database'
 import {redact} from './event-log'
 import {BASELINE, SCHEMA, STEPS} from './migrations/postgres'
 
@@ -64,7 +64,7 @@ export class PostgresDb implements Db {
         if (this.ongoing()) return work()
         await this.ready
         const client = await this.pool.connect()
-        const transaction = {db: this, client, open: true, before: new Map(), after: [] as (() => void)[]}
+        const transaction = {db: this, client, open: true, before: new Map(), at: [] as (() => void)[], after: [] as (() => void)[]}
         try {
             await client.query('BEGIN')
             const result = await current.run(transaction, async () => {
@@ -73,6 +73,8 @@ export class PostgresDb implements Db {
                 return done
             })
             await client.query('COMMIT')
+            transaction.open = false
+            runAt(current, transaction.at)
             runAfter(current, transaction.after)
             return result
         } catch (error) {
@@ -94,6 +96,12 @@ export class PostgresDb implements Db {
         const transaction = this.ongoing()
         if (transaction) addBefore(transaction, work, key)
         else runAlone(work)
+    }
+
+    atCommit(work: () => void) {
+        const transaction = this.ongoing()
+        if (transaction) transaction.at.push(work)
+        else work()
     }
 
     /** The open transaction of this database the code running now is part of, if any. */

@@ -105,10 +105,10 @@ export abstract class CommentStore extends SignalStore {
                 await this.record(project, issue, actor, [['assignee', row.assignee, assignee]])
             }
             await this.touchIssue(project, issue)
+            this.changed(project)
+            this.tell(input.asks ? 'comment.asks' : 'comment.added', project, issue, actor, input.asks ? {to: String(input.asks)} : {})
             return id
         })
-        this.changed(project)
-        this.tell(input.asks ? 'comment.asks' : 'comment.added', project, issue, actor, input.asks ? {to: String(input.asks)} : {})
         if (actor.owner || actor.person) await this.carryComment(project, issue, String(input.body), actor)
         if (!actor.owner) this.onNotice({...await this.comment(project, issue, id), project, title: (await this.issueRow(project, issue)).title})
         return await this.comment(project, issue, id)
@@ -232,8 +232,8 @@ export abstract class CommentStore extends SignalStore {
         await this.db.transaction(async () => {
             await this.update('comments', 'id = ?', [id], {body: input.body, asks: input.asks})
             await this.touchIssue(project, issue)
+            this.changed(project)
         })
-        this.changed(project)
         // A session may have read the first version already, so the owner's new words go to it too.
         if ((actor.owner && row.owned || actor.person && !row.by_agent && row.person === actor.person) && input.body !== undefined && String(input.body) !== row.body) {
             await this.carryComment(project, issue, `(Edited: this replaces their earlier comment.)\n\n${input.body}`, actor)
@@ -258,7 +258,7 @@ export abstract class CommentStore extends SignalStore {
         await this.db.transaction(async () => {
             await this.run('DELETE FROM comments WHERE id = ?', id)
             await this.touchIssue(project, issue)
+            this.changed(project)
         })
-        this.changed(project)
     }
 }

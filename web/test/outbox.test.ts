@@ -1,6 +1,6 @@
 // The Nuxt server's own writes put what they set off in the outbox, as the Rust API's do (ORR-929), and what the router
 // relays from a write the API made doesn't go in twice.
-import {beforeEach, describe, expect, it} from 'vitest'
+import {beforeEach, describe, expect, it, vi} from 'vitest'
 import type {Store} from '../server/utils/store'
 import {storeSetup} from './store-setup'
 
@@ -31,6 +31,17 @@ describe('the outbox, from the store', () => {
         const got = await rows()
         expect(got.filter(r => r.kind === 'project.changed')).toEqual([{kind: 'project.changed', project: 'greenhouse', subject: null, actor: null, owner: 0, session: null, cause: null}])
         expect(got).toContainEqual({kind: 'issue.created', project: 'greenhouse', subject: issue.id, actor: 'claude', owner: 0, session: 'orrery · Andvare', cause: null})
+    })
+
+    it('keeps the rows in the write\'s own transaction: a row that fails takes the write back with it', async () => {
+        const run = store.db.run.bind(store.db)
+        const spy = vi.spyOn(store.db, 'run').mockImplementation((sql, ...params) => sql.startsWith('INSERT INTO changes') ? Promise.reject(new Error('outbox down')) : run(sql, ...params))
+        await expect(store.createIssue('greenhouse', {title: 'Lost with its row'}, SESSION)).rejects.toThrow('outbox down')
+        await expect(store.createDoc('greenhouse', {title: 'Lost doc'}, SESSION)).rejects.toThrow('outbox down')
+        spy.mockRestore()
+        expect((await store.listIssues('greenhouse')).map(i => i.title)).not.toContain('Lost with its row')
+        expect((await store.listDocs('greenhouse')).map(d => d.title)).not.toContain('Lost doc')
+        expect(await rows()).toEqual([])
     })
 
     it('keeps a settings change, as its owner made it', async () => {
