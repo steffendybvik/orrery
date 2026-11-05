@@ -29,8 +29,8 @@ afterEach(() => {
     useState('palette-open').value = false
 })
 
-async function mount() {
-    mounted.push(await mountSuspended(CommandPalette, {attachTo: document.body}))
+async function mount(route?: string) {
+    mounted.push(await mountSuspended(CommandPalette, {attachTo: document.body, ...route ? {route} : {}}))
     // Headless UI's Dialog draws in a portal on the page's body, not inside the component.
     const wrapper = new DOMWrapper(document.body)
     const input = () => wrapper.find('input[aria-label="Type a command or search"]')
@@ -52,14 +52,14 @@ describe('CommandPalette', () => {
         it('stays out until a command has been run a few times', async () => {
             runs('go:sessions', 2)
             const {sections} = await mount()
-            expect(sections()).toEqual(['Jump to', 'Go to'])
+            expect(sections()).toEqual(['Go to', 'Jump to'])
         })
 
         it('leads with the most used, chosen first, and repeats none of them below', async () => {
             runs('go:events', 3)
             runs('go:sessions', 5)
             const {sections, chosen, wrapper} = await mount()
-            expect(sections()).toEqual(['Most used', 'Jump to', 'Go to'])
+            expect(sections()).toEqual(['Most used', 'Go to', 'Jump to'])
             expect(used(wrapper)[0]).toContain('Sessions')
             expect(used(wrapper)[1]).toContain('Events')
             expect(chosen()).toContain('Sessions')
@@ -120,10 +120,41 @@ describe('CommandPalette', () => {
 
     it('offers the projects and places with nothing typed', async () => {
         const {sections, wrapper} = await mount()
-        expect(sections()).toEqual(['Jump to', 'Go to'])
+        expect(sections()).toEqual(['Go to', 'Jump to'])
         const jump = wrapper.find('section[aria-label="Jump to"]').text()
         expect(jump).toContain('Greenhouse')
         expect(jump).toContain('Pantry')
+    })
+
+    it('keeps the rare pages and all but three projects behind "N more" (ORR-947)', async () => {
+        useRoadmaps().projects.value = [GREENHOUSE, PANTRY, project('cellar', 'Cellar', []), project('shed', 'Shed', [])]
+        const {wrapper, input, key} = await mount()
+        const go = () => wrapper.find('section[aria-label="Go to"]').text()
+        const jump = () => wrapper.find('section[aria-label="Jump to"]').text()
+        expect(go()).toContain('Pull requests')
+        expect(go()).not.toContain('Events')
+        expect(go()).toContain('5 more…')
+        expect(jump()).toContain('1 more…')
+        expect(jump()).not.toContain('Shed')
+        await input().setValue('events')
+        expect(wrapper.find('section[aria-label="Commands"]').text()).toContain('Events')
+        await input().setValue('')
+        const go2 = wrapper.findAll('section[aria-label="Go to"] [role="option"]')
+        const more = go2.findIndex(o => o.text() === '5 more…')
+        for (let n = 0; n < more; n++) await key('ArrowDown')
+        await key('Enter')
+        expect(go()).toContain('Events')
+    })
+
+    it('leaves the rarely wanted to a search in Here on a project\'s page (ORR-947)', async () => {
+        const {wrapper, input} = await mount('/p/greenhouse')
+        const here = wrapper.find('section[aria-label="Here"]').text()
+        expect(here).toContain('Show as a board')
+        expect(here).toContain('New issue in Greenhouse')
+        expect(here).not.toContain('Group the list')
+        expect(here).not.toContain('New milestone')
+        await input().setValue('group the list')
+        expect(wrapper.find('section[aria-label="Commands"]').text()).toContain('Group the list by status')
     })
 
     it('puts an exact id first, by an id it had too', async () => {
