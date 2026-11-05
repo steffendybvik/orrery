@@ -130,6 +130,8 @@ export interface Issue {
     schedule?: number
     /** The version it ships in (a release's), if it's set for one. */
     release?: string
+    /** The epic it's part of (ORR-895), by number, if it's set for one; a sub-issue with none goes with its parent's. */
+    epic?: number
     /** The model and effort a session for it starts on (ORR-868), over its kind's; none follows its kind. */
     model?: string
     effort?: Effort
@@ -212,6 +214,29 @@ export interface Release {
     protected: boolean
     created_at: string
     updated_at: string
+}
+
+/** One piece of work across projects (ORR-895): it holds issues from any project, numbered across the orrery, apart
+ * from each project's milestones. Its progress is its issues', counted the way a release's are. */
+export interface Epic {
+    id: number
+    title: string
+    /** What it's about, in Markdown. */
+    notes?: string
+    /** Its issues: those set for it, each with its sub-issues, in every project. */
+    issues: number
+    kinds: Kinds
+    /** Each project's part, those with an issue in it, by id. */
+    projects: {project: string, issues: number, kinds: Kinds}[]
+    created_by: string
+    protected: boolean
+    created_at: string
+    updated_at: string
+}
+
+/** An epic with its issues: in a section per project, the issues set for it there, each with its sub-issues. */
+export interface EpicDetail extends Epic {
+    parts: {project: string, name: string, issues: number, kinds: Kinds, tasks: Issue[]}[]
 }
 
 /** A project's own issues in a release: all of it, or its part when several projects share the release. */
@@ -390,7 +415,7 @@ export interface Comment {
 export const RELEASE_MODES = ['none', 'own', 'shared'] as const
 export type ReleaseMode = typeof RELEASE_MODES[number]
 
-export type ActivityField = 'model' | 'effort' | 'claim' | 'uploaded' | 'created' | 'title' | 'status' | 'priority' | 'assignee' | 'labels' | 'external' | 'github_issues' | 'notes' | 'milestone' | 'parent' | 'proposal' | 'project' | 'release' | 'depends'
+export type ActivityField = 'model' | 'effort' | 'claim' | 'uploaded' | 'created' | 'title' | 'status' | 'priority' | 'assignee' | 'labels' | 'external' | 'github_issues' | 'notes' | 'milestone' | 'parent' | 'proposal' | 'project' | 'release' | 'epic' | 'depends'
 
 /** One change to an issue: who set `field` from `before` to `after`, and when. Values are as stored (a
  * status's id, a milestone's id, labels as a JSON list); none means unset. Notes keep no values. */

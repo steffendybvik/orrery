@@ -213,6 +213,8 @@ export async function uploadBoard(db: Db, file: unknown, as: {id?: string, key?:
             await insert(db, 'issues', onThisBoard({...issue, status: status.id, assignee: assignee ?? (open ? null : issue.assignee), created_person: personFor(issue.created_person),
                 claimed_by: null, claimed_at: null, claimed_session: null, session_name: null,
                 ships_in: from || versions.has(issue.ships_in) ? issue.ships_in : null,
+                // Epics are the server's, not the board's (ORR-895), so a number from the file would name another one here.
+                epic: null,
                 schedule: newId.schedules.get(issue.schedule) ?? null}))
         }
         for (const table of ['issue_aliases'] as Table[]) for (const row of tables[table]) await insert(db, table, onThisBoard(row))

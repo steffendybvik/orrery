@@ -192,15 +192,34 @@ in an issue's release picker, and in what sessions hear: a focus on an issue set
 out with one), or on a release's issues, gets the rule as a line after the standing instructions. It lasts
 until the release ships.
 
+## Epics
+
+One piece of work across projects (ORR-895), such as a feature with a part in each repo: an epic holds issues from any
+project, apart from each project's milestones. It has a number of its own across the orrery (`/epics/3` on the pages),
+a `title` and `notes`, and its progress is its issues', counted the way a release's are. An issue joins one with `epic`
+(its number); it's in one at most, and a sub-issue with none goes with its parent's. Moving an issue to another project
+keeps its epic.
+
+| | |
+|---|---|
+| `GET /epics` | in the order they're arranged in, a new one on top: `{id, title, notes?, issues, kinds, projects: [{project, issues, kinds}], protected}`, `issues` counting those set for it and `kinds` their progress, sub-issues included, across every project it has issues in |
+| `POST /epics` | `{title, notes?, position?}` → 201; `position` is where it goes among them (0 the top, the default) |
+| `GET /epics/:epic` | as above, with `parts`: a section per project, `{project, name, issues, kinds, tasks}`, the issues set for it there (a sub-issue's when its parent isn't), each with its sub-issues |
+| `PATCH /epics/:epic` | `{title?, notes?, position?}`; `null` clears `notes` |
+| `DELETE /epics/:epic` | its issues stay where they are, in no epic; one the owner made is theirs to delete |
+
+An issue's `epic` changing is in its activity and the event log as `issue.epic` (`from` and `to` the numbers). A
+board's export leaves epics out, as they're the server's: uploading one clears its issues' `epic`.
+
 ## Issues
 
 | | |
 |---|---|
 | `GET /projects/:project/issues` | flat, sub-issues included; filter with `?status= ?priority= ?column= ?assignee= ?label= ?external= ?github_issue= ?milestone= ?release= ?parent= ?proposal= ?blocked= ?q=` (`q` is text in the id or title; with `&in=all`, words in the id and title, the description or one comment, any order or case, orrery's own comments aside: those with them in the id and title first, then the rest with `match_in`, `description` or `comment`, and `match`, the text around the hit, left out for an issue labelled `external`; `none` for unset; `?blocked=true` is what waits on an issue not done yet, `false` what doesn't; `status` and `column` take a status's id or a kind, or several comma-separated; `?proposal=none` is committed work only) |
-| `POST /projects/:project/issues` | `{title, status?, priority?, assignee?, labels?, external?, github_issues?, notes?, proposal?, choices?, parent?, milestone?, release?, depends_on?, model?, effort?, position?}`; gets the next `KEY-n`. `model` (an alias, `best` … `haiku`, or a full id) and `effort` are what a session for it starts on, and what a signal about it needs, over its kind's; `null` (on `PATCH` too) follows its kind again |
+| `POST /projects/:project/issues` | `{title, status?, priority?, assignee?, labels?, external?, github_issues?, notes?, proposal?, choices?, parent?, milestone?, release?, epic?, depends_on?, model?, effort?, position?}`; gets the next `KEY-n`. `model` (an alias, `best` … `haiku`, or a full id) and `effort` are what a session for it starts on, and what a signal about it needs, over its kind's; `null` (on `PATCH` too) follows its kind again |
 | `GET /projects/:project/issues/:issue` | with column, counts, sub-issues, parent and milestone |
 | `PATCH /projects/:project/issues/:issue` | any of the above, plus `project` to move it; `null` clears |
-| `PATCH /projects/:project/issues` | many at once: `{ids, set?: {status?, priority?, assignee?, milestone?, release?}, labels?: {add?, remove?}}` → `[{id, ok, error?}]`, each issue on its own, so one refused doesn't stop the rest; open pages hear the batch once |
+| `PATCH /projects/:project/issues` | many at once: `{ids, set?: {status?, priority?, assignee?, milestone?, release?, epic?}, labels?: {add?, remove?}}` → `[{id, ok, error?}]`, each issue on its own, so one refused doesn't stop the rest; open pages hear the batch once |
 | `POST /projects/:project/issues/decide` | the owner's one decision on many proposals: `{ids, decision, note?}` → `[{id, ok, error?}]`; approving takes each one's recommended picks, and skips one with a choice that has none |
 | `DELETE /projects/:project/issues` | `{ids}` → `[{id, ok, error?}]`, each with its sub-issues, under the same protections as one |
 | `DELETE /projects/:project/issues/:issue` | with its sub-issues and comments |
@@ -214,6 +233,7 @@ until the release ships.
 - A top-level issue is in a `milestone`; a sub-issue (`parent`) is in its parent's milestone, so it takes no `milestone`
 - `parent: null` lifts a sub-issue to the top, into the milestone it was in
 - `release`: the version of a release of the project, or of the project it takes its releases from (see [Releases](#releases)); moving the issue to a project that doesn't share them takes it out. orrery sets it itself when a pull request on the issue merges into the branch of a release being prepared, if the issue and those above it have none
+- `epic`: the number of an epic (see [Epics](#epics)), from any project; `null` takes it out. Moving the issue keeps it
 - `project` moves the issue with its sub-issues and comments; they get that project's ids, their old ones kept as aliases
 - `depends_on`: the issues it waits on, all of them, replacing the list (`[]` or `null` for none): an id in its project,
   `project/ID` in another. An issue itself, one not there, more than 50, a parent and its own sub-issue, and a loop are
@@ -870,6 +890,7 @@ Docker), and takes writes only from its own page or a client with no `Origin`: a
 - `sessions` (`{project, sessions}`), `signal` (one sent), and `notice` (a comment for the owner's bell)
 - `schedules` (`{project, schedules}`, after a change or a run) and `secrets` (the list, never a value)
 - `chat` (the chat, with `ended` on its last): one of the owner's chats changed
+- `epics` (nothing: read `GET /epics` again): an epic was made, changed or deleted
 - `logged` (`{event, fresh}`): the [event log](#event-log) recorded or resolved one; `fresh` when it's a row of its own
 
 ## Example

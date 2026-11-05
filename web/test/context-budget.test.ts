@@ -32,27 +32,29 @@ describe('the tool list a session carries on every turn', () => {
         expect(tools(['greenhouse']).map(t => t.name)).toEqual([...work, 'more_tools'])
         expect(tools(['greenhouse'], {loaded: ['schedules', 'secrets', 'debug', 'review']}).map(t => t.name)).toEqual(['issues', 'issue', 'create_issue',
             'update_issue', 'start_issue', 'finish_issue', 'rate_pull', 'comment', 'releases', 'docs', 'doc', 'write_doc', 'sessions', 'secrets', 'egress',
-            'events', 'guide', 'resolve_event', 'create_schedule', 'update_schedule'])
+            'events', 'guide', 'resolve_event', 'create_schedule', 'update_schedule', 'more_tools'])
         expect(tools(['greenhouse'], {loaded: ['debug']}).map(t => t.name)).toEqual([...work.slice(0, -1), 'events', 'guide', 'resolve_event', 'more_tools'])
         // An untrusted one has only what orrery lets it do: read, raise proposals and comment on them, and read GitHub issues.
         expect(tools(['greenhouse'], {untrusted: true}).map(t => t.name)).toEqual(['issues', 'issue', 'create_issue', 'comment', 'releases', 'docs',
             'doc', 'sessions', 'guide', 'github_issues'])
         // The chat's requests (sessions, messages, settings, schedules, releases, milestones) sit behind request and
         // request_fields, read when it needs one (ORR-624).
-        expect(tools(['greenhouse'], {chat: true}).map(t => t.name)).toEqual(['issues', 'issue', 'create_issue', 'comment', 'milestones', 'releases', 'docs', 'doc', 'write_doc', 'presets', 'preset', 'schedules', 'sessions', 'secrets', 'egress', 'events', 'guide', 'resolve_event', 'reply', 'edit_issue', 'delegate_issue', 'move_issues', 'image', 'request', 'request_fields', 'github_issues', 'github_pulls'])
+        expect(tools(['greenhouse'], {chat: true}).map(t => t.name)).toEqual(['issues', 'issue', 'create_issue', 'comment', 'milestones', 'releases', 'epics', 'docs', 'doc', 'write_doc', 'presets', 'preset', 'schedules', 'sessions', 'secrets', 'egress', 'events', 'guide', 'resolve_event', 'reply', 'edit_issue', 'delegate_issue', 'move_issues', 'image', 'request', 'request_fields', 'github_issues', 'github_pulls'])
     })
 
     it('stays within its budget, for one project and for several', () => {
         // A work session's and an untrusted run's were cut by a third and more (ORR-625): 9,708 and 9,444 before. An
         // issue's GitHub issues (ORR-635) added about 140 to each, a doc's past (ORR-675) about 130, writing an artifact (ORR-677) about 95, and
-        // the guide's section (ORR-848) about 65, which saves a session most of the 39,000 the guide sent whole.
-        expect(size(tools(['greenhouse']))).toBeLessThanOrEqual(6_475)
-        expect(size(tools(['greenhouse', 'pantry']))).toBeLessThanOrEqual(7_360)
-        expect(size(tools(['greenhouse'], {loaded: ['schedules', 'secrets', 'debug']}))).toBeLessThanOrEqual(9_125)
-        expect(size(tools(['greenhouse'], {untrusted: true}))).toBeLessThanOrEqual(4_780)
-        // The chat's fell from about 20,100 when its requests went behind request (ORR-624), reading GitHub (ORR-748) added about 1,500, and its own docs, egress and event log (ORR-750) about 1,900.
-        expect(size(tools(['greenhouse'], {chat: true}))).toBeLessThanOrEqual(12_690)
-        expect(size(tools(['greenhouse', 'pantry'], {chat: true}))).toBeLessThanOrEqual(14_220)
+        // the guide's section (ORR-848) about 65, which saves a session most of the 39,000 the guide sent whole. An issue's
+        // epic (ORR-895) about 155, its tools waiting behind more_tools, and about 80 on an untrusted run, which has none of them.
+        expect(size(tools(['greenhouse']))).toBeLessThanOrEqual(6_630)
+        expect(size(tools(['greenhouse', 'pantry']))).toBeLessThanOrEqual(7_515)
+        expect(size(tools(['greenhouse'], {loaded: ['schedules', 'secrets', 'debug']}))).toBeLessThanOrEqual(9_260)
+        expect(size(tools(['greenhouse'], {untrusted: true}))).toBeLessThanOrEqual(4_860)
+        // The chat's fell from about 20,100 when its requests went behind request (ORR-624), reading GitHub (ORR-748) added about 1,500, and its own docs, egress and event log (ORR-750) about 1,900,
+        // and reading the epics (ORR-895) about 290.
+        expect(size(tools(['greenhouse'], {chat: true}))).toBeLessThanOrEqual(12_970)
+        expect(size(tools(['greenhouse', 'pantry'], {chat: true}))).toBeLessThanOrEqual(14_505)
     })
 
     it('has no description, of a tool or of its arguments, longer than a short paragraph', () => {

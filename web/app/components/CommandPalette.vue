@@ -114,6 +114,7 @@ const everywhere = computed<Entry[]>(() => [
     {key: 'go:sessions', group: 'Go to', label: 'Sessions', run: () => router.push('/sessions')},
     {key: 'go:schedules', group: 'Go to', label: 'Schedules', run: () => router.push('/schedules')},
     {key: 'go:releases', group: 'Go to', label: 'Releases', detail: 'across projects', run: () => router.push('/releases')},
+    {key: 'go:epics', group: 'Go to', label: 'Epics', detail: 'work across projects', run: () => router.push('/epics')},
     {key: 'go:events', group: 'Go to', label: 'Events', detail: 'the event log', run: () => router.push('/events')},
     {key: 'go:context', group: 'Go to', label: 'Context', detail: 'what a session is sent', run: () => router.push('/context')},
     {key: 'go:pulls', group: 'Go to', label: 'Pull requests', run: () => router.push('/pulls')},

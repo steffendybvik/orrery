@@ -6,7 +6,8 @@ import type {ProjectPatch} from '#shared/patch'
 // starts or stops listening for its signals, `launchers` ({project, count}) when a launcher that starts
 // sessions for it connects or goes, and `schedules` ({project, schedules}) when they change or
 // run, `secrets` (the list, never a value) when they change or one is used, and `logged` ({event, fresh}) when the
-// event log records or resolves one, and `chat` (the chat) when one of the owner's chats changes or ends, so open
+// event log records or resolves one, `epics` (nothing: ask `/api/epics` again) when an epic is made, changed or
+// deleted, and `chat` (the chat) when one of the owner's chats changes or ends, so open
 // pages update without a reload.
 export default defineEventHandler(async event => {
     const stream = createEventStream(event)
@@ -23,6 +24,7 @@ export default defineEventHandler(async event => {
     const onSecrets = (secrets: unknown) => stream.push({event: 'secrets', data: JSON.stringify(secrets)})
     const onLogged = (logged: unknown) => stream.push({event: 'logged', data: JSON.stringify(logged)})
     const onChat = (chat: unknown) => stream.push({event: 'chat', data: JSON.stringify(chat)})
+    const onEpics = () => stream.push({event: 'epics', data: ''})
     const onSchedules = (project: string) => useScheduler().list(project)
         .then(schedules => stream.push({event: 'schedules', data: JSON.stringify({project, schedules})}), () => {})
     if (patches) projectEvents.on('patch', onPatch)
@@ -40,6 +42,7 @@ export default defineEventHandler(async event => {
     projectEvents.on('secret-used', onSecrets)
     projectEvents.on('logged', onLogged)
     projectEvents.on('chat', onChat)
+    projectEvents.on('epics', onEpics)
     // Keeps proxies and the browser from dropping a quiet connection.
     const ping = setInterval(() => stream.push({event: 'ping', data: ''}), 25_000)
     // The headers go out with the first event: without one, the browser waits to call it open. It
@@ -62,6 +65,7 @@ export default defineEventHandler(async event => {
         projectEvents.off('secret-used', onSecrets)
         projectEvents.off('logged', onLogged)
         projectEvents.off('chat', onChat)
+        projectEvents.off('epics', onEpics)
         await stream.close()
     })
     return stream.send()

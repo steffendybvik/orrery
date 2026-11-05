@@ -30,7 +30,7 @@ export interface McpReference {
 /** The tools by what they do, in the order the tab shows them. A tool in none is listed under Other, and a test fails on it. */
 export const MCP_GROUPS: {title: string, tools: string[]}[] = [
     {title: 'Issues', tools: ['issues', 'issue', 'create_issue', 'update_issue', 'edit_issue', 'start_issue', 'finish_issue', 'rate_pull', 'move_issues', 'delegate_issue', 'comment']},
-    {title: 'Roadmap', tools: ['milestones', 'releases']},
+    {title: 'Roadmap', tools: ['milestones', 'releases', 'epics', 'create_epic', 'update_epic']},
     {title: 'Docs', tools: ['docs', 'doc', 'write_doc']},
     {title: 'Sessions and presets', tools: ['sessions', 'presets', 'preset']},
     {title: 'Schedules', tools: ['schedules', 'create_schedule', 'update_schedule']},

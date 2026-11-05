@@ -56,7 +56,7 @@ export abstract class OwnerStore extends StatusStore {
                 WHERE NOT EXISTS (SELECT 1 FROM project_members WHERE project = projects.id AND role = 'owner')`, name)
             if (name === before.name) return
             await this.run('UPDATE comments SET person = ? WHERE person = ?', name, before.name)
-            for (const table of ['projects', 'milestones', 'issues', 'docs', 'doc_revisions', 'comments', 'signals', 'schedules', 'issue_events', 'secrets', 'uploads', 'releases', 'presets', 'issue_links'])
+            for (const table of ['projects', 'milestones', 'issues', 'docs', 'doc_revisions', 'comments', 'signals', 'schedules', 'issue_events', 'secrets', 'uploads', 'releases', 'epics', 'presets', 'issue_links'])
                 await this.run(`UPDATE ${table} SET created_by = ? WHERE owned = 1 AND lower(created_by) = ?`, name, before.name)
             await this.run('UPDATE schedules_across SET created_by = ? WHERE lower(created_by) = ?', name, before.name)
             await this.run('UPDATE issues SET assignee = ? WHERE lower(assignee) = ?', name, before.name)

@@ -7,7 +7,7 @@ import {AGENT, OWNER, makeProject, projectApi} from './support'
 // sidebar entry goes to its page and shows as active there, and the ⌘K palette and App settings → Advanced still lead
 // to theirs. The pages are one list, so a new page is a line here.
 const api = projectApi('atlas')
-const made = {milestone: '', doc: '', issue: ''}
+const made = {milestone: '', doc: '', issue: '', epic: 0}
 
 interface Route {
     path: string
@@ -27,6 +27,8 @@ const ROUTES = (): Route[] => [
     {path: '/sessions', heading: 'Sessions', sidebar: 'Sessions', palette: 'Sessions'},
     {path: '/schedules', heading: 'Schedules', sidebar: 'Schedules', palette: 'Schedules'},
     {path: '/releases', heading: 'Releases', sidebar: 'Releases', palette: 'Releases'},
+    {path: '/epics', heading: 'Epics', sidebar: 'Epics', palette: 'Epics'},
+    {path: `/epics/${made.epic}`, heading: 'Survey the coasts', sidebar: 'Epics'},
     {path: '/events', heading: 'Events', sidebar: 'Events', palette: 'Events', advanced: true},
     {path: '/context', heading: 'Context', sidebar: 'Context', palette: 'Context', advanced: true},
     {path: '/pulls', heading: 'Pull requests', sidebar: 'Pull requests', palette: 'Pull requests', advanced: true},
@@ -70,13 +72,15 @@ test.beforeAll(async ({request}) => {
         made.milestone = String((await api(request, 'get', '/milestones') as {id: number, title: string}[]).find(c => c.title === 'Coastlines')!.id)
         made.doc = (await api(request, 'get', '/docs') as {id: string, title: string}[]).find(d => d.title === 'Projections')!.id
         made.issue = (await api(request, 'get', '/issues?q=fjords') as {id: string}[])[0]!.id
+        made.epic = (await (await request.get('/api/epics')).json() as {id: number, title: string}[]).find(e => e.title === 'Survey the coasts')!.id
         return
     }
     await makeProject(request, {name: 'Atlas', key: 'ATL', release_mode: 'own'})
     made.milestone = String((await api(request, 'post', '/milestones', {title: 'Coastlines'})).id)
     made.doc = (await api(request, 'post', '/docs', {title: 'Projections', body: 'Mercator, mostly.'})).id
     await api(request, 'post', '/releases', {version: '2.0.0'})
-    made.issue = (await api(request, 'post', '/issues', {title: 'Chart the fjords', milestone: made.milestone})).id
+    made.epic = (await (await request.post('/api/epics', {data: {title: 'Survey the coasts'}, headers: AGENT})).json() as {id: number}).id
+    made.issue = (await api(request, 'post', '/issues', {title: 'Chart the fjords', milestone: made.milestone, epic: made.epic})).id
     // What the contrast pass has to see (ORR-855): a row waiting on a decision, a schedule that has run and one paused.
     const waiting = (await api(request, 'post', '/issues', {title: 'Pick a projection', milestone: made.milestone, status: 'in-progress'})).id
     await api(request, 'post', `/issues/${waiting}/comments`, {body: 'Mercator or Robinson?', asks: 'decision'})
@@ -316,6 +320,7 @@ test('the links on App settings → Advanced lead to their pages, with Advanced 
 /** The sidebar link that's active on a route: a project's section is at the section's own address. */
 function entryPath(route: Route) {
     const path = route.path.split('?')[0]!
+    if (path.startsWith('/epics/')) return '/epics'
     const section = path.match(/^\/p\/atlas\/(roadmap|releases|docs|settings|issues)/)?.[1]
     if (!section) return path
     return section === 'issues' ? '/p/atlas' : `/p/atlas/${section}`

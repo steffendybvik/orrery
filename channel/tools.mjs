@@ -29,6 +29,7 @@ const FIELDS = {
     milestone: {type: ['string', 'null'], description: "A milestone's id"},
     parent: {type: ['string', 'null'], description: 'Makes it a sub-issue of this issue'},
     release: {type: ['string', 'null'], description: 'The release version it ships in'},
+    epic: {type: ['integer', 'null'], description: 'An epic: work across projects'},
     depends_on: {type: 'array', items: {type: 'string'}, description: 'Issues it waits on (all); chain ordered follow-ups'},
     choices: CHOICES,
 }
@@ -92,6 +93,17 @@ export const TOOLS = [
         name: 'releases',
         description: "Lists the project's releases with their branches and progress; of the shipped ones, only the latest unless all.",
         inputSchema: {type: 'object', properties: {all: {type: 'boolean', description: 'Every shipped release too'}}},
+    },
+    {name: 'epics', description: 'Lists the epics, each one piece of work across projects, with progress and the projects it spans; issues join one with epic.', inputSchema: {type: 'object', properties: {}}},
+    {
+        name: 'create_epic',
+        description: 'Adds an epic: one piece of work across projects (a feature with a part in each repo). Then set epic on each issue in it.',
+        inputSchema: {type: 'object', required: ['title'], properties: {title: {type: 'string'}, notes: {type: 'string', description: 'What it is, in Markdown'}}},
+    },
+    {
+        name: 'update_epic',
+        description: "Changes an epic's title or notes, by its number: send only what changes.",
+        inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'integer'}, title: {type: 'string'}, notes: {type: ['string', 'null']}}},
     },
     {
         name: 'docs',
@@ -388,21 +400,22 @@ export const ON_DEMAND = {
     secrets: ['secrets', 'egress'],
     debug: ['events', 'resolve_event'],
     review: ['rate_pull'],
+    epics: ['epics', 'create_epic', 'update_epic'],
 }
 
 const MORE_TOOLS = {
     name: 'more_tools',
-    description: "Adds tools: schedules (ask the owner on your issue for one), secrets (egress: call an outside service with a key), debug (orrery's event log), review (rate each PR you open).",
+    description: "Adds tools: schedules (ask the owner on your issue for one), secrets (egress: call an outside service with a key), debug (orrery's event log), review (rate each PR you open), epics (work across projects).",
     inputSchema: {type: 'object', required: ['group'], properties: {group: {type: 'string', enum: Object.keys(ON_DEMAND)}}},
 }
 
 /** What an untrusted schedule's session goes without: what orrery refuses it (the permissions' untrusted column: it
  * only raises proposals and comments on them), and orrery's own log. */
-export const NOT_FOR_UNTRUSTED = ['update_issue', 'start_issue', 'finish_issue', 'rate_pull', 'write_doc', 'secrets', 'egress', 'events', 'resolve_event']
+export const NOT_FOR_UNTRUSTED = ['epics', 'create_epic', 'update_epic', 'update_issue', 'start_issue', 'finish_issue', 'rate_pull', 'write_doc', 'secrets', 'egress', 'events', 'resolve_event']
 
 /** The tools a chat goes without: those that take up or finish work, its one rule (ORR-750), `update_issue` among them as
  * it sets a status; `edit_issue` is its way to change the rest (its launcher refuses them too, `chatOnly`). */
-export const NOT_FOR_CHAT = ['start_issue', 'finish_issue', 'update_issue', 'rate_pull']
+export const NOT_FOR_CHAT = ['start_issue', 'finish_issue', 'update_issue', 'rate_pull', 'create_epic', 'update_epic']
 
 /** The reads only the chat has use for, helping the owner plan: a work session goes without them, so their definitions
  * don't ride on its every turn (ORR-544). */
@@ -621,6 +634,18 @@ export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''),
                 ...shown.map(r => `${r.version}${r.shipped_on ? ` (shipped ${r.shipped_on})` : r.frozen_on ? ` (feature freeze since ${r.frozen_on}: fixes, tests and docs)` : ''}${r.branch ? ` on ${r.branch}` : ''}: ${r.issues} issue${r.issues === 1 ? '' : 's'}, ${r.kinds.done}/${r.kinds.backlog + r.kinds.todo + r.kinds.started + r.kinds.done} done`),
                 ...hidden ? [`${hidden} older shipped release${hidden === 1 ? '' : 's'} not shown: all lists them`] : [],
             ].join('\n') || 'No releases yet.'
+        },
+        async epics() {
+            const epics = await call('GET', '/epics', undefined, root)
+            return epics.map(e => `${e.id} ${e.title}: ${e.issues} issue${e.issues === 1 ? '' : 's'}, ${e.kinds.done}/${e.kinds.backlog + e.kinds.todo + e.kinds.started + e.kinds.done} done${e.projects.length ? ` in ${e.projects.map(p => p.project).join(', ')}` : ''}`).join('\n') || 'No epics yet.'
+        },
+        async create_epic({title, notes}) {
+            const epic = await call('POST', '/epics', {title, ...notes === undefined ? {} : {notes}}, root)
+            return `Made epic ${epic.id}: ${epic.title}. Set epic: ${epic.id} on each issue in it.`
+        },
+        async update_epic({id, ...fields}) {
+            const epic = await call('PATCH', `/epics/${encodeURIComponent(id)}`, pick(fields, ['title', 'notes']), root)
+            return `Epic ${epic.id} is now: ${epic.title}`
         },
         async docs(args) {
             const query = args.q ? `?${new URLSearchParams({q: args.q})}` : ''

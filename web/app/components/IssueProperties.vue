@@ -37,6 +37,14 @@ const release = computed({
     set: (next: string) => save({release: next || null}),
 })
 const releaseOptions = computed(() => [{value: '', label: 'No release'}, ...props.project.releases.map(r => ({value: r.version, label: r.shipped_on ? `${r.version} · shipped` : isFrozen(r) ? `${r.version} · frozen` : r.version}))])
+// The epic it's part of (ORR-895), one piece of work across projects; a sub-issue with none goes with its parent's.
+const {epics} = useLiveEpics()
+const epic = computed({
+    get: () => props.issue.epic === undefined ? '' : String(props.issue.epic),
+    set: (next: string) => save({epic: next ? Number(next) : null}),
+})
+const epicOptions = computed(() => [{value: '', label: 'No epic'}, ...(epics.value ?? []).map(e => ({value: String(e.id), label: e.title}))])
+const epicTitle = computed(() => props.issue.epic === undefined ? undefined : epics.value?.find(e => e.id === props.issue.epic)?.title ?? `Epic ${props.issue.epic}`)
 // Its own model (ORR-869), over its kind's: empty follows the kind, whose model shows as the empty choice. A full id set
 // through the API stays a choice.
 const {settings: appSettings} = useAppSettings()
@@ -252,6 +260,18 @@ const assigneeOptions = computed(() => [{value: '', label: 'Unassigned'}, ...peo
           </UiButton>
         </dd>
         <dd v-if="frozen" class="col-start-2 -mt-1 text-xs text-faint">Frozen: fixes, tests and docs. A new feature fits the next release.</dd>
+      </template>
+
+      <template v-if="epics?.length || issue.epic !== undefined">
+        <dt class="label">Epic</dt>
+        <dd class="flex min-w-0 items-center gap-1" data-testid="issue-epic">
+          <PropertyPicker v-model="epic" :options="epicOptions" label="Epic" :disabled="saving">
+            <span class="truncate text-xs" :class="!epicTitle && 'text-faint'">{{ epicTitle ?? 'No epic' }}</span>
+          </PropertyPicker>
+          <UiButton v-if="issue.epic !== undefined" :to="epicPath(issue.epic)" variant="ghost" size="xs" square class="shrink-0" title="Open the epic" aria-label="Open the epic">
+            <svg class="size-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M9 7h8v8" /></svg>
+          </UiButton>
+        </dd>
       </template>
 
       <dt class="label">Blocked by</dt>

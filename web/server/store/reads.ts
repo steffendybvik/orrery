@@ -108,6 +108,7 @@ export async function readBoard(db: Db, project: string, statuses: IssueStatus[]
         aliases: issueAliases.get(row.id) ?? [],
         schedule: row.schedule ?? undefined,
         release: row.ships_in ?? undefined,
+        ...row.epic ? {epic: Number(row.epic)} : {},
         ...row.model ? {model: row.model} : {},
         ...row.effort ? {effort: row.effort} : {},
         created_by: row.created_by,
@@ -133,14 +134,15 @@ export async function readBoard(db: Db, project: string, statuses: IssueStatus[]
 }
 
 
-/** The project's issues as far as tallying its releases takes (`tallyReleases`), all in one milestone: no comments, links,
+/** The project's issues as far as tallying its releases and epics takes (`tallyReleases`, `tallyEpics`), all in one milestone: no comments, links,
  * aliases or notes, so `GET /api/releases` doesn't build every project's board (ORR-671). */
 export async function readReleaseBoard(db: Db, project: string, statuses: IssueStatus[]): Promise<Board> {
-    const rows = await db.all<Pick<IssueRow, 'id' | 'parent' | 'status' | 'proposal' | 'ships_in'>>('SELECT id, parent, status, proposal, ships_in FROM issues WHERE project = ?', project)
+    const rows = await db.all<Pick<IssueRow, 'id' | 'parent' | 'status' | 'proposal' | 'ships_in' | 'epic'>>('SELECT id, parent, status, proposal, ships_in, epic FROM issues WHERE project = ?', project)
     const children = new Map<string | null, typeof rows>()
     for (const row of rows) children.set(row.parent, [...children.get(row.parent) ?? [], row])
     const input = (row: typeof rows[number]): IssueInput => ({
         id: row.id, title: '', labels: [], status: row.status, proposal: row.proposal ?? undefined, release: row.ships_in ?? undefined,
+        ...row.epic ? {epic: Number(row.epic)} : {},
         tasks: (children.get(row.id) ?? []).map(input),
     })
     return buildBoard({milestones: [{id: '', title: '', summary: '', tasks: (children.get(null) ?? []).map(input)}]}, statuses)

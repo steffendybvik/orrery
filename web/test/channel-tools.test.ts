@@ -45,7 +45,7 @@ describe('whose a session is', () => {
 
 describe("the channel's tools", () => {
     it('each have a name, a description and an object schema', () => {
-        expect(TOOLS.map((t: {name: string}) => t.name)).toEqual(['issues', 'issue', 'create_issue', 'update_issue', 'start_issue', 'finish_issue', 'rate_pull', 'comment', 'milestones', 'releases', 'docs', 'doc', 'write_doc', 'presets', 'preset', 'schedules', 'sessions', 'secrets', 'egress', 'events', 'guide', 'resolve_event'])
+        expect(TOOLS.map((t: {name: string}) => t.name)).toEqual(['issues', 'issue', 'create_issue', 'update_issue', 'start_issue', 'finish_issue', 'rate_pull', 'comment', 'milestones', 'releases', 'epics', 'create_epic', 'update_epic', 'docs', 'doc', 'write_doc', 'presets', 'preset', 'schedules', 'sessions', 'secrets', 'egress', 'events', 'guide', 'resolve_event'])
         for (const tool of TOOLS) expect(tool).toMatchObject({description: expect.any(String), inputSchema: {type: 'object'}})
     })
 
@@ -627,6 +627,19 @@ describe("the channel's tools", () => {
         expect(calls[1]!.url).toBe('/issues?release=1.1.0')
     })
 
+    it('list the epics across projects, and make and change one', async () => {
+        const kinds = {proposed: 0, backlog: 1, todo: 0, started: 0, done: 1, canceled: 0}
+        const {call, calls} = harness({
+            'GET /epics': {body: [{id: 3, title: 'Checkout tracking', issues: 2, kinds, projects: [{project: 'checkout'}, {project: 'core-api'}]}]},
+            'POST /epics': {body: {id: 4, title: 'Search'}},
+            'PATCH /epics/4': {body: {id: 4, title: 'Site search'}},
+        })
+        expect((await call('epics')).text).toBe('3 Checkout tracking: 2 issues, 1/2 done in checkout, core-api')
+        expect((await call('create_epic', {title: 'Search'})).text).toBe('Made epic 4: Search. Set epic: 4 on each issue in it.')
+        expect((await call('update_epic', {id: 4, title: 'Site search'})).text).toBe('Epic 4 is now: Site search')
+        expect(calls.map(c => [c.method, c.url, c.body])).toEqual([['GET', '/epics', undefined], ['POST', '/epics', {title: 'Search'}], ['PATCH', '/epics/4', {title: 'Site search'}]])
+    })
+
     it('list of the shipped releases only the latest, and of the milestones none done, unless asked for all', async () => {
         const kinds = {proposed: 0, backlog: 0, todo: 0, started: 0, done: 1, canceled: 0}
         const release = (version: string, shipped_on?: string) => ({version, ...shipped_on ? {shipped_on} : {}, issues: 1, kinds})
@@ -698,7 +711,7 @@ describe('one channel serving several projects', () => {
         expect(docs.inputSchema.required).toEqual(['project'])
         expect(docs.inputSchema.properties.project!.enum).toEqual(['greenhouse', 'pantry'])
         expect(tools.find(t => t.name === 'issue')!.inputSchema.properties).not.toHaveProperty('project')
-        expect(toolsFor(['greenhouse'], {loaded: ['schedules', 'secrets', 'debug', 'review']})).toEqual([...TOOLS.filter((t: {name: string}) => !CHAT_READS.includes(t.name)), ...ASK_TOOLS])
+        expect(toolsFor(['greenhouse'], {loaded: ['schedules', 'secrets', 'debug', 'review', 'epics']})).toEqual([...TOOLS.filter((t: {name: string}) => !CHAT_READS.includes(t.name)), ...ASK_TOOLS])
     })
 })
 
@@ -718,7 +731,7 @@ describe('tools loaded on demand', () => {
         expect(await call('more_tools', {group: 'everything'})).toMatchObject({isError: true})
         // Not listed yet, it still answers when called by its name.
         expect(await call('secrets')).not.toMatchObject({isError: true})
-        expect(tools({loaded: ['schedules', 'secrets', 'debug', 'review']})).not.toContain('more_tools')
+        expect(tools({loaded: ['schedules', 'secrets', 'debug', 'review', 'epics']})).not.toContain('more_tools')
     })
 
     it("isn't the chat's or an untrusted run's, and an untrusted run can't call what it isn't given", async () => {

@@ -163,7 +163,7 @@ export function ago(iso: string): string {
     return new Date(iso).toLocaleDateString(undefined, {day: 'numeric', month: 'short'})
 }
 
-export type Section = 'issues' | 'roadmap' | 'releases' | 'docs' | 'schedules' | 'sessions' | 'settings'
+export type Section = 'issues' | 'roadmap' | 'releases' | 'epics' | 'docs' | 'schedules' | 'sessions' | 'settings'
 
 /** A project's pages, as the sidebar and the tabs show them; `path` marks the one on screen. Its sessions and
  * schedules are on the Sessions and Schedules pages, kept to it. */
@@ -185,6 +185,16 @@ export function sectionsOf(project: Project, path: string) {
 
 /** A release's page. */
 export const releasePath = (project: string, version: string) => `/p/${encodeURIComponent(project)}/releases/${encodeURIComponent(version)}`
+
+/** An epic's page (ORR-895). */
+export const epicPath = (id: number) => `/epics/${id}`
+
+/** The issues in an epic in one project, milestone by milestone as its board has them: a sub-issue set for it on its
+ * own comes up from under its parent. Milestones with none of them are left out. */
+export function epicMilestones(project: Project, epic: number): Milestone[] {
+    const pick = (issues: Issue[]): Issue[] => issues.flatMap(issue => issue.epic === epic ? [issue] : pick(issue.tasks))
+    return project.board.milestones.map(c => ({...c, tasks: pick(c.tasks)})).filter(c => c.tasks.length)
+}
 
 /** A milestone's page; the issues in no milestone are at `none`. */
 export const milestonePath = (project: string, milestone: string) => `/p/${encodeURIComponent(project)}/roadmap/${milestone ? encodeURIComponent(milestone) : 'none'}`
