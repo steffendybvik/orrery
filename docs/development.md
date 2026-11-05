@@ -136,9 +136,14 @@ to the pull tables (the poll, a rating), which waits on how the local app hears 
 
 The outbox (ORR-929, `api/src/changes.rs`, the `rust-api-events` decision): each write the API makes adds a row to
 `changes` for each thing it set off (a project changed, the settings, each event told), and `GET /api/changes?after=<id>`
-reads them, oldest first, a page at a time, with `last` to ask after next. So far the rows go in just after the write, on
-its connection, rather than in its transaction, and only the API's writes add them. Nothing reads them yet: the reply
-headers still carry what changed to the Nuxt server.
+reads them, oldest first, a page at a time, with `last` to ask after next. Asked with `Accept: text/event-stream`, the
+same path streams them as server-sent events, oldest first, then live, each with its id, so a reader reconnecting with
+`Last-Event-ID` carries on from it. A write's reply wakes the open streams (`changes::wake()`, once the write is
+committed), and they look every second anyway, for writes from another process. A cursor whose row isn't kept answers
+`gap: true` (a `gap` event on the stream) with the newest id: the reader has missed rows, so it reads the board again.
+Rows older than a week are pruned hourly, keeping the newest. So far the rows go in just after the write, on its
+connection, rather than in its transaction, and only the API's writes add them. Nothing reads them yet: the reply headers
+still carry what changed to the Nuxt server.
 
 ## The page's pieces
 

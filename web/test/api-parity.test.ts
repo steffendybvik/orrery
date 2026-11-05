@@ -817,6 +817,44 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         expect(await viaApi('GET', '/api/changes?after=x')).toMatchObject({status: 400})
     })
 
+    it('streams the outbox as server-sent events, live, and says when a cursor has gone (ORR-929)', async () => {
+        const headers = {'Orrery-Api-Token': TOKEN, 'Orrery-Database': databaseMark(setting), ...actorHeaders(SESSION)}
+        // The newest id, a page at a time, so the stream opens after every row there is.
+        let last = 0
+        for (let page; (page = (await viaApi('GET', `/api/changes?after=${last}`)).body as {changes: unknown[], last: number}).changes.length;) last = page.last
+        const stop = new AbortController()
+        const response = await fetch(`${url}/api/changes?after=${last}`, {headers: {...headers, Accept: 'text/event-stream'}, signal: stop.signal})
+        expect(response.headers.get('content-type')).toContain('text/event-stream')
+        const reader = response.body!.pipeThrough(new TextDecoderStream()).getReader()
+        let said = ''
+        const events = async (count: number) => {
+            for (;;) {
+                const found = said.split('\n\n').filter(e => /^data:/m.test(e))
+                if (found.length >= count) return found.map(e => ({id: /^id:\s*(\d+)/m.exec(e)?.[1], event: /^event:\s*(\S+)/m.exec(e)?.[1], data: JSON.parse(/^data:\s*(.*)$/m.exec(e)![1]!)}))
+                const {value, done} = await reader.read()
+                if (done) throw new Error('the stream ended')
+                said += value
+            }
+        }
+        // Made after the stream opened, so it comes live, woken by the write rather than on its next look.
+        expect((await viaApi('POST', '/docs', {title: 'Streamed'}, SESSION)).status).toBe(201)
+        const started = Date.now()
+        const sent = await events(2)
+        expect(Date.now() - started).toBeLessThan(900)
+        expect(sent.map(({data: {kind, subject}}) => ({kind, subject}))).toEqual([{kind: 'project.changed', subject: undefined}, {kind: 'doc.created', subject: 'streamed'}])
+        expect(sent.map(e => Number(e.id))).toEqual(sent.map(e => e.data.id))
+        stop.abort()
+        // A cursor the outbox doesn't keep has missed rows: read the board again, and carry on from the newest.
+        const newest = sent.at(-1)!.data.id as number
+        expect((await viaApi('GET', `/api/changes?after=${newest + 1000}`)).body).toEqual({changes: [], last: newest, gap: true})
+        const gone = await fetch(`${url}/api/changes`, {headers: {...headers, 'Accept': 'text/event-stream', 'Last-Event-ID': String(newest + 1000)}, signal: AbortSignal.timeout(5000)})
+        const first = (await gone.body!.pipeThrough(new TextDecoderStream()).getReader().read()).value!
+        expect(first).toMatch(/^event: gap$/m)
+        expect(first).toContain(`data: {"last":${newest}}`)
+        await gone.body?.cancel().catch(() => {})
+        expect(await fetch(`${url}/api/changes?after=x`, {headers: {...headers, Accept: 'text/event-stream'}}).then(r => r.status)).toBe(400)
+    })
+
     it('records a request that runs two transactions once (ORR-929)', async () => {
         const last = async () => ((await viaApi('GET', '/api/changes')).body as {last: number}).last
         const read = async (after: number) => ((await viaApi('GET', `/api/changes?after=${after}`)).body as {changes: {kind: string, project?: string}[]}).changes
