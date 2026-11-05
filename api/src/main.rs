@@ -1,4 +1,4 @@
-// orrery's API in Rust (ORR-922). For now it serves docs, the statuses (ORR-926) and reading issues, their comments and their activity (ORR-927), on the database the Nuxt server opens, and only
+// orrery's API in Rust (ORR-922). For now it serves docs, the statuses (ORR-926), reading issues, their comments and their activity (ORR-927), and the people list, keys and logins (ORR-928), on the database the Nuxt server opens, and only
 // to that server: the router there (web/server/middleware/zz-api.ts) checks a request as it always has (auth, the
 // board's permissions, the chat's and untrusted sessions' rails, the browser guards) and then forwards it here with
 // who it's from. So this listens on loopback, and answers only a request that carries the token they share.
@@ -17,6 +17,7 @@ mod docs;
 mod error;
 mod issues;
 mod migrate;
+mod people;
 mod statuses;
 mod steps;
 mod text;
@@ -32,6 +33,7 @@ use comments::{comment_id, Comments};
 use docs::{Actor, Docs, Effects};
 use error::{ApiError, Result};
 use issues::Issues;
+use people::{holder_of, People, Who};
 use percent_encoding::{percent_decode_str, utf8_percent_encode, NON_ALPHANUMERIC};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -67,6 +69,23 @@ fn actor_of(headers: &HeaderMap) -> Actor {
         owner: header(headers, "orrery-actor-owner").as_deref() == Some("1"),
         session: header(headers, "orrery-actor-session").filter(|s| !s.is_empty()),
     }
+}
+
+/// The credential the router checked, if auth is on (`Who`): `Orrery-Who: browser|agent`, with its person and whether
+/// they're the owner.
+fn who_of(headers: &HeaderMap) -> Option<Who> {
+    let browser = match header(headers, "orrery-who").as_deref() {
+        Some("browser") => true,
+        Some("agent") => false,
+        _ => return None,
+    };
+    let person = header(headers, "orrery-who-person").filter(|p| !p.is_empty())?;
+    Some(Who { person, owner: header(headers, "orrery-who-owner").as_deref() == Some("1"), browser })
+}
+
+/// The asking browser's login, hashed as the logins table keeps it: the cookie itself stays with the router.
+fn login_of(headers: &HeaderMap) -> Option<String> {
+    header(headers, "orrery-login").filter(|l| !l.is_empty())
 }
 
 async fn guard(State(app): Shared, request: Request, next: Next) -> Response {
@@ -259,8 +278,52 @@ async fn delete_status(State(app): Shared, Path(status): Path<String>, Query(que
     Ok(reply(StatusCode::NO_CONTENT, None, effects))
 }
 
+async fn list_people(State(app): Shared) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    Ok(Json(People::new(&mut conn).people().await?).into_response())
+}
+
+async fn list_keys(State(app): Shared, headers: HeaderMap) -> Result<Response> {
+    let (person, owner) = holder_of("keys.write", who_of(&headers).as_ref(), &actor_of(&headers))?;
+    let mut conn = app.pool.acquire().await?;
+    Ok(Json(People::new(&mut conn).keys((!owner).then_some(person.as_str())).await?).into_response())
+}
+
+async fn make_key(State(app): Shared, headers: HeaderMap, body: Bytes) -> Result<Response> {
+    let (person, owner) = holder_of("keys.write", who_of(&headers).as_ref(), &actor_of(&headers))?;
+    let mut conn = app.pool.acquire().await?;
+    let key = People::new(&mut conn).make_key(&body_of(&body), &person, owner).await?;
+    Ok((StatusCode::CREATED, Json(key)).into_response())
+}
+
+async fn revoke_key(State(app): Shared, Path(key): Path<String>, headers: HeaderMap) -> Result<Response> {
+    let (person, owner) = holder_of("keys.write", who_of(&headers).as_ref(), &actor_of(&headers))?;
+    let mut conn = app.pool.acquire().await?;
+    People::new(&mut conn).revoke_key(&key, (!owner).then_some(person.as_str())).await?;
+    Ok(StatusCode::NO_CONTENT.into_response())
+}
+
+async fn list_logins(State(app): Shared, headers: HeaderMap) -> Result<Response> {
+    let (person, owner) = holder_of("logins.write", who_of(&headers).as_ref(), &actor_of(&headers))?;
+    let mut conn = app.pool.acquire().await?;
+    Ok(Json(People::new(&mut conn).logins((!owner).then_some(person.as_str()), login_of(&headers).as_deref()).await?).into_response())
+}
+
+async fn end_other_logins(State(app): Shared, headers: HeaderMap) -> Result<Response> {
+    let (person, owner) = holder_of("logins.write", who_of(&headers).as_ref(), &actor_of(&headers))?;
+    let mut conn = app.pool.acquire().await?;
+    Ok(Json(People::new(&mut conn).end_other_logins((!owner).then_some(person.as_str()), login_of(&headers).as_deref()).await?).into_response())
+}
+
+async fn end_login(State(app): Shared, Path(login): Path<String>, headers: HeaderMap) -> Result<Response> {
+    let (person, owner) = holder_of("logins.write", who_of(&headers).as_ref(), &actor_of(&headers))?;
+    let mut conn = app.pool.acquire().await?;
+    People::new(&mut conn).end_login(&login, (!owner).then_some(person.as_str())).await?;
+    Ok(StatusCode::NO_CONTENT.into_response())
+}
+
 async fn health() -> Json<Value> {
-    Json(json!({"ok": true, "domains": ["docs", "statuses", "issues, reading", "comments, reading", "activity"]}))
+    Json(json!({"ok": true, "domains": ["docs", "statuses", "issues, reading", "comments, reading", "activity", "people, reading", "keys", "logins"]}))
 }
 
 fn router(app: Arc<App>) -> Router {
@@ -282,6 +345,11 @@ fn router(app: Arc<App>) -> Router {
         .route(&format!("{P}/issues/{{issue}}/activity"), get(get_activity))
         .route("/api/statuses", get(list_statuses).post(create_status))
         .route("/api/statuses/{status}", patch(patch_status).delete(delete_status))
+        .route("/api/people", get(list_people))
+        .route("/api/keys", get(list_keys).post(make_key))
+        .route("/api/keys/{key}", axum::routing::delete(revoke_key))
+        .route("/api/logins", get(list_logins).delete(end_other_logins))
+        .route("/api/logins/{login}", axum::routing::delete(end_login))
         .layer(middleware::from_fn_with_state(app.clone(), guard))
         .with_state(app)
 }
