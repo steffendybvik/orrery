@@ -84,7 +84,20 @@ export interface Session {
     /** The effort level it runs at, from its hook on tool events, so an `/effort` switch shows too (ORR-894). None until it
      * has said: then the one it was started at (`started.effort`), if any. */
     effort?: Effort
+    /** How much context it carries (ORR-968), from its hook after a turn and on tool events: the tokens its latest reply
+     * was given, the model's `window`, and `compacted` once Claude Code has compacted it (which lowers the count)
+     * since its last clear. None until it has said. */
+    context?: ContextUse
 }
+
+/** How much context a session carries, as its hook last said (ORR-968). */
+export interface ContextUse {tokens: number, window: number, compacted?: boolean}
+
+/** A model's context window in tokens (ORR-968): 1M for a `[1m]` model, or once more than 200k is in use, else 200k. */
+export const contextWindow = (model: string | undefined, tokens: number) => /\[1m\]/i.test(model ?? '') || tokens > 200_000 ? 1_000_000 : 200_000
+
+/** How full a session's context is, from 0 to 1. */
+export const contextShare = ({tokens, window}: ContextUse) => Math.min(1, Math.max(0, tokens / window))
 
 /** Whether a session goes in a list of sessions (ORR-716): something can be done with it there, as it hears signals, its
  * channel can stop it, or orrery started it. Any other is known only from its hooks, and has no message box and no Stop. */

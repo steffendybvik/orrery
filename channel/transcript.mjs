@@ -22,8 +22,24 @@ export function effortOf(hook) {
 
 const TAIL = 256 * 1024
 
+/** How much context the session carries (ORR-968): the tokens the latest reply was given, which every turn pays for
+ * again, read off its transcript after a turn (`Stop`) and on tool events, so it updates as a turn goes. Nothing when
+ * it can't tell. */
+export function contextOf(hook) {
+    if (!CONTEXT_EVENTS.includes(hook.hook_event_name) || typeof hook.transcript_path !== 'string') return undefined
+    return lastReply(hook.transcript_path)?.tokens
+}
+
+const CONTEXT_EVENTS = ['Stop', 'PreToolUse']
+
 /** The model of the latest assistant reply in a transcript (one JSON entry a line), or nothing. */
 export function lastModel(path) {
+    return lastReply(path)?.model
+}
+
+/** The latest assistant reply in a transcript: its model, and the tokens it was given (input, cache read and cache
+ * written: the whole context), when its usage says. Nothing when there's none. */
+export function lastReply(path) {
     let fd
     try {
         fd = openSync(path, 'r')
@@ -36,9 +52,10 @@ export function lastModel(path) {
             if (!lines[i].includes('"model"')) continue
             try {
                 const entry = JSON.parse(lines[i])
-                const model = entry?.type === 'assistant' ? entry.message?.model : undefined
+                const message = entry?.type === 'assistant' ? entry.message : undefined
+                const model = message?.model
                 // A reply Claude Code makes up itself (an error, an interruption) is `<synthetic>`, no model's.
-                if (typeof model === 'string' && model && !model.startsWith('<')) return model
+                if (typeof model === 'string' && model && !model.startsWith('<')) return {model, tokens: tokensOf(message.usage)}
             } catch {
                 // The first line read can start mid-entry.
             }
@@ -49,4 +66,11 @@ export function lastModel(path) {
         if (fd !== undefined) closeSync(fd)
     }
     return undefined
+}
+
+function tokensOf(usage) {
+    if (!usage || typeof usage !== 'object') return undefined
+    const parts = [usage.input_tokens, usage.cache_read_input_tokens, usage.cache_creation_input_tokens]
+    if (!parts.some(n => Number.isFinite(n))) return undefined
+    return parts.reduce((sum, n) => sum + (Number.isFinite(n) && n > 0 ? n : 0), 0)
 }

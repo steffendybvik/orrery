@@ -69,6 +69,8 @@ const behind = computed(() => props.session.listening && olderVersion(props.sess
           <span class="min-w-0 truncate text-[14px] font-medium text-fg">{{ session.name }}</span>
           <!-- What it runs on and at what effort (ORR-871, ORR-894), as every place draws it (ORR-969). -->
           <ModelChip :session="session" />
+          <!-- And how much context it carries (ORR-968). -->
+          <ContextMeter :context="session.context" />
           <span v-if="roles.length" class="flex items-center gap-1" :aria-label="`As ${roles.map(r => r.name).join(', ')}`">
             <span v-for="role in roles" :key="role.name" :title="role.name" class="inline-flex"><PresetBadge :preset="role" :size="18" /></span>
           </span>

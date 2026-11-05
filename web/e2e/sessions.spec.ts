@@ -109,6 +109,12 @@ test("shows the model each session runs on, from its hook, and the new one after
         await request.post('/api/sessions', {data: {id: 'e2e-model', project: 'kitchen', event: 'PreToolUse', effort: 'high'}})
         await expect(model).toHaveText('Sonnet 5.5 · high')
         await expect(model).toHaveAttribute('title', 'Runs on Sonnet 5.5, at high effort')
+        // And how much context it carries, once its hook has counted it (ORR-968).
+        const meter = page.locator('#session-e2e-model').getByTestId('context-meter')
+        await expect(meter).toHaveCount(0)
+        await request.post('/api/sessions', {data: {id: 'e2e-model', project: 'kitchen', event: 'Stop', context: 130_000}})
+        await expect(meter).toHaveText('65%')
+        await expect(meter).toHaveAttribute('title', '130k of 200k tokens in context (65%)')
     } finally {
         channel.stop()
         await request.post('/api/sessions', {data: {id: 'e2e-model', project: 'kitchen', event: 'SessionEnd'}})

@@ -7,7 +7,7 @@
 // listens (and can be stopped) through its own project's channel only.
 import {randomInt} from 'node:crypto'
 import type {Effort, Session, SessionState, SessionTool, StartedSession} from '#shared/roadmap'
-import {SESSION_NAMES, madeUpName} from '#shared/roadmap'
+import {SESSION_NAMES, contextWindow, madeUpName} from '#shared/roadmap'
 
 interface Known extends Session {
     pid?: number
@@ -97,6 +97,21 @@ export interface Report {
     model?: string
     /** The effort level it runs at, when its hook said (ORR-894). */
     effort?: Effort
+    /** The tokens its context holds, when its hook could tell (ORR-968). */
+    context?: number
+}
+
+/** What a hook says of a session's context (ORR-968): the tokens it holds, against its model's window. A compaction
+ * marks it compacted, as the count drops without the work starting afresh; a `/clear` starts it afresh, with no count
+ * until its next turn. */
+function noteContext(session: Known, input: Report) {
+    if (input.event === 'SessionStart' && input.source === 'clear') session.context = undefined
+    if (input.event === 'SessionStart' && input.source === 'compact') {
+        if (session.context) session.context = {...session.context, compacted: true}
+    }
+    if (input.context === undefined) return
+    const compacted = session.context?.compacted
+    session.context = {tokens: input.context, window: contextWindow(session.model, input.context), ...compacted ? {compacted} : {}}
 }
 
 /** The id the session goes by now, for one it had before a `/clear`; any other id as it is. */
@@ -252,6 +267,7 @@ export function report(input: Report): Session | null {
             ...input.effort ? {effort: input.effort} : {},
         }
         add(session)
+        noteContext(session, input)
     } else {
         session.hooked = input.project
         // Its channels connected before the hook spoke, and one heard is on the hook's project: that's its own.
@@ -280,6 +296,7 @@ export function report(input: Report): Session | null {
         if (state === 'idle') session.tool = session.asked = undefined
         if (input.model) session.model = input.model
         if (input.effort) session.effort = input.effort
+        noteContext(session, input)
         session.seenAt = Date.now()
     }
     if (state === 'idle') session.idleAt = Date.now()
