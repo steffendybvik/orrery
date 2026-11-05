@@ -136,10 +136,12 @@ export interface AllPulls {
     /** The page `pulls` is (from 1), and how many go on one, when paged. */
     page?: number
     limit?: number
+    /** With `q` (ORR-941): how many match it, on every page; `pulls` is a page of those. */
+    matched?: number
     /** `open` and `needs` are the repo's, on every page. `cut`: GitHub had more open than orrery reads (300), and
      * this many were read. `held`: why Poll now didn't ask GitHub for the repo (a rate limit, a refused token, or
      * polled without one a moment ago). */
-    repos: {repo: string, projects: string[], token: boolean, token_problem?: string, checked_at: string | null, open: number, needs: number, cut?: number, error?: string, held?: string}[]
+    repos: {repo: string, projects: string[], token: boolean, token_problem?: string, checked_at: string | null, open: number, needs: number, cut?: number, error?: string, held?: string, matched?: number}[]
 }
 
 /** What to do with a branch: remove it, keep it, or look at it first (ORR-793). */
