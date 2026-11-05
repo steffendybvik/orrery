@@ -12,7 +12,7 @@ import type {H3Event} from 'h3'
 import {createError, getCookie, getRequestHeader, getRequestURL, readRawBody, setResponseHeader, setResponseStatus} from 'h3'
 import type {Actor} from '../store/schema'
 import type {Who} from './auth'
-import {LOGIN_COOKIE, toldOff} from './auth'
+import {loginCookie, toldOff} from './auth'
 import {oidcOn} from './oidc'
 
 /** The domains the Rust API serves, a line each (ORR-925): moving a domain there is adding its line once the parity test
@@ -130,7 +130,7 @@ export async function forwardToApi(event: H3Event, api: {url: string, token: str
                 'Orrery-Api-Token': api.token,
                 'Orrery-Database': databaseMark(databaseSetting()),
                 ...actorHeaders(actor),
-                ...whoHeaders(event.context.who as Who | undefined, getCookie(event, LOGIN_COOKIE)),
+                ...whoHeaders(event.context.who as Who | undefined, getCookie(event, loginCookie(event))),
                 ...loginHeaders({provider: oidcOn(), off: toldOff()}, getRequestURL(event, {xForwardedHost: true, xForwardedProto: true}).origin),
             },
             body: body ? new Uint8Array(body) : undefined,
