@@ -49,25 +49,22 @@ describe('a launcher whose checkout moves on within a version (ORR-470)', () => 
 
 describe('a launcher the bootstrap ran, and what an orrery serves', () => {
     const url = 'http://localhost:9000'
-    const mine = {url, from: url, mine: '1.0.0-rc.13', code: 'a'}
+    const mine = {url, from: url, code: 'a'}
 
-    it('restarts for a newer version anywhere on its list', () => {
-        expect(servedOtherCode({...mine, from: 'http://localhost:9020', served: {version: '1.0.0-rc.14', code: 'b'}})).toBe(true)
-    })
-
-    it('restarts for other code from the orrery it came from, even an older version', () => {
-        expect(servedOtherCode({...mine, served: {version: '1.0.0-rc.13', code: 'b'}})).toBe(true)
+    it('restarts for other code from the orrery it came from, newer or older', () => {
+        expect(servedOtherCode({...mine, served: {version: '1.0.0-rc.14', code: 'b'}})).toBe(true)
         expect(servedOtherCode({...mine, served: {version: '1.0.0-rc.12', code: 'b'}})).toBe(true)
     })
 
-    it('stays for other code at another orrery of its version or older, or it would restart for ever', () => {
-        expect(servedOtherCode({...mine, from: 'http://localhost:9020', served: {version: '1.0.0-rc.13', code: 'b'}})).toBe(false)
-        expect(servedOtherCode({...mine, from: 'http://localhost:9020', served: {version: '1.0.0-rc.12', code: 'b'}})).toBe(false)
+    it('never moves for another orrery on its list, whatever version it says it runs (ORR-960)', () => {
+        for (const version of ['1.0.0-rc.12', '1.0.0-rc.13', '1.0.0-rc.14', '99.0.0']) {
+            expect(servedOtherCode({...mine, from: 'http://localhost:9020', served: {version, code: 'b'}})).toBe(false)
+        }
     })
 
     it('stays for the code it has, an orrery with none to serve, or one the bootstrap won\'t fetch from', () => {
         expect(servedOtherCode({...mine, served: {version: '1.0.0-rc.13', code: 'a'}})).toBe(false)
         expect(servedOtherCode({...mine, served: null})).toBe(false)
-        expect(servedOtherCode({...mine, url: 'http://192.168.1.5:9000', served: {version: '1.0.0-rc.14', code: 'b'}})).toBe(false)
+        expect(servedOtherCode({url: 'http://192.168.1.5:9000', from: 'http://192.168.1.5:9000', code: 'a', served: {version: '1.0.0-rc.14', code: 'b'}})).toBe(false)
     })
 })

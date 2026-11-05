@@ -4,7 +4,7 @@
 // (ORR-470).
 import {createHash} from 'node:crypto'
 import {readdirSync, readFileSync} from 'node:fs'
-import {newer, servable} from './bootstrap.mjs'
+import {servable} from './bootstrap.mjs'
 
 /** Its version when it's the bundle the orrery serves (ORR-435), which has no checkout around it. */
 const BUNDLED = typeof __ORRERY_VERSION__ === 'string' ? __ORRERY_VERSION__ : undefined
@@ -53,10 +53,9 @@ export function launcherMove({theirs, mine, code, now, busy, service}) {
 }
 
 /** Whether a launcher the bootstrap ran gets other code by restarting, for what the orrery at `url` serves (`served`, its
- * manifest): a newer version, as the bootstrap takes the newest on the list; or other code from the orrery this copy
- * came from (`from`), even an older version. Other code at another orrery of the same version stays where it is, or two
- * such would restart it for ever. So does an orrery the bootstrap wouldn't fetch from. */
-export function servedOtherCode({served, url, from, mine, code}) {
-    if (!servable(url) || !served?.code || served.code === code) return false
-    return newer(served.version, mine) || url === from
+ * manifest): only other code from the orrery this copy came from (`from`), even an older version. Another orrery on its
+ * list never moves it, whatever version it says it runs (ORR-960), and nor does one the bootstrap wouldn't fetch from. */
+export function servedOtherCode({served, url, from, code}) {
+    if (!servable(url) || url !== from) return false
+    return !!served?.code && served.code !== code
 }

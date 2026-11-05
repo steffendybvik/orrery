@@ -127,6 +127,12 @@ the `value` column, and setting, narrowing (which seals it again) and deleting o
 `web/server/utils/secrets.ts`, as do egress and orrery's own requests. A change to its `list` or `get`, or to
 `secretOf` or `useOf`, goes into `secrets.rs` too.
 
+The outbox (ORR-929, `api/src/changes.rs`, the `rust-api-events` decision): each write the API makes adds a row to
+`changes` for each thing it set off (a project changed, the settings, each event told), and `GET /api/changes?after=<id>`
+reads them, oldest first, a page at a time, with `last` to ask after next. So far the rows go in just after the write, on
+its connection, rather than in its transaction, and only the API's writes add them. Nothing reads them yet: the reply
+headers still carry what changed to the Nuxt server.
+
 ## The page's pieces
 
 Buttons, dialogs, menus and confirmations come from a small kit in `web/app/components/ui/`, and the
