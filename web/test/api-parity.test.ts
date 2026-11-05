@@ -11,7 +11,7 @@ import {fileURLToPath} from 'node:url'
 import {afterAll, beforeAll, describe, expect, it} from 'vitest'
 import type {OrreryEvent} from '#shared/happenings'
 import {Store} from '../server/utils/store'
-import type {Actor} from '../server/store/schema'
+import type {Actor, IssueFilter} from '../server/store/schema'
 import {SqliteDb} from '../server/utils/database'
 import {openDb} from '../server/utils/db'
 import {PostgresDb} from '../server/utils/postgres'
@@ -37,7 +37,7 @@ const changes: string[] = []
 const events: OrreryEvent[] = []
 let settingsTold = 0
 
-describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, and reads comments, as the store does', () => {
+describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, and reads issues and comments, as the store does', () => {
     beforeAll(async () => {
         const schema = `test_api_${Date.now().toString(36)}`
         if (POSTGRES) {
@@ -258,6 +258,81 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         expect(viaRs[2]).toMatchObject({status: 201, settings: true, changed: ['through-api', 'through-store']})
     })
 
+    it('lists and reads issues alike, with every filter (ORR-927)', async () => {
+        const ids: Record<string, Record<string, string>> = {}
+        const uid = async (p: string) => (await store.issue(p, ids[p]!.lid!)).full_id.split('-').at(-1)!
+        const release = async (p: string) => viaStore(() => store.listIssues(p, {release: '1.0.0'}))
+        // Before the projects have releases: the filter is refused.
+        await both('a release on a project with none', release, () => viaApi('GET', '/issues?release=1.0.0'))
+        for (const p of ['through-store', 'through-api']) {
+            await store.updateProject(p, {release_mode: 'own', repo: 'https://github.com/ada/box'}, OWNER)
+            await store.createRelease(p, {version: '1.0.0'}, OWNER)
+            const {id: milestone} = await store.createMilestone(p, {title: 'The lid'}, OWNER)
+            const {id: lid} = await store.createIssue(p, {title: 'Hinge the lid', milestone, priority: 'P1', labels: ['ui'], assignee: 'owner', release: '1.0.0',
+                github_issues: ['523'], notes: 'The lid needs a hinge that turns smoothly.'}, OWNER)
+            const {id: oil} = await store.createIssue(p, {title: 'Oil the hinge', parent: lid, status: 'done'}, OWNER)
+            const {id: paint} = await store.createIssue(p, {title: 'Paint it', parent: lid, status: 'started', external: ['task-9']}, OWNER)
+            const {id: ship} = await store.createIssue(p, {title: 'Ship the box', depends_on: [lid]}, OWNER)
+            const {id: brass} = await store.createIssue(p, {title: 'Try a brass one', proposal: 'pending', labels: ['external']})
+            const {id: sand} = await store.createIssue(p, {title: 'Sand the edges', status: 'canceled'}, OWNER)
+            await store.createComment(p, ship, {body: 'Which courier?', asks: 'decision'}, SESSION)
+            await store.createComment(p, sand, {body: 'The sandpaper was too coarse for the oak.'})
+            await store.createComment(p, brass, {body: 'Brass would tarnish near the coarse salt air.'})
+            await store.db.run('INSERT INTO issue_aliases (project, alias, issue) VALUES (?, ?, ?)', p, `${p === 'through-store' ? 'STO' : 'API'}-77`, lid)
+            await store.db.run('UPDATE issues SET claimed_by = ?, claimed_at = ? WHERE project = ? AND id = ?', 'steffen', new Date().toISOString(), p, paint)
+            for (const [number, risk, by] of [[1, 'low', 'session'], [2, 'high', 'owner'], [3, 'high', 'session']] as const) {
+                await store.db.run(`INSERT INTO issue_pulls (project, issue, repo, number, title, url, branch, base, author, state, created_at, updated_at, risk, risk_why, risk_by)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, p, lid, `ada/${p}`, number, 'Hinges', 'https://github.com/ada/box/pull/1', 'feat/hinge', 'main', 'ada', 'open',
+                new Date().toISOString(), new Date().toISOString(), risk, `Because ${number}`, by)
+            }
+            ids[p] = {milestone, lid, oil, paint, ship, brass, sand}
+        }
+        const list = (filter: Record<string, string>) => [
+            (p: string) => viaStore(() => store.listIssues(p, filter as IssueFilter)),
+            () => viaApi('GET', `/issues${Object.keys(filter).length ? `?${new URLSearchParams(filter)}` : ''}`),
+        ] as const
+        const filters: [string, Record<string, string>][] = [
+            ['all of them', {}],
+            ['by status', {status: 'todo'}], ['by kinds and an old word', {status: 'started, done,doing'}], ['by a status there isn\'t', {status: 'nope'}],
+            ['proposed', {column: 'proposed'}], ['by column', {column: 'canceled'}],
+            ['by priority', {priority: 'P1'}], ['with none', {priority: 'none'}],
+            ['the owner\'s', {assignee: 'OWNER'}], ['nobody\'s', {assignee: 'none'}], ['someone else\'s', {assignee: 'ada'}],
+            ['by label', {label: 'ui'}], ['by task', {external: 'task-9'}],
+            ['by a GitHub number', {github_issue: '#523'}], ['by a GitHub link', {github_issue: 'https://github.com/ADA/box/issues/523'}],
+            ['not a GitHub issue', {github_issue: 'nope'}],
+            ['by release', {release: '1.0.0'}], ['in none', {release: 'none'}], ['a release there isn\'t', {release: '9.9'}],
+            ['no milestone', {milestone: 'none'}], ['a milestone there isn\'t', {milestone: '99'}],
+            ['top-level', {parent: 'none'}],
+            ['pending', {proposal: 'pending'}], ['committed', {proposal: 'none'}],
+            ['blocked', {blocked: 'true'}], ['not blocked', {blocked: 'false'}],
+            ['by id or title', {q: 'HINGE'}], ['by an id', {q: 'key'}],
+            ['in their text', {q: 'coarse', in: 'all'}], ['in a description and a title', {q: 'hinge', in: 'all'}], ['words in no one place', {q: 'oak smoothly', in: 'all'}],
+            ['several at once', {status: 'todo,started', label: 'ui', parent: 'none'}],
+            ['an unknown filter', {bogus: '1'}],
+        ]
+        for (const [name, filter] of filters) await both(name, ...list(filter))
+        // Filters naming an id, each side its own.
+        await both('by milestone', p => viaStore(() => store.listIssues(p, {milestone: ids[p]!.milestone!})), () => viaApi('GET', `/issues?milestone=${ids['through-api']!.milestone}`))
+        await both('by a milestone\'s full id', async p => viaStore(async () => store.listIssues(p, {milestone: `mls-${ids[p]!.milestone}-${await uid(p)}`})),
+            async () => viaApi('GET', `/issues?milestone=mls-${ids['through-api']!.milestone}-${await uid('through-api')}`))
+        await both('by parent', p => viaStore(() => store.listIssues(p, {parent: ids[p]!.lid!})), () => viaApi('GET', `/issues?parent=${ids['through-api']!.lid}`))
+        await both('by a parent\'s old id', p => viaStore(() => store.listIssues(p, {parent: `${p === 'through-store' ? 'STO' : 'API'}-77`})), () => viaApi('GET', '/issues?parent=API-77'))
+        await both('in a project that isn\'t there', () => viaStore(() => store.listIssues('nowhere')), () => viaApi('GET', '/issues', undefined, AGENT, 'nowhere'))
+        // One issue.
+        const one = (name: string, id: (p: string) => Promise<string> | string) => both(name, async p => viaStore(async () => store.issue(p, await id(p))), async () => viaApi('GET', `/issues/${await id('through-api')}`))
+        await one('with sub-issues, links, risk and a claimed one', p => ids[p]!.lid!)
+        await one('a sub-issue', p => ids[p]!.oil!)
+        await one('blocked and waiting', p => ids[p]!.ship!)
+        await one('a proposal', p => ids[p]!.brass!)
+        await one('by an old id', p => `${p === 'through-store' ? 'STO' : 'API'}-77`)
+        await one('by its full id', async p => `${ids[p]!.lid}-${await uid(p)}`)
+        await one('one that isn\'t there', () => 'X-404')
+        await both('in a project that isn\'t there', () => viaStore(() => store.issue('nowhere', 'X-1')), () => viaApi('GET', '/issues/X-1', undefined, AGENT, 'nowhere'))
+        // The steps compared something: the board has what was made.
+        const lid = await viaApi('GET', `/issues/${ids['through-api']!.lid}`)
+        expect(lid.body).toMatchObject({column: 'in-progress', counts: {'done': 1, 'in-progress': 1}, risk: {level: 'high', by: 'owner'}, aliases: ['API-77']})
+    })
+
     it('reads an issue\'s comments alike (ORR-927)', async () => {
         const request = {title: 'Nightly', changes: [{field: 'cron' as const, to: '0 3 * * *'}], body: {cron: '0 3 * * *'}, state: 'asked' as const}
         const ids: Record<string, string> = {}
@@ -309,16 +384,16 @@ describe('the router', () => {
     it('sends the docs domain and the statuses to the API, and keeps an artifact\'s page and everything else here', () => {
         for (const path of ['/api/projects/p/docs', '/api/projects/p/docs/', '/api/projects/p/docs/d', '/api/projects/p/docs/d/revisions', '/api/projects/p/docs/d/revisions/3',
             '/api/projects/p/docs/d/revisions/3/restore', '/api/projects/p/deleted-docs', '/api/projects/p/doc-sections', '/api/projects/p/doc-sections/how it works']) expect(servedByApi('GET', path), path).toBe(true)
-        for (const path of ['/api/projects/p/docs/d/artifact', '/api/projects/p/issues', '/api/projects/p', '/api/projects/p/docs/d/revisions/3/other', '/api/docs']) expect(servedByApi('GET', path), path).toBe(false)
+        for (const path of ['/api/projects/p/docs/d/artifact', '/api/projects/p/issues/P-1/activity', '/api/projects/p', '/api/projects/p/docs/d/revisions/3/other', '/api/docs']) expect(servedByApi('GET', path), path).toBe(false)
         for (const path of ['/api/statuses', '/api/statuses/', '/api/statuses/in-review']) expect(servedByApi('GET', path), path).toBe(true)
         for (const path of ['/api/statuses/x/y', '/api/projects/p/statuses', '/api/settings']) expect(servedByApi('GET', path), path).toBe(false)
     })
 
     it('routes by a table with a line per domain, so taking one back is taking its line out (ORR-925)', () => {
-        expect(DOMAINS.map(({domain}) => domain)).toEqual(['docs', 'statuses', 'comments, reading'])
+        expect(DOMAINS.map(({domain}) => domain)).toEqual(['docs', 'statuses', 'issues, reading', 'comments, reading'])
         expect(domainOf('PATCH', '/api/projects/p/docs/d')).toBe('docs')
         expect(domainOf('head', '/api/projects/p/doc-sections/')).toBe('docs')
-        for (const path of ['/api/projects/p/issues', '/api/', '/docs', '/api/projects/p/docs/d/artifact']) expect(domainOf('GET', path), path).toBeUndefined()
+        for (const path of ['/api/projects/p/issues/P-1/activity', '/api/', '/docs', '/api/projects/p/docs/d/artifact']) expect(domainOf('GET', path), path).toBeUndefined()
     })
 
     it('sends only the methods a line names, so a domain\'s reads can move before its writes (ORR-927)', () => {
@@ -328,7 +403,11 @@ describe('the router', () => {
             expect(domainOf(method, '/api/projects/p/issues/P-1/comments'), method).toBeUndefined()
             expect(domainOf(method, '/api/projects/p/issues/P-1/comments/3'), method).toBeUndefined()
         }
-        for (const path of ['/api/projects/p/issues/P-1', '/api/projects/p/issues/P-1/comments/3/x', '/api/projects/p/issues/P-1/schedule-requests/3']) expect(domainOf('GET', path), path).toBeUndefined()
+        for (const path of ['/api/projects/p/issues/P-1/comments/3/x', '/api/projects/p/issues/P-1/schedule-requests/3', '/api/projects/p/issues/P-1/branches']) expect(domainOf('GET', path), path).toBeUndefined()
+        expect(domainOf('GET', '/api/projects/p/issues')).toBe('issues, reading')
+        expect(domainOf('GET', '/api/projects/p/issues/P-1')).toBe('issues, reading')
+        for (const method of ['POST', 'PATCH', 'DELETE']) expect(domainOf(method, '/api/projects/p/issues'), method).toBeUndefined()
+        expect(domainOf('POST', '/api/projects/p/issues/decide')).toBeUndefined()
     })
 
     it('says who\'s asking in ASCII, and reads back what happened', () => {
@@ -369,12 +448,12 @@ describe('the contract (api/openapi.yaml)', () => {
     }
 
     it('has every route the router sends to the API, and no other', () => {
-        expect(contract()).toHaveLength(20)
+        expect(contract()).toHaveLength(22)
         expect(contract()).toEqual(routes())
     })
 
     it('sends none of the routes written ahead of the Rust API to it', () => {
-        expect(contract(true)).toHaveLength(2)
+        expect(contract(true)).toHaveLength(0)
         expect(contract(true).filter(operation => routes().includes(operation))).toEqual([])
     })
 })
