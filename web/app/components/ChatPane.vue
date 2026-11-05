@@ -39,6 +39,9 @@ import type {Chat, ChatIssues, ChatMessage} from '#shared/roadmap'
 // then brings that window to the front rather than opening a second pane. Both read the same chats from the server;
 // the draft and what's held are each window's own, so nothing goes twice. In the window, a link to a page of orrery
 // opens in the window it came from, and Dock back closes it and opens the pane there on the same chat.
+// On a wide screen the floating pane moves (ORR-939): dragged by its header, anywhere but its buttons and picker, once
+// the pointer has gone a few pixels, so a click stays a click. It keeps to the corner it's nearest, as the sessions
+// panel does (useSessionsFloat), remembered in this browser; a double-click on the header puts it back.
 const props = defineProps<{standalone?: boolean}>()
 const {open, large, chat, session, project, pinned, failed, chats, running, lands, start, send, clear, land, fresh, view, remove, answer, close, pin, resize, upload, show} = useChat()
 const answering = ref<number | null>(null)
@@ -332,6 +335,86 @@ async function attach(files: File[]) {
 }
 const {over, on: drop} = useImageDrop(attach)
 
+/** Where the pane's been dragged to, by its nearest corner; none while it's in its own corner. */
+const FLOAT_KEY = 'orrery-chat-float'
+const placed = ref<FloatAt | null>(null)
+const windowSize = reactive({width: 0, height: 0})
+const measureView = () => {
+    windowSize.width = window.innerWidth
+    windowSize.height = window.innerHeight
+}
+onMounted(() => {
+    measureView()
+    window.addEventListener('resize', measureView)
+    try {
+        const stored = JSON.parse(localStorage.getItem(FLOAT_KEY) ?? 'null') as FloatAt | null
+        if (stored && /^(top|bottom)-(left|right)$/.test(stored.corner) && Number.isFinite(stored.x) && Number.isFinite(stored.y)) placed.value = stored
+    } catch {
+        // Nothing kept, or nothing readable: its own corner.
+    }
+})
+onBeforeUnmount(() => window.removeEventListener('resize', measureView))
+watch(placed, next => {
+    try {
+        if (next) localStorage.setItem(FLOAT_KEY, JSON.stringify(next))
+        else localStorage.removeItem(FLOAT_KEY)
+    } catch {
+        // Private browsing: it stays where it is for this visit only.
+    }
+})
+/** Whether it moves: floating, on a wide screen (a phone's fills the screen). */
+const movable = computed(() => !props.standalone && wide.value)
+/** Its place, kept inside the window as it is now; its own corner (the classes') when it hasn't been moved. */
+const placement = computed(() => {
+    if (!movable.value || !placed.value || !windowSize.width) return undefined
+    const kept = inView(placed.value, pane.value?.offsetWidth ?? 0, pane.value?.offsetHeight ?? 0, windowSize)
+    const [vertical, horizontal] = kept.corner.split('-') as ['top' | 'bottom', 'left' | 'right']
+    return {top: 'auto', right: 'auto', bottom: 'auto', left: 'auto', [vertical]: `${kept.y}px`, [horizontal]: `${kept.x}px`}
+})
+/** How far the pointer goes before a press on the header is a drag. */
+const DRAG_FROM = 4
+const moving = ref(false)
+let pressed: {x: number, y: number, rect: DOMRect, pointer: number} | null = null
+function pressHeader(event: PointerEvent) {
+    if (!movable.value || event.button !== 0) return
+    // Its controls stay clicks: the buttons, the picker and anything else that takes a press.
+    if ((event.target as Element).closest('button, a, input, textarea, select, [role="button"], [role="combobox"], [role="listbox"], [role="option"]')) return
+    const rect = pane.value?.getBoundingClientRect()
+    if (rect) pressed = {x: event.clientX, y: event.clientY, rect, pointer: event.pointerId}
+}
+function dragHeader(event: PointerEvent) {
+    if (!pressed || event.pointerId !== pressed.pointer) return
+    // Let go where the page didn't hear it (outside the window): no button is held any more, so it's over.
+    if (!(event.buttons & 1)) return releaseHeader(event)
+    const dx = event.clientX - pressed.x
+    const dy = event.clientY - pressed.y
+    if (!moving.value) {
+        if (Math.hypot(dx, dy) < DRAG_FROM) return
+        moving.value = true
+        ;(event.currentTarget as HTMLElement).setPointerCapture(event.pointerId)
+    }
+    const {left, top, width, height} = pressed.rect
+    placed.value = inView(anchored(left + dx, top + dy, width, height, windowSize), width, height, windowSize)
+}
+function releaseHeader(event: PointerEvent) {
+    if (!pressed || event.pointerId !== pressed.pointer) return
+    pressed = null
+    if (!moving.value) return
+    moving.value = false
+    const header = event.currentTarget as HTMLElement
+    if (header.hasPointerCapture(event.pointerId)) header.releasePointerCapture(event.pointerId)
+}
+/** A double-click on the header's empty parts puts it back in its corner. */
+function homeHeader(event: MouseEvent) {
+    if (!movable.value || (event.target as Element).closest('button, a, input, textarea, select, [role="button"], [role="combobox"], [role="listbox"], [role="option"]')) return
+    placed.value = null
+}
+watch(moving, on => {
+    document.documentElement.classList.toggle('cursor-grabbing', on)
+    document.documentElement.classList.toggle('select-none', on)
+})
+onBeforeUnmount(() => document.documentElement.classList.remove('cursor-grabbing', 'select-none'))
+
 /** Pop out's window, while it's open: the corner button brings it to the front. */
 let popup: Window | null = null
 const POPUP = 'orrery-chat'
@@ -420,6 +503,7 @@ onBeforeUnmount(() => window.removeEventListener('message', heard))
       ref="pane"
       class="flex overflow-hidden bg-panel"
       :class="standalone ? 'h-dvh w-full' : ['fixed right-4 bottom-4 z-40 w-[calc(100vw-2rem)] rounded-2xl border border-line shadow-2xl', large ? 'h-[calc(100dvh-2rem)] sm:w-[min(56rem,calc(100vw-2rem))]' : ['h-[calc(100dvh-2rem)] sm:h-[min(40rem,calc(100dvh-2rem))]', docked ? 'sm:w-[min(41rem,calc(100vw-2rem))]' : 'sm:w-[min(28rem,calc(100vw-2rem))]']]"
+      :style="placement"
       aria-label="Chat"
       v-on="drop"
       @keydown.esc="!standalone && shut()"
@@ -477,7 +561,17 @@ onBeforeUnmount(() => window.removeEventListener('message', heard))
       </ul>
     </aside>
     <div class="flex min-w-0 flex-1 flex-col">
-    <header class="flex items-center gap-1 border-b border-line py-2.5 pr-2.5 pl-2">
+    <header
+        class="flex items-center gap-1 border-b border-line py-2.5 pr-2.5 pl-2"
+        :class="movable && 'cursor-grab touch-none'"
+        :title="movable ? 'Drag to move the chat; double-click to put it back in the corner' : undefined"
+        data-testid="chat-header"
+        @pointerdown="pressHeader"
+        @pointermove="dragHeader"
+        @pointerup="releaseHeader"
+        @pointercancel="releaseHeader"
+        @dblclick="homeHeader"
+    >
       <UiButton
           variant="ghost" size="xs" square :aria-expanded="listing"
           :aria-label="listing ? 'Hide your chats' : 'Show your chats'" :title="listing ? 'Hide your chats' : 'Your chats'"
