@@ -372,6 +372,30 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         expect((await viaApi('GET', `/issues/${ids['through-api']}/comments/1.5`)).status).toBe(404)
     })
 
+    it('reads an issue\'s activity alike (ORR-927)', async () => {
+        const ids: Record<string, string> = {}
+        for (const p of ['through-store', 'through-api']) {
+            const {id} = await store.createIssue(p, {title: 'Move it along', priority: 'P2'}, OWNER)
+            ids[p] = id
+            await store.updateIssue(p, id, {status: 'in-progress', title: 'Move it along now'}, SESSION)
+            await store.updateIssue(p, id, {priority: null, labels: ['bug']})
+            await store.db.run('INSERT INTO issue_aliases (project, alias, issue) VALUES (?, ?, ?)', p, `${p === 'through-store' ? 'STO' : 'API'}-91`, id)
+        }
+        const full = async (p: string) => (await store.issue(p, ids[p]!)).full_id
+        const steps: [string, (p: string) => Promise<Outcome>, () => Promise<Outcome>][] = [
+            ['made, then changed by a session and an agent', p => viaStore(() => store.listActivity(p, ids[p]!)), () => viaApi('GET', `/issues/${ids['through-api']}/activity`)],
+            ['by an id it had before', p => viaStore(() => store.listActivity(p, 'X-91'.replace('X', p === 'through-store' ? 'STO' : 'API'))), () => viaApi('GET', '/issues/API-91/activity')],
+            ['by its full id', async p => viaStore(async () => store.listActivity(p, await full(p))), async () => viaApi('GET', `/issues/${await full('through-api')}/activity`)],
+            ['an issue that isn\'t there', p => viaStore(() => store.listActivity(p, 'X-404')), () => viaApi('GET', '/issues/X-404/activity')],
+            ['a project that isn\'t there', () => viaStore(() => store.listActivity('nowhere', 'X-1')), () => viaApi('GET', '/issues/X-1/activity', undefined, AGENT, 'nowhere')],
+        ]
+        for (const [name, ts, rs] of steps) await both(name, ts, rs)
+        // The steps compared something: the changes are there, a value cleared with no `after`.
+        const {body} = await viaApi('GET', `/issues/${ids['through-api']}/activity`)
+        expect(body).toEqual(expect.arrayContaining([expect.objectContaining({field: 'status', after: 'in-progress', session_name: expect.any(String)})]))
+        expect((body as {field: string, after?: string}[]).find(e => e.field === 'priority' && e.after === undefined)).toBeDefined()
+    })
+
     it('reads milestones and releases alike, a shared release and every project\'s too (ORR-926)', async () => {
         const read = (name: string, ts: (p: string) => Promise<unknown>, path: (p: string) => string | Promise<string>, project?: string) =>
             both(name, p => viaStore(() => ts(project ?? p)), async () => viaApi('GET', await path('through-api'), undefined, AGENT, project ?? 'through-api'))
@@ -643,16 +667,16 @@ describe('the router', () => {
     it('sends the docs domain and the statuses to the API, and keeps an artifact\'s page and everything else here', () => {
         for (const path of ['/api/projects/p/docs', '/api/projects/p/docs/', '/api/projects/p/docs/d', '/api/projects/p/docs/d/revisions', '/api/projects/p/docs/d/revisions/3',
             '/api/projects/p/docs/d/revisions/3/restore', '/api/projects/p/deleted-docs', '/api/projects/p/doc-sections', '/api/projects/p/doc-sections/how it works']) expect(servedByApi('GET', path), path).toBe(true)
-        for (const path of ['/api/projects/p/docs/d/artifact', '/api/projects/p/issues/P-1/activity', '/api/projects/p', '/api/projects/p/docs/d/revisions/3/other', '/api/docs']) expect(servedByApi('GET', path), path).toBe(false)
+        for (const path of ['/api/projects/p/docs/d/artifact', '/api/projects/p', '/api/projects/p/docs/d/revisions/3/other', '/api/docs']) expect(servedByApi('GET', path), path).toBe(false)
         for (const path of ['/api/statuses', '/api/statuses/', '/api/statuses/in-review']) expect(servedByApi('GET', path), path).toBe(true)
         for (const path of ['/api/statuses/x/y', '/api/projects/p/statuses', '/api/machine']) expect(servedByApi('GET', path), path).toBe(false)
     })
 
     it('routes by a table with a line per domain, so taking one back is taking its line out (ORR-925)', () => {
-        expect(DOMAINS.map(({domain}) => domain)).toEqual(['docs', 'statuses', 'issues, reading', 'comments, reading', 'milestones and releases, reading', 'people, but removing one', 'invites', 'keys', 'logins', 'settings'])
+        expect(DOMAINS.map(({domain}) => domain)).toEqual(['docs', 'statuses', 'issues, reading', 'comments, reading', 'activity', 'milestones and releases, reading', 'people, but removing one', 'invites', 'keys', 'logins', 'settings'])
         expect(domainOf('PATCH', '/api/projects/p/docs/d')).toBe('docs')
         expect(domainOf('head', '/api/projects/p/doc-sections/')).toBe('docs')
-        for (const path of ['/api/projects/p/issues/P-1/activity', '/api/', '/docs', '/api/projects/p/docs/d/artifact']) expect(domainOf('GET', path), path).toBeUndefined()
+        for (const path of ['/api/projects/p/issues/P-1/activity/x', '/api/', '/docs', '/api/projects/p/docs/d/artifact']) expect(domainOf('GET', path), path).toBeUndefined()
     })
 
     it('sends only the methods a line names, so a domain\'s reads can move before its writes (ORR-927)', () => {
@@ -667,6 +691,8 @@ describe('the router', () => {
         expect(domainOf('GET', '/api/projects/p/issues/P-1')).toBe('issues, reading')
         for (const method of ['POST', 'PATCH', 'DELETE']) expect(domainOf(method, '/api/projects/p/issues'), method).toBeUndefined()
         expect(domainOf('POST', '/api/projects/p/issues/decide')).toBeUndefined()
+        expect(domainOf('GET', '/api/projects/p/issues/P-1/activity')).toBe('activity')
+        expect(domainOf('POST', '/api/projects/p/issues/P-1/activity')).toBeUndefined()
     })
 
     it('sends milestones\' and releases\' reads to the API, and keeps their writes and a milestone\'s focus here (ORR-926)', () => {
@@ -735,7 +761,7 @@ describe('the contract (api/openapi.yaml)', () => {
     }
 
     it('has every route the router sends to the API, and no other', () => {
-        expect(contract()).toHaveLength(39)
+        expect(contract()).toHaveLength(40)
         expect(contract()).toEqual(routes())
     })
 
