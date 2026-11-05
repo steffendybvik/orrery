@@ -11,6 +11,7 @@
 //
 // `orrery-api migrate` brings NUXT_DATABASE's schema up to date instead (ORR-931), and exits. Nothing runs it yet: the
 // Nuxt server migrates the database as it opens it until the last domain has moved here.
+mod changes;
 mod comments;
 mod db;
 mod docs;
@@ -152,6 +153,11 @@ fn reply(status: StatusCode, body: Option<Value>, effects: Effects) -> Response 
     response
 }
 
+async fn list_changes(State(app): Shared, Query(query): Query<HashMap<String, String>>) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    Ok(Json(changes::after(&mut conn, query.get("after").map(String::as_str)).await?).into_response())
+}
+
 /// Runs `work` with the docs on a connection of the pool's: what it gives back, and what it changed.
 macro_rules! with_docs {
     ($app:expr, |$docs:ident| $work:expr) => {{
@@ -159,6 +165,15 @@ macro_rules! with_docs {
         let mut $docs = Docs::new(&mut *conn);
         let value = $work;
         (value, std::mem::take(&mut $docs.effects))
+    }};
+    // A write: what it set off goes into the outbox on its own connection (ORR-929).
+    ($app:expr, $headers:expr, |$docs:ident| $work:expr) => {{
+        let mut conn = $app.pool.acquire().await?;
+        let mut $docs = Docs::new(&mut *conn);
+        let value = $work;
+        let effects = std::mem::take(&mut $docs.effects);
+        changes::record(&mut conn, &effects, &actor_of(&$headers)).await?;
+        (value, effects)
     }};
 }
 
@@ -168,7 +183,7 @@ async fn list_docs(State(app): Shared, Path(project): Path<String>, Query(query)
 }
 
 async fn create_doc(State(app): Shared, Path(project): Path<String>, headers: HeaderMap, body: Bytes) -> Result<Response> {
-    let (value, effects) = with_docs!(app, |docs| docs.create(&project, &body_of(&body), &actor_of(&headers)).await?);
+    let (value, effects) = with_docs!(app, headers, |docs| docs.create(&project, &body_of(&body), &actor_of(&headers)).await?);
     Ok(reply(StatusCode::CREATED, Some(value), effects))
 }
 
@@ -178,17 +193,17 @@ async fn get_doc(State(app): Shared, Path((project, doc)): Path<(String, String)
 }
 
 async fn put_doc(State(app): Shared, Path((project, doc)): Path<(String, String)>, headers: HeaderMap, body: Bytes) -> Result<Response> {
-    let ((value, made), effects) = with_docs!(app, |docs| docs.put(&project, &doc, &body_of(&body), &actor_of(&headers)).await?);
+    let ((value, made), effects) = with_docs!(app, headers, |docs| docs.put(&project, &doc, &body_of(&body), &actor_of(&headers)).await?);
     Ok(reply(if made { StatusCode::CREATED } else { StatusCode::OK }, Some(value), effects))
 }
 
 async fn patch_doc(State(app): Shared, Path((project, doc)): Path<(String, String)>, headers: HeaderMap, body: Bytes) -> Result<Response> {
-    let (value, effects) = with_docs!(app, |docs| docs.update(&project, &doc, &body_of(&body), &actor_of(&headers)).await?);
+    let (value, effects) = with_docs!(app, headers, |docs| docs.update(&project, &doc, &body_of(&body), &actor_of(&headers)).await?);
     Ok(reply(StatusCode::OK, Some(value), effects))
 }
 
 async fn delete_doc(State(app): Shared, Path((project, doc)): Path<(String, String)>, headers: HeaderMap) -> Result<Response> {
-    let ((), effects) = with_docs!(app, |docs| docs.delete(&project, &doc, &actor_of(&headers)).await?);
+    let ((), effects) = with_docs!(app, headers, |docs| docs.delete(&project, &doc, &actor_of(&headers)).await?);
     Ok(reply(StatusCode::NO_CONTENT, None, effects))
 }
 
@@ -203,7 +218,7 @@ async fn get_revision(State(app): Shared, Path((project, doc, revision)): Path<(
 }
 
 async fn restore_revision(State(app): Shared, Path((project, doc, revision)): Path<(String, String, String)>, headers: HeaderMap) -> Result<Response> {
-    let ((value, made), effects) = with_docs!(app, |docs| docs.restore(&project, &doc, &revision, &actor_of(&headers)).await?);
+    let ((value, made), effects) = with_docs!(app, headers, |docs| docs.restore(&project, &doc, &revision, &actor_of(&headers)).await?);
     Ok(reply(if made { StatusCode::CREATED } else { StatusCode::OK }, Some(value), effects))
 }
 
@@ -217,18 +232,18 @@ async fn list_sections(State(app): Shared, Path(project): Path<String>) -> Resul
     Ok(Json(value).into_response())
 }
 
-async fn create_section(State(app): Shared, Path(project): Path<String>, body: Bytes) -> Result<Response> {
-    let (name, effects) = with_docs!(app, |docs| docs.create_section(&project, &body_of(&body)).await?);
+async fn create_section(State(app): Shared, Path(project): Path<String>, headers: HeaderMap, body: Bytes) -> Result<Response> {
+    let (name, effects) = with_docs!(app, headers, |docs| docs.create_section(&project, &body_of(&body)).await?);
     Ok(reply(StatusCode::CREATED, Some(json!({"name": name})), effects))
 }
 
-async fn patch_section(State(app): Shared, Path((project, section)): Path<(String, String)>, body: Bytes) -> Result<Response> {
-    let (name, effects) = with_docs!(app, |docs| docs.update_section(&project, &section, &body_of(&body)).await?);
+async fn patch_section(State(app): Shared, Path((project, section)): Path<(String, String)>, headers: HeaderMap, body: Bytes) -> Result<Response> {
+    let (name, effects) = with_docs!(app, headers, |docs| docs.update_section(&project, &section, &body_of(&body)).await?);
     Ok(reply(StatusCode::OK, Some(json!({"name": name})), effects))
 }
 
-async fn delete_section(State(app): Shared, Path((project, section)): Path<(String, String)>) -> Result<Response> {
-    let ((), effects) = with_docs!(app, |docs| docs.delete_section(&project, &section).await?);
+async fn delete_section(State(app): Shared, Path((project, section)): Path<(String, String)>, headers: HeaderMap) -> Result<Response> {
+    let ((), effects) = with_docs!(app, headers, |docs| docs.delete_section(&project, &section).await?);
     Ok(reply(StatusCode::NO_CONTENT, None, effects))
 }
 
@@ -286,6 +301,15 @@ macro_rules! with_statuses {
         let value = $work;
         (value, std::mem::take(&mut $statuses.effects))
     }};
+    // A write: what it set off goes into the outbox on its own connection (ORR-929).
+    ($app:expr, $headers:expr, |$statuses:ident| $work:expr) => {{
+        let mut conn = $app.pool.acquire().await?;
+        let mut $statuses = Statuses::new(&mut *conn);
+        let value = $work;
+        let effects = std::mem::take(&mut $statuses.effects);
+        changes::record(&mut conn, &effects, &actor_of(&$headers)).await?;
+        (value, effects)
+    }};
 }
 
 async fn list_statuses(State(app): Shared) -> Result<Response> {
@@ -294,18 +318,18 @@ async fn list_statuses(State(app): Shared) -> Result<Response> {
 }
 
 async fn create_status(State(app): Shared, headers: HeaderMap, body: Bytes) -> Result<Response> {
-    let (value, effects) = with_statuses!(app, |statuses| statuses.create(&body_of(&body), &actor_of(&headers)).await?);
+    let (value, effects) = with_statuses!(app, headers, |statuses| statuses.create(&body_of(&body), &actor_of(&headers)).await?);
     Ok(reply(StatusCode::CREATED, Some(value), effects))
 }
 
 async fn patch_status(State(app): Shared, Path(status): Path<String>, headers: HeaderMap, body: Bytes) -> Result<Response> {
-    let (value, effects) = with_statuses!(app, |statuses| statuses.update(&status, &body_of(&body), &actor_of(&headers)).await?);
+    let (value, effects) = with_statuses!(app, headers, |statuses| statuses.update(&status, &body_of(&body), &actor_of(&headers)).await?);
     Ok(reply(StatusCode::OK, Some(value), effects))
 }
 
 async fn delete_status(State(app): Shared, Path(status): Path<String>, Query(query): Query<HashMap<String, String>>, headers: HeaderMap) -> Result<Response> {
     let into = query.get("into").map(String::as_str).filter(|s| !s.is_empty());
-    let ((), effects) = with_statuses!(app, |statuses| statuses.delete(&status, into, &actor_of(&headers)).await?);
+    let ((), effects) = with_statuses!(app, headers, |statuses| statuses.delete(&status, into, &actor_of(&headers)).await?);
     Ok(reply(StatusCode::NO_CONTENT, None, effects))
 }
 
@@ -453,6 +477,7 @@ fn router(app: Arc<App>) -> Router {
         .route(&format!("{P}/releases"), get(list_releases))
         .route(&format!("{P}/releases/{{release}}"), get(get_release))
         .route("/api/releases", get(all_releases))
+        .route("/api/changes", get(list_changes))
         .route("/api/statuses", get(list_statuses).post(create_status))
         .route("/api/statuses/{status}", patch(patch_status).delete(delete_status))
         .route("/api/people", get(list_people).post(add_person))
