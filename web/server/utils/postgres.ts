@@ -8,7 +8,7 @@
 // and Postgres's in migrations/postgres.ts.
 import {AsyncLocalStorage} from 'node:async_hooks'
 import pg from 'pg'
-import {runAfter, type Db, type Value} from './database'
+import {addBefore, runAfter, runAlone, runBefore, type Db, type Value, type Waiting} from './database'
 import {redact} from './event-log'
 import {BASELINE, SCHEMA, STEPS} from './migrations/postgres'
 
@@ -17,7 +17,7 @@ pg.types.setTypeParser(pg.types.builtins.INT8, value => Number(value))
 
 /** The transaction the code running now is part of, if any: its connection, the database it's on, and whether
  * it's still open (work it started can outlive its COMMIT, and then goes to the pool, not a released client). */
-const current = new AsyncLocalStorage<{db: PostgresDb, client: pg.PoolClient, open: boolean, after: (() => void)[]}>()
+const current = new AsyncLocalStorage<Waiting & {db: PostgresDb, client: pg.PoolClient, open: boolean}>()
 
 export class PostgresDb implements Db {
     readonly dialect = 'postgres'
@@ -64,10 +64,14 @@ export class PostgresDb implements Db {
         if (this.ongoing()) return work()
         await this.ready
         const client = await this.pool.connect()
-        const transaction = {db: this, client, open: true, after: [] as (() => void)[]}
+        const transaction = {db: this, client, open: true, before: new Map(), after: [] as (() => void)[]}
         try {
             await client.query('BEGIN')
-            const result = await current.run(transaction, work)
+            const result = await current.run(transaction, async () => {
+                const done = await work()
+                await runBefore(transaction)
+                return done
+            })
             await client.query('COMMIT')
             runAfter(current, transaction.after)
             return result
@@ -84,6 +88,12 @@ export class PostgresDb implements Db {
         const transaction = this.ongoing()
         if (transaction) transaction.after.push(work)
         else runAfter(current, [work])
+    }
+
+    beforeCommit(work: () => Promise<unknown>, key?: string) {
+        const transaction = this.ongoing()
+        if (transaction) addBefore(transaction, work, key)
+        else runAlone(work)
     }
 
     /** The open transaction of this database the code running now is part of, if any. */
