@@ -55,6 +55,9 @@ export const DOMAINS: readonly {domain: string, paths: RegExp, methods?: readonl
     // The orrery's stored settings, every one (ORR-954). What only this server knows is `GET /api/machine`, here. A
     // change's keys come back in `Orrery-Settings-Keys`, for the note in the event log the route here made.
     {domain: 'settings', paths: /^settings$/},
+    // One pull request as orrery keeps it, read (ORR-952). The other pull reads ask GitHub when what's kept is stale,
+    // which is the local app's to do, and the poll's writes wake sessions (ORR-929), so they stay here.
+    {domain: 'a pull request, reading', paths: /^pulls\/[^/]+\/[^/]+\/[^/]+$/, methods: ['GET']},
 ]
 
 /** The headers a reply that isn't JSON keeps on its way through: what it is, how long the browser keeps it, and that
@@ -106,11 +109,13 @@ export function databaseMark(setting: string): string {
     return createHash('sha256').update(setting).digest('hex')
 }
 
-/** The headers saying who's asking, as the API reads them: its name and session percent-encoded, as a header is ASCII. */
+/** The headers saying who's asking, as the API reads them: its name and session percent-encoded, as a header is ASCII,
+ * and its kind as `kindOf` has it, as the chat and an untrusted session may name the owner (ORR-952). */
 export function actorHeaders(actor: Actor): Record<string, string> {
     return {
         'Orrery-Actor-Name': encodeURIComponent(actor.name),
         'Orrery-Actor-Owner': actor.owner ? '1' : '0',
+        'Orrery-Actor-Kind': actor.untrusted ? 'untrusted' : actor.chat ? 'chat' : actor.owner ? 'owner' : 'session',
         ...actor.session ? {'Orrery-Actor-Session': encodeURIComponent(actor.session)} : {},
     }
 }

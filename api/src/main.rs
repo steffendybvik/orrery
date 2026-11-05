@@ -1,4 +1,4 @@
-// orrery's API in Rust (ORR-922). For now it serves docs, the statuses (ORR-926), reading milestones and releases (ORR-926), reading issues, their comments, their activity and the images uploaded to them (ORR-927), people, invites, keys and logins (ORR-928), presets (ORR-949), reading the secrets, never a value (ORR-953), and the settings (ORR-954), on the database the Nuxt server opens, and only
+// orrery's API in Rust (ORR-922). For now it serves docs, the statuses (ORR-926), reading milestones and releases (ORR-926), reading issues, their comments, their activity and the images uploaded to them (ORR-927), people, invites, keys and logins (ORR-928), presets (ORR-949), reading the secrets, never a value (ORR-953), the settings (ORR-954) and reading one pull request as orrery keeps it (ORR-952), on the database the Nuxt server opens, and only
 // to that server: the router there (web/server/middleware/zz-api.ts) checks a request as it always has (auth, the
 // board's permissions, the chat's and untrusted sessions' rails, the browser guards) and then forwards it here with
 // who it's from. So this listens on loopback, and answers only a request that carries the token they share.
@@ -21,6 +21,7 @@ mod migrate;
 mod people;
 mod plans;
 mod presets;
+mod pulls;
 mod secrets;
 mod settings;
 mod statuses;
@@ -35,6 +36,7 @@ use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, patch, post};
 use axum::{Json, Router};
+use changes::Outbox;
 use comments::{comment_id, Comments};
 use docs::{Actor, Docs, Effects};
 use error::{ApiError, Result};
@@ -43,6 +45,7 @@ use people::{holder_of, People, Ways, Who};
 use percent_encoding::{percent_decode_str, utf8_percent_encode, NON_ALPHANUMERIC};
 use plans::Plans;
 use presets::{preset_id, Presets};
+use pulls::{pull_number, Pulls};
 use secrets::Secrets;
 use serde_json::{json, Value};
 use settings::Settings;
@@ -175,14 +178,13 @@ macro_rules! with_docs {
         let value = $work;
         (value, std::mem::take(&mut $docs.effects))
     }};
-    // A write: what it set off goes into the outbox on its own connection (ORR-929).
+    // A write: what it sets off goes into the outbox inside its transaction (ORR-929).
     ($app:expr, $headers:expr, |$docs:ident| $work:expr) => {{
         let mut conn = $app.pool.acquire().await?;
         let mut $docs = Docs::new(&mut *conn);
+        $docs.outbox = Some(Outbox::new(actor_of(&$headers)));
         let value = $work;
-        let effects = std::mem::take(&mut $docs.effects);
-        changes::record(&mut conn, &effects, &actor_of(&$headers)).await?;
-        (value, effects)
+        (value, std::mem::take(&mut $docs.effects))
     }};
 }
 
@@ -315,14 +317,13 @@ macro_rules! with_statuses {
         let value = $work;
         (value, std::mem::take(&mut $statuses.effects))
     }};
-    // A write: what it set off goes into the outbox on its own connection (ORR-929).
+    // A write: what it sets off goes into the outbox inside its transaction (ORR-929).
     ($app:expr, $headers:expr, |$statuses:ident| $work:expr) => {{
         let mut conn = $app.pool.acquire().await?;
         let mut $statuses = Statuses::new(&mut *conn);
+        $statuses.outbox = Some(Outbox::new(actor_of(&$headers)));
         let value = $work;
-        let effects = std::mem::take(&mut $statuses.effects);
-        changes::record(&mut conn, &effects, &actor_of(&$headers)).await?;
-        (value, effects)
+        (value, std::mem::take(&mut $statuses.effects))
     }};
 }
 
@@ -355,11 +356,10 @@ async fn get_settings(State(app): Shared) -> Result<Response> {
 async fn patch_settings(State(app): Shared, headers: HeaderMap, body: Bytes) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
     let mut settings = Settings::new(&mut conn);
+    // What it sets off goes into the outbox inside its transaction (ORR-929).
+    settings.outbox = Some(Outbox::new(actor_of(&headers)));
     let value = settings.update(&body_of(&body), &actor_of(&headers)).await?;
-    let effects = std::mem::take(&mut settings.effects);
-    // What it set off goes into the outbox on its own connection (ORR-929).
-    changes::record(&mut conn, &effects, &actor_of(&headers)).await?;
-    Ok(reply(StatusCode::OK, Some(value), effects))
+    Ok(reply(StatusCode::OK, Some(value), std::mem::take(&mut settings.effects)))
 }
 
 async fn list_people(State(app): Shared) -> Result<Response> {
@@ -439,6 +439,21 @@ async fn get_secret(State(app): Shared, Path(name): Path<String>) -> Result<Resp
     Ok(Json(Secrets::new(&mut conn).secret(&name).await?).into_response())
 }
 
+/// Whether the owner is asking, as `kindOf` has it: the router's `Orrery-Actor-Kind`, so the chat and an untrusted
+/// session aren't, whoever they name; the actor's own word without it.
+fn owner_asking(headers: &HeaderMap) -> bool {
+    match header(headers, "orrery-actor-kind") {
+        Some(kind) => kind == "owner",
+        None => actor_of(headers).owner,
+    }
+}
+
+async fn get_pull(State(app): Shared, Path((owner, name, number)): Path<(String, String, String)>, headers: HeaderMap) -> Result<Response> {
+    let number = pull_number(&number)?;
+    let mut conn = app.pool.acquire().await?;
+    Ok(Json(Pulls::new(&mut conn).for_pull(&format!("{owner}/{name}"), number, owner_asking(&headers)).await?).into_response())
+}
+
 async fn list_presets(State(app): Shared) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
     Ok(Json(Presets::new(&mut conn).list(None).await?).into_response())
@@ -496,7 +511,7 @@ async fn restore_presets(State(app): Shared, headers: HeaderMap) -> Result<Respo
 
 async fn health() -> Json<Value> {
     Json(
-        json!({"ok": true, "domains": ["docs", "statuses", "issues, reading", "comments, reading", "activity", "milestones and releases, reading", "people, but removing one", "invites", "keys", "logins", "uploads, reading", "presets", "secrets, reading", "settings"]}),
+        json!({"ok": true, "domains": ["docs", "statuses", "issues, reading", "comments, reading", "activity", "milestones and releases, reading", "people, but removing one", "invites", "keys", "logins", "uploads, reading", "presets", "secrets, reading", "settings", "a pull request, reading"]}),
     )
 }
 
@@ -541,6 +556,7 @@ fn router(app: Arc<App>) -> Router {
         .route(&format!("{P}/presets"), get(list_project_presets).post(create_project_preset))
         .route("/api/secrets", get(list_secrets))
         .route("/api/secrets/{name}", get(get_secret))
+        .route("/api/pulls/{owner}/{name}/{number}", get(get_pull))
         .layer(middleware::from_fn_with_state(app.clone(), guard))
         .with_state(app)
 }
