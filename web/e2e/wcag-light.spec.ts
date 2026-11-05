@@ -12,6 +12,4 @@ test.beforeAll(async ({request}) => {
     w = await walkProject(request, 'Globe', 'GLO')
 })
 
-test('no page breaks a WCAG A or AA rule in light mode, beyond those the UI/UX audit has (ORR-735)', async ({page}) => {
-    await wcagWalk(page, w, 'light')
-})
+wcagWalk('no page breaks a WCAG A or AA rule in light mode, beyond those the UI/UX audit has (ORR-735)', () => w, 'light')
