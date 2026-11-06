@@ -268,6 +268,32 @@ describe('CommandPalette', () => {
         useStartSession().close()
     })
 
+    it('finds the commands that make or start something by their aliases, each listed once (ORR-1031)', async () => {
+        useRoadmaps().projects.value = [{...GREENHOUSE, starts: true}, PANTRY]
+        const {input, wrapper} = await mount('/p/greenhouse')
+        const commands = () => wrapper.find('section[aria-label="Commands"]').findAll('[role="option"]').map(o => o.text())
+
+        for (const word of ['create', 'make', 'add']) {
+            await input().setValue(`>${word}`)
+            expect(commands().filter(c => c.includes('New issue in Greenhouse'))).toHaveLength(1)
+            expect(commands().some(c => c.includes('Start session'))).toBe(false)
+        }
+        await input().setValue('>create doc')
+        expect(commands()[0]).toContain('New doc in Greenhouse')
+
+        for (const word of ['run', 'begin']) {
+            await input().setValue(`>${word}`)
+            expect(commands()[0]).toContain('Start session')
+            expect(commands().some(c => c.includes('New issue'))).toBe(false)
+        }
+
+        // `new` finds both: the titles that start with it first, then starting a session.
+        await input().setValue('>new')
+        expect(commands()[0]).toMatch(/^New /)
+        await input().setValue('>new session')
+        expect(commands()[0]).toContain('Start session')
+    })
+
     it('messages every session, or one found by name, once each and only those listening (ORR-679)', async () => {
         const shelves = {id: 's1', name: 'kitchen shelves', project: 'greenhouse', also: ['pantry'], listening: true} as unknown as Session
         const deaf = {id: 's2', name: 'cellar door', project: 'pantry', listening: false} as unknown as Session
