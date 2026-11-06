@@ -170,3 +170,27 @@ test("App settings' QR link signs a phone in on its own port, once, and lists it
     await expect(again).toHaveURL(/\/login$/)
     await another.close()
 })
+
+// The code under the QR (ORR-875), typed on the phone's login page, from an app on the home screen that has no camera
+// and keeps cookies apart from the browser's: it signs the phone in on its own port, once, and uses up the QR's link.
+test("App settings' code signs a phone in on its own port, once, in place of the QR", async ({page, browser}) => {
+    await signedIn(page)
+    const made = page.waitForResponse(response => response.url().endsWith('/api/phone/link') && response.request().method() === 'POST')
+    await page.goto('/settings?tab=you#phone')
+    const {token} = await (await made).json() as {token: string}
+    const section = page.locator('#phone')
+    const shown = await section.getByTestId('phone-code').innerText()
+    expect(shown).toMatch(/^[A-Z2-9]{3}-[A-Z2-9]{3}$/)
+    const address = await section.getByRole('button', {name: /^Show the QR code for /}).first().innerText()
+
+    const phone = await browser.newContext({...devices['iPhone 13']})
+    // What login.vue sends with a typed code, however it's typed.
+    expect((await phone.request.post(`${address}/api/auth/link`, {data: {code: shown.toLowerCase()}})).status()).toBe(201)
+    expect((await phone.request.get(`${address}/api/projects`)).status()).toBe(200)
+    await phone.close()
+
+    const another = await browser.newContext()
+    expect((await another.request.post(`${address}/api/auth/link`, {data: {code: shown}})).status()).toBe(401)
+    expect((await another.request.post(`${address}/api/auth/link`, {data: {token}})).status()).toBe(401)
+    await another.close()
+})

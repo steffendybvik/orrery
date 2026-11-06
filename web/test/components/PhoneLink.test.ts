@@ -14,7 +14,7 @@ let made = 0
 registerEndpoint('/api/owner', () => ({name: 'skoll', display: 'Sköll', named: true}))
 registerEndpoint('/api/phone/link', {method: 'POST', handler: () => {
     made++
-    return {token: `t${made}`, expires_at: new Date(Date.now() + 5 * 60_000).toISOString()}
+    return {token: `t${made}`, code: made === 1 ? 'KQ7M4X' : 'BCD234', expires_at: new Date(Date.now() + 5 * 60_000).toISOString()}
 }})
 registerEndpoint('/api/phone', {method: 'GET', handler: event => {
     if (answer === 'fail') {
@@ -77,6 +77,17 @@ describe('Open on your phone', () => {
         // The code is drawn from the link with the token, so it isn't the plain one.
         await vi.waitFor(() => expect(code(wrapper).html()).not.toBe(without))
         expect(made).toBe(1)
+    })
+
+    it('shows a code to type under it when the phone has its own port, and makes a new one on New code (ORR-875)', async () => {
+        const wrapper = await mount(links({phone: true, addresses: [{url: 'http://mac.local:19010', from: 'machine', name: true}]}))
+        await vi.waitFor(() => expect(wrapper.find('[data-testid="phone-code"]').text()).toBe('KQ7-M4X'))
+        expect(wrapper.text()).toContain('added to the home screen')
+        await wrapper.findAll('button').find(b => b.text() === 'New code')!.trigger('click')
+        await vi.waitFor(() => expect(wrapper.find('[data-testid="phone-code"]').text()).toBe('BCD-234'))
+        expect(made).toBe(2)
+        const plain = await mount(links({phone: false, addresses: [{url: 'https://orrery.example', from: 'host'}]}))
+        expect(plain.find('[data-testid="phone-code"]').exists()).toBe(false)
     })
 
     it('says how to reach it when orrery can\'t see the machine\'s address from its container', async () => {
