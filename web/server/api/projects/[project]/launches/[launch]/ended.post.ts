@@ -4,6 +4,7 @@
 // One orrery stopped as done, while the owner keeps a minimum running, is replaced (`keepMinimum`).
 export default defineEventHandler(event => {
     const [project, launch] = [param(event, 'project'), param(event, 'launch')]
+    launcherMayTell(event, launch)
     asLaunch(launch, () => useEventLog().note({level: 'info', kind: 'session.stopped', project, message: 'A session orrery started has stopped', details: {launch}}))
     launchGone(launch)
     launchEnded(project, launch)

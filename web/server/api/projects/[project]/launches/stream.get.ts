@@ -15,10 +15,13 @@ export default defineEventHandler(async event => {
     // Kept only as a time, so nothing else a launcher says reaches the page through it.
     const when = (at: unknown) => typeof at === 'string' && !Number.isNaN(Date.parse(at)) ? new Date(at).toISOString() : undefined
     const [pickedAt, connectedAt] = [when(picked), when(connected)]
-    const done = addLauncher(project, typeof dir === 'string' && dir ? dir : undefined, every === '1', typeof version === 'string' ? version.slice(0, 40) : '', {...pickedAt ? {picked_at: pickedAt} : {}, ...connectedAt ? {connected_at: connectedAt} : {}})
+    // A launcher on a member's agent key hears only its own person's launches, and isn't counted as the project's (ORR-963).
+    const member = launcherMember(event)
+    const done = member ? addMemberLauncher(project, member) : addLauncher(project, typeof dir === 'string' && dir ? dir : undefined, every === '1', typeof version === 'string' ? version.slice(0, 40) : '', {...pickedAt ? {picked_at: pickedAt} : {}, ...connectedAt ? {connected_at: connectedAt} : {}})
     const where = typeof dir === 'string' && dir ? {dir} : {}
-    useEventLog().note({level: 'info', kind: 'launcher.connected', project, message: 'A launcher connected', details: where})
+    useEventLog().note({level: 'info', kind: 'launcher.connected', project, message: member ? `A launcher on ${member}'s key connected: it hears only their launches` : 'A launcher connected', details: where})
     const send = (sent: LaunchEvent) => {
+        if (!hearsLaunch(member, sent.type === 'launch' ? sent.launch.id : sent.id)) return
         if (sent.type === 'launch') {
             if (sent.launch.project === project) stream.push({id: sent.launch.id, event: 'launch', data: JSON.stringify(sent.launch)})
         } else if (sent.project === project) {
@@ -31,9 +34,9 @@ export default defineEventHandler(async event => {
     const oldest = launcherMinimum((await useStore().people()).length)
     stream.push({event: 'ready', data: JSON.stringify({project, starts: starts ?? null, version: useRuntimeConfig().public.version, oldest, token: done.token})})
     // What no launcher has taken yet, such as a launch refused for an outdated launcher that has now restarted (ORR-471).
-    for (const launch of unclaimedLaunches(project)) stream.push({id: launch.id, event: 'launch', data: JSON.stringify(launch)})
+    for (const launch of unclaimedLaunches(project).filter(l => hearsLaunch(member, l.id))) stream.push({id: launch.id, event: 'launch', data: JSON.stringify(launch)})
     // What it was asked to stop while no launcher was there to hear it (ORR-789).
-    for (const id of heldStops(project)) stream.push({event: 'stop', data: JSON.stringify({project, id})})
+    for (const id of heldStops(project).filter(id => hearsLaunch(member, id))) stream.push({event: 'stop', data: JSON.stringify({project, id})})
     stream.onClosed(async () => {
         clearInterval(ping)
         projectEvents.off('launches', send)
