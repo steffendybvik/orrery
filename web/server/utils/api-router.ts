@@ -96,9 +96,12 @@ export const DOMAINS: readonly {domain: string, paths: RegExp, methods?: readonl
     // the page that did it reads the bell again.
     {domain: 'the bell', paths: /^notices(\/(changes|clear|read))?$/},
     // The epics (ORR-1004): every one with its progress, one with its issues, and making, changing and deleting one. A
-    // write's reply says the epics changed (`Orrery-Epics`), for open pages to ask for them again. An epic's comments and
-    // its focus, which signals sessions, stay here.
+    // write's reply says the epics changed (`Orrery-Epics`), for open pages to ask for them again. An epic's focus, which
+    // signals sessions, stays here.
     {domain: 'epics', paths: /^epics(\/[^/]+)?$/},
+    // A milestone's comments and an epic's (ORR-1004): words on its page, which ask nothing and wake no session. A write
+    // says the milestone's project changed, or the epics did (`Orrery-Epics`).
+    {domain: 'milestone and epic comments', paths: /^(projects\/[^/]+\/milestones|epics)\/[^/]+\/comments(\/[^/]+)?$/},
 ]
 
 /** What this server checks itself before a request goes on, as only it knows (the sessions): refusing it throws, and

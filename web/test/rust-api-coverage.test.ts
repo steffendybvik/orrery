@@ -16,10 +16,10 @@ const UNROUTED: readonly Line[] = [
     {routes: /^(POST \/api\/projects\/\{project\}\/issues|PATCH \/api\/projects\/\{project\}\/issues|DELETE \/api\/projects\/\{project\}\/issues|POST \/api\/projects\/\{project\}\/issues\/decide)$/, issue: 'ORR-927'},
     {routes: /^(POST \/api\/projects\/\{project\}\/issues\/\{issue\}\/(decide|focus|schedule-requests(\/\{comment\})?)|GET \/api\/projects\/\{project\}\/issues\/\{issue\}\/(branches|pulls)|POST \/api\/uploads)$/, issue: 'ORR-927'},
     {routes: /^(GET|POST|PUT|DELETE) \/api\/(auth\/(link|status)|owner|permissions|projects\/\{project\}\/members(\/\{person\})?)$/, issue: 'ORR-928'},
-    {routes: /^\w+ \/api\/(epics\/\{epic\}|projects\/\{project\}\/milestones\/\{milestone\})\/(comments(\/\{comment\})?|focus)$/, issue: 'ORR-1004'},
     {routes: /^(GET|DELETE) \/api\/projects\/\{project\}$|^\w+ \/api\/projects\/(\{project\}\/(export|import)|upload)$/, issue: 'ORR-1006'},
     {routes: /^(POST|PATCH|DELETE) \/api\/(projects\/\{project\}\/schedules(\/\{schedule\}(\/(adopt|run))?|\/enabled)?|schedules(\/across\/\{across\})?)$/, issue: 'ORR-950'},
     // What stays with the local app: the machine, its sessions and launcher, and what only it can do.
+    {routes: /^POST \/api\/(epics\/\{epic\}|projects\/\{project\}\/milestones\/\{milestone\})\/focus$/, stays: "a focus signals the sessions, which are the machine's (ORR-1004)"},
     {routes: /^(GET|POST|PATCH|DELETE) \/api\/chats(\/\{chat\}(\/(clear|end|messages|replies|requests(\/\{message\})?))?)?$/, stays: "the chat's sessions are the local app's; the API keeps their rows, through PUT /api/chats/{chat}"},
     {routes: /^POST \/api\/auth\/(login|logout)$|^GET \/api\/auth\/oidc\/(start|callback)$/, stays: 'logging in and out is checked here (auth.ts); the API hears what that found'},
     {routes: /^(PUT|PATCH|DELETE) \/api\/secrets\/\{name\}$|^POST \/api\/egress$/, stays: "sealed with the machine's key (decision-rust-api-secrets-settings)"},
