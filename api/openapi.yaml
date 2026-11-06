@@ -713,6 +713,39 @@ paths:
       summary: Ends this browser's login, on the server as well as its cookie
       responses:
         '204': {description: Logged out, or wasn't logged in}
+  /api/auth/oidc/start:
+    get:
+      x-served: false
+      summary: Sends the browser to the login provider
+      description: >-
+        The authorization code flow with PKCE, found through the provider's discovery document (NUXT_OIDC_ISSUER,
+        NUXT_OIDC_CLIENT_ID, NUXT_OIDC_CLIENT_SECRET). What the way back has to match is kept in the http-only
+        `orrery_oidc` cookie for 10 minutes. Written ahead of the swap: the Nuxt server serves it until then.
+      parameters:
+        - {name: invite, in: query, description: An invite's secret, to attach a new account to its person, schema: {type: string}}
+        - {name: back, in: query, description: 'The page''s origin, when NUXT_ALLOWED_ORIGINS lists it; any other is ignored', schema: {type: string}}
+      responses:
+        '302': {description: To the provider's login}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '502': {description: The provider is set up wrong or didn't answer}
+  /api/auth/oidc/callback:
+    get:
+      x-served: false
+      summary: Logs the browser in from the provider's way back
+      description: >-
+        Checks the way back answers this browser's own login, swaps the code for an ID token and verifies it against the
+        provider's keys. An account orrery doesn't know needs the invite the login started with. Clears `orrery_oidc`
+        whatever comes of it. Written ahead of the swap.
+      parameters:
+        - {name: state, in: query, schema: {type: string}}
+        - {name: code, in: query, schema: {type: string}}
+      responses:
+        '302': {description: 'Logged in: to the board, or to the listed origin it started from'}
+        '401': {description: 'The way back doesn''t match, has run out, or the ID token doesn''t check out'}
+        '403': {description: The account isn't on this orrery}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {description: The invite has been used or has run out, or the account belongs to someone else}
+        '502': {description: The provider is set up wrong or didn't answer}
   /api/secrets:
     get:
       summary: Every secret by name, never its value

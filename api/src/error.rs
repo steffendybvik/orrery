@@ -46,6 +46,15 @@ impl ApiError {
         Self::new(StatusCode::UNAUTHORIZED, message)
     }
 
+    pub fn forbidden(message: impl Into<String>) -> Self {
+        Self::new(StatusCode::FORBIDDEN, message)
+    }
+
+    /// A login provider that's set up wrong or didn't answer (ORR-928).
+    pub fn provider(message: impl Into<String>) -> Self {
+        Self::new(StatusCode::BAD_GATEWAY, message)
+    }
+
     /// What can't happen, as the store's `known` refuses it: a 500 naming what was missing.
     pub fn internal(missing: impl Into<String>) -> Self {
         Self::new(StatusCode::INTERNAL_SERVER_ERROR, format!("Expected {}", missing.into()))

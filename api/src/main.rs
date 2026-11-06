@@ -21,6 +21,7 @@ mod issue_edits;
 mod issues;
 mod migrate;
 mod milestones;
+mod oidc;
 mod people;
 mod plans;
 mod presets;
@@ -37,7 +38,7 @@ mod text;
 mod uploads;
 
 use axum::body::Bytes;
-use axum::extract::{Path, Query, Request, State};
+use axum::extract::{Path, Query, RawQuery, Request, State};
 use axum::http::header::ACCEPT;
 use axum::http::{HeaderMap, HeaderValue, StatusCode};
 use axum::middleware::{self, Next};
@@ -712,6 +713,71 @@ async fn log_out(State(app): Shared, headers: HeaderMap) -> Result<Response> {
     Ok(response)
 }
 
+/// A redirect as `sendRedirect` sends it: a 302 to `to`, with a page that goes there for a browser that ignores it.
+fn redirect(to: &str) -> Result<Response> {
+    let page = format!(r#"<!DOCTYPE html><html><head><meta http-equiv="refresh" content="0; url={}"></head></html>"#, to.replace('"', "%22"));
+    let mut response = (StatusCode::FOUND, [(axum::http::header::CONTENT_TYPE, "text/html")], page).into_response();
+    let location = HeaderValue::from_str(to).map_err(|_| ApiError::internal("a redirect"))?;
+    response.headers_mut().insert(axum::http::header::LOCATION, location);
+    Ok(response)
+}
+
+fn with_cookie(mut response: Response, cookie: &str) -> Result<Response> {
+    let cookie = HeaderValue::from_str(cookie).map_err(|_| ApiError::internal("a cookie"))?;
+    response.headers_mut().append(axum::http::header::SET_COOKIE, cookie);
+    Ok(response)
+}
+
+/// `GET /api/auth/oidc/start?invite=&back=` → a redirect to the provider's login (web/server/api/auth/oidc/start.get.ts).
+/// `back`: the page's origin, when it's hosted on a site NUXT_ALLOWED_ORIGINS lists (ORR-667); any other is ignored.
+/// 404 when no provider is set up. Written ahead of the swap: the router keeps it the Nuxt server's.
+async fn oidc_start(headers: HeaderMap, RawQuery(raw): RawQuery) -> Result<Response> {
+    if !oidc::on() {
+        return Err(ApiError::not_found("This orrery has no login provider"));
+    }
+    let query = oidc::parse_query(raw.as_deref());
+    let invite = oidc::query_value(&query, "invite").filter(|i| !i.is_empty());
+    let (to, cookie) = oidc::start(&headers, invite, oidc::query_value(&query, "back")).await?;
+    with_cookie(redirect(&to)?, &cookie)
+}
+
+/// `GET /api/auth/oidc/callback` → a redirect to the board, logged in (to its page on another site when it started
+/// there, ORR-667): where the provider sends the browser back (callback.get.ts). An account orrery doesn't know needs
+/// an invite, so nobody gets in only by having an account with the provider. The kept cookie is cleared either way.
+async fn oidc_callback(State(app): Shared, headers: HeaderMap, RawQuery(raw): RawQuery) -> Result<Response> {
+    if !oidc::on() {
+        return Err(ApiError::not_found("This orrery has no login provider"));
+    }
+    let query = oidc::parse_query(raw.as_deref());
+    let kept = cookie_of(&headers, oidc::COOKIE);
+    let done: Result<Response> = async {
+        let found = oidc::finish(&headers, oidc::query_value(&query, "state"), oidc::query_value(&query, "code"), kept).await?;
+        let mut conn = app.pool.acquire().await?;
+        let mut people = People::new(&mut conn);
+        let Some(person) = people.identity(&found.issuer, &found.subject, found.invite.as_deref()).await? else {
+            return Err(ApiError::forbidden("This account isn't on this orrery: ask its owner for an invite"));
+        };
+        let secret = people.start_login(&person, None, None).await?;
+        let to = found.back.map_or_else(|| "/".to_owned(), |back| format!("{back}/"));
+        with_cookie(redirect(&to)?, &login_set_cookie(&headers, &secret))
+    }
+    .await;
+    let response = match done {
+        Ok(response) => response,
+        Err(error) => error.into_response(),
+    };
+    // Cleared first, as `finishOidc` clears it before anything is checked.
+    let mut response = response;
+    let cleared = HeaderValue::from_str(&oidc::cleared_cookie()).map_err(|_| ApiError::internal("a cookie"))?;
+    let mut cookies: Vec<HeaderValue> = response.headers_mut().get_all(axum::http::header::SET_COOKIE).iter().cloned().collect();
+    cookies.insert(0, cleared);
+    response.headers_mut().remove(axum::http::header::SET_COOKIE);
+    for cookie in cookies {
+        response.headers_mut().append(axum::http::header::SET_COOKIE, cookie);
+    }
+    Ok(response)
+}
+
 async fn get_upload(State(app): Shared, Path(upload): Path<String>) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
     uploads::upload(&mut conn, &upload).await
@@ -948,6 +1014,8 @@ fn router(app: Arc<App>) -> Router {
         .route("/api/logins/{login}", axum::routing::delete(end_login))
         .route("/api/auth/login", post(log_in))
         .route("/api/auth/logout", post(log_out))
+        .route("/api/auth/oidc/start", get(oidc_start))
+        .route("/api/auth/oidc/callback", get(oidc_callback))
         .route("/api/presets", get(list_presets).post(create_preset))
         .route("/api/presets/defaults", post(restore_presets))
         .route("/api/presets/{preset}", patch(patch_preset).delete(delete_preset))
