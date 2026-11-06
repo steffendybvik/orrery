@@ -9,14 +9,17 @@ use crate::comments::Comments;
 use crate::db::sql;
 use crate::docs::{js, stamp, Actor};
 use crate::error::{ApiError, Result};
-use crate::issues::{github_issue_of, github_repo, Issues, GITHUB_OWN};
+use crate::issues::{github_issue_of, github_repo, link_ref, Issues, GITHUB_OWN};
 use regex::Regex;
 use serde_json::Value;
 use sqlx::Row;
+use std::collections::{HashMap, VecDeque};
 use std::sync::LazyLock;
 
 /// The fields this takes, in the order `ISSUE_FIELDS` has them, which is the order its problems are listed in.
-pub const WORDS: [&str; 9] = ["title", "priority", "labels", "external", "github_issues", "notes", "model", "effort", "position"];
+pub const WORDS: [&str; 10] = ["title", "priority", "labels", "external", "github_issues", "notes", "depends_on", "model", "effort", "position"];
+/// The most issues one can depend on (`MAX_DEPENDS`).
+const MAX_DEPENDS: usize = 50;
 const PRIORITIES: [&str; 4] = ["P0", "P1", "P2", "P3"];
 /// The kinds of status an issue is closed in (`CLOSED`).
 const CLOSED: [&str; 2] = ["done", "canceled"];
@@ -33,6 +36,8 @@ pub struct Words {
     pub external: Option<Vec<String>>,
     pub github_issues: Option<Vec<String>>,
     pub notes: Option<Option<String>>,
+    /// What it depends on, all of it (ORR-601): `Some(vec![])` for none.
+    pub depends_on: Option<Vec<String>>,
     pub model: Option<Option<String>>,
     pub effort: Option<Option<String>>,
     pub position: Option<f64>,
@@ -96,8 +101,15 @@ pub fn check_words(body: &Value) -> Result<Words> {
                 Some(sent) => words.title = Some(sent.trim().to_string()),
                 None => problems.push(format!("\"title\" should be a string, not {}", js(value))),
             },
-            "labels" | "external" if value.is_null() => *if key == "labels" { &mut words.labels } else { &mut words.external } = Some(vec![]),
+            "labels" | "external" | "depends_on" if value.is_null() => {
+                *match key {
+                    "labels" => &mut words.labels,
+                    "external" => &mut words.external,
+                    _ => &mut words.depends_on,
+                } = Some(vec![])
+            }
             "labels" => words.labels = strings(key, value, &mut problems),
+            "depends_on" => words.depends_on = strings(key, value, &mut problems),
             "external" => words.external = strings(key, value, &mut problems),
             "github_issues" if value.is_null() => words.github_issues = Some(vec![]),
             "github_issues" => {
@@ -200,7 +212,17 @@ impl Comments<'_> {
         };
         let listed = |list: &Option<Vec<String>>| list.as_ref().map(|l| serde_json::to_string(l).unwrap_or_default());
         let (labels, external, github) = (listed(&words.labels), listed(&words.external), listed(&github));
-        let linked = self.linked_projects(project, &issue).await?;
+        let depends = match &words.depends_on {
+            Some(refs) => Some(self.links_from(project, &issue, refs).await?),
+            None => None,
+        };
+        // The projects whose boards show this issue's links, those it's to depend on too: theirs change with it.
+        let mut linked: Vec<String> = depends.iter().flatten().map(|(p, _)| p.clone()).collect();
+        for other in self.linked_projects(project, &issue).await? {
+            if !linked.contains(&other) {
+                linked.push(other);
+            }
+        }
         changes::begin(self.conn).await?;
         let done: Result<()> = async {
             let changed: [Change; 8] = [
@@ -242,10 +264,19 @@ impl Comments<'_> {
                 update = if position.fract() == 0.0 && position.abs() < 9e15 { update.bind(position as i64) } else { update.bind(position) };
             }
             update.bind(stamp()).bind(project).bind(&issue).execute(&mut *self.conn).await?;
+            if let Some(depends) = &depends {
+                self.set_links(project, &issue, depends, actor).await?;
+            }
             self.touch_project(project).await
         }
         .await;
-        self.effects.changed = std::iter::once(project.to_string()).chain(linked.into_iter().filter(|p| p != project)).collect();
+        let mut changed = vec![project.to_string()];
+        for other in linked {
+            if !changed.contains(&other) {
+                changed.push(other);
+            }
+        }
+        self.effects.changed = changed;
         changes::finish(self.conn, self.outbox.as_mut(), &self.effects, done).await?;
         let made_p0 = words.priority.as_ref().is_some_and(|p| p.as_deref() == Some("P0")) && row.priority.as_deref() != Some("P0");
         if !made_p0 || !(actor.owner || actor.person.is_some()) || row.proposal.is_some() {
@@ -278,6 +309,138 @@ impl Comments<'_> {
             }
         }
         Ok(kept)
+    }
+
+    /// The issues `depends_on` names, checked (`linksFrom`, ORR-601): each there (an id it had before finds it), in this
+    /// project or another, not the issue itself, not its parent or a sub-issue, and not one that already depends on it,
+    /// however far down, which would make a loop nothing could start.
+    async fn links_from(&mut self, project: &str, issue: &str, refs: &[String]) -> Result<Vec<(String, String)>> {
+        let mut links: Vec<(String, String)> = vec![];
+        for sent in refs {
+            let (on_project, on_id) = match sent.split_once('/') {
+                Some((p, i)) => (p.trim().to_string(), i.trim().to_string()),
+                None => (project.to_string(), sent.trim().to_string()),
+            };
+            if on_project.is_empty() || on_id.is_empty() {
+                return Err(ApiError::bad_request(format!("\"{sent}\" in \"depends_on\" isn't an issue: use its id, or project/ID for another project's")));
+            }
+            let on_id = self.issue_id(&on_project, &on_id).await?;
+            self.issue_there(&on_project, &on_id).await?;
+            if on_project == project && on_id == issue {
+                return Err(ApiError::bad_request("An issue can't depend on itself"));
+            }
+            if !links.iter().any(|(p, i)| *p == on_project && *i == on_id) {
+                links.push((on_project, on_id));
+            }
+        }
+        if links.len() > MAX_DEPENDS {
+            return Err(ApiError::bad_request(format!("An issue can depend on {MAX_DEPENDS} issues at most")));
+        }
+        // A sub-issue and its parent already go together: one waiting on the other could never start.
+        let parent_of = async |conn: &mut sqlx::AnyConnection, id: &str| -> Result<Option<String>> {
+            let row = sqlx::query(&sql("SELECT parent FROM issues WHERE project = ? AND id = ?")).bind(project).bind(id).fetch_one(&mut *conn).await?;
+            Ok(row.get("parent"))
+        };
+        let parent = parent_of(&mut *self.conn, issue).await?;
+        for (_, on) in links.iter().filter(|(p, _)| p == project) {
+            if parent.as_deref() == Some(on.as_str()) || parent_of(&mut *self.conn, on).await?.as_deref() == Some(issue) {
+                return Err(ApiError::bad_request(format!("{on} and {issue} are a parent and its sub-issue, so one can't depend on the other")));
+            }
+        }
+        for (on_project, on_id) in &links {
+            if let Some(path) = self.depends_path((on_project, on_id), (project, issue)).await? {
+                let through = if path.len() > 2 {
+                    format!(" (through {})", path[1..path.len() - 1].iter().map(|(p, i)| link_ref(project, p, i)).collect::<Vec<_>>().join(", "))
+                } else {
+                    String::new()
+                };
+                return Err(ApiError::bad_request(format!(
+                    "{} already depends on {issue}{through}, so {issue} can't depend on it",
+                    link_ref(project, on_project, on_id)
+                )));
+            }
+        }
+        Ok(links)
+    }
+
+    /// The chain from `from` to `to` along what each depends on, if there's one, both ends included (`dependsPath`).
+    async fn depends_path(&mut self, from: (&str, &str), to: (&str, &str)) -> Result<Option<Vec<(String, String)>>> {
+        let from = (from.0.to_string(), from.1.to_string());
+        let mut came: HashMap<(String, String), Option<(String, String)>> = HashMap::from([(from.clone(), None)]);
+        let mut queue = VecDeque::from([from]);
+        while let Some(at) = queue.pop_front() {
+            if at.0 == to.0 && at.1 == to.1 {
+                let mut path = vec![at.clone()];
+                let mut back = came.get(&at).cloned().flatten();
+                while let Some(step) = back {
+                    back = came.get(&step).cloned().flatten();
+                    path.insert(0, step);
+                }
+                return Ok(Some(path));
+            }
+            let next = sqlx::query(&sql("SELECT on_project AS project, on_issue AS id FROM issue_links WHERE project = ? AND issue = ?"))
+                .bind(&at.0)
+                .bind(&at.1)
+                .fetch_all(&mut *self.conn)
+                .await?;
+            for row in next {
+                let step: (String, String) = (row.get("project"), row.get("id"));
+                if came.contains_key(&step) {
+                    continue;
+                }
+                came.insert(step.clone(), Some(at.clone()));
+                queue.push_back(step);
+            }
+        }
+        Ok(None)
+    }
+
+    /// Makes `links` what the issue depends on, each one added or dropped once, in its activity as `depends` (`setLinks`).
+    async fn set_links(&mut self, project: &str, issue: &str, links: &[(String, String)], actor: &Actor) -> Result<()> {
+        let before: Vec<(String, String)> = sqlx::query(&sql(
+            "SELECT on_project AS project, on_issue AS id FROM issue_links WHERE project = ? AND issue = ? ORDER BY created_at, on_project, on_issue",
+        ))
+        .bind(project)
+        .bind(issue)
+        .fetch_all(&mut *self.conn)
+        .await?
+        .iter()
+        .map(|r| (r.get("project"), r.get("id")))
+        .collect();
+        let now = stamp();
+        for gone in before.iter().filter(|b| !links.contains(b)) {
+            sqlx::query(&sql("DELETE FROM issue_links WHERE project = ? AND issue = ? AND on_project = ? AND on_issue = ?"))
+                .bind(project)
+                .bind(issue)
+                .bind(&gone.0)
+                .bind(&gone.1)
+                .execute(&mut *self.conn)
+                .await?;
+        }
+        let added: Vec<&(String, String)> = links.iter().filter(|l| !before.contains(l)).collect();
+        for (on_project, on_id) in &added {
+            sqlx::query(&sql("INSERT INTO issue_links (project, issue, on_project, on_issue, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)"))
+                .bind(project)
+                .bind(issue)
+                .bind(on_project)
+                .bind(on_id)
+                .bind(&actor.name)
+                .bind(i64::from(actor.owner))
+                .bind(&now)
+                .execute(&mut *self.conn)
+                .await?;
+        }
+        let refs = |list: &[&(String, String)]| {
+            (!list.is_empty()).then(|| serde_json::to_string(&list.iter().map(|(p, i)| link_ref(project, p, i)).collect::<Vec<_>>()).unwrap_or_default())
+        };
+        let kept: Vec<&(String, String)> = before.iter().filter(|b| links.contains(b)).chain(added).collect();
+        let was = refs(&before.iter().collect::<Vec<_>>());
+        let now = refs(&kept);
+        // `record` notes only what changed.
+        if was != now {
+            self.record_field(project, issue, actor, "depends", was.as_deref(), now.as_deref()).await?;
+        }
+        Ok(())
     }
 
     /// The projects whose boards show this issue's links (`linkedProjects`): theirs change with it, as its own does.

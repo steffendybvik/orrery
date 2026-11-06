@@ -195,7 +195,7 @@ struct Links {
     blocks: HashMap<String, Vec<String>>,
 }
 
-fn link_ref(here: &str, project: &str, id: &str) -> String {
+pub(crate) fn link_ref(here: &str, project: &str, id: &str) -> String {
     if project == here {
         id.into()
     } else {
