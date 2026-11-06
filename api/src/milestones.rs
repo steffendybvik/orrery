@@ -85,7 +85,7 @@ impl<'c> Milestones<'c> {
     }
 
     /// The milestone's id, from its id, an old id or its full form, or a 404, as `milestoneId` and `milestoneRow` give it.
-    async fn milestone_id(&mut self, project: &str, sent: &str) -> Result<(String, bool)> {
+    pub(crate) async fn milestone_id(&mut self, project: &str, sent: &str) -> Result<(String, bool)> {
         let id = Issues::new(self.conn).resolve(project, sent, true).await?;
         let row = sqlx::query(&sql("SELECT CAST(owned AS BIGINT) AS owned FROM milestones WHERE project = ? AND id = ?"))
             .bind(project)
