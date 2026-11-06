@@ -91,3 +91,18 @@ test('schedules', async ({page}) => {
     await expect(page.getByRole('button', {name: /Benchmark the sieves/}).first()).toBeVisible()
     await shoot(page, 'schedules')
 })
+
+test('mine', async ({page}) => {
+    await open(page, '/mine')
+    await expect(page.getByText('Waiting on you')).toBeVisible()
+    await shoot(page, 'mine')
+})
+
+test('new-issue', async ({page}) => {
+    await open(page, '/p/primes?view=list')
+    await page.getByRole('button', {name: 'New issue'}).first().click()
+    const dialog = page.getByRole('dialog', {name: 'New issue'})
+    await dialog.getByLabel('Title').fill('Sieve up to a billion without running out of memory')
+    await dialog.getByLabel('Description').fill('The segmented sieve keeps every segment it has made. Keep only the one it is on, and count as it goes.')
+    await shoot(page, 'new-issue')
+})
