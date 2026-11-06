@@ -49,27 +49,35 @@ async function saveStarts(on = !!settings.value.starts) {
     </label>
     <label class="flex items-center gap-2 text-xs text-muted" :class="{'opacity-50': !settings.starts}">
       <input v-model="onSignal" type="checkbox" class="accent-accent-fill" :disabled="!settings.starts" @change="saveStarts()">
-      Start a session when work arrives and nobody's listening
+      When work arrives for a project with no session running, start one
     </label>
-    <div class="flex flex-wrap items-center gap-2 text-xs text-muted" :class="{'opacity-50': !settings.starts}">
-      <span>At most</span>
-      <input v-model.number="limit" type="number" min="1" max="20" aria-label="Sessions at once" :class="field" :disabled="!settings.starts" @change="saveStarts()">
-      <span>at once, over every project. Keep at least</span>
-      <input v-model.number="min" type="number" min="1" :max="limit" placeholder="none" aria-label="Sessions kept running" :class="field" :disabled="!settings.starts" @change="saveStarts()">
-      <span>running. Stop each after</span>
-      <input v-model.number="minutes" type="number" min="1" max="1440" placeholder="never" aria-label="Minutes each" :class="field" :disabled="!settings.starts" @change="saveStarts()">
-      <span>minutes, or once idle for</span>
-      <input v-model.number="idleMinutes" type="number" min="1" max="1440" placeholder="never" aria-label="Idle minutes" :class="field" :disabled="!settings.starts" @change="saveStarts()">
-      <span>minutes.</span>
-    </div>
-    <p class="text-xs text-muted" :class="{'opacity-50': !settings.starts}">
-      orrery starts a session {{ onSignal ? "when work reaches a project nobody's listening on" : 'when you press Start session or Focus on this' }}, or when
-      one of your schedules starts one
-      (<NuxtLink to="/schedules" class="text-accent-700 hover:underline dark:text-accent-400">{{ starting === 1 ? '1 does' : `${starting} do` }}</NuxtLink>).
-    </p>
+    <ul class="flex flex-col gap-1.5 text-xs text-muted" :class="{'opacity-50': !settings.starts}">
+      <li class="flex flex-wrap items-center gap-2">
+        <span class="w-36">Most running at once:</span>
+        <input v-model.number="limit" type="number" min="1" max="20" aria-label="Sessions at once" :class="field" :disabled="!settings.starts" @change="saveStarts()">
+        <span>across all projects</span>
+      </li>
+      <li class="flex flex-wrap items-center gap-2">
+        <span class="w-36">Always keep running:</span>
+        <input v-model.number="min" type="number" min="1" :max="limit" placeholder="none" aria-label="Sessions kept running" :class="field" :disabled="!settings.starts" @change="saveStarts()">
+      </li>
+      <li class="flex flex-wrap items-center gap-2">
+        <span class="w-36">Stop a session after:</span>
+        <input v-model.number="minutes" type="number" min="1" max="1440" placeholder="never" aria-label="Minutes each" :class="field" :disabled="!settings.starts" @change="saveStarts()">
+        <span>minutes, or after</span>
+        <input v-model.number="idleMinutes" type="number" min="1" max="1440" placeholder="never" aria-label="Idle minutes" :class="field" :disabled="!settings.starts" @change="saveStarts()">
+        <span>minutes idle</span>
+      </li>
+    </ul>
     <p class="text-xs text-faint" :class="{'opacity-50': !settings.starts}">
-      Left blank, a session runs until you stop it. Neither stops one mid-work: it waits until the session is idle with nothing in progress.
-      With a minimum, one stopped that way is replaced by a fresh one with the same presets; one you stop yourself isn't.
+      Leave a limit blank for no limit. A session is only stopped when it's idle with nothing in progress, never mid-work.
+      If you set a minimum, orrery replaces a session it stopped with a fresh one using the same presets. A session you
+      stop yourself isn't replaced.
+    </p>
+    <p class="text-xs text-muted" :class="{'opacity-50': !settings.starts}">
+      orrery also starts sessions when you press Start session or Focus on this, and when a schedule fires
+      (<NuxtLink to="/schedules" class="text-accent-700 hover:underline dark:text-accent-400">{{ starting === 1 ? '1 schedule' : `${starting} schedules` }}</NuxtLink>
+      right now).
     </p>
     <p v-if="failed" class="text-xs text-rose-700 dark:text-rose-400">{{ failed }}</p>
   </div>

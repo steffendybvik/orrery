@@ -28,11 +28,10 @@ test('lets orrery start sessions once, for every project, on the Sessions page',
     await starts.getByLabel('Sessions kept running').fill('2')
     await starts.getByLabel('Sessions kept running').blur()
     await expect.poll(async () => (await (await request.get('/api/settings')).json()).starts).toEqual({limit: 2, min: 2})
-    // Work alone can stop starting one, and says so; back on for the tests after this.
-    const onSignal = starts.getByRole('checkbox', {name: "Start a session when work arrives and nobody's listening"})
+    // Work alone can stop starting one; back on for the tests after this.
+    const onSignal = starts.getByRole('checkbox', {name: 'When work arrives for a project with no session running, start one'})
     await onSignal.uncheck()
     await expect.poll(async () => (await (await request.get('/api/settings')).json()).starts).toEqual({limit: 2, min: 2, on_signal: false})
-    await expect(starts.getByText('when you press Start session or Focus on this')).toBeVisible()
     await onSignal.check()
     await expect.poll(async () => (await (await request.get('/api/settings')).json()).starts).toEqual({limit: 2, min: 2})
     // A limit lowered below the minimum takes it down too, rather than being refused (ORR-479); then back.
@@ -594,7 +593,7 @@ test('lists the repos the launchers serve on Connect, with a line pointing there
     const installed = hold(baseURL!, `/api/projects/dairy/launches/stream?dir=${encodeURIComponent('/code/dairy')}`)
     const connected = hold(baseURL!, `/api/projects/dairy/launches/stream?dir=${encodeURIComponent('/code/garden')}&connected=${encodeURIComponent(new Date().toISOString())}`)
     await page.goto('/sessions?tab=setup')
-    await page.getByRole('link', {name: /^Serving \d+ repos?$/}).click()
+    await page.getByRole('link', {name: /^\d+ repos?$/}).click()
     await expect(page).toHaveURL(/\/connect#connected-repos$/)
     const repos = page.getByRole('list', {name: 'Connected repos'})
     await expect(repos.getByRole('listitem').filter({hasText: '/code/kitchen'})).toContainText(/Kitchen\s*picked up/)
