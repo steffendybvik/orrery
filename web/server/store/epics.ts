@@ -15,6 +15,12 @@ export abstract class EpicStore extends ReleaseStore {
     /** Tells open pages the epics changed (`/api/events`' `epics`), so they ask for them again. */
     epicsChanged: () => void = () => {}
 
+    /** Open pages ask for the epics again, and the outbox says they changed (ORR-1004). */
+    protected sayEpics() {
+        this.outbox('epics')
+        this.epicsChanged()
+    }
+
     /** The epic from its number or any form of its id (ORR-995): `1`, `EPC-1`, or `EPC-1-x7k2m9qd` in full. */
     protected async epicRow(sent: number | string): Promise<EpicRow> {
         const id = Number(numberOf('epic', sent, (await this.settings()).uid))
@@ -81,7 +87,7 @@ export abstract class EpicStore extends ReleaseStore {
             if (input.position !== undefined) await this.placeEpic(id, Number(input.position))
             return id
         })
-        this.epicsChanged()
+        this.sayEpics()
         return await this.epic(id)
     }
 
@@ -98,7 +104,7 @@ export abstract class EpicStore extends ReleaseStore {
             if (input.position !== undefined) await this.placeEpic(id, Number(input.position))
             for (const project of projects) this.tell('epic.changed', project, String(id), actor)
         })
-        this.epicsChanged()
+        this.sayEpics()
         return await this.epic(id)
     }
 
@@ -123,7 +129,7 @@ export abstract class EpicStore extends ReleaseStore {
             for (const project of projects) await this.touchProject(project)
         })
         for (const project of projects) this.changed(project)
-        this.epicsChanged()
+        this.sayEpics()
     }
 }
 

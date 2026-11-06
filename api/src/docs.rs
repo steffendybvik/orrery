@@ -35,6 +35,8 @@ pub struct Effects {
     pub told: Vec<Told>,
     /// The settings sent in a change (ORR-954), for the router's note in the event log.
     pub settings_keys: Vec<String>,
+    /// Whether the epics changed (ORR-1004): open pages ask for them again.
+    pub epics: bool,
 }
 
 /// An event a write told: its kind, project and subject, and where a value went (`from`, `to`) when one changed, as a

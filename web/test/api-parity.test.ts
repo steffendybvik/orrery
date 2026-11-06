@@ -17,6 +17,7 @@ import {SqliteDb} from '../server/utils/database'
 import {Secrets} from '../server/utils/secrets'
 import {Pulls, pullForSession} from '../server/utils/pulls'
 import {known} from '../shared/known'
+import {numberOf} from '../shared/roadmap'
 import {Schedules} from '../server/utils/schedules'
 import {PullPoll} from '../server/utils/pull-poll'
 import type {PolledRow} from '../server/utils/pull-poll'
@@ -2132,6 +2133,101 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         expect((viaRs[10]!.body as {cleared: number}).cleared).toBe(2)
     })
 
+    it('lists, reads, makes, changes, moves and deletes epics alike, telling what each did (ORR-1004)', async () => {
+        // The epics are the orrery's, so each side runs every step in turn on the same tables, put back between them,
+        // their numbering too, so both make the same epics. Each project has a cog with a tooth to put in them.
+        const cogs: Record<string, {cog: string, tooth: string}> = {}
+        for (const p of ['through-store', 'through-api']) {
+            const {id: cog} = await store.createIssue(p, {title: 'Cut a cog'}, SESSION)
+            const {id: tooth} = await store.createIssue(p, {title: 'File a tooth', parent: cog}, SESSION)
+            cogs[p] = {cog, tooth}
+        }
+        const top = Number((await store.db.get<{n: number | null}>('SELECT max(id) AS n FROM epics'))?.n ?? 0)
+        const [gears, springs] = [top + 1, top + 2]
+        const {uid} = await store.settings()
+        // As the route reads the URL (`epicId`), then the store.
+        const epicOf = (sent: string) => {
+            const number = sent ? numberOf('epic', sent, uid) : null
+            const id = Number(number)
+            if (number === null || !Number.isInteger(id)) throw Object.assign(new Error(`No epic ${sent}: GET /api/epics lists them`), {statusCode: 404})
+            return id
+        }
+        const into = async (): Promise<Outcome> => {
+            for (const p of Object.keys(cogs)) {
+                await store.db.run('UPDATE issues SET epic = ? WHERE project = ? AND id = ?', gears, p, cogs[p]!.cog)
+                await store.db.run('UPDATE issues SET epic = ? WHERE project = ? AND id = ?', springs, p, cogs[p]!.tooth)
+            }
+            return {status: 200, body: null, changed: [], told: [], settings: false}
+        }
+        type Step = [string, () => Promise<Outcome>, () => Promise<Outcome>]
+        const read = (name: string, sent?: string): Step => [name,
+            () => viaStore(async () => sent === undefined ? store.epics() : store.epic(epicOf(sent))), () => viaApi('GET', sent === undefined ? '/api/epics' : `/api/epics/${encodeURIComponent(sent)}`)]
+        const make = (name: string, body: unknown, actor: Actor = SESSION): Step => [name, () => viaStore(() => store.createEpic(body, actor), 201), () => viaApi('POST', '/api/epics', body, actor)]
+        const change = (name: string, sent: string, body: unknown, actor: Actor = SESSION): Step => [name,
+            () => viaStore(async () => store.updateEpic(epicOf(sent), body, actor)), () => viaApi('PATCH', `/api/epics/${sent}`, body, actor)]
+        const remove = (name: string, sent: string, actor: Actor = SESSION): Step => [name,
+            () => viaStore(async () => store.deleteEpic(epicOf(sent), actor)), () => viaApi('DELETE', `/api/epics/${sent}`, undefined, actor)]
+        const steps: Step[] = [
+            read('the epics'),
+            make('made by the owner', {title: ' Gears ', notes: 'Of brass'}, OWNER),
+            make('made by a session, on top', {title: 'Springs', position: 0}),
+            make('a blank title', {title: ' '}),
+            make('an unknown field and a bad place', {title: 'X', bogus: 1, position: 'a'}),
+            make('no body', undefined),
+            ['issues put in them', into, into],
+            read('the epics with their issues'),
+            read('one by number', String(gears)),
+            read('one as shown', `EPC-${springs}`),
+            read('one by its full id', `EPC-${springs}-${uid}`),
+            read('one that isn\'t there', 'EPC-99999'),
+            read('one that isn\'t a number', 'nope'),
+            change('retitled', String(gears), {title: ' Gears and cogs '}),
+            change('the same title', String(gears), {title: 'Gears and cogs'}),
+            change('moved only', String(gears), {position: 5}),
+            change('its notes taken away', String(gears), {notes: null}),
+            change('a null title', String(gears), {title: null}),
+            change('one that isn\'t there', '99999', {title: 'X'}),
+            remove('the owner\'s, by a session', String(gears)),
+            remove('a session\'s, by a session', `EPC-${springs}`),
+            read('the epics after'),
+            remove('the owner\'s, by the owner', String(gears), OWNER),
+            remove('one that\'s gone', String(gears), OWNER),
+            read('none left of them'),
+        ]
+        const before = await store.db.all<Record<string, unknown>>('SELECT * FROM epics ORDER BY id')
+        const inEpics = await store.db.all<{project: string, id: string, epic: number}>('SELECT project, id, epic FROM issues WHERE epic IS NOT NULL')
+        const putBack = async () => {
+            await store.db.run('UPDATE issues SET epic = NULL WHERE epic IS NOT NULL')
+            await store.db.run('DELETE FROM epics')
+            for (const row of before) await store.db.run(`INSERT INTO epics (${Object.keys(row).join(', ')}) VALUES (${Object.keys(row).map(() => '?').join(', ')})`, ...Object.values(row) as never[])
+            for (const {project, id, epic} of inEpics) await store.db.run('UPDATE issues SET epic = ? WHERE project = ? AND id = ?', epic, project, id)
+            if (store.db instanceof PostgresDb) await store.db.get(`SELECT setval(pg_get_serial_sequence('epics', 'id'), ${top || 1}, ${top > 0})`)
+            else await store.db.run("UPDATE sqlite_sequence SET seq = ? WHERE name = 'epics'", top)
+        }
+        const run = async (side: (step: Step) => Promise<Outcome>) => {
+            const outcomes: Outcome[] = []
+            for (const one of steps) outcomes.push(await side(one))
+            await putBack()
+            return outcomes
+        }
+        const epicsRows = async () => Number((await store.db.get<{n: number}>("SELECT count(*) AS n FROM changes WHERE kind = 'epics'"))!.n)
+        const first = await epicsRows()
+        const viaTs = await run(([, ts]) => ts())
+        const said = await epicsRows()
+        const viaRs = await run(([, , rs]) => rs())
+        const times = (outcome: Outcome) => JSON.parse(JSON.stringify(outcome, (_, value: unknown) => typeof value === 'string' ? value.replace(/^\d{4}-\d{2}-\d{2}T[\d:.]+Z$/, '<time>') : value)) as unknown
+        steps.forEach(([name], i) => expect(times(viaRs[i]!), name).toEqual(times(viaTs[i]!)))
+        // Both say the epics changed on each write, in the outbox: the store's own rows, then the API's.
+        expect(said - first).toBeGreaterThan(0)
+        expect(await epicsRows() - said).toBe(said - first)
+        expect(viaRs[1]).toMatchObject({status: 201, body: {id: gears, title: 'Gears', notes: 'Of brass', protected: true, parts: []}})
+        expect((viaRs[7]!.body as {id: number, issues: number, projects: unknown[]}[]).find(e => e.id === springs)).toMatchObject({issues: 2, projects: [{project: 'through-api', issues: 1}, {project: 'through-store', issues: 1}]})
+        expect(viaRs[13]!.told).toEqual(['epic.changed ' + gears, 'epic.changed ' + gears])
+        expect(viaRs[15]!.told).toEqual([])
+        expect(viaRs[19]).toMatchObject({status: 403})
+        expect(viaRs[20]).toMatchObject({status: 204, told: [`issue.epic ${cogs['through-api']!.tooth}`, `issue.epic ${cogs['through-store']!.tooth}`]})
+    })
+
     it('keeps what each write set off in the outbox, in order, to read after an id (ORR-929)', async () => {
         const read = async (after?: number) => (await viaApi('GET', `/api/changes${after === undefined ? '' : `?after=${after}`}`)).body as {changes: {id: number, kind: string, project?: string, subject?: string, actor?: string, owner: boolean, session?: string}[], last: number}
         const last = await newestChange()
@@ -2242,7 +2338,7 @@ describe('the router', () => {
     })
 
     it('routes by a table with a line per domain, so taking one back is taking its line out (ORR-925)', () => {
-        expect(DOMAINS.map(({domain}) => domain)).toEqual(['docs', 'statuses', 'issues, reading', 'comments', 'an issue, deleted', 'an issue, its words', 'claims', 'activity', 'milestones', 'releases', 'releases, every project\'s', 'people', 'invites', 'keys', 'logins', 'uploads, reading', 'presets', 'secrets, reading', 'settings', 'a pull request, reading', "a pull request's risk", 'schedules, reading', 'projects, listed', 'a project, made', 'a project, changed', 'the bell'])
+        expect(DOMAINS.map(({domain}) => domain)).toEqual(['docs', 'statuses', 'issues, reading', 'comments', 'an issue, deleted', 'an issue, its words', 'claims', 'activity', 'milestones', 'releases', 'releases, every project\'s', 'people', 'invites', 'keys', 'logins', 'uploads, reading', 'presets', 'secrets, reading', 'settings', 'a pull request, reading', "a pull request's risk", 'schedules, reading', 'projects, listed', 'a project, made', 'a project, changed', 'the bell', 'epics'])
         expect(domainOf('PATCH', '/api/projects/p/docs/d')).toBe('docs')
         expect(domainOf('head', '/api/projects/p/doc-sections/')).toBe('docs')
         for (const method of ['POST', 'DELETE']) expect(domainOf(method, '/api/projects/p/issues/P-1/claim'), method).toBe('claims')
@@ -2395,7 +2491,7 @@ describe('the contract (api/openapi.yaml)', () => {
     }
 
     it('has every route the router sends to the API, and no other', () => {
-        expect(contract()).toHaveLength(78)
+        expect(contract()).toHaveLength(83)
         expect(contract()).toEqual(routes())
     })
 

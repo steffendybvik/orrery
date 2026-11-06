@@ -50,12 +50,12 @@ export abstract class StoreBase {
     }
 
     /** A row in the outbox (ORR-929) for what a write set off, as the Rust API writes for its own: in the write's
-     * transaction when there is one, else at once. A project's change or the settings go in once a transaction. */
+     * transaction when there is one, else at once. A project's change, the settings or the epics go in once a transaction. */
     protected outbox(kind: string, at: {project?: string, subject?: string, actor?: Actor, payload?: unknown} = {}) {
         if (relayed.getStore()) return
         const {project = null, subject = null, actor, payload} = at
         const cause = this.cause() ?? null
-        const once = kind === 'project.changed' || kind === 'settings' ? `${kind} ${project ?? ''}` : undefined
+        const once = kind === 'project.changed' || kind === 'settings' || kind === 'epics' ? `${kind} ${project ?? ''}` : undefined
         this.db.beforeCommit(async () => {
             const row = await this.db.get<{id: number | string}>('INSERT INTO changes (kind, project, subject, actor, owner, session, untrusted, cause, payload, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id',
                 kind, project, subject, actor?.name ?? null, actor?.owner ? 1 : 0, actor?.session ?? null, actor?.untrusted ? 1 : 0, cause,

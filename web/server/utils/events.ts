@@ -263,8 +263,10 @@ export const presetId = (event: H3Event) => serverId(event, 'preset')
 /** An epic's number from the URL (ORR-895), sent as `1`, `EPC-1` or in full, `EPC-1-x7k2m9qd` (ORR-995). */
 export async function epicId(event: H3Event): Promise<number> {
     const sent = param(event, 'epic')
-    const id = Number(numberOf('epic', sent, (await useStore().settings()).uid))
-    if (!sent || !Number.isInteger(id)) throw notFound(`No epic ${sent}: GET /api/epics lists them`)
+    // What isn't an epic's id is none, rather than `Number(null)`'s epic 0.
+    const number = sent ? numberOf('epic', sent, (await useStore().settings()).uid) : null
+    const id = Number(number)
+    if (number === null || !Number.isInteger(id)) throw notFound(`No epic ${sent}: GET /api/epics lists them`)
     return id
 }
 
