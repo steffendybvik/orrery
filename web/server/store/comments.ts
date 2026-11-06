@@ -105,18 +105,27 @@ export abstract class CommentStore extends SignalStore {
                 await this.record(project, issue, actor, [['assignee', row.assignee, assignee]])
             }
             await this.touchIssue(project, issue)
+            this.changed(project)
+            this.tell(input.asks ? 'comment.asks' : 'comment.added', project, issue, actor, input.asks ? {to: String(input.asks)} : {})
             return id
         })
-        this.changed(project)
-        this.tell(input.asks ? 'comment.asks' : 'comment.added', project, issue, actor, input.asks ? {to: String(input.asks)} : {})
         if (actor.owner || actor.person) await this.carryComment(project, issue, String(input.body), actor)
-        if (!actor.owner) this.onNotice({...await this.comment(project, issue, id), project, title: (await this.issueRow(project, issue)).title})
+        if (!actor.owner) this.noticed({...await this.comment(project, issue, id), project, title: (await this.issueRow(project, issue)).title})
         return await this.comment(project, issue, id)
+    }
+
+    /** What a comment the Rust API made or edited leaves here, as `createComment` and `updateComment` do after its row
+     * (ORR-927): passing it on to the session on its issue (`carry`, `edited` for new words), and to the owner's bell
+     * (`notice`). Only this server knows the sessions. */
+    async handOn(project: string, issue: string, id: number, {carry, notice, edited = false}: {carry: boolean, notice: boolean, edited?: boolean}, actor: Actor) {
+        const comment = await this.comment(project, issue, id)
+        if (carry) await this.carryComment(project, issue, edited ? `(Edited: this replaces their earlier comment.)\n\n${comment.body}` : comment.body, actor)
+        if (notice) this.noticed({...comment, project, title: (await this.issueRow(project, issue)).title})
     }
 
     /** Whose a comment is (ORR-658): the person's own words, or one of their agents', or nobody's (orrery itself, and an
      * untrusted session or a session naming nobody). */
-    private async voiceOf(actor: Actor): Promise<{person: string | null, by_agent: number}> {
+    protected async voiceOf(actor: Actor): Promise<{person: string | null, by_agent: number}> {
         if (actor.owner) return {person: await this.ownerId(), by_agent: 0}
         if (actor.person) return {person: actor.person, by_agent: 0}
         const person = actor.asked && !actor.untrusted ? await this.personFor(actor.named ?? actor.name) : undefined
@@ -197,7 +206,7 @@ export abstract class CommentStore extends SignalStore {
             carried++
             const row = await this.one<SignalRow>('INSERT INTO signals (project, issue, kind, note, target, person, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *',
                 project, comment.issue, 'comment', comment.body, session, to ?? null, comment.created_by, comment.owned, stamp())
-            this.onSignal(signalOf(row))
+            this.signalled(signalOf(row))
         }
         return carried
     }
@@ -219,7 +228,7 @@ export abstract class CommentStore extends SignalStore {
         if (member && !target && await this.holderOf(assignee) !== member) return
         const row = await this.one<SignalRow>('INSERT INTO signals (project, issue, kind, note, target, person, model, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *',
             project, issue, 'comment', body, target, person ?? null, await this.modelNeeded(project, issue), actor.name, member ? 0 : 1, stamp())
-        this.onSignal(signalOf(row))
+        this.signalled(signalOf(row))
     }
 
     /** The owner's comments are theirs: an agent can't reword them. */
@@ -232,8 +241,8 @@ export abstract class CommentStore extends SignalStore {
         await this.db.transaction(async () => {
             await this.update('comments', 'id = ?', [id], {body: input.body, asks: input.asks})
             await this.touchIssue(project, issue)
+            this.changed(project)
         })
-        this.changed(project)
         // A session may have read the first version already, so the owner's new words go to it too.
         if ((actor.owner && row.owned || actor.person && !row.by_agent && row.person === actor.person) && input.body !== undefined && String(input.body) !== row.body) {
             await this.carryComment(project, issue, `(Edited: this replaces their earlier comment.)\n\n${input.body}`, actor)
@@ -243,7 +252,7 @@ export abstract class CommentStore extends SignalStore {
 
     /** A member's comment is theirs, as the owner's are the owner's: only they and the owner change it. Their agents'
      * are theirs too, which only they, their agents and the owner change. */
-    private async leaveTheirWords(row: CommentRow, actor: Actor, action: string) {
+    protected async leaveTheirWords(row: Pick<CommentRow, 'person' | 'by_agent'>, actor: Actor, action: string) {
         if (row.person && !row.by_agent && !actor.owner && actor.person !== row.person) throw refusedFor('issues.delete', `${action} is ${row.person}'s call: they wrote it`)
         if (!row.person || !row.by_agent) return
         const rails = await this.railsFor(actor)
@@ -258,7 +267,7 @@ export abstract class CommentStore extends SignalStore {
         await this.db.transaction(async () => {
             await this.run('DELETE FROM comments WHERE id = ?', id)
             await this.touchIssue(project, issue)
+            this.changed(project)
         })
-        this.changed(project)
     }
 }

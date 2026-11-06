@@ -12,6 +12,7 @@ const {newErrors} = useLoggedEvents()
 // Advanced. Pull requests counts those that need someone, asked every two minutes while Advanced is on.
 const {pulls, load: loadPulls} = useOpenPulls()
 let pullsTimer: ReturnType<typeof setInterval> | undefined
+
 watch(() => appSettings.value.advanced, on => {
     clearInterval(pullsTimer)
     if (!on || import.meta.server) return
@@ -236,16 +237,7 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
         <span class="flex-1">Connect an agent</span>
       </NuxtLink>
 
-      <NuxtLink
-          to="/projects"
-          class="flex items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] transition-colors"
-          :class="route.path === '/projects' ? 'bg-active font-medium text-fg' : 'text-muted hover:bg-hover hover:text-fg'"
-      >
-        <svg class="size-4 text-faint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="7" height="7" rx="1.5" /><rect x="14" y="4" width="7" height="7" rx="1.5" /><rect x="3" y="14" width="7" height="7" rx="1.5" /><rect x="14" y="14" width="7" height="7" rx="1.5" /></svg>
-        <span class="flex-1">Projects</span>
-        <span v-if="projects.length" class="font-mono text-[11px] text-faint tabular-nums">{{ projects.length }}</span>
-      </NuxtLink>
-
+      <!-- Back in the nav (ORR-972): the panel at the foot hides when there's nothing to list or start. -->
       <NuxtLink
           to="/sessions"
           class="flex items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] transition-colors"
@@ -264,16 +256,6 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
         <SectionIcon section="schedules" class="size-4 text-faint" />
         <span class="flex-1">Schedules</span>
         <span v-if="scheduleCount" class="font-mono text-[11px] text-faint tabular-nums">{{ scheduleCount }}</span>
-      </NuxtLink>
-
-      <NuxtLink
-          to="/releases"
-          class="flex items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] transition-colors"
-          :class="route.path === '/releases' ? 'bg-active font-medium text-fg' : 'text-muted hover:bg-hover hover:text-fg'"
-      >
-        <SectionIcon section="releases" class="size-4 text-faint" />
-        <span class="flex-1">Releases</span>
-        <span v-if="preparingCount" class="font-mono text-[11px] text-faint tabular-nums" :title="`${preparingCount} being prepared`">{{ preparingCount }}</span>
       </NuxtLink>
 
       <template v-if="appSettings.advanced">
@@ -310,7 +292,9 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
 
       <!-- On a touch screen its small buttons are 28px to tap, around the same icons (ORR-816). -->
       <div class="label mt-4 mb-1 flex items-center gap-1 px-2">
-        <span class="flex-1">Projects</span>
+        <!-- The heading is the Projects page's link (ORR-967), with Epics and Releases, which gather work across them, under it.
+             It keeps the label's size in the phone drawer, which makes its other links bigger to tap. -->
+        <NuxtLink to="/projects" class="flex-1 hover:text-fg max-md:!py-0 max-md:!text-[length:inherit]" :class="route.path === '/projects' && 'text-fg'">Projects</NuxtLink>
         <span v-if="projects.length" class="font-mono normal-case tabular-nums">{{ projects.length }}</span>
         <button
             v-if="projects.length"
@@ -326,6 +310,23 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
           <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14" /></svg>
         </button>
       </div>
+      <NuxtLink
+          to="/epics"
+          class="flex items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] transition-colors"
+          :class="route.path.startsWith('/epics') ? 'bg-active font-medium text-fg' : 'text-muted hover:bg-hover hover:text-fg'"
+      >
+        <SectionIcon section="epics" class="size-4 text-faint" />
+        <span class="flex-1">Epics</span>
+      </NuxtLink>
+      <NuxtLink
+          to="/releases"
+          class="flex items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] transition-colors"
+          :class="route.path === '/releases' ? 'bg-active font-medium text-fg' : 'text-muted hover:bg-hover hover:text-fg'"
+      >
+        <SectionIcon section="releases" class="size-4 text-faint" />
+        <span class="flex-1">Releases</span>
+        <span v-if="preparingCount" class="font-mono text-[11px] text-faint tabular-nums" :title="`${preparingCount} being prepared`">{{ preparingCount }}</span>
+      </NuxtLink>
       <!-- Every project, with its pages under it when it's open: Issues, Roadmap, Docs, Settings. -->
       <div
           v-for="(project, index) in shown"
@@ -525,7 +526,8 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
               <span class="max-w-[75%] shrink-0 truncate">{{ spanLabel(session) ?? project.name }}</span>
               <span class="min-w-0 truncate text-[11px] text-faint">{{ nameBesideProject(session) }}</span>
             </span>
-            <ModelChip :session="session" />
+            <ModelChip :session="session" size="condensed" />
+            <ContextMeter :context="session.context" condensed />
             <span v-if="session.cut_off" class="shrink-0 text-[11px] text-amber-800 dark:text-amber-400" :title="session.cut_off.text">{{ cutOffLabel(session.cut_off) }}</span>
             <span v-else class="shrink-0 text-[11px]" :class="session.state === 'waiting' ? 'text-rose-700 dark:text-rose-400' : 'text-faint'">{{ SESSION_STATE[session.state] }}</span>
           </NuxtLink>

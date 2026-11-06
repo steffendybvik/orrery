@@ -333,6 +333,10 @@ machine**, as anything in a repo's `.mcp.json` would. The bootstrap holds to thi
   says why. That stops someone on the network swapping the code; it doesn't stop a server you've pointed a repo at.
 - **The right orrery.** With `ORRERY_ID` set, as Connect sets it, it runs nothing from an orrery with another id. An id isn't
   a secret, so this catches a repo pointed at the wrong orrery by mistake, not one pretending.
+- **The launcher's code from one orrery.** The launcher runs as you for every orrery on its list, so it takes its code
+  from one only: the one its install line came from (or `ORRERY_URL` where it's run), never whichever on the list says
+  it's newest, and it only restarts onto other code from that one (ORR-960). An orrery added later, by pick-up or Connect a
+  repo, can start sessions there but never supplies the launcher's code.
 - **Whole files.** A file has to match the sha256 orrery lists before it replaces the copy in `~/.orrery`, so a download
   cut short never runs. The hash comes from the same server, so it proves nothing about who wrote the file.
 - **No approval step.** Upgrading orrery changes what your machine runs without asking. Check the image you pull, as it
@@ -368,7 +372,9 @@ link, and clicking one sends what its address holds, so look at where it goes.
 A website open in your browser can't write to orrery: a write from another site's page (its `Origin`)
 is refused, and a write's body must be JSON, which another site can't send without the browser
 asking first. orrery never says yes, and sets no CORS headers, so another site can't read its answers
-either. A session's stream changes who's listening just by being opened, so a browser can't open one
+either. The one exception is a site you list in `ORRERY_ALLOWED_ORIGINS`, for orrery's own page hosted there
+([Hosting the page on its own](docs/running.md#hosting-the-page-on-its-own)): its page can read and write as whoever is
+signed in, so list only exact origins you run, never a wildcard. None is listed by default. A session's stream changes who's listening just by being opened, so a browser can't open one
 at all, not even as a picture in orrery's own page; only the channel, the launcher and curl can.
 
 Nor can what's written in orrery send anything out just by being shown (ORR-748). Issues, comments, docs and the chat's

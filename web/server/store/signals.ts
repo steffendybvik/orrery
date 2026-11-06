@@ -3,7 +3,7 @@ import {randomBytes} from 'node:crypto'
 import type {Kind, SessionWork, Signal, Upload} from '#shared/roadmap'
 import {CLOSED, heaviest, modelFor} from '#shared/roadmap'
 import {badRequest, checkInput, conflict, notFound} from '../utils/input'
-import type {Actor, SignalRow} from './schema'
+import type {Actor, IssueRecord, SignalRow} from './schema'
 import {AGENT, SIGNAL_FIELDS, MILESTONE_SIGNAL_FIELDS, LEGACY_KINDS, UPLOAD_FIELDS, UPLOAD_LIMIT, IMAGE_TYPES, signalOf, nullable, stamp} from './schema'
 import {IssueStore} from './issues'
 import {EVERY} from '../utils/pool'
@@ -115,7 +115,7 @@ export abstract class SignalStore extends IssueStore {
         const signal = signalOf(row)
         // A started issue another session is still on stays its: the one asked gets the claim's 409 if it starts it.
         if (signal.target && signal.target !== EVERY && !await this.takenFrom(project, issue, signal.target)) await this.workedBy(project, issue, signal.target)
-        this.onSignal(signal)
+        this.signalled(signal)
         return signal
     }
 
@@ -127,9 +127,10 @@ export abstract class SignalStore extends IssueStore {
     }
 
     /** The heaviest model a milestone's open issues need (`all`: every milestone's, `none`: those in none), as a session working
-     * through them may come to any; none when it has no open issues. */
-    private async milestoneModelNeeded(project: string, milestone: string): Promise<string | null> {
-        const open = (await this.listIssues(project, milestone === 'all' ? {} : {milestone})).filter(i => !CLOSED.includes(i.kind as Kind))
+     * through them may come to any; none when it has no open issues. With `epic`, only those in it. */
+    private async milestoneModelNeeded(project: string, milestone: string, epic: number | null = null): Promise<string | null> {
+        const issues = await this.listIssues(project, milestone === 'all' ? {} : {milestone})
+        const open = (epic === null ? issues : await this.inEpic(project, issues, epic)).filter(i => !CLOSED.includes(i.kind as Kind))
         const kinds = await this.workKinds()
         return open.length ? heaviest(open.map(i => modelFor(i, kinds))).model ?? 'best' : null
     }
@@ -166,12 +167,44 @@ export abstract class SignalStore extends IssueStore {
             status = words.map(one => all.some(s => s.id === one) ? one : LEGACY_KINDS[one] ?? one).join(',')
         }
         const release = input.release ? (await this.releaseRow(project, String(input.release))).version : null
+        const epic = input.epic === undefined || input.epic === null ? null : (await this.epicRow(input.epic as string)).id
         const instructions = JSON.stringify(await this.instructionsFor(project, input.instructions))
-        const row = await this.one<SignalRow>('INSERT INTO signals (project, milestone, status, release, kind, note, target, person, instructions, model, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *',
-            project, milestone, status, release, 'focus', nullable(input.note), nullable(input.session), this.memberAiming(actor, input.session) ?? null, instructions, await this.milestoneModelNeeded(project, milestone), actor.name, Number(actor.owner), stamp())
+        const row = await this.one<SignalRow>('INSERT INTO signals (project, milestone, status, release, epic, kind, note, target, person, instructions, model, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *',
+            project, milestone, status, release, epic, 'focus', nullable(input.note), nullable(input.session), this.memberAiming(actor, input.session) ?? null, instructions, await this.milestoneModelNeeded(project, milestone, epic), actor.name, Number(actor.owner), stamp())
         const signal = signalOf(row)
-        this.onSignal(signal)
+        this.signalled(signal)
         return signal
+    }
+
+    /** Asks the sessions to work through an epic's open issues (ORR-987): a focus on each project it has open issues in,
+     * as a milestone's over the whole project (`all`) narrowed to the epic, so each goes to that project's sessions (one
+     * orrery picks, or `*`) and starts one there as any owner's focus does. `{note?, status?, instructions?}` go to each.
+     * One project's session can't be named, as it would be another's in the next. */
+    async focusEpic(id: number, body: unknown, actor = AGENT): Promise<Signal[]> {
+        const epic = await this.epicRow(id)
+        const input = checkInput(body ?? {}, MILESTONE_SIGNAL_FIELDS)
+        if (input.session !== undefined && input.session !== null && input.session !== EVERY) throw badRequest(`An epic's focus goes to each project's sessions: leave "session" out for one orrery picks in each, or send "${EVERY}" for all of them`)
+        if (input.release !== undefined && input.release !== null) throw badRequest("An epic's focus can't name a release: a release is one project's")
+        const projects = (await this.all<{project: string}>('SELECT DISTINCT project FROM issues WHERE epic = ? ORDER BY project', epic.id)).map(r => r.project)
+        const signals: Signal[] = []
+        for (const project of projects) {
+            // Only where it has open work: a project whose part is done hears nothing.
+            if (!(await this.inEpic(project, await this.listIssues(project), epic.id)).some(i => i.kind !== 'proposed' && !CLOSED.includes(i.kind as Kind))) continue
+            signals.push(await this.focusMilestone(project, 'all', {...input, epic: epic.id}, actor))
+        }
+        return signals
+    }
+
+    /** Of `issues` (one project's), those in the epic: set for it, or under one that is. */
+    private async inEpic(project: string, issues: IssueRecord[], epic: number): Promise<IssueRecord[]> {
+        const rows = await this.all<{id: string, parent: string | null, epic: number | null}>('SELECT id, parent, epic FROM issues WHERE project = ?', project)
+        const byId = new Map(rows.map(r => [r.id, r]))
+        const inIt = (id: string | null | undefined, depth = 0): boolean => {
+            const row = id ? byId.get(id) : undefined
+            if (!row || depth > 50) return false
+            return row.epic === null || row.epic === undefined ? inIt(row.parent, depth + 1) : Number(row.epic) === epic
+        }
+        return issues.filter(i => inIt(i.id))
     }
 
     /** Lets go of signals past KEEP_SIGNALS, heard or not (ORR-778). Nothing they answer for reaches back that far: what
@@ -258,7 +291,7 @@ export abstract class SignalStore extends IssueStore {
         const row = await this.one<SignalRow>('INSERT INTO signals (project, schedule, kind, note, preset, target, model, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *',
             project, schedule, 'message', text, preset ?? null, target ?? null, model && model !== 'best' ? model : null, actor.name, Number(actor.owner), stamp())
         const signal = signalOf(row)
-        this.onSignal(signal)
+        this.signalled(signal)
         return signal
     }
 
@@ -276,7 +309,7 @@ export abstract class SignalStore extends IssueStore {
         const row = await this.one<SignalRow>('INSERT INTO signals (project, kind, note, preset, via, target, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *',
             project, 'message', note, from, actor.via ?? null, session, actor.name, 1, stamp())
         const signal = signalOf(row)
-        this.onSignal(signal)
+        this.signalled(signal)
         return signal
     }
 
@@ -335,7 +368,7 @@ export abstract class SignalStore extends IssueStore {
             if (tries === 9) throw conflict(`Signal ${id} is being marked by too many sessions at once; try again`)
         }
         const signal = signalOf({...row, delivered_to: JSON.stringify(names)})
-        this.onSignal(signal)
+        this.signalled(signal)
         return signal
     }
 }

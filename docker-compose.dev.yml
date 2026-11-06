@@ -4,6 +4,8 @@
 # It's this machine's only, whatever ORRERY_HOST says: the dev server hands out the source and its
 # build errors to whoever can reach it. The container has its own node_modules and .nuxt (volumes),
 # so they don't clash with the host's; after a pnpm-lock.yaml change, `docker compose restart orrery`.
+# Its database is the SQLite file in ORRERY_DATA, as the Rust API stays on SQLite until the Nuxt server is gone
+# (decision-rust-api-storage). For Postgres, the postgres profile and ORRERY_DATABASE, as docker-compose.yml says.
 
 services:
   orrery:

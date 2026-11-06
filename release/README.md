@@ -1,6 +1,6 @@
 # orrery __VERSION__
 
-A self-hosted roadmap board for working with Claude Code sessions. This folder runs the published image with Docker.
+A project board you share with your Claude Code sessions. This folder runs the published image with Docker.
 
 ```sh
 cp .env.example .env    # optional: every setting has a default

@@ -20,6 +20,8 @@ export interface Signal {
     status?: string
     /** For a milestone: only its issues set for this release. */
     release?: string
+    /** For a milestone (`all`, from a focus on an epic, ORR-987): only its issues in this epic. */
+    epic?: number
     /** The schedule that sent it (a message). */
     schedule?: number
     kind: 'focus' | 'comment' | 'message'
@@ -84,11 +86,63 @@ export interface Session {
     /** The effort level it runs at, from its hook on tool events, so an `/effort` switch shows too (ORR-894). None until it
      * has said: then the one it was started at (`started.effort`), if any. */
     effort?: Effort
+    /** How much context it carries (ORR-968), from its hook after a turn and on tool events: the tokens its latest reply
+     * was given, the model's `window`, and `compacted` once Claude Code has compacted it (which lowers the count)
+     * since its last clear. None until it has said. */
+    context?: ContextUse
+    /** It started an issue out of the scope of the one it worked before, with more than `CARRY_FROM` tokens in its context
+     * (ORR-968): it pays for the old issue's context on every turn of the new one. Until a clear. */
+    carried_over?: CarriedOver
 }
+
+/** An issue a session started without clearing what it worked before (ORR-968): the issue before, the one now, and the
+ * tokens it carried in. */
+export interface CarriedOver {from: string, to: string, tokens: number, at: string}
+
+/** The context a session may carry into an issue out of scope before it's marked (ORR-968): about what a fresh session
+ * holds once its tools and the brief are in, with room for a short look round. */
+export const CARRY_FROM = 50_000
+
+/** What says whether two issues are one piece of work (ORR-968). */
+export interface IssueScope {project: string, id: string, parent?: string | null, milestone?: string | null, epic?: number | null}
+
+/** Whether a session's next issue is the same work as its last (ORR-968): the same issue, one's sub-issue or a sibling,
+ * or in the same epic or milestone. Such a one keeps its context; any other is better started afresh. */
+export function sameScope(a: IssueScope, b: IssueScope): boolean {
+    if (a.epic && a.epic === b.epic) return true
+    if (a.project !== b.project) return false
+    return a.id === b.id || b.parent === a.id || a.parent === b.id || (!!a.parent && a.parent === b.parent) || (!!a.milestone && a.milestone === b.milestone)
+}
+
+/** How much context a session carries, as its hook last said (ORR-968). */
+export interface ContextUse {tokens: number, window: number, compacted?: boolean}
+
+/** A model's context window in tokens (ORR-968, ORR-993), as Claude Code's own table of models has it: 1M for a `[1m]`
+ * id and for the models whose window is 1M as they are (every Claude 5 model, and Opus 4.7 on), whose ids don't say so;
+ * 200k for the older ones. A model it can't tell (none said yet, or an id it can't read) is on Claude Code's default,
+ * which is 1M. More than 200k in use is 1M whatever the model. */
+export function contextWindow(model: string | undefined, tokens: number): number {
+    if (tokens > 200_000 || /\[1m\]/i.test(model ?? '')) return 1_000_000
+    // Claude 3's ids put the version first (`claude-3-5-sonnet`): all 200k.
+    if (/claude-\d/i.test(model ?? '')) return 200_000
+    const match = /claude-([a-z]+)-(\d+)(?:-(\d{1,2}))?(?!\d)/i.exec(model ?? '')
+    if (!match) return 1_000_000
+    const [, family, major, minor] = match as unknown as [string, string, string, string | undefined]
+    const version = Number(major) + Number(minor ?? 0) / 100
+    if (version >= 5) return 1_000_000
+    return family.toLowerCase() === 'opus' && version >= 4.07 ? 1_000_000 : 200_000
+}
+
+/** How full a session's context is, from 0 to 1. */
+export const contextShare = ({tokens, window}: ContextUse) => Math.min(1, Math.max(0, tokens / window))
 
 /** Whether a session goes in a list of sessions (ORR-716): something can be done with it there, as it hears signals, its
  * channel can stop it, or orrery started it. Any other is known only from its hooks, and has no message box and no Stop. */
 export const listable = (session: Pick<Session, 'listening' | 'reachable' | 'started'>) => session.listening || !!session.reachable || !!session.started
+
+/** Whether Close all on the Sessions page stops a session (ORR-970): one a Stop reaches, orrery's through its launch or a
+ * terminal's through its channel, except the owner's chat, which is their conversation rather than work. */
+export const closable = (session: Pick<Session, 'reachable' | 'started'>) => (!!session.started || !!session.reachable) && !session.started?.chat
 
 /** The sessions the one-line hint is about (ORR-716): started by hand without the channel, so they can't hear the owner. */
 export const withoutChannel = <T extends Pick<Session, 'listening' | 'started'>>(sessions: T[]) => sessions.filter(s => !s.listening && !s.started)
@@ -133,6 +187,9 @@ export interface StartedSession {
 }
 
 /** The effort levels Claude Code takes at start (`--effort`). */
+/** What a session runs on, as ModelChip shows it: a session, or what an ended chat kept of its own (ORR-936). */
+export type RunsOn = Pick<Session, 'model' | 'effort'> & {started?: Pick<StartedSession, 'model' | 'effort'>}
+
 export const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const
 export type Effort = typeof EFFORTS[number]
 /** The models a session can be started on: an alias Claude Code takes (`best`, `opus`, `sonnet`, `haiku`, `fable`,

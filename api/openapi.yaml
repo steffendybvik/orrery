@@ -1,0 +1,1860 @@
+openapi: 3.1.0
+info:
+  title: orrery API
+  version: 1.0.0-rc.18 # the orrery release it was written against
+  description: |
+    The domains of orrery's HTTP API that move to the Rust API in api/, each written from the Nuxt server's routes
+    first, as the contract both answer alike to (web/test/api-parity.test.ts holds them to it):
+
+    - **Docs** (ORR-922): a project's docs, their sections and their revisions (web/server/api/projects/[project]/docs,
+      doc-sections, deleted-docs). Served by both.
+    - **Issues and comments** (ORR-927): the issue list with its filters, one issue, its comments and its activity
+      (web/server/api/projects/[project]/issues), and making and deleting a comment. Both serve them; the router sends
+      their `GET`s there, and a comment's `POST`, `PATCH` and `DELETE`, checking a session's claim on the issue first
+      for an edit. Writing an issue stays the Nuxt server's, as a change wakes sessions. A new or edited comment's reply
+      says what the Nuxt server passes on to the sessions and the owner's bell (`Orrery-Carry`, `Orrery-Notice`).
+    - **Uploads, reading** (ORR-927): an image kept for Markdown (web/server/api/uploads/[upload].get.ts), passed on by
+      the router as it came. Keeping one stays the Nuxt server's, as it compresses the image there.
+    - **Schedules, reading** (ORR-930): a project's schedules, one with its runs, every project's and those across
+      projects (web/server/api/projects/[project]/schedules, schedules.get.ts, schedules/across). Served by both; making,
+      changing and running them stays the Nuxt server's, as a run starts a session.
+    - **Statuses** (ORR-926): the orrery's issue statuses (web/server/api/statuses). Served by both.
+    - **Milestones and releases** (ORR-926, written in ORR-974): a project's milestones and releases, one of each,
+      made, changed (a release frozen and shipped too) and deleted, and every project's releases
+      (web/server/api/projects/[project]/milestones, releases, and web/server/api/releases.get.ts). Served by both; a
+      milestone's focus stays the Nuxt server's, as it signals sessions.
+    - **People, invites, keys and logins** (ORR-928): who's on this orrery, inviting them, and the keys and logins people
+      hold (web/server/api/people, invites, keys, logins). Served by both, removing a person included, which unassigns
+      their open issues and tells each. Logging in and out stay the Nuxt server's.
+    - **Secrets, reading** (ORR-953): the orrery's secrets and their uses, never a value (web/server/api/secrets). Both
+      serve them; the router sends only their `GET`s there. Setting, narrowing and deleting one, and egress, stay the
+      Nuxt server's: the key that seals a value stays with the local app, and the API never sees a value in the clear.
+    - **A pull request, reading, and its risk** (ORR-952): one PR as orrery keeps it, with the issues it's on, and
+      rating an issue's PR's risk
+      (web/server/api/pulls/[owner]/[name]/[number].get.ts). The other pull reads ask GitHub when what's kept is stale,
+      which is the local app's to do. The poll's writes are written ahead, for the local app to call once the API is
+      swapped in: keeping a PR on its issues, a repo's poll, its failure and history page, and letting go of what's done
+      (ORR-952). Until then the poll writes through the Nuxt server.
+    - **Presets** (ORR-949): the orrery's presets and a project's own (web/server/api/presets, and
+      web/server/api/projects/[project]/presets). Served by both; seeding the ones orrery ships as it starts stays the
+      Nuxt server's.
+    - **The bell** (ORR-1005): agents' comments across projects with the proposals waiting on the owner, the status
+      changes on their issues, and clearing them or marking them read (web/server/api/notices). Served by both; each
+      person's bell is their own (ORR-658).
+    - **Epics** (ORR-1004): every epic with its progress, one with its issues, and making, changing and deleting one
+      (web/server/api/epics). Served by both; an epic's comments and its focus, which signals sessions, stay the Nuxt
+      server's.
+
+    An operation marked `x-served: false` is written ahead of the Rust API's: the router doesn't send it there yet, and
+    the parity test holds it to that. The mark comes off in the pull request that serves it.
+
+    Callers reach it at orrery's own address, as ever. The Nuxt server checks a request first (login or key, the board's
+    permissions, the chat's and untrusted sessions' rails, the browser guards), then hands it to the Rust API when one is
+    set up (`NUXT_API_BIN`, or `NUXT_API_URL` and `NUXT_API_TOKEN`). That hop, on loopback only, adds:
+
+    - `Orrery-Api-Token`: the token both were given; anything else is a 401.
+    - `Orrery-Database`: the SHA-256 of the database setting the Nuxt server is on; another is a 421, and the Nuxt
+      server answers the request itself (the owner moved the database, and the API hasn't been started again on it).
+    - `Orrery-Actor-Name`, `Orrery-Actor-Owner` (`1` or `0`), `Orrery-Actor-Session`: who's asking, as the Nuxt server
+      worked it out; the name and session percent-encoded. `Orrery-Actor-Kind` (`owner`, `session`, `chat` or
+      `untrusted`): its kind, as the chat and an untrusted session may name the owner and aren't (ORR-952).
+    - `Orrery-Who` (`browser` or `agent`), `Orrery-Who-Person` (percent-encoded), `Orrery-Who-Owner` (`1` or `0`): with
+      login on, what the request's credential said, as the Nuxt server checked it. None with login off.
+    - `Orrery-Login-Ways`: what the Nuxt server's settings say about getting in, comma-separated: `provider` with a
+      login provider set up, `off` with ORRERY_AUTH=off. `Orrery-Origin`: the address the request came to,
+      percent-encoded, for an invite's link.
+    - `Orrery-Login`: the SHA-256 of the asking browser's login cookie, as the logins table keeps it; the cookie itself
+      stays with the Nuxt server.
+
+    A write's reply carries back what it changed, which the Nuxt server tells as its store would (open pages read the
+    project again; the event log and schedules hear the event), and strips:
+
+    - `Orrery-Changed`: the projects, comma-separated, each percent-encoded (a status change is every project's).
+    - `Orrery-Settings`: `1` when the orrery's settings changed, as the statuses are in them: open pages get them again.
+    - `Orrery-Epics`: `1` when the epics changed: open pages ask for them again.
+    - `Orrery-Told`: `<type> <project> <subject>`, comma-separated, each part percent-encoded (`doc.created`,
+      `doc.changed`, `doc.deleted`).
+
+    Not here: an artifact's page (`GET …/docs/{doc}/artifact`), which the Nuxt server keeps, as it's drawn with the
+    page's sanitising and locked-down headers.
+servers:
+  - url: http://localhost:9000
+paths:
+  /api/projects/{project}/docs:
+    parameters: [{$ref: '#/components/parameters/project'}]
+    get:
+      summary: The project's docs, without their text but with a summary
+      description: Title hits first, then A–Z by title (ignoring case and accents, numbers by value), then by id.
+      parameters:
+        - name: q
+          in: query
+          description: Words every doc listed has, in its title or text, any case; each gets a `match`.
+          schema: {type: string}
+      responses:
+        '200': {description: The docs, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/DocSummary'}}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
+    post:
+      summary: Makes a doc
+      description: |
+        Its id is the one given, else the title as one (`How joints work` → `how-joints-work`), numbered when taken
+        (`how-joints-work-2`). Kept as its first revision. Tells `doc.created`.
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/DocInput'}}}}
+      responses:
+        '201': {description: The new doc, content: {application/json: {schema: {$ref: '#/components/schemas/Doc'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+  /api/projects/{project}/docs/{doc}:
+    parameters: [{$ref: '#/components/parameters/project'}, {$ref: '#/components/parameters/doc'}]
+    get:
+      summary: A doc with its text
+      responses:
+        '200': {description: The doc, content: {application/json: {schema: {$ref: '#/components/schemas/Doc'}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
+    put:
+      summary: Makes the doc at this id, or replaces its title and text
+      description: |
+        How a repo's Markdown file is kept in sync. `body` left out is empty; `section` left out keeps the one it has.
+        Another board's full id is a 404, not a new doc.
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/DocInput'}}}}
+      responses:
+        '200': {description: Replaced, content: {application/json: {schema: {$ref: '#/components/schemas/Doc'}}}}
+        '201': {description: Made, content: {application/json: {schema: {$ref: '#/components/schemas/Doc'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+    patch:
+      summary: Changes a doc
+      description: |
+        Only a change to its title or text is a revision, and tells `doc.changed`; a new position or section isn't, and
+        leaves `updated_at`. Its id and kind don't change.
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/DocChange'}}}}
+      responses:
+        '200': {description: The doc, content: {application/json: {schema: {$ref: '#/components/schemas/Doc'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+    delete:
+      summary: Deletes a doc, keeping its last text as a revision it can come back from
+      description: One the owner made is theirs to delete. Tells `doc.deleted`.
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      responses:
+        '204': {description: Deleted}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/projects/{project}/docs/{doc}/revisions:
+    parameters: [{$ref: '#/components/parameters/project'}, {$ref: '#/components/parameters/doc'}]
+    get:
+      summary: A doc's revisions, newest first, without their text; a deleted doc's too
+      responses:
+        '200': {description: The revisions, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/DocRevisionSummary'}}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/projects/{project}/docs/{doc}/revisions/{revision}:
+    parameters: [{$ref: '#/components/parameters/project'}, {$ref: '#/components/parameters/doc'}, {$ref: '#/components/parameters/revision'}]
+    get:
+      summary: A revision with its text
+      responses:
+        '200': {description: The revision, content: {application/json: {schema: {$ref: '#/components/schemas/DocRevision'}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/projects/{project}/docs/{doc}/revisions/{revision}/restore:
+    parameters: [{$ref: '#/components/parameters/project'}, {$ref: '#/components/parameters/doc'}, {$ref: '#/components/parameters/revision'}]
+    post:
+      summary: Puts a revision's title and text back, as a new revision
+      description: |
+        On a deleted doc it comes back where it was filed, with who made it (so the owner's stays theirs), and tells
+        `doc.created`. The same text it has already changes nothing.
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      responses:
+        '200': {description: Restored onto the doc, content: {application/json: {schema: {$ref: '#/components/schemas/Doc'}}}}
+        '201': {description: The deleted doc brought back, content: {application/json: {schema: {$ref: '#/components/schemas/Doc'}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+  /api/projects/{project}/deleted-docs:
+    parameters: [{$ref: '#/components/parameters/project'}]
+    get:
+      summary: The project's docs that are gone and can come back, the latest removed first
+      responses:
+        '200': {description: The deleted docs, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/DeletedDoc'}}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/projects/{project}/doc-sections:
+    parameters: [{$ref: '#/components/parameters/project'}]
+    get:
+      summary: The project's doc sections, as arranged, then the rest A–Z
+      description: The ones docs are filed under, and empty ones made.
+      responses:
+        '200': {description: The sections' names, content: {application/json: {schema: {type: array, items: {type: string}}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
+    post:
+      summary: Makes a section with no docs in it yet, at the end of the list
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/SectionName'}}}}
+      responses:
+        '201': {description: Made, content: {application/json: {schema: {$ref: '#/components/schemas/SectionName'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+  /api/projects/{project}/doc-sections/{section}:
+    parameters:
+      - {$ref: '#/components/parameters/project'}
+      - {name: section, in: path, required: true, description: The section's name, schema: {type: string}}
+    patch:
+      summary: Renames a section on every doc in it, or moves it in the list
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: {type: string, maxLength: 60}
+                position: {type: integer, minimum: 0, description: 0 the top; past the end is the end}
+      responses:
+        '200': {description: Its name now, content: {application/json: {schema: {$ref: '#/components/schemas/SectionName'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+    delete:
+      summary: Deletes a section; its docs are kept, filed under none
+      responses:
+        '204': {description: Deleted}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/uploads/{upload}:
+    parameters: [{name: upload, in: path, required: true, description: The image's id, 24 hex digits, schema: {type: string}}]
+    get:
+      summary: An image kept for Markdown, as it was kept
+      description: It never changes, so the browser keeps it, and it's only ever an image (`nosniff`, a sandboxing Content-Security-Policy).
+      responses:
+        '200': {description: The image, content: {image/png: {}, image/jpeg: {}, image/gif: {}, image/webp: {}}}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/statuses:
+    get:
+      summary: The issue statuses, in board order
+      description: By kind (backlog, todo, started, done, canceled), then by position, then by id. Every board has them.
+      responses:
+        '200': {description: The statuses, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/Status'}}}}}
+    post:
+      summary: Adds a status, the owner's only
+      description: Its id is the one given, else the name as one; `proposed` is taken by proposals. With no position it goes last. Every project changes, and the settings.
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/StatusInput'}}}}
+      responses:
+        '201': {description: The new status, content: {application/json: {schema: {$ref: '#/components/schemas/Status'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+  /api/statuses/{status}:
+    parameters:
+      - {name: status, in: path, required: true, description: The status's id, schema: {type: string}}
+    patch:
+      summary: Renames, recolours or moves a status, or gives it another kind, the owner's only
+      description: Its id stays. The last status of a kind keeps its kind (409).
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/StatusInput'}}}}
+      responses:
+        '200': {description: The status now, content: {application/json: {schema: {$ref: '#/components/schemas/Status'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+    delete:
+      summary: Removes a status, the owner's only
+      description: Its issues, schedules and signals move to `into`, which it needs while any issue or schedule is in it (409). The last status of a kind stays (409).
+      parameters:
+        - {$ref: '#/components/parameters/actor'}
+        - {name: into, in: query, description: The status its issues and schedules move to, schema: {type: string}}
+      responses:
+        '204': {description: Removed}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+  /api/settings:
+    get:
+      summary: This orrery's own settings, every one that's stored
+      description: |
+        Its id (made the first time it's asked for, and kept), the statuses, and every setting, the machine's own
+        (`terminal`, `starts`, `advanced`) too, each with its default when it isn't set. What only the running server
+        knows, `environment` and `database`, is the Nuxt server's `GET /api/machine`, not this.
+      responses:
+        '200': {description: The settings, content: {application/json: {schema: {$ref: '#/components/schemas/Settings'}}}}
+    patch:
+      summary: Changes the settings, the owner's only
+      description: |
+        Only the fields sent change; null puts one back to its default. An empty prompt is none, a handle is kept
+        lowercase, and `starts` and `work_kinds` are checked and kept as sent. The settings change, every project when
+        `starts` did (`Orrery-Changed`), and `Orrery-Settings-Keys` says which were sent, for the event log.
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/SettingsInput'}}}}
+      responses:
+        '200': {description: The settings now, content: {application/json: {schema: {$ref: '#/components/schemas/Settings'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+  /api/projects/{project}/issues:
+    parameters: [{$ref: '#/components/parameters/project'}]
+    get:
+      summary: Every issue, sub-issues included, as a flat list in board order
+      description: |
+        Board order is each milestone in turn (by position, then when made), then the issues in no milestone; within
+        each, an issue comes before its sub-issues, depth first, each level by position, then when made.
+
+        Each filter given narrows the list; one left out or empty doesn't. `none` asks for issues without the field
+        where the parameter says so. A milestone, parent or release that isn't there is a 404, as in its other routes.
+      parameters:
+        - {name: status, in: query, description: 'Status ids or kinds (`started`, `todo`, …), comma-separated; the old names of kinds count too', schema: {type: string}}
+        - {name: priority, in: query, description: '`P0` to `P3`, or `none`', schema: {type: string}}
+        - {name: column, in: query, description: 'The column it shows in: a status id or kind, or `proposed`', schema: {type: string}}
+        - {name: assignee, in: query, description: 'A name, `owner` for the owner whatever their name, or `none`', schema: {type: string}}
+        - {name: label, in: query, description: One label it has, exactly, schema: {type: string}}
+        - {name: external, in: query, description: 'A task on the team''s tracker it names, exactly (`ENG-1567`)', schema: {type: string}}
+        - {name: github_issue, in: query, description: 'A GitHub issue it came from: `523` on the project''s repo, `owner/name#523` or its link; any case', schema: {type: string}}
+        - {name: milestone, in: query, description: 'A milestone''s id, an alias or full id of one, or `none`', schema: {type: string}}
+        - {name: release, in: query, description: 'A release''s version, or `none`; 400 when the project has no releases', schema: {type: string}}
+        - {name: parent, in: query, description: 'An issue''s id (an alias or full id finds it), for its sub-issues one level down; `none` for top-level ones', schema: {type: string}}
+        - {name: proposal, in: query, description: 'A proposal state (`pending`, …), or `none` for committed work', schema: {type: string}}
+        - {name: blocked, in: query, description: '`true`: waiting on an issue not done yet (`blocked_by`); `false`: not', schema: {type: string, enum: ['true', 'false']}}
+        - {name: q, in: query, description: 'In the id or title, any case. With `in=all`, every word, anywhere: see `in`', schema: {type: string}}
+        - name: in
+          in: query
+          description: |
+            `all`: every word of `q` in its id and title, its description or a comment not orrery's own. Those with
+            them in the id and title come first; then the rest, each with `match_in` and, unless it's labelled
+            `external`, `match`.
+          schema: {type: string, enum: [all]}
+      responses:
+        '200': {description: The issues, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/IssueRecord'}}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/projects/{project}/issues/{issue}:
+    parameters: [{$ref: '#/components/parameters/project'}, {$ref: '#/components/parameters/issue'}]
+    get:
+      summary: The issue with its column, counts and sub-issues, nested
+      responses:
+        '200': {description: The issue, content: {application/json: {schema: {$ref: '#/components/schemas/IssueDetail'}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
+    patch:
+      summary: Changes the issue's own words, priority, where it sits, what it depends on and whether it's a proposal
+      description: |
+        Only its `title`, `priority`, `notes`, `labels`, `external`, `github_issues`, `parent`, `milestone`, `release`,
+        `epic`, `depends_on`, `proposal`, `choices`, `model`, `effort` and `position`: the router keeps an edit naming any other field
+        for the Nuxt server. `epic` is an epic's number, `EPC-1` or its full id, 404 for one there isn't. Null clears all but the title and position. A sub-issue is in its parent's milestone, so `parent` and
+        `milestone` aren't sent together; `parent: null` lifts it to the top, into its root's milestone unless one is
+        sent. An agent's, with more than one person, only on its person's issue or its own proposal, and under a parent
+        that's its person's too; and, with `restrict_proposals`, not the release of a proposal waiting on the owner.
+        Each changed field goes to the activity and is told (`issue.<field>`), without a title's or a link's words.
+        `depends_on` is all it depends on, ids here or `project/ID`, null or none to clear: refused for itself, its
+        parent or a sub-issue, or one that already depends on it; the change is told as `issue.depends`. `proposal:
+        pending` puts it to the owner: assigned to them, its last decision cleared, and a claim on it ended when that
+        reassigns it. `proposal: null` commits it, refused (403) for anyone but the owner while it's a proposal. Made
+        urgent open work by the owner or a member (P0, committed, not closed, and not urgent work before), the reply's `Orrery-Urgent` names it
+        (`<project> <issue>`, percent-encoded), for the Nuxt server to push it to the sessions.
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                title: {type: string, minLength: 1}
+                priority: {type: [string, 'null'], enum: [P0, P1, P2, P3, null]}
+                notes: {type: [string, 'null']}
+                labels: {type: [array, 'null'], items: {type: string}}
+                external: {type: [array, 'null'], items: {type: string}}
+                github_issues: {type: [array, 'null'], items: {type: [string, integer]}}
+                parent: {type: [string, 'null'], description: An issue's id here, an alias or its full id}
+                milestone: {type: [string, 'null'], description: A milestone's id, an alias or its full id}
+                release: {type: [string, 'null'], description: The version of a release it ships in}
+                epic: {type: [string, integer, 'null'], description: 'The epic it''s part of: its number, `EPC-1` or its full id'}
+                depends_on: {type: [array, 'null'], items: {type: string}, description: 'All it depends on: `ID` here or `project/ID` in another'}
+                proposal: {type: [string, 'null'], enum: [pending, null], description: '`pending` puts it (back) to the owner; null commits it, the owner''s alone'}
+                choices: {type: [array, 'null'], items: {type: object}, description: 'A proposal''s questions for the owner: `{key, question, pick?, options: [{key, title, body?}], recommended?, from?}`; null for none'}
+                model: {type: [string, 'null']}
+                effort: {type: [string, 'null'], enum: [low, medium, high, xhigh, max, null]}
+                position: {type: number}
+      responses:
+        '200': {description: The issue, content: {application/json: {schema: {$ref: '#/components/schemas/IssueDetail'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {description: 'It isn''t the session''s person''s, or the session names nobody', content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+    delete:
+      summary: Deletes the issue, its sub-issues and comments with it
+      description: |
+        An agent's, with more than one person, only when every issue in it is its person's, and never what the owner
+        made. What names them without a foreign key lets go of them: their signals and links go, a schedule's runs keep
+        no issue, and each issue that depended on one is told it no longer does (`issue.depends`).
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      responses:
+        '204': {description: Deleted}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {description: 'One in it isn''t the session''s person''s, or the session names nobody', content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+  /api/projects/{project}/issues/{issue}/claim:
+    parameters: [{$ref: '#/components/parameters/project'}, {$ref: '#/components/parameters/issue'}]
+    post:
+      summary: Takes the issue up for whoever's asking
+      description: |
+        A person's own, or one that's nobody's, which it assigns to them; the owner's on anyone's, which takes it over.
+        With more than one person, an agent takes up only its person's. The claim and a new assignee show in the activity.
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      responses:
+        '200': {description: The issue, content: {application/json: {schema: {$ref: '#/components/schemas/IssueDetail'}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {description: 'Someone else holds it, it was reassigned meanwhile, or the session names nobody', content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+    delete:
+      summary: Lets go of the issue's claim, which leaves it assigned
+      description: The holder's to let go, or the owner's on anyone's. One nobody has claimed is as it was.
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      responses:
+        '200': {description: The issue, content: {application/json: {schema: {$ref: '#/components/schemas/IssueDetail'}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {description: Someone else holds it, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+  /api/projects/{project}/issues/{issue}/comments:
+    parameters: [{$ref: '#/components/parameters/project'}, {$ref: '#/components/parameters/issue'}]
+    get:
+      summary: The issue's comments, oldest first
+      responses:
+        '200': {description: The comments, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/Comment'}}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
+    post:
+      summary: Comments on the issue
+      description: |
+        An agent's ask (`asks`) assigns the issue to the owner, and the owner's answer gives it back to the agent who
+        asked; with people, an agent's ask waits on its own person, and only on an issue that's theirs. Tells
+        `comment.added`, or `comment.asks` with `to`, and `issue.assignee` when it moved. The reply's `Orrery-Carry`
+        (the owner's or a member's words) and `Orrery-Notice` (an agent's), each `<project> <issue> <comment>`, say what
+        the Nuxt server passes on to the session on the issue and to the owner's bell.
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/CommentInput'}}}}
+      responses:
+        '201': {description: The new comment, content: {application/json: {schema: {$ref: '#/components/schemas/Comment'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/projects/{project}/issues/{issue}/activity:
+    parameters: [{$ref: '#/components/parameters/project'}, {$ref: '#/components/parameters/issue'}]
+    get:
+      summary: Who changed what on the issue, and when, oldest first
+      responses:
+        '200': {description: The changes, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/IssueEvent'}}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/projects/{project}/issues/{issue}/comments/{comment}:
+    parameters: [{$ref: '#/components/parameters/project'}, {$ref: '#/components/parameters/issue'}, {$ref: '#/components/parameters/comment'}]
+    get:
+      summary: One comment
+      responses:
+        '200': {description: The comment, content: {application/json: {schema: {$ref: '#/components/schemas/Comment'}}}}
+        '404': {description: 'No such project, issue or comment, a comment''s id that isn''t a whole number included', content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+    patch:
+      summary: Edits the comment's words or what it asks
+      description: |
+        The owner's is theirs to edit, and a member's (or their agents') theirs or the owner's. The Nuxt server refuses a
+        session first while another session is working on the issue. New words by the comment's own person come back in
+        `Orrery-Carry` (`<project> <issue> <comment> edited`), for the Nuxt server to pass on to the session on the issue.
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/CommentEdit'}}}}
+      responses:
+        '200': {description: The comment, content: {application/json: {schema: {$ref: '#/components/schemas/Comment'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {description: 'No such project, issue or comment, a comment''s id that isn''t a whole number included', content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+    delete:
+      summary: Deletes the comment
+      description: The owner's is theirs to delete, and a member's (or their agents') theirs or the owner's.
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      responses:
+        '204': {description: Deleted}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {description: 'No such project, issue or comment, a comment''s id that isn''t a whole number included', content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+  /api/projects/{project}/milestones:
+    parameters: [{$ref: '#/components/parameters/project'}]
+    get:
+      summary: The project's milestones in order, each with its column, counts and top-level issues by id
+      responses:
+        '200': {description: The milestones, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/Milestone'}}}}}
+    post:
+      summary: Makes a milestone with the project's next number
+      description: Told as `milestone.created`. One the owner makes is theirs to delete.
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/MilestoneInput'}}}}
+      responses:
+        '201': {description: The milestone, content: {application/json: {schema: {$ref: '#/components/schemas/MilestoneDetail'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/projects/{project}/milestones/{milestone}:
+    parameters: [{$ref: '#/components/parameters/project'}, {$ref: '#/components/parameters/milestone'}]
+    get:
+      summary: The milestone with its issues, nested
+      responses:
+        '200': {description: The milestone, content: {application/json: {schema: {$ref: '#/components/schemas/MilestoneDetail'}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
+    patch:
+      summary: Changes a milestone's title, summary, priority or position
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/MilestoneInput'}}}}
+      responses:
+        '200': {description: The milestone now, content: {application/json: {schema: {$ref: '#/components/schemas/MilestoneDetail'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+    delete:
+      summary: Deletes a milestone; its issues stay, in no milestone
+      description: Its signals go, and schedules that made issues in it make them in none. One the owner made is theirs to delete (403).
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      responses:
+        '204': {description: Deleted}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/projects/{project}/releases:
+    parameters: [{$ref: '#/components/parameters/project'}]
+    get:
+      summary: 'The project''s releases (its source''s, when it takes them from another), as arranged, each with how far its issues are; none with releases off'
+      responses:
+        '200': {description: The releases, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/Release'}}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
+    post:
+      summary: Makes a release, at the top of the project's unless `position` places it
+      description: Told as `release.created`. Made shipped, it marks the docs as they are. One the owner makes is theirs to delete. Refused (400) on a project with no releases of its own.
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/ReleaseInput'}}}}
+      responses:
+        '201': {description: The release, content: {application/json: {schema: {$ref: '#/components/schemas/ReleaseDetail'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+  /api/projects/{project}/releases/{release}:
+    parameters: [{$ref: '#/components/parameters/project'}, {$ref: '#/components/parameters/release'}]
+    get:
+      summary: 'The release with the issues set for it: the project''s own as `tasks`, and by project in `projects`, with those drawing on it when it''s their source'
+      responses:
+        '200': {description: The release, content: {application/json: {schema: {$ref: '#/components/schemas/ReleaseDetail'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+    patch:
+      summary: Changes a release's branch, notes, days or place; its version can't change
+      description: 'Setting `frozen_on` or `shipped_on` is told as `release.frozen` or `release.shipped`, clearing it as `release.thawed` or `release.unshipped`; a new day on one already set is no event. Shipping marks the docs as they are, and un-shipping lets the mark go.'
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/ReleaseInput'}}}}
+      responses:
+        '200': {description: The release now, content: {application/json: {schema: {$ref: '#/components/schemas/ReleaseDetail'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+    delete:
+      summary: Deletes a release; its issues stay, set for no release, in the projects drawing on it too
+      description: Told as `release.deleted`. One the owner made is theirs to delete (403).
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      responses:
+        '204': {description: Deleted}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/releases:
+    get:
+      summary: Every project with releases of its own, with the projects drawing on it and their releases without notes, each with every project's part
+      responses:
+        '200': {description: The projects' releases, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/ProjectReleases'}}}}}
+  /api/projects:
+    get:
+      summary: Every project, by name, each with its counts
+      description: |
+        Each project's own fields, docs, doc sections and releases, and for its board only the counts and kinds of its
+        leaf issues and how many milestones it has. With `?expand=board` it's each one's board instead, with the events
+        stream's `rev`: the Nuxt server answers that, so the router never sends it here.
+      responses:
+        '200': {description: The projects, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/ProjectSummary'}}}}}
+    post:
+      summary: Makes a project
+      description: |
+        `name` is needed. Its id is `id`, else the name as a slug, and its key is `key`, else three capitals from the
+        name; a key a milestone's, an epic's, a doc's, a preset's or a schedule's id starts with is refused (400), and
+        one made from a name steps past them (`EPCO` for Epcot). A taken id is a 409. It has no releases unless sent
+        `release_mode` or `releases_from`; its prompts are the owner's (403). Whoever asks holds it: a session's person,
+        the owner's chat the owner's.
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/ProjectInput'}}}}
+      responses:
+        '201': {description: 'The project, with its board', content: {application/json: {schema: {$ref: '#/components/schemas/Project'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+  /api/projects/{project}:
+    parameters: [{$ref: '#/components/parameters/project'}]
+    patch:
+      summary: Changes a project
+      description: |
+        Its name, key, description, icon, tint, repo and where its releases come from; its prompts (`focus_prompt`,
+        `milestone_prompt`, `instructions`, `muted`) are the owner's (403). Its id can't change (400). Sending
+        `releases_from` makes it `shared`, and null gives it its own; leaving its own releases is refused while it has
+        some or another project draws on them (409). Its issues keep only the releases the new source has. Reading a
+        project stays with the Nuxt server, which adds the events stream's `rev`.
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/ProjectInput'}}}}
+      responses:
+        '200': {description: 'The project, with its board', content: {application/json: {schema: {$ref: '#/components/schemas/Project'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+  /api/people:
+    get:
+      summary: Everyone on this orrery
+      description: The owner first, then in the order they were added; those removed stay listed, with when. An id is what a session sets as `ORRERY_PERSON`.
+      responses:
+        '200': {description: The people, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/Person'}}}}}
+    post:
+      summary: Adds a person, a member, the owner's only
+      description: |
+        Their id is the name in lowercase snake case, and never changes; one a removed person had stays theirs (409), and
+        `owner`, `agent`, `claude` and `orrery` are what agents and orrery go by (400). The owner names themselves first
+        (400). A second person turns login on, so it's refused (409) until someone could log in: a login provider, or the
+        owner's person key, unless ORRERY_AUTH=off.
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/PersonInput'}}}}
+      responses:
+        '201': {description: The person, content: {application/json: {schema: {$ref: '#/components/schemas/Person'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+  /api/people/{person}:
+    parameters:
+      - {name: person, in: path, required: true, description: The person's id, schema: {type: string}}
+    patch:
+      summary: Renames a member, the owner's only
+      description: Their id stays. The owner's own name is changed with `PUT /api/owner` (400); a removed person's stays (409).
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/PersonInput'}}}}
+      responses:
+        '200': {description: The person, renamed, content: {application/json: {schema: {$ref: '#/components/schemas/Person'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+    delete:
+      summary: Removes a member, the owner's only
+      description: Their name stays on history. What they held goes to the owner, their keys are revoked, their logins and invites end, and their open issues go back to unassigned, each noted and told (`issue.assignee`). The owner can't be removed (400); one already removed is left as it is.
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      responses:
+        '204': {description: Removed}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/invites:
+    post:
+      summary: Invites a person to attach their first login, the owner's only
+      description: A link good once and for a week, at the address the request came to, whose first login through the provider attaches that account to the person. Only with a login provider (409).
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      requestBody: {required: true, content: {application/json: {schema: {type: object, required: [person], properties: {person: {type: string, description: Who to invite, by id}}}}}}
+      responses:
+        '201': {description: The link, content: {application/json: {schema: {type: object, required: [url, expires_at], properties: {url: {type: string}, expires_at: {type: string, format: date-time}}}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+  /api/keys:
+    get:
+      summary: The asking person's keys, or everyone's for the owner
+      description: The newest first; a revoked one stays listed. Never a key's secret. A person in a browser, or with login off the owner by name; never a session, whatever key it has (403, keys.write).
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      responses:
+        '200': {description: The keys, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/Key'}}}}}
+        '403': {$ref: '#/components/responses/Forbidden'}
+    post:
+      summary: Makes a key, with its secret this once only
+      description: '`agent` goes in a machine''s ORRERY_KEY, and `person` signs in to the page. A person makes their own; `person` in the body is the owner''s to give, for handing someone a key on a server with no provider (403 for anyone else).'
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/KeyInput'}}}}
+      responses:
+        '201': {description: The key, with `key`, content: {application/json: {schema: {$ref: '#/components/schemas/NewKey'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/keys/{key}:
+    parameters:
+      - {name: key, in: path, required: true, description: The key's id, schema: {type: string}}
+    delete:
+      summary: Revokes a key, at once
+      description: With the logins it started. A person's own, or anyone's for the owner; another's is a 404. Revoking it again changes nothing.
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      responses:
+        '204': {description: Revoked}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/logins:
+    get:
+      summary: The asking person's live logins, or everyone's for the owner
+      description: Each browser or phone signed in, the latest used first, with `current` on the one asking. Never what's in a cookie. Never a session's (403, logins.write).
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      responses:
+        '200': {description: The logins, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/Login'}}}}}
+        '403': {$ref: '#/components/responses/Forbidden'}
+    delete:
+      summary: Ends every login but the asking browser's
+      description: A person's own, or everyone's for the owner. With login off there's no login to keep, so every one ends.
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      responses:
+        '200': {description: How many ended, content: {application/json: {schema: {type: object, required: [ended], properties: {ended: {type: integer}}}}}}
+        '403': {$ref: '#/components/responses/Forbidden'}
+  /api/logins/{login}:
+    parameters:
+      - {name: login, in: path, required: true, description: 'The login''s id, as listed: 16 hex digits', schema: {type: string}}
+    delete:
+      summary: Ends a login at once
+      description: A person's own, or anyone's for the owner; another's is a 404.
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      responses:
+        '204': {description: Ended}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/auth/login:
+    post:
+      x-served: false
+      summary: Swaps a person key for a login's cookie
+      description: >-
+        The body is `{key}`, a person key (an agent key can't sign in). Sets the http-only login cookie, named for the
+        port in `Host` (`orrery_login_9010`), `Secure` when `X-Forwarded-Proto` says https, for 30 days. Written ahead of
+        the swap: the Nuxt server logs in for itself until the API is the front door.
+      requestBody: {content: {application/json: {schema: {type: object, properties: {key: {type: string}}}}}}
+      responses:
+        '200': {description: Logged in, content: {application/json: {schema: {type: object, properties: {person: {type: string}}}}}}
+        '401': {description: Not a live person key}
+  /api/auth/logout:
+    post:
+      x-served: false
+      summary: Ends this browser's login, on the server as well as its cookie
+      responses:
+        '204': {description: Logged out, or wasn't logged in}
+  /api/auth/oidc/start:
+    get:
+      x-served: false
+      summary: Sends the browser to the login provider
+      description: >-
+        The authorization code flow with PKCE, found through the provider's discovery document (NUXT_OIDC_ISSUER,
+        NUXT_OIDC_CLIENT_ID, NUXT_OIDC_CLIENT_SECRET). What the way back has to match is kept in the http-only
+        `orrery_oidc` cookie for 10 minutes. Written ahead of the swap: the Nuxt server serves it until then.
+      parameters:
+        - {name: invite, in: query, description: An invite's secret, to attach a new account to its person, schema: {type: string}}
+        - {name: back, in: query, description: 'The page''s origin, when NUXT_ALLOWED_ORIGINS lists it; any other is ignored', schema: {type: string}}
+      responses:
+        '302': {description: To the provider's login}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '502': {description: The provider is set up wrong or didn't answer}
+  /api/auth/oidc/callback:
+    get:
+      x-served: false
+      summary: Logs the browser in from the provider's way back
+      description: >-
+        Checks the way back answers this browser's own login, swaps the code for an ID token and verifies it against the
+        provider's keys. An account orrery doesn't know needs the invite the login started with. Clears `orrery_oidc`
+        whatever comes of it. Written ahead of the swap.
+      parameters:
+        - {name: state, in: query, schema: {type: string}}
+        - {name: code, in: query, schema: {type: string}}
+      responses:
+        '302': {description: 'Logged in: to the board, or to the listed origin it started from'}
+        '401': {description: 'The way back doesn''t match, has run out, or the ID token doesn''t check out'}
+        '403': {description: The account isn't on this orrery}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {description: The invite has been used or has run out, or the account belongs to someone else}
+        '502': {description: The provider is set up wrong or didn't answer}
+  /api/notices:
+    get:
+      summary: The bell, or one of the notifications page's lists
+      description: |
+        Agents' comments across projects. The `bell` is the latest 30 not cleared, those still waiting on the owner (a
+        decision or feedback they haven't answered) first, with agents' proposals waiting on them ahead of all. The
+        page's lists are newest first: `waiting` (every one, proposals among them), and `inbox` and `cleared` a page at a
+        time, `limit` of them (50, at most 200) older than the notice `before`. With more than one person each has their
+        own bell (ORR-658), and only the owner's has proposals.
+      parameters:
+        - {name: list, in: query, description: 'Which: `bell` (the default), `waiting`, `inbox` or `cleared`', schema: {type: string, enum: [bell, waiting, inbox, cleared]}}
+        - {name: before, in: query, description: 'For `inbox` and `cleared`: only notices older than this comment', schema: {type: integer}}
+        - {name: limit, in: query, description: 'For `inbox` and `cleared`: how many, 50 by default, at most 200', schema: {type: integer, minimum: 1, maximum: 200}}
+      responses:
+        '200': {description: The notices, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/Notice'}}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+  /api/notices/changes:
+    get:
+      summary: Status changes since a time on the issues in the asker's bell, oldest first
+      description: The latest 2000, if there are more (ORR-803).
+      parameters:
+        - {name: since, in: query, required: true, description: A time, schema: {type: string, format: date-time}}
+      responses:
+        '200': {description: The changes, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/NoticeChange'}}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+  /api/notices/clear:
+    post:
+      summary: Takes notices out of the bell
+      description: |
+        The comments stay on their issues, the proposals pending. Comments by `ids` and proposals by `{project, issue}`,
+        every comment made at or before `before`, or every one `read`: the last two leave those still waiting on the
+        owner. A member's clears are their own (no proposals); a session is refused (403).
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                ids: {type: array, items: {type: integer}}
+                proposals: {type: array, items: {type: object, required: [project, issue], properties: {project: {type: string}, issue: {type: string}}}}
+                before: {type: string, format: date-time}
+                read: {type: boolean, enum: [true]}
+      responses:
+        '200': {description: How many, content: {application/json: {schema: {type: object, required: [cleared], properties: {cleared: {type: integer}}}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+  /api/notices/read:
+    post:
+      summary: Marks comments read, as opening one on the notifications page does
+      description: It leaves what the bell counts alone. A member's are their own; a session is refused (403).
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      requestBody: {required: true, content: {application/json: {schema: {type: object, required: [ids], properties: {ids: {type: array, minItems: 1, items: {type: integer}}}}}}}
+      responses:
+        '200': {description: How many changed, content: {application/json: {schema: {type: object, required: [read], properties: {read: {type: integer}}}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+  /api/epics:
+    get:
+      summary: Every epic, in the order they're arranged in, a new one on top
+      description: Each with its progress across every project it has issues in, and each of those projects' part.
+      responses:
+        '200': {description: The epics, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/Epic'}}}}}
+    post:
+      summary: Makes an epic
+      description: '`title` is needed. It goes on top unless `position` says where (0 the top). An issue joins it with `epic`, its number, on the issue.'
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/EpicInput'}}}}
+      responses:
+        '201': {description: 'The epic, with its issues', content: {application/json: {schema: {$ref: '#/components/schemas/EpicDetail'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+  /api/epics/{epic}:
+    parameters:
+      - {name: epic, in: path, required: true, description: 'The epic''s number (`3`), as it''s shown (`EPC-3`), or its full id on this server (`EPC-3-x7k2m3qd`)', schema: {type: string}}
+    get:
+      summary: One epic, with its issues in a section per project
+      description: Each section's `tasks` are the issues set for it there (a sub-issue's when its parent isn't), each with its sub-issues.
+      responses:
+        '200': {description: The epic, content: {application/json: {schema: {$ref: '#/components/schemas/EpicDetail'}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
+    patch:
+      summary: Changes an epic's title or notes, or moves it among them
+      description: A new title or notes is told as `epic.changed` on each project with an issue in it; `position` moves it (0 the top).
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/EpicInput'}}}}
+      responses:
+        '200': {description: The epic, content: {application/json: {schema: {$ref: '#/components/schemas/EpicDetail'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+    delete:
+      summary: Deletes an epic
+      description: Its issues stay where they are, in no epic, each told as `issue.epic`. One the owner made is theirs to delete (403).
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      responses:
+        '204': {description: Deleted}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/secrets:
+    get:
+      summary: Every secret by name, never its value
+      description: Each with its last 4 characters, the hosts it may go to, the projects that may use it (null for any) and its latest use.
+      responses:
+        '200': {description: The secrets, by name, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/Secret'}}}}}
+  /api/secrets/{name}:
+    parameters:
+      - {name: name, in: path, required: true, description: 'The secret''s name: capitals, digits and `_`', schema: {type: string}}
+    get:
+      summary: One secret, never its value, with its latest uses
+      description: Its 20 latest uses, newest first; `last_used` is the first of them.
+      responses:
+        '200':
+          description: The secret
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - {$ref: '#/components/schemas/Secret'}
+                  - {type: object, required: [uses], properties: {uses: {type: array, items: {$ref: '#/components/schemas/SecretUse'}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/projects/{project}/issues/{issue}/pulls/{owner}/{name}/{number}/risk:
+    parameters:
+      - {$ref: '#/components/parameters/project'}
+      - {name: issue, in: path, required: true, description: The issue's id or an old one, schema: {type: string}}
+      - {name: owner, in: path, required: true, description: The GitHub repo's owner, in any case, schema: {type: string}}
+      - {name: name, in: path, required: true, description: The GitHub repo's name, in any case, schema: {type: string}}
+      - {name: number, in: path, required: true, description: 'The PR''s number: `788` or `#788`', schema: {type: string}}
+    put:
+      summary: Rates how risky the issue's PR is, or takes the rating away with `{level: null}`
+      description: >-
+        `why` is a line on what decided it, needed with a level, kept to 300 characters. The owner's rating
+        (`Orrery-Actor-Kind: owner`) stands: a session's doesn't replace it or take it away (409). 404 when orrery keeps no
+        such PR on the issue, as it keeps only those the poll has seen name it.
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [level]
+              properties:
+                level: {type: [string, 'null'], enum: [high, medium, low, null]}
+                why: {type: string}
+      responses:
+        '200':
+          description: The rating now
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [risk]
+                properties:
+                  risk:
+                    oneOf:
+                      - {type: 'null'}
+                      - type: object
+                        required: [level, why, by]
+                        properties:
+                          level: {type: string, enum: [high, medium, low]}
+                          why: {type: string}
+                          by: {type: string, enum: [owner, session]}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+  /api/projects/{project}/schedules:
+    parameters: [{$ref: '#/components/parameters/project'}]
+    get:
+      summary: 'The project''s schedules: the soonest next run first, those with none last, ties by title'
+      responses:
+        '200': {description: The schedules, content: {application/json: {schema: {type: array, items: {type: object}}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/projects/{project}/schedules/{schedule}:
+    parameters:
+      - {$ref: '#/components/parameters/project'}
+      - {name: schedule, in: path, required: true, description: 'Its number, or its full id: `sch-12-x7k2m9qd`', schema: {type: string}}
+    get:
+      summary: The schedule, with its latest ten runs, newest first
+      responses:
+        '200': {description: The schedule, content: {application/json: {schema: {type: object}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/schedules:
+    get:
+      summary: 'Every project''s schedules (the agenda): the soonest next run first, those with none last, ties by title'
+      responses:
+        '200': {description: The schedules, content: {application/json: {schema: {type: array, items: {type: object}}}}}
+  /api/chats:
+    get:
+      x-served: false
+      summary: The owner's chats as they're kept, running and ended, newest first, each with its messages
+      description: >-
+        Read from the `chats` table, as the Nuxt server reads them back as it starts. Written ahead: the Nuxt server
+        answers from its memory, which runs ahead of the table (a chat's change is kept just after it), and why a launcher
+        couldn't start one (`problem`) is never kept, so the router keeps these until the swap settles where that lives.
+      responses:
+        '200': {description: The chats, content: {application/json: {schema: {type: array, items: {type: object}}}}}
+  /api/chats/{chat}:
+    parameters: [{name: chat, in: path, required: true, description: The chat's id, its launch's, schema: {type: string}}]
+    get:
+      x-served: false
+      summary: One chat as it's kept, running or ended, with its messages
+      responses:
+        '200': {description: The chat, content: {application/json: {schema: {type: object}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
+    put:
+      x-served: false
+      summary: Keeps the chat as it is now, whole, but why its launcher couldn't start it
+      description: >-
+        The one write the local app makes of a chat (`keepChat`), as it changes: a chat runs as a session on the local
+        machine, so what it does stays there, and this keeps its record. Its project and start stay as first kept.
+      requestBody: {required: true, content: {application/json: {schema: {type: object, required: [id, project, started_at, messages], description: The chat, as `GET` gives it}}}}
+      responses:
+        '204': {description: Kept}
+        '400': {$ref: '#/components/responses/BadRequest'}
+    delete:
+      x-served: false
+      summary: Lets go of the chat's record, one that ended before anything was said, or deleted
+      responses:
+        '204': {description: Gone}
+  /api/schedules/across:
+    get:
+      summary: The schedules across projects, oldest first, each with the projects it's made on
+      responses:
+        '200': {description: The schedules across projects, content: {application/json: {schema: {type: array, items: {type: object}}}}}
+  /api/pulls/{owner}/{name}:
+    parameters:
+      - {name: owner, in: path, required: true, description: The GitHub repo's owner, schema: {type: string}}
+      - {name: name, in: path, required: true, description: The GitHub repo's name, schema: {type: string}}
+    put:
+      x-served: false
+      summary: 'A repo''s poll: each PR as read, those it missed kept as closed, and the repo as polled'
+      description: >-
+        What the local app's GitHub poll keeps each time it reads the repo (`keepPolled`). A PR open when last seen and in
+        neither list now is kept as closed, and so is its row on an issue, unless `more` says the open ones were cut short.
+        `token` says whether it read with one. It tells nobody: the poll tells what changed on its own.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [at, token, more, pulls]
+              properties:
+                at: {type: string}
+                token: {type: boolean}
+                more: {type: boolean}
+                pulls: {type: array, items: {type: object, description: 'A `pull_states` row but `repo` and `seen_at`, with `names` and `told` as lists'}}
+      responses:
+        '204': {description: Kept}
+        '400': {$ref: '#/components/responses/BadRequest'}
+  /api/pulls/{owner}/{name}/error:
+    parameters:
+      - {name: owner, in: path, required: true, schema: {type: string}}
+      - {name: name, in: path, required: true, schema: {type: string}}
+    put:
+      x-served: false
+      summary: What a repo's poll failed on, kept on a repo read before
+      requestBody: {required: true, content: {application/json: {schema: {type: object, additionalProperties: false, required: [error], properties: {error: {type: string}}}}}}
+      responses:
+        '204': {description: Kept}
+        '400': {$ref: '#/components/responses/BadRequest'}
+  /api/pulls/{owner}/{name}/history:
+    parameters:
+      - {name: owner, in: path, required: true, schema: {type: string}}
+      - {name: name, in: path, required: true, schema: {type: string}}
+    put:
+      x-served: false
+      summary: The page of the repo's closed PRs to read next, 0 once they're all on their issues
+      requestBody: {required: true, content: {application/json: {schema: {type: object, additionalProperties: false, required: [page], properties: {page: {type: integer, minimum: 0}}}}}}
+      responses:
+        '204': {description: Kept}
+        '400': {$ref: '#/components/responses/BadRequest'}
+  /api/pulls/forget:
+    post:
+      x-served: false
+      summary: Lets go of merged and closed PRs last seen before `before`, and of the repos not in `repos`
+      requestBody: {required: true, content: {application/json: {schema: {type: object, additionalProperties: false, required: [repos, before], properties: {repos: {type: array, items: {type: string}}, before: {type: string}}}}}}
+      responses:
+        '200': {description: The repos let go of, content: {application/json: {schema: {type: object, required: [gone], properties: {gone: {type: array, items: {type: string}}}}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+  /api/pulls/{owner}/{name}/{number}:
+    parameters:
+      - {name: owner, in: path, required: true, description: The GitHub repo's owner, in any case, schema: {type: string}}
+      - {name: name, in: path, required: true, description: The GitHub repo's name, in any case, schema: {type: string}}
+      - {name: number, in: path, required: true, description: 'The PR''s number: `788` or `#788`', schema: {type: string}}
+    get:
+      summary: One pull request as orrery keeps it, with every issue it's on
+      description: >-
+        Merged and closed ones too: orrery keeps a PR that names an issue, and a release PR on every issue in its release.
+        The issues come riskiest first, each with its riskiest rated PR. Anyone but the owner (`Orrery-Actor-Kind: owner`)
+        gets the PR without its title and branch, which an outsider may have written, and its author only when it's a
+        plain login.
+      responses:
+        '200':
+          description: The pull request
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [repo, pull, issues]
+                properties:
+                  repo: {type: string, description: As asked}
+                  pull: {$ref: '#/components/schemas/KeptPull'}
+                  issues:
+                    type: array
+                    items:
+                      type: object
+                      required: [project, project_name, id, title, status]
+                      properties:
+                        project: {type: string}
+                        project_name: {type: string}
+                        id: {type: string}
+                        title: {type: string}
+                        status: {type: string}
+                        risk: {$ref: '#/components/schemas/PullRisk'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+    put:
+      x-served: false
+      summary: Keeps the PR on each issue it names, and off any it no longer names
+      description: >-
+        What the local app's poll does with each PR it reads that changed (`remember`, ORR-795): `names` are the issue ids
+        in its body and branch, looked up by id or an old one among `projects`, and a release PR (from a release's branch)
+        is on every issue in that release too. It tells nobody: what a PR does next is the poll's news, told on its own.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [projects, names, title, url, branch, base, author, merged, closed, merged_at, created_at, updated_at]
+              properties:
+                projects: {type: array, items: {type: string}, description: The projects whose issues it can name}
+                names: {type: array, items: {type: string}}
+                title: {type: string}
+                url: {type: string}
+                branch: {type: string}
+                base: {type: string}
+                author: {type: string}
+                merged: {type: boolean}
+                closed: {type: boolean}
+                merged_at: {type: [string, 'null']}
+                created_at: {type: string}
+                updated_at: {type: string}
+      responses:
+        '204': {description: Kept}
+        '400': {$ref: '#/components/responses/BadRequest'}
+  /api/presets:
+    get:
+      summary: The orrery's presets, for sessions on any project, by name
+      responses:
+        '200': {description: The presets, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/Preset'}}}}}
+    post:
+      summary: Makes one of the orrery's presets
+      description: The owner's only (403, presets.write).
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/PresetInput'}}}}
+      responses:
+        '201': {description: The preset, content: {application/json: {schema: {$ref: '#/components/schemas/Preset'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+  /api/presets/defaults:
+    post:
+      summary: Adds back the presets orrery ships that were removed, as it ships them
+      description: The owner's only (403, presets.write).
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      responses:
+        '200': {description: The ones added back, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/Preset'}}}}}
+        '403': {$ref: '#/components/responses/Forbidden'}
+  /api/presets/{preset}:
+    parameters: [{$ref: '#/components/parameters/preset'}]
+    patch:
+      summary: Renames a preset, or changes its text or badge
+      description: The owner's only (403, presets.write). Null takes the icon or the colour off.
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/PresetInput'}}}}
+      responses:
+        '200': {description: The preset, content: {application/json: {schema: {$ref: '#/components/schemas/Preset'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+    delete:
+      summary: Removes a preset
+      description: The owner's only (403, presets.write). Sessions already started with it keep its text.
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      responses:
+        '204': {description: Removed}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/presets/{preset}/reset:
+    parameters: [{$ref: '#/components/parameters/preset'}]
+    post:
+      summary: Puts a preset orrery ships back as it ships it
+      description: The owner's only (403, presets.write). 409 for one it doesn't ship.
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      responses:
+        '200': {description: The preset, content: {application/json: {schema: {$ref: '#/components/schemas/Preset'}}}}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+  /api/projects/{project}/presets:
+    parameters: [{$ref: '#/components/parameters/project'}]
+    get:
+      summary: The presets a session on the project can have, the orrery's then its own
+      responses:
+        '200': {description: The presets, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/Preset'}}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
+    post:
+      summary: Makes one of the project's own presets
+      description: The owner's only (403, presets.write).
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/PresetInput'}}}}
+      responses:
+        '201': {description: The preset, content: {application/json: {schema: {$ref: '#/components/schemas/Preset'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+components:
+  parameters:
+    project: {name: project, in: path, required: true, description: The project's id, schema: {type: string}}
+    doc: {name: doc, in: path, required: true, description: 'The doc''s id, or its full id on this board (`doc-ideas-x7k2m3qd`)', schema: {type: string}}
+    revision: {name: revision, in: path, required: true, description: 'A revision''s id; ids run across the orrery', schema: {type: integer, minimum: 1}}
+    issue: {name: issue, in: path, required: true, description: 'The issue''s id (`ORR-12`), an id it had before (an alias), or the full form of either on this board (`ORR-12-x7k2m3qd`)', schema: {type: string}}
+    milestone: {name: milestone, in: path, required: true, description: 'The milestone''s id (`3`), an id it had before, or the full form of either on this board (`MLS-3-x7k2m3qd`), or as it''s shown (`MLS-3`)', schema: {type: string}}
+    release: {name: release, in: path, required: true, description: The release's version, schema: {type: string}}
+    preset: {name: preset, in: path, required: true, description: 'The preset''s number, or its full id on this server (`pst-12-x7k2m3qd`)', schema: {type: string}}
+    comment: {name: comment, in: path, required: true, description: 'A comment''s id; ids run across the orrery', schema: {type: integer, minimum: 1}}
+    actor:
+      name: Orrery-Actor
+      in: header
+      description: Who's writing; the owner's name writes as the owner. With login on, the credential decides.
+      schema: {type: string, maxLength: 60}
+  responses:
+    BadRequest: {description: 'The body is wrong: `data.problems` says each thing', content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+    Forbidden: {description: 'The owner''s call: `data.permission` names the row that says so', content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+    NotFound: {description: 'No such project, doc, revision, section, issue, comment, milestone, release, person, key, login, secret or pull request', content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+    Conflict: {description: Taken already, or not the same kind, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+  schemas:
+    ReleaseInput:
+      type: object
+      description: '`version` is needed to make one, and can''t change. A change takes any of the rest; all but `position` can be null.'
+      additionalProperties: false
+      properties:
+        version: {type: string, pattern: '^[0-9A-Za-z][0-9A-Za-z.+_-]{0,39}$'}
+        branch: {type: [string, 'null']}
+        notes: {type: [string, 'null']}
+        frozen_on: {type: [string, 'null'], pattern: '^\d{4}-\d{2}-\d{2}$'}
+        shipped_on: {type: [string, 'null'], pattern: '^\d{4}-\d{2}-\d{2}$'}
+        position: {type: number}
+    MilestoneInput:
+      type: object
+      description: '`title` is needed to make one. A change takes any of them; `summary` and `priority` can be null.'
+      additionalProperties: false
+      properties:
+        title: {type: string}
+        summary: {type: [string, 'null']}
+        priority: {type: [string, 'null'], enum: [P0, P1, P2, P3, null]}
+        position: {type: number}
+    DocKind: {type: string, enum: [markdown, artifact], description: '`artifact`: its text is HTML, only drawn in a sandboxed frame. Fixed when it''s made.'}
+    DocInput:
+      type: object
+      additionalProperties: false
+      required: [title]
+      properties:
+        id: {type: string, pattern: '^[a-z0-9][a-z0-9-]{0,39}$'}
+        title: {type: string, minLength: 1, description: Trimmed; not only spaces}
+        body: {type: string, description: Markdown, or HTML for an artifact}
+        position: {type: number}
+        section: {type: [string, 'null'], description: Trimmed to 60 characters; empty or null is none}
+        kind: {$ref: '#/components/schemas/DocKind'}
+    DocChange:
+      type: object
+      additionalProperties: false
+      description: A doc's fields, all optional; `id` and `kind` only as they are.
+      properties:
+        id: {type: string}
+        title: {type: string, minLength: 1}
+        body: {type: string}
+        position: {type: number}
+        section: {type: [string, 'null']}
+        kind: {$ref: '#/components/schemas/DocKind'}
+    DocSummary:
+      type: object
+      required: [id, title, kind, summary, created_by, protected, created_at, updated_at]
+      properties:
+        id: {type: string}
+        title: {type: string}
+        kind: {$ref: '#/components/schemas/DocKind'}
+        summary: {type: string, description: 'Its first paragraph as plain text, cut to about 160 characters; empty for an artifact'}
+        match: {type: string, description: 'With `q`: the text around its first hit; empty when only the title has it'}
+        section: {type: string, description: Left out when it's under none}
+        created_by: {type: string}
+        protected: {type: boolean, description: The owner made it}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    Doc:
+      allOf:
+        - $ref: '#/components/schemas/DocSummary'
+        - type: object
+          required: [project, body, full_id]
+          properties:
+            project: {type: string}
+            body: {type: string}
+            full_id: {type: string, description: 'Its id to paste anywhere: `doc-<id>-<the board''s uid>`'}
+    DocRevisionSummary:
+      type: object
+      required: [id, title, kind, deleted, created_by, created_at]
+      properties:
+        id: {type: integer}
+        title: {type: string}
+        kind: {$ref: '#/components/schemas/DocKind'}
+        deleted: {type: boolean, description: The doc being removed here; this holds its last text}
+        created_by: {type: string}
+        session_name: {type: string, description: The session that wrote it, by its name then}
+        created_at: {type: string, format: date-time}
+    DocRevision:
+      allOf:
+        - $ref: '#/components/schemas/DocRevisionSummary'
+        - type: object
+          required: [project, doc, body]
+          properties:
+            project: {type: string}
+            doc: {type: string}
+            body: {type: string}
+    DeletedDoc:
+      type: object
+      required: [id, title, kind, summary, revision, deleted_by, deleted_at]
+      properties:
+        id: {type: string}
+        title: {type: string}
+        kind: {$ref: '#/components/schemas/DocKind'}
+        summary: {type: string}
+        revision: {type: integer, description: The revision that says it was removed}
+        deleted_by: {type: string}
+        deleted_at: {type: string, format: date-time}
+    SectionName:
+      type: object
+      required: [name]
+      properties:
+        name: {type: string, maxLength: 60, description: Trimmed; not empty}
+    Person:
+      type: object
+      required: [id, name, role, created_at]
+      properties:
+        id: {type: string}
+        name: {type: string}
+        role: {type: string, enum: [owner, member]}
+        created_at: {type: string, format: date-time}
+        removed_at: {type: string, format: date-time}
+    PersonInput:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name: {type: string, description: Trimmed to 60 characters; needs a letter or a digit}
+    KeyKind: {type: string, enum: [agent, person], description: '`agent`: a machine''s sessions; `person`: swapped for a login on the page'}
+    Key:
+      type: object
+      required: [id, person, kind, name, created_at]
+      properties:
+        id: {type: string}
+        person: {type: string}
+        kind: {$ref: '#/components/schemas/KeyKind'}
+        name: {type: string}
+        created_at: {type: string, format: date-time}
+        last_used_at: {type: string, format: date-time}
+        revoked_at: {type: string, format: date-time}
+    NewKey:
+      allOf:
+        - {$ref: '#/components/schemas/Key'}
+        - {type: object, required: [key], properties: {key: {type: string, description: '`orrery_<kind>_…`: shown this once'}}}
+    KeyInput:
+      type: object
+      required: [kind, name]
+      properties:
+        kind: {$ref: '#/components/schemas/KeyKind'}
+        name: {type: string, description: What it's for, such as the machine it's on; trimmed to 60 characters, not empty}
+        person: {type: string, description: Whose it is; the owner's to give to another}
+    Login:
+      type: object
+      required: [id, person, expires_at]
+      properties:
+        id: {type: string, description: The first 16 hex digits of its hash}
+        person: {type: string}
+        name: {type: string, description: How it was made}
+        created_at: {type: string, format: date-time}
+        last_used_at: {type: string, format: date-time}
+        expires_at: {type: string, format: date-time}
+        current: {type: boolean, const: true, description: The asking browser's own}
+    Preset:
+      type: object
+      required: [id, project, name, text, icon, color, created_at, updated_at]
+      properties:
+        id: {type: integer}
+        project: {type: [string, 'null'], description: The project's own, or null for the orrery's}
+        name: {type: string}
+        text: {type: string, description: What a session started with it is told}
+        icon: {type: [string, 'null'], description: A Heroicon's name}
+        color: {type: [string, 'null'], description: A named tint or a colour like #3b82f6}
+        default:
+          type: object
+          description: Only on one orrery ships
+          required: [key, changed]
+          properties:
+            key: {type: string}
+            changed: {type: boolean, description: Whether its name, text or badge differ from what orrery ships}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    PresetInput:
+      type: object
+      additionalProperties: false
+      description: '`name` and `text` are required to make one, and trimmed'
+      properties:
+        name: {type: string, minLength: 1}
+        text: {type: string, minLength: 1}
+        icon: {type: [string, 'null'], pattern: '^[a-z0-9]+(-[a-z0-9]+)*$'}
+        color: {type: [string, 'null'], pattern: '^(slate|blue|teal|green|amber|rose|violet|#[0-9a-fA-F]{6})$'}
+    Status:
+      type: object
+      required: [id, name, kind, color, position]
+      properties:
+        id: {type: string}
+        name: {type: string}
+        kind: {$ref: '#/components/schemas/StatusKind'}
+        color: {type: string, description: 'A named tint (slate, blue, teal, green, amber, rose, violet) or `#rrggbb`'}
+        position: {type: number}
+    StatusKind: {type: string, enum: [backlog, todo, started, done, canceled]}
+    StatusInput:
+      type: object
+      description: '`name` and `kind` are required to add one; a change sends any of them. Unknown fields are refused.'
+      properties:
+        id: {type: string, pattern: '^[a-z0-9][a-z0-9-]{0,39}$'}
+        name: {type: string, minLength: 1}
+        kind: {$ref: '#/components/schemas/StatusKind'}
+        color: {type: string, pattern: '^(slate|blue|teal|green|amber|rose|violet|#[0-9a-fA-F]{6})$'}
+        position: {type: number}
+    Instruction:
+      type: object
+      required: [id, text, on]
+      properties:
+        id: {type: string}
+        text: {type: string, minLength: 1}
+        on: {type: boolean}
+    Starts:
+      type: object
+      description: 'orrery starts sessions for any project with a launcher: at most `limit` at once, `min` kept running, each for `minutes`, stopped after `idle_minutes` idle; `on_signal` false keeps work that finds nobody listening from starting one.'
+      required: [limit]
+      additionalProperties: false
+      properties:
+        limit: {type: integer, minimum: 1, maximum: 20}
+        min: {type: integer, minimum: 1}
+        minutes: {type: integer, minimum: 1, maximum: 1440}
+        idle_minutes: {type: integer, minimum: 1, maximum: 1440}
+        on_signal: {type: boolean}
+    WorkKind:
+      type: object
+      required: [id, name, labels, model]
+      additionalProperties: false
+      properties:
+        id: {type: string, pattern: '^[a-z0-9][a-z0-9-]{0,39}$'}
+        name: {type: string, minLength: 1}
+        labels: {type: array, items: {type: string}, description: Lowercase; a label is in one kind only}
+        model: {type: string, description: 'best, opus, sonnet, haiku, fable, default, opusplan, or a full id (claude-…)'}
+        effort: {type: string, enum: [low, medium, high, xhigh, max]}
+    Settings:
+      type: object
+      required: [id, tint, statuses, focus_prompt, milestone_prompt, instructions, handle, uid, tracker, starts, terminal, restrict_proposals, advanced, pick_next, count_use, work_kinds, starred, hidden]
+      properties:
+        id: {type: string, description: 'This orrery''s id, `orr_` and six hex digits'}
+        tint: {type: [string, 'null']}
+        statuses: {type: array, items: {$ref: '#/components/schemas/Status'}}
+        focus_prompt: {type: [string, 'null']}
+        milestone_prompt: {type: [string, 'null']}
+        instructions: {type: array, items: {$ref: '#/components/schemas/Instruction'}}
+        handle: {type: [string, 'null']}
+        uid: {type: string}
+        tracker: {type: [string, 'null']}
+        starts: {oneOf: [{$ref: '#/components/schemas/Starts'}, {type: 'null'}]}
+        terminal: {type: string, enum: [terminal, iterm, warp, ghostty]}
+        restrict_proposals: {type: boolean}
+        advanced: {type: boolean}
+        pick_next: {type: boolean}
+        count_use: {type: boolean}
+        work_kinds: {type: array, items: {$ref: '#/components/schemas/WorkKind'}}
+        starred: {type: array, items: {type: string}, description: Project ids listed first; none that are hidden}
+        hidden: {type: array, items: {type: string}}
+    SettingsInput:
+      type: object
+      description: Any of them; null puts one back to its default. Unknown fields are refused.
+      additionalProperties: false
+      properties:
+        tint: {type: [string, 'null'], pattern: '^(slate|blue|teal|green|amber|rose|violet|#[0-9a-fA-F]{6})$'}
+        focus_prompt: {type: [string, 'null']}
+        milestone_prompt: {type: [string, 'null']}
+        instructions: {type: [array, 'null'], items: {type: object, required: [text], properties: {id: {type: string}, text: {type: string, minLength: 1}, on: {type: boolean}}}}
+        tracker: {type: [string, 'null'], pattern: '^https?://\S*\{id\}\S*$'}
+        handle: {type: [string, 'null'], pattern: '^[A-Za-z0-9][A-Za-z0-9._-]{0,38}$'}
+        starts: {oneOf: [{$ref: '#/components/schemas/Starts'}, {type: 'null'}]}
+        terminal: {type: [string, 'null'], enum: [terminal, iterm, warp, ghostty, null]}
+        restrict_proposals: {type: boolean}
+        advanced: {type: boolean}
+        pick_next: {type: boolean}
+        work_kinds: {type: [array, 'null'], minItems: 1, items: {$ref: '#/components/schemas/WorkKind'}}
+        count_use: {type: boolean}
+        starred: {type: [array, 'null'], items: {type: string, minLength: 1}}
+        hidden: {type: [array, 'null'], items: {type: string, minLength: 1}}
+    Asks: {type: string, enum: [decision, feedback], description: What a question waits on the owner for}
+    Counts: {type: object, additionalProperties: {type: integer}, description: 'How many leaf issues are in each column, by its id; only columns with some'}
+    Kinds:
+      type: object
+      description: How many leaf issues are of each kind of column, every kind listed
+      required: [backlog, todo, started, done, canceled, proposed]
+      properties:
+        backlog: {type: integer}
+        todo: {type: integer}
+        started: {type: integer}
+        done: {type: integer}
+        canceled: {type: integer}
+        proposed: {type: integer}
+    Place: {type: string, enum: [backlog, todo, started, done, canceled, proposed], description: What a column means}
+    Choice:
+      type: object
+      description: A question on a proposal, for the owner to pick from; stored and handed back as written
+      additionalProperties: true
+    PullRisk:
+      type: object
+      required: [level, why, by]
+      properties:
+        level: {type: string, enum: [low, medium, high]}
+        why: {type: string}
+        by: {type: string, enum: [owner, session]}
+    Issue:
+      type: object
+      description: |
+        An issue as the board draws it. Its column comes from its sub-issues' when it has any: closed when every
+        committed one is (its first done status with some, else canceled), else the least-along open status any is in;
+        `proposed` when it is a proposal or under one. Fields marked "only with some" are left out rather than empty.
+      required: [id, title, labels, external, github_issues, status, choices, column, kind, counts, kinds, comments, aliases, created_by, protected, created_at, updated_at]
+      properties:
+        id: {type: string}
+        title: {type: string}
+        priority: {type: string, enum: [P0, P1, P2, P3]}
+        assignee: {type: string, description: 'A person''s id, or `claude`'}
+        labels: {type: array, items: {type: string}}
+        external: {type: array, items: {type: string}}
+        github_issues: {type: array, items: {type: string}, description: 'Each `owner/name#523`'}
+        status: {type: string, description: Its own status as written; a parent's columns come from its sub-issues}
+        notes: {type: string}
+        proposal: {type: string, enum: [pending, approved, changes, rejected]}
+        decided_by: {type: string}
+        decided_at: {type: string, format: date-time}
+        decision_note: {type: string}
+        choices: {type: array, items: {$ref: '#/components/schemas/Choice'}}
+        picks: {type: object, additionalProperties: {type: array, items: {type: string}}}
+        explore: {type: object, required: [choice, option], properties: {choice: {type: string}, option: {type: string}}}
+        column: {type: string}
+        kind: {$ref: '#/components/schemas/Place'}
+        counts: {$ref: '#/components/schemas/Counts'}
+        kinds: {$ref: '#/components/schemas/Kinds'}
+        comments: {type: integer}
+        waiting:
+          allOf: [{$ref: '#/components/schemas/Asks'}]
+          description: |
+            Its latest question from an agent with no comment of the owner's after it; else `decision` for a pending
+            proposal an agent made that isn't under another proposal. Never on one that's done or canceled.
+        aliases: {type: array, items: {type: string}, description: 'Ids it had before, A–Z'}
+        schedule: {type: integer}
+        release: {type: string}
+        model: {type: string, description: Only with one}
+        effort: {type: string, description: Only with one}
+        created_by: {type: string}
+        session_name: {type: string, description: Only with one}
+        claimed_by: {type: string, description: Only with one}
+        claimed_at: {type: string, format: date-time, description: Only with `claimed_by`}
+        protected: {type: boolean, description: Made by the owner}
+        depends_on: {type: array, items: {type: string}, description: 'Only with some: `ID` here, `project/ID` in another, in the order linked'}
+        blocked_by: {type: array, items: {type: string}, description: 'Only with some: those of `depends_on` not done (a proposal isn''t done)'}
+        blocks: {type: array, items: {type: string}, description: 'Only with some: the issues that depend on it'}
+        risk: {allOf: [{$ref: '#/components/schemas/PullRisk'}], description: 'Only once a PR is rated: its riskiest'}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    IssueRecord:
+      description: An issue in a list, flat
+      allOf:
+        - $ref: '#/components/schemas/Issue'
+        - type: object
+          required: [project, ref, full_id, parent, milestone, sub_issues]
+          properties:
+            project: {type: string}
+            ref: {type: string, description: '`orrery-<handle>: <id>`, the handle being the setting''s, else the owner''s id'}
+            full_id: {type: string, description: '`ORR-12-x7k2m3qd`: its id with the project''s uid'}
+            parent: {type: [string, 'null']}
+            milestone: {type: [string, 'null'], description: 'The milestone it''s in, a sub-issue''s being its top-level issue''s'}
+            sub_issues: {type: array, items: {type: string}, description: Its sub-issues one level down, by id, in board order}
+            match_in: {type: string, enum: [description, comment], description: 'Only from `in=all`, when the words aren''t in its id and title'}
+            match: {type: string, description: 'Only with `match_in`, and not on an `external` one: up to 60 characters before the first word and 100 after, cut at spaces, `…` where cut'}
+    IssueDetail:
+      description: One issue, its sub-issues nested in `tasks`
+      allOf:
+        - $ref: '#/components/schemas/Issue'
+        - type: object
+          required: [project, ref, full_id, parent, milestone, tasks]
+          properties:
+            project: {type: string}
+            ref: {type: string}
+            full_id: {type: string}
+            parent: {type: [string, 'null']}
+            milestone: {type: [string, 'null']}
+            tasks: {type: array, items: {$ref: '#/components/schemas/Issue'}, description: 'Each with its own `tasks`, to any depth'}
+    Milestone:
+      type: object
+      description: A milestone as the board draws it, its column rolled up from its issues as an issue's is from its sub-issues'
+      required: [id, title, column, kind, counts, kinds, aliases, created_by, protected, project, position, created_at, updated_at, issues]
+      properties:
+        id: {type: string}
+        title: {type: string}
+        summary: {type: string, description: Only with one}
+        priority: {type: string, enum: [P0, P1, P2, P3]}
+        column: {type: string}
+        kind: {$ref: '#/components/schemas/Place'}
+        counts: {$ref: '#/components/schemas/Counts'}
+        kinds: {$ref: '#/components/schemas/Kinds'}
+        aliases: {type: array, items: {type: string}, description: 'Ids it had before, A–Z'}
+        created_by: {type: string}
+        protected: {type: boolean}
+        project: {type: string}
+        position: {type: integer}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+        issues: {type: array, items: {type: string}, description: Its top-level issues by id, in board order}
+    MilestoneDetail:
+      description: One milestone, its issues in full
+      allOf:
+        - $ref: '#/components/schemas/Milestone'
+        - type: object
+          required: [tasks, full_id]
+          properties:
+            tasks: {type: array, items: {$ref: '#/components/schemas/Issue'}}
+            full_id: {type: string, description: '`MLS-3-x7k2m3qd`: its id with the project''s uid'}
+    Release:
+      type: object
+      description: 'A release, with `issues` those set for it (a sub-issue''s when it differs from its parent''s) and `kinds` the leaves under them'
+      required: [version, created_by, protected, created_at, updated_at, issues, kinds]
+      properties:
+        version: {type: string}
+        branch: {type: string}
+        notes: {type: string}
+        frozen_on: {type: string}
+        shipped_on: {type: string}
+        doc_mark: {type: integer, description: 'The newest doc revision when it shipped'}
+        created_by: {type: string}
+        protected: {type: boolean}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+        issues: {type: integer}
+        kinds: {$ref: '#/components/schemas/Kinds'}
+    ReleaseDetail:
+      allOf:
+        - $ref: '#/components/schemas/Release'
+        - type: object
+          required: [project, tasks, projects]
+          properties:
+            project: {type: string}
+            tasks: {type: array, items: {$ref: '#/components/schemas/Issue'}}
+            projects:
+              type: array
+              items:
+                type: object
+                required: [project, name, issues, kinds, tasks]
+                properties:
+                  project: {type: string}
+                  name: {type: string}
+                  issues: {type: integer}
+                  kinds: {$ref: '#/components/schemas/Kinds'}
+                  tasks: {type: array, items: {$ref: '#/components/schemas/Issue'}}
+    ProjectInput:
+      type: object
+      additionalProperties: false
+      properties:
+        id: {type: string, description: Only its own; an id can't change}
+        name: {type: string}
+        key: {type: string, pattern: '^[A-Z][A-Z0-9]{0,9}$'}
+        description: {type: [string, 'null']}
+        icon: {type: [string, 'null'], description: "A Heroicon's name"}
+        icon_color: {type: [string, 'null'], description: 'slate, blue, teal, green, amber, rose, violet, or #rrggbb'}
+        focus_prompt: {type: [string, 'null']}
+        milestone_prompt: {type: [string, 'null']}
+        instructions: {type: [array, 'null'], items: {type: object, required: [text], properties: {id: {type: string}, text: {type: string}, on: {type: boolean}}}}
+        muted: {type: [array, 'null'], items: {type: string}}
+        repo: {type: [string, 'null']}
+        release_mode: {type: string, enum: [none, own, shared]}
+        releases_from: {type: [string, 'null']}
+    Project:
+      description: A project as ProjectSummary has it, with its whole board in place of the counts
+      type: object
+      required: [id, name, board]
+      properties:
+        id: {type: string}
+        name: {type: string}
+        board: {type: object, required: [milestones, counts, kinds], properties: {milestones: {type: array, items: {type: object}}, counts: {$ref: '#/components/schemas/Counts'}, kinds: {$ref: '#/components/schemas/Kinds'}}}
+    ProjectSummary:
+      type: object
+      required: [id, name, key, uid, instructions, muted, release_mode, created_by, protected, created_at, updated_at, docs, doc_sections, releases, counts, kinds, milestones]
+      properties:
+        id: {type: string}
+        name: {type: string}
+        key: {type: string, description: 'What its issue ids start with: KEY-n'}
+        uid: {type: string}
+        description: {type: string}
+        icon: {type: string}
+        icon_color: {type: string}
+        focus_prompt: {type: string, description: Its own focus template; left out when it uses the orrery's}
+        milestone_prompt: {type: string, description: Its own milestone template; left out when it uses the orrery's}
+        instructions: {type: array, items: {type: object}}
+        muted: {type: array, items: {type: string}}
+        starts: {type: object, description: 'Whether orrery may start sessions, and within what: the orrery''s setting; left out until the owner lets it'}
+        repo: {type: string}
+        release_mode: {type: string, enum: [none, own, shared]}
+        releases_from: {type: string, description: The project it takes its releases from, when shared}
+        created_by: {type: string}
+        protected: {type: boolean}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+        docs: {type: array, items: {$ref: '#/components/schemas/DocSummary'}}
+        doc_sections: {type: array, items: {type: string}}
+        releases: {type: array, items: {$ref: '#/components/schemas/Release'}}
+        counts: {$ref: '#/components/schemas/Counts'}
+        kinds: {$ref: '#/components/schemas/Kinds'}
+        milestones: {type: integer, description: How many milestones it has}
+    ProjectReleases:
+      type: object
+      required: [project, projects, releases]
+      properties:
+        project: {type: string}
+        projects: {type: array, items: {type: string}, description: 'It, then those drawing on it, A–Z'}
+        releases:
+          type: array
+          items:
+            allOf:
+              - $ref: '#/components/schemas/Release'
+              - type: object
+                required: [projects]
+                properties:
+                  projects: {type: array, items: {type: object, required: [project, issues, kinds], properties: {project: {type: string}, issues: {type: integer}, kinds: {$ref: '#/components/schemas/Kinds'}}}}
+    CommentEdit:
+      type: object
+      additionalProperties: false
+      properties:
+        body: {type: string, description: Markdown; not blank}
+        asks: {type: [string, 'null'], enum: [decision, feedback, null]}
+    CommentInput:
+      type: object
+      additionalProperties: false
+      required: [body]
+      properties:
+        body: {type: string, description: Markdown; not blank}
+        asks: {type: [string, 'null'], enum: [decision, feedback, null], description: 'Waits on the owner until they comment after it'}
+    Comment:
+      type: object
+      required: [id, issue, body, created_by, protected, created_at, updated_at]
+      properties:
+        id: {type: integer}
+        issue: {type: string}
+        body: {type: string, description: Markdown}
+        asks: {$ref: '#/components/schemas/Asks'}
+        answered: {type: boolean, description: 'Only with `asks`: whether the owner has commented on the issue since'}
+        schedule: {type: object, additionalProperties: true, description: 'A session''s request to make or change a schedule (ORR-458), with its state'}
+        created_by: {type: string}
+        session_name: {type: string, description: Only with one}
+        protected: {type: boolean, description: Written by the owner}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    Notice:
+      description: 'A comment of an agent''s, with its project and issue''s title; or a proposal waiting on the owner, with id 0 and `proposal`'
+      allOf:
+        - {$ref: '#/components/schemas/Comment'}
+        - type: object
+          required: [project, title]
+          properties:
+            project: {type: string}
+            title: {type: string, description: The issue's}
+            cleared: {type: boolean, description: Only when it's been cleared}
+            read: {type: boolean, description: Only when it's been opened}
+            proposal: {type: object, required: [choices], properties: {choices: {type: integer}}, description: 'Only on a proposal: how many choices it offers'}
+    NoticeChange:
+      type: object
+      required: [id, project, issue, created_by, created_at]
+      properties:
+        id: {type: integer}
+        project: {type: string}
+        issue: {type: string}
+        before: {type: string, description: The status it had, when it had one}
+        after: {type: string, description: The status it has, when it has one}
+        created_by: {type: string}
+        session_name: {type: string, description: Only with one}
+        created_at: {type: string, format: date-time}
+    EpicInput:
+      type: object
+      properties:
+        title: {type: string, description: Needed to make one; not blank}
+        notes: {type: [string, 'null'], description: Markdown}
+        position: {type: number, description: Where it goes among the epics, 0 the top}
+    EpicPart:
+      type: object
+      required: [project, issues, kinds]
+      properties:
+        project: {type: string}
+        issues: {type: integer}
+        kinds: {$ref: '#/components/schemas/Kinds'}
+    Epic:
+      type: object
+      required: [id, full_id, title, issues, kinds, projects, created_by, protected, created_at, updated_at]
+      properties:
+        id: {type: integer, description: Its number across the orrery}
+        full_id: {type: string, description: '`EPC-<id>-<uid>`, with the server''s uid'}
+        title: {type: string}
+        notes: {type: string, description: Only with some}
+        issues: {type: integer, description: Those set for it, in every project}
+        kinds: {$ref: '#/components/schemas/Kinds'}
+        projects: {type: array, items: {$ref: '#/components/schemas/EpicPart'}, description: Each project with an issue in it}
+        created_by: {type: string}
+        protected: {type: boolean, description: Made by the owner}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    EpicDetail:
+      allOf:
+        - {$ref: '#/components/schemas/Epic'}
+        - type: object
+          required: [parts]
+          properties:
+            parts:
+              type: array
+              items:
+                allOf:
+                  - {$ref: '#/components/schemas/EpicPart'}
+                  - {type: object, required: [name, tasks], properties: {name: {type: string}, tasks: {type: array, items: {$ref: '#/components/schemas/Issue'}}}}
+    Secret:
+      type: object
+      required: [name, last4, hosts, projects, created_by, created_at, updated_at, last_used]
+      properties:
+        name: {type: string}
+        last4: {type: string, description: The value's last 4 characters; nothing gives the rest back}
+        hosts: {type: array, items: {type: string}, description: 'Where it may be sent: `api.stripe.com`, `deploy.lan:8443`'}
+        projects: {type: [array, 'null'], items: {type: string}, description: The projects that may use it; null for any}
+        created_by: {type: string}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+        last_used: {oneOf: [{$ref: '#/components/schemas/SecretUse'}, {type: 'null'}]}
+    KeptPull:
+      type: object
+      required: [number, url, base, state, merged_at, updated_at]
+      properties:
+        number: {type: integer}
+        title: {type: string, description: The owner's only}
+        url: {type: string}
+        branch: {type: string, description: The head branch; the owner's only}
+        base: {type: string}
+        author: {type: string, description: 'For anyone but the owner, only when it''s a plain login'}
+        state: {type: string, enum: [open, merged, closed]}
+        merged_at: {type: [string, 'null'], format: date-time}
+        updated_at: {type: string, format: date-time}
+    SecretUse:
+      type: object
+      required: [id, secret, method, host, path, project, issue, status, error, created_by, created_at]
+      properties:
+        id: {type: integer}
+        secret: {type: string}
+        method: {type: string}
+        host: {type: string}
+        path: {type: string, description: With any value scrubbed out}
+        project: {type: [string, 'null']}
+        issue: {type: [string, 'null']}
+        status: {type: [integer, 'null'], description: The answer's status; null when it failed}
+        error: {type: [string, 'null']}
+        created_by: {type: string, description: Who sent it; `orrery` for its own requests}
+        created_at: {type: string, format: date-time}
+    IssueEvent:
+      type: object
+      required: [id, issue, field, created_by, protected, created_at]
+      properties:
+        id: {type: integer}
+        issue: {type: string}
+        field: {type: string, description: 'What changed: `created`, `status`, `title`, `claim`, `uploaded` and the like'}
+        before: {type: string, description: Only when it had a value}
+        after: {type: string, description: Only when it has one}
+        created_by: {type: string}
+        session_name: {type: string, description: Only with one}
+        protected: {type: boolean, description: Made by the owner}
+        created_at: {type: string, format: date-time}
+    Error:
+      type: object
+      required: [statusCode, statusMessage, message]
+      properties:
+        statusCode: {type: integer}
+        statusMessage: {type: string}
+        message: {type: string}
+        data:
+          type: object
+          properties:
+            problems: {type: array, items: {type: string}}
+            permission: {type: string}

@@ -192,7 +192,7 @@ Already one component each; use them rather than drawing the same thing again.
 | Component | For |
 |---|---|
 | `PropertyPicker` | a property as a button with a menu to type in (status, priority, milestone, release, assignee, labels with `multiple`). Use it rather than a native `<select>`; `field` draws it as a boxed field for a row of them in a form (New issue), and `field small` at a toolbar's height (the Schedules project filter). `PRIORITY_OPTIONS` and `milestoneOptions(milestones)` (utils/roadmap) are the usual option lists. `disabled` shuts an open menu, so a `multiple` one stays enabled while it saves: show the pick at once and send each in turn (an issue's labels, team tasks and depends on) |
-| `SegmentedControl` | a choice of two to four shown side by side (List \| Board, issue \| message, a page's tabs): Headless UI's `RadioGroup`, one Tab stop with ←→ moving the choice; the chosen option takes the accent fill on the `bg-well` track, like the schedule dialog's weekday picker |
+| `SegmentedControl` | a choice of two to four shown side by side (List \| Board, issue \| message, a page's tabs): Headless UI's `RadioGroup`, one Tab stop with ←→ moving the choice; the chosen option takes the accent fill on the `bg-well` track, as a risk rating's levels do. Its classes are `SEGMENTS` and `segment()` in `utils/segments.ts`, for a set that can't be a `RadioGroup`: ⌘K's categories (the focus stays in the input), Pull requests \| Branches (links), Context's kinds (none chosen while one session is shown) and the schedule dialog's weekdays (several can be picked). So every set of buttons looks the same and none moves when the choice does (ORR-992). Toggles that filter a list by their own colour (Events' levels) and rows of chips to tick (projects, statuses, presets) aren't tabs and keep their look |
 | `FilterMenu` | a toolbar filter: a button with options to tick, empty meaning any: Headless UI's `Listbox` (`multiple`) |
 | `LabelPicker` | a new issue's or a schedule's labels: tick the project's or make one, a `PropertyPicker` (`multiple`, `creatable`) |
 | `FilterBar` | a list's filters: search on `/`, then priority, column, assignee, label and blocked (or ready), and off a project's pages the project |
@@ -230,6 +230,7 @@ Already one component each; use them rather than drawing the same thing again.
 |---|---|
 | `CopyButton` | Copy, then Copied with a tick (Couldn't copy where the browser won't) |
 | `CopyBlock` | a titled block of text to copy as it is (a command, a config) |
+| `MarkdownField` | a text box for Markdown (the chat, comments, an issue's description): a real textarea with the source drawn over it in its formatting, keys (⌘B, ⌘I, ⌘⇧H…) and, with `toolbar`, buttons; Enter carries a list on (Shift-Enter with `enterSends`). Classes and listeners go on the textarea, which it exposes as `el` (for `useImageUpload`), and its own keys run first. The drawing changes no character's width, so it lines up with the caret: keep it that way (`md-draw` in `main.css`) |
 | `ImageButton` | picks images for a Markdown field |
 | `ImageDropOverlay` | covers an area taking images while one is dragged over it: "Drop image to add" |
 
@@ -305,6 +306,6 @@ being written again in each component:
 
 Something new that opens, picks or closes builds on the matching part and only draws it, in the classes above. Two
 things stay our own, as Headless UI (v1) has nothing that fits: the right-click menus (`UiContextMenu`), and ⌘K's
-list, which jumps a section on ⇥ and opens "N more" in place (it says the same to a screen reader, as a combobox).
+list, which switches its tabs on ⇥ and opens "N more" in place (it says the same to a screen reader, as a combobox).
 Folding (the sidebar's projects, a list's groups) stays a button with `aria-expanded`, since Headless UI's
 `Disclosure` can't be opened or closed from outside, and the folds are kept between visits.

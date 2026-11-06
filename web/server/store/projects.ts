@@ -43,7 +43,7 @@ export abstract class ProjectStore extends KeyStore {
         if (!SLUG.test(id)) throw badRequest(`"${name}" doesn't make an id; give one in "id"`)
         if (await this.get('SELECT 1 FROM projects WHERE id = ?', id)) throw conflict(`There is already a project "${id}"`)
         const key = input.key ? String(input.key) : keyFor(name)
-        if (FULL_ID_KEYS.includes(key)) throw badRequest(`"${key}" is how a doc's, milestone's, preset's or schedule's full id starts; give another in "key"`)
+        if (FULL_ID_KEYS.includes(key)) throw badRequest(`"${key}" is how a milestone's, an epic's, a doc's, a preset's or a schedule's id starts; give another in "key"`)
         const {mode, from} = releaseModeOf(input, 'none', null)
         if (from) await this.checkReleasesFrom(id, from)
         const now = stamp()
@@ -81,8 +81,8 @@ export abstract class ProjectStore extends KeyStore {
                 if (source) await this.run('UPDATE issues SET ships_in = NULL WHERE project = ? AND ships_in IS NOT NULL AND ships_in NOT IN (SELECT version FROM releases WHERE project = ?)', id, source)
                 else await this.run('UPDATE issues SET ships_in = NULL WHERE project = ?', id)
             }
+            this.changed(id)
         })
-        this.changed(id)
         // The old source counted its issues, and the new one does now.
         if (before && before !== from) this.changed(before)
         return await this.project(id)
@@ -173,7 +173,7 @@ export abstract class ProjectStore extends KeyStore {
             await this.run('DELETE FROM schedules WHERE project = ?', id)
             await this.run('DELETE FROM presets WHERE project = ?', id)
             await this.run('DELETE FROM projects WHERE id = ?', id)
+            this.changed(id)
         })
-        this.changed(id)
     }
 }

@@ -5,6 +5,8 @@ const {repos} = useLauncherRepos()
 
 <template>
   <p v-if="repos.length" class="text-xs text-muted">
-    <NuxtLink to="/connect#connected-repos" class="text-accent-700 underline underline-offset-2 dark:text-accent-400">Serving {{ repos.length }} {{ repos.length === 1 ? 'repo' : 'repos' }}</NuxtLink>
+    Sessions can start in
+    <NuxtLink to="/connect#connected-repos" class="text-accent-700 underline underline-offset-2 dark:text-accent-400">{{ repos.length }} {{ repos.length === 1 ? 'repo' : 'repos' }}</NuxtLink>,
+    the ones with a launcher installed.
   </p>
 </template>

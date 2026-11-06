@@ -50,7 +50,7 @@ import {onYes} from './permission-prompt.mjs'
 import {channelFor, channelsIn, projectsIn, servesEvery} from './repo-channels.mjs'
 import {follow} from './sse.mjs'
 import {openWatch} from './terminal.mjs'
-import {BOOTSTRAP, CODE, VERSION, codeOnDisk, launcherMove, servedOtherCode, versionOnDisk} from './version.mjs'
+import {BOOTSTRAP, CODE, VERSION, codeOnDisk, launcherMove, olderThan, servedOtherCode, versionOnDisk} from './version.mjs'
 
 const mode = process.env.ORRERY_PERMISSION_MODE || 'auto'
 const log = (...parts) => console.error('[orrery launcher]', ...parts)
@@ -218,7 +218,7 @@ let servedCode
 async function checkServed(url) {
     if (!BOOTSTRAP) return
     const served = await fetch(`${url}/channel/manifest.json`, {redirect: 'error', signal: AbortSignal.timeout(5000)}).then(r => r.ok ? r.json() : null, () => null)
-    if (servedOtherCode({served, url, from: (process.env.ORRERY_FROM ?? '').replace(/\/+$/, ''), mine: VERSION, code: CODE})) servedCode = served.code
+    if (servedOtherCode({served, url, from: (process.env.ORRERY_FROM ?? '').replace(/\/+$/, ''), code: CODE})) servedCode = served.code
 }
 /** Whether its sessions outlive it restarting itself. An older systemd unit that can't be brought up to date doesn't
  * let them, so it waits for them to end. */
@@ -515,8 +515,10 @@ function serve({url, project, dir, picked_at: picked, connected_at: connected}, 
         url: () => `${api}/launches/stream?dir=${encodeURIComponent(dir)}${servesEvery(dir, url, project) ? '&every=1' : ''}&version=${encodeURIComponent(VERSION)}${picked ? `&picked=${encodeURIComponent(picked)}` : ''}${connected ? `&connected=${encodeURIComponent(connected)}` : ''}`,
         onEvent: async ({event, data}) => {
             if (event === 'ready') {
-                const {starts, version, token: given} = JSON.parse(data)
+                const {starts, version, oldest, token: given} = JSON.parse(data)
                 token = given ?? ''
+                // Older than the oldest launcher the orrery takes (ORR-965): said plainly, rather than half working.
+                if (oldest && olderThan(VERSION, oldest)) log(`this launcher runs ${VERSION}, and ${project}'s orrery takes ${oldest} or newer: update the checkout it runs from (git pull), or sessions it's asked to start may be refused`)
                 await report(api)
                 if (version) orreryVersions.set(url, version)
                 await checkServed(url)

@@ -1,15 +1,17 @@
 <script setup lang="ts">
-import type {Comment} from '#shared/roadmap'
+import type {Comment, ThreadComment} from '#shared/roadmap'
 
-// Writing a comment on an issue, as the owner (so it's theirs: agents can't edit or delete it), or, given
+// Writing a comment on an issue, in a MarkdownField, as the owner (so it's theirs: agents can't edit or delete it), or, given
 // `comment`, editing one of theirs (Esc cancels). Markdown works; ⌘↵ posts. An image pasted or dropped anywhere on the
-// box, or picked, goes in as Markdown where the cursor is.
-const props = defineProps<{project: string, issue: string, comment?: Comment}>()
-const emit = defineEmits<{posted: [comment: Comment], cancel: []}>()
+// box, or picked, goes in as Markdown where the cursor is. `url` is another thread's comments (a milestone's or an epic's,
+// ORR-977) in place of the issue's.
+const props = defineProps<{project?: string, issue?: string, url?: string, comment?: Comment | ThreadComment}>()
+const emit = defineEmits<{posted: [comment: Comment & ThreadComment], cancel: []}>()
 const body = ref(props.comment?.body ?? '')
 const posting = ref(false)
 const failed = ref(false)
-const field = ref<HTMLTextAreaElement>()
+const editor = ref<{el?: HTMLTextAreaElement}>()
+const field = computed(() => editor.value?.el)
 const {uploading, failed: uploadError, upload, over, on: drop} = useImageUpload(body, field)
 
 async function post() {
@@ -18,8 +20,8 @@ async function post() {
     posting.value = true
     failed.value = false
     try {
-        const comments = `/projects/${encodeURIComponent(props.project)}/issues/${encodeURIComponent(props.issue)}/comments`
-        const comment = await apiFetch<Comment>(props.comment ? `${comments}/${props.comment.id}` : comments, {
+        const comments = props.url ?? `/projects/${encodeURIComponent(props.project ?? '')}/issues/${encodeURIComponent(props.issue ?? '')}/comments`
+        const comment = await apiFetch<Comment & ThreadComment>(props.comment ? `${comments}/${props.comment.id}` : comments, {
             method: props.comment ? 'PATCH' : 'POST', body: {body: text},
         })
         body.value = ''
@@ -45,9 +47,10 @@ onMounted(() => {
       @keydown.esc.stop.prevent="comment && emit('cancel')"
   >
     <ImageDropOverlay v-if="over" />
-    <textarea
-        ref="field"
+    <MarkdownField
+        ref="editor"
         v-model="body"
+        toolbar
         rows="3"
         :placeholder="comment ? 'Edit the comment… (⌘↵ to save, esc to cancel)' : 'Leave a comment… (Markdown works, paste or drop an image, ⌘↵ to post)'"
         :aria-label="comment ? 'Edit comment' : 'Comment'"

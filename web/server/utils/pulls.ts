@@ -10,7 +10,7 @@
 import type {H3Event} from 'h3'
 import type {AllPulls, IssuePulls, OpenPull, PastPull, PullIssues, PullRequest, PullRisk, PullState, RiskLevel} from '#shared/roadmap'
 import {PULL_NEEDS, RISK_LEVELS, githubRepo, highestRisk} from '#shared/roadmap'
-import {conflict, notFound} from './input'
+import {badRequest, checkInput, conflict, notFound} from './input'
 import type {Store} from './store'
 
 /** The secret orrery sends to api.github.com, when there's one that may go there. */
@@ -102,20 +102,28 @@ interface Read<T> {
 // The repo's `owner/name` on GitHub lives with the issue's GitHub references (ORR-635).
 export {githubRepo}
 
-/** Whether a PR names one of the issue's ids: a link to its page in the body, or the id in its branch. */
+/** A PR's body without its code (fenced blocks and inline spans): a link quoted there is an example, not the issue the
+ * PR is for (ORR-945). */
+function prose(body: string | null): string {
+    return (body ?? '')
+        .replace(/^ {0,3}(`{3,}|~{3,})[^\n]*\n[\s\S]*?(?:^ {0,3}\1[`~]*[ \t]*$|(?![\s\S]))/gm, '')
+        .replace(/(`+)(?!`)[\s\S]*?(?<!`)\1(?!`)/g, '')
+}
+
+/** Whether a PR names one of the issue's ids: a link to its page in the body, outside code, or the id in its branch. */
 export function namesIssue(pull: Pick<ListedPull, 'body' | 'head'>, ids: string[]): boolean {
     return ids.some(id => {
         const escaped = id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-        return new RegExp(`/issues/${escaped}(?![\\w-])`, 'i').test(pull.body ?? '')
+        return new RegExp(`/issues/${escaped}(?![\\w-])`, 'i').test(prose(pull.body))
             || new RegExp(`(?:^|[^a-z0-9])${escaped}(?![0-9])`, 'i').test(pull.head.ref)
     })
 }
 
-/** The issue ids a PR names, most likely first: those its body links to (`…/issues/ORR-12`), then its branch's
+/** The issue ids a PR names, most likely first: those its body links to outside code (`…/issues/ORR-12`), then its branch's
  * (`feat/orr-12-…`), as they'd be written (upper case). */
 export function issueIdsIn(pull: Pick<ListedPull, 'body' | 'head'>): string[] {
     const ids = [
-        ...[...(pull.body ?? '').matchAll(/\/issues\/([a-z][a-z0-9]*-\d+)(?![\w-])/gi)].map(m => m[1]),
+        ...[...prose(pull.body).matchAll(/\/issues\/([a-z][a-z0-9]*-\d+)(?![\w-])/gi)].map(m => m[1]),
         ...[...pull.head.ref.matchAll(/(?:^|[^a-z0-9])([a-z][a-z0-9]*-\d+)(?![0-9])/gi)].map(m => m[1]),
     ]
     return [...new Set(ids.filter(id => id !== undefined).map(id => id.toUpperCase()))]
@@ -173,6 +181,23 @@ export class Pulls {
         return new Map(rows.map(r => [`${r.repo.toLowerCase()}#${r.number}`, {level: r.risk, why: r.risk_why ?? '', by: r.risk_by === 'owner' ? 'owner' : 'session'}]))
     }
 
+    /** The risk route's rating (`PUT …/pulls/:owner/:name/:number/risk`): `number` as sent (`788` or `#788`), the body
+     * checked, then rated, and the project's board told it changed, as its open pages filter and sort by the issue's
+     * risk. The Rust API answers the same (ORR-952), and the parity test holds it to this. */
+    async rateAsAsked(project: string, issue: string, repo: string, sent: string, body: unknown, owner: boolean): Promise<{risk: PullRisk | null}> {
+        const number = Number(sent.replace(/^#/, ''))
+        if (!Number.isInteger(number) || number < 1) throw badRequest('Give the pull request by its number, e.g. 788')
+        const input = checkInput(body, {
+            level: {type: 'string', required: true, nullable: true, values: RISK_LEVELS},
+            why: {type: 'string'},
+        })
+        const why = typeof input.why === 'string' ? input.why.trim().slice(0, 300) : ''
+        if (input.level !== null && !why) throw badRequest('Say why in a line, e.g. "high: bug fix in signal routing"')
+        const risk = await this.rate(project, issue, repo, number, input.level === null ? null : {level: input.level as RiskLevel, why}, owner)
+        this.store.changed(await this.store.projectId(project))
+        return {risk}
+    }
+
     /** Rates PR `number` on `repo` for the issue (ORR-879): `level` with a line on why, or null to take the rating away.
      * The owner's rating stands: a session's doesn't replace it (409), and only the owner takes it away. 404 when orrery
      * keeps no such PR on the issue, as it keeps only those the poll has seen name it. */
@@ -202,7 +227,7 @@ export class Pulls {
         const rated = await this.store.db.all<{project: string, issue: string, risk: RiskLevel, risk_why: string | null, risk_by: string | null}>(
             `SELECT q.project, q.issue, q.risk, q.risk_why, q.risk_by FROM issue_pulls q
              JOIN issue_pulls p ON p.project = q.project AND p.issue = q.issue
-             WHERE lower(p.repo) = lower(?) AND p.number = ? AND q.risk IS NOT NULL`, repo, number)
+             WHERE lower(p.repo) = lower(?) AND p.number = ? AND q.risk IS NOT NULL ORDER BY q.repo, q.number`, repo, number)
         const risks = new Map<string, PullRisk>()
         for (const r of rated) {
             const key = `${r.project}/${r.issue}`
@@ -564,7 +589,7 @@ const LOGIN = /^[\w-]+$/
 /** A PR as anyone but the owner reads it (ORR-532): never its title or head branch, which an outsider may have written,
  * as sessions read what they're given as the owner's; its author only when it's a plain login, so a session can tell
  * its own PR from an outsider's. */
-function pullForSession<T extends {title: string, branch: string, author: string}>({title: _title, branch: _branch, author, ...pull}: T) {
+export function pullForSession<T extends {title: string, branch: string, author: string}>({title: _title, branch: _branch, author, ...pull}: T) {
     return {...pull, ...LOGIN.test(author) ? {author} : {}}
 }
 
@@ -575,17 +600,30 @@ export async function pullsForAsker<T extends {pulls: PullRequest[], done?: Past
     return {...answer, pulls: answer.pulls.map(pullForSession), ...answer.done ? {done: answer.done.map(pullForSession)} : {}}
 }
 
-/** `all` as `?page=&limit=` asks (ORR-615): every one when neither is given, else page `page` (from 1), `limit` to a
+/** Whether `pull` has every word of `q` (ORR-941), in any case: in its number (`#788` or `788`), title, branch, base,
+ * author or the issue it names. Only what the asker was given is searched, so a session can't find a title it isn't sent. */
+export function pullMatches(pull: OpenPull, q: string): boolean {
+    const text = `#${pull.number} ${pull.title ?? ''} ${pull.branch ?? ''} ${pull.base ?? ''} ${pull.author ?? ''} ${pull.issue?.id ?? ''}`.toLowerCase()
+    return q.toLowerCase().split(/\s+/).filter(Boolean).every(word => text.includes(word))
+}
+
+/** `all` as `?page=&limit=&q=` asks (ORR-615): every one when none is given, else page `page` (from 1), `limit` to a
  * page, in the same order. The counts, the repos' included, stay totals. A page past the last is the last, so a
- * refresh after PRs close still has a page to show. */
-export function pullsPage(all: AllPulls, query: {page?: unknown, limit?: unknown}): AllPulls {
-    if (query.page === undefined && query.limit === undefined) return all
+ * refresh after PRs close still has a page to show. With `q`, only those `pullMatches` keeps, paged across all of them,
+ * and `matched` counts them, overall and on each repo (ORR-941). */
+export function pullsPage(all: AllPulls, query: {page?: unknown, limit?: unknown, q?: unknown}): AllPulls {
+    const q = typeof query.q === 'string' ? query.q.trim() : ''
+    if (query.page === undefined && query.limit === undefined && !q) return all
     // A whole number from 1, else `or`.
     const counted = (value: unknown, or: number) => {
         const n = Math.floor(Number(value))
         return n >= 1 ? n : or
     }
+    const found = q ? all.pulls.filter(p => pullMatches(p, q)) : all.pulls
+    const searched = q
+        ? {matched: found.length, repos: all.repos.map(r => ({...r, matched: found.filter(p => p.repo === r.repo).length}))}
+        : {}
     const limit = Math.min(counted(query.limit, PULLS_PAGE), PULLS_PAGE_MOST)
-    const page = Math.min(counted(query.page, 1), Math.max(1, Math.ceil(all.pulls.length / limit)))
-    return {...all, pulls: all.pulls.slice((page - 1) * limit, page * limit), page, limit}
+    const page = Math.min(counted(query.page, 1), Math.max(1, Math.ceil(found.length / limit)))
+    return {...all, ...searched, pulls: found.slice((page - 1) * limit, page * limit), page, limit}
 }

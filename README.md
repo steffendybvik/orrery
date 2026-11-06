@@ -1,8 +1,18 @@
 # orrery
 
-A self-hosted roadmap board for working with Claude Code sessions. Each project has issues, milestones
-(milestones), releases and docs. Sessions read and update them through an HTTP API or MCP tools, and
-the owner directs sessions from the board. It runs locally, in Docker, on SQLite or Postgres.
+orrery is a project board you share with your Claude Code sessions. You write the issues, and the
+sessions in your repos pick them up, comment as they go and ask you when they need a decision. It's for
+a person, or a small team, running several sessions at once who wants to see and steer that work from
+one place.
+
+In practice:
+
+- **Sessions work on the board themselves**, through MCP tools and an HTTP API: they start an issue,
+  say what changed, and close it when it ships. Only one session works on an issue at a time.
+- **You steer them from the board**: point a session at an issue or a milestone, send it a message, and
+  see whether each one is working, idle or waiting on you.
+- **Their questions wait for you in one place**, at the top of My issues, until you answer.
+- **It runs on your machine**, in Docker, with your data in SQLite or Postgres. Alone, there's no login.
 
 <table>
 <tr>
@@ -10,12 +20,16 @@ the owner directs sessions from the board. It runs locally, in Docker, on SQLite
 <td width="50%"><img alt="An issue's page: a banner naming the session working on it, that session in its Sessions panel, its sub-issues, and a question waiting on the owner's decision" src="docs/images/issue-light.png"></td>
 </tr>
 <tr>
+<td><img alt="My issues: what waits on the owner's decision across projects on top, then every urgent issue, then the issues assigned to them" src="docs/images/mine-light.png"></td>
+<td><img alt="The New issue dialog over a project's issue list, with a title and description typed in, and its status, priority, milestone and labels to pick" src="docs/images/new-issue-light.png"></td>
+</tr>
+<tr>
 <td><img alt="The Sessions page: each project's Claude sessions with their state, folder and a message box, and what the working one is on now" src="docs/images/sessions-light.png"></td>
 <td><img alt="The chat pane open over a project's issue list, ready for a first question, with suggestions and new issues going to Todo" src="docs/images/chat-light.png"></td>
 </tr>
 <tr>
 <td><img alt="A project's docs: a page on how its sieve works, with the project's other docs and new ones listed beside it" src="docs/images/docs-light.png"></td>
-<td><img alt="The Schedules page: two running schedules with when each runs next, and ready-made ones suggested for the project" src="docs/images/schedules-light.png"></td>
+<td><img alt="The Schedules page: a project's schedules, five running and one paused, with when each runs next or what sets it off, and ready-made ones suggested for the project" src="docs/images/schedules-light.png"></td>
 </tr>
 </table>
 
@@ -83,7 +97,7 @@ You need:
 
    ```sh
    mkdir orrery && cd orrery
-   curl -LO https://github.com/steffendybvik/orrery/releases/download/v1.0.0-rc.17/compose.yml
+   curl -LO https://github.com/steffendybvik/orrery/releases/download/v1.0.0-rc.18/compose.yml
    docker compose up -d        # http://localhost:9000
    ```
 

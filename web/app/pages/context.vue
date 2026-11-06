@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import {SEGMENTS, segment} from '~/utils/segments'
 import type {ContextEntry, ContextKind, ContextPart, ContextView} from '#shared/context'
 
 // What orrery puts into a session's context, part by part with its size (ORR-549), to see what to cut: the channel's
@@ -74,13 +75,12 @@ const n = (value: number) => value.toLocaleString('en')
     <PropertyPicker v-model="project" :options="projectOptions" label="Project" field small>
       <span class="truncate">{{ projectOptions.find(o => o.value === project)?.label ?? project }}</span>
     </PropertyPicker>
-    <div class="flex shrink-0 items-center gap-1" role="group" aria-label="Kind of session">
+    <div :class="[SEGMENTS, 'shrink-0']" role="group" aria-label="Kind of session">
       <button
           v-for="k in KINDS"
           :key="k.value"
           type="button"
-          class="h-6 rounded-md px-2 text-xs ring-1"
-          :class="!session && kind === k.value ? 'bg-active font-medium text-fg ring-line' : 'text-muted ring-transparent hover:text-fg'"
+          :class="segment(!session && kind === k.value)"
           :aria-pressed="!session && kind === k.value"
           @click="kind = k.value"
       >

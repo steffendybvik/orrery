@@ -25,14 +25,25 @@ import type {Chat, ChatIssues, ChatMessage} from '#shared/roadmap'
 // The pane's project follows the page you're on; picking one by hand pins it (the pin beside the picker), so it stays put
 // whatever page you open, until unpinned. While the chat's project isn't the page's, a line under the header says so
 // (ORR-588). The owner's chats, as many as they like and several on a project, are listed down the pane's left (ORR-870),
-// newest first, running and ended: each row names its project and its first message, a running one is marked and has
-// an × to end it, and a click opens it, an ended one as it was: writing in it starts its session again (ORR-884). New chat heads the list. On a narrow screen the list folds
+// newest first, running and ended: each row names its project and its first message, a running one is marked, each has
+// an × that removes it at once, ending it first if it runs (ORR-935; what it filed stays), and a click opens it, an ended one as it was: writing in it starts its session again (ORR-884). New chat heads the list. On a narrow screen the list folds
 // behind the button at the header's left, and opens over the conversation, closing on a tap outside it (ORR-899). Moving to another project, by page or
 // picker, shows its newest running chat and leaves the others running; the picker marks the projects with one. What's
 // held goes back in the box on a switch, so it never goes to another chat.
+// Under the header's project, its session's name and what it runs on (ModelChip, as the session cards have it), and for an
+// ended chat what it last ran on (ORR-936).
 // While no launcher runs for its project, LauncherHint above the box says so, with the install command to copy, in place
 // of the server's error (ORR-591).
-const {open, large, chat, session, project, pinned, failed, chats, running, lands, start, send, clear, land, fresh, view, end: endChat, remove, answer, close, pin, resize, upload, show} = useChat()
+// Pop out (ORR-938), as a browser's console undocks: the header's button opens the chat on /chat in a window of its own
+// (`standalone`, the whole window, with no corner button, Larger or Esc) and closes the pane here. The corner button
+// then brings that window to the front rather than opening a second pane. Both read the same chats from the server;
+// the draft and what's held are each window's own, so nothing goes twice. In the window, a link to a page of orrery
+// opens in the window it came from, and Dock back closes it and opens the pane there on the same chat.
+// On a wide screen the floating pane moves (ORR-939): dragged by its header, anywhere but its buttons and picker, once
+// the pointer has gone a few pixels, so a click stays a click. It keeps to the corner it's nearest, as the sessions
+// panel does (useSessionsFloat), remembered in this browser; a double-click on the header puts it back.
+const props = defineProps<{standalone?: boolean}>()
+const {open, large, chat, session, project, pinned, failed, chats, running, lands, start, send, clear, land, fresh, view, remove, answer, close, pin, resize, upload, show} = useChat()
 const answering = ref<number | null>(null)
 async function decide(message: number, allow: boolean, anyway = false) {
     answering.value = message
@@ -56,7 +67,8 @@ const images = ref<{id: string, url: string}[]>([])
 const uploading = ref(0)
 const sending = ref(false)
 const list = ref<HTMLElement | null>(null)
-const field = ref<HTMLTextAreaElement | null>(null)
+const editor = ref<{el?: HTMLTextAreaElement}>()
+const field = computed(() => editor.value?.el)
 const picker = ref<HTMLInputElement | null>(null)
 const pane = ref<HTMLElement | null>(null)
 
@@ -68,9 +80,9 @@ function focusField() {
     field.value?.focus()
 }
 
-/** The project of the page you're on, if it's one of them. */
+/** The project of the page you're on, if it's one of them; in its own window, the one it was popped out on. */
 const here = computed(() => {
-    const on = route.params.project
+    const on = route.params.project ?? (props.standalone ? route.query.project : undefined)
     return typeof on === 'string' && projects.value.some(p => p.id === on) ? on : null
 })
 /** The project the chat would be about: the pinned one, else the one you're on; on a page of no project, a running
@@ -117,20 +129,15 @@ function pick(id: string) {
     view(id)
     if (!wide.value) listing.value = false
 }
-/** The chat in the list asking to be deleted, and why its delete failed (ORR-882). */
-const deleting = ref<string | null>(null)
-const deleteBusy = ref(false)
-const deleteFailed = ref('')
-async function deleteChat(id: string) {
-    deleteBusy.value = true
-    deleteFailed.value = ''
+/** Removes a chat from the list at once, ending it first if it runs (ORR-935): pressing it is the decision, so it asks
+ * nothing. `removeFailed` says which one didn't go, and why. */
+const removeFailed = ref<{id: string, why: string} | null>(null)
+async function removeChat(id: string) {
+    removeFailed.value = null
     try {
         await remove(id)
-        deleting.value = null
     } catch (error) {
-        deleteFailed.value = errorMessage(error, 'delete')
-    } finally {
-        deleteBusy.value = false
+        removeFailed.value = {id, why: errorMessage(error, 'remove')}
     }
 }
 /** New chat: what's held for the one on screen goes back in the box, and the next message starts a fresh one. */
@@ -327,15 +334,156 @@ async function attach(files: File[]) {
     focusField()
 }
 const {over, on: drop} = useImageDrop(attach)
+
+/** Where the pane's been dragged to, by its nearest corner; none while it's in its own corner. */
+const FLOAT_KEY = 'orrery-chat-float'
+const placed = ref<FloatAt | null>(null)
+const windowSize = reactive({width: 0, height: 0})
+const measureView = () => {
+    windowSize.width = window.innerWidth
+    windowSize.height = window.innerHeight
+}
+onMounted(() => {
+    measureView()
+    window.addEventListener('resize', measureView)
+    try {
+        const stored = JSON.parse(localStorage.getItem(FLOAT_KEY) ?? 'null') as FloatAt | null
+        if (stored && /^(top|bottom)-(left|right)$/.test(stored.corner) && Number.isFinite(stored.x) && Number.isFinite(stored.y)) placed.value = stored
+    } catch {
+        // Nothing kept, or nothing readable: its own corner.
+    }
+})
+onBeforeUnmount(() => window.removeEventListener('resize', measureView))
+watch(placed, next => {
+    try {
+        if (next) localStorage.setItem(FLOAT_KEY, JSON.stringify(next))
+        else localStorage.removeItem(FLOAT_KEY)
+    } catch {
+        // Private browsing: it stays where it is for this visit only.
+    }
+})
+/** Whether it moves: floating, on a wide screen (a phone's fills the screen). */
+const movable = computed(() => !props.standalone && wide.value)
+/** Its place, kept inside the window as it is now; its own corner (the classes') when it hasn't been moved. */
+const placement = computed(() => {
+    if (!movable.value || !placed.value || !windowSize.width) return undefined
+    const kept = inView(placed.value, pane.value?.offsetWidth ?? 0, pane.value?.offsetHeight ?? 0, windowSize)
+    const [vertical, horizontal] = kept.corner.split('-') as ['top' | 'bottom', 'left' | 'right']
+    return {top: 'auto', right: 'auto', bottom: 'auto', left: 'auto', [vertical]: `${kept.y}px`, [horizontal]: `${kept.x}px`}
+})
+/** How far the pointer goes before a press on the header is a drag. */
+const DRAG_FROM = 4
+const moving = ref(false)
+let pressed: {x: number, y: number, rect: DOMRect, pointer: number} | null = null
+function pressHeader(event: PointerEvent) {
+    if (!movable.value || event.button !== 0) return
+    // Its controls stay clicks: the buttons, the picker and anything else that takes a press.
+    if ((event.target as Element).closest('button, a, input, textarea, select, [role="button"], [role="combobox"], [role="listbox"], [role="option"]')) return
+    const rect = pane.value?.getBoundingClientRect()
+    if (rect) pressed = {x: event.clientX, y: event.clientY, rect, pointer: event.pointerId}
+}
+function dragHeader(event: PointerEvent) {
+    if (!pressed || event.pointerId !== pressed.pointer) return
+    // Let go where the page didn't hear it (outside the window): no button is held any more, so it's over.
+    if (!(event.buttons & 1)) return releaseHeader(event)
+    const dx = event.clientX - pressed.x
+    const dy = event.clientY - pressed.y
+    if (!moving.value) {
+        if (Math.hypot(dx, dy) < DRAG_FROM) return
+        moving.value = true
+        ;(event.currentTarget as HTMLElement).setPointerCapture(event.pointerId)
+    }
+    const {left, top, width, height} = pressed.rect
+    placed.value = inView(anchored(left + dx, top + dy, width, height, windowSize), width, height, windowSize)
+}
+function releaseHeader(event: PointerEvent) {
+    if (!pressed || event.pointerId !== pressed.pointer) return
+    pressed = null
+    if (!moving.value) return
+    moving.value = false
+    const header = event.currentTarget as HTMLElement
+    if (header.hasPointerCapture(event.pointerId)) header.releasePointerCapture(event.pointerId)
+}
+/** A double-click on the header's empty parts puts it back in its corner. */
+function homeHeader(event: MouseEvent) {
+    if (!movable.value || (event.target as Element).closest('button, a, input, textarea, select, [role="button"], [role="combobox"], [role="listbox"], [role="option"]')) return
+    placed.value = null
+}
+watch(moving, on => {
+    document.documentElement.classList.toggle('cursor-grabbing', on)
+    document.documentElement.classList.toggle('select-none', on)
+})
+onBeforeUnmount(() => document.documentElement.classList.remove('cursor-grabbing', 'select-none'))
+
+/** Pop out's window, while it's open: the corner button brings it to the front. */
+let popup: Window | null = null
+const POPUP = 'orrery-chat'
+/** Opens the chat on /chat in a window of its own, on the chat shown (or the project it'd start on), and closes the
+ * pane here: what's held still goes, as when it's closed. */
+function popOut() {
+    const query = new URLSearchParams(chat.value ? {chat: chat.value.id} : about.value ? {project: about.value} : {})
+    const width = Math.min(480, screen.availWidth)
+    const height = Math.min(760, screen.availHeight)
+    const opened = window.open(`/chat${query.size ? `?${query}` : ''}`, POPUP, `popup,width=${width},height=${height}`)
+    if (!opened) {
+        failed.value = 'The browser stopped the window opening: allow pop-ups for orrery, then try again'
+        return
+    }
+    popup = opened
+    shut()
+}
+/** The corner button: back to the popped-out window while it's open, else the pane. */
+function corner() {
+    if (popup && !popup.closed) popup.focus()
+    else show()
+}
+/** In the window: back into the pane of the window it came from, on the same chat, and this one closes. With that
+ * window gone, it stays as it is. */
+function dockBack() {
+    const from = window.opener as Window | null
+    if (!from || from.closed) return
+    from.postMessage({orrery: 'chat-dock', chat: chat.value?.id ?? null, project: about.value}, location.origin)
+    from.focus()
+    window.close()
+}
+/** In the window, a click on a link to another page of orrery opens it in the window it came from, so the chat stays
+ * here; with that window gone, in a new tab. */
+function followLink(event: MouseEvent) {
+    if (!props.standalone || event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+    const link = (event.target as Element | null)?.closest('a[href]') as HTMLAnchorElement | null
+    if (!link || link.target || link.origin !== location.origin || link.pathname === location.pathname) return
+    event.preventDefault()
+    const path = link.pathname + link.search + link.hash
+    const from = window.opener as Window | null
+    if (from && !from.closed) {
+        from.postMessage({orrery: 'chat-navigate', path}, location.origin)
+        from.focus()
+    } else {
+        window.open(path, '_blank')
+    }
+}
+/** In the window it was popped out of (or the one it reloaded as): Dock back and the window's links. */
+function heard(event: MessageEvent) {
+    if (props.standalone || event.origin !== location.origin) return
+    const said = event.data as {orrery?: string, chat?: string | null, project?: string | null, path?: string}
+    if (said.orrery === 'chat-navigate' && said.path?.startsWith('/')) void navigateTo(said.path)
+    else if (said.orrery === 'chat-dock') {
+        popup = null
+        show(said.project)
+        if (said.chat) view(said.chat)
+    }
+}
+onMounted(() => window.addEventListener('message', heard))
+onBeforeUnmount(() => window.removeEventListener('message', heard))
 </script>
 
 <template>
   <button
-      v-if="!open"
+      v-if="!open && !standalone"
       type="button"
       class="fixed right-4 bottom-4 z-40 inline-flex h-8 items-center gap-1.5 rounded-lg bg-panel px-3.5 text-[13px] text-fg shadow-md ring-1 ring-line transition hover:tint"
       title="Chat about a project: an agent answers and makes issues"
-      @click="show()"
+      @click="corner"
   >
     <svg
         class="size-4 text-accent-fill"
@@ -353,11 +501,13 @@ const {over, on: drop} = useImageDrop(attach)
   <section
       v-else
       ref="pane"
-      class="fixed right-4 bottom-4 z-40 flex w-[calc(100vw-2rem)] overflow-hidden rounded-2xl border border-line bg-panel shadow-2xl"
-      :class="large ? 'h-[calc(100dvh-2rem)] sm:w-[min(56rem,calc(100vw-2rem))]' : ['h-[calc(100dvh-2rem)] sm:h-[min(40rem,calc(100dvh-2rem))]', docked ? 'sm:w-[min(41rem,calc(100vw-2rem))]' : 'sm:w-[min(28rem,calc(100vw-2rem))]']"
+      class="flex overflow-hidden bg-panel"
+      :class="standalone ? 'h-dvh w-full' : ['fixed right-4 bottom-4 z-40 w-[calc(100vw-2rem)] rounded-2xl border border-line shadow-2xl', large ? 'h-[calc(100dvh-2rem)] sm:w-[min(56rem,calc(100vw-2rem))]' : ['h-[calc(100dvh-2rem)] sm:h-[min(40rem,calc(100dvh-2rem))]', docked ? 'sm:w-[min(41rem,calc(100vw-2rem))]' : 'sm:w-[min(28rem,calc(100vw-2rem))]']]"
+      :style="placement"
       aria-label="Chat"
       v-on="drop"
-      @keydown.esc="shut"
+      @keydown.esc="!standalone && shut()"
+      @click="followLink"
   >
     <ImageDropOverlay v-if="over" />
     <!-- Over the chat, a tap anywhere outside the list closes it, as Esc does (ORR-899). -->
@@ -380,11 +530,16 @@ const {over, on: drop} = useImageDrop(attach)
         </UiButton>
       </div>
       <ul class="flex flex-1 flex-col gap-0.5 overflow-y-auto px-1.5 pb-2">
+        <!-- The chat the pane is blank for heads the list, chosen, until its first message makes it a real row (ORR-996). -->
+        <li v-if="!chat && about" aria-current="true" class="flex min-w-0 flex-col rounded-lg bg-hover px-2.5 py-1.5" data-testid="chat-new-row">
+          <span class="truncate text-[11px] text-faint">{{ projectName(about) }}</span>
+          <span class="truncate text-[13px] text-fg">{{ held[0]?.text.split('\n')[0] || 'New chat' }}</span>
+        </li>
         <li v-for="c in chats" :key="c.id" class="group relative">
           <button
               type="button"
               class="flex w-full min-w-0 flex-col rounded-lg px-2.5 py-1.5 text-left transition hover:bg-hover"
-              :class="[c.id === chat?.id && 'bg-hover', c.ended ? 'pr-7' : 'pr-12']"
+              :class="[c.id === chat?.id && 'bg-hover', 'pr-7']"
               :aria-current="c.id === chat?.id ? 'true' : undefined"
               :title="`${projectName(c.project)}: ${firstLine(c)}${c.ended ? ' (ended, to read)' : ''}`"
               @click="pick(c.id)"
@@ -397,35 +552,31 @@ const {over, on: drop} = useImageDrop(attach)
             <span class="truncate text-[13px]" :class="c.ended ? 'text-muted' : 'text-fg'">{{ firstLine(c) }}</span>
           </button>
           <button
-              v-if="!c.ended"
               type="button"
               class="absolute top-1.5 right-1 grid size-5 place-items-center rounded text-faint transition hover:bg-panel hover:text-fg sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100"
-              :aria-label="`End the chat on ${projectName(c.project)}: ${firstLine(c)}`"
-              title="End this chat"
-              @click="endChat(c.id)"
+              :aria-label="`Remove the chat on ${projectName(c.project)}: ${firstLine(c)}`"
+              :title="c.ended ? 'Remove this chat' : 'End and remove this chat'"
+              @click="removeChat(c.id)"
           >
             <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 18 18 6M6 6l12 12" /></svg>
           </button>
-          <button
-              type="button"
-              class="absolute top-1.5 grid size-5 place-items-center rounded text-faint transition hover:bg-panel hover:text-rose-600 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100"
-              :class="c.ended ? 'right-1' : 'right-6'"
-              :aria-label="`Delete the chat on ${projectName(c.project)}: ${firstLine(c)}`"
-              title="Delete this chat"
-              @click="deleting = c.id; deleteFailed = ''"
-          >
-            <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3" /></svg>
-          </button>
-          <UiConfirm v-if="deleting === c.id" class="px-2.5 py-1.5" size="xs" action="Delete" busy-action="Deleting…" :busy="deleteBusy" data-testid="chat-delete" @confirm="deleteChat(c.id)" @cancel="deleting = null">
-            Delete this chat{{ c.ended ? '' : ', ending it' }}? What it filed stays.
-          </UiConfirm>
-          <p v-if="deleting === c.id && deleteFailed" class="px-2.5 pb-1.5 text-xs text-rose-700 dark:text-rose-400">{{ deleteFailed }}</p>
+          <p v-if="removeFailed?.id === c.id" role="alert" class="px-2.5 pb-1.5 text-xs text-rose-700 dark:text-rose-400">{{ removeFailed.why }}</p>
         </li>
-        <li v-if="!chats.length" class="px-2.5 py-1.5 text-xs text-faint">No chats yet</li>
+        <li v-if="!chats.length && (chat || !about)" class="px-2.5 py-1.5 text-xs text-faint">No chats yet</li>
       </ul>
     </aside>
     <div class="flex min-w-0 flex-1 flex-col">
-    <header class="flex items-center gap-1 border-b border-line py-2.5 pr-2.5 pl-2">
+    <header
+        class="flex items-center gap-1 border-b border-line py-2.5 pr-2.5 pl-2"
+        :class="movable && 'cursor-grab touch-none'"
+        :title="movable ? 'Drag to move the chat; double-click to put it back in the corner' : undefined"
+        data-testid="chat-header"
+        @pointerdown="pressHeader"
+        @pointermove="dragHeader"
+        @pointerup="releaseHeader"
+        @pointercancel="releaseHeader"
+        @dblclick="homeHeader"
+    >
       <UiButton
           variant="ghost" size="xs" square :aria-expanded="listing"
           :aria-label="listing ? 'Hide your chats' : 'Show your chats'" :title="listing ? 'Hide your chats' : 'Your chats'"
@@ -467,15 +618,23 @@ const {over, on: drop} = useImageDrop(attach)
             <span class="min-w-0 shrink-[100] truncate font-medium text-muted" :title="session.name" data-testid="chat-name">{{ nameBesideProject(session) }}</span>
             <span v-if="state" aria-hidden="true">·</span>
           </template>
+          <!-- What it runs on, as the session cards say it (ORR-936); an ended chat, what it last ran on. -->
+          <ModelChip v-if="session ?? chat.ran_on" :session="(session ?? chat.ran_on)!" />
           <span v-if="state" class="min-w-0 truncate">{{ state }}</span>
         </span>
         <span v-if="away" class="truncate text-xs text-muted" data-testid="chat-away">You're on <em>{{ projectName(away) }}</em>; this chat is about <em>{{ projectName(about!) }}</em></span>
       </div>
-      <UiButton variant="ghost" size="xs" square class="max-sm:hidden" :aria-label="large ? 'Make the chat smaller' : 'Make the chat larger'" :title="large ? 'Smaller' : 'Larger'" @click="resize">
+      <UiButton v-if="standalone" variant="ghost" size="xs" square aria-label="Dock back: the chat in the pane of the window it came from" title="Dock back" @click="dockBack">
+        <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3.75" y="3.75" width="16.5" height="16.5" rx="2.25" /><path d="m15 9-6 6m0 0h4.5M9 15v-4.5" /></svg>
+      </UiButton>
+      <UiButton v-else variant="ghost" size="xs" square class="max-sm:hidden" aria-label="Pop out: the chat in a window of its own" title="Pop out" @click="popOut">
+        <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13.5 6H5.25A2.25 2.25 0 0 0 3 8.25v10.5A2.25 2.25 0 0 0 5.25 21h10.5A2.25 2.25 0 0 0 18 18.75V10.5M10.5 13.5 21 3m0 0h-5.25M21 3v5.25" /></svg>
+      </UiButton>
+      <UiButton v-if="!standalone" variant="ghost" size="xs" square class="max-sm:hidden" :aria-label="large ? 'Make the chat smaller' : 'Make the chat larger'" :title="large ? 'Smaller' : 'Larger'" @click="resize">
         <svg v-if="large" class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 9V4.5M9 9H4.5M9 9 3.75 3.75M9 15v4.5M9 15H4.5M9 15l-5.25 5.25M15 9h4.5M15 9V4.5M15 9l5.25-5.25M15 15h4.5M15 15v4.5m0-4.5 5.25 5.25" /></svg>
         <svg v-else class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3.75 3.75v4.5m0-4.5h4.5m-4.5 0L9 9M3.75 20.25v-4.5m0 4.5h4.5m-4.5 0L9 15M20.25 3.75h-4.5m4.5 0v4.5m0-4.5L15 9m5.25 11.25h-4.5m4.5 0v-4.5m0 4.5L15 15" /></svg>
       </UiButton>
-      <UiButton variant="ghost" size="xs" square :aria-label="chat && !chat.ended ? 'Close the chat, leaving it running' : 'Close the chat'" title="Close" @click="shut">
+      <UiButton v-if="!standalone" variant="ghost" size="xs" square :aria-label="chat && !chat.ended ? 'Close the chat, leaving it running' : 'Close the chat'" title="Close" @click="shut">
         <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 18 18 6M6 6l12 12" /></svg>
       </UiButton>
     </header>
@@ -512,7 +671,7 @@ const {over, on: drop} = useImageDrop(attach)
         </template>
         <div v-else-if="m.text" class="group flex max-w-[92%] flex-col items-start gap-1">
           <div class="rounded-2xl rounded-bl-md bg-well px-3.5 py-2.5 ring-1 ring-line/60">
-            <MarkdownView :source="m.text" class="text-[13px]" />
+            <MarkdownView :source="m.text" new-tab class="text-[13px]" />
           </div>
           <CopyButton :text="m.text" name="this reply" class="transition-opacity sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100" />
         </div>
@@ -639,9 +798,10 @@ v-if="m.milestone" class="flex w-full flex-col gap-2 rounded-xl bg-well p-3 ring
           </div>
           <span v-if="uploading" class="flex size-14 flex-col items-center justify-center gap-0.5 rounded-lg text-[11px] text-faint ring-1 ring-line"><UiSpinner />Adding…</span>
         </div>
-        <textarea
-            ref="field"
+        <MarkdownField
+            ref="editor"
             v-model="draft"
+            enter-sends
             rows="1"
             aria-label="Message"
             placeholder="Ask anything…"

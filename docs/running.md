@@ -3,7 +3,7 @@
 In a folder of its own:
 
 ```sh
-curl -LO https://github.com/steffendybvik/orrery/releases/download/v1.0.0-rc.17/compose.yml
+curl -LO https://github.com/steffendybvik/orrery/releases/download/v1.0.0-rc.18/compose.yml
 docker compose up -d        # http://localhost:9000
 ```
 
@@ -26,8 +26,8 @@ sidebar (App settings → Advanced turns it back on).
    the database as it was, but one that worked can't be undone, and orrery's backups are of the new schema soon after it.
 3. **Everything else follows.** Each connected repo's channel and hooks, and the launcher, run on your machine through
    `~/.orrery/bootstrap.mjs`, which fetches what orrery serves (`/channel`) and keeps it in `~/.orrery`. A session gets the
-   new channel as it starts, and its hooks within a minute. The launcher restarts itself on the new code and takes its
-   sessions back, so they go on, and the Sessions page says something only about one too old for this orrery. A session already open keeps its channel until it
+   new channel as it starts, and its hooks within a minute. The launcher restarts itself on the new code of the orrery it was
+   installed from (never another on its list, ORR-960) and takes its sessions back, so they go on, and the Sessions page says something only about one too old for this orrery. A session already open keeps its channel until it
    restarts, and the Sessions page marks it. It fetches only from this machine or over https: see
    [what running served code means](../SECURITY.md#the-code-orrery-serves-your-machine).
 
@@ -65,6 +65,8 @@ All optional, in a `.env` beside `docker-compose.yml` (see `.env.example`):
 | `ORRERY_PHONE_URL` | the address to open it at from a phone, for App settings' link and QR code, when it's one orrery can't see for itself: an https name, a VPN's (see [Reach it from your phone](#reach-it-from-your-phone)) | none |
 | `ORRERY_USAGE` | `off` stops anyone counting feature use on this server, whatever App settings → Usage says (ORR-881) | none |
 | `ORRERY_ALLOWED_HOSTS` | host names it answers to besides `localhost`, IP addresses and a `<name>.local`, comma-separated, e.g. `orrery.lan` (see [SECURITY.md](../SECURITY.md)) | none |
+| `ORRERY_ALLOWED_ORIGINS` | other sites whose pages may use the API from a browser, for orrery's page hosted there: exact origins, comma-separated, e.g. `https://app.example.com` (see [Hosting the page on its own](#hosting-the-page-on-its-own)) | none |
+| `ORRERY_PAGES` | `off` serves the API alone, without the pages (see [Hosting the page on its own](#hosting-the-page-on-its-own)) | the pages are served |
 | `ORRERY_DATABASE` | a `postgres://` URL to keep the orrery in Postgres instead (see [Postgres](#postgres)) | the SQLite file |
 | `ORRERY_SECRET_KEY` | encrypts the [secrets](API.md#secrets) your agents use without seeing: a long random string (`openssl rand -base64 32`). Keep it out of the backups; without the same key, secrets set with it won't open | made on first start, kept in `orrery.key` beside the database (`/data` in Docker; none outside Docker on Postgres, so set it there) |
 | `ORRERY_BUILD_CONTEXT` | what the image is built from: a ref on GitHub, e.g. `https://github.com/steffendybvik/orrery.git#main`, so a branch switched in this folder never ends up in it | this folder |
@@ -319,6 +321,41 @@ server behind https, claimed from its shell ([above](#claiming-it-and-logging-in
 The database is still moved only from this machine: App settings → This orrery → Database refuses a
 move from any other address.
 
+## Hosting the page on its own
+
+orrery serves its page and its API together, and that's the way to run it. The page can also be built on its own, as
+static files, and hosted apart from the server it uses (ORR-667). It's the same server and image either way.
+
+**Build the page** for the server it's to use, from a checkout. The address is built in:
+
+```sh
+NUXT_PUBLIC_API_BASES='{"/": "https://orrery.example.com/api"}' pnpm --dir web exec nuxt generate
+```
+
+That leaves the page in `web/.output/public`. Host it as a single-page app: any address that isn't a file gets `200.html`.
+
+**Set the server** to let that page in, and, if you like, to serve its API alone:
+
+```sh
+ORRERY_ALLOWED_ORIGINS=https://app.example.com   # the page's origin, exactly: scheme, host and port
+ORRERY_PAGES=off                                  # optional: no pages here, only /api, /channel, /connect, /llms* and /healthz
+```
+
+**Keep both on one site,** such as `app.example.com` and `orrery.example.com`. The login's cookie is `SameSite=Lax`, so a
+browser only sends it to the server from a page on the same site. A page on another site would load, but couldn't sign in.
+
+What changes, and what doesn't:
+- **Signing in** is on the page as usual. With a provider, give it the server's callback, `https://orrery.example.com/api/auth/oidc/callback`,
+  and it returns to the page's origin when that's listed.
+- **The addresses it shows** for sessions, the launcher and keys (Connect, Sessions, Your keys) are the server's, not the page's.
+- **A new server version** doesn't reload the page, as the page is a build of its own. Rebuild it with each update of the server.
+- **The page's own headers** come from where it's hosted. Give it a `Content-Security-Policy` like the server's, with
+  the server added to `img-src` for uploads.
+- **Moving the database** and the other things kept to the server's own machine still are.
+
+Only exact origins are allowed: no wildcards, and never `null`. Each one listed can read and write the board of
+whoever is signed in there, and so instruct their agents ([SECURITY.md](../SECURITY.md)).
+
 ## Where each database is
 
 App settings → This orrery → Database shows it for the orrery you're on: the SQLite file, or the Postgres database
@@ -346,4 +383,4 @@ The database file is made if it isn't there (by default the repo's `.data/orrery
 relative `NUXT_DATABASE` is taken from the folder the server starts in, so give it an absolute one. It can also be a
 Postgres URL (`postgres://user:password@host:5432/orrery`): orrery lays down its tables on an empty
 database, and backs it up as a SQLite snapshot when `NUXT_BACKUP_DIR` is set. The other settings are
-`NUXT_BACKUP_DIR`, `NUXT_BACKUP_DATABASE`, `NUXT_ALLOWED_HOSTS`, `NUXT_USAGE`, `NUXT_SECRET_KEY`, `NUXT_UPDATE_CHECK`, `NUXT_AUTH`, `NUXT_OIDC_ISSUER`, `NUXT_OIDC_CLIENT_ID`, `NUXT_OIDC_CLIENT_SECRET` and `NUXT_PUBLIC_ENVIRONMENT`.
+`NUXT_BACKUP_DIR`, `NUXT_BACKUP_DATABASE`, `NUXT_ALLOWED_HOSTS`, `NUXT_ALLOWED_ORIGINS`, `NUXT_PAGES`, `NUXT_USAGE`, `NUXT_SECRET_KEY`, `NUXT_UPDATE_CHECK`, `NUXT_AUTH`, `NUXT_OIDC_ISSUER`, `NUXT_OIDC_CLIENT_ID`, `NUXT_OIDC_CLIENT_SECRET` and `NUXT_PUBLIC_ENVIRONMENT`.

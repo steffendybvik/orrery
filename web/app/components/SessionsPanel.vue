@@ -2,11 +2,12 @@
 import type {Session, Signal} from '#shared/roadmap'
 import {listable, withoutChannel} from '#shared/roadmap'
 
-// On an issue's (or a milestone's) page: the Claude sessions working on its project, what each is doing, and
-// a button to point one at this issue, or one or all at working through this milestone. With nobody listening, when
-// orrery may start sessions and the project's launcher is there, the same focus starts one; with some listening,
-// New session on this starts another, on this issue alone. Under them, the focus signals sent about it and who
-// got them. The session working the issue (`worker`) comes first, marked. A session's own controls (watch, stop, more time) live on its card on the Sessions page, which its name
+// On an issue's (or a milestone's) page: the Claude sessions working on its project, and a way to point one at this
+// issue, or one or all at working through this milestone. With nobody listening, when orrery may start sessions and
+// the project's launcher is there, the same focus starts one; with some listening, New session on this starts another,
+// on this issue alone. An issue's page answers whether it's being worked on (ORR-998): the session on it, else Focus on
+// this, which goes to an idle one, with the sessions to pick from behind a closed row and only the last focus sent.
+// A milestone's lists every session, and under them the focus signals sent about it and who got them. A session's own controls (watch, stop, more time) live on its card on the Sessions page, which its name
 // links to; here a row only points it at this. An issue still blocked (ORR-601) says so first: a focus starts it anyway.
 const props = defineProps<{project: string, issue?: string, milestone?: string, worker?: string, blockedBy?: string[]}>()
 const about = computed(() => props.issue ? {issue: props.issue} : {milestone: props.milestone})
@@ -16,14 +17,12 @@ const {settings} = useAppSettings()
 const {who} = useOwner()
 const {look} = useStatuses()
 
-const sessions = computed(() => (all.value[props.project] ?? []).filter(listable).sort((a, b) => Number(b.id === props.worker) - Number(a.id === props.worker)))
+const sessions = computed(() => (all.value[props.project] ?? []).filter(listable).sort((a, b) => Number(b.state === 'idle') - Number(a.state === 'idle')))
 const listening = computed(() => sessions.value.filter(s => s.listening))
-// On an issue's page, the sessions it can go to now are what matters (ORR-790): the idle ones, and the one already on it.
-// The rest wait behind a row, which stays as the owner left it as sessions move between the two. A milestone lists them all.
-const available = (session: Session) => !props.issue || session.state === 'idle' || session.id === props.worker
-const free = computed(() => sessions.value.filter(available))
-const busy = computed(() => sessions.value.filter(s => !available(s)))
-const showBusy = ref(false)
+// The session working the issue: on its page, the one row shown.
+const onIt = computed(() => props.issue ? sessions.value.find(s => s.id === props.worker) : undefined)
+// Picking a session for the issue, behind a row that stays as the owner left it.
+const picking = ref(false)
 const unheard = computed(() => withoutChannel(all.value[props.project] ?? []))
 // Whether a focus sent with nobody listening has a session started for it.
 const {state: launch} = useLaunchState(() => props.project)
@@ -90,6 +89,13 @@ async function startOn() {
     }
 }
 
+// On an issue nobody's on: the last focus sent about it in the past hour, so a click shows where it went.
+const lastFocus = computed(() => {
+    if (!props.issue || onIt.value) return undefined
+    const focus = sent.value.filter(s => s.kind !== 'comment').at(-1)
+    return focus && Date.now() - Date.parse(focus.created_at) < 3_600_000 ? focus : undefined
+})
+
 const nameOf = (id?: string) => all.value[props.project]?.find(s => s.id === id)?.name ?? 'a session'
 /** Who a signal was for: a session, every session, one started for it (aimed at `launch-<id>` until it connects),
  * or (a comment aside) the one orrery picks. */
@@ -104,7 +110,13 @@ const aimed = (signal: Signal) => signal.target === '*' || !signal.target && sig
       <svg class="size-4 text-accent-fill" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="8" /><circle cx="12" cy="12" r="3" /><path d="M12 2v3M12 19v3M2 12h3M19 12h3" /></svg>
       <h2 class="text-[13px] font-medium text-fg">Sessions</h2>
       <span class="text-xs text-faint">{{ listening.length ? `${listening.length} listening` : 'none listening' }}</span>
-      <span v-if="listening.length" class="ml-auto flex items-center gap-2">
+      <span v-if="listening.length && !onIt" class="ml-auto flex items-center gap-2">
+        <UiButton
+            v-if="issue"
+            :disabled="!!sending"
+            title="Goes to an idle session, or the next one to go idle"
+            @click="focus(null)"
+        ><UiBusy :busy="sending === 'all'" label="Sending…">Focus on this</UiBusy></UiButton>
         <UiButton
             v-if="canStartAnother"
             :disabled="!!sending"
@@ -118,7 +130,7 @@ const aimed = (signal: Signal) => signal.target === '*' || !signal.target && sig
         >Focus all on this</UiButton>
       </span>
       <button
-          v-else-if="canStart"
+          v-else-if="canStart && !onIt"
           type="button"
           class="ml-auto h-7 rounded-md bg-accent-500/10 px-2.5 text-xs font-medium text-accent-700 ring-1 ring-accent-500/40 hover:bg-accent-500/20 disabled:opacity-50 dark:text-accent-300"
           :disabled="!!sending"
@@ -127,11 +139,11 @@ const aimed = (signal: Signal) => signal.target === '*' || !signal.target && sig
       ><UiBusy :busy="sending === 'all'" label="Starting…">{{ issue ? 'Focus on this (starts a session)' : 'Work through this (starts a session)' }}</UiBusy></button>
     </div>
 
-    <p v-if="blockedBy?.length && (listening.length || canStart)" class="text-xs text-amber-800 dark:text-amber-400">
+    <p v-if="blockedBy?.length && !onIt && (listening.length || canStart)" class="text-xs text-amber-800 dark:text-amber-400">
       Blocked by {{ blockedBy.join(', ') }}, which {{ blockedBy.length === 1 ? "isn't" : "aren't" }} done yet. A focus starts it anyway.
     </p>
 
-    <fieldset v-if="(listening.length || canStart) && offered.length" class="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+    <fieldset v-if="(listening.length || canStart) && !onIt && offered.length" class="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
       <legend class="sr-only">Standing instructions for this focus</legend>
       <span class="text-faint">With it:</span>
       <label v-for="i in offered" :key="i.id" class="flex items-center gap-1.5" :class="ticked.includes(i.id) ? 'text-muted' : 'text-faint'">
@@ -140,34 +152,34 @@ const aimed = (signal: Signal) => signal.target === '*' || !signal.target && sig
       </label>
     </fieldset>
 
-    <template v-if="sessions.length">
-      <ul v-if="free.length" class="flex flex-col">
+    <ul v-if="onIt" class="flex flex-col">
+      <SessionsPanelRow :session="onIt" :worker="worker" :issue="issue" :sending="sending" @focus="focus(onIt)" />
+    </ul>
+    <template v-else-if="sessions.length">
+      <ul v-if="!issue" class="flex flex-col">
         <SessionsPanelRow
-            v-for="session in free"
+            v-for="session in sessions"
             :key="session.id"
             :session="session"
-            :worker="worker"
-            :issue="issue"
             :sending="sending"
             @focus="focus(session)"
         />
       </ul>
-      <div v-if="busy.length">
+      <div v-else>
         <button
             type="button"
             class="flex w-full items-center gap-1.5 rounded-lg px-2 py-1.5 text-left text-xs text-muted hover:bg-hover hover:text-fg"
-            :aria-expanded="showBusy"
-            @click="showBusy = !showBusy"
+            :aria-expanded="picking"
+            @click="picking = !picking"
         >
-          <svg class="size-3 transition-transform" :class="showBusy ? 'rotate-90' : ''" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6" /></svg>
-          {{ busy.length }} busy
+          <svg class="size-3 transition-transform" :class="picking ? 'rotate-90' : ''" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6" /></svg>
+          Pick a session
         </button>
-        <ul v-if="showBusy" class="flex flex-col">
+        <ul v-if="picking" class="flex flex-col">
           <SessionsPanelRow
-              v-for="session in busy"
+              v-for="session in sessions"
               :key="session.id"
               :session="session"
-              :worker="worker"
               :issue="issue"
               :sending="sending"
               @focus="focus(session)"
@@ -190,11 +202,15 @@ const aimed = (signal: Signal) => signal.target === '*' || !signal.target && sig
     <NoChannelHint v-if="unheard.length" :sessions="unheard" :project="project" where="here" />
     <p v-if="failed" class="text-xs text-rose-700 dark:text-rose-400">{{ failed }}</p>
 
-    <ol v-if="sent.length" class="flex flex-col gap-1 border-t border-line pt-3 text-xs text-faint">
+    <p v-if="lastFocus" class="text-xs text-faint">
+      Asked <span class="text-muted">{{ aimed(lastFocus) }}</span> to focus on this · {{ ago(lastFocus.created_at) }} ·
+      <span v-if="lastFocus.delivered_to.length" class="text-emerald-600 dark:text-emerald-400">delivered to {{ lastFocus.delivered_to.join(', ') }}</span>
+      <span v-else>waiting for an idle session</span>
+    </p>
+    <ol v-if="!issue && sent.length" class="flex flex-col gap-1 border-t border-line pt-3 text-xs text-faint">
       <li v-for="signal in sent.slice(-5)" :key="signal.id" class="flex flex-wrap items-center gap-x-1.5">
         <template v-if="signal.kind === 'comment'">
-          <span><span class="text-muted">{{ who(signal.created_by) }}</span>'s comment went to</span>
-          <span class="text-muted">{{ aimed(signal) }}</span>
+          <span><span class="text-muted">{{ who(signal.created_by) }}</span>'s comment went to <span class="text-muted">{{ aimed(signal) }}</span></span>
         </template>
         <template v-else>
           <span class="text-muted">{{ who(signal.created_by) }}</span> asked

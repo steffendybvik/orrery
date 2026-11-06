@@ -32,14 +32,15 @@ export abstract class MilestoneStore extends PresetStore {
             await this.run('INSERT INTO milestones (project, id, title, summary, priority, position, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
                 project, id, title, nullable(input.summary), nullable(input.priority), Number(input.position ?? await this.nextPosition('milestones', project)), actor.name, Number(actor.owner), now, now)
             await this.touchProject(project)
+            this.changed(project)
+            this.tell('milestone.created', project, id, actor)
             return id
         })
-        this.changed(project)
-        this.tell('milestone.created', project, id, actor)
         return await this.milestone(project, id)
     }
 
-    async updateMilestone(project: string, id: string, body: unknown): Promise<MilestoneRecord & {tasks: Issue[]}> {
+    /** A new title or summary is `milestone.changed` (ORR-984), so the sessions on its issues hear it. */
+    async updateMilestone(project: string, id: string, body: unknown, actor = AGENT): Promise<MilestoneRecord & {tasks: Issue[]}> {
         id = await this.milestoneId(project, id)
         await this.milestoneRow(project, id)
         const input = checkInput(body, MILESTONE_FIELDS, true)
@@ -51,25 +52,28 @@ export abstract class MilestoneStore extends PresetStore {
                 position: input.position,
             })
             await this.touchProject(project)
+            this.changed(project)
+            if (input.title !== undefined || input.summary !== undefined) this.tell('milestone.changed', project, id, actor)
         })
-        this.changed(project)
         return await this.milestone(project, id)
     }
 
-    /** Its issues stay, in no milestone. */
+    /** Its issues stay, in no milestone, each told as `issue.milestone` (ORR-984). */
     async deleteMilestone(project: string, id: string, actor = AGENT) {
         id = await this.milestoneId(project, id)
         const row = await this.milestoneRow(project, id)
         this.refuse(actor, `Deleting milestone "${id}"`, row.owned ? [`milestone "${id}"`] : [])
+        const issues = await this.all<{id: string}>('SELECT id FROM issues WHERE project = ? AND milestone = ? ORDER BY id', project, id)
         await this.db.transaction(async () => {
             await this.run('UPDATE issues SET milestone = NULL WHERE project = ? AND milestone = ?', project, id)
+            for (const issue of issues) this.tell('issue.milestone', project, issue.id, actor, {from: id, to: null})
             await this.run('DELETE FROM milestone_aliases WHERE project = ? AND milestone = ?', project, id)
             await this.run('DELETE FROM signals WHERE project = ? AND milestone = ?', project, id)
             // Schedules that made issues in it make them in no milestone from now on.
             await this.run('UPDATE schedules SET milestone = NULL WHERE project = ? AND milestone = ?', project, id)
             await this.run('DELETE FROM milestones WHERE project = ? AND id = ?', project, id)
             await this.touchProject(project)
+            this.changed(project)
         })
-        this.changed(project)
     }
 }

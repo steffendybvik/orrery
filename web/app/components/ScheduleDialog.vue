@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import {SEGMENTS, segment} from '~/utils/segments'
 import {COMMON_EVENTS, EVENT_PATTERN} from '#shared/happenings'
 import type {OnFilter} from '#shared/happenings'
 import type {Effort, Preset, Priority, Schedule} from '#shared/roadmap'
@@ -491,13 +492,12 @@ const labelOf = (options: {value: string, label: string}[], value: string) => op
           <input v-model="timezone" aria-label="Timezone" :class="[field, 'w-40']">
         </label>
       </div>
-      <div v-if="trigger === 'time' && kind === 'weekly'" class="flex gap-0.5 self-start rounded-lg bg-well p-0.5 ring-1 ring-line">
+      <div v-if="trigger === 'time' && kind === 'weekly'" :class="[SEGMENTS, 'self-start']" role="group" aria-label="Days">
         <button
             v-for="d in [1, 2, 3, 4, 5, 6, 0]"
             :key="d"
             type="button"
-            class="h-7 w-11 rounded-md text-xs font-medium transition-colors"
-            :class="days.includes(d) ? 'bg-accent-fill text-on-accent shadow-sm' : 'text-muted hover:text-fg'"
+            :class="[segment(days.includes(d)), 'w-11 justify-center']"
             :aria-pressed="days.includes(d)"
             @click="toggleDay(d)"
         >{{ DAYS[d] }}</button>

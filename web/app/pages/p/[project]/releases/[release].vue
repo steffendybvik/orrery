@@ -264,24 +264,30 @@ useHead(() => ({title: release.value && project.value ? `${release.value.version
           </div>
         </details>
       </header>
-      <template v-if="parts.length > 1">
-        <section v-for="part in parts" :key="part.project.id">
-          <ViewToolbar>
-            <NuxtLink :to="`/p/${part.project.id}`" class="label hover:text-fg">{{ part.project.name }}</NuxtLink>
-            <ProgressRing :kinds="part.kinds" :size="14" />
-            <span class="text-xs text-faint">{{ part.issues }} {{ part.issues === 1 ? 'issue' : 'issues' }}</span>
-          </ViewToolbar>
-          <ListView v-if="part.milestones.length" :milestones="part.milestones" :project="part.project.id" group="status" risk-first />
-          <p v-else class="px-4 py-6 text-center text-xs text-faint">None of {{ part.project.name }}'s issues are set for it yet.</p>
+      <!-- Its issues in the header's column, as a card like a milestone's and an epic's (ORR-989). `overflow-clip`
+           rounds the card without stopping the group headings sticking. -->
+      <div class="mx-auto flex max-w-5xl flex-col gap-6 px-4 pb-10 sm:px-8">
+        <template v-if="parts.length > 1">
+          <section v-for="part in parts" :key="part.project.id" class="flex flex-col gap-2" :aria-label="part.project.name">
+            <h2 class="label flex items-center gap-2">
+              <NuxtLink :to="`/p/${part.project.id}`" class="hover:text-fg">{{ part.project.name }}</NuxtLink>
+              <ProgressRing :kinds="part.kinds" :size="13" />
+              <span class="font-mono normal-case">{{ part.issues }} {{ part.issues === 1 ? 'issue' : 'issues' }}</span>
+            </h2>
+            <div v-if="part.milestones.length" class="overflow-clip rounded-xl border border-line dark:bg-panel">
+              <ListView :milestones="part.milestones" :project="part.project.id" group="status" risk-first class="pb-0!" />
+            </div>
+            <p v-else class="px-4 py-6 text-center text-xs text-faint">None of {{ part.project.name }}'s issues are set for it yet.</p>
+          </section>
+        </template>
+        <section v-else class="flex flex-col gap-2" aria-label="Issues">
+          <h2 class="label">Issues</h2>
+          <div v-if="milestones.length" class="overflow-clip rounded-xl border border-line dark:bg-panel">
+            <ListView :milestones="milestones" :project="project.id" group="status" risk-first class="pb-0!" />
+          </div>
+          <p v-else class="px-4 py-16 text-center text-sm text-muted">No issues set for this release yet. Pick it under Release on an issue’s page.</p>
         </section>
-      </template>
-      <template v-else>
-        <ViewToolbar>
-          <span class="label">Issues</span>
-        </ViewToolbar>
-        <ListView v-if="milestones.length" :milestones="milestones" :project="project.id" group="status" risk-first />
-        <p v-else class="px-4 py-16 text-center text-sm text-muted">No issues set for this release yet. Pick it under Release on an issue’s page.</p>
-      </template>
+      </div>
     </template>
     <NotFound v-else-if="ready" :to="`/p/${route.params.project}/releases`" back="Back to the releases">No release “{{ route.params.release }}”</NotFound>
     <UiLoading v-else />

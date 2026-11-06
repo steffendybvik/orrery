@@ -8,7 +8,7 @@ useHead({title: 'Connect an agent · orrery'})
 const route = useRoute()
 const router = useRouter()
 const {ordered} = useProjectOrder()
-const origin = import.meta.client ? location.origin : 'http://localhost:9000'
+const origin = serverOrigin()
 const picked = computed({
     get: () => (route.query.project as string | undefined) ?? ordered.value[0]?.id ?? 'new',
     set: id => router.replace({query: {project: id}}),

@@ -82,6 +82,7 @@ export abstract class IssueStore extends ClaimStore {
         }
         if (milestone) await this.milestoneRow(project, milestone)
         const release = input.release ? (await this.releaseRow(project, String(input.release))).version : null
+        const epic = input.epic === undefined || input.epic === null ? null : (await this.epicRow(input.epic as string)).id
         const github = await this.githubIssuesOf(project, input.github_issues)
         const depends = await this.linksFrom(project, null, input.depends_on)
         if (parent && depends?.some(l => l.project === project && l.id === parent)) throw badRequest(`${parent} is this issue's parent, so it can't depend on it`)
@@ -110,22 +111,22 @@ export abstract class IssueStore extends ClaimStore {
         const id = await this.db.transaction(async () => {
             const id = await this.nextId(project, 'issue')
             const now = stamp()
-            await this.run(`INSERT INTO issues (project, id, title, status, priority, assignee, labels, external, github_issues, notes, proposal, choices, parent, milestone, ships_in,
+            await this.run(`INSERT INTO issues (project, id, title, status, priority, assignee, labels, external, github_issues, notes, proposal, choices, parent, milestone, ships_in, epic,
                                           position, created_by, session_name, owned, created_at, updated_at, created_person, claimed_by, claimed_at, model, effort)
-                      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 project, id, String(input.title).trim(), status, nullable(input.priority),
                 // A proposal waits on the owner, so it's theirs, whoever the request names.
                 assigned,
                 JSON.stringify(input.labels ?? []), JSON.stringify(tasksOf(input.external)), JSON.stringify(github ?? []), nullable(input.notes), nullable(input.proposal), String(input.choices ?? '[]'),
-                parent, milestone, release, Number(input.position ?? await this.nextPosition('issues', project)), actor.name, actor.session ?? null, Number(actor.owner), now, now,
+                parent, milestone, release, epic, Number(input.position ?? await this.nextPosition('issues', project)), actor.name, actor.session ?? null, Number(actor.owner), now, now,
                 person ?? null, taken ? person : null, taken ? now : null, nullable(input.model), nullable(input.effort))
             await this.record(project, id, actor, [['created', null, null]])
             if (depends) await this.setLinks(project, id, depends, actor)
             await this.touchProject(project)
+            this.changed(project)
+            for (const other of new Set(depends?.map(l => l.project))) if (other !== project) this.changed(other)
             return id
         })
-        this.changed(project)
-        for (const other of new Set(depends?.map(l => l.project))) if (other !== project) this.changed(other)
         if (urgent) await this.urgent(project, null, await this.issueRow(project, id), actor)
         return await this.issue(project, id)
     }
@@ -169,6 +170,7 @@ export abstract class IssueStore extends ClaimStore {
         }
         if (milestone) await this.milestoneRow(project, milestone)
         const release = input.release === undefined ? undefined : input.release === null ? null : (await this.releaseRow(project, String(input.release))).version
+        const epic = input.epic === undefined ? undefined : input.epic === null ? null : (await this.epicRow(input.epic as string)).id
 
         const title = input.title === undefined ? undefined : String(input.title).trim()
         const status = input.status === undefined && input.plan === undefined ? undefined : await this.resolveStatus(input.status, input.plan)
@@ -206,6 +208,7 @@ export abstract class IssueStore extends ClaimStore {
                 // A sub-issue is in its parent's milestone, so a new parent says it all.
                 moved ? ['parent', row.parent, parent] : ['milestone', row.milestone, milestone],
                 ['release', row.ships_in, release],
+                ['epic', row.epic === null || row.epic === undefined ? null : String(row.epic), epic === undefined ? undefined : epic === null ? null : String(epic)],
                 ['model', row.model ?? null, input.model],
                 ['effort', row.effort ?? null, input.effort],
             ])
@@ -225,6 +228,7 @@ export abstract class IssueStore extends ClaimStore {
                 parent: input.parent === undefined ? undefined : parent,
                 milestone,
                 ships_in: release,
+                epic,
                 model: input.model,
                 effort: input.effort,
                 position: input.position,
@@ -232,9 +236,9 @@ export abstract class IssueStore extends ClaimStore {
             })
             if (depends) await this.setLinks(project, id, depends, actor)
             await this.touchProject(project)
+            this.changed(project)
+            for (const other of linked) if (other !== project) this.changed(other)
         })
-        this.changed(project)
-        for (const other of linked) if (other !== project) this.changed(other)
         await this.urgent(project, row, await this.issueRow(project, id), actor)
         return await this.issue(project, id)
     }
@@ -255,8 +259,8 @@ export abstract class IssueStore extends ClaimStore {
             if (!Number(changes)) throw conflict(`${id} has just been reassigned; read it again`)
             await this.record(project, id, actor, [['assignee', row.assignee, assignee], ['claim', row.claimed_by, person ?? null]])
             await this.touchProject(project)
+            this.changed(project)
         })
-        this.changed(project)
         return await this.issue(project, id)
     }
 
@@ -272,8 +276,8 @@ export abstract class IssueStore extends ClaimStore {
             await this.update('issues', 'project = ? AND id = ?', [project, id], {claimed_by: null, claimed_at: null, claimed_session: null})
             await this.record(project, id, actor, [['claim', row.claimed_by, null]])
             await this.touchProject(project)
+            this.changed(project)
         })
-        this.changed(project)
         return await this.issue(project, id)
     }
 

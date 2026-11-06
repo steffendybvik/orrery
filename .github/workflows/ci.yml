@@ -88,6 +88,41 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm lint
 
+  # The Rust API (ORR-922, api/): its format, lints and own tests, then the store's parity with it on SQLite and on
+  # Postgres (web/test/api-parity.test.ts), and its migrations against Node's (web/test/rust-migrations.test.ts): what the
+  # check job skips, having no binary. The runner has Rust already.
+  api:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: orrery
+          POSTGRES_PASSWORD: orrery
+          POSTGRES_DB: orrery
+        ports: ['5432:5432']
+        options: --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: cargo fmt --check
+        working-directory: api
+      - run: cargo clippy --locked -- -D warnings
+        working-directory: api
+      - run: cargo test --locked
+        working-directory: api
+      - run: cargo build --locked
+        working-directory: api
+      - run: pnpm --dir web exec vitest run --project unit test/api-parity.test.ts test/rust-migrations.test.ts
+      - run: pnpm --dir web exec vitest run --project unit test/api-parity.test.ts test/rust-migrations.test.ts
+        env:
+          TEST_POSTGRES_URL: postgres://orrery:orrery@localhost:5432/orrery
+
   # The main flows in a real browser, against `nuxt dev` with a fresh database: on a pull request into `main`
   # that isn't a draft, each push to it included, as they take too long for every pull request (ORR-749); on a
   # release tag; and by hand. Drafts, pull requests into a release branch, and pushes, run the unit tests alone.
@@ -105,20 +140,27 @@ jobs:
       - id: version
         run: echo "version=$(jq -r '.devDependencies["@playwright/test"]' web/package.json)" >> "$GITHUB_OUTPUT"
 
-  # Once on SQLite and once on Postgres: the service only starts for the Postgres run (no image, no service).
+  # Once on SQLite and once on Postgres: the service only starts for the Postgres run (no image, no service). Each in
+  # three shards side by side, each its own server and database with a share of the specs (web/e2e-shards.ts, ORR-920):
+  # whole, a suite took 15 to 25 minutes, and a flaky one run again took a release past 40.
   e2e:
     needs: playwright
     runs-on: ubuntu-latest
-    # Firefox and WebKit take longer than Chrome, and a whole suite with retries ran past 20 minutes on them (ORR-912).
-    timeout-minutes: 35
+    # A shard takes under ten minutes; this leaves room for Firefox and WebKit with retries (ORR-912).
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
         database: [sqlite, postgres]
         browser: [chromium]
+        shard: [1, 2, 3]
         include:
-          - {database: sqlite, browser: webkit}
-          - {database: sqlite, browser: firefox}
+          - {database: sqlite, browser: webkit, shard: 1}
+          - {database: sqlite, browser: webkit, shard: 2}
+          - {database: sqlite, browser: webkit, shard: 3}
+          - {database: sqlite, browser: firefox, shard: 1}
+          - {database: sqlite, browser: firefox, shard: 2}
+          - {database: sqlite, browser: firefox, shard: 3}
     # Playwright's own image has the browser and the system libraries it needs. Installing those with apt on
     # every run took from 10 seconds to 11 minutes, as Ubuntu's mirror allowed.
     container:
@@ -136,6 +178,7 @@ jobs:
       # The job runs in a container, so the service is reached by its name.
       E2E_POSTGRES_URL: ${{ matrix.database == 'postgres' && 'postgres://orrery:orrery@postgres:5432/orrery_e2e' || '' }}
       E2E_BROWSER: ${{ matrix.browser }}
+      E2E_SHARD: ${{ matrix.shard }}/3
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
@@ -155,26 +198,69 @@ jobs:
           # E2E_PAGE_COVERAGE set still collects it.
           E2E_PAGE_COVERAGE: ''
       - run: node web/scripts/coverage-lines.mjs --v8 .v8-e2e --pages .page-e2e --out web/e2e-lines.json
-        if: matrix.database == 'sqlite' && matrix.browser == 'chromium'
+        if: ${{ !cancelled() && matrix.database == 'sqlite' && matrix.browser == 'chromium' }}
         continue-on-error: true
       - run: pnpm test:e2e:login
-        if: matrix.database == 'sqlite' && matrix.browser == 'chromium'
+        if: matrix.database == 'sqlite' && matrix.browser == 'chromium' && matrix.shard == 1
+      # This shard's results and lines, which e2e-report puts together with the other shards'; a failed shard's too.
       - uses: actions/upload-artifact@v7
-        if: matrix.database == 'sqlite' && matrix.browser == 'chromium'
+        if: ${{ !cancelled() && matrix.database == 'sqlite' && matrix.browser == 'chromium' }}
+        with:
+          name: e2e-shard-${{ matrix.shard }}
+          path: |
+            web/blob-report/
+            web/e2e-lines.json
+          retention-days: 1
+      # The report carries the traces of the failed tests (open with `pnpm exec playwright show-report`), a job that ran
+      # out of time too, as that's when they're most needed (ORR-912).
+      - uses: actions/upload-artifact@v7
+        if: failure() || cancelled()
+        with:
+          name: playwright-report-${{ matrix.database }}-${{ matrix.browser }}-${{ matrix.shard }}
+          path: web/playwright-report/
+          retention-days: 7
+
+  # The SQLite and Chrome shards' results and lines as one run, as the suite gave them whole: what `pnpm test:report`
+  # reads at ship time (Releasing, ORR-678), under the same artifact name.
+  e2e-report:
+    needs: e2e
+    if: ${{ !cancelled() && needs.e2e.result != 'skipped' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: e2e-shard-*
+          path: shards
+      - run: |
+          mkdir -p blobs lines
+          for shard in shards/*/; do
+            name=$(basename "$shard")
+            cp "$shard"blob-report/*.zip blobs/ 2>/dev/null || true
+            [ -f "$shard"e2e-lines.json ] && cp "$shard"e2e-lines.json "lines/$name.json"
+          done
+          ls blobs lines
+          # A shard missing would leave its tests out of the numbers without a word.
+          [ "$(ls blobs | wc -l)" -eq 3 ] || { echo "Expected 3 shards' blobs, found $(ls blobs | wc -l)"; exit 1; }
+      - run: pnpm exec playwright merge-reports --reporter json ../blobs
+        working-directory: web
+        env:
+          PLAYWRIGHT_JSON_OUTPUT_NAME: e2e-results.json
+      - run: node web/scripts/coverage-lines.mjs --pages lines --out web/e2e-lines.json
+        continue-on-error: true
+      - uses: actions/upload-artifact@v7
         with:
           name: test-results-e2e
           path: |
             web/e2e-results.json
             web/e2e-lines.json
           retention-days: 30
-      # The report carries the traces of the failed tests (open with `pnpm exec playwright show-report`), a job that ran
-      # out of time too, as that's when they're most needed (ORR-912).
-      - uses: actions/upload-artifact@v7
-        if: failure() || cancelled()
-        with:
-          name: playwright-report-${{ matrix.database }}-${{ matrix.browser }}
-          path: web/playwright-report/
-          retention-days: 7
 
   # How fast the pages are on a big orrery (web/e2e/perf), run when the e2e flows are. A page over its budget fails
   # it. The report (each page's time, its API calls and their sizes) is kept every run, passed or not.

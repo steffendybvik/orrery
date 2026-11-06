@@ -85,11 +85,22 @@ test('chats with a session that answers on the page, and is listed nowhere', asy
         await expect(pane.locator('header')).not.toContainText('Thinking')
         // Its answer comes back through its channel's reply tool.
         const answered = await request.post(`/api/chats/${chat.id}/replies`, {
-            data: {text: 'Jars of **jam**.'},
+            data: {text: 'Jars of **jam**, as [OBS-1](/p/observatory/issues/OBS-1) says.'},
             headers: {'Orrery-Actor': 'claude', 'Orrery-Chat': 'yes', 'Orrery-Launch': chat.id},
         })
         expect(answered.ok(), await answered.text()).toBeTruthy()
         await expect(pane.locator('strong', {hasText: 'jam'})).toBeVisible()
+        // A link in it to one of orrery's own pages opens in a new tab, so the chat stays where it is (ORR-944).
+        const issueLink = pane.getByRole('link', {name: 'OBS-1'})
+        await expect(issueLink).toHaveAttribute('target', '_blank')
+        await expect(issueLink).toHaveAttribute('rel', 'noopener')
+        const opening = page.context().waitForEvent('page')
+        await issueLink.click()
+        const tab = await opening
+        await expect(tab).toHaveURL(/\/p\/observatory\/issues\/OBS-1$/)
+        await tab.close()
+        await expect(page).toHaveURL(/\/p\/observatory$/)
+        await expect(pane).toBeVisible()
         // Answered partway through its turn, it's still working: the spinner stays, after the reply, until the turn ends.
         await expect(pane.getByLabel('Thinking…')).toBeVisible()
         expect(await pane.locator('ol > li').last().getAttribute('aria-label')).toBe('Thinking…')
@@ -103,7 +114,7 @@ test('chats with a session that answers on the page, and is listed nowhere', asy
         await pane.getByLabel('Conversation', {exact: true}).getByText('Jars of').hover()
         await pane.getByRole('button', {name: 'Copy this reply'}).click()
         await expect(pane.getByRole('button', {name: 'Copy this reply'})).toHaveText('Copied')
-        expect(await page.evaluate(() => (window as unknown as {copied: string[]}).copied)).toEqual(['Jars of **jam**.'])
+        expect(await page.evaluate(() => (window as unknown as {copied: string[]}).copied)).toEqual(['Jars of **jam**, as [OBS-1](/p/observatory/issues/OBS-1) says.'])
         // Anything but making issues, commenting and answering is refused.
         const moved = await request.post('/api/projects/observatory/issues/OBS-1/focus', {data: {}, headers: {'Orrery-Actor': 'claude', 'Orrery-Chat': 'yes'}})
         expect(moved.status()).toBe(403)
@@ -147,12 +158,12 @@ test('chats with a session that answers on the page, and is listed nowhere', asy
         expect(launcher.said.text).not.toContain('event: stop')
         await page.getByRole('button', {name: 'Agent', exact: true}).click()
         await expect(pane).toContainText('Jars of')
-        // Only its row's × in the list ends it, and the pane then opens ready for another.
-        await pane.getByRole('button', {name: /^End the chat on Observatory/}).click()
+        // Only its row's × in the list ends it, removing it at once with nothing to confirm (ORR-935), and the pane then
+        // opens ready for another.
+        await pane.getByRole('button', {name: /^Remove the chat on Observatory/}).click()
         await expect.poll(() => launcher.said.text).toContain('event: stop')
+        await expect.poll(async () => (await (await request.get('/api/chats', {headers: OWNER})).json() as unknown[]).length).toBe(0)
         await pane.getByRole('button', {name: 'Close the chat', exact: true}).click()
-        // It stays listed, ended, to read (ORR-870).
-        await expect.poll(async () => (await (await request.get('/api/chats', {headers: OWNER})).json() as {ended?: boolean}[]).map(c => !!c.ended)).toEqual([true])
         await page.getByRole('button', {name: 'Agent', exact: true}).click()
         await expect(pane.getByRole('heading', {name: /^Ask about/})).toBeVisible()
     } finally {
@@ -809,10 +820,18 @@ test('lists every chat down the left, two on one project and one on another, eac
         // New chat: a second on the same project, the first still running.
         await list.getByRole('button', {name: 'New chat', exact: true}).click()
         await expect(pane.getByRole('heading', {name: 'Ask about Observatory'})).toBeVisible()
+        // The blank chat heads the list, chosen, and the first one no longer is (ORR-996).
+        const fresh = list.getByTestId('chat-new-row')
+        await expect(list.getByRole('listitem').nth(0)).toHaveText('ObservatoryNew chat')
+        await expect(fresh).toHaveAttribute('aria-current', 'true')
+        await expect(row('Where are the star charts', 'running')).not.toHaveAttribute('aria-current')
         await box.fill('Who dusts the telescope?')
         await box.press('ControlOrMeta+Enter')
-        // Its row is named once the message has reached orrery, so leaving the page doesn't lose it.
+        // Its row is named once the message has reached orrery, so leaving the page doesn't lose it, and the blank one
+        // gives way to it.
         await expect(row('Who dusts the telescope', 'running')).toBeVisible()
+        await expect(fresh).toHaveCount(0)
+        await expect(row('Who dusts the telescope', 'running')).toHaveAttribute('aria-current', 'true')
         await expect.poll(running).toEqual(['observatory', 'observatory'])
 
         // A third, on another project's page.
@@ -835,8 +854,9 @@ test('lists every chat down the left, two on one project and one on another, eac
         await expect(pane.getByLabel('Conversation', {exact: true}).getByText('Who dusts the telescope?')).toBeVisible()
         await expect(pane.getByLabel('Conversation', {exact: true}).getByText('Where are the star charts?')).toHaveCount(0)
 
-        // A row's × ends that chat alone, which stays listed, and reopens as it was.
-        await list.getByRole('button', {name: 'End the chat on Observatory: Where are the star charts?'}).click()
+        // A chat that ends (its session stopping) stays listed, and reopens as it was.
+        const chart = (await (await request.get('/api/chats')).json() as {id: string, messages: {text: string}[]}[]).find(c => c.messages[0]?.text === 'Where are the star charts?')!
+        expect((await request.post(`/api/chats/${chart.id}/end`, {headers: OWNER})).ok()).toBeTruthy()
         await expect.poll(running).toEqual(['crypt', 'observatory'])
         await expect(row('Where are the star charts', 'ended')).toBeVisible()
         const [ended] = (await (await request.get('/api/chats')).json() as {id: string, ended?: boolean}[]).filter(c => c.ended)
@@ -850,15 +870,11 @@ test('lists every chat down the left, two on one project and one on another, eac
         await expect(row('Where are the star charts', 'running')).toBeVisible()
         await expect(pane.getByLabel('Conversation', {exact: true}).getByText('And the moon maps?')).toBeVisible()
 
-        // Deleting the open one, after a confirm, lands on another chat; what it filed stays (ORR-882).
+        // Removing the open one, with nothing to confirm (ORR-935), lands on another chat; what it filed stays (ORR-882).
         const listed = await (await request.get('/api/chats')).json() as {id: string, ended?: boolean, messages: {text: string}[]}[]
         const charts = listed.find(c => c.messages[0]?.text === 'Where are the star charts?')!
         const filed = await (await request.post('/api/projects/observatory/issues', {data: {title: 'Find the star charts'}, headers: {'Orrery-Actor': 'claude', 'Orrery-Chat': 'yes', 'Orrery-Launch': charts.id}})).json()
-        await list.getByRole('button', {name: 'Delete the chat on Observatory: Where are the star charts?'}).click()
-        await list.getByTestId('chat-delete').getByRole('button', {name: 'Cancel'}).click()
-        await expect(row('Where are the star charts')).toBeVisible()
-        await list.getByRole('button', {name: 'Delete the chat on Observatory: Where are the star charts?'}).click()
-        await list.getByTestId('chat-delete').getByRole('button', {name: 'Delete', exact: true}).click()
+        await list.getByRole('button', {name: 'Remove the chat on Observatory: Where are the star charts?'}).click()
         await expect(row('Where are the star charts')).toHaveCount(0)
         // The pane goes on to the next in the list, not to a blank one.
         await expect(list.locator('[aria-current="true"]')).toHaveCount(1)
@@ -867,8 +883,7 @@ test('lists every chat down the left, two on one project and one on another, eac
         // A running one is ended as it goes, and neither comes back on a reload.
         await page.goto('/p/crypt')
         await page.getByRole('button', {name: /^Agent/}).click()
-        await list.getByRole('button', {name: 'Delete the chat on Crypt: How cold is the vault?'}).click()
-        await list.getByTestId('chat-delete').getByRole('button', {name: 'Delete', exact: true}).click()
+        await list.getByRole('button', {name: 'Remove the chat on Crypt: How cold is the vault?'}).click()
         await expect.poll(running).toEqual(['observatory'])
         await page.reload()
         await page.getByRole('button', {name: /^Agent/}).click()
@@ -1066,4 +1081,122 @@ test('opens from ⌘K ready to type into, and leaves typing elsewhere on the pag
     await expect(filter).toBeFocused()
     await expect(box).toHaveValue('')
     await page.getByRole('region', {name: 'Chat'}).getByRole('button', {name: 'Close the chat'}).click()
+})
+
+test('pops out into a window of its own, which the corner button brings back, and docks back into the pane (ORR-938)', async ({page}) => {
+    await page.goto('/p/observatory')
+    await page.getByRole('button', {name: 'Agent', exact: true}).click()
+    const pane = page.getByRole('region', {name: 'Chat'})
+    await pane.getByLabel('Message').fill('kept in this window')
+    const opening = page.waitForEvent('popup')
+    await pane.getByRole('button', {name: 'Pop out: the chat in a window of its own'}).click()
+    const popup = await opening
+    // The pane here closes; the window is the chat, on the same project, with no corner button, Larger or Close.
+    await expect(pane).toHaveCount(0)
+    await expect(popup).toHaveURL(/\/chat\?project=observatory$/)
+    const own = popup.getByRole('region', {name: 'Chat'})
+    await expect(own.getByRole('heading', {name: 'Ask about Observatory'})).toBeVisible()
+    await expect(popup.getByRole('button', {name: 'Agent', exact: true})).toHaveCount(0)
+    await expect(own.getByRole('button', {name: /^Close the chat/})).toHaveCount(0)
+    await expect(own.getByRole('button', {name: /Make the chat (larger|smaller)/})).toHaveCount(0)
+    // Its draft is its own: what was typed here stays here.
+    await expect(own.getByLabel('Message')).toHaveValue('')
+    // While it's open, the corner button goes to it rather than opening a second pane.
+    await page.getByRole('button', {name: 'Agent', exact: true}).click()
+    await expect(pane).toHaveCount(0)
+    // A link in it to a page of orrery, as a reply's would be, opens in this window, and the chat stays there.
+    await popup.evaluate(() => {
+        const link = document.createElement('a')
+        link.href = '/p/observatory/roadmap'
+        link.textContent = 'the roadmap'
+        document.querySelector('section[aria-label="Chat"] h2')?.after(link)
+    })
+    await own.getByRole('link', {name: 'the roadmap'}).click()
+    await expect(page).toHaveURL(/\/p\/observatory\/roadmap$/)
+    await expect(popup).toHaveURL(/\/chat\?project=observatory$/)
+    // Dock back: the window closes, and the pane opens here on the same project, the draft as it was.
+    const closing = popup.waitForEvent('close')
+    await own.getByRole('button', {name: 'Dock back: the chat in the pane of the window it came from'}).click()
+    await closing
+    await expect(pane.getByRole('heading', {name: 'Ask about Observatory'})).toBeVisible()
+    await expect(pane.getByLabel('Message')).toHaveValue('kept in this window')
+    await pane.getByLabel('Message').fill('')
+    await pane.getByRole('button', {name: 'Close the chat'}).click()
+    // Closed, the window is gone: the corner button opens the pane again.
+    await page.getByRole('button', {name: 'Agent', exact: true}).click()
+    await expect(pane).toBeVisible()
+    await pane.getByRole('button', {name: 'Close the chat'}).click()
+})
+
+test('opened by its address, the chat fills the window, and its links open in a new tab with no window to go back to (ORR-938)', async ({page, context}) => {
+    await page.goto('/chat?project=observatory')
+    await expect(page).toHaveTitle(/Chat/)
+    const own = page.getByRole('region', {name: 'Chat'})
+    await expect(own.getByRole('heading', {name: 'Ask about Observatory'})).toBeVisible()
+    await expect(page.getByRole('navigation')).toHaveCount(0)
+    // Esc doesn't close it: there's nothing behind it.
+    await own.getByLabel('Message').press('Escape')
+    await expect(own).toBeVisible()
+    // A link to a page of orrery, as a reply's would be, opens beside it rather than in its place.
+    await page.evaluate(() => {
+        const link = document.createElement('a')
+        link.href = '/p/observatory'
+        link.textContent = 'the board'
+        document.querySelector('section[aria-label="Chat"] h2')?.after(link)
+    })
+    const opening = context.waitForEvent('page')
+    await own.getByRole('link', {name: 'the board'}).click()
+    const tab = await opening
+    await expect(tab).toHaveURL(/\/p\/observatory$/)
+    await tab.close()
+    await expect(page).toHaveURL(/\/chat\?project=observatory$/)
+})
+
+test('moves by its whole header, past a few pixels, keeping its buttons clicks, and goes back on a double-click (ORR-939)', async ({page}) => {
+    await page.setViewportSize({width: 1280, height: 800})
+    await page.goto('/p/observatory')
+    await page.getByRole('button', {name: 'Agent', exact: true}).click()
+    const pane = page.getByRole('region', {name: 'Chat'})
+    const header = pane.getByTestId('chat-header')
+    const home = (await pane.boundingBox())!
+    // Pressed on the header's empty part, beside the title, and dragged up and left.
+    const title = (await header.getByText('Chat', {exact: true}).boundingBox())!
+    const from = {x: title.x + title.width + 4, y: title.y + title.height / 2}
+    await page.mouse.move(from.x, from.y)
+    await page.mouse.down()
+    await page.mouse.move(from.x - 2, from.y - 1)
+    // A couple of pixels is still a click, not a move.
+    expect((await pane.boundingBox())!.x).toBeCloseTo(home.x, 0)
+    await page.mouse.move(from.x - 300, from.y - 100, {steps: 5})
+    await page.mouse.up()
+    const moved = (await pane.boundingBox())!
+    expect(moved.x).toBeCloseTo(home.x - 300, -1)
+    expect(moved.y).toBeCloseTo(home.y - 100, -1)
+    // A press on a button that moves stays a click: Larger still works, and the pane didn't move with it.
+    const larger = pane.getByRole('button', {name: 'Make the chat larger'})
+    const button = (await larger.boundingBox())!
+    await page.mouse.move(button.x + button.width / 2, button.y + button.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(button.x - 100, button.y + 50, {steps: 5})
+    await page.mouse.up()
+    expect((await pane.boundingBox())!.x).toBeCloseTo(moved.x, 0)
+    await larger.click()
+    await pane.getByRole('button', {name: 'Make the chat smaller'}).click()
+    // It stays where it was put after a reload, inside the window.
+    await page.reload()
+    await page.getByRole('button', {name: 'Agent', exact: true}).click()
+    await expect.poll(async () => Math.round((await pane.boundingBox())!.x)).toBe(Math.round(moved.x))
+    // Dragged past the window's edge, it stops at it.
+    const again = (await header.getByText('Chat', {exact: true}).boundingBox())!
+    await page.mouse.move(again.x + again.width + 4, again.y + 4)
+    await page.mouse.down()
+    await page.mouse.move(-500, -500, {steps: 5})
+    await page.mouse.up()
+    const edge = (await pane.boundingBox())!
+    expect(edge.x).toBeGreaterThanOrEqual(0)
+    expect(edge.y).toBeGreaterThanOrEqual(0)
+    // A double-click on the header puts it back in its corner.
+    await header.getByText('Chat', {exact: true}).dblclick()
+    await expect.poll(async () => Math.round((await pane.boundingBox())!.x)).toBe(Math.round(home.x))
+    await pane.getByRole('button', {name: 'Close the chat'}).click()
 })

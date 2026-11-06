@@ -48,7 +48,7 @@ describe('AppSidebar', () => {
         expect(link(wrapper, '/releases')!.text()).toBe('Releases1')
     })
 
-    it('shows Events, Context and Pull requests only with Advanced on', async () => {
+    it('shows Events, Context and Pull requests only with Advanced on, each on its own row', async () => {
         const off = await mount()
         for (const to of ['/events', '/context', '/pulls']) expect(link(off, to)).toBeUndefined()
         off.unmount()
@@ -56,6 +56,8 @@ describe('AppSidebar', () => {
         useAppSettings().settings.value.advanced = true
         const on = await mount()
         for (const to of ['/events', '/context', '/pulls']) expect(link(on, to)).toBeDefined()
+        // No row folds them away (ORR-973 took ORR-967's back out).
+        expect(on.findAll('button').some(b => b.text() === 'Advanced')).toBe(false)
     })
 
     it('says so with no projects yet, once it has read them, and not before', async () => {
@@ -107,7 +109,8 @@ describe('AppSidebar', () => {
             blog: [session('shelves', 'blog', 'idle'), session('kitchen', 'blog', 'waiting')],
         }
         const wrapper = await mount()
-        expect(link(wrapper, '/sessions')!.text()).toBe('Sessions3')
+        // The nav keeps its own Sessions row with the count (ORR-972), beside the panel's heading at the foot.
+        expect(wrapper.find('nav').findAll('a').find(a => a.attributes('href') === '/sessions')!.text()).toBe('Sessions3')
         const text = wrapper.text()
         expect(text.indexOf('kitchen')).toBeLessThan(text.indexOf('jars'))
         expect(text.indexOf('kitchen')).toBeLessThan(text.indexOf('shelves'))

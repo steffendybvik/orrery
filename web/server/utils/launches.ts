@@ -7,6 +7,7 @@
 // and `idle_minutes`, when set), and only while it's idle with nothing open. With a minimum (`min`), one stopped that
 // way is replaced by one like it once it has ended, so the count doesn't fall to nothing when no new work comes in.
 import {AsyncLocalStorage} from 'node:async_hooks'
+import type {H3Event} from 'h3'
 import {randomBytes} from 'node:crypto'
 import type {Effort, LauncherRepo, RepoAdded, Session, SessionContext, Signal, StartedSession, Starts, TerminalApp} from '#shared/roadmap'
 import {EFFORTS, isEffort, isModel, modelFor} from '#shared/roadmap'
@@ -98,12 +99,48 @@ const everywhere = counter('everywhere')
 const versions = new Map<string, string[]>()
 /** Each connected launcher's token, to the project it serves: its stream hands it over (`ready`), and a claim counts
  * only with one, so nothing but a launcher on its stream can take a launch and keep it from starting (ORR-443). */
-const tokens = new Map<string, string>()
+const tokens = new Map<string, {project: string, person?: string}>()
+/** Whose each launch is, by id, from when it's held until its session ends (`Launch.person`): a member's launcher hears
+ * and claims only its own person's (ORR-963), the events that carry only an id included. */
+const whose = new Map<string, string>()
+
+/** Whose the launch is: who started it (the owner, by name, for every launch in this release), or nobody said. */
+export function launchPerson(id: string): string | undefined {
+    return whose.get(id) ?? pending.get(id)?.person
+}
+
+/** Whether a launcher hears a launch: one on the owner's credential, or on none, hears the owner's as before; one on a
+ * member's agent key (`person`) hears only that person's (ORR-963). */
+export function hearsLaunch(person: string | undefined, id: string): boolean {
+    return !person || launchPerson(id) === person
+}
+
+/** The member a launcher's request is on the agent key of (ORR-963); none for the owner's credential, or none at all. */
+export function launcherMember(event: H3Event): string | undefined {
+    const who = event.context?.who as {person: string, owner: boolean} | undefined
+    return who && !who.owner ? who.person : undefined
+}
+
+/** Refuses a member's launcher telling orrery about a launch that isn't their own (ORR-963): that it ended, or what
+ * its screen shows. */
+export function launcherMayTell(event: H3Event, id: string) {
+    const member = launcherMember(event)
+    if (!hearsLaunch(member, id)) throw forbidden(`Launch ${id} isn't ${member}'s: a launcher on their key tells orrery only about their own launches`)
+}
+
+/** A launcher on a member's agent key (ORR-963): it hears none of the owner's launches and claims none, so it doesn't
+ * count as one of the project's launchers either, or the owner's would wait for it. It only has a token, for its own
+ * person's launches once members start their own (ORR-658). */
+export function addMemberLauncher(project: string, person: string): (() => void) & {token: string} {
+    const token = randomBytes(18).toString('base64url')
+    tokens.set(token, {project, person})
+    return Object.assign(() => void tokens.delete(token), {token})
+}
 /** Counts a project's launcher in, in its folder when it says, and as serving every project when it does, and the
  * version of its code, until `done` is called. `done.token` is the one its claims are to send. */
 export function addLauncher(project: string, dir?: string, every = false, version = '', how: RepoAdded = {}): (() => void) & {token: string} {
     const token = randomBytes(18).toString('base64url')
-    tokens.set(token, project)
+    tokens.set(token, {project})
     const gone = launchers.add(project)
     const away = every ? everywhere.add(project) : () => {}
     versions.set(project, [...versions.get(project) ?? [], version])
@@ -164,6 +201,7 @@ type Held = Launch & {at: number, claimed: boolean, fresh?: SessionContext}
 function hold(project: string, fields: Omit<Held, 'id' | 'project' | 'tmux' | 'at' | 'claimed'>, id = randomBytes(6).toString('hex')): Held {
     const held: Held = {id, project, tmux: `orrery-${project}-${id}`.replace(/[^\w-]/g, '-'), ...fields, at: Date.now(), claimed: false}
     pending.set(id, held)
+    if (held.person) whose.set(id, held.person)
     return held
 }
 
@@ -426,10 +464,13 @@ async function allowedStarts(project: string): Promise<Starts | null> {
 export function claim(project: string, id: string, token: string | undefined, locksDown = false, chats = false, models = false, resumes = false): boolean {
     const launch = pending.get(id)
     if (!launch || launch.project !== project || launch.claimed) return false
-    if (!token || tokens.get(token) !== project) {
+    const launcher = token ? tokens.get(token) : undefined
+    if (!launcher || launcher.project !== project) {
         outdated(project, id, `A claim on a session waiting to start on ${project} came without a running launcher's token, so it was refused. A launcher running older code sends none: restart it, and it's offered the session again (it runs the channel folder's code when it starts).`)
         return false
     }
+    // A member's launcher takes only that person's launches, never the owner's (ORR-963).
+    if (launcher.person && launch.person !== launcher.person) return false
     if (launch.untrusted && !locksDown || launch.chat && !chats) {
         const what = launch.chat ? 'a chat' : "an untrusted schedule's session"
         outdated(project, id, `A launcher on ${project} is running older code that can't start ${what}, so it was refused it. Restart the launcher, and it's offered it again (it runs the channel folder's code when it starts).`)
@@ -524,6 +565,7 @@ export function launchGone(id: string) {
     screens.delete(id)
     viewed.delete(id)
     asked.delete(id)
+    whose.delete(id)
 }
 
 /** The launches orrery has had stopped, and when, so a launcher slow to say it's done isn't asked again each check. */

@@ -63,6 +63,47 @@ describe('the SQLite driver', () => {
         expect((await db.all<{what: string}>('SELECT what FROM log ORDER BY id')).map(r => r.what)).toEqual(['kept', 'after kept', 'alone'])
     })
 
+    it('writes what waits to go in before the commit inside the transaction, once a key, and loses it with a rollback (ORR-929)', async () => {
+        const db = await fresh()
+        const before = (what: string, key?: string) => db.beforeCommit(() => db.run('INSERT INTO log (what) VALUES (?)', what), key)
+        await db.transaction(async () => {
+            before('changed', 'p')
+            await db.run('INSERT INTO log (what) VALUES (?)', 'write')
+            before('changed again', 'p')
+            before('told')
+            expect(await db.get('SELECT count(*) AS n FROM log')).toEqual({n: 1})
+        })
+        await db.transaction(async () => {
+            before('lost row')
+            await db.run('INSERT INTO log (what) VALUES (?)', 'lost')
+            throw new Error('take it back')
+        }).catch(() => {})
+        // A row that fails takes the write back with it.
+        await expect(db.transaction(async () => {
+            await db.run('INSERT INTO log (what) VALUES (?)', 'refused write')
+            db.beforeCommit(() => db.run('INSERT INTO nowhere (what) VALUES (?)', 'x'))
+        })).rejects.toThrow()
+        before('alone')
+        await tick()
+        expect((await db.all<{what: string}>('SELECT what FROM log ORDER BY id')).map(r => r.what)).toEqual(['write', 'changed', 'told', 'alone'])
+    })
+
+    it('runs what waits for the commit itself before the transaction hands back, and never after a rollback (ORR-929)', async () => {
+        const db = await fresh()
+        const ran: string[] = []
+        await db.transaction(async () => {
+            db.atCommit(() => ran.push('kept'))
+            expect(ran).toEqual([])
+        })
+        expect(ran).toEqual(['kept'])
+        await db.transaction(async () => {
+            db.atCommit(() => ran.push('lost'))
+            throw new Error('take it back')
+        }).catch(() => {})
+        db.atCommit(() => ran.push('alone'))
+        expect(ran).toEqual(['kept', 'alone'])
+    })
+
     it('hands over the raw connection only between transactions', async () => {
         const db = await fresh()
         const seen: number[] = []

@@ -17,7 +17,7 @@ or, without Docker, `pnpm install` and `pnpm dev` (Node 24.22.1, pnpm 10.14.0).
 
 - `pnpm test`, `pnpm typecheck`, `pnpm lint` and `pnpm test:e2e` pass (CI runs the first three on every pull request, `test:e2e` and `test:e2e:perf` on SQLite and Postgres on a release tag and on a pull request into `main` that isn't a draft (a release's; one into a release branch skips them), and builds the image; a release tag publishes only once they pass)
 - A pull request into a release branch needs `check` and `docker` green before it can merge
-- A change to the database is a new step at the end of the migrations in `web/server/utils/migrations/sqlite.ts` (and Postgres's in `web/server/utils/migrations/postgres.ts`); never edit one
+- A change to the database is a new step at the end of the migrations in `web/server/utils/migrations/sqlite.ts` (and Postgres's in `web/server/utils/migrations/postgres.ts`); never edit one. Then port it to the Rust API, as [docs/development.md](docs/development.md#migrations-in-rust) says
 - A change to the API updates [docs/API.md](docs/API.md), which is also what agents read
 - A change to how something works updates the docs that describe it: `docs/` and the orrery's project docs (a decision's `decision-*` doc too), which agents read before the code
 - New behaviour comes with a test where the store or the board rules change, and a component test (`web/test/components`, mounted in Nuxt) where a component decides what it sends
@@ -34,7 +34,7 @@ or, without Docker, `pnpm install` and `pnpm dev` (Node 24.22.1, pnpm 10.14.0).
 `type(scope): what changed`, lowercase and imperative, at most 72 characters:
 
 - **type:** `feat`, `fix`, `refactor`, `perf`, `test`, `docs`, `chore` or `revert`
-- **scope:** `orrery` for the app, `repo` for CI, config and tooling
+- **scope:** `orrery` for the app, `api` for the Rust API and its contract, `repo` for CI, config and tooling
 
 ```
 fix(orrery): keep a milestone's priority when it's renamed

@@ -10,7 +10,7 @@ const keys = ref<KeyRecord[]>([])
 const kind = ref<'agent' | 'person'>('agent')
 const name = ref('')
 const made = ref<{key: string, kind: 'agent' | 'person'} | null>(null)
-const here = import.meta.client ? location.origin : ''
+const here = import.meta.client ? serverOrigin() : ''
 const busy = ref(false)
 const failed = ref('')
 

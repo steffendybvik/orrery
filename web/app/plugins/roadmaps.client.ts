@@ -24,7 +24,12 @@ export default defineNuxtPlugin(() => {
 
     async function load() {
         const app = useAppSettings()
-        app.settings.value = await apiFetch<Settings>('/settings').catch(() => app.settings.value)
+        // The stored settings and what only this server knows (ORR-954), side by side.
+        const [stored, machine] = await Promise.all([
+            apiFetch<Settings>('/settings').catch(() => app.settings.value),
+            apiFetch<Pick<Settings, 'environment' | 'database'>>('/machine').catch(() => ({})),
+        ])
+        app.settings.value = {...stored, ...machine}
         app.apply()
         await useOwner().refresh()
         // The page's own project comes whole in the same call.
@@ -112,7 +117,7 @@ export default defineNuxtPlugin(() => {
     /** How long to wait before opening a stream the browser gave up on again, longer each time. */
     let wait = 1000
     function connect() {
-        const events = new EventSource(apiUrl('/events?patch=1'))
+        const events = new EventSource(apiUrl('/events?patch=1'), {withCredentials: apiCrossOrigin('/events')})
         events.addEventListener('open', () => {
             live.value = 'connected'
             wait = 1000
@@ -121,6 +126,9 @@ export default defineNuxtPlugin(() => {
             opened = true
         })
         events.addEventListener('ready', event => {
+            // A page hosted apart from its server (ORR-667) is a build of its own, never the server's, and is updated
+            // where it's hosted: reloading wouldn't bring a new one, only loop.
+            if (apiCrossOrigin('/events')) return
             const build = (event as MessageEvent).data as string
             if (build && build !== useRuntimeConfig().app.buildId) location.reload()
         })
@@ -165,6 +173,7 @@ export default defineNuxtPlugin(() => {
             byProject.value = {...byProject.value, [project]: schedules}
             void useSchedules().loadAcross()
         })
+        events.addEventListener('epics', () => void useEpics().load())
         events.addEventListener('secrets', event => {
             useSecretList().secrets.value = JSON.parse((event as MessageEvent).data) as Secret[]
         })

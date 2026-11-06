@@ -51,6 +51,11 @@ export default defineNuxtConfig({
         // Host names orrery answers to besides localhost and IP addresses, comma-separated (e.g. `orrery.lan`).
         // Override with NUXT_ALLOWED_HOSTS.
         allowedHosts: '',
+        // Other sites whose pages may use the API from a browser, for orrery's frontend hosted there (ORR-667): exact
+        // origins, comma-separated (`https://app.example.com`). None by default. Override with NUXT_ALLOWED_ORIGINS.
+        allowedOrigins: '',
+        // `off` serves the API alone, without the pages, for a frontend hosted elsewhere (ORR-667). Override with NUXT_PAGES.
+        pages: '',
         // `off` stops anyone counting feature use on this server (ORR-881), whatever App settings says.
         // Override with NUXT_USAGE.
         usage: '',
@@ -73,6 +78,13 @@ export default defineNuxtConfig({
         // Encrypts the secrets agents use without seeing (a long random string; without it there are none).
         // Override with NUXT_SECRET_KEY (ORRERY_SECRET_KEY in compose).
         secretKey: '',
+        // The Rust API (ORR-922, api/), which serves the docs routes while the rest stay here. `apiBin`: its binary, which
+        // this server starts beside itself on its own database (NUXT_API_BIN, e.g. ../api/target/release/orrery-api). Or
+        // one already running: `apiUrl` where it listens (http://127.0.0.1:9100) and `apiToken` the token both are given
+        // (NUXT_API_URL, NUXT_API_TOKEN). Neither: this server answers every route, as before.
+        apiBin: '',
+        apiUrl: '',
+        apiToken: '',
         // Login and keys (ORR-664): `on` always asks for them; `off` never, for trying people out, and only on loopback.
         // Unset, they're on when the server is reachable from other machines or has a second person. Override with
         // NUXT_AUTH (ORRERY_AUTH in compose).
@@ -90,6 +102,11 @@ export default defineNuxtConfig({
             // Which orrery this is, each its own server and database (`personal`, `work`, …): a chip by
             // the name, and the start of every tab's title. Override with NUXT_PUBLIC_ENVIRONMENT.
             environment: 'personal',
+            // Where the page sends the API paths under a prefix instead of this server's /api (ORR-943): a JSON object
+            // of prefix to base, e.g. {"/projects/atlas/docs": "https://api.example.com/api"}, or {"/": …} for every path,
+            // as a frontend hosted on its own does (ORR-667). Empty: all same-origin.
+            // Override with NUXT_PUBLIC_API_BASES. See docs/development.md (The Rust API) for what a base must allow.
+            apiBases: {} as Record<string, string>,
             version,
         },
     },

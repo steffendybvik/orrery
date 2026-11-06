@@ -2,8 +2,11 @@
 // with a database made fresh for each run, so the tests start from an empty orrery whose owner has no name yet. A SQLite
 // file by default; with E2E_POSTGRES_URL (a database named for it, `orrery_e2e`), that Postgres, emptied first.
 // Chrome by default; E2E_BROWSER=webkit or firefox runs them in that one. One at a time, as each needs an orrery of its own.
+import {readdirSync, readFileSync} from 'node:fs'
 import {defineConfig, devices} from '@playwright/test'
 import {e2ePort} from './e2e-port'
+import type {Group} from './e2e-shards'
+import {shardSetting, shards} from './e2e-shards'
 
 const port = e2ePort(3100)
 const postgres = process.env.E2E_POSTGRES_URL
@@ -24,12 +27,29 @@ const specs = (names: string[]) => names.map(name => `${name}.spec.ts`)
 const shared = [...SESSIONS, ...SETTINGS, ...ALONE]
 const beforeLast = ['free', 'sessions', 'settings']
 
+// One shard of the whole suite (`E2E_SHARD=2/3`, ORR-920): first-run, then its share of each group as above, on a server
+// of its own. CI runs each browser's suite as shards side by side; e2e-shards.ts says which spec goes where.
+const shard = whole ? shardSetting(process.env.E2E_SHARD) : null
+// The page walks, which load every page in turn: no two in one shard where it can be helped.
+const WALKS = specs(['navigation', 'a11y', 'wcag-light', 'wcag-dark'])
+const groupOf = (file: string): Group => {
+    const name = file.replace(/\.spec\.ts$/, '')
+    return SESSIONS.includes(name) ? 'sessions' : SETTINGS.includes(name) ? 'settings' : ALONE.includes(name) ? 'alone' : 'free'
+}
+const mine = shard ? (shards(
+    readdirSync(new URL('./e2e', import.meta.url)).filter(f => f.endsWith('.spec.ts') && f !== 'first-run.spec.ts').sort().map(name => ({name, group: groupOf(name), heavy: WALKS.includes(name)})),
+    shard.total, JSON.parse(readFileSync(new URL('./e2e/durations.json', import.meta.url), 'utf8')) as Record<string, number>,
+)[shard.index - 1]?.map(s => s.name) ?? []) : null
+/** A group's specs: all of them, or this shard's share. */
+const share = (group: Group, names: string[]) => mine ? mine.filter(f => groupOf(f) === group && (group === 'free' || names.includes(f.replace(/\.spec\.ts$/, '')))) : specs(names)
+
 export default defineConfig({
     testDir: 'e2e',
     // Named for the browser, not the group a spec runs in, so the visual spec finds its images on the whole suite too.
     snapshotPathTemplate: '{testDir}/{testFilePath}-snapshots/{arg}-chromium-{platform}{ext}',
     // What `pnpm test:report` keeps with a run's numbers, so a change to how this runs isn't taken for a speedup.
-    metadata: {server: 'dev'},
+    // A sharded run is another way of running it, so it's kept apart from the runs before (ORR-920).
+    metadata: {server: shard ? `dev, in ${shard.total} shards` : 'dev'},
     // One orrery for every file. first-run.spec.ts opens it fresh, with an owner who has no name yet, so it runs first,
     // as a Playwright project the rest depend on; each of them then makes an orrery project of its own.
     workers: whole ? 4 : 1,
@@ -39,16 +59,19 @@ export default defineConfig({
     expect: {timeout: process.env.CI ? 15_000 : 5_000},
     // And a whole test, so a few slow expects in one fit: 30s held only while each took 5 (ORR-912).
     timeout: process.env.CI ? 60_000 : 30_000,
-    reporter: process.env.CI ? [['list'], ['html', {open: 'never'}], ['json', {outputFile: 'e2e-results.json'}]] : 'list',
+    // A shard's blob is merged with the others' after them (`playwright merge-reports`, CI's e2e-report job).
+    reporter: process.env.CI ? [['list'], ['html', {open: 'never'}], ['json', {outputFile: 'e2e-results.json'}], ...shard ? [['blob', {fileName: `report-${shard.index}.zip`}] as ['blob', {fileName: string}]] : []] : 'list',
     use: {baseURL: `http://localhost:${port}`, trace: 'retain-on-failure'},
     projects: [
         {name: 'first-run', testMatch: 'first-run.spec.ts', use: chrome},
         ...whole
             ? [
-                {name: 'free', testIgnore: ['first-run.spec.ts', 'perf/**', 'login/**', 'readme/**', 'restart/**', ...specs(shared)], dependencies: ['first-run'], use: chrome},
-                {name: 'sessions', testMatch: specs(SESSIONS), dependencies: ['first-run'], workers: 1, use: chrome},
-                {name: 'settings', testMatch: specs(SETTINGS), dependencies: ['first-run'], workers: 1, use: chrome},
-                {name: 'alone', testMatch: specs(ALONE), dependencies: beforeLast, workers: 1, use: chrome},
+                mine
+                    ? {name: 'free', testMatch: share('free', []), dependencies: ['first-run'], use: chrome}
+                    : {name: 'free', testIgnore: ['first-run.spec.ts', 'perf/**', 'login/**', 'readme/**', 'restart/**', ...specs(shared)], dependencies: ['first-run'], use: chrome},
+                {name: 'sessions', testMatch: share('sessions', SESSIONS), dependencies: ['first-run'], workers: 1, use: chrome},
+                {name: 'settings', testMatch: share('settings', SETTINGS), dependencies: ['first-run'], workers: 1, use: chrome},
+                {name: 'alone', testMatch: share('alone', ALONE), dependencies: beforeLast, workers: 1, use: chrome},
             ]
             : [{name: process.env.E2E_BROWSER || 'chromium', testIgnore: ['first-run.spec.ts', 'perf/**', 'login/**', 'readme/**', 'restart/**'], dependencies: ['first-run'], use: chrome}],
     ],

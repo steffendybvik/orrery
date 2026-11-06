@@ -133,9 +133,9 @@ test('a login ended while the page is open goes back to the login page', async (
 
 // Signing a phone in by App settings' QR code (ORR-837, ORR-845), as the owner does: the code carries a one-time link to
 // the phone's own port, read here from the request that makes it, as a camera reads it off the code. Under `nuxt dev` the
-// phone's listener serves the server alone, not Vite's modules (a built orrery serves both), so the page is opened on the
-// sessions' address with the same link, and the phone's port is checked through its API: a login's cookie is the same on
-// every port of `localhost`.
+// phone's listener serves the server alone, not Vite's modules (a built orrery serves both), so the page can't start there:
+// the phone sends what the login page sends on it, through its own port, whose login cookie is its own (named for the
+// port, #889). The page's side of a link is checked below, on the sessions' address.
 test("App settings' QR link signs a phone in on its own port, once, and lists its login", async ({page, browser}) => {
     await signedIn(page)
     const made = page.waitForResponse(response => response.url().endsWith('/api/phone/link') && response.request().method() === 'POST')
@@ -150,10 +150,8 @@ test("App settings' QR link signs a phone in on its own port, once, and lists it
 
     const phone = await browser.newContext({...devices['iPhone 13']})
     expect((await phone.request.get(`${address}/api/projects`)).status()).toBe(401)
-    const scanned = await phone.newPage()
-    await scanned.goto(new URL(path, page.url()).href)
-    await expect(scanned).not.toHaveURL(/\/login/)
-    await expect(scanned.getByRole('heading', {name: 'My issues'}).first()).toBeVisible()
+    // What login.vue sends with the link's `t`, on the port the code leads to.
+    expect((await phone.request.post(`${address}/api/auth/link`, {data: {token}})).status()).toBe(201)
     // Signed in, the phone reads through its own port, which asked for a login a moment ago.
     expect((await phone.request.get(`${address}/api/projects`)).status()).toBe(200)
     await phone.close()
@@ -170,5 +168,29 @@ test("App settings' QR link signs a phone in on its own port, once, and lists it
     await again.goto(new URL(path, page.url()).href)
     await expect(again.getByText(/used or has run out/)).toBeVisible()
     await expect(again).toHaveURL(/\/login$/)
+    await another.close()
+})
+
+// The code under the QR (ORR-875), typed on the phone's login page, from an app on the home screen that has no camera
+// and keeps cookies apart from the browser's: it signs the phone in on its own port, once, and uses up the QR's link.
+test("App settings' code signs a phone in on its own port, once, in place of the QR", async ({page, browser}) => {
+    await signedIn(page)
+    const made = page.waitForResponse(response => response.url().endsWith('/api/phone/link') && response.request().method() === 'POST')
+    await page.goto('/settings?tab=you#phone')
+    const {token} = await (await made).json() as {token: string}
+    const section = page.locator('#phone')
+    const shown = await section.getByTestId('phone-code').innerText()
+    expect(shown).toMatch(/^[A-Z2-9]{3}-[A-Z2-9]{3}$/)
+    const address = await section.getByRole('button', {name: /^Show the QR code for /}).first().innerText()
+
+    const phone = await browser.newContext({...devices['iPhone 13']})
+    // What login.vue sends with a typed code, however it's typed.
+    expect((await phone.request.post(`${address}/api/auth/link`, {data: {code: shown.toLowerCase()}})).status()).toBe(201)
+    expect((await phone.request.get(`${address}/api/projects`)).status()).toBe(200)
+    await phone.close()
+
+    const another = await browser.newContext()
+    expect((await another.request.post(`${address}/api/auth/link`, {data: {code: shown}})).status()).toBe(401)
+    expect((await another.request.post(`${address}/api/auth/link`, {data: {token}})).status()).toBe(401)
     await another.close()
 })

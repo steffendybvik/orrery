@@ -7,7 +7,8 @@ import type {Heading} from '~/utils/markdown'
 
 // Every Claude session, in one place, by project: what each is doing, what it's on and was last sent, with its
 // actions and a message box (SessionCard). A sidebar row opens its session (`#session-<id>`), lit up for a moment.
-// Start session starts one on any project, or several; Message sessions says one thing to all of them (idle ones by default).
+// Start session starts one on any project, or several; Message sessions says one thing to all of them (idle ones by default);
+// Close all stops every one listed but the owner's chat, asking first (ORR-970).
 // Three tabs keep them apart: Sessions, what's running; Setup (`?tab=setup`, or a link to one of its sections): first the
 // launcher's install command, always in view (ORR-473; once, with repos picked up after, ORR-600), with whether orrery may start sessions
 // and how, then the presets to start one with, and what sessions hear;
@@ -26,7 +27,7 @@ const scope = ref('')
 const scoped = computed(() => projects.value.find(p => p.id === scope.value))
 const scopeOptions = computed(() => [{value: '', label: 'Every project'}, ...ordered.value.map(p => ({value: p.id, label: p.name}))])
 const terminalOptions = Object.entries(TERMINALS).map(([value, label]) => ({value, label}))
-const install = launcherInstall(useRequestURL().origin)
+const install = launcherInstall(serverOrigin())
 
 // A session that hears several projects spans them (heardBy): it's listed once, on top under Across projects, and in
 // each project it hears that has sessions of its own as a line saying so (`via`).
@@ -43,6 +44,8 @@ const groups = computed(() => ordered.value
     .filter(g => g.sessions.length))
 // With none, the toolbar says nothing and offers no Message sessions: the empty state below says it once (ORR-555).
 const count = computed(() => spanning.value.length + groups.value.reduce((n, g) => n + g.sessions.length, 0))
+// Every session the page lists, once each, for Close all (ORR-970).
+const listed = computed(() => [...spanning.value, ...groups.value.flatMap(g => g.sessions)])
 // What takes the place of a session with no channel: a line per project, on what to do about it (ORR-716).
 const unheard = computed(() => ordered.value.map(project => ({project, sessions: withoutChannel(known(project.id))})).filter(u => u.sessions.length))
 
@@ -112,6 +115,8 @@ watch(() => [route.hash, count.value] as const, ([hash]) => show(hash), {immedia
         <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14" /></svg>
         Start session
       </UiButton>
+      <!-- Last, at the far right (ORR-979). -->
+      <CloseAllSessions :sessions="listed" />
     </template>
   </ViewToolbar>
 
@@ -124,8 +129,8 @@ watch(() => [route.hash, count.value] as const, ([hash]) => show(hash), {immedia
         <header class="flex flex-col gap-0.5">
           <h2 class="text-[15px] font-semibold text-fg">Starting sessions</h2>
           <p class="text-xs text-muted">
-            orrery can start sessions itself, with no terminal: when your work finds nobody listening, or when you press
-            Start session. It does so for any project whose repo the launcher serves.
+            orrery can start sessions itself, with no terminal: when work arrives for a project with no session running,
+            or when you press Start session. It does so for any project whose repo has the launcher.
           </p>
         </header>
         <CopyBlock title="Install the launcher once: run" :text="install" hint="Anywhere, it installs the launcher; in a project's repo, it adds that project too. From then on a Claude session opened in a repo adds it (--no-pick-up turns that off), and --uninstall in a repo takes it off and keeps it off. Adding a repo leaves the running sessions alone." />

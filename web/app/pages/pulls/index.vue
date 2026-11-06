@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import {SEGMENTS, segment} from '~/utils/segments'
 import {inProjectOrder, PULL_NEEDS} from '#shared/roadmap'
 
 // Every open pull request on the projects' GitHub repos (ORR-491), so one doesn't wait unseen once its issue is in
@@ -12,6 +13,8 @@ import {inProjectOrder, PULL_NEEDS} from '#shared/roadmap'
 // **Branches** beside them lists every branch with its issue and pull request, and whether to remove it (ORR-793).
 // They come 50 to a page (ORR-615), in that order across every repo, so page 1 always has those that need someone; a
 // card shows its PRs on this page, its counts every page's. The page is in the address, so a reload stays on it.
+// The search box (ORR-941) keeps only those with every word of it, in their number, title, branch, author or issue,
+// across every page, with the matches marked; `?q=` keeps it in the address, and a new search goes back to page 1.
 useHead({title: 'Pull requests · orrery'})
 const {projects, ready, byId} = useRoadmaps()
 const {ordered} = useProjectOrder()
@@ -23,14 +26,21 @@ const page = computed({
 })
 const view = computed(() => route.query.view === 'branches' ? 'branches' : 'pulls')
 const views = [{id: 'pulls', label: 'Pull requests'}, {id: 'branches', label: 'Branches'}]
-const {pulls, follow, poll, polling, failed} = useOpenPulls(page)
+const search = computed({
+    get: () => String(route.query.q ?? ''),
+    set: next => void router.replace({query: {...route.query, q: next.trim() ? next : undefined, page: undefined}}),
+})
+const {pulls, follow, poll, polling, failed} = useOpenPulls(page, search)
+const searching = computed(() => !!search.value.trim())
 follow(60_000)
 // Past the last page (PRs closed since), the answer is the last page: the address follows.
 watch(() => pulls.value?.page, at => {
     if (at && at !== page.value) page.value = at
 })
 const limit = computed(() => pulls.value?.limit ?? 50)
-const pages = computed(() => Math.max(1, Math.ceil((pulls.value?.open ?? 0) / limit.value)))
+// What's paged: every open one, or those a search found.
+const shown = computed(() => pulls.value?.matched ?? pulls.value?.open ?? 0)
+const pages = computed(() => Math.max(1, Math.ceil(shown.value / limit.value)))
 const from = computed(() => ((pulls.value?.page ?? page.value) - 1) * limit.value + 1)
 const needs = (state: string) => (PULL_NEEDS as string[]).includes(state)
 // The repos GitHub couldn't be read for: their pull requests aren't in the list, so it can't say none are open (ORR-552).
@@ -41,7 +51,7 @@ const noneRead = computed(() => !!unread.value && unread.value === pulls.value?.
 const cards = computed(() => inProjectOrder(pulls.value?.repos ?? [], ordered.value.map(p => p.id), r => r.repo).map(repo => {
     const own = (pulls.value?.pulls ?? []).filter(p => p.repo === repo.repo)
     return {...repo, pulls: own}
-}).filter(card => card.pulls.length || card.error || page.value === 1))
+}).filter(card => card.pulls.length || card.error || (page.value === 1 && !searching.value)))
 </script>
 
 <template>
@@ -50,16 +60,17 @@ const cards = computed(() => inProjectOrder(pulls.value?.repos ?? [], ordered.va
     <h1 class="truncate text-sm font-medium">Pull requests</h1>
   </PageHeader>
 
-  <nav class="flex gap-1 border-b border-line px-4 py-2 text-xs" aria-label="Pull requests and branches">
-    <NuxtLink
-        v-for="v in views"
-        :key="v.id"
-        :to="{query: v.id === 'branches' ? {view: 'branches'} : {}}"
-        class="rounded-md px-2 py-1"
-        :class="view === v.id ? 'bg-hover font-medium text-fg' : 'text-muted hover:text-fg'"
-        :aria-current="view === v.id ? 'page' : undefined"
-    >{{ v.label }}</NuxtLink>
-  </nav>
+  <div class="border-b border-line px-4 py-2">
+    <nav :class="[SEGMENTS, 'w-fit']" aria-label="Pull requests and branches">
+      <NuxtLink
+          v-for="v in views"
+          :key="v.id"
+          :to="{query: v.id === 'branches' ? {view: 'branches'} : {}}"
+          :class="segment(view === v.id)"
+          :aria-current="view === v.id ? 'page' : undefined"
+      >{{ v.label }}</NuxtLink>
+    </nav>
+  </div>
   <BranchesList v-if="view === 'branches'" />
   <template v-else>
   <ViewToolbar>
@@ -69,11 +80,12 @@ const cards = computed(() => inProjectOrder(pulls.value?.repos ?? [], ordered.va
       <template v-else-if="noneRead">Couldn't read GitHub</template>
       <template v-else>None open</template>
       <template v-if="unread && !noneRead">, {{ unread }} repo{{ unread === 1 ? '' : 's' }} not read</template>
+      <template v-if="pulls && pulls.matched !== undefined"> · {{ pulls.matched ? `${pulls.matched} match${pulls.matched === 1 ? 'es' : ''}` : 'none match' }}</template>
     </span>
     <span v-if="failed" class="text-xs text-rose-700 dark:text-rose-400">{{ failed }}</span>
     <template #end>
       <div v-if="pulls && pages > 1" class="flex shrink-0 items-center gap-1 text-xs text-faint">
-        <span class="mr-1 font-mono tabular-nums">{{ from }}–{{ from + pulls.pulls.length - 1 }} of {{ pulls.open }}</span>
+        <span class="mr-1 font-mono tabular-nums">{{ from }}–{{ from + pulls.pulls.length - 1 }} of {{ shown }}</span>
         <UiButton variant="ghost" size="xs" square :disabled="page <= 1" title="Previous page" aria-label="Previous page" @click="page = page - 1">
           <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6" /></svg>
         </UiButton>
@@ -81,6 +93,17 @@ const cards = computed(() => inProjectOrder(pulls.value?.repos ?? [], ordered.va
           <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6" /></svg>
         </UiButton>
       </div>
+      <label class="group flex h-7 min-w-0 flex-1 items-center gap-1.5 rounded-md bg-well px-2 ring-1 ring-line focus-within:ring-accent-500/50 sm:w-56 sm:flex-none">
+        <svg class="size-3.5 shrink-0 text-faint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
+        <input
+            v-model="search"
+            type="search"
+            placeholder="Find a pull request"
+            aria-label="Find a pull request"
+            class="min-w-0 flex-1 bg-transparent text-[13px] text-fg placeholder:text-faint focus:outline-none [&::-webkit-search-cancel-button]:hidden"
+            @keydown.enter="($event.target as HTMLInputElement).blur()"
+        >
+      </label>
       <UiButton class="shrink-0" :disabled="polling || !pulls?.repos.length" title="Ask GitHub now, rather than at the next poll" @click="poll">
         <UiBusy :busy="polling" label="Polling…">
           <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36M21 4v5h-5" /></svg>
@@ -120,7 +143,7 @@ const cards = computed(() => inProjectOrder(pulls.value?.repos ?? [], ordered.va
           <ul v-else-if="card.pulls.length" :aria-label="`Open pull requests on ${card.repo}`">
             <li v-for="pull in card.pulls" :key="pull.number" class="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-line px-3 py-2 text-sm last:rounded-b-xl last:border-b-0" :class="{'bg-rose-500/5': needs(pull.state)}">
               <span class="flex min-w-0 flex-1 items-baseline gap-1.5">
-                <NuxtLink :to="`/pulls/${card.repo}/${pull.number}`" class="min-w-0 truncate text-fg hover:underline" :title="`#${pull.number}'s linked issues`"><span class="font-mono text-xs text-faint">#{{ pull.number }}</span> {{ pull.title }}</NuxtLink>
+                <NuxtLink :to="`/pulls/${card.repo}/${pull.number}`" class="min-w-0 truncate text-fg hover:underline" :title="`#${pull.number}'s linked issues`"><span class="font-mono text-xs text-faint"><MatchText :text="`#${pull.number}`" :q="search" /></span> <MatchText :text="pull.title" :q="search" /></NuxtLink>
                 <PullGithubLink :number="pull.number" :url="pull.url" />
               </span>
               <PullStateChip :state="pull.state" />
@@ -131,15 +154,15 @@ const cards = computed(() => inProjectOrder(pulls.value?.repos ?? [], ordered.va
                     :to="`/p/${pull.issue.project}/issues/${pull.issue.id}`"
                     class="shrink-0 font-mono text-muted hover:text-fg hover:underline"
                     :title="`${byId(pull.issue.project)?.name ?? pull.issue.project}: ${pull.issue.title}`"
-                >{{ pull.issue.id }}</NuxtLink>
+                ><MatchText :text="pull.issue.id" :q="search" /></NuxtLink>
                 <span v-else class="shrink-0">no issue</span>
-                <span class="min-w-0 truncate font-mono" :title="`${pull.branch} into ${pull.base}, by ${pull.author}`">{{ pull.branch }} → {{ pull.base }}</span>
+                <span class="min-w-0 truncate font-mono" :title="`${pull.branch} into ${pull.base}, by ${pull.author}`"><MatchText :text="pull.branch" :q="search" /> → <MatchText :text="pull.base" :q="search" /></span>
                 <span class="ml-auto shrink-0">{{ ago(pull.created_at) }}</span>
               </span>
             </li>
           </ul>
-          <p v-if="!card.error && card.pulls.length && card.pulls.length < card.open" class="border-t border-line px-3 py-1.5 text-[11px] text-faint">
-            {{ card.open - card.pulls.length }} more on other pages
+          <p v-if="!card.error && card.pulls.length && card.pulls.length < (card.matched ?? card.open)" class="border-t border-line px-3 py-1.5 text-[11px] text-faint">
+            {{ (card.matched ?? card.open) - card.pulls.length }} more on other pages
           </p>
         </li>
       </ul>

@@ -10,7 +10,7 @@
 // by an API error (the network, a rate limit) lets go of what it had in progress (`letGo`), so none of it sits there
 // in progress with nobody on it.
 import type {Signal} from '#shared/roadmap'
-import {CLOSED, byPriority, isBlocked, modelFor} from '#shared/roadmap'
+import {CARRY_FROM, CLOSED, byPriority, isBlocked, modelFor, sameScope} from '#shared/roadmap'
 import {heavyEnough} from './pool'
 
 /** How long a session stays idle before it's cleared: a signal its channel has just handed Claude Code starts
@@ -36,6 +36,9 @@ const carried = new Map<string, string>()
 /** The note on a focus `carryOn` sends, which tells it from the owner's own. */
 export const CARRY_ON = 'Carry on with this one, the most urgent next to the issue you just worked (a sub-issue or sibling of it), with what you know from that.'
 
+/** The note on the focus that brings a session back to the issue it carried another's context into, once cleared (ORR-968). */
+export const AFTER_CLEAR = 'Carry on with this one on a fresh context: your context was cleared, as the issue you worked before is unrelated to it.'
+
 /** A milestone or scope focus reaching the session: what's left of it is its run until another comes. A focus on one
  * issue ends the run: the owner pointed it elsewhere. Runs of sessions that are gone are let go. */
 export function startRun(session: string, signal: Signal) {
@@ -45,7 +48,7 @@ export function startRun(session: string, signal: Signal) {
     if (signal.kind !== 'focus') return
     if (!signal.issue && signal.milestone) runs.set(session, signal)
     // Carrying on with sub-issues is still the run's work: what's left of it waits until they're done.
-    else if (signal.issue && signal.note !== CARRY_ON) sessionIds(currentId(session)).forEach(id => runs.delete(id))
+    else if (signal.issue && signal.note !== CARRY_ON && signal.note !== AFTER_CLEAR) sessionIds(currentId(session)).forEach(id => runs.delete(id))
 }
 
 /** The session orrery started is back from a `/clear`: if its run has issues left, a focus on them goes to it
@@ -61,7 +64,7 @@ export async function resumeRun(project: string, session: string): Promise<boole
     const left = open.map(t => `${t.id} ${t.column} ${t.updated_at}`).join('\n')
     if (resumed.get(run) === left) return false
     resumed.set(run, left)
-    await store.focusMilestone(project, run.milestone, {session, status: run.status ?? null, release: run.release ?? null, note: "Carry on with what's left of it after the clear."},
+    await store.focusMilestone(project, run.milestone, {session, status: run.status ?? null, release: run.release ?? null, ...run.epic === undefined ? {} : {epic: run.epic}, note: "Carry on with what's left of it after the clear."},
         {name: run.created_by, owner: run.protected, ...run.person ? {person: run.person} : {}})
     return true
 }
@@ -95,9 +98,9 @@ export function clearDone(id: string): boolean {
     return released
 }
 
-/** Whether `issue` is part of the same work as any of `ours`: one of them, its parent, a sub-issue or a sibling of one. */
-const related = (issue: {id: string, parent?: string | null}, ours: {id: string, parent?: string | null}[]) =>
-    ours.some(o => o.id === issue.id || o.id === issue.parent || o.parent === issue.id || !!o.parent && o.parent === issue.parent)
+/** Whether `issue` is part of the same work as any of `ours`: one of them, its parent, a sub-issue or a sibling of one,
+ * or in the same milestone or epic, as the carried-over marker counts it (ORR-968). */
+const related = (issue: Parameters<typeof sameScope>[0], ours: Parameters<typeof sameScope>[0][]) => ours.some(o => sameScope(o, issue))
 
 /** The owner's focus on an issue is about to reach a session orrery started (`id`), idle, that still holds work only in
  * review or waiting on the owner, so it was never cleared (ORR-904). When the issue isn't part of that work, its launcher
@@ -108,6 +111,8 @@ export async function clearBefore(project: string, id: string, signal: Signal, d
     if (signal.kind !== 'focus' || !signal.issue || !signal.protected || signal.note === CARRY_ON) return false
     const now = sessionNow(id)
     if (!now?.started || now.started.chat || now.started.untrusted || untrustedSession(id) || chatSession(id) || now.state !== 'idle') return false
+    // A small context costs less to carry than a clear and a wait (ORR-968). One not counted yet is cleared as before.
+    if ((now.context?.tokens ?? CARRY_FROM) < CARRY_FROM) return false
     const session = currentId(id)
     // Already due a clear for one held before this: this one waits behind it.
     const waiting = held.get(session)
@@ -152,6 +157,8 @@ export function considerClear(project: string, id: string) {
             if (!now?.started || now.state !== 'idle' || now.idleAt !== before.idleAt) return notDue()
             const ids = sessionIds(id)
             const store = useStore()
+            // Gone idle on the issue it carried another's context into: cleared, then sent back to it (ORR-968).
+            if (await clearCarried(now, id, notDue)) return
             if (await store.busy(now.project, ids)) return notDue()
             // Its next piece of work is related to the one it just did (a sibling of it): it keeps its context and is
             // sent on to it instead (ORR-903). Once it won't take it, the next idle clears it as before.
@@ -166,6 +173,32 @@ export function considerClear(project: string, id: string) {
             console.error(`[orrery] clearing ${id}:`, error)
         }
     }, CLEAR_AFTER)
+}
+
+/** The session orrery started has gone idle on the issue it carried another's context into, still in progress
+ * (ORR-968): its launcher clears it, and once it's back a focus on that issue goes to it alone, as the owner's, so it
+ * carries on with a fresh context. Its start said it would be (`start_issue`). Says whether it did. A clear that never
+ * comes back (its launcher gone) sends nothing, and lets it pick again once the mark runs out. */
+async function clearCarried(now: NonNullable<ReturnType<typeof sessionNow>>, id: string, notDue: () => boolean): Promise<boolean> {
+    const carried = now.carried_over
+    if (!carried || !now.started || !now.listening || untrustedSession(id) || chatSession(id)) return false
+    const store = useStore()
+    const issue = (await store.workingOn(now.project, sessionIds(id))).find(o => o.id === carried.to && o.status !== 'in-review' && !o.waiting)
+    const session = currentId(id)
+    if (!issue || held.has(session)) return false
+    const owner = (await store.ownerOf()).name
+    const back = () => {
+        store.focus(issue.project, issue.id, {session, note: AFTER_CLEAR}, {name: owner, owner: true})
+            .catch(error => console.error(`[orrery] sending ${session} back to ${issue.id}:`, error))
+    }
+    held.set(session, [back])
+    projectEvents.emit('launches', {type: 'clear', project: now.project, id: now.started.launch})
+    setTimeout(() => {
+        if (held.get(session)?.[0] !== back) return
+        held.delete(session)
+        if (notDue()) recheckIdle()
+    }, CLEAR_DUE_FOR)
+    return true
 }
 
 /** The session went idle: if it's listening, and after a moment it's still idle with no signal waiting, and an issue

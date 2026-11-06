@@ -15,11 +15,17 @@ export async function scopeOf(store: Store, project: string, signal: Signal) {
         : signal.milestone === 'none'
             ? (await board()).milestones.find(c => !c.id) ?? {title: 'No milestone', column: 'done', priority: undefined, tasks: []}
             : await store.milestone(project, known(signal.milestone, 'the milestone a milestone focus is on'))
-    // With a release, the issues set for it, at any depth (a sub-issue's when its parent isn't).
-    const tasks: Issue[] = []
-    const pick = (issues: Issue[]) => issues.forEach(t => t.release === signal.release ? tasks.push(t) : pick(t.tasks))
-    if (signal.release) pick(milestone.tasks)
-    else tasks.push(...milestone.tasks)
+    // With a release, the issues set for it, at any depth (a sub-issue's when its parent isn't); with an epic (ORR-987),
+    // those in it, the same way.
+    const within = (issues: Issue[], fits: (t: Issue) => boolean) => {
+        const found: Issue[] = []
+        const pick = (list: Issue[]) => list.forEach(t => fits(t) ? found.push(t) : pick(t.tasks))
+        pick(issues)
+        return found
+    }
+    let tasks = milestone.tasks
+    if (signal.release) tasks = within(tasks, t => t.release === signal.release)
+    if (signal.epic !== undefined) tasks = within(tasks, t => t.epic === signal.epic)
     // Statuses or kinds (`started`), comma-separated: their issues; else every open one.
     const wanted = signal.status?.split(',').map(s => s.trim()).filter(Boolean) ?? []
     const fits = (t: {column: string, kind: string}) => wanted.length
@@ -28,6 +34,8 @@ export async function scopeOf(store: Store, project: string, signal: Signal) {
     // One blocked by an issue not done yet waits (`held`, ORR-601): it joins once its blockers are done.
     const open = tasks.filter(t => fits(t) && !isBlocked(t)).sort(byPriority)
     const held = tasks.filter(t => fits(t) && isBlocked(t)).sort(byPriority)
-    const title = signal.release ? `${milestone.title}, release ${signal.release}` : milestone.title
+    const epic = signal.epic === undefined ? undefined : (await store.epics()).find(e => e.id === signal.epic)
+    const title = signal.epic !== undefined ? `${epic?.title ?? 'an epic since removed'}${signal.release ? `, release ${signal.release}` : ''}`
+        : signal.release ? `${milestone.title}, release ${signal.release}` : milestone.title
     return {milestone, title, wanted, open, held}
 }

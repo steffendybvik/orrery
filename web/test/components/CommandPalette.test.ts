@@ -6,8 +6,8 @@ import type {Project, Session} from '#shared/roadmap'
 import CommandPalette from '~/components/CommandPalette.vue'
 import {mostUsedCommands, recordCommand} from '~/utils/commandUse'
 
-// ⌘K's keyboard: what it shows with nothing typed, an exact id as the Top hit, ↑↓ round the ends, ⇥ by section, a scope
-// prefix, "N more" opening on ↵, and ↵ running the row in focus.
+// ⌘K's keyboard: what it shows with nothing typed, an exact id as the Top hit, ↑↓ round the ends, ⇥ by tab, a prefix
+// picking a tab, "N more" opening on ↵, and ↵ running the row in focus.
 const KINDS = {proposed: 0, backlog: 0, todo: 8, started: 0, done: 0, canceled: 0}
 const issue = (id: string, title: string, aliases: string[] = []) => ({id, title, aliases, labels: [], tasks: [], column: 'todo', kind: 'todo'})
 const project = (id: string, name: string, issues: ReturnType<typeof issue>[]) => ({
@@ -29,15 +29,16 @@ afterEach(() => {
     useState('palette-open').value = false
 })
 
-async function mount() {
-    mounted.push(await mountSuspended(CommandPalette, {attachTo: document.body}))
+async function mount(route?: string) {
+    mounted.push(await mountSuspended(CommandPalette, {attachTo: document.body, ...route ? {route} : {}}))
     // Headless UI's Dialog draws in a portal on the page's body, not inside the component.
     const wrapper = new DOMWrapper(document.body)
     const input = () => wrapper.find('input[aria-label="Type a command or search"]')
     const key = (k: string, more: Record<string, unknown> = {}) => input().trigger('keydown', {key: k, ...more})
     const sections = () => wrapper.findAll('section').map(s => s.attributes('aria-label'))
-    const chosen = () => wrapper.find('[aria-selected="true"]').text()
-    return {wrapper, input, key, sections, chosen}
+    const chosen = () => wrapper.find('[role="option"][aria-selected="true"]').text()
+    const tab = () => wrapper.find('[role="tab"][aria-selected="true"]').text()
+    return {wrapper, input, key, sections, chosen, tab}
 }
 
 const runs = (key: string, times: number, at = Date.now()) => {
@@ -52,14 +53,14 @@ describe('CommandPalette', () => {
         it('stays out until a command has been run a few times', async () => {
             runs('go:sessions', 2)
             const {sections} = await mount()
-            expect(sections()).toEqual(['Jump to', 'Go to'])
+            expect(sections()).toEqual(['Go to', 'Jump to'])
         })
 
         it('leads with the most used, chosen first, and repeats none of them below', async () => {
             runs('go:events', 3)
             runs('go:sessions', 5)
             const {sections, chosen, wrapper} = await mount()
-            expect(sections()).toEqual(['Most used', 'Jump to', 'Go to'])
+            expect(sections()).toEqual(['Most used', 'Go to', 'Jump to'])
             expect(used(wrapper)[0]).toContain('Sessions')
             expect(used(wrapper)[1]).toContain('Events')
             expect(chosen()).toContain('Sessions')
@@ -120,10 +121,41 @@ describe('CommandPalette', () => {
 
     it('offers the projects and places with nothing typed', async () => {
         const {sections, wrapper} = await mount()
-        expect(sections()).toEqual(['Jump to', 'Go to'])
+        expect(sections()).toEqual(['Go to', 'Jump to'])
         const jump = wrapper.find('section[aria-label="Jump to"]').text()
         expect(jump).toContain('Greenhouse')
         expect(jump).toContain('Pantry')
+    })
+
+    it('keeps the rare pages and all but three projects behind "N more" (ORR-947)', async () => {
+        useRoadmaps().projects.value = [GREENHOUSE, PANTRY, project('cellar', 'Cellar', []), project('shed', 'Shed', [])]
+        const {wrapper, input, key} = await mount()
+        const go = () => wrapper.find('section[aria-label="Go to"]').text()
+        const jump = () => wrapper.find('section[aria-label="Jump to"]').text()
+        expect(go()).toContain('Pull requests')
+        expect(go()).not.toContain('Events')
+        expect(go()).toContain('5 more…')
+        expect(jump()).toContain('1 more…')
+        expect(jump()).not.toContain('Shed')
+        await input().setValue('events')
+        expect(wrapper.find('section[aria-label="Commands"]').text()).toContain('Events')
+        await input().setValue('')
+        const go2 = wrapper.findAll('section[aria-label="Go to"] [role="option"]')
+        const more = go2.findIndex(o => o.text() === '5 more…')
+        for (let n = 0; n < more; n++) await key('ArrowDown')
+        await key('Enter')
+        expect(go()).toContain('Events')
+    })
+
+    it('leaves the rarely wanted to a search in Here on a project\'s page (ORR-947)', async () => {
+        const {wrapper, input} = await mount('/p/greenhouse')
+        const here = wrapper.find('section[aria-label="Here"]').text()
+        expect(here).toContain('Show as a board')
+        expect(here).toContain('New issue in Greenhouse')
+        expect(here).not.toContain('Group the list')
+        expect(here).not.toContain('New milestone')
+        await input().setValue('group the list')
+        expect(wrapper.find('section[aria-label="Commands"]').text()).toContain('Group the list by status')
     })
 
     it('puts an exact id first, by an id it had too', async () => {
@@ -146,7 +178,7 @@ describe('CommandPalette', () => {
         expect(lit().text()).not.toBe(first)
     })
 
-    it('moves with ↑↓ round the ends, and ⇥ to the next section', async () => {
+    it('moves with ↑↓ round the ends', async () => {
         const {input, key, chosen} = await mount()
         await input().setValue('greenhouse')
         const first = chosen()
@@ -155,16 +187,52 @@ describe('CommandPalette', () => {
         expect(last).not.toBe(first)
         await key('ArrowDown')
         expect(chosen()).toBe(first)
+    })
+
+    it('goes round the tabs on ⇥, each narrowing the list, and back to All on ⌫ (ORR-948)', async () => {
+        const {input, key, sections, tab, chosen, wrapper} = await mount()
+        expect(tab()).toBe('All')
         await key('Tab')
-        expect(chosen()).toContain('Label jar')
+        expect(tab()).toBe('Commands')
+        expect(sections()).toEqual(['Commands'])
+        await key('Tab')
+        expect(tab()).toBe('Issues')
+        expect(sections()).toEqual(['Issues'])
+        await key('Tab')
+        expect(sections()).toEqual(['Projects', 'Milestones'])
+        await key('Tab')
+        expect(sections()).toEqual(['Docs'])
+        await key('Tab')
+        expect(tab()).toBe('Pages')
+        expect(sections()).toEqual(['Go to'])
+        expect(wrapper.find('section[aria-label="Go to"]').text()).toContain('Events')
+        await key('Tab')
+        expect(tab()).toBe('All')
         await key('Tab', {shiftKey: true})
-        expect(chosen()).toBe(first)
+        expect(tab()).toBe('Pages')
+        await input().setValue('sched')
+        expect(chosen()).toContain('Schedules')
+        await input().setValue('')
+        await key('Backspace')
+        expect(tab()).toBe('All')
+    })
+
+    it('picks a tab with a prefix typed first, and takes it off the query', async () => {
+        const {input, sections, tab} = await mount()
+        await input().setValue('>sched')
+        expect(tab()).toBe('Commands')
+        expect((input().element as HTMLInputElement).value).toBe('sched')
+        await input().setValue('@pan')
+        expect(tab()).toBe('Projects')
+        expect(sections()).toEqual(['Projects', 'Milestones'])
     })
 
     it('narrows to issues with #, and opens the rest past "N more" on ↵', async () => {
         const {wrapper, input, key, sections} = await mount()
         await input().setValue('#jar')
         expect(sections()).toEqual(['Issues'])
+        await input().setValue('')
+        await key('Backspace')
         await input().setValue('jar')
         expect(wrapper.find('section[aria-label="Issues"]').text()).toContain('2 more…')
         for (let i = 0; i < 6; i++) await key('ArrowDown')
@@ -222,5 +290,13 @@ describe('CommandPalette', () => {
         await key('Enter')
         expect(all.value).toBe(true)
         all.value = false
+
+        // Its other words find it too (ORR-937).
+        for (const words of ['>message all', '>all sessions']) {
+            useState('palette-open').value = true
+            await nextTick()
+            await input().setValue(words)
+            expect(wrapper.find('[role="option"][aria-selected="true"]').text()).toContain('Message sessions')
+        }
     })
 })

@@ -24,6 +24,7 @@ watch(() => [props.project.id, props.issue.id, props.issue.updated_at] as const,
 }, {immediate: true})
 
 const {look} = useStatuses()
+const {epics} = useLiveEpics()
 const PROPOSAL_SAID: Record<string, string> = {pending: 'put it up as a proposal', approved: 'approved the proposal', changes: 'asked for changes to the proposal', rejected: 'rejected the proposal'}
 
 const list = (value?: string) => (JSON.parse(value ?? '[]') ?? []) as string[]
@@ -65,6 +66,10 @@ function said(event: IssueEvent): string[] {
             ...now.filter(g => !was.includes(g)).map(g => `linked the GitHub issue ${g}`),
             ...was.filter(g => !now.includes(g)).map(g => `unlinked the GitHub issue ${g}`),
         ]
+    }
+    if (field === 'epic') {
+        const title = after ? epics.value?.find(e => e.id === Number(after))?.title ?? `epic ${after}` : ''
+        return [after ? `put it in the epic ${title}` : 'took it out of its epic']
     }
     if (field === 'model') return [after ? `set its model to ${after}` : 'let its kind pick its model']
     if (field === 'effort') return [after ? `set its effort to ${after}` : 'let its kind pick its effort']

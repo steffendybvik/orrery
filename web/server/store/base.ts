@@ -1,17 +1,21 @@
 // What every part of the store stands on: the database, telling open pages of a change, reading rows and
 // records, the owner's protection, and writing.
+import {AsyncLocalStorage} from 'node:async_hooks'
 import type {ActivityField, Board, IssueStatus, Notice, Project, Settings, Signal, Starts} from '#shared/roadmap'
-import {shortId} from '#shared/roadmap'
+import {numberOf, shortId} from '#shared/roadmap'
 import type {Input} from '../utils/input'
 import {badRequest, notFound} from '../utils/input'
 import type {Db, Value} from '../utils/database'
 import {one} from '../utils/database'
 import type {Instruction} from '#shared/prompt'
 import type {Actor, ProjectRow, MilestoneRow, IssueRow, CommentRow, DocRow, ReleaseRow} from './schema'
-import {noReleases, nullable, stamp} from './schema'
+import {ANSWERED, noReleases, nullable, stamp} from './schema'
 import type {OrreryEvent} from '#shared/happenings'
 import {refusedFor} from '../utils/permission'
 import {drawingOn, readBoard, readDocSections, readDocSummaries, readReleases} from './reads'
+
+/** Set while the router tells what a write the Rust API made set off: the API put it in the outbox already (ORR-929). */
+const relayed = new AsyncLocalStorage<true>()
 
 export abstract class StoreBase {
     constructor(
@@ -37,10 +41,73 @@ export abstract class StoreBase {
     /** Hears what happens (`issue.status`, `release.frozen`…), for the schedules that run on it; the server sets it. */
     happened: (event: OrreryEvent) => void = () => {}
 
+    /** The schedule whose run the code running now is part of, if any; the server sets it. */
+    cause: () => string | undefined = () => undefined
+
+    /** Tells what a write the Rust API made set off (`work`, the router's hooks), without a second row in the outbox. */
+    async relaying<T>(work: () => Promise<T>): Promise<T> {
+        return await relayed.run(true, work)
+    }
+
+    /** A row in the outbox (ORR-929) for what a write set off, as the Rust API writes for its own: in the write's
+     * transaction when there is one, else at once. A project's change, the settings or the epics go in once a transaction. */
+    protected outbox(kind: string, at: {project?: string, subject?: string, actor?: Actor, payload?: unknown} = {}) {
+        if (relayed.getStore()) return
+        const {project = null, subject = null, actor, payload} = at
+        const cause = this.cause() ?? null
+        const once = kind === 'project.changed' || kind === 'settings' || kind === 'epics' ? `${kind} ${project ?? ''}` : undefined
+        this.db.beforeCommit(async () => {
+            const row = await this.db.get<{id: number | string}>('INSERT INTO changes (kind, project, subject, actor, owner, session, untrusted, cause, payload, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id',
+                kind, project, subject, actor?.name ?? null, actor?.owner ? 1 : 0, actor?.session ?? null, actor?.untrusted ? 1 : 0, cause,
+                payload === undefined ? null : JSON.stringify(payload), stamp())
+            if (row) this.own?.add(Number(row.id))
+        }, once)
+    }
+
+    /** The outbox rows this server wrote, kept only while it follows the feed (ORR-983): its own hooks heard those. */
+    private own: Set<number> | null = null
+
+    /** From now on, keeps the ids of the outbox rows this server writes, for the follower to skip (ORR-983). */
+    keepOwnChanges() {
+        this.own ??= new Set()
+    }
+
+    /** Whether this server wrote the outbox row `id`, forgetting it: each is read once. */
+    wroteChange(id: number): boolean {
+        return this.own?.delete(id) ?? false
+    }
+
+    /** Open pages get the settings, and the outbox says they changed. */
+    protected saySettings(settings: Settings, actor?: Actor) {
+        this.outbox('settings', {actor})
+        this.onSettings(settings)
+    }
+
     /** Says what happened, as `actor` did it. */
     protected tell(type: string, project: string, subject: string, actor: Actor, change: {from?: string | null, to?: string | null} = {}) {
-        this.happened({type, project, subject, by: {name: actor.name, owner: actor.owner, ...actor.person && !actor.owner ? {person: actor.person} : {}}, ...actor.untrusted ? {untrusted: true} : {},
-            ...change.from == null ? {} : {from: change.from}, ...change.to == null ? {} : {to: change.to}})
+        const event: OrreryEvent = {type, project, subject, by: {name: actor.name, owner: actor.owner, ...actor.person && !actor.owner ? {person: actor.person} : {}}, ...actor.untrusted ? {untrusted: true} : {},
+            ...change.from == null ? {} : {from: change.from}, ...change.to == null ? {} : {to: change.to}}
+        // Where a value went, and whose agent did it: what a schedule's `on` matches beyond the kind (ORR-929).
+        const payload = {...event.from === undefined ? {} : {from: event.from}, ...event.to === undefined ? {} : {to: event.to}, ...event.by?.person ? {person: event.by.person} : {}}
+        this.outbox(type, {project, subject, actor, ...Object.keys(payload).length ? {payload} : {}})
+        this.happened(event)
+    }
+
+    /** A signal for sessions, and its row in the outbox: its id, as the `signals` table holds the rest (ORR-929). */
+    protected signalled(signal: Signal) {
+        this.outbox('signal', {project: signal.project, subject: String(signal.id)})
+        this.onSignal(signal)
+    }
+
+    /** An agent's comment for the owner's bell, and its row in the outbox: the comment's id, and its issue (ORR-929). */
+    protected noticed(notice: Notice) {
+        this.outbox('notice', {project: notice.project, subject: String(notice.id), payload: {issue: notice.issue}})
+        this.onNotice(notice)
+    }
+
+    /** Says what a write made elsewhere did (the Rust API's, ORR-922), as `tell` does for the store's own. */
+    told(type: string, project: string, subject: string, actor: Actor, change: {from?: string | null, to?: string | null} = {}) {
+        this.tell(type, project, subject, actor, change)
     }
 
     /** Projects changed while a batch runs, said once it ends rather than once per issue. */
@@ -50,7 +117,14 @@ export abstract class StoreBase {
      * issue), and the projects sharing its releases: a source counts the issues of those drawing on it, and they
      * show its releases. */
     changed(project: string) {
+        this.outbox('project.changed', {project})
         if (this.held) return void this.held.add(project)
+        // Inside a write's transaction, open pages hear it the moment it commits, and never when it's taken back.
+        this.db.atCommit(() => this.pushChanged(project))
+    }
+
+    /** Tells open pages the project changed, and the projects sharing its releases. */
+    private pushChanged(project: string) {
         this.onChange(project)
         this.all<{id: string}>('SELECT id FROM projects WHERE releases_from = ? OR id = (SELECT releases_from FROM projects WHERE id = ?)', project, project)
             .then(rows => rows.forEach(r => this.onChange(r.id)), () => {})
@@ -128,8 +202,10 @@ export abstract class StoreBase {
         if (await this.get('SELECT 1 FROM milestones WHERE project = ? AND id = ?', project, id)) return id
         const alias = (await this.get<{milestone: string}>('SELECT milestone FROM milestone_aliases WHERE project = ? AND alias = ?', project, id))?.milestone
         if (alias) return alias
-        const short = shortId('milestone', id, (await this.projectRow(project)).uid)
-        return short === null ? id : await this.milestoneId(project, short)
+        const {uid} = await this.projectRow(project)
+        // `MLS-14` as it's shown (ORR-995), `MLS-14-x7k2m9qd` in full, or the full form of a name it had before.
+        const short = numberOf('milestone', id, uid) ?? shortId('milestone', id, uid)
+        return short === null || short === id ? id : await this.milestoneId(project, short)
     }
 
     /** Hands out the project's next id: KEY-n for an issue, n for a milestone. */
@@ -187,9 +263,10 @@ export abstract class StoreBase {
         return row
     }
 
+    /** The comment, with whether the owner has answered it since (`answered` isn't stored: it's worked out, ORR-942). */
     protected async commentRow(project: string, issue: string, id: number): Promise<CommentRow> {
         await this.issueRow(project, issue)
-        const row = await this.get<CommentRow>('SELECT * FROM comments WHERE project = ? AND issue = ? AND id = ?', project, issue, id)
+        const row = await this.get<CommentRow>(`SELECT c.*, ${ANSWERED} FROM comments c WHERE c.project = ? AND c.issue = ? AND c.id = ?`, project, issue, id)
         if (!row) throw notFound(`No comment ${id} on ${issue}`)
         return row
     }

@@ -4,7 +4,7 @@ import {AGENT, OWNER, hold, makeProject, projectApi} from './support'
 // The session side, with a fake channel and launcher on the API where Claude would be: starting sessions turned on,
 // a session's card and a message to it alone, a session across two projects, where a focus goes, several projects
 // on one stream, a message to every idle session, Focus on this starting one and New session on this another, Stop on
-// one orrery started, one with no channel left out of the lists, the session on an issue shown on its page, the repos the
+// one orrery started, Close all, one with no channel left out of the lists, the session on an issue shown on its page, the repos the
 // launcher serves, and a preset.
 
 const api = projectApi('kitchen')
@@ -28,11 +28,10 @@ test('lets orrery start sessions once, for every project, on the Sessions page',
     await starts.getByLabel('Sessions kept running').fill('2')
     await starts.getByLabel('Sessions kept running').blur()
     await expect.poll(async () => (await (await request.get('/api/settings')).json()).starts).toEqual({limit: 2, min: 2})
-    // Work alone can stop starting one, and says so; back on for the tests after this.
-    const onSignal = starts.getByRole('checkbox', {name: "Start a session when work arrives and nobody's listening"})
+    // Work alone can stop starting one; back on for the tests after this.
+    const onSignal = starts.getByRole('checkbox', {name: 'When work arrives for a project with no session running, start one'})
     await onSignal.uncheck()
     await expect.poll(async () => (await (await request.get('/api/settings')).json()).starts).toEqual({limit: 2, min: 2, on_signal: false})
-    await expect(starts.getByText('when you press Start session or Focus on this')).toBeVisible()
     await onSignal.check()
     await expect.poll(async () => (await (await request.get('/api/settings')).json()).starts).toEqual({limit: 2, min: 2})
     // A limit lowered below the minimum takes it down too, rather than being refused (ORR-479); then back.
@@ -100,15 +99,22 @@ test("shows the model each session runs on, from its hook, and the new one after
     const channel = hold(baseURL!, '/api/projects/kitchen/signals/stream?session=e2e-model&name=kitchen%20pantry&format=text')
     try {
         await page.goto('/sessions')
-        const model = page.locator('#session-e2e-model').getByTestId('session-model')
+        const model = page.locator('#session-e2e-model').getByTestId('model-chip')
         await expect(model).toHaveText('Opus 5.5')
-        await expect(model).toHaveAttribute('title', 'claude-opus-5-5')
+        await expect(model).toHaveAttribute('title', 'Runs on Opus 5.5')
         await request.post('/api/sessions', {data: {id: 'e2e-model', project: 'kitchen', event: 'Stop', model: 'claude-sonnet-5-5'}})
         await expect(model).toHaveText('Sonnet 5.5')
         // Its effort level beside it, once its hook has said (ORR-894).
         await request.post('/api/sessions', {data: {id: 'e2e-model', project: 'kitchen', event: 'PreToolUse', effort: 'high'}})
         await expect(model).toHaveText('Sonnet 5.5 · high')
-        await expect(model).toHaveAttribute('title', 'claude-sonnet-5-5 · high effort')
+        await expect(model).toHaveAttribute('title', 'Runs on Sonnet 5.5, at high effort')
+        // And how much context it carries, once its hook has counted it (ORR-968).
+        const meter = page.locator('#session-e2e-model').getByTestId('context-meter')
+        await expect(meter).toHaveCount(0)
+        await request.post('/api/sessions', {data: {id: 'e2e-model', project: 'kitchen', event: 'Stop', context: 130_000}})
+        // Sonnet 5.5's window is 1M, as every Claude 5 model's is (ORR-993).
+        await expect(meter).toHaveText('13%')
+        await expect(meter).toHaveAttribute('title', '130k of 1M tokens in context (13%)')
     } finally {
         channel.stop()
         await request.post('/api/sessions', {data: {id: 'e2e-model', project: 'kitchen', event: 'SessionEnd'}})
@@ -259,7 +265,7 @@ test('messages every idle session at once from the Sessions page, not the busy o
         await expect.poll(async () => (await api(request, 'get', '/sessions')).filter((s: {id: string, listening: boolean}) => ids.includes(s.id) && s.listening).length).toBe(2)
         await request.post('/api/sessions', {data: {id: 'e2e-b2', project: 'kitchen', event: 'UserPromptSubmit'}})
         await page.goto('/sessions')
-        await page.getByRole('button', {name: 'Message sessions'}).click()
+        await page.getByRole('button', {name: 'Message sessions', exact: true}).click()
         const dialog = page.getByRole('dialog', {name: 'Message sessions'})
         await expect(dialog).toContainText('Reaches e2e-b1')
         await dialog.getByLabel('Message', {exact: true}).fill('Pick a Todo issue if you are free.')
@@ -466,7 +472,7 @@ test("keeps a session's state that changes as the page opens, over the older rea
     }
 })
 
-test('a session orrery started has Stop out front, asked once more', async ({page, request, baseURL}) => {
+test('a session orrery started has Stop out front, which stops it on the first press (ORR-971)', async ({page, request, baseURL}) => {
     const launcher = hold(baseURL!, '/api/projects/kitchen/launches/stream')
     let stream: ReturnType<typeof hold> | undefined
     try {
@@ -476,6 +482,8 @@ test('a session orrery started has Stop out front, asked once more', async ({pag
         // On an issue's page its row only points it at the issue; its name leads to the card that manages it.
         const issue = await api(request, 'post', '/issues', {title: 'Wind the clock', status: 'todo'})
         await page.goto(`/p/kitchen/issues/${issue.id}`)
+        // Nobody's on it, so the sessions wait behind Pick a session (ORR-998).
+        await page.getByRole('button', {name: 'Pick a session'}).click()
         const row = page.getByRole('listitem').filter({has: page.getByRole('link', {name: 'e2e-started'})})
         await expect(row.getByRole('button', {name: 'Focus on this', exact: true})).toBeVisible()
         await expect(row.getByRole('button', {name: 'Watch'})).toHaveCount(0)
@@ -485,9 +493,38 @@ test('a session orrery started has Stop out front, asked once more', async ({pag
         const card = page.locator('#session-e2e-s')
         await expect(card.getByRole('button', {name: 'Watch'})).toBeVisible()
         await card.getByRole('button', {name: 'Stop', exact: true}).click()
-        await expect(card).toContainText('Stop e2e-started?')
-        await card.getByRole('button', {name: 'Stop', exact: true}).click()
         await expect.poll(() => launcher.said.text).toContain('event: stop')
+    } finally {
+        stream?.stop()
+        launcher.stop()
+    }
+})
+
+test('Close all stops every listed session, after asking (ORR-970)', async ({page, request, baseURL}) => {
+    const launcher = hold(baseURL!, '/api/projects/kitchen/launches/stream')
+    let stream: ReturnType<typeof hold> | undefined
+    // The page's stops are caught here rather than sent: this group shares its orrery with specs running beside it, whose
+    // sessions a real Close all would stop.
+    const stopped: string[] = []
+    await page.route(/\/api\/projects\/[^/]+\/(launches|sessions)\/[^/]+\/stop$/, route => {
+        stopped.push(new URL(route.request().url()).pathname)
+        return route.fulfill({json: {ok: true}})
+    })
+    try {
+        await expect.poll(async () => (await api(request, 'get', '/launches')).launchers).toBe(1)
+        await request.post('/api/projects/kitchen/launches/running', {data: {launches: [{id: 'e2e970e2e970', tmux: 'orrery-e2e-close-all'}]}})
+        stream = hold(baseURL!, '/api/projects/kitchen/signals/stream?session=e2e-close&name=e2e-close-all&started=e2e970e2e970&format=text')
+        await page.goto('/sessions#session-e2e-close')
+        await expect(page.locator('#session-e2e-close')).toBeVisible()
+        await page.getByRole('button', {name: 'Close all', exact: true}).click()
+        await expect(page.getByText(/^Close \d+ sessions?(, \d+ working)?\?$/)).toBeVisible()
+        // Cancel stops nothing.
+        await page.getByRole('button', {name: 'Cancel', exact: true}).click()
+        expect(stopped).toEqual([])
+        await page.getByRole('button', {name: 'Close all', exact: true}).click()
+        await page.getByRole('button', {name: 'Close all', exact: true}).click()
+        await expect.poll(() => stopped).toContain('/api/projects/kitchen/launches/e2e970e2e970/stop')
+        await expect(page.getByRole('button', {name: 'Close all', exact: true})).toBeVisible()
     } finally {
         stream?.stop()
         launcher.stop()
@@ -523,9 +560,7 @@ test('on a phone a started session keeps its name whole, with Watch and Stop und
         expect(Math.round((await meta.boundingBox())!.height / lineHeight)).toBeLessThan(items)
         await card.getByRole('button', {name: 'More for e2e-on-a-phone'}).click()
         await expect(page.getByRole('menuitem', {name: /Watch · opens on its launcher's machine/})).toBeVisible()
-        await page.getByRole('menuitem', {name: 'Stop…'}).click()
-        await expect(card).toContainText('Stop e2e-on-a-phone?')
-        await card.getByRole('button', {name: 'Stop', exact: true}).click()
+        await page.getByRole('menuitem', {name: 'Stop', exact: true}).click()
         await expect.poll(() => launcher.said.text).toContain('event: stop')
     } finally {
         stream?.stop()
@@ -558,7 +593,7 @@ test('lists the repos the launchers serve on Connect, with a line pointing there
     const installed = hold(baseURL!, `/api/projects/dairy/launches/stream?dir=${encodeURIComponent('/code/dairy')}`)
     const connected = hold(baseURL!, `/api/projects/dairy/launches/stream?dir=${encodeURIComponent('/code/garden')}&connected=${encodeURIComponent(new Date().toISOString())}`)
     await page.goto('/sessions?tab=setup')
-    await page.getByRole('link', {name: /^Serving \d+ repos?$/}).click()
+    await page.getByRole('link', {name: /^\d+ repos?$/}).click()
     await expect(page).toHaveURL(/\/connect#connected-repos$/)
     const repos = page.getByRole('list', {name: 'Connected repos'})
     await expect(repos.getByRole('listitem').filter({hasText: '/code/kitchen'})).toContainText(/Kitchen\s*picked up/)
@@ -700,7 +735,7 @@ test('marks a session cut off by a usage limit until its next turn gets going', 
     }
 })
 
-test('a session opened in a terminal has Stop, asked once more, which ends it through its channel', async ({page, baseURL}) => {
+test('a session opened in a terminal has Stop, which ends it through its channel on the first press (ORR-971)', async ({page, baseURL}) => {
     const channel = hold(baseURL!, '/api/projects/kitchen/signals/stream?session=e2e-terminal&name=e2e-terminal&stops=yes')
     try {
         await page.goto('/sessions')
@@ -709,8 +744,6 @@ test('a session opened in a terminal has Stop, asked once more, which ends it th
         await expect(stop).toBeVisible()
         await expect(card.getByRole('button', {name: 'Show screen'})).toHaveCount(0)
         await stop.click()
-        await expect.poll(() => channel.said.text).not.toContain('event: stop')
-        await card.getByRole('button', {name: 'Stop it?'}).click()
         await expect.poll(() => channel.said.text).toContain('event: stop')
     } finally {
         channel.stop()

@@ -4,7 +4,7 @@
 // (ORR-470).
 import {createHash} from 'node:crypto'
 import {readdirSync, readFileSync} from 'node:fs'
-import {newer, servable} from './bootstrap.mjs'
+import {servable} from './bootstrap.mjs'
 
 /** Its version when it's the bundle the orrery serves (ORR-435), which has no checkout around it. */
 const BUNDLED = typeof __ORRERY_VERSION__ === 'string' ? __ORRERY_VERSION__ : undefined
@@ -36,6 +36,30 @@ export function codeOnDisk() {
     }
 }
 
+/** Whether `version` is older than `than` (`1.0.0-rc.9` before `rc.10`, a prerelease before its release), as
+ * `olderVersion` in web/shared/version.ts has it (ORR-965); one that's unknown is. */
+export function olderThan(version, than) {
+    if (!version) return true
+    const parts = (a, b) => {
+        const [as, bs] = [a.split('.'), b.split('.')]
+        for (let i = 0; i < Math.max(as.length, bs.length); i++) {
+            const [x, y] = [as[i], bs[i]]
+            if (x === undefined || y === undefined) return x === undefined ? -1 : 1
+            const [nx, ny] = [Number(x), Number(y)]
+            const order = Number.isInteger(nx) && Number.isInteger(ny) ? nx - ny : x.localeCompare(y)
+            if (order) return Math.sign(order)
+        }
+        return 0
+    }
+    const [aMain = '', ...aPre] = version.split('-')
+    const [bMain = '', ...bPre] = than.split('-')
+    const main = parts(aMain, bMain)
+    if (main) return main < 0
+    const [ap, bp] = [aPre.join('-'), bPre.join('-')]
+    if (!ap || !bp) return !!ap && !bp
+    return parts(ap, bp) < 0
+}
+
 /** The version this process started on. */
 export const VERSION = versionOnDisk() ?? '0.0.0'
 
@@ -53,10 +77,9 @@ export function launcherMove({theirs, mine, code, now, busy, service}) {
 }
 
 /** Whether a launcher the bootstrap ran gets other code by restarting, for what the orrery at `url` serves (`served`, its
- * manifest): a newer version, as the bootstrap takes the newest on the list; or other code from the orrery this copy
- * came from (`from`), even an older version. Other code at another orrery of the same version stays where it is, or two
- * such would restart it for ever. So does an orrery the bootstrap wouldn't fetch from. */
-export function servedOtherCode({served, url, from, mine, code}) {
-    if (!servable(url) || !served?.code || served.code === code) return false
-    return newer(served.version, mine) || url === from
+ * manifest): only other code from the orrery this copy came from (`from`), even an older version. Another orrery on its
+ * list never moves it, whatever version it says it runs (ORR-960), and nor does one the bootstrap wouldn't fetch from. */
+export function servedOtherCode({served, url, from, code}) {
+    if (!servable(url) || url !== from) return false
+    return !!served?.code && served.code !== code
 }

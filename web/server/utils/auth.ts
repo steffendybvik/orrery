@@ -16,6 +16,14 @@ export interface Who {
 
 export const LOGIN_COOKIE = 'orrery_login'
 
+/** The login cookie's name for the address the browser used (ORR-956). A browser keeps cookies by host name, not port, so
+ * two orrerys on localhost (:9010 and :9020) would share one `orrery_login`, and logging in to one would sign you out of
+ * the other. With a port in the `Host` the name carries it; without one (a proxy on 443) it stays as it was. */
+export function loginCookie(event: H3Event): string {
+    const port = /:(\d+)$/.exec(getHeader(event, 'host') ?? '')?.[1]
+    return port ? `${LOGIN_COOKIE}_${port}` : LOGIN_COOKIE
+}
+
 /** The path as a router might come to read it, so no spelling of /api slips past as something else. */
 export function pathOf(event: {path: string}): string {
     const path = event.path.split('?')[0] ?? ''
@@ -38,7 +46,7 @@ function onLoopback(event: H3Event): boolean {
 }
 
 /** Whether ORRERY_AUTH=off is set, for trying people out on one machine. */
-const toldOff = () => String(useRuntimeConfig().auth || process.env.ORRERY_AUTH || '').toLowerCase() === 'off'
+export const toldOff = () => String(useRuntimeConfig().auth || process.env.ORRERY_AUTH || '').toLowerCase() === 'off'
 
 /** A second person turns auth on, so without a way in that would lock the owner out: they claim the server first. */
 export async function needsWayInForPeople() {
@@ -103,7 +111,7 @@ export async function credential(event: H3Event): Promise<Who | undefined> {
         const holder = await useStore().keyHolder(key)
         return holder?.kind === 'agent' ? {person: holder.person, owner: holder.owner, via: 'agent'} : undefined
     }
-    const login = getCookie(event, LOGIN_COOKIE)
+    const login = getCookie(event, loginCookie(event))
     const holder = login ? await useStore().loginHolder(login) : undefined
     return holder && {person: holder.person, owner: holder.owner, via: 'browser'}
 }
@@ -112,7 +120,7 @@ export async function credential(event: H3Event): Promise<Who | undefined> {
  * `key` is the id of the person key it was swapped for, so revoking that ends it (ORR-786). */
 export async function logIn(event: H3Event, person: string, key?: string, name?: string) {
     const {secret, days} = await useStore().startLogin(person, key, name)
-    setCookie(event, LOGIN_COOKIE, secret, {httpOnly: true, sameSite: 'lax', path: '/', maxAge: days * 86_400, secure: overHttps(event)})
+    setCookie(event, loginCookie(event), secret, {httpOnly: true, sameSite: 'lax', path: '/', maxAge: days * 86_400, secure: overHttps(event)})
 }
 
 export const overHttps = (event: H3Event) => getRequestProtocol(event, {xForwardedProto: true}) === 'https'

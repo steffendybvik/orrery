@@ -2,7 +2,7 @@
 import {Cog6ToothIcon} from '@heroicons/vue/24/outline'
 
 // The top bar of a page: the menu button (phones), the title, the page's controls, and the bell, the
-// theme button and App settings at the right end. On a phone the controls take a row of their own under the title.
+// Message sessions button (while any listen), the theme button and App settings at the right end. On a phone the controls take a row of their own under the title.
 const sidebar = useState('sidebar-open', () => false)
 const route = useRoute()
 </script>
@@ -18,6 +18,7 @@ const route = useRoute()
     <div v-if="$slots.actions" class="order-last flex w-full min-w-0 items-center gap-2 sm:order-none sm:w-auto">
       <slot name="actions" />
     </div>
+    <MessageSessionsButton />
     <NotificationBell />
     <ThemeToggle />
     <NuxtLink

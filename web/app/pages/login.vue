@@ -7,7 +7,15 @@ useHead({title: 'Log in'})
 const {status} = useAuth()
 const route = useRoute()
 const invite = computed(() => typeof route.query.invite === 'string' ? route.query.invite : '')
-const provider = computed(() => apiUrl(`/auth/oidc/start${invite.value ? `?invite=${encodeURIComponent(invite.value)}` : ''}`))
+// A page hosted apart from its server (ORR-667) asks the provider's way back to come here, which the server allows only for
+// an origin it lists.
+const provider = computed(() => {
+    const query = new URLSearchParams({
+        ...invite.value ? {invite: invite.value} : {},
+        ...import.meta.client && apiCrossOrigin('/auth/oidc/start') ? {back: location.origin} : {},
+    }).toString()
+    return apiUrl(`/auth/oidc/start${query ? `?${query}` : ''}`)
+})
 const key = ref('')
 const busy = ref(false)
 const failed = ref('')
@@ -26,6 +34,23 @@ onMounted(async () => {
         history.replaceState(null, '', '/login')
     }
 })
+
+// The six letters App settings shows under the QR code (ORR-875): the way in from an app on the home screen, which keeps
+// cookies apart from the browser's and has no camera to scan with.
+const code = ref('')
+const codeTyped = computed(() => code.value.replace(/[\s-]/g, '').length === 6)
+async function submitCode() {
+    busy.value = true
+    failed.value = ''
+    try {
+        await apiFetch('/auth/link', {method: 'POST', headers: {}, body: {code: code.value}})
+        location.replace('/')
+    } catch (error) {
+        failed.value = errorMessage(error)
+    } finally {
+        busy.value = false
+    }
+}
 
 async function submit() {
     busy.value = true
@@ -52,7 +77,21 @@ async function submit() {
       </p>
       <p v-else-if="status?.phone && !linking" class="text-xs text-muted">
         On your computer, open orrery's App settings → You and scan its QR code with this phone's camera: that signs you in.
+        Or type the code shown under it here.
       </p>
+      <form v-if="status?.phone && !linking" class="flex flex-col gap-2" @submit.prevent="submitCode">
+        <input
+            v-model="code"
+            aria-label="Code from your computer"
+            placeholder="Code, e.g. KQ7-M4X"
+            autocomplete="one-time-code"
+            autocapitalize="characters"
+            spellcheck="false"
+            maxlength="9"
+            class="h-8 w-full field font-mono uppercase tracking-widest placeholder:normal-case placeholder:tracking-normal"
+        >
+        <UiButton type="submit" variant="primary" size="md" :disabled="busy || !codeTyped">Sign in with the code</UiButton>
+      </form>
       <p v-else-if="status && !status.can_get_in" class="text-xs text-muted">
         Nobody can log in yet. On the machine it runs on, run <code class="font-mono">pnpm orrery:claim</code>
         (or <code class="font-mono">docker compose exec orrery node /app/server/claim.mjs</code>), and sign in with the key it prints.
@@ -71,7 +110,7 @@ async function submit() {
             spellcheck="false"
             class="h-8 w-full field font-mono"
         >
-        <UiButton type="submit" :variant="status?.oidc ? 'secondary' : 'primary'" size="md" :disabled="busy || !key.trim()">Sign in with a key</UiButton>
+        <UiButton type="submit" :variant="status?.oidc || status?.phone ? 'secondary' : 'primary'" size="md" :disabled="busy || !key.trim()">Sign in with a key</UiButton>
       </form>
       <p v-if="failed" class="text-xs text-rose-700 dark:text-rose-400">{{ failed }}</p>
     </div>

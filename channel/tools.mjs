@@ -29,6 +29,7 @@ const FIELDS = {
     milestone: {type: ['string', 'null'], description: "A milestone's id"},
     parent: {type: ['string', 'null'], description: 'Makes it a sub-issue of this issue'},
     release: {type: ['string', 'null'], description: 'The release version it ships in'},
+    epic: {type: ['string', 'null'], description: 'An epic: work across projects'},
     depends_on: {type: 'array', items: {type: 'string'}, description: 'Issues it waits on (all); chain ordered follow-ups'},
     choices: CHOICES,
 }
@@ -92,6 +93,22 @@ export const TOOLS = [
         name: 'releases',
         description: "Lists the project's releases with their branches and progress; of the shipped ones, only the latest unless all.",
         inputSchema: {type: 'object', properties: {all: {type: 'boolean', description: 'Every shipped release too'}}},
+    },
+    {name: 'epics', description: 'Lists the epics, each one piece of work across projects, with progress and the projects it spans; issues join one with epic.', inputSchema: {type: 'object', properties: {}}},
+    {
+        name: 'create_epic',
+        description: 'Adds an epic: one piece of work across projects (a feature with a part in each repo). Then set epic on each issue in it.',
+        inputSchema: {type: 'object', required: ['title'], properties: {title: {type: 'string'}, notes: {type: 'string', description: 'What it is, in Markdown'}}},
+    },
+    {
+        name: 'update_epic',
+        description: "Changes an epic's title or notes, by its id: send only what changes.",
+        inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'string'}, title: {type: 'string'}, notes: {type: ['string', 'null']}}},
+    },
+    {
+        name: 'comment_epic',
+        description: "Comments on an epic, by its id (Markdown): words on its page, which ask nothing and wake no session.",
+        inputSchema: {type: 'object', required: ['id', 'body'], properties: {id: {type: 'string'}, body: {type: 'string'}}},
     },
     {
         name: 'docs',
@@ -171,7 +188,7 @@ const RELEASE_FIELDS = {
     shipped_on: {type: ['string', 'null'], description: 'The day it shipped, YYYY-MM-DD; null marks it not shipped yet'},
 }
 
-/** What of a milestone the chat may ask to set (CHAT_MILESTONE_FIELDS in web/shared/roadmap.ts). */
+/** What of a milestone the chat sets (CHAT_MILESTONE_FIELDS in web/shared/roadmap.ts). */
 const MILESTONE_FIELDS = {
     title: {type: 'string', description: 'Its name'},
     summary: {type: ['string', 'null']},
@@ -199,8 +216,8 @@ export const CHAT_TOOLS = [
     },
     {
         name: 'edit_issue',
-        description: "Changes an issue's title, notes, priority, labels, team tasks, GitHub issues, milestone, release, parent or what it depends on, when the owner asks in this chat. To move one to another status or assign it, ask with move_issues.",
-        inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'string'}, ...Object.fromEntries(['title', 'notes', 'priority', 'labels', 'external', 'github_issues', 'milestone', 'release', 'parent', 'depends_on'].map(f => [f, FIELDS[f]]))}},
+        description: "Changes an issue's title, notes, priority, labels, team tasks, GitHub issues, milestone, epic, release, parent or what it depends on, when the owner asks in this chat. To move one to another status or assign it, ask with move_issues.",
+        inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'string'}, ...Object.fromEntries(['title', 'notes', 'priority', 'labels', 'external', 'github_issues', 'milestone', 'epic', 'release', 'parent', 'depends_on'].map(f => [f, FIELDS[f]]))}},
     },
     {
         name: 'delegate_issue',
@@ -217,10 +234,20 @@ export const CHAT_TOOLS = [
             why: WHY,
         }},
     },
+    {
+        name: 'create_milestone',
+        description: 'Makes a milestone (a group of issues) in this project, at once, when the owner asks in this chat; put issues in it with edit_issue.',
+        inputSchema: {type: 'object', required: ['title'], properties: MILESTONE_FIELDS},
+    },
+    {
+        name: 'update_milestone',
+        description: "Changes one of this project's milestones, by its id (the milestones tool lists them), at once: send only what changes. Removing one is the owner's, on its page.",
+        inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'string'}, ...MILESTONE_FIELDS}},
+    },
     {name: 'image', description: 'An image the owner pasted in the chat, by the id its message names, to look at.', inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'string'}}}},
     {
         name: 'request',
-        description: 'Asks the owner for an action request_fields describes: start, stop or extend a session; message sessions; change an App setting; make or change a schedule, release, milestone or doc. Read its fields first.',
+        description: 'Asks the owner for an action request_fields describes: start, stop or extend a session; message sessions; change an App setting; make or change a schedule, release or doc. Read its fields first.',
         inputSchema: {type: 'object', required: ['action'], properties: {
             action: {type: 'string', enum: []},
             fields: {type: 'object', description: 'As request_fields gives them'},
@@ -307,16 +334,6 @@ export const CHAT_REQUESTS = [
         inputSchema: {type: 'object', required: ['title'], properties: {title: {type: 'string'}, notes: {type: 'string', description: 'The description, in Markdown'}, priority: {type: 'string', enum: ['P0', 'P1', 'P2', 'P3']}, labels: {type: 'array', items: {type: 'string'}}, milestone: {type: 'string'}}},
     },
     {
-        name: 'create_milestone',
-        description: 'Makes a milestone (a group of issues) in this project; once allowed, put issues in it with edit_issue.',
-        inputSchema: {type: 'object', required: ['title'], properties: MILESTONE_FIELDS},
-    },
-    {
-        name: 'update_milestone',
-        description: "Changes one of this project's milestones, by its id (the milestones tool lists them): send only what changes. Removing one is the owner's, on its page.",
-        inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'string'}, ...MILESTONE_FIELDS}},
-    },
-    {
         name: 'create_doc',
         description: 'Makes a doc in this project: a decision and why, or how something works. Its id comes from its title. The owner sees the title, section and full text.',
         inputSchema: {type: 'object', required: ['title'], properties: DOC_FIELDS},
@@ -388,20 +405,22 @@ export const ON_DEMAND = {
     secrets: ['secrets', 'egress'],
     debug: ['events', 'resolve_event'],
     review: ['rate_pull'],
+    epics: ['epics', 'create_epic', 'update_epic', 'comment_epic'],
 }
 
 const MORE_TOOLS = {
     name: 'more_tools',
-    description: "Adds tools: schedules (ask the owner on your issue for one), secrets (egress: call an outside service with a key), debug (orrery's event log), review (rate each PR you open).",
+    description: "Adds tools: schedules (ask the owner on your issue for one), secrets (egress: call an outside service with a key), debug (orrery's event log), review (rate each PR you open), epics (work across projects).",
     inputSchema: {type: 'object', required: ['group'], properties: {group: {type: 'string', enum: Object.keys(ON_DEMAND)}}},
 }
 
 /** What an untrusted schedule's session goes without: what orrery refuses it (the permissions' untrusted column: it
  * only raises proposals and comments on them), and orrery's own log. */
-export const NOT_FOR_UNTRUSTED = ['update_issue', 'start_issue', 'finish_issue', 'rate_pull', 'write_doc', 'secrets', 'egress', 'events', 'resolve_event']
+export const NOT_FOR_UNTRUSTED = ['epics', 'create_epic', 'update_epic', 'comment_epic', 'update_issue', 'start_issue', 'finish_issue', 'rate_pull', 'write_doc', 'secrets', 'egress', 'events', 'resolve_event']
 
 /** The tools a chat goes without: those that take up or finish work, its one rule (ORR-750), `update_issue` among them as
- * it sets a status; `edit_issue` is its way to change the rest (its launcher refuses them too, `chatOnly`). */
+ * it sets a status; `edit_issue` is its way to change the rest (its launcher refuses them too, `chatOnly`). Epics it
+ * makes, changes and comments on itself (ORR-988). */
 export const NOT_FOR_CHAT = ['start_issue', 'finish_issue', 'update_issue', 'rate_pull']
 
 /** The reads only the chat has use for, helping the owner plan: a work session goes without them, so their definitions
@@ -440,7 +459,7 @@ function pickedOf({decided_by, proposal, picks, choices}) {
 const LOGIN = /^[\w-]+$/
 
 /** The tools that work on one project, which take `project` when the server serves several. */
-const SCOPED = ['issues', 'create_issue', 'milestones', 'releases', 'docs', 'doc', 'write_doc', 'presets', 'preset', 'schedules', 'sessions']
+const SCOPED = ['issues', 'create_issue', 'milestones', 'create_milestone', 'update_milestone', 'releases', 'docs', 'doc', 'write_doc', 'presets', 'preset', 'schedules', 'sessions']
 
 /** The tools as a server serving `projects` lists them: with several, each project-scoped one takes which. A chat's
  * (`chat`) are its own; a work session's leave out the chat's reads and ask the owner on its issue (`ASK_TOOLS`), with
@@ -581,7 +600,9 @@ export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''),
             const base = at(await projectOf({id}))
             const issue = await call('PATCH', issuePath(id), {status: 'started', assignee: 'claude'}, base)
             if (comment) await call('POST', `${issuePath(id)}/comments`, {body: comment}, base)
-            return `Started ${line(issue)}`
+            // Unrelated to the issue it worked before, with that one's context still in: cleared once idle (ORR-968).
+            const carried = issue.carried_over
+            return `Started ${line(issue)}${carried ? `\n\nThis is unrelated to ${carried.from}, and your context still holds about ${Math.round(carried.tokens / 1000)}k tokens of it. End your turn now without working on it: orrery clears your context, then sends you back to ${issue.id} to start it fresh.` : ''}`
         },
         async finish_issue({id, comment, status = 'done'}) {
             const base = at(await projectOf({id}))
@@ -621,6 +642,22 @@ export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''),
                 ...shown.map(r => `${r.version}${r.shipped_on ? ` (shipped ${r.shipped_on})` : r.frozen_on ? ` (feature freeze since ${r.frozen_on}: fixes, tests and docs)` : ''}${r.branch ? ` on ${r.branch}` : ''}: ${r.issues} issue${r.issues === 1 ? '' : 's'}, ${r.kinds.done}/${r.kinds.backlog + r.kinds.todo + r.kinds.started + r.kinds.done} done`),
                 ...hidden ? [`${hidden} older shipped release${hidden === 1 ? '' : 's'} not shown: all lists them`] : [],
             ].join('\n') || 'No releases yet.'
+        },
+        async epics() {
+            const epics = await call('GET', '/epics', undefined, root)
+            return epics.map(e => `${e.id} ${e.title}: ${e.issues} issue${e.issues === 1 ? '' : 's'}, ${e.kinds.done}/${e.kinds.backlog + e.kinds.todo + e.kinds.started + e.kinds.done} done${e.projects.length ? ` in ${e.projects.map(p => p.project).join(', ')}` : ''}`).join('\n') || 'No epics yet.'
+        },
+        async create_epic({title, notes}) {
+            const epic = await call('POST', '/epics', {title, ...notes === undefined ? {} : {notes}}, root)
+            return `Made epic ${epic.id}: ${epic.title}. Set epic: ${epic.id} on each issue in it.`
+        },
+        async update_epic({id, ...fields}) {
+            const epic = await call('PATCH', `/epics/${encodeURIComponent(id)}`, pick(fields, ['title', 'notes']), root)
+            return `Epic ${epic.id} is now: ${epic.title}`
+        },
+        async comment_epic({id, body}) {
+            const posted = await call('POST', `/epics/${encodeURIComponent(id)}/comments`, {body}, root)
+            return `Commented on epic ${id} (comment ${posted.id}).`
         },
         async docs(args) {
             const query = args.q ? `?${new URLSearchParams({q: args.q})}` : ''
@@ -744,13 +781,14 @@ export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''),
             await call('POST', `/chats/${encodeURIComponent(chat)}/requests`, {version, release, ...why ? {why} : {}}, root)
             return "Asked: the owner sees the change with Allow and Deny, and you'll hear which they pressed. Nothing is saved until they allow it."
         },
-        async create_milestone({why, ...milestone}) {
-            await call('POST', `/chats/${encodeURIComponent(chat)}/requests`, {milestone, ...why ? {why} : {}}, root)
-            return "Asked: the owner sees the milestone with Allow and Deny, and you'll hear which they pressed. Nothing is saved until they allow it."
+        // Made and changed at once, as the owner asked in the chat (ORR-988).
+        async create_milestone(args) {
+            const made = await call('POST', '/milestones', pick(args, ['title', 'summary', 'priority']), at(await projectOf(args)))
+            return `Made milestone ${made.id}: ${made.title}. Put issues in it with edit_issue (milestone: "${made.id}").`
         },
-        async update_milestone({id, why, ...milestone}) {
-            await call('POST', `/chats/${encodeURIComponent(chat)}/requests`, {id, milestone, ...why ? {why} : {}}, root)
-            return "Asked: the owner sees the change with Allow and Deny, and you'll hear which they pressed. Nothing is saved until they allow it."
+        async update_milestone({id, ...args}) {
+            const changed = await call('PATCH', `/milestones/${encodeURIComponent(id)}`, pick(args, ['title', 'summary', 'priority']), at(await projectOf(args)))
+            return `Milestone ${changed.id} is now: ${changed.title}`
         },
         async offer_issue({why, ...issue}) {
             await call('POST', `/chats/${encodeURIComponent(chat)}/requests`, {issue, ...why ? {why} : {}}, root)

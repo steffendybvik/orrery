@@ -1066,4 +1066,72 @@ export const MIGRATIONS: (string | ((db: DatabaseSync) => void))[] = [`
     -- The prompts' {chunk} is {milestone} now.
     UPDATE settings SET value = replace(value, '{chunk}', '{milestone}') WHERE key IN ('focus_prompt', 'milestone_prompt');
     UPDATE projects SET focus_prompt = replace(focus_prompt, '{chunk}', '{milestone}'), milestone_prompt = replace(milestone_prompt, '{chunk}', '{milestone}');
+`, `
+    -- Epics (ORR-895): one piece of work across projects, holding issues from any of them, with a number of its own
+    -- across the orrery. An issue is in one epic at most (epic), and a sub-issue with none goes with its parent's.
+    CREATE TABLE epics (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT NOT NULL,
+        notes TEXT,
+        position INTEGER NOT NULL DEFAULT 0,
+        created_by TEXT NOT NULL,
+        owned INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    );
+    ALTER TABLE issues ADD COLUMN epic INTEGER;
+    CREATE INDEX issues_epic ON issues (epic) WHERE epic IS NOT NULL;
+`, `
+    -- The outbox (ORR-929): a row for each thing a write set off, in the order they happened, so the local app can follow
+    -- what changed on a board it doesn't front (GET /api/changes?after=<id>) and carry on from where it was after a gap.
+    CREATE TABLE changes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        kind TEXT NOT NULL,
+        project TEXT,
+        subject TEXT,
+        actor TEXT,
+        owner INTEGER NOT NULL DEFAULT 0,
+        session TEXT,
+        untrusted INTEGER NOT NULL DEFAULT 0,
+        cause TEXT,
+        payload TEXT,
+        created_at TEXT NOT NULL
+    );
+    CREATE INDEX changes_at ON changes (created_at);
+`, `
+    -- Comments on a milestone and on an epic (ORR-977): words on the page, kept apart from an issue's, so the issue's
+    -- comments (their asks, the bell, the sessions they reach, the Rust API's reads and writes) stay as they are. A
+    -- milestone's go with it, and follow it when the project's ids are numbered again.
+    CREATE TABLE milestone_comments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        project TEXT NOT NULL,
+        milestone TEXT NOT NULL,
+        body TEXT NOT NULL,
+        created_by TEXT NOT NULL,
+        session_name TEXT,
+        owned INTEGER NOT NULL DEFAULT 0,
+        person TEXT,
+        by_agent INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (project, milestone) REFERENCES milestones(project, id) ON DELETE CASCADE ON UPDATE CASCADE
+    );
+    CREATE INDEX milestone_comments_of ON milestone_comments (project, milestone);
+    CREATE TABLE epic_comments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        epic INTEGER NOT NULL REFERENCES epics(id) ON DELETE CASCADE,
+        body TEXT NOT NULL,
+        created_by TEXT NOT NULL,
+        session_name TEXT,
+        owned INTEGER NOT NULL DEFAULT 0,
+        person TEXT,
+        by_agent INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    );
+    CREATE INDEX epic_comments_of ON epic_comments (epic);
+`, `
+    -- A focus on an epic (ORR-987): one signal per project it has open issues in, narrowed to the epic's issues as a
+    -- release narrows a milestone's. No key to the epic: deleting one leaves its old signals pointing at nothing.
+    ALTER TABLE signals ADD COLUMN epic INTEGER;
 `]

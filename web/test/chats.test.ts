@@ -244,6 +244,14 @@ describe("the owner's chat", () => {
             vi.stubGlobal('useEventLog', () => ({note: (note: {kind: string}) => notes.push(note)}))
         })
 
+        it('keeps the model and effort it ran on, and nothing else of its start (ORR-936)', async () => {
+            await chats.openChat('greenhouse')
+            await chats.say('c1c2c3c4c5c6', 'What is GRE-4 about?', [], owner)
+            vi.stubGlobal('sessionOfLaunch', () => ({id: CLAUDE, model: 'claude-opus-5-5', effort: 'high', started: {launch: 'c1c2c3c4c5c6', tmux: 't', context: {text: 'a long brief'}, model: 'best', effort: 'medium'}}))
+            chats.endChat('c1c2c3c4c5c6')
+            expect(chats.readChat('c1c2c3c4c5c6')?.ran_on).toEqual({model: 'claude-opus-5-5', effort: 'high', started: {model: 'best', effort: 'medium'}})
+        })
+
         it('takes up the Claude session it ran as, on the same chat, and the message goes to it', async () => {
             await chats.openChat('greenhouse')
             await chats.say('c1c2c3c4c5c6', 'What is GRE-4 about?', [], owner)
@@ -978,9 +986,17 @@ describe("a chat session's writes", () => {
         expect(await refused('POST', '/api/projects/greenhouse/sessions/abc/message')).toBe(403)
         expect(await refused('POST', '/api/projects/greenhouse/sessions/abc/stop')).toBe(403)
         expect(await refused('POST', '/api/projects/greenhouse/launches')).toBe(403)
-        // A milestone only through the owner's Allow (ORR-510), never made or changed straight.
-        expect(await refused('POST', '/api/projects/greenhouse/milestones')).toBe(403)
-        expect(await refused('PATCH', '/api/projects/greenhouse/milestones/3')).toBe(403)
+        // Milestones and epics it makes and changes itself (ORR-988), and comments on an epic, but removing one, or
+        // editing or deleting an epic's comment, stays the owner's.
+        expect(await refused('POST', '/api/projects/greenhouse/milestones')).toBeUndefined()
+        expect(await refused('PATCH', '/api/projects/greenhouse/milestones/3')).toBeUndefined()
+        expect(await refused('DELETE', '/api/projects/greenhouse/milestones/3')).toBe(403)
+        expect(await refused('POST', '/api/epics')).toBeUndefined()
+        expect(await refused('PATCH', '/api/epics/2')).toBeUndefined()
+        expect(await refused('DELETE', '/api/epics/2')).toBe(403)
+        expect(await refused('POST', '/api/epics/2/comments')).toBeUndefined()
+        expect(await refused('PATCH', '/api/epics/2/comments/9')).toBe(403)
+        expect(await refused('DELETE', '/api/epics/2/comments/9')).toBe(403)
         // A doc only through the owner's Allow (ORR-661), and sections never.
         // It writes docs itself (ORR-750), and calls outside services, but removing a doc or a section stays the owner's.
         expect(await refused('PUT', '/api/projects/greenhouse/docs/watering')).toBeUndefined()

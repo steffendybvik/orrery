@@ -45,7 +45,7 @@ export interface BulkResult {
 }
 
 /** What one change to many issues can set. */
-export const BULK_FIELDS = ['status', 'priority', 'assignee', 'milestone', 'release']
+export const BULK_FIELDS = ['status', 'priority', 'assignee', 'milestone', 'release', 'epic']
 
 /** An issue with its sub-issues drawn out, as `GET …/issues/:issue` shows it. */
 export interface IssueDetail extends Issue {
@@ -58,7 +58,7 @@ export interface IssueDetail extends Issue {
 }
 
 export interface MilestoneRecord extends Omit<Milestone, 'tasks'> {
-    /** Its id to paste anywhere: `mls-3-x7k2m9qd`, which finds nothing on any other board. */
+    /** Its id to paste anywhere: `MLS-3-x7k2m9qd`, which finds nothing on any other board. */
     full_id?: string
     project: string
     position: number
@@ -131,15 +131,18 @@ export interface IssueRow extends Made {
     assignee: string | null, labels: string, external: string, github_issues: string, notes: string | null,
     parent: string | null, milestone: string | null, position: number, schedule: number | null,
     proposal: Proposal | null, decided_by: string | null, decided_at: string | null, decision_note: string | null,
-    choices: string, picks: string | null, explore: string | null, ships_in: string | null, claimed_by: string | null, claimed_at: string | null, claimed_session: string | null, created_person: string | null, session_name: string | null, model?: string | null, effort?: Effort | null
+    choices: string, picks: string | null, explore: string | null, ships_in: string | null, epic?: number | null, claimed_by: string | null, claimed_at: string | null, claimed_session: string | null, created_person: string | null, session_name: string | null, model?: string | null, effort?: Effort | null
 }
 export interface CommentRow extends Made { id: number, project: string, issue: string, body: string, asks: Asks | null, answered?: number, session_name: string | null, person: string | null, by_agent: number }
+/** A comment on a milestone or an epic (ORR-977): `milestone_comments` has `project` and `milestone`, `epic_comments` `epic`. */
+export interface ThreadCommentRow extends Made { id: number, project?: string, milestone?: string, epic?: number, body: string, session_name: string | null, person: string | null, by_agent: number }
 export interface EventRow { id: number, project: string, issue: string, field: ActivityField, before: string | null, after: string | null, created_by: string, session_name: string | null, owned: number, created_at: string }
 export interface DocRow extends Made { project: string, id: string, title: string, body: string, position: number, section: string | null, kind: DocKind }
 export interface DocRevisionRow { id: number, project: string, doc: string, title: string, body: string, section: string | null, kind: DocKind, deleted: number, created_by: string, session_name: string | null, owned: number, created_at: string }
+export interface EpicRow extends Made { id: number, title: string, notes: string | null, position: number }
 export interface ReleaseRow extends Made { project: string, version: string, branch: string | null, notes: string | null, frozen_on: string | null, shipped_on: string | null, doc_mark: number | null, position: number }
 export interface PresetRow { id: number, project: string | null, name: string, text: string, icon: string | null, color: string | null, default_key: string | null, created_at: string, updated_at: string }
-export interface SignalRow { person?: string | null, model?: string | null, id: number, project: string, issue: string | null, milestone: string | null, status: string | null, release: string | null, schedule: number | null, kind: 'focus' | 'comment' | 'message', note: string | null, preset: string | null, via: string | null, target: string | null, delivered_to: string, instructions: string, created_by: string, owned: number, created_at: string }
+export interface SignalRow { person?: string | null, epic?: number | null, model?: string | null, id: number, project: string, issue: string | null, milestone: string | null, status: string | null, release: string | null, schedule: number | null, kind: 'focus' | 'comment' | 'message', note: string | null, preset: string | null, via: string | null, target: string | null, delivered_to: string, instructions: string, created_by: string, owned: number, created_at: string }
 
 /** A model a session can start on, as `isModel` takes it (ORR-868). */
 export const MODEL = /^(best|opus|sonnet|haiku|fable|default|opusplan|claude-[a-z0-9.-]{1,56}(\[1m\])?)$/
@@ -147,8 +150,15 @@ export const SLUG = /^[a-z0-9][a-z0-9-]{0,39}$/
 /** A named tint or any `#rrggbb`: the page's tint, a project icon's colour. */
 const TINT: Field = {type: 'string', nullable: true, pattern: new RegExp(`^(${Object.keys(TINTS).join('|')}|#[0-9a-fA-F]{6})$`), hint: `use ${Object.keys(TINTS).join(', ')} or a colour like #3b82f6`}
 /** The keys a doc's, milestone's, preset's or schedule's full id starts with, so no project's. */
-export const FULL_ID_KEYS = ['DOC', 'CHK', 'PST', 'SCH']
+/** The keys no project can have (ORR-995): a milestone's, an epic's and other kinds' ids start with them. */
+export {RESERVED_KEYS as FULL_ID_KEYS} from '#shared/roadmap'
 export const KEY = /^[A-Z][A-Z0-9]{0,9}$/
+
+/** An epic as a field names it: its number, `EPC-1` as it's shown, or its full id (ORR-995); the store finds which. */
+const EPIC_REF: Field = {type: 'json', nullable: true, parse: value => {
+    if ((typeof value === 'number' && Number.isInteger(value)) || (typeof value === 'string' && value.trim())) return String(value).trim()
+    throw new Error(`should be an epic's number or id, such as 1 or "EPC-1", not ${JSON.stringify(value)}`)
+}}
 /** A release's version: `1.0.0`, `1.0.0-rc.2`, `2026.10`, `v2`; it goes in URLs as it is. */
 const VERSION = /^[0-9A-Za-z][0-9A-Za-z.+_-]{0,39}$/
 
@@ -249,11 +259,20 @@ export const ISSUE_FIELDS: Record<string, Field> = {
     milestone: {type: 'string', nullable: true},
     /** The version of a release it ships in; null takes it out of one. */
     release: {type: 'string', nullable: true},
+    /** The epic it's part of (ORR-895): its number, `EPC-1` or its full id (ORR-995); null takes it out of one. */
+    epic: EPIC_REF,
     /** The issues it depends on (ORR-601), all of them: ids in its project, `project/ID` in another; null or [] for none. */
     depends_on: {type: 'strings', nullable: true},
     /** The model and effort a session for it starts on (ORR-868), over its kind's; null follows its kind. */
     model: {type: 'string', nullable: true, pattern: MODEL, hint: 'use best, opus, sonnet, haiku, fable, default, opusplan or a full id such as claude-sonnet-5-5'},
     effort: {type: 'string', nullable: true, values: EFFORTS},
+    position: {type: 'number'},
+}
+
+// An epic's number is handed out (ORR-895); `position` is where it goes among them, from 0 at the top, a new one on top.
+export const EPIC_FIELDS: Record<string, Field> = {
+    title: {type: 'string', required: true},
+    notes: {type: 'string', nullable: true},
     position: {type: 'number'},
 }
 
@@ -313,11 +332,12 @@ export const SIGNAL_FIELDS: Record<string, Field> = {
 }
 
 /** A milestone's focus can be narrowed to its issues of some open statuses, `{status: 'todo,started'}` (ids or kinds),
- * and to those set for a release. */
+ * to those set for a release, and to those in an epic (ORR-987). */
 export const MILESTONE_SIGNAL_FIELDS: Record<string, Field> = {
     ...SIGNAL_FIELDS,
     status: {type: 'string', nullable: true},
     release: {type: 'string', nullable: true},
+    epic: EPIC_REF,
 }
 
 export const STATUS_FIELDS = {
@@ -406,8 +426,10 @@ export const IMAGE_TYPES: [string, (bytes: Buffer) => boolean][] = [
 export const PERSONS_WORDS = (c: string) => `(${c}.owned = 1 OR (${c}.person IS NOT NULL AND ${c}.by_agent = 0))`
 export const SINCE = `EXISTS (SELECT 1 FROM comments o WHERE o.project = c.project AND o.issue = c.issue AND ${PERSONS_WORDS('o')} AND o.id > c.id)`
 export const ANSWERED = `${SINCE} AS answered`
-/** Comment `c` is an agent's question the owner hasn't answered yet: what its issue waits on them for. */
-export const OPEN_ASK = `c.asks IS NOT NULL AND c.owned = 0 AND NOT ${SINCE}`
+/** Comment `c` is an agent's question the owner hasn't answered yet: what its issue waits on them for. Asked of a
+ * project's comments: `+c.owned` keeps SQLite on the project's index (comments_issue), as on `owned` alone it would read
+ * every agent's comment in the orrery, once for each project's board (ORR-934). */
+export const OPEN_ASK = `c.asks IS NOT NULL AND +c.owned = 0 AND NOT ${SINCE}`
 
 
 export function commentOf(row: CommentRow): Comment {
@@ -426,7 +448,7 @@ export function eventOf(row: EventRow): IssueEvent {
 
 export function signalOf(row: SignalRow): Signal {
     return {
-        id: row.id, project: row.project, issue: row.issue ?? undefined, milestone: row.milestone ?? undefined, status: row.status ?? undefined, release: row.release ?? undefined, schedule: row.schedule ?? undefined, kind: row.kind, note: row.note ?? undefined, preset: row.preset ?? undefined, ...row.via === 'chat' ? {via: 'chat' as const} : {},
+        id: row.id, project: row.project, issue: row.issue ?? undefined, milestone: row.milestone ?? undefined, status: row.status ?? undefined, release: row.release ?? undefined, ...row.epic === null || row.epic === undefined ? {} : {epic: Number(row.epic)}, schedule: row.schedule ?? undefined, kind: row.kind, note: row.note ?? undefined, preset: row.preset ?? undefined, ...row.via === 'chat' ? {via: 'chat' as const} : {},
         target: row.target ?? undefined, delivered_to: JSON.parse(row.delivered_to) as string[], instructions: JSON.parse(row.instructions) as string[], ...row.person ? {person: row.person} : {}, ...row.model ? {model: row.model} : {}, created_by: row.created_by, protected: !!row.owned, created_at: row.created_at,
     }
 }
@@ -443,6 +465,26 @@ export function tallyReleases(versions: string[], boards: Board[]): Map<string, 
             if (issue.tasks.length) walk(issue.tasks, release)
             else {
                 const into = release ? tally.get(release)?.kinds : undefined
+                if (into) for (const kind of Object.keys(into) as (keyof Kinds)[]) into[kind] += issue.kinds[kind]
+            }
+        }
+    }
+    boards.forEach(b => b.milestones.forEach(c => walk(c.tasks, undefined)))
+    return tally
+}
+
+/** How far each of `epics` is, across `boards` (ORR-895), as `tallyReleases` counts a release: `issues` those set for it,
+ * and `kinds` their leaves'. A sub-issue with no epic of its own goes with its parent's. */
+export function tallyEpics(epics: number[], boards: Board[]): Map<number, {issues: number, kinds: Kinds}> {
+    const tally = new Map(epics.map(e => [e, {issues: 0, kinds: emptyKinds()}]))
+    const walk = (issues: Issue[], current: number | undefined) => {
+        for (const issue of issues) {
+            const epic = issue.epic ?? current
+            const own = issue.epic && issue.epic !== current ? tally.get(issue.epic) : undefined
+            if (own) own.issues++
+            if (issue.tasks.length) walk(issue.tasks, epic)
+            else {
+                const into = epic ? tally.get(epic)?.kinds : undefined
                 if (into) for (const kind of Object.keys(into) as (keyof Kinds)[]) into[kind] += issue.kinds[kind]
             }
         }

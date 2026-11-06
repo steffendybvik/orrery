@@ -40,53 +40,49 @@ describe('the sessions panel', () => {
         expect(all(wrapper)).toBeUndefined()
     })
 
-    describe('on an issue, the sessions it can go to now (ORR-790)', () => {
+    describe('on an issue, whether it is being worked on (ORR-998)', () => {
         const session = (id: string, state: string) => ({id, name: `name-${id}`, listening: true, state})
         const named = (wrapper: VueWrapper) => wrapper.findAll('a').map(a => a.text())
-        const row = (wrapper: VueWrapper, text: string) => wrapper.findAll('button').find(b => b.text() === text)
+        const button = (wrapper: VueWrapper, text: string) => wrapper.findAll('button').find(b => b.text() === text)
         const given = (...sessions: object[]) => useRoadmaps().sessions.value = {greenhouse: sessions} as never
 
-        it('lists the idle ones and the one on the issue, with the rest behind a closed row', async () => {
-            given(session('free', 'idle'), session('on', 'working'), session('working', 'working'), session('waiting', 'waiting'))
+        it('shows only the session on it, with nothing to send', async () => {
+            given(session('free', 'idle'), session('on', 'working'), session('working', 'working'))
             const wrapper = await mountSuspended(SessionsPanel, {props: {project: 'greenhouse', issue: 'GRE-1', worker: 'on'}})
             mounted.push(wrapper)
-            expect(named(wrapper)).toEqual(['name-on', 'name-free'])
-            expect(row(wrapper, '2 busy')!.attributes('aria-expanded')).toBe('false')
-            expect(wrapper.text()).toContain('4 listening')
+            expect(named(wrapper)).toEqual(['name-on'])
+            expect(wrapper.text()).toContain('on this issue')
+            expect(button(wrapper, 'Pick a session')).toBeUndefined()
         })
 
-        it('opens to the same rows, a waiting session still in rose and each able to take the focus', async () => {
-            given(session('waiting', 'waiting'))
-            const wrapper = await mount({issue: 'GRE-1'})
-            await row(wrapper, '1 busy')!.trigger('click')
-            expect(named(wrapper)).toEqual(['name-waiting'])
-            expect(wrapper.find('.text-rose-700').exists()).toBe(true)
-            await row(wrapper, 'Focus on this')!.trigger('click')
-            await vi.waitFor(() => expect(sent).toHaveLength(1))
-            expect(sent[0]).toMatchObject({on: 'issue', body: {session: 'waiting'}})
-        })
-
-        it('shows only the row when none is free, and stays open as sessions move', async () => {
-            given(session('one', 'working'), session('two', 'working'))
+        it('with nobody on it, Focus on this goes to the session orrery picks, and no session is listed', async () => {
+            given(session('free', 'idle'), session('working', 'working'))
             const wrapper = await mount({issue: 'GRE-1'})
             expect(named(wrapper)).toEqual([])
-            await row(wrapper, '2 busy')!.trigger('click')
-            given(session('one', 'idle'), session('two', 'working'))
-            await nextTick()
-            expect(row(wrapper, '1 busy')!.attributes('aria-expanded')).toBe('true')
-            expect(named(wrapper)).toEqual(['name-one', 'name-two'])
+            await button(wrapper, 'Focus on this')!.trigger('click')
+            await vi.waitFor(() => expect(sent).toHaveLength(1))
+            expect(sent[0]).toMatchObject({on: 'issue', body: {}})
+            expect((sent[0]!.body as object)).not.toHaveProperty('session')
         })
 
-        it('leaves no row when every one is free', async () => {
+        it('lists every session behind Pick a session, idle first, each able to take the focus', async () => {
+            given(session('waiting', 'waiting'), session('free', 'idle'))
             const wrapper = await mount({issue: 'GRE-1'})
-            expect(wrapper.text()).not.toContain('busy')
+            expect(button(wrapper, 'Pick a session')!.attributes('aria-expanded')).toBe('false')
+            await button(wrapper, 'Pick a session')!.trigger('click')
+            expect(named(wrapper)).toEqual(['name-free', 'name-waiting'])
+            expect(wrapper.find('.text-rose-700').exists()).toBe(true)
+            const rows = wrapper.findAll('li button').filter(b => b.text() === 'Focus on this')
+            await rows[1]!.trigger('click')
+            await vi.waitFor(() => expect(sent).toHaveLength(1))
+            expect(sent[0]).toMatchObject({on: 'issue', body: {session: 'waiting'}})
         })
 
         it("lists them all on a milestone's page", async () => {
             given(session('one', 'working'), session('two', 'waiting'))
             const wrapper = await mount({milestone: '3'})
             expect(named(wrapper)).toEqual(['name-one', 'name-two'])
-            expect(wrapper.text()).not.toContain('busy')
+            expect(button(wrapper, 'Pick a session')).toBeUndefined()
         })
     })
 

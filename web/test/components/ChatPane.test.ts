@@ -202,6 +202,19 @@ describe('ChatPane', () => {
         expect(posted.some(p => p.path === '/api/chats')).toBe(false)
     })
 
+    it('says what its session runs on, and an ended one what it last ran on (ORR-936)', async () => {
+        useChat().arrived(chat('c2', {messages: [{id: 1, at: '2026-11-04T10:00:00Z', from: 'owner', text: 'Oil the hinge', images: []}]} as Partial<Chat>))
+        useRoadmaps().chatSessions.value = {shed: [{id: 's1', name: 'shed · Ask', state: 'idle', model: 'claude-opus-5-5', effort: 'high', started: {launch: 'c2', model: 'best'}} as never]}
+        const {pane} = await mount()
+        expect(pane.find('[data-testid="model-chip"]').text()).toBe('Opus 5.5 · high')
+        useRoadmaps().chatSessions.value = {}
+        useChat().arrived(chat('c2', {ended: true, ended_at: '2026-11-04T11:00:00Z', ran_on: {model: 'claude-sonnet-5-5', effort: 'low'}, messages: [{id: 1, at: '2026-11-04T10:00:00Z', from: 'owner', text: 'Oil the hinge', images: []}]} as Partial<Chat>))
+        // Opened from the list, to read.
+        useChat().view('c2')
+        await flushPromises()
+        expect(pane.find('[data-testid="model-chip"]').text()).toBe('Sonnet 5.5 · low')
+    })
+
     it('is open or closed: no Minimize, Esc closes it with the chat running, and nothing says it is ready (ORR-883)', async () => {
         useChat().arrived(chat('c2', {messages: [{id: 1, at: '2026-11-04T10:00:00Z', from: 'owner', text: 'Oil the hinge', images: []}]} as Partial<Chat>))
         useRoadmaps().chatSessions.value = {shed: [{id: 's1', name: 'shed · Ask', state: 'idle', started: {launch: 'c2'}} as never]}

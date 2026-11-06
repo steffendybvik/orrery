@@ -36,12 +36,14 @@ async function ask(load: () => Promise<{default: unknown}>, path: string, asked:
 }
 const makeLink = (asked: Asked = {}) => ask(() => import('../server/api/phone/link.post'), '/api/phone/link', asked)
 const useLink = (token: unknown, asked: Asked = {}) => ask(() => import('../server/api/auth/link.post'), '/api/auth/link', {...asked, body: {token}})
+const useCode = (code: unknown, asked: Asked = {}) => ask(() => import('../server/api/auth/link.post'), '/api/auth/link', {...asked, body: {code}})
 
 /** A person's browser, logged in with a person key, as the page is. */
 async function browser(person: string) {
     const {key} = await store.makeKey(person, {kind: 'person', name: 'browser'})
     await ask(() => import('../server/api/auth/login.post'), '/api/auth/login', {body: {key}})
-    return {cookie: `orrery_login=${cookies.at(-1)!.value}`}
+    const {name, value} = cookies.at(-1)!
+    return {cookie: `${name}=${value}`}
 }
 
 beforeEach(async () => {
@@ -72,7 +74,7 @@ beforeEach(async () => {
     vi.stubGlobal('chatWrite', (await import('../server/utils/chats')).chatWrite)
     vi.stubGlobal('untrustedWrite', (await import('../server/utils/untrusted')).untrustedWrite)
     const auth = await import('../server/utils/auth')
-    for (const name of ['logIn', 'authMode', 'canGetIn', 'overHttps', 'LOGIN_COOKIE'] as const) vi.stubGlobal(name, auth[name])
+    for (const name of ['logIn', 'authMode', 'canGetIn', 'overHttps', 'LOGIN_COOKIE', 'loginCookie'] as const) vi.stubGlobal(name, auth[name])
     vi.stubGlobal('oidcOn', (await import('../server/utils/oidc')).oidcOn)
     const {authorize, memberAsking} = await import('../server/utils/authorize')
     vi.stubGlobal('authorize', authorize)
@@ -83,6 +85,7 @@ beforeEach(async () => {
     const links = await import('../server/utils/phone-sign-in')
     vi.stubGlobal('makeSignInLink', links.makeSignInLink)
     vi.stubGlobal('takeSignInLink', links.takeSignInLink)
+    vi.stubGlobal('takeSignInCode', links.takeSignInCode)
     gate = (await import('../server/middleware/auth')).default as unknown as Route
     await store.nameOwner({name: 'Skoll'})
     await store.addPerson({name: 'Hati'})
@@ -93,13 +96,14 @@ afterEach(() => {
     vi.unstubAllGlobals()
 })
 
-/** A sign-in link the owner's own page made, with login off. */
-async function ownersLink() {
+/** A sign-in link the owner's own page made, with login off, and its code. */
+async function ownersLinkAndCode() {
     config.auth = 'off'
     const {data} = await makeLink({headers: named('skoll')})
     config.auth = 'on'
-    return (data as {token: string}).token
+    return data as {token: string, code: string}
 }
+const ownersLink = async () => (await ownersLinkAndCode()).token
 
 describe('POST /api/phone/link', () => {
     describe('with login off, from this machine', () => {
@@ -179,7 +183,7 @@ describe('POST /api/auth/link', () => {
         expect(status).toBe(201)
         expect(data).toEqual({person: 'skoll'})
         const cookie = cookies.at(-1)!
-        expect(cookie).toMatchObject({name: 'orrery_login', options: {httpOnly: true, sameSite: 'lax'}})
+        expect(cookie).toMatchObject({name: 'orrery_login_9000', options: {httpOnly: true, sameSite: 'lax'}})
         const logins = await store.logins('skoll')
         expect(logins.find(l => l.name === PHONE_LOGIN)).toBeDefined()
         expect(await store.loginHolder(cookie.value)).toMatchObject({person: 'skoll'})
@@ -202,6 +206,26 @@ describe('POST /api/auth/link', () => {
         for (const token of ['x'.repeat(43), '', undefined, {token: 1}]) {
             expect((await failure(() => useLink(token, {phone: true}))).status).toBe(401)
         }
+        expect(cookies).toEqual([])
+    })
+})
+
+describe('POST /api/auth/link with a typed code (ORR-875)', () => {
+    it("signs the phone in as the owner, on a login of its own, and uses up the QR's link", async () => {
+        const {token, code} = await ownersLinkAndCode()
+        const {data, status} = await useCode(code.toLowerCase(), {phone: true})
+        expect(status).toBe(201)
+        expect(data).toEqual({person: 'skoll'})
+        expect((await store.logins('skoll')).find(l => l.name === PHONE_LOGIN)).toBeDefined()
+        expect((await failure(() => useLink(token, {phone: true}))).status).toBe(401)
+        expect((await failure(() => useCode(code, {phone: true}))).status).toBe(401)
+    })
+
+    it('refuses a wrong code, saying where to look, and sets no cookie', async () => {
+        await ownersLinkAndCode()
+        const refused = await failure(() => useCode('ZZZZZZ', {phone: true}))
+        expect(refused.status).toBe(401)
+        expect(refused.message).toMatch(/App settings/)
         expect(cookies).toEqual([])
     })
 })

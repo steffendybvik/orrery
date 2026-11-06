@@ -130,6 +130,8 @@ export interface Issue {
     schedule?: number
     /** The version it ships in (a release's), if it's set for one. */
     release?: string
+    /** The epic it's part of (ORR-895), by number, if it's set for one; a sub-issue with none goes with its parent's. */
+    epic?: number
     /** The model and effort a session for it starts on (ORR-868), over its kind's; none follows its kind. */
     model?: string
     effort?: Effort
@@ -212,6 +214,31 @@ export interface Release {
     protected: boolean
     created_at: string
     updated_at: string
+}
+
+/** One piece of work across projects (ORR-895): it holds issues from any project, numbered across the orrery, apart
+ * from each project's milestones. Its progress is its issues', counted the way a release's are. */
+export interface Epic {
+    id: number
+    /** Its id to paste anywhere (ORR-995): `EPC-1-x7k2m9qd`, with the server's uid, as an epic spans its projects. */
+    full_id?: string
+    title: string
+    /** What it's about, in Markdown. */
+    notes?: string
+    /** Its issues: those set for it, each with its sub-issues, in every project. */
+    issues: number
+    kinds: Kinds
+    /** Each project's part, those with an issue in it, by id. */
+    projects: {project: string, issues: number, kinds: Kinds}[]
+    created_by: string
+    protected: boolean
+    created_at: string
+    updated_at: string
+}
+
+/** An epic with its issues: in a section per project, the issues set for it there, each with its sub-issues. */
+export interface EpicDetail extends Epic {
+    parts: {project: string, name: string, issues: number, kinds: Kinds, tasks: Issue[]}[]
 }
 
 /** A project's own issues in a release: all of it, or its part when several projects share the release. */
@@ -384,13 +411,28 @@ export interface Comment {
     updated_at: string
 }
 
+/** A comment on a milestone (`milestone`, with its `project`) or an epic (`epic`, ORR-977): words on its page, shown,
+ * edited and deleted by the same rules as an issue's, without an issue's asks, bell or sessions. */
+export interface ThreadComment {
+    id: number
+    project?: string
+    milestone?: string
+    epic?: number
+    body: string
+    created_by: string
+    session_name?: string
+    protected: boolean
+    created_at: string
+    updated_at: string
+}
+
 /** What an issue's activity records: a field that changed, `created` when it was made, `project` when it
  * moved in from another project. */
 /** Whether a project has releases: none, its own, or another project's (`releases_from`). */
 export const RELEASE_MODES = ['none', 'own', 'shared'] as const
 export type ReleaseMode = typeof RELEASE_MODES[number]
 
-export type ActivityField = 'model' | 'effort' | 'claim' | 'uploaded' | 'created' | 'title' | 'status' | 'priority' | 'assignee' | 'labels' | 'external' | 'github_issues' | 'notes' | 'milestone' | 'parent' | 'proposal' | 'project' | 'release' | 'depends'
+export type ActivityField = 'model' | 'effort' | 'claim' | 'uploaded' | 'created' | 'title' | 'status' | 'priority' | 'assignee' | 'labels' | 'external' | 'github_issues' | 'notes' | 'milestone' | 'parent' | 'proposal' | 'project' | 'release' | 'epic' | 'depends'
 
 /** One change to an issue: who set `field` from `before` to `after`, and when. Values are as stored (a
  * status's id, a milestone's id, labels as a JSON list); none means unset. Notes keep no values. */
@@ -469,21 +511,46 @@ export function trackerLinkOf(sent: string): string | null {
 }
 
 /** An issue's reference, saying whose board it's on, for commit bodies and PR descriptions: `orrery-ada: DOC-132`. */
-/** What each kind's full id starts with (ORR-674); an issue has the project's key already. */
-const FULL_PREFIX = {issue: '', doc: 'doc-', milestone: 'mls-', preset: 'pst-', schedule: 'sch-'}
-/** What a kind's full ids started with before (ORR-896: milestones were chunks, `chk-`), so those pasted earlier still work. */
+/** What each kind's full id starts with (ORR-674); an issue has the project's key already. A milestone's and an epic's
+ * are three capitals (ORR-995), as an issue's key is, which is why no project can be keyed `MLS` or `EPC`. */
+const FULL_PREFIX = {issue: '', doc: 'doc-', milestone: 'MLS-', epic: 'EPC-', preset: 'pst-', schedule: 'sch-'}
+/** What a kind's full ids started with before (ORR-896: milestones were chunks, `chk-`), so those pasted earlier still
+ * work. Prefixes match in any case, so today's `MLS-` takes the `mls-` of before ORR-995 too. */
 const OLD_PREFIX: Partial<Record<keyof typeof FULL_PREFIX, string>> = {milestone: 'chk-'}
 export type IdKind = keyof typeof FULL_PREFIX
+
+/** The keys no project can have, as a milestone's, an epic's, a doc's, a preset's or a schedule's ids start with them. */
+export const RESERVED_KEYS = ['MLS', 'EPC', 'DOC', 'CHK', 'PST', 'SCH']
 
 /** The form of an id to paste anywhere: `ORR-660-x7k2m9qd`. `uid` is the board's random id, or the server's for what
  * belongs to the server, so on any other board or server it finds nothing. */
 export const fullId = (kind: IdKind, id: string | number, uid: string) => `${FULL_PREFIX[kind]}${id}-${uid}`
 
+/** A milestone's or an epic's id as it's shown (ORR-995), the way an issue's is: `MLS-14`, `EPC-1`. */
+export const shownId = (kind: 'milestone' | 'epic', id: string | number) => `${FULL_PREFIX[kind]}${id}`
+
+const startsWith = (id: string, prefix: string) => id.slice(0, prefix.length).toUpperCase() === prefix.toUpperCase()
+
 /** The id inside a full one with this `uid`; null for anything else, a full id from another board included. */
 export function shortId(kind: IdKind, id: string, uid: string): string | null {
     const tail = `-${uid}`
-    const prefix = [FULL_PREFIX[kind], OLD_PREFIX[kind]].find(p => p !== undefined && id.startsWith(p) && id.length > p.length + tail.length)
+    const prefix = [FULL_PREFIX[kind], OLD_PREFIX[kind]].find(p => p !== undefined && startsWith(id, p) && id.length > p.length + tail.length)
     return uid && prefix !== undefined && id.endsWith(tail) ? id.slice(prefix.length, -tail.length) : null
+}
+
+/** The number inside a milestone's or an epic's shown id, in any case: `MLS-14` → `14`; null for anything else. */
+export function shownNumber(kind: 'milestone' | 'epic', id: string): string | null {
+    const prefix = FULL_PREFIX[kind]
+    return startsWith(id, prefix) && /^\d+$/.test(id.slice(prefix.length)) ? id.slice(prefix.length) : null
+}
+
+/** A milestone's or an epic's number from any form of its id: `14`, `MLS-14` or the full `MLS-14-x7k2m9qd`; null for
+ * what isn't one of those (a full id from another board, a name). */
+export function numberOf(kind: 'milestone' | 'epic', id: string | number, uid: string): string | null {
+    const sent = String(id).trim()
+    if (/^\d+$/.test(sent)) return sent
+    const inner = shortId(kind, sent, uid)
+    return shownNumber(kind, inner ?? sent) ?? (inner !== null && /^\d+$/.test(inner) ? inner : null)
 }
 
 /** Whether a doc's id reads as a full one, from any board: `doc-ideas-x7k2m9qd`. */
@@ -499,5 +566,7 @@ export function slugify(text: string): string {
 /** Three capitals from the name, e.g. `GRE` for Greenhouse. */
 export function keyFor(name: string): string {
     const letters = name.toUpperCase().replace(/[^A-Z0-9]/g, '').replace(/^[0-9]+/, '')
-    return letters.slice(0, 3) || 'ISS'
+    const key = letters.slice(0, 3) || 'ISS'
+    // One a milestone's or another kind's ids start with (ORR-995) takes a fourth letter: `EPCO` for Epcot.
+    return RESERVED_KEYS.includes(key) ? (letters.slice(0, 4).length > 3 ? letters.slice(0, 4) : `${key}P`) : key
 }

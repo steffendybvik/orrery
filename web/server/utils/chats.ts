@@ -1,3 +1,4 @@
+import type {Db} from './database'
 import type {H3Event} from 'h3'
 import type {Chat, ChatRequestDrift, SessionContext, ChatMilestoneField, ChatMilestoneRequest, ChatDocRequest, ChatIssueRequest, ChatIssues, ChatMessage, ChatMoveRequest, ChatReleaseField, ChatReleaseRequest, ChatScheduleRequest, ChatSendRequest, ChatSessionRequest, ChatSetting, Release, Schedule, Session, SessionState} from '#shared/roadmap'
 import {CHAT_MILESTONE_FIELDS, CHAT_DOC_FIELDS, CHAT_ISSUES, CHAT_RELEASE_FIELDS, CHAT_SETTINGS, SESSION_STATES, scheduleValue, settingValue} from '#shared/roadmap'
@@ -44,17 +45,19 @@ const saving = new Map<string, Promise<void>>()
 /** Keeps the chat in the database as it is now (`gone`: drops it), after its writes before. Why its launcher couldn't
  * start it isn't kept: that's said again, if it still holds, once orrery is up again. */
 function save(chat: Chat, gone = false) {
-    const {problem: _problem, ...kept} = chat
-    const json = JSON.stringify(kept)
-    const write = async () => {
-        const db = useDatabase()
-        if (gone) await db.run('DELETE FROM chats WHERE id = ?', chat.id)
-        else await db.run('INSERT INTO chats (id, project, started_at, ended_at, chat) VALUES (?, ?, ?, ?, ?) ON CONFLICT (id) DO UPDATE SET ended_at = excluded.ended_at, chat = excluded.chat',
-            chat.id, chat.project, chat.started_at, chat.ended_at ?? null, json)
-    }
+    const write = () => keepChat(useDatabase(), chat, gone)
     const done = (saving.get(chat.id) ?? Promise.resolve()).then(write).catch(error => console.error(`[orrery] keeping chat ${chat.id}:`, error))
     saving.set(chat.id, done)
     void done.then(() => { if (saving.get(chat.id) === done) saving.delete(chat.id) })
+}
+
+/** The chat's row as it is now, or none (`gone`): its one write, as the Rust API takes it from the local app once it's
+ * swapped in (ORR-951). Why its launcher couldn't start it isn't kept. */
+export async function keepChat(db: Db, chat: Chat, gone = false) {
+    if (gone) return void await db.run('DELETE FROM chats WHERE id = ?', chat.id)
+    const {problem: _problem, ...kept} = chat
+    await db.run('INSERT INTO chats (id, project, started_at, ended_at, chat) VALUES (?, ?, ?, ?, ?) ON CONFLICT (id) DO UPDATE SET ended_at = excluded.ended_at, chat = excluded.chat',
+        chat.id, chat.project, chat.started_at, chat.ended_at ?? null, JSON.stringify(kept))
 }
 
 /** Waits for every chat's writes so far to land (tests, and a server closing). */
@@ -724,7 +727,7 @@ async function answerMilestone(chat: Chat, request: ChatMilestoneRequest, allow:
     if (allow) {
         made = request.id === undefined
             ? await useStore().createMilestone(chat.project, request.body, {...actor, via: 'chat'})
-            : await useStore().updateMilestone(chat.project, request.id, request.body)
+            : await useStore().updateMilestone(chat.project, request.id, request.body, {...actor, via: 'chat'})
     }
     request.state = allow ? 'allowed' : 'denied'
     if (made) request.id = made.id
@@ -1026,8 +1029,11 @@ export function chatEnded(id: string) {
     if (!chat) return
     chats.delete(id)
     // The Claude session it ran as, the one it goes by now (a `/clear` changes it), to take up again (ORR-884).
-    const ran = sessionOfLaunch(chat.project, id)?.id
-    const ended: Chat = {...chat, ...ran ? {claude_session: ran} : {}, ended: true, ended_at: new Date().toISOString()}
+    const session = sessionOfLaunch(chat.project, id)
+    const ran = session?.id
+    // And what it ran on, for the pane to keep saying (ORR-936).
+    const on = session && {...session.model ? {model: session.model} : {}, ...session.effort ? {effort: session.effort} : {}, ...session.started ? {started: {model: session.started.model, effort: session.started.effort}} : {}}
+    const ended: Chat = {...chat, ...ran ? {claude_session: ran} : {}, ...on && Object.keys(on).length ? {ran_on: on} : {}, ended: true, ended_at: new Date().toISOString()}
     delete ended.problem
     // One ended before anything was said has nothing to read.
     if (chat.messages.length) {
@@ -1062,7 +1068,7 @@ export function asChatIssue(body: unknown, chat?: string): unknown {
 }
 
 /** What the chat may change on an issue when the owner asks: what it says and where it sits, never its state of work. */
-const CHAT_EDITS = ['title', 'notes', 'priority', 'labels', 'external', 'github_issues', 'milestone', 'release', 'parent', 'depends_on']
+const CHAT_EDITS = ['title', 'notes', 'priority', 'labels', 'external', 'github_issues', 'milestone', 'epic', 'release', 'parent', 'depends_on']
 
 /** An edit to an issue from the chat, as it asks for it: refused (403) when it would change anything but `CHAT_EDITS`,
  * so a chat never moves or assigns an issue on its own (only through a request the owner allows, `askMove`), puts up a

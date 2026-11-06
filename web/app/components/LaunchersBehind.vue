@@ -9,7 +9,7 @@ import type {LaunchState} from '~/composables/useLaunchState'
 
 const {launchers} = useRoadmaps()
 const {ordered} = useProjectOrder()
-const install = launcherInstall(useRequestURL().origin)
+const install = launcherInstall(serverOrigin())
 /** Each project with a launcher too old for this orrery, and the versions they run (`''` for one too old to say). */
 const behind = ref<{id: string, name: string, versions: string[], minimum: string}[]>([])
 async function ask() {

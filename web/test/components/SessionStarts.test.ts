@@ -79,13 +79,11 @@ describe('Let orrery start sessions', () => {
             schedule({id: 5, kind: 'session', enabled: false}),
         ]
         const wrapper = await mount({limit: 2}, schedules)
-        expect(wrapper.find('a[href="/schedules"]').text()).toBe('3 do')
-        expect(wrapper.text()).toContain("when work reaches a project nobody's listening on")
-        await box(wrapper, "nobody's listening").setValue(false)
+        expect(wrapper.find('a[href="/schedules"]').text()).toBe('3 schedules')
+        await box(wrapper, 'with no session running').setValue(false)
         await settle()
         expect(saved.at(-1)).toEqual({starts: {limit: 2, on_signal: false}})
-        expect(wrapper.find('a[href="/schedules"]').text()).toBe('1 does')
-        expect(wrapper.text()).toContain('when you press Start session or Focus on this')
+        expect(wrapper.find('a[href="/schedules"]').text()).toBe('1 schedule')
     })
 
     it('says why a save was refused', async () => {

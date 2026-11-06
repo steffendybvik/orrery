@@ -174,8 +174,10 @@ export class Schedules {
         const rows = project
             ? (await this.db.all<ScheduleRow>('SELECT * FROM schedules WHERE project = ?', project))
             : (await this.db.all<ScheduleRow>('SELECT * FROM schedules'))
+        // By plain order, as `localeCompare` puts any punctuation before digits: none due last (ORR-981).
+        const due = (s: Schedule) => s.next_run ?? '~'
         return (await Promise.all(rows.map(row => this.scheduleOf(row))))
-            .sort((a, b) => (a.next_run ?? '~').localeCompare(b.next_run ?? '~') || a.title.localeCompare(b.title))
+            .sort((a, b) => (due(a) < due(b) ? -1 : due(a) > due(b) ? 1 : 0) || a.title.localeCompare(b.title))
     }
 
     async get(project: string, id: number): Promise<Schedule> {
@@ -944,7 +946,7 @@ function filterOf(on: string | null, filter: unknown): string | null {
 
 /** The changes whose values are ids or fixed words, so passing them on passes on nobody's text: a label or an
  * assignee is whatever an agent typed. */
-const SAID_BY_ID = new Set(['issue.status', 'issue.priority', 'issue.milestone', 'issue.release', 'issue.parent', 'issue.proposal', 'issue.project', 'comment.asks'])
+const SAID_BY_ID = new Set(['issue.status', 'issue.priority', 'issue.milestone', 'issue.release', 'issue.epic', 'issue.parent', 'issue.proposal', 'issue.project', 'comment.asks'])
 
 /** A name as a handle (`claude`, `ada_lovelace`): one with spaces or more could be words to a session. */
 const HANDLE = /^[\w.-]{1,40}$/

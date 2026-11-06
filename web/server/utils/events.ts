@@ -9,7 +9,7 @@ import {EventEmitter} from 'node:events'
 import type {H3Event} from 'h3'
 import type {OrreryEvent} from '#shared/happenings'
 import type {LoggedEvent, Project} from '#shared/roadmap'
-import {shortId} from '#shared/roadmap'
+import {numberOf, shortId} from '#shared/roadmap'
 import {diffProject, withoutNotes} from '#shared/patch'
 import type {Db} from './database'
 import {EventLog} from './event-log'
@@ -85,6 +85,11 @@ export function useStore(): Store {
     store.hears = hearing
     store.sessionPerson = session => sessionNow(session)?.person
     store.happened = changed
+    store.cause = () => {
+        const run = scheduleRunning.getStore()
+        return run === undefined ? undefined : String(run)
+    }
+    store.epicsChanged = () => projectEvents.emit('epics')
     return store
 }
 
@@ -254,6 +259,16 @@ async function serverId(event: H3Event, kind: 'preset' | 'schedule'): Promise<nu
 }
 export const scheduleId = (event: H3Event) => serverId(event, 'schedule')
 export const presetId = (event: H3Event) => serverId(event, 'preset')
+
+/** An epic's number from the URL (ORR-895), sent as `1`, `EPC-1` or in full, `EPC-1-x7k2m9qd` (ORR-995). */
+export async function epicId(event: H3Event): Promise<number> {
+    const sent = param(event, 'epic')
+    // What isn't an epic's id is none, rather than `Number(null)`'s epic 0.
+    const number = sent ? numberOf('epic', sent, (await useStore().settings()).uid) : null
+    const id = Number(number)
+    if (number === null || !Number.isInteger(id)) throw notFound(`No epic ${sent}: GET /api/epics lists them`)
+    return id
+}
 
 /** Answers a create with 201 Created. */
 export function created<T>(event: H3Event, value: T): T {
