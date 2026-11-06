@@ -129,8 +129,8 @@ watch(() => [route.hash, count.value] as const, ([hash]) => show(hash), {immedia
         <header class="flex flex-col gap-0.5">
           <h2 class="text-[15px] font-semibold text-fg">Starting sessions</h2>
           <p class="text-xs text-muted">
-            orrery can start sessions itself, with no terminal: when your work finds nobody listening, or when you press
-            Start session. It does so for any project whose repo the launcher serves.
+            orrery can start sessions itself, with no terminal: when work arrives for a project with no session running,
+            or when you press Start session. It does so for any project whose repo has the launcher.
           </p>
         </header>
         <CopyBlock title="Install the launcher once: run" :text="install" hint="Anywhere, it installs the launcher; in a project's repo, it adds that project too. From then on a Claude session opened in a repo adds it (--no-pick-up turns that off), and --uninstall in a repo takes it off and keeps it off. Adding a repo leaves the running sessions alone." />

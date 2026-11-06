@@ -18,12 +18,13 @@ async function set(on: boolean) {
   <div class="flex flex-col gap-1.5">
     <label class="flex items-center gap-2 text-xs text-muted">
       <input type="checkbox" class="accent-accent-fill" :checked="settings.pick_next" @change="set(($event.target as HTMLInputElement).checked)">
-      When a session runs out of work, it picks its next issue
+      Sessions pick their own next issue
     </label>
     <p class="text-xs text-faint">
-      Every listening session, whoever started it, is handed the issues it may start in Todo, most urgent first, without
-      proposals or anything waiting on you. Backlog stays put. It starts the one it judges best, and may pass over
-      one it can't do yet, saying why. With nothing to pick, it stays idle until the board changes. Off, it waits for you.
+      When any session, whoever started it, has nothing left to do, it takes an issue from Todo. Todo issues come
+      most urgent first, and that excludes proposals and anything waiting on you. Backlog is never touched. The session starts
+      the issue it judges best and may skip one it can't do yet, saying why. If nothing fits, it stays idle until the
+      board changes. With this off, it waits for you.
     </p>
     <p v-if="failed" class="text-xs text-rose-700 dark:text-rose-400">{{ failed }}</p>
   </div>
