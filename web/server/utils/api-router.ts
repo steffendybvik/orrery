@@ -35,9 +35,9 @@ export const DOMAINS: readonly {domain: string, paths: RegExp, methods?: readonl
     // edited one leaves this server to pass on to the sessions and the owner's bell (`handedOn`). An edit checks the
     // session's claim on the issue here first, as only this server knows the sessions (`claimFor`, ORR-627).
     {domain: 'comments', paths: /^projects\/[^/]+\/issues\/[^/]+\/comments(\/[^/]+)?$/, first: {PATCH: claimOnComment}},
-    // Deleting an issue, with its sub-issues and comments (ORR-927): the API tells it back, and the dependents it frees,
-    // as `Orrery-Told`, and puts them in the outbox (ORR-929). Deleting many at once stays here.
-    {domain: 'an issue, deleted', paths: /^projects\/[^/]+\/issues\/[^/]+$/, methods: ['DELETE']},
+    // Deleting an issue, with its sub-issues and comments, or many at once (`{ids}`, ORR-927): the API tells each back,
+    // and the dependents it frees, as `Orrery-Told`, and puts them in the outbox (ORR-929).
+    {domain: 'an issue, deleted', paths: /^projects\/[^/]+\/issues(\/[^/]+)?$/, methods: ['DELETE']},
     // Changing an issue (ORR-927): its title, status, priority, assignee, notes, labels, tasks, GitHub issues, parent,
     // milestone, release, epic, what it depends on, whether it's a proposal and its choices, model, effort and place. One
     // it makes urgent comes back with `Orrery-Urgent`, for the push here (`sayUrgent`). Moving it to another project stays
