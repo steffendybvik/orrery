@@ -1,9 +1,9 @@
 // Changing an issue's own words (ORR-927): the part of `updateIssue` in web/server/store/issues.ts that changes what an
 // issue says, where it sits among its siblings and what it's under, and nothing that moves it on the board: `title`,
 // `priority`, `notes`, `labels`, its tasks (`external`), its GitHub issues, its `parent`, `milestone`, `release` and `epic`,
-// what it depends on, whether it's a `proposal`, the `model` and `effort` a session for it starts on, and its `position`. The
+// what it depends on, whether it's a `proposal` and its `choices`, the `model` and `effort` a session for it starts on, and its `position`. The
 // router sends a `PATCH …/issues/{issue}` here only when it names none of the other fields (`wordsOnly`), so its status,
-// assignee, `choices` and moving it to another project stay the Nuxt server's for now. The rails are the store's: an agent changes only its person's
+// assignee and moving it to another project stay the Nuxt server's for now. The rails are the store's: an agent changes only its person's
 // issue, or its own proposal, and moves one only under an issue that's its person's too.
 use crate::changes;
 use crate::comments::Comments;
@@ -18,7 +18,7 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::LazyLock;
 
 /// The fields this takes, in the order `ISSUE_FIELDS` has them, which is the order its problems are listed in.
-pub const WORDS: [&str; 15] = [
+pub const WORDS: [&str; 16] = [
     "title",
     "priority",
     "labels",
@@ -26,6 +26,7 @@ pub const WORDS: [&str; 15] = [
     "github_issues",
     "notes",
     "proposal",
+    "choices",
     "parent",
     "milestone",
     "release",
@@ -62,6 +63,8 @@ pub struct Words {
     pub depends_on: Option<Vec<String>>,
     /// `pending` puts it (back) to the owner, null commits it.
     pub proposal: Option<Option<String>>,
+    /// A proposal's choices as they're kept (`parseChoices`): `[]` for none.
+    pub choices: Option<String>,
     pub model: Option<Option<String>>,
     pub effort: Option<Option<String>>,
     pub position: Option<f64>,
@@ -160,6 +163,11 @@ pub fn check_words(body: &Value) -> Result<Words> {
                 words.proposal =
                     text(key, value, &mut problems, |sent| (sent != "pending").then(|| format!("\"proposal\" is \"{sent}\", not one of pending (or null)")))
             }
+            "choices" if value.is_null() => words.choices = Some("[]".into()),
+            "choices" => match crate::choices::parse_choices(value) {
+                Ok(kept) => words.choices = Some(kept),
+                Err(problem) => problems.push(format!("\"choices\": {problem}")),
+            },
             "parent" => words.parent = text(key, value, &mut problems, |_| None),
             "milestone" => words.milestone = text(key, value, &mut problems, |_| None),
             "release" => words.release = text(key, value, &mut problems, |_| None),
@@ -381,6 +389,9 @@ impl Comments<'_> {
             if reassigned {
                 columns.extend(["claimed_by", "claimed_at", "claimed_session"].map(|c| format!("{c} = NULL")));
             }
+            if words.choices.is_some() {
+                columns.push("choices = ?".into());
+            }
             if epic.is_some() {
                 columns.push("epic = ?".into());
             }
@@ -392,6 +403,9 @@ impl Comments<'_> {
             let mut update = sqlx::query(&query);
             for (_, value) in &set {
                 update = update.bind(value.clone());
+            }
+            if let Some(choices) = &words.choices {
+                update = update.bind(choices.clone());
             }
             if let Some(epic) = epic {
                 update = update.bind(epic);

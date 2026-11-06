@@ -1600,6 +1600,33 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         ] as Step[]) await both(name, ts, rs)
     })
 
+    it('changes a proposal\'s choices alike, refusing what parseChoices refuses (ORR-927)', async () => {
+        const ids: Record<string, string> = {}
+        for (const p of ['through-store', 'through-api']) ids[p] = (await store.createIssue(p, {title: 'Which clock?', proposal: 'pending'})).id
+        const two = [{key: 'A', title: ' Brass ', body: null}, {key: 'B', title: 'Oak', body: 'Darker'}]
+        type Step = [string, (p: string) => Promise<Outcome>, () => Promise<Outcome>]
+        const edit = (name: string, body: unknown, actor: Actor = AGENT): Step =>
+            [name, p => viaStore(() => store.updateIssue(p, ids[p]!, body, actor)), () => viaApi('PATCH', `/issues/${ids['through-api']}`, body, actor)]
+        for (const [name, ts, rs] of [
+            edit('two choices, one following on', {choices: [
+                {key: 'case', question: ' What case? ', options: two, recommended: ['A']},
+                {key: 'hands', question: 'Which hands?', pick: 'any', options: [{key: 'h', title: 'Hour'}, {key: 'm', title: 'Minute'}], from: {choice: 'case', option: 'B'}},
+            ]}),
+            ['the issue', p => viaStore(() => store.issue(p, ids[p]!)), () => viaApi('GET', `/issues/${ids['through-api']}`)],
+            edit('none, with null', {choices: null, notes: 'Plain'}),
+            edit('none, with an empty list', {choices: []}),
+            edit('not a list', {choices: {key: 'a'}}),
+            edit('one option', {choices: [{key: 'a', question: 'Q', options: [two[0]]}]}),
+            edit('a bad key', {choices: [{key: '-a', question: 'Q', options: two}]}),
+            edit('two recommended for pick one', {choices: [{key: 'a', question: 'Q', options: two, recommended: ['A', 'B']}]}),
+            edit('a from with no choice before it', {choices: [{key: 'a', question: 'Q', options: two, from: {choice: 'a', option: 'A'}}]}),
+            edit('with no question', {choices: [{key: 'a', options: two}]}),
+            edit('a bad pick, with a bad title', {choices: [{key: 'a', question: 'Q', pick: 'all', options: two}], title: ''}),
+            ['the activity', p => viaStore(() => store.listActivity(p, ids[p]!)), () => viaApi('GET', `/issues/${ids['through-api']}/activity`)],
+            ['the issue after', p => viaStore(() => store.issue(p, ids[p]!)), () => viaApi('GET', `/issues/${ids['through-api']}`)],
+        ] as Step[]) await both(name, ts, rs)
+    })
+
     it('changes what an issue depends on alike, refusing itself, its parent, a sub-issue and a loop (ORR-927, ORR-601)', async () => {
         const ids: Record<string, Record<string, string>> = {}
         const key = (p: string) => p === 'through-store' ? 'STO' : 'API'
@@ -2228,8 +2255,8 @@ describe('the router', () => {
         for (const header of [null, '', 'p', 'p P-1 x']) expect(urgentOf(header), String(header)).toBeUndefined()
         expect(onlyWords({parent: null, milestone: '3', release: '1.0.0'})).toBe(true)
         expect(onlyWords({proposal: 'pending', notes: 'Still wanted?'})).toBe(true)
-        expect(onlyWords({epic: 'EPC-1', title: 'x'})).toBe(true)
-        for (const body of [{title: 'x', status: 'todo'}, {assignee: 'claude'}, {epic: 1, choices: []}, {project: 'q'}, {}, null, [], 'title']) expect(onlyWords(body), JSON.stringify(body)).toBe(false)
+        expect(onlyWords({epic: 'EPC-1', title: 'x', choices: []})).toBe(true)
+        for (const body of [{title: 'x', status: 'todo'}, {assignee: 'claude'}, {choices: [], plan: null}, {project: 'q'}, {}, null, [], 'title']) expect(onlyWords(body), JSON.stringify(body)).toBe(false)
         expect(domainOf('DELETE', '/api/projects/p/issues')).toBeUndefined()
         for (const path of ['/api/projects/p/issues/P-1/activity/x', '/api/', '/docs', '/api/projects/p/docs/d/artifact']) expect(domainOf('GET', path), path).toBeUndefined()
     })

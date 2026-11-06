@@ -13,6 +13,7 @@
 // Nuxt server migrates the database as it opens it until the last domain has moved here.
 mod changes;
 mod chats;
+mod choices;
 mod comments;
 mod db;
 mod docs;

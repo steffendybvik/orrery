@@ -331,7 +331,7 @@ paths:
       summary: Changes the issue's own words, priority, where it sits, what it depends on and whether it's a proposal
       description: |
         Only its `title`, `priority`, `notes`, `labels`, `external`, `github_issues`, `parent`, `milestone`, `release`,
-        `epic`, `depends_on`, `proposal`, `model`, `effort` and `position`: the router keeps an edit naming any other field
+        `epic`, `depends_on`, `proposal`, `choices`, `model`, `effort` and `position`: the router keeps an edit naming any other field
         for the Nuxt server. `epic` is an epic's number, `EPC-1` or its full id, 404 for one there isn't. Null clears all but the title and position. A sub-issue is in its parent's milestone, so `parent` and
         `milestone` aren't sent together; `parent: null` lifts it to the top, into its root's milestone unless one is
         sent. An agent's, with more than one person, only on its person's issue or its own proposal, and under a parent
@@ -364,6 +364,7 @@ paths:
                 epic: {type: [string, integer, 'null'], description: 'The epic it''s part of: its number, `EPC-1` or its full id'}
                 depends_on: {type: [array, 'null'], items: {type: string}, description: 'All it depends on: `ID` here or `project/ID` in another'}
                 proposal: {type: [string, 'null'], enum: [pending, null], description: '`pending` puts it (back) to the owner; null commits it, the owner''s alone'}
+                choices: {type: [array, 'null'], items: {type: object}, description: 'A proposal''s questions for the owner: `{key, question, pick?, options: [{key, title, body?}], recommended?, from?}`; null for none'}
                 model: {type: [string, 'null']}
                 effort: {type: [string, 'null'], enum: [low, medium, high, xhigh, max, null]}
                 position: {type: number}
