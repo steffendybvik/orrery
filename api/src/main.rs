@@ -378,15 +378,22 @@ async fn release_issue(State(app): Shared, Path((project, issue)): Path<(String,
     claim_or_release(app, project, issue, headers, false).await
 }
 
-/// `PATCH …/issues/{issue}` with only an issue's own words (`issue_edits::WORDS`): the issue (`updateIssue`).
+/// `PATCH …/issues/{issue}` with only an issue's own words and priority (`issue_edits::WORDS`): the issue
+/// (`updateIssue`), and `Orrery-Urgent` when it made it urgent open work.
 async fn patch_issue(State(app): Shared, Path((project, issue)): Path<(String, String)>, headers: HeaderMap, body: Bytes) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
     let mut comments = Comments::new(&mut conn);
     comments.outbox = Some(Outbox::new(actor_of(&headers)));
-    comments.edit_words(&project, &issue, &body_of(&body), &actor_of(&headers)).await?;
+    let urgent = comments.edit_words(&project, &issue, &body_of(&body), &actor_of(&headers)).await?;
     let effects = std::mem::take(&mut comments.effects);
     let value = Issues::new(&mut conn).issue(&project, &issue).await?;
-    Ok(reply(StatusCode::OK, Some(value), effects))
+    let mut response = reply(StatusCode::OK, Some(value), effects);
+    // Made urgent open work: the Nuxt server pushes it to the sessions (`sayUrgent`), as only it reaches them.
+    if let Some(id) = urgent {
+        let encode = |s: &str| utf8_percent_encode(s, NON_ALPHANUMERIC).to_string();
+        response.headers_mut().insert("orrery-urgent", HeaderValue::from_str(&format!("{} {}", encode(&project), encode(&id))).unwrap());
+    }
+    Ok(response)
 }
 
 /// `DELETE …/issues/{issue}`: 204, its sub-issues and comments gone with it (`deleteIssue`).

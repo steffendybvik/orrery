@@ -38,9 +38,10 @@ export const DOMAINS: readonly {domain: string, paths: RegExp, methods?: readonl
     // Deleting an issue, with its sub-issues and comments (ORR-927): the API tells it back, and the dependents it frees,
     // as `Orrery-Told`, and puts them in the outbox (ORR-929). Deleting many at once stays here.
     {domain: 'an issue, deleted', paths: /^projects\/[^/]+\/issues\/[^/]+$/, methods: ['DELETE']},
-    // Changing an issue's own words (ORR-927): its title, notes, labels, tasks, GitHub issues, model, effort and place.
-    // An edit naming any other field stays here (`wordsOnly`), as its status, assignee, proposal, priority, links and
-    // where it sits wake sessions or set off a P0's push. The chat's rails and a session's claim are checked here first.
+    // Changing an issue's own words (ORR-927): its title, priority, notes, labels, tasks, GitHub issues, model, effort
+    // and place. One it makes urgent comes back with `Orrery-Urgent`, for the push here (`sayUrgent`). An edit naming
+    // any other field stays here (`wordsOnly`), as its status, assignee, proposal, links and where it sits wake
+    // sessions or claim the issue. The chat's rails and a session's claim are checked here first.
     {domain: 'an issue, its words', paths: /^projects\/[^/]+\/issues\/[^/]+$/, methods: ['PATCH'], first: {PATCH: wordsOnly}},
     // Taking an issue up and letting it go (ORR-927, ORR-657): the API tells the claim and a new assignee back, as
     // `Orrery-Told`, and puts them in the outbox (ORR-929).
@@ -88,7 +89,7 @@ export const DOMAINS: readonly {domain: string, paths: RegExp, methods?: readonl
 type LocalCheck = (event: H3Event, rest: string) => Promise<unknown>
 
 /** The fields of an issue's edit the API changes (`api/src/issue_edits.rs`, `WORDS`). */
-export const ISSUE_WORDS: readonly string[] = ['title', 'labels', 'external', 'github_issues', 'notes', 'model', 'effort', 'position']
+export const ISSUE_WORDS: readonly string[] = ['title', 'priority', 'labels', 'external', 'github_issues', 'notes', 'model', 'effort', 'position']
 
 /** Whether an issue's edit names only its own words, so the API can make it: a body that isn't an object, or is
  * empty, stays here too, for its answer. */
@@ -238,6 +239,13 @@ export function handedOn(headers: Headers): {project: string, issue: string, com
     return {project, issue, comment: Number(comment), carry: headers.has('orrery-carry'), notice: headers.has('orrery-notice'), edited: mark === 'edited'}
 }
 
+/** The issue an edit's reply says it made urgent open work (`Orrery-Urgent`, `<project> <issue>` percent-encoded), for
+ * the push to the sessions only this server can make (`sayUrgent`, ORR-927). */
+export function urgentOf(header: string | null): {project: string, issue: string} | undefined {
+    const [project, issue, ...rest] = header?.trim().split(' ').map(decodeURIComponent) ?? []
+    return project && issue && !rest.length ? {project, issue} : undefined
+}
+
 /** The API this server started itself (`plugins/api.ts`), once it's listening. */
 let started: {url: string, token: string} | null = null
 
@@ -309,6 +317,8 @@ export async function forwardToApi(event: H3Event, api: {url: string, token: str
     // Outside `relaying`: the signal and the bell's notice are this server's own, with their own rows in the outbox.
     const handoff = handedOn(response.headers)
     if (handoff) await store.handOn(handoff.project, handoff.issue, handoff.comment, handoff, actor)
+    const urgent = urgentOf(response.headers.get('orrery-urgent'))
+    if (urgent) await store.sayUrgent(urgent.project, urgent.issue, actor)
     const counted = countedOf(event.method, pathOf(event))
     if (counted) countOwnUse(event, counted)
     setResponseStatus(event, response.status)

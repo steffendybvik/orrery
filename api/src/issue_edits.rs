@@ -9,14 +9,17 @@ use crate::comments::Comments;
 use crate::db::sql;
 use crate::docs::{js, stamp, Actor};
 use crate::error::{ApiError, Result};
-use crate::issues::{github_issue_of, github_repo, GITHUB_OWN};
+use crate::issues::{github_issue_of, github_repo, Issues, GITHUB_OWN};
 use regex::Regex;
 use serde_json::Value;
 use sqlx::Row;
 use std::sync::LazyLock;
 
 /// The fields this takes, in the order `ISSUE_FIELDS` has them, which is the order its problems are listed in.
-pub const WORDS: [&str; 8] = ["title", "labels", "external", "github_issues", "notes", "model", "effort", "position"];
+pub const WORDS: [&str; 9] = ["title", "priority", "labels", "external", "github_issues", "notes", "model", "effort", "position"];
+const PRIORITIES: [&str; 4] = ["P0", "P1", "P2", "P3"];
+/// The kinds of status an issue is closed in (`CLOSED`).
+const CLOSED: [&str; 2] = ["done", "canceled"];
 const EFFORTS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
 static MODEL: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^(best|opus|sonnet|haiku|fable|default|opusplan|claude-[a-z0-9.-]{1,56}(\[1m\])?)$").unwrap());
 const MODEL_HINT: &str = "use best, opus, sonnet, haiku, fable, default, opusplan or a full id such as claude-sonnet-5-5";
@@ -25,6 +28,7 @@ const MODEL_HINT: &str = "use best, opus, sonnet, haiku, fable, default, opuspla
 #[derive(Debug, Default, PartialEq)]
 pub struct Words {
     pub title: Option<String>,
+    pub priority: Option<Option<String>>,
     pub labels: Option<Vec<String>>,
     pub external: Option<Vec<String>>,
     pub github_issues: Option<Vec<String>>,
@@ -110,6 +114,11 @@ pub fn check_words(body: &Value) -> Result<Words> {
                     )),
                 }
             }
+            "priority" => {
+                words.priority = text(key, value, &mut problems, |sent| {
+                    (!PRIORITIES.contains(&sent)).then(|| format!("\"priority\" is \"{sent}\", not one of {} (or null)", PRIORITIES.join(", ")))
+                })
+            }
             "notes" => words.notes = text(key, value, &mut problems, |_| None),
             "model" => words.model = text(key, value, &mut problems, |sent| (!MODEL.is_match(sent)).then(|| format!("\"model\" is \"{sent}\"; {MODEL_HINT}"))),
             "effort" => {
@@ -135,6 +144,8 @@ type Change<'a> = (&'a str, Option<&'a str>, Option<Option<&'a str>>);
 /// What a column held before the edit: `None` for SQL null.
 struct Before {
     title: String,
+    status: String,
+    priority: Option<String>,
     labels: Option<String>,
     external: Option<String>,
     github_issues: Option<String>,
@@ -149,13 +160,14 @@ struct Before {
 impl Comments<'_> {
     /// Changes the issue's own words (`updateIssue`, for `WORDS` only), noting each changed field in its activity and
     /// telling it, without a title's or a link's words, as an outsider may have written them. 409 for an agent on one
-    /// that isn't its person's, unless it's its own proposal.
-    pub async fn edit_words(&mut self, project: &str, sent: &str, body: &Value, actor: &Actor) -> Result<()> {
+    /// that isn't its person's, unless it's its own proposal. Gives back the issue's id when the edit made it urgent open
+    /// work it wasn't (P0, `urgent`), for the Nuxt server to push to the sessions, as only it reaches them.
+    pub async fn edit_words(&mut self, project: &str, sent: &str, body: &Value, actor: &Actor) -> Result<Option<String>> {
         let issue = self.issue_id(project, sent).await?;
         self.issue_there(project, &issue).await?;
         let words = check_words(body)?;
         let row = sqlx::query(&sql(
-            "SELECT title, labels, external, github_issues, notes, model, effort, assignee, proposal, created_person FROM issues WHERE project = ? AND id = ?",
+            "SELECT title, status, priority, labels, external, github_issues, notes, model, effort, assignee, proposal, created_person FROM issues WHERE project = ? AND id = ?",
         ))
         .bind(project)
         .bind(&issue)
@@ -163,6 +175,8 @@ impl Comments<'_> {
         .await?;
         let row = Before {
             title: row.get("title"),
+            status: row.get("status"),
+            priority: row.get("priority"),
             labels: row.get("labels"),
             external: row.get("external"),
             github_issues: row.get("github_issues"),
@@ -189,8 +203,9 @@ impl Comments<'_> {
         let linked = self.linked_projects(project, &issue).await?;
         changes::begin(self.conn).await?;
         let done: Result<()> = async {
-            let changed: [Change; 7] = [
+            let changed: [Change; 8] = [
                 ("title", Some(row.title.as_str()), words.title.as_deref().map(Some)),
+                ("priority", row.priority.as_deref(), words.priority.as_ref().map(Option::as_deref)),
                 ("labels", row.labels.as_deref(), labels.as_deref().map(Some)),
                 ("external", row.external.as_deref(), external.as_deref().map(Some)),
                 ("github_issues", row.github_issues.as_deref(), github.as_deref().map(Some)),
@@ -232,7 +247,13 @@ impl Comments<'_> {
         .await;
         self.effects.changed = std::iter::once(project.to_string()).chain(linked.into_iter().filter(|p| p != project)).collect();
         changes::finish(self.conn, self.outbox.as_mut(), &self.effects, done).await?;
-        Ok(())
+        let made_p0 = words.priority.as_ref().is_some_and(|p| p.as_deref() == Some("P0")) && row.priority.as_deref() != Some("P0");
+        if !made_p0 || !(actor.owner || actor.person.is_some()) || row.proposal.is_some() {
+            return Ok(None);
+        }
+        let statuses = Issues::new(&mut *self.conn).statuses().await?;
+        let closed = statuses.iter().any(|s| s.id == row.status && CLOSED.contains(&s.kind.as_str()));
+        Ok((!closed).then_some(issue))
     }
 
     /// The GitHub issues as they're kept (`githubIssuesOf`): each `owner/name#523`, once whatever its case, refused
