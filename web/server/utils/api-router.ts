@@ -91,6 +91,10 @@ export const DOMAINS: readonly {domain: string, paths: RegExp, methods?: readonl
     // Changing a project (ORR-923): its name, key, icon, prompts, repo and where its releases come from. The reply is the
     // project with its board, without the `rev` that reading one adds here.
     {domain: 'a project, changed', paths: /^projects\/[^/]+$/, methods: ['PATCH']},
+    // The bell (ORR-1005): agents' comments across projects with the proposals waiting on the owner, the status changes
+    // on their issues, and clearing them or marking them read, each person's their own (ORR-658). Clearing tells nothing:
+    // the page that did it reads the bell again.
+    {domain: 'the bell', paths: /^notices(\/(changes|clear|read))?$/},
 ]
 
 /** What this server checks itself before a request goes on, as only it knows (the sessions): refusing it throws, and

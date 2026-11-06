@@ -376,25 +376,6 @@ impl<'c> Projects<'c> {
         Ok(())
     }
 
-    /// Whose a new project is (`personOf`): the credential's person, the owner's own, their chat's the owner's, and a
-    /// session's the person it names; an untrusted session's nobody's.
-    async fn holder(&mut self, who: Option<&Who>, actor: &Actor) -> Result<Option<String>> {
-        if actor.untrusted {
-            return Ok(None);
-        }
-        if let Some(who) = who {
-            return Ok(Some(who.person.clone()));
-        }
-        if actor.owner {
-            return Ok(Some(actor.name.to_lowercase()));
-        }
-        let mut comments = Comments::new(&mut *self.conn);
-        if actor.chat {
-            return Ok(Some(comments.owner_id().await?));
-        }
-        comments.person_for(actor.named.as_deref().unwrap_or(&actor.name)).await
-    }
-
     /// Makes a project, held by whoever asks (the owner when it can't say), who can then say who else is on it
     /// (`createProject`). Gives back its id.
     pub async fn create(&mut self, body: &Value, who: Option<&Who>, actor: &Actor) -> Result<String> {
@@ -424,7 +405,7 @@ impl<'c> Projects<'c> {
         if let Some(from) = &from {
             self.check_releases_from(&id, from).await?;
         }
-        let holder = match self.holder(who, actor).await? {
+        let holder = match Comments::new(&mut *self.conn).person_asking(who, actor).await? {
             Some(holder) => holder,
             None => Comments::new(&mut *self.conn).owner_id().await?,
         };

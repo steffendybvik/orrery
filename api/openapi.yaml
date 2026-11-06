@@ -38,6 +38,9 @@ info:
     - **Presets** (ORR-949): the orrery's presets and a project's own (web/server/api/presets, and
       web/server/api/projects/[project]/presets). Served by both; seeding the ones orrery ships as it starts stays the
       Nuxt server's.
+    - **The bell** (ORR-1005): agents' comments across projects with the proposals waiting on the owner, the status
+      changes on their issues, and clearing them or marking them read (web/server/api/notices). Served by both; each
+      person's bell is their own (ORR-658).
 
     An operation marked `x-served: false` is written ahead of the Rust API's: the router doesn't send it there yet, and
     the parity test holds it to that. The mark comes off in the pull request that serves it.
@@ -747,6 +750,63 @@ paths:
         '404': {$ref: '#/components/responses/NotFound'}
         '409': {description: The invite has been used or has run out, or the account belongs to someone else}
         '502': {description: The provider is set up wrong or didn't answer}
+  /api/notices:
+    get:
+      summary: The bell, or one of the notifications page's lists
+      description: |
+        Agents' comments across projects. The `bell` is the latest 30 not cleared, those still waiting on the owner (a
+        decision or feedback they haven't answered) first, with agents' proposals waiting on them ahead of all. The
+        page's lists are newest first: `waiting` (every one, proposals among them), and `inbox` and `cleared` a page at a
+        time, `limit` of them (50, at most 200) older than the notice `before`. With more than one person each has their
+        own bell (ORR-658), and only the owner's has proposals.
+      parameters:
+        - {name: list, in: query, description: 'Which: `bell` (the default), `waiting`, `inbox` or `cleared`', schema: {type: string, enum: [bell, waiting, inbox, cleared]}}
+        - {name: before, in: query, description: 'For `inbox` and `cleared`: only notices older than this comment', schema: {type: integer}}
+        - {name: limit, in: query, description: 'For `inbox` and `cleared`: how many, 50 by default, at most 200', schema: {type: integer, minimum: 1, maximum: 200}}
+      responses:
+        '200': {description: The notices, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/Notice'}}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+  /api/notices/changes:
+    get:
+      summary: Status changes since a time on the issues in the asker's bell, oldest first
+      description: The latest 2000, if there are more (ORR-803).
+      parameters:
+        - {name: since, in: query, required: true, description: A time, schema: {type: string, format: date-time}}
+      responses:
+        '200': {description: The changes, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/NoticeChange'}}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+  /api/notices/clear:
+    post:
+      summary: Takes notices out of the bell
+      description: |
+        The comments stay on their issues, the proposals pending. Comments by `ids` and proposals by `{project, issue}`,
+        every comment made at or before `before`, or every one `read`: the last two leave those still waiting on the
+        owner. A member's clears are their own (no proposals); a session is refused (403).
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                ids: {type: array, items: {type: integer}}
+                proposals: {type: array, items: {type: object, required: [project, issue], properties: {project: {type: string}, issue: {type: string}}}}
+                before: {type: string, format: date-time}
+                read: {type: boolean, enum: [true]}
+      responses:
+        '200': {description: How many, content: {application/json: {schema: {type: object, required: [cleared], properties: {cleared: {type: integer}}}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+  /api/notices/read:
+    post:
+      summary: Marks comments read, as opening one on the notifications page does
+      description: It leaves what the bell counts alone. A member's are their own; a session is refused (403).
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      requestBody: {required: true, content: {application/json: {schema: {type: object, required: [ids], properties: {ids: {type: array, minItems: 1, items: {type: integer}}}}}}}
+      responses:
+        '200': {description: How many changed, content: {application/json: {schema: {type: object, required: [read], properties: {read: {type: integer}}}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
   /api/secrets:
     get:
       summary: Every secret by name, never its value
@@ -1624,6 +1684,30 @@ components:
         protected: {type: boolean, description: Written by the owner}
         created_at: {type: string, format: date-time}
         updated_at: {type: string, format: date-time}
+    Notice:
+      description: 'A comment of an agent''s, with its project and issue''s title; or a proposal waiting on the owner, with id 0 and `proposal`'
+      allOf:
+        - {$ref: '#/components/schemas/Comment'}
+        - type: object
+          required: [project, title]
+          properties:
+            project: {type: string}
+            title: {type: string, description: The issue's}
+            cleared: {type: boolean, description: Only when it's been cleared}
+            read: {type: boolean, description: Only when it's been opened}
+            proposal: {type: object, required: [choices], properties: {choices: {type: integer}}, description: 'Only on a proposal: how many choices it offers'}
+    NoticeChange:
+      type: object
+      required: [id, project, issue, created_by, created_at]
+      properties:
+        id: {type: integer}
+        project: {type: string}
+        issue: {type: string}
+        before: {type: string, description: The status it had, when it had one}
+        after: {type: string, description: The status it has, when it has one}
+        created_by: {type: string}
+        session_name: {type: string, description: Only with one}
+        created_at: {type: string, format: date-time}
     Secret:
       type: object
       required: [name, last4, hosts, projects, created_by, created_at, updated_at, last_used]

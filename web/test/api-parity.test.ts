@@ -1988,6 +1988,123 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         expect((await viaApi('PATCH', '/api/presets/abc', {name: 'X'}, OWNER)).body).toEqual({message: 'No preset abc'})
     })
 
+    it('reads, clears and marks the bell read alike, each person their own (ORR-1005)', async () => {
+        // The bell is the orrery's, so both sides read the same rows: a question on each project, one answered, a
+        // proposal, a status change, and a comment by Ada's agent, on top of what the steps before left.
+        const ADAS: Actor = {name: 'agent', owner: false, named: 'ada', asked: true}
+        const since = new Date(Date.now() - 1000).toISOString()
+        const asked: Record<string, string> = {}
+        for (const p of ['through-store', 'through-api']) {
+            const {id} = await store.createIssue(p, {title: 'Which hinge?'}, SESSION)
+            asked[p] = id
+            await store.createComment(p, id, {body: 'Brass or steel?', asks: 'decision'}, SESSION)
+            await store.createComment(p, id, {body: 'Done the frame.'}, SESSION)
+            const {id: oil} = await store.createIssue(p, {title: 'Oil it?'}, SESSION)
+            await store.createComment(p, oil, {body: 'Oil?', asks: 'feedback'}, SESSION)
+            await store.createComment(p, oil, {body: 'Yes'}, OWNER)
+            await store.updateIssue(p, oil, {status: 'done'}, OWNER)
+            await store.createIssue(p, {title: 'Add a gear', proposal: 'pending'}, SESSION)
+            await store.createComment(p, id, {body: 'Ada, the hinge is yours.'}, ADAS)
+        }
+        const latest = (await store.notices({list: 'inbox'}))
+        const older = latest[2]!.id
+        // Whose bell each asker gets: the route works it out (`personOf`), the API from the headers.
+        const askers: [string, Actor, string | undefined][] = [
+            ['the owner', OWNER, 'steffen'],
+            ['a session naming Ada', ADAS, await store.personFor('ada')],
+            ['Ada herself', {name: 'ada', owner: false, person: 'ada', asked: true}, 'ada'],
+            ['an untrusted session', {name: 'agent', owner: false, untrusted: true, asked: true}, undefined],
+        ]
+        for (const [who, actor, person] of askers) {
+            const reads: [string, Parameters<Store['notices']>[0], string][] = [
+                ['the bell', {}, ''],
+                ['waiting', {list: 'waiting'}, '?list=waiting'],
+                ['the inbox', {list: 'inbox'}, '?list=inbox'],
+                ['a page of the inbox', {list: 'inbox', limit: 2, before: older}, `?list=inbox&limit=2&before=${older}`],
+                ['too big a page', {list: 'inbox', limit: 200}, '?list=inbox&limit=900'],
+                ['cleared', {list: 'cleared'}, '?list=cleared'],
+                ['an unknown list', {list: 'later' as never}, '?list=later'],
+            ]
+            for (const [name, query, path] of reads) {
+                await alike0(`${who}: ${name}`, () => viaStore(() => store.notices({...query, limit: query?.limit, person})), () => viaApi('GET', `/api/notices${path}`, undefined, actor))
+            }
+            await alike0(`${who}: the changes`, () => viaStore(() => store.noticeChanges({since, person})), () => viaApi('GET', `/api/notices/changes?since=${encodeURIComponent(since)}`, undefined, actor))
+            await alike0(`${who}: changes since no time`, () => viaStore(() => store.noticeChanges({since: 'soon', person})), () => viaApi('GET', '/api/notices/changes?since=soon', undefined, actor))
+        }
+        expect((await viaApi('GET', '/api/notices/changes?since=' + encodeURIComponent(since), undefined, OWNER)).body).toEqual(expect.arrayContaining([expect.objectContaining({after: 'done'})]))
+
+        // The writes change the same rows, so each side runs them all in turn, put back as they were between them.
+        const ADA: Actor = {name: 'ada', owner: false, person: 'ada', asked: true}
+        const question = (await store.notices({list: 'waiting'})).find(n => n.body === 'Brass or steel?' && n.project === 'through-store')!.id
+        const told = (await store.notices({list: 'inbox'})).find(n => n.body === 'Done the frame.' && n.project === 'through-api')!.id
+        const adas = (await store.notices({person: 'ada'})).map(n => n.id)
+        // Ada's bell is her own: her agent's words, not the owner's questions.
+        expect((await viaApi('GET', '/api/notices', undefined, ADA)).body).toEqual(expect.arrayContaining([expect.objectContaining({body: 'Ada, the hinge is yours.'})]))
+        expect((await viaApi('GET', '/api/notices', undefined, ADA)).body).not.toEqual(expect.arrayContaining([expect.objectContaining({body: 'Brass or steel?'})]))
+        const gear = (await store.notices({list: 'waiting'})).find(n => n.title === 'Add a gear' && n.project === 'through-api')!
+        type Step = [string, () => Promise<Outcome>, () => Promise<Outcome>]
+        const write = (name: string, route: 'clear' | 'read', body: unknown, actor: Actor = OWNER): Step => {
+            const person = actor.person
+            const ts = () => viaStore(async () => {
+                if (!person && !actor.owner) throw refused(permission('notices.clear'), actor.untrusted ? 'untrusted' : actor.chat ? 'chat' : 'session')
+                return route === 'clear' ? {cleared: await store.clearNotices(body, person)} : {read: await store.readNotices(body, person)}
+            })
+            return [name, ts, () => viaApi('POST', `/api/notices/${route}`, body, actor)]
+        }
+        const look = (name: string, actor: Actor = OWNER, list?: 'cleared'): Step => [name,
+            () => viaStore(() => store.notices({list, person: actor.person ?? 'steffen'})), () => viaApi('GET', `/api/notices${list ? `?list=${list}` : ''}`, undefined, actor)]
+        const steps: Step[] = [
+            write('read by the owner', 'read', {ids: [told, question]}),
+            write('read again', 'read', {ids: [told]}),
+            write('read by Ada', 'read', {ids: adas}, ADA),
+            write('read with no ids', 'read', {ids: []}),
+            write('read with a fraction', 'read', {ids: [1.5]}),
+            write('read with no body', 'read', undefined),
+            look('the owner\'s bell, read'),
+            look('Ada\'s bell, read', ADA),
+            write('cleared by a session', 'clear', {ids: [told]}, SESSION),
+            write('read by the chat', 'read', {ids: [told]}, {name: 'steffen', owner: false, chat: true}),
+            write('cleared by id and a proposal', 'clear', {ids: [told], proposals: [{project: gear.project, issue: gear.issue}, {project: 'through-api', issue: 'nope'}]}),
+            write('null ids with a proposal', 'clear', {ids: null, proposals: [{project: gear.project, issue: gear.issue}]}),
+            write('a proposal that isn\'t one', 'clear', {proposals: [{project: 1}]}),
+            look('cleared', OWNER, 'cleared'),
+            write('everything read', 'clear', {read: true}),
+            write('everything up to now', 'clear', {before: new Date(Date.now() + 60_000).toISOString()}),
+            look('the owner\'s bell, cleared'),
+            write('Ada\'s by id', 'clear', {ids: adas.slice(0, 1)}, ADA),
+            write('Ada\'s read', 'clear', {read: true}, ADA),
+            write('Ada\'s up to now', 'clear', {before: new Date(Date.now() + 60_000).toISOString()}, ADA),
+            write('Ada\'s proposals, which she has none of', 'clear', {proposals: [{project: gear.project, issue: gear.issue}]}, ADA),
+            look('Ada\'s cleared', ADA, 'cleared'),
+            write('nothing to clear', 'clear', {}),
+            write('no body to clear', 'clear', undefined),
+        ]
+        const tables = ['notice_clears', 'notice_reads', 'proposal_clears']
+        const before = {
+            comments: await store.db.all<{id: number, cleared: number, was_read: number}>('SELECT id, cleared, was_read FROM comments'),
+            ...Object.fromEntries(await Promise.all(tables.map(async t => [t, await store.db.all<Record<string, unknown>>(`SELECT * FROM ${t}`)]))),
+        } as Record<string, Record<string, unknown>[]>
+        const putBack = async () => {
+            for (const c of before.comments!) await store.db.run('UPDATE comments SET cleared = ?, was_read = ? WHERE id = ?', c.cleared, c.was_read, c.id)
+            for (const t of tables) {
+                await store.db.run(`DELETE FROM ${t}`)
+                for (const row of before[t]!) await store.db.run(`INSERT INTO ${t} (${Object.keys(row).join(', ')}) VALUES (${Object.keys(row).map(() => '?').join(', ')})`, ...Object.values(row) as never[])
+            }
+        }
+        const run = async (side: (step: Step) => Promise<Outcome>) => {
+            const outcomes: Outcome[] = []
+            for (const one of steps) outcomes.push(await side(one))
+            await putBack()
+            return outcomes
+        }
+        const viaTs = await run(([, ts]) => ts())
+        const viaRs = await run(([, , rs]) => rs())
+        steps.forEach(([name], i) => expect(viaRs[i], name).toEqual(viaTs[i]))
+        expect(viaRs[0]!.body).toEqual({read: 2})
+        expect(viaRs[8]).toMatchObject({status: 403})
+        expect((viaRs[10]!.body as {cleared: number}).cleared).toBe(2)
+    })
+
     it('keeps what each write set off in the outbox, in order, to read after an id (ORR-929)', async () => {
         const read = async (after?: number) => (await viaApi('GET', `/api/changes${after === undefined ? '' : `?after=${after}`}`)).body as {changes: {id: number, kind: string, project?: string, subject?: string, actor?: string, owner: boolean, session?: string}[], last: number}
         const last = await newestChange()
@@ -2098,7 +2215,7 @@ describe('the router', () => {
     })
 
     it('routes by a table with a line per domain, so taking one back is taking its line out (ORR-925)', () => {
-        expect(DOMAINS.map(({domain}) => domain)).toEqual(['docs', 'statuses', 'issues, reading', 'comments', 'an issue, deleted', 'an issue, its words', 'claims', 'activity', 'milestones', 'releases', 'releases, every project\'s', 'people', 'invites', 'keys', 'logins', 'uploads, reading', 'presets', 'secrets, reading', 'settings', 'a pull request, reading', "a pull request's risk", 'schedules, reading', 'projects, listed', 'a project, made', 'a project, changed'])
+        expect(DOMAINS.map(({domain}) => domain)).toEqual(['docs', 'statuses', 'issues, reading', 'comments', 'an issue, deleted', 'an issue, its words', 'claims', 'activity', 'milestones', 'releases', 'releases, every project\'s', 'people', 'invites', 'keys', 'logins', 'uploads, reading', 'presets', 'secrets, reading', 'settings', 'a pull request, reading', "a pull request's risk", 'schedules, reading', 'projects, listed', 'a project, made', 'a project, changed', 'the bell'])
         expect(domainOf('PATCH', '/api/projects/p/docs/d')).toBe('docs')
         expect(domainOf('head', '/api/projects/p/doc-sections/')).toBe('docs')
         for (const method of ['POST', 'DELETE']) expect(domainOf(method, '/api/projects/p/issues/P-1/claim'), method).toBe('claims')
@@ -2251,7 +2368,7 @@ describe('the contract (api/openapi.yaml)', () => {
     }
 
     it('has every route the router sends to the API, and no other', () => {
-        expect(contract()).toHaveLength(74)
+        expect(contract()).toHaveLength(78)
         expect(contract()).toEqual(routes())
     })
 
