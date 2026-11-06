@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type {Column} from '#shared/roadmap'
 import {PRIORITIES, fullId, githubRepo} from '#shared/roadmap'
+import {SEGMENTS, segment} from '~/utils/segments'
 
 // ⌘K: every command and place, in sections. With nothing typed: Most used (the commands this browser runs most that
 // are on offer here, once there are any, ORR-782), Here (what fits the page, the rarely wanted left to a search, with Start and
@@ -348,7 +349,7 @@ function onKey(event: KeyboardEvent) {
 </script>
 
 <template>
-  <UiDialog :open="openPalette" label="Commands" width="xl" flush class="max-h-[64vh] overflow-hidden" @close="openPalette = false">
+  <UiDialog :open="openPalette" label="Commands" width="xl" flush class="h-[64vh] overflow-hidden" @close="openPalette = false">
     <div class="flex items-center gap-2 border-b border-line px-4">
       <svg class="size-4 text-faint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
       <input
@@ -366,25 +367,26 @@ function onKey(event: KeyboardEvent) {
       >
       <KeyHint>esc</KeyHint>
     </div>
-    <div class="flex items-center gap-1 overflow-x-auto border-b border-line px-3 py-1.5" role="tablist" aria-label="Categories">
-      <!-- An unseen copy of the label in the selected weight holds each tab at that width, so ⇥ doesn't nudge the row (ORR-975). -->
-      <button
-          v-for="t in TABS"
-          :key="t.key"
-          type="button"
-          role="tab"
-          tabindex="-1"
-          :aria-selected="tab === t.key"
-          aria-controls="palette-list"
-          :data-label="t.label"
-          class="flex shrink-0 flex-col rounded-md px-2.5 py-1 text-xs after:invisible after:h-0 after:overflow-hidden after:font-medium after:content-[attr(data-label)]"
-          :class="tab === t.key ? 'bg-active font-medium text-fg' : 'text-muted hover:bg-hover hover:text-fg'"
-          @mousedown.prevent
-          @click="tab = t.key"
-      >{{ t.label }}</button>
+    <!-- The tabs look like orrery's others (SegmentedControl), each the same weight chosen or not, so ⇥ moves nothing (ORR-975, ORR-991). -->
+    <div class="flex items-center gap-2 overflow-x-auto border-b border-line px-3 py-2">
+      <div :class="[SEGMENTS, 'shrink-0']" role="tablist" aria-label="Categories">
+        <button
+            v-for="t in TABS"
+            :key="t.key"
+            type="button"
+            role="tab"
+            tabindex="-1"
+            :aria-selected="tab === t.key"
+            aria-controls="palette-list"
+            class="shrink-0"
+            :class="segment(tab === t.key)"
+            @mousedown.prevent
+            @click="tab = t.key"
+        >{{ t.label }}</button>
+      </div>
       <span class="ml-auto hidden shrink-0 text-[11px] text-faint sm:inline"><KeyHint>⇥</KeyHint> next · <KeyHint>⇧⇥</KeyHint> back</span>
     </div>
-    <div id="palette-list" ref="list" class="overflow-y-auto p-1" role="listbox" aria-label="Results">
+    <div id="palette-list" ref="list" class="min-h-0 flex-1 overflow-y-auto p-1" role="listbox" aria-label="Results">
       <section v-for="(s, i) in sections" :key="s.key" :aria-label="s.title" class="pb-1" :class="i > 0 && 'mt-1 border-t border-line'">
         <h3 class="label px-3 pt-2.5 pb-1">{{ s.title }}</h3>
         <div
