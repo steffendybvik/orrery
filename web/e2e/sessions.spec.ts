@@ -482,6 +482,8 @@ test('a session orrery started has Stop out front, which stops it on the first p
         // On an issue's page its row only points it at the issue; its name leads to the card that manages it.
         const issue = await api(request, 'post', '/issues', {title: 'Wind the clock', status: 'todo'})
         await page.goto(`/p/kitchen/issues/${issue.id}`)
+        // Nobody's on it, so the sessions wait behind Pick a session (ORR-998).
+        await page.getByRole('button', {name: 'Pick a session'}).click()
         const row = page.getByRole('listitem').filter({has: page.getByRole('link', {name: 'e2e-started'})})
         await expect(row.getByRole('button', {name: 'Focus on this', exact: true})).toBeVisible()
         await expect(row.getByRole('button', {name: 'Watch'})).toHaveCount(0)
