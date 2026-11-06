@@ -161,20 +161,33 @@ test('each page the ⌘K palette lists opens it', async ({page}) => {
     }
 })
 
-test('⇥ in the ⌘K palette moves between its tabs without resizing them (ORR-975)', async ({page}) => {
+test('⇥ in the ⌘K palette moves between its tabs with nothing moving or resizing (ORR-975, ORR-991)', async ({page}) => {
     await page.goto('/sessions')
     await expect(page.getByRole('heading', {level: 1}).first()).toBeVisible()
     await page.keyboard.press('ControlOrMeta+k')
-    const tabs = page.getByRole('dialog', {name: 'Commands'}).getByRole('tab')
-    const boxes = () => tabs.evaluateAll(els => els.map(el => {
+    const palette = page.getByRole('dialog', {name: 'Commands'})
+    const tabs = palette.getByRole('tab')
+    const box = (el: Element) => {
         const r = el.getBoundingClientRect()
-        return [Math.round(r.left), Math.round(r.width), getComputedStyle(el).fontSize].join()
-    }))
-    const before = await boxes()
+        return `${[r.left, r.top, r.width, r.height].map(Math.round).join()} ${getComputedStyle(el).font} scrolled ${el.scrollTop}`
+    }
+    // Every tab's place, size and type; the list's top and the panel's height. The panel never scrolls itself, only
+    // its list does, so the tabs and the list stay where they are whichever row is chosen.
+    const layout = async () => ({
+        tabs: await tabs.evaluateAll(els => els.map(el => {
+            const r = el.getBoundingClientRect()
+            return `${[r.left, r.top, r.width, r.height].map(Math.round).join()} ${getComputedStyle(el).font}`
+        })),
+        list: await palette.getByRole('listbox').evaluate(el => Math.round(el.getBoundingClientRect().top)),
+        panel: await palette.locator('form').evaluate(box),
+    })
+    // From where the panel settles once it has faded up.
+    await palette.locator('form').evaluate(el => Promise.all(el.getAnimations().map(a => a.finished)))
+    const before = await layout()
     for (let i = 0; i < await tabs.count(); i++) {
         await page.keyboard.press('Tab')
         await expect(tabs.nth((i + 1) % await tabs.count())).toHaveAttribute('aria-selected', 'true')
-        expect(await boxes()).toEqual(before)
+        expect(await layout()).toEqual(before)
     }
 })
 
