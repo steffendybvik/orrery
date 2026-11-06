@@ -2,8 +2,9 @@
 // holds, as web/server/store/people.ts and keys.ts do them, answering as web/server/api/{people,keys,logins}/ do. Turning a
 // credential into a person (`credential` in web/server/utils/auth.ts) stays with the router in front, which checks every
 // request before it gets here and sends what it found (`Who`), with the asking browser's login hashed: its cookie never
-// leaves that server. Logging in and out and an OIDC provider's accounts stay there too, as they set cookies or read its
-// settings. Removing a person unassigns their open issues, so it writes what it set off to the outbox in its own
+// leaves that server. The API has the same checks (`credential`) and logs in and out by a key (`log_in`, `log_out`), for
+// when it's the front door, but the router doesn't send them here yet. An OIDC provider's accounts and a phone's sign-in
+// link stay there, as they read its settings and its memory. Removing a person unassigns their open issues, so it writes what it set off to the outbox in its own
 // transaction (ORR-929), as the milestones do.
 use crate::changes::{self, Outbox};
 use crate::db::sql;
@@ -38,6 +39,24 @@ pub struct Ways {
 /// What agents and orrery send or stand for (`RESERVED`): as a person's id, each would make them all that person.
 const RESERVED: [&str; 4] = ["owner", "agent", "claude", "orrery"];
 const INVITE_DAYS: i64 = 7;
+/// How long a login lasts (`LOGIN_DAYS`), and how often a key's or a login's use is noted (`USED_EVERY`, a minute).
+pub const LOGIN_DAYS: i64 = 30;
+const USED_EVERY: i64 = 60_000;
+
+/// Who a live key is (`Holder` in web/server/store/keys.ts): its person, whether they're the owner, the key's kind and id.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Holder {
+    pub person: String,
+    pub owner: bool,
+    pub agent: bool,
+    pub key: String,
+}
+
+/// Whether a use noted at `last` is older than `USED_EVERY`, so it's noted again.
+fn stale(last: Option<String>) -> bool {
+    let Some(last) = last.and_then(|l| chrono::DateTime::parse_from_rfc3339(&l).ok()) else { return true };
+    (chrono::Utc::now() - last.with_timezone(&chrono::Utc)).num_milliseconds() > USED_EVERY
+}
 
 /// The 403 for anyone but the owner, as `authorize(event, 'people.write')` words it for a session. With login on the
 /// credential has the last word: only the owner in their browser, whatever the actor says.
@@ -442,6 +461,92 @@ impl<'c> People<'c> {
                 })
                 .collect(),
         ))
+    }
+
+    /// Who a key is, if it's live and its person is still here (`keyHolder`), noting its use at most once a minute.
+    pub async fn key_holder(&mut self, secret: &str) -> Result<Option<Holder>> {
+        let row = sqlx::query(&sql("SELECT k.id, k.kind, k.person, p.role, k.last_used_at FROM keys k JOIN people p ON p.id = k.person \
+             WHERE k.hash = ? AND k.revoked_at IS NULL AND p.removed_at IS NULL"))
+        .bind(hash_of(secret))
+        .fetch_optional(&mut *self.conn)
+        .await?;
+        let Some(row) = row else { return Ok(None) };
+        let id: String = row.get("id");
+        if stale(row.get("last_used_at")) {
+            sqlx::query(&sql("UPDATE keys SET last_used_at = ? WHERE id = ?")).bind(stamp()).bind(&id).execute(&mut *self.conn).await?;
+        }
+        Ok(Some(Holder { person: row.get("person"), owner: row.get::<String, _>("role") == "owner", agent: row.get::<String, _>("kind") == "agent", key: id }))
+    }
+
+    /// Starts a browser's login for `person` (`startLogin`): the secret for its cookie. `key` is the id of the key it was
+    /// started with, so revoking that ends it; `name` says how it was made, for the list (ORR-838).
+    pub async fn start_login(&mut self, person: &str, key: Option<&str>, name: Option<&str>) -> Result<String> {
+        let secret = URL_SAFE_NO_PAD.encode(random(32));
+        let now = stamp();
+        let expires = (chrono::Utc::now() + chrono::Duration::days(LOGIN_DAYS)).format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
+        sqlx::query(&sql("DELETE FROM logins WHERE expires_at < ?")).bind(&now).execute(&mut *self.conn).await?;
+        sqlx::query(&sql("INSERT INTO logins (id, person, expires_at, by_key, known, name, created_at, last_used_at) VALUES (?, ?, ?, ?, 1, ?, ?, ?)"))
+            .bind(hash_of(&secret))
+            .bind(person)
+            .bind(&expires)
+            .bind(key.map(str::to_owned))
+            .bind(name.map(str::to_owned))
+            .bind(&now)
+            .bind(&now)
+            .execute(&mut *self.conn)
+            .await?;
+        Ok(secret)
+    }
+
+    /// Who a login's cookie is, if it hasn't run out and they're still here (`loginHolder`): a person in a browser.
+    #[allow(dead_code)] // The front door's check (`credential`), once the API is it.
+    pub async fn login_holder(&mut self, secret: &str) -> Result<Option<Who>> {
+        let id = hash_of(secret);
+        let row = sqlx::query(&sql(
+            "SELECT l.person, p.role, l.last_used_at FROM logins l JOIN people p ON p.id = l.person WHERE l.id = ? AND l.expires_at > ? AND p.removed_at IS NULL",
+        ))
+        .bind(&id)
+        .bind(stamp())
+        .fetch_optional(&mut *self.conn)
+        .await?;
+        let Some(row) = row else { return Ok(None) };
+        if stale(row.get("last_used_at")) {
+            sqlx::query(&sql("UPDATE logins SET last_used_at = ? WHERE id = ?")).bind(stamp()).bind(&id).execute(&mut *self.conn).await?;
+        }
+        Ok(Some(Who { person: row.get("person"), owner: row.get::<String, _>("role") == "owner", browser: true }))
+    }
+
+    /// Who a request's credential says it is (`credential` in web/server/utils/auth.ts). A bearer is an agent key only:
+    /// a person key is swapped for a cookie at login, so nothing with a key in its environment can act as a person.
+    #[allow(dead_code)] // Checking each request, once the API is the front door.
+    pub async fn credential(&mut self, bearer: Option<&str>, login: Option<&str>) -> Result<Option<Who>> {
+        if let Some(key) = bearer {
+            return Ok(self.key_holder(key).await?.filter(|h| h.agent).map(|h| Who { person: h.person, owner: h.owner, browser: false }));
+        }
+        match login {
+            Some(login) => self.login_holder(login).await,
+            None => Ok(None),
+        }
+    }
+
+    /// Swaps a person key for a login (`POST /api/auth/login`): the person, and the secret for the cookie. An agent key
+    /// can't sign in, so an agent can't become its person.
+    pub async fn log_in(&mut self, body: &Value) -> Result<(String, String)> {
+        let holder = match body.get("key").and_then(Value::as_str) {
+            Some(key) => self.key_holder(key.trim()).await?,
+            None => None,
+        };
+        let Some(holder) = holder.filter(|h| !h.agent) else {
+            return Err(ApiError::unauthorized("That isn't a person key on this orrery, or it's been revoked"));
+        };
+        let secret = self.start_login(&holder.person, Some(&holder.key), None).await?;
+        Ok((holder.person, secret))
+    }
+
+    /// Ends a browser's login by its cookie's secret (`endLogin`), on the server as well as its cookie.
+    pub async fn log_out(&mut self, secret: &str) -> Result<()> {
+        sqlx::query(&sql("DELETE FROM logins WHERE id = ?")).bind(hash_of(secret)).execute(&mut *self.conn).await?;
+        Ok(())
     }
 
     /// Ends a login by its listed id, at once: `mine`, when given, is whose it has to be.

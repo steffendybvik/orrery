@@ -957,6 +957,47 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         expect(await viaApi('POST', '/api/keys', {kind: 'agent', name: 'x', person: 'bob'}, AGENT, '', ada)).toMatchObject({status: 403, body: {message: 'A person makes their own keys; only the owner gives them to others'}})
     })
 
+    it('logs in by a person key and out alike, with a login the store knows (ORR-928)', async () => {
+        await store.addPerson({name: 'Lin'})
+        const person = await store.makeKey('lin', {kind: 'person', name: 'laptop'})
+        const agent = await store.makeKey('lin', {kind: 'agent', name: 'laptop'})
+        const port = new URL(url).port
+        const call = (path: string, body?: unknown, extra: Record<string, string> = {}) => fetch(`${url}${path}`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json', 'Orrery-Api-Token': TOKEN, 'Orrery-Database': databaseMark(setting), ...extra},
+            ...body === undefined ? {} : {body: JSON.stringify(body)},
+        })
+        const refused = {message: "That isn't a person key on this orrery, or it's been revoked"}
+        for (const [name, body] of [['an agent key', {key: agent.key}], ['no key', {}], ['not a string', {key: 7}], ['one that isn\'t', {key: 'orrery_person_nope'}]] as const) {
+            const response = await call('/api/auth/login', body)
+            expect(response.status, name).toBe(401)
+            expect(await response.json(), name).toEqual({statusCode: 401, statusMessage: "Unauthorized", ...refused})
+            expect(response.headers.get('set-cookie'), name).toBeNull()
+        }
+        // A key with space around it still signs in, as the route here trims it.
+        const response = await call('/api/auth/login', {key: ` ${person.key} `})
+        expect(response.status).toBe(200)
+        expect(await response.json()).toEqual({person: 'lin'})
+        const cookie = response.headers.get('set-cookie')!
+        expect(cookie).toMatch(new RegExp(`^orrery_login_${port}=[\\w-]{43}; Max-Age=2592000; Path=/; HttpOnly; SameSite=Lax$`))
+        const secret = /=([^;]+)/.exec(cookie)![1]!
+        // The store takes the API's login as its own: named for the key, listed, and ended when the key is revoked.
+        expect(await store.loginHolder(secret)).toEqual({person: 'lin', owner: false})
+        expect((await store.logins('lin', secret))).toMatchObject([{person: 'lin', current: true}])
+        expect((await call('/api/auth/login', {key: person.key}, {'X-Forwarded-Proto': 'https'})).headers.get('set-cookie')).toMatch(/; HttpOnly; Secure; SameSite=Lax$/)
+        // Logging out ends it on the server and clears the cookie; with no cookie it only clears it.
+        const out = await call('/api/auth/logout', undefined, {Cookie: `other=1; orrery_login_${port}=${secret}`})
+        expect(out.status).toBe(204)
+        expect(out.headers.get('set-cookie')).toBe(`orrery_login_${port}=; Max-Age=0; Path=/`)
+        expect(await store.loginHolder(secret)).toBeUndefined()
+        expect((await call('/api/auth/logout')).status).toBe(204)
+        await store.revokeKey(person.id)
+        expect(await store.logins('lin')).toEqual([])
+        expect((await call('/api/auth/login', {key: person.key})).status).toBe(401)
+        // Neither is the router's to send yet: the Nuxt server logs in for itself until the swap.
+        for (const path of ['/api/auth/login', '/api/auth/logout']) expect(servedByApi('POST', path), path).toBe(false)
+    })
+
     it('adds and renames people, and invites them, alike (ORR-928)', async () => {
         // The people are the orrery's, so each step runs on each side in turn, with the table put back between.
         await store.db.run("INSERT INTO people (id, name, role, created_at, removed_at) VALUES ('gone', 'Gone', 'member', ?, ?)", new Date().toISOString(), new Date().toISOString())
@@ -1849,7 +1890,7 @@ describe('the contract (api/openapi.yaml)', () => {
     })
 
     it('sends none of the routes written ahead of the Rust API to it', () => {
-        expect(contract(true)).toEqual(['DELETE /api/chats/{chat}', 'GET /api/chats', 'GET /api/chats/{chat}', 'POST /api/pulls/forget', 'PUT /api/chats/{chat}', 'PUT /api/pulls/{owner}/{name}', 'PUT /api/pulls/{owner}/{name}/error', 'PUT /api/pulls/{owner}/{name}/history', 'PUT /api/pulls/{owner}/{name}/{number}'])
+        expect(contract(true)).toEqual(['DELETE /api/chats/{chat}', 'GET /api/chats', 'GET /api/chats/{chat}', 'POST /api/auth/login', 'POST /api/auth/logout', 'POST /api/pulls/forget', 'PUT /api/chats/{chat}', 'PUT /api/pulls/{owner}/{name}', 'PUT /api/pulls/{owner}/{name}/error', 'PUT /api/pulls/{owner}/{name}/history', 'PUT /api/pulls/{owner}/{name}/{number}'])
         expect(contract(true).filter(operation => routes().includes(operation))).toEqual([])
     })
 })
