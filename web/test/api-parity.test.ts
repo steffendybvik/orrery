@@ -5,9 +5,9 @@
 import type {ChildProcess} from 'node:child_process'
 import {createHash} from 'node:crypto'
 import {spawn} from 'node:child_process'
-import {existsSync, mkdtempSync, readdirSync, readFileSync} from 'node:fs'
+import {existsSync, mkdtempSync} from 'node:fs'
 import {tmpdir} from 'node:os'
-import {join, relative, resolve} from 'node:path'
+import {join, resolve} from 'node:path'
 import {fileURLToPath} from 'node:url'
 import {afterAll, beforeAll, describe, expect, it, vi} from 'vitest'
 import type {OrreryEvent} from '#shared/happenings'
@@ -26,6 +26,7 @@ import {PostgresDb} from '../server/utils/postgres'
 import {actorHeaders, changedOf, countedOf, databaseMark, domainOf, DOMAINS, handedOn, loginHeaders, onlyWords, passedThrough, servedByApi, toldOf, urgentOf, whoHeaders} from '../server/utils/api-router'
 import {permission, refused} from '../server/utils/permission'
 import {followOutbox, readPage} from '../server/utils/outbox-follower'
+import {contract, methodOf, nuxtRoutes, pathOf} from './routes'
 
 const BIN = process.env.ORRERY_API_BIN || fileURLToPath(new URL('../../api/target/debug/orrery-api', import.meta.url))
 const TOKEN = 'parity-token-0123456789'
@@ -2463,32 +2464,8 @@ describe('the router', () => {
 })
 
 describe('the contract (api/openapi.yaml)', () => {
-    /** Its operations, `METHOD /path`, read off its lines: a path at two spaces in, its methods at four. One with
-     * `x-served: false` at six is written ahead of the Rust API's (the contract comes first): `ahead` has those. */
-    function contract(ahead = false): string[] {
-        const text = readFileSync(fileURLToPath(new URL('../../api/openapi.yaml', import.meta.url)), 'utf8')
-        const operations: {operation: string, ahead: boolean}[] = []
-        let path = ''
-        for (const line of text.split('\n')) {
-            const at = /^ {2}(\/api\/\S+):$/.exec(line)
-            if (at) path = at[1]!
-            else if (/^\S/.test(line)) path = ''
-            const method = /^ {4}(get|put|post|patch|delete):/.exec(line)
-            if (path && method) operations.push({operation: `${method[1]!.toUpperCase()} ${path}`, ahead: false})
-            else if (path && operations.length && /^ {6}x-served: false\s*$/.test(line)) operations.at(-1)!.ahead = true
-        }
-        return operations.filter(o => o.ahead === ahead).map(o => o.operation).sort()
-    }
-
-    /** The Nuxt server's routes the router sends on, as `METHOD /path` with `{param}`s. */
-    function routes(): string[] {
-        const root = fileURLToPath(new URL('../server/api', import.meta.url))
-        const walk = (dir: string): string[] => readdirSync(dir, {withFileTypes: true}).flatMap(entry => entry.isDirectory() ? walk(join(dir, entry.name)) : [join(dir, entry.name)])
-        return walk(root).map(file => {
-            const [, route = '', method = ''] = /^(.*?)\.(get|put|post|patch|delete)\.ts$/.exec(relative(root, file)) ?? []
-            return {method: method.toUpperCase(), path: `/api/${route}`.replace(/\/index$/, '').replace(/\[(\w+)\]/g, '{$1}')}
-        }).filter(({method, path}) => method && servedByApi(method, path.replace(/\{\w+\}/g, 'x'))).map(({method, path}) => `${method} ${path}`).sort()
-    }
+    /** The Nuxt server's routes the router sends on. */
+    const routes = () => nuxtRoutes().filter(route => servedByApi(methodOf(route), pathOf(route)))
 
     it('has every route the router sends to the API, and no other', () => {
         expect(contract()).toHaveLength(83)
