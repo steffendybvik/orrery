@@ -324,6 +324,26 @@ paths:
       responses:
         '200': {description: The issue, content: {application/json: {schema: {$ref: '#/components/schemas/IssueDetail'}}}}
         '404': {$ref: '#/components/responses/NotFound'}
+  /api/projects/{project}/issues/{issue}/claim:
+    parameters: [{$ref: '#/components/parameters/project'}, {$ref: '#/components/parameters/issue'}]
+    post:
+      summary: Takes the issue up for whoever's asking
+      description: |
+        A person's own, or one that's nobody's, which it assigns to them; the owner's on anyone's, which takes it over.
+        With more than one person, an agent takes up only its person's. The claim and a new assignee show in the activity.
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      responses:
+        '200': {description: The issue, content: {application/json: {schema: {$ref: '#/components/schemas/IssueDetail'}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {description: 'Someone else holds it, it was reassigned meanwhile, or the session names nobody', content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+    delete:
+      summary: Lets go of the issue's claim, which leaves it assigned
+      description: The holder's to let go, or the owner's on anyone's. One nobody has claimed is as it was.
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      responses:
+        '200': {description: The issue, content: {application/json: {schema: {$ref: '#/components/schemas/IssueDetail'}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {description: Someone else holds it, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
   /api/projects/{project}/issues/{issue}/comments:
     parameters: [{$ref: '#/components/parameters/project'}, {$ref: '#/components/parameters/issue'}]
     get:

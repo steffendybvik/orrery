@@ -35,7 +35,10 @@ export const DOMAINS: readonly {domain: string, paths: RegExp, methods?: readonl
     // edited one leaves this server to pass on to the sessions and the owner's bell (`handedOn`). An edit checks the
     // session's claim on the issue here first, as only this server knows the sessions (`claimFor`, ORR-627).
     {domain: 'comments', paths: /^projects\/[^/]+\/issues\/[^/]+\/comments(\/[^/]+)?$/, first: {PATCH: claimOnComment}},
-    // Who changed what on an issue (ORR-927). Nothing writes it but the issue's own changes, which stay here (ORR-929).
+    // Taking an issue up and letting it go (ORR-927, ORR-657): the API tells the claim and a new assignee back, as
+    // `Orrery-Told`, and puts them in the outbox (ORR-929).
+    {domain: 'claims', paths: /^projects\/[^/]+\/issues\/[^/]+\/claim$/},
+    // Who changed what on an issue (ORR-927). Its claims are written there (`claims`), and the issue's other changes stay here (ORR-929).
     {domain: 'activity', paths: /^projects\/[^/]+\/issues\/[^/]+\/activity$/, methods: ['GET']},
     // A project's milestones, read (ORR-926) and written (ORR-974): the API tells what a write set off, as `Orrery-Told`,
     // and puts it in the outbox (ORR-929). A milestone's focus stays here, as it signals sessions.

@@ -1011,6 +1011,62 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         await expect(store.identity('https://id.example', 'sub-2', secret)).rejects.toMatchObject({statusCode: 409})
     })
 
+    it('takes an issue up and lets it go alike, with the rails between people, and tells each (ORR-927)', async () => {
+        const start = (await store.db.get<{n: number | null}>('SELECT max(id) AS n FROM changes'))?.n ?? 0
+        const ids: Record<string, Record<string, string>> = {}
+        const make = async (p: string, title: string, assignee?: string) => (await store.createIssue(p, {title, ...assignee ? {assignee} : {}}, OWNER)).id
+        for (const p of ['through-store', 'through-api']) ids[p] = {loose: await make(p, 'Oil the gears'), claude: await make(p, 'Wind the spring', 'claude')}
+        type Step = [string, (p: string) => Promise<Outcome>, () => Promise<Outcome>]
+        const claim = (name: string, which: string, actor: Actor): Step =>
+            [name, p => viaStore(() => store.claimIssue(p, ids[p]![which] ?? which, actor)), () => viaApi('POST', `/issues/${ids['through-api']![which] ?? which}/claim`, undefined, actor)]
+        const release = (name: string, which: string, actor: Actor): Step =>
+            [name, p => viaStore(() => store.releaseIssue(p, ids[p]![which] ?? which, actor)), () => viaApi('DELETE', `/issues/${ids['through-api']![which] ?? which}/claim`, undefined, actor)]
+        const activity = (which: string): Step =>
+            [`${which}'s activity`, p => viaStore(() => store.listActivity(p, ids[p]![which]!)), () => viaApi('GET', `/issues/${ids['through-api']![which]}/activity`)]
+        // One person here: no rails, so an agent takes up what's nobody's for the owner.
+        for (const [name, ts, rs] of [
+            claim('nobody\'s, by an agent', 'loose', AGENT),
+            claim('the same again', 'loose', AGENT),
+            release('let go by the agent', 'loose', AGENT),
+            release('let go again', 'loose', AGENT),
+            claim('claude\'s, by the owner', 'claude', OWNER),
+            release('the owner\'s, by an agent', 'claude', AGENT),
+            claim('one that isn\'t there', 'X-404', AGENT),
+            release('one that isn\'t there', 'X-404', AGENT),
+            activity('loose'),
+            activity('claude'),
+        ] as Step[]) await both(name, ts, rs)
+        // Two people: an agent takes up only its person's, and lets go only of its person's claim.
+        if (!(await store.people()).some(person => person.id === 'hal')) await store.addPerson({name: 'Hal'})
+        const HALS: Actor = {name: 'agent', owner: false, session: 'orrery · Hal', asked: true, named: 'hal'}
+        const HAL: Actor = {name: 'hal', owner: false, person: 'hal', asked: true}
+        const NAMELESS: Actor = {name: 'agent', owner: false, session: 'orrery · Zed', asked: true, named: 'zed'}
+        for (const p of ['through-store', 'through-api']) {
+            ids[p] = {...ids[p], owners: await make(p, 'Polish the brass', 'steffen'), hals: await make(p, 'Count the teeth', 'hal'), open: await make(p, 'Sweep up')}
+        }
+        for (const [name, ts, rs] of [
+            claim('the owner\'s, by Hal\'s agent', 'owners', HALS),
+            claim('Hal\'s, by Hal\'s agent', 'hals', HALS),
+            release('Hal\'s, let go by a nameless agent', 'hals', NAMELESS),
+            claim('Hal\'s, taken over by the owner', 'hals', OWNER),
+            release('the owner\'s claim, by Hal\'s agent', 'hals', HALS),
+            claim('nobody\'s, by a nameless agent', 'open', NAMELESS),
+            claim('nobody\'s, by Hal', 'open', HAL),
+            release('Hal\'s, let go by Hal', 'open', HAL),
+            activity('hals'),
+            activity('open'),
+        ] as Step[]) await both(name, ts, rs)
+        // Hal gone without a trace, so a later step can hire them afresh.
+        await store.db.run("UPDATE issues SET assignee = NULL WHERE assignee = 'hal'")
+        await store.db.run("DELETE FROM people WHERE id = 'hal'")
+        await quiet()
+        // The same rows in the outbox, each claim and new assignee told: the store's own land a step later, so sorted.
+        const rows = async (p: string) => (await store.db.all<{kind: string, payload: string | null}>('SELECT kind, payload FROM changes WHERE project = ? AND id > ? ORDER BY id', p, start))
+            .map(r => `${r.kind} ${(r.payload ?? '').replace(/\b(STO|API)-(\d+)/g, 'KEY-$2')}`).sort()
+        expect(await rows('through-api')).toEqual(await rows('through-store'))
+        expect((await rows('through-api')).filter(row => row.startsWith('issue.claim ')).length).toBeGreaterThan(4)
+    })
+
     it('removes a person alike: their open issues unassigned and told, their seats the owner\'s, their keys and logins ended (ORR-928)', async () => {
         /** A member with work on `p`: a seat on its board, an open issue and a done one, a key and a login. */
         const hire = async (p: string) => {
@@ -1430,9 +1486,10 @@ describe('the router', () => {
     })
 
     it('routes by a table with a line per domain, so taking one back is taking its line out (ORR-925)', () => {
-        expect(DOMAINS.map(({domain}) => domain)).toEqual(['docs', 'statuses', 'issues, reading', 'comments', 'activity', 'milestones', 'releases', 'releases, every project\'s', 'people', 'invites', 'keys', 'logins', 'uploads, reading', 'presets', 'secrets, reading', 'settings', 'a pull request, reading', "a pull request's risk", 'schedules, reading'])
+        expect(DOMAINS.map(({domain}) => domain)).toEqual(['docs', 'statuses', 'issues, reading', 'comments', 'claims', 'activity', 'milestones', 'releases', 'releases, every project\'s', 'people', 'invites', 'keys', 'logins', 'uploads, reading', 'presets', 'secrets, reading', 'settings', 'a pull request, reading', "a pull request's risk", 'schedules, reading'])
         expect(domainOf('PATCH', '/api/projects/p/docs/d')).toBe('docs')
         expect(domainOf('head', '/api/projects/p/doc-sections/')).toBe('docs')
+        for (const method of ['POST', 'DELETE']) expect(domainOf(method, '/api/projects/p/issues/P-1/claim'), method).toBe('claims')
         for (const path of ['/api/projects/p/issues/P-1/activity/x', '/api/', '/docs', '/api/projects/p/docs/d/artifact']) expect(domainOf('GET', path), path).toBeUndefined()
     })
 
@@ -1570,7 +1627,7 @@ describe('the contract (api/openapi.yaml)', () => {
     }
 
     it('has every route the router sends to the API, and no other', () => {
-        expect(contract()).toHaveLength(67)
+        expect(contract()).toHaveLength(69)
         expect(contract()).toEqual(routes())
     })
 
