@@ -1,8 +1,18 @@
 # orrery
 
-A self-hosted roadmap board for working with Claude Code sessions. Each project has issues, milestones
-(milestones), releases and docs. Sessions read and update them through an HTTP API or MCP tools, and
-the owner directs sessions from the board. It runs locally, in Docker, on SQLite or Postgres.
+orrery is a project board you share with your Claude Code sessions. You write the issues, and the
+sessions in your repos pick them up, comment as they go and ask you when they need a decision. It's for
+a person, or a small team, running several sessions at once who wants to see and steer that work from
+one place.
+
+In practice:
+
+- **Sessions work on the board themselves**, through MCP tools and an HTTP API: they start an issue,
+  say what changed, and close it when it ships. Only one session works on an issue at a time.
+- **You steer them from the board**: point a session at an issue or a milestone, send it a message, and
+  see whether each one is working, idle or waiting on you.
+- **Their questions wait for you in one place**, at the top of My issues, until you answer.
+- **It runs on your machine**, in Docker, with your data in SQLite or Postgres. Alone, there's no login.
 
 <table>
 <tr>
