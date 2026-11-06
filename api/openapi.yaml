@@ -324,6 +324,28 @@ paths:
         '200': {description: The issues, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/IssueRecord'}}}}}
         '400': {$ref: '#/components/responses/BadRequest'}
         '404': {$ref: '#/components/responses/NotFound'}
+    post:
+      summary: Makes an issue, with the project's next id
+      description: |
+        Takes the same fields as an issue's edit (`PATCH …/issues/{issue}`), with a `title`: the router keeps one naming
+        any other field for the Nuxt server, and one from a session, the chat or an untrusted session too, as their asks
+        are rewritten or noted there. It's noted as `created` and told (`issue.created`). A proposal (`proposal: pending`)
+        is the owner's. An agent's, with more than one person, goes under its person's issue only, and is theirs then
+        (taken up when it's started), unless it's a proposal; one at the top stays nobody's, so it's refused (409) started,
+        closed or given to anyone but the owner. Urgent open work made by the owner or a member (P0, not a proposal, not
+        closed) comes back with `Orrery-Urgent`, for the Nuxt server to push it to the sessions.
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {type: object, required: [title], description: 'The fields `PATCH …/issues/{issue}` takes'}
+      responses:
+        '201': {description: The new issue, content: {application/json: {schema: {$ref: '#/components/schemas/IssueDetail'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {description: 'An agent''s that the rails between people refuse', content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
   /api/projects/{project}/issues/{issue}:
     parameters: [{$ref: '#/components/parameters/project'}, {$ref: '#/components/parameters/issue'}]
     get:
@@ -332,14 +354,19 @@ paths:
         '200': {description: The issue, content: {application/json: {schema: {$ref: '#/components/schemas/IssueDetail'}}}}
         '404': {$ref: '#/components/responses/NotFound'}
     patch:
-      summary: Changes the issue's own words, priority, where it sits, what it depends on and whether it's a proposal
+      summary: Changes the issue's words, status, priority, assignee, where it sits, what it depends on and whether it's a proposal
       description: |
-        Only its `title`, `priority`, `notes`, `labels`, `external`, `github_issues`, `parent`, `milestone`, `release`,
-        `epic`, `depends_on`, `proposal`, `choices`, `model`, `effort` and `position`: the router keeps an edit naming any other field
-        for the Nuxt server. `epic` is an epic's number, `EPC-1` or its full id, 404 for one there isn't. Null clears all but the title and position. A sub-issue is in its parent's milestone, so `parent` and
+        Only its `title`, `status`, `plan`, `priority`, `assignee`, `notes`, `labels`, `external`, `github_issues`, `parent`,
+        `milestone`, `release`, `epic`, `depends_on`, `proposal`, `choices`, `model`, `effort` and `position`: the router keeps
+        an edit naming any other field for the Nuxt server, and a session's edit of the status (`status` or `plan`) too, as
+        the session's lock on the issue is the Nuxt server's. `status` is a status's id, a kind (its first status) or an old
+        word (`doing`, `now`, `next`, `later`); `plan` is the old way to say Todo (any plan) or Backlog (null). `assignee:
+        owner` is the owner, and blank or null is nobody. Closing or reassigning it ends a claim on it; an agent on the rails
+        that starts its person's issue claims it for them, and hands one on only back to the owner. `epic` is an epic's number, `EPC-1` or its full id, 404 for one there isn't. Null clears all but the title and position. A sub-issue is in its parent's milestone, so `parent` and
         `milestone` aren't sent together; `parent: null` lifts it to the top, into its root's milestone unless one is
         sent. An agent's, with more than one person, only on its person's issue or its own proposal, and under a parent
-        that's its person's too; and, with `restrict_proposals`, not the release of a proposal waiting on the owner.
+        that's its person's too; and, with `restrict_proposals`, not the status, plan, assignee or release of a proposal waiting
+        on the owner.
         Each changed field goes to the activity and is told (`issue.<field>`), without a title's or a link's words.
         `depends_on` is all it depends on, ids here or `project/ID`, null or none to clear: refused for itself, its
         parent or a sub-issue, or one that already depends on it; the change is told as `issue.depends`. `proposal:
@@ -357,7 +384,10 @@ paths:
               additionalProperties: false
               properties:
                 title: {type: string, minLength: 1}
+                status: {type: string, description: 'A status''s id, a kind (`backlog`, `todo`, `started`, `done`, `canceled`) or an old word (`doing`, `now`, `next`, `later`)'}
+                plan: {type: [string, 'null'], enum: [now, next, later, null], description: 'From before statuses: any plan is Todo, null is Backlog'}
                 priority: {type: [string, 'null'], enum: [P0, P1, P2, P3, null]}
+                assignee: {type: [string, 'null'], description: 'Who it''s with: `owner` is the owner, blank or null is nobody'}
                 notes: {type: [string, 'null']}
                 labels: {type: [array, 'null'], items: {type: string}}
                 external: {type: [array, 'null'], items: {type: string}}
