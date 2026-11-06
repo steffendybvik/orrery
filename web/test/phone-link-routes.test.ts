@@ -36,6 +36,7 @@ async function ask(load: () => Promise<{default: unknown}>, path: string, asked:
 }
 const makeLink = (asked: Asked = {}) => ask(() => import('../server/api/phone/link.post'), '/api/phone/link', asked)
 const useLink = (token: unknown, asked: Asked = {}) => ask(() => import('../server/api/auth/link.post'), '/api/auth/link', {...asked, body: {token}})
+const useCode = (code: unknown, asked: Asked = {}) => ask(() => import('../server/api/auth/link.post'), '/api/auth/link', {...asked, body: {code}})
 
 /** A person's browser, logged in with a person key, as the page is. */
 async function browser(person: string) {
@@ -84,6 +85,7 @@ beforeEach(async () => {
     const links = await import('../server/utils/phone-sign-in')
     vi.stubGlobal('makeSignInLink', links.makeSignInLink)
     vi.stubGlobal('takeSignInLink', links.takeSignInLink)
+    vi.stubGlobal('takeSignInCode', links.takeSignInCode)
     gate = (await import('../server/middleware/auth')).default as unknown as Route
     await store.nameOwner({name: 'Skoll'})
     await store.addPerson({name: 'Hati'})
@@ -94,13 +96,14 @@ afterEach(() => {
     vi.unstubAllGlobals()
 })
 
-/** A sign-in link the owner's own page made, with login off. */
-async function ownersLink() {
+/** A sign-in link the owner's own page made, with login off, and its code. */
+async function ownersLinkAndCode() {
     config.auth = 'off'
     const {data} = await makeLink({headers: named('skoll')})
     config.auth = 'on'
-    return (data as {token: string}).token
+    return data as {token: string, code: string}
 }
+const ownersLink = async () => (await ownersLinkAndCode()).token
 
 describe('POST /api/phone/link', () => {
     describe('with login off, from this machine', () => {
@@ -203,6 +206,26 @@ describe('POST /api/auth/link', () => {
         for (const token of ['x'.repeat(43), '', undefined, {token: 1}]) {
             expect((await failure(() => useLink(token, {phone: true}))).status).toBe(401)
         }
+        expect(cookies).toEqual([])
+    })
+})
+
+describe('POST /api/auth/link with a typed code (ORR-875)', () => {
+    it("signs the phone in as the owner, on a login of its own, and uses up the QR's link", async () => {
+        const {token, code} = await ownersLinkAndCode()
+        const {data, status} = await useCode(code.toLowerCase(), {phone: true})
+        expect(status).toBe(201)
+        expect(data).toEqual({person: 'skoll'})
+        expect((await store.logins('skoll')).find(l => l.name === PHONE_LOGIN)).toBeDefined()
+        expect((await failure(() => useLink(token, {phone: true}))).status).toBe(401)
+        expect((await failure(() => useCode(code, {phone: true}))).status).toBe(401)
+    })
+
+    it('refuses a wrong code, saying where to look, and sets no cookie', async () => {
+        await ownersLinkAndCode()
+        const refused = await failure(() => useCode('ZZZZZZ', {phone: true}))
+        expect(refused.status).toBe(401)
+        expect(refused.message).toMatch(/App settings/)
         expect(cookies).toEqual([])
     })
 })

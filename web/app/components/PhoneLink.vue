@@ -7,18 +7,21 @@ import type {PhoneAddress, PhoneLinks} from '#shared/phone'
 // sent anywhere. While only this machine can reach it, it says how to give the phone a port of its own.
 // With the phone's own port (ORR-837), the code carries a one-time sign-in link instead: scanned, the phone is signed in,
 // nothing to type. A fresh one is made each time this shows, and again as it runs out. The machine's `.local` name leads
-// the list when it has one (ORR-874), the IPs after it.
+// the list when it has one (ORR-874), the IPs after it. Under the code, six letters to type instead (ORR-875), for an app on
+// the home screen, which keeps its own cookies and has no camera to scan with.
 const links = ref<PhoneLinks | null>(null)
 const failed = ref('')
 const chosen = ref('')
 const token = ref('')
+const code = ref('')
 let renew: ReturnType<typeof setTimeout> | undefined
 /** A fresh one-time sign-in link, and another a little before it runs out. */
 async function signInLink() {
     clearTimeout(renew)
     try {
-        const made = await apiFetch<{token: string, expires_at: string}>('/phone/link', {method: 'POST'})
+        const made = await apiFetch<{token: string, code: string, expires_at: string}>('/phone/link', {method: 'POST'})
         token.value = made.token
+        code.value = made.code
         renew = setTimeout(signInLink, Math.max(new Date(made.expires_at).getTime() - Date.now() - 30_000, 10_000))
     } catch (error) {
         failed.value = errorMessage(error)
@@ -41,6 +44,8 @@ const target = computed(() => chosen.value && links.value?.phone && token.value 
 /** The chosen address is the machine's Bonjour name, `<name>.local` (ORR-874), rather than an IP. */
 const chosenName = computed(() => !!links.value?.addresses.find(a => a.url === chosen.value)?.name)
 const qr = computed(() => target.value ? renderSVG(target.value, {border: 2, pixelSize: 4, whiteColor: '#fff', blackColor: '#000'}) : '')
+/** The code as it's shown, in two halves: `KQ7-M4X`. */
+const shownCode = computed(() => code.value ? `${code.value.slice(0, 3)}-${code.value.slice(3)}` : '')
 const SOURCES: Record<PhoneAddress['from'], string> = {
     setting: 'ORRERY_PHONE_URL',
     host: 'ORRERY_HOST',
@@ -82,7 +87,16 @@ const sourceOf = (address: PhoneAddress) => address.from === 'launcher' ? `the l
             Scan it with the phone's camera and you're signed in, on a login of the phone's own. The code works once, for
             5 minutes, and a new one shows here as it runs out. The address alone asks for a login.
           </p>
-          <p v-else class="text-muted">
+          <div v-if="links.phone && shownCode" class="flex flex-wrap items-center gap-2">
+            <span class="text-muted">Or type this code on the phone's login page:</span>
+            <span class="font-mono text-[15px] font-semibold tracking-widest text-fg" data-testid="phone-code">{{ shownCode }}</span>
+            <UiButton size="sm" variant="ghost" @click="signInLink">New code</UiButton>
+          </div>
+          <p v-if="links.phone && shownCode" class="text-faint">
+            That's the way in from an app added to the home screen, which keeps a login apart from the browser's. Like the
+            QR, it works once, for 5 minutes.
+          </p>
+          <p v-else-if="!links.phone" class="text-muted">
             Scan it with the phone's camera, then sign in with your person key.
           </p>
           <p v-if="chosen.startsWith('http://')" class="text-amber-800 dark:text-amber-300">
