@@ -59,7 +59,7 @@ fn work_kinds() -> Value {
     ])
 }
 
-fn hex(n: usize) -> String {
+pub(crate) fn hex(n: usize) -> String {
     let mut bytes = vec![0u8; n];
     getrandom::getrandom(&mut bytes).expect("the system's random numbers");
     bytes.iter().map(|b| format!("{b:02x}")).collect()
