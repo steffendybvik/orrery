@@ -495,6 +495,86 @@ async fn delete_issues(State(app): Shared, Path(project): Path<String>, headers:
     Ok(reply(StatusCode::OK, Some(Value::Array(results)), effects))
 }
 
+/// `PATCH …/issues` `{ids, set?: {status?, priority?, assignee?, milestone?, release?, epic?}, labels?: {add?, remove?}}`:
+/// one change to many issues, each on its own as one is edited, so one refused doesn't stop the rest (`updateIssues`).
+/// `[{id, ok, error?}]`, an id once however often it's sent. The ones it made urgent come back in `Orrery-Urgent`.
+async fn update_issues(State(app): Shared, Path(project): Path<String>, headers: HeaderMap, body: Bytes) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    let mut comments = Comments::new(&mut conn);
+    comments.project_uid(&project).await?;
+    let sent = body_of(&body);
+    // As `Object.keys` reads what's sent as `set`: a string's or a list's are its places.
+    let (set, keys) = match sent.get("set") {
+        Some(Value::Object(set)) => (set.clone(), set.keys().cloned().collect::<Vec<_>>()),
+        Some(Value::String(text)) => (Default::default(), (0..text.encode_utf16().count()).map(|n| n.to_string()).collect()),
+        Some(Value::Array(list)) => (Default::default(), (0..list.len()).map(|n| n.to_string()).collect()),
+        _ => (Default::default(), vec![]),
+    };
+    let others: Vec<&String> = keys.iter().filter(|key| !issue_edits::BULK.contains(&key.as_str())).collect();
+    if !others.is_empty() {
+        let others = others.iter().map(|key| key.as_str()).collect::<Vec<_>>().join(", ");
+        return Err(ApiError::bad_request(format!(
+            r#"Many issues at once take {} in "set", and labels as {{add, remove}}; not {others}"#,
+            issue_edits::BULK.join(", ")
+        )));
+    }
+    let list = |key: &str| -> Result<Vec<String>> {
+        match sent.get("labels").and_then(Value::as_object).and_then(|labels| labels.get(key)) {
+            None => Ok(vec![]),
+            Some(Value::Array(labels)) if labels.iter().all(Value::is_string) => Ok(labels.iter().filter_map(|l| l.as_str().map(String::from)).collect()),
+            Some(_) => Err(ApiError::bad_request(format!(r#""labels.{key}" should be a list of labels"#))),
+        }
+    };
+    let (add, remove) = (list("add")?, list("remove")?);
+    let ids = match sent.get("ids") {
+        Some(Value::Array(ids)) if !ids.is_empty() && ids.iter().all(Value::is_string) => {
+            ids.iter().filter_map(|id| id.as_str().map(String::from)).collect::<Vec<_>>()
+        }
+        _ => return Err(ApiError::bad_request(r#"Send "ids": the issues, as a list of their ids"#)),
+    };
+    let actor = actor_of(&headers);
+    let mut effects = docs::Effects::default();
+    let mut urgent: Vec<String> = vec![];
+    let mut results = vec![];
+    let mut seen: Vec<&String> = vec![];
+    for sent in &ids {
+        if seen.contains(&sent) {
+            continue;
+        }
+        seen.push(sent);
+        // Each edit is its own write, as in the store: its own transaction and its own rows in the outbox.
+        comments.outbox = Some(Outbox::new(actor.clone()));
+        let done = comments.edit_one_of_many(&project, sent, &set, &add, &remove, &actor).await;
+        let said = std::mem::take(&mut comments.effects);
+        match done {
+            Ok(made) => {
+                if !said.changed.is_empty() {
+                    effects.changed = said.changed;
+                }
+                effects.told.extend(said.told);
+                urgent.extend(made);
+                results.push(json!({"id": sent, "ok": true}));
+            }
+            Err(error) => results.push(json!({"id": sent, "ok": false, "error": error.message})),
+        }
+    }
+    // Once the batch ends the store says the project changed once more, for open pages (`each`): its row too.
+    if !effects.changed.is_empty() {
+        let once = docs::Effects { changed: effects.changed.clone(), ..Default::default() };
+        let conn = &mut *conn;
+        changes::begin(conn).await?;
+        changes::finish(conn, Some(&mut Outbox::new(actor)), &once, Ok(())).await?;
+    }
+    let mut response = reply(StatusCode::OK, Some(Value::Array(results)), effects);
+    // Made urgent open work: the Nuxt server pushes each to the sessions (`sayUrgent`), as only it reaches them.
+    if !urgent.is_empty() {
+        let encode = |s: &str| utf8_percent_encode(s, NON_ALPHANUMERIC).to_string();
+        let said = urgent.iter().map(|id| format!("{} {}", encode(&project), encode(id))).collect::<Vec<_>>().join(", ");
+        response.headers_mut().insert("orrery-urgent", HeaderValue::from_str(&said).unwrap());
+    }
+    Ok(response)
+}
+
 async fn claim_or_release(app: Arc<App>, project: String, issue: String, headers: HeaderMap, claim: bool) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
     let mut comments = Comments::new(&mut conn);
@@ -1269,7 +1349,7 @@ fn router(app: Arc<App>) -> Router {
         .route(&format!("{P}/deleted-docs"), get(deleted_docs))
         .route(&format!("{P}/doc-sections"), get(list_sections).post(create_section))
         .route(&format!("{P}/doc-sections/{{section}}"), patch(patch_section).delete(delete_section))
-        .route(&format!("{P}/issues"), get(list_issues).post(create_issue).delete(delete_issues))
+        .route(&format!("{P}/issues"), get(list_issues).post(create_issue).patch(update_issues).delete(delete_issues))
         .route(&format!("{P}/issues/{{issue}}"), get(get_issue).patch(patch_issue).delete(delete_issue))
         .route(&format!("{P}/issues/{{issue}}/claim"), post(claim_issue).delete(release_issue))
         .route(&format!("{P}/issues/{{issue}}/comments"), get(list_comments).post(create_comment))
