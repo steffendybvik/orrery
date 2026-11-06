@@ -95,6 +95,10 @@ export const DOMAINS: readonly {domain: string, paths: RegExp, methods?: readonl
     // on their issues, and clearing them or marking them read, each person's their own (ORR-658). Clearing tells nothing:
     // the page that did it reads the bell again.
     {domain: 'the bell', paths: /^notices(\/(changes|clear|read))?$/},
+    // The epics (ORR-1004): every one with its progress, one with its issues, and making, changing and deleting one. A
+    // write's reply says the epics changed (`Orrery-Epics`), for open pages to ask for them again. An epic's comments and
+    // its focus, which signals sessions, stay here.
+    {domain: 'epics', paths: /^epics(\/[^/]+)?$/},
 ]
 
 /** What this server checks itself before a request goes on, as only it knows (the sessions): refusing it throws, and
@@ -328,6 +332,8 @@ export async function forwardToApi(event: H3Event, api: {url: string, token: str
         if (relayHeaders) for (const project of changedOf(response.headers.get('orrery-changed'))) store.changed(project)
         // The statuses are in the settings, which open pages get again (ORR-926).
         if (relayHeaders && response.headers.get('orrery-settings') === '1') await store.settingsChanged()
+        // Open pages ask for the epics again (ORR-1004).
+        if (relayHeaders && response.headers.get('orrery-epics') === '1') store.epicsChanged()
         const keys = changedOf(response.headers.get('orrery-settings-keys'))
         if (keys.length) useEventLog().note({level: 'info', kind: 'settings.changed', message: `${actor.name} changed the settings: ${keys.join(', ')}`, details: {by: actor.name, keys}})
         if (relayHeaders) for (const {type, project, subject, from, to} of toldOf(response.headers.get('orrery-told'))) store.told(type, project, subject, actor, {from, to})

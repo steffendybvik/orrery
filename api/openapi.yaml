@@ -41,6 +41,9 @@ info:
     - **The bell** (ORR-1005): agents' comments across projects with the proposals waiting on the owner, the status
       changes on their issues, and clearing them or marking them read (web/server/api/notices). Served by both; each
       person's bell is their own (ORR-658).
+    - **Epics** (ORR-1004): every epic with its progress, one with its issues, and making, changing and deleting one
+      (web/server/api/epics). Served by both; an epic's comments and its focus, which signals sessions, stay the Nuxt
+      server's.
 
     An operation marked `x-served: false` is written ahead of the Rust API's: the router doesn't send it there yet, and
     the parity test holds it to that. The mark comes off in the pull request that serves it.
@@ -68,6 +71,7 @@ info:
 
     - `Orrery-Changed`: the projects, comma-separated, each percent-encoded (a status change is every project's).
     - `Orrery-Settings`: `1` when the orrery's settings changed, as the statuses are in them: open pages get them again.
+    - `Orrery-Epics`: `1` when the epics changed: open pages ask for them again.
     - `Orrery-Told`: `<type> <project> <subject>`, comma-separated, each part percent-encoded (`doc.created`,
       `doc.changed`, `doc.deleted`).
 
@@ -807,6 +811,46 @@ paths:
         '200': {description: How many changed, content: {application/json: {schema: {type: object, required: [read], properties: {read: {type: integer}}}}}}
         '400': {$ref: '#/components/responses/BadRequest'}
         '403': {$ref: '#/components/responses/Forbidden'}
+  /api/epics:
+    get:
+      summary: Every epic, in the order they're arranged in, a new one on top
+      description: Each with its progress across every project it has issues in, and each of those projects' part.
+      responses:
+        '200': {description: The epics, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/Epic'}}}}}
+    post:
+      summary: Makes an epic
+      description: '`title` is needed. It goes on top unless `position` says where (0 the top). An issue joins it with `epic`, its number, on the issue.'
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/EpicInput'}}}}
+      responses:
+        '201': {description: 'The epic, with its issues', content: {application/json: {schema: {$ref: '#/components/schemas/EpicDetail'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+  /api/epics/{epic}:
+    parameters:
+      - {name: epic, in: path, required: true, description: 'The epic''s number (`3`), as it''s shown (`EPC-3`), or its full id on this server (`EPC-3-x7k2m3qd`)', schema: {type: string}}
+    get:
+      summary: One epic, with its issues in a section per project
+      description: Each section's `tasks` are the issues set for it there (a sub-issue's when its parent isn't), each with its sub-issues.
+      responses:
+        '200': {description: The epic, content: {application/json: {schema: {$ref: '#/components/schemas/EpicDetail'}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
+    patch:
+      summary: Changes an epic's title or notes, or moves it among them
+      description: A new title or notes is told as `epic.changed` on each project with an issue in it; `position` moves it (0 the top).
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/EpicInput'}}}}
+      responses:
+        '200': {description: The epic, content: {application/json: {schema: {$ref: '#/components/schemas/EpicDetail'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+    delete:
+      summary: Deletes an epic
+      description: Its issues stay where they are, in no epic, each told as `issue.epic`. One the owner made is theirs to delete (403).
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      responses:
+        '204': {description: Deleted}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
   /api/secrets:
     get:
       summary: Every secret by name, never its value
@@ -1708,6 +1752,46 @@ components:
         created_by: {type: string}
         session_name: {type: string, description: Only with one}
         created_at: {type: string, format: date-time}
+    EpicInput:
+      type: object
+      properties:
+        title: {type: string, description: Needed to make one; not blank}
+        notes: {type: [string, 'null'], description: Markdown}
+        position: {type: number, description: Where it goes among the epics, 0 the top}
+    EpicPart:
+      type: object
+      required: [project, issues, kinds]
+      properties:
+        project: {type: string}
+        issues: {type: integer}
+        kinds: {$ref: '#/components/schemas/Kinds'}
+    Epic:
+      type: object
+      required: [id, full_id, title, issues, kinds, projects, created_by, protected, created_at, updated_at]
+      properties:
+        id: {type: integer, description: Its number across the orrery}
+        full_id: {type: string, description: '`EPC-<id>-<uid>`, with the server''s uid'}
+        title: {type: string}
+        notes: {type: string, description: Only with some}
+        issues: {type: integer, description: Those set for it, in every project}
+        kinds: {$ref: '#/components/schemas/Kinds'}
+        projects: {type: array, items: {$ref: '#/components/schemas/EpicPart'}, description: Each project with an issue in it}
+        created_by: {type: string}
+        protected: {type: boolean, description: Made by the owner}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    EpicDetail:
+      allOf:
+        - {$ref: '#/components/schemas/Epic'}
+        - type: object
+          required: [parts]
+          properties:
+            parts:
+              type: array
+              items:
+                allOf:
+                  - {$ref: '#/components/schemas/EpicPart'}
+                  - {type: object, required: [name, tasks], properties: {name: {type: string}, tasks: {type: array, items: {$ref: '#/components/schemas/Issue'}}}}
     Secret:
       type: object
       required: [name, last4, hosts, projects, created_by, created_at, updated_at, last_used]

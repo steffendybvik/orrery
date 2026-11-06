@@ -691,7 +691,7 @@ impl Comments<'_> {
 
 /// An epic's number from any form of its id (`numberOf`): `14`, `EPC-14` in any case, or the full `EPC-14-x7k2m9qd`;
 /// `None` for anything else, a full id from another board included.
-fn epic_number(sent: &str, uid: &str) -> Option<String> {
+pub(crate) fn epic_number(sent: &str, uid: &str) -> Option<String> {
     let digits = |s: &str| (!s.is_empty() && s.bytes().all(|b| b.is_ascii_digit())).then(|| s.to_string());
     let after_prefix = |s: &str| s.get(..4).filter(|p| p.eq_ignore_ascii_case("EPC-")).and_then(|_| s.get(4..)).map(str::to_string);
     let sent = sent.trim();

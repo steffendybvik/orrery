@@ -72,7 +72,7 @@ export abstract class ThreadStore extends CommentStore {
     }
 
     private threadChanged(thread: Thread) {
-        if (thread.table === 'epic_comments') this.epicsChanged()
+        if (thread.table === 'epic_comments') this.sayEpics()
         else this.changed(String(thread.on.project))
     }
 

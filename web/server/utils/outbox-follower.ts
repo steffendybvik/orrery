@@ -67,6 +67,8 @@ async function apply(store: Store, change: Change, unknown: Set<string>) {
         if (change.project) store.changed(change.project)
     } else if (change.kind === 'settings') {
         await store.settingsChanged()
+    } else if (change.kind === 'epics') {
+        store.epicsChanged()
     } else if (change.kind === 'signal' || change.kind === 'notice') {
         if (!unknown.has(change.kind)) console.warn(`[orrery] the outbox has a ${change.kind} this server didn't write, which it doesn't deliver yet (ORR-983)`)
         unknown.add(change.kind)
@@ -76,10 +78,11 @@ async function apply(store: Store, change: Change, unknown: Set<string>) {
     }
 }
 
-/** Reads the board again after a gap: every project's page and the settings, as nothing says what was missed. */
+/** Reads the board again after a gap: every project's page, the settings and the epics, as nothing says what was missed. */
 async function readAgain(store: Store) {
     for (const {id} of await store.listProjects()) store.changed(id)
     await store.settingsChanged()
+    store.epicsChanged()
 }
 
 /** Follows the feed from `after` (the newest row when there's no cursor), a page at a time, until `stop`. `read` gets a

@@ -25,22 +25,25 @@ pub struct Outbox {
     actor: Actor,
     changed: Vec<String>,
     settings: bool,
+    epics: bool,
     told: usize,
 }
 
 impl Outbox {
     pub fn new(actor: Actor) -> Self {
-        Outbox { actor, changed: vec![], settings: false, told: 0 }
+        Outbox { actor, changed: vec![], settings: false, epics: false, told: 0 }
     }
 
     /// Records what `effects` holds that this request hasn't recorded yet, on `conn`, inside its transaction.
     async fn send(&mut self, conn: &mut AnyConnection, effects: &Effects) -> Result<()> {
         let changed: Vec<&String> = effects.changed.iter().filter(|p| !self.changed.contains(p)).collect();
         let settings = effects.settings && !self.settings;
+        let epics = effects.epics && !self.epics;
         let told = &effects.told[self.told.min(effects.told.len())..];
-        record(conn, &changed, settings, told, &self.actor).await?;
+        record(conn, &changed, settings, epics, told, &self.actor).await?;
         self.changed.extend(changed.into_iter().cloned());
         self.settings |= settings;
+        self.epics |= epics;
         self.told = effects.told.len();
         Ok(())
     }
@@ -71,8 +74,9 @@ pub async fn finish<T>(conn: &mut AnyConnection, outbox: Option<&mut Outbox>, ef
     }
 }
 
-/// Writes the rows for what a write by `actor` set off: each project it changed, the settings, and each event told.
-async fn record(conn: &mut AnyConnection, changed: &[&String], settings: bool, told: &[Told], actor: &Actor) -> Result<()> {
+/// Writes the rows for what a write by `actor` set off: each project it changed, the settings, the epics, and each event
+/// told.
+async fn record(conn: &mut AnyConnection, changed: &[&String], settings: bool, epics: bool, told: &[Told], actor: &Actor) -> Result<()> {
     // Each row's kind, project, subject and payload.
     type Row<'a> = (&'a str, Option<&'a str>, Option<&'a str>, Option<String>);
     let mut rows: Vec<Row> = vec![];
@@ -81,6 +85,9 @@ async fn record(conn: &mut AnyConnection, changed: &[&String], settings: bool, t
     }
     if settings {
         rows.push(("settings", None, None, None));
+    }
+    if epics {
+        rows.push(("epics", None, None, None));
     }
     for told in told {
         rows.push((told.kind.as_str(), Some(told.project.as_str()), Some(told.subject.as_str()), payload_of(told, actor)));

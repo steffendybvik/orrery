@@ -1,4 +1,4 @@
-// orrery's API in Rust (ORR-922). For now it serves docs, the statuses (ORR-926), milestones and releases (ORR-926, written in ORR-974), reading issues, their comments, their activity and the images uploaded to them (ORR-927), people, invites, keys and logins (ORR-928), presets (ORR-949), reading the secrets, never a value (ORR-953), the settings (ORR-954) reading one pull request as orrery keeps it and rating its risk (ORR-952), the bell (ORR-1005), on the database the Nuxt server opens, and only
+// orrery's API in Rust (ORR-922). For now it serves docs, the statuses (ORR-926), milestones and releases (ORR-926, written in ORR-974), reading issues, their comments, their activity and the images uploaded to them (ORR-927), people, invites, keys and logins (ORR-928), presets (ORR-949), reading the secrets, never a value (ORR-953), the settings (ORR-954) reading one pull request as orrery keeps it and rating its risk (ORR-952), the bell (ORR-1005), the epics (ORR-1004), on the database the Nuxt server opens, and only
 // to that server: the router there (web/server/middleware/zz-api.ts) checks a request as it always has (auth, the
 // board's permissions, the chat's and untrusted sessions' rails, the browser guards) and then forwards it here with
 // who it's from. So this listens on loopback, and answers only a request that carries the token they share.
@@ -16,6 +16,7 @@ mod chats;
 mod comments;
 mod db;
 mod docs;
+mod epics;
 mod error;
 mod issue_edits;
 mod issues;
@@ -51,6 +52,7 @@ use changes::Outbox;
 use chats::Chats;
 use comments::{comment_id, Comments, Handoff};
 use docs::{Actor, Docs, Effects};
+use epics::Epics;
 use error::{ApiError, Result};
 use issues::Issues;
 use milestones::Milestones;
@@ -178,7 +180,7 @@ fn told_of(told: &docs::Told, encode: &impl Fn(&str) -> String) -> String {
 /// part percent-encoded.
 fn reply(status: StatusCode, body: Option<Value>, effects: Effects) -> Response {
     // The write is committed by now, with its outbox rows: the open streams can send them (ORR-929).
-    if !effects.changed.is_empty() || effects.settings || !effects.told.is_empty() {
+    if !effects.changed.is_empty() || effects.settings || effects.epics || !effects.told.is_empty() {
         changes::wake();
     }
     let mut response = match body {
@@ -192,6 +194,9 @@ fn reply(status: StatusCode, body: Option<Value>, effects: Effects) -> Response 
     }
     if effects.settings {
         response.headers_mut().insert("orrery-settings", HeaderValue::from_static("1"));
+    }
+    if effects.epics {
+        response.headers_mut().insert("orrery-epics", HeaderValue::from_static("1"));
     }
     if !effects.settings_keys.is_empty() {
         let keys = effects.settings_keys.iter().map(|k| encode(k)).collect::<Vec<_>>().join(", ");
@@ -478,6 +483,49 @@ async fn create_release(State(app): Shared, Path(project): Path<String>, headers
     let effects = std::mem::take(&mut releases.effects);
     let value = Plans::new(&mut Issues::new(&mut conn)).release(&project, &version).await?;
     Ok(reply(StatusCode::CREATED, Some(value), effects))
+}
+
+/// The epics (ORR-1004): every one, one with its issues, and making, changing and deleting one.
+async fn list_epics(State(app): Shared) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    Ok(Json(Epics::new(&mut conn).list().await?).into_response())
+}
+
+async fn get_epic(State(app): Shared, Path(epic): Path<String>) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    let mut epics = Epics::new(&mut conn);
+    let id = epics.epic_id(&epic).await?;
+    Ok(Json(epics.epic(id).await?).into_response())
+}
+
+async fn create_epic(State(app): Shared, headers: HeaderMap, body: Bytes) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    let mut epics = Epics::new(&mut conn);
+    epics.outbox = Some(Outbox::new(actor_of(&headers)));
+    let id = epics.create(&body_of(&body), &actor_of(&headers)).await?;
+    let effects = std::mem::take(&mut epics.effects);
+    let value = epics.epic(id).await?;
+    Ok(reply(StatusCode::CREATED, Some(value), effects))
+}
+
+async fn patch_epic(State(app): Shared, Path(epic): Path<String>, headers: HeaderMap, body: Bytes) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    let mut epics = Epics::new(&mut conn);
+    let id = epics.epic_id(&epic).await?;
+    epics.outbox = Some(Outbox::new(actor_of(&headers)));
+    epics.update(id, &body_of(&body)).await?;
+    let effects = std::mem::take(&mut epics.effects);
+    let value = epics.epic(id).await?;
+    Ok(reply(StatusCode::OK, Some(value), effects))
+}
+
+async fn delete_epic(State(app): Shared, Path(epic): Path<String>, headers: HeaderMap) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    let mut epics = Epics::new(&mut conn);
+    let id = epics.epic_id(&epic).await?;
+    epics.outbox = Some(Outbox::new(actor_of(&headers)));
+    epics.delete(id, &actor_of(&headers)).await?;
+    Ok(reply(StatusCode::NO_CONTENT, None, std::mem::take(&mut epics.effects)))
 }
 
 async fn patch_release(State(app): Shared, Path((project, release)): Path<(String, String)>, headers: HeaderMap, body: Bytes) -> Result<Response> {
@@ -1024,7 +1072,7 @@ async fn restore_presets(State(app): Shared, headers: HeaderMap) -> Result<Respo
 
 async fn health() -> Json<Value> {
     Json(
-        json!({"ok": true, "domains": ["docs", "statuses", "issues, reading", "comments, reading", "activity", "claims", "an issue, deleted", "an issue, its words", "milestones", "releases", "people", "invites", "keys", "logins", "uploads, reading", "presets", "secrets, reading", "settings", "a pull request, reading", "a pull request's risk", "schedules, reading", "projects, listed", "a project, made", "a project, changed", "the bell"]}),
+        json!({"ok": true, "domains": ["docs", "statuses", "issues, reading", "comments, reading", "activity", "claims", "an issue, deleted", "an issue, its words", "milestones", "releases", "people", "invites", "keys", "logins", "uploads, reading", "presets", "secrets, reading", "settings", "a pull request, reading", "a pull request's risk", "schedules, reading", "projects, listed", "a project, made", "a project, changed", "the bell", "epics"]}),
     )
 }
 
@@ -1051,6 +1099,8 @@ fn router(app: Arc<App>) -> Router {
         .route(&format!("{P}/releases"), get(list_releases).post(create_release))
         .route(&format!("{P}/releases/{{release}}"), get(get_release).patch(patch_release).delete(delete_release))
         .route("/api/releases", get(all_releases))
+        .route("/api/epics", get(list_epics).post(create_epic))
+        .route("/api/epics/{epic}", get(get_epic).patch(patch_epic).delete(delete_epic))
         .route("/api/projects", get(list_projects).post(create_project))
         .route(P, patch(patch_project))
         .route("/api/uploads/{upload}", get(get_upload))
