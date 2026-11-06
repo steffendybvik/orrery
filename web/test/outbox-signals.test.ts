@@ -11,10 +11,18 @@ const tick = () => new Promise(resolve => setTimeout(resolve, 5))
 let store: Store
 let from: number
 
+/** The rows since the test began, once they've stopped coming: some are written just after their write returns, which
+ * on a busy Postgres takes longer than a tick (ORR-976's flake, on the parity test). */
 async function rows() {
-    await tick()
-    return await store.db.all<{kind: string, project: string | null, subject: string | null, payload: string | null}>(
+    const read = () => store.db.all<{kind: string, project: string | null, subject: string | null, payload: string | null}>(
         'SELECT kind, project, subject, payload FROM changes WHERE id > ? ORDER BY id', from)
+    let seen = JSON.stringify(await read())
+    for (;;) {
+        await new Promise(resolve => setTimeout(resolve, 40))
+        const now = await read()
+        if (JSON.stringify(now) === seen) return now
+        seen = JSON.stringify(now)
+    }
 }
 
 beforeEach(async () => {
