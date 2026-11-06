@@ -530,6 +530,11 @@ onBeforeUnmount(() => window.removeEventListener('message', heard))
         </UiButton>
       </div>
       <ul class="flex flex-1 flex-col gap-0.5 overflow-y-auto px-1.5 pb-2">
+        <!-- The chat the pane is blank for heads the list, chosen, until its first message makes it a real row (ORR-996). -->
+        <li v-if="!chat && about" aria-current="true" class="flex min-w-0 flex-col rounded-lg bg-hover px-2.5 py-1.5" data-testid="chat-new-row">
+          <span class="truncate text-[11px] text-faint">{{ projectName(about) }}</span>
+          <span class="truncate text-[13px] text-fg">{{ held[0]?.text.split('\n')[0] || 'New chat' }}</span>
+        </li>
         <li v-for="c in chats" :key="c.id" class="group relative">
           <button
               type="button"
@@ -557,7 +562,7 @@ onBeforeUnmount(() => window.removeEventListener('message', heard))
           </button>
           <p v-if="removeFailed?.id === c.id" role="alert" class="px-2.5 pb-1.5 text-xs text-rose-700 dark:text-rose-400">{{ removeFailed.why }}</p>
         </li>
-        <li v-if="!chats.length" class="px-2.5 py-1.5 text-xs text-faint">No chats yet</li>
+        <li v-if="!chats.length && (chat || !about)" class="px-2.5 py-1.5 text-xs text-faint">No chats yet</li>
       </ul>
     </aside>
     <div class="flex min-w-0 flex-1 flex-col">
