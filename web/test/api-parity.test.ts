@@ -21,7 +21,7 @@ import {PullPoll} from '../server/utils/pull-poll'
 import type {PolledRow} from '../server/utils/pull-poll'
 import {openDb} from '../server/utils/db'
 import {PostgresDb} from '../server/utils/postgres'
-import {actorHeaders, changedOf, countedOf, databaseMark, domainOf, DOMAINS, handedOn, loginHeaders, passedThrough, servedByApi, toldOf, whoHeaders} from '../server/utils/api-router'
+import {actorHeaders, changedOf, countedOf, databaseMark, domainOf, DOMAINS, handedOn, loginHeaders, onlyWords, passedThrough, servedByApi, toldOf, whoHeaders} from '../server/utils/api-router'
 import {permission, refused} from '../server/utils/permission'
 import {followOutbox, readPage} from '../server/utils/outbox-follower'
 
@@ -1119,6 +1119,57 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         expect((await rows('through-api')).filter(row => row.startsWith('issue.depends '))).toHaveLength(3)
     })
 
+    it('changes an issue\'s own words alike, with the rails between people, noting and telling each (ORR-927)', async () => {
+        const start = (await store.db.get<{n: number | null}>('SELECT max(id) AS n FROM changes'))?.n ?? 0
+        const ids: Record<string, Record<string, string>> = {}
+        for (const p of ['through-store', 'through-api']) {
+            ids[p] = {gear: (await store.createIssue(p, {title: 'Cut the gear', notes: 'Brass.', labels: ['shop']}, OWNER)).id}
+        }
+        type Step = [string, (p: string) => Promise<Outcome>, () => Promise<Outcome>]
+        const edit = (name: string, which: string, body: unknown, actor: Actor = AGENT): Step =>
+            [name, p => viaStore(() => store.updateIssue(p, ids[p]![which] ?? which, body, actor)), () => viaApi('PATCH', `/issues/${ids['through-api']![which] ?? which}`, body, actor)]
+        const activity = (which: string): Step =>
+            [`${which}'s activity`, p => viaStore(() => store.listActivity(p, ids[p]![which]!)), () => viaApi('GET', `/issues/${ids['through-api']![which]}/activity`)]
+        for (const [name, ts, rs] of [
+            edit('its title, notes and labels', 'gear', {title: '  Cut the big gear ', notes: 'Brass, not steel.', labels: ['shop', ' shop', 'metal']}),
+            edit('the same again', 'gear', {title: 'Cut the big gear', labels: ['shop', 'metal']}),
+            edit('its GitHub issues and tasks', 'gear', {github_issues: [12, 'ada/box#12', 'https://github.com/x/y/issues/3'], external: ['ENG-1', ' ENG-1 ', 'ENG-2']}),
+            edit('one that isn\'t a GitHub issue', 'gear', {github_issues: ['nope']}),
+            edit('its model, effort and place', 'gear', {model: 'sonnet', effort: 'high', position: 3}, OWNER),
+            edit('each cleared', 'gear', {notes: null, labels: null, external: null, github_issues: null, model: null, effort: null}),
+            edit('several problems', 'gear', {title: '', model: 'gpt', effort: 'huge', position: null, labels: [''], github_issues: [0]}),
+            edit('not an object', 'gear', ['title']),
+            edit('one that isn\'t there', 'X-404', {title: 'Gone'}),
+            activity('gear'),
+        ] as Step[]) await both(name, ts, rs)
+        // Two people: an agent changes only its person's, or its own proposal.
+        await store.addPerson({name: 'Hal'})
+        const HALS: Actor = {name: 'agent', owner: false, session: 'orrery · Hal', asked: true, named: 'hal'}
+        const NAMELESS: Actor = {name: 'agent', owner: false, session: 'orrery · Zed', asked: true, named: 'zed'}
+        for (const p of ['through-store', 'through-api']) {
+            ids[p] = {
+                ...ids[p],
+                hals: (await store.createIssue(p, {title: 'Count the teeth', assignee: 'hal'}, OWNER)).id,
+                idea: (await store.createIssue(p, {title: 'A bigger gear?', proposal: 'pending'}, HALS)).id,
+            }
+        }
+        for (const [name, ts, rs] of [
+            edit('the owner\'s, by Hal\'s agent', 'gear', {title: 'Mine now'}, HALS),
+            edit('Hal\'s, by Hal\'s agent', 'hals', {notes: 'Forty of them.'}, HALS),
+            edit('its own proposal, by Hal\'s agent', 'idea', {title: 'A bigger gear, in brass?'}, HALS),
+            edit('Hal\'s, by a nameless agent', 'hals', {title: 'Mine'}, NAMELESS),
+            activity('hals'),
+            activity('idea'),
+        ] as Step[]) await both(name, ts, rs)
+        await store.db.run("UPDATE issues SET assignee = NULL WHERE assignee = 'hal'")
+        await store.db.run("DELETE FROM people WHERE id = 'hal'")
+        await quiet()
+        const rows = async (p: string) => (await store.db.all<{kind: string, payload: string | null}>('SELECT kind, payload FROM changes WHERE project = ? AND id > ? ORDER BY id', p, start))
+            .map(r => `${r.kind} ${(r.payload ?? '').replace(/\b(STO|API)-(\d+)/g, 'KEY-$2')}`).sort()
+        expect(await rows('through-api')).toEqual(await rows('through-store'))
+        expect((await rows('through-api')).filter(row => row.startsWith('issue.title ')).length).toBeGreaterThan(1)
+    })
+
     it('removes a person alike: their open issues unassigned and told, their seats the owner\'s, their keys and logins ended (ORR-928)', async () => {
         /** A member with work on `p`: a seat on its board, an open issue and a done one, a key and a login. */
         const hire = async (p: string) => {
@@ -1538,12 +1589,16 @@ describe('the router', () => {
     })
 
     it('routes by a table with a line per domain, so taking one back is taking its line out (ORR-925)', () => {
-        expect(DOMAINS.map(({domain}) => domain)).toEqual(['docs', 'statuses', 'issues, reading', 'comments', 'an issue, deleted', 'claims', 'activity', 'milestones', 'releases', 'releases, every project\'s', 'people', 'invites', 'keys', 'logins', 'uploads, reading', 'presets', 'secrets, reading', 'settings', 'a pull request, reading', "a pull request's risk", 'schedules, reading'])
+        expect(DOMAINS.map(({domain}) => domain)).toEqual(['docs', 'statuses', 'issues, reading', 'comments', 'an issue, deleted', 'an issue, its words', 'claims', 'activity', 'milestones', 'releases', 'releases, every project\'s', 'people', 'invites', 'keys', 'logins', 'uploads, reading', 'presets', 'secrets, reading', 'settings', 'a pull request, reading', "a pull request's risk", 'schedules, reading'])
         expect(domainOf('PATCH', '/api/projects/p/docs/d')).toBe('docs')
         expect(domainOf('head', '/api/projects/p/doc-sections/')).toBe('docs')
         for (const method of ['POST', 'DELETE']) expect(domainOf(method, '/api/projects/p/issues/P-1/claim'), method).toBe('claims')
         expect(domainOf('DELETE', '/api/projects/p/issues/P-1')).toBe('an issue, deleted')
-        for (const method of ['PATCH', 'POST']) expect(domainOf(method, '/api/projects/p/issues/P-1'), method).toBeUndefined()
+        expect(domainOf('PATCH', '/api/projects/p/issues/P-1')).toBe('an issue, its words')
+        expect(domainOf('POST', '/api/projects/p/issues/P-1')).toBeUndefined()
+        // An issue's edit goes on only with nothing but its words: the rest of it stays here for now.
+        expect(onlyWords({title: 'x', notes: null, labels: [], position: 2})).toBe(true)
+        for (const body of [{title: 'x', status: 'todo'}, {priority: 'P0'}, {}, null, [], 'title']) expect(onlyWords(body), JSON.stringify(body)).toBe(false)
         expect(domainOf('DELETE', '/api/projects/p/issues')).toBeUndefined()
         for (const path of ['/api/projects/p/issues/P-1/activity/x', '/api/', '/docs', '/api/projects/p/docs/d/artifact']) expect(domainOf('GET', path), path).toBeUndefined()
     })
@@ -1682,7 +1737,7 @@ describe('the contract (api/openapi.yaml)', () => {
     }
 
     it('has every route the router sends to the API, and no other', () => {
-        expect(contract()).toHaveLength(70)
+        expect(contract()).toHaveLength(71)
         expect(contract()).toEqual(routes())
     })
 

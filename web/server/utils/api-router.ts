@@ -38,6 +38,10 @@ export const DOMAINS: readonly {domain: string, paths: RegExp, methods?: readonl
     // Deleting an issue, with its sub-issues and comments (ORR-927): the API tells it back, and the dependents it frees,
     // as `Orrery-Told`, and puts them in the outbox (ORR-929). Deleting many at once stays here.
     {domain: 'an issue, deleted', paths: /^projects\/[^/]+\/issues\/[^/]+$/, methods: ['DELETE']},
+    // Changing an issue's own words (ORR-927): its title, notes, labels, tasks, GitHub issues, model, effort and place.
+    // An edit naming any other field stays here (`wordsOnly`), as its status, assignee, proposal, priority, links and
+    // where it sits wake sessions or set off a P0's push. The chat's rails and a session's claim are checked here first.
+    {domain: 'an issue, its words', paths: /^projects\/[^/]+\/issues\/[^/]+$/, methods: ['PATCH'], first: {PATCH: wordsOnly}},
     // Taking an issue up and letting it go (ORR-927, ORR-657): the API tells the claim and a new assignee back, as
     // `Orrery-Told`, and puts them in the outbox (ORR-929).
     {domain: 'claims', paths: /^projects\/[^/]+\/issues\/[^/]+\/claim$/},
@@ -79,8 +83,40 @@ export const DOMAINS: readonly {domain: string, paths: RegExp, methods?: readonl
     {domain: 'schedules, reading', paths: /^(projects\/[^/]+\/schedules(\/[^/]+)?|schedules(\/across)?)$/, methods: ['GET']},
 ]
 
-/** What this server checks itself before a request goes on, as only it knows (the sessions): refusing it throws. */
-type LocalCheck = (event: H3Event, rest: string) => Promise<void>
+/** What this server checks itself before a request goes on, as only it knows (the sessions): refusing it throws, and
+ * `'here'` keeps it for the routes here, for what the API doesn't do yet. */
+type LocalCheck = (event: H3Event, rest: string) => Promise<unknown>
+
+/** The fields of an issue's edit the API changes (`api/src/issue_edits.rs`, `WORDS`). */
+export const ISSUE_WORDS: readonly string[] = ['title', 'labels', 'external', 'github_issues', 'notes', 'model', 'effort', 'position']
+
+/** Whether an issue's edit names only its own words, so the API can make it: a body that isn't an object, or is
+ * empty, stays here too, for its answer. */
+export function onlyWords(body: unknown): boolean {
+    if (typeof body !== 'object' || body === null || Array.isArray(body)) return false
+    const keys = Object.keys(body)
+    return keys.length > 0 && keys.every(key => ISSUE_WORDS.includes(key))
+}
+
+/** An issue's edit, kept here unless it names only its words (`onlyWords`). One that goes on is the chat's only within
+ * what it may change (`asChatEdit`), and a session's only while no other session is on the issue (`claimFor`), as the
+ * route here has them. */
+async function wordsOnly(event: H3Event, rest: string) {
+    const raw = await readRawBody(event, 'utf8')
+    let body: unknown
+    try {
+        body = raw ? JSON.parse(raw) : undefined
+    } catch {
+        return 'here' as const
+    }
+    if (!onlyWords(body)) return 'here' as const
+    if (chatWrite(event)) {
+        asChatEdit(body)
+        return
+    }
+    const [, project, issue] = /^projects\/([^/]+)\/issues\/([^/]+)$/.exec(rest) ?? []
+    if (project && issue) await claimFor(event, decodeURIComponent(project), decodeURIComponent(issue))
+}
 
 /** A comment's edit, refused while another session is working on its issue (ORR-627), as its route here does. */
 async function claimOnComment(event: H3Event, rest: string) {
@@ -221,7 +257,7 @@ let unreachable = false
 /** Sends the request to the API and gives back its reply, or undefined to leave it to the routes here. */
 export async function forwardToApi(event: H3Event, api: {url: string, token: string}): Promise<unknown> {
     const found = lineOf(event.method, pathOf(event))
-    await found?.line.first?.[event.method.toUpperCase()]?.(event, found.rest)
+    if (await found?.line.first?.[event.method.toUpperCase()]?.(event, found.rest) === 'here') return undefined
     const actor = await actorOf(event)
     const body = WRITES.has(event.method) ? await readRawBody(event, false) : undefined
     let response: Response

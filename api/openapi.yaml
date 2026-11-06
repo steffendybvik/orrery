@@ -324,6 +324,35 @@ paths:
       responses:
         '200': {description: The issue, content: {application/json: {schema: {$ref: '#/components/schemas/IssueDetail'}}}}
         '404': {$ref: '#/components/responses/NotFound'}
+    patch:
+      summary: Changes the issue's own words
+      description: |
+        Only its `title`, `notes`, `labels`, `external`, `github_issues`, `model`, `effort` and `position`: the router
+        keeps an edit naming any other field for the Nuxt server. Null clears all but the title and position. An
+        agent's, with more than one person, only on its person's issue or its own proposal. Each changed field goes to
+        the activity and is told (`issue.<field>`), without a title's or a link's words.
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                title: {type: string, minLength: 1}
+                notes: {type: [string, 'null']}
+                labels: {type: [array, 'null'], items: {type: string}}
+                external: {type: [array, 'null'], items: {type: string}}
+                github_issues: {type: [array, 'null'], items: {type: [string, integer]}}
+                model: {type: [string, 'null']}
+                effort: {type: [string, 'null'], enum: [low, medium, high, xhigh, max, null]}
+                position: {type: number}
+      responses:
+        '200': {description: The issue, content: {application/json: {schema: {$ref: '#/components/schemas/IssueDetail'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {description: 'It isn''t the session''s person''s, or the session names nobody', content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
     delete:
       summary: Deletes the issue, its sub-issues and comments with it
       description: |

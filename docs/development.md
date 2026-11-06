@@ -55,10 +55,10 @@ the database goes there; what touches the machine (sessions, tmux, the launcher,
 **docs** domain (a project's docs, their sections and revisions), the orrery's **statuses** (`/api/statuses`,
 ORR-926), **milestones and releases** (ORR-926: a project's, one of each, and `/api/releases`; made, changed, frozen,
 shipped and deleted too, ORR-974), **reading
-issues and their comments**, and **making, editing and deleting a comment**, **claiming an issue and letting it go, and deleting one** (ORR-927: the list with its filters, one issue, its comments) and **people, invites, keys
+issues and their comments**, and **making, editing and deleting a comment**, **claiming an issue and letting it go, changing its own words (title, notes, labels, links, model, effort, place) and deleting one** (ORR-927: the list with its filters, one issue, its comments) and **people, invites, keys
 and logins** (ORR-928, removing a person included; logging in and out aside) **reading the secrets** (ORR-953, never a value) and **reading the schedules** (ORR-930: a project's, one with its runs, every project's and those across projects), **reading one pull request, and rating its risk** (ORR-952,
 `/api/pulls/:owner/:name/:number`): the routes in
-`api/openapi.yaml`. An artifact's page (`…/docs/:doc/artifact`), a milestone's focus, and writing an issue (its claim and deleting one aside) stays in Nuxt, and so do setting, narrowing and deleting a secret and egress.
+`api/openapi.yaml`. An artifact's page (`…/docs/:doc/artifact`), a milestone's focus, and writing an issue (its claim, its own words and deleting one aside) stays in Nuxt, and so do setting, narrowing and deleting a secret and egress.
 
 How it fits together:
 

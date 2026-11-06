@@ -178,7 +178,7 @@ impl<'c> Comments<'c> {
     }
 
     /// The issue's id, from its id, an id it had before (an alias), or the full form of either on this board (`issueId`).
-    async fn issue_id(&mut self, project: &str, sent: &str) -> Result<String> {
+    pub(crate) async fn issue_id(&mut self, project: &str, sent: &str) -> Result<String> {
         let mut id = sent.to_string();
         loop {
             if self.exists("SELECT 1 FROM issues WHERE project = ? AND id = ?", project, &id).await? {
@@ -200,7 +200,7 @@ impl<'c> Comments<'c> {
     }
 
     /// Refuses a project or issue there isn't (`issueRow`).
-    async fn issue_there(&mut self, project: &str, issue: &str) -> Result<()> {
+    pub(crate) async fn issue_there(&mut self, project: &str, issue: &str) -> Result<()> {
         self.project_uid(project).await?;
         if !self.exists("SELECT 1 FROM issues WHERE project = ? AND id = ?", project, issue).await? {
             return Err(ApiError::not_found(format!("No issue {issue} in {project}")));
@@ -629,7 +629,7 @@ impl<'c> Comments<'c> {
     }
 
     /// Refuses an agent an issue that isn't its person's, naming who has it (`mustHold`), or one that names nobody.
-    async fn must_hold(&mut self, person: Option<&str>, issue: &str, assignee: Option<&str>, what: &str) -> Result<()> {
+    pub(crate) async fn must_hold(&mut self, person: Option<&str>, issue: &str, assignee: Option<&str>, what: &str) -> Result<()> {
         let Some(person) = person else {
             return Err(ApiError::conflict(format!(
                 "This session names nobody on this orrery, so it can read and comment, but can't {what}. Set ORRERY_PERSON to your id (GET /api/people) where you start Claude Code, or send Orrery-Person."
@@ -646,7 +646,7 @@ impl<'c> Comments<'c> {
         Err(ApiError::conflict(format!("{issue} is {with}, and this session is {person}'s, so it can't {what}; {instead}")))
     }
 
-    async fn touch_project(&mut self, project: &str) -> Result<()> {
+    pub(crate) async fn touch_project(&mut self, project: &str) -> Result<()> {
         sqlx::query(&sql("UPDATE projects SET updated_at = ? WHERE id = ?")).bind(stamp()).bind(project).execute(&mut *self.conn).await?;
         Ok(())
     }
@@ -713,7 +713,7 @@ impl<'c> Comments<'c> {
 
     /// Whose agent is asking, as `railsFor` has it: `None` when the rails don't hold it (the owner, their chat, what
     /// isn't a request, or one person here), else `Some` of the person it names, if any.
-    async fn rails_for(&mut self, actor: &Actor) -> Result<Option<Option<String>>> {
+    pub(crate) async fn rails_for(&mut self, actor: &Actor) -> Result<Option<Option<String>>> {
         if !actor.asked || actor.owner || actor.chat || self.people_here().await?.len() < 2 {
             return Ok(None);
         }
@@ -754,7 +754,15 @@ impl<'c> Comments<'c> {
     }
 
     /// Notes a field's change in the issue's activity, and tells it as `issue.<field>` (`record`).
-    async fn record_field(&mut self, project: &str, issue: &str, actor: &Actor, field: &str, before: Option<&str>, after: Option<&str>) -> Result<()> {
+    pub(crate) async fn record_field(
+        &mut self,
+        project: &str,
+        issue: &str,
+        actor: &Actor,
+        field: &str,
+        before: Option<&str>,
+        after: Option<&str>,
+    ) -> Result<()> {
         sqlx::query(&sql(
             "INSERT INTO issue_events (project, issue, field, \"before\", \"after\", created_by, session_name, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
         ))
