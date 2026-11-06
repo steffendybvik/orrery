@@ -1083,6 +1083,21 @@ test('opens from ⌘K ready to type into, and leaves typing elsewhere on the pag
     await page.getByRole('region', {name: 'Chat'}).getByRole('button', {name: 'Close the chat'}).click()
 })
 
+test('opens and closes on ⌘J, the cursor in its box, but not from typing in another field (ORR-1030)', async ({page}) => {
+    await page.goto('/p/observatory')
+    await expect(page.getByRole('heading', {level: 1}).first()).toBeVisible()
+    const pane = page.getByRole('region', {name: 'Chat'})
+    const filter = page.getByRole('searchbox', {name: 'Filter by id or title'})
+    await filter.click()
+    await page.keyboard.press('ControlOrMeta+j')
+    await expect(pane).toHaveCount(0)
+    await filter.blur()
+    await page.keyboard.press('ControlOrMeta+j')
+    await expect(pane.getByRole('textbox', {name: 'Message', exact: true})).toBeFocused()
+    await page.keyboard.press('ControlOrMeta+j')
+    await expect(pane).toHaveCount(0)
+})
+
 test('pops out into a window of its own, which the corner button brings back, and docks back into the pane (ORR-938)', async ({page}) => {
     await page.goto('/p/observatory')
     await page.getByRole('button', {name: 'Agent', exact: true}).click()

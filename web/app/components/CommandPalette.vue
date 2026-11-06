@@ -147,7 +147,7 @@ const everywhere = computed<Entry[]>(() => [
     ...(projects.value.some(p => p.starts) ? [{key: 'session:start', group: 'Session', label: 'Start session', detail: project.value?.name, run: () => useStartSession().open(project.value?.id ?? null)}] : []),
     ...(listening.value.length ? [{key: 'session:message-all', group: 'Session', label: 'Message sessions', detail: 'every one listening', also: 'message all sessions', run: () => messageAll.value = true}] : []),
     ...listening.value.map(s => ({key: `session:message:${s.id}`, group: 'Session', label: `Message ${s.name}`, detail: 'only it hears', run: () => messageOne.value = s})),
-    {key: 'chat', group: 'Chat', label: chatAbout.value ? `Chat about ${chatAbout.value.name}` : 'Chat', detail: 'answers and makes issues', run: () => useChat().show(project.value?.id)},
+    {key: 'chat', group: 'Chat', label: chatAbout.value ? `Chat about ${chatAbout.value.name}` : 'Chat', detail: 'answers and makes issues', hint: '⌘J', run: () => useChat().show(project.value?.id)},
     {key: 'project:new', group: 'Project', label: 'New project', run: () => useState('new-project').value = true},
     ...(filtering.value ? [{key: 'filter:clear', group: 'Filter', label: 'Reset the filters to the open issues', run: clear}] : []),
     ...[...PRIORITIES, 'none'].map(p => ({

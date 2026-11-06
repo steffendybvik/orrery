@@ -11,7 +11,7 @@ import type {Chat, ChatIssues, ChatMessage} from '#shared/roadmap'
 // only what couldn't go says so (Not sent, Retry). ⌘/Ctrl-Enter or Send sends at once, and Esc in an empty box takes the
 // last one back. A slash command goes at once, after what's held. The chat ending, or closing the pane before one has
 // started, puts what's held back in the box, so nothing starts a chat on its own after it (ORR-523). An image pasted or
-// dropped anywhere on the pane goes with the message. The pane is open or closed: closing it (× or Esc) only hides it,
+// dropped anywhere on the pane goes with the message. The pane is open or closed (⌘J toggles it, ORR-1030): closing it (× or Esc) only hides it,
 // with the chat still running (ORR-878, ORR-883), and the corner button brings it back as it was. Whether the chat is
 // live isn't shown, only a session that can't start. Only a row's × in the list ends a chat. The pane can be made large; a phone's fills the screen either way, as it has no Larger button. Beside
 // Send, the owner picks where the issues it makes land, Todo or Backlog; the server holds the chat to it. A setting the
@@ -437,6 +437,19 @@ function corner() {
     if (popup && !popup.closed) popup.focus()
     else show()
 }
+/** ⌘J (Ctrl-J) does what the corner button does, and with the pane open closes it as Esc does (ORR-1030). Opening
+ * puts the cursor in the box (focusField). Not while typing in a field outside the pane, nor over the palette or New
+ * issue; in its own window there's no pane to toggle. */
+function toggleKey(event: KeyboardEvent) {
+    if (!(event.metaKey || event.ctrlKey) || event.shiftKey || event.altKey || event.key.toLowerCase() !== 'j') return
+    if (useState('palette-open').value || useNewIssue().target.value) return
+    if (isTyping(event.target) && !pane.value?.contains(event.target as Node)) return
+    event.preventDefault()
+    if (open.value) shut()
+    else corner()
+}
+onMounted(() => !props.standalone && window.addEventListener('keydown', toggleKey))
+onBeforeUnmount(() => window.removeEventListener('keydown', toggleKey))
 /** In the window: back into the pane of the window it came from, on the same chat, and this one closes. With that
  * window gone, it stays as it is. */
 function dockBack() {
