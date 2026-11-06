@@ -7,6 +7,79 @@ Each version's changes are grouped under **Features**, **Changes** and **Fixes**
 **Internal** where they help, and a group with nothing in it is left out. 1.0.0, the first release's
 overview, is one list.
 
+## 1.0.0-rc.18 (2026-11-06)
+
+### Features
+
+- **Epics:** group issues from several projects into one piece of work, with its progress counted across all of them and
+  a page of its own. An epic's page lists its issues per project, takes comments, and has **Focus on this**, which sends
+  each project's sessions only their part. The chat makes and changes epics and milestones itself, with no Allow.
+- **Comments on milestones and epics,** written, edited and deleted on their pages as an issue's are.
+- **Ids for milestones and epics** like an issue's: `MLS-14` and `EPC-1`, with a Copy button by each. The old numbers
+  still work everywhere.
+- **Sessions hear when their epic or milestone changes:** moving an issue into or out of one, or changing its title,
+  notes or summary, tells the session working on it.
+- **A Markdown field for the chat, comments and an issue's description:** bold, italic, `==highlight==`, code, headings,
+  lists and links show as you type, with ⌘B and the other keys, a toolbar, and lists that carry on with Enter.
+- **Sign a phone in with a typed code:** *Open on your phone* shows six letters under the QR, which the phone's login
+  page takes, so an app added to an iPhone's home screen can sign in without a camera.
+- **How much context each session carries,** against its model's window, on the Sessions page. A session that starts
+  unrelated work while carrying over 50k tokens is marked, and one orrery started is cleared first and focused back on
+  that issue alone.
+- **The chat:** **Pop out** moves it to a window of its own and **Dock back** returns it; the pane is dragged by its
+  whole header, shows the model and effort its session runs on, and removes a chat with one × that asks nothing.
+- **Message sessions in every page's header** while a session listens.
+- **Close all** on the Sessions page stops every listed session at once.
+- **Search the Pull requests page,** across every page of open pull requests.
+- **Category tabs in ⌘K** (All, Commands, Issues, Projects, Docs, Pages), switched with ⇥, and the empty palette leads
+  with what you reach for most.
+- **Host the page apart from its server:** `ORRERY_ALLOWED_ORIGINS` lists the sites a static build of the page may be
+  served from, and `ORRERY_PAGES=off` makes the server answer its API alone. Nothing changes with neither set.
+- **Version rules for launchers and channels:** a server says the oldest launcher and channel it takes, and an older one
+  says so plainly rather than half working.
+
+### Changes
+
+- **The sidebar is grouped** under headings that carry their pages, so the projects come into view on a short window.
+  Sessions keeps its row, and Events, Context and Pull requests have their own rows while Advanced is on.
+- **An issue's page only says whether it's being worked on:** the session on it, or **Focus on this** and a closed
+  **Pick a session** row when nobody is.
+- **Stop stops a session on the first press,** with no "are you sure".
+- **Milestone, epic and release pages** keep their issues in the header's column, as an issue's sub-issues do.
+- **Notifications opens with the first line beside the list** on a wide window.
+- **Button groups across the app** share the look of the app's tabs, and choosing one moves nothing.
+- **A member's launcher hears and claims only its own person's launches,** so it can't run the owner's on the member's
+  machine. With one person, login off, or the owner's key, nothing changes.
+- **The launcher takes its code from one orrery only,** the one it was last installed from, and no longer restarts onto
+  code from another that says it's newer. A launcher serving several orrerys may need the install line run again from
+  the newer one's Sessions page.
+- **The login cookie is named after the port** (`orrery_login_9010`), so two orrerys on `localhost` no longer sign each
+  other out. Browsers signed in to an orrery on a port log in once more after the upgrade.
+- **`GET /api/projects` is faster:** it reads a board's open questions by its project.
+
+### Fixes
+
+- **A session's context percentage** counts a Claude 5 session against its 1M window, not 200k.
+- **⌘K's tabs and list hold still** as ⇥ moves between them, at one size.
+- **A pull request no longer lands on an issue** whose link its body only quotes in code.
+- **Reading one comment says whether it was answered,** rather than always `answered: false`.
+- **Links in a chat reply to orrery's own pages** open in a new tab instead of replacing the page.
+- **New chat shows a row** in the chat list until its first message.
+- **Schedules with no next run are listed last** by the API, as it promises.
+- **The phone drawer's Projects heading and Advanced row** have the right size.
+
+### Internal
+
+- **A Rust API** (`api/`) for the board's stored state, on the same database, to its OpenAPI contract: docs, statuses,
+  milestones, releases, issues and comments, epics, people, keys and logins, chats, presets, settings and more, each
+  held against the Nuxt server by parity tests, with an outbox of what each write sets off. It's dead code for now: with
+  none of `NUXT_API_BIN`, `NUXT_API_URL` or `NUXT_PUBLIC_API_BASES` set, the Nuxt server answers everything as before.
+- **The dev compose and the playground** run on SQLite again.
+- **The browser suite runs as three shards** per browser, so a pull request's checks take about 9 minutes, not 20 to 44.
+- **README images:** My issues and the New issue dialog are added, and the Images workflow retook all eight for rc.18.
+- **Tests:** the outbox signals tests wait for their rows on Postgres, the two failing sessions specs pass, the page
+  walks run as a test per page, and perf loads the shipped presets again.
+
 ## 1.0.0-rc.17 (2026-11-04)
 
 ### Features
