@@ -820,10 +820,18 @@ test('lists every chat down the left, two on one project and one on another, eac
         // New chat: a second on the same project, the first still running.
         await list.getByRole('button', {name: 'New chat', exact: true}).click()
         await expect(pane.getByRole('heading', {name: 'Ask about Observatory'})).toBeVisible()
+        // The blank chat heads the list, chosen, and the first one no longer is (ORR-996).
+        const fresh = list.getByTestId('chat-new-row')
+        await expect(list.getByRole('listitem').nth(0)).toHaveText('ObservatoryNew chat')
+        await expect(fresh).toHaveAttribute('aria-current', 'true')
+        await expect(row('Where are the star charts', 'running')).not.toHaveAttribute('aria-current')
         await box.fill('Who dusts the telescope?')
         await box.press('ControlOrMeta+Enter')
-        // Its row is named once the message has reached orrery, so leaving the page doesn't lose it.
+        // Its row is named once the message has reached orrery, so leaving the page doesn't lose it, and the blank one
+        // gives way to it.
         await expect(row('Who dusts the telescope', 'running')).toBeVisible()
+        await expect(fresh).toHaveCount(0)
+        await expect(row('Who dusts the telescope', 'running')).toHaveAttribute('aria-current', 'true')
         await expect.poll(running).toEqual(['observatory', 'observatory'])
 
         // A third, on another project's page.
