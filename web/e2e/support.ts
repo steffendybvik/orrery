@@ -28,10 +28,16 @@ export function projectApi(project: string) {
         })
 }
 
-/** Makes a project as an agent; its id is its name in lowercase. A retry finds the one its first try made. */
+/** Makes a project as an agent; its id is its name in lowercase. A retry finds the one its first try made, and so does a
+ * `beforeAll` run again after a test failed, as Playwright starts a new worker then (ORR-1000): one with the same key,
+ * where the spec gives one, so two specs on one name still fail. */
 export async function makeProject(request: APIRequestContext, data: {name: string, key?: string, [field: string]: unknown}) {
     const made = await request.post('/api/projects', {data, headers: AGENT})
-    if (made.status() === 409 && test.info().retry > 0) return (await request.get(`/api/projects/${data.name.toLowerCase()}`)).json()
+    if (made.status() === 409) {
+        const found = await request.get(`/api/projects/${data.name.toLowerCase()}`)
+        const project = found.ok() ? await found.json() : null
+        if (project && (test.info().retry > 0 || (data.key && project.key === data.key))) return project
+    }
     expect(made.ok(), await made.text()).toBeTruthy()
     return made.json()
 }
