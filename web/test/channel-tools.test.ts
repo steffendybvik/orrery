@@ -45,7 +45,7 @@ describe('whose a session is', () => {
 
 describe("the channel's tools", () => {
     it('each have a name, a description and an object schema', () => {
-        expect(TOOLS.map((t: {name: string}) => t.name)).toEqual(['issues', 'issue', 'create_issue', 'update_issue', 'start_issue', 'finish_issue', 'rate_pull', 'comment', 'milestones', 'releases', 'epics', 'create_epic', 'update_epic', 'docs', 'doc', 'write_doc', 'presets', 'preset', 'schedules', 'sessions', 'secrets', 'egress', 'events', 'guide', 'resolve_event'])
+        expect(TOOLS.map((t: {name: string}) => t.name)).toEqual(['issues', 'issue', 'create_issue', 'update_issue', 'start_issue', 'finish_issue', 'rate_pull', 'comment', 'milestones', 'releases', 'epics', 'create_epic', 'update_epic', 'comment_epic', 'docs', 'doc', 'write_doc', 'presets', 'preset', 'schedules', 'sessions', 'secrets', 'egress', 'events', 'guide', 'resolve_event'])
         for (const tool of TOOLS) expect(tool).toMatchObject({description: expect.any(String), inputSchema: {type: 'object'}})
     })
 
@@ -333,18 +333,18 @@ describe("the channel's tools", () => {
         expect(listed).toEqual(expect.arrayContaining(['request', 'request_fields']))
         for (const request of CHAT_REQUESTS as {name: string}[]) expect(listed, request.name).not.toContain(request.name)
         expect(requestActions()).toEqual((CHAT_REQUESTS as {name: string}[]).map(r => r.name))
-        const fields = (await call('request_fields', {action: 'create_milestone'})).content[0]!.text
-        expect(fields).toMatch(/^create_milestone: Makes a milestone/)
-        expect(fields).toContain('"required":["title"]')
+        const fields = (await call('request_fields', {action: 'create_release'})).content[0]!.text
+        expect(fields).toMatch(/^create_release: /)
+        expect(fields).toContain('"required":["version"]')
         expect(calls).toEqual([])
         expect((await call('request_fields', {action: 'update_doc'})).content[0]!.text).toMatch(/^update_doc: Changes one of this project's docs/)
         expect((await call('request', {action: 'delete_everything'})).isError).toBe(true)
         expect((await call('request_fields', {action: 'nope'})).content[0]!.text).toMatch(/No action "nope": one of start_session/)
         // A work session has neither.
         const work = orreryTools({api: 'http://o/api/projects/greenhouse', session: 'w', fetch}) as (name: string, args?: object) => Promise<{isError?: boolean}>
-        expect((await work('request', {action: 'create_milestone', fields: {title: 'X'}})).isError).toBe(true)
+        expect((await work('request', {action: 'create_release', fields: {version: '1.0.0'}})).isError).toBe(true)
         expect((await work('request', {action: 'offer_issue', fields: {title: 'X'}})).isError).toBe(true)
-        expect((await work('request_fields', {action: 'create_milestone'})).isError).toBe(true)
+        expect((await work('request_fields', {action: 'create_release'})).isError).toBe(true)
         expect(calls).toEqual([])
     })
 
@@ -377,8 +377,28 @@ describe("the channel's tools", () => {
         expect((await call('edit_issue', {id: 'GRE-4', priority: 'P0'})).content[0]!.text).toMatch(/^Now GRE-4/)
         expect(calls.at(-1)).toEqual({url: 'http://o/api/projects/greenhouse/issues/GRE-4', method: 'PATCH', body: {priority: 'P0'}})
         const edit = toolsFor(['greenhouse'], {chat: true}).find((t: {name: string}) => t.name === 'edit_issue')
-        expect(Object.keys(edit.inputSchema.properties)).toEqual(['id', 'title', 'notes', 'priority', 'labels', 'external', 'github_issues', 'milestone', 'release', 'parent', 'depends_on'])
+        expect(Object.keys(edit.inputSchema.properties)).toEqual(['id', 'title', 'notes', 'priority', 'labels', 'external', 'github_issues', 'milestone', 'epic', 'release', 'parent', 'depends_on'])
         expect(toolsFor(['greenhouse']).map((t: {name: string}) => t.name)).not.toContain('edit_issue')
+    })
+
+    it("in the owner's chat, make and change milestones and epics at once, with no Allow (ORR-988)", async () => {
+        const calls: {url: string, method: string, body?: unknown}[] = []
+        const fetch = async (url: string, init: {method: string, body?: string}) => {
+            calls.push({url, method: init.method, body: init.body ? JSON.parse(init.body) : undefined})
+            return {ok: true, status: 200, statusText: '', text: async () => JSON.stringify({id: 3, title: 'Spring'})}
+        }
+        const call = orreryTools({api: 'http://o/api/projects/greenhouse', session: 'c', chat: 'c1c2c3c4c5c6', fetch}) as (name: string, args?: object) => Promise<{isError?: boolean, content: {text: string}[]}>
+        expect((await call('create_milestone', {title: 'Spring', priority: 'P1'})).content[0]!.text).toMatch(/^Made milestone 3: Spring/)
+        expect(calls.at(-1)).toEqual({url: 'http://o/api/projects/greenhouse/milestones', method: 'POST', body: {title: 'Spring', priority: 'P1'}})
+        expect((await call('update_milestone', {id: '3', summary: 'Seeds'})).content[0]!.text).toMatch(/^Milestone 3 is now: Spring/)
+        expect(calls.at(-1)).toEqual({url: 'http://o/api/projects/greenhouse/milestones/3', method: 'PATCH', body: {summary: 'Seeds'}})
+        expect((await call('create_epic', {title: 'Spring'})).isError).toBeFalsy()
+        expect(calls.at(-1)).toMatchObject({url: 'http://o/api/epics', method: 'POST'})
+        expect((await call('update_epic', {id: 3, notes: 'All of it'})).isError).toBeFalsy()
+        expect(calls.at(-1)).toEqual({url: 'http://o/api/epics/3', method: 'PATCH', body: {notes: 'All of it'}})
+        expect((await call('comment_epic', {id: 3, body: 'Started'})).content[0]!.text).toBe('Commented on epic 3 (comment 3).')
+        expect(calls.at(-1)).toEqual({url: 'http://o/api/epics/3/comments', method: 'POST', body: {body: 'Started'}})
+        expect(calls.some(c => c.url.includes('/chats/'))).toBe(false)
     })
 
     it("outside a chat, have no chat tools", async () => {

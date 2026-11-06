@@ -106,6 +106,11 @@ export const TOOLS = [
         inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'integer'}, title: {type: 'string'}, notes: {type: ['string', 'null']}}},
     },
     {
+        name: 'comment_epic',
+        description: "Comments on an epic, by its number (Markdown): words on its page, which ask nothing and wake no session.",
+        inputSchema: {type: 'object', required: ['id', 'body'], properties: {id: {type: 'integer'}, body: {type: 'string'}}},
+    },
+    {
         name: 'docs',
         description: "Lists the project's docs (decisions, how things work), a line each. Read the ones a task touches before its code.",
         inputSchema: {type: 'object', properties: {q: {type: 'string', description: 'Words every doc listed has'}}},
@@ -183,7 +188,7 @@ const RELEASE_FIELDS = {
     shipped_on: {type: ['string', 'null'], description: 'The day it shipped, YYYY-MM-DD; null marks it not shipped yet'},
 }
 
-/** What of a milestone the chat may ask to set (CHAT_MILESTONE_FIELDS in web/shared/roadmap.ts). */
+/** What of a milestone the chat sets (CHAT_MILESTONE_FIELDS in web/shared/roadmap.ts). */
 const MILESTONE_FIELDS = {
     title: {type: 'string', description: 'Its name'},
     summary: {type: ['string', 'null']},
@@ -211,8 +216,8 @@ export const CHAT_TOOLS = [
     },
     {
         name: 'edit_issue',
-        description: "Changes an issue's title, notes, priority, labels, team tasks, GitHub issues, milestone, release, parent or what it depends on, when the owner asks in this chat. To move one to another status or assign it, ask with move_issues.",
-        inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'string'}, ...Object.fromEntries(['title', 'notes', 'priority', 'labels', 'external', 'github_issues', 'milestone', 'release', 'parent', 'depends_on'].map(f => [f, FIELDS[f]]))}},
+        description: "Changes an issue's title, notes, priority, labels, team tasks, GitHub issues, milestone, epic, release, parent or what it depends on, when the owner asks in this chat. To move one to another status or assign it, ask with move_issues.",
+        inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'string'}, ...Object.fromEntries(['title', 'notes', 'priority', 'labels', 'external', 'github_issues', 'milestone', 'epic', 'release', 'parent', 'depends_on'].map(f => [f, FIELDS[f]]))}},
     },
     {
         name: 'delegate_issue',
@@ -229,10 +234,20 @@ export const CHAT_TOOLS = [
             why: WHY,
         }},
     },
+    {
+        name: 'create_milestone',
+        description: 'Makes a milestone (a group of issues) in this project, at once, when the owner asks in this chat; put issues in it with edit_issue.',
+        inputSchema: {type: 'object', required: ['title'], properties: MILESTONE_FIELDS},
+    },
+    {
+        name: 'update_milestone',
+        description: "Changes one of this project's milestones, by its id (the milestones tool lists them), at once: send only what changes. Removing one is the owner's, on its page.",
+        inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'string'}, ...MILESTONE_FIELDS}},
+    },
     {name: 'image', description: 'An image the owner pasted in the chat, by the id its message names, to look at.', inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'string'}}}},
     {
         name: 'request',
-        description: 'Asks the owner for an action request_fields describes: start, stop or extend a session; message sessions; change an App setting; make or change a schedule, release, milestone or doc. Read its fields first.',
+        description: 'Asks the owner for an action request_fields describes: start, stop or extend a session; message sessions; change an App setting; make or change a schedule, release or doc. Read its fields first.',
         inputSchema: {type: 'object', required: ['action'], properties: {
             action: {type: 'string', enum: []},
             fields: {type: 'object', description: 'As request_fields gives them'},
@@ -319,16 +334,6 @@ export const CHAT_REQUESTS = [
         inputSchema: {type: 'object', required: ['title'], properties: {title: {type: 'string'}, notes: {type: 'string', description: 'The description, in Markdown'}, priority: {type: 'string', enum: ['P0', 'P1', 'P2', 'P3']}, labels: {type: 'array', items: {type: 'string'}}, milestone: {type: 'string'}}},
     },
     {
-        name: 'create_milestone',
-        description: 'Makes a milestone (a group of issues) in this project; once allowed, put issues in it with edit_issue.',
-        inputSchema: {type: 'object', required: ['title'], properties: MILESTONE_FIELDS},
-    },
-    {
-        name: 'update_milestone',
-        description: "Changes one of this project's milestones, by its id (the milestones tool lists them): send only what changes. Removing one is the owner's, on its page.",
-        inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'string'}, ...MILESTONE_FIELDS}},
-    },
-    {
         name: 'create_doc',
         description: 'Makes a doc in this project: a decision and why, or how something works. Its id comes from its title. The owner sees the title, section and full text.',
         inputSchema: {type: 'object', required: ['title'], properties: DOC_FIELDS},
@@ -400,7 +405,7 @@ export const ON_DEMAND = {
     secrets: ['secrets', 'egress'],
     debug: ['events', 'resolve_event'],
     review: ['rate_pull'],
-    epics: ['epics', 'create_epic', 'update_epic'],
+    epics: ['epics', 'create_epic', 'update_epic', 'comment_epic'],
 }
 
 const MORE_TOOLS = {
@@ -411,11 +416,12 @@ const MORE_TOOLS = {
 
 /** What an untrusted schedule's session goes without: what orrery refuses it (the permissions' untrusted column: it
  * only raises proposals and comments on them), and orrery's own log. */
-export const NOT_FOR_UNTRUSTED = ['epics', 'create_epic', 'update_epic', 'update_issue', 'start_issue', 'finish_issue', 'rate_pull', 'write_doc', 'secrets', 'egress', 'events', 'resolve_event']
+export const NOT_FOR_UNTRUSTED = ['epics', 'create_epic', 'update_epic', 'comment_epic', 'update_issue', 'start_issue', 'finish_issue', 'rate_pull', 'write_doc', 'secrets', 'egress', 'events', 'resolve_event']
 
 /** The tools a chat goes without: those that take up or finish work, its one rule (ORR-750), `update_issue` among them as
- * it sets a status; `edit_issue` is its way to change the rest (its launcher refuses them too, `chatOnly`). */
-export const NOT_FOR_CHAT = ['start_issue', 'finish_issue', 'update_issue', 'rate_pull', 'create_epic', 'update_epic']
+ * it sets a status; `edit_issue` is its way to change the rest (its launcher refuses them too, `chatOnly`). Epics it
+ * makes, changes and comments on itself (ORR-988). */
+export const NOT_FOR_CHAT = ['start_issue', 'finish_issue', 'update_issue', 'rate_pull']
 
 /** The reads only the chat has use for, helping the owner plan: a work session goes without them, so their definitions
  * don't ride on its every turn (ORR-544). */
@@ -453,7 +459,7 @@ function pickedOf({decided_by, proposal, picks, choices}) {
 const LOGIN = /^[\w-]+$/
 
 /** The tools that work on one project, which take `project` when the server serves several. */
-const SCOPED = ['issues', 'create_issue', 'milestones', 'releases', 'docs', 'doc', 'write_doc', 'presets', 'preset', 'schedules', 'sessions']
+const SCOPED = ['issues', 'create_issue', 'milestones', 'create_milestone', 'update_milestone', 'releases', 'docs', 'doc', 'write_doc', 'presets', 'preset', 'schedules', 'sessions']
 
 /** The tools as a server serving `projects` lists them: with several, each project-scoped one takes which. A chat's
  * (`chat`) are its own; a work session's leave out the chat's reads and ask the owner on its issue (`ASK_TOOLS`), with
@@ -649,6 +655,10 @@ export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''),
             const epic = await call('PATCH', `/epics/${encodeURIComponent(id)}`, pick(fields, ['title', 'notes']), root)
             return `Epic ${epic.id} is now: ${epic.title}`
         },
+        async comment_epic({id, body}) {
+            const posted = await call('POST', `/epics/${encodeURIComponent(id)}/comments`, {body}, root)
+            return `Commented on epic ${id} (comment ${posted.id}).`
+        },
         async docs(args) {
             const query = args.q ? `?${new URLSearchParams({q: args.q})}` : ''
             const docs = await call('GET', `/docs${query}`, undefined, at(await projectOf(args)))
@@ -771,13 +781,14 @@ export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''),
             await call('POST', `/chats/${encodeURIComponent(chat)}/requests`, {version, release, ...why ? {why} : {}}, root)
             return "Asked: the owner sees the change with Allow and Deny, and you'll hear which they pressed. Nothing is saved until they allow it."
         },
-        async create_milestone({why, ...milestone}) {
-            await call('POST', `/chats/${encodeURIComponent(chat)}/requests`, {milestone, ...why ? {why} : {}}, root)
-            return "Asked: the owner sees the milestone with Allow and Deny, and you'll hear which they pressed. Nothing is saved until they allow it."
+        // Made and changed at once, as the owner asked in the chat (ORR-988).
+        async create_milestone(args) {
+            const made = await call('POST', '/milestones', pick(args, ['title', 'summary', 'priority']), at(await projectOf(args)))
+            return `Made milestone ${made.id}: ${made.title}. Put issues in it with edit_issue (milestone: "${made.id}").`
         },
-        async update_milestone({id, why, ...milestone}) {
-            await call('POST', `/chats/${encodeURIComponent(chat)}/requests`, {id, milestone, ...why ? {why} : {}}, root)
-            return "Asked: the owner sees the change with Allow and Deny, and you'll hear which they pressed. Nothing is saved until they allow it."
+        async update_milestone({id, ...args}) {
+            const changed = await call('PATCH', `/milestones/${encodeURIComponent(id)}`, pick(args, ['title', 'summary', 'priority']), at(await projectOf(args)))
+            return `Milestone ${changed.id} is now: ${changed.title}`
         },
         async offer_issue({why, ...issue}) {
             await call('POST', `/chats/${encodeURIComponent(chat)}/requests`, {issue, ...why ? {why} : {}}, root)
