@@ -1,5 +1,5 @@
 // A session out of work picks its next issue (ORR-452), with the owner's `pick_next` setting on. Once a listening
-// session is idle with nothing in progress, no run with issues left, nothing waiting on the owner and no signal queued,
+// session is idle with nothing in progress but parked issues (waiting on the owner, or in review: ORR-1032), no run with issues left, nothing waiting on the owner and no signal queued,
 // it's sent, alone, the issues it may start (Todo, most urgent first; Backlog is the owner's to point at, ORR-759) and starts the one
 // it judges best, passing over one it can't do yet with a comment saying why. With nothing on the list, nothing is
 // sent: no turn starts, and it stays idle. A session orrery started is picked for once its `/clear` is done (from the
@@ -93,7 +93,8 @@ export async function pickNext(project: string, id: string): Promise<boolean> {
     const session = sessionNow(id)
     if (!session?.listening || session.state !== 'idle' || untrustedSession(id) || chatSession(id) || clearPending(id)) return false
     const ids = sessionIds(id)
-    if (await store.busy(project, ids)) return false
+    // An issue left in progress doesn't keep it from picking once it's parked: waiting on the owner, or in review (ORR-1032).
+    if (await store.engaged(project, ids)) return false
     const run = runOf(id)
     if (run?.milestone && (await scopeOf(store, run.project, run)).open.length) return false
     const issues = await pickable([session.project, ...session.also ?? []], session.person)

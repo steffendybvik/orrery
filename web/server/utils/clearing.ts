@@ -159,7 +159,13 @@ export function considerClear(project: string, id: string) {
             const store = useStore()
             // Gone idle on the issue it carried another's context into: cleared, then sent back to it (ORR-968).
             if (await clearCarried(now, id, notDue)) return
-            if (await store.busy(now.project, ids)) return notDue()
+            if (await store.busy(now.project, ids)) {
+                notDue()
+                // Its issues in progress are all parked (waiting on the owner, or in review): it keeps them, uncleared, and
+                // is out of work, so it picks now rather than at the board's next change (ORR-1032).
+                if (!await store.engaged(now.project, ids)) await pickNext(now.project, id)
+                return
+            }
             // Its next piece of work is related to the one it just did (a sibling of it): it keeps its context and is
             // sent on to it instead (ORR-903). Once it won't take it, the next idle clears it as before.
             if (await sendOn(now, id)) return notDue()
