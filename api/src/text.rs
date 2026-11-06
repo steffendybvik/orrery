@@ -106,6 +106,28 @@ pub fn slugify(text: &str) -> String {
     trimmed.trim_end_matches('-').to_string()
 }
 
+/// The keys no project can have, as a milestone's, an epic's, a doc's, a preset's or a schedule's ids start with them
+/// (`RESERVED_KEYS` in web/shared/roadmap/board.ts).
+pub const RESERVED_KEYS: [&str; 6] = ["MLS", "EPC", "DOC", "CHK", "PST", "SCH"];
+
+/// Three capitals from the name, e.g. `GRE` for Greenhouse, as `keyFor` makes them. One a milestone's or another kind's
+/// ids start with (ORR-995) takes a fourth letter: `EPCO` for Epcot, or a `P` when the name has no more.
+pub fn key_for(name: &str) -> String {
+    let letters: String = name.to_uppercase().chars().filter(|c| c.is_ascii_uppercase() || c.is_ascii_digit()).collect();
+    let letters = letters.trim_start_matches(|c: char| c.is_ascii_digit());
+    let key: String = letters.chars().take(3).collect();
+    let key = if key.is_empty() { "ISS".to_string() } else { key };
+    if !RESERVED_KEYS.contains(&key.as_str()) {
+        return key;
+    }
+    let four: String = letters.chars().take(4).collect();
+    if four.len() > 3 {
+        four
+    } else {
+        format!("{key}P")
+    }
+}
+
 pub fn is_slug(id: &str) -> bool {
     SLUG.is_match(id)
 }
@@ -198,6 +220,19 @@ mod tests {
         assert_eq!(short_doc_id("doc-ideas-x7k2m9qd", "x7k2m9qd").as_deref(), Some("ideas"));
         assert_eq!(short_doc_id("doc-ideas-x7k2m9qd", "aaaaaaaa"), None);
         assert!(looks_full_doc("doc-ideas-x7k2m3qd") && !looks_full_doc("ideas"));
+    }
+
+    #[test]
+    fn keys_from_names() {
+        assert_eq!(key_for("Greenhouse"), "GRE");
+        assert_eq!(key_for("3d printer"), "DPR");
+        assert_eq!(key_for("go"), "GO");
+        assert_eq!(key_for("!!! 42"), "ISS");
+        assert_eq!(key_for("Straße"), "STR");
+        assert_eq!(key_for("Epcot"), "EPCO");
+        assert_eq!(key_for("mls"), "MLSP");
+        assert_eq!(key_for("Doc"), "DOCP");
+        assert_eq!(key_for("schedules"), "SCHE");
     }
 
     #[test]

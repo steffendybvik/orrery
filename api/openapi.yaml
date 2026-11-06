@@ -552,6 +552,21 @@ paths:
         stream's `rev`: the Nuxt server answers that, so the router never sends it here.
       responses:
         '200': {description: The projects, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/ProjectSummary'}}}}}
+    post:
+      summary: Makes a project
+      description: |
+        `name` is needed. Its id is `id`, else the name as a slug, and its key is `key`, else three capitals from the
+        name; a key a milestone's, an epic's, a doc's, a preset's or a schedule's id starts with is refused (400), and
+        one made from a name steps past them (`EPCO` for Epcot). A taken id is a 409. It has no releases unless sent
+        `release_mode` or `releases_from`; its prompts are the owner's (403). Whoever asks holds it: a session's person,
+        the owner's chat the owner's.
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/ProjectInput'}}}}
+      responses:
+        '201': {description: 'The project, with its board', content: {application/json: {schema: {$ref: '#/components/schemas/Project'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
   /api/projects/{project}:
     parameters: [{$ref: '#/components/parameters/project'}]
     patch:

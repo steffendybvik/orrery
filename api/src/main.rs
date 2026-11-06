@@ -510,6 +510,16 @@ async fn list_projects(State(app): Shared) -> Result<Response> {
     Ok(Json(Projects::new(&mut conn).list().await?).into_response())
 }
 
+async fn create_project(State(app): Shared, headers: HeaderMap, body: Bytes) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    let mut projects = Projects::new(&mut conn);
+    projects.outbox = Some(Outbox::new(actor_of(&headers)));
+    let id = projects.create(&body_of(&body), who_of(&headers).as_ref(), &actor_of(&headers)).await?;
+    let effects = std::mem::take(&mut projects.effects);
+    let value = projects.project(&id).await?;
+    Ok(reply(StatusCode::CREATED, Some(value), effects))
+}
+
 async fn patch_project(State(app): Shared, Path(project): Path<String>, headers: HeaderMap, body: Bytes) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
     let mut projects = Projects::new(&mut conn);
@@ -895,7 +905,7 @@ async fn restore_presets(State(app): Shared, headers: HeaderMap) -> Result<Respo
 
 async fn health() -> Json<Value> {
     Json(
-        json!({"ok": true, "domains": ["docs", "statuses", "issues, reading", "comments, reading", "activity", "claims", "an issue, deleted", "an issue, its words", "milestones", "releases", "people", "invites", "keys", "logins", "uploads, reading", "presets", "secrets, reading", "settings", "a pull request, reading", "a pull request's risk", "schedules, reading", "projects, listed", "a project, changed"]}),
+        json!({"ok": true, "domains": ["docs", "statuses", "issues, reading", "comments, reading", "activity", "claims", "an issue, deleted", "an issue, its words", "milestones", "releases", "people", "invites", "keys", "logins", "uploads, reading", "presets", "secrets, reading", "settings", "a pull request, reading", "a pull request's risk", "schedules, reading", "projects, listed", "a project, made", "a project, changed"]}),
     )
 }
 
@@ -922,7 +932,7 @@ fn router(app: Arc<App>) -> Router {
         .route(&format!("{P}/releases"), get(list_releases).post(create_release))
         .route(&format!("{P}/releases/{{release}}"), get(get_release).patch(patch_release).delete(delete_release))
         .route("/api/releases", get(all_releases))
-        .route("/api/projects", get(list_projects))
+        .route("/api/projects", get(list_projects).post(create_project))
         .route(P, patch(patch_project))
         .route("/api/uploads/{upload}", get(get_upload))
         .route("/api/changes", get(list_changes))

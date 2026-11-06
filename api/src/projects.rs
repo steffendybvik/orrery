@@ -3,14 +3,18 @@
 // /api/projects/:project` do. Each project is its row as `projectOf` hands it out (base.ts), with its docs, doc
 // sections and releases, and its board or, listed, the board's counts and kinds and how many milestones it has.
 // Reading boards (`?expand=board`, `GET /api/projects/:project`) stays on the Nuxt server, as their `rev` is the events
-// stream's; making and deleting projects stay there too.
+// stream's; deleting projects stays there too. Making one (`createProject`) answers as `POST /api/projects` does.
 use crate::changes::{self, Outbox};
+use crate::comments::Comments;
 use crate::db::sql;
 use crate::docs::{js, stamp, Actor, Docs, Effects};
 use crate::error::{ApiError, Result};
 use crate::issues::{kinds_json, sum, Board, Issues};
+use crate::migrate::uid_of;
+use crate::people::Who;
 use crate::plans::Plans;
 use crate::settings::hex;
+use crate::text::{key_for, slugify, RESERVED_KEYS};
 use regex::Regex;
 use serde_json::{json, Map, Value};
 use sqlx::any::AnyRow;
@@ -187,6 +191,58 @@ fn text(input: &Map<String, Value>, key: &str) -> Option<Option<String>> {
     input.get(key).map(|v| v.as_str().map(str::to_string))
 }
 
+/// Refuses the prompt fields to anyone but the owner (`promptsAreTheOwners`).
+fn prompts_are_the_owners(input: &Map<String, Value>, actor: &Actor) -> Result<()> {
+    let sent: Vec<&str> = PROMPT_FIELDS.into_iter().filter(|key| input.contains_key(*key)).collect();
+    if !sent.is_empty() && !actor.owner {
+        return Err(ApiError::refused_for(
+            "prompts.write",
+            format!("Only the owner changes what sessions are told ({}); send Orrery-Actor: <owner>", sent.join(", ")),
+        ));
+    }
+    Ok(())
+}
+
+/// The prompt fields sent, as columns (`promptColumns`): an empty template is none (the orrery's); the lists are kept as JSON.
+fn prompt_columns(input: &Map<String, Value>) -> Vec<(&'static str, Value)> {
+    let mut sets = vec![];
+    for key in ["focus_prompt", "milestone_prompt"] {
+        if let Some(value) = input.get(key) {
+            sets.push((key, value.as_str().map(str::trim).filter(|t| !t.is_empty()).map_or(Value::Null, |t| json!(t))));
+        }
+    }
+    for key in ["instructions", "muted"] {
+        if let Some(value) = input.get(key) {
+            sets.push((key, json!(if value.is_null() { "[]".to_string() } else { value.to_string() })));
+        }
+    }
+    sets
+}
+
+/// What a project ships in after a change, from what it ships in now (`releaseModeOf`).
+fn release_mode_of(input: &Map<String, Value>, mode: &str, from: &Option<String>) -> Result<(String, Option<String>)> {
+    let releases_from = text(input, "releases_from");
+    Ok(match input.get("release_mode").and_then(Value::as_str) {
+        None => match &releases_from {
+            Some(Some(from)) => ("shared".to_string(), Some(from.clone())),
+            Some(None) if mode == "shared" => ("own".into(), None),
+            _ => (mode.to_string(), from.clone()),
+        },
+        Some("shared") => match releases_from.unwrap_or_else(|| from.clone()) {
+            Some(source) => ("shared".into(), Some(source)),
+            None => return Err(ApiError::bad_request("Say whose releases it ships in: \"releases_from\" with the other project's id")),
+        },
+        Some(asked) => {
+            if let Some(Some(_)) = releases_from {
+                return Err(ApiError::bad_request(format!(
+                    "A project with release_mode \"{asked}\" takes no other's releases; send \"shared\" with \"releases_from\", or leave it out"
+                )));
+            }
+            (asked.to_string(), None)
+        }
+    })
+}
+
 /// The project's row as far as changing its releases takes it.
 struct ReleaseRow {
     id: String,
@@ -320,41 +376,115 @@ impl<'c> Projects<'c> {
         Ok(())
     }
 
+    /// Whose a new project is (`personOf`): the credential's person, the owner's own, their chat's the owner's, and a
+    /// session's the person it names; an untrusted session's nobody's.
+    async fn holder(&mut self, who: Option<&Who>, actor: &Actor) -> Result<Option<String>> {
+        if actor.untrusted {
+            return Ok(None);
+        }
+        if let Some(who) = who {
+            return Ok(Some(who.person.clone()));
+        }
+        if actor.owner {
+            return Ok(Some(actor.name.to_lowercase()));
+        }
+        let mut comments = Comments::new(&mut *self.conn);
+        if actor.chat {
+            return Ok(Some(comments.owner_id().await?));
+        }
+        comments.person_for(actor.named.as_deref().unwrap_or(&actor.name)).await
+    }
+
+    /// Makes a project, held by whoever asks (the owner when it can't say), who can then say who else is on it
+    /// (`createProject`). Gives back its id.
+    pub async fn create(&mut self, body: &Value, who: Option<&Who>, actor: &Actor) -> Result<String> {
+        let input = check_input(body, false)?;
+        prompts_are_the_owners(&input, actor)?;
+        let name = input.get("name").and_then(Value::as_str).unwrap_or_default().trim().to_string();
+        let id = match input.get("id").and_then(Value::as_str) {
+            Some(id) => id.to_string(),
+            None => slugify(&name),
+        };
+        if !SLUG.is_match(&id) {
+            return Err(ApiError::bad_request(format!("\"{name}\" doesn't make an id; give one in \"id\"")));
+        }
+        if self.release_row(&id).await?.is_some() {
+            return Err(ApiError::conflict(format!("There is already a project \"{id}\"")));
+        }
+        let key = match input.get("key").and_then(Value::as_str) {
+            Some(key) => key.to_string(),
+            None => key_for(&name),
+        };
+        if RESERVED_KEYS.contains(&key.as_str()) {
+            return Err(ApiError::bad_request(format!(
+                "\"{key}\" is how a milestone's, an epic's, a doc's, a preset's or a schedule's id starts; give another in \"key\""
+            )));
+        }
+        let (mode, from) = release_mode_of(&input, "none", &None)?;
+        if let Some(from) = &from {
+            self.check_releases_from(&id, from).await?;
+        }
+        let holder = match self.holder(who, actor).await? {
+            Some(holder) => holder,
+            None => Comments::new(&mut *self.conn).owner_id().await?,
+        };
+        changes::begin(self.conn).await?;
+        let done: Result<()> = async {
+            let now = stamp();
+            let field = |key: &str| input.get(key).and_then(Value::as_str).map(str::to_string);
+            sqlx::query(&sql(
+                "INSERT INTO projects (id, name, key, uid, description, icon, icon_color, repo, release_mode, releases_from, created_by, owned, created_at, updated_at) \
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            ))
+            .bind(&id)
+            .bind(&name)
+            .bind(&key)
+            .bind(uid_of(&hex(5)))
+            .bind(field("description"))
+            .bind(field("icon"))
+            .bind(field("icon_color"))
+            .bind(field("repo"))
+            .bind(&mode)
+            .bind(&from)
+            .bind(&actor.name)
+            .bind(i64::from(actor.owner))
+            .bind(&now)
+            .bind(&now)
+            .execute(&mut *self.conn)
+            .await?;
+            let sets = prompt_columns(&input);
+            if !sets.is_empty() {
+                let columns: Vec<String> = sets.iter().map(|(key, _)| format!("{key} = ?")).collect();
+                let statement = sql(&format!("UPDATE projects SET {} WHERE id = ?", columns.join(", ")));
+                let mut query = sqlx::query(&statement);
+                for (_, value) in &sets {
+                    query = query.bind(value.as_str().map(str::to_string));
+                }
+                query.bind(&id).execute(&mut *self.conn).await?;
+            }
+            sqlx::query(&sql("INSERT INTO project_members (project, person, role, created_at) SELECT ?, id, 'owner', ? FROM people WHERE id = ?"))
+                .bind(&id)
+                .bind(&now)
+                .bind(&holder)
+                .execute(&mut *self.conn)
+                .await?;
+            self.effects.changed = vec![id.clone()];
+            Ok(())
+        }
+        .await;
+        changes::finish(self.conn, self.outbox.as_mut(), &self.effects, done).await?;
+        Ok(id)
+    }
+
     /// Changes the project's fields; the prompt fields are the owner's (`updateProject`).
     pub async fn update(&mut self, id: &str, body: &Value, actor: &Actor) -> Result<()> {
         let row = self.release_row(id).await?.ok_or_else(|| ApiError::not_found(format!("No project \"{id}\"")))?;
         let input = check_input(body, true)?;
-        let sent: Vec<&str> = PROMPT_FIELDS.into_iter().filter(|key| input.contains_key(*key)).collect();
-        if !sent.is_empty() && !actor.owner {
-            return Err(ApiError::refused_for(
-                "prompts.write",
-                format!("Only the owner changes what sessions are told ({}); send Orrery-Actor: <owner>", sent.join(", ")),
-            ));
-        }
+        prompts_are_the_owners(&input, actor)?;
         if input.get("id").and_then(Value::as_str).is_some_and(|sent| sent != id) {
             return Err(ApiError::bad_request("A project's id can't change"));
         }
-        // `releaseModeOf`: what it ships in after this change.
-        let releases_from = text(&input, "releases_from");
-        let (mode, from) = match input.get("release_mode").and_then(Value::as_str) {
-            None => match &releases_from {
-                Some(Some(from)) => ("shared".to_string(), Some(from.clone())),
-                Some(None) if row.mode == "shared" => ("own".into(), None),
-                _ => (row.mode.clone(), row.from.clone()),
-            },
-            Some("shared") => match releases_from.clone().unwrap_or_else(|| row.from.clone()) {
-                Some(source) => ("shared".into(), Some(source)),
-                None => return Err(ApiError::bad_request("Say whose releases it ships in: \"releases_from\" with the other project's id")),
-            },
-            Some(asked) => {
-                if let Some(Some(_)) = releases_from {
-                    return Err(ApiError::bad_request(format!(
-                        "A project with release_mode \"{asked}\" takes no other's releases; send \"shared\" with \"releases_from\", or leave it out"
-                    )));
-                }
-                (asked.to_string(), None)
-            }
-        };
+        let (mode, from) = release_mode_of(&input, &row.mode, &row.from)?;
         let moved = mode != row.mode || from != row.from;
         if moved {
             self.check_release_mode(&row, &mode, from.as_deref()).await?;
@@ -370,17 +500,7 @@ impl<'c> Projects<'c> {
             }
             sets.push(("release_mode", json!(mode)));
             sets.push(("releases_from", json!(from)));
-            // An empty template is none (the orrery's); the lists are kept as JSON.
-            for key in ["focus_prompt", "milestone_prompt"] {
-                if let Some(value) = input.get(key) {
-                    sets.push((key, value.as_str().map(str::trim).filter(|t| !t.is_empty()).map_or(Value::Null, |t| json!(t))));
-                }
-            }
-            for key in ["instructions", "muted"] {
-                if let Some(value) = input.get(key) {
-                    sets.push((key, json!(if value.is_null() { "[]".to_string() } else { value.to_string() })));
-                }
-            }
+            sets.extend(prompt_columns(&input));
             let columns: Vec<String> = sets.iter().map(|(key, _)| format!("{key} = ?")).chain(["updated_at = ?".to_string()]).collect();
             let statement = sql(&format!("UPDATE projects SET {} WHERE id = ?", columns.join(", ")));
             let mut query = sqlx::query(&statement);
