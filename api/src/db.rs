@@ -7,7 +7,7 @@ use std::sync::OnceLock;
 
 /// What the docs domain, the statuses, the issue, comment and activity reads and the people, keys and logins, the secrets, the settings and a pull request's read take, each a query that fails on a schema without it. Checked by the columns rather than a
 /// schema version, as SQLite's and Postgres's steps are counted differently.
-const NEEDS: [&str; 20] = [
+const NEEDS: [&str; 24] = [
     "SELECT uid, doc_section_order, updated_at FROM projects WHERE 1 = 0",
     "SELECT project, id, title, body, kind, position, section, created_by, owned, created_at, updated_at FROM docs WHERE 1 = 0",
     "SELECT project, name, created_at FROM doc_sections WHERE 1 = 0",
@@ -28,6 +28,10 @@ const NEEDS: [&str; 20] = [
     "SELECT id, kind, project, subject, actor, owner, session, untrusted, cause, payload, created_at FROM changes WHERE 1 = 0",
     "SELECT key, value FROM settings WHERE 1 = 0",
     "SELECT project, issue, repo, number, title, url, branch, base, author, state, merged_at, updated_at, risk, risk_why, risk_by FROM issue_pulls WHERE 1 = 0",
+    "SELECT cleared, was_read FROM comments WHERE 1 = 0",
+    "SELECT comment, person FROM notice_clears WHERE 1 = 0",
+    "SELECT comment, person FROM notice_reads WHERE 1 = 0",
+    "SELECT project, issue, put_up, cleared_at FROM proposal_clears WHERE 1 = 0",
 ];
 
 static POSTGRES: OnceLock<bool> = OnceLock::new();

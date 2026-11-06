@@ -10,6 +10,7 @@ use crate::db::sql;
 use crate::docs::{js, stamp, Actor, Effects};
 use crate::error::{ApiError, Result};
 use crate::migrate::actor_id;
+use crate::people::Who;
 use serde_json::{json, Map, Value};
 use sqlx::any::AnyRow;
 use sqlx::{AnyConnection, Row};
@@ -18,7 +19,7 @@ use std::collections::HashMap;
 /// What a person's own words on comment `o` are: the owner's, or a member's (`PERSONS_WORDS`, ORR-658).
 const SINCE: &str = "EXISTS (SELECT 1 FROM comments o WHERE o.project = c.project AND o.issue = c.issue AND (o.owned = 1 OR (o.person IS NOT NULL AND o.by_agent = 0)) AND o.id > c.id)";
 
-fn columns() -> String {
+pub(crate) fn columns() -> String {
     format!(
         "CAST(c.id AS BIGINT) AS id, c.issue, c.body, c.asks, c.created_by, c.session_name, CAST(c.owned AS BIGINT) AS owned, c.created_at, c.updated_at, \
          CAST(CASE WHEN {SINCE} THEN 1 ELSE 0 END AS BIGINT) AS answered"
@@ -26,7 +27,7 @@ fn columns() -> String {
 }
 
 /// A comment as the store gives it (`commentOf`): `answered` only with `asks`, `session_name` only with one.
-fn comment_of(row: &AnyRow) -> Map<String, Value> {
+pub(crate) fn comment_of(row: &AnyRow) -> Map<String, Value> {
     let mut out = Map::new();
     out.insert("id".into(), json!(row.get::<i64, _>("id")));
     out.insert("issue".into(), json!(row.get::<String, _>("issue")));
@@ -709,6 +710,24 @@ impl<'c> Comments<'c> {
         }
         let id = actor_id(named);
         Ok(here.into_iter().find(|p| !id.is_empty() && *p == id))
+    }
+
+    /// Whose a request is (`personOf`): the credential's person, the owner's own, their chat's the owner's, and a
+    /// session's the person it names; an untrusted session's nobody's.
+    pub(crate) async fn person_asking(&mut self, who: Option<&Who>, actor: &Actor) -> Result<Option<String>> {
+        if actor.untrusted {
+            return Ok(None);
+        }
+        if let Some(who) = who {
+            return Ok(Some(who.person.clone()));
+        }
+        if actor.owner {
+            return Ok(Some(actor.name.to_lowercase()));
+        }
+        if actor.chat {
+            return Ok(Some(self.owner_id().await?));
+        }
+        self.person_for(actor.named.as_deref().unwrap_or(&actor.name)).await
     }
 
     /// Whose agent is asking, as `railsFor` has it: `None` when the rails don't hold it (the owner, their chat, what

@@ -1,4 +1,4 @@
-// orrery's API in Rust (ORR-922). For now it serves docs, the statuses (ORR-926), milestones and releases (ORR-926, written in ORR-974), reading issues, their comments, their activity and the images uploaded to them (ORR-927), people, invites, keys and logins (ORR-928), presets (ORR-949), reading the secrets, never a value (ORR-953), the settings (ORR-954) reading one pull request as orrery keeps it and rating its risk (ORR-952), on the database the Nuxt server opens, and only
+// orrery's API in Rust (ORR-922). For now it serves docs, the statuses (ORR-926), milestones and releases (ORR-926, written in ORR-974), reading issues, their comments, their activity and the images uploaded to them (ORR-927), people, invites, keys and logins (ORR-928), presets (ORR-949), reading the secrets, never a value (ORR-953), the settings (ORR-954) reading one pull request as orrery keeps it and rating its risk (ORR-952), the bell (ORR-1005), on the database the Nuxt server opens, and only
 // to that server: the router there (web/server/middleware/zz-api.ts) checks a request as it always has (auth, the
 // board's permissions, the chat's and untrusted sessions' rails, the browser guards) and then forwards it here with
 // who it's from. So this listens on loopback, and answers only a request that carries the token they share.
@@ -21,6 +21,7 @@ mod issue_edits;
 mod issues;
 mod migrate;
 mod milestones;
+mod notices;
 mod oidc;
 mod people;
 mod plans;
@@ -53,6 +54,7 @@ use docs::{Actor, Docs, Effects};
 use error::{ApiError, Result};
 use issues::Issues;
 use milestones::Milestones;
+use notices::{Asked, Notices};
 use people::{holder_of, People, Ways, Who};
 use percent_encoding::{percent_decode_str, utf8_percent_encode, NON_ALPHANUMERIC};
 use plans::Plans;
@@ -783,6 +785,57 @@ async fn get_upload(State(app): Shared, Path(upload): Path<String>) -> Result<Re
     uploads::upload(&mut conn, &upload).await
 }
 
+/// The bell's reads (ORR-1005): whose it is, as `personOf` has it.
+async fn list_notices(State(app): Shared, headers: HeaderMap, Query(query): Query<HashMap<String, String>>) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    let mut notices = Notices::new(&mut conn);
+    let person = notices.person_of(who_of(&headers).as_ref(), &actor_of(&headers)).await?;
+    Ok(Json(notices.notices(&Asked::of(&query), person.as_deref()).await?).into_response())
+}
+
+async fn notice_changes(State(app): Shared, headers: HeaderMap, Query(query): Query<HashMap<String, String>>) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    let mut notices = Notices::new(&mut conn);
+    let person = notices.person_of(who_of(&headers).as_ref(), &actor_of(&headers)).await?;
+    Ok(Json(notices.changes(query.get("since").map(String::as_str), person.as_deref()).await?).into_response())
+}
+
+/// Who clears the bell or marks it read (`notices.clear`): a member their own, else only the owner, as the routes'
+/// `memberAsking` and `authorize` have it.
+fn bell_keeper(headers: &HeaderMap) -> Result<Option<String>> {
+    let actor = actor_of(headers);
+    if let Some(person) = actor.person {
+        return Ok(Some(person));
+    }
+    if owner_asking(headers) {
+        return Ok(None);
+    }
+    let what = "Clear the bell or mark it read, or forget a session";
+    let why = "What waits on the owner goes when they say.";
+    let message = if actor.untrusted {
+        format!("{what}: refused for an untrusted session (notices.clear). {why}")
+    } else if actor.chat {
+        format!("{what}: refused for the owner's chat (notices.clear). {why}")
+    } else {
+        format!("{what}: owner only for a session (notices.clear). {why} Send Orrery-Actor: <owner>")
+    };
+    Err(ApiError::refused_for("notices.clear", message))
+}
+
+async fn clear_notices(State(app): Shared, headers: HeaderMap, body: Bytes) -> Result<Response> {
+    let person = bell_keeper(&headers)?;
+    let mut conn = app.pool.acquire().await?;
+    let cleared = Notices::new(&mut conn).clear(&body_of(&body), person.as_deref()).await?;
+    Ok(Json(json!({"cleared": cleared})).into_response())
+}
+
+async fn read_notices(State(app): Shared, headers: HeaderMap, body: Bytes) -> Result<Response> {
+    let person = bell_keeper(&headers)?;
+    let mut conn = app.pool.acquire().await?;
+    let read = Notices::new(&mut conn).read(&body_of(&body), person.as_deref()).await?;
+    Ok(Json(json!({"read": read})).into_response())
+}
+
 async fn list_secrets(State(app): Shared) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
     Ok(Json(Secrets::new(&mut conn).list().await?).into_response())
@@ -971,7 +1024,7 @@ async fn restore_presets(State(app): Shared, headers: HeaderMap) -> Result<Respo
 
 async fn health() -> Json<Value> {
     Json(
-        json!({"ok": true, "domains": ["docs", "statuses", "issues, reading", "comments, reading", "activity", "claims", "an issue, deleted", "an issue, its words", "milestones", "releases", "people", "invites", "keys", "logins", "uploads, reading", "presets", "secrets, reading", "settings", "a pull request, reading", "a pull request's risk", "schedules, reading", "projects, listed", "a project, made", "a project, changed"]}),
+        json!({"ok": true, "domains": ["docs", "statuses", "issues, reading", "comments, reading", "activity", "claims", "an issue, deleted", "an issue, its words", "milestones", "releases", "people", "invites", "keys", "logins", "uploads, reading", "presets", "secrets, reading", "settings", "a pull request, reading", "a pull request's risk", "schedules, reading", "projects, listed", "a project, made", "a project, changed", "the bell"]}),
     )
 }
 
@@ -1021,6 +1074,10 @@ fn router(app: Arc<App>) -> Router {
         .route("/api/presets/{preset}", patch(patch_preset).delete(delete_preset))
         .route("/api/presets/{preset}/reset", post(reset_preset))
         .route(&format!("{P}/presets"), get(list_project_presets).post(create_project_preset))
+        .route("/api/notices", get(list_notices))
+        .route("/api/notices/changes", get(notice_changes))
+        .route("/api/notices/clear", post(clear_notices))
+        .route("/api/notices/read", post(read_notices))
         .route("/api/secrets", get(list_secrets))
         .route("/api/secrets/{name}", get(get_secret))
         .route("/api/pulls/{owner}/{name}/{number}", get(get_pull).put(keep_pull))
