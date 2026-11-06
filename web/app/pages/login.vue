@@ -83,12 +83,12 @@ async function submit() {
         <input
             v-model="code"
             aria-label="Code from your computer"
-            placeholder="Code from your computer, e.g. KQ7-M4X"
+            placeholder="Code, e.g. KQ7-M4X"
             autocomplete="one-time-code"
             autocapitalize="characters"
             spellcheck="false"
             maxlength="9"
-            class="h-8 w-full field font-mono uppercase tracking-widest"
+            class="h-8 w-full field font-mono uppercase tracking-widest placeholder:normal-case placeholder:tracking-normal"
         >
         <UiButton type="submit" variant="primary" size="md" :disabled="busy || !codeTyped">Sign in with the code</UiButton>
       </form>
