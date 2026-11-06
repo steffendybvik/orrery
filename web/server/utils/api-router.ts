@@ -14,7 +14,7 @@ import type {Feature} from '#shared/usage'
 import type {Actor} from '../store/schema'
 import type {Who} from './auth'
 import {loginCookie, pathOf, toldOff} from './auth'
-import {followingOutbox} from './outbox-follower'
+import {caughtUp, followingOutbox} from './outbox-follower'
 import {oidcOn} from './oidc'
 import {countOwnUse} from './usage'
 
@@ -314,7 +314,9 @@ let unreachable = false
 /** Sends the request to the API and gives back its reply, or undefined to leave it to the routes here. */
 export async function forwardToApi(event: H3Event, api: {url: string, token: string}): Promise<unknown> {
     const found = lineOf(event.method, pathOf(event))
-    if (await found?.line.first?.[event.method.toUpperCase()]?.(event, found.rest) === 'here') return undefined
+    // The checks here read ids out of the path, so they get it as it was asked: lowercased, an issue isn't found (ORR-1029).
+    const asked = /^\/api\/(.*?)\/?$/.exec(pathOf(event, true))?.[1] ?? ''
+    if (found && await found.line.first?.[event.method.toUpperCase()]?.(event, asked) === 'here') return undefined
     const actor = await actorOf(event)
     const body = WRITES.has(event.method) ? await readRawBody(event, false) : undefined
     let response: Response
@@ -370,6 +372,8 @@ export async function forwardToApi(event: H3Event, api: {url: string, token: str
     if (handoff) await store.handOn(handoff.project, handoff.issue, handoff.comment, handoff, actor)
     const urgent = urgentOf(response.headers.get('orrery-urgent'))
     if (urgent) await store.sayUrgent(urgent.project, urgent.issue, actor)
+    // What it set off is told before the reply, as the page that asked reads the board next (ORR-1029).
+    if (!relayHeaders && WRITES.has(event.method)) await caughtUp()
     const counted = countedOf(event.method, pathOf(event))
     if (counted) countOwnUse(event, counted)
     setResponseStatus(event, response.status)

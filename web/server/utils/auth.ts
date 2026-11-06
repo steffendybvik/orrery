@@ -24,11 +24,13 @@ export function loginCookie(event: H3Event): string {
     return port ? `${LOGIN_COOKIE}_${port}` : LOGIN_COOKIE
 }
 
-/** The path as a router might come to read it, so no spelling of /api slips past as something else. */
-export function pathOf(event: {path: string}): string {
+/** The path as a router might come to read it, so no spelling of /api slips past as something else. `keepCase` leaves
+ * its case as asked, for what reads an id out of it (an issue is `CEL-1` to the store, not `cel-1`). */
+export function pathOf(event: {path: string}, keepCase = false): string {
     const path = event.path.split('?')[0] ?? ''
     try {
-        return decodeURIComponent(path).replace(/\\/g, '/').replace(/\/{2,}/g, '/').toLowerCase()
+        const read = decodeURIComponent(path).replace(/\\/g, '/').replace(/\/{2,}/g, '/')
+        return keepCase ? read : read.toLowerCase()
     } catch {
         return '/api/'
     }

@@ -113,11 +113,13 @@ const removing = ref<'ask' | 'busy' | null>(null)
 const removeFailed = ref('')
 async function remove() {
     if (!doc.value) return
+    // Read before the reply: the change can reach the page first, which reads the doc again and finds it gone (ORR-1029).
+    const {project, id} = doc.value
     removing.value = 'busy'
     removeFailed.value = ''
     try {
-        await apiFetch(`/projects/${encodeURIComponent(doc.value.project)}/docs/${encodeURIComponent(doc.value.id)}`, {method: 'DELETE'})
-        router.replace(`/p/${doc.value.project}/docs`)
+        await apiFetch(`/projects/${encodeURIComponent(project)}/docs/${encodeURIComponent(id)}`, {method: 'DELETE'})
+        router.replace(`/p/${project}/docs`)
     } catch (error) {
         removing.value = 'ask'
         removeFailed.value = errorMessage(error, 'remove')
