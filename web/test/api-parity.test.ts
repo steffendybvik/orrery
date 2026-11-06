@@ -3,6 +3,7 @@
 // `cargo build` makes (api/target/debug/orrery-api, or ORRERY_API_BIN); without one this is skipped, and CI's `api` job
 // builds it first.
 import type {ChildProcess} from 'node:child_process'
+import {createHash} from 'node:crypto'
 import {spawn} from 'node:child_process'
 import {existsSync, mkdtempSync, readdirSync, readFileSync} from 'node:fs'
 import {tmpdir} from 'node:os'
@@ -41,6 +42,7 @@ let store: Store
 let api: ChildProcess
 let url = ''
 let setting = ''
+let schema = ''
 const changes: string[] = []
 const events: OrreryEvent[] = []
 let settingsTold = 0
@@ -48,7 +50,7 @@ const inFlight = new Set<Promise<unknown>>()
 
 describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, and reads issues and comments, as the store does', () => {
     beforeAll(async () => {
-        const schema = `test_api_${Date.now().toString(36)}`
+        schema = `test_api_${Date.now().toString(36)}`
         if (POSTGRES) {
             setting = POSTGRES
             store = new Store(new PostgresDb(POSTGRES, schema), project => changes.push(project), undefined, undefined, () => settingsTold++)
@@ -1080,6 +1082,152 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         for (const path of ['/api/auth/login', '/api/auth/logout']) expect(servedByApi('POST', path), path).toBe(false)
     })
 
+    it('logs in through a provider as the Nuxt server does, with an invite the store made (ORR-928)', async () => {
+        // A provider on this machine signing real tokens with keys of its own (as oidc.test.ts has one), and an API
+        // pointed at it, on the same database. `sign` says what the next token is; by default the one that's right.
+        const {exportJWK, generateKeyPair, SignJWT} = await import('jose')
+        const {createServer} = await import('node:http')
+        const [ours, theirs] = [await generateKeyPair('RS256'), await generateKeyPair('RS256')]
+        const jwk = {...await exportJWK(ours.publicKey), kid: 'one', alg: 'RS256', use: 'sig'}
+        let sign: {claims?: Record<string, string>, key?: CryptoKey, none?: boolean} = {}
+        let nonce = ''
+        const posts: URLSearchParams[] = []
+        const provider = createServer(async (req, res) => {
+            const json = (body: unknown) => res.writeHead(200, {'Content-Type': 'application/json'}).end(JSON.stringify(body))
+            if (req.url === '/.well-known/openid-configuration') return json({issuer: issuer, authorization_endpoint: `${issuer}/authorize?prompt=login`, token_endpoint: `${issuer}/token`, jwks_uri: `${issuer}/jwks`})
+            if (req.url === '/jwks') return json({keys: [jwk]})
+            let body = ''
+            for await (const chunk of req) body += chunk
+            posts.push(new URLSearchParams(body))
+            if (sign.none) return json({access_token: 'only-this'})
+            const claims = {iss: issuer, aud: 'orrery-client', sub: 'account-1', nonce, ...sign.claims}
+            const token = new SignJWT({nonce: claims.nonce}).setProtectedHeader({alg: 'RS256', kid: 'one'}).setIssuedAt().setExpirationTime('5m').setIssuer(claims.iss).setAudience(claims.aud)
+            if (claims.sub) token.setSubject(claims.sub)
+            json({id_token: await token.sign(sign.key ?? ours.privateKey)})
+        })
+        await new Promise<void>(done => provider.listen(0, '127.0.0.1', done))
+        const issuer = `http://127.0.0.1:${(provider.address() as import('node:net').AddressInfo).port}`
+        const env = {NUXT_OIDC_ISSUER: `${issuer}/`, NUXT_OIDC_CLIENT_ID: 'orrery-client', NUXT_OIDC_CLIENT_SECRET: 'client-secret', NUXT_ALLOWED_ORIGINS: 'https://app.example'}
+        const withProvider = spawn(BIN, [], {env: {...process.env, NUXT_API_TOKEN: TOKEN, NUXT_DATABASE: setting, ORRERY_API_LISTEN: '127.0.0.1:0', ...env, ...POSTGRES ? {ORRERY_API_SCHEMA: schema} : {}}})
+        try {
+            const at = await new Promise<string>((done, fail) => {
+                let said = ''
+                withProvider.stderr!.on('data', (chunk: Buffer) => {
+                    said += chunk
+                    const found = /serving docs on (http:\/\/\S+),/.exec(said)
+                    if (found) done(found[1]!)
+                })
+                withProvider.on('exit', code => fail(new Error(`the API stopped (${code}): ${said}`)))
+            })
+            const port = new URL(at).port
+            const get = (base: string, path: string, cookie?: string) => fetch(`${base}${path}`, {
+                redirect: 'manual',
+                headers: {'Orrery-Api-Token': TOKEN, 'Orrery-Database': databaseMark(setting), ...cookie ? {Cookie: cookie} : {}},
+            })
+            const kept = (response: Response) => /^orrery_oidc=([\w-]+);/.exec(response.headers.get('set-cookie') ?? '')?.[1]
+            /** A login started here: the provider's page it sends to, and the cookie to come back with. */
+            const started = async (query = '') => {
+                const response = await get(at, `/api/auth/oidc/start${query}`)
+                expect(response.status).toBe(302)
+                const to = new URL(response.headers.get('location')!)
+                nonce = to.searchParams.get('nonce')!
+                return {response, to, cookie: `orrery_oidc=${kept(response)}`}
+            }
+            const back = (state: string, cookie?: string) => get(at, `/api/auth/oidc/callback?state=${state}&code=the-code`, cookie)
+            const failed = async (response: Response, status: number, message: string) => {
+                expect(response.status, message).toBe(status)
+                expect((await response.json()).message).toBe(message)
+                expect(response.headers.get('set-cookie'), message).toBe('orrery_oidc=; Max-Age=0; Path=/api/auth/oidc')
+            }
+
+            // Without a provider set up, there's nothing to log in through.
+            for (const path of ['/api/auth/oidc/start', '/api/auth/oidc/callback']) {
+                const none = await get(url, path)
+                expect(none.status, path).toBe(404)
+                expect(await none.json(), path).toEqual({statusCode: 404, statusMessage: 'Not Found', message: 'This orrery has no login provider'})
+            }
+
+            // Starting sends the browser to the provider, with PKCE, keeping what the way back has to match.
+            const {response, to, cookie} = await started('?invite=&back=https://elsewhere.example')
+            expect(`${to.origin}${to.pathname}`).toBe(`${issuer}/authorize`)
+            expect(Object.fromEntries(to.searchParams)).toEqual({
+                response_type: 'code', scope: 'openid', client_id: 'orrery-client', redirect_uri: `http://127.0.0.1:${port}/api/auth/oidc/callback`,
+                state: expect.stringMatching(/^[\w-]{43}$/), nonce: expect.stringMatching(/^[\w-]{43}$/), code_challenge: expect.stringMatching(/^[\w-]{43}$/), code_challenge_method: 'S256',
+            })
+            expect(response.headers.get('set-cookie')).toMatch(/^orrery_oidc=[\w-]+; Max-Age=600; Path=\/api\/auth\/oidc; HttpOnly; SameSite=Lax$/)
+            const asked = JSON.parse(Buffer.from(kept(response)!, 'base64url').toString())
+            // An empty invite and an origin that isn't listed are left out.
+            expect(asked).toEqual({state: to.searchParams.get('state'), nonce, verifier: expect.any(String)})
+            const proxied = await fetch(`${at}/api/auth/oidc/start`, {redirect: 'manual', headers: {'Orrery-Api-Token': TOKEN, 'Orrery-Database': databaseMark(setting), 'X-Forwarded-Proto': 'https', 'X-Forwarded-Host': 'orrery.example'}})
+            expect(new URL(proxied.headers.get('location')!).searchParams.get('redirect_uri')).toBe('https://orrery.example/api/auth/oidc/callback')
+            expect(proxied.headers.get('set-cookie')).toMatch(/; HttpOnly; Secure; SameSite=Lax$/)
+
+            // An account nobody here has, and no invite: refused, and the kept cookie is cleared either way.
+            await failed(await back(to.searchParams.get('state')!, cookie), 403, "This account isn't on this orrery: ask its owner for an invite")
+            // The code is swapped with the verifier whose challenge was sent.
+            const swap = posts.at(-1)!
+            expect(Object.fromEntries(swap)).toMatchObject({grant_type: 'authorization_code', code: 'the-code', client_id: 'orrery-client', client_secret: 'client-secret', redirect_uri: `http://127.0.0.1:${port}/api/auth/oidc/callback`})
+            expect(createHash('sha256').update(swap.get('code_verifier')!).digest('base64url')).toBe(to.searchParams.get('code_challenge'))
+
+            // A way back this browser didn't start, or with no cookie, or a token that doesn't check out, is refused.
+            const second = await started()
+            await failed(await back('another-state', second.cookie), 401, "This login doesn't match the one this browser started")
+            await failed(await back('x'), 401, 'This login has run out: start again')
+            await failed(await back('x', 'orrery_oidc=bm90IGpzb24'), 401, "This login doesn't match the one this browser started")
+            for (const [name, token] of [
+                ['signed with another key', {key: theirs.privateKey}],
+                ['for another client', {claims: {aud: 'someone-else'}}],
+                ['from another issuer', {claims: {iss: 'http://127.0.0.1:1'}}],
+                ['for another login', {claims: {nonce: 'another'}}],
+                ['for nobody', {claims: {sub: ''}}],
+            ] as const) {
+                const login = await started()
+                sign = token
+                const refusedToken = await back(login.to.searchParams.get('state')!, login.cookie)
+                expect(refusedToken.status, name).toBe(401)
+                await failed(refusedToken, 401, "The provider's ID token doesn't check out")
+            }
+            sign = {none: true}
+            const noToken = await started()
+            await failed(await back(noToken.to.searchParams.get('state')!, noToken.cookie), 401, 'The provider gave no ID token')
+            sign = {}
+
+            // With an invite the store made, the account attaches to its person, who is logged in: a login the store knows.
+            await store.addPerson({name: 'Oda'})
+            const invite = await store.invite('oda')
+            const invited = await started(`?invite=${invite.secret}&back=https://app.example`)
+            const home = await back(invited.to.searchParams.get('state')!, invited.cookie)
+            expect(home.status).toBe(302)
+            expect(home.headers.get('location')).toBe('https://app.example/')
+            const cookies = home.headers.getSetCookie()
+            expect(cookies[0]).toBe('orrery_oidc=; Max-Age=0; Path=/api/auth/oidc')
+            expect(cookies[1]).toMatch(new RegExp(`^orrery_login_${port}=[\\w-]{43}; Max-Age=2592000; Path=/; HttpOnly; SameSite=Lax$`))
+            expect(await store.loginHolder(/=([^;]+)/.exec(cookies[1]!)![1]!)).toEqual({person: 'oda', owner: false})
+            // The store finds the same person by the account, as the issuer is kept with no trailing slash either way.
+            expect(await store.identity(issuer, 'account-1')).toBe('oda')
+            // Used up: the same invite can't attach another account.
+            sign = {claims: {sub: 'account-2'}}
+            const again = await started(`?invite=${invite.secret}`)
+            await failed(await back(again.to.searchParams.get('state')!, again.cookie), 409, 'That invite has been used or has run out: ask for a new one')
+            sign = {}
+            // The account is known now, so it logs in with no invite, to the board.
+            const known = await started()
+            const board = await back(known.to.searchParams.get('state')!, known.cookie)
+            expect(board.status).toBe(302)
+            expect(board.headers.get('location')).toBe('/')
+            // An account that belongs to someone here never moves to another invite.
+            await store.addPerson({name: 'Per'})
+            const other = await store.invite('per')
+            await expect(store.identity(issuer, 'account-1', other.secret)).resolves.toBe('oda')
+            // Neither is the router's to send yet: the Nuxt server logs in for itself until the swap.
+            for (const path of ['/api/auth/oidc/start', '/api/auth/oidc/callback']) expect(servedByApi('GET', path), path).toBe(false)
+        } finally {
+            withProvider.kill()
+            provider.closeAllConnections()
+            provider.close()
+        }
+    })
+
     it('adds and renames people, and invites them, alike (ORR-928)', async () => {
         // The people are the orrery's, so each step runs on each side in turn, with the table put back between.
         await store.db.run("INSERT INTO people (id, name, role, created_at, removed_at) VALUES ('gone', 'Gone', 'member', ?, ?)", new Date().toISOString(), new Date().toISOString())
@@ -2016,7 +2164,7 @@ describe('the contract (api/openapi.yaml)', () => {
     })
 
     it('sends none of the routes written ahead of the Rust API to it', () => {
-        expect(contract(true)).toEqual(['DELETE /api/chats/{chat}', 'GET /api/chats', 'GET /api/chats/{chat}', 'POST /api/auth/login', 'POST /api/auth/logout', 'POST /api/pulls/forget', 'PUT /api/chats/{chat}', 'PUT /api/pulls/{owner}/{name}', 'PUT /api/pulls/{owner}/{name}/error', 'PUT /api/pulls/{owner}/{name}/history', 'PUT /api/pulls/{owner}/{name}/{number}'])
+        expect(contract(true)).toEqual(['DELETE /api/chats/{chat}', 'GET /api/auth/oidc/callback', 'GET /api/auth/oidc/start', 'GET /api/chats', 'GET /api/chats/{chat}', 'POST /api/auth/login', 'POST /api/auth/logout', 'POST /api/pulls/forget', 'PUT /api/chats/{chat}', 'PUT /api/pulls/{owner}/{name}', 'PUT /api/pulls/{owner}/{name}/error', 'PUT /api/pulls/{owner}/{name}/history', 'PUT /api/pulls/{owner}/{name}/{number}'])
         expect(contract(true).filter(operation => routes().includes(operation))).toEqual([])
     })
 })

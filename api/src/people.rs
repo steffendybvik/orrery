@@ -543,6 +543,65 @@ impl<'c> People<'c> {
         Ok((holder.person, secret))
     }
 
+    /// The person an account is, by its issuer and subject and never its email (`identity` in web/server/store/keys.ts).
+    /// With `invite`, an account orrery doesn't know yet attaches to the invited person, using the invite up, in one step
+    /// so it can't be used twice. An account a removed person had moves to the invited person (ORR-787); one that
+    /// belongs to someone here never does.
+    pub async fn identity(&mut self, issuer: &str, subject: &str, invite: Option<&str>) -> Result<Option<String>> {
+        let known = sqlx::query(&sql(
+            "SELECT i.person FROM identities i JOIN people p ON p.id = i.person WHERE i.issuer = ? AND i.subject = ? AND p.removed_at IS NULL",
+        ))
+        .bind(issuer)
+        .bind(subject)
+        .fetch_optional(&mut *self.conn)
+        .await?;
+        if let Some(row) = known {
+            return Ok(Some(row.get("person")));
+        }
+        let Some(invite) = invite else { return Ok(None) };
+        sqlx::query(if crate::db::on_postgres() { "BEGIN" } else { "BEGIN IMMEDIATE" }).execute(&mut *self.conn).await?;
+        let done = self.attach(issuer, subject, invite).await;
+        match done {
+            Ok(person) => {
+                sqlx::query("COMMIT").execute(&mut *self.conn).await?;
+                Ok(Some(person))
+            }
+            Err(error) => {
+                sqlx::query("ROLLBACK").execute(&mut *self.conn).await.ok();
+                Err(error)
+            }
+        }
+    }
+
+    async fn attach(&mut self, issuer: &str, subject: &str, invite: &str) -> Result<String> {
+        let gone = || ApiError::conflict("That invite has been used or has run out: ask for a new one");
+        let now = stamp();
+        let used = sqlx::query(&sql("UPDATE invites SET used_at = ? WHERE id = ? AND used_at IS NULL AND expires_at > ?"))
+            .bind(&now)
+            .bind(hash_of(invite))
+            .bind(&now)
+            .execute(&mut *self.conn)
+            .await?;
+        if used.rows_affected() == 0 {
+            return Err(gone());
+        }
+        let row = sqlx::query(&sql("SELECT person FROM invites WHERE id = ?")).bind(hash_of(invite)).fetch_optional(&mut *self.conn).await?;
+        let person: String = row.ok_or_else(gone)?.get("person");
+        let attached = sqlx::query(&sql(
+            "INSERT INTO identities (issuer, subject, person) VALUES (?, ?, ?) ON CONFLICT (issuer, subject) DO UPDATE SET person = excluded.person \
+             WHERE identities.person IN (SELECT id FROM people WHERE removed_at IS NOT NULL)",
+        ))
+        .bind(issuer)
+        .bind(subject)
+        .bind(&person)
+        .execute(&mut *self.conn)
+        .await?;
+        if attached.rows_affected() == 0 {
+            return Err(ApiError::conflict("That account already belongs to someone here"));
+        }
+        Ok(person)
+    }
+
     /// Ends a browser's login by its cookie's secret (`endLogin`), on the server as well as its cookie.
     pub async fn log_out(&mut self, secret: &str) -> Result<()> {
         sqlx::query(&sql("DELETE FROM logins WHERE id = ?")).bind(hash_of(secret)).execute(&mut *self.conn).await?;
