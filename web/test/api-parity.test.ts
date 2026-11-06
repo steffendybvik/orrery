@@ -23,7 +23,7 @@ import {PullPoll} from '../server/utils/pull-poll'
 import type {PolledRow} from '../server/utils/pull-poll'
 import {openDb} from '../server/utils/db'
 import {PostgresDb} from '../server/utils/postgres'
-import {actorHeaders, changedOf, countedOf, databaseMark, domainOf, DOMAINS, handedOn, loginHeaders, movesStatus, onlyWords, passedThrough, servedByApi, toldOf, urgentOf, whoHeaders} from '../server/utils/api-router'
+import {actorHeaders, changedOf, countedOf, databaseMark, domainOf, DOMAINS, handedOn, handOn, loginHeaders, movesStatus, onlyWords, passedThrough, servedByApi, toldOf, urgentOf, whoHeaders} from '../server/utils/api-router'
 import {permission, refused} from '../server/utils/permission'
 import {followOutbox, readPage} from '../server/utils/outbox-follower'
 import {contract, methodOf, nuxtRoutes, pathOf} from './routes'
@@ -154,7 +154,7 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         const told = toldOf(response.headers.get('orrery-told')).map(t => `${t.type} ${t.subject}`)
         if (response.status >= 400) return {status: response.status, body: {message: json!.message, ...json!.data === undefined ? {} : {data: json!.data}}, changed: [], told: [], settings: false}
         const handoff = handedOn(response.headers)
-        if (handoff) await store.handOn(handoff.project, handoff.issue, handoff.comment, handoff, actor)
+        if (handoff) await handOn(store, handoff, actor)
         for (const urgent of urgentOf(response.headers.get('orrery-urgent'))) await store.sayUrgent(urgent.project, urgent.issue, actor)
         return {status: response.status, body: json, changed: await sharing(changedOf(changed)), told, settings: response.headers.get('orrery-settings') === '1'}
     }
@@ -1793,6 +1793,74 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         expect((await signals('through-api')).filter(s => mine.has(s.split(' ')[1]!))).toEqual([`focus ${hot} It was just made urgent (P0).`])
     })
 
+    it('decides proposals alike: approved with picks or into Todo, changes asked for down an option, rejected, and refused (ORR-927)', async () => {
+        const start = (await store.db.get<{n: number | null}>('SELECT max(id) AS n FROM changes'))?.n ?? 0
+        const before = (await store.db.get<{n: number | null}>('SELECT max(id) AS n FROM signals'))?.n ?? 0
+        const choices = [
+            {key: 'store', question: 'Which store?', options: [{key: 'A', title: 'SQLite'}, {key: 'B', title: 'Postgres'}], recommended: ['A']},
+            {key: 'pool', question: 'How big a pool?', pick: 'any', options: [{key: 'small', title: 'Small'}, {key: 'large', title: 'Large'}], recommended: ['small'], from: {choice: 'store', option: 'B'}},
+        ]
+        const ids: Record<string, Record<string, string>> = {}
+        for (const p of ['through-store', 'through-api']) {
+            const make = async (title: string, more: Record<string, unknown> = {}, actor: Actor = AGENT) => (await store.createIssue(p, {title, ...more}, actor)).id
+            ids[p] = {
+                plain: await make('Oil the gears', {}, OWNER),
+                idea: await make('A second dial?', {proposal: 'pending'}),
+                hot: await make('Stop the drift', {proposal: 'pending', priority: 'P0'}),
+                picked: await make('Where to keep the hours', {proposal: 'pending', choices}),
+                guessed: await make('Where to keep the minutes', {proposal: 'pending', choices}),
+                explored: await make('Where to keep the seconds', {proposal: 'pending', choices}),
+                started: await make('Polish the case', {proposal: 'pending'}),
+                nope: await make('A cuckoo', {proposal: 'pending'}),
+            }
+            await store.db.run("UPDATE issues SET status = 'in-progress' WHERE project = ? AND id = ?", p, ids[p]!.started)
+        }
+        type Step = [string, (p: string) => Promise<Outcome>, () => Promise<Outcome>]
+        const decide = (name: string, which: string, body: unknown, actor: Actor = OWNER): Step =>
+            [name, p => viaStore(() => store.decide(p, ids[p]![which]!, body, actor)), () => viaApi('POST', `/issues/${ids['through-api']![which]}/decide`, body, actor)]
+        const read = (which: string): Step => [`${which}, read`, p => viaStore(() => store.issue(p, ids[p]![which]!)), () => viaApi('GET', `/issues/${ids['through-api']![which]}`)]
+        const activity = (which: string): Step =>
+            [`${which}'s activity`, p => viaStore(() => store.listActivity(p, ids[p]![which]!)), () => viaApi('GET', `/issues/${ids['through-api']![which]}/activity`)]
+        const comments = (which: string): Step =>
+            [`${which}'s comments`, p => viaStore(() => store.listComments(p, ids[p]![which]!)), () => viaApi('GET', `/issues/${ids['through-api']![which]}/comments`)]
+        for (const [name, ts, rs] of [
+            decide('by an agent', 'idea', {decision: 'approved'}, AGENT),
+            decide('by an untrusted session', 'idea', {decision: 'approved'}, {name: 'stranger', owner: false, untrusted: true}),
+            decide('not a proposal', 'plain', {decision: 'approved'}),
+            decide('no body', 'idea', undefined),
+            decide('no decision', 'idea', {}),
+            decide('one that isn\'t', 'idea', {decision: 'maybe'}),
+            decide('several problems', 'idea', {decision: 3, note: 4, picks: 'A', explore: {choice: 1}, extra: true}),
+            decide('picks that aren\'t lists', 'picked', {decision: 'approved', picks: {store: 'A'}}),
+            decide('picks with a rejection', 'picked', {decision: 'rejected', picks: {store: ['A']}}),
+            decide('picks where there are no choices', 'idea', {decision: 'approved', picks: {store: ['A']}}),
+            decide('explore with an approval', 'explored', {decision: 'approved', explore: {choice: 'store', option: 'A'}}),
+            decide('a choice that isn\'t there', 'picked', {decision: 'approved', picks: {size: ['A']}}),
+            decide('an option that isn\'t there', 'picked', {decision: 'approved', picks: {store: ['C']}}),
+            decide('two for a pick one', 'picked', {decision: 'approved', picks: {store: ['A', 'B']}}),
+            decide('down an option that isn\'t there', 'explored', {decision: 'changes', explore: {choice: 'store', option: 'C'}}),
+            decide('approved with picks and a note', 'picked', {decision: 'approved', picks: {store: ['B'], pool: ['large', 'small', 'large']}, note: '  Go.  '}),
+            decide('approved on its recommendations', 'guessed', {decision: 'approved', note: ' '}),
+            decide('approved, into Todo', 'idea', {decision: 'approved'}),
+            decide('approved again', 'idea', {decision: 'approved'}),
+            decide('an urgent one approved', 'hot', {decision: 'approved'}),
+            decide('one already started approved', 'started', {decision: 'approved'}),
+            decide('changes down an option', 'explored', {decision: 'changes', explore: {choice: 'store', option: 'B'}, note: 'Price it.'}),
+            decide('changes again', 'explored', {decision: 'changes'}),
+            decide('rejected', 'nope', {decision: 'rejected', note: 'Too loud.'}),
+            ...['picked', 'guessed', 'idea', 'hot', 'started', 'explored', 'nope'].flatMap(which => [read(which), activity(which), comments(which)]),
+        ] as Step[]) await both(name, ts, rs)
+        await quiet()
+        const rows = async (p: string) => (await store.db.all<{kind: string, payload: string | null}>('SELECT kind, payload FROM changes WHERE project = ? AND id > ? ORDER BY id', p, start))
+            .map(r => `${r.kind} ${(r.payload ?? '').replace(/\b(STO|API)-(\d+)/g, 'KEY-$2')}`).sort()
+        expect(await rows('through-api')).toEqual(await rows('through-store'))
+        const signals = async (p: string) => (await store.db.all<{issue: string, kind: string, note: string | null}>('SELECT issue, kind, note FROM signals WHERE project = ? AND id > ? ORDER BY id', p, before))
+            .map(r => `${r.kind} ${r.issue.replace(/^(STO|API)-/, 'KEY-')} ${r.note ?? ''}`)
+        expect(await signals('through-api')).toEqual(await signals('through-store'))
+        // An urgent one approved is pushed as the store pushes it, its guards and all: on a board with more than one person,
+        // one given back to an agent that's nobody's stays put (ORR-656), so how many depends on the tests before.
+    })
+
     it('changes an issue\'s status and assignee alike, ending a claim, with the rails between people, and pushes a P0 opened again (ORR-927)', async () => {
         const start = (await store.db.get<{n: number | null}>('SELECT max(id) AS n FROM changes'))?.n ?? 0
         const ids: Record<string, Record<string, string>> = {}
@@ -2613,7 +2681,7 @@ describe('the router', () => {
     })
 
     it('routes by a table with a line per domain, so taking one back is taking its line out (ORR-925)', () => {
-        expect(DOMAINS.map(({domain}) => domain)).toEqual(['docs', 'statuses', 'issues, reading', 'comments', 'an issue, deleted', 'an issue, made', 'an issue, its words', 'issues, changed at once', 'claims', 'activity', 'milestones', 'releases', 'releases, every project\'s', 'people', 'invites', 'keys', 'logins', 'uploads, reading', 'presets', 'secrets, reading', 'settings', 'a pull request, reading', "a pull request's risk", 'schedules, reading', 'projects, listed', 'a project, made', 'a project, changed', 'the bell', 'epics', 'milestone and epic comments'])
+        expect(DOMAINS.map(({domain}) => domain)).toEqual(['docs', 'statuses', 'issues, reading', 'comments', 'an issue, deleted', 'an issue, made', 'an issue, its words', 'issues, changed at once', 'a proposal, decided', 'claims', 'activity', 'milestones', 'releases', 'releases, every project\'s', 'people', 'invites', 'keys', 'logins', 'uploads, reading', 'presets', 'secrets, reading', 'settings', 'a pull request, reading', "a pull request's risk", 'schedules, reading', 'projects, listed', 'a project, made', 'a project, changed', 'the bell', 'epics', 'milestone and epic comments'])
         expect(domainOf('PATCH', '/api/projects/p/docs/d')).toBe('docs')
         expect(domainOf('head', '/api/projects/p/doc-sections/')).toBe('docs')
         for (const method of ['POST', 'DELETE']) expect(domainOf(method, '/api/projects/p/issues/P-1/claim'), method).toBe('claims')
@@ -2649,6 +2717,7 @@ describe('the router', () => {
         expect(domainOf('POST', '/api/projects/p/issues')).toBe('an issue, made')
         expect(domainOf('PATCH', '/api/projects/p/issues')).toBe('issues, changed at once')
         expect(domainOf('POST', '/api/projects/p/issues/decide')).toBeUndefined()
+        expect(domainOf('POST', '/api/projects/p/issues/P-1/decide')).toBe('a proposal, decided')
         expect(domainOf('GET', '/api/projects/p/issues/P-1/activity')).toBe('activity')
         expect(domainOf('POST', '/api/projects/p/issues/P-1/activity')).toBeUndefined()
     })
@@ -2734,10 +2803,11 @@ describe('the router', () => {
         ])
         expect(toldOf('issue.assignee orrery ORR%2D1 claude %7E')[0]).toMatchObject({from: 'claude', to: '~'})
         const said = (headers: Record<string, string>) => handedOn(new Headers(headers))
-        expect(said({'Orrery-Carry': 'shop%20front ORR%2D1 12', 'Orrery-Notice': 'shop%20front ORR%2D1 12'})).toEqual({project: 'shop front', issue: 'ORR-1', comment: 12, carry: true, notice: true, edited: false})
+        expect(said({'Orrery-Carry': 'shop%20front ORR%2D1 12', 'Orrery-Notice': 'shop%20front ORR%2D1 12'})).toEqual({project: 'shop front', issue: 'ORR-1', comment: 12, carry: true, notice: true, edited: false, quiet: false})
         expect(said({'Orrery-Notice': 'orrery ORR%2D1 12'})).toMatchObject({carry: false, notice: true})
         expect(said({})).toBeUndefined()
         expect(said({'Orrery-Carry': 'orrery ORR%2D1 12 edited'})).toMatchObject({carry: true, notice: false, edited: true})
+        expect(said({'Orrery-Carry': 'orrery ORR%2D1 12 quiet'})).toMatchObject({carry: true, edited: false, quiet: true})
         expect(changedOf('orrery, shop%20front')).toEqual(['orrery', 'shop front'])
         expect(changedOf(null)).toEqual([])
     })
@@ -2748,7 +2818,7 @@ describe('the contract (api/openapi.yaml)', () => {
     const routes = () => nuxtRoutes().filter(route => servedByApi(methodOf(route), pathOf(route)))
 
     it('has every route the router sends to the API, and no other', () => {
-        expect(contract()).toHaveLength(94)
+        expect(contract()).toHaveLength(95)
         expect(contract()).toEqual(routes())
     })
 

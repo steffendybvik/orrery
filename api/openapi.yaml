@@ -490,6 +490,35 @@ paths:
         '200': {description: The issue, content: {application/json: {schema: {$ref: '#/components/schemas/IssueDetail'}}}}
         '404': {$ref: '#/components/responses/NotFound'}
         '409': {description: Someone else holds it, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+  /api/projects/{project}/issues/{issue}/decide:
+    parameters: [{$ref: '#/components/parameters/project'}, {$ref: '#/components/parameters/issue'}]
+    post:
+      summary: The owner's decision on a proposal
+      description: |
+        Approving commits it, into Todo while it's in the backlog, with the picks sent or each choice's recommendation;
+        asking for changes can name an option to go further down (`explore`); a rejection is told to the session on it
+        but starts no work. It goes back to whoever proposed it, and the decision is left on it as the owner's comment,
+        which comes back in `Orrery-Carry` (marked ` quiet` for a rejection) for the Nuxt server to pass on, with
+        `Orrery-Urgent` when approving made it urgent open work.
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [decision]
+              additionalProperties: false
+              properties:
+                decision: {type: string, enum: [approved, changes, rejected]}
+                note: {type: [string, 'null']}
+                picks: {type: object, additionalProperties: {type: array, items: {type: string}}}
+                explore: {type: object, required: [choice, option], properties: {choice: {type: string}, option: {type: string}}}
+      responses:
+        '200': {description: The issue, content: {application/json: {schema: {$ref: '#/components/schemas/IssueDetail'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
   /api/projects/{project}/issues/{issue}/comments:
     parameters: [{$ref: '#/components/parameters/project'}, {$ref: '#/components/parameters/issue'}]
     get:

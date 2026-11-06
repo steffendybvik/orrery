@@ -147,6 +147,8 @@ pub struct Handoff {
     pub notice: bool,
     /// The carried words replace ones a session may have read already (an edit).
     pub edited: bool,
+    /// Said to the session, but it starts none (`startsNone`): the owner's rejection of a proposal (ORR-606).
+    pub quiet: bool,
 }
 
 /// A comment's row, as far as who may change it goes.
@@ -339,6 +341,7 @@ impl<'c> Comments<'c> {
             carry: actor.owner || actor.person.is_some(),
             notice: !actor.owner,
             edited: false,
+            quiet: false,
         };
         Ok((self.comment(project, &issue, id).await?, handoff))
     }
@@ -383,7 +386,8 @@ impl<'c> Comments<'c> {
         changes::finish(self.conn, self.outbox.as_mut(), &self.effects, done).await?;
         let theirs = (actor.owner && whose.owned) || (actor.person.is_some() && !whose.by_agent && whose.person == actor.person);
         let carry = theirs && text.as_ref().is_some_and(|t| *t != whose.body);
-        let handoff = carry.then(|| Handoff { project: project.into(), issue: issue.clone(), comment: id, carry: true, notice: false, edited: true });
+        let handoff =
+            carry.then(|| Handoff { project: project.into(), issue: issue.clone(), comment: id, carry: true, notice: false, edited: true, quiet: false });
         Ok((self.comment(project, &issue, id).await?, handoff))
     }
 

@@ -14,7 +14,7 @@ type Line = {routes: RegExp} & ({issue: `ORR-${number}`} | {stays: string})
 const UNROUTED: readonly Line[] = [
     // Gaps: what a domain the API has taken over still does here, until its issue moves it.
     {routes: /^POST \/api\/projects\/\{project\}\/issues\/decide$/, issue: 'ORR-927'},
-    {routes: /^(POST \/api\/projects\/\{project\}\/issues\/\{issue\}\/(decide|focus|schedule-requests(\/\{comment\})?)|GET \/api\/projects\/\{project\}\/issues\/\{issue\}\/(branches|pulls)|POST \/api\/uploads)$/, issue: 'ORR-927'},
+    {routes: /^(POST \/api\/projects\/\{project\}\/issues\/\{issue\}\/(focus|schedule-requests(\/\{comment\})?)|GET \/api\/projects\/\{project\}\/issues\/\{issue\}\/(branches|pulls)|POST \/api\/uploads)$/, issue: 'ORR-927'},
     {routes: /^(GET|POST|PUT|DELETE) \/api\/(auth\/(link|status)|owner|permissions|projects\/\{project\}\/members(\/\{person\})?)$/, issue: 'ORR-928'},
     {routes: /^(GET|DELETE) \/api\/projects\/\{project\}$|^\w+ \/api\/projects\/(\{project\}\/(export|import)|upload)$/, issue: 'ORR-1006'},
     {routes: /^(POST|PATCH|DELETE) \/api\/(projects\/\{project\}\/schedules(\/\{schedule\}(\/(adopt|run))?|\/enabled)?|schedules(\/across\/\{across\})?)$/, issue: 'ORR-950'},

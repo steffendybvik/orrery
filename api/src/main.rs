@@ -16,6 +16,7 @@ mod chats;
 mod choices;
 mod comments;
 mod db;
+mod decisions;
 mod docs;
 mod epics;
 mod error;
@@ -345,7 +346,13 @@ async fn create_comment(State(app): Shared, Path((project, issue)): Path<(String
 /// The headers a new comment's `Handoff` is said in.
 fn handoff_headers(handoff: &Handoff) -> Vec<(&'static str, String)> {
     let encode = |s: &str| utf8_percent_encode(s, NON_ALPHANUMERIC).to_string();
-    let edited = if handoff.edited { " edited" } else { "" };
+    let edited = if handoff.edited {
+        " edited"
+    } else if handoff.quiet {
+        " quiet"
+    } else {
+        ""
+    };
     let said = format!("{} {} {}{edited}", encode(&handoff.project), encode(&handoff.issue), handoff.comment);
     [("orrery-carry", handoff.carry), ("orrery-notice", handoff.notice)].into_iter().filter(|(_, on)| *on).map(|(h, _)| (h, said.clone())).collect()
 }
@@ -421,6 +428,27 @@ async fn patch_issue(State(app): Shared, Path((project, issue)): Path<(String, S
     let mut response = reply(StatusCode::OK, Some(value), effects);
     // Made urgent open work: the Nuxt server pushes it to the sessions (`sayUrgent`), as only it reaches them.
     if let Some(id) = urgent {
+        let encode = |s: &str| utf8_percent_encode(s, NON_ALPHANUMERIC).to_string();
+        response.headers_mut().insert("orrery-urgent", HeaderValue::from_str(&format!("{} {}", encode(&project), encode(&id))).unwrap());
+    }
+    Ok(response)
+}
+
+/// `POST …/issues/{issue}/decide` `{decision, note?, picks?, explore?}`: the owner's decision on a proposal (`decide`),
+/// the issue, with its comment's `Orrery-Carry` (` quiet` for a rejection, which starts no work) and `Orrery-Urgent` when
+/// approving made it urgent open work.
+async fn decide_issue(State(app): Shared, Path((project, issue)): Path<(String, String)>, headers: HeaderMap, body: Bytes) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    let mut comments = Comments::new(&mut conn);
+    comments.outbox = Some(Outbox::new(actor_of(&headers)));
+    let (id, handoff, urgent) = comments.decide(&project, &issue, &body_of(&body), &actor_of(&headers)).await?;
+    let effects = std::mem::take(&mut comments.effects);
+    let value = Issues::new(&mut conn).issue(&project, &id).await?;
+    let mut response = reply(StatusCode::OK, Some(value), effects);
+    for (header, said) in handoff_headers(&handoff) {
+        response.headers_mut().insert(header, HeaderValue::from_str(&said).unwrap());
+    }
+    if urgent {
         let encode = |s: &str| utf8_percent_encode(s, NON_ALPHANUMERIC).to_string();
         response.headers_mut().insert("orrery-urgent", HeaderValue::from_str(&format!("{} {}", encode(&project), encode(&id))).unwrap());
     }
@@ -1352,6 +1380,7 @@ fn router(app: Arc<App>) -> Router {
         .route(&format!("{P}/issues"), get(list_issues).post(create_issue).patch(update_issues).delete(delete_issues))
         .route(&format!("{P}/issues/{{issue}}"), get(get_issue).patch(patch_issue).delete(delete_issue))
         .route(&format!("{P}/issues/{{issue}}/claim"), post(claim_issue).delete(release_issue))
+        .route(&format!("{P}/issues/{{issue}}/decide"), post(decide_issue))
         .route(&format!("{P}/issues/{{issue}}/comments"), get(list_comments).post(create_comment))
         .route(&format!("{P}/issues/{{issue}}/comments/{{comment}}"), get(get_comment).patch(patch_comment).delete(delete_comment))
         .route(&format!("{P}/issues/{{issue}}/activity"), get(get_activity))

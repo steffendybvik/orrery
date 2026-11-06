@@ -17,6 +17,7 @@ import {loginCookie, pathOf, toldOff} from './auth'
 import {caughtUp, followingOutbox} from './outbox-follower'
 import {oidcOn} from './oidc'
 import {countOwnUse} from './usage'
+import {startsNone} from './starts-none'
 
 /** The domains the Rust API serves, a line each (ORR-925): moving a domain there is adding its line once the parity test
  * passes, and taking it back to the routes here is taking the line out. Each matches a whole path after `/api/`, with no
@@ -51,6 +52,9 @@ export const DOMAINS: readonly {domain: string, paths: RegExp, methods?: readonl
     // One change to many issues (`{ids, set, labels}`, ORR-927): each edited as one is, the route here taking no session's
     // lock or chat's rewrite for it either. The ones it makes urgent come back in `Orrery-Urgent`, for the push here.
     {domain: 'issues, changed at once', paths: /^projects\/[^/]+\/issues$/, methods: ['PATCH']},
+    // The owner's decision on a proposal (ORR-927): its comment comes back as `Orrery-Carry`, marked ` quiet` for a
+    // rejection, which is passed on to the session here but starts no work (`startsNone`, ORR-606).
+    {domain: 'a proposal, decided', paths: /^projects\/[^/]+\/issues\/[^/]+\/decide$/, methods: ['POST']},
     // Taking an issue up and letting it go (ORR-927, ORR-657): the API tells the claim and a new assignee back, as
     // `Orrery-Told`, and puts them in the outbox (ORR-929).
     {domain: 'claims', paths: /^projects\/[^/]+\/issues\/[^/]+\/claim$/},
@@ -283,12 +287,19 @@ export function toldOf(header: string | null): {type: string, project: string, s
 
 /** What a new or edited comment's reply leaves this server to do (ORR-927): `Orrery-Carry` and `Orrery-Notice`, each
  * `<project> <issue> <comment>` percent-encoded, to pass it on to the session on its issue and to the owner's bell; an
- * edit's carry ends ` edited`, as its words replace ones the session may have read. */
-export function handedOn(headers: Headers): {project: string, issue: string, comment: number, carry: boolean, notice: boolean, edited: boolean} | undefined {
+ * edit's carry ends ` edited`, as its words replace ones the session may have read, and a rejection's ` quiet`, as it
+ * starts no work (`startsNone`). */
+export function handedOn(headers: Headers): {project: string, issue: string, comment: number, carry: boolean, notice: boolean, edited: boolean, quiet: boolean} | undefined {
     const said = headers.get('orrery-carry') ?? headers.get('orrery-notice')
     const [project, issue, comment, mark] = said?.trim().split(' ').map(decodeURIComponent) ?? []
     if (!project || !issue || !Number.isInteger(Number(comment))) return undefined
-    return {project, issue, comment: Number(comment), carry: headers.has('orrery-carry'), notice: headers.has('orrery-notice'), edited: mark === 'edited'}
+    return {project, issue, comment: Number(comment), carry: headers.has('orrery-carry'), notice: headers.has('orrery-notice'), edited: mark === 'edited', quiet: mark === 'quiet'}
+}
+
+/** Passes a comment the API made on to the session and the bell, as `handedOn` read it: a quiet one starts no work. */
+export async function handOn(store: Pick<ReturnType<typeof useStore>, 'handOn'>, handoff: NonNullable<ReturnType<typeof handedOn>>, actor: Actor) {
+    const pass = () => store.handOn(handoff.project, handoff.issue, handoff.comment, handoff, actor)
+    await (handoff.quiet ? startsNone.run(true, pass) : pass())
 }
 
 /** The issues an edit's reply says it made urgent open work (`Orrery-Urgent`, `<project> <issue>` percent-encoded, many
@@ -374,7 +385,7 @@ export async function forwardToApi(event: H3Event, api: {url: string, token: str
     })
     // Outside `relaying`: the signal and the bell's notice are this server's own, with their own rows in the outbox.
     const handoff = handedOn(response.headers)
-    if (handoff) await store.handOn(handoff.project, handoff.issue, handoff.comment, handoff, actor)
+    if (handoff) await handOn(store, handoff, actor)
     for (const urgent of urgentOf(response.headers.get('orrery-urgent'))) await store.sayUrgent(urgent.project, urgent.issue, actor)
     // What it set off is told before the reply, as the page that asked reads the board next (ORR-1029).
     if (!relayHeaders && WRITES.has(event.method)) await caughtUp()
