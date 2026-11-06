@@ -1,9 +1,10 @@
 // Changing an issue's own words (ORR-927): the part of `updateIssue` in web/server/store/issues.ts that changes what an
-// issue says and where it sits among its siblings, and nothing that moves it on the board: `title`, `notes`, `labels`,
-// its tasks (`external`), its GitHub issues, the `model` and `effort` a session for it starts on, and its `position`.
-// The router sends a `PATCH …/issues/{issue}` here only when it names none of the other fields (`wordsOnly`), so its
-// status, assignee, proposal, parent, milestone, release, epic, priority (a P0's push), links and moving it stay the
-// Nuxt server's for now. The rails are the store's: an agent changes only its person's issue, or its own proposal.
+// issue says, where it sits among its siblings and what it's under, and nothing that moves it on the board: `title`,
+// `priority`, `notes`, `labels`, its tasks (`external`), its GitHub issues, its `parent`, `milestone` and `release`, what it
+// depends on, the `model` and `effort` a session for it starts on, and its `position`. The router sends a `PATCH …/issues/{issue}` here
+// only when it names none of the other fields (`wordsOnly`), so its status, assignee, proposal, epic and moving
+// it to another project stay the Nuxt server's for now. The rails are the store's: an agent changes only its person's
+// issue, or its own proposal, and moves one only under an issue that's its person's too.
 use crate::changes;
 use crate::comments::Comments;
 use crate::db::sql;
@@ -17,7 +18,8 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::LazyLock;
 
 /// The fields this takes, in the order `ISSUE_FIELDS` has them, which is the order its problems are listed in.
-pub const WORDS: [&str; 10] = ["title", "priority", "labels", "external", "github_issues", "notes", "depends_on", "model", "effort", "position"];
+pub const WORDS: [&str; 13] =
+    ["title", "priority", "labels", "external", "github_issues", "notes", "parent", "milestone", "release", "depends_on", "model", "effort", "position"];
 /// The most issues one can depend on (`MAX_DEPENDS`).
 const MAX_DEPENDS: usize = 50;
 const PRIORITIES: [&str; 4] = ["P0", "P1", "P2", "P3"];
@@ -36,6 +38,9 @@ pub struct Words {
     pub external: Option<Vec<String>>,
     pub github_issues: Option<Vec<String>>,
     pub notes: Option<Option<String>>,
+    pub parent: Option<Option<String>>,
+    pub milestone: Option<Option<String>>,
+    pub release: Option<Option<String>>,
     /// What it depends on, all of it (ORR-601): `Some(vec![])` for none.
     pub depends_on: Option<Vec<String>>,
     pub model: Option<Option<String>>,
@@ -132,6 +137,9 @@ pub fn check_words(body: &Value) -> Result<Words> {
                 })
             }
             "notes" => words.notes = text(key, value, &mut problems, |_| None),
+            "parent" => words.parent = text(key, value, &mut problems, |_| None),
+            "milestone" => words.milestone = text(key, value, &mut problems, |_| None),
+            "release" => words.release = text(key, value, &mut problems, |_| None),
             "model" => words.model = text(key, value, &mut problems, |sent| (!MODEL.is_match(sent)).then(|| format!("\"model\" is \"{sent}\"; {MODEL_HINT}"))),
             "effort" => {
                 words.effort = text(key, value, &mut problems, |sent| {
@@ -167,6 +175,24 @@ struct Before {
     assignee: Option<String>,
     proposal: Option<String>,
     created_person: Option<String>,
+    parent: Option<String>,
+    milestone: Option<String>,
+    ships_in: Option<String>,
+}
+
+/// Where an edit puts the issue, as `updateIssue` works it out: each `None` when it's left as it is.
+struct Placement {
+    /// The parent it's under after the edit, and whether the edit sent one.
+    parent: Option<String>,
+    moved: bool,
+    sent_parent: bool,
+    milestone: Option<Option<String>>,
+    release: Option<Option<String>>,
+}
+
+/// Set, as JavaScript tests a string: neither null nor empty.
+fn named(value: &Option<String>) -> bool {
+    value.as_deref().is_some_and(|v| !v.is_empty())
 }
 
 impl Comments<'_> {
@@ -179,7 +205,7 @@ impl Comments<'_> {
         self.issue_there(project, &issue).await?;
         let words = check_words(body)?;
         let row = sqlx::query(&sql(
-            "SELECT title, status, priority, labels, external, github_issues, notes, model, effort, assignee, proposal, created_person FROM issues WHERE project = ? AND id = ?",
+            "SELECT title, status, priority, labels, external, github_issues, notes, model, effort, assignee, proposal, created_person, parent, milestone, ships_in FROM issues WHERE project = ? AND id = ?",
         ))
         .bind(project)
         .bind(&issue)
@@ -198,12 +224,31 @@ impl Comments<'_> {
             assignee: row.get("assignee"),
             proposal: row.get("proposal"),
             created_person: row.get("created_person"),
+            parent: row.get("parent"),
+            milestone: row.get("milestone"),
+            ships_in: row.get("ships_in"),
         };
+        // While it waits on the owner, it isn't work yet: which release it ships in is theirs to say.
+        if words.release.is_some() && !actor.owner && matches!(row.proposal.as_deref(), Some("pending" | "changes")) {
+            let settings = crate::settings::Settings::new(&mut *self.conn).get().await?;
+            if settings["restrict_proposals"].as_bool().unwrap_or(true) {
+                return Err(ApiError::refused_for(
+                    "issues.edit",
+                    format!("{issue} is a proposal waiting on the owner, so its release isn't yours to change until they approve it"),
+                ));
+            }
+        }
+        let place = self.placement(project, &issue, &words, &row).await?;
         if let Some(rails) = self.rails_for(actor).await? {
             // An agent's own proposal is its to edit and put up again, though it waits on the owner.
             let own_proposal = rails.is_some() && row.proposal.is_some() && row.created_person == rails;
             if !own_proposal {
                 self.must_hold(rails.as_deref(), &issue, row.assignee.as_deref(), "change it").await?;
+            }
+            if named(&place.parent) && place.parent != row.parent {
+                let parent = place.parent.as_deref().unwrap_or_default();
+                let assignee = self.assignee_of(project, parent).await?;
+                self.must_hold(rails.as_deref(), parent, assignee.as_deref(), "move an issue under it").await?;
             }
         }
         let github = match &words.github_issues {
@@ -225,20 +270,32 @@ impl Comments<'_> {
         }
         changes::begin(self.conn).await?;
         let done: Result<()> = async {
-            let changed: [Change; 8] = [
+            // A sub-issue is in its parent's milestone, so a new parent says it all.
+            let placed: Change = if place.moved {
+                ("parent", row.parent.as_deref(), Some(place.parent.as_deref()))
+            } else {
+                ("milestone", row.milestone.as_deref(), place.milestone.as_ref().map(Option::as_deref))
+            };
+            let changed: [Change; 10] = [
                 ("title", Some(row.title.as_str()), words.title.as_deref().map(Some)),
                 ("priority", row.priority.as_deref(), words.priority.as_ref().map(Option::as_deref)),
                 ("labels", row.labels.as_deref(), labels.as_deref().map(Some)),
                 ("external", row.external.as_deref(), external.as_deref().map(Some)),
                 ("github_issues", row.github_issues.as_deref(), github.as_deref().map(Some)),
                 ("notes", row.notes.as_deref(), words.notes.as_ref().map(Option::as_deref)),
+                placed,
+                ("release", row.ships_in.as_deref(), place.release.as_ref().map(Option::as_deref)),
                 ("model", row.model.as_deref(), words.model.as_ref().map(Option::as_deref)),
                 ("effort", row.effort.as_deref(), words.effort.as_ref().map(Option::as_deref)),
             ];
             let mut set: Vec<(&str, Option<String>)> = vec![];
             for (field, before, after) in changed {
                 let Some(after) = after else { continue };
-                set.push((field, after.map(Into::into)));
+                // The release an issue ships in is kept as `ships_in`, and a milestone is written whether or not the
+                // new parent is noted in its place; a parent only when the edit sends one.
+                if !matches!(field, "parent" | "milestone" | "release") {
+                    set.push((field, after.map(Into::into)));
+                }
                 if after == before {
                     continue;
                 }
@@ -249,6 +306,15 @@ impl Comments<'_> {
                     "title" | "external" | "github_issues" => self.record_quietly(project, &issue, actor, field, before, after).await?,
                     _ => self.record_field(project, &issue, actor, field, before, after).await?,
                 }
+            }
+            if place.sent_parent {
+                set.push(("parent", place.parent.clone()));
+            }
+            if let Some(milestone) = &place.milestone {
+                set.push(("milestone", milestone.clone()));
+            }
+            if let Some(release) = &place.release {
+                set.push(("ships_in", release.clone()));
             }
             let mut columns: Vec<String> = set.iter().map(|(field, _)| format!("{field} = ?")).collect();
             if words.position.is_some() {
@@ -285,6 +351,76 @@ impl Comments<'_> {
         let statuses = Issues::new(&mut *self.conn).statuses().await?;
         let closed = statuses.iter().any(|s| s.id == row.status && CLOSED.contains(&s.kind.as_str()));
         Ok((!closed).then_some(issue))
+    }
+
+    /// Where the edit puts the issue (`updateIssue`): under a parent there is, that isn't it or under it, and then in no
+    /// milestone of its own; lifted to the top, in its root's milestone unless one is sent; in a milestone and release
+    /// there are. Refused as the store refuses each, in its order.
+    async fn placement(&mut self, project: &str, issue: &str, words: &Words, row: &Before) -> Result<Placement> {
+        let parent = match &words.parent {
+            None => row.parent.clone(),
+            Some(None) => None,
+            Some(Some(sent)) => Some(self.issue_id(project, sent).await?),
+        };
+        let mut milestone = match &words.milestone {
+            None => None,
+            Some(None) => Some(None),
+            Some(Some(sent)) => Some(Some(Issues::new(&mut *self.conn).resolve(project, sent, true).await?)),
+        };
+        if named(&parent) {
+            if milestone.as_ref().is_some_and(named) {
+                return Err(ApiError::bad_request("A sub-issue is in its parent's milestone; leave out \"milestone\" or set \"parent\" to null"));
+            }
+            let parent = parent.as_deref().unwrap_or_default();
+            self.issue_there(project, parent).await?;
+            let mut up = Some(parent.to_string());
+            while let Some(at) = up.filter(|u| !u.is_empty()) {
+                if at == issue {
+                    let whose = if at == parent { "this issue" } else { "under this issue" };
+                    return Err(ApiError::bad_request(format!("{parent} is {whose}, so it can't be its parent")));
+                }
+                self.issue_there(project, &at).await?;
+                up = self.parent_of(project, &at).await?;
+            }
+            milestone = Some(None);
+        } else if milestone.is_none() && named(&row.parent) {
+            // Lifted to the top, it's in the milestone its root was in.
+            let mut root = row.parent.clone().unwrap_or_default();
+            while let Some(up) = self.parent_of(project, &root).await?.filter(|u| !u.is_empty()) {
+                root = up;
+            }
+            let found = sqlx::query(&sql("SELECT milestone FROM issues WHERE project = ? AND id = ?"))
+                .bind(project)
+                .bind(&root)
+                .fetch_optional(&mut *self.conn)
+                .await?;
+            let found = found.ok_or_else(|| ApiError::not_found(format!("No issue {root} in {project}")))?;
+            milestone = Some(found.get("milestone"));
+        }
+        if let Some(Some(id)) = milestone.as_ref().filter(|m| named(m)) {
+            if !Issues::new(&mut *self.conn).exists("SELECT 1 FROM milestones WHERE project = ? AND id = ?", &[project, id]).await? {
+                return Err(ApiError::not_found(format!("No milestone \"{id}\" in {project}")));
+            }
+        }
+        if let Some(Some(version)) = &words.release {
+            let mut issues = Issues::new(&mut *self.conn);
+            let row = issues.project(project).await?;
+            issues.release_there(project, &row, version).await?;
+        }
+        let moved = words.parent.is_some() && parent != row.parent;
+        Ok(Placement { parent, moved, sent_parent: words.parent.is_some(), milestone, release: words.release.clone() })
+    }
+
+    /// The issue's parent, or `None` at the top.
+    async fn parent_of(&mut self, project: &str, issue: &str) -> Result<Option<String>> {
+        let row = sqlx::query(&sql("SELECT parent FROM issues WHERE project = ? AND id = ?")).bind(project).bind(issue).fetch_optional(&mut *self.conn).await?;
+        Ok(row.and_then(|r| r.get("parent")))
+    }
+
+    /// Whom the issue is assigned to.
+    async fn assignee_of(&mut self, project: &str, issue: &str) -> Result<Option<String>> {
+        let row = sqlx::query(&sql("SELECT assignee FROM issues WHERE project = ? AND id = ?")).bind(project).bind(issue).fetch_one(&mut *self.conn).await?;
+        Ok(row.get("assignee"))
     }
 
     /// The GitHub issues as they're kept (`githubIssuesOf`): each `owner/name#523`, once whatever its case, refused
