@@ -1,34 +1,124 @@
 // A proposal's choices (ORR-927): checked as `parseChoices` in web/server/utils/choices.ts checks them, in its order, and
 // kept as the JSON it gives back, so the store and the API keep the same text.
-use serde::Serialize;
-use serde_json::Value;
+use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value};
 use std::sync::LazyLock;
 
 static KEY: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,29}$").unwrap());
 
-#[derive(Serialize)]
-struct Choice {
-    key: String,
-    question: String,
-    pick: String,
-    options: Vec<Opt>,
-    recommended: Vec<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    from: Option<From>,
+#[derive(Serialize, Deserialize)]
+pub struct Choice {
+    pub key: String,
+    pub question: String,
+    #[serde(default)]
+    pub pick: String,
+    pub options: Vec<Opt>,
+    #[serde(default)]
+    pub recommended: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from: Option<From>,
 }
 
-#[derive(Serialize)]
-struct Opt {
-    key: String,
-    title: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    body: Option<String>,
+#[derive(Serialize, Deserialize)]
+pub struct Opt {
+    pub key: String,
+    pub title: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub body: Option<String>,
 }
 
-#[derive(Serialize)]
-struct From {
-    choice: String,
-    option: String,
+#[derive(Serialize, Deserialize)]
+pub struct From {
+    pub choice: String,
+    pub option: String,
+}
+
+/// A proposal's choices as they're kept (`JSON.parse(row.choices)`): none when there are none, or they won't read.
+pub fn stored(text: &str) -> Vec<Choice> {
+    serde_json::from_str(text).unwrap_or_default()
+}
+
+/// The picks as they're sent and kept: choice → options, in the order they came.
+pub type Picks = Map<String, Value>;
+
+fn picked(picks: &Picks, key: &str) -> Vec<String> {
+    picks.get(key).and_then(Value::as_array).map(|list| list.iter().filter_map(|p| p.as_str().map(String::from)).collect()).unwrap_or_default()
+}
+
+/// The choices that apply with these picks (`liveChoices`): those at the top, and those down an option that was picked.
+fn live<'a>(choices: &'a [Choice], picks: &Picks) -> Vec<&'a Choice> {
+    let mut live: Vec<&Choice> = vec![];
+    for choice in choices {
+        let down = match &choice.from {
+            None => true,
+            Some(from) => live.iter().any(|c| c.key == from.choice) && picked(picks, &from.choice).contains(&from.option),
+        };
+        if down {
+            live.push(choice);
+        }
+    }
+    live
+}
+
+/// The options approving takes (`resolvePicks`): those sent, else each choice's recommendation, for the choices that
+/// apply, each checked against its options, once each, and one for a `pick: one`.
+pub fn resolve_picks(choices: &[Choice], sent: &Picks) -> Result<Picks, String> {
+    for key in sent.keys() {
+        if !choices.iter().any(|c| c.key == *key) {
+            return Err(format!("there's no choice \"{key}\"; the choices are {}", choices.iter().map(|c| c.key.as_str()).collect::<Vec<_>>().join(", ")));
+        }
+    }
+    let mut picks = Picks::new();
+    for choice in choices {
+        let value = match sent.get(&choice.key) {
+            Some(value) if !value.is_null() => value.clone(),
+            _ => Value::from(choice.recommended.clone()),
+        };
+        picks.insert(choice.key.clone(), value);
+    }
+    let mut resolved = Picks::new();
+    for choice in live(choices, &picks) {
+        let chosen = picked(&picks, &choice.key);
+        let unknown: Vec<&str> = chosen.iter().filter(|p| !choice.options.iter().any(|o| o.key == **p)).map(String::as_str).collect();
+        if !unknown.is_empty() {
+            return Err(format!("{} has no option {}", choice.key, unknown.join(", ")));
+        }
+        if choice.pick == "one" && chosen.len() != 1 {
+            return Err(format!("pick one option for {} ({})", choice.key, choice.question));
+        }
+        let mut once: Vec<String> = vec![];
+        for p in chosen {
+            if !once.contains(&p) {
+                once.push(p);
+            }
+        }
+        resolved.insert(choice.key.clone(), Value::from(once));
+    }
+    Ok(resolved)
+}
+
+/// The picks in words, a line per choice (`describePicks`): `- Which store? → **A** SQLite`, an option's key going with
+/// its title only when it's a label (`A`, `B2`).
+pub fn describe_picks(choices: &[Choice], picks: &Picks) -> String {
+    let label = |key: &str| {
+        let b = key.as_bytes();
+        (b.len() == 1 || (b.len() == 2 && b[1].is_ascii_digit())) && b[0].is_ascii_uppercase()
+    };
+    choices
+        .iter()
+        .filter(|c| picks.contains_key(&c.key))
+        .map(|c| {
+            let chosen = picked(picks, &c.key);
+            let named: Vec<String> = c
+                .options
+                .iter()
+                .filter(|o| chosen.contains(&o.key))
+                .map(|o| if label(&o.key) { format!("**{}** {}", o.key, o.title) } else { format!("**{}**", o.title) })
+                .collect();
+            format!("- {} → {}", c.question, if named.is_empty() { "none".to_string() } else { named.join(", ") })
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 /// Text that isn't blank, trimmed (`text`).
