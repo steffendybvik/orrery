@@ -82,3 +82,17 @@ test('focuses on an epic: a focus for each project with open issues in it (ORR-9
         expect(signals.at(-1)).toMatchObject({epic: epic.id, milestone: 'all'})
     }
 })
+
+test("copies an epic's number from its page (ORR-994)", async ({page, request}) => {
+    const epic = await (await request.post('/api/epics', {data: {title: 'Gift cards'}, headers: AGENT})).json() as {id: number}
+    await page.goto(`/epics/${epic.id}`)
+    await page.evaluate(() => {
+        const copied: string[] = (window as unknown as {copied: string[]}).copied = []
+        navigator.clipboard.writeText = async text => { copied.push(text) }
+    })
+    const copy = page.getByRole('button', {name: `Copy epic ${epic.id}'s number`})
+    await copy.focus()
+    await page.keyboard.press('Enter')
+    await expect(copy).toHaveText('Copied')
+    expect(await page.evaluate(() => (window as unknown as {copied: string[]}).copied)).toEqual([String(epic.id)])
+})
