@@ -69,3 +69,16 @@ test('comments on an epic\'s page, the owner\'s and an agent\'s (ORR-977)', asyn
     const [, mine] = await (await request.get(`/api/epics/${epic.id}/comments`)).json() as {id: number}[]
     expect((await request.delete(`/api/epics/${epic.id}/comments/${mine!.id}`, {headers: AGENT})).status()).toBe(403)
 })
+
+test('focuses on an epic: a focus for each project with open issues in it (ORR-987)', async ({page, request}) => {
+    const epic = await (await request.post('/api/epics', {data: {title: 'Loyalty stamps'}, headers: AGENT})).json() as {id: number}
+    await front(request, 'post', '/issues', {title: 'Show the stamps', status: 'todo', epic: epic.id})
+    await back(request, 'post', '/issues', {title: 'Count the stamps', status: 'todo', epic: epic.id})
+    await page.goto(`/epics/${epic.id}`)
+    await page.getByRole('button', {name: 'Focus on this'}).click()
+    await expect(page.getByRole('status').filter({hasText: 'Sent to 2 projects'})).toBeVisible()
+    for (const api of [front, back]) {
+        const signals = await api(request, 'get', '/signals') as {epic?: number, milestone?: string}[]
+        expect(signals.at(-1)).toMatchObject({epic: epic.id, milestone: 'all'})
+    }
+})

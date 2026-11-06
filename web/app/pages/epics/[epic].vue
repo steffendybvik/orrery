@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type {Kinds} from '#shared/roadmap'
+import type {Kinds, Signal} from '#shared/roadmap'
 import {emptyKinds} from '#shared/roadmap'
 
 // An epic's page (ORR-895): its title and notes, edited in place, its progress across projects, and its issues in a
@@ -83,6 +83,25 @@ async function saveNotes() {
 }
 watch(id, () => editingTitle.value = editingNotes.value = false)
 
+// Focus on this (ORR-987): a focus on the epic's open issues for each project it has some in, to one session there
+// orrery picks, or starts when nobody's listening, as an issue's Focus on this does.
+const open = computed(() => parts.value.some(part => part.rows.some(({issue}) => !isClosed(issue.kind) && issue.kind !== 'proposed')))
+const focusing = ref(false)
+const focused = ref('')
+async function focus() {
+    focusing.value = true
+    failed.value = ''
+    try {
+        const {signals} = await apiFetch<{signals: Signal[]}>(`${api.value}/focus`, {method: 'POST', body: {start: true}})
+        focused.value = signals.length === 1 ? `Sent to ${signals[0]?.project}` : `Sent to ${signals.length} projects`
+        setTimeout(() => focused.value = '', 4000)
+    } catch (error) {
+        failed.value = errorMessage(error, 'send')
+    } finally {
+        focusing.value = false
+    }
+}
+
 const confirmingRemove = ref(false)
 async function remove() {
     saving.value = true
@@ -131,6 +150,17 @@ useHead(() => ({title: epic.value ? `${epic.value.title} · Epics · orrery` : '
         <div class="flex flex-wrap items-center gap-3 text-xs">
           <span class="font-mono text-faint">Epic {{ epic.id }}</span>
           <span class="ml-auto flex items-center gap-2">
+            <span v-if="focused" class="text-faint" role="status">{{ focused }}</span>
+            <UiButton
+                v-else-if="open && !confirmingRemove"
+                size="xs"
+                :disabled="focusing"
+                title="Ask a session in each project to work through the epic's open issues, most urgent first (starts one where nobody's listening)"
+                @click="focus"
+            >
+              <svg class="size-3 text-accent-fill" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="8" /><circle cx="12" cy="12" r="3" /></svg>
+              <UiBusy :busy="focusing" label="Sending…">Focus on this</UiBusy>
+            </UiButton>
             <UiConfirm v-if="confirmingRemove" inline :busy="saving" @confirm="remove" @cancel="confirmingRemove = false">
               Remove this epic? Its {{ epic.issues }} {{ epic.issues === 1 ? 'issue stays' : 'issues stay' }} where {{ epic.issues === 1 ? 'it is' : 'they are' }}, in no epic.
             </UiConfirm>

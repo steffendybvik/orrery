@@ -20,6 +20,8 @@ export interface Signal {
     status?: string
     /** For a milestone: only its issues set for this release. */
     release?: string
+    /** For a milestone (`all`, from a focus on an epic, ORR-987): only its issues in this epic. */
+    epic?: number
     /** The schedule that sent it (a message). */
     schedule?: number
     kind: 'focus' | 'comment' | 'message'

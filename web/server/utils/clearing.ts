@@ -64,7 +64,7 @@ export async function resumeRun(project: string, session: string): Promise<boole
     const left = open.map(t => `${t.id} ${t.column} ${t.updated_at}`).join('\n')
     if (resumed.get(run) === left) return false
     resumed.set(run, left)
-    await store.focusMilestone(project, run.milestone, {session, status: run.status ?? null, release: run.release ?? null, note: "Carry on with what's left of it after the clear."},
+    await store.focusMilestone(project, run.milestone, {session, status: run.status ?? null, release: run.release ?? null, ...run.epic === undefined ? {} : {epic: run.epic}, note: "Carry on with what's left of it after the clear."},
         {name: run.created_by, owner: run.protected, ...run.person ? {person: run.person} : {}})
     return true
 }
