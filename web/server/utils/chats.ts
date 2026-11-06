@@ -727,7 +727,7 @@ async function answerMilestone(chat: Chat, request: ChatMilestoneRequest, allow:
     if (allow) {
         made = request.id === undefined
             ? await useStore().createMilestone(chat.project, request.body, {...actor, via: 'chat'})
-            : await useStore().updateMilestone(chat.project, request.id, request.body)
+            : await useStore().updateMilestone(chat.project, request.id, request.body, {...actor, via: 'chat'})
     }
     request.state = allow ? 'allowed' : 'denied'
     if (made) request.id = made.id

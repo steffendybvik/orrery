@@ -424,7 +424,7 @@ A run that started one is `sent`. A preset a schedule names that's been deleted 
 `thing.what`. Every change to an issue is `issue.<field>` (`issue.created`, `issue.status`, `issue.labels`,
 `issue.release`, `issue.proposal`, `issue.depends`… and `issue.deleted`). An issue whose blockers are all done, or whose last open one was unlinked, is `issue.unblocked`; one whose blocker was canceled `issue.blocker_canceled` (orrery asks the owner on it), or reopened while it's in progress `issue.blocker_reopened` (orrery tells its session). Comments are `comment.added` and `comment.asks`, a session
 asking the owner. Releases are `release.created`, `.frozen`, `.thawed`, `.shipped`, `.unshipped` and `.deleted`;
-milestones `milestone.created`; docs `doc.created`, `.changed` and `.deleted`. An issue's pull request, as orrery's poll finds it,
+milestones `milestone.created` and `milestone.changed` (a new title or summary), and epics `epic.changed` (a new title or notes, on each project with an issue in it); a deleted milestone's or epic's issues are each `issue.milestone` or `issue.epic`. orrery tells the session working an issue each of these touches, in a message (ORR-984); docs `doc.created`, `.changed` and `.deleted`. An issue's pull request, as orrery's poll finds it,
 is `pr.conflicting`, `pr.behind`, `pr.merged`, `pr.closed` (closed without merging), `pr.checks_failed` and
 `pr.changes_requested`, each once per change, with orrery commenting on the issue as it happens (by `orrery`, which
 reaches the session on the issue), and `pr.ready` (it can merge again) and `pr.approved`, which it only records. A merge
@@ -851,7 +851,7 @@ with the name and hosts; never a value). Every request refused with a 403 or 409
 proposal's move, the owner's own, an issue another session is on) is a warning, `request.refused`, with who asked,
 the route without its query, the status and why. So is **each change to the roadmap**, as an `info` line with the change's
 type as its kind and what it was to as its `subject`: `issue.<field>` (`issue.created`, `issue.status`,
-`issue.priority`…, `issue.deleted`), `comment.added`, `comment.asks`, `milestone.created`, `doc.created`, `doc.changed`,
+`issue.priority`…, `issue.deleted`), `comment.added`, `comment.asks`, `milestone.created`, `milestone.changed`, `epic.changed`, `doc.created`, `doc.changed`,
 `doc.deleted` and `release.<what>` (`release.created`, `release.frozen`, `release.shipped`…). Its message says who did
 what (`claude moved ORR-12: todo → done`), and its details hold `by`, `owner`, `from`, `to`, `untrusted` and the
 `schedule` whose run made it. No titles, notes or comment text are kept. Advanced also counts each new kind of error in the

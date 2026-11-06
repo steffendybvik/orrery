@@ -199,6 +199,10 @@ impl<'c> Milestones<'c> {
             query.bind(stamp()).bind(project).bind(&id).execute(&mut *self.conn).await?;
             self.touch_project(project).await?;
             self.effects.changed = vec![project.into()];
+            // A new title or summary reaches the sessions on its issues (ORR-984).
+            if input.contains_key("title") || input.contains_key("summary") {
+                self.effects.tell("milestone.changed", project, &id);
+            }
             Ok(())
         }
         .await;
@@ -215,8 +219,17 @@ impl<'c> Milestones<'c> {
                 format!("Deleting milestone \"{id}\" is the owner's call: milestone \"{id}\" was made by the owner"),
             ));
         }
+        // Each issue it held is told as moving out of it (ORR-984).
+        let held: Vec<String> = sqlx::query_scalar(&sql("SELECT id FROM issues WHERE project = ? AND milestone = ? ORDER BY id"))
+            .bind(project)
+            .bind(&id)
+            .fetch_all(&mut *self.conn)
+            .await?;
         changes::begin(self.conn).await?;
         let done: Result<()> = async {
+            for issue in &held {
+                self.effects.tell_change("issue.milestone", project, issue, Some(&id), None);
+            }
             for statement in [
                 "UPDATE issues SET milestone = NULL WHERE project = ? AND milestone = ?",
                 "DELETE FROM milestone_aliases WHERE project = ? AND milestone = ?",
