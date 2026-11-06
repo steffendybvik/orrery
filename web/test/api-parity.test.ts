@@ -1575,6 +1575,31 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         ] as Step[]) await both(name, ts, rs)
     })
 
+    it('puts an issue in an epic and takes it out alike, by any form of its id (ORR-927, ORR-995)', async () => {
+        const ids: Record<string, string> = {}
+        for (const p of ['through-store', 'through-api']) ids[p] = (await store.createIssue(p, {title: 'Hang the clock'}, OWNER)).id
+        const {id: epic} = await store.createEpic({title: 'The clock tower'}, OWNER)
+        const uid = (await store.settings()).uid
+        type Step = [string, (p: string) => Promise<Outcome>, () => Promise<Outcome>]
+        const edit = (name: string, body: unknown, actor: Actor = OWNER): Step =>
+            [name, p => viaStore(() => store.updateIssue(p, ids[p]!, body, actor)), () => viaApi('PATCH', `/issues/${ids['through-api']}`, body, actor)]
+        for (const [name, ts, rs] of [
+            edit('into it by its number', {epic}),
+            edit('into it again, by its shown id in lower case', {epic: `epc-${epic}`}),
+            edit('out of it', {epic: null}),
+            edit('into it by its full id, with a title', {epic: `EPC-${epic}-${uid}`, title: 'Hang the big clock'}),
+            edit('by its number as a string', {epic: ` ${epic} `}),
+            edit('into one there isn\'t', {epic: 9999}),
+            edit('by another board\'s full id', {epic: `EPC-${epic}-aaaaaaaa`}),
+            edit('by a name', {epic: 'The clock tower'}),
+            edit('by a fraction', {epic: 1.5}),
+            edit('by a blank', {epic: '  '}),
+            edit('by an agent, with one person', {epic: null}, AGENT),
+            ['the activity', p => viaStore(() => store.listActivity(p, ids[p]!)), () => viaApi('GET', `/issues/${ids['through-api']}/activity`)],
+            ['the issue', p => viaStore(() => store.issue(p, ids[p]!)), () => viaApi('GET', `/issues/${ids['through-api']}`)],
+        ] as Step[]) await both(name, ts, rs)
+    })
+
     it('changes what an issue depends on alike, refusing itself, its parent, a sub-issue and a loop (ORR-927, ORR-601)', async () => {
         const ids: Record<string, Record<string, string>> = {}
         const key = (p: string) => p === 'through-store' ? 'STO' : 'API'
@@ -2086,7 +2111,8 @@ describe('the router', () => {
         for (const header of [null, '', 'p', 'p P-1 x']) expect(urgentOf(header), String(header)).toBeUndefined()
         expect(onlyWords({parent: null, milestone: '3', release: '1.0.0'})).toBe(true)
         expect(onlyWords({proposal: 'pending', notes: 'Still wanted?'})).toBe(true)
-        for (const body of [{title: 'x', status: 'todo'}, {assignee: 'claude'}, {epic: 1}, {project: 'q'}, {}, null, [], 'title']) expect(onlyWords(body), JSON.stringify(body)).toBe(false)
+        expect(onlyWords({epic: 'EPC-1', title: 'x'})).toBe(true)
+        for (const body of [{title: 'x', status: 'todo'}, {assignee: 'claude'}, {epic: 1, choices: []}, {project: 'q'}, {}, null, [], 'title']) expect(onlyWords(body), JSON.stringify(body)).toBe(false)
         expect(domainOf('DELETE', '/api/projects/p/issues')).toBeUndefined()
         for (const path of ['/api/projects/p/issues/P-1/activity/x', '/api/', '/docs', '/api/projects/p/docs/d/artifact']) expect(domainOf('GET', path), path).toBeUndefined()
     })

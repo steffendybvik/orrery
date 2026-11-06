@@ -39,9 +39,9 @@ export const DOMAINS: readonly {domain: string, paths: RegExp, methods?: readonl
     // as `Orrery-Told`, and puts them in the outbox (ORR-929). Deleting many at once stays here.
     {domain: 'an issue, deleted', paths: /^projects\/[^/]+\/issues\/[^/]+$/, methods: ['DELETE']},
     // Changing an issue's own words (ORR-927): its title, priority, notes, labels, tasks, GitHub issues, parent,
-    // milestone, release, what it depends on, whether it's a proposal, model, effort and place. One it makes urgent comes
+    // milestone, release, epic, what it depends on, whether it's a proposal, model, effort and place. One it makes urgent comes
     // back with `Orrery-Urgent`, for the push here (`sayUrgent`). An edit naming any other field stays here (`wordsOnly`),
-    // as its status, assignee, epic and moving it to another project wake sessions or claim the issue. The chat's rails and a session's claim are checked here first.
+    // as its status, assignee and moving it to another project wake sessions or claim the issue, and `choices` isn't ported yet. The chat's rails and a session's claim are checked here first.
     {domain: 'an issue, its words', paths: /^projects\/[^/]+\/issues\/[^/]+$/, methods: ['PATCH'], first: {PATCH: wordsOnly}},
     // Taking an issue up and letting it go (ORR-927, ORR-657): the API tells the claim and a new assignee back, as
     // `Orrery-Told`, and puts them in the outbox (ORR-929).
@@ -98,7 +98,7 @@ export const DOMAINS: readonly {domain: string, paths: RegExp, methods?: readonl
 type LocalCheck = (event: H3Event, rest: string) => Promise<unknown>
 
 /** The fields of an issue's edit the API changes (`api/src/issue_edits.rs`, `WORDS`). */
-export const ISSUE_WORDS: readonly string[] = ['title', 'priority', 'labels', 'external', 'github_issues', 'notes', 'proposal', 'parent', 'milestone', 'release', 'depends_on', 'model', 'effort', 'position']
+export const ISSUE_WORDS: readonly string[] = ['title', 'priority', 'labels', 'external', 'github_issues', 'notes', 'proposal', 'parent', 'milestone', 'release', 'epic', 'depends_on', 'model', 'effort', 'position']
 
 /** Whether an issue's edit names only its own words, so the API can make it: a body that isn't an object, or is
  * empty, stays here too, for its answer. */

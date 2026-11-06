@@ -1,9 +1,9 @@
 // Changing an issue's own words (ORR-927): the part of `updateIssue` in web/server/store/issues.ts that changes what an
 // issue says, where it sits among its siblings and what it's under, and nothing that moves it on the board: `title`,
-// `priority`, `notes`, `labels`, its tasks (`external`), its GitHub issues, its `parent`, `milestone` and `release`, what it
-// depends on, whether it's a `proposal`, the `model` and `effort` a session for it starts on, and its `position`. The router
-// sends a `PATCH …/issues/{issue}` here only when it names none of the other fields (`wordsOnly`), so its status, assignee,
-// epic and moving it to another project stay the Nuxt server's for now. The rails are the store's: an agent changes only its person's
+// `priority`, `notes`, `labels`, its tasks (`external`), its GitHub issues, its `parent`, `milestone`, `release` and `epic`,
+// what it depends on, whether it's a `proposal`, the `model` and `effort` a session for it starts on, and its `position`. The
+// router sends a `PATCH …/issues/{issue}` here only when it names none of the other fields (`wordsOnly`), so its status,
+// assignee, `choices` and moving it to another project stay the Nuxt server's for now. The rails are the store's: an agent changes only its person's
 // issue, or its own proposal, and moves one only under an issue that's its person's too.
 use crate::changes;
 use crate::comments::Comments;
@@ -18,7 +18,7 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::LazyLock;
 
 /// The fields this takes, in the order `ISSUE_FIELDS` has them, which is the order its problems are listed in.
-pub const WORDS: [&str; 14] = [
+pub const WORDS: [&str; 15] = [
     "title",
     "priority",
     "labels",
@@ -29,6 +29,7 @@ pub const WORDS: [&str; 14] = [
     "parent",
     "milestone",
     "release",
+    "epic",
     "depends_on",
     "model",
     "effort",
@@ -55,6 +56,8 @@ pub struct Words {
     pub parent: Option<Option<String>>,
     pub milestone: Option<Option<String>>,
     pub release: Option<Option<String>>,
+    /// The epic it's part of, as it was sent: its number, `EPC-1` or its full id (ORR-995).
+    pub epic: Option<Option<String>>,
     /// What it depends on, all of it (ORR-601): `Some(vec![])` for none.
     pub depends_on: Option<Vec<String>>,
     /// `pending` puts it (back) to the owner, null commits it.
@@ -160,6 +163,15 @@ pub fn check_words(body: &Value) -> Result<Words> {
             "parent" => words.parent = text(key, value, &mut problems, |_| None),
             "milestone" => words.milestone = text(key, value, &mut problems, |_| None),
             "release" => words.release = text(key, value, &mut problems, |_| None),
+            // `EPIC_REF`: a whole number or a string that isn't blank.
+            "epic" => match value {
+                Value::Null => words.epic = Some(None),
+                Value::String(sent) if !sent.trim().is_empty() => words.epic = Some(Some(sent.trim().to_string())),
+                Value::Number(n) if n.as_i64().is_some() || n.as_f64().is_some_and(|f| f.fract() == 0.0 && f.is_finite()) => {
+                    words.epic = Some(Some(n.as_i64().map_or_else(|| format!("{}", n.as_f64().unwrap_or_default()), |i| i.to_string())))
+                }
+                other => problems.push(format!("\"epic\": should be an epic's number or id, such as 1 or \"EPC-1\", not {}", js(other))),
+            },
             "model" => words.model = text(key, value, &mut problems, |sent| (!MODEL.is_match(sent)).then(|| format!("\"model\" is \"{sent}\"; {MODEL_HINT}"))),
             "effort" => {
                 words.effort = text(key, value, &mut problems, |sent| {
@@ -198,6 +210,7 @@ struct Before {
     parent: Option<String>,
     milestone: Option<String>,
     ships_in: Option<String>,
+    epic: Option<i64>,
 }
 
 /// Where an edit puts the issue, as `updateIssue` works it out: each `None` when it's left as it is.
@@ -225,7 +238,7 @@ impl Comments<'_> {
         self.issue_there(project, &issue).await?;
         let words = check_words(body)?;
         let row = sqlx::query(&sql(
-            "SELECT title, status, priority, labels, external, github_issues, notes, model, effort, assignee, proposal, created_person, parent, milestone, ships_in FROM issues WHERE project = ? AND id = ?",
+            "SELECT title, status, priority, labels, external, github_issues, notes, model, effort, assignee, proposal, created_person, parent, milestone, ships_in, CAST(epic AS BIGINT) AS epic FROM issues WHERE project = ? AND id = ?",
         ))
         .bind(project)
         .bind(&issue)
@@ -247,6 +260,7 @@ impl Comments<'_> {
             parent: row.get("parent"),
             milestone: row.get("milestone"),
             ships_in: row.get("ships_in"),
+            epic: row.get::<Option<i64>, _>("epic"),
         };
         if words.proposal == Some(None) && !actor.owner {
             if let Some(proposal) = row.proposal.as_deref() {
@@ -269,6 +283,11 @@ impl Comments<'_> {
             }
         }
         let place = self.placement(project, &issue, &words, &row).await?;
+        let epic = match &words.epic {
+            None => None,
+            Some(None) => Some(None),
+            Some(Some(sent)) => Some(Some(self.epic_id(sent).await?)),
+        };
         // Put up again, it's the owner's to decide, so it's theirs; a claim on it ends when that reassigns it.
         let pending = words.proposal.as_ref().is_some_and(|p| p.as_deref() == Some("pending"));
         let assignee = if pending { Some(self.owner_id().await?) } else { None };
@@ -310,7 +329,8 @@ impl Comments<'_> {
             } else {
                 ("milestone", row.milestone.as_deref(), place.milestone.as_ref().map(Option::as_deref))
             };
-            let changed: [Change; 12] = [
+            let (epic_before, epic_after) = (row.epic.map(|e| e.to_string()), epic.map(|e| e.map(|e| e.to_string())));
+            let changed: [Change; 13] = [
                 ("title", Some(row.title.as_str()), words.title.as_deref().map(Some)),
                 ("priority", row.priority.as_deref(), words.priority.as_ref().map(Option::as_deref)),
                 ("assignee", row.assignee.as_deref(), assignee.as_deref().map(Some)),
@@ -321,6 +341,7 @@ impl Comments<'_> {
                 ("proposal", row.proposal.as_deref(), words.proposal.as_ref().map(Option::as_deref)),
                 placed,
                 ("release", row.ships_in.as_deref(), place.release.as_ref().map(Option::as_deref)),
+                ("epic", epic_before.as_deref(), epic_after.as_ref().map(Option::as_deref)),
                 ("model", row.model.as_deref(), words.model.as_ref().map(Option::as_deref)),
                 ("effort", row.effort.as_deref(), words.effort.as_ref().map(Option::as_deref)),
             ];
@@ -329,7 +350,7 @@ impl Comments<'_> {
                 let Some(after) = after else { continue };
                 // The release an issue ships in is kept as `ships_in`, and a milestone is written whether or not the
                 // new parent is noted in its place; a parent only when the edit sends one.
-                if !matches!(field, "parent" | "milestone" | "release") {
+                if !matches!(field, "parent" | "milestone" | "release" | "epic") {
                     set.push((field, after.map(Into::into)));
                 }
                 if after == before {
@@ -360,6 +381,9 @@ impl Comments<'_> {
             if reassigned {
                 columns.extend(["claimed_by", "claimed_at", "claimed_session"].map(|c| format!("{c} = NULL")));
             }
+            if epic.is_some() {
+                columns.push("epic = ?".into());
+            }
             if words.position.is_some() {
                 columns.push("position = ?".into());
             }
@@ -368,6 +392,9 @@ impl Comments<'_> {
             let mut update = sqlx::query(&query);
             for (_, value) in &set {
                 update = update.bind(value.clone());
+            }
+            if let Some(epic) = epic {
+                update = update.bind(epic);
             }
             if let Some(position) = words.position {
                 update = if position.fract() == 0.0 && position.abs() < 9e15 { update.bind(position as i64) } else { update.bind(position) };
@@ -457,6 +484,16 @@ impl Comments<'_> {
         }
         let moved = words.parent.is_some() && parent != row.parent;
         Ok(Placement { parent, moved, sent_parent: words.parent.is_some(), milestone, release: words.release.clone() })
+    }
+
+    /// The epic sent as its number, `EPC-1` or its full id (`epicRow`, ORR-995), 404 when there's none.
+    async fn epic_id(&mut self, sent: &str) -> Result<i64> {
+        let settings = crate::settings::Settings::new(&mut *self.conn).get().await?;
+        let found = match epic_number(sent, settings["uid"].as_str().unwrap_or_default()).and_then(|n| n.parse::<i64>().ok()) {
+            Some(id) => sqlx::query(&sql("SELECT id FROM epics WHERE id = ?")).bind(id).fetch_optional(&mut *self.conn).await?.map(|_| id),
+            None => None,
+        };
+        found.ok_or_else(|| ApiError::not_found(format!("No epic {sent}: GET /api/epics lists them")))
     }
 
     /// The issue's parent, or `None` at the top.
@@ -652,6 +689,25 @@ impl Comments<'_> {
     }
 }
 
+/// An epic's number from any form of its id (`numberOf`): `14`, `EPC-14` in any case, or the full `EPC-14-x7k2m9qd`;
+/// `None` for anything else, a full id from another board included.
+fn epic_number(sent: &str, uid: &str) -> Option<String> {
+    let digits = |s: &str| (!s.is_empty() && s.bytes().all(|b| b.is_ascii_digit())).then(|| s.to_string());
+    let after_prefix = |s: &str| s.get(..4).filter(|p| p.eq_ignore_ascii_case("EPC-")).and_then(|_| s.get(4..)).map(str::to_string);
+    let sent = sent.trim();
+    if let Some(number) = digits(sent) {
+        return Some(number);
+    }
+    // `shortId`: the id between the prefix and `-<uid>`.
+    let tail = format!("-{uid}");
+    let inner = after_prefix(sent)
+        .filter(|rest| !uid.is_empty() && rest.len() > tail.len() && rest.ends_with(&tail))
+        .map(|rest| rest[..rest.len() - tail.len()].to_string());
+    // `shownNumber`, of the inner id or else of what was sent.
+    let shown = after_prefix(inner.as_deref().unwrap_or(sent)).and_then(|n| digits(&n));
+    shown.or_else(|| inner.as_deref().and_then(digits))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -672,5 +728,20 @@ mod tests {
         assert!(check_words(&json!({"proposal": "changes"})).is_err());
         assert!(check_words(&json!({"github_issues": [0]})).is_err() && check_words(&json!({"labels": ["", "a"]})).is_err());
         assert!(check_words(&json!([])).is_err());
+        assert_eq!(check_words(&json!({"epic": 3})).unwrap().epic, Some(Some("3".to_string())));
+        assert_eq!(check_words(&json!({"epic": " EPC-3 "})).unwrap().epic, Some(Some("EPC-3".to_string())));
+        assert_eq!(check_words(&json!({"epic": null})).unwrap().epic, Some(None));
+        assert!(check_words(&json!({"epic": 1.5})).is_err() && check_words(&json!({"epic": " "})).is_err() && check_words(&json!({"epic": true})).is_err());
+    }
+
+    #[test]
+    fn finds_an_epics_number_as_number_of_does() {
+        let uid = "x7k2m9qd";
+        for (sent, number) in [("14", Some("14")), ("EPC-14", Some("14")), ("epc-14", Some("14")), ("EPC-14-x7k2m9qd", Some("14"))] {
+            assert_eq!(epic_number(sent, uid).as_deref(), number, "{sent}");
+        }
+        for sent in ["EPC-14-aaaaaaaa", "Launch", "EPC-", "MLS-14", "épc-1"] {
+            assert_eq!(epic_number(sent, uid), None, "{sent}");
+        }
     }
 }

@@ -328,8 +328,8 @@ paths:
       summary: Changes the issue's own words, priority, where it sits, what it depends on and whether it's a proposal
       description: |
         Only its `title`, `priority`, `notes`, `labels`, `external`, `github_issues`, `parent`, `milestone`, `release`,
-        `depends_on`, `proposal`, `model`, `effort` and `position`: the router keeps an edit naming any other field for the Nuxt
-        server. Null clears all but the title and position. A sub-issue is in its parent's milestone, so `parent` and
+        `epic`, `depends_on`, `proposal`, `model`, `effort` and `position`: the router keeps an edit naming any other field
+        for the Nuxt server. `epic` is an epic's number, `EPC-1` or its full id, 404 for one there isn't. Null clears all but the title and position. A sub-issue is in its parent's milestone, so `parent` and
         `milestone` aren't sent together; `parent: null` lifts it to the top, into its root's milestone unless one is
         sent. An agent's, with more than one person, only on its person's issue or its own proposal, and under a parent
         that's its person's too; and, with `restrict_proposals`, not the release of a proposal waiting on the owner.
@@ -358,6 +358,7 @@ paths:
                 parent: {type: [string, 'null'], description: An issue's id here, an alias or its full id}
                 milestone: {type: [string, 'null'], description: A milestone's id, an alias or its full id}
                 release: {type: [string, 'null'], description: The version of a release it ships in}
+                epic: {type: [string, integer, 'null'], description: 'The epic it''s part of: its number, `EPC-1` or its full id'}
                 depends_on: {type: [array, 'null'], items: {type: string}, description: 'All it depends on: `ID` here or `project/ID` in another'}
                 proposal: {type: [string, 'null'], enum: [pending, null], description: '`pending` puts it (back) to the owner; null commits it, the owner''s alone'}
                 model: {type: [string, 'null']}
