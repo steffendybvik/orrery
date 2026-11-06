@@ -142,7 +142,7 @@ export interface DocRevisionRow { id: number, project: string, doc: string, titl
 export interface EpicRow extends Made { id: number, title: string, notes: string | null, position: number }
 export interface ReleaseRow extends Made { project: string, version: string, branch: string | null, notes: string | null, frozen_on: string | null, shipped_on: string | null, doc_mark: number | null, position: number }
 export interface PresetRow { id: number, project: string | null, name: string, text: string, icon: string | null, color: string | null, default_key: string | null, created_at: string, updated_at: string }
-export interface SignalRow { person?: string | null, model?: string | null, id: number, project: string, issue: string | null, milestone: string | null, status: string | null, release: string | null, schedule: number | null, kind: 'focus' | 'comment' | 'message', note: string | null, preset: string | null, via: string | null, target: string | null, delivered_to: string, instructions: string, created_by: string, owned: number, created_at: string }
+export interface SignalRow { person?: string | null, epic?: number | null, model?: string | null, id: number, project: string, issue: string | null, milestone: string | null, status: string | null, release: string | null, schedule: number | null, kind: 'focus' | 'comment' | 'message', note: string | null, preset: string | null, via: string | null, target: string | null, delivered_to: string, instructions: string, created_by: string, owned: number, created_at: string }
 
 /** A model a session can start on, as `isModel` takes it (ORR-868). */
 export const MODEL = /^(best|opus|sonnet|haiku|fable|default|opusplan|claude-[a-z0-9.-]{1,56}(\[1m\])?)$/
@@ -325,11 +325,12 @@ export const SIGNAL_FIELDS: Record<string, Field> = {
 }
 
 /** A milestone's focus can be narrowed to its issues of some open statuses, `{status: 'todo,started'}` (ids or kinds),
- * and to those set for a release. */
+ * to those set for a release, and to those in an epic (ORR-987). */
 export const MILESTONE_SIGNAL_FIELDS: Record<string, Field> = {
     ...SIGNAL_FIELDS,
     status: {type: 'string', nullable: true},
     release: {type: 'string', nullable: true},
+    epic: {type: 'number', nullable: true},
 }
 
 export const STATUS_FIELDS = {
@@ -440,7 +441,7 @@ export function eventOf(row: EventRow): IssueEvent {
 
 export function signalOf(row: SignalRow): Signal {
     return {
-        id: row.id, project: row.project, issue: row.issue ?? undefined, milestone: row.milestone ?? undefined, status: row.status ?? undefined, release: row.release ?? undefined, schedule: row.schedule ?? undefined, kind: row.kind, note: row.note ?? undefined, preset: row.preset ?? undefined, ...row.via === 'chat' ? {via: 'chat' as const} : {},
+        id: row.id, project: row.project, issue: row.issue ?? undefined, milestone: row.milestone ?? undefined, status: row.status ?? undefined, release: row.release ?? undefined, ...row.epic === null || row.epic === undefined ? {} : {epic: Number(row.epic)}, schedule: row.schedule ?? undefined, kind: row.kind, note: row.note ?? undefined, preset: row.preset ?? undefined, ...row.via === 'chat' ? {via: 'chat' as const} : {},
         target: row.target ?? undefined, delivered_to: JSON.parse(row.delivered_to) as string[], instructions: JSON.parse(row.instructions) as string[], ...row.person ? {person: row.person} : {}, ...row.model ? {model: row.model} : {}, created_by: row.created_by, protected: !!row.owned, created_at: row.created_at,
     }
 }

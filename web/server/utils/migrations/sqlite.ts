@@ -1130,4 +1130,8 @@ export const MIGRATIONS: (string | ((db: DatabaseSync) => void))[] = [`
         updated_at TEXT NOT NULL
     );
     CREATE INDEX epic_comments_of ON epic_comments (epic);
+`, `
+    -- A focus on an epic (ORR-987): one signal per project it has open issues in, narrowed to the epic's issues as a
+    -- release narrows a milestone's. No key to the epic: deleting one leaves its old signals pointing at nothing.
+    ALTER TABLE signals ADD COLUMN epic INTEGER;
 `]

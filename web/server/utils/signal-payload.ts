@@ -50,17 +50,21 @@ export async function signalPayload(store: Store, project: string, signal: Signa
         const taken = new Set(me ? (await Promise.all(open.map(async i => await store.takenFrom(project, i.id, me) ? i.id : null))).filter(Boolean) : [])
         const status = wanted.length ? wanted.map(s => statuses.find(st => st.id === s)?.name ?? s).join(' or ') : undefined
         const query = new URLSearchParams({...!signal.milestone || signal.milestone === 'all' ? {} : {milestone: signal.milestone}, ...signal.status ? {status: signal.status} : {}, ...signal.release ? {release: signal.release} : {}})
-        const prompt = renderPrompt(templates.milestone, {
-            actor: signal.created_by, milestone: signal.milestone, title, status: status ?? 'open', priority: milestone.priority,
+        // An epic's (ORR-987) is told as the epic, in its project: "in epic 1: Rust api", not "in milestone all".
+        const scopeName = signal.epic === undefined ? signal.milestone : `epic ${signal.epic}`
+        const rendered = renderPrompt(templates.milestone, {
+            actor: signal.created_by, milestone: scopeName, title, status: status ?? 'open', priority: milestone.priority,
             where: where(name(milestone.column), milestone.priority), note: signal.note,
             issues: [
                 ...open.map(i => issueLine(i, statuses) + (taken.has(i.id) ? ' (another session is on it: skip it)' : '')),
                 // Blocked ones are named, so the session knows they're coming, but not to start (ORR-601).
                 ...held.map(i => issueLine({id: i.id, title: i.title, column: i.column, priority: i.priority ?? null}, statuses) + ` (blocked by ${i.blocked_by?.join(', ')}: not until ${i.blocked_by?.length === 1 ? "it's" : "they're"} done)`),
             ].join('\n') || '- none left',
-            url: !signal.milestone || signal.milestone === 'none' || signal.milestone === 'all' || signal.release || signal.status?.includes(',')
+            url: signal.epic !== undefined ? `${api.replace(/\/projects\/[^/]+$/, '')}/epics/${signal.epic}`
+                : !signal.milestone || signal.milestone === 'none' || signal.milestone === 'all' || signal.release || signal.status?.includes(',')
                 ? `'${api}/issues?${query}'` : `${api}/milestones/${encodeURIComponent(signal.milestone)}`,
         }, await withFreeze(signal.release)).replace(' []', '')
+        const prompt = signal.epic === undefined ? rendered : rendered.replaceAll(`milestone epic ${signal.epic}`, `epic ${signal.epic}`)
         return {...signal, status, title, column: name(milestone.column), priority: milestone.priority ?? null, milestone: title, issues: open.map(i => ({...i, column: name(i.column)})), prompt}
     }
     const issue = await store.issue(project, signal.issue)

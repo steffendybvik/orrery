@@ -205,9 +205,9 @@ export const PERMISSIONS: Permission[] = [
         member: ownerAlone,
     },
     {
-        id: 'signals.focus', area: 'Sessions', action: 'Ask sessions to focus on an issue or a milestone',
+        id: 'signals.focus', area: 'Sessions', action: 'Ask sessions to focus on an issue, a milestone or an epic',
         why: 'Only the owner points sessions at work, so a session can’t set others going.',
-        routes: ['POST /api/projects/:project/issues/:issue/focus', 'POST /api/projects/:project/milestones/:milestone/focus'],
+        routes: ['POST /api/projects/:project/issues/:issue/focus', 'POST /api/projects/:project/milestones/:milestone/focus', 'POST /api/epics/:epic/focus'],
         session: {level: 'owner', note: 'An agent’s focus is kept, and no session hears it'},
         chat: refused,
         untrusted: refused,
