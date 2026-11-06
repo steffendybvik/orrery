@@ -22,7 +22,7 @@ import {countOwnUse} from './usage'
  * passes, and taking it back to the routes here is taking the line out. Each matches a whole path after `/api/`, with no
  * slash at the end. A line with `methods` sends only those there, so a domain's reads can move before its writes
  * (`GET …/comments` before `POST …/comments`, ORR-927); one without takes every method its routes do. */
-export const DOMAINS: readonly {domain: string, paths: RegExp, methods?: readonly string[], first?: Partial<Record<string, LocalCheck>>}[] = [
+export const DOMAINS: readonly {domain: string, paths: RegExp, methods?: readonly string[], first?: Partial<Record<string, LocalCheck>>, tells?: LocalHeaders}[] = [
     // A project's docs, their revisions and sections (ORR-922). An artifact's page stays here: it's drawn with the
     // page's own sanitising and its locked-down headers (`artifact.get.ts`).
     {domain: 'docs', paths: /^projects\/[^/]+\/(docs(\/[^/]+(\/revisions(\/[^/]+(\/restore)?)?)?)?|deleted-docs|doc-sections(\/[^/]+)?)$/},
@@ -88,11 +88,23 @@ export const DOMAINS: readonly {domain: string, paths: RegExp, methods?: readonl
     // Changing a project (ORR-923): its name, key, icon, prompts, repo and where its releases come from. The reply is the
     // project with its board, without the `rev` that reading one adds here.
     {domain: 'a project, changed', paths: /^projects\/[^/]+$/, methods: ['PATCH']},
+    // Making a project (ORR-1001), held by whoever made it: who that is (`personOf`) is this server's to say, as
+    // `Orrery-Holder`. The reply is the new project with its board, without the `rev` that reading one adds here.
+    {domain: 'a project, made', paths: /^projects$/, methods: ['POST'], tells: holderOf},
 ]
 
 /** What this server checks itself before a request goes on, as only it knows (the sessions): refusing it throws, and
  * `'here'` keeps it for the routes here, for what the API doesn't do yet. */
 type LocalCheck = (event: H3Event, rest: string) => Promise<unknown>
+
+/** What only this server knows that a line's requests send on, as headers. */
+type LocalHeaders = (event: H3Event) => Promise<Record<string, string>>
+
+/** Who holds a project being made (`personOf`): none, and the API gives it to the owner, as the store does. */
+async function holderOf(event: H3Event): Promise<Record<string, string>> {
+    const holder = await personOf(event)
+    return holder ? {'Orrery-Holder': encodeURIComponent(holder)} : {}
+}
 
 /** The fields of an issue's edit the API changes (`api/src/issue_edits.rs`, `WORDS`). */
 export const ISSUE_WORDS: readonly string[] = ['title', 'priority', 'labels', 'external', 'github_issues', 'notes', 'proposal', 'parent', 'milestone', 'release', 'depends_on', 'model', 'effort', 'position']
@@ -290,6 +302,7 @@ export async function forwardToApi(event: H3Event, api: {url: string, token: str
                 ...actorHeaders(actor),
                 ...whoHeaders(event.context.who as Who | undefined, getCookie(event, loginCookie(event))),
                 ...loginHeaders({provider: oidcOn(), off: toldOff()}, getRequestURL(event, {xForwardedHost: true, xForwardedProto: true}).origin),
+                ...await found?.line.tells?.(event),
             },
             body: body ? new Uint8Array(body) : undefined,
             redirect: 'manual',

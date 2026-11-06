@@ -1,14 +1,15 @@
-// The orrery's projects: listing them (ORR-997) and changing one (ORR-923), as `listProjects` and `updateProject` do
-// (web/server/store/projects.ts), answering as `GET /api/projects` without `?expand=board` and `PATCH
-// /api/projects/:project` do. Each project is its row as `projectOf` hands it out (base.ts), with its docs, doc
+// The orrery's projects: listing them (ORR-997), making one (ORR-1001) and changing one (ORR-923), as `listProjects`,
+// `createProject` and `updateProject` do (web/server/store/projects.ts), answering as `GET /api/projects` without
+// `?expand=board`, `POST /api/projects` and `PATCH /api/projects/:project` do. Each project is its row as `projectOf` hands it out (base.ts), with its docs, doc
 // sections and releases, and its board or, listed, the board's counts and kinds and how many milestones it has.
 // Reading boards (`?expand=board`, `GET /api/projects/:project`) stays on the Nuxt server, as their `rev` is the events
-// stream's; making and deleting projects stay there too.
+// stream's; deleting a project stays there too.
 use crate::changes::{self, Outbox};
 use crate::db::sql;
 use crate::docs::{js, stamp, Actor, Docs, Effects};
 use crate::error::{ApiError, Result};
 use crate::issues::{kinds_json, sum, Board, Issues};
+use crate::migrate::uid_of;
 use crate::plans::Plans;
 use crate::settings::hex;
 use regex::Regex;
@@ -16,6 +17,7 @@ use serde_json::{json, Map, Value};
 use sqlx::any::AnyRow;
 use sqlx::{AnyConnection, Row};
 use std::sync::LazyLock;
+use unicode_normalization::UnicodeNormalization;
 
 const PROJECT_COLUMNS: &str = "id, name, key, uid, description, icon, icon_color, focus_prompt, milestone_prompt, instructions, muted, repo, \
     release_mode, releases_from, created_by, CAST(owned AS BIGINT) AS owned, created_at, updated_at";
@@ -41,6 +43,7 @@ const PROMPT_FIELDS: [&str; 4] = ["focus_prompt", "milestone_prompt", "instructi
 const RELEASE_MODES: [&str; 3] = ["none", "own", "shared"];
 const TINTS: [&str; 7] = ["slate", "blue", "teal", "green", "amber", "rose", "violet"];
 
+static NOT_SLUG: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[^a-z0-9]+").unwrap());
 static SLUG: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[a-z0-9][a-z0-9-]{0,39}$").unwrap());
 static KEY: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[A-Z][A-Z0-9]{0,9}$").unwrap());
 static ICON: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[a-z0-9]+(-[a-z0-9]+)*$").unwrap());
@@ -187,6 +190,77 @@ fn text(input: &Map<String, Value>, key: &str) -> Option<Option<String>> {
     input.get(key).map(|v| v.as_str().map(str::to_string))
 }
 
+/// The prompt fields are the owner's to send (`promptsAreTheOwners`).
+fn prompts_are_the_owners(input: &Map<String, Value>, actor: &Actor) -> Result<()> {
+    let sent: Vec<&str> = PROMPT_FIELDS.into_iter().filter(|key| input.contains_key(*key)).collect();
+    if !sent.is_empty() && !actor.owner {
+        return Err(ApiError::refused_for(
+            "prompts.write",
+            format!("Only the owner changes what sessions are told ({}); send Orrery-Actor: <owner>", sent.join(", ")),
+        ));
+    }
+    Ok(())
+}
+
+/// A template as kept: an empty one is none (the orrery's).
+fn template(input: &Map<String, Value>, key: &str) -> Option<String> {
+    input.get(key).and_then(Value::as_str).map(str::trim).filter(|t| !t.is_empty()).map(str::to_string)
+}
+
+/// A list as kept, as JSON: none is an empty one.
+fn list(input: &Map<String, Value>, key: &str) -> String {
+    input.get(key).filter(|v| !v.is_null()).map_or_else(|| "[]".to_string(), Value::to_string)
+}
+
+/// What it ships in, from what was sent and what it had (`releaseModeOf`).
+fn release_mode_of(input: &Map<String, Value>, mode: &str, from: Option<String>) -> Result<(String, Option<String>)> {
+    let releases_from = text(input, "releases_from");
+    Ok(match input.get("release_mode").and_then(Value::as_str) {
+        None => match releases_from {
+            Some(Some(sent)) => ("shared".into(), Some(sent)),
+            Some(None) if mode == "shared" => ("own".into(), None),
+            _ => (mode.to_string(), from),
+        },
+        Some("shared") => match releases_from.unwrap_or(from) {
+            Some(source) => ("shared".into(), Some(source)),
+            None => return Err(ApiError::bad_request("Say whose releases it ships in: \"releases_from\" with the other project's id")),
+        },
+        Some(asked) => {
+            if let Some(Some(_)) = releases_from {
+                return Err(ApiError::bad_request(format!(
+                    "A project with release_mode \"{asked}\" takes no other's releases; send \"shared\" with \"releases_from\", or leave it out"
+                )));
+            }
+            (asked.to_string(), None)
+        }
+    })
+}
+
+/// A name as an id: lowercase letters, digits and dashes, at most 40 (`slugify` in web/shared/roadmap/board.ts).
+pub(crate) fn slugify(text: &str) -> String {
+    let plain: String = text.to_lowercase().nfkd().collect();
+    let dashed = NOT_SLUG.replace_all(&plain, "-");
+    let trimmed = dashed.trim_matches('-');
+    trimmed[..trimmed.len().min(40)].trim_end_matches('-').to_string()
+}
+
+/// The keys no project can have (`RESERVED_KEYS`, ORR-995): a milestone's, an epic's and other kinds' ids start with them.
+const RESERVED_KEYS: [&str; 6] = ["MLS", "EPC", "DOC", "CHK", "PST", "SCH"];
+
+/// Three capitals from the name, e.g. `GRE` for Greenhouse; a reserved one takes a fourth letter, `EPCO` for Epcot (`keyFor`).
+pub(crate) fn key_for(name: &str) -> String {
+    let letters: String = name.to_uppercase().chars().filter(|c| c.is_ascii_uppercase() || c.is_ascii_digit()).collect();
+    let letters = letters.trim_start_matches(|c: char| c.is_ascii_digit());
+    let key = if letters.is_empty() { "ISS" } else { &letters[..letters.len().min(3)] };
+    if !RESERVED_KEYS.contains(&key) {
+        key.to_string()
+    } else if letters.len() > 3 {
+        letters[..4].to_string()
+    } else {
+        format!("{key}P")
+    }
+}
+
 /// The project's row as far as changing its releases takes it.
 struct ReleaseRow {
     id: String,
@@ -320,41 +394,83 @@ impl<'c> Projects<'c> {
         Ok(())
     }
 
+    /// Makes a project, held by `holder` (the owner when it doesn't say), and gives back its id (`createProject`).
+    pub async fn create(&mut self, body: &Value, actor: &Actor, holder: Option<&str>) -> Result<String> {
+        let input = check_input(body, false)?;
+        prompts_are_the_owners(&input, actor)?;
+        let name = input.get("name").and_then(Value::as_str).unwrap_or_default().trim().to_string();
+        let id = input.get("id").and_then(Value::as_str).map_or_else(|| slugify(&name), str::to_string);
+        if !SLUG.is_match(&id) {
+            return Err(ApiError::bad_request(format!("\"{name}\" doesn't make an id; give one in \"id\"")));
+        }
+        if self.release_row(&id).await?.is_some() {
+            return Err(ApiError::conflict(format!("There is already a project \"{id}\"")));
+        }
+        let key = input.get("key").and_then(Value::as_str).map_or_else(|| key_for(&name), str::to_string);
+        if RESERVED_KEYS.contains(&key.as_str()) {
+            return Err(ApiError::bad_request(format!(
+                "\"{key}\" is how a milestone's, an epic's, a doc's, a preset's or a schedule's id starts; give another in \"key\""
+            )));
+        }
+        let (mode, from) = release_mode_of(&input, "none", None)?;
+        if let Some(from) = &from {
+            self.check_releases_from(&id, from).await?;
+        }
+        let holder = match holder {
+            Some(holder) => Some(holder.to_string()),
+            None => sqlx::query("SELECT id FROM people WHERE role = 'owner'").fetch_optional(&mut *self.conn).await?.map(|r| r.get::<String, _>("id")),
+        };
+        changes::begin(self.conn).await?;
+        let done: Result<()> = async {
+            let now = stamp();
+            sqlx::query(&sql(
+                "INSERT INTO projects (id, name, key, uid, description, icon, icon_color, repo, release_mode, releases_from, focus_prompt, milestone_prompt, \
+                 instructions, muted, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            ))
+            .bind(&id)
+            .bind(&name)
+            .bind(&key)
+            .bind(uid_of(&hex(5)))
+            .bind(text(&input, "description").flatten())
+            .bind(text(&input, "icon").flatten())
+            .bind(text(&input, "icon_color").flatten())
+            .bind(text(&input, "repo").flatten())
+            .bind(&mode)
+            .bind(&from)
+            .bind(template(&input, "focus_prompt"))
+            .bind(template(&input, "milestone_prompt"))
+            .bind(list(&input, "instructions"))
+            .bind(list(&input, "muted"))
+            .bind(&actor.name)
+            .bind(i32::from(actor.owner))
+            .bind(&now)
+            .bind(&now)
+            .execute(&mut *self.conn)
+            .await?;
+            // Held by a person on this orrery; one that isn't (no owner named yet) holds nothing.
+            sqlx::query(&sql("INSERT INTO project_members (project, person, role, created_at) SELECT ?, id, 'owner', ? FROM people WHERE id = ?"))
+                .bind(&id)
+                .bind(&now)
+                .bind(holder)
+                .execute(&mut *self.conn)
+                .await?;
+            self.effects.changed = vec![id.clone()];
+            Ok(())
+        }
+        .await;
+        changes::finish(self.conn, self.outbox.as_mut(), &self.effects, done).await?;
+        Ok(id)
+    }
+
     /// Changes the project's fields; the prompt fields are the owner's (`updateProject`).
     pub async fn update(&mut self, id: &str, body: &Value, actor: &Actor) -> Result<()> {
         let row = self.release_row(id).await?.ok_or_else(|| ApiError::not_found(format!("No project \"{id}\"")))?;
         let input = check_input(body, true)?;
-        let sent: Vec<&str> = PROMPT_FIELDS.into_iter().filter(|key| input.contains_key(*key)).collect();
-        if !sent.is_empty() && !actor.owner {
-            return Err(ApiError::refused_for(
-                "prompts.write",
-                format!("Only the owner changes what sessions are told ({}); send Orrery-Actor: <owner>", sent.join(", ")),
-            ));
-        }
+        prompts_are_the_owners(&input, actor)?;
         if input.get("id").and_then(Value::as_str).is_some_and(|sent| sent != id) {
             return Err(ApiError::bad_request("A project's id can't change"));
         }
-        // `releaseModeOf`: what it ships in after this change.
-        let releases_from = text(&input, "releases_from");
-        let (mode, from) = match input.get("release_mode").and_then(Value::as_str) {
-            None => match &releases_from {
-                Some(Some(from)) => ("shared".to_string(), Some(from.clone())),
-                Some(None) if row.mode == "shared" => ("own".into(), None),
-                _ => (row.mode.clone(), row.from.clone()),
-            },
-            Some("shared") => match releases_from.clone().unwrap_or_else(|| row.from.clone()) {
-                Some(source) => ("shared".into(), Some(source)),
-                None => return Err(ApiError::bad_request("Say whose releases it ships in: \"releases_from\" with the other project's id")),
-            },
-            Some(asked) => {
-                if let Some(Some(_)) = releases_from {
-                    return Err(ApiError::bad_request(format!(
-                        "A project with release_mode \"{asked}\" takes no other's releases; send \"shared\" with \"releases_from\", or leave it out"
-                    )));
-                }
-                (asked.to_string(), None)
-            }
-        };
+        let (mode, from) = release_mode_of(&input, &row.mode, row.from.clone())?;
         let moved = mode != row.mode || from != row.from;
         if moved {
             self.check_release_mode(&row, &mode, from.as_deref()).await?;
@@ -372,13 +488,13 @@ impl<'c> Projects<'c> {
             sets.push(("releases_from", json!(from)));
             // An empty template is none (the orrery's); the lists are kept as JSON.
             for key in ["focus_prompt", "milestone_prompt"] {
-                if let Some(value) = input.get(key) {
-                    sets.push((key, value.as_str().map(str::trim).filter(|t| !t.is_empty()).map_or(Value::Null, |t| json!(t))));
+                if input.contains_key(key) {
+                    sets.push((key, template(&input, key).map_or(Value::Null, |t| json!(t))));
                 }
             }
             for key in ["instructions", "muted"] {
-                if let Some(value) = input.get(key) {
-                    sets.push((key, json!(if value.is_null() { "[]".to_string() } else { value.to_string() })));
+                if input.contains_key(key) {
+                    sets.push((key, json!(list(&input, key))));
                 }
             }
             let columns: Vec<String> = sets.iter().map(|(key, _)| format!("{key} = ?")).chain(["updated_at = ?".to_string()]).collect();
@@ -417,5 +533,40 @@ impl<'c> Projects<'c> {
         }
         .await;
         changes::finish(self.conn, self.outbox.as_mut(), &self.effects, done).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Each line is what `slugify` and `keyFor` (web/shared/roadmap/board.ts) give for the same name, as node says.
+    #[test]
+    fn slugify_matches_the_typescript() {
+        assert_eq!(slugify("Greenhouse"), "greenhouse");
+        assert_eq!(slugify("  My Shop!! 2.0 "), "my-shop-2-0");
+        assert_eq!(slugify("Café Crème"), "cafe-cre-me");
+        assert_eq!(slugify("Straße"), "stra-e");
+        assert_eq!(slugify("--a--b--"), "a-b");
+        assert_eq!(slugify("日本"), "");
+        assert_eq!(slugify(&"ab ".repeat(30)), "ab-ab-ab-ab-ab-ab-ab-ab-ab-ab-ab-ab-ab-a");
+        assert_eq!(slugify(&format!("{}-b", "a".repeat(39))), "a".repeat(39));
+        assert_eq!(slugify("ﬁle"), "file");
+    }
+
+    #[test]
+    fn key_for_matches_the_typescript() {
+        assert_eq!(key_for("Greenhouse"), "GRE");
+        assert_eq!(key_for("my shop"), "MYS");
+        assert_eq!(key_for("2048 game"), "GAM");
+        assert_eq!(key_for("42"), "ISS");
+        assert_eq!(key_for("日本"), "ISS");
+        assert_eq!(key_for("straße"), "STR");
+        assert_eq!(key_for("Epcot"), "EPCO");
+        assert_eq!(key_for("Epc"), "EPCP");
+        assert_eq!(key_for("ml s"), "MLSP");
+        assert_eq!(key_for("Docs"), "DOCS");
+        assert_eq!(key_for("a1b2"), "A1B");
+        assert_eq!(key_for("ﬁle"), "FIL");
     }
 }

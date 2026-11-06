@@ -582,7 +582,7 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         await store.db.run("INSERT INTO settings (key, value) VALUES ('starts', ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value", JSON.stringify({max: 2}))
         expect(await viaApi('GET', '/api/projects')).toEqual(await viaStore(() => store.listProjects()))
         expect(domainOf('GET', '/api/projects')).toBe('projects, listed')
-        expect(domainOf('POST', '/api/projects')).toBeUndefined()
+        expect(domainOf('POST', '/api/projects')).toBe('a project, made')
         expect(domainOf('GET', '/api/projects/through-api')).toBeUndefined()
         const listed = (await viaApi('GET', '/api/projects')).body as {id: string, milestones: number, docs: unknown[], starts?: unknown}[]
         expect(listed.find(p => p.id === 'through-api')).toMatchObject({milestones: 4, docs: expect.arrayContaining([expect.objectContaining({title: 'Joinery', section: 'Shop'})]), starts: {max: 2}})
@@ -663,6 +663,59 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         expect((outcomes[23]!.body as {board: {milestones: {tasks: {release?: string}[]}[]}}).board.milestones[0]!.tasks[0]).not.toHaveProperty('release')
         expect(domainOf('PATCH', '/api/projects/p')).toBe('a project, changed')
         for (const method of ['GET', 'DELETE']) expect(domainOf(method, '/api/projects/p'), method).toBeUndefined()
+    })
+
+    it('makes a project alike, its id and key from its name, held by whoever made it (ORR-1001)', async () => {
+        const holder = (await store.people())[0]?.id
+        type Step = [string, (p: string) => unknown, Actor?, string?]
+        const steps: Step[] = [
+            ['its id and key from its name', p => ({name: ` ${p} Garden `})],
+            ['the same again', p => ({name: `${p} Garden`})],
+            ['its own id and key, described, with an icon, a tint and a repo', p => ({name: 'Own', id: `${p}-own`, key: 'OWN', description: 'Mine', icon: 'wrench', icon_color: '#3B82f6', repo: 'https://github.com/ada/own'})],
+            ['a key ids start with', p => ({name: `${p} q`, key: 'MLS'})],
+            ['a name whose key ids start with', p => ({name: 'Epcot', id: `${p}-epcot`})],
+            ['a name that makes no id', () => ({name: '日本'})],
+            ['no name', () => ({})],
+            ['bad fields', () => ({name: 'x', icon: 'Bad!', release_mode: 'all', colour: 'red'})],
+            ['its prompts, by a session', p => ({name: `${p} told`, focus_prompt: 'Focus.'})],
+            ['its prompts, by the owner', p => ({name: `${p} told`, focus_prompt: '  Focus. ', milestone_prompt: ' ', instructions: [{id: 'a1', text: ' Be brief '}], muted: ['x', ' x']}), OWNER],
+            ['releases of its own', p => ({name: `${p} shipping`, release_mode: 'own'})],
+            ['releases from one without any', p => ({name: `${p} taking`, releases_from: `${p}-garden`})],
+            ['releases from one with its own', p => ({name: `${p} taking`, releases_from: `${p}-shipping`})],
+            ['releases from one that isn\'t there', p => ({name: `${p} lost`, releases_from: 'nowhere'})],
+            ['shared, from nobody', p => ({name: `${p} lone`, release_mode: 'shared'})],
+            ['not an object', () => ['name']],
+            ['held by someone', p => ({name: `${p} held`}), AGENT, holder],
+            ['held by nobody on the orrery', p => ({name: `${p} unheld`}), AGENT, 'nobody'],
+        ]
+        // Each project's own uid differs, so it's left out of what's compared.
+        const own = (outcome: Outcome): Outcome => {
+            const body = outcome.body as Record<string, unknown> | null
+            return body && typeof body === 'object' && 'uid' in body ? {...outcome, body: {...body, uid: '<uid>'}} : outcome
+        }
+        const outcomes: Outcome[] = []
+        for (const [name, body, actor = AGENT, held] of steps) {
+            outcomes.push(await both(name, async p => own(await viaStore(() => store.createProject(body(p), actor, held), 201)),
+                async () => own(await viaApi('POST', '/api/projects', body('through-api'), actor, '', held ? {'Orrery-Holder': encodeURIComponent(held)} : {}))))
+        }
+        // Who holds each, alike.
+        const members = async (p: string) => (await store.db.all<{project: string, person: string, role: string}>(
+            'SELECT project, person, role FROM project_members WHERE project LIKE ? ORDER BY project, person', `${p}-%`)).map(m => ({...m, project: m.project.replace(p, '<project>')}))
+        expect(await members('through-api')).toEqual(await members('through-store'))
+        // The steps compared something.
+        expect(outcomes[0]).toMatchObject({status: 201, body: {id: 'through-api-garden', name: 'through-api Garden', key: 'THR', release_mode: 'none', board: {milestones: []}}, changed: ['through-api-garden']})
+        expect(outcomes[1]).toMatchObject({status: 409})
+        expect(outcomes[3]).toMatchObject({status: 400})
+        expect(outcomes[4]).toMatchObject({status: 201, body: {key: 'EPCO'}})
+        expect(outcomes[5]).toMatchObject({status: 400})
+        expect(outcomes[8]).toMatchObject({status: 403})
+        expect(outcomes[9]).toMatchObject({status: 201, body: {focus_prompt: 'Focus.', muted: ['x']}})
+        expect(outcomes[9]!.body).not.toHaveProperty('milestone_prompt')
+        expect(outcomes[11]).toMatchObject({status: 400})
+        expect(outcomes[12]).toMatchObject({status: 201, body: {release_mode: 'shared', releases_from: 'through-api-shipping'}})
+        if (holder) expect(await members('through-api')).toContainEqual({project: '<project>-held', person: holder, role: 'owner'})
+        expect(domainOf('POST', '/api/projects')).toBe('a project, made')
+        expect(domainOf('DELETE', '/api/projects/p')).toBeUndefined()
     })
 
     it('makes, changes, refuses and deletes milestones alike, and tells what each did (ORR-974)', async () => {
@@ -1859,7 +1912,7 @@ describe('the router', () => {
     })
 
     it('routes by a table with a line per domain, so taking one back is taking its line out (ORR-925)', () => {
-        expect(DOMAINS.map(({domain}) => domain)).toEqual(['docs', 'statuses', 'issues, reading', 'comments', 'an issue, deleted', 'an issue, its words', 'claims', 'activity', 'milestones', 'releases', 'releases, every project\'s', 'people', 'invites', 'keys', 'logins', 'uploads, reading', 'presets', 'secrets, reading', 'settings', 'a pull request, reading', "a pull request's risk", 'schedules, reading', 'projects, listed', 'a project, changed'])
+        expect(DOMAINS.map(({domain}) => domain)).toEqual(['docs', 'statuses', 'issues, reading', 'comments', 'an issue, deleted', 'an issue, its words', 'claims', 'activity', 'milestones', 'releases', 'releases, every project\'s', 'people', 'invites', 'keys', 'logins', 'uploads, reading', 'presets', 'secrets, reading', 'settings', 'a pull request, reading', "a pull request's risk", 'schedules, reading', 'projects, listed', 'a project, changed', 'a project, made'])
         expect(domainOf('PATCH', '/api/projects/p/docs/d')).toBe('docs')
         expect(domainOf('head', '/api/projects/p/doc-sections/')).toBe('docs')
         for (const method of ['POST', 'DELETE']) expect(domainOf(method, '/api/projects/p/issues/P-1/claim'), method).toBe('claims')
@@ -2011,7 +2064,7 @@ describe('the contract (api/openapi.yaml)', () => {
     }
 
     it('has every route the router sends to the API, and no other', () => {
-        expect(contract()).toHaveLength(73)
+        expect(contract()).toHaveLength(74)
         expect(contract()).toEqual(routes())
     })
 

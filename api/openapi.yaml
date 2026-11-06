@@ -552,6 +552,23 @@ paths:
         stream's `rev`: the Nuxt server answers that, so the router never sends it here.
       responses:
         '200': {description: The projects, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/ProjectSummary'}}}}}
+    post:
+      summary: Makes a project
+      description: |
+        Its id is the `id` sent, else its name as a slug, and its key the `key` sent, else three capitals from its name
+        (one an id of another kind starts with, such as `MLS` or `EPC`, is refused when sent and takes a fourth letter
+        otherwise). Its prompts are the owner's (403); a taken id is refused (409). It's held by `Orrery-Holder`, the
+        person the router says made it, else by the owner. The reply is the project with its board, without the events
+        stream's `rev`.
+      parameters:
+        - {$ref: '#/components/parameters/actor'}
+        - {name: Orrery-Holder, in: header, required: false, schema: {type: string}, description: 'Who holds it, percent-encoded'}
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/ProjectInput'}}}}
+      responses:
+        '201': {description: 'The project, with its board', content: {application/json: {schema: {$ref: '#/components/schemas/Project'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
   /api/projects/{project}:
     parameters: [{$ref: '#/components/parameters/project'}]
     patch:
