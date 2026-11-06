@@ -367,6 +367,27 @@ async fn delete_comment(State(app): Shared, Path((project, issue, comment)): Pat
     Ok(reply(StatusCode::NO_CONTENT, None, effects))
 }
 
+/// `POST …/issues/{issue}/claim`: the issue, taken up by whoever's asking (`claimIssue`, ORR-657).
+async fn claim_issue(State(app): Shared, Path((project, issue)): Path<(String, String)>, headers: HeaderMap) -> Result<Response> {
+    claim_or_release(app, project, issue, headers, true).await
+}
+
+/// `DELETE …/issues/{issue}/claim`: the issue, let go (`releaseIssue`). It stays assigned.
+async fn release_issue(State(app): Shared, Path((project, issue)): Path<(String, String)>, headers: HeaderMap) -> Result<Response> {
+    claim_or_release(app, project, issue, headers, false).await
+}
+
+async fn claim_or_release(app: Arc<App>, project: String, issue: String, headers: HeaderMap, claim: bool) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    let mut comments = Comments::new(&mut conn);
+    comments.outbox = Some(Outbox::new(actor_of(&headers)));
+    let actor = actor_of(&headers);
+    let id = if claim { comments.claim(&project, &issue, &actor).await? } else { comments.release(&project, &issue, &actor).await? };
+    let effects = std::mem::take(&mut comments.effects);
+    let value = Issues::new(&mut conn).issue(&project, &id).await?;
+    Ok(reply(StatusCode::OK, Some(value), effects))
+}
+
 async fn get_activity(State(app): Shared, Path((project, issue)): Path<(String, String)>) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
     Ok(Json(Comments::new(&mut conn).activity(&project, &issue).await?).into_response())
@@ -775,7 +796,7 @@ async fn restore_presets(State(app): Shared, headers: HeaderMap) -> Result<Respo
 
 async fn health() -> Json<Value> {
     Json(
-        json!({"ok": true, "domains": ["docs", "statuses", "issues, reading", "comments, reading", "activity", "milestones", "releases", "people", "invites", "keys", "logins", "uploads, reading", "presets", "secrets, reading", "settings", "a pull request, reading", "a pull request's risk", "schedules, reading"]}),
+        json!({"ok": true, "domains": ["docs", "statuses", "issues, reading", "comments, reading", "activity", "claims", "milestones", "releases", "people", "invites", "keys", "logins", "uploads, reading", "presets", "secrets, reading", "settings", "a pull request, reading", "a pull request's risk", "schedules, reading"]}),
     )
 }
 
@@ -793,6 +814,7 @@ fn router(app: Arc<App>) -> Router {
         .route(&format!("{P}/doc-sections/{{section}}"), patch(patch_section).delete(delete_section))
         .route(&format!("{P}/issues"), get(list_issues))
         .route(&format!("{P}/issues/{{issue}}"), get(get_issue))
+        .route(&format!("{P}/issues/{{issue}}/claim"), post(claim_issue).delete(release_issue))
         .route(&format!("{P}/issues/{{issue}}/comments"), get(list_comments).post(create_comment))
         .route(&format!("{P}/issues/{{issue}}/comments/{{comment}}"), get(get_comment).patch(patch_comment).delete(delete_comment))
         .route(&format!("{P}/issues/{{issue}}/activity"), get(get_activity))

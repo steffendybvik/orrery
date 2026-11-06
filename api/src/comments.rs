@@ -404,6 +404,119 @@ impl<'c> Comments<'c> {
         changes::finish(self.conn, self.outbox.as_mut(), &self.effects, done).await
     }
 
+    // Claiming.
+
+    /// A person taking up an issue themselves (`claimIssue`, ORR-657), or an agent its person's: their own, or one that's
+    /// nobody's, which it assigns to them; the owner's on anyone's, which takes it over. 409 naming the holder otherwise.
+    pub async fn claim(&mut self, project: &str, sent: &str, actor: &Actor) -> Result<String> {
+        let issue = self.issue_id(project, sent).await?;
+        self.issue_there(project, &issue).await?;
+        let (held, claimed) = self.claim_of(project, &issue).await?;
+        let rails = self.rails_for(actor).await?;
+        let person = if actor.owner {
+            Some(self.owner_id().await?)
+        } else if let Some(person) = &actor.person {
+            Some(person.clone())
+        } else {
+            match &rails {
+                Some(person) => person.clone(),
+                None => Some(self.owner_id().await?),
+            }
+        };
+        let holder = self.holder_of(held.as_deref()).await?;
+        // Only the owner takes one over, and only a person assigns themselves what's nobody's.
+        if let Some(rails) = &rails {
+            if (person.is_none() || holder != person) && !(actor.person.is_some() && holder.is_none()) {
+                self.must_hold(rails.as_deref(), &issue, held.as_deref(), "take it up").await?;
+            }
+        }
+        let assignee = if holder == person { held.clone() } else { person.clone() };
+        changes::begin(self.conn).await?;
+        let done: Result<()> = async {
+            let guard = if actor.owner { "" } else { " AND coalesce(assignee, '') = ?" };
+            let query = format!("UPDATE issues SET assignee = ?, claimed_by = ?, claimed_at = ?, claimed_session = NULL WHERE project = ? AND id = ?{guard}");
+            let query = sql(&query);
+            let mut update = sqlx::query(&query).bind(assignee.clone()).bind(person.clone()).bind(stamp()).bind(project).bind(&issue);
+            if !actor.owner {
+                update = update.bind(held.clone().unwrap_or_default());
+            }
+            if update.execute(&mut *self.conn).await?.rows_affected() == 0 {
+                return Err(ApiError::conflict(format!("{issue} has just been reassigned; read it again")));
+            }
+            if assignee != held {
+                self.record_field(project, &issue, actor, "assignee", held.as_deref(), assignee.as_deref()).await?;
+            }
+            if person != claimed {
+                self.record_field(project, &issue, actor, "claim", claimed.as_deref(), person.as_deref()).await?;
+            }
+            self.touch_project(project).await
+        }
+        .await;
+        self.effects.changed = vec![project.into()];
+        changes::finish(self.conn, self.outbox.as_mut(), &self.effects, done).await?;
+        Ok(issue)
+    }
+
+    /// Lets go of a claim, which leaves the issue assigned (`releaseIssue`): its holder's, or the owner's on anyone's.
+    pub async fn release(&mut self, project: &str, sent: &str, actor: &Actor) -> Result<String> {
+        let issue = self.issue_id(project, sent).await?;
+        self.issue_there(project, &issue).await?;
+        let Some(claimed) = self.claim_of(project, &issue).await?.1.filter(|c| !c.is_empty()) else { return Ok(issue) };
+        let rails = self.rails_for(actor).await?;
+        let person = if actor.owner { Some(self.owner_id().await?) } else { actor.person.clone().or_else(|| rails.clone().flatten()) };
+        if rails.is_some() && person.as_deref() != Some(claimed.as_str()) {
+            return Err(ApiError::conflict(format!("{issue} is held by {claimed}, so only they or the owner can let it go")));
+        }
+        changes::begin(self.conn).await?;
+        let done: Result<()> = async {
+            sqlx::query(&sql("UPDATE issues SET claimed_by = NULL, claimed_at = NULL, claimed_session = NULL, updated_at = ? WHERE project = ? AND id = ?"))
+                .bind(stamp())
+                .bind(project)
+                .bind(&issue)
+                .execute(&mut *self.conn)
+                .await?;
+            self.record_field(project, &issue, actor, "claim", Some(&claimed), None).await?;
+            self.touch_project(project).await
+        }
+        .await;
+        self.effects.changed = vec![project.into()];
+        changes::finish(self.conn, self.outbox.as_mut(), &self.effects, done).await?;
+        Ok(issue)
+    }
+
+    /// The issue's assignee and who has claimed it.
+    async fn claim_of(&mut self, project: &str, issue: &str) -> Result<(Option<String>, Option<String>)> {
+        let row = sqlx::query(&sql("SELECT assignee, claimed_by FROM issues WHERE project = ? AND id = ?"))
+            .bind(project)
+            .bind(issue)
+            .fetch_one(&mut *self.conn)
+            .await?;
+        Ok((row.get("assignee"), row.get("claimed_by")))
+    }
+
+    /// Refuses an agent an issue that isn't its person's, naming who has it (`mustHold`), or one that names nobody.
+    async fn must_hold(&mut self, person: Option<&str>, issue: &str, assignee: Option<&str>, what: &str) -> Result<()> {
+        let Some(person) = person else {
+            return Err(ApiError::conflict(format!(
+                "This session names nobody on this orrery, so it can read and comment, but can't {what}. Set ORRERY_PERSON to your id (GET /api/people) where you start Claude Code, or send Orrery-Person."
+            )));
+        };
+        let holder = self.holder_of(assignee).await?;
+        if holder.as_deref() == Some(person) {
+            return Ok(());
+        }
+        let (with, instead) = match &holder {
+            Some(holder) => (format!("assigned to {holder}"), "comment on it instead, or pick another issue"),
+            None => ("assigned to nobody".to_string(), "a person has to assign it first"),
+        };
+        Err(ApiError::conflict(format!("{issue} is {with}, and this session is {person}'s, so it can't {what}; {instead}")))
+    }
+
+    async fn touch_project(&mut self, project: &str) -> Result<()> {
+        sqlx::query(&sql("UPDATE projects SET updated_at = ? WHERE id = ?")).bind(stamp()).bind(project).execute(&mut *self.conn).await?;
+        Ok(())
+    }
+
     async fn whose(&mut self, project: &str, issue: &str, id: i64) -> Result<Whose> {
         let row = sqlx::query(&sql(
             "SELECT body, CAST(owned AS BIGINT) AS owned, person, CAST(by_agent AS BIGINT) AS by_agent FROM comments WHERE project = ? AND issue = ? AND id = ?",
@@ -503,11 +616,17 @@ impl<'c> Comments<'c> {
 
     /// Notes the issue's new assignee in its activity, and tells it (`record`).
     async fn record_assignee(&mut self, project: &str, issue: &str, actor: &Actor, before: Option<&str>, after: &str) -> Result<()> {
+        self.record_field(project, issue, actor, "assignee", before, Some(after)).await
+    }
+
+    /// Notes a field's change in the issue's activity, and tells it as `issue.<field>` (`record`).
+    async fn record_field(&mut self, project: &str, issue: &str, actor: &Actor, field: &str, before: Option<&str>, after: Option<&str>) -> Result<()> {
         sqlx::query(&sql(
-            "INSERT INTO issue_events (project, issue, field, \"before\", \"after\", created_by, session_name, owned, created_at) VALUES (?, ?, 'assignee', ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO issue_events (project, issue, field, \"before\", \"after\", created_by, session_name, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
         ))
         .bind(project)
         .bind(issue)
+        .bind(field)
         .bind(before)
         .bind(after)
         .bind(&actor.name)
@@ -516,7 +635,7 @@ impl<'c> Comments<'c> {
         .bind(stamp())
         .execute(&mut *self.conn)
         .await?;
-        self.effects.tell_change("issue.assignee", project, issue, before, Some(after));
+        self.effects.tell_change(&format!("issue.{field}"), project, issue, before, after);
         Ok(())
     }
 
