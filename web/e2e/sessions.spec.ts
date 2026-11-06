@@ -113,8 +113,9 @@ test("shows the model each session runs on, from its hook, and the new one after
         const meter = page.locator('#session-e2e-model').getByTestId('context-meter')
         await expect(meter).toHaveCount(0)
         await request.post('/api/sessions', {data: {id: 'e2e-model', project: 'kitchen', event: 'Stop', context: 130_000}})
-        await expect(meter).toHaveText('65%')
-        await expect(meter).toHaveAttribute('title', '130k of 200k tokens in context (65%)')
+        // Sonnet 5.5's window is 1M, as every Claude 5 model's is (ORR-993).
+        await expect(meter).toHaveText('13%')
+        await expect(meter).toHaveAttribute('title', '130k of 1M tokens in context (13%)')
     } finally {
         channel.stop()
         await request.post('/api/sessions', {data: {id: 'e2e-model', project: 'kitchen', event: 'SessionEnd'}})
