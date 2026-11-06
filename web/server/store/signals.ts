@@ -167,7 +167,7 @@ export abstract class SignalStore extends IssueStore {
             status = words.map(one => all.some(s => s.id === one) ? one : LEGACY_KINDS[one] ?? one).join(',')
         }
         const release = input.release ? (await this.releaseRow(project, String(input.release))).version : null
-        const epic = input.epic === undefined || input.epic === null ? null : (await this.epicRow(Number(input.epic))).id
+        const epic = input.epic === undefined || input.epic === null ? null : (await this.epicRow(input.epic as string)).id
         const instructions = JSON.stringify(await this.instructionsFor(project, input.instructions))
         const row = await this.one<SignalRow>('INSERT INTO signals (project, milestone, status, release, epic, kind, note, target, person, instructions, model, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *',
             project, milestone, status, release, epic, 'focus', nullable(input.note), nullable(input.session), this.memberAiming(actor, input.session) ?? null, instructions, await this.milestoneModelNeeded(project, milestone, epic), actor.name, Number(actor.owner), stamp())

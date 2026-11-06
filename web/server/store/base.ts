@@ -2,7 +2,7 @@
 // records, the owner's protection, and writing.
 import {AsyncLocalStorage} from 'node:async_hooks'
 import type {ActivityField, Board, IssueStatus, Notice, Project, Settings, Signal, Starts} from '#shared/roadmap'
-import {shortId} from '#shared/roadmap'
+import {numberOf, shortId} from '#shared/roadmap'
 import type {Input} from '../utils/input'
 import {badRequest, notFound} from '../utils/input'
 import type {Db, Value} from '../utils/database'
@@ -202,8 +202,10 @@ export abstract class StoreBase {
         if (await this.get('SELECT 1 FROM milestones WHERE project = ? AND id = ?', project, id)) return id
         const alias = (await this.get<{milestone: string}>('SELECT milestone FROM milestone_aliases WHERE project = ? AND alias = ?', project, id))?.milestone
         if (alias) return alias
-        const short = shortId('milestone', id, (await this.projectRow(project)).uid)
-        return short === null ? id : await this.milestoneId(project, short)
+        const {uid} = await this.projectRow(project)
+        // `MLS-14` as it's shown (ORR-995), `MLS-14-x7k2m9qd` in full, or the full form of a name it had before.
+        const short = numberOf('milestone', id, uid) ?? shortId('milestone', id, uid)
+        return short === null || short === id ? id : await this.milestoneId(project, short)
     }
 
     /** Hands out the project's next id: KEY-n for an issue, n for a milestone. */

@@ -1,6 +1,8 @@
 <script setup lang="ts">
 // The epics (ORR-895): each one piece of work across projects, with its progress and the projects it spans, in the
 // order they're arranged in, a new one on top. A new one is named here; its issues join it from their own pages.
+import {shownId} from '#shared/roadmap'
+
 const router = useRouter()
 const {projects, ready, byId} = useRoadmaps()
 const {epics, failed, load} = useLiveEpics()
@@ -70,7 +72,7 @@ async function add() {
         <li v-for="epic in epics" :key="epic.id" class="border-b border-line last:border-b-0">
           <NuxtLink :to="epicPath(epic.id)" class="flex flex-col gap-1.5 px-3 py-2 hover:tint">
             <span class="flex flex-wrap items-center gap-x-3 gap-y-1">
-              <span class="font-mono text-xs text-faint">{{ epic.id }}</span>
+              <span class="font-mono text-xs text-faint">{{ shownId('epic', epic.id) }}</span>
               <span class="min-w-0 truncate text-[13px] font-medium text-fg">{{ epic.title }}</span>
               <span class="ml-auto flex items-center gap-3 text-xs text-faint">
                 <span>{{ issues(epic.issues) }}</span>

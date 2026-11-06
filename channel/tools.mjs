@@ -26,10 +26,10 @@ const FIELDS = {
     external: {type: 'array', items: {type: 'string'}, description: "Team tracker task ids or URLs"},
     github_issues: {type: 'array', items: {type: 'string'}, description: 'GitHub issues it came from: 523, owner/name#523'},
     assignee: {type: ['string', 'null'], description: '"claude", or "owner" for the owner'},
-    milestone: {type: ['string', 'null'], description: "A milestone's id"},
+    milestone: {type: ['string', 'null'], description: "A milestone's number or id (MLS-14)"},
     parent: {type: ['string', 'null'], description: 'Makes it a sub-issue of this issue'},
     release: {type: ['string', 'null'], description: 'The release version it ships in'},
-    epic: {type: ['integer', 'null'], description: 'An epic: work across projects'},
+    epic: {type: ['integer', 'string', 'null'], description: 'An epic: work across projects, by its number or id (EPC-1)'},
     depends_on: {type: 'array', items: {type: 'string'}, description: 'Issues it waits on (all); chain ordered follow-ups'},
     choices: CHOICES,
 }
@@ -102,13 +102,13 @@ export const TOOLS = [
     },
     {
         name: 'update_epic',
-        description: "Changes an epic's title or notes, by its number: send only what changes.",
-        inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'integer'}, title: {type: 'string'}, notes: {type: ['string', 'null']}}},
+        description: "Changes an epic's title or notes, by its number or id (EPC-1): send only what changes.",
+        inputSchema: {type: 'object', required: ['id'], properties: {id: {type: ['integer', 'string']}, title: {type: 'string'}, notes: {type: ['string', 'null']}}},
     },
     {
         name: 'comment_epic',
-        description: "Comments on an epic, by its number (Markdown): words on its page, which ask nothing and wake no session.",
-        inputSchema: {type: 'object', required: ['id', 'body'], properties: {id: {type: 'integer'}, body: {type: 'string'}}},
+        description: "Comments on an epic, by its number or id (EPC-1, Markdown): words on its page, which ask nothing and wake no session.",
+        inputSchema: {type: 'object', required: ['id', 'body'], properties: {id: {type: ['integer', 'string']}, body: {type: 'string'}}},
     },
     {
         name: 'docs',

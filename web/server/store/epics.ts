@@ -2,7 +2,7 @@
 // across the orrery, and its progress is its issues', counted the way a release's are. An issue is in one at most
 // (`epic`), and a sub-issue with none goes with its parent's.
 import type {Epic, EpicDetail, Issue} from '#shared/roadmap'
-import {emptyKinds} from '#shared/roadmap'
+import {emptyKinds, fullId, numberOf} from '#shared/roadmap'
 import {checkInput, notFound} from '../utils/input'
 import {refusedFor} from '../utils/permission'
 import type {EpicRow} from './schema'
@@ -15,9 +15,11 @@ export abstract class EpicStore extends ReleaseStore {
     /** Tells open pages the epics changed (`/api/events`' `epics`), so they ask for them again. */
     epicsChanged: () => void = () => {}
 
-    protected async epicRow(id: number): Promise<EpicRow> {
-        const row = Number.isInteger(id) ? await this.get<EpicRow>('SELECT * FROM epics WHERE id = ?', id) : undefined
-        if (!row) throw notFound(`No epic ${id}: GET /api/epics lists them`)
+    /** The epic from its number or any form of its id (ORR-995): `1`, `EPC-1`, or `EPC-1-x7k2m9qd` in full. */
+    protected async epicRow(sent: number | string): Promise<EpicRow> {
+        const id = Number(numberOf('epic', sent, (await this.settings()).uid))
+        const row = Number.isInteger(id) && String(sent).trim() !== '' ? await this.get<EpicRow>('SELECT * FROM epics WHERE id = ?', id) : undefined
+        if (!row) throw notFound(`No epic ${sent}: GET /api/epics lists them`)
         return row
     }
 
@@ -38,10 +40,11 @@ export abstract class EpicStore extends ReleaseStore {
         const boards = await Promise.all(projects.map(project => readReleaseBoard(this.db, project, statuses)))
         const together = tallyEpics(ids, boards)
         const parts = boards.map(board => tallyEpics(ids, [board]))
+        const {uid} = await this.settings()
         return rows.map(row => {
             const {issues, kinds} = together.get(row.id) ?? {issues: 0, kinds: emptyKinds()}
             return {
-                ...epicOf(row), issues, kinds,
+                ...epicOf(row), full_id: fullId('epic', row.id, uid), issues, kinds,
                 projects: projects.flatMap((project, at) => {
                     const part = parts[at]?.get(row.id)
                     return part && part.issues ? [{project, ...part}] : []

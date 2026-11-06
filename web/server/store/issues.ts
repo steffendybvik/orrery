@@ -82,7 +82,7 @@ export abstract class IssueStore extends ClaimStore {
         }
         if (milestone) await this.milestoneRow(project, milestone)
         const release = input.release ? (await this.releaseRow(project, String(input.release))).version : null
-        const epic = input.epic === undefined || input.epic === null ? null : (await this.epicRow(Number(input.epic))).id
+        const epic = input.epic === undefined || input.epic === null ? null : (await this.epicRow(input.epic as string)).id
         const github = await this.githubIssuesOf(project, input.github_issues)
         const depends = await this.linksFrom(project, null, input.depends_on)
         if (parent && depends?.some(l => l.project === project && l.id === parent)) throw badRequest(`${parent} is this issue's parent, so it can't depend on it`)
@@ -170,7 +170,7 @@ export abstract class IssueStore extends ClaimStore {
         }
         if (milestone) await this.milestoneRow(project, milestone)
         const release = input.release === undefined ? undefined : input.release === null ? null : (await this.releaseRow(project, String(input.release))).version
-        const epic = input.epic === undefined ? undefined : input.epic === null ? null : (await this.epicRow(Number(input.epic))).id
+        const epic = input.epic === undefined ? undefined : input.epic === null ? null : (await this.epicRow(input.epic as string)).id
 
         const title = input.title === undefined ? undefined : String(input.title).trim()
         const status = input.status === undefined && input.plan === undefined ? undefined : await this.resolveStatus(input.status, input.plan)

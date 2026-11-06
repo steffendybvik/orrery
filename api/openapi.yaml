@@ -999,7 +999,7 @@ components:
     doc: {name: doc, in: path, required: true, description: 'The doc''s id, or its full id on this board (`doc-ideas-x7k2m3qd`)', schema: {type: string}}
     revision: {name: revision, in: path, required: true, description: 'A revision''s id; ids run across the orrery', schema: {type: integer, minimum: 1}}
     issue: {name: issue, in: path, required: true, description: 'The issue''s id (`ORR-12`), an id it had before (an alias), or the full form of either on this board (`ORR-12-x7k2m3qd`)', schema: {type: string}}
-    milestone: {name: milestone, in: path, required: true, description: 'The milestone''s id (`3`), an id it had before, or the full form of either on this board (`mls-3-x7k2m3qd`)', schema: {type: string}}
+    milestone: {name: milestone, in: path, required: true, description: 'The milestone''s id (`3`), an id it had before, or the full form of either on this board (`MLS-3-x7k2m3qd`), or as it''s shown (`MLS-3`)', schema: {type: string}}
     release: {name: release, in: path, required: true, description: The release's version, schema: {type: string}}
     preset: {name: preset, in: path, required: true, description: 'The preset''s number, or its full id on this server (`pst-12-x7k2m3qd`)', schema: {type: string}}
     comment: {name: comment, in: path, required: true, description: 'A comment''s id; ids run across the orrery', schema: {type: integer, minimum: 1}}
@@ -1414,7 +1414,7 @@ components:
           required: [tasks, full_id]
           properties:
             tasks: {type: array, items: {$ref: '#/components/schemas/Issue'}}
-            full_id: {type: string, description: '`mls-3-x7k2m3qd`: its id with the project''s uid'}
+            full_id: {type: string, description: '`MLS-3-x7k2m3qd`: its id with the project''s uid'}
     Release:
       type: object
       description: 'A release, with `issues` those set for it (a sub-issue''s when it differs from its parent''s) and `kinds` the leaves under them'
