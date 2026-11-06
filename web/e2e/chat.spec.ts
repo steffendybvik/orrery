@@ -1075,7 +1075,9 @@ test('opens from ⌘K ready to type into, and leaves typing elsewhere on the pag
     await expect(box).toBeFocused()
     // Typing elsewhere with the pane open stays there.
     const filter = page.getByRole('searchbox', {name: 'Filter by id or title'})
-    await filter.click()
+    // Focused rather than clicked: the toolbar is right-aligned, so whether the box sits under the floating pane hangs on
+    // which filter menus show (a Label one once an issue has a label), and a click there lands on the pane (ORR-1033).
+    await filter.focus()
     await page.keyboard.type('abc', {delay: 50})
     await expect(filter).toHaveValue('abc')
     await expect(filter).toBeFocused()
