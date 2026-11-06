@@ -117,8 +117,21 @@ export function sameScope(a: IssueScope, b: IssueScope): boolean {
 /** How much context a session carries, as its hook last said (ORR-968). */
 export interface ContextUse {tokens: number, window: number, compacted?: boolean}
 
-/** A model's context window in tokens (ORR-968): 1M for a `[1m]` model, or once more than 200k is in use, else 200k. */
-export const contextWindow = (model: string | undefined, tokens: number) => /\[1m\]/i.test(model ?? '') || tokens > 200_000 ? 1_000_000 : 200_000
+/** A model's context window in tokens (ORR-968, ORR-993), as Claude Code's own table of models has it: 1M for a `[1m]`
+ * id and for the models whose window is 1M as they are (every Claude 5 model, and Opus 4.7 on), whose ids don't say so;
+ * 200k for the older ones. A model it can't tell (none said yet, or an id it can't read) is on Claude Code's default,
+ * which is 1M. More than 200k in use is 1M whatever the model. */
+export function contextWindow(model: string | undefined, tokens: number): number {
+    if (tokens > 200_000 || /\[1m\]/i.test(model ?? '')) return 1_000_000
+    // Claude 3's ids put the version first (`claude-3-5-sonnet`): all 200k.
+    if (/claude-\d/i.test(model ?? '')) return 200_000
+    const match = /claude-([a-z]+)-(\d+)(?:-(\d{1,2}))?(?!\d)/i.exec(model ?? '')
+    if (!match) return 1_000_000
+    const [, family, major, minor] = match as unknown as [string, string, string, string | undefined]
+    const version = Number(major) + Number(minor ?? 0) / 100
+    if (version >= 5) return 1_000_000
+    return family.toLowerCase() === 'opus' && version >= 4.07 ? 1_000_000 : 200_000
+}
 
 /** How full a session's context is, from 0 to 1. */
 export const contextShare = ({tokens, window}: ContextUse) => Math.min(1, Math.max(0, tokens / window))

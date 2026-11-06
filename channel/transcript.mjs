@@ -1,13 +1,14 @@
 // What the hook reads off a Claude Code session's transcript: the model it runs on (ORR-871).
 import {closeSync, fstatSync, openSync, readSync} from 'node:fs'
 
-/** The model the session runs on (ORR-871): what `SessionStart` says, when it says, else after a turn (`Stop`) the
- * latest reply's in its transcript, so a `/model` switch shows too. Only the transcript's end is read, so a long one
+/** The model the session runs on (ORR-871): what `SessionStart` says, when it says, else after a turn (`Stop`) and on
+ * tool events the latest reply's in its transcript, so a `/model` switch shows too, and a session that started before
+ * its hook did still gets its window right (ORR-993). Only the transcript's end is read, so a long one
  * stays quick. Nothing when it can't tell. */
 export function modelOf(hook) {
     const given = typeof hook.model === 'string' ? hook.model : hook.model?.id
     if (typeof given === 'string' && given) return given
-    if (hook.hook_event_name !== 'Stop' || typeof hook.transcript_path !== 'string') return undefined
+    if (!CONTEXT_EVENTS.includes(hook.hook_event_name) || typeof hook.transcript_path !== 'string') return undefined
     return lastModel(hook.transcript_path)
 }
 

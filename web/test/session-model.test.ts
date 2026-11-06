@@ -3,7 +3,7 @@ import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {describe, expect, it} from 'vitest'
 import {contextOf, effortOf, lastModel, modelOf} from '../../channel/transcript.mjs'
-import {modelLabel} from '../shared/roadmap'
+import {contextWindow, modelLabel} from '../shared/roadmap'
 
 // Each session's model on the Sessions page (ORR-871): the hook reads it off the session's transcript, the latest
 // reply's, and the page names it as people say it.
@@ -31,11 +31,12 @@ describe("a session's model, from its transcript", () => {
         expect(lastModel(transcript('fresh.jsonl', [{type: 'user', message: {content: 'hi'}}]))).toBeUndefined()
     })
 
-    it('takes what SessionStart says first, and reads the transcript only on Stop', () => {
+    it('takes what SessionStart says first, and reads the transcript on Stop and tool events', () => {
         const path = transcript('stop.jsonl', [reply('claude-opus-5-5')])
         expect(modelOf({hook_event_name: 'SessionStart', model: 'claude-fable-5-1'})).toBe('claude-fable-5-1')
         expect(modelOf({hook_event_name: 'SessionStart', model: {id: 'claude-fable-5-1'}})).toBe('claude-fable-5-1')
-        expect(modelOf({hook_event_name: 'PreToolUse', transcript_path: path})).toBeUndefined()
+        expect(modelOf({hook_event_name: 'PreToolUse', transcript_path: path})).toBe('claude-opus-5-5')
+        expect(modelOf({hook_event_name: 'UserPromptSubmit', transcript_path: path})).toBeUndefined()
         expect(modelOf({hook_event_name: 'Stop', transcript_path: path})).toBe('claude-opus-5-5')
     })
 })
@@ -77,4 +78,28 @@ describe("a model's name, as people say it", () => {
         ['anthropic.claude-sonnet-5-5-v1:0', 'Sonnet 5.5'],
         ['some-other-model', 'some-other-model'],
     ])('%s is %s', (id, label) => expect(modelLabel(id)).toBe(label))
+})
+
+describe("a model's context window, as Claude Code's table of models has it (ORR-993)", () => {
+    it.each([
+        ['claude-opus-5-5', 1_000_000],
+        ['claude-sonnet-5-5', 1_000_000],
+        ['claude-haiku-5-5-20260101', 1_000_000],
+        ['claude-fable-5-1', 1_000_000],
+        ['us.anthropic.claude-opus-5-5', 1_000_000],
+        ['claude-opus-4-7', 1_000_000],
+        ['claude-opus-4-6', 200_000],
+        ['claude-opus-4-20250514', 200_000],
+        ['claude-sonnet-4-6', 200_000],
+        ['claude-sonnet-4-6[1m]', 1_000_000],
+        ['claude-haiku-4-5-20251001', 200_000],
+        ['claude-3-5-sonnet-20241022', 200_000],
+        ['some-other-model', 1_000_000],
+        [undefined, 1_000_000],
+    ])('%s is %i', (model, window) => expect(contextWindow(model, 10_000)).toBe(window))
+
+    it('is 1M once more than 200k is in use, whatever the model', () => {
+        expect(contextWindow('claude-sonnet-4-6', 200_000)).toBe(200_000)
+        expect(contextWindow('claude-sonnet-4-6', 200_001)).toBe(1_000_000)
+    })
 })
