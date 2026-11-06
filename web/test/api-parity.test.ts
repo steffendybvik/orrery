@@ -594,6 +594,77 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         expect(shared.body).toMatchObject({issues: 4, projects: [{project: 'through-api', issues: 3}, {project: 'through-api-drawing', issues: 1}]})
     })
 
+    it('changes a project alike, its prompts the owner\'s and its releases moved as the store moves them (ORR-923)', async () => {
+        for (const p of ['through-store', 'through-api']) {
+            const key = p === 'through-store' ? 'STO' : 'API'
+            await store.createProject({name: `${p}-bench`, key: `${key}K`})
+            await store.createProject({name: `${p}-src`, key: `${key}S`})
+        }
+        const on = (p: string) => `${p}-bench`
+        const src = (p: string) => `${p}-src`
+        const api = (body: unknown, actor: Actor = AGENT, project = 'through-api-bench') => viaApi('PATCH', '', body, actor, project)
+        const change = (name: string, body: (p: string) => unknown, actor: Actor = AGENT, of = on): [string, (p: string) => Promise<Outcome>, () => Promise<Outcome>] =>
+            [name, p => viaStore(() => store.updateProject(of(p), body(p), actor)), () => api(body('through-api'), actor, of('through-api'))]
+        const both2 = (name: string, step: (p: string) => Promise<unknown>): [string, (p: string) => Promise<Outcome>, () => Promise<Outcome>] =>
+            [name, p => viaStore(() => step(p)), () => viaStore(() => step('through-api'))]
+        const steps: [string, (p: string) => Promise<Outcome>, () => Promise<Outcome>][] = [
+            change('renamed, described, with an icon, a tint and a repo', () => ({name: ' Workbench ', description: 'Tools', icon: 'wrench', icon_color: 'teal', repo: 'https://github.com/ada/bench'})),
+            change('a hex tint, and the description cleared', () => ({icon_color: '#3B82f6', description: null, key: 'BENCH'})),
+            change('nothing sent', () => ({})),
+            change('its own id again', p => ({id: on(p)})),
+            change('another id', () => ({id: 'elsewhere'})),
+            change('bad fields', () => ({icon: 'Wrench!', icon_color: 'pink', repo: 'ftp://x/', key: 'lower', release_mode: 'all', colour: 'red'})),
+            change('one bad field', () => ({name: ' '})),
+            change('a name that can\'t be null', () => ({name: null})),
+            change('not a list', () => ({muted: 'x', instructions: [{text: ''}]}), OWNER),
+            change('its prompts, by a session', () => ({focus_prompt: 'Focus.', muted: ['x']})),
+            change('its prompts, by the owner', () => ({focus_prompt: '  Focus on it. ', milestone_prompt: ' ', instructions: [{id: 'a1', text: ' Be brief ', on: false}, {id: 'b2', text: 'Test first'}], muted: ['x', ' x', 'y']}), OWNER),
+            change('its prompts cleared', () => ({focus_prompt: null, instructions: null, muted: null}), OWNER),
+            change('releases from one without any', p => ({releases_from: src(p)})),
+            change('releases from itself', p => ({releases_from: on(p)})),
+            change('releases from one that isn\'t there', () => ({releases_from: 'nowhere'})),
+            change('shared, from nobody', () => ({release_mode: 'shared'})),
+            change('its own, from another', p => ({release_mode: 'own', releases_from: src(p)})),
+            change('the source with releases of its own', () => ({release_mode: 'own'}), OWNER, src),
+            both2('a release there, and one of its own', async p => {
+                await store.createRelease(src(p), {version: '1.0.0'}, OWNER)
+                await store.updateProject(on(p), {release_mode: 'own'}, OWNER)
+                return await store.createRelease(on(p), {version: '0.1.0'}, OWNER)
+            }),
+            change('to shared with releases of its own', p => ({releases_from: src(p)})),
+            change('to none with releases of its own', () => ({release_mode: 'none'})),
+            both2('its release gone, an issue set for the source\'s', async p => {
+                await store.deleteRelease(on(p), '0.1.0', OWNER)
+                await store.updateProject(on(p), {releases_from: src(p)}, OWNER)
+                return await store.createIssue(on(p), {title: 'Ship it', release: '1.0.0'}, OWNER)
+            }),
+            change('the source, leaving its own while drawn on', () => ({release_mode: 'none'}), OWNER, src),
+            change('back on its own, the source\'s release let go', () => ({releases_from: null})),
+            change('shared again, then none', p => ({release_mode: 'shared', releases_from: src(p)})),
+            change('none', () => ({release_mode: 'none'})),
+            change('not an object', () => ['name']),
+            change('one that isn\'t there', () => ({name: 'x'}), AGENT, () => 'nowhere'),
+        ]
+        // Each project's own key and uid differ, so they're left out of what's compared.
+        const own = (outcome: Outcome): Outcome => {
+            const body = outcome.body as Record<string, unknown> | null
+            return body && typeof body === 'object' && 'uid' in body ? {...outcome, body: {...body, key: '<key>', uid: '<uid>'}} : outcome
+        }
+        const outcomes: Outcome[] = []
+        for (const [name, ts, rs] of steps) outcomes.push(await both(name, async p => own(await ts(p)), async () => own(await rs())))
+        // The steps compared something.
+        expect(outcomes[0]).toMatchObject({status: 200, body: {name: 'Workbench', icon: 'wrench', board: {milestones: []}}, changed: ['through-api-bench']})
+        expect(outcomes[5]).toMatchObject({status: 400, body: {message: '6 problems in the body'}})
+        expect(outcomes[9]).toMatchObject({status: 403})
+        expect(outcomes[10]).toMatchObject({status: 200, body: {focus_prompt: 'Focus on it.', muted: ['x', 'y']}})
+        expect(outcomes[10]!.body).not.toHaveProperty('milestone_prompt')
+        expect(outcomes[19]).toMatchObject({status: 409})
+        expect(outcomes[23]).toMatchObject({status: 200, body: {release_mode: 'own'}, changed: ['through-api-bench', 'through-api-src']})
+        expect((outcomes[23]!.body as {board: {milestones: {tasks: {release?: string}[]}[]}}).board.milestones[0]!.tasks[0]).not.toHaveProperty('release')
+        expect(domainOf('PATCH', '/api/projects/p')).toBe('a project, changed')
+        for (const method of ['GET', 'DELETE']) expect(domainOf(method, '/api/projects/p'), method).toBeUndefined()
+    })
+
     it('makes, changes, refuses and deletes milestones alike, and tells what each did (ORR-974)', async () => {
         for (const p of ['through-store', 'through-api']) await store.createProject({name: `${p}-plans`, key: p === 'through-store' ? 'STOP' : 'APIP'})
         const on = (p: string) => `${p}-plans`
@@ -1788,7 +1859,7 @@ describe('the router', () => {
     })
 
     it('routes by a table with a line per domain, so taking one back is taking its line out (ORR-925)', () => {
-        expect(DOMAINS.map(({domain}) => domain)).toEqual(['docs', 'statuses', 'issues, reading', 'comments', 'an issue, deleted', 'an issue, its words', 'claims', 'activity', 'milestones', 'releases', 'releases, every project\'s', 'people', 'invites', 'keys', 'logins', 'uploads, reading', 'presets', 'secrets, reading', 'settings', 'a pull request, reading', "a pull request's risk", 'schedules, reading', 'projects, listed'])
+        expect(DOMAINS.map(({domain}) => domain)).toEqual(['docs', 'statuses', 'issues, reading', 'comments', 'an issue, deleted', 'an issue, its words', 'claims', 'activity', 'milestones', 'releases', 'releases, every project\'s', 'people', 'invites', 'keys', 'logins', 'uploads, reading', 'presets', 'secrets, reading', 'settings', 'a pull request, reading', "a pull request's risk", 'schedules, reading', 'projects, listed', 'a project, changed'])
         expect(domainOf('PATCH', '/api/projects/p/docs/d')).toBe('docs')
         expect(domainOf('head', '/api/projects/p/doc-sections/')).toBe('docs')
         for (const method of ['POST', 'DELETE']) expect(domainOf(method, '/api/projects/p/issues/P-1/claim'), method).toBe('claims')
@@ -1940,7 +2011,7 @@ describe('the contract (api/openapi.yaml)', () => {
     }
 
     it('has every route the router sends to the API, and no other', () => {
-        expect(contract()).toHaveLength(72)
+        expect(contract()).toHaveLength(73)
         expect(contract()).toEqual(routes())
     })
 
