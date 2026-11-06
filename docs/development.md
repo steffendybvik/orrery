@@ -49,7 +49,7 @@ packages as it starts.
 The playground runs the Rust API beside `nuxt dev`, with the router on (ORR-1029): `docker-compose.api.yml` in
 `compose.env`'s `COMPOSE_FILE` picks the Dockerfile's `dev-api` image, which sets `NUXT_API_BIN`, so the domains in
 `DOMAINS` (`web/server/utils/api-router.ts`) go to the API on the same SQLite file, and the server follows its outbox.
-`play` builds the image each start, so a change in `api/` is in it. Take that file off `COMPOSE_FILE` for the Nuxt
+It also turns the swap's flag on (`NUXT_API_ONLY`, ORR-1034), so those domains are the API's alone. `play` builds the image each start, so a change in `api/` is in it. Take that file off `COMPOSE_FILE` for the Nuxt
 server alone. The Orrerys you use don't run it until the owner says it has proven stable ([Rust API swap](/p/orrery/docs/rust-api-swap)).
 
 Without Docker: `pnpm install`, then `pnpm dev` on http://localhost:9000 (Node 24.22.1, pnpm 10.14.0).
@@ -94,6 +94,12 @@ How it fits together:
   comment's edit checks the session's claim on the issue (`claimFor`), as only this server knows the sessions.
 - **Falling back.** When the API is down, not started yet, or on another database (the owner moved it in App settings),
   the request goes on to the Nuxt routes, which still answer it.
+- **The swap's flag.** `NUXT_API_ONLY=1` (ORR-1034, off by default) makes the routed domains the API's alone: when it
+  can't answer, the request fails with a 503 that says why, logged once to the server's log and the event log
+  (`api.unreachable`) while it lasts, instead of falling back. What a line's `first` check keeps here (a session's
+  change of status, a session's or the chat's new issue, `?expand=board`) still goes to Nuxt, as the API doesn't do it
+  yet, and what a write sets off (open pages, the event log, schedules, sessions, the bell) stays Nuxt's either way.
+  The playground runs with it on; the Orrerys in use stay off until the owner says the swap has proven stable.
 
 **The page's side (ORR-943).** The page reaches the API through `web/app/utils/api.ts` alone, so where it sends a path is one
 setting: `NUXT_PUBLIC_API_BASES`, a JSON object of path prefix to base (`{"/projects/atlas/docs": "https://api.example.com/api"}`).
@@ -112,13 +118,15 @@ Running it: `cargo build` in `api/` (Rust 1.80 or later), then start the Nuxt se
 `NUXT_API_BIN=../api/target/debug/orrery-api`, which starts it beside itself on its own database with a fresh token,
 and stops it with itself. Or run one yourself and point at it: `NUXT_API_TOKEN` (16 characters or more) and
 `NUXT_DATABASE` for both, `ORRERY_API_LISTEN` for the API (`127.0.0.1:9100` by default), `NUXT_API_URL` for Nuxt.
-`ORRERY_API_LOG=1` has the API say each request it answers. Without any of these, Nuxt answers every route as before.
+`ORRERY_API_LOG=1` has the API say each request it answers, and `NUXT_API_ONLY=1` turns the swap's flag on. Without any
+of these, Nuxt answers every route as before.
 
 Its checks: `cargo fmt --check`, `cargo clippy -- -D warnings` and `cargo test` in `api/`. `web/test/api-parity.test.ts`
 runs the same steps through the store and through the API on one database (SQLite, or Postgres with
 `TEST_POSTGRES_URL`) and compares the replies, failures and what each said changed; it skips without a built binary,
 and CI's `api` job builds one first. It also holds `openapi.yaml` to the routes the router sends on. The browser suite
-runs through the API with `NUXT_API_BIN` set for `pnpm test:e2e` (or `test:e2e:login`), as its server inherits it;
+runs through the API with `NUXT_API_BIN` set for `pnpm test:e2e` (or `test:e2e:login`), as its server inherits it,
+and with `NUXT_API_ONLY=1` as well for the swap as the playground runs it;
 CI doesn't run it that way yet, and what it found the first time is in [Rust API swap](/p/orrery/docs/rust-api-swap).
 
 A change to a docs, statuses or issue-reading route is now a change in three places: the store

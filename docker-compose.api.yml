@@ -1,7 +1,9 @@
 # The Rust API swap, tried on the playground only (ORR-1029): on top of docker-compose.dev.yml, the dev image with the
 # Rust API's binary in it (the Dockerfile's dev-api), which the Nuxt server starts beside itself on the same SQLite file
 # and routes its domains to (web/server/utils/api-router.ts). `.playground/play` builds it each start, so a change in
-# api/ is in it. Never on the Orrerys you use until the owner says it has proven stable (rust-api-swap doc).
+# api/ is in it. NUXT_API_ONLY turns the swap's flag on (ORR-1034): the routed domains are the API's alone, so with it
+# down a request fails (503, said in the log) instead of falling through to Nuxt's routes. Never on the Orrerys you use
+# until the owner says it has proven stable (rust-api-swap doc).
 #
 # The board check isn't the Rust API's yet (ORR-928), so this stays this machine's only: docker-compose.dev.yml's one
 # port on 127.0.0.1, and no phone port.
@@ -9,3 +11,5 @@
 services:
   orrery:
     build: {context: ., target: dev-api}
+    environment:
+      NUXT_API_ONLY: "1"
