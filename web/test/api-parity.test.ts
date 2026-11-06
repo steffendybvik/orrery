@@ -23,7 +23,7 @@ import {PullPoll} from '../server/utils/pull-poll'
 import type {PolledRow} from '../server/utils/pull-poll'
 import {openDb} from '../server/utils/db'
 import {PostgresDb} from '../server/utils/postgres'
-import {actorHeaders, changedOf, countedOf, databaseMark, domainOf, DOMAINS, handedOn, handOn, loginHeaders, movesStatus, onlyWords, passedThrough, servedByApi, toldOf, urgentOf, whoHeaders} from '../server/utils/api-router'
+import {actorHeaders, changedOf, countedOf, databaseMark, domainOf, DOMAINS, handedOn, handoffsOf, handOn, loginHeaders, movesStatus, onlyWords, passedThrough, servedByApi, toldOf, urgentOf, whoHeaders} from '../server/utils/api-router'
 import {permission, refused} from '../server/utils/permission'
 import {followOutbox, readPage} from '../server/utils/outbox-follower'
 import {contract, methodOf, nuxtRoutes, pathOf} from './routes'
@@ -153,8 +153,7 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         const changed = response.headers.get('orrery-changed')
         const told = toldOf(response.headers.get('orrery-told')).map(t => `${t.type} ${t.subject}`)
         if (response.status >= 400) return {status: response.status, body: {message: json!.message, ...json!.data === undefined ? {} : {data: json!.data}}, changed: [], told: [], settings: false}
-        const handoff = handedOn(response.headers)
-        if (handoff) await handOn(store, handoff, actor)
+        for (const handoff of handoffsOf(response.headers)) await handOn(store, handoff, actor)
         for (const urgent of urgentOf(response.headers.get('orrery-urgent'))) await store.sayUrgent(urgent.project, urgent.issue, actor)
         return {status: response.status, body: json, changed: await sharing(changedOf(changed)), told, settings: response.headers.get('orrery-settings') === '1'}
     }
@@ -1861,6 +1860,57 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         // one given back to an agent that's nobody's stays put (ORR-656), so how many depends on the tests before.
     })
 
+    it('decides many proposals alike, each on its own, refusing a guess at picks (ORR-927)', async () => {
+        const start = (await store.db.get<{n: number | null}>('SELECT max(id) AS n FROM changes'))?.n ?? 0
+        const before = (await store.db.get<{n: number | null}>('SELECT max(id) AS n FROM signals'))?.n ?? 0
+        const key = (p: string) => p === 'through-store' ? 'STO' : 'API'
+        const options = [{key: 'A', title: 'Brass'}, {key: 'B', title: 'Steel'}]
+        const ids: Record<string, Record<string, string>> = {}
+        for (const p of ['through-store', 'through-api']) {
+            const make = async (title: string, more: Record<string, unknown> = {}, actor: Actor = AGENT) => (await store.createIssue(p, {title, ...more}, actor)).id
+            ids[p] = {
+                one: await make('A brass bezel', {proposal: 'pending'}),
+                two: await make('A steel crown', {proposal: 'pending', priority: 'P0'}),
+                sure: await make('Which metal?', {proposal: 'pending', choices: [{key: 'metal', question: 'Which metal?', options, recommended: ['A']}]}),
+                unsure: await make('Which finish?', {proposal: 'pending', choices: [{key: 'finish', question: 'Which finish?', options}]}),
+                plain: await make('Wind it', {}, OWNER),
+                later: await make('A moon dial', {proposal: 'pending'}),
+            }
+            await store.db.run('INSERT INTO issue_aliases (project, alias, issue) VALUES (?, ?, ?)', p, `${key(p)}-93`, ids[p]!.one)
+        }
+        type Step = [string, (p: string) => Promise<Outcome>, () => Promise<Outcome>]
+        const decide = (name: string, body: (p: string) => unknown, actor: Actor = OWNER): Step =>
+            [name, p => viaStore(() => store.decideIssues(p, body(p), actor)), () => viaApi('POST', '/issues/decide', body('through-api'), actor)]
+        const steps: Step[] = [
+            decide('no ids', () => ({decision: 'approved'})),
+            decide('an empty list', () => ({ids: [], decision: 'approved'})),
+            decide('with picks', p => ({ids: [ids[p]!.sure], decision: 'approved', picks: {metal: ['B']}})),
+            decide('with explore and no ids', () => ({decision: 'changes', explore: {choice: 'metal', option: 'A'}})),
+            decide('by an agent', p => ({ids: [ids[p]!.one], decision: 'approved'}), AGENT),
+            decide('no decision', p => ({ids: [ids[p]!.one]})),
+            decide('approved: by an id it had, twice, an urgent one, one with picks, one without, one not a proposal and one not there',
+                p => ({ids: [`${key(p)}-93`, ids[p]!.two, `${key(p)}-93`, ids[p]!.sure, ids[p]!.unsure, ids[p]!.plain, 'X-404'], decision: 'approved', note: 'All good.'})),
+            decide('changes asked for, where there are no picks to guess', p => ({ids: [ids[p]!.unsure], decision: 'changes'})),
+            decide('rejected', p => ({ids: [ids[p]!.later], decision: 'rejected', note: 'Not now.'})),
+            ['in a project that isn\'t there', () => viaStore(() => store.decideIssues('nowhere', {ids: ['X-1'], decision: 'approved'}, OWNER)), () => viaApi('POST', '/issues/decide', {ids: ['X-1'], decision: 'approved'}, OWNER, 'nowhere')],
+        ]
+        for (const [name, ts, rs] of steps) await both(name, ts, rs)
+        await quiet()
+        await both('the board after', p => viaStore(async () => (await store.listIssues(p)).map(i => `${i.title} ${i.status} ${i.assignee} ${i.proposal ?? ''}`).sort()), async () => {
+            const outcome = await viaApi('GET', '/issues')
+            return {...outcome, body: (outcome.body as {title: string, status: string, assignee: string, proposal?: string}[]).map(i => `${i.title} ${i.status} ${i.assignee} ${i.proposal ?? ''}`).sort()}
+        })
+        for (const which of ['one', 'two', 'sure', 'unsure', 'later']) {
+            await both(`${which}'s comments`, p => viaStore(() => store.listComments(p, ids[p]![which]!)), () => viaApi('GET', `/issues/${ids['through-api']![which]}/comments`))
+        }
+        const rows = async (p: string) => (await store.db.all<{kind: string, payload: string | null}>('SELECT kind, payload FROM changes WHERE project = ? AND id > ? ORDER BY id', p, start))
+            .map(r => `${r.kind} ${(r.payload ?? '').replace(/\b(STO|API)-(\d+)/g, 'KEY-$2')}`).sort()
+        expect(await rows('through-api')).toEqual(await rows('through-store'))
+        const signals = async (p: string) => (await store.db.all<{issue: string, kind: string, note: string | null}>('SELECT issue, kind, note FROM signals WHERE project = ? AND id > ? ORDER BY id', p, before))
+            .map(r => `${r.kind} ${r.issue.replace(/^(STO|API)-/, 'KEY-')} ${r.note ?? ''}`)
+        expect(await signals('through-api')).toEqual(await signals('through-store'))
+    })
+
     it('changes an issue\'s status and assignee alike, ending a claim, with the rails between people, and pushes a P0 opened again (ORR-927)', async () => {
         const start = (await store.db.get<{n: number | null}>('SELECT max(id) AS n FROM changes'))?.n ?? 0
         const ids: Record<string, Record<string, string>> = {}
@@ -2716,7 +2766,7 @@ describe('the router', () => {
         expect(domainOf('GET', '/api/projects/p/issues/P-1')).toBe('issues, reading')
         expect(domainOf('POST', '/api/projects/p/issues')).toBe('an issue, made')
         expect(domainOf('PATCH', '/api/projects/p/issues')).toBe('issues, changed at once')
-        expect(domainOf('POST', '/api/projects/p/issues/decide')).toBeUndefined()
+        expect(domainOf('POST', '/api/projects/p/issues/decide')).toBe('a proposal, decided')
         expect(domainOf('POST', '/api/projects/p/issues/P-1/decide')).toBe('a proposal, decided')
         expect(domainOf('GET', '/api/projects/p/issues/P-1/activity')).toBe('activity')
         expect(domainOf('POST', '/api/projects/p/issues/P-1/activity')).toBeUndefined()
@@ -2808,6 +2858,10 @@ describe('the router', () => {
         expect(said({})).toBeUndefined()
         expect(said({'Orrery-Carry': 'orrery ORR%2D1 12 edited'})).toMatchObject({carry: true, notice: false, edited: true})
         expect(said({'Orrery-Carry': 'orrery ORR%2D1 12 quiet'})).toMatchObject({carry: true, edited: false, quiet: true})
+        expect(handoffsOf(new Headers({'Orrery-Carry': 'p P%2D1 3, p P-2 4 quiet', 'Orrery-Notice': 'p P-2 4 quiet'}))).toEqual([
+            {project: 'p', issue: 'P-1', comment: 3, carry: true, notice: false, edited: false, quiet: false},
+            {project: 'p', issue: 'P-2', comment: 4, carry: true, notice: true, edited: false, quiet: true},
+        ])
         expect(changedOf('orrery, shop%20front')).toEqual(['orrery', 'shop front'])
         expect(changedOf(null)).toEqual([])
     })
@@ -2818,7 +2872,7 @@ describe('the contract (api/openapi.yaml)', () => {
     const routes = () => nuxtRoutes().filter(route => servedByApi(methodOf(route), pathOf(route)))
 
     it('has every route the router sends to the API, and no other', () => {
-        expect(contract()).toHaveLength(95)
+        expect(contract()).toHaveLength(96)
         expect(contract()).toEqual(routes())
     })
 

@@ -129,6 +129,23 @@ pub fn owner_only(actor: &Actor) -> Result<()> {
 }
 
 impl Comments<'_> {
+    /// One proposal's part of a decision on many (`decideIssues`): an approval needs a recommendation for each choice
+    /// that isn't down another's option, so nothing is approved on a guess.
+    pub async fn decide_one_of_many(&mut self, project: &str, sent: &str, decision: &Value, actor: &Actor) -> Result<(String, Handoff, bool)> {
+        let id = self.issue_id(project, sent).await?;
+        self.issue_there(project, &id).await?;
+        let row = sqlx::query(&sql("SELECT choices FROM issues WHERE project = ? AND id = ?")).bind(project).bind(&id).fetch_one(&mut *self.conn).await?;
+        let unsure: Vec<String> = stored(&row.get::<Option<String>, _>("choices").unwrap_or_default())
+            .into_iter()
+            .filter(|c| c.from.is_none() && c.recommended.is_empty())
+            .map(|c| format!("\"{}\"", c.question))
+            .collect();
+        if decision.get("decision").and_then(Value::as_str) == Some("approved") && !unsure.is_empty() {
+            return Err(ApiError::bad_request(format!("Needs your picks: nothing is recommended for {}", unsure.join(", "))));
+        }
+        self.decide(project, sent, decision, actor).await
+    }
+
     /// The owner's decision on the proposal (`decide`). Gives back its id, the comment's `Handoff`, and whether approving
     /// made it urgent open work, for the Nuxt server to pass on, as only it reaches the sessions.
     pub async fn decide(&mut self, project: &str, sent: &str, body: &Value, actor: &Actor) -> Result<(String, Handoff, bool)> {

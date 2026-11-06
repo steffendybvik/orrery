@@ -343,6 +343,18 @@ async fn create_comment(State(app): Shared, Path((project, issue)): Path<(String
     Ok(response)
 }
 
+/// The headers many comments' `Handoff`s are said in, each header's apart by commas.
+fn handoffs_headers(handoffs: &[Handoff]) -> Vec<(&'static str, String)> {
+    let mut said: Vec<(&'static str, Vec<String>)> = vec![];
+    for (header, one) in handoffs.iter().flat_map(handoff_headers) {
+        match said.iter_mut().find(|(h, _)| *h == header) {
+            Some((_, all)) => all.push(one),
+            None => said.push((header, vec![one])),
+        }
+    }
+    said.into_iter().map(|(header, all)| (header, all.join(", "))).collect()
+}
+
 /// The headers a new comment's `Handoff` is said in.
 fn handoff_headers(handoff: &Handoff) -> Vec<(&'static str, String)> {
     let encode = |s: &str| utf8_percent_encode(s, NON_ALPHANUMERIC).to_string();
@@ -451,6 +463,74 @@ async fn decide_issue(State(app): Shared, Path((project, issue)): Path<(String, 
     if urgent {
         let encode = |s: &str| utf8_percent_encode(s, NON_ALPHANUMERIC).to_string();
         response.headers_mut().insert("orrery-urgent", HeaderValue::from_str(&format!("{} {}", encode(&project), encode(&id))).unwrap());
+    }
+    Ok(response)
+}
+
+/// `POST …/issues/decide` `{ids, decision, note?}`: the owner's one decision on many proposals, each on its own as one
+/// is decided, so one refused doesn't stop the rest (`decideIssues`). Picks and explore go one at a time. `[{id, ok,
+/// error?}]`, an id once however often it's sent; each comment comes back in `Orrery-Carry`, and the ones approving
+/// made urgent in `Orrery-Urgent`, apart by commas.
+async fn decide_issues(State(app): Shared, Path(project): Path<String>, headers: HeaderMap, body: Bytes) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    let mut comments = Comments::new(&mut conn);
+    comments.project_uid(&project).await?;
+    let sent = body_of(&body);
+    let mut decision = sent.as_object().cloned().unwrap_or_default();
+    let ids = decision.remove("ids");
+    if decision.contains_key("picks") || decision.contains_key("explore") {
+        return Err(ApiError::bad_request("Many proposals at once take a decision and a note; picks and explore go one at a time"));
+    }
+    let ids = match ids {
+        Some(Value::Array(ids)) if !ids.is_empty() && ids.iter().all(Value::is_string) => {
+            ids.iter().filter_map(|id| id.as_str().map(String::from)).collect::<Vec<_>>()
+        }
+        _ => return Err(ApiError::bad_request(r#"Send "ids": the issues, as a list of their ids"#)),
+    };
+    let decision = Value::Object(decision);
+    let actor = actor_of(&headers);
+    let mut effects = docs::Effects::default();
+    let (mut urgent, mut handoffs, mut results) = (vec![], vec![], vec![]);
+    let mut seen: Vec<&String> = vec![];
+    for sent in &ids {
+        if seen.contains(&sent) {
+            continue;
+        }
+        seen.push(sent);
+        // Each decision is its own writes, as in the store: their own transactions and their own rows in the outbox.
+        comments.outbox = Some(Outbox::new(actor.clone()));
+        let done = comments.decide_one_of_many(&project, sent, &decision, &actor).await;
+        let said = std::mem::take(&mut comments.effects);
+        match done {
+            Ok((id, handoff, made)) => {
+                if !said.changed.is_empty() {
+                    effects.changed = said.changed;
+                }
+                effects.told.extend(said.told);
+                handoffs.push(handoff);
+                if made {
+                    urgent.push(id);
+                }
+                results.push(json!({"id": sent, "ok": true}));
+            }
+            Err(error) => results.push(json!({"id": sent, "ok": false, "error": error.message})),
+        }
+    }
+    // Once the batch ends the store says the project changed once more, for open pages (`each`): its row too.
+    if !effects.changed.is_empty() {
+        let once = docs::Effects { changed: effects.changed.clone(), ..Default::default() };
+        let conn = &mut *conn;
+        changes::begin(conn).await?;
+        changes::finish(conn, Some(&mut Outbox::new(actor)), &once, Ok(())).await?;
+    }
+    let mut response = reply(StatusCode::OK, Some(Value::Array(results)), effects);
+    for (header, said) in handoffs_headers(&handoffs) {
+        response.headers_mut().insert(header, HeaderValue::from_str(&said).unwrap());
+    }
+    if !urgent.is_empty() {
+        let encode = |s: &str| utf8_percent_encode(s, NON_ALPHANUMERIC).to_string();
+        let said = urgent.iter().map(|id| format!("{} {}", encode(&project), encode(id))).collect::<Vec<_>>().join(", ");
+        response.headers_mut().insert("orrery-urgent", HeaderValue::from_str(&said).unwrap());
     }
     Ok(response)
 }
@@ -1381,6 +1461,7 @@ fn router(app: Arc<App>) -> Router {
         .route(&format!("{P}/issues/{{issue}}"), get(get_issue).patch(patch_issue).delete(delete_issue))
         .route(&format!("{P}/issues/{{issue}}/claim"), post(claim_issue).delete(release_issue))
         .route(&format!("{P}/issues/{{issue}}/decide"), post(decide_issue))
+        .route(&format!("{P}/issues/decide"), post(decide_issues))
         .route(&format!("{P}/issues/{{issue}}/comments"), get(list_comments).post(create_comment))
         .route(&format!("{P}/issues/{{issue}}/comments/{{comment}}"), get(get_comment).patch(patch_comment).delete(delete_comment))
         .route(&format!("{P}/issues/{{issue}}/activity"), get(get_activity))
