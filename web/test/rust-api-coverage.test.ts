@@ -13,16 +13,17 @@ type Line = {routes: RegExp} & ({issue: `ORR-${number}`} | {stays: string})
 /** The Nuxt server's routes the router keeps, a line per reason: matched against `METHOD /api/path`, `{param}`s as they are. */
 const UNROUTED: readonly Line[] = [
     // Gaps: what a domain the API has taken over still does here, until its issue moves it.
-    {routes: /^(POST \/api\/projects\/\{project\}\/issues\/\{issue\}\/(focus|schedule-requests(\/\{comment\})?)|GET \/api\/projects\/\{project\}\/issues\/\{issue\}\/(branches|pulls)|POST \/api\/uploads)$/, issue: 'ORR-927'},
+    {routes: /^POST \/api\/uploads$/, issue: 'ORR-927'},
     {routes: /^(GET|POST|PUT|DELETE) \/api\/(auth\/(link|status)|owner|permissions|projects\/\{project\}\/members(\/\{person\})?)$/, issue: 'ORR-928'},
     {routes: /^(GET|DELETE) \/api\/projects\/\{project\}$|^\w+ \/api\/projects\/(\{project\}\/(export|import)|upload)$/, issue: 'ORR-1006'},
-    {routes: /^(POST|PATCH|DELETE) \/api\/(projects\/\{project\}\/schedules(\/\{schedule\}(\/(adopt|run))?|\/enabled)?|schedules(\/across\/\{across\})?)$/, issue: 'ORR-950'},
+    // An issue's schedule requests write schedules, so they move with them.
+    {routes: /^(POST|PATCH|DELETE) \/api\/(projects\/\{project\}\/schedules(\/\{schedule\}(\/(adopt|run))?|\/enabled)?|schedules(\/across\/\{across\})?)$|^POST \/api\/projects\/\{project\}\/issues\/\{issue\}\/schedule-requests(\/\{comment\})?$/, issue: 'ORR-950'},
     // What stays with the local app: the machine, its sessions and launcher, and what only it can do.
-    {routes: /^POST \/api\/(epics\/\{epic\}|projects\/\{project\}\/milestones\/\{milestone\})\/focus$/, stays: "a focus signals the sessions, which are the machine's (ORR-1004)"},
+    {routes: /^POST \/api\/(epics\/\{epic\}|projects\/\{project\}\/(milestones\/\{milestone\}|issues\/\{issue\}))\/focus$/, stays: "a focus signals the sessions, which are the machine's (ORR-1004, ORR-927)"},
     {routes: /^(GET|POST|PATCH|DELETE) \/api\/chats(\/\{chat\}(\/(clear|end|messages|replies|requests(\/\{message\})?))?)?$/, stays: "the chat's sessions are the local app's; the API keeps their rows, through PUT /api/chats/{chat}"},
     {routes: /^POST \/api\/auth\/(login|logout)$|^GET \/api\/auth\/oidc\/(start|callback)$/, stays: 'logging in and out is checked here (auth.ts); the API hears what that found'},
     {routes: /^(PUT|PATCH|DELETE) \/api\/secrets\/\{name\}$|^POST \/api\/egress$/, stays: "sealed with the machine's key (decision-rust-api-secrets-settings)"},
-    {routes: /^(GET|POST|DELETE) \/api\/pulls(\/(poll|branches))?$/, stays: 'asks GitHub, which is the local app\'s to do (ORR-952)'},
+    {routes: /^(GET|POST|DELETE) \/api\/pulls(\/(poll|branches))?$|^GET \/api\/projects\/\{project\}\/issues\/\{issue\}\/(branches|pulls)$/, stays: 'reads the local git repo or asks GitHub, which is the local app\'s to do (ORR-952, ORR-927)'},
     {routes: /^GET \/api\/projects\/\{project\}\/docs\/\{doc\}\/artifact$/, stays: "drawn with the page's own sanitising and its locked-down headers"},
     {routes: /^\w+ \/api\/(projects\/\{project\}\/)?(sessions|launches|signals|listeners|context)(\/.*)?$|^\w+ \/api\/signals\/stream$/, stays: 'the sessions, the launcher and their signals are the machine\'s'},
     {routes: /^\w+ \/api\/(backups|database|connects|events|usage|phone)(\/.*)?$|^GET \/api\/(machine|mcp|version|guide(\/using)?)$/, stays: "the machine's: its files, the event log, its own use, and what it says about itself"},
