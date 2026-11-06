@@ -158,6 +158,10 @@ export interface Issue {
 }
 
 /** Whether an issue waits on another that isn't done yet (ORR-601): nothing hands it out until it's free. */
+/** An issue in progress that's done with for now (ORR-1032): waiting on the owner's answer, or in review. It stays its
+ * session's, but doesn't keep the session from being handed more (`engaged` in the store). */
+export const parked = (issue: {status?: string, waiting?: string | null}) => !!issue.waiting || issue.status === 'in-review'
+
 export const isBlocked = (issue: {blocked_by?: string[]}) => !!issue.blocked_by?.length
 
 /** How an issue names another it's linked to (ORR-601): its id in the same project, `project/ID` in another. */

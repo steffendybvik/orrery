@@ -1,3 +1,4 @@
+import {parked} from '#shared/roadmap'
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 
 // A session out of work picking its next issue (ORR-452), with Nitro's auto-imports stubbed: the session as it is, the
@@ -7,7 +8,7 @@ type Listed = {id: string, project: string, state: string, listening: boolean, a
 let sessions: Listed[]
 let board: Record<string, {id: string, title: string, kind: string, column: string, priority?: string, parent?: string, proposal?: string, waiting?: string, assignee?: string, release?: string, created_at: string}[]>
 let on: boolean
-let working: string[]
+let working: (string | {id: string, status: string, waiting?: string})[]
 let waiting: boolean
 let run: {project: string, milestone: string} | undefined
 let left: {id: string}[]
@@ -57,10 +58,13 @@ beforeEach(async () => {
         ownerOf: async () => ({name: 'steffen'}),
         listIssues: async (project: string) => board[project] ?? [],
         heldAbove: async (_project: string, id: string) => held.includes(id) ? {parent: 'ORR-5', holder: 'builder'} : null,
-        workingOn: async (_project: string, _ids: string[]) => working.map(id => ({id})),
+        workingOn: async (_project: string, _ids: string[]) => working.map(w => typeof w === 'string' ? {id: w, status: 'in-progress'} : w),
         waiting: async (_project: string, _ids: string[]) => waiting,
         async busy(project: string, ids: string[]) {
             return (await this.workingOn(project, ids)).length > 0 || await this.waiting(project, ids)
+        },
+        async engaged(project: string, ids: string[]) {
+            return (await this.workingOn(project, ids)).some((i: {status?: string, waiting?: string}) => !parked(i)) || await this.waiting(project, ids)
         },
         project: async () => ({releases: [{version: '1.0.0', frozen_on: '2026-10-28'}]}),
         messageSession: async (project: string, session: string, text: string, actor: {owner: boolean}) => void sent.push({project, session, text, owner: actor.owner}),
@@ -158,6 +162,22 @@ describe('a session out of work', () => {
             set()
             expect(await pick.pickNext('orrery', 'w')).toBe(false)
         }
+        expect(sent).toEqual([])
+    })
+
+    it('is out of work with its issues in progress all parked: waiting on the owner, or in review (ORR-1032)', async () => {
+        // Seen: an idle session whose issue was left in progress, handed to the owner for their feedback, never picked.
+        working = [{id: 'ORR-9', status: 'in-progress', waiting: 'feedback'}, {id: 'ORR-8', status: 'in-review'}]
+        expect(await pick.pickNext('orrery', 'w')).toBe(true)
+        expect(ids(sent[0]!.text)).toEqual(['ORR-2', 'ORR-1'])
+    })
+
+    it('still has work with one issue in progress not parked, beside parked ones (ORR-1032)', async () => {
+        working = [{id: 'ORR-9', status: 'in-progress', waiting: 'decision'}, {id: 'ORR-8', status: 'in-progress'}]
+        expect(await pick.pickNext('orrery', 'w')).toBe(false)
+        working = [{id: 'ORR-9', status: 'in-review'}]
+        waiting = true
+        expect(await pick.pickNext('orrery', 'w')).toBe(false)
         expect(sent).toEqual([])
     })
 

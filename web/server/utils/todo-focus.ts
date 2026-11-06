@@ -86,7 +86,7 @@ async function idleSessions(project: string): Promise<ReturnType<typeof listSess
     const idle: ReturnType<typeof listSessions> = []
     for (const session of listSessions().filter(s => s.listening && s.state === 'idle' && hears(s, project))) {
         if (chatSession(session.id) || untrustedSession(session.id)) continue
-        if (await store.busy(project, sessionIds(session.id))) continue
+        if (await store.engaged(project, sessionIds(session.id))) continue
         idle.push(session)
     }
     return idle.sort((a, b) => Number(!!a.also?.length) - Number(!!b.also?.length))
@@ -153,7 +153,7 @@ export async function handUnblocked(project: string, issues: Map<string, {from?:
         const worker = blocker ? await store.workerOf(blocker.project, blocker.id) : null
         const finisher = worker ? listSessions().find(s => s.id === worker || sessionIds(s.id).includes(worker)) : undefined
         let session = finisher && theirs(finisher) && finisher.listening && hears(finisher, on) && !chatSession(finisher.id) && !untrustedSession(finisher.id)
-            && !given.has(finisher.id) && !await store.busy(on, sessionIds(finisher.id)) ? finisher : undefined
+            && !given.has(finisher.id) && !await store.engaged(on, sessionIds(finisher.id)) ? finisher : undefined
         session ??= (await idleSessions(on)).find(s => !given.has(s.id) && theirs(s))
         if (!session) continue
         given.add(session.id)

@@ -1,3 +1,4 @@
+import {parked} from '#shared/roadmap'
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 
 // An issue the owner moves into Todo going to an idle session (ORR-515), with Nitro's auto-imports stubbed: the
@@ -55,6 +56,9 @@ beforeEach(async () => {
         waiting: async (_project: string, ids: string[]) => ids.some(id => queued.includes(id)),
         async busy(project: string, ids: string[]) {
             return (await this.workingOn(project, ids)).length > 0 || await this.waiting(project, ids)
+        },
+        async engaged(project: string, ids: string[]) {
+            return (await this.workingOn(project, ids)).some((i: {status?: string, waiting?: string}) => !parked(i)) || await this.waiting(project, ids)
         },
         focusOnItsWay: async (_project: string, id: string) => onItsWay.includes(id),
         dependentsOf: async (_project: string, id: string) => links.filter(l => l.on === id).map(l => ({project: 'orrery', id: l.id})),
