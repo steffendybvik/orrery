@@ -9,7 +9,7 @@
 // When the API is down, or is on another database (the owner moved it), the request falls through to the routes here.
 import {createHash} from 'node:crypto'
 import type {H3Event} from 'h3'
-import {createError, getCookie, getRequestHeader, getRequestURL, readRawBody, setResponseHeader, setResponseStatus} from 'h3'
+import {createError, getCookie, getQuery, getRequestHeader, getRequestURL, readRawBody, setResponseHeader, setResponseStatus} from 'h3'
 import type {Feature} from '#shared/usage'
 import type {Actor} from '../store/schema'
 import type {Who} from './auth'
@@ -82,6 +82,9 @@ export const DOMAINS: readonly {domain: string, paths: RegExp, methods?: readonl
     // The schedules, read (ORR-930): a project's, one with its runs, every project's and those across projects. Making,
     // changing and running them stays here, as a run starts a session and a write can set one off (ORR-929).
     {domain: 'schedules, reading', paths: /^(projects\/[^/]+\/schedules(\/[^/]+)?|schedules(\/across)?)$/, methods: ['GET']},
+    // Every project, listed with its counts (ORR-997). With `?expand=board` it's their boards, each with the events
+    // stream's `rev`, so that stays here (`listedOnly`), as do reading one project and making, changing or deleting one.
+    {domain: 'projects, listed', paths: /^projects$/, methods: ['GET'], first: {GET: listedOnly}},
 ]
 
 /** What this server checks itself before a request goes on, as only it knows (the sessions): refusing it throws, and
@@ -117,6 +120,11 @@ async function wordsOnly(event: H3Event, rest: string) {
     }
     const [, project, issue] = /^projects\/([^/]+)\/issues\/([^/]+)$/.exec(rest) ?? []
     if (project && issue) await claimFor(event, decodeURIComponent(project), decodeURIComponent(issue))
+}
+
+/** The projects' list, kept here when it asks for their boards (`?expand=board`), as their `rev` is this server's. */
+async function listedOnly(event: H3Event) {
+    if (getQuery(event).expand !== undefined) return 'here' as const
 }
 
 /** A comment's edit, refused while another session is working on its issue (ORR-627), as its route here does. */

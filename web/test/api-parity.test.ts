@@ -576,6 +576,17 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         await read('releases in a project that isn\'t there', p => store.listReleases(p), () => '/releases', 'nowhere')
         // Every project's: one list for the orrery, so the same either way.
         expect(await viaApi('GET', '/api/releases')).toEqual(await viaStore(() => store.allReleases()))
+        // Every project, listed with its counts (ORR-997): one list for the orrery too, with docs, sections, releases
+        // drawn on and milestones by now. Asking for their boards stays with the Nuxt server.
+        await store.createDoc('through-api', {title: 'Joinery', body: 'Mortise first.', section: 'Shop'})
+        await store.db.run("INSERT INTO settings (key, value) VALUES ('starts', ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value", JSON.stringify({max: 2}))
+        expect(await viaApi('GET', '/api/projects')).toEqual(await viaStore(() => store.listProjects()))
+        expect(domainOf('GET', '/api/projects')).toBe('projects, listed')
+        expect(domainOf('POST', '/api/projects')).toBeUndefined()
+        expect(domainOf('GET', '/api/projects/through-api')).toBeUndefined()
+        const listed = (await viaApi('GET', '/api/projects')).body as {id: string, milestones: number, docs: unknown[], starts?: unknown}[]
+        expect(listed.find(p => p.id === 'through-api')).toMatchObject({milestones: 4, docs: expect.arrayContaining([expect.objectContaining({title: 'Joinery', section: 'Shop'})]), starts: {max: 2}})
+        await store.db.run("DELETE FROM settings WHERE key = 'starts'")
         // The steps compared something.
         const frame = await viaApi('GET', `/milestones/${ids['through-api']!.frame}`)
         expect(frame.body).toMatchObject({column: 'in-progress', summary: 'Square and glued', aliases: ['77'], issues: [ids['through-api']!.legs]})
@@ -1777,7 +1788,7 @@ describe('the router', () => {
     })
 
     it('routes by a table with a line per domain, so taking one back is taking its line out (ORR-925)', () => {
-        expect(DOMAINS.map(({domain}) => domain)).toEqual(['docs', 'statuses', 'issues, reading', 'comments', 'an issue, deleted', 'an issue, its words', 'claims', 'activity', 'milestones', 'releases', 'releases, every project\'s', 'people', 'invites', 'keys', 'logins', 'uploads, reading', 'presets', 'secrets, reading', 'settings', 'a pull request, reading', "a pull request's risk", 'schedules, reading'])
+        expect(DOMAINS.map(({domain}) => domain)).toEqual(['docs', 'statuses', 'issues, reading', 'comments', 'an issue, deleted', 'an issue, its words', 'claims', 'activity', 'milestones', 'releases', 'releases, every project\'s', 'people', 'invites', 'keys', 'logins', 'uploads, reading', 'presets', 'secrets, reading', 'settings', 'a pull request, reading', "a pull request's risk", 'schedules, reading', 'projects, listed'])
         expect(domainOf('PATCH', '/api/projects/p/docs/d')).toBe('docs')
         expect(domainOf('head', '/api/projects/p/doc-sections/')).toBe('docs')
         for (const method of ['POST', 'DELETE']) expect(domainOf(method, '/api/projects/p/issues/P-1/claim'), method).toBe('claims')
@@ -1929,7 +1940,7 @@ describe('the contract (api/openapi.yaml)', () => {
     }
 
     it('has every route the router sends to the API, and no other', () => {
-        expect(contract()).toHaveLength(71)
+        expect(contract()).toHaveLength(72)
         expect(contract()).toEqual(routes())
     })
 

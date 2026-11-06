@@ -543,6 +543,15 @@ paths:
       summary: Every project with releases of its own, with the projects drawing on it and their releases without notes, each with every project's part
       responses:
         '200': {description: The projects' releases, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/ProjectReleases'}}}}}
+  /api/projects:
+    get:
+      summary: Every project, by name, each with its counts
+      description: |
+        Each project's own fields, docs, doc sections and releases, and for its board only the counts and kinds of its
+        leaf issues and how many milestones it has. With `?expand=board` it's each one's board instead, with the events
+        stream's `rev`: the Nuxt server answers that, so the router never sends it here.
+      responses:
+        '200': {description: The projects, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/ProjectSummary'}}}}}
   /api/people:
     get:
       summary: Everyone on this orrery
@@ -1451,6 +1460,35 @@ components:
                   issues: {type: integer}
                   kinds: {$ref: '#/components/schemas/Kinds'}
                   tasks: {type: array, items: {$ref: '#/components/schemas/Issue'}}
+    ProjectSummary:
+      type: object
+      required: [id, name, key, uid, instructions, muted, release_mode, created_by, protected, created_at, updated_at, docs, doc_sections, releases, counts, kinds, milestones]
+      properties:
+        id: {type: string}
+        name: {type: string}
+        key: {type: string, description: 'What its issue ids start with: KEY-n'}
+        uid: {type: string}
+        description: {type: string}
+        icon: {type: string}
+        icon_color: {type: string}
+        focus_prompt: {type: string, description: Its own focus template; left out when it uses the orrery's}
+        milestone_prompt: {type: string, description: Its own milestone template; left out when it uses the orrery's}
+        instructions: {type: array, items: {type: object}}
+        muted: {type: array, items: {type: string}}
+        starts: {type: object, description: 'Whether orrery may start sessions, and within what: the orrery''s setting; left out until the owner lets it'}
+        repo: {type: string}
+        release_mode: {type: string, enum: [none, own, shared]}
+        releases_from: {type: string, description: The project it takes its releases from, when shared}
+        created_by: {type: string}
+        protected: {type: boolean}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+        docs: {type: array, items: {$ref: '#/components/schemas/DocSummary'}}
+        doc_sections: {type: array, items: {type: string}}
+        releases: {type: array, items: {$ref: '#/components/schemas/Release'}}
+        counts: {$ref: '#/components/schemas/Counts'}
+        kinds: {$ref: '#/components/schemas/Kinds'}
+        milestones: {type: integer, description: How many milestones it has}
     ProjectReleases:
       type: object
       required: [project, projects, releases]
