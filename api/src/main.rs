@@ -391,6 +391,24 @@ async fn release_issue(State(app): Shared, Path((project, issue)): Path<(String,
     claim_or_release(app, project, issue, headers, false).await
 }
 
+/// `POST …/issues` with only an issue's own words (`issue_edits::WORDS`): 201 the new issue (`createIssue`), and
+/// `Orrery-Urgent` when it's urgent open work.
+async fn create_issue(State(app): Shared, Path(project): Path<String>, headers: HeaderMap, body: Bytes) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    let mut comments = Comments::new(&mut conn);
+    comments.outbox = Some(Outbox::new(actor_of(&headers)));
+    let (id, urgent) = comments.create_issue(&project, &body_of(&body), &actor_of(&headers)).await?;
+    let effects = std::mem::take(&mut comments.effects);
+    let value = Issues::new(&mut conn).issue(&project, &id).await?;
+    let mut response = reply(StatusCode::CREATED, Some(value), effects);
+    // Urgent open work: the Nuxt server pushes it to the sessions (`sayUrgent`), as only it reaches them.
+    if urgent {
+        let encode = |s: &str| utf8_percent_encode(s, NON_ALPHANUMERIC).to_string();
+        response.headers_mut().insert("orrery-urgent", HeaderValue::from_str(&format!("{} {}", encode(&project), encode(&id))).unwrap());
+    }
+    Ok(response)
+}
+
 /// `PATCH …/issues/{issue}` with only an issue's own words and priority (`issue_edits::WORDS`): the issue
 /// (`updateIssue`), and `Orrery-Urgent` when it made it urgent open work.
 async fn patch_issue(State(app): Shared, Path((project, issue)): Path<(String, String)>, headers: HeaderMap, body: Bytes) -> Result<Response> {
@@ -1251,7 +1269,7 @@ fn router(app: Arc<App>) -> Router {
         .route(&format!("{P}/deleted-docs"), get(deleted_docs))
         .route(&format!("{P}/doc-sections"), get(list_sections).post(create_section))
         .route(&format!("{P}/doc-sections/{{section}}"), patch(patch_section).delete(delete_section))
-        .route(&format!("{P}/issues"), get(list_issues).delete(delete_issues))
+        .route(&format!("{P}/issues"), get(list_issues).post(create_issue).delete(delete_issues))
         .route(&format!("{P}/issues/{{issue}}"), get(get_issue).patch(patch_issue).delete(delete_issue))
         .route(&format!("{P}/issues/{{issue}}/claim"), post(claim_issue).delete(release_issue))
         .route(&format!("{P}/issues/{{issue}}/comments"), get(list_comments).post(create_comment))

@@ -1,10 +1,12 @@
-// Changing an issue's own words (ORR-927): the part of `updateIssue` in web/server/store/issues.ts that changes what an
-// issue says, where it sits among its siblings and what it's under, and nothing that moves it on the board: `title`,
-// `priority`, `notes`, `labels`, its tasks (`external`), its GitHub issues, its `parent`, `milestone`, `release` and `epic`,
-// what it depends on, whether it's a `proposal` and its `choices`, the `model` and `effort` a session for it starts on, and its `position`. The
-// router sends a `PATCH …/issues/{issue}` here only when it names none of the other fields (`wordsOnly`), so its status,
-// assignee and moving it to another project stay the Nuxt server's for now. The rails are the store's: an agent changes only its person's
-// issue, or its own proposal, and moves one only under an issue that's its person's too.
+// Changing an issue (ORR-927): the part of `updateIssue` in web/server/store/issues.ts that changes what an issue says,
+// where it sits among its siblings and what it's under, its status and who it's with: `title`, `status` (or the old
+// `plan`), `priority`, `assignee`, `notes`, `labels`, its tasks (`external`), its GitHub issues, its `parent`,
+// `milestone`, `release` and `epic`, what it depends on, whether it's a `proposal` and its `choices`, the `model` and
+// `effort` a session for it starts on, and its `position`. The router sends a `PATCH …/issues/{issue}` here only when it
+// names none of the other fields (`wordsOnly`), so moving it to another project stays the Nuxt server's, and so does a
+// session's change of status, as the session's lock on the issue (`claimed`) is the Nuxt server's. The rails are the
+// store's: an agent changes only its person's issue, or its own proposal, moves one only under an issue that's its
+// person's too, and hands one on only back to the owner.
 use crate::changes;
 use crate::comments::Comments;
 use crate::db::sql;
@@ -18,9 +20,12 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::LazyLock;
 
 /// The fields this takes, in the order `ISSUE_FIELDS` has them, which is the order its problems are listed in.
-pub const WORDS: [&str; 16] = [
+pub const WORDS: [&str; 19] = [
     "title",
+    "status",
+    "plan",
     "priority",
+    "assignee",
     "labels",
     "external",
     "github_issues",
@@ -39,6 +44,11 @@ pub const WORDS: [&str; 16] = [
 /// The most issues one can depend on (`MAX_DEPENDS`).
 const MAX_DEPENDS: usize = 50;
 const PRIORITIES: [&str; 4] = ["P0", "P1", "P2", "P3"];
+/// The plans from before statuses (`LEGACY_PLANS`): any of them puts an issue in Todo, null in Backlog.
+const PLANS: [&str; 3] = ["now", "next", "later"];
+/// The kinds a status is sent as (`KINDS`), and the words from before statuses (`LEGACY_KINDS`).
+const KINDS: [&str; 5] = ["backlog", "todo", "started", "done", "canceled"];
+const LEGACY_KINDS: [(&str, &str); 4] = [("doing", "started"), ("now", "todo"), ("next", "todo"), ("later", "todo")];
 /// The kinds of status an issue is closed in (`CLOSED`).
 const CLOSED: [&str; 2] = ["done", "canceled"];
 const EFFORTS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
@@ -49,7 +59,13 @@ const MODEL_HINT: &str = "use best, opus, sonnet, haiku, fable, default, opuspla
 #[derive(Debug, Default, PartialEq)]
 pub struct Words {
     pub title: Option<String>,
+    /// A status's id, a kind, or a word from before statuses (`resolveStatus`).
+    pub status: Option<String>,
+    /// The old way to say Todo (any plan) or Backlog (null), with `status: "todo"` or none.
+    pub plan: Option<Option<String>>,
     pub priority: Option<Option<String>>,
+    /// As it was sent: `owner` is the owner's id (`assigneeOf`), and blank or null is nobody.
+    pub assignee: Option<Option<String>>,
     pub labels: Option<Vec<String>>,
     pub external: Option<Vec<String>>,
     pub github_issues: Option<Vec<String>>,
@@ -107,6 +123,15 @@ fn text(key: &str, value: &Value, problems: &mut Vec<String>, check: impl Fn(&st
 /// The body of a words-only edit, as `checkInput(body, ISSUE_FIELDS, true)` takes it: the router sends no other field,
 /// so one here is refused as the store would refuse an unknown one.
 pub fn check_words(body: &Value) -> Result<Words> {
+    check_body(body, false)
+}
+
+/// The body of a new issue (`checkInput(body, ISSUE_FIELDS)`), as the router sends it: an edit's words, with a title.
+pub fn check_new(body: &Value) -> Result<Words> {
+    check_body(body, true)
+}
+
+fn check_body(body: &Value, new: bool) -> Result<Words> {
     let Some(object) = body.as_object() else { return Err(ApiError::bad_request("The body should be a JSON object")) };
     let mut problems = vec![];
     for key in object.keys() {
@@ -116,8 +141,13 @@ pub fn check_words(body: &Value) -> Result<Words> {
     }
     let mut words = Words::default();
     for key in WORDS {
-        let Some(value) = object.get(key) else { continue };
-        let nullable = !matches!(key, "title" | "position");
+        let Some(value) = object.get(key) else {
+            if new && key == "title" {
+                problems.push("missing \"title\"".into());
+            }
+            continue;
+        };
+        let nullable = !matches!(key, "title" | "status" | "position");
         if value.is_null() && !nullable {
             problems.push(format!("\"{key}\" can't be null"));
             continue;
@@ -128,6 +158,16 @@ pub fn check_words(body: &Value) -> Result<Words> {
                 Some(sent) => words.title = Some(sent.trim().to_string()),
                 None => problems.push(format!("\"title\" should be a string, not {}", js(value))),
             },
+            "status" => match value.as_str() {
+                Some(sent) => words.status = Some(sent.to_string()),
+                None => problems.push(format!("\"status\" should be a string, not {}", js(value))),
+            },
+            "plan" => {
+                words.plan = text(key, value, &mut problems, |sent| {
+                    (!PLANS.contains(&sent)).then(|| format!("\"plan\" is \"{sent}\", not one of {} (or null)", PLANS.join(", ")))
+                })
+            }
+            "assignee" => words.assignee = text(key, value, &mut problems, |_| None),
             "labels" | "external" | "depends_on" if value.is_null() => {
                 *match key {
                     "labels" => &mut words.labels,
@@ -237,6 +277,197 @@ fn named(value: &Option<String>) -> bool {
 }
 
 impl Comments<'_> {
+    /// Makes an issue (`createIssue`) from an edit's words, with the project's next id, and notes it as `created`.
+    /// An agent on the rails files a sub-issue only under its person's issue, and it's then theirs (taken up, when it's
+    /// started), unless it's a proposal; one at the top stays nobody's, so it's refused started, closed or given to
+    /// anyone but the owner. Gives back its id, and whether it's urgent open work (P0) to push, as `edit_words` does.
+    pub async fn create_issue(&mut self, project: &str, body: &Value, actor: &Actor) -> Result<(String, bool)> {
+        let row = Issues::new(&mut *self.conn).project(project).await?;
+        let words = check_new(body)?;
+        let parent = match words.parent.as_ref().and_then(|p| p.as_deref()).filter(|p| !p.is_empty()) {
+            Some(sent) => Some(self.issue_id(project, sent).await?),
+            None => None,
+        };
+        let milestone = match words.milestone.as_ref().and_then(|m| m.as_deref()).filter(|m| !m.is_empty()) {
+            Some(sent) => Some(Issues::new(&mut *self.conn).resolve(project, sent, true).await?),
+            None => None,
+        };
+        if let Some(parent) = &parent {
+            self.issue_there(project, parent).await?;
+            if milestone.is_some() {
+                return Err(ApiError::bad_request("A sub-issue is in its parent's milestone; leave out \"milestone\" or \"parent\""));
+            }
+        }
+        if let Some(id) = &milestone {
+            if !Issues::new(&mut *self.conn).exists("SELECT 1 FROM milestones WHERE project = ? AND id = ?", &[project, id]).await? {
+                return Err(ApiError::not_found(format!("No milestone \"{id}\" in {project}")));
+            }
+        }
+        let release = match words.release.as_ref().and_then(|r| r.as_deref()).filter(|r| !r.is_empty()) {
+            Some(version) => {
+                Issues::new(&mut *self.conn).release_there(project, &row, version).await?;
+                Some(version.to_string())
+            }
+            None => None,
+        };
+        let epic = match words.epic.as_ref().and_then(|e| e.as_deref()) {
+            Some(sent) => Some(self.epic_id(sent).await?),
+            None => None,
+        };
+        let github = match &words.github_issues {
+            Some(sent) => self.github_issues_of(project, sent).await?,
+            None => vec![],
+        };
+        let depends = match &words.depends_on {
+            Some(refs) => Some(self.links_from(project, "", refs).await?),
+            None => None,
+        };
+        if let (Some(parent), Some(depends)) = (&parent, &depends) {
+            if depends.iter().any(|(p, i)| p == project && i == parent) {
+                return Err(ApiError::bad_request(format!("{parent} is this issue's parent, so it can't depend on it")));
+            }
+        }
+        let statuses = Issues::new(&mut *self.conn).statuses().await?;
+        let status = resolve_status(&statuses, words.status.as_deref(), words.plan.as_ref().map(Option::as_deref))?;
+        let proposed = words.proposal.as_ref().is_some_and(|p| p.as_deref() == Some("pending"));
+        let mut assigned = if proposed {
+            Some(self.owner_id().await?)
+        } else {
+            let name = words.assignee.clone().flatten().unwrap_or_default();
+            let name = name.trim();
+            if name.eq_ignore_ascii_case("owner") {
+                Some(self.owner_id().await?)
+            } else {
+                (!name.is_empty()).then(|| name.to_string())
+            }
+        };
+        let rails = self.rails_for(actor).await?;
+        let person = rails.clone().flatten();
+        let kind = statuses.iter().find(|s| s.id == status).map(|s| s.kind.clone());
+        if let Some(rails) = rails.as_ref().filter(|_| !actor.untrusted) {
+            // A follow-up under its person's issue is theirs too, unless it's a proposal, which waits on the owner. A
+            // new issue with no parent is anyone's on the board to make, but stays nobody's, so it can't be made taken up.
+            if let Some(parent) = &parent {
+                let holder = self.assignee_of(project, parent).await?;
+                self.must_hold(rails.as_deref(), parent, holder.as_deref(), "file a sub-issue under it").await?;
+                if !proposed {
+                    assigned = person.clone();
+                }
+            } else {
+                if rails.is_none() {
+                    self.must_hold(None, "a new issue", None, "make one").await?;
+                }
+                if !proposed {
+                    let kept = self.railed_assignee(rails.as_deref(), "a new issue", Some(assigned.clone())).await?;
+                    if kept.is_none() && assigned.is_some() {
+                        return Err(ApiError::conflict("Only people assign: a new issue stays unassigned until one does"));
+                    }
+                    if kind.as_deref().is_some_and(|k| k == "started" || CLOSED.contains(&k)) {
+                        return Err(ApiError::conflict(format!(
+                            "A new issue is assigned to nobody, so this session can't make it {status}; leave it in Todo or Backlog for a person to assign"
+                        )));
+                    }
+                }
+            }
+        }
+        let taken = parent.is_some() && person.is_some() && !proposed && kind.as_deref() == Some("started");
+        let listed = |list: &[String]| serde_json::to_string(list).unwrap_or_default();
+        let labels = listed(words.labels.as_deref().unwrap_or_default());
+        let external = listed(words.external.as_deref().unwrap_or_default());
+        let github = listed(&github);
+        changes::begin(self.conn).await?;
+        let done: Result<String> = async {
+            let id = self.next_issue_id(project).await?;
+            let position = match words.position {
+                Some(position) => position,
+                None => {
+                    let found = sqlx::query(&sql("SELECT CAST(max(position) AS DOUBLE PRECISION) AS n FROM issues WHERE project = ?"))
+                        .bind(project)
+                        .fetch_one(&mut *self.conn)
+                        .await?;
+                    found.get::<Option<f64>, _>("n").unwrap_or(-1.0) + 1.0
+                }
+            };
+            let now = stamp();
+            let query = sql("INSERT INTO issues (project, id, title, status, priority, assignee, labels, external, github_issues, notes, proposal, choices, parent, milestone, ships_in, epic, \
+                position, created_by, session_name, owned, created_at, updated_at, created_person, claimed_by, claimed_at, model, effort) \
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            let insert = sqlx::query(&query)
+                .bind(project)
+                .bind(&id)
+                .bind(words.title.clone().unwrap_or_default())
+                .bind(&status)
+                .bind(words.priority.clone().flatten())
+                .bind(assigned.clone())
+                .bind(&labels)
+                .bind(&external)
+                .bind(&github)
+                .bind(words.notes.clone().flatten())
+                .bind(words.proposal.clone().flatten())
+                .bind(words.choices.clone().unwrap_or_else(|| "[]".into()))
+                .bind(parent.clone())
+                .bind(milestone.clone())
+                .bind(release.clone())
+                .bind(epic);
+            let insert = if position.fract() == 0.0 && position.abs() < 9e15 { insert.bind(position as i64) } else { insert.bind(position) };
+            insert
+                .bind(&actor.name)
+                .bind(actor.session.as_deref())
+                .bind(i64::from(actor.owner))
+                .bind(&now)
+                .bind(&now)
+                .bind(person.clone())
+                .bind(if taken { person.clone() } else { None })
+                .bind(if taken { Some(now.clone()) } else { None })
+                .bind(words.model.clone().flatten())
+                .bind(words.effort.clone().flatten())
+                .execute(&mut *self.conn)
+                .await?;
+            self.record_field(project, &id, actor, "created", None, None).await?;
+            if let Some(depends) = &depends {
+                self.set_links(project, &id, depends, actor).await?;
+            }
+            self.touch_project(project).await?;
+            Ok(id)
+        }
+        .await;
+        let mut changed = vec![project.to_string()];
+        for (other, _) in depends.iter().flatten() {
+            if !changed.contains(other) {
+                changed.push(other.clone());
+            }
+        }
+        self.effects.changed = changed;
+        let id = changes::finish(self.conn, self.outbox.as_mut(), &self.effects, done).await?;
+        let closed = kind.as_deref().is_some_and(|k| CLOSED.contains(&k));
+        let urgent = words.priority.clone().flatten().as_deref() == Some("P0") && words.proposal.clone().flatten().is_none() && !closed;
+        Ok((id, urgent && (actor.owner || actor.person.is_some())))
+    }
+
+    /// The project's next issue id, `KEY-n`, its number taken in one statement so two writers never get the same one;
+    /// one that's still an issue's id or an old one is skipped (`nextId`).
+    async fn next_issue_id(&mut self, project: &str) -> Result<String> {
+        let key: String = sqlx::query(&sql("SELECT key FROM projects WHERE id = ?")).bind(project).fetch_one(&mut *self.conn).await?.get("key");
+        loop {
+            let row = sqlx::query(&sql("UPDATE projects SET next_number = next_number + 1 WHERE id = ? RETURNING CAST(next_number - 1 AS BIGINT) AS n"))
+                .bind(project)
+                .fetch_one(&mut *self.conn)
+                .await?;
+            let id = format!("{key}-{}", row.get::<i64, _>("n"));
+            let taken =
+                sqlx::query(&sql("SELECT 1 FROM issues WHERE project = ? AND id = ? UNION SELECT 1 FROM issue_aliases WHERE project = ? AND alias = ?"))
+                    .bind(project)
+                    .bind(&id)
+                    .bind(project)
+                    .bind(&id)
+                    .fetch_optional(&mut *self.conn)
+                    .await?;
+            if taken.is_none() {
+                return Ok(id);
+            }
+        }
+    }
+
     /// Changes the issue's own words (`updateIssue`, for `WORDS` only), noting each changed field in its activity and
     /// telling it, without a title's or a link's words, as an outsider may have written them. 409 for an agent on one
     /// that isn't its person's, unless it's its own proposal. Gives back the issue's id when the edit made it urgent open
@@ -280,13 +511,29 @@ impl Comments<'_> {
                 return Err(ApiError::refused_for("issues.edit", format!("Committing {issue} is the owner's call until they approve it: it's {state}")));
             }
         }
-        // While it waits on the owner, it isn't work yet: which release it ships in is theirs to say.
-        if words.release.is_some() && !actor.owner && matches!(row.proposal.as_deref(), Some("pending" | "changes")) {
+        // Put up again, it's the owner's to decide, so it's theirs; a claim on it ends when that reassigns it.
+        let pending = words.proposal.as_ref().is_some_and(|p| p.as_deref() == Some("pending"));
+        // While it waits on the owner, it isn't work yet: an agent can still comment, edit it and put it up again.
+        let moves: Vec<&str> = [
+            ("status", words.status.is_some()),
+            ("plan", words.plan.is_some()),
+            ("assignee", words.assignee.is_some() && !pending),
+            ("release", words.release.is_some()),
+        ]
+        .into_iter()
+        .filter_map(|(field, sent)| sent.then_some(field))
+        .collect();
+        if !moves.is_empty() && !actor.owner && matches!(row.proposal.as_deref(), Some("pending" | "changes")) {
             let settings = crate::settings::Settings::new(&mut *self.conn).get().await?;
             if settings["restrict_proposals"].as_bool().unwrap_or(true) {
+                let (named, verb) = match moves.as_slice() {
+                    [one] => (one.to_string(), "isn't"),
+                    [rest @ .., last] => (format!("{} and {last}", rest.join(", ")), "aren't"),
+                    [] => unreachable!(),
+                };
                 return Err(ApiError::refused_for(
                     "issues.edit",
-                    format!("{issue} is a proposal waiting on the owner, so its release isn't yours to change until they approve it"),
+                    format!("{issue} is a proposal waiting on the owner, so its {named} {verb} yours to change until they approve it"),
                 ));
             }
         }
@@ -296,13 +543,27 @@ impl Comments<'_> {
             Some(None) => Some(None),
             Some(Some(sent)) => Some(Some(self.epic_id(sent).await?)),
         };
-        // Put up again, it's the owner's to decide, so it's theirs; a claim on it ends when that reassigns it.
-        let pending = words.proposal.as_ref().is_some_and(|p| p.as_deref() == Some("pending"));
-        let assignee = if pending { Some(self.owner_id().await?) } else { None };
-        let reassigned = assignee.as_ref().is_some_and(|a| a.to_lowercase() != row.assignee.as_deref().unwrap_or_default().to_lowercase());
-        if let Some(rails) = self.rails_for(actor).await? {
+        let statuses = Issues::new(&mut *self.conn).statuses().await?;
+        let status = if words.status.is_some() || words.plan.is_some() {
+            Some(resolve_status(&statuses, words.status.as_deref(), words.plan.as_ref().map(Option::as_deref))?)
+        } else {
+            None
+        };
+        let mut assignee = if pending {
+            Some(Some(self.owner_id().await?))
+        } else {
+            match &words.assignee {
+                None => None,
+                Some(sent) => {
+                    let name = sent.as_deref().unwrap_or_default().trim();
+                    Some(if name.eq_ignore_ascii_case("owner") { Some(self.owner_id().await?) } else { (!name.is_empty()).then(|| name.to_string()) })
+                }
+            }
+        };
+        let rails = self.rails_for(actor).await?;
+        if let Some(rails) = &rails {
             // An agent's own proposal is its to edit and put up again, though it waits on the owner.
-            let own_proposal = rails.is_some() && row.proposal.is_some() && row.created_person == rails;
+            let own_proposal = rails.is_some() && row.proposal.is_some() && row.created_person == *rails;
             if !own_proposal {
                 self.must_hold(rails.as_deref(), &issue, row.assignee.as_deref(), "change it").await?;
             }
@@ -311,7 +572,17 @@ impl Comments<'_> {
                 let assignee = self.assignee_of(project, parent).await?;
                 self.must_hold(rails.as_deref(), parent, assignee.as_deref(), "move an issue under it").await?;
             }
+            if !pending {
+                assignee = self.railed_assignee(rails.as_deref(), &issue, assignee).await?;
+            }
         }
+        // A claim ends with the issue closed or reassigned; reopening it doesn't bring it back.
+        let to_kind = status.as_ref().and_then(|id| statuses.iter().find(|s| s.id == *id)).map(|s| s.kind.clone());
+        let reassigned =
+            assignee.as_ref().is_some_and(|a| a.as_deref().unwrap_or_default().to_lowercase() != row.assignee.as_deref().unwrap_or_default().to_lowercase());
+        let ended = reassigned || to_kind.as_deref().is_some_and(|k| CLOSED.contains(&k));
+        // Started by an agent on the rails, it's taken up for its person, as long as nobody else holds it.
+        let claim_for = rails.flatten().filter(|_| to_kind.as_deref() == Some("started") && !ended);
         let github = match &words.github_issues {
             Some(sent) => Some(self.github_issues_of(project, sent).await?),
             None => None,
@@ -331,6 +602,9 @@ impl Comments<'_> {
         }
         changes::begin(self.conn).await?;
         let done: Result<()> = async {
+            if let Some(person) = &claim_for {
+                self.claim_for(project, &issue, person, row.assignee.as_deref()).await?;
+            }
             // A sub-issue is in its parent's milestone, so a new parent says it all.
             let placed: Change = if place.moved {
                 ("parent", row.parent.as_deref(), Some(place.parent.as_deref()))
@@ -338,10 +612,11 @@ impl Comments<'_> {
                 ("milestone", row.milestone.as_deref(), place.milestone.as_ref().map(Option::as_deref))
             };
             let (epic_before, epic_after) = (row.epic.map(|e| e.to_string()), epic.map(|e| e.map(|e| e.to_string())));
-            let changed: [Change; 13] = [
+            let changed: [Change; 14] = [
                 ("title", Some(row.title.as_str()), words.title.as_deref().map(Some)),
+                ("status", Some(row.status.as_str()), status.as_deref().map(Some)),
                 ("priority", row.priority.as_deref(), words.priority.as_ref().map(Option::as_deref)),
-                ("assignee", row.assignee.as_deref(), assignee.as_deref().map(Some)),
+                ("assignee", row.assignee.as_deref(), assignee.as_ref().map(Option::as_deref)),
                 ("labels", row.labels.as_deref(), labels.as_deref().map(Some)),
                 ("external", row.external.as_deref(), external.as_deref().map(Some)),
                 ("github_issues", row.github_issues.as_deref(), github.as_deref().map(Some)),
@@ -386,7 +661,7 @@ impl Comments<'_> {
             if pending {
                 columns.extend(["decided_by", "decided_at", "decision_note", "picks", "explore"].map(|c| format!("{c} = NULL")));
             }
-            if reassigned {
+            if ended {
                 columns.extend(["claimed_by", "claimed_at", "claimed_session"].map(|c| format!("{c} = NULL")));
             }
             if words.choices.is_some() {
@@ -428,18 +703,48 @@ impl Comments<'_> {
         }
         self.effects.changed = changed;
         changes::finish(self.conn, self.outbox.as_mut(), &self.effects, done).await?;
-        // Urgent work is a committed P0: made so by a priority, or by committing a P0 proposal. The status doesn't
-        // change here, so a closed one is neither before nor after.
+        // Urgent work is a committed P0 that isn't closed: made so by a priority, by committing a P0 proposal, or by
+        // opening a closed P0 again.
+        let closed = |id: &str| statuses.iter().any(|s| s.id == id && CLOSED.contains(&s.kind.as_str()));
         let priority = words.priority.clone().unwrap_or_else(|| row.priority.clone());
         let proposal = words.proposal.clone().unwrap_or_else(|| row.proposal.clone());
-        let urgent = priority.as_deref() == Some("P0") && proposal.is_none();
-        let was_urgent = row.priority.as_deref() == Some("P0") && row.proposal.is_none();
-        if !urgent || was_urgent || !(actor.owner || actor.person.is_some()) {
+        let urgent = priority.as_deref() == Some("P0") && proposal.is_none() && !closed(status.as_deref().unwrap_or(&row.status));
+        let was_urgent = row.priority.as_deref() == Some("P0") && row.proposal.is_none() && !closed(&row.status);
+        Ok((urgent && !was_urgent && (actor.owner || actor.person.is_some())).then_some(issue))
+    }
+
+    /// An agent's assignee (`railedAssignee`): what it may hand on, back to the owner or letting go, with `claude` and
+    /// its own person being who the issue is with already. Nobody else, as people assign.
+    async fn railed_assignee(&mut self, person: Option<&str>, issue: &str, assignee: Option<Option<String>>) -> Result<Option<Option<String>>> {
+        let Some(Some(sent)) = &assignee else { return Ok(assignee) };
+        let id = sent.to_lowercase();
+        if id == "claude" || Some(id.as_str()) == person {
             return Ok(None);
         }
-        let statuses = Issues::new(&mut *self.conn).statuses().await?;
-        let closed = statuses.iter().any(|s| s.id == row.status && CLOSED.contains(&s.kind.as_str()));
-        Ok((!closed).then_some(issue))
+        if id == self.owner_id().await? {
+            return Ok(assignee);
+        }
+        Err(ApiError::conflict(format!("Only people assign: this session can't give {issue} to {sent}")))
+    }
+
+    /// Takes up an issue for `person`, only if it's still assigned as the rails read it and nobody else holds it
+    /// (`claimFor`): one conditional write, so a reassignment or another server can't get in between.
+    async fn claim_for(&mut self, project: &str, issue: &str, person: &str, assignee: Option<&str>) -> Result<()> {
+        let done = sqlx::query(&sql(
+            "UPDATE issues SET claimed_by = ?, claimed_at = ? WHERE project = ? AND id = ? AND coalesce(assignee, '') = ? AND (claimed_by IS NULL OR claimed_by = ?)",
+        ))
+        .bind(person)
+        .bind(stamp())
+        .bind(project)
+        .bind(issue)
+        .bind(assignee.unwrap_or_default())
+        .bind(person)
+        .execute(&mut *self.conn)
+        .await?;
+        if done.rows_affected() == 0 {
+            return Err(ApiError::conflict(format!("{issue} has just been taken or reassigned; read it again, or pick another issue")));
+        }
+        Ok(())
     }
 
     /// Where the edit puts the issue (`updateIssue`): under a parent there is, that isn't it or under it, and then in no
@@ -570,6 +875,10 @@ impl Comments<'_> {
         }
         if links.len() > MAX_DEPENDS {
             return Err(ApiError::bad_request(format!("An issue can depend on {MAX_DEPENDS} issues at most")));
+        }
+        // A new issue (`linksFrom` with no id) has no parent yet, and nothing depends on it.
+        if issue.is_empty() {
+            return Ok(links);
         }
         // A sub-issue and its parent already go together: one waiting on the other could never start.
         let parent_of = async |conn: &mut sqlx::AnyConnection, id: &str| -> Result<Option<String>> {
@@ -703,6 +1012,29 @@ impl Comments<'_> {
     }
 }
 
+/// The status an issue gets from what was sent (`resolveStatus`): a status's id, a kind (its first status), or the words
+/// from before statuses (`doing`; `todo` with a `plan`, which is Todo, or null for Backlog).
+fn resolve_status(statuses: &[crate::issues::Status], status: Option<&str>, plan: Option<Option<&str>>) -> Result<String> {
+    let first = |kind: &str| statuses.iter().find(|s| s.kind == kind).map(|s| s.id.clone()).ok_or_else(|| ApiError::internal(format!("a {kind} status")));
+    if let Some(plan) = plan {
+        if status.is_none() || status == Some("todo") {
+            return first(if plan.is_some() { "todo" } else { "backlog" });
+        }
+    }
+    let Some(text) = status else { return first("backlog") };
+    if statuses.iter().any(|s| s.id == text) {
+        return Ok(text.to_string());
+    }
+    if KINDS.contains(&text) {
+        return first(text);
+    }
+    if let Some((_, kind)) = LEGACY_KINDS.iter().find(|(old, _)| *old == text) {
+        return first(kind);
+    }
+    let ids: Vec<&str> = statuses.iter().map(|s| s.id.as_str()).collect();
+    Err(ApiError::bad_request(format!("\"status\" is \"{text}\", not one of {} (or a kind: {})", ids.join(", "), KINDS.join(", "))))
+}
+
 /// An epic's number from any form of its id (`numberOf`): `14`, `EPC-14` in any case, or the full `EPC-14-x7k2m9qd`;
 /// `None` for anything else, a full id from another board included.
 pub(crate) fn epic_number(sent: &str, uid: &str) -> Option<String> {
@@ -735,7 +1067,7 @@ mod tests {
         assert_eq!(words.notes, Some(None));
         assert_eq!(words.position, Some(2.0));
         assert_eq!(check_words(&json!({"github_issues": [12, " o/n#3 "]})).unwrap().github_issues, Some(vec!["12".to_string(), "o/n#3".to_string()]));
-        let refused = check_words(&json!({"status": "todo", "title": "", "model": "gpt", "effort": "huge", "position": null})).unwrap_err();
+        let refused = check_words(&json!({"status": 3, "title": "", "model": "gpt", "effort": "huge", "position": null})).unwrap_err();
         assert_eq!(refused.message, "5 problems in the body");
         assert_eq!(check_words(&json!({"proposal": null})).unwrap().proposal, Some(None));
         assert_eq!(check_words(&json!({"proposal": "pending"})).unwrap().proposal, Some(Some("pending".to_string())));

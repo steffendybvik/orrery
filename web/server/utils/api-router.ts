@@ -38,10 +38,15 @@ export const DOMAINS: readonly {domain: string, paths: RegExp, methods?: readonl
     // Deleting an issue, with its sub-issues and comments, or many at once (`{ids}`, ORR-927): the API tells each back,
     // and the dependents it frees, as `Orrery-Told`, and puts them in the outbox (ORR-929).
     {domain: 'an issue, deleted', paths: /^projects\/[^/]+\/issues(\/[^/]+)?$/, methods: ['DELETE']},
-    // Changing an issue's own words (ORR-927): its title, priority, notes, labels, tasks, GitHub issues, parent,
-    // milestone, release, epic, what it depends on, whether it's a proposal and its choices, model, effort and place. One it makes urgent comes
-    // back with `Orrery-Urgent`, for the push here (`sayUrgent`). An edit naming any other field stays here (`wordsOnly`),
-    // as its status, assignee and moving it to another project wake sessions or claim the issue. The chat's rails and a session's claim are checked here first.
+    // Changing an issue (ORR-927): its title, status, priority, assignee, notes, labels, tasks, GitHub issues, parent,
+    // milestone, release, epic, what it depends on, whether it's a proposal and its choices, model, effort and place. One
+    // it makes urgent comes back with `Orrery-Urgent`, for the push here (`sayUrgent`). Moving it to another project stays
+    // here (`wordsOnly`), and so does a session's change of its status, as the session's lock on the issue is this
+    // server's (`claimed`). The chat's rails and a session's claim are checked here first.
+    // Making an issue (ORR-927): only one that names nothing but an issue's words (`onlyWords`), from neither a session,
+    // whose issue is noted as worked on here (`workedOn`), nor the chat or an untrusted session, whose asks are rewritten
+    // here (`asChatIssue`, `asProposal`). One that's urgent comes back with `Orrery-Urgent`, for the push here.
+    {domain: 'an issue, made', paths: /^projects\/[^/]+\/issues$/, methods: ['POST'], first: {POST: newWordsOnly}},
     {domain: 'an issue, its words', paths: /^projects\/[^/]+\/issues\/[^/]+$/, methods: ['PATCH'], first: {PATCH: wordsOnly}},
     // Taking an issue up and letting it go (ORR-927, ORR-657): the API tells the claim and a new assignee back, as
     // `Orrery-Told`, and puts them in the outbox (ORR-929).
@@ -109,7 +114,7 @@ export const DOMAINS: readonly {domain: string, paths: RegExp, methods?: readonl
 type LocalCheck = (event: H3Event, rest: string) => Promise<unknown>
 
 /** The fields of an issue's edit the API changes (`api/src/issue_edits.rs`, `WORDS`). */
-export const ISSUE_WORDS: readonly string[] = ['title', 'priority', 'labels', 'external', 'github_issues', 'notes', 'proposal', 'choices', 'parent', 'milestone', 'release', 'epic', 'depends_on', 'model', 'effort', 'position']
+export const ISSUE_WORDS: readonly string[] = ['title', 'status', 'plan', 'priority', 'assignee', 'labels', 'external', 'github_issues', 'notes', 'proposal', 'choices', 'parent', 'milestone', 'release', 'epic', 'depends_on', 'model', 'effort', 'position']
 
 /** Whether an issue's edit names only its own words, so the API can make it: a body that isn't an object, or is
  * empty, stays here too, for its answer. */
@@ -119,9 +124,15 @@ export function onlyWords(body: unknown): boolean {
     return keys.length > 0 && keys.every(key => ISSUE_WORDS.includes(key))
 }
 
-/** An issue's edit, kept here unless it names only its words (`onlyWords`). One that goes on is the chat's only within
- * what it may change (`asChatEdit`), and a session's only while no other session is on the issue (`claimFor`), as the
- * route here has them. */
+/** Whether an edit changes the issue's status (`status`, or the old `plan`). */
+export function movesStatus(body: unknown): boolean {
+    return typeof body === 'object' && body !== null && ('status' in body || 'plan' in body)
+}
+
+/** An issue's edit, kept here unless it names only its words (`onlyWords`), and a session's here too when it changes the
+ * status: starting one takes the session's lock on it, which only this server holds (`claimed`). One that goes on is
+ * the chat's only within what it may change (`asChatEdit`), and a session's only while no other session is on the
+ * issue (`claimFor`), as the route here has them. */
 async function wordsOnly(event: H3Event, rest: string) {
     const raw = await readRawBody(event, 'utf8')
     let body: unknown
@@ -135,8 +146,21 @@ async function wordsOnly(event: H3Event, rest: string) {
         asChatEdit(body)
         return
     }
+    if (movesStatus(body) && sessionHeader(event) && !(await actorOf(event)).owner) return 'here' as const
     const [, project, issue] = /^projects\/([^/]+)\/issues\/([^/]+)$/.exec(rest) ?? []
     if (project && issue) await claimFor(event, decodeURIComponent(project), decodeURIComponent(issue))
+}
+
+/** A new issue, kept here unless it names only an issue's words and comes from neither a session, the chat nor an
+ * untrusted session, whose asks the route here rewrites or notes. */
+async function newWordsOnly(event: H3Event) {
+    if (sessionHeader(event) || chatWrite(event) || untrustedWrite(event)) return 'here' as const
+    const raw = await readRawBody(event, 'utf8')
+    try {
+        if (!onlyWords(raw ? JSON.parse(raw) : undefined)) return 'here' as const
+    } catch {
+        return 'here' as const
+    }
 }
 
 /** The projects' list, kept here when it asks for their boards (`?expand=board`), as their `rev` is this server's. */
