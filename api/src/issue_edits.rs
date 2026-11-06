@@ -97,11 +97,13 @@ pub fn check_words(body: &Value) -> Result<Words> {
             "external" => words.external = strings(key, value, &mut problems),
             "github_issues" if value.is_null() => words.github_issues = Some(vec![]),
             "github_issues" => {
-                let listed = value.as_array().filter(|list| {
-                    list.iter().all(|v| v.as_u64().is_some_and(|n| n > 0 && v.is_u64()) || v.as_str().is_some_and(|s| !s.trim().is_empty()))
-                });
+                let listed = value
+                    .as_array()
+                    .filter(|list| list.iter().all(|v| v.as_u64().is_some_and(|n| n > 0 && v.is_u64()) || v.as_str().is_some_and(|s| !s.trim().is_empty())));
                 match listed {
-                    Some(listed) => words.github_issues = Some(listed.iter().map(|v| v.as_str().map_or_else(|| v.to_string(), |s| s.trim().to_string())).collect()),
+                    Some(listed) => {
+                        words.github_issues = Some(listed.iter().map(|v| v.as_str().map_or_else(|| v.to_string(), |s| s.trim().to_string())).collect())
+                    }
                     None => problems.push(format!(
                         "\"github_issues\": should be a list of GitHub issues, each a number on the project's repo, owner/name#523 or a link to one, not {}",
                         js(value)
@@ -244,7 +246,10 @@ impl Comments<'_> {
                 return Err(ApiError::bad_request(if GITHUB_OWN.is_match(issue) {
                     format!("{project}'s repo isn't on GitHub, so say whose issue {issue} is: owner/name#{}", issue.strip_prefix('#').unwrap_or(issue))
                 } else {
-                    format!("\"{issue}\" isn't a GitHub issue: send its number on {}, owner/name#523 or its link", repo.as_deref().unwrap_or("the project's repo"))
+                    format!(
+                        "\"{issue}\" isn't a GitHub issue: send its number on {}, owner/name#523 or its link",
+                        repo.as_deref().unwrap_or("the project's repo")
+                    )
                 }));
             };
             if !kept.iter().any(|k| k.to_lowercase() == found.to_lowercase()) {

@@ -754,7 +754,15 @@ impl<'c> Comments<'c> {
     }
 
     /// Notes a field's change in the issue's activity, and tells it as `issue.<field>` (`record`).
-    pub(crate) async fn record_field(&mut self, project: &str, issue: &str, actor: &Actor, field: &str, before: Option<&str>, after: Option<&str>) -> Result<()> {
+    pub(crate) async fn record_field(
+        &mut self,
+        project: &str,
+        issue: &str,
+        actor: &Actor,
+        field: &str,
+        before: Option<&str>,
+        after: Option<&str>,
+    ) -> Result<()> {
         sqlx::query(&sql(
             "INSERT INTO issue_events (project, issue, field, \"before\", \"after\", created_by, session_name, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
         ))
