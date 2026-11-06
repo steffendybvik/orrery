@@ -324,6 +324,18 @@ paths:
       responses:
         '200': {description: The issue, content: {application/json: {schema: {$ref: '#/components/schemas/IssueDetail'}}}}
         '404': {$ref: '#/components/responses/NotFound'}
+    delete:
+      summary: Deletes the issue, its sub-issues and comments with it
+      description: |
+        An agent's, with more than one person, only when every issue in it is its person's, and never what the owner
+        made. What names them without a foreign key lets go of them: their signals and links go, a schedule's runs keep
+        no issue, and each issue that depended on one is told it no longer does (`issue.depends`).
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      responses:
+        '204': {description: Deleted}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {description: 'One in it isn''t the session''s person''s, or the session names nobody', content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
   /api/projects/{project}/issues/{issue}/claim:
     parameters: [{$ref: '#/components/parameters/project'}, {$ref: '#/components/parameters/issue'}]
     post:

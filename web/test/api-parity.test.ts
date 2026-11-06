@@ -1067,6 +1067,58 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         expect((await rows('through-api')).filter(row => row.startsWith('issue.claim ')).length).toBeGreaterThan(4)
     })
 
+    it('deletes an issue alike, with what was under it, freeing what waited on it, and refuses what isn\'t the agent\'s (ORR-927)', async () => {
+        const start = (await store.db.get<{n: number | null}>('SELECT max(id) AS n FROM changes'))?.n ?? 0
+        const key = (p: string) => p === 'through-store' ? 'STO' : 'API'
+        const ids: Record<string, Record<string, string>> = {}
+        for (const p of ['through-store', 'through-api']) {
+            const frame = (await store.createIssue(p, {title: 'Build the frame'}, AGENT)).id
+            const strut = (await store.createIssue(p, {title: 'Cut a strut', parent: frame}, AGENT)).id
+            await store.createComment(p, strut, {body: 'Oak, not pine.'}, AGENT)
+            await store.db.run('INSERT INTO issue_aliases (project, alias, issue) VALUES (?, ?, ?)', p, `${key(p)}-97`, frame)
+            const paint = (await store.createIssue(p, {title: 'Paint the frame', depends_on: [frame, strut]}, AGENT)).id
+            const brass = (await store.createIssue(p, {title: 'Polish the brass'}, OWNER)).id
+            const loose = (await store.createIssue(p, {title: 'Sweep up'}, AGENT)).id
+            await store.createComment(p, loose, {body: 'Mind the corners.'}, OWNER)
+            const hals = (await store.createIssue(p, {title: 'Count the teeth', assignee: 'claude'}, AGENT)).id
+            ids[p] = {frame, strut, paint, brass, loose, hals}
+        }
+        type Step = [string, (p: string) => Promise<Outcome>, () => Promise<Outcome>]
+        // A comment's id is in a refusal's words, and ids differ between the two projects.
+        const masked = async (outcome: Promise<Outcome>) => JSON.parse(JSON.stringify(await outcome).replace(/comment \d+/g, 'comment <n>')) as Outcome
+        const drop = (name: string, which: (p: string) => string, actor: Actor): Step =>
+            [name, p => masked(viaStore(async () => store.deleteIssue(p, which(p), actor), 204)), () => masked(viaApi('DELETE', `/issues/${which('through-api')}`, undefined, actor))]
+        const read = (name: string, which: string): Step =>
+            [name, p => viaStore(() => store.issue(p, ids[p]![which]!)), () => viaApi('GET', `/issues/${ids['through-api']![which]}`)]
+        const steps: Step[] = [
+            drop('the owner\'s, by an agent', p => ids[p]!.brass!, AGENT),
+            drop('one with the owner\'s comment, by an agent', p => ids[p]!.loose!, AGENT),
+            drop('by an id it had before, with a sub-issue and a comment', p => `${key(p)}-97`, AGENT),
+            drop('gone already', p => ids[p]!.strut!, AGENT),
+            drop('one that isn\'t there', () => 'X-404', AGENT),
+            read('what waited on it, waiting no more', 'paint'),
+            ['what waited on it, its activity', p => viaStore(() => store.listActivity(p, ids[p]!.paint!)), () => viaApi('GET', `/issues/${ids['through-api']!.paint}/activity`)],
+            drop('the owner\'s, by the owner', p => ids[p]!.brass!, OWNER),
+        ]
+        for (const [name, ts, rs] of steps) await both(name, ts, rs)
+        // Two people: an agent deletes only its person's.
+        await store.addPerson({name: 'Hal'})
+        const HALS: Actor = {name: 'agent', owner: false, session: 'orrery · Hal', asked: true, named: 'hal'}
+        await both('the owner\'s, by Hal\'s agent', p => viaStore(() => store.deleteIssue(p, ids[p]!.hals!, HALS)), () => viaApi('DELETE', `/issues/${ids['through-api']!.hals}`, undefined, HALS))
+        await store.db.run("DELETE FROM people WHERE id = 'hal'")
+        await quiet()
+        await both('the board after', p => viaStore(async () => (await store.listIssues(p)).map(i => i.title).sort()), async () => {
+            const outcome = await viaApi('GET', '/issues')
+            return {...outcome, body: (outcome.body as {title: string}[]).map(i => i.title).sort()}
+        })
+        const rows = async (p: string) => (await store.db.all<{kind: string, payload: string | null}>('SELECT kind, payload FROM changes WHERE project = ? AND id > ? ORDER BY id', p, start))
+            .map(r => `${r.kind} ${(r.payload ?? '').replace(/\b(STO|API)-(\d+)/g, 'KEY-$2')}`).sort()
+        expect(await rows('through-api')).toEqual(await rows('through-store'))
+        expect((await rows('through-api')).filter(row => row.startsWith('issue.deleted ')).length).toBe(2)
+        // Made waiting on the frame and its strut, then freed of each.
+        expect((await rows('through-api')).filter(row => row.startsWith('issue.depends '))).toHaveLength(3)
+    })
+
     it('removes a person alike: their open issues unassigned and told, their seats the owner\'s, their keys and logins ended (ORR-928)', async () => {
         /** A member with work on `p`: a seat on its board, an open issue and a done one, a key and a login. */
         const hire = async (p: string) => {
@@ -1486,10 +1538,13 @@ describe('the router', () => {
     })
 
     it('routes by a table with a line per domain, so taking one back is taking its line out (ORR-925)', () => {
-        expect(DOMAINS.map(({domain}) => domain)).toEqual(['docs', 'statuses', 'issues, reading', 'comments', 'claims', 'activity', 'milestones', 'releases', 'releases, every project\'s', 'people', 'invites', 'keys', 'logins', 'uploads, reading', 'presets', 'secrets, reading', 'settings', 'a pull request, reading', "a pull request's risk", 'schedules, reading'])
+        expect(DOMAINS.map(({domain}) => domain)).toEqual(['docs', 'statuses', 'issues, reading', 'comments', 'an issue, deleted', 'claims', 'activity', 'milestones', 'releases', 'releases, every project\'s', 'people', 'invites', 'keys', 'logins', 'uploads, reading', 'presets', 'secrets, reading', 'settings', 'a pull request, reading', "a pull request's risk", 'schedules, reading'])
         expect(domainOf('PATCH', '/api/projects/p/docs/d')).toBe('docs')
         expect(domainOf('head', '/api/projects/p/doc-sections/')).toBe('docs')
         for (const method of ['POST', 'DELETE']) expect(domainOf(method, '/api/projects/p/issues/P-1/claim'), method).toBe('claims')
+        expect(domainOf('DELETE', '/api/projects/p/issues/P-1')).toBe('an issue, deleted')
+        for (const method of ['PATCH', 'POST']) expect(domainOf(method, '/api/projects/p/issues/P-1'), method).toBeUndefined()
+        expect(domainOf('DELETE', '/api/projects/p/issues')).toBeUndefined()
         for (const path of ['/api/projects/p/issues/P-1/activity/x', '/api/', '/docs', '/api/projects/p/docs/d/artifact']) expect(domainOf('GET', path), path).toBeUndefined()
     })
 
@@ -1627,7 +1682,7 @@ describe('the contract (api/openapi.yaml)', () => {
     }
 
     it('has every route the router sends to the API, and no other', () => {
-        expect(contract()).toHaveLength(69)
+        expect(contract()).toHaveLength(70)
         expect(contract()).toEqual(routes())
     })
 

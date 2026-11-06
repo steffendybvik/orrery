@@ -1,8 +1,10 @@
-// An issue's comments and activity (ORR-927): what `listComments`, `comment`, `listActivity`, `createComment` and
-// `deleteComment` in web/server/store/comments.ts do, on the same tables, answering as `GET …/issues/{issue}/comments`,
-// `…/comments/{comment}` and `…/activity`, and `POST …/comments` and `DELETE …/comments/{comment}` do. A new comment
-// reaches the session on its issue and the owner's bell from the Nuxt server, which knows the sessions: the reply says
-// which (`Handoff`), and the router passes it on. Editing one stays there, as it checks the session's claim first.
+// An issue's comments and activity (ORR-927): what `listComments`, `comment`, `listActivity`, `createComment`,
+// `updateComment` and `deleteComment` in web/server/store/comments.ts do, on the same tables, answering as
+// `GET …/issues/{issue}/comments`, `…/comments/{comment}` and `…/activity`, and `POST`, `PATCH` and `DELETE` on a
+// comment do. A new or edited comment reaches the session on its issue and the owner's bell from the Nuxt server, which
+// knows the sessions: the reply says which (`Handoff`), and the router passes it on. The issue writes that lean on the
+// same rails and activity are here too: claiming one and letting it go (`claimIssue`, `releaseIssue`) and deleting it
+// (`deleteIssue`).
 use crate::changes::{self, Outbox};
 use crate::db::sql;
 use crate::docs::{js, stamp, Actor, Effects};
@@ -482,6 +484,138 @@ impl<'c> Comments<'c> {
         self.effects.changed = vec![project.into()];
         changes::finish(self.conn, self.outbox.as_mut(), &self.effects, done).await?;
         Ok(issue)
+    }
+
+    // Deleting.
+
+    /// Deletes the issue, its sub-issues and comments with it (`deleteIssue`): an agent's only when every one is its
+    /// person's, and none the owner made. What names them without a foreign key lets go of them (`issuesMoved`).
+    pub async fn delete_issue(&mut self, project: &str, sent: &str, actor: &Actor) -> Result<()> {
+        let issue = self.issue_id(project, sent).await?;
+        self.issue_there(project, &issue).await?;
+        let subtree = self.subtree(project, &issue).await?;
+        if let Some(rails) = self.rails_for(actor).await? {
+            for id in &subtree {
+                let held = self.claim_of(project, id).await?.0;
+                self.must_hold(rails.as_deref(), id, held.as_deref(), "delete it").await?;
+            }
+        }
+        if !actor.owner {
+            let owned = self.owned_under(project, &subtree).await?;
+            if !owned.is_empty() {
+                let shown = if owned.len() > 4 { [owned[..3].to_vec(), vec![format!("{} more", owned.len() - 3)]].concat() } else { owned.clone() };
+                let was = if owned.len() == 1 { "was" } else { "were" };
+                return Err(ApiError::refused_for(
+                    "issues.delete",
+                    format!("Deleting {issue} is the owner's call: {} {was} made by the owner", shown.join(", ")),
+                ));
+            }
+        }
+        changes::begin(self.conn).await?;
+        let done: Result<()> = async {
+            for id in &subtree {
+                sqlx::query(&sql("DELETE FROM issue_aliases WHERE project = ? AND issue = ?")).bind(project).bind(id).execute(&mut *self.conn).await?;
+            }
+            for id in &subtree {
+                sqlx::query(&sql("DELETE FROM signals WHERE project = ? AND issue = ?")).bind(project).bind(id).execute(&mut *self.conn).await?;
+                self.drop_blocker(project, id, &subtree).await?;
+                sqlx::query(&sql("DELETE FROM issue_links WHERE (project = ? AND issue = ?) OR (on_project = ? AND on_issue = ?)"))
+                    .bind(project)
+                    .bind(id)
+                    .bind(project)
+                    .bind(id)
+                    .execute(&mut *self.conn)
+                    .await?;
+                sqlx::query(&sql("UPDATE schedule_runs SET issue = NULL WHERE issue = ? AND schedule IN (SELECT id FROM schedules WHERE project = ?)"))
+                    .bind(id)
+                    .bind(project)
+                    .execute(&mut *self.conn)
+                    .await?;
+            }
+            sqlx::query(&sql("DELETE FROM issues WHERE project = ? AND id = ?")).bind(project).bind(&issue).execute(&mut *self.conn).await?;
+            self.touch_project(project).await
+        }
+        .await;
+        self.effects.changed = vec![project.into()];
+        self.effects.tell("issue.deleted", project, &issue);
+        changes::finish(self.conn, self.outbox.as_mut(), &self.effects, done).await
+    }
+
+    /// The issue's id and every id under it, depth first (`subtree`).
+    async fn subtree(&mut self, project: &str, id: &str) -> Result<Vec<String>> {
+        let mut out = vec![id.to_string()];
+        let children: Vec<String> = sqlx::query(&sql("SELECT id FROM issues WHERE project = ? AND parent = ?"))
+            .bind(project)
+            .bind(id)
+            .fetch_all(&mut *self.conn)
+            .await?
+            .iter()
+            .map(|r| r.get("id"))
+            .collect();
+        for child in children {
+            out.extend(Box::pin(self.subtree(project, &child)).await?);
+        }
+        Ok(out)
+    }
+
+    /// The owner's issues and comments among these issues (`ownedUnder`).
+    async fn owned_under(&mut self, project: &str, issues: &[String]) -> Result<Vec<String>> {
+        let marks = vec!["?"; issues.len()].join(", ");
+        let mut out = vec![];
+        let query = format!("SELECT id FROM issues WHERE project = ? AND owned = 1 AND id IN ({marks})");
+        let query = sql(&query);
+        let mut find = sqlx::query(&query).bind(project);
+        for id in issues {
+            find = find.bind(id);
+        }
+        out.extend(find.fetch_all(&mut *self.conn).await?.iter().map(|r| r.get::<String, _>("id")));
+        let query = format!("SELECT CAST(id AS BIGINT) AS id, issue FROM comments WHERE project = ? AND owned = 1 AND issue IN ({marks})");
+        let query = sql(&query);
+        let mut find = sqlx::query(&query).bind(project);
+        for id in issues {
+            find = find.bind(id);
+        }
+        out.extend(find.fetch_all(&mut *self.conn).await?.iter().map(|r| format!("comment {} on {}", r.get::<i64, _>("id"), r.get::<String, _>("issue"))));
+        Ok(out)
+    }
+
+    /// Each issue depending on `id`, which is going with `going`, without it in its activity as a `depends` change
+    /// (`dropBlocker`, ORR-601): the dispatch reads that, and hands one out that it freed.
+    async fn drop_blocker(&mut self, project: &str, id: &str, going: &[String]) -> Result<()> {
+        let dependents: Vec<(String, String)> = sqlx::query(&sql("SELECT project, issue FROM issue_links WHERE on_project = ? AND on_issue = ?"))
+            .bind(project)
+            .bind(id)
+            .fetch_all(&mut *self.conn)
+            .await?
+            .iter()
+            .map(|r| (r.get("project"), r.get("issue")))
+            .collect();
+        let orrery = Actor { name: "orrery".into(), owner: false, session: None, person: None, named: None, asked: false, untrusted: false, chat: false };
+        for (on, dependent) in dependents {
+            if on == project && going.contains(&dependent) {
+                continue;
+            }
+            let before: Vec<(String, String)> = sqlx::query(&sql(
+                "SELECT on_project AS project, on_issue AS id FROM issue_links WHERE project = ? AND issue = ? ORDER BY created_at, on_project, on_issue",
+            ))
+            .bind(&on)
+            .bind(&dependent)
+            .fetch_all(&mut *self.conn)
+            .await?
+            .iter()
+            .map(|r| (r.get("project"), r.get("id")))
+            .collect();
+            let refs = |list: Vec<&(String, String)>| {
+                (!list.is_empty())
+                    .then(|| json!(list.iter().map(|(p, i)| if *p == on { i.clone() } else { format!("{p}/{i}") }).collect::<Vec<_>>()).to_string())
+            };
+            let from = refs(before.iter().collect());
+            let to = refs(before.iter().filter(|(p, i)| p != project || i != id).collect());
+            if from != to {
+                self.record_field(&on, &dependent, &orrery, "depends", from.as_deref(), to.as_deref()).await?;
+            }
+        }
+        Ok(())
     }
 
     /// The issue's assignee and who has claimed it.

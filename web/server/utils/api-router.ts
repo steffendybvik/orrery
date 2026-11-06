@@ -35,6 +35,9 @@ export const DOMAINS: readonly {domain: string, paths: RegExp, methods?: readonl
     // edited one leaves this server to pass on to the sessions and the owner's bell (`handedOn`). An edit checks the
     // session's claim on the issue here first, as only this server knows the sessions (`claimFor`, ORR-627).
     {domain: 'comments', paths: /^projects\/[^/]+\/issues\/[^/]+\/comments(\/[^/]+)?$/, first: {PATCH: claimOnComment}},
+    // Deleting an issue, with its sub-issues and comments (ORR-927): the API tells it back, and the dependents it frees,
+    // as `Orrery-Told`, and puts them in the outbox (ORR-929). Deleting many at once stays here.
+    {domain: 'an issue, deleted', paths: /^projects\/[^/]+\/issues\/[^/]+$/, methods: ['DELETE']},
     // Taking an issue up and letting it go (ORR-927, ORR-657): the API tells the claim and a new assignee back, as
     // `Orrery-Told`, and puts them in the outbox (ORR-929).
     {domain: 'claims', paths: /^projects\/[^/]+\/issues\/[^/]+\/claim$/},
