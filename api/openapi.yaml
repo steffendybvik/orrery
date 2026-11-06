@@ -324,6 +324,24 @@ paths:
         '200': {description: The issues, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/IssueRecord'}}}}}
         '400': {$ref: '#/components/responses/BadRequest'}
         '404': {$ref: '#/components/responses/NotFound'}
+    delete:
+      summary: Deletes many issues, each with its sub-issues and comments
+      description: |
+        Each on its own, as one is deleted, so one refused doesn't stop the rest. Each id sent comes back once, in the
+        order sent, with `error` saying why when it wasn't deleted. One already gone with an issue above it in the
+        list is ok.
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      requestBody:
+        required: true
+        content: {application/json: {schema: {type: object, required: [ids], properties: {ids: {type: array, minItems: 1, items: {type: string}}}}}}
+      responses:
+        '200':
+          description: How each went
+          content:
+            application/json:
+              schema: {type: array, items: {type: object, required: [id, ok], properties: {id: {type: string}, ok: {type: boolean}, error: {type: string}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
   /api/projects/{project}/issues/{issue}:
     parameters: [{$ref: '#/components/parameters/project'}, {$ref: '#/components/parameters/issue'}]
     get:

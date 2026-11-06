@@ -13,7 +13,7 @@ type Line = {routes: RegExp} & ({issue: `ORR-${number}`} | {stays: string})
 /** The Nuxt server's routes the router keeps, a line per reason: matched against `METHOD /api/path`, `{param}`s as they are. */
 const UNROUTED: readonly Line[] = [
     // Gaps: what a domain the API has taken over still does here, until its issue moves it.
-    {routes: /^(POST \/api\/projects\/\{project\}\/issues|PATCH \/api\/projects\/\{project\}\/issues|DELETE \/api\/projects\/\{project\}\/issues|POST \/api\/projects\/\{project\}\/issues\/decide)$/, issue: 'ORR-927'},
+    {routes: /^(POST \/api\/projects\/\{project\}\/issues|PATCH \/api\/projects\/\{project\}\/issues|POST \/api\/projects\/\{project\}\/issues\/decide)$/, issue: 'ORR-927'},
     {routes: /^(POST \/api\/projects\/\{project\}\/issues\/\{issue\}\/(decide|focus|schedule-requests(\/\{comment\})?)|GET \/api\/projects\/\{project\}\/issues\/\{issue\}\/(branches|pulls)|POST \/api\/uploads)$/, issue: 'ORR-927'},
     {routes: /^(GET|POST|PUT|DELETE) \/api\/(auth\/(link|status)|owner|permissions|projects\/\{project\}\/members(\/\{person\})?)$/, issue: 'ORR-928'},
     {routes: /^\w+ \/api\/(epics\/\{epic\}|projects\/\{project\}\/milestones\/\{milestone\})\/(comments(\/\{comment\})?|focus)$/, issue: 'ORR-1004'},
