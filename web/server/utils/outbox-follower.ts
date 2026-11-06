@@ -99,7 +99,7 @@ export async function followOutbox(store: Store, options: {
     let after = options.after
     let failing = false
     // Those waiting on a page read after they asked (`caughtUp`), told once the feed has nothing more.
-    let served: (() => void)[] = []
+    const served: (() => void)[] = []
     while (!options.stopped()) {
         let full = false
         served.push(...waiting.splice(0))
