@@ -162,6 +162,13 @@ impl<'c, 'i> Plans<'c, 'i> {
             .collect())
     }
 
+    /// The project's board and its releases, as `projectOf` reads them both (`readBoard`, `readReleases`).
+    pub(crate) async fn board_and_releases(&mut self, project: &str, statuses: &[Status]) -> Result<(Board, Vec<Map<String, Value>>)> {
+        let read = self.read(project, statuses).await?;
+        let releases = self.releases_of(&read, statuses).await?;
+        Ok((read.board, releases))
+    }
+
     /// The project's releases, newest first, each with how far its issues are (`listReleases`).
     pub async fn releases(&mut self, project: &str) -> Result<Value> {
         let statuses = self.issues.statuses().await?;
