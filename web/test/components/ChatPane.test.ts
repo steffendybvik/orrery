@@ -232,6 +232,36 @@ describe('ChatPane', () => {
         expect(corner.find('svg').classes()).not.toContain('animate-pulse')
     })
 
+    it('opens with ⌘J or Ctrl-J, the cursor in the box, and closes again on it, but not from another field (ORR-1030)', async () => {
+        const pane = await mountSuspended(ChatPane, {attachTo: document.body})
+        mounted.push(pane)
+        const press = async (target: EventTarget, init: KeyboardEventInit) => {
+            const event = new KeyboardEvent('keydown', {key: 'j', bubbles: true, cancelable: true, ...init})
+            target.dispatchEvent(event)
+            await flushPromises()
+            return event
+        }
+        // Typing in another field, it's a letter there.
+        const other = document.createElement('input')
+        document.body.append(other)
+        expect((await press(other, {metaKey: true})).defaultPrevented).toBe(false)
+        expect(useChat().open.value).toBe(false)
+        other.remove()
+
+        expect((await press(document.body, {metaKey: true})).defaultPrevented).toBe(true)
+        expect(useChat().open.value).toBe(true)
+        const box = pane.find('textarea[aria-label="Message"]').element
+        expect(document.activeElement).toBe(box)
+        // From its own box it closes it, as Esc does.
+        await press(box, {ctrlKey: true})
+        expect(useChat().open.value).toBe(false)
+        // Over the palette it's left alone.
+        useState('palette-open').value = true
+        await press(document.body, {ctrlKey: true})
+        expect(useChat().open.value).toBe(false)
+        useState('palette-open').value = false
+    })
+
     it("leaves the focus in a field elsewhere: an image landing doesn't pull it back to the box (ORR-834)", async () => {
         const pane = await mountSuspended(ChatPane, {attachTo: document.body})
         mounted.push(pane)
