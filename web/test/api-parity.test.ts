@@ -1200,6 +1200,44 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         expect((await signals('through-api')).filter(s => s.startsWith('focus '))).toHaveLength(2)
     })
 
+    it('moves an issue under a parent, into a milestone and a release alike, refusing what the store refuses (ORR-927)', async () => {
+        const ids: Record<string, Record<string, string>> = {}
+        for (const p of ['through-store', 'through-api']) {
+            await store.updateProject(p, {release_mode: 'own'}, OWNER)
+            if (!(await store.listReleases(p)).some(r => r.version === '3.0.0')) await store.createRelease(p, {version: '3.0.0'}, OWNER)
+            const {id: shelf} = await store.createMilestone(p, {title: 'The shelf'}, OWNER)
+            const {id: rack} = await store.createMilestone(p, {title: 'The rack'}, OWNER)
+            const make = async (title: string, more: Record<string, unknown> = {}) => (await store.createIssue(p, {title, ...more}, OWNER)).id
+            const top = await make('Build the shelf', {milestone: shelf})
+            const mid = await make('Cut the boards', {parent: top})
+            ids[p] = {shelf, rack, top, mid, low: await make('Mark the cuts', {parent: mid}), loose: await make('Find the saw'), idea: await make('A floating shelf?', {proposal: 'pending'})}
+        }
+        type Step = [string, (p: string) => Promise<Outcome>, () => Promise<Outcome>]
+        const id = (p: string, which: string) => ids[p]![which] ?? which
+        const edit = (name: string, which: string, body: (p: string) => Record<string, unknown>, actor: Actor = OWNER): Step =>
+            [name, p => viaStore(() => store.updateIssue(p, id(p, which), body(p), actor)), () => viaApi('PATCH', `/issues/${id('through-api', which)}`, body('through-api'), actor)]
+        for (const [name, ts, rs] of [
+            edit('into a milestone', 'loose', p => ({milestone: id(p, 'rack')})),
+            edit('into a release', 'loose', () => ({release: '3.0.0', title: 'Find the good saw'})),
+            edit('under a parent, out of its milestone', 'loose', p => ({parent: id(p, 'mid')})),
+            edit('the same parent again', 'loose', p => ({parent: id(p, 'mid')})),
+            edit('lifted to the top, into its root\'s milestone', 'loose', () => ({parent: null})),
+            edit('lifted into a milestone of its own', 'low', p => ({parent: null, milestone: id(p, 'rack')})),
+            edit('out of its milestone and release', 'loose', () => ({milestone: null, release: null})),
+            edit('a parent and a milestone at once', 'loose', p => ({parent: id(p, 'top'), milestone: id(p, 'shelf')})),
+            edit('under itself', 'top', p => ({parent: id(p, 'top')})),
+            edit('under its own sub-issue', 'top', p => ({parent: id(p, 'mid')})),
+            edit('under one there isn\'t', 'loose', () => ({parent: 'KEY-999'})),
+            edit('into a milestone there isn\'t', 'loose', () => ({milestone: '999'})),
+            edit('into a release there isn\'t', 'loose', () => ({release: '9.9.9'})),
+            edit('a parent that isn\'t a string', 'loose', () => ({parent: 7})),
+            edit('a proposal\'s release by an agent', 'idea', () => ({release: '3.0.0'}), AGENT),
+            edit('a proposal\'s release by the owner', 'idea', () => ({release: '3.0.0'})),
+            [`loose's activity`, p => viaStore(() => store.listActivity(p, id(p, 'loose'))), () => viaApi('GET', `/issues/${id('through-api', 'loose')}/activity`)],
+            [`low's activity`, p => viaStore(() => store.listActivity(p, id(p, 'low'))), () => viaApi('GET', `/issues/${id('through-api', 'low')}/activity`)],
+        ] as Step[]) await both(name, ts, rs)
+    })
+
     it('removes a person alike: their open issues unassigned and told, their seats the owner\'s, their keys and logins ended (ORR-928)', async () => {
         /** A member with work on `p`: a seat on its board, an open issue and a done one, a key and a login. */
         const hire = async (p: string) => {
@@ -1630,7 +1668,8 @@ describe('the router', () => {
         expect(onlyWords({title: 'x', priority: 'P0', notes: null, labels: [], position: 2})).toBe(true)
         expect(urgentOf('my%20project P-1')).toEqual({project: 'my project', issue: 'P-1'})
         for (const header of [null, '', 'p', 'p P-1 x']) expect(urgentOf(header), String(header)).toBeUndefined()
-        for (const body of [{title: 'x', status: 'todo'}, {assignee: 'claude'}, {}, null, [], 'title']) expect(onlyWords(body), JSON.stringify(body)).toBe(false)
+        expect(onlyWords({parent: null, milestone: '3', release: '1.0.0'})).toBe(true)
+        for (const body of [{title: 'x', status: 'todo'}, {assignee: 'claude'}, {epic: 1}, {project: 'q'}, {depends_on: []}, {}, null, [], 'title']) expect(onlyWords(body), JSON.stringify(body)).toBe(false)
         expect(domainOf('DELETE', '/api/projects/p/issues')).toBeUndefined()
         for (const path of ['/api/projects/p/issues/P-1/activity/x', '/api/', '/docs', '/api/projects/p/docs/d/artifact']) expect(domainOf('GET', path), path).toBeUndefined()
     })

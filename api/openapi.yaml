@@ -325,11 +325,14 @@ paths:
         '200': {description: The issue, content: {application/json: {schema: {$ref: '#/components/schemas/IssueDetail'}}}}
         '404': {$ref: '#/components/responses/NotFound'}
     patch:
-      summary: Changes the issue's own words and priority
+      summary: Changes the issue's own words, priority and where it sits
       description: |
-        Only its `title`, `priority`, `notes`, `labels`, `external`, `github_issues`, `model`, `effort` and `position`: the router
-        keeps an edit naming any other field for the Nuxt server. Null clears all but the title and position. An
-        agent's, with more than one person, only on its person's issue or its own proposal. Each changed field goes to
+        Only its `title`, `priority`, `notes`, `labels`, `external`, `github_issues`, `parent`, `milestone`, `release`,
+        `model`, `effort` and `position`: the router keeps an edit naming any other field for the Nuxt server. Null
+        clears all but the title and position. A sub-issue is in its parent's milestone, so `parent` and `milestone`
+        aren't sent together; `parent: null` lifts it to the top, into its root's milestone unless one is sent. An
+        agent's, with more than one person, only on its person's issue or its own proposal, and under a parent that's
+        its person's too; and, with `restrict_proposals`, not the release of a proposal waiting on the owner. Each changed field goes to
         the activity and is told (`issue.<field>`), without a title's or a link's words. Made urgent open work by the
         owner or a member (P0, committed, not closed, and not P0 before), the reply's `Orrery-Urgent` names it
         (`<project> <issue>`, percent-encoded), for the Nuxt server to push it to the sessions.
@@ -348,12 +351,16 @@ paths:
                 labels: {type: [array, 'null'], items: {type: string}}
                 external: {type: [array, 'null'], items: {type: string}}
                 github_issues: {type: [array, 'null'], items: {type: [string, integer]}}
+                parent: {type: [string, 'null'], description: An issue's id here, an alias or its full id}
+                milestone: {type: [string, 'null'], description: A milestone's id, an alias or its full id}
+                release: {type: [string, 'null'], description: The version of a release it ships in}
                 model: {type: [string, 'null']}
                 effort: {type: [string, 'null'], enum: [low, medium, high, xhigh, max, null]}
                 position: {type: number}
       responses:
         '200': {description: The issue, content: {application/json: {schema: {$ref: '#/components/schemas/IssueDetail'}}}}
         '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
         '404': {$ref: '#/components/responses/NotFound'}
         '409': {description: 'It isn''t the session''s person''s, or the session names nobody', content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
     delete:
