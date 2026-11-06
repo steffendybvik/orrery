@@ -1,11 +1,12 @@
 // Starts the Rust API beside this server (ORR-922) when NUXT_API_BIN names its binary: on this server's database, once
 // that's open and migrated (the API runs no migrations), on a loopback port of its own, with a token made fresh each
-// start. It stops with this server. Until it's listening, or if it can't start, this server answers its routes itself.
+// start. It stops with this server. Until it's listening, or if it can't start, this server answers its routes itself,
+// or with the swap on (NUXT_API_ONLY, ORR-1034) fails them with a 503.
 import type {ChildProcess} from 'node:child_process'
 import {spawn} from 'node:child_process'
 import {randomBytes} from 'node:crypto'
 import {known} from '#shared/known'
-import {apiStarted} from '../utils/api-router'
+import {apiOnly, apiStarted} from '../utils/api-router'
 
 export default defineNitroPlugin(nitro => {
     const bin = String(useRuntimeConfig().apiBin ?? '')
@@ -31,7 +32,7 @@ export default defineNitroPlugin(nitro => {
         api.on('error', error => console.error(`[orrery] can't start the Rust API (${bin}):`, error.message))
         api.on('exit', code => {
             apiStarted(null)
-            if (!stopping) console.error(`[orrery] the Rust API stopped (${code}); this server answers its routes now`)
+            if (!stopping) console.error(`[orrery] the Rust API stopped (${code}); ${apiOnly(useRuntimeConfig()) ? 'its routes fail until it starts again (NUXT_API_ONLY)' : 'this server answers its routes now'}`)
         })
     }
     start().catch(error => console.error('[orrery] the Rust API waits on the database, which failed:', error))

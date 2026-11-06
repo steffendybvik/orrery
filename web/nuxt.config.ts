@@ -85,6 +85,10 @@ export default defineNuxtConfig({
         apiBin: '',
         apiUrl: '',
         apiToken: '',
+        // The swap (ORR-1034): on (NUXT_API_ONLY=1), the routes the API serves are its alone, so with it down, not started
+        // yet or on another database they fail (503) instead of falling through to the routes here. Off by default; the
+        // playground runs with it on, the Orrerys in use stay off until the swap has proven stable (rust-api-swap doc).
+        apiOnly: false,
         // Login and keys (ORR-664): `on` always asks for them; `off` never, for trying people out, and only on loopback.
         // Unset, they're on when the server is reachable from other machines or has a second person. Override with
         // NUXT_AUTH (ORRERY_AUTH in compose).

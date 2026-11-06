@@ -6,7 +6,8 @@
 //
 // It sends who's asking (`actorOf`) and which database this server is on, and the API's reply says what a write changed,
 // which this tells as the store would: open pages read the project again, and the event log and schedules hear the event.
-// When the API is down, or is on another database (the owner moved it), the request falls through to the routes here.
+// When the API is down, or is on another database (the owner moved it), the request falls through to the routes here,
+// unless the swap is on (`apiOnly`, NUXT_API_ONLY, ORR-1034): then it fails, and says why in the log.
 import {createHash} from 'node:crypto'
 import type {H3Event} from 'h3'
 import {createError, getCookie, getQuery, getRequestHeader, getRequestURL, readRawBody, setResponseHeader, setResponseStatus} from 'h3'
@@ -324,40 +325,68 @@ export function apiTarget(config: {apiUrl?: unknown, apiToken?: unknown}): {url:
     return config.apiUrl && config.apiToken ? {url: String(config.apiUrl), token: String(config.apiToken)} : null
 }
 
-/** Said once, not on every request, while the API can't be reached. */
-let unreachable = false
+/** Whether the swap is on (`apiOnly`, NUXT_API_ONLY, ORR-1034): the routes in `DOMAINS` are the API's alone, with no
+ * falling through to the routes here when it can't answer. Off unless it says so. */
+export function apiOnly(config: {apiOnly?: unknown}): boolean {
+    return ['1', 'true', 'on', 'yes'].includes(String(config.apiOnly ?? '').trim().toLowerCase())
+}
 
-/** Sends the request to the API and gives back its reply, or undefined to leave it to the routes here. */
-export async function forwardToApi(event: H3Event, api: {url: string, token: string}): Promise<unknown> {
+/** Why the API last couldn't answer, said once, not on every request, until it answers again. */
+let unreachable = ''
+
+/** The API can't answer `event` (`why`): with the swap off, said once and left to the routes here (undefined); with it
+ * on, a 503 that says why, logged once to the server's log and the event log while it lasts. */
+export function cantReach(event: H3Event, why: string, only: boolean): undefined {
+    const again = unreachable === why
+    unreachable = why
+    if (!only) {
+        if (!again) console.warn(`[orrery] the Rust API ${why}, so this server answers its routes`)
+        return undefined
+    }
+    const message = `The Rust API ${why}, and this server is set to the API alone (NUXT_API_ONLY), so it doesn't answer ${event.method} ${pathOf(event, true)} itself.`
+    if (!again) {
+        console.error(`[orrery] ${message}`)
+        useEventLog().note({level: 'error', kind: 'api.unreachable', message, details: {why}})
+    }
+    throw createError({statusCode: 503, statusMessage: 'The Rust API can\'t be reached', message})
+}
+
+/** Sends the request to the API when it serves it (`DOMAINS`), and gives back its reply, or undefined to leave it to the
+ * routes here: always with no API, with the swap off (`apiOnly`); with it on, only what a line's check keeps here. */
+export async function routeToApi(event: H3Event, config: {apiUrl?: unknown, apiToken?: unknown, apiOnly?: unknown}): Promise<unknown> {
+    if (!servedByApi(event.method, pathOf(event))) return undefined
+    const api = apiTarget(config)
+    const only = apiOnly(config)
+    if (!api) return only ? cantReach(event, 'isn\'t running (not started yet, stopped, or not set up)', true) : undefined
+    return forwardToApi(event, api, only)
+}
+
+/** Sends the request to the API and gives back its reply, or undefined to leave it to the routes here. With the swap on
+ * (`only`), an API that can't be reached or is on another database fails the request instead (`cantReach`). */
+export async function forwardToApi(event: H3Event, api: {url: string, token: string}, only = false): Promise<unknown> {
     const found = lineOf(event.method, pathOf(event))
     // The checks here read ids out of the path, so they get it as it was asked: lowercased, an issue isn't found (ORR-1029).
     const asked = /^\/api\/(.*?)\/?$/.exec(pathOf(event, true))?.[1] ?? ''
     if (found && await found.line.first?.[event.method.toUpperCase()]?.(event, asked) === 'here') return undefined
     const actor = await actorOf(event)
     const body = WRITES.has(event.method) ? await readRawBody(event, false) : undefined
+    const headers = {
+        'Content-Type': getRequestHeader(event, 'content-type') ?? 'application/json',
+        'Orrery-Api-Token': api.token,
+        'Orrery-Database': databaseMark(databaseSetting()),
+        ...actorHeaders(actor),
+        ...whoHeaders(event.context.who as Who | undefined, getCookie(event, loginCookie(event))),
+        ...loginHeaders({provider: oidcOn(), off: toldOff()}, getRequestURL(event, {xForwardedHost: true, xForwardedProto: true}).origin),
+    }
     let response: Response
     try {
-        response = await fetch(`${api.url.replace(/\/+$/, '')}${event.path}`, {
-            method: event.method,
-            headers: {
-                'Content-Type': getRequestHeader(event, 'content-type') ?? 'application/json',
-                'Orrery-Api-Token': api.token,
-                'Orrery-Database': databaseMark(databaseSetting()),
-                ...actorHeaders(actor),
-                ...whoHeaders(event.context.who as Who | undefined, getCookie(event, loginCookie(event))),
-                ...loginHeaders({provider: oidcOn(), off: toldOff()}, getRequestURL(event, {xForwardedHost: true, xForwardedProto: true}).origin),
-            },
-            body: body ? new Uint8Array(body) : undefined,
-            redirect: 'manual',
-        })
+        response = await fetch(`${api.url.replace(/\/+$/, '')}${event.path}`, {method: event.method, headers, body: body ? new Uint8Array(body) : undefined, redirect: 'manual'})
     } catch (error) {
-        if (!unreachable) console.warn(`[orrery] the Rust API at ${api.url} can't be reached, so this server answers its routes:`, (error as Error).message)
-        unreachable = true
-        return undefined
+        return cantReach(event, `at ${api.url} can't be reached (${(error as Error).message})`, only)
     }
-    unreachable = false
     // On another database than this server's: the owner moved it, and the API hasn't been started again on the new one.
-    if (response.status === 421) return undefined
+    if (response.status === 421) return cantReach(event, `at ${api.url} is on another database than this server`, only)
+    unreachable = ''
     const passed = await passedThrough(response)
     if (passed) {
         setResponseStatus(event, response.status)

@@ -8,8 +8,9 @@ throws it away. For Postgres instead, add `COMPOSE_PROFILES=postgres` and
 `orrery-pg` volume, which `reset` throws away too.
 
 It runs the Rust API beside the dev server, with the router on (ORR-1029, `docker-compose.api.yml` in `compose.env`),
-on the same SQLite file: the swap is tried here before the Orrerys you use. Take `docker-compose.api.yml` off
-`COMPOSE_FILE` for the Nuxt server alone. Its port is `127.0.0.1` only, as the board check isn't the Rust API's yet.
+on the same SQLite file, and the swap's flag on (`NUXT_API_ONLY`, ORR-1034): the domains it routes are the API's alone,
+so with the API down they fail with a 503 that says why, in the log too, rather than Nuxt answering them. The swap is
+tried here before the Orrerys you use. Take `docker-compose.api.yml` off `COMPOSE_FILE` for the Nuxt server alone. Its port is `127.0.0.1` only, as the board check isn't the Rust API's yet.
 
 ```sh
 .playground/play          # start it (building the image, so a change in api/ is in it); an empty database gets the demo
