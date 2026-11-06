@@ -1238,6 +1238,42 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         ] as Step[]) await both(name, ts, rs)
     })
 
+    it('changes what an issue depends on alike, refusing itself, its parent, a sub-issue and a loop (ORR-927, ORR-601)', async () => {
+        const ids: Record<string, Record<string, string>> = {}
+        const key = (p: string) => p === 'through-store' ? 'STO' : 'API'
+        for (const p of ['through-store', 'through-api']) {
+            const make = async (title: string, more: Record<string, unknown> = {}) => (await store.createIssue(p, {title, ...more}, OWNER)).id
+            const gear = await make('Cut the gear')
+            ids[p] = {gear, axle: await make('Turn the axle'), case: await make('Close the case'), tooth: await make('File a tooth', {parent: gear}), pin: await make('Fit the pin')}
+            await store.db.run('INSERT INTO issue_aliases (project, alias, issue) VALUES (?, ?, ?)', p, `${key(p)}-88`, ids[p]!.case)
+        }
+        type Step = [string, (p: string) => Promise<Outcome>, () => Promise<Outcome>]
+        /** An edit of `which`, its body naming each side's own issues: `$axle` for the axle's id. */
+        const edit = (name: string, which: string, body: (p: string) => unknown, actor: Actor = OWNER): Step =>
+            [name, p => viaStore(() => store.updateIssue(p, ids[p]![which]!, body(p), actor)), () => viaApi('PATCH', `/issues/${ids['through-api']![which]}`, body('through-api'), actor)]
+        const on = (...names: string[]) => (p: string) => ({depends_on: names.map(n => n.replace(/\$(\w+)/, (_, w: string) => ids[p]![w]!).replace('OLD', `${key(p)}-88`))})
+        for (const [name, ts, rs] of [
+            edit('on the axle and the case, by an old id', 'gear', on('$axle', ' OLD ', '$axle')),
+            edit('the same again', 'gear', on('$axle', '$case')),
+            edit('the case dropped, the pin added, with a title', 'gear', p => ({...on('$axle', '$pin')(p), title: 'Cut the brass gear'})),
+            edit('on itself', 'gear', on('$gear')),
+            edit('a sub-issue on its parent', 'tooth', on('$gear')),
+            edit('a parent on its sub-issue', 'gear', on('$tooth')),
+            edit('the axle on the case', 'axle', on('$case')),
+            edit('a loop through the axle', 'case', on('$gear')),
+            edit('the case on the gear directly', 'pin', on('$gear')),
+            edit('not an issue', 'pin', on('/X-1')),
+            edit('one that isn\'t there', 'pin', on('$pin-9')),
+            edit('another project there isn\'t', 'pin', on('nowhere/X-1')),
+            edit('not a list', 'pin', () => ({depends_on: 'X-1'})),
+            edit('cleared with null', 'gear', () => ({depends_on: null})),
+            edit('cleared again with none', 'gear', () => ({depends_on: []})),
+            [`the gear's activity`, p => viaStore(() => store.listActivity(p, ids[p]!.gear!)), () => viaApi('GET', `/issues/${ids['through-api']!.gear}/activity`)],
+            [`the pin, read`, p => viaStore(() => store.issue(p, ids[p]!.pin!)), () => viaApi('GET', `/issues/${ids['through-api']!.pin}`)],
+            [`the case, read`, p => viaStore(() => store.issue(p, ids[p]!.case!)), () => viaApi('GET', `/issues/${ids['through-api']!.case}`)],
+        ] as Step[]) await both(name, ts, rs)
+    })
+
     it('removes a person alike: their open issues unassigned and told, their seats the owner\'s, their keys and logins ended (ORR-928)', async () => {
         /** A member with work on `p`: a seat on its board, an open issue and a done one, a key and a login. */
         const hire = async (p: string) => {
@@ -1665,11 +1701,11 @@ describe('the router', () => {
         expect(domainOf('PATCH', '/api/projects/p/issues/P-1')).toBe('an issue, its words')
         expect(domainOf('POST', '/api/projects/p/issues/P-1')).toBeUndefined()
         // An issue's edit goes on only with nothing but its words: the rest of it stays here for now.
-        expect(onlyWords({title: 'x', priority: 'P0', notes: null, labels: [], position: 2})).toBe(true)
+        expect(onlyWords({title: 'x', priority: 'P0', notes: null, labels: [], depends_on: ['P-2'], position: 2})).toBe(true)
         expect(urgentOf('my%20project P-1')).toEqual({project: 'my project', issue: 'P-1'})
         for (const header of [null, '', 'p', 'p P-1 x']) expect(urgentOf(header), String(header)).toBeUndefined()
         expect(onlyWords({parent: null, milestone: '3', release: '1.0.0'})).toBe(true)
-        for (const body of [{title: 'x', status: 'todo'}, {assignee: 'claude'}, {epic: 1}, {project: 'q'}, {depends_on: []}, {}, null, [], 'title']) expect(onlyWords(body), JSON.stringify(body)).toBe(false)
+        for (const body of [{title: 'x', status: 'todo'}, {assignee: 'claude'}, {epic: 1}, {project: 'q'}, {}, null, [], 'title']) expect(onlyWords(body), JSON.stringify(body)).toBe(false)
         expect(domainOf('DELETE', '/api/projects/p/issues')).toBeUndefined()
         for (const path of ['/api/projects/p/issues/P-1/activity/x', '/api/', '/docs', '/api/projects/p/docs/d/artifact']) expect(domainOf('GET', path), path).toBeUndefined()
     })
