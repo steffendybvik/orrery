@@ -57,8 +57,19 @@ pub(crate) fn github_issue_of(sent: &str, repo: Option<&str>) -> Option<String> 
 /// `-<uid>`.
 fn short_id(id: &str, prefixes: &[&str], uid: &str) -> Option<String> {
     let tail = format!("-{uid}");
-    let prefix = prefixes.iter().find(|p| id.starts_with(**p) && id.len() > p.len() + tail.len())?;
+    let prefix = prefixes.iter().find(|p| starts_with(id, p) && id.len() > p.len() + tail.len())?;
     (!uid.is_empty() && id.ends_with(&tail)).then(|| id[prefix.len()..id.len() - tail.len()].to_string())
+}
+
+/// Whether `id` starts with `prefix` in any case, so `MLS-` takes the `mls-` of before ORR-995 too.
+fn starts_with(id: &str, prefix: &str) -> bool {
+    id.get(..prefix.len()).is_some_and(|start| start.eq_ignore_ascii_case(prefix))
+}
+
+/// The number inside a milestone's id as it's shown (ORR-995), in any case: `MLS-14` → `14` (`shownNumber`).
+fn shown_number(id: &str) -> Option<String> {
+    let number = id.get(4..).filter(|n| starts_with(id, "MLS-") && !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))?;
+    Some(number.to_string())
 }
 
 /// A status as the board needs it: its id and kind, in board order.
@@ -311,7 +322,7 @@ impl<'c> Issues<'c> {
     /// board (`issueId`, `milestoneId`).
     pub(crate) async fn resolve(&mut self, project: &str, sent: &str, milestone: bool) -> Result<String> {
         let (table, aliases, column, prefixes): (&str, &str, &str, &[&str]) =
-            if milestone { ("milestones", "milestone_aliases", "milestone", &["mls-", "chk-"]) } else { ("issues", "issue_aliases", "issue", &[""]) };
+            if milestone { ("milestones", "milestone_aliases", "milestone", &["MLS-", "chk-"]) } else { ("issues", "issue_aliases", "issue", &[""]) };
         let mut id = sent.to_string();
         loop {
             if self.exists(&format!("SELECT 1 FROM {table} WHERE project = ? AND id = ?"), &[project, &id]).await? {
@@ -325,9 +336,10 @@ impl<'c> Issues<'c> {
             if let Some(alias) = alias {
                 return Ok(alias.get("target"));
             }
-            match short_id(&id, prefixes, &self.project(project).await?.uid) {
-                Some(short) => id = short,
-                None => return Ok(id),
+            let short = if milestone { shown_number(&id) } else { None };
+            match short.or(short_id(&id, prefixes, &self.project(project).await?.uid)) {
+                Some(short) if short != id => id = short,
+                _ => return Ok(id),
             }
         }
     }
@@ -838,9 +850,14 @@ mod tests {
     #[test]
     fn ids() {
         assert_eq!(short_id("ORR-12-x7k2m3qd", &[""], "x7k2m3qd").as_deref(), Some("ORR-12"));
-        assert_eq!(short_id("mls-3-x7k2m3qd", &["mls-", "chk-"], "x7k2m3qd").as_deref(), Some("3"));
-        assert_eq!(short_id("chk-3-x7k2m3qd", &["mls-", "chk-"], "x7k2m3qd").as_deref(), Some("3"));
-        assert_eq!(short_id("3-x7k2m3qd", &["mls-", "chk-"], "x7k2m3qd"), None);
+        assert_eq!(short_id("MLS-3-x7k2m3qd", &["MLS-", "chk-"], "x7k2m3qd").as_deref(), Some("3"));
+        assert_eq!(short_id("mls-3-x7k2m3qd", &["MLS-", "chk-"], "x7k2m3qd").as_deref(), Some("3"));
+        assert_eq!(short_id("chk-3-x7k2m3qd", &["MLS-", "chk-"], "x7k2m3qd").as_deref(), Some("3"));
+        assert_eq!(short_id("3-x7k2m3qd", &["MLS-", "chk-"], "x7k2m3qd"), None);
+        assert_eq!(shown_number("MLS-14").as_deref(), Some("14"));
+        assert_eq!(shown_number("mls-14").as_deref(), Some("14"));
+        assert_eq!(shown_number("MLS-"), None);
+        assert_eq!(shown_number("MLS-1a"), None);
     }
 
     #[test]

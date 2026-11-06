@@ -113,7 +113,7 @@ impl<'c, 'i> Plans<'c, 'i> {
         let group = board.milestones.iter().find(|g| g.id == id).ok_or_else(|| ApiError::not_found(format!("No milestone \"{id}\" in {project}")))?;
         let mut out = record(&group.fields, &group.tasks);
         out.insert("tasks".into(), Value::Array(group.tasks.iter().map(Node::json).collect()));
-        out.insert("full_id".into(), json!(format!("mls-{id}-{}", row.uid)));
+        out.insert("full_id".into(), json!(format!("MLS-{id}-{}", row.uid)));
         Ok(Value::Object(out))
     }
 

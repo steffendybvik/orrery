@@ -1,5 +1,5 @@
 import {beforeEach, describe, expect, it} from 'vitest'
-import {fullId, shortId} from '#shared/roadmap'
+import {fullId, keyFor, numberOf, shortId, shownId} from '#shared/roadmap'
 import {copyDatabase} from '../server/utils/copy'
 import {Store} from '../server/utils/store'
 import {testDb} from './db'
@@ -20,10 +20,29 @@ describe('full ids', () => {
     it('are made and read back by kind', () => {
         expect(fullId('issue', 'ORR-660', 'x7k2m9qd')).toBe('ORR-660-x7k2m9qd')
         expect(fullId('doc', 'ideas', 'x7k2m9qd')).toBe('doc-ideas-x7k2m9qd')
-        expect(fullId('milestone', 3, 'x7k2m9qd')).toBe('mls-3-x7k2m9qd')
+        expect(fullId('milestone', 3, 'x7k2m9qd')).toBe('MLS-3-x7k2m9qd')
+        expect(fullId('epic', 1, 'x7k2m9qd')).toBe('EPC-1-x7k2m9qd')
         expect(shortId('doc', 'doc-ideas-x7k2m9qd', 'x7k2m9qd')).toBe('ideas')
         expect(shortId('issue', 'ORR-660-aaaaaaaa', 'x7k2m9qd')).toBeNull()
         expect(shortId('issue', 'ORR-660', 'x7k2m9qd')).toBeNull()
+    })
+
+    it('show a milestone and an epic as an issue is shown, and read every form back (ORR-995)', () => {
+        expect(shownId('milestone', 14)).toBe('MLS-14')
+        expect(shownId('epic', '1')).toBe('EPC-1')
+        for (const sent of ['14', 'MLS-14', 'mls-14', 'MLS-14-x7k2m9qd', 'mls-14-x7k2m9qd', 'chk-14-x7k2m9qd']) expect(numberOf('milestone', sent, 'x7k2m9qd')).toBe('14')
+        for (const sent of [1, '1', 'EPC-1', 'epc-1', 'EPC-1-x7k2m9qd']) expect(numberOf('epic', sent, 'x7k2m9qd')).toBe('1')
+        expect(numberOf('milestone', 'MLS-14-aaaaaaaa', 'x7k2m9qd')).toBeNull()
+        expect(numberOf('epic', 'MLS-1', 'x7k2m9qd')).toBeNull()
+        expect(numberOf('milestone', 'autumn', 'x7k2m9qd')).toBeNull()
+    })
+
+    it('keeps the keys they start with off projects (ORR-995)', async () => {
+        expect(keyFor('Mlsx')).toBe('MLSX')
+        expect(keyFor('Epc')).toBe('EPCP')
+        expect(keyFor('Epcot')).toBe('EPCO')
+        for (const key of ['MLS', 'EPC']) await expect(store.createProject({name: `board ${key}`, key}, me)).rejects.toMatchObject({statusCode: 400})
+        expect((await store.createProject({name: 'Epcot'}, me)).key).toBe('EPCO')
     })
 
     it('gives each board and the server a random id', async () => {
@@ -66,6 +85,28 @@ describe('full ids', () => {
         expect((await store.doc('shop', 'ideas')).body).toBe('More.')
         // Another board's full id doesn't make a doc by that name.
         await expect(store.putDoc('yard', docFull, {title: 'Ideas', body: 'Mine.'}, me)).rejects.toMatchObject({statusCode: 404})
+    })
+
+    it('finds a milestone by its shown id and the lowercase full id of before (ORR-995)', async () => {
+        const milestone = await store.createMilestone('shop', {title: 'Autumn'}, me)
+        for (const sent of [`MLS-${milestone.id}`, `mls-${milestone.id}`, `mls-${milestone.id}-${await uid('shop')}`]) expect((await store.milestone('shop', sent)).id).toBe(milestone.id)
+        const {id} = await store.createIssue('shop', {title: 'Till', milestone: `MLS-${milestone.id}`}, me)
+        expect((await store.issue('shop', id)).milestone).toBe(milestone.id)
+    })
+
+    it('finds an epic by its number, its shown id and its full id, with the server\'s uid (ORR-995)', async () => {
+        const epic = await store.createEpic({title: 'Checkout'}, me)
+        const full = fullId('epic', epic.id, (await store.settings()).uid)
+        expect(epic.full_id).toBe(full)
+        const {id} = await store.createIssue('shop', {title: 'Till', epic: `EPC-${epic.id}`}, me)
+        expect((await store.issue('shop', id)).epic).toBe(epic.id)
+        await store.updateIssue('shop', id, {epic: null}, me)
+        await store.updateIssue('shop', id, {epic: full}, me)
+        expect((await store.issue('shop', id)).epic).toBe(epic.id)
+        await store.updateIssue('shop', id, {epic: epic.id}, me)
+        expect((await store.issue('shop', id)).epic).toBe(epic.id)
+        await expect(store.updateIssue('shop', id, {epic: `EPC-${epic.id}-aaaaaaaa`}, me)).rejects.toMatchObject({statusCode: 404})
+        await expect(store.updateIssue('shop', id, {epic: true}, me)).rejects.toMatchObject({statusCode: 400})
     })
 
     it('stops resolving when an issue moves to another board', async () => {

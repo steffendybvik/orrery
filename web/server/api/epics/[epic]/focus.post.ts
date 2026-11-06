@@ -6,7 +6,8 @@
 export default defineEventHandler(async event => {
     const {start, ...body} = ((await readBody(event).catch(() => null)) ?? {}) as {start?: unknown}
     const actor = await actorOf(event)
-    const send = () => useStore().focusEpic(epicId(event), body, actor)
+    const id = await epicId(event)
+    const send = () => useStore().focusEpic(id, body, actor)
     const signals = await (start === true && actor.owner ? startAsked.run(true, send) : send())
     setResponseStatus(event, 201)
     return {signals, listeners: Object.fromEntries(signals.map(s => [s.project, listening(s.project)]))}

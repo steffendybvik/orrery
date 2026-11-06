@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type {Priority} from '#shared/roadmap'
-import {PRIORITIES, fullId} from '#shared/roadmap'
+import {PRIORITIES, fullId, shownId} from '#shared/roadmap'
 
 // Right-clicking a milestone's card on the roadmap: set its priority, ask the Claude sessions to work through
 // it, start a new issue in it, copy its id, open or remove it (its issues stay, in no milestone), all as the
@@ -73,10 +73,10 @@ const pick = 'grid size-7 place-items-center rounded-md ring-1 hover:bg-hover di
 </script>
 
 <template>
-  <UiContextMenu :at="milestone && project ? target : null" :label="milestone?.id ? `Actions for milestone ${milestone.id}` : 'Actions for the issues in no milestone'" width="w-64" @close="close">
+  <UiContextMenu :at="milestone && project ? target : null" :label="milestone?.id ? `Actions for ${shownId('milestone', milestone.id)}` : 'Actions for the issues in no milestone'" width="w-64" @close="close">
     <template v-if="milestone && project">
       <div class="flex items-center gap-2 px-2 pt-1.5 pb-1 text-xs">
-        <span v-if="milestone.id" class="font-mono text-faint">{{ milestone.id }}</span>
+        <span v-if="milestone.id" class="font-mono text-faint">{{ shownId('milestone', milestone.id) }}</span>
         <span class="min-w-0 flex-1 truncate text-muted" :class="!milestone.id && 'italic'">{{ milestone.title }}</span>
       </div>
 

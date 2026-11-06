@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type {Priority} from '#shared/roadmap'
-import {fullId, shortId} from '#shared/roadmap'
+import {fullId, numberOf, shortId, shownId} from '#shared/roadmap'
 
 // A milestone's page: its summary, priority and progress, the Claude sessions to point at it, and its issues
 // by status, each status with a button to point the sessions at just those. Its title and summary edit
@@ -11,7 +11,7 @@ const {byId, ready} = useRoadmaps()
 const {matches, active} = useFilters()
 
 const project = computed(() => byId(route.params.project as string))
-const milestoneId = computed(() => route.params.milestone === 'none' ? '' : shortId('milestone', String(route.params.milestone), project.value?.uid ?? '') ?? String(route.params.milestone))
+const milestoneId = computed(() => route.params.milestone === 'none' ? '' : numberOf('milestone', String(route.params.milestone), project.value?.uid ?? '') ?? shortId('milestone', String(route.params.milestone), project.value?.uid ?? '') ?? String(route.params.milestone))
 const milestone = computed(() => project.value?.board.milestones.find(c => c.id === milestoneId.value || c.aliases.includes(milestoneId.value)))
 // A name it had before (/roadmap/joints) goes to its own address.
 watch(milestone, c => {
@@ -135,8 +135,8 @@ useHead(() => ({title: milestone.value ? `${milestone.value.title} · orrery` : 
             {{ look(milestone.column).label }}
           </span>
           <span v-if="milestone.id" class="flex items-center gap-1.5">
-            <span class="font-mono text-faint">{{ milestone.id }}</span>
-            <CopyButton :text="fullId('milestone', milestone.id, project.uid)" />
+            <span class="font-mono text-faint" data-testid="milestone-id">{{ shownId('milestone', milestone.id) }}</span>
+            <CopyButton :text="fullId('milestone', milestone.id, project.uid)" :name="fullId('milestone', milestone.id, project.uid)" />
           </span>
           <PropertyPicker
               v-if="milestone.id"

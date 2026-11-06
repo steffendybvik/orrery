@@ -43,14 +43,18 @@ characters of base32: the project's `uid`, or the server's (`uid` on `GET /setti
 |---|---|---|---|
 | Issue | `GRE-142` | `GRE-142-x7k2m9qd` | the project's |
 | Doc | `ideas` | `doc-ideas-x7k2m9qd` | the project's |
-| Milestone | `3` | `mls-3-x7k2m9qd` | the project's |
+| Milestone | `3` or `MLS-3` | `MLS-3-x7k2m9qd` | the project's |
+| Epic | `1` or `EPC-1` | `EPC-1-x7k2m9qd` | the server's |
 | Preset | `12` | `pst-12-x7k2m9qd` | the server's |
 | Schedule | `12` | `sch-12-x7k2m9qd` | the server's |
 
-Every route takes either form, and an alias's full form too. Issues read back with theirs in
-`full_id`, and a milestone or doc read on its own too (not in a list or a board). A project's `uid` goes with it when the database moves, and a restored backup keeps the server's. An issue
-moved to another project has a new full id, and its old one gets a 404. A new project can't take the `key` `DOC`, `CHK`,
-`PST` or `SCH`, which read as the start of a full id; one that has it already keeps it.
+Every route takes either form, and an alias's full form too. A milestone and an epic are shown the way an issue is
+(ORR-995), `MLS-3` and `EPC-1`, while `id` stays the number; routes and the `milestone` and `epic` fields take the
+number, the shown id or the full id, their prefixes in any case (so the `mls-3-…` of before still works). Issues read back
+with theirs in `full_id`, epics in a list too, and a milestone or doc read on its own (not in a list or a board). A project's `uid` goes with it when the database moves, and a restored backup keeps the server's. An issue
+moved to another project has a new full id, and its old one gets a 404. A new project can't take the `key` `MLS`, `EPC`,
+`DOC`, `CHK`, `PST` or `SCH`, which read as the start of a milestone's, an epic's or another kind's id (a key made from
+its name takes a fourth letter instead: `EPCO` for Epcot); one that has it already keeps it.
 
 ## Logging in
 
@@ -210,14 +214,14 @@ until the release ships.
 ## Epics
 
 One piece of work across projects (ORR-895), such as a feature with a part in each repo: an epic holds issues from any
-project, apart from each project's milestones. It has a number of its own across the orrery (`/epics/3` on the pages),
+project, apart from each project's milestones. It has a number of its own across the orrery, shown as `EPC-3` (`/epics/3` or `/epics/EPC-3` on the pages),
 a `title` and `notes`, and its progress is its issues', counted the way a release's are. An issue joins one with `epic`
 (its number); it's in one at most, and a sub-issue with none goes with its parent's. Moving an issue to another project
 keeps its epic.
 
 | | |
 |---|---|
-| `GET /epics` | in the order they're arranged in, a new one on top: `{id, title, notes?, issues, kinds, projects: [{project, issues, kinds}], protected}`, `issues` counting those set for it and `kinds` their progress, sub-issues included, across every project it has issues in |
+| `GET /epics` | in the order they're arranged in, a new one on top: `{id, full_id, title, notes?, issues, kinds, projects: [{project, issues, kinds}], protected}`, `issues` counting those set for it and `kinds` their progress, sub-issues included, across every project it has issues in |
 | `POST /epics` | `{title, notes?, position?}` → 201; `position` is where it goes among them (0 the top, the default) |
 | `GET /epics/:epic` | as above, with `parts`: a section per project, `{project, name, issues, kinds, tasks}`, the issues set for it there (a sub-issue's when its parent isn't), each with its sub-issues |
 | `PATCH /epics/:epic` | `{title?, notes?, position?}`; `null` clears `notes` |
@@ -251,7 +255,7 @@ board's export leaves epics out, as they're the server's: uploading one clears i
 - A top-level issue is in a `milestone`; a sub-issue (`parent`) is in its parent's milestone, so it takes no `milestone`
 - `parent: null` lifts a sub-issue to the top, into the milestone it was in
 - `release`: the version of a release of the project, or of the project it takes its releases from (see [Releases](#releases)); moving the issue to a project that doesn't share them takes it out. orrery sets it itself when a pull request on the issue merges into the branch of a release being prepared, if the issue and those above it have none
-- `epic`: the number of an epic (see [Epics](#epics)), from any project; `null` takes it out. Moving the issue keeps it
+- `epic`: an epic (see [Epics](#epics)), from any project, by its number, `EPC-1` or its full id; `null` takes it out. Moving the issue keeps it
 - `project` moves the issue with its sub-issues and comments; they get that project's ids, their old ones kept as aliases
 - `depends_on`: the issues it waits on, all of them, replacing the list (`[]` or `null` for none): an id in its project,
   `project/ID` in another. An issue itself, one not there, more than 50, a parent and its own sub-issue, and a loop are
@@ -541,7 +545,7 @@ session's.
 | | |
 |---|---|
 | `POST /projects/:project/issues/:issue/focus` | `{note?, session?, instructions?, start?}` → `{signal, listeners}`: sends it, and says how many sessions heard; `session` is the one it's for, by its id or its name (`orrery · Nide`, or `Nide`, in any case; a stream with no session by the `name` it gave), a 404 for one the project doesn't know, and left out it goes to the one on the issue or one orrery picks (`*`, every session, is a 400: only a milestone can go to them all); `start: true` (the owner's) starts a session for it when nobody's listening, even with `on_signal` off (see [Starting sessions](#starting-sessions)) |
-| `POST /projects/:project/milestones/:milestone/focus` | `{note?, session?, status?, release?, instructions?, start?}` → `{signal, listeners}`: the same, for a milestone (`none`: the issues in no milestone; `all`: every milestone's), which `session` `*` sends to every session; `status` (open statuses' ids, or `backlog`, `todo` or `started`, comma-separated) narrows it to those issues, `release` (a version) to those set for it, at any depth, and `epic` (a number) to those in that epic |
+| `POST /projects/:project/milestones/:milestone/focus` | `{note?, session?, status?, release?, instructions?, start?}` → `{signal, listeners}`: the same, for a milestone (`none`: the issues in no milestone; `all`: every milestone's), which `session` `*` sends to every session; `status` (open statuses' ids, or `backlog`, `todo` or `started`, comma-separated) narrows it to those issues, `release` (a version) to those set for it, at any depth, and `epic` (a number, `EPC-1` or its full id) to those in that epic |
 | `GET /projects/:project/signals?after=` | the signals after that id, oldest first, 50 at most; `?issue=` or `?milestone=` for the latest about one |
 | `GET /projects/:project/signals/stream` | first `ready` (`{project, listeners}`), then server-sent `signal` events as they're sent (`?after=` or `Last-Event-ID` to catch up), `name` `{name}`: what orrery calls the session, once it's known and again when it changes, `stop` when the owner stops the session, and `ping` every 25 seconds; a schedule's message sent again with the same text comes once in a catch-up, and not again while the session hasn't finished a turn since the last copy (the copies count as delivered); `?format=text` gives one line each, for the Monitor tool |
 | `GET /signals/stream?projects=hub,css` | the same for a session on several projects, on one stream: `ready` is `{projects, listeners: {<project>: n}}` and each `signal` says its `project`; `*` follows every project, and each one made later; `404` for a project that doesn't exist |

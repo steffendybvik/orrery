@@ -58,7 +58,7 @@ export interface IssueDetail extends Issue {
 }
 
 export interface MilestoneRecord extends Omit<Milestone, 'tasks'> {
-    /** Its id to paste anywhere: `mls-3-x7k2m9qd`, which finds nothing on any other board. */
+    /** Its id to paste anywhere: `MLS-3-x7k2m9qd`, which finds nothing on any other board. */
     full_id?: string
     project: string
     position: number
@@ -150,8 +150,15 @@ export const SLUG = /^[a-z0-9][a-z0-9-]{0,39}$/
 /** A named tint or any `#rrggbb`: the page's tint, a project icon's colour. */
 const TINT: Field = {type: 'string', nullable: true, pattern: new RegExp(`^(${Object.keys(TINTS).join('|')}|#[0-9a-fA-F]{6})$`), hint: `use ${Object.keys(TINTS).join(', ')} or a colour like #3b82f6`}
 /** The keys a doc's, milestone's, preset's or schedule's full id starts with, so no project's. */
-export const FULL_ID_KEYS = ['DOC', 'CHK', 'PST', 'SCH']
+/** The keys no project can have (ORR-995): a milestone's, an epic's and other kinds' ids start with them. */
+export {RESERVED_KEYS as FULL_ID_KEYS} from '#shared/roadmap'
 export const KEY = /^[A-Z][A-Z0-9]{0,9}$/
+
+/** An epic as a field names it: its number, `EPC-1` as it's shown, or its full id (ORR-995); the store finds which. */
+const EPIC_REF: Field = {type: 'json', nullable: true, parse: value => {
+    if ((typeof value === 'number' && Number.isInteger(value)) || (typeof value === 'string' && value.trim())) return String(value).trim()
+    throw new Error(`should be an epic's number or id, such as 1 or "EPC-1", not ${JSON.stringify(value)}`)
+}}
 /** A release's version: `1.0.0`, `1.0.0-rc.2`, `2026.10`, `v2`; it goes in URLs as it is. */
 const VERSION = /^[0-9A-Za-z][0-9A-Za-z.+_-]{0,39}$/
 
@@ -252,8 +259,8 @@ export const ISSUE_FIELDS: Record<string, Field> = {
     milestone: {type: 'string', nullable: true},
     /** The version of a release it ships in; null takes it out of one. */
     release: {type: 'string', nullable: true},
-    /** The epic it's part of, by number (ORR-895); null takes it out of one. */
-    epic: {type: 'number', nullable: true},
+    /** The epic it's part of (ORR-895): its number, `EPC-1` or its full id (ORR-995); null takes it out of one. */
+    epic: EPIC_REF,
     /** The issues it depends on (ORR-601), all of them: ids in its project, `project/ID` in another; null or [] for none. */
     depends_on: {type: 'strings', nullable: true},
     /** The model and effort a session for it starts on (ORR-868), over its kind's; null follows its kind. */
@@ -330,7 +337,7 @@ export const MILESTONE_SIGNAL_FIELDS: Record<string, Field> = {
     ...SIGNAL_FIELDS,
     status: {type: 'string', nullable: true},
     release: {type: 'string', nullable: true},
-    epic: {type: 'number', nullable: true},
+    epic: EPIC_REF,
 }
 
 export const STATUS_FIELDS = {

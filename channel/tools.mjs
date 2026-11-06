@@ -29,7 +29,7 @@ const FIELDS = {
     milestone: {type: ['string', 'null'], description: "A milestone's id"},
     parent: {type: ['string', 'null'], description: 'Makes it a sub-issue of this issue'},
     release: {type: ['string', 'null'], description: 'The release version it ships in'},
-    epic: {type: ['integer', 'null'], description: 'An epic: work across projects'},
+    epic: {type: ['string', 'null'], description: 'An epic: work across projects'},
     depends_on: {type: 'array', items: {type: 'string'}, description: 'Issues it waits on (all); chain ordered follow-ups'},
     choices: CHOICES,
 }
@@ -102,13 +102,13 @@ export const TOOLS = [
     },
     {
         name: 'update_epic',
-        description: "Changes an epic's title or notes, by its number: send only what changes.",
-        inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'integer'}, title: {type: 'string'}, notes: {type: ['string', 'null']}}},
+        description: "Changes an epic's title or notes, by its id: send only what changes.",
+        inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'string'}, title: {type: 'string'}, notes: {type: ['string', 'null']}}},
     },
     {
         name: 'comment_epic',
-        description: "Comments on an epic, by its number (Markdown): words on its page, which ask nothing and wake no session.",
-        inputSchema: {type: 'object', required: ['id', 'body'], properties: {id: {type: 'integer'}, body: {type: 'string'}}},
+        description: "Comments on an epic, by its id (Markdown): words on its page, which ask nothing and wake no session.",
+        inputSchema: {type: 'object', required: ['id', 'body'], properties: {id: {type: 'string'}, body: {type: 'string'}}},
     },
     {
         name: 'docs',

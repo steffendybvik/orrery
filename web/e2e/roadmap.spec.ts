@@ -47,7 +47,7 @@ test("a milestone's right-click menu sets its priority, files an issue in it, co
     })
     // By its own address, as a retry finds the first try's Ladders on the roadmap too.
     const card = page.locator(`a[href="/p/orchard/roadmap/${milestone.id}"]`).first()
-    const menu = page.getByRole('menu', {name: `Actions for milestone ${milestone.id}`})
+    const menu = page.getByRole('menu', {name: `Actions for MLS-${milestone.id}`})
 
     await card.click({button: 'right'})
     await menu.getByRole('button', {name: 'Priority P1'}).click()

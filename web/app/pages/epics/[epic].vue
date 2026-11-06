@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type {Kinds, Signal} from '#shared/roadmap'
-import {emptyKinds} from '#shared/roadmap'
+import {emptyKinds, numberOf, shownId} from '#shared/roadmap'
 
 // An epic's page (ORR-895): its title and notes, edited in place, its progress across projects, and its issues in a
 // section per project, by status (the board's filters would hide the done ones). The issues come from the boards the
@@ -12,7 +12,11 @@ const {projects, ready, whole} = useRoadmaps()
 const {ordered} = useProjectOrder()
 const {epics, failed: readFailed, load} = useLiveEpics()
 
-const id = computed(() => Number(route.params.epic))
+// `/epics/1`, `/epics/EPC-1`, or the full id pasted in (ORR-995).
+const id = computed(() => {
+    const sent = String(route.params.epic)
+    return Number(numberOf('epic', sent, '') ?? epics.value?.find(e => e.full_id?.toLowerCase() === sent.toLowerCase())?.id)
+})
 const epic = computed(() => epics.value?.find(e => e.id === id.value))
 // The projects it has issues in, read whole so their done issues count here too.
 watch(() => epic.value?.projects.map(p => p.project).join(','), () => {
@@ -149,9 +153,9 @@ useHead(() => ({title: epic.value ? `${epic.value.title} · Epics · orrery` : '
       <header class="mx-auto flex max-w-5xl animate-fade-up flex-col gap-4 px-4 pt-8 pb-6 sm:px-8">
         <div class="flex flex-wrap items-center gap-3 text-xs">
           <span class="flex items-center gap-1.5">
-            <span class="font-mono text-faint">Epic {{ epic.id }}</span>
-            <!-- The number, as the tools and the API take an epic (ORR-994); epics have no full id yet (ORR-995). -->
-            <CopyButton :text="String(epic.id)" :name="`epic ${epic.id}'s number`" />
+            <span class="font-mono text-faint" data-testid="epic-id">{{ shownId('epic', epic.id) }}</span>
+            <!-- Its full id, with the server's uid, as an issue's copies (ORR-995); the tools and the API take it as they take `1`. -->
+            <CopyButton :text="epic.full_id ?? shownId('epic', epic.id)" :name="epic.full_id ?? shownId('epic', epic.id)" />
           </span>
           <span class="ml-auto flex items-center gap-2">
             <span v-if="focused" class="text-faint" role="status">{{ focused }}</span>

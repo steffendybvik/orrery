@@ -43,7 +43,7 @@ export abstract class ProjectStore extends KeyStore {
         if (!SLUG.test(id)) throw badRequest(`"${name}" doesn't make an id; give one in "id"`)
         if (await this.get('SELECT 1 FROM projects WHERE id = ?', id)) throw conflict(`There is already a project "${id}"`)
         const key = input.key ? String(input.key) : keyFor(name)
-        if (FULL_ID_KEYS.includes(key)) throw badRequest(`"${key}" is how a doc's, milestone's, preset's or schedule's full id starts; give another in "key"`)
+        if (FULL_ID_KEYS.includes(key)) throw badRequest(`"${key}" is how a milestone's, an epic's, a doc's, a preset's or a schedule's id starts; give another in "key"`)
         const {mode, from} = releaseModeOf(input, 'none', null)
         if (from) await this.checkReleasesFrom(id, from)
         const now = stamp()
