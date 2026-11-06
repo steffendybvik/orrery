@@ -82,12 +82,18 @@ export abstract class EpicStore extends ReleaseStore {
         return await this.epic(id)
     }
 
-    async updateEpic(id: number, body: unknown, _actor = AGENT): Promise<EpicDetail> {
-        await this.epicRow(id)
+    /** Its title or notes changed is `epic.changed` on each project with an issue in it (ORR-984), so the sessions on
+     * them hear it; moving it among the epics says nothing. */
+    async updateEpic(id: number, body: unknown, actor = AGENT): Promise<EpicDetail> {
+        const before = await this.epicRow(id)
         const input = checkInput(body, EPIC_FIELDS, true)
+        const title = input.title === undefined ? undefined : String(input.title).trim()
+        const reworded = (title !== undefined && title !== before.title) || (input.notes !== undefined && (input.notes ?? null) !== (before.notes ?? null))
+        const projects = reworded ? await this.projectsIn([id]) : []
         await this.db.transaction(async () => {
-            await this.update('epics', 'id = ?', [id], {title: input.title === undefined ? undefined : String(input.title).trim(), notes: input.notes})
+            await this.update('epics', 'id = ?', [id], {title, notes: input.notes})
             if (input.position !== undefined) await this.placeEpic(id, Number(input.position))
+            for (const project of projects) this.tell('epic.changed', project, String(id), actor)
         })
         this.epicsChanged()
         return await this.epic(id)
@@ -100,13 +106,16 @@ export abstract class EpicStore extends ReleaseStore {
         for (const [position, each] of others.entries()) await this.run('UPDATE epics SET position = ? WHERE id = ?', position, each)
     }
 
-    /** Its issues stay where they are, in no epic. The owner's own epic is theirs to delete. */
+    /** Its issues stay where they are, in no epic, each told as `issue.epic` (ORR-984). The owner's own epic is theirs
+     * to delete. */
     async deleteEpic(id: number, actor = AGENT) {
         const row = await this.epicRow(id)
         if (row.owned && !actor.owner) throw refusedFor('epics.delete', `Deleting epic ${id} is the owner's call: they made it`)
         const projects = await this.projectsIn([id])
+        const issues = await this.all<{project: string, id: string}>('SELECT project, id FROM issues WHERE epic = ? ORDER BY project, id', id)
         await this.db.transaction(async () => {
             await this.run('UPDATE issues SET epic = NULL WHERE epic = ?', id)
+            for (const issue of issues) this.tell('issue.epic', issue.project, issue.id, actor, {from: String(id), to: null})
             await this.run('DELETE FROM epics WHERE id = ?', id)
             for (const project of projects) await this.touchProject(project)
         })

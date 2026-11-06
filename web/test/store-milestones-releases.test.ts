@@ -15,6 +15,20 @@ beforeEach(async () => {
 })
 
 describe('milestones', () => {
+    it('say a new title or summary, and each issue a deleted one held (ORR-984)', async () => {
+        const heard: {type: string, subject?: string, from?: string}[] = []
+        store.happened = event => heard.push(event)
+        const issue = await store.createIssue('greenhouse', {title: 'In it', milestone: '1'})
+        heard.length = 0
+        await store.updateMilestone('greenhouse', '1', {priority: 'P1'})
+        expect(heard.filter(e => e.type === 'milestone.changed')).toEqual([])
+        await store.updateMilestone('greenhouse', '1', {summary: 'Narrower now.'})
+        expect(heard.filter(e => e.type === 'milestone.changed').map(e => e.subject)).toEqual(['1'])
+        heard.length = 0
+        await store.deleteMilestone('greenhouse', '1', {name: 'skoll', owner: true})
+        expect(heard.filter(e => e.type === 'issue.milestone')).toMatchObject([{subject: issue.id, from: '1'}])
+    })
+
     it('have a priority to set and clear', async () => {
         expect((await store.milestone('greenhouse', '1')).priority).toBeUndefined()
         expect((await store.updateMilestone('greenhouse', '1', {priority: 'P1'})).priority).toBe('P1')

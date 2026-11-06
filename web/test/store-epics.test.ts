@@ -89,3 +89,27 @@ describe('epics', () => {
         expect(told).toBe(3)
     })
 })
+
+describe('telling the sessions under one (ORR-984)', () => {
+    it('says an epic reworded on each project with an issue in it, and each issue a deleted one held', async () => {
+        const heard: {type: string, project?: string, subject?: string, from?: string, to?: string}[] = []
+        store.happened = event => heard.push(event)
+        const epic = await store.createEpic({title: 'Checkout tracking'})
+        const front = await store.createIssue('greenhouse', {title: 'Track the checkout', epic: epic.id})
+        const api = await store.createIssue('garden', {title: 'Store the attribution', epic: epic.id})
+        heard.length = 0
+
+        await store.updateEpic(epic.id, {position: 0}, owner)
+        await store.updateEpic(epic.id, {title: 'Checkout tracking'}, owner)
+        expect(heard.filter(e => e.type === 'epic.changed')).toEqual([])
+        await store.updateEpic(epic.id, {notes: 'End to end.'}, owner)
+        expect(heard.filter(e => e.type === 'epic.changed').map(e => [e.project, e.subject])).toEqual([['garden', String(epic.id)], ['greenhouse', String(epic.id)]])
+
+        heard.length = 0
+        await store.deleteEpic(epic.id, owner)
+        expect(heard.filter(e => e.type === 'issue.epic')).toMatchObject([
+            {project: 'garden', subject: api.id, from: String(epic.id)},
+            {project: 'greenhouse', subject: front.id, from: String(epic.id)},
+        ])
+    })
+})
