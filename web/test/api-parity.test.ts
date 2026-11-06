@@ -21,7 +21,7 @@ import {PullPoll} from '../server/utils/pull-poll'
 import type {PolledRow} from '../server/utils/pull-poll'
 import {openDb} from '../server/utils/db'
 import {PostgresDb} from '../server/utils/postgres'
-import {actorHeaders, changedOf, countedOf, databaseMark, domainOf, DOMAINS, handedOn, loginHeaders, onlyWords, passedThrough, servedByApi, toldOf, whoHeaders} from '../server/utils/api-router'
+import {actorHeaders, changedOf, countedOf, databaseMark, domainOf, DOMAINS, handedOn, loginHeaders, onlyWords, passedThrough, servedByApi, toldOf, urgentOf, whoHeaders} from '../server/utils/api-router'
 import {permission, refused} from '../server/utils/permission'
 import {followOutbox, readPage} from '../server/utils/outbox-follower'
 
@@ -151,6 +151,8 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         if (response.status >= 400) return {status: response.status, body: {message: json!.message, ...json!.data === undefined ? {} : {data: json!.data}}, changed: [], told: [], settings: false}
         const handoff = handedOn(response.headers)
         if (handoff) await store.handOn(handoff.project, handoff.issue, handoff.comment, handoff, actor)
+        const urgent = urgentOf(response.headers.get('orrery-urgent'))
+        if (urgent) await store.sayUrgent(urgent.project, urgent.issue, actor)
         return {status: response.status, body: json, changed: await sharing(changedOf(changed)), told, settings: response.headers.get('orrery-settings') === '1'}
     }
 
@@ -1170,6 +1172,34 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         expect((await rows('through-api')).filter(row => row.startsWith('issue.title ')).length).toBeGreaterThan(1)
     })
 
+    it('changes an issue\'s priority alike, and pushes one made urgent to the sessions as the store does (ORR-927)', async () => {
+        const ids: Record<string, Record<string, string>> = {}
+        for (const p of ['through-store', 'through-api']) {
+            const make = async (title: string, more: Record<string, unknown> = {}) => (await store.createIssue(p, {title, ...more}, OWNER)).id
+            ids[p] = {spring: await make('Wind the spring'), done: await make('Oil it', {status: 'done'}), idea: await make('A bigger spring?', {proposal: 'pending'}), hot: await make('Fix the hand', {priority: 'P0'})}
+        }
+        type Step = [string, (p: string) => Promise<Outcome>, () => Promise<Outcome>]
+        const edit = (name: string, which: string, body: unknown, actor: Actor = OWNER): Step =>
+            [name, p => viaStore(() => store.updateIssue(p, ids[p]![which]!, body, actor)), () => viaApi('PATCH', `/issues/${ids['through-api']![which]}`, body, actor)]
+        const signals = async (p: string) => (await store.db.all<{issue: string, kind: string, note: string | null}>('SELECT issue, kind, note FROM signals WHERE project = ? ORDER BY id', p))
+            .map(r => `${r.kind} ${r.issue.replace(/^(STO|API)-/, 'KEY-')} ${r.note ?? ''}`)
+        for (const [name, ts, rs] of [
+            edit('made P1', 'spring', {priority: 'P1'}),
+            edit('made P0 by the owner', 'spring', {priority: 'P0'}),
+            edit('P0 again', 'spring', {priority: 'P0', title: 'Wind the spring tight'}),
+            edit('a done one made P0', 'done', {priority: 'P0'}),
+            edit('a proposal made P0', 'idea', {priority: 'P0'}),
+            edit('one P0 already, cleared', 'hot', {priority: null}),
+            edit('made P0 by an agent', 'hot', {priority: 'P0'}, AGENT),
+            edit('not a priority', 'spring', {priority: 'P9'}),
+            [`spring's activity`, p => viaStore(() => store.listActivity(p, ids[p]!.spring!)), () => viaApi('GET', `/issues/${ids['through-api']!.spring}/activity`)],
+        ] as Step[]) await both(name, ts, rs)
+        await quiet()
+        expect(await signals('through-api')).toEqual(await signals('through-store'))
+        // Made a P0 when it was made, and the spring made one by the owner: none for the rest.
+        expect((await signals('through-api')).filter(s => s.startsWith('focus '))).toHaveLength(2)
+    })
+
     it('removes a person alike: their open issues unassigned and told, their seats the owner\'s, their keys and logins ended (ORR-928)', async () => {
         /** A member with work on `p`: a seat on its board, an open issue and a done one, a key and a login. */
         const hire = async (p: string) => {
@@ -1597,8 +1627,10 @@ describe('the router', () => {
         expect(domainOf('PATCH', '/api/projects/p/issues/P-1')).toBe('an issue, its words')
         expect(domainOf('POST', '/api/projects/p/issues/P-1')).toBeUndefined()
         // An issue's edit goes on only with nothing but its words: the rest of it stays here for now.
-        expect(onlyWords({title: 'x', notes: null, labels: [], position: 2})).toBe(true)
-        for (const body of [{title: 'x', status: 'todo'}, {priority: 'P0'}, {}, null, [], 'title']) expect(onlyWords(body), JSON.stringify(body)).toBe(false)
+        expect(onlyWords({title: 'x', priority: 'P0', notes: null, labels: [], position: 2})).toBe(true)
+        expect(urgentOf('my%20project P-1')).toEqual({project: 'my project', issue: 'P-1'})
+        for (const header of [null, '', 'p', 'p P-1 x']) expect(urgentOf(header), String(header)).toBeUndefined()
+        for (const body of [{title: 'x', status: 'todo'}, {assignee: 'claude'}, {}, null, [], 'title']) expect(onlyWords(body), JSON.stringify(body)).toBe(false)
         expect(domainOf('DELETE', '/api/projects/p/issues')).toBeUndefined()
         for (const path of ['/api/projects/p/issues/P-1/activity/x', '/api/', '/docs', '/api/projects/p/docs/d/artifact']) expect(domainOf('GET', path), path).toBeUndefined()
     })
