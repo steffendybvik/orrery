@@ -48,6 +48,9 @@ export const DOMAINS: readonly {domain: string, paths: RegExp, methods?: readonl
     // here (`asChatIssue`, `asProposal`). One that's urgent comes back with `Orrery-Urgent`, for the push here.
     {domain: 'an issue, made', paths: /^projects\/[^/]+\/issues$/, methods: ['POST'], first: {POST: newWordsOnly}},
     {domain: 'an issue, its words', paths: /^projects\/[^/]+\/issues\/[^/]+$/, methods: ['PATCH'], first: {PATCH: wordsOnly}},
+    // One change to many issues (`{ids, set, labels}`, ORR-927): each edited as one is, the route here taking no session's
+    // lock or chat's rewrite for it either. The ones it makes urgent come back in `Orrery-Urgent`, for the push here.
+    {domain: 'issues, changed at once', paths: /^projects\/[^/]+\/issues$/, methods: ['PATCH']},
     // Taking an issue up and letting it go (ORR-927, ORR-657): the API tells the claim and a new assignee back, as
     // `Orrery-Told`, and puts them in the outbox (ORR-929).
     {domain: 'claims', paths: /^projects\/[^/]+\/issues\/[^/]+\/claim$/},
@@ -288,11 +291,13 @@ export function handedOn(headers: Headers): {project: string, issue: string, com
     return {project, issue, comment: Number(comment), carry: headers.has('orrery-carry'), notice: headers.has('orrery-notice'), edited: mark === 'edited'}
 }
 
-/** The issue an edit's reply says it made urgent open work (`Orrery-Urgent`, `<project> <issue>` percent-encoded), for
- * the push to the sessions only this server can make (`sayUrgent`, ORR-927). */
-export function urgentOf(header: string | null): {project: string, issue: string} | undefined {
-    const [project, issue, ...rest] = header?.trim().split(' ').map(decodeURIComponent) ?? []
-    return project && issue && !rest.length ? {project, issue} : undefined
+/** The issues an edit's reply says it made urgent open work (`Orrery-Urgent`, `<project> <issue>` percent-encoded, many
+ * apart by commas), for the push to the sessions only this server can make (`sayUrgent`, ORR-927). */
+export function urgentOf(header: string | null): {project: string, issue: string}[] {
+    return (header ?? '').split(',').flatMap(one => {
+        const [project, issue, ...rest] = one.trim().split(' ').map(decodeURIComponent)
+        return project && issue && !rest.length ? [{project, issue}] : []
+    })
 }
 
 /** The API this server started itself (`plugins/api.ts`), once it's listening. */
@@ -370,8 +375,7 @@ export async function forwardToApi(event: H3Event, api: {url: string, token: str
     // Outside `relaying`: the signal and the bell's notice are this server's own, with their own rows in the outbox.
     const handoff = handedOn(response.headers)
     if (handoff) await store.handOn(handoff.project, handoff.issue, handoff.comment, handoff, actor)
-    const urgent = urgentOf(response.headers.get('orrery-urgent'))
-    if (urgent) await store.sayUrgent(urgent.project, urgent.issue, actor)
+    for (const urgent of urgentOf(response.headers.get('orrery-urgent'))) await store.sayUrgent(urgent.project, urgent.issue, actor)
     // What it set off is told before the reply, as the page that asked reads the board next (ORR-1029).
     if (!relayHeaders && WRITES.has(event.method)) await caughtUp()
     const counted = countedOf(event.method, pathOf(event))

@@ -276,7 +276,38 @@ fn named(value: &Option<String>) -> bool {
     value.as_deref().is_some_and(|v| !v.is_empty())
 }
 
+/// What one change to many issues at once sets (`BULK_FIELDS`), with labels added and removed besides.
+pub const BULK: [&str; 6] = ["status", "priority", "assignee", "milestone", "release", "epic"];
+
 impl Comments<'_> {
+    /// One issue's part of a change to many at once (`updateIssues`): `set`, and its labels with `add` added and
+    /// `remove` taken off, each once, as one edit. Gives back its id when that made it urgent open work, as `edit_words`.
+    pub async fn edit_one_of_many(
+        &mut self,
+        project: &str,
+        sent: &str,
+        set: &serde_json::Map<String, Value>,
+        add: &[String],
+        remove: &[String],
+        actor: &Actor,
+    ) -> Result<Option<String>> {
+        let mut edit = set.clone();
+        if !add.is_empty() || !remove.is_empty() {
+            let issue = self.issue_id(project, sent).await?;
+            self.issue_there(project, &issue).await?;
+            let row = sqlx::query(&sql("SELECT labels FROM issues WHERE project = ? AND id = ?")).bind(project).bind(&issue).fetch_one(&mut *self.conn).await?;
+            let now: Vec<String> = row.get::<Option<String>, _>("labels").and_then(|l| serde_json::from_str(&l).ok()).unwrap_or_default();
+            let mut labels: Vec<String> = vec![];
+            for label in now.into_iter().filter(|l| !remove.contains(l)).chain(add.iter().cloned()) {
+                if !labels.contains(&label) {
+                    labels.push(label);
+                }
+            }
+            edit.insert("labels".into(), Value::from(labels));
+        }
+        self.edit_words(project, sent, &Value::Object(edit), actor).await
+    }
+
     /// Makes an issue (`createIssue`) from an edit's words, with the project's next id, and notes it as `created`.
     /// An agent on the rails files a sub-issue only under its person's issue, and it's then theirs (taken up, when it's
     /// started), unless it's a proposal; one at the top stays nobody's, so it's refused started, closed or given to

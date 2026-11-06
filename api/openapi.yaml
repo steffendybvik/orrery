@@ -347,6 +347,37 @@ paths:
         '403': {$ref: '#/components/responses/Forbidden'}
         '404': {$ref: '#/components/responses/NotFound'}
         '409': {description: 'An agent''s that the rails between people refuse', content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+    patch:
+      summary: Makes one change to many issues
+      description: |
+        Each edited on its own, as `PATCH …/issues/{issue}` edits one, so one refused doesn't stop the rest. `set` takes
+        only `status`, `priority`, `assignee`, `milestone`, `release` and `epic`; `labels` adds and takes off labels, each
+        once, from what each issue has. Each id sent comes back once, in the order sent, with `error` saying why when it
+        wasn't changed. The ones it makes urgent open work come back in `Orrery-Urgent`, apart by commas, for the Nuxt
+        server to push them to the sessions.
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ids]
+              properties:
+                ids: {type: array, minItems: 1, items: {type: string}}
+                set:
+                  type: object
+                  additionalProperties: false
+                  properties: {status: {type: string}, priority: {type: [string, 'null']}, assignee: {type: [string, 'null']}, milestone: {type: [string, 'null']}, release: {type: [string, 'null']}, epic: {type: [string, integer, 'null']}}
+                labels: {type: object, properties: {add: {type: array, items: {type: string}}, remove: {type: array, items: {type: string}}}}
+      responses:
+        '200':
+          description: How each went
+          content:
+            application/json:
+              schema: {type: array, items: {type: object, required: [id, ok], properties: {id: {type: string}, ok: {type: boolean}, error: {type: string}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
     delete:
       summary: Deletes many issues, each with its sub-issues and comments
       description: |
