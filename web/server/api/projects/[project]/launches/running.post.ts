@@ -17,7 +17,9 @@ export default defineEventHandler(async event => {
             && (model === undefined || isModel(model)) && (effort === undefined || isEffort(effort))
     }
     if (!Array.isArray(launches) || !launches.every(ok)) throw badRequest('Send {launches: [{id, tmux, stops_at?, context?}]}: a launch id, its tmux session, when it stops (none: until stopped) and its context')
-    reportRunning(project, launches.map(({id, tmux, stops_at, context, untrusted, chat, model, effort}) => ({id, tmux, ...untrusted ? {untrusted} : {}, ...chat ? {chat} : {}, ...model ? {model} : {}, ...effort ? {effort} : {}, ...stops_at ? {stops_at: new Date(stops_at).toISOString()} : {}, ...context ? {context: {presets: context.presets, ...context.instructions ? {instructions: context.instructions} : {}, text: context.text}} : {}})))
+    // A member's launcher reports only its own person's launches (ORR-963): the owner's it can't have started.
+    const member = launcherMember(event)
+    reportRunning(project, launches.filter(l => hearsLaunch(member, l.id)).map(({id, tmux, stops_at, context, untrusted, chat, model, effort}) => ({id, tmux, ...untrusted ? {untrusted} : {}, ...chat ? {chat} : {}, ...model ? {model} : {}, ...effort ? {effort} : {}, ...stops_at ? {stops_at: new Date(stops_at).toISOString()} : {}, ...context ? {context: {presets: context.presets, ...context.instructions ? {instructions: context.instructions} : {}, text: context.text}} : {}})))
     setResponseStatus(event, 204)
     return null
 })

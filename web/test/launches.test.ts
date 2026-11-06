@@ -56,6 +56,7 @@ beforeEach(async () => {
     vi.stubGlobal('extendLaunch', (_project: string, _id: string, stops_at: string) => ({...session, started: {...session!.started!, stops_at}}))
     vi.stubGlobal('notFound', (message: string) => Object.assign(new Error(message), {statusCode: 404}))
     vi.stubGlobal('conflict', (message: string) => Object.assign(new Error(message), {statusCode: 409}))
+    vi.stubGlobal('forbidden', (message: string) => Object.assign(new Error(message), {statusCode: 403}))
     vi.stubGlobal('chatEnded', (id: string) => chatsEnded.push(id))
     vi.stubGlobal('chatRunning', (id: string) => chatsRunning.push(id))
     chatsEnded = []
@@ -221,6 +222,23 @@ describe('starting a session', () => {
         const launch = (await launches.considerLaunch(signal(1)))!
         expect([launches.claim('greenhouse', launch.id, first), launches.claim('greenhouse', launch.id, second), launches.claim('mesa', launch.id, first)]).toEqual([true, false, false])
         expect(launches.claim('greenhouse', 'nope', first)).toBe(false)
+    })
+
+    it("gives a member's launcher none of the owner's launches, to hear, claim or tell about (ORR-963)", async () => {
+        const member = launches.addMemberLauncher('greenhouse', 'hati')
+        // It isn't one of the project's launchers, so the owner's work doesn't wait on it.
+        expect(launches.launchState('greenhouse').launchers).toBe(0)
+        const {token} = launches.addLauncher('greenhouse')
+        const launch = (await launches.considerLaunch(signal(1)))!
+        expect(launches.hearsLaunch('hati', launch.id)).toBe(false)
+        expect(launches.hearsLaunch(undefined, launch.id)).toBe(true)
+        expect(launches.claim('greenhouse', launch.id, member.token)).toBe(false)
+        const on = (who?: {person: string, owner: boolean}) => ({context: who ? {who} : {}}) as never
+        expect(() => launches.launcherMayTell(on({person: 'hati', owner: false}), launch.id)).toThrow("isn't hati's")
+        expect(() => launches.launcherMayTell(on({person: 'steffen', owner: true}), launch.id)).not.toThrow()
+        expect(() => launches.launcherMayTell(on(), launch.id)).not.toThrow()
+        expect(launches.claim('greenhouse', launch.id, token)).toBe(true)
+        member()
     })
 
     it("counts a claim only with a connected launcher's token for the project (ORR-443)", async () => {
