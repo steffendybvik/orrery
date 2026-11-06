@@ -42,6 +42,8 @@ test('Notifications is a list and a reading pane: a line says what happened and 
     await api(request, 'post', `/issues/${other.id}/comments`, {body: 'Oiled, see [the tin](https://example.com/tin).'})
     await api(request, 'patch', `/issues/${issue.id}`, {status: 'in-progress'})
 
+    // With the pane closed, so nothing is read before a line is chosen.
+    await page.addInitScript(() => localStorage.setItem('orrery-notifications-pane', 'closed'))
     await page.goto('/notifications')
     const today = page.locator('section').filter({has: page.getByRole('heading', {level: 2, name: /^Today/})})
     await expect(today.getByRole('heading', {level: 2})).toContainText('unread')
@@ -93,7 +95,7 @@ test('Notifications leads with what waits on you, each line showing its question
     expect(await line.locator('[data-state]').getAttribute('data-state')).toBe('waiting')
 })
 
-test('The list has the page until a line is chosen, and the pane closes again (ORR-805)', async ({page, request}) => {
+test('A wide window opens with the first line beside the list; closing it gives the list the page, remembered until a line is chosen (ORR-805, ORR-990)', async ({page, request}) => {
     await page.setViewportSize({width: 1280, height: 800})
     const issue = await api(request, 'post', '/issues', {title: 'Plane the shelf', status: 'todo'})
     await api(request, 'post', `/issues/${issue.id}/comments`, {body: 'Planed.'})
@@ -101,24 +103,31 @@ test('The list has the page until a line is chosen, and the pane closes again (O
     const toggle = page.getByRole('button', {name: `${issue.id}: Plane the shelf`})
     const pane = page.getByRole('article')
     await expect(toggle).toBeVisible()
-    await expect(pane).toBeHidden()
-    const fullWidth = (await toggle.boundingBox())!.width
-    expect(fullWidth).toBeGreaterThan(800)
-
-    await toggle.click()
-    await expect(pane.getByText('Planed.')).toBeVisible()
+    await expect(pane).toBeVisible()
     expect((await toggle.boundingBox())!.width).toBeLessThan(500)
 
     await pane.getByRole('button', {name: 'Close this notification'}).click()
     await expect(pane).toBeHidden()
     await expect(page).not.toHaveURL(/open=/)
-    expect((await toggle.boundingBox())!.width).toBe(fullWidth)
+    const fullWidth = (await toggle.boundingBox())!.width
+    expect(fullWidth).toBeGreaterThan(800)
+    await page.reload()
+    await expect(toggle).toBeVisible()
+    await expect(pane).toBeHidden()
 
-    // Choosing the open line closes it too.
+    // Choosing a line opens it; choosing it again closes it.
     await toggle.click()
     await expect(pane.getByText('Planed.')).toBeVisible()
+    expect((await toggle.boundingBox())!.width).toBeLessThan(500)
     await toggle.click()
     await expect(pane).toBeHidden()
+    expect((await toggle.boundingBox())!.width).toBe(fullWidth)
+
+    // A line chosen and left open: the next visit opens the pane again.
+    await toggle.click()
+    await expect(pane.getByText('Planed.')).toBeVisible()
+    await page.goto('/notifications')
+    await expect(pane).toBeVisible()
 })
 
 test('A line with several comments clears by itself, and only it goes (ORR-805)', async ({page, request}) => {
@@ -153,7 +162,8 @@ test('dragging the border between the list and the open line resizes the list, r
     const issue = await api(request, 'post', '/issues', {title: 'Plane the door', status: 'todo'})
     await api(request, 'post', `/issues/${issue.id}/comments`, {body: 'Planed a millimetre off.'})
     await page.goto('/notifications')
-    await page.getByRole('button', {name: `${issue.id}: Plane the door`}).first().click()
+    await expect(page.getByRole('button', {name: `${issue.id}: Plane the door`}).first()).toBeVisible()
+    // The pane is open from the start on a wide window (ORR-990).
     const border = page.getByRole('separator', {name: 'Resize the list'})
     await expect(border).toBeVisible()
     const list = border.locator('xpath=preceding-sibling::div[1]')
