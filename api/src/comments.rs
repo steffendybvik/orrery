@@ -150,11 +150,11 @@ pub struct Handoff {
 }
 
 /// A comment's row, as far as who may change it goes.
-struct Whose {
-    body: String,
-    owned: bool,
-    person: Option<String>,
-    by_agent: bool,
+pub(crate) struct Whose {
+    pub body: String,
+    pub owned: bool,
+    pub person: Option<String>,
+    pub by_agent: bool,
 }
 
 pub struct Comments<'c> {
@@ -667,7 +667,7 @@ impl<'c> Comments<'c> {
 
     /// A member's comment is theirs, as the owner's are the owner's: only they and the owner change it. Their agents'
     /// are theirs too, which only they, their agents and the owner change (`leaveTheirWords`).
-    async fn leave_their_words(&mut self, whose: &Whose, actor: &Actor, action: &str) -> Result<()> {
+    pub(crate) async fn leave_their_words(&mut self, whose: &Whose, actor: &Actor, action: &str) -> Result<()> {
         let Some(person) = &whose.person else { return Ok(()) };
         if !whose.by_agent {
             if !actor.owner && actor.person.as_deref() != Some(person.as_str()) {
@@ -756,7 +756,7 @@ impl<'c> Comments<'c> {
     }
 
     /// Whose a comment is (`voiceOf`, ORR-658): the person's own words, or one of their agents', or nobody's.
-    async fn voice_of(&mut self, actor: &Actor) -> Result<(Option<String>, bool)> {
+    pub(crate) async fn voice_of(&mut self, actor: &Actor) -> Result<(Option<String>, bool)> {
         if actor.owner {
             return Ok((Some(self.owner_id().await?), false));
         }

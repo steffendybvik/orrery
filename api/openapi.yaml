@@ -42,8 +42,9 @@ info:
       changes on their issues, and clearing them or marking them read (web/server/api/notices). Served by both; each
       person's bell is their own (ORR-658).
     - **Epics** (ORR-1004): every epic with its progress, one with its issues, and making, changing and deleting one
-      (web/server/api/epics). Served by both; an epic's comments and its focus, which signals sessions, stay the Nuxt
-      server's.
+      (web/server/api/epics), and an epic's comments and a milestone's (web/server/api/epics/[epic]/comments,
+      web/server/api/projects/[project]/milestones/[milestone]/comments). Served by both; an epic's focus, which signals
+      sessions, stays the Nuxt server's.
 
     An operation marked `x-served: false` is written ahead of the Rust API's: the router doesn't send it there yet, and
     the parity test holds it to that. The mark comes off in the pull request that serves it.
@@ -870,6 +871,78 @@ paths:
         '204': {description: Deleted}
         '403': {$ref: '#/components/responses/Forbidden'}
         '404': {$ref: '#/components/responses/NotFound'}
+  /api/epics/{epic}/comments:
+    parameters: [{$ref: '#/components/parameters/epic'}]
+    get:
+      summary: An epic's comments, oldest first
+      responses:
+        '200': {description: The comments, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/ThreadComment'}}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
+    post:
+      summary: Comments on an epic
+      description: Words on its page, which ask nothing and wake no session.
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/ThreadCommentInput'}}}}
+      responses:
+        '201': {description: The comment, content: {application/json: {schema: {$ref: '#/components/schemas/ThreadComment'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/epics/{epic}/comments/{comment}:
+    parameters: [{$ref: '#/components/parameters/epic'}, {$ref: '#/components/parameters/comment'}]
+    patch:
+      summary: Changes a comment on an epic
+      description: The owner's are theirs, and a member's theirs and their agents' (403).
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/ThreadCommentInput'}}}}
+      responses:
+        '200': {description: The comment, content: {application/json: {schema: {$ref: '#/components/schemas/ThreadComment'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+    delete:
+      summary: Deletes a comment on an epic
+      description: The owner's are theirs, and a member's theirs and their agents' (403).
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      responses:
+        '204': {description: Deleted}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/projects/{project}/milestones/{milestone}/comments:
+    parameters: [{$ref: '#/components/parameters/project'}, {$ref: '#/components/parameters/milestone'}]
+    get:
+      summary: A milestone's comments, oldest first
+      responses:
+        '200': {description: The comments, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/ThreadComment'}}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
+    post:
+      summary: Comments on a milestone
+      description: Words on its page, which ask nothing and wake no session.
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/ThreadCommentInput'}}}}
+      responses:
+        '201': {description: The comment, content: {application/json: {schema: {$ref: '#/components/schemas/ThreadComment'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/projects/{project}/milestones/{milestone}/comments/{comment}:
+    parameters: [{$ref: '#/components/parameters/project'}, {$ref: '#/components/parameters/milestone'}, {$ref: '#/components/parameters/comment'}]
+    patch:
+      summary: Changes a comment on a milestone
+      description: The owner's are theirs, and a member's theirs and their agents' (403).
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/ThreadCommentInput'}}}}
+      responses:
+        '200': {description: The comment, content: {application/json: {schema: {$ref: '#/components/schemas/ThreadComment'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+    delete:
+      summary: Deletes a comment on a milestone
+      description: The owner's are theirs, and a member's theirs and their agents' (403).
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      responses:
+        '204': {description: Deleted}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
   /api/secrets:
     get:
       summary: Every secret by name, never its value
@@ -1202,6 +1275,7 @@ components:
     release: {name: release, in: path, required: true, description: The release's version, schema: {type: string}}
     preset: {name: preset, in: path, required: true, description: 'The preset''s number, or its full id on this server (`pst-12-x7k2m3qd`)', schema: {type: string}}
     comment: {name: comment, in: path, required: true, description: 'A comment''s id; ids run across the orrery', schema: {type: integer, minimum: 1}}
+    epic: {name: epic, in: path, required: true, description: 'The epic''s number (`3`), as it''s shown (`EPC-3`), or its full id on this server (`EPC-3-x7k2m3qd`)', schema: {type: string}}
     actor:
       name: Orrery-Actor
       in: header
@@ -1811,6 +1885,24 @@ components:
                 allOf:
                   - {$ref: '#/components/schemas/EpicPart'}
                   - {type: object, required: [name, tasks], properties: {name: {type: string}, tasks: {type: array, items: {$ref: '#/components/schemas/Issue'}}}}
+    ThreadCommentInput:
+      type: object
+      properties:
+        body: {type: string, description: 'Markdown, not blank; needed to make one'}
+    ThreadComment:
+      type: object
+      required: [id, body, created_by, protected, created_at, updated_at]
+      properties:
+        id: {type: integer, description: Numbered across the orrery's milestone comments, or its epic comments}
+        project: {type: string, description: On a milestone's}
+        milestone: {type: string, description: On a milestone's}
+        epic: {type: integer, description: On an epic's}
+        body: {type: string, description: Markdown}
+        created_by: {type: string}
+        session_name: {type: string, description: Only with one}
+        protected: {type: boolean, description: Written by the owner}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
     Secret:
       type: object
       required: [name, last4, hosts, projects, created_by, created_at, updated_at, last_used]
