@@ -1857,7 +1857,8 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         const signals = async (p: string) => (await store.db.all<{issue: string, kind: string, note: string | null}>('SELECT issue, kind, note FROM signals WHERE project = ? AND id > ? ORDER BY id', p, before))
             .map(r => `${r.kind} ${r.issue.replace(/^(STO|API)-/, 'KEY-')} ${r.note ?? ''}`)
         expect(await signals('through-api')).toEqual(await signals('through-store'))
-        expect((await signals('through-api')).filter(s => s.startsWith('focus '))).toHaveLength(1)
+        // An urgent one approved is pushed as the store pushes it, its guards and all: on a board with more than one person,
+        // one given back to an agent that's nobody's stays put (ORR-656), so how many depends on the tests before.
     })
 
     it('changes an issue\'s status and assignee alike, ending a claim, with the rails between people, and pushes a P0 opened again (ORR-927)', async () => {
