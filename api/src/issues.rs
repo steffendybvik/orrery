@@ -28,17 +28,17 @@ static GITHUB_REPO: LazyLock<Regex> =
 static GITHUB_LINK: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?i)^https?://(?:www\.)?github\.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/issues/(\d+)/?$").unwrap());
 static GITHUB_FULL: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)#(\d+)$").unwrap());
-static GITHUB_OWN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^#?(\d+)$").unwrap());
+pub(crate) static GITHUB_OWN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^#?(\d+)$").unwrap());
 
 /// The project's repo as `owner/name`, when it's on GitHub (`githubRepo`).
-fn github_repo(repo: Option<&str>) -> Option<String> {
+pub(crate) fn github_repo(repo: Option<&str>) -> Option<String> {
     let found = GITHUB_REPO.captures(repo?.trim())?;
     Some(format!("{}/{}", &found[1], &found[2]))
 }
 
 /// A GitHub issue as it's kept, `owner/name#523` (`githubIssueOf`): sent as that, as its link, or as `523` or `#523`
 /// on `repo`.
-fn github_issue_of(sent: &str, repo: Option<&str>) -> Option<String> {
+pub(crate) fn github_issue_of(sent: &str, repo: Option<&str>) -> Option<String> {
     let text = sent.trim();
     let (on, number) = if let Some(link) = GITHUB_LINK.captures(text) {
         (link[1].to_string(), link[2].to_string())
