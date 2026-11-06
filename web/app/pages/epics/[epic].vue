@@ -148,7 +148,11 @@ useHead(() => ({title: epic.value ? `${epic.value.title} · Epics · orrery` : '
     <template v-if="epic">
       <header class="mx-auto flex max-w-5xl animate-fade-up flex-col gap-4 px-4 pt-8 pb-6 sm:px-8">
         <div class="flex flex-wrap items-center gap-3 text-xs">
-          <span class="font-mono text-faint">Epic {{ epic.id }}</span>
+          <span class="flex items-center gap-1.5">
+            <span class="font-mono text-faint">Epic {{ epic.id }}</span>
+            <!-- The number, as the tools and the API take an epic (ORR-994); epics have no full id yet (ORR-995). -->
+            <CopyButton :text="String(epic.id)" :name="`epic ${epic.id}'s number`" />
+          </span>
           <span class="ml-auto flex items-center gap-2">
             <span v-if="focused" class="text-faint" role="status">{{ focused }}</span>
             <UiButton
