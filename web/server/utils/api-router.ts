@@ -83,8 +83,11 @@ export const DOMAINS: readonly {domain: string, paths: RegExp, methods?: readonl
     // changing and running them stays here, as a run starts a session and a write can set one off (ORR-929).
     {domain: 'schedules, reading', paths: /^(projects\/[^/]+\/schedules(\/[^/]+)?|schedules(\/across)?)$/, methods: ['GET']},
     // Every project, listed with its counts (ORR-997). With `?expand=board` it's their boards, each with the events
-    // stream's `rev`, so that stays here (`listedOnly`), as do reading one project and making or deleting one.
+    // stream's `rev`, so that stays here (`listedOnly`), as do reading one project and deleting one.
     {domain: 'projects, listed', paths: /^projects$/, methods: ['GET'], first: {GET: listedOnly}},
+    // Making a project (ORR-1002), held by whoever asks, as `personOf` has it here. The reply is the project with its
+    // board, without the `rev` that reading one adds here.
+    {domain: 'a project, made', paths: /^projects$/, methods: ['POST']},
     // Changing a project (ORR-923): its name, key, icon, prompts, repo and where its releases come from. The reply is the
     // project with its board, without the `rev` that reading one adds here.
     {domain: 'a project, changed', paths: /^projects\/[^/]+$/, methods: ['PATCH']},

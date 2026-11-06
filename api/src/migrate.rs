@@ -326,7 +326,7 @@ async fn random_uid(conn: &mut AnyConnection) -> Result<String, sqlx::Error> {
     Ok(uid_of(&hex))
 }
 
-fn uid_of(hex: &str) -> String {
+pub(crate) fn uid_of(hex: &str) -> String {
     const ALPHABET: &[u8] = b"abcdefghijklmnopqrstuvwxyz234567";
     let bits = u64::from_str_radix(hex, 16).unwrap_or(0);
     (0..8).map(|i| ALPHABET[(bits >> (5 * i) & 31) as usize] as char).collect()

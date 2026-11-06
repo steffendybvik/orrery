@@ -582,7 +582,7 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         await store.db.run("INSERT INTO settings (key, value) VALUES ('starts', ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value", JSON.stringify({max: 2}))
         expect(await viaApi('GET', '/api/projects')).toEqual(await viaStore(() => store.listProjects()))
         expect(domainOf('GET', '/api/projects')).toBe('projects, listed')
-        expect(domainOf('POST', '/api/projects')).toBeUndefined()
+        expect(domainOf('POST', '/api/projects')).toBe('a project, made')
         expect(domainOf('GET', '/api/projects/through-api')).toBeUndefined()
         const listed = (await viaApi('GET', '/api/projects')).body as {id: string, milestones: number, docs: unknown[], starts?: unknown}[]
         expect(listed.find(p => p.id === 'through-api')).toMatchObject({milestones: 4, docs: expect.arrayContaining([expect.objectContaining({title: 'Joinery', section: 'Shop'})]), starts: {max: 2}})
@@ -663,6 +663,50 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         expect((outcomes[23]!.body as {board: {milestones: {tasks: {release?: string}[]}[]}}).board.milestones[0]!.tasks[0]).not.toHaveProperty('release')
         expect(domainOf('PATCH', '/api/projects/p')).toBe('a project, changed')
         for (const method of ['GET', 'DELETE']) expect(domainOf(method, '/api/projects/p'), method).toBeUndefined()
+    })
+
+    it('makes a project alike, its id and key from its name, refusing what the store refuses (ORR-1002)', async () => {
+        const make = (name: string, body: (p: string) => unknown, actor: Actor = AGENT): [string, (p: string) => Promise<Outcome>, () => Promise<Outcome>] =>
+            [name, p => viaStore(() => store.createProject(body(p), actor), 201), () => viaApi('POST', '/api/projects', body('through-api'), actor)]
+        const steps = [
+            make('a name only', p => ({name: ` ${p} Made `})),
+            make('the same again', p => ({name: `${p} made`})),
+            make('every field, the owner\'s', p => ({
+                name: 'Greenhouse', id: `${p}-green`, description: 'Plants', icon: 'sun', icon_color: '#3B82f6', repo: 'https://github.com/ada/green',
+                focus_prompt: ' Focus. ', milestone_prompt: ' ', instructions: [{id: 'a1', text: ' Be brief ', on: false}], muted: ['x', ' x'],
+            }), OWNER),
+            make('its prompts, by a session', p => ({name: 'Quiet', id: `${p}-quiet`, muted: ['x']})),
+            make('a key ids start with', p => ({name: 'Plans', id: `${p}-plans`, key: 'MLS'})),
+            make('a name keyed past those', p => ({name: 'Epcot', id: `${p}-epcot`})),
+            make('a name with no id in it', () => ({name: '!!!'})),
+            make('no name', () => ({})),
+            make('bad fields', () => ({name: 'y', id: 'Not An Id', release_mode: 'all', colour: 1})),
+            make('releases from one without any', p => ({name: 'Z', id: `${p}-z`, releases_from: `${p}-green`})),
+            make('releases of its own', p => ({name: 'Own', id: `${p}-own`, release_mode: 'own'})),
+            make('releases from one with its own', p => ({name: 'Drawn', id: `${p}-drawn`, releases_from: `${p}-own`})),
+            make('shared, from nobody', p => ({name: 'S', id: `${p}-s`, release_mode: 'shared'})),
+            make('its own, from another', p => ({name: 'T', id: `${p}-t`, release_mode: 'own', releases_from: `${p}-own`})),
+            make('not an object', () => ['name']),
+        ]
+        // Each project's uid differs, so it's left out of what's compared; its key is made the same way on both.
+        const own = (outcome: Outcome): Outcome => {
+            const body = outcome.body as Record<string, unknown> | null
+            return body && typeof body === 'object' && 'uid' in body ? {...outcome, body: {...body, uid: '<uid>'}} : outcome
+        }
+        const outcomes: Outcome[] = []
+        for (const [name, ts, rs] of steps) outcomes.push(await both(name, async p => own(await ts(p)), async () => own(await rs())))
+        // The steps compared something.
+        expect(outcomes[0]).toMatchObject({status: 201, body: {id: 'through-api-made', name: 'through-api Made', key: 'THR', release_mode: 'none', board: {milestones: []}}, changed: ['through-api-made']})
+        expect(outcomes[1]).toMatchObject({status: 409})
+        expect(outcomes[2]).toMatchObject({status: 201, body: {key: 'GRE', icon_color: '#3B82f6', focus_prompt: 'Focus.', muted: ['x'], protected: true}})
+        expect(outcomes[2]!.body).not.toHaveProperty('milestone_prompt')
+        expect(outcomes[3]).toMatchObject({status: 403})
+        expect(outcomes[4]).toMatchObject({status: 400})
+        expect(outcomes[5]).toMatchObject({status: 201, body: {key: 'EPCO'}})
+        expect(outcomes[8]).toMatchObject({status: 400, body: {message: '3 problems in the body'}})
+        expect(outcomes[11]).toMatchObject({status: 201, body: {release_mode: 'shared', releases_from: 'through-api-own'}})
+        expect(domainOf('POST', '/api/projects')).toBe('a project, made')
+        expect(domainOf('POST', '/api/projects/upload')).toBeUndefined()
     })
 
     it('makes, changes, refuses and deletes milestones alike, and tells what each did (ORR-974)', async () => {
@@ -1134,6 +1178,28 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         const secret = new URL((invited.body as {url: string}).url).searchParams.get('invite')!
         expect(await store.identity('https://id.example', 'sub-1', secret)).toBe('ada')
         await expect(store.identity('https://id.example', 'sub-2', secret)).rejects.toMatchObject({statusCode: 409})
+    })
+
+    it('gives a new project to whoever asks alike, as the route here works it out (ORR-1002)', async () => {
+        // The store is handed who holds it (`personOf`, by the route); the API works it out from the headers.
+        const cases: [string, Actor, string | undefined, Record<string, string>?][] = [
+            ['the owner', OWNER, 'steffen'],
+            ['a session naming its person', {name: 'agent', owner: false, named: 'Ada', asked: true}, 'ada'],
+            ['a session naming nobody', {...AGENT, asked: true}, undefined],
+            ['the owner\'s chat', {name: 'steffen', owner: false, chat: true}, 'steffen'],
+            ['an untrusted session', {name: 'agent', owner: false, untrusted: true, asked: true}, undefined],
+            ['an agent with its person\'s key', {name: 'agent', owner: false, named: 'bob', asked: true}, 'bob', whoHeaders({person: 'bob', owner: false, via: 'agent'}, undefined)],
+        ]
+        const members = async (project: string) => store.db.all('SELECT person, role FROM project_members WHERE project = ? ORDER BY person', project)
+        for (const [i, [name, actor, holder, extra]] of cases.entries()) {
+            await store.createProject({name: `Held ${i}`, id: `through-store-held-${i}`}, actor, holder)
+            const made = await viaApi('POST', '/api/projects', {name: `Held ${i}`, id: `through-api-held-${i}`}, actor, '', extra)
+            expect(made.status, name).toBe(201)
+            expect(await members(`through-api-held-${i}`), name).toEqual(await members(`through-store-held-${i}`))
+        }
+        expect(await members('through-api-held-1')).toEqual([{person: 'ada', role: 'owner'}])
+        expect(await members('through-api-held-2')).toEqual([{person: 'steffen', role: 'owner'}])
+        expect(await members('through-api-held-5')).toEqual([{person: 'bob', role: 'owner'}])
     })
 
     it('takes an issue up and lets it go alike, with the rails between people, and tells each (ORR-927)', async () => {
@@ -1859,7 +1925,7 @@ describe('the router', () => {
     })
 
     it('routes by a table with a line per domain, so taking one back is taking its line out (ORR-925)', () => {
-        expect(DOMAINS.map(({domain}) => domain)).toEqual(['docs', 'statuses', 'issues, reading', 'comments', 'an issue, deleted', 'an issue, its words', 'claims', 'activity', 'milestones', 'releases', 'releases, every project\'s', 'people', 'invites', 'keys', 'logins', 'uploads, reading', 'presets', 'secrets, reading', 'settings', 'a pull request, reading', "a pull request's risk", 'schedules, reading', 'projects, listed', 'a project, changed'])
+        expect(DOMAINS.map(({domain}) => domain)).toEqual(['docs', 'statuses', 'issues, reading', 'comments', 'an issue, deleted', 'an issue, its words', 'claims', 'activity', 'milestones', 'releases', 'releases, every project\'s', 'people', 'invites', 'keys', 'logins', 'uploads, reading', 'presets', 'secrets, reading', 'settings', 'a pull request, reading', "a pull request's risk", 'schedules, reading', 'projects, listed', 'a project, made', 'a project, changed'])
         expect(domainOf('PATCH', '/api/projects/p/docs/d')).toBe('docs')
         expect(domainOf('head', '/api/projects/p/doc-sections/')).toBe('docs')
         for (const method of ['POST', 'DELETE']) expect(domainOf(method, '/api/projects/p/issues/P-1/claim'), method).toBe('claims')
@@ -2011,7 +2077,7 @@ describe('the contract (api/openapi.yaml)', () => {
     }
 
     it('has every route the router sends to the API, and no other', () => {
-        expect(contract()).toHaveLength(73)
+        expect(contract()).toHaveLength(74)
         expect(contract()).toEqual(routes())
     })
 

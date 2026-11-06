@@ -702,7 +702,7 @@ impl<'c> Comments<'c> {
     }
 
     /// Whose a session is (`personFor`): with one person, theirs; with more, the person it names, by name or id.
-    async fn person_for(&mut self, named: &str) -> Result<Option<String>> {
+    pub(crate) async fn person_for(&mut self, named: &str) -> Result<Option<String>> {
         let here = self.people_here().await?;
         if here.len() < 2 {
             return Ok(Some(self.owner_id().await?));
