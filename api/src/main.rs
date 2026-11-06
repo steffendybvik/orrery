@@ -631,6 +631,60 @@ async fn end_login(State(app): Shared, Path(login): Path<String>, headers: Heade
     Ok(StatusCode::NO_CONTENT.into_response())
 }
 
+/// The login cookie's name for the address the browser used (`loginCookie`, ORR-956): with a port in `Host` it carries
+/// it, so two orrerys on localhost don't share one; without one (a proxy on 443) it's plain `orrery_login`.
+fn login_cookie(headers: &HeaderMap) -> String {
+    let host = header(headers, "host").unwrap_or_default();
+    match host.rsplit_once(':').filter(|(_, port)| !port.is_empty() && port.bytes().all(|b| b.is_ascii_digit())) {
+        Some((_, port)) => format!("orrery_login_{port}"),
+        None => "orrery_login".into(),
+    }
+}
+
+/// A cookie the request carries, by name.
+fn cookie_of(headers: &HeaderMap, name: &str) -> Option<String> {
+    headers.get_all("cookie").iter().filter_map(|v| v.to_str().ok()).flat_map(|v| v.split(';')).find_map(|pair| {
+        let (key, value) = pair.trim().split_once('=')?;
+        (key == name && !value.is_empty()).then(|| percent_decode_str(value).decode_utf8_lossy().into_owned())
+    })
+}
+
+/// The login's cookie, as `logIn` sets it: http-only so the page's scripts never see it, `Secure` when the request came
+/// over https (as the proxy in front says, `X-Forwarded-Proto`).
+fn login_set_cookie(headers: &HeaderMap, secret: &str) -> String {
+    let secure = header(headers, "x-forwarded-proto").is_some_and(|p| p.split(',').next().unwrap_or("").trim().eq_ignore_ascii_case("https"));
+    format!(
+        "{}={secret}; Max-Age={}; Path=/; HttpOnly;{} SameSite=Lax",
+        login_cookie(headers),
+        people::LOGIN_DAYS * 86_400,
+        if secure { " Secure;" } else { "" }
+    )
+}
+
+/// `POST /api/auth/login` {key} → {person}: swaps a person key for a login's cookie (web/server/api/auth/login.post.ts).
+/// Written ahead of the swap: the router keeps logging in for itself until the API is the front door.
+async fn log_in(State(app): Shared, headers: HeaderMap, body: Bytes) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    let (person, secret) = People::new(&mut conn).log_in(&body_of(&body)).await?;
+    let mut response = Json(json!({"person": person})).into_response();
+    let cookie = HeaderValue::from_str(&login_set_cookie(&headers, &secret)).map_err(|_| ApiError::internal("a login cookie"))?;
+    response.headers_mut().append(axum::http::header::SET_COOKIE, cookie);
+    Ok(response)
+}
+
+/// `POST /api/auth/logout` → 204: ends this browser's login, on the server as well as its cookie (logout.post.ts).
+async fn log_out(State(app): Shared, headers: HeaderMap) -> Result<Response> {
+    let name = login_cookie(&headers);
+    if let Some(secret) = cookie_of(&headers, &name) {
+        let mut conn = app.pool.acquire().await?;
+        People::new(&mut conn).log_out(&secret).await?;
+    }
+    let mut response = StatusCode::NO_CONTENT.into_response();
+    let cookie = HeaderValue::from_str(&format!("{name}=; Max-Age=0; Path=/")).map_err(|_| ApiError::internal("a login cookie"))?;
+    response.headers_mut().append(axum::http::header::SET_COOKIE, cookie);
+    Ok(response)
+}
+
 async fn get_upload(State(app): Shared, Path(upload): Path<String>) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
     uploads::upload(&mut conn, &upload).await
@@ -863,6 +917,8 @@ fn router(app: Arc<App>) -> Router {
         .route("/api/keys/{key}", axum::routing::delete(revoke_key))
         .route("/api/logins", get(list_logins).delete(end_other_logins))
         .route("/api/logins/{login}", axum::routing::delete(end_login))
+        .route("/api/auth/login", post(log_in))
+        .route("/api/auth/logout", post(log_out))
         .route("/api/presets", get(list_presets).post(create_preset))
         .route("/api/presets/defaults", post(restore_presets))
         .route("/api/presets/{preset}", patch(patch_preset).delete(delete_preset))

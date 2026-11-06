@@ -658,6 +658,24 @@ paths:
         '204': {description: Ended}
         '403': {$ref: '#/components/responses/Forbidden'}
         '404': {$ref: '#/components/responses/NotFound'}
+  /api/auth/login:
+    post:
+      x-served: false
+      summary: Swaps a person key for a login's cookie
+      description: >-
+        The body is `{key}`, a person key (an agent key can't sign in). Sets the http-only login cookie, named for the
+        port in `Host` (`orrery_login_9010`), `Secure` when `X-Forwarded-Proto` says https, for 30 days. Written ahead of
+        the swap: the Nuxt server logs in for itself until the API is the front door.
+      requestBody: {content: {application/json: {schema: {type: object, properties: {key: {type: string}}}}}}
+      responses:
+        '200': {description: Logged in, content: {application/json: {schema: {type: object, properties: {person: {type: string}}}}}}
+        '401': {description: Not a live person key}
+  /api/auth/logout:
+    post:
+      x-served: false
+      summary: Ends this browser's login, on the server as well as its cookie
+      responses:
+        '204': {description: Logged out, or wasn't logged in}
   /api/secrets:
     get:
       summary: Every secret by name, never its value
