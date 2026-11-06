@@ -490,6 +490,35 @@ paths:
         '200': {description: The issue, content: {application/json: {schema: {$ref: '#/components/schemas/IssueDetail'}}}}
         '404': {$ref: '#/components/responses/NotFound'}
         '409': {description: Someone else holds it, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+  /api/projects/{project}/issues/decide:
+    parameters: [{$ref: '#/components/parameters/project'}]
+    post:
+      summary: The owner's one decision on many proposals
+      description: |
+        Each decided on its own, as `POST …/issues/{issue}/decide` decides one, so one refused doesn't stop the rest.
+        Picks and explore go one at a time: approving takes each one's recommendations, and refuses one with a choice
+        that has none. Each id sent comes back once, in the order sent, with `error` saying why when it wasn't decided.
+        Each comment comes back in `Orrery-Carry` and the ones approving made urgent in `Orrery-Urgent`, apart by commas.
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ids, decision]
+              properties:
+                ids: {type: array, minItems: 1, items: {type: string}}
+                decision: {type: string, enum: [approved, changes, rejected]}
+                note: {type: [string, 'null']}
+      responses:
+        '200':
+          description: How each went
+          content:
+            application/json:
+              schema: {type: array, items: {type: object, required: [id, ok], properties: {id: {type: string}, ok: {type: boolean}, error: {type: string}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
   /api/projects/{project}/issues/{issue}/decide:
     parameters: [{$ref: '#/components/parameters/project'}, {$ref: '#/components/parameters/issue'}]
     post:

@@ -55,7 +55,8 @@ export const DOMAINS: readonly {domain: string, paths: RegExp, methods?: readonl
     {domain: 'issues, changed at once', paths: /^projects\/[^/]+\/issues$/, methods: ['PATCH']},
     // The owner's decision on a proposal (ORR-927): its comment comes back as `Orrery-Carry`, marked ` quiet` for a
     // rejection, which is passed on to the session here but starts no work (`startsNone`, ORR-606).
-    {domain: 'a proposal, decided', paths: /^projects\/[^/]+\/issues\/[^/]+\/decide$/, methods: ['POST']},
+    // Many at once (`{ids, decision, note?}`) come back with a carry each, apart by commas.
+    {domain: 'a proposal, decided', paths: /^projects\/[^/]+\/issues(\/[^/]+)?\/decide$/, methods: ['POST']},
     // Taking an issue up and letting it go (ORR-927, ORR-657): the API tells the claim and a new assignee back, as
     // `Orrery-Told`, and puts them in the outbox (ORR-929).
     {domain: 'claims', paths: /^projects\/[^/]+\/issues\/[^/]+\/claim$/},
@@ -289,16 +290,29 @@ export function toldOf(header: string | null): {type: string, project: string, s
 /** What a new or edited comment's reply leaves this server to do (ORR-927): `Orrery-Carry` and `Orrery-Notice`, each
  * `<project> <issue> <comment>` percent-encoded, to pass it on to the session on its issue and to the owner's bell; an
  * edit's carry ends ` edited`, as its words replace ones the session may have read, and a rejection's ` quiet`, as it
- * starts no work (`startsNone`). */
-export function handedOn(headers: Headers): {project: string, issue: string, comment: number, carry: boolean, notice: boolean, edited: boolean, quiet: boolean} | undefined {
-    const said = headers.get('orrery-carry') ?? headers.get('orrery-notice')
-    const [project, issue, comment, mark] = said?.trim().split(' ').map(decodeURIComponent) ?? []
-    if (!project || !issue || !Number.isInteger(Number(comment))) return undefined
-    return {project, issue, comment: Number(comment), carry: headers.has('orrery-carry'), notice: headers.has('orrery-notice'), edited: mark === 'edited', quiet: mark === 'quiet'}
+ * starts no work (`startsNone`). Many decisions at once say many, apart by commas, in the order they were made. */
+export function handoffsOf(headers: Headers): {project: string, issue: string, comment: number, carry: boolean, notice: boolean, edited: boolean, quiet: boolean}[] {
+    const all = new Map<string, {project: string, issue: string, comment: number, carry: boolean, notice: boolean, edited: boolean, quiet: boolean}>()
+    for (const header of ['orrery-carry', 'orrery-notice'] as const) {
+        for (const one of (headers.get(header) ?? '').split(',')) {
+            const [project, issue, comment, mark] = one.trim().split(' ').map(decodeURIComponent)
+            if (!project || !issue || !Number.isInteger(Number(comment))) continue
+            const key = `${project} ${issue} ${comment}`
+            const said = all.get(key) ?? {project, issue, comment: Number(comment), carry: false, notice: false, edited: mark === 'edited', quiet: mark === 'quiet'}
+            said[header === 'orrery-carry' ? 'carry' : 'notice'] = true
+            all.set(key, said)
+        }
+    }
+    return [...all.values()]
+}
+
+/** The one comment a reply hands on (`handoffsOf`), if it does. */
+export function handedOn(headers: Headers) {
+    return handoffsOf(headers)[0]
 }
 
 /** Passes a comment the API made on to the session and the bell, as `handedOn` read it: a quiet one starts no work. */
-export async function handOn(store: Pick<ReturnType<typeof useStore>, 'handOn'>, handoff: NonNullable<ReturnType<typeof handedOn>>, actor: Actor) {
+export async function handOn(store: Pick<ReturnType<typeof useStore>, 'handOn'>, handoff: ReturnType<typeof handoffsOf>[number], actor: Actor) {
     const pass = () => store.handOn(handoff.project, handoff.issue, handoff.comment, handoff, actor)
     await (handoff.quiet ? startsNone.run(true, pass) : pass())
 }
@@ -413,8 +427,7 @@ export async function forwardToApi(event: H3Event, api: {url: string, token: str
         if (relayHeaders) for (const {type, project, subject, from, to} of toldOf(response.headers.get('orrery-told'))) store.told(type, project, subject, actor, {from, to})
     })
     // Outside `relaying`: the signal and the bell's notice are this server's own, with their own rows in the outbox.
-    const handoff = handedOn(response.headers)
-    if (handoff) await handOn(store, handoff, actor)
+    for (const handoff of handoffsOf(response.headers)) await handOn(store, handoff, actor)
     for (const urgent of urgentOf(response.headers.get('orrery-urgent'))) await store.sayUrgent(urgent.project, urgent.issue, actor)
     // What it set off is told before the reply, as the page that asked reads the board next (ORR-1029).
     if (!relayHeaders && WRITES.has(event.method)) await caughtUp()
