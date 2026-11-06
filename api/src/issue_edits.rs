@@ -1,9 +1,9 @@
 // Changing an issue's own words (ORR-927): the part of `updateIssue` in web/server/store/issues.ts that changes what an
 // issue says, where it sits among its siblings and what it's under, and nothing that moves it on the board: `title`,
 // `priority`, `notes`, `labels`, its tasks (`external`), its GitHub issues, its `parent`, `milestone` and `release`, what it
-// depends on, the `model` and `effort` a session for it starts on, and its `position`. The router sends a `PATCH …/issues/{issue}` here
-// only when it names none of the other fields (`wordsOnly`), so its status, assignee, proposal, epic and moving
-// it to another project stay the Nuxt server's for now. The rails are the store's: an agent changes only its person's
+// depends on, whether it's a `proposal`, the `model` and `effort` a session for it starts on, and its `position`. The router
+// sends a `PATCH …/issues/{issue}` here only when it names none of the other fields (`wordsOnly`), so its status, assignee,
+// epic and moving it to another project stay the Nuxt server's for now. The rails are the store's: an agent changes only its person's
 // issue, or its own proposal, and moves one only under an issue that's its person's too.
 use crate::changes;
 use crate::comments::Comments;
@@ -18,8 +18,22 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::LazyLock;
 
 /// The fields this takes, in the order `ISSUE_FIELDS` has them, which is the order its problems are listed in.
-pub const WORDS: [&str; 13] =
-    ["title", "priority", "labels", "external", "github_issues", "notes", "parent", "milestone", "release", "depends_on", "model", "effort", "position"];
+pub const WORDS: [&str; 14] = [
+    "title",
+    "priority",
+    "labels",
+    "external",
+    "github_issues",
+    "notes",
+    "proposal",
+    "parent",
+    "milestone",
+    "release",
+    "depends_on",
+    "model",
+    "effort",
+    "position",
+];
 /// The most issues one can depend on (`MAX_DEPENDS`).
 const MAX_DEPENDS: usize = 50;
 const PRIORITIES: [&str; 4] = ["P0", "P1", "P2", "P3"];
@@ -43,6 +57,8 @@ pub struct Words {
     pub release: Option<Option<String>>,
     /// What it depends on, all of it (ORR-601): `Some(vec![])` for none.
     pub depends_on: Option<Vec<String>>,
+    /// `pending` puts it (back) to the owner, null commits it.
+    pub proposal: Option<Option<String>>,
     pub model: Option<Option<String>>,
     pub effort: Option<Option<String>>,
     pub position: Option<f64>,
@@ -137,6 +153,10 @@ pub fn check_words(body: &Value) -> Result<Words> {
                 })
             }
             "notes" => words.notes = text(key, value, &mut problems, |_| None),
+            "proposal" => {
+                words.proposal =
+                    text(key, value, &mut problems, |sent| (sent != "pending").then(|| format!("\"proposal\" is \"{sent}\", not one of pending (or null)")))
+            }
             "parent" => words.parent = text(key, value, &mut problems, |_| None),
             "milestone" => words.milestone = text(key, value, &mut problems, |_| None),
             "release" => words.release = text(key, value, &mut problems, |_| None),
@@ -228,6 +248,16 @@ impl Comments<'_> {
             milestone: row.get("milestone"),
             ships_in: row.get("ships_in"),
         };
+        if words.proposal == Some(None) && !actor.owner {
+            if let Some(proposal) = row.proposal.as_deref() {
+                let state = match proposal {
+                    "pending" => "waiting on them",
+                    "changes" => "waiting on changes",
+                    _ => "rejected",
+                };
+                return Err(ApiError::refused_for("issues.edit", format!("Committing {issue} is the owner's call until they approve it: it's {state}")));
+            }
+        }
         // While it waits on the owner, it isn't work yet: which release it ships in is theirs to say.
         if words.release.is_some() && !actor.owner && matches!(row.proposal.as_deref(), Some("pending" | "changes")) {
             let settings = crate::settings::Settings::new(&mut *self.conn).get().await?;
@@ -239,6 +269,10 @@ impl Comments<'_> {
             }
         }
         let place = self.placement(project, &issue, &words, &row).await?;
+        // Put up again, it's the owner's to decide, so it's theirs; a claim on it ends when that reassigns it.
+        let pending = words.proposal.as_ref().is_some_and(|p| p.as_deref() == Some("pending"));
+        let assignee = if pending { Some(self.owner_id().await?) } else { None };
+        let reassigned = assignee.as_ref().is_some_and(|a| a.to_lowercase() != row.assignee.as_deref().unwrap_or_default().to_lowercase());
         if let Some(rails) = self.rails_for(actor).await? {
             // An agent's own proposal is its to edit and put up again, though it waits on the owner.
             let own_proposal = rails.is_some() && row.proposal.is_some() && row.created_person == rails;
@@ -276,13 +310,15 @@ impl Comments<'_> {
             } else {
                 ("milestone", row.milestone.as_deref(), place.milestone.as_ref().map(Option::as_deref))
             };
-            let changed: [Change; 10] = [
+            let changed: [Change; 12] = [
                 ("title", Some(row.title.as_str()), words.title.as_deref().map(Some)),
                 ("priority", row.priority.as_deref(), words.priority.as_ref().map(Option::as_deref)),
+                ("assignee", row.assignee.as_deref(), assignee.as_deref().map(Some)),
                 ("labels", row.labels.as_deref(), labels.as_deref().map(Some)),
                 ("external", row.external.as_deref(), external.as_deref().map(Some)),
                 ("github_issues", row.github_issues.as_deref(), github.as_deref().map(Some)),
                 ("notes", row.notes.as_deref(), words.notes.as_ref().map(Option::as_deref)),
+                ("proposal", row.proposal.as_deref(), words.proposal.as_ref().map(Option::as_deref)),
                 placed,
                 ("release", row.ships_in.as_deref(), place.release.as_ref().map(Option::as_deref)),
                 ("model", row.model.as_deref(), words.model.as_ref().map(Option::as_deref)),
@@ -317,6 +353,13 @@ impl Comments<'_> {
                 set.push(("ships_in", release.clone()));
             }
             let mut columns: Vec<String> = set.iter().map(|(field, _)| format!("{field} = ?")).collect();
+            // Put up again, it waits on a new decision.
+            if pending {
+                columns.extend(["decided_by", "decided_at", "decision_note", "picks", "explore"].map(|c| format!("{c} = NULL")));
+            }
+            if reassigned {
+                columns.extend(["claimed_by", "claimed_at", "claimed_session"].map(|c| format!("{c} = NULL")));
+            }
             if words.position.is_some() {
                 columns.push("position = ?".into());
             }
@@ -344,8 +387,13 @@ impl Comments<'_> {
         }
         self.effects.changed = changed;
         changes::finish(self.conn, self.outbox.as_mut(), &self.effects, done).await?;
-        let made_p0 = words.priority.as_ref().is_some_and(|p| p.as_deref() == Some("P0")) && row.priority.as_deref() != Some("P0");
-        if !made_p0 || !(actor.owner || actor.person.is_some()) || row.proposal.is_some() {
+        // Urgent work is a committed P0: made so by a priority, or by committing a P0 proposal. The status doesn't
+        // change here, so a closed one is neither before nor after.
+        let priority = words.priority.clone().unwrap_or_else(|| row.priority.clone());
+        let proposal = words.proposal.clone().unwrap_or_else(|| row.proposal.clone());
+        let urgent = priority.as_deref() == Some("P0") && proposal.is_none();
+        let was_urgent = row.priority.as_deref() == Some("P0") && row.proposal.is_none();
+        if !urgent || was_urgent || !(actor.owner || actor.person.is_some()) {
             return Ok(None);
         }
         let statuses = Issues::new(&mut *self.conn).statuses().await?;
@@ -619,6 +667,9 @@ mod tests {
         assert_eq!(check_words(&json!({"github_issues": [12, " o/n#3 "]})).unwrap().github_issues, Some(vec!["12".to_string(), "o/n#3".to_string()]));
         let refused = check_words(&json!({"status": "todo", "title": "", "model": "gpt", "effort": "huge", "position": null})).unwrap_err();
         assert_eq!(refused.message, "5 problems in the body");
+        assert_eq!(check_words(&json!({"proposal": null})).unwrap().proposal, Some(None));
+        assert_eq!(check_words(&json!({"proposal": "pending"})).unwrap().proposal, Some(Some("pending".to_string())));
+        assert!(check_words(&json!({"proposal": "changes"})).is_err());
         assert!(check_words(&json!({"github_issues": [0]})).is_err() && check_words(&json!({"labels": ["", "a"]})).is_err());
         assert!(check_words(&json!([])).is_err());
     }

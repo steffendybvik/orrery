@@ -690,7 +690,7 @@ impl<'c> Comments<'c> {
     }
 
     /// The owner's id: what waits on them is assigned to it (`ownerId`).
-    async fn owner_id(&mut self) -> Result<String> {
+    pub(crate) async fn owner_id(&mut self) -> Result<String> {
         let row = sqlx::query("SELECT id FROM people WHERE role = 'owner'").fetch_optional(&mut *self.conn).await?;
         Ok(row.map(|r| r.get::<String, _>("id")).unwrap_or_else(|| "owner".into()))
     }
