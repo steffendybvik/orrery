@@ -3,10 +3,11 @@ import type {NoticeRow} from '~/composables/useInbox'
 
 // The bell, larger, as a list and a reading pane. The list: what waits on the owner first (it goes when answered, decided or
 // cleared; clearing a proposal leaves it pending), then the rest by day as a timeline, one line per issue a day, each saying
-// what happened. The list has the page until a line is chosen: that opens its history beside the list (on a narrow window, in
-// its place) and marks it read, and choosing it again or closing the pane gives the list the page back. Dragging the border
-// between them resizes the list. Opening the page only
-// resets the bell's count, so the filled dots stay what's still to read. With notices from more than one project, a picker
+// what happened. On a wide window the page opens with the first line's history beside the list (ORR-990), and choosing a line
+// shows its history there instead; either way the line shown is marked read. Choosing it again or closing the pane gives the
+// list the page back, remembered in this browser until a line is chosen again. On a narrow window the list has the page, and a
+// chosen line takes its place, so Back returns to the list. Dragging the border between them resizes the list. Opening the page
+// otherwise only resets the bell's count, so the filled dots stay what's still to read. With notices from more than one project, a picker
 // keeps the page to one of them (`?project=`, ORR-822), and its Clear buttons to what that leaves shown.
 useHead({title: 'Notifications · orrery'})
 const {notices, lists, seen, load, loadChanges, markRead, clear} = useInbox()
@@ -68,19 +69,50 @@ watch(() => [since.value, listed.value.length] as const, ([from]) => {
     if (from) loadChanges(from)
 }, {immediate: true})
 
-// The chosen line, in the address, so Back leaves it on a narrow window, where it takes the list's place.
+/** At Tailwind's lg (1024px) and up the pane sits beside the list. Set on mount, so the server draws the list alone. */
+const wide = ref(false)
+let wideQuery: MediaQueryList | undefined
+const trackWide = () => wide.value = !!wideQuery?.matches
+onMounted(() => {
+    wideQuery = matchMedia('(min-width: 1024px)')
+    trackWide()
+    wideQuery.addEventListener('change', trackWide)
+})
+onBeforeUnmount(() => wideQuery?.removeEventListener('change', trackWide))
+/** The owner closed the pane on a wide window: it stays closed, here and on later visits, until a line is chosen. */
+const CLOSED_KEY = 'orrery-notifications-pane'
+const paneClosed = ref(false)
+onMounted(() => {
+    try {
+        paneClosed.value = localStorage.getItem(CLOSED_KEY) === 'closed'
+    } catch {
+        // Private windows may refuse: it opens.
+    }
+})
+watch(paneClosed, closed => {
+    try {
+        if (closed) localStorage.setItem(CLOSED_KEY, 'closed')
+        else localStorage.removeItem(CLOSED_KEY)
+    } catch {
+        // Still holds until a reload.
+    }
+})
+const rows = computed(() => [...waiting.value, ...days.value.flatMap(d => d.rows)])
+// The chosen line, in the address, so Back leaves it on a narrow window, where it takes the list's place. With none chosen,
+// a wide window shows the first line, unless the pane was closed.
 const selected = computed<NoticeRow | undefined>(() => {
     const key = route.query.open
-    return [...waiting.value, ...days.value.flatMap(d => d.rows)].find(r => r.key === key)
+    if (key) return rows.value.find(r => r.key === key)
+    return wide.value && !paneClosed.value ? rows.value[0] : undefined
 })
-const narrow = () => !window.matchMedia('(min-width: 1024px)').matches
 function choose(row: NoticeRow) {
     if (selected.value?.key === row.key) return back()
     const to = {query: {...route.query, open: row.key}}
-    if (narrow()) router.push(to)
-    else router.replace(to)
+    // Reopened once the address names the line, or the first line would show (and be read) in between.
+    ;(wide.value ? router.replace(to) : router.push(to)).then(() => paneClosed.value = false)
 }
 function back() {
+    if (wide.value) paneClosed.value = true
     const {open: _, ...query} = route.query
     router.replace({query})
 }
