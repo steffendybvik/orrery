@@ -418,6 +418,65 @@ async fn delete_issue(State(app): Shared, Path((project, issue)): Path<(String, 
     Ok(reply(StatusCode::NO_CONTENT, None, std::mem::take(&mut comments.effects)))
 }
 
+/// `DELETE …/issues` `{ids}`: many deleted, each on its own as one is, so one refused doesn't stop the rest
+/// (`deleteIssues`). `[{id, ok, error?}]`, an id once however often it's sent; one already gone with an issue above it
+/// is ok.
+async fn delete_issues(State(app): Shared, Path(project): Path<String>, headers: HeaderMap, body: Bytes) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    let mut comments = Comments::new(&mut conn);
+    comments.project_uid(&project).await?;
+    let sent = body_of(&body);
+    let ids = match sent.get("ids") {
+        Some(Value::Array(ids)) if !ids.is_empty() && ids.iter().all(Value::is_string) => {
+            ids.iter().filter_map(|id| id.as_str().map(String::from)).collect::<Vec<_>>()
+        }
+        _ => return Err(ApiError::bad_request(r#"Send "ids": the issues, as a list of their ids"#)),
+    };
+    let actor = actor_of(&headers);
+    let mut effects = docs::Effects::default();
+    let mut gone: Vec<String> = vec![];
+    let mut results = vec![];
+    let mut seen: Vec<&String> = vec![];
+    for sent in &ids {
+        if seen.contains(&sent) {
+            continue;
+        }
+        seen.push(sent);
+        // Each delete is its own write, as in the store: its own transaction and its own rows in the outbox.
+        comments.outbox = Some(Outbox::new(actor.clone()));
+        let done: Result<()> = async {
+            let id = comments.issue_id(&project, sent).await?;
+            if gone.contains(&id) {
+                return Ok(());
+            }
+            let subtree = comments.subtree(&project, &id).await?;
+            comments.delete_issue(&project, &id, &actor).await?;
+            gone.extend(subtree);
+            Ok(())
+        }
+        .await;
+        let said = std::mem::take(&mut comments.effects);
+        match done {
+            Ok(()) => {
+                if !said.changed.is_empty() {
+                    effects.changed = said.changed;
+                }
+                effects.told.extend(said.told);
+                results.push(json!({"id": sent, "ok": true}));
+            }
+            Err(error) => results.push(json!({"id": sent, "ok": false, "error": error.message})),
+        }
+    }
+    // Once the batch ends the store says the project changed once more, for open pages (`each`): its row too.
+    if !effects.changed.is_empty() {
+        let once = docs::Effects { changed: effects.changed.clone(), ..Default::default() };
+        let conn = &mut *conn;
+        changes::begin(conn).await?;
+        changes::finish(conn, Some(&mut Outbox::new(actor)), &once, Ok(())).await?;
+    }
+    Ok(reply(StatusCode::OK, Some(Value::Array(results)), effects))
+}
+
 async fn claim_or_release(app: Arc<App>, project: String, issue: String, headers: HeaderMap, claim: bool) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
     let mut comments = Comments::new(&mut conn);
@@ -1192,7 +1251,7 @@ fn router(app: Arc<App>) -> Router {
         .route(&format!("{P}/deleted-docs"), get(deleted_docs))
         .route(&format!("{P}/doc-sections"), get(list_sections).post(create_section))
         .route(&format!("{P}/doc-sections/{{section}}"), patch(patch_section).delete(delete_section))
-        .route(&format!("{P}/issues"), get(list_issues))
+        .route(&format!("{P}/issues"), get(list_issues).delete(delete_issues))
         .route(&format!("{P}/issues/{{issue}}"), get(get_issue).patch(patch_issue).delete(delete_issue))
         .route(&format!("{P}/issues/{{issue}}/claim"), post(claim_issue).delete(release_issue))
         .route(&format!("{P}/issues/{{issue}}/comments"), get(list_comments).post(create_comment))

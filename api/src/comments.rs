@@ -173,7 +173,7 @@ impl<'c> Comments<'c> {
         Ok(sqlx::query(&sql(query)).bind(project).bind(key).fetch_optional(&mut *self.conn).await?.is_some())
     }
 
-    async fn project_uid(&mut self, project: &str) -> Result<String> {
+    pub(crate) async fn project_uid(&mut self, project: &str) -> Result<String> {
         let row = sqlx::query(&sql("SELECT uid FROM projects WHERE id = ?")).bind(project).fetch_optional(&mut *self.conn).await?;
         row.map(|r| r.get::<Option<String>, _>("uid").unwrap_or_default()).ok_or_else(|| ApiError::not_found(format!("No project \"{project}\"")))
     }
@@ -543,7 +543,7 @@ impl<'c> Comments<'c> {
     }
 
     /// The issue's id and every id under it, depth first (`subtree`).
-    async fn subtree(&mut self, project: &str, id: &str) -> Result<Vec<String>> {
+    pub(crate) async fn subtree(&mut self, project: &str, id: &str) -> Result<Vec<String>> {
         let mut out = vec![id.to_string()];
         let children: Vec<String> = sqlx::query(&sql("SELECT id FROM issues WHERE project = ? AND parent = ?"))
             .bind(project)

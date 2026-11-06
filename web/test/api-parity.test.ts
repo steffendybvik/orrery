@@ -1460,6 +1460,45 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         expect((await rows('through-api')).filter(row => row.startsWith('issue.depends '))).toHaveLength(3)
     })
 
+    it('deletes many issues alike, each on its own, the refused ones saying why (ORR-927)', async () => {
+        const start = (await store.db.get<{n: number | null}>('SELECT max(id) AS n FROM changes'))?.n ?? 0
+        const key = (p: string) => p === 'through-store' ? 'STO' : 'API'
+        const ids: Record<string, Record<string, string>> = {}
+        for (const p of ['through-store', 'through-api']) {
+            const case_ = (await store.createIssue(p, {title: 'Build the case'}, AGENT)).id
+            const hinge = (await store.createIssue(p, {title: 'Fit the hinge', parent: case_}, AGENT)).id
+            const lid = (await store.createIssue(p, {title: 'Carve the lid'}, AGENT)).id
+            await store.db.run('INSERT INTO issue_aliases (project, alias, issue) VALUES (?, ?, ?)', p, `${key(p)}-98`, lid)
+            const varnish = (await store.createIssue(p, {title: 'Varnish it', depends_on: [case_]}, AGENT)).id
+            const owners = (await store.createIssue(p, {title: 'Choose the wood'}, OWNER)).id
+            const last = (await store.createIssue(p, {title: 'Ship it'}, AGENT)).id
+            ids[p] = {case: case_, hinge, lid, varnish, owners, last}
+        }
+        type Step = [string, (p: string) => Promise<Outcome>, () => Promise<Outcome>]
+        const drop = (name: string, body: (p: string) => unknown, actor: Actor = AGENT): Step =>
+            [name, p => viaStore(() => store.deleteIssues(p, body(p), actor)), () => viaApi('DELETE', '/issues', body('through-api'), actor)]
+        const steps: Step[] = [
+            drop('no ids', () => ({})),
+            drop('ids that aren\'t a list of ids', () => ({ids: ['X-1', 2]})),
+            drop('an empty list', () => ({ids: []})),
+            drop('a parent, its sub-issue after it, one by an id it had before, the owner\'s, one sent twice and one that isn\'t there',
+                p => ({ids: [ids[p]!.case, ids[p]!.hinge, `${key(p)}-98`, ids[p]!.owners, ids[p]!.case, 'X-404']})),
+            drop('the owner\'s, by the owner', p => ({ids: [ids[p]!.owners]}), OWNER),
+            ['what waited on it, its activity', p => viaStore(() => store.listActivity(p, ids[p]!.varnish!)), () => viaApi('GET', `/issues/${ids['through-api']!.varnish}/activity`)],
+            ['in a project that isn\'t there', () => viaStore(() => store.deleteIssues('nowhere', {ids: ['X-1']}, AGENT)), () => viaApi('DELETE', '/issues', {ids: ['X-1']}, AGENT, 'nowhere')],
+        ]
+        for (const [name, ts, rs] of steps) await both(name, ts, rs)
+        await quiet()
+        await both('the board after', p => viaStore(async () => (await store.listIssues(p)).map(i => i.title).sort()), async () => {
+            const outcome = await viaApi('GET', '/issues')
+            return {...outcome, body: (outcome.body as {title: string}[]).map(i => i.title).sort()}
+        })
+        const rows = async (p: string) => (await store.db.all<{kind: string, payload: string | null}>('SELECT kind, payload FROM changes WHERE project = ? AND id > ? ORDER BY id', p, start))
+            .map(r => `${r.kind} ${(r.payload ?? '').replace(/\b(STO|API)-(\d+)/g, 'KEY-$2')}`).sort()
+        expect(await rows('through-api')).toEqual(await rows('through-store'))
+        expect((await rows('through-api')).filter(row => row.startsWith('issue.deleted '))).toHaveLength(3)
+    })
+
     it('changes an issue\'s own words alike, with the rails between people, noting and telling each (ORR-927)', async () => {
         const start = (await store.db.get<{n: number | null}>('SELECT max(id) AS n FROM changes'))?.n ?? 0
         const ids: Record<string, Record<string, string>> = {}
@@ -2408,7 +2447,7 @@ describe('the router', () => {
         expect(onlyWords({proposal: 'pending', notes: 'Still wanted?'})).toBe(true)
         expect(onlyWords({epic: 'EPC-1', title: 'x', choices: []})).toBe(true)
         for (const body of [{title: 'x', status: 'todo'}, {assignee: 'claude'}, {choices: [], plan: null}, {project: 'q'}, {}, null, [], 'title']) expect(onlyWords(body), JSON.stringify(body)).toBe(false)
-        expect(domainOf('DELETE', '/api/projects/p/issues')).toBeUndefined()
+        expect(domainOf('DELETE', '/api/projects/p/issues')).toBe('an issue, deleted')
         for (const path of ['/api/projects/p/issues/P-1/activity/x', '/api/', '/docs', '/api/projects/p/docs/d/artifact']) expect(domainOf('GET', path), path).toBeUndefined()
     })
 
@@ -2421,7 +2460,7 @@ describe('the router', () => {
         for (const path of ['/api/projects/p/issues/P-1/comments/3/x', '/api/projects/p/issues/P-1/schedule-requests/3', '/api/projects/p/issues/P-1/branches']) expect(domainOf('GET', path), path).toBeUndefined()
         expect(domainOf('GET', '/api/projects/p/issues')).toBe('issues, reading')
         expect(domainOf('GET', '/api/projects/p/issues/P-1')).toBe('issues, reading')
-        for (const method of ['POST', 'PATCH', 'DELETE']) expect(domainOf(method, '/api/projects/p/issues'), method).toBeUndefined()
+        for (const method of ['POST', 'PATCH']) expect(domainOf(method, '/api/projects/p/issues'), method).toBeUndefined()
         expect(domainOf('POST', '/api/projects/p/issues/decide')).toBeUndefined()
         expect(domainOf('GET', '/api/projects/p/issues/P-1/activity')).toBe('activity')
         expect(domainOf('POST', '/api/projects/p/issues/P-1/activity')).toBeUndefined()
@@ -2522,7 +2561,7 @@ describe('the contract (api/openapi.yaml)', () => {
     const routes = () => nuxtRoutes().filter(route => servedByApi(methodOf(route), pathOf(route)))
 
     it('has every route the router sends to the API, and no other', () => {
-        expect(contract()).toHaveLength(91)
+        expect(contract()).toHaveLength(92)
         expect(contract()).toEqual(routes())
     })
 
