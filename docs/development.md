@@ -46,6 +46,12 @@ in `.playground/compose.env` add a service of the playground's own (its data in 
 It's this machine's only. The container has its own `node_modules` and `.nuxt` (volumes), and installs
 packages as it starts.
 
+The playground runs the Rust API beside `nuxt dev`, with the router on (ORR-1029): `docker-compose.api.yml` in
+`compose.env`'s `COMPOSE_FILE` picks the Dockerfile's `dev-api` image, which sets `NUXT_API_BIN`, so the domains in
+`DOMAINS` (`web/server/utils/api-router.ts`) go to the API on the same SQLite file, and the server follows its outbox.
+`play` builds the image each start, so a change in `api/` is in it. Take that file off `COMPOSE_FILE` for the Nuxt
+server alone. The Orrerys you use don't run it until the owner says it has proven stable ([Rust API swap](/p/orrery/docs/rust-api-swap)).
+
 Without Docker: `pnpm install`, then `pnpm dev` on http://localhost:9000 (Node 24.22.1, pnpm 10.14.0).
 
 ## The Rust API
@@ -111,8 +117,9 @@ and stops it with itself. Or run one yourself and point at it: `NUXT_API_TOKEN` 
 Its checks: `cargo fmt --check`, `cargo clippy -- -D warnings` and `cargo test` in `api/`. `web/test/api-parity.test.ts`
 runs the same steps through the store and through the API on one database (SQLite, or Postgres with
 `TEST_POSTGRES_URL`) and compares the replies, failures and what each said changed; it skips without a built binary,
-and CI's `api` job builds one first. It also holds `openapi.yaml` to the routes the router sends on. No browser spec runs
-through the API yet: they all start Nuxt without `NUXT_API_BIN`.
+and CI's `api` job builds one first. It also holds `openapi.yaml` to the routes the router sends on. The browser suite
+runs through the API with `NUXT_API_BIN` set for `pnpm test:e2e` (or `test:e2e:login`), as its server inherits it;
+CI doesn't run it that way yet, and what it found the first time is in [Rust API swap](/p/orrery/docs/rust-api-swap).
 
 A change to a docs, statuses or issue-reading route is now a change in three places: the store
 (`web/server/store/docs.ts`, `statuses.ts`, `issues.ts`), the API (`api/src/docs.rs`, `statuses.rs`, `issues.rs`) and the
@@ -148,8 +155,10 @@ same path streams them as server-sent events, oldest first, then live, each with
 committed), and they look every second anyway, for writes from another process. A cursor whose row isn't kept answers
 `gap: true` (a `gap` event on the stream) with the newest id: the reader has missed rows, so it reads the board again.
 Rows older than a week are pruned hourly, keeping the newest. So far the rows go in just after the write, on its
-connection, rather than in its transaction, and only the API's writes add them. Nothing reads them yet: the reply headers
-still carry what changed to the Nuxt server.
+connection, rather than in its transaction. While the API runs, the Nuxt server follows them (ORR-983,
+`web/server/utils/outbox-follower.ts`, once a second) instead of the reply headers, and a write it forwards waits for
+the follower to read the outbox (`caughtUp`, 2 seconds at most) before it replies, so the page that made it never acts
+on a board without it (ORR-1029).
 
 The Nuxt server's own writes keep their rows too (`outbox()` in `web/server/store/base.ts`), the relayed ones aside. Beside
 what the API keeps, they keep a `signal` row for each signal sessions are sent (its id; the `signals` table holds the

@@ -5,7 +5,7 @@ import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {beforeEach, describe, expect, it} from 'vitest'
 import type {Change, Page} from '../server/utils/outbox-follower'
-import {cursorFile, followOutbox, readCursor, saveCursor} from '../server/utils/outbox-follower'
+import {caughtUp, cursorFile, followOutbox, readCursor, saveCursor, setFollowingOutbox} from '../server/utils/outbox-follower'
 import type {OrreryEvent} from '../server/store/schema'
 import {Store} from '../server/utils/store'
 import {testDb} from './db'
@@ -105,6 +105,52 @@ describe('following the outbox', () => {
             every: 1,
         })
         expect(changed).toContain('greenhouse')
+    })
+})
+
+describe('catching up before a reply (ORR-1029)', () => {
+    it('is at once when not following', async () => {
+        setFollowingOutbox(false)
+        await caughtUp(10_000)
+    })
+
+    it("wakes the follower from its pause and waits for what's in the outbox now", async () => {
+        setFollowingOutbox(true)
+        let stop = false
+        let written = false
+        const following = followOutbox(store, {
+            read: async after => written && after < 9 ? {changes: [row(9, 'project.changed')], last: 9} : {changes: [], last: after},
+            after: 8,
+            saved: () => {},
+            stopped: () => stop,
+            every: 60_000,
+        })
+        try {
+            await tick()
+            written = true
+            const started = Date.now()
+            await caughtUp(10_000)
+            // Told before the wait ends, though its pause is a minute long.
+            expect(changed).toContain('greenhouse')
+            expect(Date.now() - started).toBeLessThan(5_000)
+        } finally {
+            // Woken once more, it sees it's stopped and ends.
+            stop = true
+            await caughtUp(1_000)
+            setFollowingOutbox(false)
+        }
+        await following
+    })
+
+    it("gives up after its time, so a feed that can't be read never holds a reply", async () => {
+        setFollowingOutbox(true)
+        try {
+            const started = Date.now()
+            await caughtUp(20)
+            expect(Date.now() - started).toBeLessThan(1_000)
+        } finally {
+            setFollowingOutbox(false)
+        }
     })
 })
 
