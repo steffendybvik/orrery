@@ -325,12 +325,14 @@ paths:
         '200': {description: The issue, content: {application/json: {schema: {$ref: '#/components/schemas/IssueDetail'}}}}
         '404': {$ref: '#/components/responses/NotFound'}
     patch:
-      summary: Changes the issue's own words
+      summary: Changes the issue's own words and priority
       description: |
-        Only its `title`, `notes`, `labels`, `external`, `github_issues`, `model`, `effort` and `position`: the router
+        Only its `title`, `priority`, `notes`, `labels`, `external`, `github_issues`, `model`, `effort` and `position`: the router
         keeps an edit naming any other field for the Nuxt server. Null clears all but the title and position. An
         agent's, with more than one person, only on its person's issue or its own proposal. Each changed field goes to
-        the activity and is told (`issue.<field>`), without a title's or a link's words.
+        the activity and is told (`issue.<field>`), without a title's or a link's words. Made urgent open work by the
+        owner or a member (P0, committed, not closed, and not P0 before), the reply's `Orrery-Urgent` names it
+        (`<project> <issue>`, percent-encoded), for the Nuxt server to push it to the sessions.
       parameters: [{$ref: '#/components/parameters/actor'}]
       requestBody:
         required: true
@@ -341,6 +343,7 @@ paths:
               additionalProperties: false
               properties:
                 title: {type: string, minLength: 1}
+                priority: {type: [string, 'null'], enum: [P0, P1, P2, P3, null]}
                 notes: {type: [string, 'null']}
                 labels: {type: [array, 'null'], items: {type: string}}
                 external: {type: [array, 'null'], items: {type: string}}
