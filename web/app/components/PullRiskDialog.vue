@@ -3,7 +3,7 @@ import type {PullRisk, RiskLevel} from '#shared/roadmap'
 import {RISK_LEVELS} from '#shared/roadmap'
 
 // Rating a PR's risk yourself, from an issue's page (ORR-879): high, medium or low with a line on why, or Clear to take
-// the rating away. The picked level is outlined, not filled, as filled orange is Save's (ORR-802). Yours stands: a session's later rating doesn't replace it. `pull` is the PR on its row, null when shut.
+// the rating away. The levels are a SegmentedControl, the app's one look for a set of choices (ORR-992). Yours stands: a session's later rating doesn't replace it. `pull` is the PR on its row, null when shut.
 const props = defineProps<{project: string, issue: string, pull: {number: number, url: string, risk?: PullRisk} | null}>()
 const emit = defineEmits<{close: [], rated: []}>()
 
@@ -17,6 +17,7 @@ watch(() => props.pull, pull => {
     failed.value = ''
 })
 const LABELS: Record<RiskLevel, string> = {high: 'High', medium: 'Medium', low: 'Low'}
+const options = RISK_LEVELS.map(value => ({value, label: LABELS[value]}))
 
 /** The PR's repo and number, from its link: one from a repo the project has left is rated the same way. */
 const path = computed(() => {
@@ -45,18 +46,7 @@ const submit = () => why.value.trim() && save({level: level.value, why: why.valu
   <UiDialog :open="pull" :label="`Rate the risk of #${pull?.number}`" width="md" @close="emit('close')" @submit="submit">
     <h2 class="text-base font-semibold text-fg">Rate the risk of #{{ pull?.number }}</h2>
     <p class="text-xs text-muted">Your rating stands: a session's later one doesn't replace it.</p>
-    <div class="flex gap-2" role="radiogroup" aria-label="Risk">
-      <UiButton
-          v-for="option in RISK_LEVELS"
-          :key="option"
-          role="radio"
-          :aria-checked="level === option"
-          variant="secondary"
-          size="sm"
-          :class="level === option ? 'ring-2 ring-accent-500 text-fg' : ''"
-          @click="level = option"
-      >{{ LABELS[option] }}</UiButton>
-    </div>
+    <SegmentedControl v-model="level" :options="options" class="self-start" aria-label="Risk" />
     <input v-model="why" aria-label="Why" maxlength="300" placeholder="Why, e.g. bug fix in signal routing" class="rounded-lg bg-well px-3 py-2 text-sm text-fg ring-1 ring-line placeholder:text-faint focus:ring-accent-500/50 focus:outline-none">
     <p v-if="failed" class="text-xs text-rose-700 dark:text-rose-400">{{ failed }}</p>
     <div class="flex items-center gap-2">

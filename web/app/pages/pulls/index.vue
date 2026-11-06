@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import {SEGMENTS, segment} from '~/utils/segments'
 import {inProjectOrder, PULL_NEEDS} from '#shared/roadmap'
 
 // Every open pull request on the projects' GitHub repos (ORR-491), so one doesn't wait unseen once its issue is in
@@ -59,16 +60,17 @@ const cards = computed(() => inProjectOrder(pulls.value?.repos ?? [], ordered.va
     <h1 class="truncate text-sm font-medium">Pull requests</h1>
   </PageHeader>
 
-  <nav class="flex gap-1 border-b border-line px-4 py-2 text-xs" aria-label="Pull requests and branches">
-    <NuxtLink
-        v-for="v in views"
-        :key="v.id"
-        :to="{query: v.id === 'branches' ? {view: 'branches'} : {}}"
-        class="rounded-md px-2 py-1"
-        :class="view === v.id ? 'bg-hover font-medium text-fg' : 'text-muted hover:text-fg'"
-        :aria-current="view === v.id ? 'page' : undefined"
-    >{{ v.label }}</NuxtLink>
-  </nav>
+  <div class="border-b border-line px-4 py-2">
+    <nav :class="[SEGMENTS, 'w-fit']" aria-label="Pull requests and branches">
+      <NuxtLink
+          v-for="v in views"
+          :key="v.id"
+          :to="{query: v.id === 'branches' ? {view: 'branches'} : {}}"
+          :class="segment(view === v.id)"
+          :aria-current="view === v.id ? 'page' : undefined"
+      >{{ v.label }}</NuxtLink>
+    </nav>
+  </div>
   <BranchesList v-if="view === 'branches'" />
   <template v-else>
   <ViewToolbar>
