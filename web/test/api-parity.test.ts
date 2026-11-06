@@ -2269,6 +2269,60 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         expect((viaRs[10]!.body as {cleared: number}).cleared).toBe(2)
     })
 
+    it('comments on a milestone and on an epic alike, the owner\'s words theirs (ORR-1004)', async () => {
+        const milestones: Record<string, string> = {}
+        const epics: Record<string, number> = {}
+        for (const p of ['through-store', 'through-api']) {
+            milestones[p] = (await store.createMilestone(p, {title: 'Oil the joints'})).id
+            epics[p] = (await store.createEpic({title: `Comments through ${p}`})).id
+        }
+        // What a thread's step gave, either side: its comments' ids in order, and the epic's number, aren't compared.
+        const alike = (outcome: Outcome, p: string) => JSON.parse(JSON.stringify(same(outcome, p), (key, value: unknown) => key === 'epic' ? '<epic>' : typeof value === 'string' ? value.replace(/comment \d+/g, 'comment <n>').replace(/epic \d+/g, 'epic <n>') : value)) as unknown
+        const ids: Record<string, number[]> = {'through-store': [], 'through-api': []}
+        const kept = (p: string, outcome: Outcome) => {
+            const id = (outcome.body as {id?: number} | null)?.id
+            if (outcome.status === 201 && id) ids[p]!.push(id)
+            return outcome
+        }
+        for (const kind of ['milestone', 'epic'] as const) {
+            ids['through-store'] = []
+            ids['through-api'] = []
+            const path = (p: string) => kind === 'milestone' ? `/api/projects/${p}/milestones/${milestones[p]}/comments` : `/api/epics/${epics[p]}/comments`
+            const store_ = {
+                list: (p: string) => kind === 'milestone' ? store.listMilestoneComments(p, milestones[p]!) : store.listEpicComments(epics[p]!),
+                add: (p: string, body: unknown, actor: Actor) => kind === 'milestone' ? store.createMilestoneComment(p, milestones[p]!, body, actor) : store.createEpicComment(epics[p]!, body, actor),
+                edit: (p: string, id: number, body: unknown, actor: Actor) => kind === 'milestone' ? store.updateMilestoneComment(p, milestones[p]!, id, body, actor) : store.updateEpicComment(epics[p]!, id, body, actor),
+                remove: (p: string, id: number, actor: Actor) => kind === 'milestone' ? store.deleteMilestoneComment(p, milestones[p]!, id, actor) : store.deleteEpicComment(epics[p]!, id, actor),
+            }
+            const step = async (name: string, ts: (p: string) => Promise<Outcome>, rs: (p: string) => Promise<Outcome>) => {
+                const [a, b] = [kept('through-store', await ts('through-store')), kept('through-api', await rs('through-api'))]
+                expect(alike(b, 'through-api'), `${kind}: ${name}`).toEqual(alike(a, 'through-store'))
+                return b
+            }
+            const nth = (p: string, n: number) => ids[p]![n]!
+            await step('none yet', p => viaStore(() => store_.list(p)), p => viaApi('GET', path(p)))
+            const first = await step('a session\'s', p => viaStore(() => store_.add(p, {body: 'Oiled the hinge'}, SESSION), 201), p => viaApi('POST', path(p), {body: 'Oiled the hinge'}, SESSION))
+            await step('the owner\'s', p => viaStore(() => store_.add(p, {body: 'Good'}, OWNER), 201), p => viaApi('POST', path(p), {body: 'Good'}, OWNER))
+            await step('a blank one', p => viaStore(() => store_.add(p, {body: ' '}, SESSION)), p => viaApi('POST', path(p), {body: ' '}, SESSION))
+            await step('no words, and asking', p => viaStore(() => store_.add(p, {asks: 'decision'}, SESSION)), p => viaApi('POST', path(p), {asks: 'decision'}, SESSION))
+            await step('no body', p => viaStore(() => store_.add(p, undefined, SESSION)), p => viaApi('POST', path(p), undefined, SESSION))
+            await step('the thread', p => viaStore(() => store_.list(p)), p => viaApi('GET', path(p)))
+            await step('edited by its session', p => viaStore(() => store_.edit(p, nth(p, 0), {body: 'Oiled twice'}, SESSION)), p => viaApi('PATCH', `${path(p)}/${nth(p, 0)}`, {body: 'Oiled twice'}, SESSION))
+            await step('the owner\'s, edited by a session', p => viaStore(() => store_.edit(p, nth(p, 1), {body: 'Bad'}, SESSION)), p => viaApi('PATCH', `${path(p)}/${nth(p, 1)}`, {body: 'Bad'}, SESSION))
+            await step('edited with nothing', p => viaStore(() => store_.edit(p, nth(p, 1), {}, OWNER)), p => viaApi('PATCH', `${path(p)}/${nth(p, 1)}`, {}, OWNER))
+            await step('one that isn\'t there', p => viaStore(() => store_.edit(p, 99_999_999, {body: 'X'}, OWNER)), p => viaApi('PATCH', `${path(p)}/99999999`, {body: 'X'}, OWNER))
+            await step('the owner\'s, deleted by a session', p => viaStore(() => store_.remove(p, nth(p, 1), SESSION)), p => viaApi('DELETE', `${path(p)}/${nth(p, 1)}`, undefined, SESSION))
+            await step('a session\'s, deleted', p => viaStore(() => store_.remove(p, nth(p, 0), SESSION)), p => viaApi('DELETE', `${path(p)}/${nth(p, 0)}`, undefined, SESSION))
+            await step('the thread after', p => viaStore(() => store_.list(p)), p => viaApi('GET', path(p)))
+            expect(first.status).toBe(201)
+            expect(first.changed, kind).toEqual(kind === 'milestone' ? await sharing(['through-api']) : [])
+        }
+        // What isn't there, on each kind's own path.
+        const missing = (name: string, ts: () => Promise<unknown>, rs: string) => alike0(name, () => viaStore(ts), () => viaApi('GET', rs))
+        await missing('a milestone that isn\'t there', () => store.listMilestoneComments('through-api', '99999'), '/api/projects/through-api/milestones/99999/comments')
+        await missing('an epic that isn\'t there', () => store.listEpicComments(99_999), '/api/epics/99999/comments')
+    })
+
     it('lists, reads, makes, changes, moves and deletes epics alike, telling what each did (ORR-1004)', async () => {
         // The epics are the orrery's, so each side runs every step in turn on the same tables, put back between them,
         // their numbering too, so both make the same epics. Each project has a cog with a tooth to put in them.
@@ -2474,7 +2528,7 @@ describe('the router', () => {
     })
 
     it('routes by a table with a line per domain, so taking one back is taking its line out (ORR-925)', () => {
-        expect(DOMAINS.map(({domain}) => domain)).toEqual(['docs', 'statuses', 'issues, reading', 'comments', 'an issue, deleted', 'an issue, made', 'an issue, its words', 'claims', 'activity', 'milestones', 'releases', 'releases, every project\'s', 'people', 'invites', 'keys', 'logins', 'uploads, reading', 'presets', 'secrets, reading', 'settings', 'a pull request, reading', "a pull request's risk", 'schedules, reading', 'projects, listed', 'a project, made', 'a project, changed', 'the bell', 'epics'])
+        expect(DOMAINS.map(({domain}) => domain)).toEqual(['docs', 'statuses', 'issues, reading', 'comments', 'an issue, deleted', 'an issue, made', 'an issue, its words', 'claims', 'activity', 'milestones', 'releases', 'releases, every project\'s', 'people', 'invites', 'keys', 'logins', 'uploads, reading', 'presets', 'secrets, reading', 'settings', 'a pull request, reading', "a pull request's risk", 'schedules, reading', 'projects, listed', 'a project, made', 'a project, changed', 'the bell', 'epics', 'milestone and epic comments'])
         expect(domainOf('PATCH', '/api/projects/p/docs/d')).toBe('docs')
         expect(domainOf('head', '/api/projects/p/doc-sections/')).toBe('docs')
         for (const method of ['POST', 'DELETE']) expect(domainOf(method, '/api/projects/p/issues/P-1/claim'), method).toBe('claims')
@@ -2608,7 +2662,7 @@ describe('the contract (api/openapi.yaml)', () => {
     const routes = () => nuxtRoutes().filter(route => servedByApi(methodOf(route), pathOf(route)))
 
     it('has every route the router sends to the API, and no other', () => {
-        expect(contract()).toHaveLength(84)
+        expect(contract()).toHaveLength(92)
         expect(contract()).toEqual(routes())
     })
 

@@ -1,4 +1,4 @@
-// orrery's API in Rust (ORR-922). For now it serves docs, the statuses (ORR-926), milestones and releases (ORR-926, written in ORR-974), reading issues, their comments, their activity and the images uploaded to them (ORR-927), people, invites, keys and logins (ORR-928), presets (ORR-949), reading the secrets, never a value (ORR-953), the settings (ORR-954) reading one pull request as orrery keeps it and rating its risk (ORR-952), the bell (ORR-1005), the epics (ORR-1004), on the database the Nuxt server opens, and only
+// orrery's API in Rust (ORR-922). For now it serves docs, the statuses (ORR-926), milestones and releases (ORR-926, written in ORR-974), reading issues, their comments, their activity and the images uploaded to them (ORR-927), people, invites, keys and logins (ORR-928), presets (ORR-949), reading the secrets, never a value (ORR-953), the settings (ORR-954) reading one pull request as orrery keeps it and rating its risk (ORR-952), the bell (ORR-1005), the epics and their and the milestones' comments (ORR-1004), on the database the Nuxt server opens, and only
 // to that server: the router there (web/server/middleware/zz-api.ts) checks a request as it always has (auth, the
 // board's permissions, the chat's and untrusted sessions' rails, the browser guards) and then forwards it here with
 // who it's from. So this listens on loopback, and answers only a request that carries the token they share.
@@ -38,6 +38,7 @@ mod settings;
 mod statuses;
 mod steps;
 mod text;
+mod threads;
 mod uploads;
 
 use axum::body::Bytes;
@@ -75,6 +76,7 @@ use sqlx::AnyPool;
 use statuses::Statuses;
 use std::collections::HashMap;
 use std::sync::Arc;
+use threads::{Thread, Threads};
 
 struct App {
     pool: AnyPool,
@@ -545,6 +547,107 @@ async fn delete_epic(State(app): Shared, Path(epic): Path<String>, headers: Head
     epics.outbox = Some(Outbox::new(actor_of(&headers)));
     epics.delete(id, &actor_of(&headers)).await?;
     Ok(reply(StatusCode::NO_CONTENT, None, std::mem::take(&mut epics.effects)))
+}
+
+/// A milestone's or an epic's comments (ORR-1004): as the routes read their URL, the comment's id before the store
+/// finds the milestone, and the epic before the comment.
+async fn milestone_thread(threads: &mut Threads<'_>, project: &str, milestone: &str) -> Result<Thread> {
+    threads.milestone(project, milestone).await
+}
+
+async fn epic_thread(threads: &mut Threads<'_>, epic: &str) -> Result<Thread> {
+    Ok(Thread::Epic(Epics::new(&mut *threads.conn).epic_id(epic).await?))
+}
+
+async fn list_milestone_comments(State(app): Shared, Path((project, milestone)): Path<(String, String)>) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    let mut threads = Threads::new(&mut conn);
+    let thread = milestone_thread(&mut threads, &project, &milestone).await?;
+    Ok(Json(threads.list(&thread).await?).into_response())
+}
+
+async fn list_epic_comments(State(app): Shared, Path(epic): Path<String>) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    let mut threads = Threads::new(&mut conn);
+    let thread = epic_thread(&mut threads, &epic).await?;
+    Ok(Json(threads.list(&thread).await?).into_response())
+}
+
+async fn add_to_thread(mut threads: Threads<'_>, thread: Thread, headers: &HeaderMap, body: &Bytes) -> Result<Response> {
+    threads.outbox = Some(Outbox::new(actor_of(headers)));
+    let id = threads.add(&thread, &body_of(body), &actor_of(headers)).await?;
+    let effects = std::mem::take(&mut threads.effects);
+    let value = threads.comment(&thread, id).await?;
+    Ok(reply(StatusCode::CREATED, Some(value), effects))
+}
+
+async fn edit_in_thread(mut threads: Threads<'_>, thread: Thread, id: i64, headers: &HeaderMap, body: &Bytes) -> Result<Response> {
+    threads.outbox = Some(Outbox::new(actor_of(headers)));
+    threads.edit(&thread, id, &body_of(body), &actor_of(headers)).await?;
+    let effects = std::mem::take(&mut threads.effects);
+    let value = threads.comment(&thread, id).await?;
+    Ok(reply(StatusCode::OK, Some(value), effects))
+}
+
+async fn remove_from_thread(mut threads: Threads<'_>, thread: Thread, id: i64, headers: &HeaderMap) -> Result<Response> {
+    threads.outbox = Some(Outbox::new(actor_of(headers)));
+    threads.remove(&thread, id, &actor_of(headers)).await?;
+    Ok(reply(StatusCode::NO_CONTENT, None, std::mem::take(&mut threads.effects)))
+}
+
+async fn create_milestone_comment(State(app): Shared, Path((project, milestone)): Path<(String, String)>, headers: HeaderMap, body: Bytes) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    let mut threads = Threads::new(&mut conn);
+    let thread = milestone_thread(&mut threads, &project, &milestone).await?;
+    add_to_thread(threads, thread, &headers, &body).await
+}
+
+async fn create_epic_comment(State(app): Shared, Path(epic): Path<String>, headers: HeaderMap, body: Bytes) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    let mut threads = Threads::new(&mut conn);
+    let thread = epic_thread(&mut threads, &epic).await?;
+    add_to_thread(threads, thread, &headers, &body).await
+}
+
+async fn patch_milestone_comment(
+    State(app): Shared,
+    Path((project, milestone, comment)): Path<(String, String, String)>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Response> {
+    let id = comment_id(&comment)?;
+    let mut conn = app.pool.acquire().await?;
+    let mut threads = Threads::new(&mut conn);
+    let thread = milestone_thread(&mut threads, &project, &milestone).await?;
+    edit_in_thread(threads, thread, id, &headers, &body).await
+}
+
+async fn patch_epic_comment(State(app): Shared, Path((epic, comment)): Path<(String, String)>, headers: HeaderMap, body: Bytes) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    let mut threads = Threads::new(&mut conn);
+    let thread = epic_thread(&mut threads, &epic).await?;
+    let id = comment_id(&comment)?;
+    edit_in_thread(threads, thread, id, &headers, &body).await
+}
+
+async fn delete_milestone_comment(
+    State(app): Shared,
+    Path((project, milestone, comment)): Path<(String, String, String)>,
+    headers: HeaderMap,
+) -> Result<Response> {
+    let id = comment_id(&comment)?;
+    let mut conn = app.pool.acquire().await?;
+    let mut threads = Threads::new(&mut conn);
+    let thread = milestone_thread(&mut threads, &project, &milestone).await?;
+    remove_from_thread(threads, thread, id, &headers).await
+}
+
+async fn delete_epic_comment(State(app): Shared, Path((epic, comment)): Path<(String, String)>, headers: HeaderMap) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    let mut threads = Threads::new(&mut conn);
+    let thread = epic_thread(&mut threads, &epic).await?;
+    let id = comment_id(&comment)?;
+    remove_from_thread(threads, thread, id, &headers).await
 }
 
 async fn patch_release(State(app): Shared, Path((project, release)): Path<(String, String)>, headers: HeaderMap, body: Bytes) -> Result<Response> {
@@ -1091,7 +1194,7 @@ async fn restore_presets(State(app): Shared, headers: HeaderMap) -> Result<Respo
 
 async fn health() -> Json<Value> {
     Json(
-        json!({"ok": true, "domains": ["docs", "statuses", "issues, reading", "comments, reading", "activity", "claims", "an issue, deleted", "an issue, its words", "milestones", "releases", "people", "invites", "keys", "logins", "uploads, reading", "presets", "secrets, reading", "settings", "a pull request, reading", "a pull request's risk", "schedules, reading", "projects, listed", "a project, made", "a project, changed", "the bell", "epics"]}),
+        json!({"ok": true, "domains": ["docs", "statuses", "issues, reading", "comments, reading", "activity", "claims", "an issue, deleted", "an issue, its words", "milestones", "releases", "people", "invites", "keys", "logins", "uploads, reading", "presets", "secrets, reading", "settings", "a pull request, reading", "a pull request's risk", "schedules, reading", "projects, listed", "a project, made", "a project, changed", "the bell", "epics", "milestone and epic comments"]}),
     )
 }
 
@@ -1120,6 +1223,10 @@ fn router(app: Arc<App>) -> Router {
         .route("/api/releases", get(all_releases))
         .route("/api/epics", get(list_epics).post(create_epic))
         .route("/api/epics/{epic}", get(get_epic).patch(patch_epic).delete(delete_epic))
+        .route("/api/epics/{epic}/comments", get(list_epic_comments).post(create_epic_comment))
+        .route("/api/epics/{epic}/comments/{comment}", patch(patch_epic_comment).delete(delete_epic_comment))
+        .route(&format!("{P}/milestones/{{milestone}}/comments"), get(list_milestone_comments).post(create_milestone_comment))
+        .route(&format!("{P}/milestones/{{milestone}}/comments/{{comment}}"), patch(patch_milestone_comment).delete(delete_milestone_comment))
         .route("/api/projects", get(list_projects).post(create_project))
         .route(P, patch(patch_project))
         .route("/api/uploads/{upload}", get(get_upload))
