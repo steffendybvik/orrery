@@ -15,7 +15,7 @@ const DEV_BIN = resolve(process.cwd(), '../api/target/debug/orrery-api')
 
 export default defineNitroPlugin(nitro => {
     const config = useRuntimeConfig()
-    // An API already running (NUXT_API_URL, docker-compose.api.yml) is used as it is.
+    // An API already running (NUXT_API_URL and NUXT_API_TOKEN) is used as it is.
     const devBin = import.meta.dev && !apiTarget(config) && existsSync(DEV_BIN) ? DEV_BIN : ''
     const bin = String(config.apiBin || devBin)
     if (!bin) {

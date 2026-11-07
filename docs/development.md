@@ -46,15 +46,10 @@ in `.playground/compose.env` add a service of the playground's own (its data in 
 It's this machine's only. The container has its own `node_modules` and `.nuxt` (volumes), and installs
 packages as it starts.
 
-The playground runs on the Rust API, switched by one flag, `ORRERY_RUST_API=1` in `.playground/compose.env`
-(ORR-1051). On, `play` adds `docker-compose.api.yml`: the Rust API in a container of its own (the Dockerfile's
-`rust-api` image), on the same SQLite file. The Nuxt server routes the domains in `DOMAINS`
-(`web/server/utils/api-router.ts`) to it at `NUXT_API_URL`, follows its outbox, and has the swap's flag on
-(`NUXT_API_ONLY`, ORR-1034), so those domains are the API's alone. `play` builds the images each start, so a change in
-`api/` is in it. `0` is the Nuxt server alone. An orrery run with `docker compose` turns it on with two lines in its
-`.env`, `COMPOSE_FILE=docker-compose.yml:docker-compose.api.yml` and `ORRERY_API_TOKEN` (`openssl rand -hex 32`), and
-off again with them out and `docker compose up -d --remove-orphans`; the file's comment says more
-([Rust API swap](/p/orrery/docs/rust-api-swap)).
+The Rust API runs inside each image (ORR-1041): the dev image builds it from the checkout, the prod image from its
+build context, and each sets `NUXT_API_BIN`, so the server starts it beside itself on the same database and starts it
+again on a new one after a move or a restore. One container, and one compose file, whatever the orrery. `play` builds
+the image each start, so a change in `api/` is in it.
 
 Without Docker: `pnpm install`, then `pnpm dev` on http://localhost:9000 (Node 24.22.1, pnpm 10.14.0).
 
@@ -105,7 +100,7 @@ How it fits together:
 - **The swap's flag.** `NUXT_API_ONLY=1` (ORR-1034, off by default) makes the `here` lines the API's alone too: with
   the API down, their requests fail instead of falling through. What their `first` check keeps here still goes to
   Nuxt, and what a write sets off (open pages, the event log, schedules, sessions, the bell) stays Nuxt's either way.
-  The playground and any orrery with `docker-compose.api.yml` run with it on.
+  Nothing sets it now that the API runs inside the image; [ORR-1091](/p/orrery/issues/ORR-1091) removes it.
 
 **The page's side (ORR-943).** The page reaches the API through `web/app/utils/api.ts` alone, so where it sends a path is one
 setting: `NUXT_PUBLIC_API_BASES`, a JSON object of path prefix to base (`{"/projects/atlas/docs": "https://api.example.com/api"}`).

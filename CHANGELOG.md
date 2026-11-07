@@ -7,6 +7,23 @@ Each version's changes are grouped under **Features**, **Changes** and **Fixes**
 **Internal** where they help, and a group with nothing in it is left out. 1.0.0, the first release's
 overview, is one list.
 
+## 1.0.0-rc.19 (unreleased)
+
+### Changes
+
+- **The board's data is served by orrery's Rust API.** Docs, issues and comments, milestones, releases, people and
+  keys, presets, settings, the bell, epics, projects and uploads are answered by it alone; the Nuxt server checks each
+  request, forwards it, and keeps the page, sessions, the launcher, chats and schedules' runs. The Docker image runs
+  the API inside the same container, so `docker compose up` works as before: one container, one compose file.
+- **Without Docker, the server needs the API:** `cargo build --release` in `api/`, and `NUXT_API_BIN` pointing at it
+  (see *Running orrery*). Without it, the board's requests answer 503.
+
+### Internal
+
+- The Nuxt server's routes for the domains the API serves are gone. `pnpm dev` starts `api/target/debug/orrery-api`,
+  so `cargo build` in `api/` comes first. The browser suites in CI run through the API, and the playground always
+  runs it.
+
 ## 1.0.0-rc.18 (2026-11-06)
 
 ### Features
