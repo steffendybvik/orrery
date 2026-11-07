@@ -368,7 +368,7 @@ const labelOf = (options: {value: string, label: string}[], value: string) => op
 </script>
 
 <template>
-  <UiDialog :open="editing" :label="existing || group ? 'Edit schedule' : 'New schedule'" width="2xl" @close="close" @submit="save">
+  <UiDialog :open="editing" name="schedule" :label="existing || group ? 'Edit schedule' : 'New schedule'" width="2xl" @close="close" @submit="save">
     <div class="flex items-center gap-2 text-xs text-faint">
       <SectionIcon section="schedules" />
       <span>{{ existing || group ? 'Edit schedule in' : 'New schedule in' }}</span>

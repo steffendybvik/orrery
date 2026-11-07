@@ -43,7 +43,7 @@ const submit = () => why.value.trim() && save({level: level.value, why: why.valu
 </script>
 
 <template>
-  <UiDialog :open="pull" :label="`Rate the risk of #${pull?.number}`" width="md" @close="emit('close')" @submit="submit">
+  <UiDialog :open="pull" name="pull-risk" :label="`Rate the risk of #${pull?.number}`" width="md" @close="emit('close')" @submit="submit">
     <h2 class="text-base font-semibold text-fg">Rate the risk of #{{ pull?.number }}</h2>
     <p class="text-xs text-muted">Your rating stands: a session's later one doesn't replace it.</p>
     <SegmentedControl v-model="level" :options="options" class="self-start" aria-label="Risk" />
