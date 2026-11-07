@@ -29,6 +29,10 @@ import {claude} from './claude-agent.mjs'
  * @property {(report: object) => {tokens: number, window: number} | undefined} context how much context it carries, from
  *   what it reports (Claude Code's hook input): the tokens in use and its model's window; nothing when it can't tell, so
  *   it gets no meter rather than a wrong one
+ * @property {(at: {url: string, orrery: {id: string, environment?: string}, commands: object, home?: string}) => {server: string}} setUp
+ *   puts orrery into the agent's own user-level config for every folder (the install line, ORR-1067), and trusts the
+ *   default folder `home`; safe to run again
+ * @property {(at: {homeOf: (id: string) => string}) => string[]} undo takes out what `setUp` put in, for every orrery
  * @property {(model: string | undefined, tokens: number) => number} window its model's window, for a report that gave
  *   tokens alone (a hook from before the adapter said the window)
  */
