@@ -210,7 +210,7 @@ const DOC_FIELDS = {
 const WHY = {type: 'string'}
 
 /** Which project a chat's request is on, when not its own (ORR-1063). */
-const ON = {project: {type: 'string', description: "Another project's id; the chat's own when left out"}}
+const ON = {project: {type: 'string', description: 'Another project'}}
 
 /** What the owner's chat session has besides, listed: answering in the chat, seeing what the owner pasted in it,
  * changing an issue's fields when they ask, moving or assigning issues (at once when they named them), and asking for the rest (`CHAT_REQUESTS`)
@@ -319,7 +319,7 @@ export const CHAT_REQUESTS = [
     },
     {
         name: 'create_schedule',
-        description: "Makes a schedule in this project (or another, named in project), the owner's once allowed. Give a title and one of cron, at or on. The presets tool lists preset ids.",
+        description: "Makes a schedule in this project, the owner's once allowed. Give a title and one of cron, at or on. The presets tool lists preset ids.",
         inputSchema: {type: 'object', required: ['title'], properties: {...SCHEDULE_FIELDS, ...ON}},
     },
     {
@@ -536,7 +536,7 @@ export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''),
     async function on({project, id}) {
         // One it doesn't reach is refused, not taken for its only one, as projectOf would.
         if (project && projects.length && !projects.includes(project)) throw new Error(`This chat reaches ${projects.join(', ')}, not ${project}`)
-        if (!project && !id) return {}
+        if (!project && (!id || !home)) return {}
         const named = await projectOf({project, id})
         return named === home ? {} : {project: named}
     }
