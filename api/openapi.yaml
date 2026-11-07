@@ -756,6 +756,26 @@ paths:
       responses:
         '200': {description: The board's file, content: {application/json: {schema: {type: object, required: [format, format_version, schema_step, exported_at, project, people, statuses, uploads, tables], properties: {format: {type: string, enum: [orrery-board]}, format_version: {type: integer}, schema_step: {type: integer}, exported_at: {type: string}, project: {type: string}, people: {type: array, items: {type: object}}, statuses: {type: array, items: {type: object}}, uploads: {type: array, items: {type: object}}, tables: {type: object}}}}}}
         '404': {$ref: '#/components/responses/NotFound'}
+  /api/projects/{project}/import:
+    parameters: [{$ref: '#/components/parameters/project'}]
+    post:
+      summary: Imports a roadmap
+      description: |
+        A roadmap in `docs/roadmap.json`'s format: milestones of tasks with a status (`todo`, `doing`, `done`) and a plan.
+        Everything gets the project's ids (milestones 1, 2, …, issues KEY-1, …), the file's ids becoming aliases. A file
+        with problems is a 400 naming each, with unknown fields among them. Refused when the project has milestones or
+        issues already (409) unless `replace=true`, which clears them first; replacing what the owner made is theirs
+        (403). With more than one person on this orrery, only a person imports one (409).
+      parameters:
+        - {$ref: '#/components/parameters/actor'}
+        - {name: replace, in: query, required: false, description: '`true` clears the milestones and issues first', schema: {type: string}}
+      requestBody: {required: true, content: {application/json: {schema: {type: object, required: [milestones], properties: {$comment: {type: string}, milestones: {type: array, items: {type: object}}}}}}}
+      responses:
+        '200': {description: 'The project, with its board', content: {application/json: {schema: {$ref: '#/components/schemas/Project'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
   /api/people:
     get:
       summary: Everyone on this orrery

@@ -13,7 +13,7 @@ export type Line = {issue: `ORR-${number}`, gap: string} | {stays: string} | {ru
 const ORR_1036: Line = {issue: 'ORR-1036', gap: 'uploading, which re-encodes images with sharp'}
 const ORR_928: Line = {issue: 'ORR-928', gap: 'the owner, permissions and members, with auth'}
 const ORR_950: Line = {issue: 'ORR-950', gap: 'schedule writes and runs, and the schedule requests that write them'}
-const ORR_1006: Line = {issue: 'ORR-1006', gap: 'reading, deleting and importing a project'}
+const ORR_1006: Line = {issue: 'ORR-1006', gap: 'reading, deleting and uploading a project'}
 const ORR_1038: Line = {issue: 'ORR-1038', gap: 'the front door: served ahead, routed once how the request came in reaches the API'}
 
 const FOCUS: Line = {stays: "a focus signals the sessions, which are the machine's (ORR-1004, ORR-927)"}
@@ -82,7 +82,6 @@ export const NOT_ROUTED: Readonly<Record<string, Line>> = {
     'GET /api/projects/{project}': ORR_1006,
     'GET /api/projects/{project}/context': SESSIONS,
     'GET /api/projects/{project}/docs/{doc}/artifact': ARTIFACT,
-    'POST /api/projects/{project}/import': ORR_1006,
     'GET /api/projects/{project}/issues/{issue}/branches': GIT,
     'POST /api/projects/{project}/issues/{issue}/focus': FOCUS,
     'GET /api/projects/{project}/issues/{issue}/pulls': GIT,

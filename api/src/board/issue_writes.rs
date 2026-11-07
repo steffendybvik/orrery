@@ -223,7 +223,7 @@ impl<'c> IssueWrites<'c> {
     }
 
     /// The owner's issues and comments among these issues (`ownedUnder`).
-    async fn owned_under(&mut self, project: &str, issues: &[String]) -> Result<Vec<String>> {
+    pub(crate) async fn owned_under(&mut self, project: &str, issues: &[String]) -> Result<Vec<String>> {
         let marks = vec!["?"; issues.len()].join(", ");
         let mut out = vec![];
         let query = format!("SELECT id FROM issues WHERE project = ? AND owned = 1 AND id IN ({marks})");
@@ -245,7 +245,7 @@ impl<'c> IssueWrites<'c> {
 
     /// Each issue depending on `id`, which is going with `going`, without it in its activity as a `depends` change
     /// (`dropBlocker`, ORR-601): the dispatch reads that, and hands one out that it freed.
-    async fn drop_blocker(&mut self, project: &str, id: &str, going: &[String]) -> Result<()> {
+    pub(crate) async fn drop_blocker(&mut self, project: &str, id: &str, going: &[String]) -> Result<()> {
         let dependents: Vec<(String, String)> = sqlx::query(&sql("SELECT project, issue FROM issue_links WHERE on_project = ? AND on_issue = ?"))
             .bind(project)
             .bind(id)

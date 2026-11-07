@@ -110,6 +110,9 @@ export const DOMAINS: readonly {domain: string, paths: RegExp, methods?: readonl
     // A board as one file (ORR-1006): read in one transaction, named for the project and the day (`Content-Disposition`).
     // Whether the asker is on the board is checked here first (`needsBoard`), as a write's board is in middleware/board.ts.
     {domain: 'a project, exported', paths: /^projects\/[^/]+\/export$/, methods: ['GET'], first: {GET: onTheBoard}},
+    // A roadmap in `docs/roadmap.json`'s format, imported into a project (ORR-1006): its milestones and issues, given the
+    // project's ids, the file's kept as aliases; `?replace=true` clears what was there first.
+    {domain: 'a project, imported', paths: /^projects\/[^/]+\/import$/, methods: ['POST']},
     // The bell (ORR-1005): agents' comments across projects with the proposals waiting on the owner, the status changes
     // on their issues, and clearing them or marking them read, each person's their own (ORR-658). Clearing tells nothing:
     // the page that did it reads the bell again.

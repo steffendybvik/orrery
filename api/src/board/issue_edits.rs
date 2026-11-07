@@ -1045,7 +1045,7 @@ impl IssueWrites<'_> {
 
 /// The status an issue gets from what was sent (`resolveStatus`): a status's id, a kind (its first status), or the words
 /// from before statuses (`doing`; `todo` with a `plan`, which is Todo, or null for Backlog).
-fn resolve_status(statuses: &[crate::board::issues::Status], status: Option<&str>, plan: Option<Option<&str>>) -> Result<String> {
+pub(crate) fn resolve_status(statuses: &[crate::board::issues::Status], status: Option<&str>, plan: Option<Option<&str>>) -> Result<String> {
     let first = |kind: &str| statuses.iter().find(|s| s.kind == kind).map(|s| s.id.clone()).ok_or_else(|| ApiError::internal(format!("a {kind} status")));
     if let Some(plan) = plan {
         if status.is_none() || status == Some("todo") {
