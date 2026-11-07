@@ -4,9 +4,10 @@
 // is left on it as the owner's comment.
 use crate::changes;
 use crate::choices::{describe_picks, resolve_picks, stored, Picks};
-use crate::comments::{Comments, Handoff};
+use crate::comments::Handoff;
 use crate::db::sql;
 use crate::error::{ApiError, Result};
+use crate::issue_writes::IssueWrites;
 use crate::issues::Issues;
 use crate::write::{js, stamp, Actor};
 use serde_json::{json, Map, Value};
@@ -128,7 +129,7 @@ pub fn owner_only(actor: &Actor) -> Result<()> {
     Err(ApiError::refused_for("proposals.decide", message))
 }
 
-impl Comments<'_> {
+impl IssueWrites<'_> {
     /// One proposal's part of a decision on many (`decideIssues`): an approval needs a recommendation for each choice
     /// that isn't down another's option, so nothing is approved on a guess.
     pub async fn decide_one_of_many(&mut self, project: &str, sent: &str, decision: &Value, actor: &Actor) -> Result<(String, Handoff, bool)> {

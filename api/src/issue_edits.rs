@@ -8,9 +8,9 @@
 // store's: an agent changes only its person's issue, or its own proposal, moves one only under an issue that's its
 // person's too, and hands one on only back to the owner.
 use crate::changes;
-use crate::comments::Comments;
 use crate::db::sql;
 use crate::error::{ApiError, Result};
+use crate::issue_writes::IssueWrites;
 use crate::issues::{github_issue_of, github_repo, link_ref, Issues, GITHUB_OWN};
 use crate::write::{js, stamp, Actor};
 use regex::Regex;
@@ -279,7 +279,7 @@ fn named(value: &Option<String>) -> bool {
 /// What one change to many issues at once sets (`BULK_FIELDS`), with labels added and removed besides.
 pub const BULK: [&str; 6] = ["status", "priority", "assignee", "milestone", "release", "epic"];
 
-impl Comments<'_> {
+impl IssueWrites<'_> {
     /// One issue's part of a change to many at once (`updateIssues`): `set`, and its labels with `add` added and
     /// `remove` taken off, each once, as one edit. Gives back its id when that made it urgent open work, as `edit_words`.
     pub async fn edit_one_of_many(

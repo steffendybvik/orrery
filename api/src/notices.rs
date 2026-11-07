@@ -3,9 +3,10 @@
 // `POST /api/notices/read` do. Agents' comments across projects, with the agents' proposals waiting on the owner ahead of
 // them; what the owner has cleared and read is on the comment (`cleared`, `was_read`), a member's in rows of their own
 // (`notice_clears`, `notice_reads`, ORR-658). Clearing and reading tell nothing: the page that did it reads the bell again.
-use crate::comments::{columns, comment_of, Comments};
+use crate::comments::{columns, comment_of};
 use crate::db::sql;
 use crate::error::{ApiError, Result};
+use crate::issue_writes::IssueWrites;
 use crate::people::Who;
 use crate::write::{stamp, Actor};
 use chrono::{DateTime, Local, NaiveDate, NaiveDateTime, TimeZone, Utc};
@@ -102,7 +103,7 @@ impl<'c> Notices<'c> {
     }
 
     async fn owner_id(&mut self) -> Result<String> {
-        Comments::new(&mut *self.conn).owner_id().await
+        IssueWrites::new(&mut *self.conn).owner_id().await
     }
 
     /// Whether more than one person is here (`shared`).
@@ -113,7 +114,7 @@ impl<'c> Notices<'c> {
 
     /// Whose bell is asked for (`personOf`).
     pub async fn person_of(&mut self, who: Option<&Who>, actor: &Actor) -> Result<Option<String>> {
-        Comments::new(&mut *self.conn).person_asking(who, actor).await
+        IssueWrites::new(&mut *self.conn).person_asking(who, actor).await
     }
 
     /// Whose bell it is, as what filters its comments (`bellOf`, ORR-658).

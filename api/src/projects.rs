@@ -5,10 +5,10 @@
 // Reading boards (`?expand=board`, `GET /api/projects/:project`) stays on the Nuxt server, as their `rev` is the events
 // stream's; deleting projects stays there too. Making one (`createProject`) answers as `POST /api/projects` does.
 use crate::changes::{self, Outbox};
-use crate::comments::Comments;
 use crate::db::sql;
 use crate::docs::Docs;
 use crate::error::{ApiError, Result};
+use crate::issue_writes::IssueWrites;
 use crate::issues::{kinds_json, sum, Board, Issues};
 use crate::migrate::uid_of;
 use crate::people::Who;
@@ -406,9 +406,9 @@ impl<'c> Projects<'c> {
         if let Some(from) = &from {
             self.check_releases_from(&id, from).await?;
         }
-        let holder = match Comments::new(&mut *self.conn).person_asking(who, actor).await? {
+        let holder = match IssueWrites::new(&mut *self.conn).person_asking(who, actor).await? {
             Some(holder) => holder,
-            None => Comments::new(&mut *self.conn).owner_id().await?,
+            None => IssueWrites::new(&mut *self.conn).owner_id().await?,
         };
         changes::begin(self.conn).await?;
         let done: Result<()> = async {

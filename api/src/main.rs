@@ -21,6 +21,7 @@ mod docs;
 mod epics;
 mod error;
 mod issue_edits;
+mod issue_writes;
 mod issues;
 mod migrate;
 mod milestones;
@@ -55,10 +56,11 @@ use axum::routing::{get, patch, post, put};
 use axum::{Json, Router};
 use changes::Outbox;
 use chats::Chats;
-use comments::{comment_id, Comments, Handoff};
+use comments::{comment_id, Handoff};
 use docs::Docs;
 use epics::Epics;
 use error::{ApiError, Result};
+use issue_writes::IssueWrites;
 use issues::Issues;
 use milestones::Milestones;
 use notices::{Asked, Notices};
@@ -377,14 +379,14 @@ async fn get_issue(State(app): Shared, Path((project, issue)): Path<(String, Str
 
 async fn list_comments(State(app): Shared, Path((project, issue)): Path<(String, String)>) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
-    Ok(Json(Comments::new(&mut conn).list(&project, &issue).await?).into_response())
+    Ok(Json(IssueWrites::new(&mut conn).list(&project, &issue).await?).into_response())
 }
 
 /// `POST …/issues/{issue}/comments`: the new comment, and in `Orrery-Carry` and `Orrery-Notice` (`<project> <issue>
 /// <comment>`, each part percent-encoded) what the router passes on to the session on the issue and the owner's bell.
 async fn create_comment(State(app): Shared, Path((project, issue)): Path<(String, String)>, headers: HeaderMap, body: Bytes) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
-    let mut comments = Comments::new(&mut conn);
+    let mut comments = IssueWrites::new(&mut conn);
     comments.outbox = Some(Outbox::new(actor_of(&headers)));
     let (value, handoff) = comments.create(&project, &issue, &body_of(&body), &actor_of(&headers)).await?;
     let effects = std::mem::take(&mut comments.effects);
@@ -431,7 +433,7 @@ async fn patch_comment(
 ) -> Result<Response> {
     let id = comment_id(&comment)?;
     let mut conn = app.pool.acquire().await?;
-    let mut comments = Comments::new(&mut conn);
+    let mut comments = IssueWrites::new(&mut conn);
     comments.outbox = Some(Outbox::new(actor_of(&headers)));
     let (value, handoff) = comments.update(&project, &issue, id, &body_of(&body), &actor_of(&headers)).await?;
     let effects = std::mem::take(&mut comments.effects);
@@ -445,7 +447,7 @@ async fn patch_comment(
 async fn delete_comment(State(app): Shared, Path((project, issue, comment)): Path<(String, String, String)>, headers: HeaderMap) -> Result<Response> {
     let id = comment_id(&comment)?;
     let mut conn = app.pool.acquire().await?;
-    let mut comments = Comments::new(&mut conn);
+    let mut comments = IssueWrites::new(&mut conn);
     comments.outbox = Some(Outbox::new(actor_of(&headers)));
     comments.delete(&project, &issue, id, &actor_of(&headers)).await?;
     let effects = std::mem::take(&mut comments.effects);
@@ -466,7 +468,7 @@ async fn release_issue(State(app): Shared, Path((project, issue)): Path<(String,
 /// `Orrery-Urgent` when it's urgent open work.
 async fn create_issue(State(app): Shared, Path(project): Path<String>, headers: HeaderMap, body: Bytes) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
-    let mut comments = Comments::new(&mut conn);
+    let mut comments = IssueWrites::new(&mut conn);
     comments.outbox = Some(Outbox::new(actor_of(&headers)));
     let (id, urgent) = comments.create_issue(&project, &body_of(&body), &actor_of(&headers)).await?;
     let effects = std::mem::take(&mut comments.effects);
@@ -484,7 +486,7 @@ async fn create_issue(State(app): Shared, Path(project): Path<String>, headers: 
 /// (`updateIssue`), and `Orrery-Urgent` when it made it urgent open work.
 async fn patch_issue(State(app): Shared, Path((project, issue)): Path<(String, String)>, headers: HeaderMap, body: Bytes) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
-    let mut comments = Comments::new(&mut conn);
+    let mut comments = IssueWrites::new(&mut conn);
     comments.outbox = Some(Outbox::new(actor_of(&headers)));
     let urgent = comments.edit_words(&project, &issue, &body_of(&body), &actor_of(&headers)).await?;
     let effects = std::mem::take(&mut comments.effects);
@@ -503,7 +505,7 @@ async fn patch_issue(State(app): Shared, Path((project, issue)): Path<(String, S
 /// approving made it urgent open work.
 async fn decide_issue(State(app): Shared, Path((project, issue)): Path<(String, String)>, headers: HeaderMap, body: Bytes) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
-    let mut comments = Comments::new(&mut conn);
+    let mut comments = IssueWrites::new(&mut conn);
     comments.outbox = Some(Outbox::new(actor_of(&headers)));
     let (id, handoff, urgent) = comments.decide(&project, &issue, &body_of(&body), &actor_of(&headers)).await?;
     let effects = std::mem::take(&mut comments.effects);
@@ -525,7 +527,7 @@ async fn decide_issue(State(app): Shared, Path((project, issue)): Path<(String, 
 /// made urgent in `Orrery-Urgent`, apart by commas.
 async fn decide_issues(State(app): Shared, Path(project): Path<String>, headers: HeaderMap, body: Bytes) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
-    let mut comments = Comments::new(&mut conn);
+    let mut comments = IssueWrites::new(&mut conn);
     comments.project_uid(&project).await?;
     let sent = body_of(&body);
     let mut decision = sent.as_object().cloned().unwrap_or_default();
@@ -590,7 +592,7 @@ async fn decide_issues(State(app): Shared, Path(project): Path<String>, headers:
 /// `DELETE …/issues/{issue}`: 204, its sub-issues and comments gone with it (`deleteIssue`).
 async fn delete_issue(State(app): Shared, Path((project, issue)): Path<(String, String)>, headers: HeaderMap) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
-    let mut comments = Comments::new(&mut conn);
+    let mut comments = IssueWrites::new(&mut conn);
     comments.outbox = Some(Outbox::new(actor_of(&headers)));
     comments.delete_issue(&project, &issue, &actor_of(&headers)).await?;
     Ok(reply(StatusCode::NO_CONTENT, None, std::mem::take(&mut comments.effects)))
@@ -601,7 +603,7 @@ async fn delete_issue(State(app): Shared, Path((project, issue)): Path<(String, 
 /// is ok.
 async fn delete_issues(State(app): Shared, Path(project): Path<String>, headers: HeaderMap, body: Bytes) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
-    let mut comments = Comments::new(&mut conn);
+    let mut comments = IssueWrites::new(&mut conn);
     comments.project_uid(&project).await?;
     let sent = body_of(&body);
     let ids = match sent.get("ids") {
@@ -660,7 +662,7 @@ async fn delete_issues(State(app): Shared, Path(project): Path<String>, headers:
 /// `[{id, ok, error?}]`, an id once however often it's sent. The ones it made urgent come back in `Orrery-Urgent`.
 async fn update_issues(State(app): Shared, Path(project): Path<String>, headers: HeaderMap, body: Bytes) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
-    let mut comments = Comments::new(&mut conn);
+    let mut comments = IssueWrites::new(&mut conn);
     comments.project_uid(&project).await?;
     let sent = body_of(&body);
     // As `Object.keys` reads what's sent as `set`: a string's or a list's are its places.
@@ -737,7 +739,7 @@ async fn update_issues(State(app): Shared, Path(project): Path<String>, headers:
 
 async fn claim_or_release(app: Arc<App>, project: String, issue: String, headers: HeaderMap, claim: bool) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
-    let mut comments = Comments::new(&mut conn);
+    let mut comments = IssueWrites::new(&mut conn);
     comments.outbox = Some(Outbox::new(actor_of(&headers)));
     let actor = actor_of(&headers);
     let id = if claim { comments.claim(&project, &issue, &actor).await? } else { comments.release(&project, &issue, &actor).await? };
@@ -748,13 +750,13 @@ async fn claim_or_release(app: Arc<App>, project: String, issue: String, headers
 
 async fn get_activity(State(app): Shared, Path((project, issue)): Path<(String, String)>) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
-    Ok(Json(Comments::new(&mut conn).activity(&project, &issue).await?).into_response())
+    Ok(Json(IssueWrites::new(&mut conn).activity(&project, &issue).await?).into_response())
 }
 
 async fn get_comment(State(app): Shared, Path((project, issue, comment)): Path<(String, String, String)>) -> Result<Response> {
     let id = comment_id(&comment)?;
     let mut conn = app.pool.acquire().await?;
-    Ok(Json(Comments::new(&mut conn).comment(&project, &issue, id).await?).into_response())
+    Ok(Json(IssueWrites::new(&mut conn).comment(&project, &issue, id).await?).into_response())
 }
 
 async fn list_milestones(State(app): Shared, Path(project): Path<String>) -> Result<Response> {

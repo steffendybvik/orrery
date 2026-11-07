@@ -4,9 +4,10 @@
 // milestone's project changed, or the epics did, for open pages to read them again. Who may change one is an issue
 // comment's rule: the owner's are theirs, a member's theirs and their agents'.
 use crate::changes::{self, Outbox};
-use crate::comments::{Comments, Whose};
+use crate::comments::Whose;
 use crate::db::sql;
 use crate::error::{ApiError, Result};
+use crate::issue_writes::IssueWrites;
 use crate::milestones::Milestones;
 use crate::write::{js, stamp, Actor, Effects};
 use serde_json::{json, Map, Value};
@@ -193,7 +194,7 @@ impl<'c> Threads<'c> {
         if whose.owned && !actor.owner {
             return Err(ApiError::refused_for(thread.row(), format!("{action} is the owner's call: comment {id} was made by the owner")));
         }
-        Comments::new(&mut *self.conn).leave_their_words(&whose, actor, action).await
+        IssueWrites::new(&mut *self.conn).leave_their_words(&whose, actor, action).await
     }
 
     async fn finish<T>(&mut self, done: Result<T>) -> Result<T> {
@@ -203,7 +204,7 @@ impl<'c> Threads<'c> {
     /// A new comment (`addTo`): its id.
     pub async fn add(&mut self, thread: &Thread, body: &Value, actor: &Actor) -> Result<i64> {
         let text = check_input(body, false)?.unwrap_or_default();
-        let (person, by_agent) = Comments::new(&mut *self.conn).voice_of(actor).await?;
+        let (person, by_agent) = IssueWrites::new(&mut *self.conn).voice_of(actor).await?;
         let now = stamp();
         let (on, marks) = match thread {
             Thread::Milestone { .. } => ("project, milestone", "?, ?"),
