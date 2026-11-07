@@ -34,6 +34,8 @@ pub struct Who {
 pub struct Ways {
     pub provider: bool,
     pub off: bool,
+    /// ORRERY_AUTH=on: a login asked for even on loopback.
+    pub on: bool,
 }
 
 /// What agents and orrery send or stand for (`RESERVED`): as a person's id, each would make them all that person.
@@ -177,6 +179,34 @@ pub struct People<'c> {
 impl<'c> People<'c> {
     pub fn new(conn: &'c mut AnyConnection) -> Self {
         People { conn, effects: Effects::default(), outbox: None }
+    }
+
+    /// Whether the owner has a person key to log in with (`ownerHasKey`).
+    pub async fn owner_has_key(&mut self) -> Result<bool> {
+        let row =
+            sqlx::query("SELECT 1 AS one FROM keys k JOIN people p ON p.id = k.person WHERE p.role = 'owner' AND k.kind = 'person' AND k.revoked_at IS NULL")
+                .fetch_optional(&mut *self.conn)
+                .await?;
+        Ok(row.is_some())
+    }
+
+    /// Whether auth stays on (`authStaysOn`): once a second person is here, it does for good, even after they go.
+    pub async fn auth_stays_on(&mut self) -> Result<bool> {
+        if sqlx::query("SELECT 1 AS one FROM settings WHERE key = 'auth_on'").fetch_optional(&mut *self.conn).await?.is_some() {
+            return Ok(true);
+        }
+        let row = sqlx::query("SELECT count(*) AS n FROM people WHERE removed_at IS NULL").fetch_one(&mut *self.conn).await?;
+        if row.get::<i64, _>("n") < 2 {
+            return Ok(false);
+        }
+        sqlx::query("INSERT INTO settings (key, value) VALUES ('auth_on', 'true') ON CONFLICT (key) DO NOTHING").execute(&mut *self.conn).await?;
+        Ok(true)
+    }
+
+    /// The owner's id, if they've given their name (`ownerOf`).
+    pub async fn named_owner(&mut self) -> Result<Option<String>> {
+        let row = sqlx::query("SELECT id FROM people WHERE role = 'owner'").fetch_optional(&mut *self.conn).await?;
+        Ok(row.map(|r| r.get::<String, _>("id")))
     }
 
     /// Everyone, the owner first, then in the order they were added; those removed stay listed, with `removed_at`.
