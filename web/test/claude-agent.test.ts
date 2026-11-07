@@ -1,3 +1,6 @@
+import {mkdtempSync, writeFileSync} from 'node:fs'
+import {tmpdir} from 'node:os'
+import {join} from 'node:path'
 import {describe, expect, it, vi} from 'vitest'
 // @ts-expect-error: the launcher is plain JavaScript, run by node on the host
 import {agentFor} from '../../channel/agents.mjs'
@@ -44,6 +47,16 @@ describe('the Claude adapter', () => {
 
     it('claims what orrery offers only to a launcher that does it', () => {
         expect(claude.claims).toBe('untrusted=no-bash&chat=yes&model=yes&resume=yes')
+    })
+
+    it("measures context off the hook's transcript, against its model's window, and says nothing when it can't tell", () => {
+        const dir = mkdtempSync(join(tmpdir(), 'orrery-claude-agent-'))
+        const transcript = join(dir, 'session.jsonl')
+        writeFileSync(transcript, `${JSON.stringify({type: 'assistant', message: {model: 'claude-sonnet-4-6', usage: {input_tokens: 10, cache_read_input_tokens: 40_000, cache_creation_input_tokens: 990}}})}\n`)
+        expect(claude.context({hook_event_name: 'Stop', transcript_path: transcript})).toEqual({tokens: 41_000, window: 200_000})
+        expect(claude.context({hook_event_name: 'UserPromptSubmit', transcript_path: transcript})).toBeUndefined()
+        expect(claude.context({hook_event_name: 'Stop', transcript_path: join(dir, 'none.jsonl')})).toBeUndefined()
+        expect(claude.window('claude-opus-5-5', 10)).toBe(1_000_000)
     })
 
     it('presses Enter or Escape only on a prompt on "Yes"', () => {

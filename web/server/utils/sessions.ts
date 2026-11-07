@@ -7,7 +7,8 @@
 // listens (and can be stopped) through its own project's channel only.
 import {randomInt} from 'node:crypto'
 import type {CarriedOver, Effort, IssueScope, Session, SessionState, SessionTool, StartedSession} from '#shared/roadmap'
-import {CARRY_FROM, SESSION_NAMES, contextWindow, madeUpName, sameScope} from '#shared/roadmap'
+import {CARRY_FROM, SESSION_NAMES, madeUpName, sameScope} from '#shared/roadmap'
+import {agentFor} from '#channel/agents.mjs'
 
 interface Known extends Session {
     pid?: number
@@ -101,6 +102,8 @@ export interface Report {
     effort?: Effort
     /** The tokens its context holds, when its hook could tell (ORR-968). */
     context?: number
+    /** And its model's window, when its agent's adapter said (ORR-1074). */
+    window?: number
 }
 
 /** What a hook says of a session's context (ORR-968): the tokens it holds, against its model's window. A compaction
@@ -113,7 +116,9 @@ function noteContext(session: Known, input: Report) {
     }
     if (input.context === undefined) return
     const compacted = session.context?.compacted
-    session.context = {tokens: input.context, window: contextWindow(session.model, input.context), ...compacted ? {compacted} : {}}
+    // A hook from before the adapter said the window sends tokens alone: Claude Code's, as it can only be.
+    const window = input.window ?? agentFor('claude').window(session.model, input.context)
+    session.context = {tokens: input.context, window, ...compacted ? {compacted} : {}}
 }
 
 /** A session started an issue (ORR-968). One out of the scope of the issue it started before, since its last clear,
