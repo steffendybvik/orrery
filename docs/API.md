@@ -434,7 +434,10 @@ is `pr.conflicting`, `pr.behind`, `pr.merged`, `pr.closed` (closed without mergi
 `pr.changes_requested`, each once per change, with orrery commenting on the issue as it happens (by `orrery`, which
 reaches the session on the issue), and `pr.ready` (it can merge again) and `pr.approved`, which it only records. A merge
 of one rated high risk (`PUT …/risk`), or one that changed a migration, auth, a permission, secrets or egress whatever it
-was rated, is `pr.risky_merged` too, and orrery asks the owner on the issue to review it. Its
+was rated, is `pr.risky_merged` too, and orrery asks the owner on the issue to review it. A merge of the issue's own PR
+(its branch names the issue, or it names no other) also moves the issue to Done, as `orrery` (`issue.status`), when
+nothing else is open on it: no other PR, no open sub-issue, and not a proposal. The asks left open on it leave the
+owner's bell, and orrery's note says so; the review ask comes after, on the Done issue. Its
 comments are in its own words: where to read failed checks (`gh pr checks`, `gh run view --log-failed`) and who asked
 for changes and where, never a check's output or someone else's review, as a session reads them as the owner's; a
 review by the owner's own GitHub handle (`handle`) is quoted. After a PR's checks fail a fourth time, it doesn't tell
