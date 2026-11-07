@@ -115,7 +115,14 @@ jobs:
         working-directory: api
       - run: cargo clippy --locked -- -D warnings
         working-directory: api
-      - run: cargo test --locked
+      # Its own tests, with their coverage (ORR-1053): the floor is what `cargo test` alone covers of the code itself, the
+      # test files left out and without the parity tests below, and it only goes up (92.75% on 7 Nov 2026). Raise it as
+      # tests are added: the same command in api/ says where it stands.
+      - run: rustup component add llvm-tools-preview
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-llvm-cov
+      - run: cargo llvm-cov --locked --summary-only --ignore-filename-regex '(testing|_tests)\.rs$' --fail-under-lines 92
         working-directory: api
       - run: cargo build --locked
         working-directory: api

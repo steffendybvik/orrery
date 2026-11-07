@@ -1,15 +1,33 @@
-# The Rust API swap, tried on the playground only (ORR-1029): on top of docker-compose.dev.yml, the dev image with the
-# Rust API's binary in it (the Dockerfile's dev-api), which the Nuxt server starts beside itself on the same SQLite file
-# and routes its domains to (web/server/utils/api-router.ts). `.playground/play` builds it each start, so a change in
-# api/ is in it. NUXT_API_ONLY turns the swap's flag on (ORR-1034): the routed domains are the API's alone, so with it
-# down a request fails (503, said in the log) instead of falling through to Nuxt's routes. Never on the Orrerys you use
-# until the owner says it has proven stable (rust-api-swap doc).
+# The Rust API swap, tried on the playground only (ORR-1029, ORR-1051): on top of docker-compose.dev.yml, the Rust API
+# in a container of its own (the Dockerfile's rust-api), on the same SQLite file in /data. The Nuxt server routes its
+# domains to it (web/server/utils/api-router.ts) and follows its outbox, with the swap's flag on (NUXT_API_ONLY,
+# ORR-1034): those domains are the API's alone, so with it down a request fails (503, said in the log) instead of
+# falling through to Nuxt's routes. Never on the Orrerys you use until the owner says it has proven stable
+# (rust-api-swap doc).
 #
-# The board check isn't the Rust API's yet (ORR-928), so this stays this machine's only: docker-compose.dev.yml's one
-# port on 127.0.0.1, and no phone port.
+# Don't add it by hand: ORRERY_RUST_API=1 in .playground/compose.env is the one switch, and .playground/play adds this
+# file and makes the token both containers share (ORRERY_API_TOKEN, kept in .playground/data/api-token).
+#
+# The board check isn't the Rust API's yet (ORR-928), so this stays this machine's only: the API publishes no port,
+# and docker-compose.dev.yml keeps the Nuxt server's one port on 127.0.0.1, with no phone port.
 
 services:
   orrery:
-    build: {context: ., target: dev-api}
     environment:
+      NUXT_API_URL: http://api:9100
+      NUXT_API_TOKEN: ${ORRERY_API_TOKEN:-}
       NUXT_API_ONLY: "1"
+    depends_on:
+      api: {condition: service_started}
+
+  api:
+    build: {context: ., target: rust-api}
+    environment:
+      NUXT_API_TOKEN: ${ORRERY_API_TOKEN:-}
+      NUXT_DATABASE: ${ORRERY_DATABASE:-/data/orrery.db}
+    volumes:
+      - ${ORRERY_DATA:-orrery-data}:/data
+    init: true
+    # Its graceful shutdown listens for Ctrl-C.
+    stop_signal: SIGINT
+    restart: unless-stopped

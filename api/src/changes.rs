@@ -5,8 +5,8 @@
 // woken by `wake()` once a write has committed, and rows older than a week are pruned. Nothing reads them yet: the
 // reply headers still carry what changed.
 use crate::db::sql;
-use crate::docs::{stamp, Actor, Effects, Told};
 use crate::error::{ApiError, Result};
+use crate::write::{stamp, Actor, Effects, Told};
 use axum::response::sse::Event;
 use futures_util::stream::{self, Stream};
 use serde_json::{json, Value};

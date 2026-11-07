@@ -4,11 +4,19 @@
 #   .playground/play reset  throw the database away and start over with a fresh demo
 #   .playground/play seed   seed it again (only when it has no projects)
 #   .playground/play down   stop it, keeping the database
-#   .playground/play logs   follow the server
+#   .playground/play logs   follow the server (logs api: the Rust API)
 set -euo pipefail
 cd "$(dirname "$0")/.."
 set -a; . .playground/compose.env; set +a
 url="http://localhost:${ORRERY_PORT}"
+# The Rust API swap's switch (ORR-1051): its container, and the token it and the Nuxt server share, made once per
+# database and thrown away with it on reset.
+if [ "${ORRERY_RUST_API:-0}" = 1 ]; then
+    export COMPOSE_FILE="$COMPOSE_FILE:docker-compose.api.yml"
+    token=.playground/data/api-token
+    if [ ! -s "$token" ]; then mkdir -p .playground/data; openssl rand -hex 24 > "$token"; fi
+    ORRERY_API_TOKEN="$(cat "$token")"; export ORRERY_API_TOKEN
+fi
 compose() { docker compose --env-file .playground/compose.env "$@"; }
 
 ready() {
@@ -21,10 +29,10 @@ ready() {
 }
 
 case "${1:-up}" in
-    up) compose up -d --build; ready; node .playground/seed.mjs "$url" ;;
+    up) compose up -d --build --remove-orphans; ready; node .playground/seed.mjs "$url" ;;
     seed) node .playground/seed.mjs "$url" ;;
-    reset) compose down; docker volume rm -f "${COMPOSE_PROJECT_NAME}_orrery-pg" >/dev/null; rm -rf .playground/data .playground/backup; compose up -d --build; ready; node .playground/seed.mjs "$url" ;;
+    reset) compose down; docker volume rm -f "${COMPOSE_PROJECT_NAME}_orrery-pg" >/dev/null; rm -rf .playground/data .playground/backup; exec "$0" up ;;  # again, for a new token
     down) compose down ;;
-    logs) compose logs -f orrery ;;
+    logs) compose logs -f "${2:-orrery}" ;;
     *) sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
 esac

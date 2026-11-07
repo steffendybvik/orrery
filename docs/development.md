@@ -46,11 +46,13 @@ in `.playground/compose.env` add a service of the playground's own (its data in 
 It's this machine's only. The container has its own `node_modules` and `.nuxt` (volumes), and installs
 packages as it starts.
 
-The playground runs the Rust API beside `nuxt dev`, with the router on (ORR-1029): `docker-compose.api.yml` in
-`compose.env`'s `COMPOSE_FILE` picks the Dockerfile's `dev-api` image, which sets `NUXT_API_BIN`, so the domains in
-`DOMAINS` (`web/server/utils/api-router.ts`) go to the API on the same SQLite file, and the server follows its outbox.
-It also turns the swap's flag on (`NUXT_API_ONLY`, ORR-1034), so those domains are the API's alone. `play` builds the image each start, so a change in `api/` is in it. Take that file off `COMPOSE_FILE` for the Nuxt
-server alone. The Orrerys you use don't run it until the owner says it has proven stable ([Rust API swap](/p/orrery/docs/rust-api-swap)).
+The playground runs on the Rust API, switched by one flag, `ORRERY_RUST_API=1` in `.playground/compose.env`
+(ORR-1051). On, `play` adds `docker-compose.api.yml`: the Rust API in a container of its own (the Dockerfile's
+`rust-api` image), on the same SQLite file. The Nuxt server routes the domains in `DOMAINS`
+(`web/server/utils/api-router.ts`) to it at `NUXT_API_URL`, follows its outbox, and has the swap's flag on
+(`NUXT_API_ONLY`, ORR-1034), so those domains are the API's alone. `play` builds the images each start, so a change in
+`api/` is in it. `0` is the Nuxt server alone. The Orrerys you use don't run it until the owner says it has proven
+stable ([Rust API swap](/p/orrery/docs/rust-api-swap)).
 
 Without Docker: `pnpm install`, then `pnpm dev` on http://localhost:9000 (Node 24.22.1, pnpm 10.14.0).
 

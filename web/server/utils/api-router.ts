@@ -127,7 +127,7 @@ export const DOMAINS: readonly {domain: string, paths: RegExp, methods?: readonl
  * `'here'` keeps it for the routes here, for what the API doesn't do yet. */
 type LocalCheck = (event: H3Event, rest: string) => Promise<unknown>
 
-/** The fields of an issue's edit the API changes (`api/src/issue_edits.rs`, `WORDS`). */
+/** The fields of an issue's edit the API changes (`api/src/board/issue_edits.rs`, `WORDS`). */
 export const ISSUE_WORDS: readonly string[] = ['title', 'status', 'plan', 'priority', 'assignee', 'labels', 'external', 'github_issues', 'notes', 'proposal', 'choices', 'parent', 'milestone', 'release', 'epic', 'depends_on', 'model', 'effort', 'position']
 
 /** Whether an issue's edit names only its own words, so the API can make it: a body that isn't an object, or is
