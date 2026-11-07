@@ -366,8 +366,6 @@ export const SETTINGS_FIELDS: Record<string, Field> = {
     restrict_proposals: {type: 'boolean'},
     /** Shows the Events page and error notices in the bell, and records what orrery did as well as its errors. */
     advanced: {type: 'boolean'},
-    /** A listening session out of work is handed the issues it may start, to pick one (ORR-452); false, it waits. */
-    pick_next: {type: 'boolean'},
     /** The kinds of work and the model each starts a session on (ORR-868), highest-ranked first; null is orrery's own. */
     work_kinds: {type: 'json', nullable: true, parse: parseWorkKinds},
     /** Counts the owner's own use of orrery's features, for App settings' Usage (ORR-881); off by default. */

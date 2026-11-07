@@ -1664,7 +1664,7 @@ components:
         effort: {type: string, enum: [low, medium, high, xhigh, max]}
     Settings:
       type: object
-      required: [id, tint, statuses, focus_prompt, milestone_prompt, instructions, handle, uid, tracker, starts, terminal, restrict_proposals, advanced, pick_next, count_use, work_kinds, starred, hidden]
+      required: [id, tint, statuses, focus_prompt, milestone_prompt, instructions, handle, uid, tracker, starts, terminal, restrict_proposals, advanced, count_use, work_kinds, starred, hidden]
       properties:
         id: {type: string, description: 'This orrery''s id, `orr_` and six hex digits'}
         tint: {type: [string, 'null']}
@@ -1679,7 +1679,6 @@ components:
         terminal: {type: string, enum: [terminal, iterm, warp, ghostty]}
         restrict_proposals: {type: boolean}
         advanced: {type: boolean}
-        pick_next: {type: boolean}
         count_use: {type: boolean}
         work_kinds: {type: array, items: {$ref: '#/components/schemas/WorkKind'}}
         starred: {type: array, items: {type: string}, description: Project ids listed first; none that are hidden}
@@ -1699,7 +1698,6 @@ components:
         terminal: {type: [string, 'null'], enum: [terminal, iterm, warp, ghostty, null]}
         restrict_proposals: {type: boolean}
         advanced: {type: boolean}
-        pick_next: {type: boolean}
         work_kinds: {type: [array, 'null'], minItems: 1, items: {$ref: '#/components/schemas/WorkKind'}}
         count_use: {type: boolean}
         starred: {type: [array, 'null'], items: {type: string, minLength: 1}}
