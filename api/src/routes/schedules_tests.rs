@@ -19,9 +19,15 @@ async fn schedule(api: &TestApi, project: &str, title: &str, next_run: Option<&s
         columns.push("cron");
         values.push("'0 9 * * 1'".into());
     }
+    // One given again (`created_by`, say) takes the default's place: Postgres refuses a column named twice.
     for (column, value) in more {
-        columns.push(column);
-        values.push(value.to_string());
+        match columns.iter().position(|c| c == column) {
+            Some(at) => values[at] = value.to_string(),
+            None => {
+                columns.push(column);
+                values.push(value.to_string());
+            }
+        }
     }
     let query = format!("INSERT INTO schedules ({}) VALUES ({}) RETURNING id", columns.join(", "), values.join(", "));
     sqlx::query_scalar::<_, i64>(&query).fetch_one(&api.app.pool).await.unwrap()
