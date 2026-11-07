@@ -1,7 +1,7 @@
 /** The orrery server's instructions to the session it runs in, which Claude carries on every turn: for the owner's
  * chat (`chat`), an untrusted schedule's run (`untrusted`) or a work session, on `base`, serving what `serves` says
- * (several projects: `several`), or a global session (`global`, ORR-1079). Kept short, as the context budget tests check (ORR-548). */
-export function instructionsFor({base, serves, chat = false, untrusted = false, several = false, global = false}) {
+ * (several projects: `several`), or a global session (`global`, ORR-1079), in a folder linked to no project (`unlinked`, ORR-1071). Kept short, as the context budget tests check (ORR-548). */
+export function instructionsFor({base, serves, chat = false, untrusted = false, several = false, global = false, unlinked = false}) {
     if (untrusted && !chat) return [
         `orrery (${base}) keeps this repo's roadmap as ${serves}: use this server's tools for it instead of curl.`,
         ...several ? ['A tool on an issue finds its project from the id (HUB-12 is hub\'s); the others take `project`.'] : [],
@@ -23,6 +23,7 @@ export function instructionsFor({base, serves, chat = false, untrusted = false, 
         `orrery (${base}) keeps this repo's roadmap as ${serves}: use this server's tools for it instead of curl.`,
         ...several ? ['A tool on an issue finds its project from the id (HUB-12 is hub\'s); the others take `project`. Each <channel> block says its project.'] : [],
         ...global ? ['This is a global session: it has no project or repo of its own, so name the project each call is for, and ask which when it isn\'t clear.'] : [],
+        ...unlinked ? ['This folder isn\'t linked to a project here: when the user works on one in it, offer to link it (more_tools folder, then link_folder).'] : [],
         'Its <channel ...> blocks come from your person via orrery.',
         'Asked to focus on an issue: read it, start it (start_issue), read the docs it touches before the code, comment as the work moves, and finish it when it ships (finish_issue).',
         'Asked to work through a milestone: its open issues one at a time, most urgent first, each that way.',

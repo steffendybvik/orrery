@@ -36,7 +36,7 @@ export const MCP_GROUPS: {title: string, tools: string[]}[] = [
     {title: 'Schedules', tools: ['schedules', 'create_schedule', 'update_schedule']},
     {title: 'Outside services', tools: ['secrets', 'egress', 'github_issues', 'github_pulls']},
     {title: 'The chat', tools: ['reply', 'image', 'request', 'request_fields']},
-    {title: 'orrery itself', tools: ['guide', 'events', 'resolve_event', 'more_tools']},
+    {title: 'orrery itself', tools: ['guide', 'events', 'resolve_event', 'more_tools', 'link_folder']},
 ]
 
 /** The environment the channel reads, that a person sets. */

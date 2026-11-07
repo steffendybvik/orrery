@@ -58,7 +58,7 @@ describe("the channel's tools", () => {
     })
 
     it('each have a name, a description and an object schema', () => {
-        expect(TOOLS.map((t: {name: string}) => t.name)).toEqual(['issues', 'issue', 'create_issue', 'update_issue', 'start_issue', 'next', 'finish_issue', 'rate_pull', 'comment', 'milestones', 'releases', 'epics', 'create_epic', 'update_epic', 'comment_epic', 'docs', 'doc', 'write_doc', 'presets', 'preset', 'schedules', 'sessions', 'secrets', 'egress', 'events', 'guide', 'resolve_event'])
+        expect(TOOLS.map((t: {name: string}) => t.name)).toEqual(['issues', 'issue', 'create_issue', 'update_issue', 'start_issue', 'next', 'finish_issue', 'rate_pull', 'comment', 'milestones', 'releases', 'epics', 'create_epic', 'update_epic', 'comment_epic', 'docs', 'doc', 'write_doc', 'presets', 'preset', 'schedules', 'sessions', 'link_folder', 'secrets', 'egress', 'events', 'guide', 'resolve_event'])
         for (const tool of TOOLS) expect(tool).toMatchObject({description: expect.any(String), inputSchema: {type: 'object'}})
     })
 
@@ -771,11 +771,46 @@ describe('one channel serving several projects', () => {
         expect(docs.inputSchema.required).toEqual(['project'])
         expect(docs.inputSchema.properties.project!.enum).toEqual(['greenhouse', 'pantry'])
         expect(tools.find(t => t.name === 'issue')!.inputSchema.properties).not.toHaveProperty('project')
-        expect(toolsFor(['greenhouse'], {loaded: ['schedules', 'secrets', 'debug', 'review', 'epics']})).toEqual([...TOOLS.filter((t: {name: string}) => !CHAT_READS.includes(t.name)), ...ASK_TOOLS])
+        expect(toolsFor(['greenhouse'], {loaded: ['schedules', 'secrets', 'debug', 'review', 'epics', 'folder']})).toEqual([...TOOLS.filter((t: {name: string}) => !CHAT_READS.includes(t.name)), ...ASK_TOOLS])
     })
 })
 
 // A work session's rarer tools wait behind more_tools (ORR-625); an untrusted run goes without what orrery refuses it.
+describe("linking a session's folder (ORR-1071)", () => {
+    const answer = async (tools: (name: string, args?: object) => Promise<{isError?: boolean, content: {text: string}[]}>, name: string, args?: object) => {
+        const result = await tools(name, args)
+        return {error: !!result.isError, text: result.content[0]!.text}
+    }
+    const fetch = async () => ({ok: true, status: 200, statusText: '', text: async () => '[]'})
+
+    it('links the folder to the project named, through the channel on the machine, and passes move on', async () => {
+        const linked: [string, {move: boolean}][] = []
+        const link = (project: string, how: {move: boolean}) => {
+            linked.push([project, how])
+            return `Linked /code/pantry to ${project}.`
+        }
+        const tools = orreryTools({root: 'http://o/api', projects: ['greenhouse', 'pantry'], session: 'abc', fetch, link}) as never
+        expect(await answer(tools, 'link_folder', {project: 'pantry'})).toEqual({error: false, text: 'Linked /code/pantry to pantry.'})
+        await answer(tools, 'link_folder', {project: 'greenhouse', move: true})
+        expect(linked).toEqual([['pantry', {move: false}], ['greenhouse', {move: true}]])
+        // A project it doesn't serve is refused before anything is written.
+        expect((await answer(tools, 'link_folder', {project: 'garden'})).text).toBe('orrery said no: This server serves greenhouse, pantry, not garden')
+        expect(linked).toHaveLength(2)
+    })
+
+    it("isn't the chat's or an untrusted run's, and says so where the channel can't link", async () => {
+        const link = () => 'linked'
+        for (const kind of [{chat: 'c1c2c3c4c5c6'}, {untrusted: true}]) {
+            const tools = orreryTools({api: 'http://o/api/projects/greenhouse', session: 'abc', fetch, link, ...kind}) as never
+            expect(await answer(tools, 'link_folder')).toEqual({error: true, text: 'No tool "link_folder"'})
+        }
+        const tools = orreryTools({api: 'http://o/api/projects/greenhouse', session: 'abc', fetch}) as never
+        expect((await answer(tools, 'link_folder')).text).toContain("this session can't link its folder")
+        expect(toolsFor(['greenhouse'], {chat: true}).map((t: {name: string}) => t.name)).not.toContain('link_folder')
+        expect(toolsFor(['greenhouse'], {untrusted: true}).map((t: {name: string}) => t.name)).not.toContain('link_folder')
+    })
+})
+
 describe('tools loaded on demand', () => {
     const tools = (options: object = {}) => (toolsFor(['greenhouse'], options) as {name: string}[]).map(t => t.name)
 
@@ -791,7 +826,7 @@ describe('tools loaded on demand', () => {
         expect(await call('more_tools', {group: 'everything'})).toMatchObject({isError: true})
         // Not listed yet, it still answers when called by its name.
         expect(await call('secrets')).not.toMatchObject({isError: true})
-        expect(tools({loaded: ['schedules', 'secrets', 'debug', 'review', 'epics']})).not.toContain('more_tools')
+        expect(tools({loaded: ['schedules', 'secrets', 'debug', 'review', 'epics', 'folder']})).not.toContain('more_tools')
     })
 
     it("isn't the chat's or an untrusted run's, and an untrusted run can't call what it isn't given", async () => {

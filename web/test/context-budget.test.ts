@@ -47,10 +47,11 @@ describe('the tool list a session carries on every turn', () => {
         // issue's GitHub issues (ORR-635) added about 140 to each, a doc's past (ORR-675) about 130, writing an artifact (ORR-677) about 95, and
         // the guide's section (ORR-848) about 65, which saves a session most of the 39,000 the guide sent whole. An issue's
         // epic (ORR-895) about 155, its tools waiting behind more_tools, and about 80 on an untrusted run, which has none of them.
-        // Asking for its next issue (`next`, ORR-521) about 140, on a work session only.
-        expect(size(tools(['greenhouse']))).toBeLessThanOrEqual(6_770)
-        expect(size(tools(['greenhouse', 'pantry']))).toBeLessThanOrEqual(7_655)
-        expect(size(tools(['greenhouse'], {loaded: ['schedules', 'secrets', 'debug']}))).toBeLessThanOrEqual(9_400)
+        // Asking for its next issue (`next`, ORR-521) about 140, on a work session only. Linking its folder (ORR-1071) about
+        // 60, its tool waiting behind more_tools.
+        expect(size(tools(['greenhouse']))).toBeLessThanOrEqual(6_830)
+        expect(size(tools(['greenhouse', 'pantry']))).toBeLessThanOrEqual(7_715)
+        expect(size(tools(['greenhouse'], {loaded: ['schedules', 'secrets', 'debug']}))).toBeLessThanOrEqual(9_460)
         expect(size(tools(['greenhouse'], {untrusted: true}))).toBeLessThanOrEqual(4_860)
         // The chat's fell from about 20,100 when its requests went behind request (ORR-624), reading GitHub (ORR-748) added about 1,500, and its own docs, egress and event log (ORR-750) about 1,900,
         // reading the epics (ORR-895) about 290, writing epics and milestones itself instead of asking (ORR-988) about 1,700,
@@ -90,6 +91,11 @@ describe("the server's instructions a session carries on every turn", () => {
     it('tell several projects apart only when there are several', () => {
         expect(instructionsFor({base, serves: 'project "greenhouse"'})).not.toContain('HUB-12')
         expect(instructionsFor({base, serves: 'projects "greenhouse", "pantry"', several: true})).toContain('HUB-12')
+    })
+
+    it('offer to link a folder linked to no project (ORR-1071), in a line', () => {
+        expect(instructionsFor({base, serves: 'every project on it', several: true, unlinked: true})).toContain('link_folder')
+        expect(instructionsFor({base, serves: 'every project on it', several: true})).not.toContain('link_folder')
     })
 
     it('tell a global session it has no project of its own (ORR-1079), in a line', () => {

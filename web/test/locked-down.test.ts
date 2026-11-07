@@ -26,7 +26,7 @@ describe("an untrusted schedule's session", () => {
         expect(JSON.parse(args[args.indexOf('--settings') + 1]!)).toEqual({hooks})
         const allowed = args.slice(args.indexOf('--allowedTools') + 1, args.indexOf('--disallowedTools'))
         expect(allowed).toEqual(['mcp__orrery-shop'])
-        expect(args.slice(args.indexOf('--disallowedTools') + 1)).toEqual(['epics', 'create_epic', 'update_epic', 'comment_epic', 'update_issue', 'start_issue', 'next', 'finish_issue', 'rate_pull', 'write_doc', 'secrets', 'egress', 'events', 'resolve_event', 'more_tools'].map(t => `mcp__orrery-shop__${t}`))
+        expect(args.slice(args.indexOf('--disallowedTools') + 1)).toEqual(['link_folder', 'epics', 'create_epic', 'update_epic', 'comment_epic', 'update_issue', 'start_issue', 'next', 'finish_issue', 'rate_pull', 'write_doc', 'secrets', 'egress', 'events', 'resolve_event', 'more_tools'].map(t => `mcp__orrery-shop__${t}`))
     })
 
     it('starts with no hooks and no servers in a repo that has none', () => {
