@@ -3,10 +3,10 @@
 use super::P;
 use crate::changes::Outbox;
 use crate::error::Result;
-use crate::pull_poll::PullPoll;
-use crate::pulls::{check_rating, pull_number, Pulls};
 use crate::reply::reply;
 use crate::request::{actor_of, body_of, owner_asking};
+use crate::work::pull_poll::PullPoll;
+use crate::work::pulls::{check_rating, pull_number, Pulls};
 use crate::{App, Shared};
 use axum::body::Bytes;
 use axum::extract::{Path, State};

@@ -4,10 +4,10 @@
 // comment do. A new or edited comment reaches the session on its issue and the owner's bell from the Nuxt server, which
 // knows the sessions: the reply says which (`Handoff`), and the router passes it on. They're writes on an issue, so
 // they're methods of `IssueWrites` (issue_writes.rs), with the rails they share.
+use crate::board::issue_writes::IssueWrites;
 use crate::changes;
 use crate::db::sql;
 use crate::error::{ApiError, Result};
-use crate::issue_writes::IssueWrites;
 use crate::write::{js, stamp, Actor};
 use serde_json::{json, Map, Value};
 use sqlx::any::AnyRow;

@@ -5,10 +5,10 @@
 // is Nuxt's `GET /api/machine`. A change tells the settings stream (`Effects.settings`), every project when `starts`
 // changed (each says whether orrery starts its sessions), and the keys changed (`Effects.settings_keys`), which the
 // router notes in the event log as the Nuxt route did.
+use crate::board::statuses::{Statuses, TINT, TINTS};
 use crate::changes::{self, Outbox};
 use crate::db::sql;
 use crate::error::{ApiError, Result};
-use crate::statuses::{Statuses, TINT, TINTS};
 use crate::text::is_slug;
 use crate::write::{js, Actor, Effects};
 use regex::Regex;

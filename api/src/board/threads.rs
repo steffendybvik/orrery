@@ -3,12 +3,12 @@
 // tables (`milestone_comments`, `epic_comments`, ORR-977). They ask nothing and wake no session: a write says the
 // milestone's project changed, or the epics did, for open pages to read them again. Who may change one is an issue
 // comment's rule: the owner's are theirs, a member's theirs and their agents'.
+use crate::board::comments::Whose;
+use crate::board::issue_writes::IssueWrites;
+use crate::board::milestones::Milestones;
 use crate::changes::{self, Outbox};
-use crate::comments::Whose;
 use crate::db::sql;
 use crate::error::{ApiError, Result};
-use crate::issue_writes::IssueWrites;
-use crate::milestones::Milestones;
 use crate::write::{js, stamp, Actor, Effects};
 use serde_json::{json, Map, Value};
 use sqlx::any::AnyRow;

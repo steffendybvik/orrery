@@ -1,6 +1,6 @@
 // Epics: the handlers and the routes they answer (ORR-1048).
+use crate::board::epics::Epics;
 use crate::changes::Outbox;
-use crate::epics::Epics;
 use crate::error::Result;
 use crate::reply::reply;
 use crate::request::{actor_of, body_of};

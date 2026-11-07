@@ -1,12 +1,12 @@
 // Comments on a milestone or an epic: the handlers and the routes they answer (ORR-1048).
 use super::P;
+use crate::board::comments::comment_id;
+use crate::board::epics::Epics;
+use crate::board::threads::{Thread, Threads};
 use crate::changes::Outbox;
-use crate::comments::comment_id;
-use crate::epics::Epics;
 use crate::error::Result;
 use crate::reply::reply;
 use crate::request::{actor_of, body_of};
-use crate::threads::{Thread, Threads};
 use crate::{App, Shared};
 use axum::body::Bytes;
 use axum::extract::{Path, State};

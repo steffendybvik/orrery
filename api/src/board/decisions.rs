@@ -2,13 +2,13 @@
 // while it's in the backlog; asking for changes can name an option to go further down; a rejection is said to the
 // session on it but starts no work (`Handoff::quiet`). Either way it goes back to whoever proposed it, and the decision
 // is left on it as the owner's comment.
+use crate::board::choices::{describe_picks, resolve_picks, stored, Picks};
+use crate::board::comments::Handoff;
+use crate::board::issue_writes::IssueWrites;
+use crate::board::issues::Issues;
 use crate::changes;
-use crate::choices::{describe_picks, resolve_picks, stored, Picks};
-use crate::comments::Handoff;
 use crate::db::sql;
 use crate::error::{ApiError, Result};
-use crate::issue_writes::IssueWrites;
-use crate::issues::Issues;
 use crate::write::{js, stamp, Actor};
 use serde_json::{json, Map, Value};
 use sqlx::Row;

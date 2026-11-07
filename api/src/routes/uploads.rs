@@ -1,6 +1,7 @@
 // Reading an uploaded image: the handlers and the routes they answer (ORR-1048).
+use crate::board::uploads;
 use crate::error::Result;
-use crate::{uploads, App, Shared};
+use crate::{App, Shared};
 use axum::extract::{Path, State};
 use axum::response::Response;
 use axum::routing::get;

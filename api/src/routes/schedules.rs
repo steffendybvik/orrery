@@ -1,8 +1,8 @@
 // Reading schedules: the handlers and the routes they answer (ORR-1048).
 use super::P;
 use crate::error::Result;
-use crate::presets::Presets;
-use crate::schedules::Schedules;
+use crate::work::presets::Presets;
+use crate::work::schedules::Schedules;
 use crate::{App, Shared};
 use axum::extract::{Path, State};
 use axum::response::{IntoResponse, Response};

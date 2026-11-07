@@ -1,9 +1,9 @@
 // Session presets: the handlers and the routes they answer (ORR-1048).
 use super::P;
 use crate::error::Result;
-use crate::presets::{preset_id, Presets};
 use crate::reply::reply;
 use crate::request::{actor_of, body_of};
+use crate::work::presets::{preset_id, Presets};
 use crate::write::Effects;
 use crate::{App, Shared};
 use axum::body::Bytes;

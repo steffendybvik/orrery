@@ -1,7 +1,7 @@
 // People, invites, keys and logins: the handlers and the routes they answer (ORR-1048).
+use crate::access::people::{holder_of, People};
 use crate::changes::Outbox;
 use crate::error::Result;
-use crate::people::{holder_of, People};
 use crate::reply::reply;
 use crate::request::{actor_of, body_of, header, login_of, ways_of, who_of};
 use crate::{App, Shared};

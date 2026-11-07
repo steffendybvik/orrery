@@ -4,17 +4,17 @@
 // sections and releases, and its board or, listed, the board's counts and kinds and how many milestones it has.
 // Reading boards (`?expand=board`, `GET /api/projects/:project`) stays on the Nuxt server, as their `rev` is the events
 // stream's; deleting projects stays there too. Making one (`createProject`) answers as `POST /api/projects` does.
+use crate::access::people::Who;
+use crate::board::docs::Docs;
+use crate::board::issue_writes::IssueWrites;
+use crate::board::issues::{kinds_json, sum, Board, Issues};
+use crate::board::plans::Plans;
 use crate::changes::{self, Outbox};
 use crate::db::sql;
-use crate::docs::Docs;
 use crate::error::{ApiError, Result};
-use crate::issue_writes::IssueWrites;
-use crate::issues::{kinds_json, sum, Board, Issues};
 use crate::migrate::uid_of;
-use crate::people::Who;
-use crate::plans::Plans;
-use crate::settings::hex;
 use crate::text::{key_for, slugify, RESERVED_KEYS};
+use crate::work::settings::hex;
 use crate::write::{js, stamp, Actor, Effects};
 use regex::Regex;
 use serde_json::{json, Map, Value};

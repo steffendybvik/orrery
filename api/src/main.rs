@@ -1,7 +1,9 @@
-// orrery's API in Rust (ORR-922). For now it serves docs, the statuses (ORR-926), milestones and releases (ORR-926, written in ORR-974), reading issues, their comments, their activity and the images uploaded to them (ORR-927), people, invites, keys and logins (ORR-928), presets (ORR-949), reading the secrets, never a value (ORR-953), the settings (ORR-954) reading one pull request as orrery keeps it and rating its risk (ORR-952), the bell (ORR-1005), the epics and their and the milestones' comments (ORR-1004), on the database the Nuxt server opens, and only
-// to that server: the router there (web/server/middleware/zz-api.ts) checks a request as it always has (auth, the
-// board's permissions, the chat's and untrusted sessions' rails, the browser guards) and then forwards it here with
-// who it's from. So this listens on loopback, and answers only a request that carries the token they share.
+// orrery's API in Rust (ORR-922), on the database the Nuxt server opens, and only to that server: which routes it
+// serves is in routes/ (and the rust-api-parity doc), the domains they reach are board/, access/ and work/, and how the
+// code is laid out is the rust-api-structure doc (ORR-1045). The Nuxt server's router (web/server/middleware/zz-api.ts)
+// checks a request as it always has (auth, the board's permissions, the chat's and untrusted sessions' rails, the
+// browser guards) and then forwards it here with who it's from. So this listens on loopback, or on the playground's
+// compose network (ORR-1051), and answers only a request that carries the token they share.
 //
 //   NUXT_API_TOKEN     the token they share, as the Nuxt server's setting of that name; required
 //   NUXT_DATABASE      the database, as the Nuxt server's setting names it: a SQLite file or a postgres:// URL
@@ -13,41 +15,18 @@
 //
 // `orrery-api migrate` brings NUXT_DATABASE's schema up to date instead (ORR-931), and exits. Nothing runs it yet: the
 // Nuxt server migrates the database as it opens it until the last domain has moved here.
+mod access;
+mod board;
 mod changes;
-mod chats;
-mod choices;
-mod comments;
 mod db;
-mod decisions;
-mod docs;
-mod epics;
 mod error;
-mod issue_edits;
-mod issue_writes;
-mod issues;
 mod migrate;
-mod milestones;
-mod notices;
-mod oidc;
-mod people;
-mod phone;
-mod plans;
-mod presets;
-mod projects;
-mod pull_poll;
-mod pulls;
-mod releases;
 mod reply;
 mod request;
 mod routes;
-mod schedules;
-mod secrets;
-mod settings;
-mod statuses;
 mod steps;
 mod text;
-mod threads;
-mod uploads;
+mod work;
 mod write;
 
 use axum::extract::State;
@@ -68,7 +47,7 @@ struct App {
     database: String,
     log: bool,
     /// The phone's one-time sign-in links (ORR-837), kept in memory as the Nuxt server keeps its own.
-    phone: phone::Links,
+    phone: access::phone::Links,
 }
 
 type Shared = State<Arc<App>>;
@@ -145,7 +124,7 @@ async fn main() {
         token,
         database: database_hash(&named),
         log: std::env::var("ORRERY_API_LOG").is_ok_and(|v| v == "1"),
-        phone: phone::Links::default(),
+        phone: access::phone::Links::default(),
     });
     let listener = tokio::net::TcpListener::bind(&listen).await.unwrap_or_else(|e| fail(format!("can't listen on {listen}: {e}")));
     let at = listener.local_addr().map(|a| a.to_string()).unwrap_or(listen);

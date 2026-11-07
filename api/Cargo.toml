@@ -6,7 +6,7 @@ edition = "2021"
 rust-version = "1.80"
 license = "MIT"
 publish = false
-description = "orrery's API in Rust: the docs domain first (ORR-922), beside the Nuxt server"
+description = "orrery's API in Rust, taking over the Nuxt server's data routes domain by domain (ORR-923)"
 
 [dependencies]
 axum = "0.8"

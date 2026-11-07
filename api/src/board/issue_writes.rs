@@ -3,11 +3,11 @@
 // asking), the activity a change records, and the issue writes of their own: claiming one, letting it go and deleting
 // it (`claimIssue`, `releaseIssue`, `deleteIssue` in web/server/store). Its other writes are in comments.rs (comments),
 // issue_edits.rs (creating and changing an issue) and decisions.rs (deciding a proposal).
+use crate::access::people::Who;
 use crate::changes::{self, Outbox};
 use crate::db::sql;
 use crate::error::{ApiError, Result};
 use crate::migrate::actor_id;
-use crate::people::Who;
 use crate::write::{stamp, Actor, Effects};
 use serde_json::json;
 use sqlx::{AnyConnection, Row};

@@ -1,10 +1,10 @@
 // Releases, a project's and across projects: the handlers and the routes they answer (ORR-1048).
 use super::P;
+use crate::board::issues::Issues;
+use crate::board::plans::Plans;
+use crate::board::releases::Releases;
 use crate::changes::Outbox;
 use crate::error::Result;
-use crate::issues::Issues;
-use crate::plans::Plans;
-use crate::releases::Releases;
 use crate::reply::reply;
 use crate::request::{actor_of, body_of};
 use crate::{App, Shared};

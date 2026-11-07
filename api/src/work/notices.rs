@@ -3,11 +3,11 @@
 // `POST /api/notices/read` do. Agents' comments across projects, with the agents' proposals waiting on the owner ahead of
 // them; what the owner has cleared and read is on the comment (`cleared`, `was_read`), a member's in rows of their own
 // (`notice_clears`, `notice_reads`, ORR-658). Clearing and reading tell nothing: the page that did it reads the bell again.
-use crate::comments::{columns, comment_of};
+use crate::access::people::Who;
+use crate::board::comments::{columns, comment_of};
+use crate::board::issue_writes::IssueWrites;
 use crate::db::sql;
 use crate::error::{ApiError, Result};
-use crate::issue_writes::IssueWrites;
-use crate::people::Who;
 use crate::write::{stamp, Actor};
 use chrono::{DateTime, Local, NaiveDate, NaiveDateTime, TimeZone, Utc};
 use serde_json::{json, Value};

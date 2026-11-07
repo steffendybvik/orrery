@@ -1,9 +1,9 @@
 // The owner's chats as they're kept: the handlers and the routes they answer (ORR-1048).
 use crate::changes::Outbox;
-use crate::chats::Chats;
 use crate::error::Result;
 use crate::reply::reply;
 use crate::request::{actor_of, body_of};
+use crate::work::chats::Chats;
 use crate::{App, Shared};
 use axum::body::Bytes;
 use axum::extract::{Path, State};

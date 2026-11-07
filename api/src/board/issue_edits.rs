@@ -7,11 +7,11 @@
 // session's change of status, as the session's lock on the issue (`claimed`) is the Nuxt server's. The rails are the
 // store's: an agent changes only its person's issue, or its own proposal, moves one only under an issue that's its
 // person's too, and hands one on only back to the owner.
+use crate::board::issue_writes::IssueWrites;
+use crate::board::issues::{github_issue_of, github_repo, link_ref, Issues, GITHUB_OWN};
 use crate::changes;
 use crate::db::sql;
 use crate::error::{ApiError, Result};
-use crate::issue_writes::IssueWrites;
-use crate::issues::{github_issue_of, github_repo, link_ref, Issues, GITHUB_OWN};
 use crate::write::{js, stamp, Actor};
 use regex::Regex;
 use serde_json::Value;
@@ -204,7 +204,7 @@ fn check_body(body: &Value, new: bool) -> Result<Words> {
                     text(key, value, &mut problems, |sent| (sent != "pending").then(|| format!("\"proposal\" is \"{sent}\", not one of pending (or null)")))
             }
             "choices" if value.is_null() => words.choices = Some("[]".into()),
-            "choices" => match crate::choices::parse_choices(value) {
+            "choices" => match crate::board::choices::parse_choices(value) {
                 Ok(kept) => words.choices = Some(kept),
                 Err(problem) => problems.push(format!("\"choices\": {problem}")),
             },
@@ -555,7 +555,7 @@ impl IssueWrites<'_> {
         .filter_map(|(field, sent)| sent.then_some(field))
         .collect();
         if !moves.is_empty() && !actor.owner && matches!(row.proposal.as_deref(), Some("pending" | "changes")) {
-            let settings = crate::settings::Settings::new(&mut *self.conn).get().await?;
+            let settings = crate::work::settings::Settings::new(&mut *self.conn).get().await?;
             if settings["restrict_proposals"].as_bool().unwrap_or(true) {
                 let (named, verb) = match moves.as_slice() {
                     [one] => (one.to_string(), "isn't"),
@@ -838,7 +838,7 @@ impl IssueWrites<'_> {
 
     /// The epic sent as its number, `EPC-1` or its full id (`epicRow`, ORR-995), 404 when there's none.
     async fn epic_id(&mut self, sent: &str) -> Result<i64> {
-        let settings = crate::settings::Settings::new(&mut *self.conn).get().await?;
+        let settings = crate::work::settings::Settings::new(&mut *self.conn).get().await?;
         let found = match epic_number(sent, settings["uid"].as_str().unwrap_or_default()).and_then(|n| n.parse::<i64>().ok()) {
             Some(id) => sqlx::query(&sql("SELECT id FROM epics WHERE id = ?")).bind(id).fetch_optional(&mut *self.conn).await?.map(|_| id),
             None => None,
@@ -1045,7 +1045,7 @@ impl IssueWrites<'_> {
 
 /// The status an issue gets from what was sent (`resolveStatus`): a status's id, a kind (its first status), or the words
 /// from before statuses (`doing`; `todo` with a `plan`, which is Todo, or null for Backlog).
-fn resolve_status(statuses: &[crate::issues::Status], status: Option<&str>, plan: Option<Option<&str>>) -> Result<String> {
+fn resolve_status(statuses: &[crate::board::issues::Status], status: Option<&str>, plan: Option<Option<&str>>) -> Result<String> {
     let first = |kind: &str| statuses.iter().find(|s| s.kind == kind).map(|s| s.id.clone()).ok_or_else(|| ApiError::internal(format!("a {kind} status")));
     if let Some(plan) = plan {
         if status.is_none() || status == Some("todo") {

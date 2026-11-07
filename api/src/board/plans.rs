@@ -2,9 +2,9 @@
 // `release` and `allReleases` do (web/server/store/milestones.ts, releases.ts), answering as their `GET` routes do. Each
 // is worked out from the board as `issues.rs` reads it, as the store works them out from `readBoard`'s. Writing them
 // is `milestones.rs` and `releases.rs` (ORR-974).
+use crate::board::issues::{kinds_json, Board, Issues, Kinds, Node, Project, Status};
 use crate::db::sql;
 use crate::error::{ApiError, Result};
-use crate::issues::{kinds_json, Board, Issues, Kinds, Node, Project, Status};
 use serde_json::{json, Map, Value};
 use sqlx::any::AnyRow;
 use sqlx::Row;

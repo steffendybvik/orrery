@@ -1,11 +1,12 @@
 // Projects: the handlers and the routes they answer (ORR-1048).
 use super::P;
+use crate::board::projects;
+use crate::board::projects::Projects;
 use crate::changes::Outbox;
 use crate::error::Result;
-use crate::projects::Projects;
 use crate::reply::reply;
 use crate::request::{actor_of, body_of, who_of};
-use crate::{projects, App, Shared};
+use crate::{App, Shared};
 use axum::body::Bytes;
 use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};

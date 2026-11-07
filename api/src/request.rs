@@ -1,7 +1,7 @@
 // Reading a request (ORR-1047): who it's from, as the Nuxt router in front sends it (`actor_of`, `who_of`, `ways_of`,
 // `came_of`), the guard every request passes (the shared token, then the login mode), and a body as JSON.
+use crate::access::people::{People, Ways, Who};
 use crate::error::{ApiError, Result};
-use crate::people::{People, Ways, Who};
 use crate::write::Actor;
 use crate::Shared;
 use axum::body::Bytes;

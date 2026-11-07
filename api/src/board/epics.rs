@@ -3,12 +3,12 @@
 // epic is one piece of work across projects (ORR-895), with a number of its own across the orrery; its progress is its
 // issues', counted the way a release's are, from each project's board as `issues.rs` reads it. A write says the epics
 // changed (`Effects::epics`), for open pages to ask for them again. An epic's focus signals sessions, so it stays in Nuxt.
+use crate::board::issue_edits::epic_number;
+use crate::board::issues::{kinds_json, Board, Issues, Kinds, Node};
 use crate::changes::{self, Outbox};
 use crate::db::sql;
 use crate::error::{ApiError, Result};
-use crate::issue_edits::epic_number;
-use crate::issues::{kinds_json, Board, Issues, Kinds, Node};
-use crate::settings::Settings;
+use crate::work::settings::Settings;
 use crate::write::{js, stamp, Actor, Effects};
 use serde_json::{json, Map, Value};
 use sqlx::any::AnyRow;

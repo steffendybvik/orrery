@@ -3,7 +3,7 @@ use crate::changes::Outbox;
 use crate::error::Result;
 use crate::reply::reply;
 use crate::request::{actor_of, body_of};
-use crate::settings::Settings;
+use crate::work::settings::Settings;
 use crate::{App, Shared};
 use axum::body::Bytes;
 use axum::extract::State;

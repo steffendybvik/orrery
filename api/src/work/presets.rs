@@ -23,7 +23,7 @@ struct Shipped {
 }
 
 static SHIPPED: LazyLock<Vec<Shipped>> =
-    LazyLock::new(|| serde_json::from_str(include_str!("../../web/shared/presets.json")).expect("web/shared/presets.json is the presets orrery ships"));
+    LazyLock::new(|| serde_json::from_str(include_str!("../../../web/shared/presets.json")).expect("web/shared/presets.json is the presets orrery ships"));
 
 /// `PRESET_FIELDS` in web/server/store/schema.ts, in its order, which is the order its problems are found in.
 const FIELDS: [&str; 4] = ["name", "text", "icon", "color"];

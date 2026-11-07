@@ -1,7 +1,7 @@
 // A project's docs, their sections and revisions: the handlers and the routes they answer (ORR-1048).
 use super::P;
+use crate::board::docs::Docs;
 use crate::changes::Outbox;
-use crate::docs::Docs;
 use crate::error::Result;
 use crate::reply::reply;
 use crate::request::{actor_of, body_of};

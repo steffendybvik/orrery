@@ -1,14 +1,15 @@
 // Issues: reading them, their comments and activity, claims, edits, decisions, bulk changes and deletes: the handlers
 // and the routes they answer (ORR-1048).
 use super::P;
+use crate::board::comments::{comment_id, Handoff};
+use crate::board::issue_edits;
+use crate::board::issue_writes::IssueWrites;
+use crate::board::issues::Issues;
 use crate::changes::Outbox;
-use crate::comments::{comment_id, Handoff};
 use crate::error::{ApiError, Result};
-use crate::issue_writes::IssueWrites;
-use crate::issues::Issues;
 use crate::reply::reply;
 use crate::request::{actor_of, body_of};
-use crate::{changes, issue_edits, write, App, Shared};
+use crate::{changes, write, App, Shared};
 use axum::body::Bytes;
 use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode};

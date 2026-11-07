@@ -1,6 +1,6 @@
 // Reading secrets, never a value: the handlers and the routes they answer (ORR-1048).
+use crate::access::secrets::Secrets;
 use crate::error::Result;
-use crate::secrets::Secrets;
 use crate::{App, Shared};
 use axum::extract::{Path, State};
 use axum::response::{IntoResponse, Response};
