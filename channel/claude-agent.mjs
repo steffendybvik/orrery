@@ -2,6 +2,7 @@
 // adapter can sit beside it (agents.mjs says what an adapter is). It never runs tmux itself: the launcher hands it the
 // session's pane, which it reads and types into.
 import {execFileSync} from 'node:child_process'
+import {setUpUser, undoUser} from './claude-user-setup.mjs'
 import {chatOnly, lockedDown, modelArgs, resumeArgs} from './locked-down.mjs'
 import {ASYNC_EVENTS, HOOK_EVENTS} from './claude-hooks.mjs'
 import {onYes} from './permission-prompt.mjs'
@@ -111,7 +112,19 @@ export const claude = {
         await wait(300)
         pane.press('Enter')
     },
+
+    // The install line's part (ORR-1067): orrery in Claude Code's user config, for every folder, and the default folder
+    // trusted; `--uninstall` takes it out again.
+    setUp({url, orrery, commands, home}) {
+        return setUpUser({url, orrery, commands, home, run: claudeRun})
+    },
+
+    undo({homeOf}) {
+        return undoUser({run: claudeRun, homeOf})
+    },
 }
+
+const claudeRun = args => execFileSync('claude', args, {stdio: ['ignore', 'ignore', 'pipe']})
 
 /** What a tool would do, short: the command, the file, the address or the search. Never a file's contents or
  * anything else from its input: an MCP tool's arguments can hold anything, so it goes by its name alone. */

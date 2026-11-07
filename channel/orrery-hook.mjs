@@ -2,7 +2,7 @@
 // orrery's Claude Code hook: tells orrery what this session is doing, so the owner can see it and
 // point work at an idle one, and which issues it writes to. Registered for SessionStart, UserPromptSubmit,
 // PreToolUse, PermissionRequest, Stop, StopFailure, Notification and SessionEnd in the repo's .claude/settings.json, with ORRERY_PROJECT
-// (and ORRERY_URL) set. It never fails the hook, and prints nothing (a hook's output goes to Claude) but
+// (and ORRERY_URL) set, or at user level by the install line (ORRERY_SCOPE=user). It never fails the hook, and prints nothing (a hook's output goes to Claude) but
 // after a `/clear`, a compaction or a resume: then orrery's brief of what the session was working on, which
 // Claude Code adds to the fresh context so the work carries on. A session orrery started with context gets that
 // in the brief too, as it starts and after each of those. Every `SessionStart` also says which repo it's in (ORR-1070),
@@ -13,6 +13,7 @@ import {authHeaders} from './credentials.mjs'
 import {repoContext} from './repo-context.mjs'
 import {claudeWindow} from './session.mjs'
 import {agentFor} from './agents.mjs'
+import {standsDown} from './claude-user-setup.mjs'
 
 // The agent this hook is registered for: Claude Code, the only adapter so far.
 const agent = agentFor()
@@ -21,6 +22,9 @@ let input = ''
 for await (const chunk of process.stdin) input += chunk
 try {
     const hook = JSON.parse(input || '{}')
+    // The user-level copy (ORR-1067) leaves a folder with orrery's hook of its own to that one, and a session with no
+    // project known says nothing.
+    if (standsDown({dir: process.env.CLAUDE_PROJECT_DIR ?? hook.cwd ?? process.cwd()})) process.exit(0)
     const window = claudeWindow()
     // What the session is doing, as its agent's adapter reads its hook's input (ORR-1074).
     const {id, cwd, ...report} = agent.report(hook)

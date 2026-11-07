@@ -133,7 +133,9 @@ if (args.includes('--install') || args.includes('--uninstall')) {
         if (!channelsIn(process.cwd()).length && !process.env.ORRERY_PROJECT) {
             if (args.includes('--uninstall')) {
                 removeService()
+                const servers = agent.undo({homeOf: id => homeFolder(id)})
                 console.log(`Removed the launcher service. Its list stays in ${configFile()}, for the next --install.`)
+                if (servers.length) console.log(`Took ${servers.join(', ')} and orrery's hooks out of ${agent.name}'s user config, and the default folder's trust with them.`)
                 process.exit(0)
             }
             needsTmuxAndAgent()
@@ -143,6 +145,7 @@ if (args.includes('--install') || args.includes('--uninstall')) {
                 ? "Pick-up is on: a Claude session opened in a repo whose .mcp.json registers orrery's channel puts that repo on it. --uninstall in a repo keeps it off."
                 : "Pick-up is off: run this with --install in a project's repo to put its projects on it.")
             console.log(`Its log: ${logs}`)
+            if (process.env.ORRERY_URL) await setUpMachine(process.env.ORRERY_URL.replace(/\/+$/, ''))
             process.exit(0)
         }
         // Several channels can name a project served from its own repo (a monorepo's channel to the personal
@@ -187,6 +190,20 @@ if (args.includes('--install') || args.includes('--uninstall')) {
         log(error.message)
         process.exit(1)
     }
+}
+
+/** The install line's part beyond the service (ORR-1067): the orrery's default folder, and orrery in the agent's own
+ * user config, so a session in any folder reaches it before any repo is connected. */
+async function setUpMachine(url) {
+    const read = path => fetch(`${url}/api/${path}`, {headers: authHeaders(url), signal: AbortSignal.timeout(10_000)}).then(r => r.ok ? r.json() : null, () => null)
+    const [settings, machine] = await Promise.all([read('settings'), read('machine')])
+    if (!settings?.id) throw new Error(`couldn't read ${url}/api/settings, so ${agent.name} wasn't set up for it: run this again once it answers${authHeaders(url).Authorization ? '' : `, with ORRERY_KEY set if it asks for a credential`}`)
+    const orrery = {id: settings.id, environment: machine?.environment}
+    const commands = commandsFor({bootstrap: BOOTSTRAP, checkout: dirname(fileURLToPath(import.meta.url))})
+    const home = homeFolder(orrery.id)
+    setUpHome(home, {url, orrery, commands})
+    const {server, settings: file} = agent.setUp({url, orrery, commands, home})
+    console.log(`${agent.name} reaches ${url} from any folder now: ${server} is a user-level server, orrery's hooks are in ${file}, and ${home} is trusted for the sessions it starts there.`)
 }
 
 const problem = tmuxProblem()
