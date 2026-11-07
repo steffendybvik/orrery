@@ -43,6 +43,7 @@ import {hostname, networkInterfaces} from 'node:os'
 import {dirname, join} from 'node:path'
 import {fileURLToPath} from 'node:url'
 import {connector, pickerFor} from './connect-repo.mjs'
+import {commandsFor, homeFolder, homeProjects, setUpHome} from './home-folder.mjs'
 import {authHeaders, keyFor, keysFile} from './credentials.mjs'
 import {addToList, adoptable, configFile, inWsl, install, listChanges, listIn, readConfig, removeService, restartKeepsSessions, servedElsewhere, serviceProblem, uninstall, wslLocalhost} from './launcher-service.mjs'
 import {chatOnly, lockedDown, modelArgs, resumeArgs} from './locked-down.mjs'
@@ -475,7 +476,7 @@ const apiOf = ({url, project}) => `${url}/api/projects/${encodeURIComponent(proj
 
 /** Serves one project: listens for its launches, and for the owner stopping or extending the sessions it started,
  * until `signal` lets it go. */
-function serve({url, project, dir, picked_at: picked, connected_at: connected}, signal) {
+function serve({url, project, dir, home, picked_at: picked, connected_at: connected}, signal) {
     const api = apiOf({url, project})
     adopt(project, api)
     /** The token this connection's stream gave it (`ready`), which its claims send, so orrery knows they're a
@@ -491,7 +492,9 @@ function serve({url, project, dir, picked_at: picked, connected_at: connected}, 
         if (!claim.claimed) return
         // An untrusted one's channel says so on everything it sends, so orrery holds it to that even when it has
         // restarted and doesn't know the launch yet.
-        const env = {ORRERY_URL: url, ORRERY_PROJECT: project, ORRERY_STARTED: launch.id, ORRERY_AFTER: String(launch.after), ...launch.hears?.length ? {ORRERY_HEAR: launch.hears.join(',')} : {}, ...launch.untrusted ? {ORRERY_UNTRUSTED: 'yes'} : {}, ...launch.chat ? {ORRERY_CHAT: 'yes'} : {}, ...launch.person ? {ORRERY_PERSON: launch.person} : {}, ...keyFor(url) ? {ORRERY_KEY: keyFor(url)} : {}}
+        // In the default folder the channel serves every project, so a session there hears its own unless told more.
+        const hears = launch.hears?.length ? launch.hears : home ? [project] : []
+        const env = {ORRERY_URL: url, ORRERY_PROJECT: project, ORRERY_STARTED: launch.id, ORRERY_AFTER: String(launch.after), ...hears.length ? {ORRERY_HEAR: hears.join(',')} : {}, ...launch.untrusted ? {ORRERY_UNTRUSTED: 'yes'} : {}, ...launch.chat ? {ORRERY_CHAT: 'yes'} : {}, ...launch.person ? {ORRERY_PERSON: launch.person} : {}, ...keyFor(url) ? {ORRERY_KEY: keyFor(url)} : {}}
         const server = channelFor(dir, url, project)?.name ?? project
         tmux('new-session', '-d', '-s', launch.tmux, '-c', dir, ...Object.entries(env).flatMap(([k, v]) => ['-e', `${k}=${v}`]),
             'claude', '--dangerously-load-development-channels', `server:${server}`, ...launch.untrusted ? lockedDown(dir, server) : launch.chat ? chatOnly(dir, server) : ['--permission-mode', mode], ...modelArgs(launch), ...resumeArgs(launch))
@@ -512,7 +515,9 @@ function serve({url, project, dir, picked_at: picked, connected_at: connected}, 
         // The folder it serves from, so orrery knows which projects share one and can share a session, and whether its
         // channel serves every project, so a session started here hearing no one project hears them all.
         // And when its channel picked the repo up (ORR-605) or Connect a repo added it (ORR-774), for Connected repos.
-        url: () => `${api}/launches/stream?dir=${encodeURIComponent(dir)}${servesEvery(dir, url, project) ? '&every=1' : ''}&version=${encodeURIComponent(VERSION)}${picked ? `&picked=${encodeURIComponent(picked)}` : ''}${connected ? `&connected=${encodeURIComponent(connected)}` : ''}`,
+        // From the default folder (ORR-1066) it names none, and says it's that, so a launcher in the project's repo is
+        // given its sessions first.
+        url: () => `${api}/launches/stream?${home ? 'home=1' : `dir=${encodeURIComponent(dir)}${servesEvery(dir, url, project) ? '&every=1' : ''}`}&version=${encodeURIComponent(VERSION)}${picked ? `&picked=${encodeURIComponent(picked)}` : ''}${connected ? `&connected=${encodeURIComponent(connected)}` : ''}`,
         onEvent: async ({event, data}) => {
             if (event === 'ready') {
                 const {starts, version, oldest, token: given} = JSON.parse(data)
@@ -550,7 +555,7 @@ function serve({url, project, dir, picked_at: picked, connected_at: connected}, 
         },
         log: (...parts) => log(`${project}:`, ...parts),
         // A project on the list nothing answers for (an orrery gone, or a project it doesn't have): said once (ORR-604).
-        down: (since, error) => log(`${project}: nothing at ${url} for it since ${since.toLocaleString()} (${error.message}); still trying every 30s, quietly. --uninstall in ${dir} takes it off`),
+        down: (since, error) => log(`${project}: nothing at ${url} for it since ${since.toLocaleString()} (${error.message}); still trying every 30s, quietly.${home ? '' : ` --uninstall in ${dir} takes it off`}`),
         signal,
     })
 }
@@ -664,17 +669,64 @@ function follows() {
         const list = listIn()
         if (!list) return log(`${configFile()} can't be read as a list; it serves what it did until it can`)
         followConnects(list)
-        const {added, removed} = listChanges([...serving.values()].map(s => s.entry), list.projects)
+        const {added, removed} = listChanges([...serving.values()].map(s => s.entry).filter(entry => !entry.home), list.projects)
         for (const entry of removed) {
             const moved = added.some(a => servingKey(a) === servingKey(entry))
             await letGo(entry, {moved})
             log(moved ? `${entry.project} (${entry.url}) moved to ${added.find(a => servingKey(a) === servingKey(entry)).dir}` : `let go of ${entry.project} (${entry.url}): it's off the list`)
         }
         for (const entry of added) {
+            // Served from the default folder until now: its sessions there go on, and new ones start in the repo.
+            const fromHome = serving.get(servingKey(entry))?.entry.home
+            if (fromHome) await letGo(serving.get(servingKey(entry)).entry, {moved: true})
             if (!removed.some(r => servingKey(r) === servingKey(entry))) log(`now serving ${entry.project} (${entry.url}) in ${entry.dir}: it's on the list`)
             begin(entry)
         }
+        await followHomes(list)
     }).catch(error => log(`couldn't follow ${configFile()}: ${error.message}`))
+}
+
+/** The default folder of each orrery it serves (ORR-1066), by address: where it is, once it's set up. */
+const homes = new Map()
+/** What the default folder's channel and hooks run. */
+const commands = () => commandsFor({bootstrap: BOOTSTRAP, checkout: dirname(fileURLToPath(import.meta.url))})
+
+/** Serves, from each orrery's default folder, its projects with no repo that the list doesn't serve from a repo here,
+ * and lets go of those that have gained one, or gone. An orrery it can't reach keeps what it was served from there. */
+async function followHomes(list) {
+    const urls = new Set([...list.projects.map(entry => entry.url), ...list.orreries ?? []])
+    for (const url of urls) {
+        const read = path => fetch(`${url}/api/${path}`, {headers: authHeaders(url), signal: AbortSignal.timeout(10_000)}).then(r => r.ok ? r.json() : null, () => null)
+        const [settings, machine, projects] = await Promise.all([read('settings'), read('machine'), read('projects')])
+        if (!settings?.id || !Array.isArray(projects)) continue
+        let home = homes.get(url)
+        if (!home) {
+            try {
+                const dir = homeFolder(settings.id)
+                const {created} = setUpHome(dir, {url, orrery: {id: settings.id, environment: machine?.environment}, commands: commands()})
+                home = {dir}
+                homes.set(url, home)
+                log(`serves ${url}'s projects with no repo from ${dir}${created ? `; if claude hasn't run there before, run it there once to trust the folder` : ''}`)
+            } catch (error) {
+                log(`can't serve ${url}'s projects with no repo: ${error.message}`)
+                continue
+            }
+        }
+        const wanted = new Set(homeProjects(projects, list.projects, url))
+        for (const {entry} of [...serving.values()]) {
+            if (entry.home && entry.url === url && !wanted.has(entry.project)) {
+                // Its sessions there go on, unless the project is gone.
+                const gone = !projects.some(project => project?.id === entry.project)
+                await letGo(entry, {moved: !gone})
+                log(`no longer serves ${entry.project} (${url}) from the default folder: ${gone ? "it's gone" : 'it has a repo now'}`)
+            }
+        }
+        for (const project of wanted) {
+            if (serving.has(servingKey({url, project}))) continue
+            begin({url, project, dir: home.dir, home: true})
+            log(`now serving ${project} (${url}) from the default folder: it has no repo`)
+        }
+    }
 }
 
 // As the service, every project on the list, following it as it changes; in a terminal, the repo's.
@@ -690,4 +742,7 @@ for (const entry of projects) begin(entry)
 if (service) {
     followConnects(readConfig())
     watchFile(configFile(), {interval: 2000}, follows)
+    // New projects, and those that gain or lose a repo, are seen within a minute.
+    follows()
+    setInterval(follows, 60_000)
 }

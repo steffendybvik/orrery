@@ -224,6 +224,22 @@ describe('starting a session', () => {
         expect(launches.claim('greenhouse', 'nope', first)).toBe(false)
     })
 
+    it("gives one in the project's repo its sessions before one in a default folder (ORR-1066)", async () => {
+        const home = launches.addLauncher('greenhouse', undefined, false, '', {}, true)
+        const repo = launches.addLauncher('greenhouse', '/code/greenhouse')
+        // A default folder isn't one of the project's repos.
+        expect(launches.launchState('greenhouse').folders).toEqual(['/code/greenhouse'])
+        const first = (await launches.considerLaunch(signal(1)))!
+        expect(launches.claim('greenhouse', first.id, home.token)).toBe(false)
+        expect(launches.claim('greenhouse', first.id, repo.token)).toBe(true)
+        // With no launcher in its repo, the default folder's takes it.
+        repo()
+        launches.launched(first.id)
+        const second = (await launches.considerLaunch(signal(2)))!
+        expect(launches.claim('greenhouse', second.id, home.token)).toBe(true)
+        home()
+    })
+
     it("gives a member's launcher none of the owner's launches, to hear, claim or tell about (ORR-963)", async () => {
         const member = launches.addMemberLauncher('greenhouse', 'hati')
         // It isn't one of the project's launchers, so the owner's work doesn't wait on it.
