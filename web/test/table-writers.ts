@@ -51,6 +51,7 @@ export const WRITERS: Record<string, Writer> = {
     releases: {nuxt: `${UPLOAD}, and ${PROJECT.nuxt}`, issue: 'ORR-1006'},
     schedule_runs: SCHEDULES,
     schedules: SCHEDULES,
+    schedules_across: SCHEDULES,
     settings: {nuxt: "the machine's settings, the sealed ones and auth staying on (store/keys.ts, store/signals.ts)"},
     signals: {nuxt: "the sessions' signals, which are the machine's (store/signals.ts)"},
     statuses: {nuxt: UPLOAD, issue: 'ORR-747'},

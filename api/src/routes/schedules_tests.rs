@@ -284,7 +284,7 @@ async fn deleting_a_schedule_keeps_its_issues() {
     let id = schedule(&api, &project, "Weekly review", None, &[]).await;
     let issue = api.issue(&project, json!({"title": "Review week 45"})).await;
     sqlx::query(&crate::db::sql("UPDATE issues SET schedule = ? WHERE project = ?")).bind(id).bind(&project).execute(&api.app.pool).await.unwrap();
-    run(&api, id, "2026-11-03T08:00:00.000Z", "created", Some(&issue)).await;
+    run(&api, id, "2026-11-03T08:00:00.000Z", "made", Some(&issue)).await;
     let reply = api.delete(&format!("/api/projects/{project}/schedules/{id}")).send().await;
     assert_eq!(reply.status, 204, "{}", reply.body);
     assert_eq!(reply.header("orrery-schedules"), Some(project.as_str()));

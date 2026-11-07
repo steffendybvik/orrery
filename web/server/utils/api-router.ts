@@ -99,6 +99,9 @@ export const DOMAINS: readonly {domain: string, paths: RegExp, methods?: readonl
     // The schedules, read (ORR-930): a project's, one with its runs, every project's and those across projects. Making,
     // changing and running them stays here, as a run starts a session and a write can set one off (ORR-929).
     {domain: 'schedules, reading', paths: /^(projects\/[^/]+\/schedules(\/[^/]+)?|schedules(\/across)?)$/, methods: ['GET']},
+    // Of the writes (ORR-950): adopting an agent's schedule and deleting one, neither of which starts a session.
+    {domain: 'a schedule, adopted', paths: /^projects\/[^/]+\/schedules\/[^/]+\/adopt$/, methods: ['POST']},
+    {domain: 'a schedule, deleted', paths: /^projects\/[^/]+\/schedules\/[^/]+$/, methods: ['DELETE']},
     // Every project, listed with its counts (ORR-997). With `?expand=board` it's their boards, each with the events
     // stream's `rev`, so that stays here (`listedOnly`), as do reading one project and deleting one.
     {domain: 'projects, listed', paths: /^projects$/, methods: ['GET'], first: {GET: listedOnly}},
@@ -496,6 +499,8 @@ async function relayed(response: Response, actor: Actor, method: string, {noteKe
         if (relayHeaders && response.headers.get('orrery-settings') === '1') await store.settingsChanged()
         // Open pages ask for the epics again (ORR-1004).
         if (relayHeaders && response.headers.get('orrery-epics') === '1') store.epicsChanged()
+        // The scheduler reads the event listeners again, and open pages the schedules (ORR-950).
+        if (relayHeaders) for (const project of changedOf(response.headers.get('orrery-schedules'))) useScheduler().changedElsewhere(project)
         const keys = changedOf(response.headers.get('orrery-settings-keys'))
         if (noteKeys && keys.length) useEventLog().note({level: 'info', kind: 'settings.changed', message: `${actor.name} changed the settings: ${keys.join(', ')}`, details: {by: actor.name, keys}})
         if (relayHeaders) for (const {type, project, subject, from, to} of toldOf(response.headers.get('orrery-told'))) store.told(type, project, subject, actor, {from, to})
