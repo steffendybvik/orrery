@@ -8,6 +8,8 @@
 //   ORRERY_API_LISTEN  where to listen; 127.0.0.1:9100 by default
 //   ORRERY_API_SCHEMA  on Postgres, the schema to work in (the tests' own)
 //   ORRERY_API_LOG     1: says each request it answers, and how
+//   ORRERY_API_WAIT    1: until the database is there and migrated, tries again each second instead of exiting; for
+//                      a container of its own that starts beside the Nuxt server's (the playground's, ORR-1051)
 //
 // `orrery-api migrate` brings NUXT_DATABASE's schema up to date instead (ORR-931), and exits. Nothing runs it yet: the
 // Nuxt server migrates the database as it opens it until the last domain has moved here.
@@ -1700,7 +1702,21 @@ async fn main() {
     let setting =
         std::env::var("NUXT_DATABASE").ok().filter(|s| !s.is_empty()).unwrap_or_else(|| fail("set NUXT_DATABASE to the database the Nuxt server opens".into()));
     let listen = std::env::var("ORRERY_API_LISTEN").unwrap_or_else(|_| "127.0.0.1:9100".into());
-    let pool = db::open(&setting, std::env::var("ORRERY_API_SCHEMA").ok()).await.unwrap_or_else(|e| fail(e));
+    let wait = std::env::var("ORRERY_API_WAIT").is_ok_and(|v| v == "1");
+    let mut said = false;
+    let pool = loop {
+        match db::open(&setting, std::env::var("ORRERY_API_SCHEMA").ok()).await {
+            Ok(pool) => break pool,
+            Err(e) if wait => {
+                if !said {
+                    eprintln!("[orrery-api] {e}; trying again each second until it's there (ORRERY_API_WAIT)");
+                    said = true;
+                }
+                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            }
+            Err(e) => fail(e),
+        }
+    };
     // A SQLite file as the Nuxt server names it (`databaseSetting`): its whole path.
     let named = if db::is_postgres(&setting) {
         setting.clone()
