@@ -354,7 +354,7 @@ function onKey(event: KeyboardEvent) {
 </script>
 
 <template>
-  <UiDialog :open="openPalette" label="Commands" width="xl" flush class="h-[64vh] overflow-hidden" @close="openPalette = false">
+  <UiDialog :open="openPalette" name="commands" label="Commands" width="xl" flush class="h-[64vh] overflow-hidden" @close="openPalette = false">
     <div class="flex items-center gap-2 border-b border-line px-4">
       <svg class="size-4 text-faint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
       <input
@@ -433,7 +433,7 @@ function onKey(event: KeyboardEvent) {
       <span class="ml-auto">{{ results.length }} {{ results.length === 1 ? 'result' : 'results' }}</span>
     </div>
   </UiDialog>
-  <UiDialog :open="phoneOpen" label="Open on your phone" width="md" @close="phoneOpen = false">
+  <UiDialog :open="phoneOpen" name="phone-code" label="Open on your phone" width="md" @close="phoneOpen = false">
     <div class="flex items-center gap-2 pb-3 text-xs text-faint">
       <span class="text-[13px] font-medium text-fg">Open on your phone</span>
       <KeyHint class="ml-auto">esc</KeyHint>

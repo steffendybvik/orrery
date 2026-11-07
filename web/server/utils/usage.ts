@@ -50,7 +50,7 @@ export async function featureUse(now = new Date()): Promise<FeatureUse[]> {
          FROM feature_use GROUP BY feature`, daysBefore(now, 30), daysBefore(now, 90))
     const byName = new Map(rows.map(r => [r.feature, r]))
     const names = new Set([...Object.keys(FEATURES), ...byName.keys()])
-    const label = (feature: string) => FEATURES[feature as keyof typeof FEATURES] ?? feature.replace(/^(page|tool):/, '')
+    const label = (feature: string) => FEATURES[feature as keyof typeof FEATURES] ?? feature.replace(/^(page|tool|dialog):/, '')
     return [...names].map(feature => {
         const row = byName.get(feature)
         return {feature, label: label(feature), last: row?.last ?? null, days30: Number(row?.days30 ?? 0), days90: Number(row?.days90 ?? 0)}

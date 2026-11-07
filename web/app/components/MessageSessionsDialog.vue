@@ -74,7 +74,7 @@ async function send() {
 </script>
 
 <template>
-  <UiDialog :open="open" label="Message sessions" @close="emit('close')" @submit="send">
+  <UiDialog :open="open" name="message-sessions" label="Message sessions" @close="emit('close')" @submit="send">
     <div class="flex items-center gap-2 text-xs text-faint">
       <span>Message every session at once</span>
       <KeyHint class="ml-auto">esc</KeyHint>

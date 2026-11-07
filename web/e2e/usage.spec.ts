@@ -2,7 +2,7 @@ import {expect, test} from './test'
 import {OWNER} from './support'
 
 // Usage, on its own tab of App settings (ORR-881, ORR-900): off until the owner turns it on, then the pages they open and the
-// palette show with their counts, the listed features never used at the top; turned off, it offers to delete them.
+// palette show with their counts, each dialog opened too (ORR-1011), the listed features never used at the top; turned off, it offers to delete them.
 test('counts nothing until turned on, then lists what was used, coldest first', async ({page, request}) => {
     test.info().annotations.push({type: 'state', description: 'turns counting on, and off again at the end'})
     // A link from when it was under Advanced opens its own tab.
@@ -20,14 +20,19 @@ test('counts nothing until turned on, then lists what was used, coldest first', 
     await expect(page.getByRole('heading', {level: 1}).first()).toBeVisible()
     // A use is sent without waiting on it, so the next page load could cancel it: the test waits for it to land.
     const counted = page.waitForResponse(r => r.url().endsWith('/api/usage') && r.request().method() === 'POST' && r.request().postDataJSON()?.feature === 'command-palette')
+    const dialog = page.waitForResponse(r => r.url().endsWith('/api/usage') && r.request().method() === 'POST' && r.request().postDataJSON()?.feature === 'dialog:commands')
     await page.keyboard.press('ControlOrMeta+k')
     await expect(page.getByRole('dialog', {name: 'Commands'})).toBeVisible()
     await counted
+    await dialog
     await page.keyboard.press('Escape')
     await page.goto('/settings?tab=usage')
     const table = section.getByRole('table', {name: 'Feature use'})
     await expect(table.locator('[data-feature="page:sessions"] td').nth(2)).toHaveText('1')
     await expect(table.locator('[data-feature="command-palette"] td').nth(2)).toHaveText('1')
+    const commands = table.locator('[data-feature="dialog:commands"]')
+    await expect(commands.locator('td').first()).toHaveText(/commands\s*dialog/)
+    await expect(commands.locator('td').nth(2)).toHaveText('1')
     await expect(table.locator('[data-feature="presets"] td').nth(1)).toHaveText('never')
     // Coldest first: one never used comes before the pages that were.
     const order = await table.locator('tbody tr').evaluateAll(rows => rows.map(r => r.getAttribute('data-feature')))
