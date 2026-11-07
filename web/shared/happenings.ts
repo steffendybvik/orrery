@@ -44,7 +44,8 @@ export function matchesType(pattern: string, type: string): boolean {
 }
 
 /** The ones most schedules want, first in the picker; any other type, or a pattern, can be typed in. */
-export const COMMON_EVENTS: {type: string, label: string, family: string, filter?: 'status' | 'value' | 'level'}[] = [
+/** `actor: false` for an entry orrery notes itself, which says nobody did it, so `by` can't filter it. */
+export const COMMON_EVENTS: {type: string, label: string, family: string, filter?: 'status' | 'value' | 'level', actor?: false}[] = [
     {type: 'issue.status', label: 'An issue moves to a status', family: 'Issues', filter: 'status'},
     {type: 'issue.created', label: 'An issue is made', family: 'Issues'},
     {type: 'issue.labels', label: 'An issue\'s labels change', family: 'Issues', filter: 'value'},
@@ -68,8 +69,8 @@ export const COMMON_EVENTS: {type: string, label: string, family: string, filter
     {type: 'pr.approved', label: "An issue's pull request is approved", family: 'Pull requests'},
     {type: 'session.started', label: 'A session is started', family: 'Sessions'},
     {type: 'session.stopped', label: 'A session stops', family: 'Sessions'},
-    {type: 'launcher.gone', label: 'A launcher goes away', family: 'Sessions'},
-    {type: '*.error', label: 'A new error (server or page)', family: 'orrery', filter: 'level'},
-    {type: '*.failed', label: 'Something fails (a backup, a schedule)', family: 'orrery'},
-    {type: 'backup.made', label: 'A backup is made', family: 'orrery'},
+    {type: 'launcher.gone', label: 'A launcher goes away', family: 'Sessions', actor: false},
+    {type: '*.error', label: 'A new error (server or page)', family: 'orrery', filter: 'level', actor: false},
+    {type: '*.failed', label: 'Something fails (a backup, a schedule)', family: 'orrery', actor: false},
+    {type: 'backup.made', label: 'A backup is made', family: 'orrery', actor: false},
 ]

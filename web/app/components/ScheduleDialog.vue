@@ -18,7 +18,7 @@ import type {Repeat} from '~/utils/schedule'
 // All projects, with those to leave out unticked, or several, ticked; it then can't name a milestone, or run once or untrusted.
 const {editing, pause, adopt, loadAcross} = useSchedules()
 const {seeSchedule} = useUnseen()
-const {byId} = useRoadmaps()
+const {byId, projects} = useRoadmaps()
 const {ordered} = useProjectOrder()
 const ALL = '*'
 const SEVERAL = '+'
@@ -61,10 +61,24 @@ const by = ref<'' | 'owner' | 'session'>('')
 const level = ref('')
 const on = computed(() => eventPick.value === OTHER ? pattern.value.trim() : eventPick.value)
 const common = computed(() => COMMON_EVENTS.find(e => e.type === on.value))
+// Which of the event's filters it shows: what it changed to (a status, or any value), the log entry's level, and who did it,
+// which an entry orrery notes itself (an error, a backup) doesn't say.
+const showsTo = computed(() => on.value === 'issue.status' || common.value?.filter === 'value' || eventPick.value === OTHER)
+const showsLevel = computed(() => common.value?.filter === 'level' || eventPick.value === OTHER)
+const showsBy = computed(() => common.value?.actor !== false)
+// Another event picked: its filters start empty, so one the last event showed can't filter this one unseen.
+function pickEvent(picked: string | string[]) {
+    const next = String(picked)
+    if (next === eventPick.value) return
+    eventPick.value = next
+    to.value = ''
+    level.value = ''
+    if (!showsBy.value) by.value = ''
+}
 // A status's id or kind, for an issue moving: any status, the kinds first.
 const statusOptions = computed(() => [{value: '', label: 'Any status'}, ...places.value.filter(p => p.kind !== 'proposed').map(p => ({value: p.id, label: p.label}))])
-const onFilter = computed<OnFilter>(() => ({...to.value.trim() ? {to: to.value.trim()} : {}, ...by.value ? {by: by.value} : {},
-    ...level.value ? {level: level.value as OnFilter['level']} : {}}))
+const onFilter = computed<OnFilter>(() => ({...showsTo.value && to.value.trim() ? {to: to.value.trim()} : {}, ...showsBy.value && by.value ? {by: by.value} : {},
+    ...showsLevel.value && level.value ? {level: level.value as OnFilter['level']} : {}}))
 
 const project = ref('')
 const isAcross = computed(() => project.value === ALL || project.value === SEVERAL)
@@ -125,7 +139,8 @@ const titleInput = ref<HTMLInputElement | null>(null)
 const {settings: appSettings} = useAppSettings()
 const workKind = computed(() => sends.value === 'issue' ? kindOf(labels.value, appSettings.value.work_kinds) : undefined)
 const modelOptions = computed(() => [
-    {value: '', label: workKind.value ? `${workKind.value.model}, as ${workKind.value.name}` : sends.value === 'message' ? 'Any session' : "The issue's, or Claude Code's default"},
+    {value: '', label: workKind.value ? `${workKind.value.model}, as ${workKind.value.name}` : sends.value === 'message' && !untrusted.value ? 'Any session'
+        : trigger.value === 'event' && sends.value === 'session' ? "The issue's, or Claude Code's default" : "Claude Code's default"},
     ...[...MODEL_ALIASES.filter(a => a !== 'default' && a !== 'opusplan'), ...model.value && !(MODEL_ALIASES as readonly string[]).includes(model.value) ? [model.value] : []]
         .map(m => ({value: m, label: m})),
 ])
@@ -135,7 +150,11 @@ const existing = computed(() => editing.value?.schedule)
 const group = computed(() => editing.value?.across)
 const here = computed(() => byId(project.value))
 const milestones = computed(() => here.value?.board.milestones.filter(c => c.id) ?? [])
-const known = computed(() => here.value ? [...new Set(allIssues(here.value).flatMap(({issue}) => issue.labels))] : [])
+// The labels it can suggest: this project's, or across projects those of every one it reaches.
+const known = computed(() => {
+    const boards = isAcross.value ? projects.value.filter(p => reaches(p.id)) : here.value ? [here.value] : []
+    return [...new Set(boards.flatMap(board => allIssues(board).flatMap(({issue}) => issue.labels)))]
+})
 // Another project picked for a new one: a milestone of the last one isn't one of this one's.
 watch(project, () => {
     if (milestone.value && !milestones.value.some(c => c.id === milestone.value)) milestone.value = ''
@@ -195,10 +214,18 @@ watch(editing, now => {
 // Its field takes the cursor once it's there: on the first open the dialog is still loading when the watch above runs.
 watch(titleInput, el => el?.focus())
 
-// An action schedule moves what an event is about, so it runs on one, and its issues go where it says.
-watch(sends, now => {
+// An action schedule moves what an event is about, so it runs on one, and its issues go where it says. Back on another tab,
+// the trigger is what it was before.
+let triggerBefore: Trigger | null = null
+watch(editing, () => triggerBefore = null)
+watch(sends, (now, was) => {
     const todo = starts.value.find(p => p.kind === 'todo')?.id ?? 'todo'
+    if (was === 'action' && now !== 'action' && triggerBefore) {
+        trigger.value = triggerBefore
+        triggerBefore = null
+    }
     if (now === 'action') {
+        if (was && was !== 'action') triggerBefore = trigger.value
         trigger.value = 'event'
         if (column.value === todo) column.value = places.value.find(p => p.kind === 'done')?.id ?? todo
     } else if (!starts.value.some(p => p.id === column.value)) column.value = todo
@@ -222,7 +249,7 @@ const repeat = computed<Repeat>(() => {
 const cronText = computed(() => toCron(repeat.value))
 const atText = computed(() => repeat.value.kind === 'once' ? repeat.value.at : null)
 const upcoming = computed(() => nextTimes(cronText.value, atText.value, timezone.value))
-const ready = computed(() => !!project.value && (project.value !== SEVERAL || !!listed.value.length) && !!title.value.trim() && (sends.value !== 'message' || !!notes.value.trim() || !!usable.value.length)
+const ready = computed(() => !!project.value && (project.value !== SEVERAL || !!listed.value.length) && !!title.value.trim() && (sends.value !== 'message' && sends.value !== 'session' || !!notes.value.trim() || !!usable.value.length)
     && (trigger.value === 'event' ? EVENT_PATTERN.test(on.value) : upcoming.value.length > 0) && !saving.value)
 
 function toggleDay(d: number) {
@@ -255,24 +282,24 @@ async function save() {
     if (!ready.value) return
     saving.value = true
     failed.value = ''
+    const event = trigger.value === 'event'
+    // Only what the tab and the trigger use: a field another tab showed, still set from before, isn't sent.
     const body = {
         kind: sends.value,
         title: title.value.trim(),
         notes: notes.value.trim() || null,
-        ...sends.value === 'issue' || sends.value === 'action' ? {} : {presets: usable.value},
+        ...sends.value === 'message' || sends.value === 'session' ? {presets: usable.value} : {},
         ...sends.value === 'action' ? {move_from: moveFrom.value} : {},
-        ...trigger.value === 'event' ? {on: on.value, on_filter: onFilter.value} : cronText.value ? {cron: cronText.value} : {at: atText.value},
-        timezone: timezone.value,
-        column: column.value,
-        milestone: milestone.value || null,
-        priority: priority.value || null,
-        labels: labels.value,
+        ...event ? {on: on.value, on_filter: onFilter.value} : {...cronText.value ? {cron: cronText.value} : {at: atText.value}, timezone: timezone.value},
+        // Where its issues start, or where an action moves them.
+        ...sends.value === 'issue' || sends.value === 'action' ? {column: column.value} : {},
+        ...sends.value === 'issue' ? {milestone: milestone.value || null, priority: priority.value || null, labels: labels.value, ask: ask.value} : {},
+        ...sends.value === 'issue' && !event ? {skip_open: skipOpen.value} : {},
+        ...sends.value === 'message' && !event ? {only_if_changed: onlyIfChanged.value} : {},
+        // Only a message is untrusted; one that was and is now another kind lets go of it, as the server refuses it otherwise.
+        ...sends.value === 'message' ? {untrusted: untrusted.value} : existing.value?.untrusted ? {untrusted: false} : {},
         // An action runs no session, so it has no model.
         ...sends.value === 'action' ? {} : {model: model.value || null, effort: effort.value || null},
-        ask: ask.value,
-        skip_open: skipOpen.value,
-        only_if_changed: onlyIfChanged.value,
-        untrusted: sends.value === 'message' && untrusted.value,
         // A new one a suggestion made paused stays so; one already made is paused and resumed on its own, at once.
         ...!existing.value && !enabled.value ? {enabled: false} : {},
     }
@@ -428,7 +455,7 @@ const labelOf = (options: {value: string, label: string}[], value: string) => op
       </div>
       <template v-if="trigger === 'event'">
         <div class="flex flex-wrap items-center gap-2">
-          <PropertyPicker v-model="eventPick" :options="EVENT_OPTIONS" label="Event" field>
+          <PropertyPicker :model-value="eventPick" :options="EVENT_OPTIONS" label="Event" field @update:model-value="pickEvent">
             <span class="truncate">{{ labelOf(EVENT_OPTIONS, eventPick) }}</span>
           </PropertyPicker>
           <input v-if="eventPick === OTHER" v-model="pattern" placeholder="issue.priority, release.*, *.failed" aria-label="Event type or pattern" :class="[field, 'w-56 font-mono']">
@@ -439,18 +466,23 @@ const labelOf = (options: {value: string, label: string}[], value: string) => op
               <span class="truncate" :class="!to && 'text-faint'">{{ labelOf(statusOptions, to) }}</span>
             </PropertyPicker>
           </template>
-          <template v-else-if="common?.filter === 'value' || eventPick === OTHER">
+          <template v-else-if="showsTo">
             <span class="text-xs text-muted">to</span>
             <input v-model="to" placeholder="any value" aria-label="Changed to" :class="[field, 'w-32']">
           </template>
-          <PropertyPicker v-if="common?.filter === 'level' || eventPick === OTHER" v-model="level" :options="LEVEL_OPTIONS" label="Level" field>
+          <PropertyPicker v-if="showsLevel" v-model="level" :options="LEVEL_OPTIONS" label="Level" field>
             <span class="truncate" :class="!level && 'text-faint'">{{ labelOf(LEVEL_OPTIONS, level) }}</span>
           </PropertyPicker>
-          <span class="text-xs text-muted">by</span>
-          <PropertyPicker v-model="by" :options="BY_OPTIONS" label="By" field>
-            <span class="truncate">{{ labelOf(BY_OPTIONS, by) }}</span>
-          </PropertyPicker>
+          <template v-if="showsBy">
+            <span class="text-xs text-muted">by</span>
+            <PropertyPicker v-model="by" :options="BY_OPTIONS" label="By" field>
+              <span class="truncate">{{ labelOf(BY_OPTIONS, by) }}</span>
+            </PropertyPicker>
+          </template>
         </div>
+        <p v-if="eventPick === OTHER" class="text-xs text-faint">
+          <i>to</i> is the value it changed to (a status, a priority, a label added); a level is an event-log entry's. Leave either empty for any.
+        </p>
         <p class="text-xs text-faint">
           <template v-if="EVENT_PATTERN.test(on)">
             Runs once for each thing it's about (an issue, a release), at most once a minute. What a schedule's run does sets nothing off.
@@ -511,7 +543,7 @@ const labelOf = (options: {value: string, label: string}[], value: string) => op
     <section v-if="sends === 'message'" class="flex flex-col gap-2 border-t border-line pt-3 text-xs text-muted">
       <p v-if="untrusted">Each run starts a session for this message alone. It can only read the repo's GitHub issues and raise proposals, labelled <i>external</i>, for you to weigh. It needs a launcher and Starting sessions on.</p>
       <p v-else>Each run sends this to {{ here?.name ?? 'the project' }}'s listening sessions, with no issue. If none is listening, the next one to connect within a day gets it.</p>
-      <label class="flex items-center gap-1.5">
+      <label v-if="trigger === 'time'" class="flex items-center gap-1.5">
         <input v-model="onlyIfChanged" type="checkbox" class="accent-accent-fill">
         Skip a run when no issue or comment changed since the last message
       </label>
@@ -526,6 +558,7 @@ const labelOf = (options: {value: string, label: string}[], value: string) => op
         <template v-if="trigger === 'event'">It starts on what the event was about: the issue, or the release's work; for anything else, the event's id is in its words.</template>
         It needs a launcher, Starting sessions on and room under the limit, or the run is skipped saying why.
       </p>
+      <p v-if="!notes.trim() && !usable.length" class="text-rose-700 dark:text-rose-400">Give it your words or a preset, so it doesn't start a blank session.</p>
     </section>
     <section v-else-if="sends === 'action'" class="flex flex-col gap-2 border-t border-line pt-3 text-xs text-muted">
       <div class="flex flex-wrap items-center gap-2">
@@ -555,7 +588,7 @@ const labelOf = (options: {value: string, label: string}[], value: string) => op
         </button>
       </div>
       <p>
-        {{ moveFrom.length ? 'Only from the statuses ticked.' : 'From any open status.' }}
+        {{ moveFrom.length ? 'Only from the statuses ticked.' : 'From any open status; tick a closed one to move those too.' }}
         Each run moves the issue the event is about, or a release's issues and their sub-issues, as you, with no session, and comments why.
         It passes over a proposal, an issue waiting on your answer, and for a pull request's news, an issue with another one still open.
       </p>
@@ -588,7 +621,7 @@ const labelOf = (options: {value: string, label: string}[], value: string) => op
         <input v-model="ask" type="checkbox" class="accent-accent-fill">
         Ask {{ here?.name ?? 'the project' }}'s sessions to pick it up (if none is listening, the next one to connect gets it)
       </label>
-      <label class="flex items-center gap-1.5 text-xs text-muted">
+      <label v-if="trigger === 'time'" class="flex items-center gap-1.5 text-xs text-muted">
         <input v-model="skipOpen" type="checkbox" class="accent-accent-fill">
         Skip a run while the last run's issue isn't done
       </label>
