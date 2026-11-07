@@ -74,6 +74,11 @@ export const TOOLS = [
         inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'string'}, comment: {type: 'string'}}},
     },
     {
+        name: 'next',
+        description: "Out of work: the issues you may start next, or why there are none.",
+        inputSchema: {type: 'object', properties: {}},
+    },
+    {
         name: 'finish_issue',
         description: 'Closes an issue with a comment on what shipped: done, in-review (waits on the owner) or canceled (say why).',
         inputSchema: {type: 'object', required: ['id', 'comment'], properties: {id: {type: 'string'}, comment: {type: 'string'}, status: {type: 'string', enum: ['done', 'in-review', 'canceled']}}},
@@ -416,12 +421,12 @@ const MORE_TOOLS = {
 
 /** What an untrusted schedule's session goes without: what orrery refuses it (the permissions' untrusted column: it
  * only raises proposals and comments on them), and orrery's own log. */
-export const NOT_FOR_UNTRUSTED = ['epics', 'create_epic', 'update_epic', 'comment_epic', 'update_issue', 'start_issue', 'finish_issue', 'rate_pull', 'write_doc', 'secrets', 'egress', 'events', 'resolve_event']
+export const NOT_FOR_UNTRUSTED = ['epics', 'create_epic', 'update_epic', 'comment_epic', 'update_issue', 'start_issue', 'next', 'finish_issue', 'rate_pull', 'write_doc', 'secrets', 'egress', 'events', 'resolve_event']
 
 /** The tools a chat goes without: those that take up or finish work, its one rule (ORR-750), `update_issue` among them as
  * it sets a status; `edit_issue` is its way to change the rest (its launcher refuses them too, `chatOnly`). Epics it
  * makes, changes and comments on itself (ORR-988). */
-export const NOT_FOR_CHAT = ['start_issue', 'finish_issue', 'update_issue', 'rate_pull']
+export const NOT_FOR_CHAT = ['start_issue', 'next', 'finish_issue', 'update_issue', 'rate_pull']
 
 /** The reads only the chat has use for, helping the owner plan: a work session goes without them, so their definitions
  * don't ride on its every turn (ORR-544). */
@@ -603,6 +608,11 @@ export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''),
             // Unrelated to the issue it worked before, with that one's context still in: cleared once idle (ORR-968).
             const carried = issue.carried_over
             return `Started ${line(issue)}${carried ? `\n\nThis is unrelated to ${carried.from}, and your context still holds about ${Math.round(carried.tokens / 1000)}k tokens of it. End your turn now without working on it: orrery clears your context, then sends you back to ${issue.id} to start it fresh.` : ''}`
+        },
+        async next() {
+            // The list is the session's own, across every project it hears: asked on the first, which it's on.
+            if (!session) throw new Error('next needs this session\'s id, which this channel has none of')
+            return (await call('GET', `/sessions/${encodeURIComponent(session)}/next`, undefined, at(projects[0]))).text
         },
         async finish_issue({id, comment, status = 'done'}) {
             const base = at(await projectOf({id}))

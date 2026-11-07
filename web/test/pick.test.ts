@@ -229,4 +229,34 @@ describe('a session out of work', () => {
         expect(sent.map(s => s.session)).toEqual(['w'])
         expect(await pick.pickNext('orrery', 's')).toBe(false)
     })
+
+    it('hands the same list to a session that asks, by the same rules, and the push leaves it be (ORR-521)', async () => {
+        sessions[0]!.state = 'working'
+        const asked = await pick.nextFor('w')
+        expect(asked!.issues.map(i => i.id)).toEqual(['ORR-2', 'ORR-1'])
+        expect(asked!.text.startsWith(pick.PICK_NOTE)).toBe(true)
+        expect(ids(asked!.text)).toEqual(['ORR-2', 'ORR-1'])
+        sessions[0]!.state = 'idle'
+        expect(await pick.pickNext('orrery', 'w')).toBe(false)
+        expect(sent).toEqual([])
+    })
+
+    it('tells a session that asks why there is nothing for it (ORR-521)', async () => {
+        expect(await pick.nextFor('nobody')).toBeUndefined()
+        working = ['ORR-9']
+        expect((await pick.nextFor('w'))!.text).toMatch(/still have work/)
+        working = []
+        run = {project: 'orrery', milestone: '4'}
+        left = [{id: 'ORR-8'}]
+        expect((await pick.nextFor('w'))!.text).toMatch(/ORR-8/)
+        run = undefined
+        chat = true
+        expect((await pick.nextFor('w'))!.text).toMatch(/chat/)
+        chat = false
+        untrusted = true
+        expect((await pick.nextFor('w'))!.text).toMatch(/untrusted/)
+        untrusted = false
+        board.orrery = []
+        expect(await pick.nextFor('w')).toEqual({issues: [], text: expect.stringMatching(/^Nothing to pick/)})
+    })
 })
