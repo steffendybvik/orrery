@@ -8,7 +8,7 @@
 
 export type Writer = {alone: string} | {nuxt: string, issue?: `ORR-${number}`}
 
-const PROJECT: Writer = {nuxt: 'reading, deleting and importing a project (store/projects.ts, store/imports.ts, utils/renumber.ts)', issue: 'ORR-1006'}
+const PROJECT: Writer = {nuxt: 'reading and importing a project (store/projects.ts, store/imports.ts, utils/renumber.ts)', issue: 'ORR-1006'}
 const UPLOAD = 'a board file uploaded from another server (utils/board-upload.ts)'
 const SCHEDULES: Writer = {nuxt: 'schedule writes and runs (utils/schedules.ts)', issue: 'ORR-950'}
 const BELL: Writer = {alone: 'the bell (store/owner.ts clearNotices, readNotices), all routed as "the bell"'}

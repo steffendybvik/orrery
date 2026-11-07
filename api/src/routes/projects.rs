@@ -21,7 +21,7 @@ use std::sync::Arc;
 pub(crate) fn routes() -> Router<Arc<App>> {
     Router::new()
         .route("/api/projects", get(list_projects).post(create_project))
-        .route(P, get(get_project).patch(patch_project))
+        .route(P, get(get_project).patch(patch_project).delete(delete_project))
         .route(&format!("{P}/export"), get(export_project))
         .route(&format!("{P}/import"), post(import_project))
 }
@@ -60,6 +60,15 @@ async fn patch_project(State(app): Shared, Path(project): Path<String>, headers:
     let effects = std::mem::take(&mut projects.effects);
     let value = projects.project(&project).await?;
     Ok(reply(StatusCode::OK, Some(value), effects))
+}
+
+/// `DELETE /api/projects/{project}` → 204; everything in it goes too, for good (`deleteProject`).
+async fn delete_project(State(app): Shared, Path(project): Path<String>, headers: HeaderMap) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    let mut projects = Projects::new(&mut conn);
+    projects.outbox = Some(Outbox::new(actor_of(&headers)));
+    projects.delete(&project, &actor_of(&headers)).await?;
+    Ok(reply(StatusCode::NO_CONTENT, None, std::mem::take(&mut projects.effects)))
 }
 
 /// `GET /api/projects/{project}/export` → the board as one file (`board::export`), named for the project and the day, so a

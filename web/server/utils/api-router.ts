@@ -103,7 +103,7 @@ export const DOMAINS: readonly {domain: string, paths: RegExp, methods?: readonl
     {domain: 'a schedule, adopted', paths: /^projects\/[^/]+\/schedules\/[^/]+\/adopt$/, methods: ['POST']},
     {domain: 'a schedule, deleted', paths: /^projects\/[^/]+\/schedules\/[^/]+$/, methods: ['DELETE']},
     // Every project, listed with its counts (ORR-997). With `?expand=board` it's their boards, each with the events
-    // stream's `rev`, so that stays here (`listedOnly`), as do reading one project and deleting one.
+    // stream's `rev`, so that stays here (`listedOnly`), as does reading one project.
     {domain: 'projects, listed', paths: /^projects$/, methods: ['GET'], first: {GET: listedOnly}},
     // Making a project (ORR-1002), held by whoever asks, as `personOf` has it here. The reply is the project with its
     // board, without the `rev` that reading one adds here.
@@ -111,6 +111,9 @@ export const DOMAINS: readonly {domain: string, paths: RegExp, methods?: readonl
     // Changing a project (ORR-923): its name, key, icon, prompts, repo and where its releases come from. The reply is the
     // project with its board, without the `rev` that reading one adds here.
     {domain: 'a project, changed', paths: /^projects\/[^/]+$/, methods: ['PATCH']},
+    // Deleting a project (ORR-1006), with everything in it: its schedules too, told back as `Orrery-Schedules` for the
+    // runner here to drop, and its signals, which are only rows.
+    {domain: 'a project, deleted', paths: /^projects\/[^/]+$/, methods: ['DELETE']},
     // A board as one file (ORR-1006): read in one transaction, named for the project and the day (`Content-Disposition`).
     // Whether the asker is on the board is checked here first (`needsBoard`), as a write's board is in middleware/board.ts.
     {domain: 'a project, exported', paths: /^projects\/[^/]+\/export$/, methods: ['GET'], first: {GET: onTheBoard}},

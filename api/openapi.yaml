@@ -755,6 +755,18 @@ paths:
         '403': {$ref: '#/components/responses/Forbidden'}
         '404': {$ref: '#/components/responses/NotFound'}
         '409': {$ref: '#/components/responses/Conflict'}
+    delete:
+      summary: Deletes a project, for good
+      description: |
+        Everything in it goes too: milestones, issues, comments, docs, releases, schedules and signals. An agent can't
+        while it holds anything the owner made (403), and nobody can while another project takes its releases from it
+        (409). The reply says its schedules changed (`Orrery-Schedules`), for the local app's runner to drop them.
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      responses:
+        '204': {description: Deleted}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
   /api/projects/{project}/export:
     parameters: [{$ref: '#/components/parameters/project'}]
     get:
