@@ -1,88 +1,8 @@
 // What the issue routes do (ORR-1053), through the router as the Nuxt router in front sends them: reading issues,
 // making and changing one, bulk changes and deletes, claims, decisions on proposals, comments and activity, and the
 // rails between people (what an agent may change, whose issue it is, handing one on).
-use crate::db::sql;
-use crate::testing::{Reply, Req, TestApi};
-use percent_encoding::percent_decode_str;
+use crate::testing::{ids, Reply, TestApi};
 use serde_json::{json, Value};
-
-// Who's asking, as the router sends it (`actor_of`).
-
-trait Asking {
-    /// An agent's request on the rails (`Orrery-Actor-Asked: 1`), its session naming `person`.
-    fn agent_of(self, person: &str) -> Req;
-    /// An agent's request on the rails whose session names nobody here.
-    fn agent_of_nobody(self) -> Req;
-    /// An untrusted session's request (`Orrery-Actor-Kind: untrusted`).
-    fn untrusted(self) -> Req;
-    /// A person's own request, from their browser: `person`, not the owner.
-    fn person(self, person: &str) -> Req;
-}
-
-impl Asking for Req {
-    fn agent_of(self, person: &str) -> Req {
-        self.by_agent("claude").header("orrery-actor-asked", "1").header("orrery-actor-named", person)
-    }
-
-    fn agent_of_nobody(self) -> Req {
-        self.by_agent("claude").header("orrery-actor-asked", "1")
-    }
-
-    fn untrusted(self) -> Req {
-        self.by_agent("outsider").header("orrery-actor-asked", "1").header("orrery-actor-kind", "untrusted")
-    }
-
-    fn person(self, person: &str) -> Req {
-        self.by_agent(person).header("orrery-actor-person", person).header("orrery-actor-asked", "1")
-    }
-}
-
-/// A header's list, each entry's parts percent-decoded: `issue.priority primes PRI-1 ~ P0`.
-fn said(reply: &Reply, header: &str) -> Vec<String> {
-    let decode = |part: &str| percent_decode_str(part).decode_utf8_lossy().into_owned();
-    reply.header(header).map(|all| all.split(", ").map(|one| one.split(' ').map(decode).collect::<Vec<_>>().join(" ")).collect()).unwrap_or_default()
-}
-
-/// The events a write told (`Orrery-Told`), decoded.
-fn told(reply: &Reply) -> Vec<String> {
-    said(reply, "orrery-told")
-}
-
-/// The owner, `steffen`, and two members, `ana` and `bo`: with more than one person the rails hold.
-async fn team(api: &TestApi) {
-    for (id, role) in [("steffen", "owner"), ("ana", "member"), ("bo", "member")] {
-        sqlx::query(&sql("INSERT INTO people (id, name, role, created_at) VALUES (?, ?, ?, ?)"))
-            .bind(id)
-            .bind(id)
-            .bind(role)
-            .bind("2026-11-01T00:00:00.000Z")
-            .execute(&api.app.pool)
-            .await
-            .unwrap();
-    }
-}
-
-/// Runs a statement on the database, for what no route sets (a claim another session holds).
-async fn run(api: &TestApi, statement: &str, binds: &[&str]) {
-    let statement = sql(statement);
-    let mut query = sqlx::query(&statement);
-    for bind in binds {
-        query = query.bind(*bind);
-    }
-    query.execute(&api.app.pool).await.unwrap();
-}
-
-/// The outbox's rows, oldest first: `(kind, subject, payload)`.
-async fn outbox(api: &TestApi) -> Vec<(String, Option<String>, Option<String>)> {
-    use sqlx::Row;
-    sqlx::query("SELECT kind, subject, payload FROM changes ORDER BY id")
-        .fetch_all(&api.app.pool)
-        .await
-        .unwrap()
-        .iter()
-        .map(|r| (r.get("kind"), r.get("subject"), r.get("payload")))
-        .collect()
-}
 
 /// A project, `primes`, and the paths and reads on its issues.
 struct Board<'a> {
@@ -94,8 +14,7 @@ impl Board<'_> {
     /// Project Primes, with everyone here on its board, as the board check wants of a member (ORR-1059).
     async fn new(api: &TestApi) -> Board<'_> {
         let project = api.project("Primes").await;
-        run(
-            api,
+        api.run(
             "INSERT INTO project_members (project, person, role, created_at) SELECT ?, id, 'member', '2026-11-01' FROM people WHERE role <> 'owner'",
             &[&project],
         )
@@ -154,17 +73,8 @@ impl Board<'_> {
     }
 }
 
-/// The problems a 400 lists.
-fn problems(reply: &Reply) -> Vec<String> {
-    reply.body["data"]["problems"].as_array().map(|p| p.iter().map(|p| p.as_str().unwrap_or_default().to_string()).collect()).unwrap_or_default()
-}
-
 fn message(reply: &Reply) -> &str {
     reply.body["message"].as_str().unwrap_or_default()
-}
-
-fn ids(list: &Value) -> Vec<String> {
-    list.as_array().unwrap().iter().map(|i| i["id"].as_str().unwrap().to_string()).collect()
 }
 
 fn store_choice() -> Value {
@@ -295,14 +205,14 @@ async fn making_an_issue_puts_it_last_in_the_backlog_and_tells_it() {
     assert_eq!(made["protected"], json!(true), "the owner's");
     assert_eq!(made["created_by"], json!("owner"));
     assert_eq!(reply.header("orrery-changed"), Some("primes"));
-    assert_eq!(told(&reply), ["issue.created primes PRI-2"]);
+    assert_eq!(reply.told(), ["issue.created primes PRI-2"]);
     assert_eq!(reply.header("orrery-urgent"), None);
     assert_eq!(board.fields_noted("PRI-2").await, ["created"]);
     assert_eq!(ids(&api.get(&board.issues()).send().await.body), ["PRI-1", "PRI-2"], "last");
     // Its outbox rows went in with it.
-    let rows = outbox(&api).await;
-    assert!(rows.iter().any(|(kind, subject, _)| kind == "issue.created" && subject.as_deref() == Some("PRI-2")), "{rows:?}");
-    assert!(rows.iter().any(|(kind, _, _)| kind == "project.changed"), "{rows:?}");
+    let rows = api.outbox().await;
+    assert!(rows.iter().any(|row| row.kind == "issue.created" && row.subject.as_deref() == Some("PRI-2")), "{rows:?}");
+    assert!(rows.iter().any(|row| row.kind == "project.changed"), "{rows:?}");
 }
 
 #[tokio::test]
@@ -310,7 +220,7 @@ async fn a_new_urgent_issue_is_pushed_but_not_an_urgent_proposal_or_a_closed_one
     let api = TestApi::new().await;
     let board = Board::new(&api).await;
     let reply = api.post(&board.issues(), json!({"title": "Down", "priority": "P0"})).send().await;
-    assert_eq!(said(&reply, "orrery-urgent"), ["primes PRI-1"]);
+    assert_eq!(reply.said("orrery-urgent"), ["primes PRI-1"]);
     let reply = api.post(&board.issues(), json!({"title": "Maybe", "priority": "P0", "proposal": "pending"})).send().await;
     assert_eq!(reply.header("orrery-urgent"), None);
     let reply = api.post(&board.issues(), json!({"title": "Was", "priority": "P0", "status": "done"})).send().await;
@@ -327,14 +237,14 @@ async fn a_new_issue_with_a_bad_body_lists_every_problem() {
     let board = Board::new(&api).await;
     let reply = api.post(&board.issues(), json!({"priority": "P9", "colour": "red", "position": "top"})).send().await;
     assert_eq!(reply.status, 400);
-    let listed = problems(&reply);
+    let listed = reply.problems();
     assert_eq!(message(&reply), "4 problems in the body");
     assert!(listed.iter().any(|p| p.starts_with("unknown field \"colour\"")), "{listed:?}");
     assert!(listed.contains(&"missing \"title\"".to_string()), "{listed:?}");
     assert!(listed.contains(&"\"priority\" is \"P9\", not one of P0, P1, P2, P3 (or null)".to_string()), "{listed:?}");
     assert!(listed.iter().any(|p| p.starts_with("\"position\" should be a number")), "{listed:?}");
     let reply = api.post(&board.issues(), json!({"title": "   "})).send().await;
-    assert_eq!((reply.status.as_u16(), problems(&reply)), (400, vec!["\"title\" can't be empty".to_string()]));
+    assert_eq!((reply.status.as_u16(), reply.problems()), (400, vec!["\"title\" can't be empty".to_string()]));
     let reply = api.post(&board.issues(), json!({"title": "x", "status": "someday"})).send().await;
     assert_eq!(reply.status, 400);
     assert!(message(&reply).starts_with("\"status\" is \"someday\", not one of backlog, todo"), "{}", reply.body);
@@ -375,7 +285,7 @@ async fn an_edit_moves_an_issue_to_another_release_and_epic_and_takes_them_away(
     let reply = api.patch(&board.at(&id), json!({"release": "1.0.0", "epic": 1})).send().await;
     assert_eq!(reply.status, 200, "{}", reply.body);
     assert_eq!((&reply.body["release"], &reply.body["epic"]), (&json!("1.0.0"), &json!(1)));
-    let events = told(&reply);
+    let events = reply.told();
     assert!(events.contains(&"issue.release primes PRI-1 ~ 1.0.0".to_string()) && events.contains(&"issue.epic primes PRI-1 ~ 1".to_string()), "{events:?}");
     let reply = api.patch(&board.at(&id), json!({"release": "2.0.0"})).send().await;
     assert_eq!(reply.status, 404);
@@ -410,7 +320,7 @@ async fn a_new_issue_can_depend_on_others_and_is_blocked_while_they_are_open() {
     assert_eq!(reply.body["depends_on"], json!(["PRI-1"]));
     assert_eq!(reply.body["blocked_by"], json!(["PRI-1"]));
     assert_eq!(board.read(&first).await["blocks"], json!(["PRI-2"]));
-    assert!(told(&reply).contains(&"issue.depends primes PRI-2 ~ [\"PRI-1\"]".to_string()), "{:?}", told(&reply));
+    assert!(reply.told().contains(&"issue.depends primes PRI-2 ~ [\"PRI-1\"]".to_string()), "{:?}", reply.told());
     assert_eq!(ids(&api.get(&format!("{}?blocked=true", board.issues())).send().await.body), ["PRI-2"]);
     api.patch(&board.at(&first), json!({"status": "done"})).send().await;
     let wheel = board.read("PRI-2").await;
@@ -438,7 +348,7 @@ async fn an_edit_changes_each_field_notes_it_in_the_activity_and_tells_it() {
     assert_eq!(read["labels"], json!(["math"]));
     assert_eq!(read["assignee"], json!("owner"), "owner is the owner's id, here with nobody named");
     assert_eq!((&read["model"], &read["effort"]), (&json!("sonnet"), &json!("high")));
-    let events = told(&reply);
+    let events = reply.told();
     for event in [
         "issue.status primes PRI-1 backlog in-progress",
         "issue.priority primes PRI-1 ~ P1",
@@ -467,7 +377,7 @@ async fn a_title_or_description_is_noted_but_not_told_in_its_words() {
     let reply = api.patch(&board.at(&id), json!({"title": "Segmented sieve", "notes": "new words"})).send().await;
     assert_eq!(reply.status, 200);
     assert_eq!((&reply.body["title"], &reply.body["notes"]), (&json!("Segmented sieve"), &json!("new words")));
-    assert_eq!(told(&reply), ["issue.title primes PRI-1", "issue.notes primes PRI-1"]);
+    assert_eq!(reply.told(), ["issue.title primes PRI-1", "issue.notes primes PRI-1"]);
     let activity = board.activity(&id).await;
     let title = activity.iter().find(|e| e["field"] == json!("title")).unwrap();
     assert_eq!((&title["before"], &title["after"]), (&json!("Sieve"), &json!("Segmented sieve")), "the activity keeps a title's words");
@@ -483,9 +393,9 @@ async fn an_edit_with_a_bad_body_lists_every_problem_and_changes_nothing() {
     let reply = api.patch(&board.at(&id), json!({"title": "", "status": null, "effort": "huge", "model": "gpt", "labels": "math"})).send().await;
     assert_eq!(reply.status, 400);
     assert_eq!(message(&reply), "5 problems in the body");
-    assert_eq!(problems(&reply).len(), 5);
+    assert_eq!(reply.problems().len(), 5);
     let reply = api.patch(&board.at(&id), json!({"choices": [{"key": "a", "question": "Q?", "options": [{"key": "x", "title": "X"}]}]})).send().await;
-    assert_eq!(problems(&reply), ["\"choices\": a needs two options or more"]);
+    assert_eq!(reply.problems(), ["\"choices\": a needs two options or more"]);
     let reply = api.patch(&board.at(&id), json!({"github_issues": ["12"]})).send().await;
     assert_eq!(reply.status, 400, "no GitHub repo to put #12 on: {}", reply.body);
     let reply = api.patch(&board.at(&id), json!([1])).send().await;
@@ -509,7 +419,7 @@ async fn the_words_from_before_statuses_still_set_one() {
     assert_eq!(status(json!({"status": "in-review"})).await, json!("in-review"));
     assert_eq!(status(json!({"status": "todo", "plan": null})).await, json!("backlog"));
     let reply = api.patch(&board.at(&id), json!({"plan": "soon"})).send().await;
-    assert_eq!(problems(&reply), ["\"plan\" is \"soon\", not one of now, next, later (or null)"]);
+    assert_eq!(reply.problems(), ["\"plan\" is \"soon\", not one of now, next, later (or null)"]);
 }
 
 #[tokio::test]
@@ -518,12 +428,12 @@ async fn an_issue_made_urgent_is_pushed_once() {
     let board = Board::new(&api).await;
     let id = board.issue(json!({"title": "Sieve", "priority": "P2"})).await;
     let reply = api.patch(&board.at(&id), json!({"priority": "P0"})).send().await;
-    assert_eq!(said(&reply, "orrery-urgent"), ["primes PRI-1"]);
+    assert_eq!(reply.said("orrery-urgent"), ["primes PRI-1"]);
     let reply = api.patch(&board.at(&id), json!({"title": "Sieve, now"})).send().await;
     assert_eq!(reply.header("orrery-urgent"), None, "it was urgent already");
     api.patch(&board.at(&id), json!({"status": "done"})).send().await;
     let reply = api.patch(&board.at(&id), json!({"status": "todo"})).send().await;
-    assert_eq!(said(&reply, "orrery-urgent"), ["primes PRI-1"], "opened again, it's urgent again");
+    assert_eq!(reply.said("orrery-urgent"), ["primes PRI-1"], "opened again, it's urgent again");
 }
 
 #[tokio::test]
@@ -538,7 +448,7 @@ async fn moving_an_issue_under_another_puts_it_in_its_parents_milestone_and_lift
     let reply = api.patch(&board.at(&id), json!({"parent": parent})).send().await;
     assert_eq!(reply.status, 200, "{}", reply.body);
     assert_eq!((&reply.body["parent"], &reply.body["milestone"]), (&json!(parent), &json!("1")));
-    assert!(told(&reply).contains(&"issue.parent primes PRI-2 ~ PRI-1".to_string()), "{:?}", told(&reply));
+    assert!(reply.told().contains(&"issue.parent primes PRI-2 ~ PRI-1".to_string()), "{:?}", reply.told());
     let reply = api.patch(&board.at(&id), json!({"parent": null})).send().await;
     assert_eq!((&reply.body["parent"], &reply.body["milestone"]), (&Value::Null, &json!("1")), "lifted, it stays in its root's milestone");
     let reply = api.patch(&board.at(&id), json!({"parent": parent, "milestone": "2"})).send().await;
@@ -585,7 +495,7 @@ async fn depends_on_refuses_itself_its_parent_and_a_loop() {
     // Dropping them all notes it once.
     let reply = api.patch(&board.at(&c), json!({"depends_on": null})).send().await;
     assert_eq!(reply.status, 200);
-    assert!(told(&reply).contains(&"issue.depends primes PRI-3 [\"PRI-2\"] ~".to_string()), "{:?}", told(&reply));
+    assert!(reply.told().contains(&"issue.depends primes PRI-3 [\"PRI-2\"] ~".to_string()), "{:?}", reply.told());
     assert_eq!(board.read(&c).await.get("depends_on"), None);
 }
 
@@ -697,9 +607,9 @@ async fn approving_a_proposal_commits_it_into_todo_and_hands_it_back_with_a_comm
     let comments = board.comments(&id).await;
     assert_eq!(comments.len(), 1);
     assert_eq!(comments[0]["body"], json!("Approved this proposal.\n\nGo"));
-    assert_eq!(said(&reply, "orrery-carry"), [format!("primes PRI-1 {}", comments[0]["id"])]);
+    assert_eq!(reply.said("orrery-carry"), [format!("primes PRI-1 {}", comments[0]["id"])]);
     assert_eq!(reply.header("orrery-notice"), None);
-    let events = told(&reply);
+    let events = reply.told();
     for event in ["issue.proposal primes PRI-1 pending approved", "issue.assignee primes PRI-1 owner claude", "comment.added primes PRI-1"] {
         assert!(events.contains(&event.to_string()), "{event} in {events:?}");
     }
@@ -726,7 +636,7 @@ async fn rejecting_a_proposal_is_said_to_the_session_quietly_and_leaves_it_where
     assert_eq!((&reply.body["proposal"], &reply.body["status"]), (&json!("rejected"), &json!("backlog")));
     let comments = board.comments(&id).await;
     assert_eq!(comments[0]["body"], json!("Rejected this proposal."));
-    assert_eq!(said(&reply, "orrery-carry"), [format!("primes PRI-1 {} quiet", comments[0]["id"])]);
+    assert_eq!(reply.said("orrery-carry"), [format!("primes PRI-1 {} quiet", comments[0]["id"])]);
     // An agent can't commit a rejected one either.
     let reply = api.patch(&board.at(&id), json!({"proposal": null})).by_agent("claude").send().await;
     assert_eq!(message(&reply), "Committing PRI-1 is the owner's call until they approve it: it's rejected");
@@ -760,9 +670,9 @@ async fn deciding_what_isnt_a_proposal_or_without_a_decision_is_a_400() {
     let id = board.proposal(json!({"title": "Sieve"})).await;
     let decide = format!("{}/decide", board.at(&id));
     let reply = api.post(&decide, json!({})).send().await;
-    assert_eq!(problems(&reply), ["missing \"decision\""]);
+    assert_eq!(reply.problems(), ["missing \"decision\""]);
     let reply = api.post(&decide, json!({"decision": "maybe", "note": 3, "why": "x"})).send().await;
-    assert_eq!(problems(&reply).len(), 3, "{:?}", problems(&reply));
+    assert_eq!(reply.problems().len(), 3, "{:?}", reply.problems());
     let reply = api.post(&format!("{}/decide", board.at("PRI-9")), json!({"decision": "approved"})).send().await;
     assert_eq!(reply.status, 404);
 }
@@ -813,7 +723,7 @@ async fn approving_an_urgent_proposal_pushes_it() {
     let board = Board::new(&api).await;
     let id = board.proposal(json!({"title": "Down", "priority": "P0"})).await;
     let reply = api.post(&format!("{}/decide", board.at(&id)), json!({"decision": "approved"})).send().await;
-    assert_eq!(said(&reply, "orrery-urgent"), ["primes PRI-1"]);
+    assert_eq!(reply.said("orrery-urgent"), ["primes PRI-1"]);
 }
 
 #[tokio::test]
@@ -832,8 +742,8 @@ async fn deciding_many_proposals_answers_for_each_once() {
     assert_eq!(results[2]["ok"], json!(false));
     assert!(results[2]["error"].as_str().unwrap().contains("isn't a proposal"), "{}", results[2]);
     assert_eq!(results[3]["error"], json!("No issue PRI-9 in primes"));
-    assert_eq!(said(&reply, "orrery-carry").len(), 2);
-    assert_eq!(said(&reply, "orrery-urgent"), ["primes PRI-1"]);
+    assert_eq!(reply.said("orrery-carry").len(), 2);
+    assert_eq!(reply.said("orrery-urgent"), ["primes PRI-1"]);
     assert_eq!(board.read(&a).await.get("proposal"), None);
     assert_eq!(board.read(&b).await["status"], json!("todo"));
 }
@@ -862,7 +772,7 @@ async fn deciding_many_proposals_takes_no_picks_and_approves_none_on_a_guess() {
 #[tokio::test]
 async fn an_approved_proposal_goes_to_the_person_whose_agent_proposed_it() {
     let api = TestApi::new().await;
-    team(&api).await;
+    api.team().await;
     let board = Board::new(&api).await;
     let reply = api.post(&board.issues(), json!({"title": "Sieve", "proposal": "pending"})).agent_of("ana").send().await;
     assert_eq!(reply.status, 201, "{}", reply.body);
@@ -892,11 +802,11 @@ async fn a_bulk_change_edits_each_issue_on_its_own_and_answers_for_each_once() {
     let read_a = board.read(&a).await;
     assert_eq!((&read_a["priority"], &read_a["status"], &read_a["labels"]), (&json!("P0"), &json!("todo"), &json!(["keep", "new"])));
     assert_eq!(board.read(&b).await["labels"], json!(["new"]));
-    assert_eq!(said(&reply, "orrery-urgent"), ["primes PRI-1", "primes PRI-2"]);
-    assert_eq!(told(&reply).iter().filter(|t| t.starts_with("issue.priority")).count(), 2);
+    assert_eq!(reply.said("orrery-urgent"), ["primes PRI-1", "primes PRI-2"]);
+    assert_eq!(reply.told().iter().filter(|t| t.starts_with("issue.priority")).count(), 2);
     // Each edit's rows, and the project once more as the batch ends.
-    let changed = outbox(&api).await.iter().filter(|(kind, _, _)| kind == "project.changed").count();
-    assert_eq!(changed, 1 + 2 + 2 + 1, "the project and its two issues made, each edited, then the batch: {:?}", outbox(&api).await);
+    let changed = api.outbox().await.iter().filter(|row| row.kind == "project.changed").count();
+    assert_eq!(changed, 1 + 2 + 2 + 1, "the project and its two issues made, each edited, then the batch: {:?}", api.outbox().await);
 }
 
 #[tokio::test]
@@ -934,7 +844,7 @@ async fn deleting_an_issue_takes_its_sub_issues_and_comments_with_it() {
     api.post(&format!("{}/comments", board.at(&child)), json!({"body": "note"})).send().await;
     let reply = api.delete(&board.at(&parent)).send().await;
     assert_eq!(reply.status, 204);
-    assert_eq!(told(&reply), ["issue.deleted primes PRI-1"]);
+    assert_eq!(reply.told(), ["issue.deleted primes PRI-1"]);
     assert_eq!(reply.header("orrery-changed"), Some("primes"));
     assert_eq!(api.get(&board.at(&parent)).send().await.status, 404);
     assert_eq!(api.get(&board.at(&child)).send().await.status, 404);
@@ -986,7 +896,7 @@ async fn deleting_many_answers_for_each_and_one_gone_with_its_parent_is_ok() {
     let reply = api.delete(&board.issues()).json(json!({"ids": [parent, child, child, "PRI-9"]})).send().await;
     assert_eq!(reply.status, 200, "{}", reply.body);
     assert_eq!(reply.body, json!([{"id": parent, "ok": true}, {"id": child, "ok": true}, {"id": "PRI-9", "ok": false, "error": "No issue PRI-9 in primes"}]));
-    assert_eq!(told(&reply), ["issue.deleted primes PRI-1"]);
+    assert_eq!(reply.told(), ["issue.deleted primes PRI-1"]);
     let reply = api.delete(&board.issues()).json(json!({"ids": [1]})).send().await;
     assert_eq!(reply.status, 400);
 }
@@ -996,7 +906,7 @@ async fn deleting_many_answers_for_each_and_one_gone_with_its_parent_is_ok() {
 #[tokio::test]
 async fn the_owner_takes_up_an_issue_and_lets_it_go_and_it_stays_theirs() {
     let api = TestApi::new().await;
-    team(&api).await;
+    api.team().await;
     let board = Board::new(&api).await;
     let id = board.issue(json!({"title": "Sieve"})).await;
     let claim = format!("{}/claim", board.at(&id));
@@ -1004,11 +914,11 @@ async fn the_owner_takes_up_an_issue_and_lets_it_go_and_it_stays_theirs() {
     assert_eq!(reply.status, 200, "{}", reply.body);
     assert_eq!((&reply.body["assignee"], &reply.body["claimed_by"]), (&json!("steffen"), &json!("steffen")));
     assert!(reply.body["claimed_at"].is_string());
-    assert_eq!(told(&reply), ["issue.assignee primes PRI-1 ~ steffen", "issue.claim primes PRI-1 ~ steffen"]);
+    assert_eq!(reply.told(), ["issue.assignee primes PRI-1 ~ steffen", "issue.claim primes PRI-1 ~ steffen"]);
     let reply = api.delete(&claim).send().await;
     assert_eq!(reply.status, 200);
     assert_eq!((&reply.body["assignee"], reply.body.get("claimed_by")), (&json!("steffen"), None));
-    assert_eq!(told(&reply), ["issue.claim primes PRI-1 steffen ~"]);
+    assert_eq!(reply.told(), ["issue.claim primes PRI-1 steffen ~"]);
     // Letting go of what nobody holds changes nothing.
     let reply = api.delete(&claim).send().await;
     assert_eq!((reply.status.as_u16(), reply.header("orrery-told")), (200, None));
@@ -1018,22 +928,22 @@ async fn the_owner_takes_up_an_issue_and_lets_it_go_and_it_stays_theirs() {
 #[tokio::test]
 async fn a_person_takes_up_an_issue_thats_nobodys_and_it_becomes_theirs() {
     let api = TestApi::new().await;
-    team(&api).await;
+    api.team().await;
     let board = Board::new(&api).await;
     let id = board.issue(json!({"title": "Sieve"})).await;
     let reply = api.post(&format!("{}/claim", board.at(&id)), json!({})).person("ana").send().await;
     assert_eq!(reply.status, 200, "{}", reply.body);
     assert_eq!((&reply.body["assignee"], &reply.body["claimed_by"]), (&json!("ana"), &json!("ana")));
     // A member's write names them in the outbox.
-    let rows = outbox(&api).await;
-    let claim = rows.iter().find(|(kind, _, _)| kind == "issue.claim").unwrap();
-    assert_eq!(serde_json::from_str::<Value>(claim.2.as_deref().unwrap()).unwrap(), json!({"to": "ana", "person": "ana"}));
+    let rows = api.outbox().await;
+    let claim = rows.iter().find(|row| row.kind == "issue.claim").unwrap();
+    assert_eq!(claim.payload(), json!({"to": "ana", "person": "ana"}));
 }
 
 #[tokio::test]
 async fn an_agent_takes_up_its_persons_issue_but_not_one_thats_nobodys() {
     let api = TestApi::new().await;
-    team(&api).await;
+    api.team().await;
     let board = Board::new(&api).await;
     let anas = board.assigned("Sieve", "ana").await;
     let reply = api.post(&format!("{}/claim", board.at(&anas)), json!({})).agent_of("ana").send().await;
@@ -1048,7 +958,7 @@ async fn an_agent_takes_up_its_persons_issue_but_not_one_thats_nobodys() {
 #[tokio::test]
 async fn an_agent_cant_take_up_another_persons_issue() {
     let api = TestApi::new().await;
-    team(&api).await;
+    api.team().await;
     let board = Board::new(&api).await;
     let bos = board.assigned("Sieve", "bo").await;
     let reply = api.post(&format!("{}/claim", board.at(&bos)), json!({})).agent_of("ana").send().await;
@@ -1061,7 +971,7 @@ async fn an_agent_cant_take_up_another_persons_issue() {
 #[tokio::test]
 async fn a_session_naming_nobody_cant_take_up_make_change_or_delete_an_issue() {
     let api = TestApi::new().await;
-    team(&api).await;
+    api.team().await;
     let board = Board::new(&api).await;
     let id = board.assigned("Sieve", "ana").await;
     for reply in [
@@ -1085,7 +995,7 @@ async fn a_session_naming_nobody_cant_take_up_make_change_or_delete_an_issue() {
 #[tokio::test]
 async fn an_untrusted_session_can_comment_but_not_change_an_issue() {
     let api = TestApi::new().await;
-    team(&api).await;
+    api.team().await;
     let board = Board::new(&api).await;
     let id = board.assigned("Sieve", "ana").await;
     // Its rails refuse it at the door (ORR-1059): only proposals, and comments on its own.
@@ -1098,7 +1008,7 @@ async fn an_untrusted_session_can_comment_but_not_change_an_issue() {
     let raised = board.issue(json!({"title": "From outside", "labels": ["external"], "proposal": "pending"})).await;
     let reply = api.post(&format!("{}/comments", board.at(&raised)), json!({"body": "From outside", "asks": "decision"})).untrusted().send().await;
     assert_eq!(reply.status, 201, "{}", reply.body);
-    assert_eq!(said(&reply, "orrery-notice").len(), 1, "it rings the owner's bell");
+    assert_eq!(reply.said("orrery-notice").len(), 1, "it rings the owner's bell");
     assert_eq!(reply.header("orrery-carry"), None, "but isn't carried to the session as a person's words");
     let read = board.read(&id).await;
     assert_eq!((&read["assignee"], &read["title"]), (&json!("ana"), &json!("Sieve")), "its ask takes nobody's issue");
@@ -1107,7 +1017,7 @@ async fn an_untrusted_session_can_comment_but_not_change_an_issue() {
 #[tokio::test]
 async fn only_the_holder_or_the_owner_lets_a_claim_go() {
     let api = TestApi::new().await;
-    team(&api).await;
+    api.team().await;
     let board = Board::new(&api).await;
     let id = board.assigned("Sieve", "ana").await;
     let claim = format!("{}/claim", board.at(&id));
@@ -1125,7 +1035,7 @@ async fn only_the_holder_or_the_owner_lets_a_claim_go() {
 #[tokio::test]
 async fn the_owner_takes_over_anothers_claim() {
     let api = TestApi::new().await;
-    team(&api).await;
+    api.team().await;
     let board = Board::new(&api).await;
     let id = board.assigned("Sieve", "bo").await;
     let claim = format!("{}/claim", board.at(&id));
@@ -1133,7 +1043,7 @@ async fn the_owner_takes_over_anothers_claim() {
     let reply = api.post(&claim, json!({})).send().await;
     assert_eq!(reply.status, 200);
     assert_eq!((&reply.body["assignee"], &reply.body["claimed_by"]), (&json!("steffen"), &json!("steffen")));
-    assert_eq!(told(&reply), ["issue.assignee primes PRI-1 bo steffen", "issue.claim primes PRI-1 bo steffen"]);
+    assert_eq!(reply.told(), ["issue.assignee primes PRI-1 bo steffen", "issue.claim primes PRI-1 bo steffen"]);
 }
 
 // The rails on changing an issue.
@@ -1141,7 +1051,7 @@ async fn the_owner_takes_over_anothers_claim() {
 #[tokio::test]
 async fn an_agent_cant_change_another_persons_issue() {
     let api = TestApi::new().await;
-    team(&api).await;
+    api.team().await;
     let board = Board::new(&api).await;
     let bos = board.assigned("Sieve", "bo").await;
     let reply = api.patch(&board.at(&bos), json!({"priority": "P1"})).agent_of("ana").send().await;
@@ -1170,7 +1080,7 @@ async fn with_one_person_there_are_no_rails() {
 #[tokio::test]
 async fn an_agent_starting_its_persons_issue_takes_it_up_and_closing_it_lets_go() {
     let api = TestApi::new().await;
-    team(&api).await;
+    api.team().await;
     let board = Board::new(&api).await;
     let id = board.assigned("Sieve", "ana").await;
     let reply = api.patch(&board.at(&id), json!({"status": "in-progress"})).agent_of("ana").send().await;
@@ -1185,10 +1095,10 @@ async fn an_agent_starting_its_persons_issue_takes_it_up_and_closing_it_lets_go(
 #[tokio::test]
 async fn an_agent_cant_start_an_issue_another_person_has_taken_up() {
     let api = TestApi::new().await;
-    team(&api).await;
+    api.team().await;
     let board = Board::new(&api).await;
     let id = board.assigned("Sieve", "ana").await;
-    run(&api, "UPDATE issues SET claimed_by = ? WHERE id = ?", &["bo", &id]).await;
+    api.run("UPDATE issues SET claimed_by = ? WHERE id = ?", &["bo", &id]).await;
     let reply = api.patch(&board.at(&id), json!({"status": "in-progress"})).agent_of("ana").send().await;
     assert_eq!(reply.status, 409);
     assert_eq!(message(&reply), "PRI-1 has just been taken or reassigned; read it again, or pick another issue");
@@ -1199,7 +1109,7 @@ async fn an_agent_cant_start_an_issue_another_person_has_taken_up() {
 #[tokio::test]
 async fn an_agent_hands_its_issue_back_to_the_owner_but_never_to_someone_else() {
     let api = TestApi::new().await;
-    team(&api).await;
+    api.team().await;
     let board = Board::new(&api).await;
     let id = board.assigned("Sieve", "ana").await;
     let reply = api.patch(&board.at(&id), json!({"assignee": "bo"})).agent_of("ana").send().await;
@@ -1216,7 +1126,7 @@ async fn an_agent_hands_its_issue_back_to_the_owner_but_never_to_someone_else() 
 #[tokio::test]
 async fn an_agent_moves_an_issue_only_under_one_its_person_holds() {
     let api = TestApi::new().await;
-    team(&api).await;
+    api.team().await;
     let board = Board::new(&api).await;
     let anas = board.assigned("Sieve", "ana").await;
     let bos = board.assigned("Primes", "bo").await;
@@ -1231,7 +1141,7 @@ async fn an_agent_moves_an_issue_only_under_one_its_person_holds() {
 #[tokio::test]
 async fn an_agents_bulk_change_refuses_only_the_issues_that_arent_its_persons() {
     let api = TestApi::new().await;
-    team(&api).await;
+    api.team().await;
     let board = Board::new(&api).await;
     let anas = board.assigned("Sieve", "ana").await;
     let bos = board.assigned("Wheel", "bo").await;
@@ -1246,13 +1156,13 @@ async fn an_agents_bulk_change_refuses_only_the_issues_that_arent_its_persons() 
     let reply = api.patch(&board.issues(), json!({"ids": [anas], "set": {"priority": "P0"}})).agent_of("ana").send().await;
     assert_eq!(reply.header("orrery-urgent"), None);
     let reply = api.patch(&board.issues(), json!({"ids": [bos], "set": {"priority": "P0"}})).person("bo").send().await;
-    assert_eq!(said(&reply, "orrery-urgent"), ["primes PRI-2"]);
+    assert_eq!(reply.said("orrery-urgent"), ["primes PRI-2"]);
 }
 
 #[tokio::test]
 async fn an_agent_deletes_only_its_persons_issues_all_the_way_down() {
     let api = TestApi::new().await;
-    team(&api).await;
+    api.team().await;
     let board = Board::new(&api).await;
     let reply = api.post(&board.issues(), json!({"title": "x"})).agent_of("ana").send().await;
     let top = reply.body["id"].as_str().unwrap().to_string();
@@ -1272,7 +1182,7 @@ async fn an_agent_deletes_only_its_persons_issues_all_the_way_down() {
 #[tokio::test]
 async fn an_agents_new_issue_at_the_top_stays_nobodys() {
     let api = TestApi::new().await;
-    team(&api).await;
+    api.team().await;
     let board = Board::new(&api).await;
     let reply = api.post(&board.issues(), json!({"title": "Sieve"})).agent_of("ana").send().await;
     assert_eq!(reply.status, 201, "{}", reply.body);
@@ -1296,7 +1206,7 @@ async fn an_agents_new_issue_at_the_top_stays_nobodys() {
 #[tokio::test]
 async fn an_agents_sub_issue_under_its_persons_issue_is_theirs_and_started_is_taken_up() {
     let api = TestApi::new().await;
-    team(&api).await;
+    api.team().await;
     let board = Board::new(&api).await;
     let anas = board.assigned("Primes", "ana").await;
     let bos = board.assigned("Wheel", "bo").await;
@@ -1323,9 +1233,9 @@ async fn the_owners_comment_is_carried_to_the_session_and_read_back() {
     assert_eq!((&comment["body"], &comment["protected"], &comment["created_by"]), (&json!("Use a bitmap"), &json!(true), &json!("owner")));
     assert_eq!((comment.get("asks"), comment.get("answered")), (None, None));
     let n = comment["id"].as_i64().unwrap();
-    assert_eq!(said(&reply, "orrery-carry"), [format!("primes PRI-1 {n}")]);
+    assert_eq!(reply.said("orrery-carry"), [format!("primes PRI-1 {n}")]);
     assert_eq!(reply.header("orrery-notice"), None, "the owner's own words ring no bell");
-    assert_eq!(told(&reply), ["comment.added primes PRI-1"]);
+    assert_eq!(reply.told(), ["comment.added primes PRI-1"]);
     assert_eq!(board.read(&id).await["comments"], json!(1));
     let read = api.get(&format!("{}/comments/{n}", board.at(&id))).send().await;
     assert_eq!(read.body, comment);
@@ -1347,7 +1257,7 @@ async fn an_agents_comment_rings_the_owners_bell_and_keeps_its_session() {
         .await;
     assert_eq!(reply.status, 201);
     assert_eq!((&reply.body["protected"], &reply.body["session_name"]), (&json!(false), &json!("s1")));
-    assert_eq!(said(&reply, "orrery-notice"), [format!("primes PRI-1 {}", reply.body["id"])]);
+    assert_eq!(reply.said("orrery-notice"), [format!("primes PRI-1 {}", reply.body["id"])]);
     assert_eq!(reply.header("orrery-carry"), None);
 }
 
@@ -1359,12 +1269,12 @@ async fn a_comment_with_a_bad_body_lists_its_problems() {
     let comments = format!("{}/comments", board.at(&id));
     let reply = api.post(&comments, json!({"asks": "help", "to": "x"})).send().await;
     assert_eq!(reply.status, 400);
-    let listed = problems(&reply);
+    let listed = reply.problems();
     assert_eq!(listed.len(), 3, "{listed:?}");
     assert!(listed.contains(&"missing \"body\"".to_string()));
     assert!(listed.contains(&"\"asks\" is \"help\", not one of decision, feedback (or null)".to_string()));
     let reply = api.post(&comments, json!({"body": "  "})).send().await;
-    assert_eq!(problems(&reply), ["\"body\" can't be empty"]);
+    assert_eq!(reply.problems(), ["\"body\" can't be empty"]);
     assert!(board.comments(&id).await.is_empty());
     let reply = api.post(&format!("{}/comments", board.at("PRI-9")), json!({"body": "x"})).send().await;
     assert_eq!(reply.status, 404);
@@ -1379,13 +1289,13 @@ async fn an_agents_question_waits_on_the_owner_and_their_answer_hands_the_issue_
     let reply = api.post(&comments, json!({"body": "Bitmap or list?", "asks": "decision"})).by_agent("claude").send().await;
     assert_eq!(reply.status, 201);
     assert_eq!((&reply.body["asks"], &reply.body["answered"]), (&json!("decision"), &json!(false)));
-    let events = told(&reply);
+    let events = reply.told();
     assert!(events.contains(&"comment.asks primes PRI-1 ~ decision".to_string()), "{events:?}");
     assert!(events.contains(&"issue.assignee primes PRI-1 claude owner".to_string()), "{events:?}");
     assert_eq!(board.read(&id).await["assignee"], json!("owner"));
     let ask = reply.body["id"].as_i64().unwrap();
     let reply = api.post(&comments, json!({"body": "Bitmap"})).send().await;
-    assert!(told(&reply).contains(&"issue.assignee primes PRI-1 owner claude".to_string()), "{:?}", told(&reply));
+    assert!(reply.told().contains(&"issue.assignee primes PRI-1 owner claude".to_string()), "{:?}", reply.told());
     assert_eq!(board.read(&id).await["assignee"], json!("claude"));
     assert_eq!(api.get(&format!("{comments}/{ask}")).send().await.body["answered"], json!(true));
 }
@@ -1393,7 +1303,7 @@ async fn an_agents_question_waits_on_the_owner_and_their_answer_hands_the_issue_
 #[tokio::test]
 async fn with_people_an_agents_question_waits_on_its_own_person_and_only_on_their_issue() {
     let api = TestApi::new().await;
-    team(&api).await;
+    api.team().await;
     let board = Board::new(&api).await;
     let claudes = board.assigned("Sieve", "claude").await;
     let bos = board.assigned("Wheel", "bo").await;
@@ -1420,7 +1330,7 @@ async fn the_owner_edits_their_comment_and_the_new_words_are_carried() {
     let reply = api.patch(&at, json!({"body": "Use a wheel", "asks": "feedback"})).send().await;
     assert_eq!(reply.status, 200, "{}", reply.body);
     assert_eq!((&reply.body["body"], &reply.body["asks"]), (&json!("Use a wheel"), &json!("feedback")));
-    assert_eq!(said(&reply, "orrery-carry"), [format!("primes PRI-1 {n} edited")]);
+    assert_eq!(reply.said("orrery-carry"), [format!("primes PRI-1 {n} edited")]);
     assert_eq!(reply.header("orrery-changed"), Some("primes"));
     let reply = api.patch(&at, json!({"asks": null})).send().await;
     assert_eq!((reply.body.get("asks"), reply.header("orrery-carry")), (None, None), "the same words aren't carried again");
@@ -1450,18 +1360,18 @@ async fn an_agent_cant_edit_or_delete_the_owners_comment() {
 #[tokio::test]
 async fn a_members_words_are_theirs_and_their_agents_are_theirs_too() {
     let api = TestApi::new().await;
-    team(&api).await;
+    api.team().await;
     let board = Board::new(&api).await;
     let id = board.issue(json!({"title": "Sieve"})).await;
     let comments = format!("{}/comments", board.at(&id));
     let reply = api.post(&comments, json!({"body": "Ana says"})).person("ana").send().await;
-    assert_eq!(said(&reply, "orrery-carry").len(), 1, "a member's own words are carried to the session");
+    assert_eq!(reply.said("orrery-carry").len(), 1, "a member's own words are carried to the session");
     let anas = format!("{comments}/{}", reply.body["id"]);
     let reply = api.patch(&anas, json!({"body": "Bo says"})).person("bo").send().await;
     assert_eq!((reply.status.as_u16(), message(&reply)), (403, "Editing comment 1 is ana's call: they wrote it"));
     let reply = api.patch(&anas, json!({"body": "Ana says again"})).person("ana").send().await;
     assert_eq!(reply.status, 200);
-    assert_eq!(said(&reply, "orrery-carry").len(), 1, "their own new words are carried");
+    assert_eq!(reply.said("orrery-carry").len(), 1, "their own new words are carried");
     let reply = api.patch(&anas, json!({"body": "Tidied"})).send().await;
     assert_eq!((reply.status.as_u16(), reply.header("orrery-carry")), (200, None), "the owner may, but they aren't the owner's words");
     let reply = api.post(&comments, json!({"body": "Ana's agent says"})).agent_of("ana").send().await;
@@ -1473,9 +1383,9 @@ async fn a_members_words_are_theirs_and_their_agents_are_theirs_too() {
     assert_eq!(reply.header("orrery-changed"), Some("primes"));
     assert_eq!(api.get(&agents).send().await.status, 404);
     // A member's write names them in the outbox.
-    let rows = outbox(&api).await;
-    let added = rows.iter().find(|(kind, _, _)| kind == "comment.added").unwrap();
-    assert_eq!(serde_json::from_str::<Value>(added.2.as_deref().unwrap()).unwrap(), json!({"person": "ana"}));
+    let rows = api.outbox().await;
+    let added = rows.iter().find(|row| row.kind == "comment.added").unwrap();
+    assert_eq!(added.payload(), json!({"person": "ana"}));
 }
 
 #[tokio::test]

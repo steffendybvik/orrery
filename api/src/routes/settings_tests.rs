@@ -1,5 +1,5 @@
 // The tests of routes/settings.rs (ORR-1052), through `router()` on a database of their own (`crate::testing`).
-use crate::testing::{Reply, TestApi};
+use crate::testing::TestApi;
 use serde_json::{json, Value};
 use sqlx::Row;
 
@@ -7,14 +7,10 @@ async fn changes(api: &TestApi, kind: &str) -> i64 {
     sqlx::query(&crate::db::sql("SELECT CAST(count(*) AS BIGINT) AS n FROM changes WHERE kind = ?")).bind(kind).fetch_one(&api.app.pool).await.unwrap().get("n")
 }
 
-fn problems(reply: &Reply) -> Vec<String> {
-    reply.body["data"]["problems"].as_array().map(|p| p.iter().map(|p| p.as_str().unwrap_or_default().to_string()).collect()).unwrap_or_default()
-}
-
 async fn refused(api: &TestApi, body: Value) -> Vec<String> {
     let reply = api.patch("/api/settings", body.clone()).send().await;
     assert_eq!(reply.status, 400, "{body} should be refused: {}", reply.body);
-    problems(&reply)
+    reply.problems()
 }
 
 #[tokio::test]
@@ -124,7 +120,7 @@ async fn every_problem_is_said_at_once_and_nothing_is_kept() {
     assert_eq!(reply.status, 400);
     assert_eq!(reply.body["message"], "3 problems in the body");
     assert_eq!(
-        problems(&reply),
+        reply.problems(),
         [
             "\"tint\" is \"red\"; use slate, blue, teal, green, amber, rose, violet or a colour like #3b82f6",
             "\"terminal\" is \"kitty\", not one of terminal, iterm, warp, ghostty (or null)",

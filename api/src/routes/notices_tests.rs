@@ -29,13 +29,6 @@ fn bodies(notices: &Value) -> Vec<&str> {
     notices.as_array().unwrap().iter().map(|n| n["body"].as_str().unwrap_or_default()).collect()
 }
 
-/// A project with an issue on it.
-async fn board(api: &TestApi) -> (String, String) {
-    let project = api.project("Primes").await;
-    let issue = api.issue(&project, json!({"title": "Sieve"})).await;
-    (project, issue)
-}
-
 /// The owner and a member, Ana, so each has a bell of their own.
 async fn two_people(api: &TestApi) {
     sqlx::query("INSERT INTO people (id, name, role, created_at) VALUES ('owner', 'Owner', 'owner', '2026-01-01'), ('ana', 'Ana', 'member', '2026-01-01')")
@@ -53,7 +46,7 @@ async fn the_bell_is_empty_at_first() {
 #[tokio::test]
 async fn an_agents_comment_rings_the_bell_and_the_owners_own_doesnt() {
     let api = TestApi::new().await;
-    let (project, issue) = board(&api).await;
+    let (project, issue) = api.board().await;
     let id = agent_says(&api, &project, &issue, "Done the sieve", None).await;
     owner_says(&api, &project, &issue, "Thanks").await;
     let notices = bell(&api, "").await;
@@ -70,7 +63,7 @@ async fn an_agents_comment_rings_the_bell_and_the_owners_own_doesnt() {
 #[tokio::test]
 async fn what_waits_on_the_owner_comes_first_until_they_answer() {
     let api = TestApi::new().await;
-    let (project, issue) = board(&api).await;
+    let (project, issue) = api.board().await;
     let other = api.issue(&project, json!({"title": "Wheel"})).await;
     agent_says(&api, &project, &issue, "Which sieve?", Some("decision")).await;
     agent_says(&api, &project, &other, "Later news", None).await;
@@ -86,7 +79,7 @@ async fn what_waits_on_the_owner_comes_first_until_they_answer() {
 #[tokio::test]
 async fn the_bell_holds_the_latest_thirty() {
     let api = TestApi::new().await;
-    let (project, issue) = board(&api).await;
+    let (project, issue) = api.board().await;
     for n in 0..32 {
         agent_says(&api, &project, &issue, &format!("note {n}"), None).await;
     }
@@ -98,7 +91,7 @@ async fn the_bell_holds_the_latest_thirty() {
 #[tokio::test]
 async fn the_inbox_is_paged_by_limit_and_before() {
     let api = TestApi::new().await;
-    let (project, issue) = board(&api).await;
+    let (project, issue) = api.board().await;
     let mut ids = vec![];
     for n in 0..5 {
         ids.push(agent_says(&api, &project, &issue, &format!("note {n}"), None).await);
@@ -119,7 +112,7 @@ async fn a_list_it_doesnt_know_is_refused() {
 #[tokio::test]
 async fn an_agents_proposal_waits_on_the_owner_ahead_of_everything() {
     let api = TestApi::new().await;
-    let (project, issue) = board(&api).await;
+    let (project, issue) = api.board().await;
     agent_says(&api, &project, &issue, "Which sieve?", Some("decision")).await;
     let reply = api
         .post(&format!("/api/projects/{project}/issues"), json!({"title": "Use a wheel", "notes": "Faster", "proposal": "pending"}))
@@ -145,7 +138,7 @@ async fn an_agents_proposal_waits_on_the_owner_ahead_of_everything() {
 #[tokio::test]
 async fn clearing_by_id_takes_a_comment_out_of_the_bell_into_cleared() {
     let api = TestApi::new().await;
-    let (project, issue) = board(&api).await;
+    let (project, issue) = api.board().await;
     let one = agent_says(&api, &project, &issue, "One", None).await;
     agent_says(&api, &project, &issue, "Two", None).await;
     let reply = api.post("/api/notices/clear", json!({"ids": [one, 99999]})).send().await;
@@ -164,7 +157,7 @@ async fn clearing_by_id_takes_a_comment_out_of_the_bell_into_cleared() {
 #[tokio::test]
 async fn the_owners_own_comment_cant_be_cleared() {
     let api = TestApi::new().await;
-    let (project, issue) = board(&api).await;
+    let (project, issue) = api.board().await;
     let own = owner_says(&api, &project, &issue, "Mine").await;
     assert_eq!(api.post("/api/notices/clear", json!({"ids": [own]})).send().await.body, json!({"cleared": 0}));
 }
@@ -189,7 +182,7 @@ async fn clearing_a_proposal_keeps_it_pending_and_out_of_the_bell() {
 #[tokio::test]
 async fn clearing_before_a_time_leaves_what_still_waits_on_the_owner() {
     let api = TestApi::new().await;
-    let (project, issue) = board(&api).await;
+    let (project, issue) = api.board().await;
     let other = api.issue(&project, json!({"title": "Wheel"})).await;
     agent_says(&api, &project, &issue, "News", None).await;
     agent_says(&api, &project, &other, "Which?", Some("feedback")).await;
@@ -203,7 +196,7 @@ async fn clearing_before_a_time_leaves_what_still_waits_on_the_owner() {
 #[tokio::test]
 async fn marking_read_shows_on_the_notice_and_clearing_read_takes_those() {
     let api = TestApi::new().await;
-    let (project, issue) = board(&api).await;
+    let (project, issue) = api.board().await;
     let one = agent_says(&api, &project, &issue, "One", None).await;
     agent_says(&api, &project, &issue, "Two", None).await;
     let reply = api.post("/api/notices/read", json!({"ids": [one]})).send().await;
@@ -241,7 +234,7 @@ async fn marking_read_needs_ids() {
 #[tokio::test]
 async fn a_session_cant_clear_the_bell_or_mark_it_read() {
     let api = TestApi::new().await;
-    let (project, issue) = board(&api).await;
+    let (project, issue) = api.board().await;
     let one = agent_says(&api, &project, &issue, "One", None).await;
     for path in ["/api/notices/clear", "/api/notices/read"] {
         let reply = api.post(path, json!({"ids": [one]})).by_agent("claude").send().await;
@@ -269,7 +262,7 @@ async fn the_chat_and_an_untrusted_session_cant_clear_the_bell_even_naming_the_o
 #[tokio::test]
 async fn status_changes_on_the_issues_in_the_bell_are_listed_oldest_first() {
     let api = TestApi::new().await;
-    let (project, issue) = board(&api).await;
+    let (project, issue) = api.board().await;
     let quiet = api.issue(&project, json!({"title": "Quiet"})).await;
     agent_says(&api, &project, &issue, "Starting", None).await;
     for status in ["in-progress", "done"] {
@@ -304,7 +297,7 @@ async fn status_changes_need_a_time_since() {
 async fn a_members_bell_is_their_own_and_has_no_proposals() {
     let api = TestApi::new().await;
     two_people(&api).await;
-    let (project, issue) = board(&api).await;
+    let (project, issue) = api.board().await;
     let mine: i64 = sqlx::query_scalar(&format!(
         "INSERT INTO comments (project, issue, body, created_by, owned, person, by_agent, created_at, updated_at) VALUES ('{project}', '{issue}', 'For Ana', 'ana-agent', 0, 'ana', 1, '2026-11-01T00:00:00.000Z', '2026-11-01T00:00:00.000Z') RETURNING id"
     ))
