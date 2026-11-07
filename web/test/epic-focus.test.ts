@@ -50,11 +50,27 @@ describe("an epic's focus", () => {
         expect(part.prompt).toMatch(/API-3[^\n]*blocked by API-1/)
     })
 
-    it('can go to every session on each project, but not to one named session or a release', async () => {
+    it('can go to every session on each project, but not to a release', async () => {
         expect((await store.focusEpic(epic, {session: '*'}, me)).map(s => s.target)).toEqual(['*', '*'])
-        await expect(store.focusEpic(epic, {session: 's-1'}, me)).rejects.toMatchObject({statusCode: 400})
         await expect(store.focusEpic(epic, {release: '1.0'}, me)).rejects.toMatchObject({statusCode: 400})
         await expect(store.focusEpic(99, {}, me)).rejects.toMatchObject({statusCode: 404})
+    })
+
+    it('goes to a named session in each of the projects it hears, refused when it hears none (ORR-958)', async () => {
+        store.hears = (project, session) => session === 's-1' && project === 'shop' || session === 's-2'
+        expect((await store.focusEpic(epic, {session: 's-1'}, me)).map(s => [s.project, s.target])).toEqual([['shop', 's-1']])
+        expect((await store.focusEpic(epic, {session: 's-2'}, me)).map(s => [s.project, s.target])).toEqual([['api', 's-2'], ['shop', 's-2']])
+        // The docs project's part is done, so hearing only it is hearing none of the open ones.
+        store.hears = (project, session) => session === 's-3' && project === 'docs'
+        await expect(store.focusEpic(epic, {session: 's-3'}, me)).rejects.toMatchObject({statusCode: 400})
+    })
+
+    it('narrowed to a status, goes only to the projects with an open issue of it in the epic (ORR-958)', async () => {
+        await store.updateIssue('shop', 'SHO-2', {status: 'in-progress'}, me)
+        expect((await store.focusEpic(epic, {status: 'in-progress'}, me)).map(s => [s.project, s.status])).toEqual([['shop', 'in-progress']])
+        expect((await store.focusEpic(epic, {status: 'todo'}, me)).map(s => s.project)).toEqual(['api'])
+        // A kind, or the old word for it, as a milestone's takes.
+        expect((await store.focusEpic(epic, {status: 'doing'}, me)).map(s => s.project)).toEqual(['shop'])
     })
 
     it("is an agent's as theirs, which no session hears", async () => {

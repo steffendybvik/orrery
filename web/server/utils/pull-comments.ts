@@ -14,9 +14,15 @@
 // A merged PR its session rated high risk, or the owner did (ORR-879), also asks the owner to review it, on their bell
 // (`pr.risky_merged`); its why is the session's words, so it's quoted as theirs. So does one that changed a migration, auth,
 // a permission, secrets or egress, however it was rated, so a misjudged or talked-down rating can't skip the review.
+// A merge of the issue's own PR with nothing else open on it also closes the issue (ORR-1073): merged is resolved. Its
+// open asks leave the bell, as the merge answered them, and it moves to Done, with orrery's note saying so. The review
+// ask above still comes after, about the code, on the bell but no longer holding the issue open.
+import {CLOSED} from '#shared/roadmap'
+import {OPEN_ASK, ORRERY as ORRERY_ACTOR} from '../store/schema'
 import type {LandedIn} from '../store/releases'
 import type {PullChange, PullChangeKind} from './pull-poll'
 import type {Store} from './store'
+import {issueIdsIn} from './pulls'
 
 /** The changes that are only an event: nobody needs to act. */
 const QUIET: PullChangeKind[] = ['ready', 'approved']
@@ -118,6 +124,48 @@ async function askToReview(store: Store, {project, issue, repo, pull, files}: Pu
     await store.systemAsk(project, issue, `${pr} merged into \`${pull.base}\`, and ${said}. Review what it changed ([the files](https://github.com/${repo}/pull/${pull.number}/files)), and answer here once you have.`, 'pr.risky_merged')
 }
 
+/** Whether `pull` is the issue's own: its branch names the issue, or it names no other issue. A release's PR names
+ * many on its way into main, and a PR that's part of a larger one names that too, so neither closes them. */
+async function ownPull(store: Store, {project, issue, repo, pull}: PullChange): Promise<boolean> {
+    const known = await store.db.all<{id: string}>(`SELECT id FROM issues WHERE project = ? AND id = ?
+        UNION SELECT alias AS id FROM issue_aliases WHERE project = ? AND issue = ?`, project, issue, project, issue)
+    const its = new Set(known.map(row => row.id.toUpperCase()))
+    if (issueIdsIn({body: '', head: {ref: pull.branch}}).some(id => its.has(id))) return true
+    const kept = await store.db.get<{names: string}>('SELECT names FROM pull_states WHERE repo = ? AND number = ?', repo, pull.number)
+    return !!kept && (JSON.parse(kept.names) as string[]).every(name => its.has(name.toUpperCase()))
+}
+
+/** Why a merge leaves its issue open, in a few words; none when it closes it. */
+async function staysOpen(store: Store, change: PullChange): Promise<string | null> {
+    const {project, issue, repo, pull} = change
+    const row = await store.db.get<{status: string, proposal: string | null}>('SELECT status, proposal FROM issues WHERE project = ? AND id = ?', project, issue)
+    if (!row) return 'is gone'
+    const statuses = await store.statuses()
+    const kind = statuses.find(s => s.id === row.status)?.kind
+    if (kind && CLOSED.includes(kind)) return 'is closed already'
+    if (row.proposal) return 'is a proposal, which stays the owner\'s'
+    if (!await ownPull(store, change)) return 'names other issues'
+    const closed = statuses.filter(s => CLOSED.includes(s.kind)).map(s => s.id)
+    if (await store.db.get(`SELECT 1 FROM issues WHERE project = ? AND parent = ? AND status NOT IN (${closed.map(() => '?').join(', ') || "''"})`, project, issue, ...closed)) return 'has open sub-issues'
+    if (await store.db.get("SELECT 1 FROM issue_pulls WHERE project = ? AND issue = ? AND state = 'open' AND NOT (repo = ? AND number = ?)", project, issue, repo, pull.number)) return 'has another pull request open'
+    return null
+}
+
+/** Closes the issue its own PR's merge resolved (ORR-1073): its open asks leave the owner's bell and it moves to Done,
+ * with orrery's note, which wakes nobody: the session on it heard the merge already. */
+async function closeMerged(store: Store, change: PullChange): Promise<void> {
+    if (await staysOpen(store, change)) return
+    const {project, issue, repo, pull} = change
+    const done = (await store.statuses()).find(s => s.kind === 'done')
+    if (!done) return
+    const asks = await store.db.all<{id: number}>(`SELECT c.id FROM comments c WHERE c.project = ? AND c.issue = ? AND ${OPEN_ASK}`, project, issue)
+    if (asks.length) await store.db.run(`UPDATE comments SET cleared = 1 WHERE id IN (${asks.map(() => '?').join(', ')})`, ...asks.map(a => a.id))
+    await store.updateIssue(project, issue, {status: done.id}, ORRERY_ACTOR)
+    const pr = `[#${pull.number}](https://github.com/${repo}/pull/${pull.number})`
+    const closed = asks.length ? ` Its ${asks.length === 1 ? 'open question is' : `${asks.length} open questions are`} closed with it, as the merge answered ${asks.length === 1 ? 'it' : 'them'}.` : ''
+    await store.systemNote(project, issue, `Moved to ${done.name}: ${pr} merged, and nothing else is open on it.${closed}`)
+}
+
 /** Tells the change on its issue, if it's one that's told; a PR's failed checks go by `failedChecks`, asking the owner
  * past LOOP_LIMIT; a quiet one is an event only. A failure is logged, not thrown: the poll goes on. */
 export async function commentOnPull(store: Store, change: PullChange): Promise<void> {
@@ -133,7 +181,10 @@ export async function commentOnPull(store: Store, change: PullChange): Promise<v
         const body = pullComment(change, (await store.settings()).handle)
         if (!body) return
         await store.systemComment(change.project, change.issue, body + landedComment(landed), `pr.${change.kind}`)
-        if (change.kind === 'merged') await askToReview(store, change)
+        if (change.kind === 'merged') {
+            await closeMerged(store, change).catch(error => console.error(`[orrery] closing ${change.issue} on ${change.repo}#${change.pull.number}'s merge:`, error))
+            await askToReview(store, change)
+        }
     } catch (error) {
         console.error(`[orrery] telling ${change.issue} about ${change.repo}#${change.pull.number}:`, error)
     }

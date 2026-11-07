@@ -392,7 +392,12 @@ async fn an_import_replaces_a_roadmap_only_when_asked() {
     let ids = issue_ids(&replaced.body);
     assert_eq!(ids.len(), 4);
     assert!(!ids.contains(&format!("{key}-1")), "a number never comes to mean another issue: {ids:?}");
-    let comments: i64 = sqlx::query("SELECT COUNT(*) AS n FROM comments WHERE project = ?").bind(&project).fetch_one(&api.app.pool).await.unwrap().get("n");
+    let comments: i64 = sqlx::query(&crate::db::sql("SELECT CAST(COUNT(*) AS BIGINT) AS n FROM comments WHERE project = ?"))
+        .bind(&project)
+        .fetch_one(&api.app.pool)
+        .await
+        .unwrap()
+        .get("n");
     assert_eq!(comments, 0);
 }
 

@@ -1,4 +1,4 @@
-import type {Milestone, Column, Comment, Issue, Kinds, Place, Project, Release, SessionContext} from '#shared/roadmap'
+import type {Milestone, Column, Comment, Issue, Kinds, Place, Project, Release, Session, SessionContext} from '#shared/roadmap'
 import {CLOSED, PRIORITIES, RISK_LEVELS, TINTS, linkRef, madeUpName, open, parseLinkRef, total} from '#shared/roadmap'
 import {serverName} from '#shared/connect'
 
@@ -194,6 +194,22 @@ export const epicPath = (id: number) => `/epics/${id}`
 export function epicMilestones(project: Project, epic: number): Milestone[] {
     const pick = (issues: Issue[]): Issue[] => issues.flatMap(issue => issue.epic === epic ? [issue] : pick(issue.tasks))
     return project.board.milestones.map(c => ({...c, tasks: pick(c.tasks)})).filter(c => c.tasks.length)
+}
+
+/** The sessions listening on any of an epic's `projects` (ORR-958), each once, idle first, with the ones of those
+ * projects it hears: a focus on the epic aimed at it goes to each of them. `sessions` is by project, as useRoadmaps
+ * has them, a session that hears several being under each. */
+export function listeningOn(projects: string[], sessions: Record<string, Session[]>): {session: Session, hears: string[]}[] {
+    const found = new Map<string, {session: Session, hears: string[]}>()
+    for (const project of projects) {
+        for (const session of sessions[project] ?? []) {
+            if (!session.listening) continue
+            const one = found.get(session.id)
+            if (one) one.hears.push(project)
+            else found.set(session.id, {session, hears: [project]})
+        }
+    }
+    return [...found.values()].sort((a, b) => Number(b.session.state === 'idle') - Number(a.session.state === 'idle'))
 }
 
 /** A milestone's page; the issues in no milestone are at `none`. */

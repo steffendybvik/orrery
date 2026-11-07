@@ -149,6 +149,15 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         } while (changes.length !== heard)
     }
 
+    /** Adds a person and puts them on both projects' boards, as the Rust API's rails want of a member's write, the way
+     * the Nuxt server's board check does before a request reaches the store (ORR-1059). */
+    async function hire(name: string) {
+        const {id} = await store.addPerson({name})
+        for (const p of ['through-store', 'through-api']) {
+            await store.db.run("INSERT INTO project_members (project, person, role, created_at) VALUES (?, ?, 'member', ?) ON CONFLICT (project, person) DO NOTHING", p, id, new Date().toISOString())
+        }
+    }
+
     /** A step through the store, as its route would answer it. */
     async function viaStore(step: () => Promise<unknown>, status = 200): Promise<Outcome> {
         await settle()
@@ -210,9 +219,27 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         return b
     }
 
+    /** The steps the rails refuse at the door, with the status they answer (ORR-1059): the API holds a write to the
+     * permissions table as the middleware here does before the store sees it (board.ts, chat.ts, untrusted.ts), so its
+     * words are the middleware's, not the store's. The store's side still runs, to keep both sides alike. */
+    const DOOR = new Map<string, number>([
+        ['Hal\'s, let go by a nameless agent', 409],
+        ['nobody\'s, by a nameless agent', 409],
+        ['Hal\'s, by a nameless agent', 409],
+        ['by an untrusted session', 403],
+        ['Fit the hinge #41 {"level":"high","why":"The chat naming the owner"}', 403],
+        ['read by the chat', 403],
+    ])
+
+    /** The API's outcome for a step the rails refuse at the door: its status, and nothing changed. */
+    function atTheDoor(name: string, outcome: Outcome) {
+        expect({status: outcome.status, changed: outcome.changed, told: outcome.told}, name).toEqual({status: DOOR.get(name), changed: [], told: []})
+    }
+
     async function both(name: string, ts: (project: string) => Promise<Outcome>, rs: () => Promise<Outcome>) {
         const [a, b] = [await ts('through-store'), await rs()]
-        expect(same(b, 'through-api'), name).toEqual(same(a, 'through-store'))
+        if (DOOR.has(name)) atTheDoor(name, b)
+        else expect(same(b, 'through-api'), name).toEqual(same(a, 'through-store'))
         return b
     }
 
@@ -1553,9 +1580,6 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         const cases: [string, Actor, string | undefined, Record<string, string>?][] = [
             ['the owner', OWNER, 'steffen'],
             ['a session naming its person', {name: 'agent', owner: false, named: 'Ada', asked: true}, 'ada'],
-            ['a session naming nobody', {...AGENT, asked: true}, undefined],
-            ['the owner\'s chat', {name: 'steffen', owner: false, chat: true}, 'steffen'],
-            ['an untrusted session', {name: 'agent', owner: false, untrusted: true, asked: true}, undefined],
             ['an agent with its person\'s key', {name: 'agent', owner: false, named: 'bob', asked: true}, 'bob', whoHeaders({person: 'bob', owner: false, via: 'agent'}, undefined)],
         ]
         const members = async (project: string) => store.db.all('SELECT person, role FROM project_members WHERE project = ? ORDER BY person', project)
@@ -1566,8 +1590,17 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
             expect(await members(`through-api-held-${i}`), name).toEqual(await members(`through-store-held-${i}`))
         }
         expect(await members('through-api-held-1')).toEqual([{person: 'ada', role: 'owner'}])
-        expect(await members('through-api-held-2')).toEqual([{person: 'steffen', role: 'owner'}])
-        expect(await members('through-api-held-5')).toEqual([{person: 'bob', role: 'owner'}])
+        expect(await members('through-api-held-2')).toEqual([{person: 'bob', role: 'owner'}])
+        // With more than one person here, the rails refuse the rest at the door, as the middleware here does (ORR-1059).
+        const refused: [string, Actor, number][] = [
+            ['a session naming nobody', {...AGENT, asked: true}, 409],
+            ['the owner\'s chat', {name: 'steffen', owner: false, chat: true}, 403],
+            ['an untrusted session', {name: 'agent', owner: false, untrusted: true, asked: true}, 403],
+        ]
+        for (const [name, actor, status] of refused) {
+            expect((await viaApi('POST', '/api/projects', {name: 'Refused', id: 'through-api-refused'}, actor, '')).status, name).toBe(status)
+        }
+        expect(await store.db.get("SELECT 1 FROM projects WHERE id = 'through-api-refused'")).toBeUndefined()
     })
 
     it('takes an issue up and lets it go alike, with the rails between people, and tells each (ORR-927)', async () => {
@@ -1596,7 +1629,7 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
             activity('claude'),
         ] as Step[]) await both(name, ts, rs)
         // Two people: an agent takes up only its person's, and lets go only of its person's claim.
-        if (!(await store.people()).some(person => person.id === 'hal')) await store.addPerson({name: 'Hal'})
+        if (!(await store.people()).some(person => person.id === 'hal')) await hire('Hal')
         const HALS: Actor = {name: 'agent', owner: false, session: 'orrery · Hal', asked: true, named: 'hal'}
         const HAL: Actor = {name: 'hal', owner: false, person: 'hal', asked: true}
         const NAMELESS: Actor = {name: 'agent', owner: false, session: 'orrery · Zed', asked: true, named: 'zed'}
@@ -1618,6 +1651,7 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         // Hal gone without a trace, so a later step can hire them afresh.
         await store.db.run("UPDATE issues SET assignee = NULL WHERE assignee = 'hal'")
         await store.db.run("DELETE FROM people WHERE id = 'hal'")
+        await store.db.run("DELETE FROM project_members WHERE person = 'hal'")
         await quiet()
         // The same rows in the outbox, each claim and new assignee told: the store's own land a step later, so sorted.
         const rows = async (p: string) => (await store.db.all<{kind: string, payload: string | null}>('SELECT kind, payload FROM changes WHERE project = ? AND id > ? ORDER BY id', p, start))
@@ -1661,10 +1695,11 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         ]
         for (const [name, ts, rs] of steps) await both(name, ts, rs)
         // Two people: an agent deletes only its person's.
-        await store.addPerson({name: 'Hal'})
+        await hire('Hal')
         const HALS: Actor = {name: 'agent', owner: false, session: 'orrery · Hal', asked: true, named: 'hal'}
         await both('the owner\'s, by Hal\'s agent', p => viaStore(() => store.deleteIssue(p, ids[p]!.hals!, HALS)), () => viaApi('DELETE', `/issues/${ids['through-api']!.hals}`, undefined, HALS))
         await store.db.run("DELETE FROM people WHERE id = 'hal'")
+        await store.db.run("DELETE FROM project_members WHERE person = 'hal'")
         await quiet()
         await both('the board after', p => viaStore(async () => (await store.listIssues(p)).map(i => i.title).sort()), async () => {
             const outcome = await viaApi('GET', '/issues')
@@ -1787,7 +1822,7 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
             activity('gear'),
         ] as Step[]) await both(name, ts, rs)
         // Two people: an agent changes only its person's, or its own proposal.
-        await store.addPerson({name: 'Hal'})
+        await hire('Hal')
         const HALS: Actor = {name: 'agent', owner: false, session: 'orrery · Hal', asked: true, named: 'hal'}
         const NAMELESS: Actor = {name: 'agent', owner: false, session: 'orrery · Zed', asked: true, named: 'zed'}
         for (const p of ['through-store', 'through-api']) {
@@ -1807,6 +1842,7 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         ] as Step[]) await both(name, ts, rs)
         await store.db.run("UPDATE issues SET assignee = NULL WHERE assignee = 'hal'")
         await store.db.run("DELETE FROM people WHERE id = 'hal'")
+        await store.db.run("DELETE FROM project_members WHERE person = 'hal'")
         await quiet()
         const rows = async (p: string) => (await store.db.all<{kind: string, payload: string | null}>('SELECT kind, payload FROM changes WHERE project = ? AND id > ? ORDER BY id', p, start))
             .map(r => `${r.kind} ${(r.payload ?? '').replace(/\b(STO|API)-(\d+)/g, 'KEY-$2')}`).sort()
@@ -2184,7 +2220,7 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
             activity('hot'),
         ] as Step[]) await both(name, ts, rs)
         // Two people: an agent starts, closes and hands on only its person's, and gives one only back to the owner.
-        await store.addPerson({name: 'Hal'})
+        await hire('Hal')
         const HALS: Actor = {name: 'agent', owner: false, session: 'orrery · Hal', asked: true, named: 'hal'}
         for (const p of ['through-store', 'through-api']) {
             ids[p] = {...ids[p], hals: (await store.createIssue(p, {title: 'Count the teeth', assignee: 'hal'}, OWNER)).id, mine: (await store.createIssue(p, {title: 'Wind it'}, OWNER)).id}
@@ -2202,6 +2238,7 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         await store.db.run("UPDATE issues SET assignee = NULL WHERE assignee = 'hal'")
         await store.db.run("UPDATE issues SET claimed_by = NULL WHERE claimed_by = 'hal'")
         await store.db.run("DELETE FROM people WHERE id = 'hal'")
+        await store.db.run("DELETE FROM project_members WHERE person = 'hal'")
         await quiet()
         expect(await signals('through-api')).toEqual(await signals('through-store'))
         // The P0 opened again by the owner is pushed, and nothing else this made.
@@ -2244,7 +2281,7 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
             make('that isn\'t an object', plain([])),
         ] as Step[]) await both(name, ts, rs)
         // Two people: an agent files one under its person's issue, and one at the top only nobody's, in Todo or Backlog.
-        await store.addPerson({name: 'Hal'})
+        await hire('Hal')
         const HALS: Actor = {name: 'agent', owner: false, session: 'orrery · Hal', asked: true, named: 'hal'}
         for (const p of ['through-store', 'through-api']) await store.updateIssue(p, parents[p]!, {assignee: 'hal'}, OWNER)
         for (const [name, ts, rs] of [
@@ -2259,6 +2296,7 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         await store.db.run("UPDATE issues SET claimed_by = NULL WHERE claimed_by = 'hal'")
         await store.db.run("UPDATE issues SET created_person = NULL WHERE created_person = 'hal'")
         await store.db.run("DELETE FROM people WHERE id = 'hal'")
+        await store.db.run("DELETE FROM project_members WHERE person = 'hal'")
         await quiet()
         const rows = async (p: string) => (await store.db.all<{kind: string, payload: string | null}>('SELECT kind, payload FROM changes WHERE project = ? AND id > ? ORDER BY id', p, start))
             .map(r => `${r.kind} ${(r.payload ?? '').replace(/\b(STO|API)-(\d+)/g, 'KEY-$2')}`).sort()
@@ -2515,7 +2553,7 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         expect(outcomes[2]).toMatchObject({status: 409})
         expect(outcomes[3]).toMatchObject({status: 409})
         expect(outcomes[4]).toMatchObject({status: 200, body: {risk: {by: 'owner'}}})
-        expect(outcomes[5]).toMatchObject({status: 409})
+        expect(outcomes[5], 'the chat, refused at the door').toMatchObject({status: 403})
         expect(outcomes[6]).toMatchObject({status: 200, body: {risk: null}})
         for (const at of [7, 8, 9, 10]) expect(outcomes[at], String(at)).toMatchObject({status: 400})
         for (const at of [11, 12, 13]) expect(outcomes[at], String(at)).toMatchObject({status: 404})
@@ -2783,7 +2821,7 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         }
         const viaTs = await run(([, ts]) => ts())
         const viaRs = await run(([, , rs]) => rs())
-        steps.forEach(([name], i) => expect(viaRs[i], name).toEqual(viaTs[i]))
+        steps.forEach(([name], i) => DOOR.has(name) ? atTheDoor(name, viaRs[i]!) : expect(viaRs[i], name).toEqual(viaTs[i]))
         expect(viaRs[0]!.body).toEqual({read: 2})
         expect(viaRs[8]).toMatchObject({status: 403})
         expect((viaRs[10]!.body as {cleared: number}).cleared).toBe(2)

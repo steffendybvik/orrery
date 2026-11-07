@@ -289,7 +289,14 @@ async fn a_session_the_chat_or_an_untrusted_one_never_makes_a_sign_in_link() {
         let off = api.post("/api/phone/link", json!(null)).header("orrery-actor-kind", kind).send().await;
         assert_eq!(off.status, 403, "{kind}: {}", off.body);
         assert_eq!(off.body["data"]["permission"], "phone.link");
-        assert!(off.body["message"].as_str().unwrap().contains(&format!("refused for {named}")), "{}", off.body);
+        // The chat's and an untrusted session's rails refuse it at the door (ORR-1059), in their own words.
+        let said = off.body["message"].as_str().unwrap();
+        assert!(
+            said.contains(&format!("refused for {named}"))
+                || said.starts_with(&format!("This session {}", if kind == "chat" { "is the owner's chat" } else { "reads what others wrote" })),
+            "{}",
+            off.body
+        );
         let on =
             browser(api.post("/api/phone/link", json!(null)), "steffen", true).header("orrery-actor-kind", kind).header("orrery-login-ways", "on").send().await;
         assert_eq!(on.status, 403, "{kind}: {}", on.body);

@@ -228,7 +228,7 @@ keeps its epic.
 | `DELETE /epics/:epic` | its issues stay where they are, in no epic; one the owner made is theirs to delete |
 | `GET` · `POST {body}` `/epics/:epic/comments` | its comments, oldest first, or a new one → 201: `{id, epic, body, created_by, session_name?, protected, created_at, updated_at}`. Words on the epic's page (ORR-977), as a milestone's are. Deleted with the epic. A member can't write them, as epics are the owner's |
 | `PATCH {body}` · `DELETE /epics/:epic/comments/:comment` | the owner's are theirs |
-| `POST /epics/:epic/focus` | `{note?, session?, status?, instructions?, start?}` → 201 `{signals, listeners}` (ORR-987): Focus on this for an epic. A milestone focus on `all` for each project it has open issues in, narrowed to the epic's issues (`epic` on the signal), so each goes to one session there orrery picks, or with `session` `*` to every one; a named session or a `release` is a 400, as either is one project's. `listeners` counts each project's listening sessions. `start: true` from the owner starts a session where nobody's listening, as on an issue |
+| `POST /epics/:epic/focus` | `{note?, session?, status?, instructions?, start?}` → 201 `{signals, listeners}` (ORR-987): Focus on this for an epic. A milestone focus on `all` for each project it has open issues in, narrowed to the epic's issues (`epic` on the signal), so each goes to one session there orrery picks, or with `session` `*` to every one. A named session (ORR-958) gets one for each of those projects it hears, and a 400 when it hears none; a `release` is a 400, as it's one project's. With `status`, only the projects with an open issue of it in the epic get one. `listeners` counts each project's listening sessions. `start: true` from the owner starts a session where nobody's listening, as on an issue |
 
 An issue's `epic` changing is in its activity and the event log as `issue.epic` (`from` and `to` the numbers). A
 board's export leaves epics out, as they're the server's: uploading one clears its issues' `epic`.
@@ -434,7 +434,10 @@ is `pr.conflicting`, `pr.behind`, `pr.merged`, `pr.closed` (closed without mergi
 `pr.changes_requested`, each once per change, with orrery commenting on the issue as it happens (by `orrery`, which
 reaches the session on the issue), and `pr.ready` (it can merge again) and `pr.approved`, which it only records. A merge
 of one rated high risk (`PUT …/risk`), or one that changed a migration, auth, a permission, secrets or egress whatever it
-was rated, is `pr.risky_merged` too, and orrery asks the owner on the issue to review it. Its
+was rated, is `pr.risky_merged` too, and orrery asks the owner on the issue to review it. A merge of the issue's own PR
+(its branch names the issue, or it names no other) also moves the issue to Done, as `orrery` (`issue.status`), when
+nothing else is open on it: no other PR, no open sub-issue, and not a proposal. The asks left open on it leave the
+owner's bell, and orrery's note says so; the review ask comes after, on the Done issue. Its
 comments are in its own words: where to read failed checks (`gh pr checks`, `gh run view --log-failed`) and who asked
 for changes and where, never a check's output or someone else's review, as a session reads them as the owner's; a
 review by the owner's own GitHub handle (`handle`) is quoted. After a PR's checks fail a fourth time, it doesn't tell

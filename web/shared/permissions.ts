@@ -2,7 +2,8 @@
 // /api/permissions` gives it to agents so they ask rather than try and be refused, and the server enforces it (ORR-512):
 // the owner-only routes ask `authorize()` for their row, and the chat's and an untrusted session's guards are built from
 // their columns (`guard()`). test/permissions.test.ts holds the rest of each row (the store's checks) to the code, so the
-// table can't drift from it. A change to a rule changes its row here too.
+// table can't drift from it. A change to a rule changes its row here too. The Rust API holds writes to a copy of it,
+// api/permissions.json (ORR-1059): test/rust-permissions.test.ts fails until it's written again.
 
 /** How far a kind of session gets with something: `free` does it; `limited` does it within the row's note; `asks`
  * asks the owner, and it's done only on their Allow or Send; `owned` is saved but runs only once the owner makes it

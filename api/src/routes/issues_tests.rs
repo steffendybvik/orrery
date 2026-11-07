@@ -91,8 +91,16 @@ struct Board<'a> {
 }
 
 impl Board<'_> {
+    /// Project Primes, with everyone here on its board, as the board check wants of a member (ORR-1059).
     async fn new(api: &TestApi) -> Board<'_> {
-        Board { project: api.project("Primes").await, api }
+        let project = api.project("Primes").await;
+        run(
+            api,
+            "INSERT INTO project_members (project, person, role, created_at) SELECT ?, id, 'member', '2026-11-01' FROM people WHERE role <> 'owner'",
+            &[&project],
+        )
+        .await;
+        Board { project, api }
     }
 
     fn issues(&self) -> String {
@@ -736,7 +744,8 @@ async fn only_the_owner_decides_a_proposal() {
     assert!(message(&reply).contains("owner only for a session"), "{}", reply.body);
     let reply = api.post(&decide, json!({"decision": "approved"})).untrusted().send().await;
     assert_eq!(reply.status, 403);
-    assert!(message(&reply).contains("refused for an untrusted session"), "{}", reply.body);
+    assert_eq!(reply.body["data"]["permission"], json!("proposals.decide"));
+    assert!(message(&reply).starts_with("This session reads what others wrote"), "{}", reply.body);
     assert_eq!(board.read(&id).await["proposal"], json!("pending"));
     assert!(board.comments(&id).await.is_empty());
 }
@@ -1062,7 +1071,11 @@ async fn a_session_naming_nobody_cant_take_up_make_change_or_delete_an_issue() {
         api.delete(&board.at(&id)).agent_of_nobody().send().await,
     ] {
         assert_eq!(reply.status, 409, "{}", reply.body);
-        assert!(message(&reply).starts_with("This session names nobody on this orrery, so it can read and comment"), "{}", reply.body);
+        assert!(
+            message(&reply).starts_with("This session names nobody, and this orrery has more than one person, so it can read and comment"),
+            "{}",
+            reply.body
+        );
     }
     // Commenting stays open.
     let reply = api.post(&format!("{}/comments", board.at(&id)), json!({"body": "Seen it"})).agent_of_nobody().send().await;
@@ -1075,12 +1088,15 @@ async fn an_untrusted_session_can_comment_but_not_change_an_issue() {
     team(&api).await;
     let board = Board::new(&api).await;
     let id = board.assigned("Sieve", "ana").await;
+    // Its rails refuse it at the door (ORR-1059): only proposals, and comments on its own.
     let reply = api.patch(&board.at(&id), json!({"title": "Pwned"})).untrusted().send().await;
-    assert_eq!(reply.status, 409);
-    assert!(message(&reply).starts_with("This session names nobody"), "{}", reply.body);
+    assert_eq!((reply.status.as_u16(), &reply.body["data"]["permission"]), (403, &json!("issues.edit")), "{}", reply.body);
     let reply = api.post(&format!("{}/claim", board.at(&id)), json!({})).untrusted().send().await;
-    assert_eq!(reply.status, 409);
-    let reply = api.post(&format!("{}/comments", board.at(&id)), json!({"body": "From outside", "asks": "decision"})).untrusted().send().await;
+    assert_eq!((reply.status.as_u16(), &reply.body["data"]["permission"]), (403, &json!("issues.claim")), "{}", reply.body);
+    let reply = api.post(&format!("{}/comments", board.at(&id)), json!({"body": "From outside"})).untrusted().send().await;
+    assert_eq!((reply.status.as_u16(), &reply.body["data"]["permission"]), (403, &json!("comments.write")), "{}", reply.body);
+    let raised = board.issue(json!({"title": "From outside", "labels": ["external"], "proposal": "pending"})).await;
+    let reply = api.post(&format!("{}/comments", board.at(&raised)), json!({"body": "From outside", "asks": "decision"})).untrusted().send().await;
     assert_eq!(reply.status, 201, "{}", reply.body);
     assert_eq!(said(&reply, "orrery-notice").len(), 1, "it rings the owner's bell");
     assert_eq!(reply.header("orrery-carry"), None, "but isn't carried to the session as a person's words");
