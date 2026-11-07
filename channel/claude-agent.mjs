@@ -25,10 +25,11 @@ export const claude = {
     // effort asked for, and takes a chat's Claude session up again (ORR-884): orrery gives each only to a launcher that does.
     claims: 'untrusted=no-bash&chat=yes&model=yes&resume=yes',
 
-    command({dir, server, launch, mode}) {
+    // What it's told as it starts (`told`, the repo it's in: ORR-1070) goes in its system prompt, so a `/clear` keeps it.
+    command({dir, server, launch, mode, told}) {
         return ['claude', '--dangerously-load-development-channels', `server:${server}`,
             ...launch.untrusted ? lockedDown(dir, server) : launch.chat ? chatOnly(dir, server) : ['--permission-mode', mode],
-            ...modelArgs(launch), ...resumeArgs(launch)]
+            ...modelArgs(launch), ...resumeArgs(launch), ...told ? ['--append-system-prompt', told] : []]
     },
 
     // Claude Code's startup prompts: the channel flag's warning it accepts; a folder not yet trusted it won't answer for

@@ -55,7 +55,7 @@ async function standInOrrery(version: string) {
             }
             if (url.pathname.endsWith('/report')) return void res.writeHead(200, {'Content-Type': 'application/json'}).end(JSON.stringify({claimed: true}))
             const claim = /\/launches\/([^/]+)\/claim$/.exec(url.pathname)
-            if (claim) return void res.writeHead(200, {'Content-Type': 'application/json'}).end(JSON.stringify({claimed: !refused.has(claim[1]!)}))
+            if (claim) return void res.writeHead(200, {'Content-Type': 'application/json'}).end(JSON.stringify(refused.has(claim[1]!) ? {claimed: false} : {claimed: true, repo: 'https://github.com/hati/greenhouse'}))
             res.writeHead(200, {'Content-Type': 'application/json'}).end('{}')
         })
     })
@@ -140,8 +140,10 @@ async function bench({onTestFinished}: Finishing, sessions: Sessions = {}) {
 
 /** The launch the launcher is offered on its stream. */
 const launchOf = (id: string, more: Record<string, unknown> = {}): Launch => ({id, tmux: nameOf(id), after: 5, ...more})
-/** What `claude` was started with, in the session's `new-session`. */
-const claudeArgs = (call: string[]) => call.slice(call.indexOf('claude') + 1)
+/** What `claude` was started with, in the session's `new-session`, but the repo it's in (ORR-1070), which ends them all. */
+const claudeArgs = (call: string[]) => call.slice(call.indexOf('claude') + 1, call.lastIndexOf('--append-system-prompt'))
+/** The repo it was told it's in, in its system prompt. */
+const toldRepo = (call: string[]) => call[call.lastIndexOf('--append-system-prompt') + 1]
 const envOf = (call: string[]) => call.flatMap((arg, at) => arg === '-e' ? [call[at + 1]!] : [])
 
 describe.concurrent("a launcher's own loop", {timeout: 40_000}, () => {
@@ -162,6 +164,18 @@ describe.concurrent("a launcher's own loop", {timeout: 40_000}, () => {
             expect(envOf(call!)).toEqual(expect.arrayContaining([`ORRERY_URL=${orrery.url}`, 'ORRERY_PROJECT=greenhouse', `ORRERY_STARTED=${ID.a}`, 'ORRERY_AFTER=5', 'ORRERY_HEAR=greenhouse,pantry', 'ORRERY_PERSON=hati']))
             expect(envOf(call!).some(pair => pair.startsWith('ORRERY_UNTRUSTED') || pair.startsWith('ORRERY_CHAT'))).toBe(false)
             expect(state()[nameOf(ID.a)]).toMatchObject({'@orrery_launcher': expect.stringMatching(/^\d+$/), '@orrery_context': '{"note":"start here"}'})
+        })
+
+        it("tells the session which repo it's in, and its hook that it has", async context => {
+            const {orrery, repo, start, called, state} = await bench(context)
+            await start()
+            await vi.waitFor(() => expect(orrery.reported()).toHaveLength(1), WAIT)
+            orrery.event('launch', launchOf(ID.a))
+            await vi.waitFor(() => expect(state()[nameOf(ID.a)]?.['@orrery_stops_at']).toBe('never'), WAIT)
+            const [call] = called('new-session')
+            // The bench's folder is in no git repo, so it's told so, and that the project's repo isn't here.
+            expect(toldRepo(call!)).toBe(`orrery: this session's folder, ${repo}, isn't in a git repo. There's no repo to work in here; don't look for one.\nProject "greenhouse"'s repo in orrery is https://github.com/hati/greenhouse, and it isn't checked out in this folder.`)
+            expect(envOf(call!)).toContain('ORRERY_REPO_TOLD=yes')
         })
 
         it('that is untrusted starts locked down, with no Bash, and its channel told so', async context => {

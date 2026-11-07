@@ -5,9 +5,11 @@
 // (and ORRERY_URL) set. It never fails the hook, and prints nothing (a hook's output goes to Claude) but
 // after a `/clear`, a compaction or a resume: then orrery's brief of what the session was working on, which
 // Claude Code adds to the fresh context so the work carries on. A session orrery started with context gets that
-// in the brief too, as it starts and after each of those.
+// in the brief too, as it starts and after each of those. Every `SessionStart` also says which repo it's in (ORR-1070),
+// but in a session the launcher started, which has that in its system prompt already (ORRERY_REPO_TOLD).
 import {basename} from 'node:path'
 import {authHeaders} from './credentials.mjs'
+import {repoContext} from './repo-context.mjs'
 import {claudeWindow} from './session.mjs'
 import {claude} from './claude-agent.mjs'
 import {effortOf, modelOf} from './transcript.mjs'
@@ -18,6 +20,7 @@ for await (const chunk of process.stdin) input += chunk
 try {
     const hook = JSON.parse(input || '{}')
     const window = claudeWindow()
+    const project = process.env.ORRERY_PROJECT ?? basename(hook.cwd ?? process.cwd())
     const context = claude.context(hook)
     const response = await fetch(`${base}/api/sessions`, {
         method: 'POST',
@@ -27,7 +30,7 @@ try {
         body: JSON.stringify({
             id: hook.session_id ?? window.id,
             pid: window.pid,
-            project: process.env.ORRERY_PROJECT ?? basename(hook.cwd ?? process.cwd()),
+            project,
             name: window.name,
             cwd: hook.cwd,
             event: hook.hook_event_name ?? 'idle',
@@ -55,9 +58,11 @@ try {
             window: context?.window,
         }),
     })
-    const {brief} = response.ok ? await response.json() ?? {} : {}
+    const {brief, repo} = response.ok ? await response.json() ?? {} : {}
+    const where = hook.hook_event_name === 'SessionStart' && !process.env.ORRERY_REPO_TOLD ? repoContext(hook.cwd, {project, repo}) : undefined
+    const told = [where, brief].filter(Boolean).join('\n\n')
     // stdout to a pipe can still be writing: exit once the brief is out.
-    if (brief) await new Promise(resolve => process.stdout.write(`${brief}\n`, resolve))
+    if (told) await new Promise(resolve => process.stdout.write(`${told}\n`, resolve))
 } catch {
     // orrery not running, or slow: the session carries on regardless.
 }

@@ -18,8 +18,9 @@ import {claude} from './claude-agent.mjs'
  * @property {() => string | null} problem why it can't be started on this machine (not installed), or null
  * @property {string} claims what its sessions can be started as, sent with each claim, so orrery offers a launch only to
  *   a launcher whose agent does what it asks
- * @property {(start: {dir: string, server: string, launch: object, mode: string}) => string[]} command what starts a
- *   launch's session in its folder, with the channel `server`, run as separate words, never through a shell
+ * @property {(start: {dir: string, server: string, launch: object, mode: string, told?: string}) => string[]} command what
+ *   starts a launch's session in its folder, with the channel `server`, run as separate words, never through a shell;
+ *   `told` is what orrery tells it as it starts (the repo it's in), for the session to keep past a fresh context
  * @property {(pane: Pane, at: {dir: string}) => Promise<{stop?: string, stuck?: string}>} getPast gets a new session past
  *   its startup prompts: `stop` when it must be stopped, and why; `stuck` when it may be waiting on one
  * @property {(pane: Pane) => boolean} allow answers yes once to the permission prompt it shows; false when it shows none

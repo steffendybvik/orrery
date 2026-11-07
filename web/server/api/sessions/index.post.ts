@@ -4,7 +4,8 @@
 // `SessionStart` after a `/clear`, a compaction or a resume (`source`) also brings `brief`: what the session was working
 // on, for the hook to hand the fresh context so the work carries on. A session orrery started (`started`, its launch)
 // with context gets that in the brief on every `SessionStart`, its first included. `tool` ({name, detail?}, on
-// `PreToolUse` and `PermissionRequest`) is what a permission prompt it waits at is for.
+// `PreToolUse` and `PermissionRequest`) is what a permission prompt it waits at is for. Every `SessionStart` brings the
+// project's `repo` too (its address, or null), which the hook tells the session with the folder's own repo (ORR-1070).
 import {cutOffLabel, isEffort} from '#shared/roadmap'
 export default defineEventHandler(async event => {
     const body = await readBody(event).catch(() => null) as Record<string, unknown> | null
@@ -64,6 +65,9 @@ export default defineEventHandler(async event => {
     }
     const api = `${getRequestURL(event).origin}/api/projects/${encodeURIComponent(body.project)}`
     // Its launch as its hook says (before its channel has connected) or as orrery knows it.
-    const brief = await sessionBrief(useStore(), {project: body.project, session: session.id, source, launch: text('started') ?? session.started?.launch, api})
-    return brief ? {...session, brief} : session
+    const [brief, repo] = await Promise.all([
+        sessionBrief(useStore(), {project: body.project, session: session.id, source, launch: text('started') ?? session.started?.launch, api}),
+        projectRepo(body.project),
+    ])
+    return {...session, ...brief ? {brief} : {}, repo}
 })

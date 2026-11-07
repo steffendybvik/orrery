@@ -47,6 +47,7 @@ import {commandsFor, homeFolder, homeProjects, setUpHome} from './home-folder.mj
 import {authHeaders, keyFor, keysFile} from './credentials.mjs'
 import {addToList, adoptable, configFile, inWsl, install, listChanges, listIn, readConfig, removeService, restartKeepsSessions, servedElsewhere, serviceProblem, uninstall, wslLocalhost} from './launcher-service.mjs'
 import {agentFor} from './agents.mjs'
+import {repoContext} from './repo-context.mjs'
 import {channelFor, channelsIn, projectsIn, servesEvery} from './repo-channels.mjs'
 import {follow} from './sse.mjs'
 import {openWatch} from './terminal.mjs'
@@ -485,10 +486,13 @@ function serve({url, project, dir, home, picked_at: picked, connected_at: connec
         // restarted and doesn't know the launch yet.
         // In the default folder the channel serves every project, so a session there hears its own unless told more.
         const hears = launch.hears?.length ? launch.hears : home ? [project] : []
-        const env = {ORRERY_URL: url, ORRERY_PROJECT: project, ORRERY_STARTED: launch.id, ORRERY_AFTER: String(launch.after), ...hears.length ? {ORRERY_HEAR: hears.join(',')} : {}, ...launch.untrusted ? {ORRERY_UNTRUSTED: 'yes'} : {}, ...launch.chat ? {ORRERY_CHAT: 'yes'} : {}, ...launch.person ? {ORRERY_PERSON: launch.person} : {}, ...keyFor(url) ? {ORRERY_KEY: keyFor(url)} : {}}
+        // Which repo it's in (ORR-1070), in its system prompt so a `/clear` keeps it; its hook then leaves it out. The
+        // default folder is in none, and says so.
+        const where = repoContext(dir, {project, repo: claim.repo})
+        const env = {ORRERY_URL: url, ORRERY_PROJECT: project, ORRERY_STARTED: launch.id, ORRERY_REPO_TOLD: 'yes', ORRERY_AFTER: String(launch.after), ...hears.length ? {ORRERY_HEAR: hears.join(',')} : {}, ...launch.untrusted ? {ORRERY_UNTRUSTED: 'yes'} : {}, ...launch.chat ? {ORRERY_CHAT: 'yes'} : {}, ...launch.person ? {ORRERY_PERSON: launch.person} : {}, ...keyFor(url) ? {ORRERY_KEY: keyFor(url)} : {}}
         const server = channelFor(dir, url, project)?.name ?? project
         tmux('new-session', '-d', '-s', launch.tmux, '-c', dir, ...Object.entries(env).flatMap(([k, v]) => ['-e', `${k}=${v}`]),
-            ...agent.command({dir, server, launch, mode}))
+            ...agent.command({dir, server, launch, mode, told: where}))
         tmux('set-option', '-t', launch.tmux, LAUNCHER, String(process.pid))
         running.set(launch.id, {tmux: launch.tmux, api, context: launch.context, ...launch.untrusted ? {untrusted: true} : {}, ...launch.chat ? {chat: true} : {}, ...launch.model ? {model: launch.model} : {}, ...launch.effort ? {effort: launch.effort} : {}})
         if (launch.model) tmux('set-option', '-t', launch.tmux, MODEL, launch.model)
