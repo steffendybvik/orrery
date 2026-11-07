@@ -21,6 +21,8 @@ import {known} from '../shared/known'
 import {numberOf} from '../shared/roadmap'
 import {withoutClosed, withoutNotes} from '../shared/patch'
 import {exportBoard} from '../server/utils/board-export'
+import {RoadmapError, checkRoadmap} from '../server/utils/roadmap'
+import {badRequest} from '../server/utils/input'
 import {Schedules} from '../server/utils/schedules'
 import {PullPoll} from '../server/utils/pull-poll'
 import type {PolledRow} from '../server/utils/pull-poll'
@@ -189,7 +191,7 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         const revisions = new Map<number, number>()
         return JSON.parse(JSON.stringify(outcome, (key, value: unknown) => {
             if (typeof value === 'string') {
-                return value.replaceAll(project, '<project>').replace(/\b(STO|API)([DPSXTK]?)-(\d+)/g, 'KEY$2-$3').replace(/^\d{4}-\d{2}-\d{2}T[\d:.]+Z$/, '<time>').replace(/-[a-z2-7]{8}$/, '-<uid>')
+                return value.replaceAll(project, '<project>').replace(/\b(STO|API)([DPSXTKI]?)-(\d+)/g, 'KEY$2-$3').replace(/^\d{4}-\d{2}-\d{2}T[\d:.]+Z$/, '<time>').replace(/-[a-z2-7]{8}$/, '-<uid>')
             }
             if (typeof value === 'number' && (key === 'id' || key === 'revision') && Number.isInteger(value)) {
                 if (!revisions.has(value)) revisions.set(value, revisions.size + 1)
@@ -2292,6 +2294,46 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         expect(domainOf('GET', '/api/projects/through-api/export')).toBe('a project, exported')
     })
 
+    it('imports a roadmap alike, with the project\'s ids and the file\'s as aliases (ORR-1006)', async () => {
+        // On projects of their own, so replacing a roadmap leaves the others' issues be.
+        const on = (p: string) => `${p}-import`
+        for (const p of ['through-store', 'through-api']) await store.createProject({name: on(p), key: p === 'through-store' ? 'STOI' : 'APII'})
+        // As web/server/api/projects/[project]/import.post.ts checks the file first.
+        const imported = (p: string, file: unknown, replace = false, actor: Actor = AGENT) => viaStore(async () => {
+            let roadmap
+            try {
+                roadmap = checkRoadmap(file)
+            } catch (error) {
+                if (error instanceof RoadmapError) throw badRequest(error.message, error.details)
+                throw error
+            }
+            return await store.importRoadmap(on(p), roadmap, replace, actor)
+        })
+        // The two projects' own key and uid differ, as they're two projects; what's on their boards doesn't.
+        const unkeyed = async (outcome: Promise<Outcome>) => {
+            const {body, ...rest} = await outcome
+            return {...rest, body: body && typeof body === 'object' && 'uid' in body ? {...body, key: '<key>', uid: '<uid>'} : body}
+        }
+        const roadmap = {milestones: [
+            {id: 'first', title: 'First', summary: 'The start', tasks: [
+                {id: 'a', title: 'Plan', status: 'done', labels: ['x'], tasks: [{id: 'a1', title: 'Sketch', status: 'doing'}]},
+                {id: 'b', title: 'Build', status: 'todo', plan: 'now', priority: 'P1', notes: 'Soon'},
+            ]},
+            {id: 'second', title: 'Second', tasks: [{id: 'c', title: 'Ship'}]},
+        ]}
+        const path = `/api/projects/${on('through-api')}/import`
+        await both('a roadmap', p => unkeyed(imported(p, roadmap, false, OWNER)), () => unkeyed(viaApi('POST', path, roadmap, OWNER)))
+        await both('again, without replace', p => imported(p, roadmap), () => viaApi('POST', path, roadmap))
+        await both('replacing what the owner made, as an agent', p => imported(p, roadmap, true), () => viaApi('POST', `${path}?replace=true`, roadmap))
+        await both('replacing it, as the owner', p => unkeyed(imported(p, {milestones: [{id: 'm', title: 'Only', tasks: [{id: 'b', title: 'Again'}]}]}, true, OWNER)),
+            () => unkeyed(viaApi('POST', `${path}?replace=true`, {milestones: [{id: 'm', title: 'Only', tasks: [{id: 'b', title: 'Again'}]}]}, OWNER)))
+        const bad = {milestones: [{id: 'm', title: 'M', tasks: [{id: 't', title: 'T', status: 'maybe', colour: 'red'}, {id: 't', title: 3}]}, {title: 'No id'}, 'x'], extra: 1}
+        await both('a file with problems', p => imported(p, bad), () => viaApi('POST', path, bad))
+        await both('not a roadmap', p => imported(p, [1]), () => viaApi('POST', path, [1]))
+        await both('no such project', () => viaStore(() => store.importRoadmap('nowhere', {comment: '', milestones: []})), () => viaApi('POST', '/api/projects/nowhere/import', {milestones: []}))
+        expect(domainOf('POST', path)).toBe('a project, imported')
+    })
+
     it('reads the secrets alike, and never a value (ORR-953)', async () => {
         const secrets = new Secrets(store, () => 'parity-secret-key', undefined, async () => new Response('ok', {status: 200}))
         await alike0('none yet', () => viaStore(() => secrets.list()), () => viaApi('GET', '/api/secrets'))
@@ -2909,7 +2951,7 @@ describe('the router', () => {
     })
 
     it('routes by a table with a line per domain, so taking one back is taking its line out (ORR-925)', () => {
-        expect(DOMAINS.map(({domain}) => domain)).toEqual(['docs', 'statuses', 'issues, reading', 'comments', 'an issue, deleted', 'an issue, made', 'an issue, its words', 'issues, changed at once', 'a proposal, decided', 'claims', 'activity', 'milestones', 'releases', 'releases, every project\'s', 'people', 'invites', 'keys', 'logins', 'uploads, reading', 'an upload, kept', 'presets', 'secrets, reading', 'settings', 'a pull request, reading', "a pull request's risk", 'schedules, reading', 'projects, listed', 'a project, made', 'a project, changed', 'a project, exported', 'the bell', 'epics', 'milestone and epic comments'])
+        expect(DOMAINS.map(({domain}) => domain)).toEqual(['docs', 'statuses', 'issues, reading', 'comments', 'an issue, deleted', 'an issue, made', 'an issue, its words', 'issues, changed at once', 'a proposal, decided', 'claims', 'activity', 'milestones', 'releases', 'releases, every project\'s', 'people', 'invites', 'keys', 'logins', 'uploads, reading', 'an upload, kept', 'presets', 'secrets, reading', 'settings', 'a pull request, reading', "a pull request's risk", 'schedules, reading', 'projects, listed', 'a project, made', 'a project, changed', 'a project, exported', 'a project, imported', 'the bell', 'epics', 'milestone and epic comments'])
         expect(domainOf('PATCH', '/api/projects/p/docs/d')).toBe('docs')
         expect(domainOf('head', '/api/projects/p/doc-sections/')).toBe('docs')
         for (const method of ['POST', 'DELETE']) expect(domainOf(method, '/api/projects/p/issues/P-1/claim'), method).toBe('claims')
@@ -3058,7 +3100,7 @@ describe('the contract (api/openapi.yaml)', () => {
     const routes = () => nuxtRoutes().filter(route => servedByApi(methodOf(route), pathOf(route)))
 
     it('has every route the router sends to the API, and no other', () => {
-        expect(contract()).toHaveLength(98)
+        expect(contract()).toHaveLength(99)
         expect(contract()).toEqual(routes())
     })
 

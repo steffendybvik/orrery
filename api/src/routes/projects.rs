@@ -1,5 +1,7 @@
 // Projects: the handlers and the routes they answer (ORR-1048).
 use super::P;
+use crate::board::imports::check_roadmap;
+use crate::board::issue_writes::IssueWrites;
 use crate::board::projects::Projects;
 use crate::board::{export, projects};
 use crate::changes::Outbox;
@@ -11,7 +13,7 @@ use axum::body::Bytes;
 use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
-use axum::routing::get;
+use axum::routing::{get, post};
 use axum::{Json, Router};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -21,6 +23,7 @@ pub(crate) fn routes() -> Router<Arc<App>> {
         .route("/api/projects", get(list_projects).post(create_project))
         .route(P, get(get_project).patch(patch_project))
         .route(&format!("{P}/export"), get(export_project))
+        .route(&format!("{P}/import"), post(import_project))
 }
 
 async fn list_projects(State(app): Shared) -> Result<Response> {
@@ -71,6 +74,26 @@ async fn export_project(State(app): Shared, Path(project): Path<String>) -> Resu
         response.headers_mut().insert(axum::http::header::CONTENT_DISPOSITION, value);
     }
     Ok(response)
+}
+
+/// `POST /api/projects/{project}/import` {milestones: […]} in `docs/roadmap.json`'s format → the project; refused when it
+/// has milestones or issues already, unless `?replace=true` (`importRoadmap`).
+async fn import_project(
+    State(app): Shared,
+    Path(project): Path<String>,
+    Query(query): Query<HashMap<String, String>>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Response> {
+    let roadmap = check_roadmap(&body_of(&body))?;
+    let mut conn = app.pool.acquire().await?;
+    let actor = actor_of(&headers);
+    let mut writes = IssueWrites::new(&mut conn);
+    writes.outbox = Some(Outbox::new(actor.clone()));
+    writes.import_roadmap(&project, &roadmap, query.get("replace").is_some_and(|r| r == "true"), &actor).await?;
+    let effects = std::mem::take(&mut writes.effects);
+    let value = Projects::new(&mut conn).project(&project).await?;
+    Ok(reply(StatusCode::OK, Some(value), effects))
 }
 
 #[cfg(test)]

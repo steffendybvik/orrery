@@ -6,6 +6,7 @@ pub(crate) mod decisions;
 pub(crate) mod docs;
 pub(crate) mod epics;
 pub(crate) mod export;
+pub(crate) mod imports;
 pub(crate) mod issue_edits;
 pub(crate) mod issue_writes;
 pub(crate) mod issues;

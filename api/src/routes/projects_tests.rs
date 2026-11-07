@@ -334,3 +334,89 @@ async fn a_new_project_shares_releases_only_from_one_with_its_own() {
     assert_eq!(shared["releases_from"], "source");
     assert_eq!(api.get("/api/projects").send().await.body.as_array().unwrap().len(), 3);
 }
+
+fn roadmap() -> Value {
+    json!({"milestones": [
+        {"id": "first", "title": "First", "summary": "The start", "tasks": [
+            {"id": "a", "title": "Plan", "status": "done", "labels": ["x"], "tasks": [{"id": "a1", "title": "Sketch", "status": "doing"}]},
+            {"id": "b", "title": "Build", "status": "todo", "plan": "now", "priority": "P1", "notes": "Soon"},
+        ]},
+        {"id": "second", "title": "Second", "tasks": [{"id": "c", "title": "Ship"}]},
+    ]})
+}
+
+#[tokio::test]
+async fn a_roadmap_is_imported_with_the_projects_ids_and_the_files_as_aliases() {
+    let api = TestApi::new().await;
+    let project = api.project("Garden").await;
+    let key = api.get(&format!("/api/projects/{project}")).send().await.body["key"].as_str().unwrap().to_string();
+    let reply = api.post(&format!("/api/projects/{project}/import"), roadmap()).send().await;
+    assert_eq!(reply.status, 200, "{}", reply.body);
+    assert_eq!(changed(&reply), std::slice::from_ref(&project));
+    let milestones = reply.body["board"]["milestones"].as_array().unwrap();
+    assert_eq!(milestones.iter().map(|m| m["id"].as_str().unwrap()).collect::<Vec<_>>(), ["1", "2"]);
+    assert_eq!(milestones[0]["summary"], "The start");
+    assert_eq!(milestones[0]["aliases"], json!(["first"]));
+    // In roadmap order, sub-issues right after their parent.
+    assert_eq!(issue_ids(&reply.body), [format!("{key}-1"), format!("{key}-2"), format!("{key}-3"), format!("{key}-4")]);
+    let plan = &milestones[0]["tasks"][0];
+    assert_eq!(plan["status"], "done");
+    assert_eq!(plan["labels"], json!(["x"]));
+    assert_eq!(plan["aliases"], json!(["a"]));
+    assert_eq!(plan["tasks"][0]["status"], "in-progress");
+    assert_eq!(milestones[0]["tasks"][1]["status"], "todo");
+    assert_eq!(milestones[0]["tasks"][1]["priority"], "P1");
+    assert_eq!(milestones[1]["tasks"][0]["status"], "backlog", "todo without a plan is the backlog");
+    // The file's ids still find them.
+    let found = api.get(&format!("/api/projects/{project}/issues/b")).send().await;
+    assert_eq!(found.body["id"], format!("{key}-3"), "{}", found.body);
+    // The counters move on past what the import gave out.
+    assert_eq!(api.issue(&project, json!({"title": "Next"})).await, format!("{key}-5"));
+}
+
+#[tokio::test]
+async fn an_import_replaces_a_roadmap_only_when_asked() {
+    let api = TestApi::new().await;
+    let project = api.project("Orchard").await;
+    let key = api.get(&format!("/api/projects/{project}")).send().await.body["key"].as_str().unwrap().to_string();
+    let old = api.issue(&project, json!({"title": "Old"})).await;
+    api.post(&format!("/api/projects/{project}/issues/{old}/comments"), json!({"body": "Gone soon"})).send().await;
+    let refused = api.post(&format!("/api/projects/{project}/import"), roadmap()).send().await;
+    assert_eq!(refused.status, 409, "{}", refused.body);
+    // An agent can't take away what the owner made.
+    let agent = api.post(&format!("/api/projects/{project}/import?replace=true"), roadmap()).by_agent("claude").send().await;
+    assert_eq!(agent.status, 403, "{}", agent.body);
+    assert!(agent.body["message"].as_str().unwrap().contains(&format!("Replacing {project}'s roadmap is the owner's call: {old}")), "{}", agent.body);
+    let replaced = api.post(&format!("/api/projects/{project}/import?replace=true"), roadmap()).send().await;
+    assert_eq!(replaced.status, 200, "{}", replaced.body);
+    let ids = issue_ids(&replaced.body);
+    assert_eq!(ids.len(), 4);
+    assert!(!ids.contains(&format!("{key}-1")), "a number never comes to mean another issue: {ids:?}");
+    let comments: i64 = sqlx::query("SELECT COUNT(*) AS n FROM comments WHERE project = ?").bind(&project).fetch_one(&api.app.pool).await.unwrap().get("n");
+    assert_eq!(comments, 0);
+}
+
+#[tokio::test]
+async fn a_file_that_isnt_a_roadmap_is_refused_with_each_problem() {
+    let api = TestApi::new().await;
+    let project = api.project("Meadow").await;
+    let not = api.post(&format!("/api/projects/{project}/import"), json!([1])).send().await;
+    assert_eq!(not.status, 400);
+    assert_eq!(not.body["message"], "Not a roadmap");
+    assert_eq!(not.body["data"]["problems"], json!(["the file: should be an object with \"milestones\", not a list"]));
+    let bad = json!({"milestones": [{"id": "m", "title": "M", "tasks": [{"id": "t", "title": "T", "status": "maybe", "colour": "red"}, {"id": "t", "title": 3}]}], "extra": 1});
+    let reply = api.post(&format!("/api/projects/{project}/import"), bad).send().await;
+    assert_eq!(reply.status, 400);
+    assert_eq!(reply.body["message"], "5 problems in the roadmap");
+    assert_eq!(
+        reply.body["data"]["problems"],
+        json!([
+            "the file: unknown field \"extra\"",
+            "t: unknown field \"colour\"",
+            "t: \"status\" is \"maybe\", not one of todo, doing, done",
+            "t: id is used by more than one issue",
+            "t: \"title\" should be text, not number 3",
+        ])
+    );
+    assert_eq!(api.post("/api/projects/nowhere/import", roadmap()).send().await.status, 404);
+}
