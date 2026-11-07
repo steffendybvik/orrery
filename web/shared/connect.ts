@@ -43,6 +43,13 @@ export interface ConnectPieces {
 const bootstrapInstall = (origin: string) => `mkdir -p ~/.orrery && curl -fsS ${origin}/channel/bootstrap.mjs -o ~/.orrery/bootstrap.mjs`
 /** Puts the bootstrap on this machine, and the launcher service with it. */
 export const launcherInstall = (origin: string) => `${bootstrapInstall(origin)} && ORRERY_URL=${origin} node ~/.orrery/bootstrap.mjs launcher --install`
+/** An agent with no launcher adapter (ORR-1075): the bootstrap put in place once, then orrery's channel run as a plain
+ * MCP server over stdio, serving every project, for the agent's own MCP config. orrery can't start it or send it work,
+ * but it has orrery's tools. */
+export const channelServer = (origin: string) => ({
+    bootstrap: bootstrapInstall(origin),
+    command: `ORRERY_URL=${origin} ORRERY_PROJECTS='*' node ~/.orrery/bootstrap.mjs channel`,
+})
 
 export function connectPieces(target: ConnectTarget): ConnectPieces {
     const {origin, id, key, isNew} = target

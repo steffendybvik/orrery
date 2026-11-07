@@ -17,7 +17,7 @@ use sqlx::{AnyConnection, Row};
 use std::sync::LazyLock;
 
 /// `SETTINGS_FIELDS` in web/server/store/schema.ts, in its order, which is the order its problems are found in.
-const FIELDS: [&str; 14] = [
+const FIELDS: [&str; 15] = [
     "tint",
     "focus_prompt",
     "milestone_prompt",
@@ -26,6 +26,7 @@ const FIELDS: [&str; 14] = [
     "handle",
     "starts",
     "terminal",
+    "agent",
     "restrict_proposals",
     "advanced",
     "work_kinds",
@@ -35,6 +36,8 @@ const FIELDS: [&str; 14] = [
 ];
 /// `TERMINALS` in web/shared/roadmap/settings.ts.
 const TERMINALS: [&str; 4] = ["terminal", "iterm", "warp", "ghostty"];
+/// `AGENT_CHOICES` in web/shared/roadmap/settings.ts: the AI agents someone can say they run (ORR-1075).
+const AGENTS: [&str; 2] = ["claude", "other"];
 /// `EFFORTS` and `MODEL_ALIASES` in web/shared/roadmap/sessions.ts.
 const EFFORTS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
 const MODEL_ALIASES: [&str; 7] = ["best", "opus", "sonnet", "haiku", "fable", "default", "opusplan"];
@@ -257,6 +260,7 @@ fn check_input(body: &Value) -> Result<Map<String, Value>> {
                 };
                 let problem = match key {
                     "terminal" if !TERMINALS.contains(&text) => Some(format!("\"{key}\" is \"{text}\", not one of {} (or null)", TERMINALS.join(", "))),
+                    "agent" if !AGENTS.contains(&text) => Some(format!("\"{key}\" is \"{text}\", not one of {} (or null)", AGENTS.join(", "))),
                     "tint" if !TINT.is_match(text) => Some(format!("\"{key}\" is \"{text}\"; use {} or a colour like #3b82f6", TINTS.join(", "))),
                     "tracker" if !TRACKER.is_match(text) => Some(format!(
                         "\"{key}\" is \"{text}\"; use the web address of a task with {{id}} where its id goes, e.g. https://tracker.example.com/issue/{{id}}"
@@ -335,6 +339,7 @@ impl<'c> Settings<'c> {
             "tracker": truthy("tracker"),
             "starts": or("starts", Value::Null),
             "terminal": or("terminal", json!("terminal")),
+            "agent": or("agent", json!("claude")),
             "restrict_proposals": or("restrict_proposals", json!(true)),
             "advanced": or("advanced", json!(true)),
             "count_use": or("count_use", json!(false)),

@@ -19,6 +19,7 @@ const TABS: {value: Tab, label: string, scope: string, sections: Heading[]}[] = 
     {value: 'you', label: 'You', scope: 'Who you are on this orrery, and how your issues are named outside it.', sections: [
         {id: 'name', text: 'Your name', level: 2},
         {id: 'handle', text: 'Your handle', level: 2},
+        {id: 'agent', text: 'Your AI agent', level: 2},
         // Only when this orrery asks for a login (ORR-664): alone on your own machine, none of it shows.
         ...useAuth().status.value?.mode === 'on' ? [{id: 'keys', text: 'Your keys', level: 2 as const}] : [],
         {id: 'phone', text: 'Open on your phone', level: 2},
@@ -324,6 +325,17 @@ async function pick(tint: string | null) {
           >
           <span v-if="handleFailed" class="text-xs text-rose-700 dark:text-rose-400">{{ handleFailed }}</span>
         </form>
+      </section>
+
+      <section v-if="tab === 'you'" id="agent" class="scroll-mt-6 flex flex-col gap-3">
+        <header class="flex flex-col gap-0.5">
+          <h2 class="text-[15px] font-semibold text-fg">{{ title.agent }}</h2>
+          <p class="text-xs text-muted">
+            The agent you work with. Getting started and Connect an agent show how to set it up. orrery starts and sends
+            work to Claude Code sessions; another agent keeps the roadmap through orrery's API and MCP tools.
+          </p>
+        </header>
+        <AgentPicker />
       </section>
 
       <section v-if="tab === 'you' && useAuth().status.value?.mode === 'on'" id="keys" class="scroll-mt-6 flex flex-col gap-3">

@@ -11,6 +11,18 @@ Linux it needs a desktop with `zenity` or `kdialog`. In WSL, or with neither, us
 project on the same page, and hand the Claude session in that repo the line it gives you, which has it write the same
 files. What follows is the same by hand.
 
+## Your AI agent
+
+Getting started asks which AI agent you run, and App settings (You → Your AI agent) keeps the answer (ORR-1075):
+**Claude Code**, the default, or **Another agent**. With Claude Code, Getting started and Connect an agent show what
+follows here. With another agent, there's no launcher adapter for it yet, so they show the route that works without
+one instead: `/llms-full.txt` for the REST API, and orrery's channel as a plain MCP server over stdio
+(`ORRERY_URL=… ORRERY_PROJECTS='*' node ~/.orrery/bootstrap.mjs channel`). orrery can't start that agent's sessions
+or send them work.
+
+The launcher keeps the agent its sessions run in its own list, per machine: `launcher --install --agent=<name>` sets
+it, and Claude Code's (`claude`) is the default and the only adapter so far ([agent adapters](/p/orrery/docs/agent-adapters)).
+
 ## Set up the machine once
 
 Getting started shows one line on the first open, to run in a terminal from any folder (ORR-1067):

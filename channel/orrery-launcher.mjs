@@ -56,8 +56,17 @@ import {BOOTSTRAP, CODE, VERSION, codeOnDisk, launcherMove, olderThan, servedOth
 const mode = process.env.ORRERY_PERMISSION_MODE || 'auto'
 const log = (...parts) => console.error('[orrery launcher]', ...parts)
 const tmux = (...args) => execFileSync('tmux', args, {encoding: 'utf8'}).trim()
-/** The agent its sessions run: Claude Code, the only adapter so far (agents.mjs). */
-const agent = agentFor()
+const args = process.argv.slice(2)
+/** The agent `--install --agent=<name>` names (ORR-1075), the one its list keeps otherwise: Claude Code's by default,
+ * the only adapter so far (agents.mjs). */
+const named = args.find(arg => arg.startsWith('--agent='))?.slice('--agent='.length)
+let agent
+try {
+    agent = agentFor(named || readConfig().agent)
+} catch (error) {
+    console.error(`[orrery launcher] ${error.message}`)
+    process.exit(1)
+}
 /** A tmux session's pane, as an adapter reads and types into it. */
 const paneOf = name => ({
     read: () => tmux('capture-pane', '-p', '-t', name),
@@ -95,6 +104,7 @@ const USAGE = `orrery's launcher: starts Claude sessions for orrery's projects, 
   node orrery-launcher.mjs --install      install the service once; in a repo connected to orrery (its .mcp.json
                                           registers orrery's channel), add the repo's projects too
                        --no-pick-up       with --install: don't let a Claude session add its repo
+                       --agent=<name>     with --install: the agent its sessions run (claude, the default and only one so far)
   node orrery-launcher.mjs --uninstall    in a repo, take its projects off and keep them off; elsewhere, remove the service
   node orrery-launcher.mjs --list         which projects this repo would add, and with which channel
   node orrery-launcher.mjs                run in this terminal for this repo's projects, until stopped
@@ -102,7 +112,6 @@ const USAGE = `orrery's launcher: starts Claude sessions for orrery's projects, 
 Connect the repo first (orrery's Connect an agent page), so its .mcp.json has the channel.`
 const FLAGS = ['--install', '--uninstall', '--no-pick-up', '--list', '--service', '--help', '-h']
 
-const args = process.argv.slice(2)
 // What the service runs: the bootstrap, when it's that that ran this.
 const script = BOOTSTRAP ? [BOOTSTRAP, 'launcher'] : fileURLToPath(import.meta.url)
 if (args.includes('--help') || args.includes('-h')) {
@@ -110,7 +119,7 @@ if (args.includes('--help') || args.includes('-h')) {
     process.exit(0)
 }
 // An unknown flag isn't taken for running in the foreground (ORR-604).
-const unknown = args.filter(arg => !FLAGS.includes(arg))
+const unknown = args.filter(arg => !FLAGS.includes(arg) && !arg.startsWith('--agent='))
 if (unknown.length) {
     console.error(`[orrery launcher] doesn't know ${unknown.join(' ')}\n\n${USAGE}`)
     process.exit(1)
@@ -139,7 +148,7 @@ if (args.includes('--install') || args.includes('--uninstall')) {
                 process.exit(0)
             }
             needsTmuxAndAgent()
-            const {config, logs, restarted} = install([], {script, pickUp, orrery: process.env.ORRERY_URL})
+            const {config, logs, restarted} = install([], {script, pickUp, orrery: process.env.ORRERY_URL, agent: named})
             console.log(`The launcher service is installed and starts at login. It serves ${config.projects.length ? config.projects.map(p => p.project).join(', ') : 'no project yet'}; the list is ${configFile()}.${restarted ? '' : ' It was running already, so its sessions go on.'}`)
             console.log(pickUp
                 ? "Pick-up is on: a Claude session opened in a repo whose .mcp.json registers orrery's channel puts that repo on it. --uninstall in a repo keeps it off."
@@ -181,7 +190,7 @@ if (args.includes('--install') || args.includes('--uninstall')) {
             if (found === 404) throw new Error(`${entry.url} has no project ${entry.project}: set ORRERY_PROJECT (and ORRERY_URL) to the one to serve`)
             if (!found) log(`can't reach ${entry.url} now; the launcher keeps trying once it's installed${inWsl() && wslLocalhost(entry.url) ? `. ${WSL_LOCALHOST}` : ''}`)
         }
-        const {config, logs, restarted} = install(entries, {script, dir: process.cwd(), pickUp})
+        const {config, logs, restarted} = install(entries, {script, dir: process.cwd(), pickUp, agent: named})
         for (const {url, project, dir} of entries) {
             console.log(`The launcher now starts sessions for ${project} (${url}) in ${dir}, with ${channelFor(dir, url, project)?.name ?? 'no channel'}, from login on.`)
         }

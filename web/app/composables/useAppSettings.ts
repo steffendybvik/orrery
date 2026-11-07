@@ -4,7 +4,7 @@ import {TINTS, WORK_KINDS} from '#shared/roadmap'
 // This orrery's own settings, kept current from `/api/events`, and the tint they give the page: the
 // colour goes on <html> (`data-tint`, `--tint`) for main.css to mix into the backgrounds.
 export function useAppSettings() {
-    const settings = useState<Settings>('app-settings', () => ({id: '', tint: null, statuses: [], focus_prompt: null, milestone_prompt: null, instructions: [], handle: null, uid: '', tracker: null, starts: null, terminal: 'terminal', restrict_proposals: true, advanced: true, count_use: false, work_kinds: [...WORK_KINDS], starred: [], hidden: []}))
+    const settings = useState<Settings>('app-settings', () => ({id: '', tint: null, statuses: [], focus_prompt: null, milestone_prompt: null, instructions: [], handle: null, uid: '', tracker: null, starts: null, terminal: 'terminal', agent: 'claude', restrict_proposals: true, advanced: true, count_use: false, work_kinds: [...WORK_KINDS], starred: [], hidden: []}))
 
     /** The tint as a colour: a named one's, or the `#rrggbb` itself. */
     const tintColor = computed(() => {

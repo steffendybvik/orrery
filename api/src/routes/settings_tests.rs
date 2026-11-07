@@ -28,6 +28,7 @@ async fn a_fresh_orrery_has_every_setting_at_its_default() {
     assert_eq!(s["tracker"], Value::Null);
     assert_eq!(s["starts"], Value::Null);
     assert_eq!(s["terminal"], "terminal");
+    assert_eq!(s["agent"], "claude");
     assert_eq!(s["restrict_proposals"], true);
     assert_eq!(s["advanced"], true);
     assert_eq!(s["count_use"], false);
@@ -53,14 +54,15 @@ async fn the_orrerys_id_is_made_once_and_kept() {
 async fn a_patch_changes_only_what_it_sends_and_says_so() {
     let api = TestApi::new().await;
     let before = changes(&api, "settings").await;
-    let reply = api.patch("/api/settings", json!({"tint": "#3b82f6", "terminal": "ghostty", "count_use": true})).send().await;
+    let reply = api.patch("/api/settings", json!({"tint": "#3b82f6", "terminal": "ghostty", "agent": "other", "count_use": true})).send().await;
     assert_eq!(reply.status, 200, "{}", reply.body);
     assert_eq!(reply.body["tint"], "#3b82f6");
     assert_eq!(reply.body["terminal"], "ghostty");
     assert_eq!(reply.body["count_use"], true);
+    assert_eq!(reply.body["agent"], "other");
     assert_eq!(reply.body["advanced"], true, "what wasn't sent stays");
     assert_eq!(reply.header("orrery-settings"), Some("1"));
-    assert_eq!(reply.header("orrery-settings-keys"), Some("count%5Fuse, terminal, tint"), "the keys sent, sorted and percent-encoded");
+    assert_eq!(reply.header("orrery-settings-keys"), Some("agent, count%5Fuse, terminal, tint"), "the keys sent, sorted and percent-encoded");
     assert_eq!(reply.header("orrery-changed"), None, "no project changes unless starts does");
     assert_eq!(changes(&api, "settings").await, before + 1, "the settings stream is told");
     let read = api.get("/api/settings").send().await.body;
@@ -116,14 +118,15 @@ async fn a_body_that_isnt_an_object_is_refused() {
 #[tokio::test]
 async fn every_problem_is_said_at_once_and_nothing_is_kept() {
     let api = TestApi::new().await;
-    let reply = api.patch("/api/settings", json!({"tint": "red", "terminal": "kitty", "advanced": "yes"})).send().await;
+    let reply = api.patch("/api/settings", json!({"tint": "red", "terminal": "kitty", "agent": "codex", "advanced": "yes"})).send().await;
     assert_eq!(reply.status, 400);
-    assert_eq!(reply.body["message"], "3 problems in the body");
+    assert_eq!(reply.body["message"], "4 problems in the body");
     assert_eq!(
         reply.problems(),
         [
             "\"tint\" is \"red\"; use slate, blue, teal, green, amber, rose, violet or a colour like #3b82f6",
             "\"terminal\" is \"kitty\", not one of terminal, iterm, warp, ghostty (or null)",
+            "\"agent\" is \"codex\", not one of claude, other (or null)",
             "\"advanced\" should be a boolean, not \"yes\"",
         ]
     );
