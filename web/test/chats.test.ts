@@ -730,6 +730,31 @@ describe("the owner's chat moving issues", () => {
         expect(notes.map(n => n.message)).toEqual(['The chat asked to put GRE-1, GRE-2 in done, assigned to skoll', "skoll allowed the chat's request to put GRE-1, GRE-2 in done, assigned to skoll"])
     })
 
+    it("moves those the owner named in their last message at once, as theirs, with no Allow (ORR-1042)", async () => {
+        const waiting = await chats.ask('c1c2c3c4c5c6', {move: {ids: ['GRE-1'], status: 'backlog'}})
+        await chats.say('c1c2c3c4c5c6', 'Put gre-1 and GRE-2 in done, on me', [], {name: 'skoll', owner: true})
+        const said = await chats.ask('c1c2c3c4c5c6', {move: {ids: ['GRE-1', 'GRE-2'], status: 'done', assignee: 'owner'}})
+        expect(said.move).toBeUndefined()
+        expect(said.text).toBe('Put [GRE-1](/p/greenhouse/issues/GRE-1), [GRE-2](/p/greenhouse/issues/GRE-2) in done, assigned to skoll.')
+        expect([await state('GRE-1'), await state('GRE-2')]).toEqual([['done', 'skoll'], ['done', 'skoll']])
+        expect((await store.listActivity('greenhouse', 'GRE-1')).at(-1)).toMatchObject({created_by: 'skoll', protected: true})
+        expect(waiting.move!.state).toBe('expired')
+        expect(notes.at(-1)).toMatchObject({kind: 'chat.moved', message: 'The chat put GRE-1, GRE-2 in done, assigned to skoll, as the owner asked'})
+    })
+
+    it("asks for any the owner didn't name, and never moves a proposal at once", async () => {
+        await chats.say('c1c2c3c4c5c6', 'Close GRE-1', [], {name: 'skoll', owner: true})
+        const asked = await chats.ask('c1c2c3c4c5c6', {move: {ids: ['GRE-1', 'GRE-3'], status: 'done'}})
+        expect(asked.move).toMatchObject({state: 'asked', body: {ids: ['GRE-1', 'GRE-3']}})
+        expect(await state('GRE-1')).toEqual(['todo', null])
+        await chats.say('c1c2c3c4c5c6', 'Move GRE-4 to todo', [], {name: 'skoll', owner: true})
+        await expect(chats.ask('c1c2c3c4c5c6', {move: {ids: ['GRE-4'], status: 'todo'}})).rejects.toMatchObject({statusCode: 403})
+        // Sent from an issue's page, "this" is that issue.
+        await chats.say('c1c2c3c4c5c6', 'Assign this to claude', [], {name: 'skoll', owner: true}, {path: '/p/greenhouse/issues/GRE-3'})
+        expect((await chats.ask('c1c2c3c4c5c6', {move: {ids: ['GRE-3'], assignee: 'claude'}})).move).toBeUndefined()
+        expect(await state('GRE-3')).toEqual(['todo', 'claude'])
+    })
+
     it('moves nothing when denied, and only what would change', async () => {
         await store.updateIssue('greenhouse', 'GRE-2', {status: 'backlog'}, {name: 'skoll', owner: true})
         const asked = await chats.ask('c1c2c3c4c5c6', {move: {ids: ['GRE-1', 'GRE-2'], status: 'backlog'}})

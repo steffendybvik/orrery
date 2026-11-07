@@ -716,14 +716,26 @@ paths:
         '409': {$ref: '#/components/responses/Conflict'}
   /api/projects/{project}:
     parameters: [{$ref: '#/components/parameters/project'}]
+    get:
+      x-served: false
+      summary: The project, with its board
+      description: |
+        Its own fields, docs, doc sections, releases and board. `?notes=0` leaves the issues' notes out, and `?closed=0`
+        the closed issues (done, canceled) with no open sub-issue under them. The events stream's `rev`, which the page's
+        patches build on, isn't here: it's the Nuxt server's, so the router sends this read on only once it can add it.
+      parameters:
+        - {name: notes, in: query, required: false, description: '`0` leaves the issues'' notes out', schema: {type: string}}
+        - {name: closed, in: query, required: false, description: '`0` leaves out the closed issues with no open sub-issue', schema: {type: string}}
+      responses:
+        '200': {description: 'The project, with its board', content: {application/json: {schema: {$ref: '#/components/schemas/Project'}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
     patch:
       summary: Changes a project
       description: |
         Its name, key, description, icon, tint, repo and where its releases come from; its prompts (`focus_prompt`,
         `milestone_prompt`, `instructions`, `muted`) are the owner's (403). Its id can't change (400). Sending
         `releases_from` makes it `shared`, and null gives it its own; leaving its own releases is refused while it has
-        some or another project draws on them (409). Its issues keep only the releases the new source has. Reading a
-        project stays with the Nuxt server, which adds the events stream's `rev`.
+        some or another project draws on them (409). Its issues keep only the releases the new source has.
       parameters: [{$ref: '#/components/parameters/actor'}]
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/ProjectInput'}}}}
       responses:
@@ -860,6 +872,36 @@ paths:
       summary: Ends this browser's login, on the server as well as its cookie
       responses:
         '204': {description: Logged out, or wasn't logged in}
+  /api/auth/status:
+    get:
+      x-served: false
+      summary: Whether this orrery asks for a login, and who this browser is
+      description: >-
+        Open, as the login page needs it first. How the request reached the router comes in `Orrery-Came` (`loopback`,
+        `proxied`, `phone`, `https`), and `Orrery-Login-Ways` says `on` for ORRERY_AUTH=on. Written ahead of the swap.
+      responses:
+        '200': {description: '{mode, person?, via?, can_get_in, oidc, warn_http, phone}'}
+  /api/auth/link:
+    post:
+      x-served: false
+      summary: Signs this browser in with a phone's one-time link or its six-letter code, using it up
+      description: >-
+        `{token}` from the QR code, or `{code}` typed. The login is named as the phone's own. Five wrong codes in a row
+        end every code still open. Links are kept in memory, so a restart ends them. Written ahead of the swap.
+      responses:
+        '201': {description: '{person}, with the login cookie'}
+        '401': {description: The link or code is wrong, used or has run out}
+  /api/phone/link:
+    post:
+      x-served: false
+      summary: A one-time sign-in link and code for App settings' QR code
+      description: >-
+        Good once, for five minutes. Only the owner's own page makes one: never over the phone's port
+        (`Orrery-Came: phone`), never a session, the chat or an untrusted one. Written ahead of the swap.
+      responses:
+        '201': {description: '{token, code, expires_at}'}
+        '403': {description: Over the phone's port, or not the owner's own page}
+        '409': {description: The owner hasn't given their name yet}
   /api/auth/oidc/start:
     get:
       x-served: false
@@ -1634,7 +1676,7 @@ components:
         effort: {type: string, enum: [low, medium, high, xhigh, max]}
     Settings:
       type: object
-      required: [id, tint, statuses, focus_prompt, milestone_prompt, instructions, handle, uid, tracker, starts, terminal, restrict_proposals, advanced, pick_next, count_use, work_kinds, starred, hidden]
+      required: [id, tint, statuses, focus_prompt, milestone_prompt, instructions, handle, uid, tracker, starts, terminal, restrict_proposals, advanced, count_use, work_kinds, starred, hidden]
       properties:
         id: {type: string, description: 'This orrery''s id, `orr_` and six hex digits'}
         tint: {type: [string, 'null']}
@@ -1649,7 +1691,6 @@ components:
         terminal: {type: string, enum: [terminal, iterm, warp, ghostty]}
         restrict_proposals: {type: boolean}
         advanced: {type: boolean}
-        pick_next: {type: boolean}
         count_use: {type: boolean}
         work_kinds: {type: array, items: {$ref: '#/components/schemas/WorkKind'}}
         starred: {type: array, items: {type: string}, description: Project ids listed first; none that are hidden}
@@ -1669,7 +1710,6 @@ components:
         terminal: {type: [string, 'null'], enum: [terminal, iterm, warp, ghostty, null]}
         restrict_proposals: {type: boolean}
         advanced: {type: boolean}
-        pick_next: {type: boolean}
         work_kinds: {type: [array, 'null'], minItems: 1, items: {$ref: '#/components/schemas/WorkKind'}}
         count_use: {type: boolean}
         starred: {type: [array, 'null'], items: {type: string, minLength: 1}}

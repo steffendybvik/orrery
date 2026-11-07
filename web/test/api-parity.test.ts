@@ -18,12 +18,14 @@ import {Secrets} from '../server/utils/secrets'
 import {Pulls, pullForSession} from '../server/utils/pulls'
 import {known} from '../shared/known'
 import {numberOf} from '../shared/roadmap'
+import {withoutClosed, withoutNotes} from '../shared/patch'
 import {Schedules} from '../server/utils/schedules'
 import {PullPoll} from '../server/utils/pull-poll'
 import type {PolledRow} from '../server/utils/pull-poll'
 import {openDb} from '../server/utils/db'
 import {PostgresDb} from '../server/utils/postgres'
-import {actorHeaders, changedOf, countedOf, databaseMark, domainOf, DOMAINS, handedOn, handoffsOf, handOn, loginHeaders, movesStatus, onlyWords, passedThrough, servedByApi, toldOf, urgentOf, whoHeaders} from '../server/utils/api-router'
+import {PHONE_LOGIN} from '#shared/phone'
+import {actorHeaders, cameHeaders, changedOf, countedOf, databaseMark, domainOf, DOMAINS, handedOn, handoffsOf, handOn, loginHeaders, movesStatus, onlyWords, passedThrough, servedByApi, toldOf, urgentOf, whoHeaders} from '../server/utils/api-router'
 import {permission, refused} from '../server/utils/permission'
 import {followOutbox, readPage} from '../server/utils/outbox-follower'
 import {contract, methodOf, nuxtRoutes, pathOf} from './routes'
@@ -49,6 +51,26 @@ const changes: string[] = []
 const events: OrreryEvent[] = []
 let settingsTold = 0
 const inFlight = new Set<Promise<unknown>>()
+
+/** Every request this file sends the API, as `METHOD /api/path`, for the check that each route it serves is driven here
+ * at least once (ORR-1010). */
+const reached = new Set<string>()
+const realFetch = globalThis.fetch
+globalThis.fetch = (input: string | URL | Request, init?: RequestInit) => {
+    const target = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+    if (url && target.startsWith(url)) reached.add(`${(init?.method ?? (input instanceof Request ? input.method : 'GET')).toUpperCase()} ${new URL(target).pathname}`)
+    return realFetch(input, init)
+}
+
+/** The routes of the contract that no request here reached. */
+function unreached(): string[] {
+    const asked = [...reached]
+    return contract().filter(route => {
+        const [method, path] = [methodOf(route), route.slice(route.indexOf(' ') + 1)]
+        const pattern = new RegExp(`^${method} ${path.replace(/[.*+?^$()|[\]\\]/g, '\\$&').replace(/\{\w+\}/g, '[^/]+')}/?$`)
+        return !asked.some(request => pattern.test(request))
+    })
+}
 
 describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, and reads issues and comments, as the store does', () => {
     beforeAll(async () => {
@@ -585,6 +607,16 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         expect(await viaApi('GET', '/api/projects')).toEqual(await viaStore(() => store.listProjects()))
         expect(domainOf('GET', '/api/projects')).toBe('projects, listed')
         expect(domainOf('POST', '/api/projects')).toBe('a project, made')
+        // One project with its board (ORR-1006), whole and trimmed as the page's reads ask, without the events stream's
+        // `rev`, which only the Nuxt server has: so the router doesn't send it on yet.
+        const board = await store.project('through-api')
+        expect((await viaApi('GET', '/api/projects/through-api')).body).toEqual(JSON.parse(JSON.stringify(board)))
+        for (const query of ['notes=0', 'closed=0', 'notes=0&closed=0']) {
+            const lighter = query.includes('notes') ? withoutNotes(board) : board
+            const trimmed = query.includes('closed') ? withoutClosed(lighter) : lighter
+            expect((await viaApi('GET', `/api/projects/through-api?${query}`)).body, query).toEqual(JSON.parse(JSON.stringify(trimmed)))
+        }
+        expect((await viaApi('GET', '/api/projects/nowhere')).status).toBe(404)
         expect(domainOf('GET', '/api/projects/through-api')).toBeUndefined()
         const listed = (await viaApi('GET', '/api/projects')).body as {id: string, milestones: number, docs: unknown[], starts?: unknown}[]
         expect(listed.find(p => p.id === 'through-api')).toMatchObject({milestones: 4, docs: expect.arrayContaining([expect.objectContaining({title: 'Joinery', section: 'Shop'})]), starts: {max: 2}})
@@ -1124,6 +1156,71 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         expect((await call('/api/auth/login', {key: person.key})).status).toBe(401)
         // Neither is the router's to send yet: the Nuxt server logs in for itself until the swap.
         for (const path of ['/api/auth/login', '/api/auth/logout']) expect(servedByApi('POST', path), path).toBe(false)
+    })
+
+    it('says the login status, and makes and takes a phone\'s sign-in link, as the Nuxt server does (ORR-928)', async () => {
+        const call = (method: string, path: string, body?: unknown, extra: Record<string, string> = {}) => fetch(`${url}${path}`, {
+            method,
+            headers: {'Content-Type': 'application/json', 'Orrery-Api-Token': TOKEN, 'Orrery-Database': databaseMark(setting), ...extra},
+            ...body === undefined ? {} : {body: JSON.stringify(body)},
+        })
+        const status = async (came: Parameters<typeof cameHeaders>[0], host = 'localhost:9000', ways: {provider: boolean, off: boolean, on?: boolean} = {provider: false, off: false}, extra: Record<string, string> = {}) =>
+            (await call('GET', '/api/auth/status', undefined, {...cameHeaders(came, host), ...loginHeaders(ways, 'http://x'), ...extra})).json() as Promise<Record<string, unknown>>
+        if (!(await store.ownerOf()).named) await store.nameOwner({name: 'Steffen'})
+        const none = {loopback: false, proxied: false, phone: false, https: false}
+        const loopback = {...none, loopback: true}
+        const stays = await store.authStaysOn()
+        const canGetIn = await store.ownerHasKey()
+        // On loopback it's off unless auth stays on; anywhere else, through a proxy or on the phone's port it asks.
+        expect(await status(loopback)).toEqual({mode: stays ? 'on' : 'off', can_get_in: canGetIn, oidc: false, warn_http: false, phone: false})
+        expect((await status(none, '192.168.1.9:9000')).mode).toBe('on')
+        expect((await status(none, '192.168.1.9:9000')).warn_http).toBe(true)
+        expect((await status({...none, https: true}, 'orrery.example')).warn_http).toBe(false)
+        expect((await status({...loopback, proxied: true})).mode).toBe('on')
+        expect((await status(loopback, 'localhost:9000', {provider: false, off: false, on: true})).mode).toBe('on')
+        expect(await status({...loopback, phone: true})).toMatchObject({mode: 'on', phone: true})
+        // ORRERY_AUTH=off lets only loopback in, and the phone's port never.
+        expect((await status(loopback, 'localhost:9000', {provider: false, off: true})).mode).toBe('off')
+        expect((await status(none, '192.168.1.9:9000', {provider: false, off: true})).mode).toBe('closed')
+        expect((await status({...none, phone: true}, '192.168.1.9:9000', {provider: false, off: true})).mode).toBe('closed')
+        expect(await status(loopback, 'localhost:9000', {provider: true, off: false})).toMatchObject({oidc: true, can_get_in: true})
+        expect(await status(none, '192.168.1.9:9000', undefined, whoHeaders({person: 'ada', owner: false, via: 'browser'}, undefined))).toMatchObject({person: 'ada', via: 'browser'})
+
+        // Making a link: only the owner's own page, never over the phone's port or from a session.
+        const owner = await store.ownerOf()
+        const asOwner = {...actorHeaders(OWNER), ...whoHeaders({person: owner.name, owner: true, via: 'browser'}, undefined), ...cameHeaders(none, '192.168.1.9:9000')}
+        expect((await call('POST', '/api/phone/link', undefined, {...asOwner, ...cameHeaders({...none, phone: true}, 'x')})).status).toBe(403)
+        expect((await call('POST', '/api/phone/link', undefined, {...actorHeaders(OWNER), ...whoHeaders({person: 'ada', owner: false, via: 'browser'}, undefined)})).status).toBe(403)
+        expect((await call('POST', '/api/phone/link', undefined, {...actorHeaders(OWNER), ...whoHeaders({person: owner.name, owner: true, via: 'agent'}, undefined)})).status).toBe(403)
+        const fromSession = await call('POST', '/api/phone/link', undefined, {...actorHeaders(SESSION), ...whoHeaders({person: owner.name, owner: true, via: 'browser'}, undefined)})
+        expect(fromSession.status).toBe(403)
+        expect(await fromSession.json()).toMatchObject({data: {permission: 'phone.link'}})
+        const made = await call('POST', '/api/phone/link', undefined, asOwner)
+        expect(made.status).toBe(201)
+        const link = await made.json() as {token: string, code: string, expires_at: string}
+        expect(link.token).toMatch(/^[\w-]{32}$/)
+        expect(link.code).toMatch(/^[A-HJKMNP-Z2-9]{6}$/)
+        expect(Date.parse(link.expires_at) - Date.now()).toBeGreaterThan(4 * 60_000)
+
+        // Taking it: once, by the link or its code, with a login named as the phone's that the store knows.
+        const taken = await call('POST', '/api/auth/link', {token: link.token}, cameHeaders({...none, phone: true, https: true}, 'x'))
+        expect(taken.status).toBe(201)
+        expect(await taken.json()).toEqual({person: owner.name})
+        const cookie = taken.headers.get('set-cookie')!
+        expect(cookie).toMatch(/; HttpOnly; Secure; SameSite=Lax$/)
+        const secret = /=([^;]+)/.exec(cookie)![1]!
+        expect(await store.loginHolder(secret)).toEqual({person: owner.name, owner: true})
+        expect(await store.logins(owner.name, secret)).toContainEqual(expect.objectContaining({current: true, name: PHONE_LOGIN}))
+        const again = await call('POST', '/api/auth/link', {token: link.token})
+        expect(again.status).toBe(401)
+        expect(await again.json()).toMatchObject({message: 'This sign-in link has been used or has run out: show the QR code in App settings again'})
+        expect((await call('POST', '/api/auth/link', {code: link.code})).status).toBe(401)
+        const second = await (await call('POST', '/api/phone/link', undefined, asOwner)).json() as {token: string, code: string}
+        const typed = await call('POST', '/api/auth/link', {code: `${second.code.slice(0, 3).toLowerCase()} ${second.code.slice(3)}`})
+        expect(typed.status).toBe(201)
+        expect((await call('POST', '/api/auth/link', {token: second.token})).status).toBe(401)
+        // None of the three is the router's to send yet: the Nuxt server keeps them until the swap.
+        for (const [method, path] of [['GET', '/api/auth/status'], ['POST', '/api/auth/link'], ['POST', '/api/phone/link']] as const) expect(servedByApi(method, path), path).toBe(false)
     })
 
     it('logs in through a provider as the Nuxt server does, with an invite the store made (ORR-928)', async () => {
@@ -2225,12 +2322,12 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
             read,
             step('changed by a session', {tint: 'blue'}, SESSION),
             step('a tint, prompts and a handle', {tint: '#AABBCC', focus_prompt: '  Work on {id}  ', milestone_prompt: '   ', handle: 'Steffen.D'}),
-            step('the machine\'s own', {terminal: 'ghostty', advanced: false, restrict_proposals: false, pick_next: true, count_use: true}),
+            step('the machine\'s own', {terminal: 'ghostty', advanced: false, restrict_proposals: false, count_use: true}),
             step('instructions, a tracker and the sidebar', {instructions: [{id: 'a1', text: ' Be brief ', on: false}, {id: 'b2', text: 'Test first'}], tracker: 'https://t.example/i/{id}', starred: [' api ', 'web', 'api', 'gone'], hidden: ['gone']}),
             step('starts', {starts: {limit: 3, min: 1, minutes: 60, idle_minutes: 30, on_signal: false}}),
             step('work kinds', {work_kinds: [{id: 'bug', name: ' Bug ', labels: ['Bug', 'bug', 'defect'], model: 'claude-opus-5-5', effort: 'high'}, {id: 'other', name: 'Other', labels: [], model: 'best'}]}),
             read,
-            step('everything wrong at once', {bogus: 1, tint: 'pink', terminal: 'xterm', handle: '-x', tracker: 'https://t.example/i', advanced: 'yes', pick_next: null, starred: [''], instructions: [{text: ' '}], focus_prompt: 5}),
+            step('everything wrong at once', {bogus: 1, tint: 'pink', terminal: 'xterm', handle: '-x', tracker: 'https://t.example/i', advanced: 'yes', count_use: null, starred: [''], instructions: [{text: ' '}], focus_prompt: 5}),
             step('starts out of range', {starts: {limit: 30}}),
             step('starts with more', {starts: {limit: 2, min: 3, extra: true}}),
             step('work kinds, none', {work_kinds: []}),
@@ -2865,6 +2962,13 @@ describe('the router', () => {
         expect(changedOf('orrery, shop%20front')).toEqual(['orrery', 'shop front'])
         expect(changedOf(null)).toEqual([])
     })
+
+    // Last, once every step above has run: each route the API serves was driven by one of them (ORR-1010), so a route
+    // moved without a step here fails. Skipped when they didn't run (no binary, or a filter left them out).
+    it('drives every route of the contract at least once', context => {
+        if (!reached.size) context.skip()
+        expect(unreached()).toEqual([])
+    })
 })
 
 describe('the contract (api/openapi.yaml)', () => {
@@ -2877,7 +2981,7 @@ describe('the contract (api/openapi.yaml)', () => {
     })
 
     it('sends none of the routes written ahead of the Rust API to it', () => {
-        expect(contract(true)).toEqual(['DELETE /api/chats/{chat}', 'GET /api/auth/oidc/callback', 'GET /api/auth/oidc/start', 'GET /api/chats', 'GET /api/chats/{chat}', 'POST /api/auth/login', 'POST /api/auth/logout', 'POST /api/pulls/forget', 'PUT /api/chats/{chat}', 'PUT /api/pulls/{owner}/{name}', 'PUT /api/pulls/{owner}/{name}/error', 'PUT /api/pulls/{owner}/{name}/history', 'PUT /api/pulls/{owner}/{name}/{number}'])
+        expect(contract(true)).toEqual(['DELETE /api/chats/{chat}', 'GET /api/auth/oidc/callback', 'GET /api/auth/oidc/start', 'GET /api/auth/status', 'GET /api/chats', 'GET /api/chats/{chat}', 'GET /api/projects/{project}', 'POST /api/auth/link', 'POST /api/auth/login', 'POST /api/auth/logout', 'POST /api/phone/link', 'POST /api/pulls/forget', 'PUT /api/chats/{chat}', 'PUT /api/pulls/{owner}/{name}', 'PUT /api/pulls/{owner}/{name}/error', 'PUT /api/pulls/{owner}/{name}/history', 'PUT /api/pulls/{owner}/{name}/{number}'])
         expect(contract(true).filter(operation => routes().includes(operation))).toEqual([])
     })
 })

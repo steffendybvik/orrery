@@ -520,3 +520,37 @@ impl<'c> Projects<'c> {
         changes::finish(self.conn, self.outbox.as_mut(), &self.effects, done).await
     }
 }
+
+/// Trims a project's board as the page's reads ask (`shared/patch.ts`): `notes` false drops each issue's notes, and
+/// `closed` false drops the closed issues (done, canceled) that have no open sub-issue under them, so the tree holds.
+pub fn trim_board(project: &mut Value, notes: bool, closed: bool) {
+    fn trim(tasks: &mut Value, notes: bool, closed: bool) {
+        let Some(list) = tasks.as_array_mut() else { return };
+        for issue in list.iter_mut() {
+            if let Some(issue) = issue.as_object_mut() {
+                if !notes {
+                    issue.remove("notes");
+                }
+                if let Some(sub) = issue.get_mut("tasks") {
+                    trim(sub, notes, closed);
+                }
+            }
+        }
+        if !closed {
+            list.retain(|issue| {
+                let done = matches!(issue["kind"].as_str(), Some("done" | "canceled"));
+                !done || issue["tasks"].as_array().is_some_and(|t| !t.is_empty())
+            });
+        }
+    }
+    if notes && closed {
+        return;
+    }
+    if let Some(milestones) = project.pointer_mut("/board/milestones").and_then(Value::as_array_mut) {
+        for milestone in milestones {
+            if let Some(tasks) = milestone.get_mut("tasks") {
+                trim(tasks, notes, closed);
+            }
+        }
+    }
+}

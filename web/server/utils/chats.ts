@@ -327,11 +327,12 @@ const MOVE_AT_MOST = 50
 /** A proposal waiting on the owner (or on changes) isn't work yet: its status and assignee are theirs to decide. */
 const undecided = (proposal: unknown) => proposal === 'pending' || proposal === 'changes'
 
-/** The chat's session asking to move issues in its project to another status, or assign them (its `move_issues` tool):
+/** The chat's session moving issues in its project to another status, or assigning them (its `move_issues` tool):
  * `move` is `{ids, status?, assignee?}`, a status's id or a kind, and `owner`, an agent's name or null for the assignee.
- * A request in the chat showing each issue's from → to, checked as the owner's move would be, which moves nothing until
- * they allow it. Never a proposal waiting on the owner. One it asked before for any of the same issues, still unanswered,
- * expires. */
+ * Those the owner named in their last message here (or whose page they're on) move at once, as theirs (`moveNow`,
+ * ORR-1042): the owner's word is the Allow. Otherwise it's a request in the chat showing each issue's from → to, checked
+ * as the owner's move would be, which moves nothing until they allow it, so nothing the chat read moves an issue. Never a
+ * proposal waiting on the owner. One it asked before for any of the same issues, still unanswered, expires. */
 async function askMove(id: string, body: Record<string, unknown>): Promise<ChatMessage> {
     const chat = chatOf(id)
     const {move, why} = body as {move?: unknown, why?: unknown}
@@ -354,14 +355,42 @@ async function askMove(id: string, body: Record<string, unknown>): Promise<ChatM
         ...to.assignee !== undefined && to.assignee !== (i.assignee ?? null) ? [{issue: i.id, title: i.title, field: 'assignee' as const, from: i.assignee ?? null, to: to.assignee}] : [],
     ])
     if (!changes.length) throw conflict(`${issues.length === 1 ? `${issues.map(i => i.id).join('')} is` : 'They are'} like that already: nothing would change`)
+    const moving = [...new Set(changes.map(c => c.issue))]
+    // The owner named each in their last message here, or is on its page: moved at once, as theirs (ORR-1042).
+    const words = told.get(id)
+    if (words && issues.filter(i => moving.includes(i.id)).every(i => saidIssue(words, [i.id, ...i.aliases ?? []]))) return await moveNow(chat, moving, to)
     const asking = issues.map(i => i.id)
     for (const m of chat.messages) if (m.move?.state === 'asked' && m.move.body.ids.some(i => asking.includes(i))) m.move.state = 'expired'
-    const moving = [...new Set(changes.map(c => c.issue))]
     const was = Object.fromEntries(issues.filter(i => moving.includes(i.id)).map(i => [i.id, {status: i.column, assignee: i.assignee ?? null}]))
     const request: ChatMoveRequest = {changes, was, body: {ids: moving, ...to}, state: 'asked'}
     const said = add(chat, {from: 'claude', text: typeof why === 'string' ? why.trim() : '', images: [], move: request})
     useEventLog().note({level: 'info', kind: 'chat.asked', project: chat.project, message: `The chat asked to ${moveAsk(request)}`, details: {issues: request.body.ids, ...to}})
     return said
+}
+
+/** Issues the owner named in their last message in the chat moved or assigned at once, as theirs through their chat,
+ * as their own move on the page would be: the same guards hold (a released or held issue, a proposal waiting on them),
+ * and a move into Todo hands it to an idle session as theirs does. Any request still asking to move one expires, as
+ * it's been decided. One that fails stops the rest; those moved before it stay moved, and the error says so. */
+async function moveNow(chat: Chat, ids: string[], to: Omit<ChatMoveRequest['body'], 'ids'>): Promise<ChatMessage> {
+    const as = await owner()
+    const moved: string[] = []
+    try {
+        for (const issue of ids) {
+            await useStore().updateIssue(chat.project, issue, to, as)
+            moved.push(issue)
+        }
+    } catch (error) {
+        if (moved.length) Object.assign(error as object, {message: `${(error as Error).message} (${moved.join(', ')} moved already)`})
+        throw error
+    } finally {
+        if (moved.length) {
+            for (const m of chat.messages) if (m.move?.state === 'asked' && m.move.body.ids.some(i => moved.includes(i))) m.move.state = 'expired'
+            useEventLog().note({level: 'info', kind: 'chat.moved', project: chat.project, message: `The chat put ${moved.join(', ')} ${moveTo({body: {ids: moved, ...to}})}, as the owner asked`, details: {issues: moved, ...to}})
+        }
+    }
+    const links = moved.map(i => `[${i}](/p/${chat.project}/issues/${i})`).join(', ')
+    return add(chat, {from: 'claude', text: `Put ${links} ${moveTo({body: {ids: moved, ...to}})}.`, images: []})
 }
 
 /** What has changed on a move request's issues since it was asked (ORR-644), leaving out those it moved already. */
@@ -416,7 +445,7 @@ const driftSaid = (drifted: ChatMoveRequest['drifted'] = []) => drifted.map(d =>
     : `${d.issue} was assigned to ${d.from ?? 'nobody'} when you asked and is assigned to ${d.to ?? 'nobody'} now.`).join(' ')
 
 /** Where a move request puts its issues, as a phrase: "in done, assigned to claude". */
-const moveTo = ({body: {status, assignee}}: ChatMoveRequest) => [
+const moveTo = ({body: {status, assignee}}: Pick<ChatMoveRequest, 'body'>) => [
     status !== undefined ? `in ${status}` : '',
     assignee === undefined ? '' : assignee === null ? 'unassigned' : `assigned to ${assignee}`,
 ].filter(Boolean).join(', ')
@@ -1071,11 +1100,11 @@ export function asChatIssue(body: unknown, chat?: string): unknown {
 const CHAT_EDITS = ['title', 'notes', 'priority', 'labels', 'external', 'github_issues', 'milestone', 'epic', 'release', 'parent', 'depends_on']
 
 /** An edit to an issue from the chat, as it asks for it: refused (403) when it would change anything but `CHAT_EDITS`,
- * so a chat never moves or assigns an issue on its own (only through a request the owner allows, `askMove`), puts up a
+ * so a chat moves or assigns an issue only through `askMove`, on the owner's word or their Allow, puts up a
  * proposal or moves an issue to another project. */
 export function asChatEdit(body: unknown): Record<string, unknown> {
     if (!isObject(body)) throw badRequest(`Send what to change: any of ${CHAT_EDITS.join(', ')}`)
     const refused = Object.keys(body).filter(key => !CHAT_EDITS.includes(key))
-    if (refused.length) throw refusedFor('issues.edit', `The owner's chat changes an issue's ${CHAT_EDITS.join(', ')}, not its ${refused.join(', ')}: to move or assign one, it asks the owner (move_issues)`)
+    if (refused.length) throw refusedFor('issues.edit', `The owner's chat changes an issue's ${CHAT_EDITS.join(', ')}, not its ${refused.join(', ')}: to move or assign one, use move_issues`)
     return body
 }

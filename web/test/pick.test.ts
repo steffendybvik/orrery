@@ -7,7 +7,6 @@ let pick: typeof import('../server/utils/pick')
 type Listed = {id: string, project: string, state: string, listening: boolean, also?: string[], started?: {launch: string}, idleAt?: number}
 let sessions: Listed[]
 let board: Record<string, {id: string, title: string, kind: string, column: string, priority?: string, parent?: string, proposal?: string, waiting?: string, assignee?: string, release?: string, created_at: string}[]>
-let on: boolean
 let working: (string | {id: string, status: string, waiting?: string})[]
 let waiting: boolean
 let run: {project: string, milestone: string} | undefined
@@ -32,7 +31,6 @@ beforeEach(async () => {
     vi.useFakeTimers()
     sessions = [{id: 'w', project: 'orrery', state: 'idle', listening: true, idleAt: 1}]
     board = {orrery: [issue('ORR-1', 'todo', {priority: 'P2'}), issue('ORR-2', 'todo', {priority: 'P0'}), issue('ORR-3', 'backlog', {priority: 'P0'})]}
-    on = true
     working = []
     waiting = false
     run = undefined
@@ -54,7 +52,8 @@ beforeEach(async () => {
     vi.stubGlobal('clearPending', (id: string) => due.includes(id))
     vi.stubGlobal('useStore', () => ({
         whoseWork: async (_project: string, assignee?: string | null) => whoseWork(assignee),
-        settings: async () => ({pick_next: on}),
+        // An older database still holds `pick_next`, off: it's not read any more (ORR-1043).
+        settings: async () => ({pick_next: false}),
         ownerOf: async () => ({name: 'steffen'}),
         listIssues: async (project: string) => board[project] ?? [],
         heldAbove: async (_project: string, id: string) => held.includes(id) ? {parent: 'ORR-5', holder: 'builder'} : null,
@@ -141,10 +140,7 @@ describe('a session out of work', () => {
         expect(sent[0]!.text).toContain('PAN-1 (pantry) [Todo, P1] Do PAN-1 (1.0.0 is in feature freeze')
     })
 
-    it("isn't handed anything with the setting off, with work of its own, or when it isn't free", async () => {
-        on = false
-        expect(await pick.pickNext('orrery', 'w')).toBe(false)
-        on = true
+    it("isn't handed anything with work of its own, or when it isn't free", async () => {
         working = ['ORR-9']
         expect(await pick.pickNext('orrery', 'w')).toBe(false)
         working = []
