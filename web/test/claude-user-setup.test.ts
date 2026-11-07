@@ -7,7 +7,7 @@ import {setUpUser, standsDown, undoUser, userServer, withTrust, withUserHooks, w
 // @ts-expect-error: plain JavaScript, no types
 import {commandsFor} from '../../channel/home-folder.mjs'
 // @ts-expect-error: plain JavaScript, no types
-import {HOOK_EVENTS} from '../../channel/repo-setup.mjs'
+import {HOOK_EVENTS} from '../../channel/claude-hooks.mjs'
 
 // What the install line puts in Claude Code's own config, for every folder (ORR-1067).
 const URL = 'http://localhost:9010'
