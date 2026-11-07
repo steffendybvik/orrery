@@ -46,15 +46,13 @@ in `.playground/compose.env` add a service of the playground's own (its data in 
 It's this machine's only. The container has its own `node_modules` and `.nuxt` (volumes), and installs
 packages as it starts.
 
-The playground runs on the Rust API, switched by one flag, `ORRERY_RUST_API=1` in `.playground/compose.env`
-(ORR-1051). On, `play` adds `docker-compose.api.yml`: the Rust API in a container of its own (the Dockerfile's
-`rust-api` image), on the same SQLite file. The Nuxt server routes the domains in `DOMAINS`
-(`web/server/utils/api-router.ts`) to it at `NUXT_API_URL`, follows its outbox, and has the swap's flag on
-(`NUXT_API_ONLY`, ORR-1034), so those domains are the API's alone. `play` builds the images each start, so a change in
-`api/` is in it. `0` is the Nuxt server alone. An orrery run with `docker compose` turns it on with two lines in its
-`.env`, `COMPOSE_FILE=docker-compose.yml:docker-compose.api.yml` and `ORRERY_API_TOKEN` (`openssl rand -hex 32`), and
-off again with them out and `docker compose up -d --remove-orphans`; the file's comment says more
-([Rust API swap](/p/orrery/docs/rust-api-swap)).
+The playground always runs the Rust API (ORR-1051, ORR-1041): `play` adds `docker-compose.api.yml`, the Rust API in a
+container of its own (the Dockerfile's `rust-api` image), on the same SQLite file. The Nuxt server routes the domains
+in `DOMAINS` (`web/server/utils/api-router.ts`) to it at `NUXT_API_URL`, follows its outbox, and has the swap's flag
+on (`NUXT_API_ONLY`, ORR-1034). `play` builds the images each start, so a change in `api/` is in it. An orrery run
+with `docker compose` runs the API inside its one container (the image's `NUXT_API_BIN`), or in a container of its
+own with two lines in its `.env`, `COMPOSE_FILE=docker-compose.yml:docker-compose.api.yml` and `ORRERY_API_TOKEN`
+(`openssl rand -hex 32`); the file's comment says more ([Rust API swap](/p/orrery/docs/rust-api-swap)).
 
 Without Docker: `pnpm install`, then `pnpm dev` on http://localhost:9000 (Node 24.22.1, pnpm 10.14.0).
 

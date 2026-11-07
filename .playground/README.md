@@ -7,12 +7,10 @@ throws it away. For Postgres instead, add `COMPOSE_PROFILES=postgres` and
 `ORRERY_DATABASE=postgres://orrery:orrery@postgres:5432/orrery` to `compose.env`: its data goes in the project's
 `orrery-pg` volume, which `reset` throws away too.
 
-It runs on the Rust API, switched by one flag in `compose.env`: `ORRERY_RUST_API=1` (ORR-1051). On, `play` starts
-the Rust API in a container of its own, `api` (the Dockerfile's `rust-api`, `docker-compose.api.yml`), on the same
-SQLite file, and the Nuxt server routes its domains to it with the swap's flag on (`NUXT_API_ONLY`, ORR-1034). Those
-domains are then the API's alone: with it down they fail with a 503 that says why, in the log too, rather than Nuxt
-answering them. `0` is the Nuxt server alone. Change it, then `play down` and `play`. The two share a token `play`
-makes in `.playground/data/api-token`. The API publishes no port, and the Nuxt server's is `127.0.0.1` only, as the
+It runs on the Rust API, which serves the board's data (ORR-1041): `play` starts it in a container of its own, `api`
+(the Dockerfile's `rust-api`, `docker-compose.api.yml`), on the same SQLite file, and the Nuxt server routes its
+domains to it (`NUXT_API_ONLY` on, ORR-1034). With it down they fail with a 503 that says why, in the log too. The
+two share a token `play` makes in `.playground/data/api-token`. The API publishes no port, and the Nuxt server's is `127.0.0.1` only, as the
 board check isn't the Rust API's yet. A database move from App settings leaves the API container on the old file
 until `play down` and `play`, so moved routes answer 503 until then.
 

@@ -1,7 +1,7 @@
 # orrery on http://localhost:9000. The database lives in /data (a volume), so it outlasts the container.
 # Three images: `dev` (what compose runs) serves the repo mounted at /src with `nuxt dev`, so a change shows
 # as soon as it's saved; `rust-api` is the Rust API alone, the playground's `api` container (ORR-1051); `prod` (the
-# last stage, so the default) is the built app.
+# last stage, so the default) is the built app with the Rust API inside, which it starts itself (ORR-1041).
 
 # dev: the repo comes in as a mount, and the app runs from web/. node_modules (Linux binaries, e.g.
 # Tailwind's) and web/.nuxt (paths inside the container) are volumes of its own, so they don't clash with the Mac's.
@@ -26,7 +26,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry --mount=type=cache,targe
     cargo build --release --locked && cp target/release/orrery-api /orrery-api
 
 # rust-api: the Rust API in a container of its own (ORR-1051), on the Nuxt server's database in /data, added by
-# docker-compose.api.yml (the playground's ORRERY_RUST_API=1, or COMPOSE_FILE in an orrery's .env). It listens on the
+# docker-compose.api.yml (always on the playground, or COMPOSE_FILE in an orrery's .env). It listens on the
 # compose network, where only a request carrying the token both are given is answered. Uid 1000, as `dev`'s node user,
 # so the files it makes in /data are the same owner's.
 FROM debian:bookworm-slim AS rust-api
