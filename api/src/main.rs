@@ -31,7 +31,7 @@ mod text;
 mod work;
 mod write;
 
-use axum::extract::State;
+use axum::extract::{DefaultBodyLimit, State};
 use axum::middleware;
 use axum::routing::get;
 use axum::{Json, Router};
@@ -65,7 +65,13 @@ async fn health() -> Json<Value> {
 }
 
 fn router(app: Arc<App>) -> Router {
-    Router::new().route("/health", get(health)).merge(routes::all()).layer(middleware::from_fn_with_state(app.clone(), guard)).with_state(app)
+    Router::new()
+        .route("/health", get(health))
+        .merge(routes::all())
+        // What a body may be, as the Nuxt server's big-bodies.ts has it (ORR-1062). A route that takes more reads its own.
+        .layer(DefaultBodyLimit::max(request::BODY_LIMIT))
+        .layer(middleware::from_fn_with_state(app.clone(), guard))
+        .with_state(app)
 }
 
 #[tokio::main]

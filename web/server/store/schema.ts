@@ -410,6 +410,8 @@ export const UPLOAD_FIELDS: Record<string, Field> = {
 
 /** How big an image can be, in bytes. */
 export const UPLOAD_LIMIT = 10 * 1024 * 1024
+/** A body that holds the largest image, a third bigger as base64, with room for its name. */
+export const UPLOAD_BODY_LIMIT = Math.ceil(UPLOAD_LIMIT * 4 / 3) + 64 * 1024
 
 /** The images orrery takes, told by their first bytes rather than what the sender says (no SVG: it can run script). */
 export const IMAGE_TYPES: [string, (bytes: Buffer) => boolean][] = [
