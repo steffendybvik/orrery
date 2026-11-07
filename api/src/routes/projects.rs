@@ -1,7 +1,7 @@
 // Projects: the handlers and the routes they answer (ORR-1048).
 use super::P;
-use crate::board::projects;
 use crate::board::projects::Projects;
+use crate::board::{export, projects};
 use crate::changes::Outbox;
 use crate::error::Result;
 use crate::reply::reply;
@@ -9,7 +9,7 @@ use crate::request::{actor_of, body_of, who_of};
 use crate::{App, Shared};
 use axum::body::Bytes;
 use axum::extract::{Path, Query, State};
-use axum::http::{HeaderMap, StatusCode};
+use axum::http::{HeaderMap, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::{Json, Router};
@@ -17,7 +17,10 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 pub(crate) fn routes() -> Router<Arc<App>> {
-    Router::new().route("/api/projects", get(list_projects).post(create_project)).route(P, get(get_project).patch(patch_project))
+    Router::new()
+        .route("/api/projects", get(list_projects).post(create_project))
+        .route(P, get(get_project).patch(patch_project))
+        .route(&format!("{P}/export"), get(export_project))
 }
 
 async fn list_projects(State(app): Shared) -> Result<Response> {
@@ -54,4 +57,18 @@ async fn patch_project(State(app): Shared, Path(project): Path<String>, headers:
     let effects = std::mem::take(&mut projects.effects);
     let value = projects.project(&project).await?;
     Ok(reply(StatusCode::OK, Some(value), effects))
+}
+
+/// `GET /api/projects/{project}/export` → the board as one file (`board::export`), named for the project and the day, so a
+/// browser saves it.
+async fn export_project(State(app): Shared, Path(project): Path<String>) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    let board = export::export(&mut conn, &project).await?;
+    let day = board["exported_at"].as_str().unwrap_or_default().get(..10).unwrap_or_default().to_string();
+    let mut response = Json(board).into_response();
+    let named = format!("attachment; filename=\"{project}-{day}.orrery.json\"");
+    if let Ok(value) = HeaderValue::from_str(&named) {
+        response.headers_mut().insert(axum::http::header::CONTENT_DISPOSITION, value);
+    }
+    Ok(response)
 }

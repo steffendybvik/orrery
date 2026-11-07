@@ -58,6 +58,28 @@ export function contract(ahead = false): string[] {
     return operations.filter(o => o.ahead === ahead).map(o => o.operation).sort()
 }
 
+/** The replies the contract gives each operation, its statuses in order (`'200'`, `'404'`…), whether served or ahead. */
+export function replies(): Record<string, string[]> {
+    const out: Record<string, string[]> = {}
+    let path = ''
+    let operation = ''
+    let inResponses = false
+    for (const line of read('../../api/openapi.yaml').split('\n')) {
+        const at = /^ {2}(\/api\/\S+):$/.exec(line)
+        if (at) [path, operation] = [at[1]!, '']
+        else if (/^\S/.test(line)) [path, operation] = ['', '']
+        const method = /^ {4}(get|put|post|patch|delete):/.exec(line)
+        if (path && method) [operation, inResponses] = [`${method[1]!.toUpperCase()} ${path}`, false]
+        else if (/^ {4}\S/.test(line)) operation = ''
+        if (!operation) continue
+        if (/^ {6}responses:/.test(line)) inResponses = true
+        else if (/^ {6}\S/.test(line)) inResponses = false
+        const status = inResponses && /^ {8}'(\d{3})':/.exec(line)
+        if (status) (out[operation] ??= []).push(status[1]!)
+    }
+    return out
+}
+
 /** A route as a path a request would take, its `{param}`s filled in, for the router's `servedByApi`. */
 export const pathOf = (route: string) => route.slice(route.indexOf(' ') + 1).replace(/\{\w+\}/g, 'x')
 export const methodOf = (route: string) => route.slice(0, route.indexOf(' '))
