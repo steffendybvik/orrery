@@ -73,7 +73,7 @@ person, with a label that's a person's name counting as `agent`. A session stays
 | `POST /auth/logout` | open: 204, ending this browser's login |
 | `GET /auth/oidc/start?invite=` | open: a redirect to the login provider; 404 with none set up |
 | `GET /auth/oidc/callback` | open: the way back from it, a redirect to the board, logged in. 403 for an account with no invite, 409 for an invite used or run out, 401 for a login that ran out or doesn't match |
-| `GET /usage` | the owner's: `{on, allowed, features: [{feature, label, last, days30, days90}]}`, how often each counted feature was used, coldest first (ORR-881). `on` is the owner's switch (`count_use` in `GET /settings`, off by default), `allowed` false with `ORRERY_USAGE=off`. `feature` is a listed one, `page:<route>` or `tool:<name>`; `last` is a day, or none. Anyone else: 403 |
+| `GET /usage` | the owner's: `{on, allowed, features: [{feature, label, last, days30, days90}]}`, how often each counted feature was used, coldest first (ORR-881). `on` is the owner's switch (`count_use` in `GET /settings`, off by default), `allowed` false with `ORRERY_USAGE=off`. `feature` is a listed one, `page:<route>`, `tool:<name>` or `dialog:<name>` (ORR-1011); `last` is a day, or none. Anyone else: 403 |
 | `POST /usage` | `{feature}` → 204: one use, counted only when it's the owner's own (their page, their sessions) and counting is on; anyone else's is taken and ignored |
 | `DELETE /usage` | 204: forgets every count. The owner's |
 | `GET /logins` | your live logins, or everyone's for the owner: `{id, person, name?, created_at?, last_used_at?, expires_at, current?}`, `current` on the browser asking. `id` is a short part of the login's hash, never its cookie. Only a person, never a session (403) |

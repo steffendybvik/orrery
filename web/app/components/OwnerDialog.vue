@@ -66,6 +66,7 @@ async function save() {
 <template>
   <UiDialog
       :open="!named"
+      name="owner-setup"
       :label="showing === 'name' ? 'Your name' : showing === 'restore' ? 'Restore a backup' : 'Where to keep its data'"
       :width="showing === 'postgres' || showing === 'restore' ? 'lg' : 'md'"
       required

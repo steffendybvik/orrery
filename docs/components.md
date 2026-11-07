@@ -51,10 +51,11 @@ taller than the window. It's Headless UI's `Dialog`: the focus stays inside whil
 the page under it doesn't scroll. It draws in a portal on the page's body, so a component test finds it there
 (`new DOMWrapper(document.body)`), not inside the component. A test that saves from a dialog waits until it has
 closed (its open state, `useNewIssue().target` say, back to `null`), not only until the request is sent: a save still
-on its way closes the next test's dialog when it lands (ORR-409).
+on its way closes the next test's dialog when it lands (ORR-409). `name` is what App settings → Usage counts it
+under, `dialog:<name>`, once each time it opens while the owner has counting on (ORR-1011).
 
 ```vue
-<UiDialog :open="target" label="New milestone" @close="close" @submit="create">
+<UiDialog :open="target" label="New milestone" name="new-milestone" @close="close" @submit="create">
   <input v-model="title" ...>
   <div class="flex items-center gap-2 border-t border-line pt-3">
     <UiButton type="submit" variant="primary" size="md" class="ml-auto">Create milestone</UiButton>

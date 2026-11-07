@@ -15,6 +15,15 @@ const asking = computed(() => {
     for (const list of Object.values(sessions.value)) for (const s of list) if (s.state === 'waiting' && !seen.has(s.id) && !(open.value && chat.value?.id === s.id)) seen.set(s.id, s)
     return [...seen.values()].filter(s => !hidden.value.has(key(s))).sort((a, b) => a.since.localeCompare(b.since))
 })
+// Each popup counts once as it pops up (`dialog:permission-prompt`, ORR-1011), as a dialog opening does.
+const {count} = useUsage()
+const popped = new Set<string>()
+watch(() => named.value ? asking.value.map(key) : [], keys => {
+    for (const k of keys) if (!popped.has(k)) {
+        popped.add(k)
+        count('dialog:permission-prompt')
+    }
+}, {immediate: true})
 function hide(s: Session) {
     hidden.value = new Set([...hidden.value, key(s)])
 }

@@ -4,7 +4,7 @@ const {one} = useMessageSessions()
 </script>
 
 <template>
-  <UiDialog :open="!!one" label="Message a session" @close="one = null">
+  <UiDialog :open="!!one" name="message-session" label="Message a session" @close="one = null">
     <div class="flex items-center gap-2 text-xs text-faint">
       <span>Only {{ one?.name }} hears this</span>
       <KeyHint class="ml-auto">esc</KeyHint>

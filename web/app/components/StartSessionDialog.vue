@@ -217,7 +217,7 @@ async function start() {
 <template>
   <!-- Its body scrolls between the heading and the footer, so Start session is always in reach, on a phone too (ORR-851).
        dvh, as a phone's toolbars take some of vh. -->
-  <UiDialog :open="target" label="Start session" class="max-h-[76dvh]" @close="close" @submit="start">
+  <UiDialog :open="target" name="start-session" label="Start session" class="max-h-[76dvh]" @close="close" @submit="start">
     <div class="flex items-center gap-2 text-xs text-faint">
       <span>Start a session</span>
       <KeyHint class="ml-auto">esc</KeyHint>
