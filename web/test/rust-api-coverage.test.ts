@@ -1,56 +1,41 @@
 // Every route the Nuxt server has, held against what the Rust API serves (ORR-1010). Both servers write one database
 // while the domains move (ORR-923), so a route that's neither sent to the API nor listed here as staying would slip
-// through unnoticed. A route is either sent on by the router's DOMAINS (server/utils/api-router.ts), or has a line in
-// UNROUTED: the issue that moves it, or why it stays with the local app. A new route fails here until it's one or the
-// other, and so does a line that no longer matches anything. The replies themselves are compared per domain in
-// api-parity.test.ts, and the schema the two make in rust-migrations.test.ts.
+// through unnoticed. A route is either sent on by the router's DOMAINS (server/utils/api-router.ts), or has its own line
+// in NOT_ROUTED (route-table.ts, ORR-1037): the issue that moves it, or why it stays with the local app. A new route
+// fails here until it's one or the other, and so does a line that no longer matches anything. The replies themselves
+// are compared per domain in api-parity.test.ts, and the schema the two make in rust-migrations.test.ts.
+import {writeFileSync} from 'node:fs'
 import {describe, expect, it} from 'vitest'
-import {DOMAINS, servedByApi} from '../server/utils/api-router'
-import {contract, methodOf, nuxtRoutes, pathOf, rustRoutes} from './routes'
+import {domainOf, DOMAINS, servedByApi} from '../server/utils/api-router'
+import {NOT_ROUTED} from './route-table'
+import type {Line} from './route-table'
+import {contract, methodOf, nuxtRoutes, pathOf, replies, rustRoutes} from './routes'
 
-type Line = {routes: RegExp} & ({issue: `ORR-${number}`} | {stays: string})
-
-/** The Nuxt server's routes the router keeps, a line per reason: matched against `METHOD /api/path`, `{param}`s as they are. */
-const UNROUTED: readonly Line[] = [
-    // Gaps: what a domain the API has taken over still does here, until its issue moves it.
-    // Uploading re-encodes images with sharp, which Rust lacks: how it moves is decided with the Nuxt server's retirement.
-    {routes: /^POST \/api\/uploads$/, issue: 'ORR-1036'},
-    {routes: /^(GET|POST|PUT|DELETE) \/api\/(auth\/(link|status)|owner|permissions|projects\/\{project\}\/members(\/\{person\})?)$/, issue: 'ORR-928'},
-    {routes: /^(GET|DELETE) \/api\/projects\/\{project\}$|^\w+ \/api\/projects\/(\{project\}\/import|upload)$/, issue: 'ORR-1006'},
-    // An issue's schedule requests write schedules, so they move with them.
-    {routes: /^(POST|PATCH|DELETE) \/api\/(projects\/\{project\}\/schedules(\/\{schedule\}(\/(adopt|run))?|\/enabled)?|schedules(\/across\/\{across\})?)$|^POST \/api\/projects\/\{project\}\/issues\/\{issue\}\/schedule-requests(\/\{comment\})?$/, issue: 'ORR-950'},
-    // What stays with the local app: the machine, its sessions and launcher, and what only it can do.
-    {routes: /^POST \/api\/(epics\/\{epic\}|projects\/\{project\}\/(milestones\/\{milestone\}|issues\/\{issue\}))\/focus$/, stays: "a focus signals the sessions, which are the machine's (ORR-1004, ORR-927)"},
-    {routes: /^(GET|POST|PATCH|DELETE) \/api\/chats(\/\{chat\}(\/(clear|end|messages|replies|requests(\/\{message\})?))?)?$/, stays: "the chat's sessions are the local app's; the API keeps their rows, through PUT /api/chats/{chat}"},
-    {routes: /^POST \/api\/auth\/(login|logout)$|^GET \/api\/auth\/oidc\/(start|callback)$/, stays: 'logging in and out is checked here (auth.ts); the API hears what that found'},
-    {routes: /^(PUT|PATCH|DELETE) \/api\/secrets\/\{name\}$|^POST \/api\/egress$/, stays: "sealed with the machine's key (decision-rust-api-secrets-settings)"},
-    {routes: /^(GET|POST|DELETE) \/api\/pulls(\/(poll|branches))?$|^GET \/api\/projects\/\{project\}\/issues\/\{issue\}\/(branches|pulls)$/, stays: 'reads the local git repo or asks GitHub, which is the local app\'s to do (ORR-952, ORR-927)'},
-    {routes: /^GET \/api\/projects\/\{project\}\/docs\/\{doc\}\/artifact$/, stays: "drawn with the page's own sanitising and its locked-down headers"},
-    {routes: /^\w+ \/api\/(projects\/\{project\}\/)?(sessions|launches|signals|listeners|context)(\/.*)?$|^\w+ \/api\/signals\/stream$/, stays: 'the sessions, the launcher and their signals are the machine\'s'},
-    {routes: /^\w+ \/api\/(backups|database|connects|events|usage|phone)(\/.*)?$|^GET \/api\/(machine|mcp|version|guide(\/using)?)$/, stays: "the machine's: its files, the event log, its own use, and what it says about itself"},
-]
-
-/** What the Rust API serves that no Nuxt route is, besides the contract's routes written ahead of it. */
-const RUST_ONLY = ['GET /api/changes', 'GET /health']
-
-const routed = (route: string) => servedByApi(methodOf(route), pathOf(route))
-const linesOf = (route: string) => UNROUTED.filter(line => line.routes.test(route))
+const routed = (route: string) => nuxtRoutes().includes(route) && servedByApi(methodOf(route), pathOf(route))
+/** Every operation either server has, by path and then method, as the table lists them. */
+const operations = () => [...new Set([...nuxtRoutes(), ...rustRoutes()])].sort((a, b) => pathOf(a).localeCompare(pathOf(b)) || a.localeCompare(b))
 
 describe('every Nuxt route, against the Rust API', () => {
-    it('is sent to the API, or listed with the issue that moves it or why it stays', () => {
-        const nobodys = nuxtRoutes().filter(route => !routed(route) && !linesOf(route).length)
-        expect(nobodys, 'routes neither DOMAINS sends on nor UNROUTED lists').toEqual([])
+    it('is sent to the API, or has a line in the table with the issue that moves it or why it stays', () => {
+        expect(nuxtRoutes().filter(route => !routed(route) && !NOT_ROUTED[route]), 'routes neither DOMAINS sends on nor NOT_ROUTED lists').toEqual([])
     })
 
-    it('is listed once at most, and never when the router sends it on', () => {
-        expect(nuxtRoutes().filter(route => linesOf(route).length > 1), 'routes on more than one UNROUTED line').toEqual([])
-        expect(nuxtRoutes().filter(route => routed(route) && linesOf(route).length), 'routes UNROUTED lists that DOMAINS sends on').toEqual([])
+    it('has no line when the router sends it on', () => {
+        expect(nuxtRoutes().filter(route => routed(route) && NOT_ROUTED[route]), 'routes NOT_ROUTED lists that DOMAINS sends on').toEqual([])
     })
 
     it('leaves no line that matches nothing, or names neither an issue nor a reason', () => {
-        const unrouted = nuxtRoutes().filter(route => !routed(route))
-        expect(UNROUTED.filter(line => !unrouted.some(route => line.routes.test(route))).map(line => String(line.routes)), 'stale UNROUTED lines').toEqual([])
-        for (const line of UNROUTED) expect('issue' in line ? /^ORR-\d+$/.test(line.issue) : line.stays.length > 0, String(line.routes)).toBe(true)
+        const all = operations()
+        expect(Object.keys(NOT_ROUTED).filter(route => !all.includes(route)), 'stale NOT_ROUTED lines').toEqual([])
+        for (const [route, line] of Object.entries(NOT_ROUTED)) {
+            expect('issue' in line ? /^ORR-\d+$/.test(line.issue) && line.gap.length > 0 : ('stays' in line ? line.stays : line.rustOnly).length > 0, route).toBe(true)
+        }
+    })
+
+    it('says only of what Nuxt lacks that the Rust API has it alone, and of nothing Nuxt has', () => {
+        const nuxt = nuxtRoutes()
+        expect(operations().filter(route => !nuxt.includes(route) && !(NOT_ROUTED[route] && 'rustOnly' in NOT_ROUTED[route])), 'Rust-only routes without a rustOnly line').toEqual([])
+        expect(nuxt.filter(route => NOT_ROUTED[route] && 'rustOnly' in NOT_ROUTED[route]), 'Nuxt routes marked Rust-only').toEqual([])
     })
 
     it('has every route the router sends on served by the Rust API, so none is answered 404 or 405', () => {
@@ -66,6 +51,31 @@ describe('every Nuxt route, against the Rust API', () => {
 
 describe("the Rust API's router()", () => {
     it('serves the contract, the routes written ahead of it, and nothing more', () => {
-        expect(rustRoutes()).toEqual([...contract(), ...contract(true), ...RUST_ONLY].sort())
+        const rustOnly = Object.entries(NOT_ROUTED).filter(([route, line]) => 'rustOnly' in line && !contract(true).includes(route)).map(([route]) => route)
+        expect(rustRoutes()).toEqual([...contract(), ...contract(true), ...rustOnly].sort())
     })
+
+    it('has the replies of each operation in the contract, at least one of them a success or a redirect', () => {
+        const given = replies()
+        expect([...contract(), ...contract(true)].filter(route => !given[route]?.some(status => /^[23]/.test(status))), 'operations with no success or redirect').toEqual([])
+    })
+})
+
+/** The table for the `rust-api-parity` doc: every operation, a line each. */
+function table(): string {
+    const rust = rustRoutes()
+    const nuxt = nuxtRoutes()
+    const ahead = contract(true)
+    const given = replies()
+    const why = (line: Line | undefined) => !line ? '' : 'issue' in line ? `**gap**: ${line.gap} ([${line.issue}](/p/orrery/issues/${line.issue}))` : 'stays' in line ? `stays: ${line.stays}` : `Rust only: ${line.rustOnly}`
+    const rows = operations().map(route => {
+        const served = rust.includes(route) ? routed(route) ? `yes, as ${domainOf(methodOf(route), pathOf(route))}` : ahead.includes(route) ? 'served, not routed (written ahead)' : 'served, not in the contract' : 'no'
+        const parity = rust.includes(route) && [...contract(), ...ahead].includes(route) ? 'driven' : ''
+        return `| \`${route}\` | ${nuxt.includes(route) ? 'yes' : 'no'} | ${served} | ${parity} | ${(given[route] ?? []).join(', ')} | ${why(NOT_ROUTED[route]).replaceAll('|', '\\|')} |`
+    })
+    return ['| Operation | Nuxt | Rust API | Parity test | Replies | Gap, or why it stays |', '|---|---|---|---|---|---|', ...rows].join('\n') + '\n'
+}
+
+describe.skipIf(!process.env.ROUTE_TABLE)('the table', () => {
+    it('is written out for the doc', () => writeFileSync(process.env.ROUTE_TABLE!, table()))
 })
