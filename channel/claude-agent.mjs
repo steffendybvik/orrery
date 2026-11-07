@@ -3,6 +3,7 @@
 // session's pane, which it reads and types into.
 import {execFileSync} from 'node:child_process'
 import {chatOnly, lockedDown, modelArgs, resumeArgs} from './locked-down.mjs'
+import {ASYNC_EVENTS, HOOK_EVENTS} from './claude-hooks.mjs'
 import {onYes} from './permission-prompt.mjs'
 import {contextOf, contextWindow, effortOf, modelOf} from './transcript.mjs'
 
@@ -69,6 +70,9 @@ export const claude = {
     },
 
     window: contextWindow,
+
+    // The hook events orrery's hook is registered for, and those of them that run in the background (claude-hooks.mjs).
+    hooks: {events: HOOK_EVENTS, background: ASYNC_EVENTS},
 
     // Its hook's input, as orrery's session report. Claude Code's events are the report's own names, but for a
     // Notification, which it says in words: one asking for a permission is the session waiting, any other one it idle.

@@ -7,7 +7,7 @@
 import {mkdirSync, readFileSync, renameSync, writeFileSync} from 'node:fs'
 import {homedir} from 'node:os'
 import {dirname, join} from 'node:path'
-import {ASYNC_EVENTS, HOOK_EVENTS} from './repo-setup.mjs'
+import {ASYNC_EVENTS, HOOK_EVENTS} from './claude-hooks.mjs'
 import {serverName} from './server-name.mjs'
 
 const ORRERY_ID = /^[A-Za-z0-9_-]{1,100}$/

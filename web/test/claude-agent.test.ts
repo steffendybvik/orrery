@@ -45,6 +45,12 @@ describe('the Claude adapter', () => {
             .toEqual([...chatOnly('/repo', 'orrery'), '--resume', resume])
     })
 
+    it("registers orrery's hook for the events its report reads, the tool ones in the background", () => {
+        expect(claude.hooks.events).toEqual(['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PermissionRequest', 'Stop', 'StopFailure', 'Notification', 'SessionEnd'])
+        expect(claude.hooks.background).toEqual(['PreToolUse', 'PermissionRequest'])
+        expect(claude.hooks.background.every((event: string) => claude.hooks.events.includes(event))).toBe(true)
+    })
+
     it('claims what orrery offers only to a launcher that does it', () => {
         expect(claude.claims).toBe('untrusted=no-bash&chat=yes&model=yes&resume=yes')
     })

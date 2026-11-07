@@ -31,6 +31,8 @@ import {claude} from './claude-agent.mjs'
  *   it gets no meter rather than a wrong one
  * @property {(model: string | undefined, tokens: number) => number} window its model's window, for a report that gave
  *   tokens alone (a hook from before the adapter said the window)
+ * @property {{events: string[], background: string[]}} hooks the agent's hook events orrery's hook is registered for, and
+ *   those of them that run in the background, so they never hold it up
  * @property {(hook: object) => Report} report what its hook's input says, as orrery's session report: the hook posts that
  *   to `/api/sessions`, so the hook itself knows nothing of the agent
  */
