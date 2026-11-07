@@ -9,7 +9,7 @@ use sha2::{Digest, Sha256};
 use sqlx::Row;
 
 async fn owner(api: &TestApi) {
-    sqlx::query("INSERT INTO people (id, name, role, created_at) VALUES ('steffen', 'Steffen', 'owner', ?)")
+    sqlx::query(&crate::db::sql("INSERT INTO people (id, name, role, created_at) VALUES ('steffen', 'Steffen', 'owner', ?)"))
         .bind(stamp())
         .execute(&api.app.pool)
         .await
@@ -17,7 +17,7 @@ async fn owner(api: &TestApi) {
 }
 
 async fn member(api: &TestApi, id: &str) {
-    sqlx::query("INSERT INTO people (id, name, role, created_at) VALUES (?, ?, 'member', ?)")
+    sqlx::query(&crate::db::sql("INSERT INTO people (id, name, role, created_at) VALUES (?, ?, 'member', ?)"))
         .bind(id)
         .bind(id)
         .bind(stamp())
@@ -99,7 +99,7 @@ async fn an_agent_key_a_revoked_key_or_a_removed_persons_never_logs_in() {
     let (revoked_id, revoked) = key(&api, "steffen", "person").await;
     assert_eq!(api.delete(&format!("/api/keys/{revoked_id}")).header("orrery-actor-name", "Steffen").send().await.status, 204);
     let (_, adas) = key(&api, "ada", "person").await;
-    sqlx::query("UPDATE people SET removed_at = ? WHERE id = 'ada'").bind(stamp()).execute(&api.app.pool).await.unwrap();
+    sqlx::query(&crate::db::sql("UPDATE people SET removed_at = ? WHERE id = 'ada'")).bind(stamp()).execute(&api.app.pool).await.unwrap();
     for body in
         [json!({"key": agent}), json!({"key": revoked}), json!({"key": adas}), json!({"key": "orrery_person_nope"}), json!({}), json!({"key": 1}), Value::Null]
     {
@@ -189,7 +189,7 @@ async fn a_second_person_turns_login_on_for_good() {
     owner(&api).await;
     member(&api, "ada").await;
     assert_eq!(status(api.get("/api/auth/status")).await["mode"], "on");
-    sqlx::query("UPDATE people SET removed_at = ? WHERE id = 'ada'").bind(stamp()).execute(&api.app.pool).await.unwrap();
+    sqlx::query(&crate::db::sql("UPDATE people SET removed_at = ? WHERE id = 'ada'")).bind(stamp()).execute(&api.app.pool).await.unwrap();
     assert_eq!(status(api.get("/api/auth/status")).await["mode"], "on", "it stays on after they go");
 }
 

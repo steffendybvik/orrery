@@ -4,7 +4,7 @@ use serde_json::{json, Value};
 use sqlx::Row;
 
 async fn changes(api: &TestApi, kind: &str) -> i64 {
-    sqlx::query("SELECT CAST(count(*) AS BIGINT) AS n FROM changes WHERE kind = ?").bind(kind).fetch_one(&api.app.pool).await.unwrap().get("n")
+    sqlx::query(&crate::db::sql("SELECT CAST(count(*) AS BIGINT) AS n FROM changes WHERE kind = ?")).bind(kind).fetch_one(&api.app.pool).await.unwrap().get("n")
 }
 
 fn problems(reply: &Reply) -> Vec<String> {

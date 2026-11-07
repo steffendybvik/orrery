@@ -7,9 +7,9 @@ use sqlx::Row;
 const SEALED: &str = "v1:sealed-ciphertext-that-must-never-leave";
 
 async fn secret(api: &TestApi, name: &str, hosts: &str, projects: Option<&str>) {
-    sqlx::query(
+    sqlx::query(&crate::db::sql(
         "INSERT INTO secrets (name, value, last4, hosts, projects, created_by, owned, created_at, updated_at) VALUES (?, ?, 'wxyz', ?, ?, 'owner', 1, ?, ?)",
-    )
+    ))
     .bind(name)
     .bind(SEALED)
     .bind(hosts)
@@ -22,7 +22,7 @@ async fn secret(api: &TestApi, name: &str, hosts: &str, projects: Option<&str>) 
 }
 
 async fn used(api: &TestApi, name: &str, path: &str, status: Option<i64>) {
-    sqlx::query("INSERT INTO secret_uses (secret, method, host, path, project, issue, status, error, created_by, created_at) VALUES (?, 'POST', 'api.example', ?, 'primes', 'PRI-1', ?, NULL, 'claude', ?)")
+    sqlx::query(&crate::db::sql("INSERT INTO secret_uses (secret, method, host, path, project, issue, status, error, created_by, created_at) VALUES (?, 'POST', 'api.example', ?, 'primes', 'PRI-1', ?, NULL, 'claude', ?)"))
         .bind(name)
         .bind(path)
         .bind(status)

@@ -28,7 +28,7 @@ async fn schedule(api: &TestApi, project: &str, title: &str, next_run: Option<&s
 }
 
 async fn run(api: &TestApi, schedule: i64, at: &str, outcome: &str, issue: Option<&str>) {
-    sqlx::query("INSERT INTO schedule_runs (schedule, at, outcome, issue) VALUES (?, ?, ?, ?)")
+    sqlx::query(&crate::db::sql("INSERT INTO schedule_runs (schedule, at, outcome, issue) VALUES (?, ?, ?, ?)"))
         .bind(schedule)
         .bind(at)
         .bind(outcome)
@@ -128,12 +128,14 @@ async fn a_schedule_comes_with_its_latest_ten_runs_newest_first_and_what_it_hold
     for day in 1..=12 {
         run(&api, id, &format!("2026-10-{day:02}T09:00:00.000Z"), "made", Some(&format!("PRI-{day}"))).await;
     }
-    sqlx::query("INSERT INTO schedule_held (schedule, subject, event, at) VALUES (?, 'PRI-1', '{}', '2026-11-01'), (?, 'PRI-2', '{}', '2026-11-01')")
-        .bind(id)
-        .bind(id)
-        .execute(&api.app.pool)
-        .await
-        .unwrap();
+    sqlx::query(&crate::db::sql(
+        "INSERT INTO schedule_held (schedule, subject, event, at) VALUES (?, 'PRI-1', '{}', '2026-11-01'), (?, 'PRI-2', '{}', '2026-11-01')",
+    ))
+    .bind(id)
+    .bind(id)
+    .execute(&api.app.pool)
+    .await
+    .unwrap();
     let s = api.get(&format!("/api/projects/{project}/schedules/{id}")).send().await.body;
     let runs = s["runs"].as_array().unwrap();
     assert_eq!(runs.len(), 10);

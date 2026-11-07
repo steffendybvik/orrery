@@ -6,7 +6,7 @@ const ID: &str = "0123456789abcdef01234567";
 
 /// Keeps an image as `POST /api/uploads` would, straight into the table: that route is the Nuxt server's.
 async fn keep(api: &TestApi, id: &str, kind: &str, data: &[u8]) {
-    sqlx::query("INSERT INTO uploads (id, type, name, size, data, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+    sqlx::query(&crate::db::sql("INSERT INTO uploads (id, type, name, size, data, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"))
         .bind(id)
         .bind(kind)
         .bind("dot.png")

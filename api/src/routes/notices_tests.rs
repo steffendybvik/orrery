@@ -319,7 +319,7 @@ async fn a_members_bell_is_their_own_and_has_no_proposals() {
     assert_eq!(cleared.status, 200, "a member clears their own: {}", cleared.body);
     assert_eq!(cleared.body, json!({"cleared": 1}));
     assert_eq!(ana(api.get("/api/notices")).send().await.body, json!([]));
-    let flag: i64 = sqlx::query_scalar("SELECT cleared FROM comments WHERE id = ?").bind(mine).fetch_one(&api.app.pool).await.unwrap();
+    let flag: i64 = sqlx::query_scalar(&crate::db::sql("SELECT cleared FROM comments WHERE id = ?")).bind(mine).fetch_one(&api.app.pool).await.unwrap();
     assert_eq!(flag, 0, "the owner's flag on the comment stays");
     let read = api.post("/api/notices/read", json!({"ids": [mine]})).by_agent("ana-agent").header("orrery-actor-person", "ana").send().await;
     assert_eq!(read.body, json!({"read": 1}));

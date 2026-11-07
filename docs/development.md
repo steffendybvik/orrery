@@ -123,7 +123,9 @@ and stops it with itself. Or run one yourself and point at it: `NUXT_API_TOKEN` 
 `ORRERY_API_LOG=1` has the API say each request it answers, and `NUXT_API_ONLY=1` turns the swap's flag on. Without any
 of these, Nuxt answers every route as before.
 
-Its checks: `cargo fmt --check`, `cargo clippy -- -D warnings` and `cargo test` in `api/`. `web/test/api-parity.test.ts`
+Its checks: `cargo fmt --check`, `cargo clippy -- -D warnings` and `cargo test` in `api/`; with `TEST_POSTGRES_URL` set,
+`cargo test` runs on that Postgres instead, each test in a schema of its own, and CI runs it both ways. SQL in a test
+goes through `db::sql`, as the API's own does, so its `?` are numbered for Postgres. `web/test/api-parity.test.ts`
 runs the same steps through the store and through the API on one database (SQLite, or Postgres with
 `TEST_POSTGRES_URL`) and compares the replies, failures and what each said changed; it skips without a built binary,
 and CI's `api` job builds one first. It also holds `openapi.yaml` to the routes the router sends on. The browser suite

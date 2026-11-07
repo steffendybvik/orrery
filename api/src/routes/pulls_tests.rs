@@ -117,7 +117,12 @@ async fn a_pr_it_doesnt_keep_is_a_404_and_a_bad_number_a_400() {
 async fn a_pr_is_kept_on_an_issue_by_its_old_id_and_its_state_follows() {
     let api = TestApi::new().await;
     let (project, issue) = board(&api).await;
-    sqlx::query("INSERT INTO issue_aliases (project, alias, issue) VALUES (?, 'OLD-7', ?)").bind(&project).bind(&issue).execute(&api.app.pool).await.unwrap();
+    sqlx::query(&crate::db::sql("INSERT INTO issue_aliases (project, alias, issue) VALUES (?, 'OLD-7', ?)"))
+        .bind(&project)
+        .bind(&issue)
+        .execute(&api.app.pool)
+        .await
+        .unwrap();
     let mut body = kept(&[&project], &["OLD-7", "NOPE-1"], "feat/sieve");
     body["merged"] = json!(true);
     body["merged_at"] = json!("2026-11-03T10:00:00Z");
@@ -162,12 +167,12 @@ async fn a_release_pr_is_on_every_issue_in_its_release() {
     let (project, first) = board(&api).await;
     let second = api.issue(&project, json!({"title": "Wheel"})).await;
     api.issue(&project, json!({"title": "Not shipping"})).await;
-    sqlx::query("INSERT INTO releases (project, version, branch, created_by, created_at, updated_at) VALUES (?, 'v1.0', 'release/v1', 'owner', '2026-11-01', '2026-11-01')")
+    sqlx::query(&crate::db::sql("INSERT INTO releases (project, version, branch, created_by, created_at, updated_at) VALUES (?, 'v1.0', 'release/v1', 'owner', '2026-11-01', '2026-11-01')"))
         .bind(&project)
         .execute(&api.app.pool)
         .await
         .unwrap();
-    sqlx::query("UPDATE issues SET ships_in = 'v1.0' WHERE project = ? AND id IN (?, ?)")
+    sqlx::query(&crate::db::sql("UPDATE issues SET ships_in = 'v1.0' WHERE project = ? AND id IN (?, ?)"))
         .bind(&project)
         .bind(&first)
         .bind(&second)
@@ -286,7 +291,12 @@ async fn rating_a_pr_orrery_doesnt_keep_on_the_issue_is_a_404() {
 async fn a_pr_is_rated_by_its_issue_old_id_and_its_repo_in_any_case() {
     let api = TestApi::new().await;
     let (project, issue) = board(&api).await;
-    sqlx::query("INSERT INTO issue_aliases (project, alias, issue) VALUES (?, 'OLD-7', ?)").bind(&project).bind(&issue).execute(&api.app.pool).await.unwrap();
+    sqlx::query(&crate::db::sql("INSERT INTO issue_aliases (project, alias, issue) VALUES (?, 'OLD-7', ?)"))
+        .bind(&project)
+        .bind(&issue)
+        .execute(&api.app.pool)
+        .await
+        .unwrap();
     keep(&api, 12, kept(&[&project], &[&issue], "feat/sieve")).await;
     let path = format!("/api/projects/{project}/issues/OLD-7/pulls/ADA/Primes/12/risk");
     let reply = api.put(&path, json!({"level": "medium", "why": "moves code"})).send().await;
