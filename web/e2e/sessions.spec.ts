@@ -299,6 +299,35 @@ test('with nobody listening and a launcher there, Focus on this starts a session
     }
 })
 
+test("serves all of a launcher's projects on one stream, each counted and sent its own launches (ORR-1076)", async ({page, request, baseURL}) => {
+    const issue = await api(request, 'post', '/issues', {title: 'Wax the counter', status: 'todo'})
+    await expect.poll(async () => (await api(request, 'get', '/sessions')).some((s: {listening: boolean}) => s.listening)).toBe(false)
+    const serve = [{project: 'kitchen', dir: 'kitchen'}, {project: 'dairy', home: true}, {project: 'no-such-project', home: true}]
+    const launcher = hold(baseURL!, `/api/launches/stream?serve=${encodeURIComponent(JSON.stringify(serve))}&version=e2e`)
+    try {
+        await expect.poll(async () => (await api(request, 'get', '/launches')).launchers).toBe(1)
+        await expect.poll(async () => (await (await request.get('/api/projects/dairy/launches')).json()).launchers).toBe(1)
+        const ready = JSON.parse(/event: ready\ndata: (.+)/.exec(launcher.said.text)![1]!)
+        expect(Object.keys(ready.projects).sort()).toEqual(['dairy', 'kitchen'])
+        expect(ready.projects.kitchen.token).not.toBe(ready.projects.dairy.token)
+        expect(ready.unknown).toEqual(['no-such-project'])
+        await page.goto(`/p/kitchen/issues/${issue.id}`)
+        await page.getByRole('button', {name: 'Focus on this (starts a session)'}).click()
+        await expect.poll(() => launcher.said.text).toContain('event: launch')
+        const launch = JSON.parse(/event: launch\ndata: (.+)/.exec(launcher.said.text.slice(launcher.said.text.indexOf('event: launch')))![1]!)
+        expect(launch.project).toBe('kitchen')
+        // A claim holds to the project's own token: dairy's doesn't take kitchen's launch.
+        const claim = (token: string) => request.post(`/api/projects/kitchen/launches/${launch.id}/claim?untrusted=no-bash&chat=yes&model=yes&resume=yes`, {headers: {'Orrery-Launcher': token}}).then(r => r.json())
+        expect((await claim(ready.projects.dairy.token)).claimed).toBe(false)
+        expect((await claim(ready.projects.kitchen.token)).claimed).toBe(true)
+        await request.post(`/api/projects/kitchen/launches/${launch.id}/stop`, {headers: OWNER})
+    } finally {
+        launcher.stop()
+    }
+    await expect.poll(async () => (await api(request, 'get', '/launches')).launchers).toBe(0)
+    await expect.poll(async () => (await (await request.get('/api/projects/dairy/launches')).json()).launchers).toBe(0)
+})
+
 test('with a session listening, New session on this starts another on the issue', async ({page, request, baseURL}) => {
     const issue = await api(request, 'post', '/issues', {title: 'Sweep the steps', status: 'todo'})
     await request.post('/api/sessions', {data: {id: 'e2e-n1', project: 'kitchen', event: 'SessionStart', name: 'e2e-n1'}})

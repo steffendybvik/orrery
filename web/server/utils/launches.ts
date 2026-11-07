@@ -178,8 +178,44 @@ export function addLauncher(project: string, dir?: string, every = false, versio
         done()
     }, {token})
 }
+/** Where a launcher serves a project from and how, as its stream's query says: `dir` its folder, or `home` its machine's
+ * default folder (ORR-1066), `every` where its channel serves every project, and when the folder was picked up or connected. */
+export type LauncherServes = {project: string, dir?: string, every?: boolean, home?: boolean, picked?: unknown, connected?: unknown}
+
+/** Kept only as a time, so nothing else a launcher says reaches the page through it. */
+const timeOf = (at: unknown) => typeof at === 'string' && !Number.isNaN(Date.parse(at)) ? new Date(at).toISOString() : undefined
+
+/** Counts a launcher's stream in for one project it serves, as `…/launches/stream` and `/api/launches/stream` both do,
+ * and notes it in the event log; the token is the one its claims on the project send, and calling it counts it out. A
+ * launcher on a member's agent key (`member`) hears only its own person's launches, and isn't counted as the project's
+ * (ORR-963). */
+export function connectLauncher({project, dir, every, home, picked, connected}: LauncherServes, version: string, member?: string): (() => void) & {token: string} {
+    const [pickedAt, connectedAt] = [timeOf(picked), timeOf(connected)]
+    const done = member ? addMemberLauncher(project, member) : addLauncher(project, dir || undefined, !!every, version.slice(0, 40), {...pickedAt ? {picked_at: pickedAt} : {}, ...connectedAt ? {connected_at: connectedAt} : {}}, !!home)
+    const where = dir ? {dir} : home ? {home: true} : {}
+    useEventLog().note({level: 'info', kind: 'launcher.connected', project, message: member ? `A launcher on ${member}'s key connected: it hears only their launches` : home ? "A launcher connected, serving the project from its machine's default folder" : 'A launcher connected', details: where})
+    let held = true
+    return Object.assign(() => {
+        if (!held) return
+        held = false
+        done()
+        useEventLog().note({level: 'info', kind: 'launcher.gone', project, message: 'A launcher went', details: where})
+    }, {token: done.token})
+}
+
+/** The project a launch event is on, and the launch it's about. */
+export const launchEventOn = (sent: LaunchEvent): {project: string, id: string} =>
+    sent.type === 'launch' ? {project: sent.launch.project, id: sent.launch.id} : {project: sent.project, id: sent.id}
+
+/** A launch event as a launcher's stream sends it: a launch with its id, the rest with their project in the data. */
+export function launchEventSent(sent: LaunchEvent): {id?: string, event: string, data: string} {
+    if (sent.type === 'launch') return {id: sent.launch.id, event: 'launch', data: JSON.stringify(sent.launch)}
+    const {type, ...data} = sent
+    return {event: type, data: JSON.stringify(data)}
+}
+
 /** The folders a project's launchers run in. */
-const foldersOf = (project: string): string[] => [...folders.get(project)?.keys() ?? []]
+const foldersOf =(project: string): string[] => [...folders.get(project)?.keys() ?? []]
 /** The folders its launchers run in, each with when it was picked up or connected, if it was. */
 const reposOf = (project: string): LauncherRepo[] => foldersOf(project).map(dir => ({dir, ...added.get(project)?.get(dir)}))
 
