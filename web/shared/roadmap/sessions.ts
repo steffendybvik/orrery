@@ -164,6 +164,9 @@ export interface StartedSession {
     /** Started for the owner's chat: it hears only the chat's messages, reads and answers, and makes issues and
      * comments when asked; nothing else. */
     chat?: boolean
+    /** Started as a global session (ORR-1079): in the orrery's default folder, hearing every project, with none of its
+     * own for a call that names none. It's kept under the project it was started from. */
+    global?: boolean
     /** The model and effort it was started on (`claude --model … --effort …`), when it asked for any; none, on
      * Claude Code's default there (ORR-868). */
     model?: string

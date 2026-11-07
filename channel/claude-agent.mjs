@@ -25,7 +25,7 @@ export const claude = {
 
     // It locks an untrusted launch down with no Bash, starts a chat as `chatOnly` says, starts a session on the model and
     // effort asked for, and takes a chat's Claude session up again (ORR-884): orrery gives each only to a launcher that does.
-    claims: 'untrusted=no-bash&chat=yes&model=yes&resume=yes',
+    claims: 'untrusted=no-bash&chat=yes&model=yes&resume=yes&global=yes',
 
     // What it's told as it starts (`told`, the repo it's in: ORR-1070) goes in its system prompt, so a `/clear` keeps it.
     command({dir, server, launch, mode, told}) {
