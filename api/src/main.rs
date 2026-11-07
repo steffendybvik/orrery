@@ -11,6 +11,7 @@
 //
 // `orrery-api migrate` brings NUXT_DATABASE's schema up to date instead (ORR-931), and exits. Nothing runs it yet: the
 // Nuxt server migrates the database as it opens it until the last domain has moved here.
+mod board_export;
 mod changes;
 mod chats;
 mod choices;
@@ -991,6 +992,20 @@ async fn get_project(State(app): Shared, Path(project): Path<String>, Query(quer
     Ok(Json(value).into_response())
 }
 
+/// `GET /api/projects/{project}/export` → the board as one file (`board_export`), named for the project and the day, so a
+/// browser saves it.
+async fn export_project(State(app): Shared, Path(project): Path<String>) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    let board = board_export::export(&mut conn, &project).await?;
+    let day = board["exported_at"].as_str().unwrap_or_default().get(..10).unwrap_or_default().to_string();
+    let mut response = Json(board).into_response();
+    let named = format!("attachment; filename=\"{project}-{day}.orrery.json\"");
+    if let Ok(value) = HeaderValue::from_str(&named) {
+        response.headers_mut().insert(axum::http::header::CONTENT_DISPOSITION, value);
+    }
+    Ok(response)
+}
+
 async fn create_project(State(app): Shared, headers: HeaderMap, body: Bytes) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
     let mut projects = Projects::new(&mut conn);
@@ -1626,6 +1641,7 @@ fn router(app: Arc<App>) -> Router {
         .route(&format!("{P}/milestones/{{milestone}}/comments/{{comment}}"), patch(patch_milestone_comment).delete(delete_milestone_comment))
         .route("/api/projects", get(list_projects).post(create_project))
         .route(P, get(get_project).patch(patch_project))
+        .route(&format!("{P}/export"), get(export_project))
         .route("/api/uploads/{upload}", get(get_upload))
         .route("/api/changes", get(list_changes))
         .route("/api/statuses", get(list_statuses).post(create_status))
