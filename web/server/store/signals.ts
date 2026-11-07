@@ -179,19 +179,23 @@ export abstract class SignalStore extends IssueStore {
     /** Asks the sessions to work through an epic's open issues (ORR-987): a focus on each project it has open issues in,
      * as a milestone's over the whole project (`all`) narrowed to the epic, so each goes to that project's sessions (one
      * orrery picks, or `*`) and starts one there as any owner's focus does. `{note?, status?, instructions?}` go to each.
-     * One project's session can't be named, as it would be another's in the next. */
+     * A named session (ORR-958) gets a focus for each of those projects it hears, and none for the others; one that
+     * hears none of them is refused, as nothing would reach it. */
     async focusEpic(id: number, body: unknown, actor = AGENT): Promise<Signal[]> {
         const epic = await this.epicRow(id)
         const input = checkInput(body ?? {}, MILESTONE_SIGNAL_FIELDS)
-        if (input.session !== undefined && input.session !== null && input.session !== EVERY) throw badRequest(`An epic's focus goes to each project's sessions: leave "session" out for one orrery picks in each, or send "${EVERY}" for all of them`)
         if (input.release !== undefined && input.release !== null) throw badRequest("An epic's focus can't name a release: a release is one project's")
+        const named = typeof input.session === 'string' && input.session && input.session !== EVERY ? input.session : undefined
         const projects = (await this.all<{project: string}>('SELECT DISTINCT project FROM issues WHERE epic = ? ORDER BY project', epic.id)).map(r => r.project)
-        const signals: Signal[] = []
+        const open: string[] = []
         for (const project of projects) {
             // Only where it has open work: a project whose part is done hears nothing.
-            if (!(await this.inEpic(project, await this.listIssues(project), epic.id)).some(i => i.kind !== 'proposed' && !CLOSED.includes(i.kind as Kind))) continue
-            signals.push(await this.focusMilestone(project, 'all', {...input, epic: epic.id}, actor))
+            if ((await this.inEpic(project, await this.listIssues(project), epic.id)).some(i => i.kind !== 'proposed' && !CLOSED.includes(i.kind as Kind))) open.push(project)
         }
+        const to = named ? open.filter(project => this.hears(project, named)) : open
+        if (named && open.length && !to.length) throw badRequest(`Session ${named} hears none of the projects the epic has open issues in (${open.join(', ')})`)
+        const signals: Signal[] = []
+        for (const project of to) signals.push(await this.focusMilestone(project, 'all', {...input, epic: epic.id}, actor))
         return signals
     }
 
