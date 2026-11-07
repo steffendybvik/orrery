@@ -147,6 +147,8 @@ schedule's run never goes to your sessions. Instead:
   worked on until you approve it, and what it writes sets off no schedule, so an event schedule can't
   start a session of yours on it. Its channel says it's untrusted on everything it sends, so this holds
   after orrery restarts too, before the launcher has said which sessions it started.
+  Once orrery knows the session, its writes are held to the project it was started for too (ORR-1069), on the
+  server and not only by its channel.
 - **It stops** once it has sat idle for two minutes, and at half an hour, busy or not: it isn't let finish
   its turn, so half an hour is as long as it runs (checked every 30 seconds).
 - **Its hook claims no issue.** What it runs is never taken as working an issue, and its refused writes set

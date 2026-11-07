@@ -603,6 +603,13 @@ export function untrustedSession(id: string): boolean {
     return !!session?.untrusted || !!session?.started?.untrusted
 }
 
+/** The project an untrusted schedule's session was started for, as its hooks name it (the launcher sets its
+ * ORRERY_PROJECT to the launch's): nothing for one orrery doesn't know, or that isn't untrusted. */
+export function untrustedProject(id: string | undefined): string | undefined {
+    const session = id ? sessions.get(currentId(id)) : undefined
+    return session && (session.untrusted || session.started?.untrusted) ? session.project : undefined
+}
+
 /** Whether it's the owner's chat (chats.ts), by its channel's word or its launch's. */
 export function chatSession(id: string): boolean {
     const session = sessions.get(currentId(id))

@@ -157,8 +157,9 @@ export class Secrets {
         const names = [...new Set([template, ...Object.values(headers), text ?? ''].flatMap(part => [...part.matchAll(PLACEHOLDER)].flatMap(m => m[1] ?? [])))]
         if (!names.length) throw badRequest('Put a secret in the request as {{secret:NAME}}; orrery only makes requests that use one')
         // Says what the caller says it's for: a guard against using a key in the wrong project by mistake,
-        // not a boundary, as nothing proves who's calling.
-        const project = input.project === undefined ? null : await this.store.projectId(String(input.project))
+        // not a boundary, as nothing proves who's calling. It must say one (ORR-1069), as a session may work on any.
+        if (input.project === undefined || input.project === null || input.project === '') throw badRequest('Say which project the request is for, in "project"')
+        const project = await this.store.projectId(String(input.project))
         const issue = input.issue === undefined ? null : String(input.issue)
 
         const secrets = new Map<string, {row: SecretRow, hosts: string[], value: string}>()
