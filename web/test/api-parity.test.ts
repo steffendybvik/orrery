@@ -10,6 +10,7 @@ import {tmpdir} from 'node:os'
 import {join, resolve} from 'node:path'
 import {fileURLToPath} from 'node:url'
 import {afterAll, beforeAll, describe, expect, it, vi} from 'vitest'
+import sharp from 'sharp'
 import type {OrreryEvent} from '#shared/happenings'
 import {Store} from '../server/utils/store'
 import type {Actor, IssueFilter} from '../server/store/schema'
@@ -2212,6 +2213,42 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         expect(await passedThrough(await fetch(`${url}/api/uploads/nope`, {headers: {'Orrery-Api-Token': TOKEN, 'Orrery-Database': databaseMark(setting)}}))).toBeUndefined()
     })
 
+    it('keeps an uploaded image alike, compressed as sharp does it (ORR-1058)', async () => {
+        // Noise, so it's past the size kept as it came and WebP makes it smaller on both sides.
+        const pixels = Buffer.alloc(300 * 200 * 3)
+        let seed = 0x9e3779b9
+        for (let i = 0; i < pixels.length; i++) pixels[i] = (seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) >>> 24
+        const png = await sharp(pixels, {raw: {width: 300, height: 200, channels: 3}}).png().toBuffer()
+        const kept = async (outcome: Promise<Outcome>) => {
+            const out = await outcome
+            if (out.status >= 400) return out
+            const body = out.body as {id: string, type: string, size: number, url: string, markdown: string}
+            const row = await store.upload(body.id)
+            // The bytes are each library's own: the same type, both smaller, and the row as the reply says.
+            expect(row.data.length).toBe(body.size)
+            expect(body.size).toBeLessThan(png.length)
+            return {...out, body: {...body, id: '<id>', size: '<smaller>', url: body.url.replace(body.id, '<id>'), markdown: body.markdown.replace(body.id, '<id>')}}
+        }
+        const body = {data: `data:image/png;base64,${png.toString('base64')}`, name: 'lid [before].png'}
+        const made = await both('a PNG', () => kept(viaStore(() => store.createUpload(body, OWNER), 201)), () => kept(viaApi('POST', '/api/uploads', body, OWNER)))
+        expect(made.body).toMatchObject({type: 'image/webp', markdown: '![lid before](/api/uploads/<id>)'})
+        // A GIF is kept as it came, so its size is too.
+        const gif = 'R0lGODlhAQABAAAAACw='
+        const kept0 = async (outcome: Promise<Outcome>) => {
+            const out = await outcome
+            const body = out.body as {id: string, url: string, markdown: string}
+            return {...out, body: {...body, id: '<id>', url: body.url.replace(body.id, '<id>'), markdown: body.markdown.replace(body.id, '<id>')}}
+        }
+        const asCame = await both('a GIF, as it came', () => kept0(viaStore(() => store.createUpload({data: gif}, AGENT), 201)), () => kept0(viaApi('POST', '/api/uploads', {data: gif})))
+        expect(asCame.body).toMatchObject({type: 'image/gif', size: 14, markdown: '![image](/api/uploads/<id>)'})
+        for (const [name, refused] of [
+            ['no data', {}], ['data null', {data: null}], ['not base64', {data: 'not base64!'}], ['empty', {data: '=='}],
+            ['not an image', {data: Buffer.from('plain text').toString('base64')}], ['an unknown field', {data: gif, size: 1}],
+        ] as const) {
+            await both(name, () => viaStore(() => store.createUpload(refused, OWNER)), () => viaApi('POST', '/api/uploads', refused, OWNER))
+        }
+    })
+
     it('exports a board alike, as one file named for the project and the day (ORR-1006)', async () => {
         // An image its text shows goes in the file, in base64, so the board takes one in an issue and a comment.
         const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=='
@@ -2850,7 +2887,7 @@ describe('the router', () => {
     })
 
     it('routes by a table with a line per domain, so taking one back is taking its line out (ORR-925)', () => {
-        expect(DOMAINS.map(({domain}) => domain)).toEqual(['docs', 'statuses', 'issues, reading', 'comments', 'an issue, deleted', 'an issue, made', 'an issue, its words', 'issues, changed at once', 'a proposal, decided', 'claims', 'activity', 'milestones', 'releases', 'releases, every project\'s', 'people', 'invites', 'keys', 'logins', 'uploads, reading', 'presets', 'secrets, reading', 'settings', 'a pull request, reading', "a pull request's risk", 'schedules, reading', 'projects, listed', 'a project, made', 'a project, changed', 'a project, exported', 'the bell', 'epics', 'milestone and epic comments'])
+        expect(DOMAINS.map(({domain}) => domain)).toEqual(['docs', 'statuses', 'issues, reading', 'comments', 'an issue, deleted', 'an issue, made', 'an issue, its words', 'issues, changed at once', 'a proposal, decided', 'claims', 'activity', 'milestones', 'releases', 'releases, every project\'s', 'people', 'invites', 'keys', 'logins', 'uploads, reading', 'an upload, kept', 'presets', 'secrets, reading', 'settings', 'a pull request, reading', "a pull request's risk", 'schedules, reading', 'projects, listed', 'a project, made', 'a project, changed', 'a project, exported', 'the bell', 'epics', 'milestone and epic comments'])
         expect(domainOf('PATCH', '/api/projects/p/docs/d')).toBe('docs')
         expect(domainOf('head', '/api/projects/p/doc-sections/')).toBe('docs')
         for (const method of ['POST', 'DELETE']) expect(domainOf(method, '/api/projects/p/issues/P-1/claim'), method).toBe('claims')
@@ -2927,9 +2964,10 @@ describe('the router', () => {
         expect(loginHeaders({provider: false, off: false}, 'http://localhost:9000')).toEqual({'Orrery-Origin': 'http%3A%2F%2Flocalhost%3A9000'})
     })
 
-    it('sends an uploaded image\'s read there, and keeps uploading one here (ORR-927)', () => {
+    it('sends an uploaded image\'s read there, and keeping one (ORR-927, ORR-1058)', () => {
         expect(domainOf('GET', '/api/uploads/0123456789abcdef01234567')).toBe('uploads, reading')
-        expect(domainOf('POST', '/api/uploads')).toBeUndefined()
+        expect(domainOf('POST', '/api/uploads')).toBe('an upload, kept')
+        expect(domainOf('POST', '/api/uploads/0123456789abcdef01234567')).toBeUndefined()
         for (const path of ['/api/uploads', '/api/uploads/x/y']) expect(domainOf('GET', path), path).toBeUndefined()
     })
 
@@ -2998,7 +3036,7 @@ describe('the contract (api/openapi.yaml)', () => {
     const routes = () => nuxtRoutes().filter(route => servedByApi(methodOf(route), pathOf(route)))
 
     it('has every route the router sends to the API, and no other', () => {
-        expect(contract()).toHaveLength(97)
+        expect(contract()).toHaveLength(98)
         expect(contract()).toEqual(routes())
     })
 
