@@ -54,4 +54,5 @@ export const WRITERS: Record<string, Writer> = {
     settings: {nuxt: "the machine's settings, the sealed ones and auth staying on (store/keys.ts, store/signals.ts)"},
     signals: {nuxt: "the sessions' signals, which are the machine's (store/signals.ts)"},
     statuses: {nuxt: UPLOAD, issue: 'ORR-747'},
+    uploads: {nuxt: `recompressing kept images and clearing unused ones (store/signals.ts), and ${UPLOAD}`, issue: 'ORR-1036'},
 }
