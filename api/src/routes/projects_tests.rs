@@ -1,5 +1,5 @@
 // The tests of routes/projects.rs (ORR-1052), through `router()` on a database of their own (`crate::testing`).
-use crate::testing::TestApi;
+use crate::testing::{ids, TestApi};
 use serde_json::{json, Value};
 use sqlx::Row;
 
@@ -454,4 +454,21 @@ async fn a_project_another_takes_releases_from_is_not_deleted() {
     assert_eq!(reply.body["message"], "drawing takes its releases from source; give it its own first (releases_from: null)");
     assert_eq!(api.delete("/api/projects/drawing").send().await.status, 204);
     assert_eq!(api.delete("/api/projects/source").send().await.status, 204);
+}
+
+#[tokio::test]
+async fn every_board_is_listed_when_asked_trimmed_but_for_the_whole_ones() {
+    let api = TestApi::new().await;
+    let (project, issue) = api.board().await;
+    api.patch(&format!("/api/projects/{project}/issues/{issue}"), json!({"status": "done", "notes": "Sieved."})).send().await;
+    make(&api, json!({"name": "Other"})).await;
+    let listed = api.get("/api/projects?expand=board").send().await.body;
+    assert_eq!(ids(&listed), ["other", "primes"]);
+    assert!(listed[1].get("board").is_some() && listed[1].get("counts").is_none(), "{listed}");
+    assert_eq!(issue_ids(&listed[1]), std::slice::from_ref(&issue));
+    let trimmed = api.get("/api/projects?expand=board&notes=0&closed=0").send().await.body;
+    assert!(issue_ids(&trimmed[1]).is_empty(), "{trimmed}");
+    let kept = api.get("/api/projects?expand=board&closed=0&whole=primes").send().await.body;
+    assert_eq!(issue_ids(&kept[1]), [issue]);
+    assert!(api.get("/api/projects").send().await.body[1].get("board").is_none());
 }

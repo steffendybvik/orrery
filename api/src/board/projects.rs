@@ -2,8 +2,8 @@
 // (web/server/store/projects.ts), answering as `GET /api/projects` without `?expand=board` and `PATCH
 // /api/projects/:project` do. Each project is its row as `projectOf` hands it out (base.ts), with its docs, doc
 // sections and releases, and its board or, listed, the board's counts and kinds and how many milestones it has.
-// Reading boards (`?expand=board`, `GET /api/projects/:project`) stays on the Nuxt server, as their `rev` is the events
-// stream's. Making one (`createProject`) answers as `POST /api/projects` does, and deleting one (`deleteProject`) as
+// Reading boards (`?expand=board`, `GET /api/projects/:project`) answers without the events stream's `rev`, which the
+// Nuxt server's router adds. Making one (`createProject`) answers as `POST /api/projects` does, and deleting one (`deleteProject`) as
 // `DELETE /api/projects/:project` does.
 use crate::access::people::Who;
 use crate::board::docs::Docs;
@@ -308,13 +308,13 @@ impl<'c> Projects<'c> {
         Ok(Value::Object(project))
     }
 
-    /// Every project, by name, each with its counts (`listProjects`).
-    pub async fn list(&mut self) -> Result<Value> {
+    /// Every project, by name, each with its counts (`listProjects`), or, `boards`, with its whole board (`listBoards`).
+    pub async fn list(&mut self, boards: bool) -> Result<Value> {
         let rows = sqlx::query(&sql(&format!("SELECT {PROJECT_COLUMNS} FROM projects ORDER BY lower(name), name"))).fetch_all(&mut *self.conn).await?;
         let starts = self.starts().await?;
         let mut out = Vec::new();
         for row in &rows {
-            out.push(self.project_of(row, &starts, true).await?);
+            out.push(self.project_of(row, &starts, !boards).await?);
         }
         Ok(Value::Array(out))
     }

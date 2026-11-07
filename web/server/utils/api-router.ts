@@ -105,9 +105,9 @@ export const DOMAINS: readonly {domain: string, paths: RegExp, methods?: readonl
     // Of the writes (ORR-950): adopting an agent's schedule and deleting one, neither of which starts a session.
     {domain: 'a schedule, adopted', paths: /^projects\/[^/]+\/schedules\/[^/]+\/adopt$/, methods: ['POST']},
     {domain: 'a schedule, deleted', paths: /^projects\/[^/]+\/schedules\/[^/]+$/, methods: ['DELETE']},
-    // Every project, listed with its counts (ORR-997). With `?expand=board` it's their boards, each with the events
-    // stream's `rev`, so that stays here (`listedOnly`).
-    {domain: 'projects, listed', paths: /^projects$/, methods: ['GET'], first: {GET: listedOnly}},
+    // Every project, listed with its counts (ORR-997). With `?expand=board` it's their boards (ORR-1006), each labelled
+    // here with the events stream's `rev`, as one project's read is (`boardsWithRev`).
+    {domain: 'projects, listed', paths: /^projects$/, methods: ['GET'], reply: {GET: boardsWithRev}},
     // Making a project (ORR-1002), held by whoever asks, as `personOf` has it here. The reply is the project with its
     // board, without the `rev` that reading one adds here.
     {domain: 'a project, made', paths: /^projects$/, methods: ['POST']},
@@ -141,26 +141,48 @@ export const DOMAINS: readonly {domain: string, paths: RegExp, methods?: readonl
 
 /** What this server does to a reply from the API, as only it knows it, taken before the request goes on: the path to ask
  * instead, and what to make of the reply's JSON when it succeeds. */
-type Shaping = (event: H3Event) => {path?: string, reply: (json: unknown) => unknown}
+type Shaping = (event: H3Event) => {path?: string, reply: (json: unknown) => unknown} | undefined
 
 /** A board read labelled with the events stream's `rev` as it is before the read (`revLabel`, ORR-482). The API is
  * asked for every issue, as a board never read before is kept as the base its first patch is made from, and its
  * closed issues are left out here once that's kept, as the route here does (`?closed=0`). */
-export function withRev(event: H3Event): ReturnType<Shaping> {
+export function withRev(event: H3Event): NonNullable<ReturnType<Shaping>> {
     const label = revLabel()
     const query = getQuery(event)
-    const [path, search = ''] = event.path.split('?')
-    const params = new URLSearchParams(search)
-    params.delete('closed')
-    const kept = params.toString()
     return {
-        path: kept ? `${path}?${kept}` : path,
+        path: without(event.path, ['closed']),
         reply: json => {
             const project = label(json as Project)
             const lighter = query.notes === '0' ? withoutNotes(project) : project
             return query.closed === '0' ? withoutClosed(lighter) : lighter
         },
     }
+}
+
+/** Every project's board (`?expand=board`), each labelled as `withRev` labels one, and asked for whole the same way:
+ * the closed issues are left out here, but for the projects in `&whole=`. Without `expand=board` it's the counts, as
+ * they came. */
+export function boardsWithRev(event: H3Event): ReturnType<Shaping> {
+    const query = getQuery(event)
+    if (query.expand !== 'board') return undefined
+    const label = revLabel()
+    const whole = new Set(typeof query.whole === 'string' ? query.whole.split(',') : [])
+    return {
+        path: without(event.path, ['closed', 'whole']),
+        reply: json => (json as Project[]).map(label).map(board => {
+            const lighter = query.notes === '0' ? withoutNotes(board) : board
+            return query.closed === '0' && !whole.has(board.id) ? withoutClosed(lighter) : lighter
+        }),
+    }
+}
+
+/** The path with these query parameters left out. */
+function without(asked: string, names: string[]): string {
+    const [path = '', search = ''] = asked.split('?')
+    const params = new URLSearchParams(search)
+    for (const name of names) params.delete(name)
+    const kept = params.toString()
+    return kept ? `${path}?${kept}` : path
 }
 
 /** What this server checks itself before a request goes on, as only it knows (the sessions): refusing it throws, and
@@ -217,10 +239,6 @@ async function newWordsOnly(event: H3Event) {
     }
 }
 
-/** The projects' list, kept here when it asks for their boards (`?expand=board`), as their `rev` is this server's. */
-async function listedOnly(event: H3Event) {
-    if (getQuery(event).expand !== undefined) return 'here' as const
-}
 
 /** A read refused to a person off the project's board, as if it weren't there (`needsBoard`). */
 async function onTheBoard(event: H3Event, rest: string) {

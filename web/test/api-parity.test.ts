@@ -33,7 +33,7 @@ import type {PolledRow} from '../server/utils/pull-poll'
 import {openDb} from '../server/utils/db'
 import {PostgresDb} from '../server/utils/postgres'
 import {PHONE_LOGIN} from '#shared/phone'
-import {actorHeaders, apiStarted, cameHeaders, changedOf, countedOf, databaseMark, domainOf, DOMAINS, handedOn, handoffsOf, handOn, loginHeaders, withRev, movesStatus, onlyWords, passedThrough, servedByApi, toldOf, urgentOf, whoHeaders, writeToApi, OWN_WORK} from '../server/utils/api-router'
+import {actorHeaders, apiStarted, cameHeaders, changedOf, countedOf, databaseMark, domainOf, DOMAINS, handedOn, handoffsOf, handOn, loginHeaders, withRev, boardsWithRev, movesStatus, onlyWords, passedThrough, servedByApi, toldOf, urgentOf, whoHeaders, writeToApi, OWN_WORK} from '../server/utils/api-router'
 import {permission, refused} from '../server/utils/permission'
 import {followOutbox, readPage} from '../server/utils/outbox-follower'
 import {contract, methodOf, nuxtRoutes, pathOf} from './routes'
@@ -664,6 +664,24 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
             expect(shaped.reply((await viaApi('GET', shaped.path!)).body), query).toEqual(JSON.parse(JSON.stringify(here)))
             expect(here).toHaveProperty('rev')
         }
+        // Every project's board (`?expand=board`, `boardsWithRev`): asked whole, labelled and trimmed here, but for `&whole=`.
+        const boards = await store.listBoards()
+        for (const query of ['', '&notes=0', '&closed=0', '&notes=0&closed=0&whole=through-api', '&closed=0&whole=through-api,through-store']) {
+            const shaped = boardsWithRev({path: `/api/projects?expand=board${query}`} as H3Event)!
+            expect(shaped.path, query).toBe(`/api/projects?expand=board${query.includes('notes') ? '&notes=0' : ''}`)
+            const whole = new Set(/whole=([^&]*)/.exec(query)?.[1]?.split(',') ?? [])
+            const label = revLabel()
+            const here = boards.map(label).map(board => {
+                const lighter = query.includes('notes') ? withoutNotes(board) : board
+                return query.includes('closed') && !whole.has(board.id) ? withoutClosed(lighter) : lighter
+            })
+            expect(shaped.reply((await viaApi('GET', shaped.path!)).body), query).toEqual(JSON.parse(JSON.stringify(here)))
+            // Asked of the API directly, it trims as the route here does, without the `rev`.
+            const direct = (await viaApi('GET', `/api/projects?expand=board${query}`)).body
+            expect(direct, query).toEqual(JSON.parse(JSON.stringify(here.map(({rev: _rev, ...board}) => board))))
+        }
+        expect(boardsWithRev({path: '/api/projects'} as H3Event)).toBeUndefined()
+        expect(boardsWithRev({path: '/api/projects?expand=counts'} as H3Event)).toBeUndefined()
         const listed = (await viaApi('GET', '/api/projects')).body as {id: string, milestones: number, docs: unknown[], starts?: unknown}[]
         expect(listed.find(p => p.id === 'through-api')).toMatchObject({milestones: 4, docs: expect.arrayContaining([expect.objectContaining({title: 'Joinery', section: 'Shop'})]), starts: {max: 2}})
         await store.db.run("DELETE FROM settings WHERE key = 'starts'")

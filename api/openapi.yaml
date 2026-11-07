@@ -706,10 +706,16 @@ paths:
       summary: Every project, by name, each with its counts
       description: |
         Each project's own fields, docs, doc sections and releases, and for its board only the counts and kinds of its
-        leaf issues and how many milestones it has. With `?expand=board` it's each one's board instead, with the events
-        stream's `rev`: the Nuxt server answers that, so the router never sends it here.
+        leaf issues and how many milestones it has. With `?expand=board` it's each one's board instead, trimmed by
+        `&notes=0` and `&closed=0` but for the projects in `&whole=`. The events stream's `rev` isn't here: the router asks
+        for the whole boards and labels them with it, then leaves the closed issues out itself.
+      parameters:
+        - {name: expand, in: query, required: false, description: '`board` gives each project''s board in place of its counts', schema: {type: string}}
+        - {name: notes, in: query, required: false, description: '`0` leaves the issues'' notes out', schema: {type: string}}
+        - {name: closed, in: query, required: false, description: '`0` leaves out the closed issues with no open sub-issue', schema: {type: string}}
+        - {name: whole, in: query, required: false, description: 'Projects, comma-separated, whose boards keep their closed issues', schema: {type: string}}
       responses:
-        '200': {description: The projects, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/ProjectSummary'}}}}}
+        '200': {description: 'The projects, with their counts or, expanded, their boards', content: {application/json: {schema: {type: array, items: {oneOf: [{$ref: '#/components/schemas/ProjectSummary'}, {$ref: '#/components/schemas/Project'}]}}}}}
     post:
       summary: Makes a project
       description: |
