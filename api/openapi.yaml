@@ -728,12 +728,12 @@ paths:
   /api/projects/{project}:
     parameters: [{$ref: '#/components/parameters/project'}]
     get:
-      x-served: false
       summary: The project, with its board
       description: |
         Its own fields, docs, doc sections, releases and board. `?notes=0` leaves the issues' notes out, and `?closed=0`
         the closed issues (done, canceled) with no open sub-issue under them. The events stream's `rev`, which the page's
-        patches build on, isn't here: it's the Nuxt server's, so the router sends this read on only once it can add it.
+        patches build on, isn't here: it's the Nuxt server's, so the router asks for the whole board and labels the reply
+        with it, then leaves the closed issues out itself.
       parameters:
         - {name: notes, in: query, required: false, description: '`0` leaves the issues'' notes out', schema: {type: string}}
         - {name: closed, in: query, required: false, description: '`0` leaves out the closed issues with no open sub-issue', schema: {type: string}}

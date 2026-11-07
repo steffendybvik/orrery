@@ -23,6 +23,8 @@ import {known} from '../shared/known'
 import {numberOf} from '../shared/roadmap'
 import {withoutClosed, withoutNotes} from '../shared/patch'
 import {exportBoard} from '../server/utils/board-export'
+import {revLabel} from '../server/utils/events'
+import type {H3Event} from 'h3'
 import {RoadmapError, checkRoadmap} from '../server/utils/roadmap'
 import {badRequest} from '../server/utils/input'
 import {Schedules} from '../server/utils/schedules'
@@ -31,7 +33,7 @@ import type {PolledRow} from '../server/utils/pull-poll'
 import {openDb} from '../server/utils/db'
 import {PostgresDb} from '../server/utils/postgres'
 import {PHONE_LOGIN} from '#shared/phone'
-import {actorHeaders, apiStarted, cameHeaders, changedOf, countedOf, databaseMark, domainOf, DOMAINS, handedOn, handoffsOf, handOn, loginHeaders, movesStatus, onlyWords, passedThrough, servedByApi, toldOf, urgentOf, whoHeaders, writeToApi, OWN_WORK} from '../server/utils/api-router'
+import {actorHeaders, apiStarted, cameHeaders, changedOf, countedOf, databaseMark, domainOf, DOMAINS, handedOn, handoffsOf, handOn, loginHeaders, withRev, movesStatus, onlyWords, passedThrough, servedByApi, toldOf, urgentOf, whoHeaders, writeToApi, OWN_WORK} from '../server/utils/api-router'
 import {permission, refused} from '../server/utils/permission'
 import {followOutbox, readPage} from '../server/utils/outbox-follower'
 import {contract, methodOf, nuxtRoutes, pathOf} from './routes'
@@ -641,7 +643,7 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         expect(domainOf('GET', '/api/projects')).toBe('projects, listed')
         expect(domainOf('POST', '/api/projects')).toBe('a project, made')
         // One project with its board (ORR-1006), whole and trimmed as the page's reads ask, without the events stream's
-        // `rev`, which only the Nuxt server has: so the router doesn't send it on yet.
+        // `rev`, which only the Nuxt server has.
         const board = await store.project('through-api')
         expect((await viaApi('GET', '/api/projects/through-api')).body).toEqual(JSON.parse(JSON.stringify(board)))
         for (const query of ['notes=0', 'closed=0', 'notes=0&closed=0']) {
@@ -650,7 +652,18 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
             expect((await viaApi('GET', `/api/projects/through-api?${query}`)).body, query).toEqual(JSON.parse(JSON.stringify(trimmed)))
         }
         expect((await viaApi('GET', '/api/projects/nowhere')).status).toBe(404)
-        expect(domainOf('GET', '/api/projects/through-api')).toBeUndefined()
+        // Routed (`withRev`): the API is asked for the whole board, and the reply labelled with the `rev` and trimmed here,
+        // as the route here does it.
+        expect(domainOf('GET', '/api/projects/through-api')).toBe('a project, read')
+        for (const query of ['', 'notes=0', 'closed=0', 'notes=0&closed=0', 'closed=0&notes=0']) {
+            const shaped = withRev({path: `/api/projects/through-api${query ? `?${query}` : ''}`} as H3Event)
+            expect(shaped.path, query).toBe(`/api/projects/through-api${query.includes('notes') ? '?notes=0' : ''}`)
+            const labelled = revLabel()(board)
+            const lighter = query.includes('notes') ? withoutNotes(labelled) : labelled
+            const here = query.includes('closed') ? withoutClosed(lighter) : lighter
+            expect(shaped.reply((await viaApi('GET', shaped.path!)).body), query).toEqual(JSON.parse(JSON.stringify(here)))
+            expect(here).toHaveProperty('rev')
+        }
         const listed = (await viaApi('GET', '/api/projects')).body as {id: string, milestones: number, docs: unknown[], starts?: unknown}[]
         expect(listed.find(p => p.id === 'through-api')).toMatchObject({milestones: 4, docs: expect.arrayContaining([expect.objectContaining({title: 'Joinery', section: 'Shop'})]), starts: {max: 2}})
         await store.db.run("DELETE FROM settings WHERE key = 'starts'")
@@ -729,7 +742,7 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         expect(outcomes[23]).toMatchObject({status: 200, body: {release_mode: 'own'}, changed: ['through-api-bench', 'through-api-src']})
         expect((outcomes[23]!.body as {board: {milestones: {tasks: {release?: string}[]}[]}}).board.milestones[0]!.tasks[0]).not.toHaveProperty('release')
         expect(domainOf('PATCH', '/api/projects/p')).toBe('a project, changed')
-        expect(domainOf('GET', '/api/projects/p')).toBeUndefined()
+        expect(domainOf('GET', '/api/projects/p')).toBe('a project, read')
     })
 
     it('deletes a project alike, with everything in it, refusing what the store refuses (ORR-1006)', async () => {
@@ -3148,13 +3161,13 @@ describe('the router', () => {
     it('sends the docs domain and the statuses to the API, and keeps an artifact\'s page and everything else here', () => {
         for (const path of ['/api/projects/p/docs', '/api/projects/p/docs/', '/api/projects/p/docs/d', '/api/projects/p/docs/d/revisions', '/api/projects/p/docs/d/revisions/3',
             '/api/projects/p/docs/d/revisions/3/restore', '/api/projects/p/deleted-docs', '/api/projects/p/doc-sections', '/api/projects/p/doc-sections/how it works']) expect(servedByApi('GET', path), path).toBe(true)
-        for (const path of ['/api/projects/p/docs/d/artifact', '/api/projects/p', '/api/projects/p/docs/d/revisions/3/other', '/api/docs']) expect(servedByApi('GET', path), path).toBe(false)
+        for (const path of ['/api/projects/p/docs/d/artifact', '/api/projects/p/docs/d/revisions/3/other', '/api/docs']) expect(servedByApi('GET', path), path).toBe(false)
         for (const path of ['/api/statuses', '/api/statuses/', '/api/statuses/in-review']) expect(servedByApi('GET', path), path).toBe(true)
         for (const path of ['/api/statuses/x/y', '/api/projects/p/statuses', '/api/machine']) expect(servedByApi('GET', path), path).toBe(false)
     })
 
     it('routes by a table with a line per domain, so taking one back is taking its line out (ORR-925)', () => {
-        expect(DOMAINS.map(({domain}) => domain)).toEqual(['docs', 'statuses', 'issues, reading', 'comments', 'an issue, deleted', 'an issue, made', 'an issue, its words', 'issues, changed at once', 'a proposal, decided', 'claims', 'activity', 'milestones', 'releases', 'releases, every project\'s', 'people', 'invites', 'keys', 'logins', 'uploads, reading', 'an upload, kept', 'presets', 'secrets, reading', 'settings', 'a pull request, reading', "a pull request's risk", 'schedules, reading', 'a schedule, adopted', 'a schedule, deleted', 'projects, listed', 'a project, made', 'a project, changed', 'a project, deleted', 'a project, exported', 'a project, imported', 'the bell', 'epics', 'milestone and epic comments'])
+        expect(DOMAINS.map(({domain}) => domain)).toEqual(['docs', 'statuses', 'issues, reading', 'comments', 'an issue, deleted', 'an issue, made', 'an issue, its words', 'issues, changed at once', 'a proposal, decided', 'claims', 'activity', 'milestones', 'releases', 'releases, every project\'s', 'people', 'invites', 'keys', 'logins', 'uploads, reading', 'an upload, kept', 'presets', 'secrets, reading', 'settings', 'a pull request, reading', "a pull request's risk", 'schedules, reading', 'a schedule, adopted', 'a schedule, deleted', 'projects, listed', 'a project, made', 'a project, changed', 'a project, read', 'a project, deleted', 'a project, exported', 'a project, imported', 'the bell', 'epics', 'milestone and epic comments'])
         expect(domainOf('PATCH', '/api/projects/p/docs/d')).toBe('docs')
         expect(domainOf('head', '/api/projects/p/doc-sections/')).toBe('docs')
         for (const method of ['POST', 'DELETE']) expect(domainOf(method, '/api/projects/p/issues/P-1/claim'), method).toBe('claims')
@@ -3303,12 +3316,12 @@ describe('the contract (api/openapi.yaml)', () => {
     const routes = () => nuxtRoutes().filter(route => servedByApi(methodOf(route), pathOf(route)))
 
     it('has every route the router sends to the API, and no other', () => {
-        expect(contract()).toHaveLength(102)
+        expect(contract()).toHaveLength(103)
         expect(contract()).toEqual(routes())
     })
 
     it('sends none of the routes written ahead of the Rust API to it', () => {
-        expect(contract(true)).toEqual(['DELETE /api/chats/{chat}', 'GET /api/auth/oidc/callback', 'GET /api/auth/oidc/start', 'GET /api/auth/status', 'GET /api/chats', 'GET /api/chats/{chat}', 'GET /api/projects/{project}', 'POST /api/auth/link', 'POST /api/auth/login', 'POST /api/auth/logout', 'POST /api/phone/link', 'POST /api/pulls/forget', 'PUT /api/chats/{chat}', 'PUT /api/pulls/{owner}/{name}', 'PUT /api/pulls/{owner}/{name}/error', 'PUT /api/pulls/{owner}/{name}/history', 'PUT /api/pulls/{owner}/{name}/{number}'])
+        expect(contract(true)).toEqual(['DELETE /api/chats/{chat}', 'GET /api/auth/oidc/callback', 'GET /api/auth/oidc/start', 'GET /api/auth/status', 'GET /api/chats', 'GET /api/chats/{chat}', 'POST /api/auth/link', 'POST /api/auth/login', 'POST /api/auth/logout', 'POST /api/phone/link', 'POST /api/pulls/forget', 'PUT /api/chats/{chat}', 'PUT /api/pulls/{owner}/{name}', 'PUT /api/pulls/{owner}/{name}/error', 'PUT /api/pulls/{owner}/{name}/history', 'PUT /api/pulls/{owner}/{name}/{number}'])
         expect(contract(true).filter(operation => routes().includes(operation))).toEqual([])
     })
 })
