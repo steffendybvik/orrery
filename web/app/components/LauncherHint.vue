@@ -19,11 +19,9 @@ const home = computed(() => `~/.orrery/${settings.value.id || '<orrery id>'}/hom
     <p>
       <span class="font-medium text-fg">No launcher is running for {{ name }}.</span>{{ ' ' }}
       <template v-if="noRepo">
-        {{ chat ? 'The chat starts its session through it.' : 'orrery starts its sessions through it (Start session, or work sent while nobody is listening).' }}
-        It has no repo, and needs none: the launcher serves it from its machine's default folder,
-        <span class="font-mono">{{ home }}</span>. Install the launcher once, from any folder, then run
-        <span class="font-mono">claude</span> once in that folder to trust it. Already installed? Then no machine
-        with it is on: it connects again as that machine wakes.
+        {{ chat ? 'The chat starts its session through it.' : 'orrery starts its sessions through it.' }}
+        It needs no repo: install the launcher once, from any folder, and run <span class="font-mono">claude</span>
+        once in <span class="font-mono">{{ home }}</span> to trust it. Installed already? Then no machine running it is on.
       </template>
       <template v-else-if="chat">The chat starts its session through it: install the launcher once, then open a Claude session in the repo, or run this there to add it now.</template>
       <template v-else>
