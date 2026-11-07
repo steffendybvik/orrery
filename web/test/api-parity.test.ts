@@ -50,6 +50,26 @@ const events: OrreryEvent[] = []
 let settingsTold = 0
 const inFlight = new Set<Promise<unknown>>()
 
+/** Every request this file sends the API, as `METHOD /api/path`, for the check that each route it serves is driven here
+ * at least once (ORR-1010). */
+const reached = new Set<string>()
+const realFetch = globalThis.fetch
+globalThis.fetch = (input: string | URL | Request, init?: RequestInit) => {
+    const target = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+    if (url && target.startsWith(url)) reached.add(`${(init?.method ?? (input instanceof Request ? input.method : 'GET')).toUpperCase()} ${new URL(target).pathname}`)
+    return realFetch(input, init)
+}
+
+/** The routes of the contract that no request here reached. */
+function unreached(): string[] {
+    const asked = [...reached]
+    return contract().filter(route => {
+        const [method, path] = [methodOf(route), route.slice(route.indexOf(' ') + 1)]
+        const pattern = new RegExp(`^${method} ${path.replace(/[.*+?^$()|[\]\\]/g, '\\$&').replace(/\{\w+\}/g, '[^/]+')}/?$`)
+        return !asked.some(request => pattern.test(request))
+    })
+}
+
 describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, and reads issues and comments, as the store does', () => {
     beforeAll(async () => {
         schema = `test_api_${Date.now().toString(36)}`
@@ -2864,6 +2884,13 @@ describe('the router', () => {
         ])
         expect(changedOf('orrery, shop%20front')).toEqual(['orrery', 'shop front'])
         expect(changedOf(null)).toEqual([])
+    })
+
+    // Last, once every step above has run: each route the API serves was driven by one of them (ORR-1010), so a route
+    // moved without a step here fails. Skipped when they didn't run (no binary, or a filter left them out).
+    it('drives every route of the contract at least once', context => {
+        if (!reached.size) context.skip()
+        expect(unreached()).toEqual([])
     })
 })
 
