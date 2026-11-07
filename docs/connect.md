@@ -42,7 +42,9 @@ Given `ORRERY_URL`, outside a repo, it also sets Claude Code up for that orrery 
 - **orrery's hooks at user level**, in `~/.claude/settings.json`, beside your own. Claude Code runs them as well as a
   folder's own hooks, so the user-level one says nothing where the folder has orrery's hook already, or where no project
   is known for the session: none started it, and the launcher's list maps no project to its folder. So a `claude` in a
-  folder no orrery knows isn't listed as a session. The folder's name is never taken for a project's.
+  folder no orrery knows isn't listed as a session. The folder's name is never taken for a project's. A session the
+  launcher starts is told which orrery started it (`ORRERY_STARTED_ON`), and every other orrery's user-level hook stays
+  silent for it, so with personal and work set up on one machine it's reported to one only.
 - **Linking a folder from a session** (`link_folder`, behind `more_tools folder`): in a folder linked to no project, the
   session is told so, and links it when you ask, putting it on the launcher's list as Connect a repo does. Sessions there
   then report to that project and default to it, and orrery can start sessions there. A project served from another

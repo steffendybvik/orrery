@@ -52,12 +52,14 @@ impl<'c> Schedules<'c> {
 
     /// The schedule's row as a write needs it (`row`), or a 404.
     async fn held(&mut self, project: &str, id: i64) -> Result<Held> {
-        let row = sqlx::query(&sql("SELECT CAST(owned AS BIGINT) AS owned, CAST(across AS BIGINT) AS across, updated_at FROM schedules WHERE project = ? AND id = ?"))
-            .bind(project)
-            .bind(id)
-            .fetch_optional(&mut *self.conn)
-            .await?
-            .ok_or_else(|| ApiError::not_found(format!("No schedule {id} in {project}")))?;
+        let row = sqlx::query(&sql(
+            "SELECT CAST(owned AS BIGINT) AS owned, CAST(across AS BIGINT) AS across, updated_at FROM schedules WHERE project = ? AND id = ?",
+        ))
+        .bind(project)
+        .bind(id)
+        .fetch_optional(&mut *self.conn)
+        .await?
+        .ok_or_else(|| ApiError::not_found(format!("No schedule {id} in {project}")))?;
         Ok(Held { owned: row.get::<i64, _>("owned") != 0, across: row.get::<Option<i64>, _>("across").filter(|a| *a != 0), updated_at: row.get("updated_at") })
     }
 
@@ -135,7 +137,12 @@ impl<'c> Schedules<'c> {
             if !skip.iter().any(|p| p == project) {
                 skip.push(project.into());
             }
-            sqlx::query(&sql("UPDATE schedules_across SET skip = ?, updated_at = ? WHERE id = ?")).bind(json!(skip).to_string()).bind(now).bind(id).execute(&mut *self.conn).await?;
+            sqlx::query(&sql("UPDATE schedules_across SET skip = ?, updated_at = ? WHERE id = ?"))
+                .bind(json!(skip).to_string())
+                .bind(now)
+                .bind(id)
+                .execute(&mut *self.conn)
+                .await?;
             return Ok(());
         }
         let left: Vec<String> = list(projects).into_iter().filter(|p| p != project).collect();
@@ -143,7 +150,12 @@ impl<'c> Schedules<'c> {
             sqlx::query(&sql("UPDATE schedules SET across = NULL WHERE across = ?")).bind(id).execute(&mut *self.conn).await?;
             sqlx::query(&sql("DELETE FROM schedules_across WHERE id = ?")).bind(id).execute(&mut *self.conn).await?;
         } else {
-            sqlx::query(&sql("UPDATE schedules_across SET projects = ?, updated_at = ? WHERE id = ?")).bind(json!(left).to_string()).bind(now).bind(id).execute(&mut *self.conn).await?;
+            sqlx::query(&sql("UPDATE schedules_across SET projects = ?, updated_at = ? WHERE id = ?"))
+                .bind(json!(left).to_string())
+                .bind(now)
+                .bind(id)
+                .execute(&mut *self.conn)
+                .await?;
         }
         Ok(())
     }

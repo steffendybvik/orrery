@@ -19,9 +19,15 @@ async fn schedule(api: &TestApi, project: &str, title: &str, next_run: Option<&s
         columns.push("cron");
         values.push("'0 9 * * 1'".into());
     }
+    // One given again (`created_by`, say) takes the default's place: Postgres refuses a column named twice.
     for (column, value) in more {
-        columns.push(column);
-        values.push(value.to_string());
+        match columns.iter().position(|c| c == column) {
+            Some(at) => values[at] = value.to_string(),
+            None => {
+                columns.push(column);
+                values.push(value.to_string());
+            }
+        }
     }
     let query = format!("INSERT INTO schedules ({}) VALUES ({}) RETURNING id", columns.join(", "), values.join(", "));
     sqlx::query_scalar::<_, i64>(&query).fetch_one(&api.app.pool).await.unwrap()
@@ -320,14 +326,16 @@ async fn deleting_one_made_across_projects_leaves_its_project_out() {
     let every = sqlx::query_scalar::<_, i64>(&across("*", "[]")).fetch_one(&api.app.pool).await.unwrap();
     let copy = schedule(&api, &primes, "Standup", None, &[("across", &every.to_string())]).await;
     assert_eq!(api.delete(&format!("/api/projects/{primes}/schedules/{copy}")).send().await.status, 204);
-    let skip: String = sqlx::query_scalar(&crate::db::sql("SELECT skip FROM schedules_across WHERE id = ?")).bind(every).fetch_one(&api.app.pool).await.unwrap();
+    let skip: String =
+        sqlx::query_scalar(&crate::db::sql("SELECT skip FROM schedules_across WHERE id = ?")).bind(every).fetch_one(&api.app.pool).await.unwrap();
     assert_eq!(serde_json::from_str::<Value>(&skip).unwrap(), json!([primes]));
     // One naming projects names it no more; the last one out takes it with it.
     let named = sqlx::query_scalar::<_, i64>(&across(&json!([primes, shop]).to_string(), "[]")).fetch_one(&api.app.pool).await.unwrap();
     let on_primes = schedule(&api, &primes, "Standup", None, &[("across", &named.to_string())]).await;
     let on_shop = schedule(&api, &shop, "Standup", None, &[("across", &named.to_string())]).await;
     assert_eq!(api.delete(&format!("/api/projects/{primes}/schedules/{on_primes}")).send().await.status, 204);
-    let projects: String = sqlx::query_scalar(&crate::db::sql("SELECT projects FROM schedules_across WHERE id = ?")).bind(named).fetch_one(&api.app.pool).await.unwrap();
+    let projects: String =
+        sqlx::query_scalar(&crate::db::sql("SELECT projects FROM schedules_across WHERE id = ?")).bind(named).fetch_one(&api.app.pool).await.unwrap();
     assert_eq!(serde_json::from_str::<Value>(&projects).unwrap(), json!([shop]));
     assert_eq!(api.delete(&format!("/api/projects/{shop}/schedules/{on_shop}")).send().await.status, 204);
     assert_eq!(count(&api, &format!("SELECT CAST(count(*) AS BIGINT) FROM schedules_across WHERE id = {named}")).await, 0);
