@@ -1,15 +1,22 @@
-# The Rust API swap, tried on the playground only (ORR-1029, ORR-1051): on top of docker-compose.dev.yml, the Rust API
-# in a container of its own (the Dockerfile's rust-api), on the same SQLite file in /data. The Nuxt server routes its
-# domains to it (web/server/utils/api-router.ts) and follows its outbox, with the swap's flag on (NUXT_API_ONLY,
-# ORR-1034): those domains are the API's alone, so with it down a request fails (503, said in the log) instead of
-# falling through to Nuxt's routes. Never on the Orrerys you use until the owner says it has proven stable
-# (rust-api-swap doc).
+# The Rust API swap (ORR-1029, ORR-1051, ORR-1040): on top of docker-compose.yml (or the playground's
+# docker-compose.dev.yml), the Rust API in a container of its own (the Dockerfile's rust-api), on the same SQLite file
+# in /data. The Nuxt server routes its domains to it (web/server/utils/api-router.ts) and follows its outbox, with the
+# swap's flag on (NUXT_API_ONLY, ORR-1034): those domains are the API's alone, so with it down a request fails (503,
+# said in the log) instead of falling through to Nuxt's routes.
 #
-# Don't add it by hand: ORRERY_RUST_API=1 in .playground/compose.env is the one switch, and .playground/play adds this
-# file and makes the token both containers share (ORRERY_API_TOKEN, kept in .playground/data/api-token).
+# The playground: ORRERY_RUST_API=1 in .playground/compose.env is the one switch, and .playground/play adds this file
+# and makes the token both containers share (ORRERY_API_TOKEN, kept in .playground/data/api-token).
 #
-# The board check isn't the Rust API's yet (ORR-928), so this stays this machine's only: the API publishes no port,
-# and docker-compose.dev.yml keeps the Nuxt server's one port on 127.0.0.1, with no phone port.
+# An orrery of yours: two lines in its .env (or .env.work), then `docker compose up -d --build`, which builds the API
+# from ORRERY_BUILD_CONTEXT as it does the app:
+#   COMPOSE_FILE=docker-compose.yml:docker-compose.api.yml
+#   ORRERY_API_TOKEN=<openssl rand -hex 32>
+# The way back is those two lines out and `docker compose up -d --remove-orphans`: the API doesn't migrate the database
+# (the Nuxt server still does), so the Nuxt server alone opens the same file as before.
+#
+# The API publishes no port: it's reached on the compose network only, through the Nuxt server, which makes its checks
+# (the login, a browser write's Origin, a session's person) before it forwards a request. A database move or a restore
+# in App settings leaves this container on the old file, so routed requests answer 503 until `docker compose restart api`.
 
 services:
   orrery:
@@ -21,10 +28,14 @@ services:
       api: {condition: service_started}
 
   api:
-    build: {context: ., target: rust-api}
+    build: {context: "${ORRERY_BUILD_CONTEXT:-.}", target: rust-api}
     environment:
       NUXT_API_TOKEN: ${ORRERY_API_TOKEN:-}
       NUXT_DATABASE: ${ORRERY_DATABASE:-/data/orrery.db}
+      NUXT_ALLOWED_ORIGINS: ${ORRERY_ALLOWED_ORIGINS:-}
+      NUXT_OIDC_ISSUER: ${ORRERY_OIDC_ISSUER:-}
+      NUXT_OIDC_CLIENT_ID: ${ORRERY_OIDC_CLIENT_ID:-}
+      NUXT_OIDC_CLIENT_SECRET: ${ORRERY_OIDC_CLIENT_SECRET:-}
     volumes:
       - ${ORRERY_DATA:-orrery-data}:/data
     init: true

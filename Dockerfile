@@ -25,8 +25,8 @@ COPY api/ ./
 RUN --mount=type=cache,target=/usr/local/cargo/registry --mount=type=cache,target=/src/api/target \
     cargo build --release --locked && cp target/release/orrery-api /orrery-api
 
-# rust-api: the Rust API in a container of its own (ORR-1051), on the Nuxt server's database in /data. Only the
-# playground runs it (docker-compose.api.yml, with ORRERY_RUST_API=1 in .playground/compose.env). It listens on the
+# rust-api: the Rust API in a container of its own (ORR-1051), on the Nuxt server's database in /data, added by
+# docker-compose.api.yml (the playground's ORRERY_RUST_API=1, or COMPOSE_FILE in an orrery's .env). It listens on the
 # compose network, where only a request carrying the token both are given is answered. Uid 1000, as `dev`'s node user,
 # so the files it makes in /data are the same owner's.
 FROM debian:bookworm-slim AS rust-api

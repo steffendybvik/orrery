@@ -51,8 +51,10 @@ The playground runs on the Rust API, switched by one flag, `ORRERY_RUST_API=1` i
 `rust-api` image), on the same SQLite file. The Nuxt server routes the domains in `DOMAINS`
 (`web/server/utils/api-router.ts`) to it at `NUXT_API_URL`, follows its outbox, and has the swap's flag on
 (`NUXT_API_ONLY`, ORR-1034), so those domains are the API's alone. `play` builds the images each start, so a change in
-`api/` is in it. `0` is the Nuxt server alone. The Orrerys you use don't run it until the owner says it has proven
-stable ([Rust API swap](/p/orrery/docs/rust-api-swap)).
+`api/` is in it. `0` is the Nuxt server alone. An orrery run with `docker compose` turns it on with two lines in its
+`.env`, `COMPOSE_FILE=docker-compose.yml:docker-compose.api.yml` and `ORRERY_API_TOKEN` (`openssl rand -hex 32`), and
+off again with them out and `docker compose up -d --remove-orphans`; the file's comment says more
+([Rust API swap](/p/orrery/docs/rust-api-swap)).
 
 Without Docker: `pnpm install`, then `pnpm dev` on http://localhost:9000 (Node 24.22.1, pnpm 10.14.0).
 
@@ -101,7 +103,7 @@ How it fits together:
   (`api.unreachable`) while it lasts, instead of falling back. What a line's `first` check keeps here (a session's
   change of status, a session's or the chat's new issue, `?expand=board`) still goes to Nuxt, as the API doesn't do it
   yet, and what a write sets off (open pages, the event log, schedules, sessions, the bell) stays Nuxt's either way.
-  The playground runs with it on; the Orrerys in use stay off until the owner says the swap has proven stable.
+  The playground and any orrery with `docker-compose.api.yml` run with it on.
 
 **The page's side (ORR-943).** The page reaches the API through `web/app/utils/api.ts` alone, so where it sends a path is one
 setting: `NUXT_PUBLIC_API_BASES`, a JSON object of path prefix to base (`{"/projects/atlas/docs": "https://api.example.com/api"}`).
