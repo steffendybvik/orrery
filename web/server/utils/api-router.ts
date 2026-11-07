@@ -2,7 +2,7 @@
 // goes there, after everything here has checked it as ever (auth, the board's permissions, the chat's and untrusted
 // sessions' rails, the browser guards: the middleware before zz-api.ts). Both run on the same database, one writer per
 // table, so while the API serves docs and the statuses nothing else here writes them except what it can't yet reach
-// (the chat's doc requests, a board's upload or copy, deleting a project), which work on the same rows.
+// (the chat's doc requests, a board's upload or copy), which work on the same rows.
 //
 // It sends who's asking (`actorOf`) and which database this server is on, and the API's reply says what a write changed,
 // which this tells as the store would: open pages read the project again, and the event log and schedules hear the event.
@@ -21,12 +21,15 @@ import {caughtUp, followingOutbox} from './outbox-follower'
 import {oidcOn} from './oidc'
 import {countOwnUse} from './usage'
 import {startsNone} from './starts-none'
+import {revLabel} from './events'
+import type {Project} from '#shared/roadmap'
+import {withoutClosed, withoutNotes} from '#shared/patch'
 
 /** The domains the Rust API serves, a line each (ORR-925): moving a domain there is adding its line once the parity test
  * passes, and taking it back to the routes here is taking the line out. Each matches a whole path after `/api/`, with no
  * slash at the end. A line with `methods` sends only those there, so a domain's reads can move before its writes
  * (`GET …/comments` before `POST …/comments`, ORR-927); one without takes every method its routes do. */
-export const DOMAINS: readonly {domain: string, paths: RegExp, methods?: readonly string[], first?: Partial<Record<string, LocalCheck>>}[] = [
+export const DOMAINS: readonly {domain: string, paths: RegExp, methods?: readonly string[], first?: Partial<Record<string, LocalCheck>>, reply?: Partial<Record<string, Shaping>>}[] = [
     // A project's docs, their revisions and sections (ORR-922). An artifact's page stays here: it's drawn with the
     // page's own sanitising and its locked-down headers (`artifact.get.ts`).
     {domain: 'docs', paths: /^projects\/[^/]+\/(docs(\/[^/]+(\/revisions(\/[^/]+(\/restore)?)?)?)?|deleted-docs|doc-sections(\/[^/]+)?)$/},
@@ -103,7 +106,7 @@ export const DOMAINS: readonly {domain: string, paths: RegExp, methods?: readonl
     {domain: 'a schedule, adopted', paths: /^projects\/[^/]+\/schedules\/[^/]+\/adopt$/, methods: ['POST']},
     {domain: 'a schedule, deleted', paths: /^projects\/[^/]+\/schedules\/[^/]+$/, methods: ['DELETE']},
     // Every project, listed with its counts (ORR-997). With `?expand=board` it's their boards, each with the events
-    // stream's `rev`, so that stays here (`listedOnly`), as does reading one project.
+    // stream's `rev`, so that stays here (`listedOnly`).
     {domain: 'projects, listed', paths: /^projects$/, methods: ['GET'], first: {GET: listedOnly}},
     // Making a project (ORR-1002), held by whoever asks, as `personOf` has it here. The reply is the project with its
     // board, without the `rev` that reading one adds here.
@@ -111,6 +114,9 @@ export const DOMAINS: readonly {domain: string, paths: RegExp, methods?: readonl
     // Changing a project (ORR-923): its name, key, icon, prompts, repo and where its releases come from. The reply is the
     // project with its board, without the `rev` that reading one adds here.
     {domain: 'a project, changed', paths: /^projects\/[^/]+$/, methods: ['PATCH']},
+    // Reading a project with its board (ORR-1006). The `rev` the page's patches build on is this server's, so the reply
+    // is labelled here with it, as it was before the read (`withRev`).
+    {domain: 'a project, read', paths: /^projects\/[^/]+$/, methods: ['GET'], reply: {GET: withRev}},
     // Deleting a project (ORR-1006), with everything in it: its schedules too, told back as `Orrery-Schedules` for the
     // runner here to drop, and its signals, which are only rows.
     {domain: 'a project, deleted', paths: /^projects\/[^/]+$/, methods: ['DELETE']},
@@ -132,6 +138,30 @@ export const DOMAINS: readonly {domain: string, paths: RegExp, methods?: readonl
     // says the milestone's project changed, or the epics did (`Orrery-Epics`).
     {domain: 'milestone and epic comments', paths: /^(projects\/[^/]+\/milestones|epics)\/[^/]+\/comments(\/[^/]+)?$/},
 ]
+
+/** What this server does to a reply from the API, as only it knows it, taken before the request goes on: the path to ask
+ * instead, and what to make of the reply's JSON when it succeeds. */
+type Shaping = (event: H3Event) => {path?: string, reply: (json: unknown) => unknown}
+
+/** A board read labelled with the events stream's `rev` as it is before the read (`revLabel`, ORR-482). The API is
+ * asked for every issue, as a board never read before is kept as the base its first patch is made from, and its
+ * closed issues are left out here once that's kept, as the route here does (`?closed=0`). */
+export function withRev(event: H3Event): ReturnType<Shaping> {
+    const label = revLabel()
+    const query = getQuery(event)
+    const [path, search = ''] = event.path.split('?')
+    const params = new URLSearchParams(search)
+    params.delete('closed')
+    const kept = params.toString()
+    return {
+        path: kept ? `${path}?${kept}` : path,
+        reply: json => {
+            const project = label(json as Project)
+            const lighter = query.notes === '0' ? withoutNotes(project) : project
+            return query.closed === '0' ? withoutClosed(lighter) : lighter
+        },
+    }
+}
 
 /** What this server checks itself before a request goes on, as only it knows (the sessions): refusing it throws, and
  * `'here'` keeps it for the routes here, for what the API doesn't do yet. */
@@ -450,6 +480,7 @@ export async function forwardToApi(event: H3Event, api: {url: string, token: str
     // The checks here read ids out of the path, so they get it as it was asked: lowercased, an issue isn't found (ORR-1029).
     const asked = /^\/api\/(.*?)\/?$/.exec(pathOf(event, true))?.[1] ?? ''
     if (found && await found.line.first?.[event.method.toUpperCase()]?.(event, asked) === 'here') return undefined
+    const shaped = found?.line.reply?.[event.method.toUpperCase()]?.(event)
     const actor = await actorOf(event)
     const body = WRITES.has(event.method) ? await readRawBody(event, false) : undefined
     const headers = {
@@ -463,7 +494,7 @@ export async function forwardToApi(event: H3Event, api: {url: string, token: str
     }
     let response: Response
     try {
-        response = await fetch(`${api.url.replace(/\/+$/, '')}${event.path}`, {method: event.method, headers, body: body ? new Uint8Array(body) : undefined, redirect: 'manual'})
+        response = await fetch(`${api.url.replace(/\/+$/, '')}${shaped?.path ?? event.path}`, {method: event.method, headers, body: body ? new Uint8Array(body) : undefined, redirect: 'manual'})
     } catch (error) {
         return cantReach(event, `at ${api.url} can't be reached (${(error as Error).message})`, only)
     }
@@ -488,7 +519,7 @@ export async function forwardToApi(event: H3Event, api: {url: string, token: str
     // A file to save (a board's export) keeps the name it's saved as.
     const saved = response.headers.get('content-disposition')
     if (saved) setResponseHeader(event, 'Content-Disposition', saved)
-    return json
+    return shaped ? shaped.reply(json) : json
 }
 
 /** A reply of 400 or more, as the error the routes here would throw. */
