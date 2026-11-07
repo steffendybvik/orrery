@@ -495,9 +495,15 @@ impl<'c> People<'c> {
 
     /// Who a key is, if it's live and its person is still here (`keyHolder`), noting its use at most once a minute.
     pub async fn key_holder(&mut self, secret: &str) -> Result<Option<Holder>> {
+        self.key_hash_holder(&hash_of(secret)).await
+    }
+
+    /// Who a key is, by its hash as the keys table keeps it: the router sends a bearer hashed (`Orrery-Key`), so the key
+    /// itself stays with it.
+    async fn key_hash_holder(&mut self, hash: &str) -> Result<Option<Holder>> {
         let row = sqlx::query(&sql("SELECT k.id, k.kind, k.person, p.role, k.last_used_at FROM keys k JOIN people p ON p.id = k.person \
              WHERE k.hash = ? AND k.revoked_at IS NULL AND p.removed_at IS NULL"))
-        .bind(hash_of(secret))
+        .bind(hash)
         .fetch_optional(&mut *self.conn)
         .await?;
         let Some(row) = row else { return Ok(None) };
@@ -528,30 +534,29 @@ impl<'c> People<'c> {
         Ok(secret)
     }
 
-    /// Who a login's cookie is, if it hasn't run out and they're still here (`loginHolder`): a person in a browser.
-    #[allow(dead_code)] // The front door's check (`credential`), once the API is it.
-    pub async fn login_holder(&mut self, secret: &str) -> Result<Option<Who>> {
-        let id = hash_of(secret);
+    /// Who a login is, by its cookie hashed as the logins table keeps it (`loginHolder`), if it hasn't run out and
+    /// they're still here: a person in a browser. The router sends the cookie hashed (`Orrery-Login`).
+    async fn login_holder(&mut self, id: &str) -> Result<Option<Who>> {
         let row = sqlx::query(&sql(
             "SELECT l.person, p.role, l.last_used_at FROM logins l JOIN people p ON p.id = l.person WHERE l.id = ? AND l.expires_at > ? AND p.removed_at IS NULL",
         ))
-        .bind(&id)
+        .bind(id)
         .bind(stamp())
         .fetch_optional(&mut *self.conn)
         .await?;
         let Some(row) = row else { return Ok(None) };
         if stale(row.get("last_used_at")) {
-            sqlx::query(&sql("UPDATE logins SET last_used_at = ? WHERE id = ?")).bind(stamp()).bind(&id).execute(&mut *self.conn).await?;
+            sqlx::query(&sql("UPDATE logins SET last_used_at = ? WHERE id = ?")).bind(stamp()).bind(id).execute(&mut *self.conn).await?;
         }
         Ok(Some(Who { person: row.get("person"), owner: row.get::<String, _>("role") == "owner", browser: true }))
     }
 
-    /// Who a request's credential says it is (`credential` in web/server/utils/auth.ts). A bearer is an agent key only:
-    /// a person key is swapped for a cookie at login, so nothing with a key in its environment can act as a person.
-    #[allow(dead_code)] // Checking each request, once the API is the front door.
+    /// Who a request's credential says it is (`credential` in web/server/utils/auth.ts), from its bearer's hash and its
+    /// login cookie's, as the router sends them. A bearer is an agent key only: a person key is swapped for a cookie at
+    /// login, so nothing with a key in its environment can act as a person.
     pub async fn credential(&mut self, bearer: Option<&str>, login: Option<&str>) -> Result<Option<Who>> {
         if let Some(key) = bearer {
-            return Ok(self.key_holder(key).await?.filter(|h| h.agent).map(|h| Who { person: h.person, owner: h.owner, browser: false }));
+            return Ok(self.key_hash_holder(key).await?.filter(|h| h.agent).map(|h| Who { person: h.person, owner: h.owner, browser: false }));
         }
         match login {
             Some(login) => self.login_holder(login).await,

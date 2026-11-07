@@ -1,7 +1,9 @@
 // Reading a request (ORR-1047): who it's from, as the Nuxt router in front sends it (`actor_of`, `who_of`, `ways_of`,
-// `came_of`), the guard every request passes (the shared token, then which database it's for), and a body as JSON.
-// The guard doesn't check a login: the Nuxt router does that before it forwards a request, so this API must only ever
-// be reached through it. `auth_mode` answers the login status (`GET /api/auth/status`) and the phone's link, no more.
+// `came_of`), the guard every request passes, and a body as JSON. The guard checks the shared token, then which
+// database it's for, then the login, as web/server/middleware/auth.ts does (ORR-1038): `auth_mode` for how the request
+// came, a `closed` one turned away, and with it `on` the credential looked up here, so `Orrery-Who` is this API's own
+// finding and never the router's word. Left to the router still: a browser write's `Origin`, and a session's person
+// (`holdSession`).
 use crate::access::people::{People, Ways, Who};
 use crate::error::{ApiError, Result};
 use crate::write::Actor;
@@ -56,19 +58,21 @@ pub(crate) fn ways_of(headers: &HeaderMap) -> Ways {
 /// How the request reached the router, which only the router's socket knows (ORR-928): `Orrery-Came: loopback, proxied,
 /// phone, https`, any of them. `loopback`: its listener is on loopback (or in Docker, published only there). `proxied`:
 /// a proxy's headers came with it. `phone`: on the phone's own port. `https`: over https, as the proxy says. With it
-/// left out, nothing is assumed: not loopback, so a login is asked for.
+/// left out, nothing is assumed: not loopback, so a login is asked for. `server` alone is the Nuxt server's own work
+/// (`writeToApi`, the outbox's follower), which no outside request set off, so there's no login to check (ORR-1038).
 #[derive(Default, Clone, Copy)]
 pub(crate) struct Came {
     pub(crate) loopback: bool,
     pub(crate) proxied: bool,
     pub(crate) phone: bool,
     pub(crate) https: bool,
+    pub(crate) server: bool,
 }
 
 pub(crate) fn came_of(headers: &HeaderMap) -> Came {
     let said = header(headers, "orrery-came").unwrap_or_default();
     let has = |how: &str| said.split(',').any(|w| w.trim() == how);
-    Came { loopback: has("loopback"), proxied: has("proxied"), phone: has("phone"), https: has("https") }
+    Came { loopback: has("loopback"), proxied: has("proxied"), phone: has("phone"), https: has("https"), server: said.trim() == "server" }
 }
 
 /// Whether this orrery asks this request for a login (`authMode`): `off`, `on`, or `closed` when ORRERY_AUTH=off but
@@ -105,6 +109,64 @@ pub(crate) fn login_of(headers: &HeaderMap) -> Option<String> {
     header(headers, "orrery-login").filter(|l| !l.is_empty())
 }
 
+/// The request's bearer, hashed as the keys table keeps it (`Orrery-Key`): the key itself stays with the router.
+fn key_of(headers: &HeaderMap) -> Option<String> {
+    header(headers, "orrery-key").filter(|k| !k.is_empty())
+}
+
+/// What a login isn't asked for, as `OPEN` in web/server/middleware/auth.ts: the login's own routes, a phone's
+/// one-time link among them, which can't hold data.
+const OPEN: [&str; 6] = ["/api/auth/status", "/api/auth/login", "/api/auth/logout", "/api/auth/link", "/api/auth/oidc/start", "/api/auth/oidc/callback"];
+
+const WHO: [&str; 3] = ["orrery-who", "orrery-who-person", "orrery-who-owner"];
+
+/// Who the request is, checked here as the auth middleware checks it: `Ok(None)` with no login asked for, `Ok(Some)`
+/// with the credential found, and the refusal otherwise. `open` is a login route, which goes on with no credential.
+async fn checked(app: &crate::App, headers: &HeaderMap, open: bool) -> Result<Option<Who>> {
+    let mut conn = app.pool.acquire().await?;
+    let mut people = People::new(&mut conn);
+    let came = came_of(headers);
+    let ways = ways_of(headers);
+    match auth_mode(&mut people, came, &ways).await? {
+        "off" => return Ok(None),
+        "closed" if open => return Ok(None),
+        "closed" => {
+            return Err(ApiError::unavailable(
+                "ORRERY_AUTH=off only works while orrery listens on loopback, and this one is reachable from other machines: unset it",
+            ))
+        }
+        _ => {}
+    }
+    let who = people.credential(key_of(headers).as_deref(), login_of(headers).as_deref()).await?;
+    if who.is_some() || open {
+        return Ok(who);
+    }
+    if !came.phone && !ways.provider && !people.owner_has_key().await? {
+        return Err(ApiError::unavailable(
+            "Nobody can log in to this orrery yet: claim it from its page on its own machine (App settings → You), or run `docker compose exec orrery node /app/server/claim.mjs` there",
+        ));
+    }
+    Err(ApiError::unauthorized("This orrery asks for a credential: log in on its page, or give a session an agent key (ORRERY_KEY)"))
+}
+
+/// `Orrery-Who` as this API found it, in place of whatever the router said.
+fn say_who(headers: &mut HeaderMap, who: Option<&Who>) {
+    for name in WHO {
+        headers.remove(name);
+    }
+    let Some(who) = who else { return };
+    let person = percent_encoding::utf8_percent_encode(&who.person, percent_encoding::NON_ALPHANUMERIC).to_string();
+    for (name, value) in [
+        ("orrery-who", if who.browser { "browser" } else { "agent" }.to_string()),
+        ("orrery-who-person", person),
+        ("orrery-who-owner", if who.owner { "1" } else { "0" }.into()),
+    ] {
+        if let Ok(value) = axum::http::HeaderValue::from_str(&value) {
+            headers.insert(name, value);
+        }
+    }
+}
+
 /// What a request's body may be (`LIMIT` in web/server/middleware/big-bodies.ts): eight times the biggest doc there is.
 pub(crate) const BODY_LIMIT: usize = 1024 * 1024;
 
@@ -117,7 +179,7 @@ fn too_large(response: Response) -> Response {
     ApiError::too_large(format!("A request's body is {} MB at most here", BODY_LIMIT / 1024 / 1024)).into_response()
 }
 
-pub(crate) async fn guard(State(app): Shared, request: Request, next: Next) -> Response {
+pub(crate) async fn guard(State(app): Shared, mut request: Request, next: Next) -> Response {
     if request.uri().path() == "/health" {
         return next.run(request).await;
     }
@@ -130,6 +192,14 @@ pub(crate) async fn guard(State(app): Shared, request: Request, next: Next) -> R
     }
     if headers.get("orrery-database").and_then(|v| v.to_str().ok()) != Some(app.database.as_str()) {
         return ApiError::misdirected("This API is on another database than the one asked for").into_response();
+    }
+    // The Nuxt server's own work says who it's for in its own words. Anything else has its login checked here.
+    if !came_of(request.headers()).server {
+        let open = OPEN.contains(&request.uri().path());
+        match checked(&app, request.headers(), open).await {
+            Ok(who) => say_who(request.headers_mut(), who.as_ref()),
+            Err(refused) => return refused.into_response(),
+        }
     }
     let said = app.log.then(|| format!("{} {}", request.method(), request.uri()));
     let response = too_large(next.run(request).await);
@@ -349,6 +419,122 @@ mod tests {
         // The token is checked first, so the database's hash says nothing to a caller without it.
         assert_eq!(api.get("/api/statuses").without("orrery-database").without("orrery-api-token").send().await.status, 401);
         assert_eq!(api.get("/health").without("orrery-database").without("orrery-api-token").send().await.status, 200);
+    }
+
+    /// A door-facing orrery with an owner and a member, so login is on.
+    async fn two_people() -> crate::testing::TestApi {
+        let api = crate::testing::TestApi::at_the_door().await;
+        for (id, role) in [("steffen", "owner"), ("ada", "member")] {
+            sqlx::query(&crate::db::sql("INSERT INTO people (id, name, role, created_at) VALUES (?, ?, ?, ?)"))
+                .bind(id)
+                .bind(id)
+                .bind(role)
+                .bind(crate::write::stamp())
+                .execute(&api.app.pool)
+                .await
+                .unwrap();
+        }
+        // Login stays on for good once a second person has been here, which the first request would note.
+        sqlx::query("INSERT INTO settings (key, value) VALUES ('auth_on', 'true')").execute(&api.app.pool).await.unwrap();
+        api
+    }
+
+    #[tokio::test]
+    async fn with_login_on_a_login_or_an_agent_key_gets_in_and_nothing_else_does() {
+        let api = two_people().await;
+        api.key("steffen", "person").await;
+        let login = api.login("ada").await;
+        let agent = api.key("ada", "agent").await;
+        assert_eq!(api.get("/api/statuses").header("orrery-login", &login).send().await.status, 200);
+        assert_eq!(api.get("/api/statuses").header("orrery-key", &agent).send().await.status, 200);
+        let refused = api.get("/api/statuses").send().await;
+        assert_eq!(refused.status, 401, "{}", refused.body);
+        assert!(refused.body["message"].as_str().unwrap().contains("asks for a credential"));
+        let person = api.key("ada", "person").await;
+        for (name, value) in [("orrery-key", person.as_str()), ("orrery-key", "nope"), ("orrery-login", "nope"), ("orrery-login", &agent)] {
+            assert_eq!(api.get("/api/statuses").header(name, value).send().await.status, 401, "{name}: {value}");
+        }
+        // The router's word on who it is counts for nothing.
+        let said = api.get("/api/statuses").header("orrery-who", "browser").header("orrery-who-person", "steffen").header("orrery-who-owner", "1").send().await;
+        assert_eq!(said.status, 401);
+    }
+
+    #[tokio::test]
+    async fn a_login_run_out_a_revoked_key_or_a_removed_persons_gets_nobody_in() {
+        let api = two_people().await;
+        api.key("steffen", "person").await;
+        let login = api.login("ada").await;
+        let agent = api.key("steffen", "agent").await;
+        sqlx::query(&crate::db::sql("UPDATE logins SET expires_at = ? WHERE id = ?"))
+            .bind("2020-01-01T00:00:00.000Z")
+            .bind(&login)
+            .execute(&api.app.pool)
+            .await
+            .unwrap();
+        sqlx::query(&crate::db::sql("UPDATE keys SET revoked_at = ? WHERE hash = ?"))
+            .bind(crate::write::stamp())
+            .bind(&agent)
+            .execute(&api.app.pool)
+            .await
+            .unwrap();
+        let gone = api.login("ada").await;
+        sqlx::query(&crate::db::sql("UPDATE people SET removed_at = ? WHERE id = 'ada'")).bind(crate::write::stamp()).execute(&api.app.pool).await.unwrap();
+        for (name, value) in [("orrery-login", &login), ("orrery-key", &agent), ("orrery-login", &gone)] {
+            assert_eq!(api.get("/api/statuses").header(name, value).send().await.status, 401, "{name}");
+        }
+    }
+
+    #[tokio::test]
+    async fn who_the_api_found_is_who_the_route_hears() {
+        let api = two_people().await;
+        let said = api
+            .get("/api/auth/status")
+            .header("orrery-login", &api.login("ada").await)
+            .header("orrery-who", "browser")
+            .header("orrery-who-person", "steffen")
+            .header("orrery-who-owner", "1")
+            .send()
+            .await;
+        assert_eq!((said.body["person"].as_str(), said.body["via"].as_str()), (Some("ada"), Some("browser")), "{}", said.body);
+        // With login off, nobody's named, whatever the router says.
+        let api = crate::testing::TestApi::at_the_door().await;
+        let off =
+            api.get("/api/auth/status").header("orrery-who", "browser").header("orrery-who-person", "steffen").header("orrery-who-owner", "1").send().await;
+        assert!(off.body.get("person").is_none(), "{}", off.body);
+    }
+
+    #[tokio::test]
+    async fn with_nobody_able_to_log_in_its_said_rather_than_asked_for() {
+        let api = two_people().await;
+        let stuck = api.get("/api/statuses").send().await;
+        assert_eq!(stuck.status, 503, "{}", stuck.body);
+        assert!(stuck.body["message"].as_str().unwrap().starts_with("Nobody can log in"));
+        // A provider is a way in, and the phone's port has its own sign-in link.
+        assert_eq!(api.get("/api/statuses").header("orrery-login-ways", "provider").send().await.status, 401);
+        assert_eq!(api.get("/api/statuses").header("orrery-came", "loopback, phone").send().await.status, 401);
+    }
+
+    #[tokio::test]
+    async fn closed_turns_everything_away_but_the_logins_own_routes() {
+        let api = two_people().await;
+        let login = api.login("steffen").await;
+        for came in ["", "proxied", "loopback, phone"] {
+            let closed = api.get("/api/statuses").header("orrery-came", came).header("orrery-login-ways", "off").header("orrery-login", &login).send().await;
+            assert_eq!(closed.status, 503, "{came:?}: {}", closed.body);
+            assert!(closed.body["message"].as_str().unwrap().starts_with("ORRERY_AUTH=off only works"));
+            let status = api.get("/api/auth/status").header("orrery-came", came).header("orrery-login-ways", "off").send().await;
+            assert_eq!((status.status.as_u16(), status.body["mode"].as_str()), (200, Some("closed")));
+        }
+    }
+
+    #[tokio::test]
+    async fn off_on_loopback_and_the_servers_own_work_need_no_login() {
+        let api = crate::testing::TestApi::at_the_door().await;
+        assert_eq!(api.get("/api/statuses").send().await.status, 200, "one person on loopback");
+        let api = two_people().await;
+        assert_eq!(api.get("/api/statuses").header("orrery-came", "server").send().await.status, 200);
+        // `server` is the whole of what's said, not one of several ways.
+        assert_eq!(api.get("/api/statuses").header("orrery-came", "loopback, server").send().await.status, 503);
     }
 
     #[tokio::test]

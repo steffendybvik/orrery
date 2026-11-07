@@ -31,7 +31,7 @@ import type {PolledRow} from '../server/utils/pull-poll'
 import {openDb} from '../server/utils/db'
 import {PostgresDb} from '../server/utils/postgres'
 import {PHONE_LOGIN} from '#shared/phone'
-import {actorHeaders, apiStarted, cameHeaders, changedOf, countedOf, databaseMark, domainOf, DOMAINS, handedOn, handoffsOf, handOn, loginHeaders, movesStatus, onlyWords, passedThrough, servedByApi, toldOf, urgentOf, whoHeaders, writeToApi} from '../server/utils/api-router'
+import {actorHeaders, apiStarted, cameHeaders, changedOf, countedOf, databaseMark, domainOf, DOMAINS, handedOn, handoffsOf, handOn, loginHeaders, movesStatus, onlyWords, passedThrough, servedByApi, toldOf, urgentOf, whoHeaders, writeToApi, OWN_WORK} from '../server/utils/api-router'
 import {permission, refused} from '../server/utils/permission'
 import {followOutbox, readPage} from '../server/utils/outbox-follower'
 import {contract, methodOf, nuxtRoutes, pathOf} from './routes'
@@ -182,7 +182,7 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         // A path of the orrery's own (`/api/statuses`) as it is; else one of the project's.
         const response = await fetch(path.startsWith('/api/') ? `${url}${path}` : `${url}/api/projects/${project}${path}`, {
             method,
-            headers: {'Content-Type': 'application/json', 'Orrery-Api-Token': TOKEN, 'Orrery-Database': databaseMark(setting), ...actorHeaders(actor), ...extra},
+            headers: {'Content-Type': 'application/json', 'Orrery-Api-Token': TOKEN, 'Orrery-Database': databaseMark(setting), ...OWN_WORK, ...actorHeaders(actor), ...extra},
             ...body === undefined ? {} : {body: JSON.stringify(body)},
         })
         const text = await response.text()
@@ -1334,15 +1334,20 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         expect((await status(none, '192.168.1.9:9000', {provider: false, off: true})).mode).toBe('closed')
         expect((await status({...none, phone: true}, '192.168.1.9:9000', {provider: false, off: true})).mode).toBe('closed')
         expect(await status(loopback, 'localhost:9000', {provider: true, off: false})).toMatchObject({oidc: true, can_get_in: true})
-        expect(await status(none, '192.168.1.9:9000', undefined, whoHeaders({person: 'ada', owner: false, via: 'browser'}, undefined))).toMatchObject({person: 'ada', via: 'browser'})
+        // Who's asking is what the API finds of the credential: a real login, not the router's word (ORR-1038).
+        await store.addPerson({name: 'Ada'}).catch(() => undefined)
+        const signedIn = async (person: string) => whoHeaders(undefined, (await store.startLogin(person)).secret)
+        expect(await status(none, '192.168.1.9:9000', undefined, await signedIn('ada'))).toMatchObject({person: 'ada', via: 'browser'})
+        expect(await status(none, '192.168.1.9:9000', undefined, whoHeaders({person: 'ada', owner: false, via: 'browser'}, undefined))).not.toHaveProperty('person')
 
         // Making a link: only the owner's own page, never over the phone's port or from a session.
         const owner = await store.ownerOf()
-        const asOwner = {...actorHeaders(OWNER), ...whoHeaders({person: owner.name, owner: true, via: 'browser'}, undefined), ...cameHeaders(none, '192.168.1.9:9000')}
+        const asOwner = {...actorHeaders(OWNER), ...await signedIn(owner.name), ...cameHeaders(none, '192.168.1.9:9000')}
+        const ownersAgent = whoHeaders(undefined, undefined, (await store.makeKey(owner.name, {kind: 'agent', name: 'parity'})).key)
         expect((await call('POST', '/api/phone/link', undefined, {...asOwner, ...cameHeaders({...none, phone: true}, 'x')})).status).toBe(403)
-        expect((await call('POST', '/api/phone/link', undefined, {...actorHeaders(OWNER), ...whoHeaders({person: 'ada', owner: false, via: 'browser'}, undefined)})).status).toBe(403)
-        expect((await call('POST', '/api/phone/link', undefined, {...actorHeaders(OWNER), ...whoHeaders({person: owner.name, owner: true, via: 'agent'}, undefined)})).status).toBe(403)
-        const fromSession = await call('POST', '/api/phone/link', undefined, {...actorHeaders(SESSION), ...whoHeaders({person: owner.name, owner: true, via: 'browser'}, undefined)})
+        expect((await call('POST', '/api/phone/link', undefined, {...actorHeaders(OWNER), ...await signedIn('ada')})).status).toBe(403)
+        expect((await call('POST', '/api/phone/link', undefined, {...actorHeaders(OWNER), ...ownersAgent})).status).toBe(403)
+        const fromSession = await call('POST', '/api/phone/link', undefined, {...actorHeaders(SESSION), ...await signedIn(owner.name)})
         expect(fromSession.status).toBe(403)
         expect(await fromSession.json()).toMatchObject({data: {permission: 'phone.link'}})
         const made = await call('POST', '/api/phone/link', undefined, asOwner)
@@ -2358,7 +2363,7 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=='
         const {id} = await store.createUpload({data: PNG, name: 'dot.png'}, OWNER)
         const kept = await store.upload(id)
-        const response = await fetch(`${url}/api/uploads/${id}`, {headers: {'Orrery-Api-Token': TOKEN, 'Orrery-Database': databaseMark(setting), ...actorHeaders(AGENT)}})
+        const response = await fetch(`${url}/api/uploads/${id}`, {headers: {'Orrery-Api-Token': TOKEN, 'Orrery-Database': databaseMark(setting), ...OWN_WORK, ...actorHeaders(AGENT)}})
         const passed = await passedThrough(response)
         expect(passed?.body.equals(kept.data)).toBe(true)
         // As web/server/api/uploads/[upload].get.ts sets them.
@@ -2369,7 +2374,7 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         await both('one that isn\'t there', () => viaStore(() => store.upload('0'.repeat(24))), () => viaApi('GET', `/api/uploads/${'0'.repeat(24)}`))
         await both('not an image\'s id', () => viaStore(() => store.upload('../x')), () => viaApi('GET', '/api/uploads/..%2Fx'))
         // A failure is JSON, thrown again by the router rather than passed through.
-        expect(await passedThrough(await fetch(`${url}/api/uploads/nope`, {headers: {'Orrery-Api-Token': TOKEN, 'Orrery-Database': databaseMark(setting)}}))).toBeUndefined()
+        expect(await passedThrough(await fetch(`${url}/api/uploads/nope`, {headers: {'Orrery-Api-Token': TOKEN, 'Orrery-Database': databaseMark(setting), ...OWN_WORK}}))).toBeUndefined()
     })
 
     it('keeps an uploaded image alike, compressed as sharp does it (ORR-1058)', async () => {
@@ -2417,7 +2422,7 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
             const {id: issue} = await store.createIssue(project, {title: 'Varnish the lid', notes: `![lid](/api/uploads/${image})`, assignee: 'owner'}, OWNER)
             await store.createComment(project, issue, {body: `Before: ![lid](/api/uploads/${image})`}, OWNER)
         }
-        const response = await fetch(`${url}/api/projects/through-api/export`, {headers: {'Orrery-Api-Token': TOKEN, 'Orrery-Database': databaseMark(setting), ...actorHeaders(AGENT)}})
+        const response = await fetch(`${url}/api/projects/through-api/export`, {headers: {'Orrery-Api-Token': TOKEN, 'Orrery-Database': databaseMark(setting), ...OWN_WORK, ...actorHeaders(AGENT)}})
         const file = await response.json() as {exported_at: string, uploads: {id: string, data: string}[]}
         const kept = await exportBoard(store.db, 'through-api')
         expect(file.exported_at).toMatch(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/)
@@ -2621,7 +2626,7 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
     it('says which settings a change sent, for the event log (ORR-954)', async () => {
         const response = await fetch(`${url}/api/settings`, {
             method: 'PATCH',
-            headers: {'Content-Type': 'application/json', 'Orrery-Api-Token': TOKEN, 'Orrery-Database': databaseMark(setting), ...actorHeaders(OWNER)},
+            headers: {'Content-Type': 'application/json', 'Orrery-Api-Token': TOKEN, 'Orrery-Database': databaseMark(setting), ...OWN_WORK, ...actorHeaders(OWNER)},
             body: JSON.stringify({tint: null, advanced: true}),
         })
         expect(response.status).toBe(200)
@@ -3013,7 +3018,7 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
     })
 
     it('streams the outbox as server-sent events, live, and says when a cursor has gone (ORR-929)', async () => {
-        const headers = {'Orrery-Api-Token': TOKEN, 'Orrery-Database': databaseMark(setting), ...actorHeaders(SESSION)}
+        const headers = {'Orrery-Api-Token': TOKEN, 'Orrery-Database': databaseMark(setting), ...OWN_WORK, ...actorHeaders(SESSION)}
         // The newest id, so the stream opens after every row there is.
         const last = await newestChange()
         const stop = new AbortController()
@@ -3064,7 +3069,14 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         expect(await ask({})).toBe(401)
         expect(await ask({'Orrery-Api-Token': `${TOKEN}x`, 'Orrery-Database': databaseMark(setting)})).toBe(401)
         expect(await ask({'Orrery-Api-Token': TOKEN, 'Orrery-Database': databaseMark('/elsewhere.db')})).toBe(421)
-        expect(await ask({'Orrery-Api-Token': TOKEN, 'Orrery-Database': databaseMark(setting)})).toBe(200)
+        expect(await ask({'Orrery-Api-Token': TOKEN, 'Orrery-Database': databaseMark(setting), ...OWN_WORK})).toBe(200)
+        // From outside, with people here, it checks a login itself (ORR-1038), whatever the router says of who it is.
+        const outside = {'Orrery-Api-Token': TOKEN, 'Orrery-Database': databaseMark(setting), ...cameHeaders({loopback: true, proxied: false, phone: false, https: false}, 'localhost')}
+        expect([401, 503]).toContain(await ask({...outside, ...whoHeaders({person: 'steffen', owner: true, via: 'browser'}, undefined)}))
+        await store.addPerson({name: 'Gate'}).catch(() => undefined)
+        expect(await ask({...outside, ...whoHeaders(undefined, (await store.startLogin('gate')).secret)})).toBe(200)
+        expect(await ask({...outside, ...whoHeaders(undefined, undefined, (await store.makeKey('gate', {kind: 'agent', name: 'gate'})).key)})).toBe(200)
+        expect([401, 503]).toContain(await ask({...outside, ...whoHeaders(undefined, undefined, (await store.makeKey('gate', {kind: 'person', name: 'gate'})).key)}))
     })
 })
 
