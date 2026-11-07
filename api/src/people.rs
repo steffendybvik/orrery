@@ -8,11 +8,11 @@
 // transaction (ORR-929), as the milestones do.
 use crate::changes::{self, Outbox};
 use crate::db::sql;
-use crate::docs::js;
-use crate::docs::{stamp, Actor, Effects};
 use crate::error::{ApiError, Result};
 use crate::migrate::actor_id;
 use crate::text::first_chars;
+use crate::write::js;
+use crate::write::{stamp, Actor, Effects};
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use serde_json::{json, Map, Value};

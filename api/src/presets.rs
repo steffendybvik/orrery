@@ -3,8 +3,8 @@
 // web/shared/presets.json the Nuxt server imports, so a default's `changed` is worked out from one source. Seeding them
 // as the server starts stays the Nuxt server's. Nothing they write wakes a session, so a write has no effects to tell.
 use crate::db::sql;
-use crate::docs::{js, stamp, Actor};
 use crate::error::{ApiError, Result};
+use crate::write::{js, stamp, Actor};
 use regex::Regex;
 use serde::Deserialize;
 use serde_json::{json, Map, Value};

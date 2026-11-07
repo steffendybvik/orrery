@@ -5,9 +5,9 @@
 // (`notice_clears`, `notice_reads`, ORR-658). Clearing and reading tell nothing: the page that did it reads the bell again.
 use crate::comments::{columns, comment_of, Comments};
 use crate::db::sql;
-use crate::docs::{stamp, Actor};
 use crate::error::{ApiError, Result};
 use crate::people::Who;
+use crate::write::{stamp, Actor};
 use chrono::{DateTime, Local, NaiveDate, NaiveDateTime, TimeZone, Utc};
 use serde_json::{json, Value};
 use sqlx::{AnyConnection, Row};

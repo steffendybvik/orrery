@@ -5,9 +5,9 @@
 // sets an issue's release and posts orrery's comments, and those writes are still Nuxt's.
 use crate::changes::{self, Outbox};
 use crate::db::sql;
-use crate::docs::{js, Effects};
 use crate::error::{ApiError, Result};
 use crate::text::natural_cmp;
+use crate::write::{js, Effects};
 use regex::Regex;
 use serde_json::{json, Map, Value};
 use sqlx::{AnyConnection, Row};

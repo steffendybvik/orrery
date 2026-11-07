@@ -6,9 +6,9 @@
 use crate::changes::{self, Outbox};
 use crate::comments::{Comments, Whose};
 use crate::db::sql;
-use crate::docs::{js, stamp, Actor, Effects};
 use crate::error::{ApiError, Result};
 use crate::milestones::Milestones;
+use crate::write::{js, stamp, Actor, Effects};
 use serde_json::{json, Map, Value};
 use sqlx::any::AnyRow;
 use sqlx::{AnyConnection, Row};

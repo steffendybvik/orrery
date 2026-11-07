@@ -6,9 +6,9 @@ use crate::changes;
 use crate::choices::{describe_picks, resolve_picks, stored, Picks};
 use crate::comments::{Comments, Handoff};
 use crate::db::sql;
-use crate::docs::{js, stamp, Actor};
 use crate::error::{ApiError, Result};
 use crate::issues::Issues;
+use crate::write::{js, stamp, Actor};
 use serde_json::{json, Map, Value};
 use sqlx::Row;
 

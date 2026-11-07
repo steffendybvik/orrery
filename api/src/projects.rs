@@ -7,7 +7,7 @@
 use crate::changes::{self, Outbox};
 use crate::comments::Comments;
 use crate::db::sql;
-use crate::docs::{js, stamp, Actor, Docs, Effects};
+use crate::docs::Docs;
 use crate::error::{ApiError, Result};
 use crate::issues::{kinds_json, sum, Board, Issues};
 use crate::migrate::uid_of;
@@ -15,6 +15,7 @@ use crate::people::Who;
 use crate::plans::Plans;
 use crate::settings::hex;
 use crate::text::{key_for, slugify, RESERVED_KEYS};
+use crate::write::{js, stamp, Actor, Effects};
 use regex::Regex;
 use serde_json::{json, Map, Value};
 use sqlx::any::AnyRow;

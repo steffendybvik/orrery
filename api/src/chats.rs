@@ -5,8 +5,8 @@
 // row, written here too (`keepChat`), for the local app to hand over once it's swapped in.
 use crate::changes::{self, Outbox};
 use crate::db::sql;
-use crate::docs::Effects;
 use crate::error::{ApiError, Result};
+use crate::write::Effects;
 use serde_json::{json, Value};
 use sqlx::any::AnyRow;
 use sqlx::{AnyConnection, Row};

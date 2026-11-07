@@ -5,11 +5,11 @@
 // changed (`Effects::epics`), for open pages to ask for them again. An epic's focus signals sessions, so it stays in Nuxt.
 use crate::changes::{self, Outbox};
 use crate::db::sql;
-use crate::docs::{js, stamp, Actor, Effects};
 use crate::error::{ApiError, Result};
 use crate::issue_edits::epic_number;
 use crate::issues::{kinds_json, Board, Issues, Kinds, Node};
 use crate::settings::Settings;
+use crate::write::{js, stamp, Actor, Effects};
 use serde_json::{json, Map, Value};
 use sqlx::any::AnyRow;
 use sqlx::{AnyConnection, Row};

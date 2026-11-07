@@ -4,8 +4,8 @@
 // none of them yet. They tell nobody, as the store's don't: a PR's news is the poll's to tell.
 use crate::changes::{self, Outbox};
 use crate::db::sql;
-use crate::docs::{js, Effects};
 use crate::error::{ApiError, Result};
+use crate::write::{js, Effects};
 use serde_json::{json, Map, Value};
 use sqlx::{AnyConnection, Row};
 

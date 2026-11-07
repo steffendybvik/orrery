@@ -10,9 +10,9 @@
 use crate::changes;
 use crate::comments::Comments;
 use crate::db::sql;
-use crate::docs::{js, stamp, Actor};
 use crate::error::{ApiError, Result};
 use crate::issues::{github_issue_of, github_repo, link_ref, Issues, GITHUB_OWN};
+use crate::write::{js, stamp, Actor};
 use regex::Regex;
 use serde_json::Value;
 use sqlx::Row;

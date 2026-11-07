@@ -3,9 +3,9 @@
 // off in the outbox inside its transaction (ORR-929), and the router tells the Nuxt server's hooks from the reply.
 use crate::changes::{self, Outbox};
 use crate::db::sql;
-use crate::docs::{js, stamp, Actor, Effects};
 use crate::error::{ApiError, Result};
 use crate::issues::Issues;
+use crate::write::{js, stamp, Actor, Effects};
 use regex::Regex;
 use serde_json::{Map, Value};
 use sqlx::{AnyConnection, Row};

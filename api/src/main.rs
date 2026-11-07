@@ -42,6 +42,7 @@ mod steps;
 mod text;
 mod threads;
 mod uploads;
+mod write;
 
 use axum::body::Bytes;
 use axum::extract::{Path, Query, RawQuery, Request, State};
@@ -55,7 +56,7 @@ use axum::{Json, Router};
 use changes::Outbox;
 use chats::Chats;
 use comments::{comment_id, Comments, Handoff};
-use docs::{Actor, Docs, Effects};
+use docs::Docs;
 use epics::Epics;
 use error::{ApiError, Result};
 use issues::Issues;
@@ -79,6 +80,7 @@ use statuses::Statuses;
 use std::collections::HashMap;
 use std::sync::Arc;
 use threads::{Thread, Threads};
+use write::{Actor, Effects};
 
 struct App {
     pool: AnyPool,
@@ -220,7 +222,7 @@ fn body_of(bytes: &Bytes) -> Value {
 
 /// One event as `Orrery-Told` says it: `<type> <project> <subject>`, then `<from> <to>` when a value changed, `~` for
 /// one that's none (an encoded value is never a bare `~`).
-fn told_of(told: &docs::Told, encode: &impl Fn(&str) -> String) -> String {
+fn told_of(told: &write::Told, encode: &impl Fn(&str) -> String) -> String {
     let mut said = format!("{} {} {}", encode(&told.kind), encode(&told.project), encode(&told.subject));
     if told.from.is_some() || told.to.is_some() {
         let part = |v: &Option<String>| v.as_deref().map(encode).unwrap_or_else(|| "~".into());
@@ -539,7 +541,7 @@ async fn decide_issues(State(app): Shared, Path(project): Path<String>, headers:
     };
     let decision = Value::Object(decision);
     let actor = actor_of(&headers);
-    let mut effects = docs::Effects::default();
+    let mut effects = write::Effects::default();
     let (mut urgent, mut handoffs, mut results) = (vec![], vec![], vec![]);
     let mut seen: Vec<&String> = vec![];
     for sent in &ids {
@@ -568,7 +570,7 @@ async fn decide_issues(State(app): Shared, Path(project): Path<String>, headers:
     }
     // Once the batch ends the store says the project changed once more, for open pages (`each`): its row too.
     if !effects.changed.is_empty() {
-        let once = docs::Effects { changed: effects.changed.clone(), ..Default::default() };
+        let once = write::Effects { changed: effects.changed.clone(), ..Default::default() };
         let conn = &mut *conn;
         changes::begin(conn).await?;
         changes::finish(conn, Some(&mut Outbox::new(actor)), &once, Ok(())).await?;
@@ -609,7 +611,7 @@ async fn delete_issues(State(app): Shared, Path(project): Path<String>, headers:
         _ => return Err(ApiError::bad_request(r#"Send "ids": the issues, as a list of their ids"#)),
     };
     let actor = actor_of(&headers);
-    let mut effects = docs::Effects::default();
+    let mut effects = write::Effects::default();
     let mut gone: Vec<String> = vec![];
     let mut results = vec![];
     let mut seen: Vec<&String> = vec![];
@@ -645,7 +647,7 @@ async fn delete_issues(State(app): Shared, Path(project): Path<String>, headers:
     }
     // Once the batch ends the store says the project changed once more, for open pages (`each`): its row too.
     if !effects.changed.is_empty() {
-        let once = docs::Effects { changed: effects.changed.clone(), ..Default::default() };
+        let once = write::Effects { changed: effects.changed.clone(), ..Default::default() };
         let conn = &mut *conn;
         changes::begin(conn).await?;
         changes::finish(conn, Some(&mut Outbox::new(actor)), &once, Ok(())).await?;
@@ -691,7 +693,7 @@ async fn update_issues(State(app): Shared, Path(project): Path<String>, headers:
         _ => return Err(ApiError::bad_request(r#"Send "ids": the issues, as a list of their ids"#)),
     };
     let actor = actor_of(&headers);
-    let mut effects = docs::Effects::default();
+    let mut effects = write::Effects::default();
     let mut urgent: Vec<String> = vec![];
     let mut results = vec![];
     let mut seen: Vec<&String> = vec![];
@@ -718,7 +720,7 @@ async fn update_issues(State(app): Shared, Path(project): Path<String>, headers:
     }
     // Once the batch ends the store says the project changed once more, for open pages (`each`): its row too.
     if !effects.changed.is_empty() {
-        let once = docs::Effects { changed: effects.changed.clone(), ..Default::default() };
+        let once = write::Effects { changed: effects.changed.clone(), ..Default::default() };
         let conn = &mut *conn;
         changes::begin(conn).await?;
         changes::finish(conn, Some(&mut Outbox::new(actor)), &once, Ok(())).await?;

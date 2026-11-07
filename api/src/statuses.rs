@@ -3,9 +3,9 @@
 // (`Effects.settings`), which the router in front fires as the store's `statusesChanged` would.
 use crate::changes::{self, Outbox};
 use crate::db::sql;
-use crate::docs::{js, Actor, Effects};
 use crate::error::{ApiError, Result};
 use crate::text::{is_slug, slugify};
+use crate::write::{js, Actor, Effects};
 use regex::Regex;
 use serde_json::{json, Map, Value};
 use sqlx::{AnyConnection, Row};

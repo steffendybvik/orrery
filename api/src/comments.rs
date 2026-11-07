@@ -7,10 +7,10 @@
 // (`deleteIssue`).
 use crate::changes::{self, Outbox};
 use crate::db::sql;
-use crate::docs::{js, stamp, Actor, Effects};
 use crate::error::{ApiError, Result};
 use crate::migrate::actor_id;
 use crate::people::Who;
+use crate::write::{js, stamp, Actor, Effects};
 use serde_json::{json, Map, Value};
 use sqlx::any::AnyRow;
 use sqlx::{AnyConnection, Row};
