@@ -45,8 +45,7 @@ import {fileURLToPath} from 'node:url'
 import {connector, pickerFor} from './connect-repo.mjs'
 import {authHeaders, keyFor, keysFile} from './credentials.mjs'
 import {addToList, adoptable, configFile, inWsl, install, listChanges, listIn, readConfig, removeService, restartKeepsSessions, servedElsewhere, serviceProblem, uninstall, wslLocalhost} from './launcher-service.mjs'
-import {chatOnly, lockedDown, modelArgs, resumeArgs} from './locked-down.mjs'
-import {onYes} from './permission-prompt.mjs'
+import {agentFor} from './agents.mjs'
 import {channelFor, channelsIn, projectsIn, servesEvery} from './repo-channels.mjs'
 import {follow} from './sse.mjs'
 import {openWatch} from './terminal.mjs'
@@ -55,6 +54,14 @@ import {BOOTSTRAP, CODE, VERSION, codeOnDisk, launcherMove, olderThan, servedOth
 const mode = process.env.ORRERY_PERMISSION_MODE || 'auto'
 const log = (...parts) => console.error('[orrery launcher]', ...parts)
 const tmux = (...args) => execFileSync('tmux', args, {encoding: 'utf8'}).trim()
+/** The agent its sessions run: Claude Code, the only adapter so far (agents.mjs). */
+const agent = agentFor()
+/** A tmux session's pane, as an adapter reads and types into it. */
+const paneOf = name => ({
+    read: () => tmux('capture-pane', '-p', '-t', name),
+    type: text => tmux('send-keys', '-t', name, '-l', text),
+    press: key => tmux('send-keys', '-t', name, key),
+})
 
 /** The repo here as the launcher serves it: for each of its projects, its orrery, the project, and its folder. */
 const here = () => projectsIn(process.cwd(), {project: process.env.ORRERY_PROJECT, url: process.env.ORRERY_URL})
@@ -75,15 +82,10 @@ function tmuxProblem() {
     return null
 }
 
-/** Throws what to do when the service couldn't start sessions here: no tmux, or no claude, on this PATH. */
-function needsTmuxAndClaude() {
-    const problem = tmuxProblem()
+/** Throws what to do when the service couldn't start sessions here: no tmux, or not its agent, on this PATH. */
+function needsTmuxAndAgent() {
+    const problem = tmuxProblem() ?? agent.problem()
     if (problem) throw new Error(problem)
-    try {
-        execFileSync('claude', ['--version'], {stdio: 'ignore'})
-    } catch {
-        throw new Error('claude isn\'t on your PATH: install Claude Code, then run this again from the same shell')
-    }
 }
 
 const USAGE = `orrery's launcher: starts Claude sessions for orrery's projects, in their repos.
@@ -121,7 +123,7 @@ if (args.includes('--list')) {
 }
 if (args.includes('--install') || args.includes('--uninstall')) {
     try {
-        // Before tmux and claude are looked for: on Windows itself, neither is the problem.
+        // Before tmux and the agent are looked for: on Windows itself, neither is the problem.
         const unserved = serviceProblem()
         if (unserved) throw new Error(unserved)
         const pickUp = !args.includes('--no-pick-up')
@@ -132,7 +134,7 @@ if (args.includes('--install') || args.includes('--uninstall')) {
                 console.log(`Removed the launcher service. Its list stays in ${configFile()}, for the next --install.`)
                 process.exit(0)
             }
-            needsTmuxAndClaude()
+            needsTmuxAndAgent()
             const {config, logs, restarted} = install([], {script, pickUp, orrery: process.env.ORRERY_URL})
             console.log(`The launcher service is installed and starts at login. It serves ${config.projects.length ? config.projects.map(p => p.project).join(', ') : 'no project yet'}; the list is ${configFile()}.${restarted ? '' : ' It was running already, so its sessions go on.'}`)
             console.log(pickUp
@@ -158,7 +160,7 @@ if (args.includes('--install') || args.includes('--uninstall')) {
             console.log(config.projects.length ? `It still serves ${config.projects.map(p => p.project).join(', ')}.` : config.pickUp ? 'It serves no project now, and waits for pick-up to put one on; --uninstall outside a repo removes it.' : 'Nothing was left on it, so the service is removed.')
             process.exit(0)
         }
-        needsTmuxAndClaude()
+        needsTmuxAndAgent()
         for (const entry of entries) {
             // Without the channel its sessions couldn't hear orrery, and its address and project may be guesses
             // (localhost:9000, the folder's name): connecting the repo comes first (ORR-604).
@@ -306,8 +308,7 @@ function allow(id) {
     const session = running.get(id)
     if (!session) return
     try {
-        if (!onYes(tmux('capture-pane', '-p', '-t', session.tmux))) return log(`${session.tmux} isn't at a permission prompt on "Yes" any more: left as it is`)
-        tmux('send-keys', '-t', session.tmux, 'Enter')
+        if (!agent.allow(paneOf(session.tmux))) return log(`${session.tmux} isn't at a permission prompt on "Yes" any more: left as it is`)
         log(`allowed what ${session.tmux} asked, as the owner said`)
     } catch {
         // It has ended.
@@ -320,23 +321,20 @@ function deny(id) {
     const session = running.get(id)
     if (!session) return
     try {
-        if (!onYes(tmux('capture-pane', '-p', '-t', session.tmux))) return log(`${session.tmux} isn't at a permission prompt any more: left as it is`)
-        tmux('send-keys', '-t', session.tmux, 'Escape')
+        if (!agent.deny(paneOf(session.tmux))) return log(`${session.tmux} isn't at a permission prompt any more: left as it is`)
         log(`denied what ${session.tmux} asked, as the owner said`)
     } catch {
         // It has ended.
     }
 }
 
-/** Gives a session it started a fresh context between pieces of work, as orrery asks once it's idle: types
- * `/clear` into it. Its channel stays, and its hooks hand the new context what's left to do. */
+/** Gives a session it started a fresh context between pieces of work, as orrery asks once it's idle, as its agent
+ * does that (Claude Code's `/clear`). */
 async function clear(id) {
     const session = running.get(id)
     if (!session) return
     try {
-        tmux('send-keys', '-t', session.tmux, '-l', '/clear')
-        await new Promise(resolve => setTimeout(resolve, 300))
-        tmux('send-keys', '-t', session.tmux, 'Enter')
+        await agent.clear(paneOf(session.tmux))
         log(`cleared ${session.tmux}'s context: its work was done`)
     } catch {
         // It has ended.
@@ -454,20 +452,14 @@ async function report(api) {
         .catch(() => {})
 }
 
-/** Gets the new session past Claude Code's startup prompts: the channel flag's warning it accepts; a folder
- * not yet trusted it won't answer for the owner, so it stops the session and says so. */
+/** Gets the new session past its agent's startup prompts, as the adapter says: one it won't answer for the owner (a
+ * folder Claude Code doesn't trust yet) stops the session and says so. */
 async function getPast(id, dir) {
     const name = running.get(id)?.tmux
-    for (let tries = 0; name && tries < 60; tries++) {
-        await new Promise(resolve => setTimeout(resolve, 500))
-        const screen = tmux('capture-pane', '-p', '-t', name)
-        if (/trust (the files in )?this folder/i.test(screen)) return stop(id, `the folder isn't trusted yet: run claude in ${dir} once by hand and accept it`)
-        if (screen.includes('Loading development channels') && screen.includes('I am using this for local development')) {
-            tmux('send-keys', '-t', name, 'Enter')
-            return
-        }
-    }
-    log(`${name}: didn't see the channel's warning; if it's stuck on a prompt, answer it with: tmux attach -t ${name}`)
+    if (!name) return
+    const {stop: why, stuck} = await agent.getPast(paneOf(name), {dir})
+    if (why) return stop(id, why)
+    if (stuck) log(`${name}: ${stuck}; if it's stuck on a prompt, answer it with: tmux attach -t ${name}`)
 }
 
 /** Where a project's launches are, on its orrery. */
@@ -484,17 +476,16 @@ function serve({url, project, dir, picked_at: picked, connected_at: connected}, 
 
     /** Starts the launch's session, once this launcher has claimed it (another may have first). */
     async function start(launch) {
-        // It says it locks an untrusted launch down with no Bash, starts a chat as `chatOnly` says, and starts a session
-        // on the model and effort asked for, and takes a chat's Claude session up again (ORR-884): orrery gives each only
-        // to a launcher that does.
-        const claim = await fetch(`${api}/launches/${launch.id}/claim?untrusted=no-bash&chat=yes&model=yes&resume=yes`, {method: 'POST', headers: {'Orrery-Launcher': token, ...authHeaders(api)}}).then(r => r.json()).catch(() => ({claimed: false}))
+        // It says what its agent's sessions can be started as (an untrusted one locked down, a chat, a model and effort,
+        // a chat taken up again): orrery gives each only to a launcher that does.
+        const claim = await fetch(`${api}/launches/${launch.id}/claim?${agent.claims}`, {method: 'POST', headers: {'Orrery-Launcher': token, ...authHeaders(api)}}).then(r => r.json()).catch(() => ({claimed: false}))
         if (!claim.claimed) return
         // An untrusted one's channel says so on everything it sends, so orrery holds it to that even when it has
         // restarted and doesn't know the launch yet.
         const env = {ORRERY_URL: url, ORRERY_PROJECT: project, ORRERY_STARTED: launch.id, ORRERY_AFTER: String(launch.after), ...launch.hears?.length ? {ORRERY_HEAR: launch.hears.join(',')} : {}, ...launch.untrusted ? {ORRERY_UNTRUSTED: 'yes'} : {}, ...launch.chat ? {ORRERY_CHAT: 'yes'} : {}, ...launch.person ? {ORRERY_PERSON: launch.person} : {}, ...keyFor(url) ? {ORRERY_KEY: keyFor(url)} : {}}
         const server = channelFor(dir, url, project)?.name ?? project
         tmux('new-session', '-d', '-s', launch.tmux, '-c', dir, ...Object.entries(env).flatMap(([k, v]) => ['-e', `${k}=${v}`]),
-            'claude', '--dangerously-load-development-channels', `server:${server}`, ...launch.untrusted ? lockedDown(dir, server) : launch.chat ? chatOnly(dir, server) : ['--permission-mode', mode], ...modelArgs(launch), ...resumeArgs(launch))
+            ...agent.command({dir, server, launch, mode}))
         tmux('set-option', '-t', launch.tmux, LAUNCHER, String(process.pid))
         running.set(launch.id, {tmux: launch.tmux, api, context: launch.context, ...launch.untrusted ? {untrusted: true} : {}, ...launch.chat ? {chat: true} : {}, ...launch.model ? {model: launch.model} : {}, ...launch.effort ? {effort: launch.effort} : {}})
         if (launch.model) tmux('set-option', '-t', launch.tmux, MODEL, launch.model)
