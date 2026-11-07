@@ -44,8 +44,21 @@ describe('whose a session is', () => {
 })
 
 describe("the channel's tools", () => {
+    it('next asks orrery for this session\'s next issue, and answers with what it said (ORR-521)', async () => {
+        const {calls, call} = harness({'GET /sessions/abc/next': {body: {issues: [{id: 'GRE-2'}], text: "You're out of work…\n\n- GRE-2 (greenhouse) [Todo] Pots"}}})
+        expect(await call('next')).toEqual({error: false, text: "You're out of work…\n\n- GRE-2 (greenhouse) [Todo] Pots"})
+        expect(calls).toMatchObject([{method: 'GET', url: '/sessions/abc/next'}])
+    })
+
+    it('leaves next out of the chat\'s tools and an untrusted session\'s (ORR-521)', () => {
+        const names = (options: object) => (toolsFor(['greenhouse'], options) as {name: string}[]).map(t => t.name)
+        expect(names({})).toContain('next')
+        expect(names({chat: true})).not.toContain('next')
+        expect(names({untrusted: true})).not.toContain('next')
+    })
+
     it('each have a name, a description and an object schema', () => {
-        expect(TOOLS.map((t: {name: string}) => t.name)).toEqual(['issues', 'issue', 'create_issue', 'update_issue', 'start_issue', 'finish_issue', 'rate_pull', 'comment', 'milestones', 'releases', 'epics', 'create_epic', 'update_epic', 'comment_epic', 'docs', 'doc', 'write_doc', 'presets', 'preset', 'schedules', 'sessions', 'secrets', 'egress', 'events', 'guide', 'resolve_event'])
+        expect(TOOLS.map((t: {name: string}) => t.name)).toEqual(['issues', 'issue', 'create_issue', 'update_issue', 'start_issue', 'next', 'finish_issue', 'rate_pull', 'comment', 'milestones', 'releases', 'epics', 'create_epic', 'update_epic', 'comment_epic', 'docs', 'doc', 'write_doc', 'presets', 'preset', 'schedules', 'sessions', 'secrets', 'egress', 'events', 'guide', 'resolve_event'])
         for (const tool of TOOLS) expect(tool).toMatchObject({description: expect.any(String), inputSchema: {type: 'object'}})
     })
 
