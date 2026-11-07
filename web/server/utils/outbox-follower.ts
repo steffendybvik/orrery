@@ -69,6 +69,8 @@ async function apply(store: Store, change: Change, unknown: Set<string>) {
         await store.settingsChanged()
     } else if (change.kind === 'epics') {
         store.epicsChanged()
+    } else if (change.kind === 'schedules') {
+        if (change.project) useScheduler().changedElsewhere(change.project)
     } else if (change.kind === 'signal' || change.kind === 'notice') {
         if (!unknown.has(change.kind)) console.warn(`[orrery] the outbox has a ${change.kind} this server didn't write, which it doesn't deliver yet (ORR-983)`)
         unknown.add(change.kind)

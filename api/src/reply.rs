@@ -19,11 +19,11 @@ pub(crate) fn told_of(told: &crate::write::Told, encode: &impl Fn(&str) -> Strin
 }
 
 /// A write's reply, with what it changed for the router to tell: `Orrery-Changed: <project>, …`, `Orrery-Settings: 1`
-/// when the orrery's settings changed (the statuses are in them), and `Orrery-Told: <type> <project> <subject>, …`, each
-/// part percent-encoded.
+/// when the orrery's settings changed (the statuses are in them), `Orrery-Schedules: <project>, …` for the projects whose
+/// schedules changed, and `Orrery-Told: <type> <project> <subject>, …`, each part percent-encoded.
 pub(crate) fn reply(status: StatusCode, body: Option<Value>, effects: Effects) -> Response {
     // The write is committed by now, with its outbox rows: the open streams can send them (ORR-929).
-    if !effects.changed.is_empty() || effects.settings || effects.epics || !effects.told.is_empty() {
+    if !effects.changed.is_empty() || effects.settings || effects.epics || !effects.schedules.is_empty() || !effects.told.is_empty() {
         crate::changes::wake();
     }
     let mut response = match body {
@@ -40,6 +40,10 @@ pub(crate) fn reply(status: StatusCode, body: Option<Value>, effects: Effects) -
     }
     if effects.epics {
         response.headers_mut().insert("orrery-epics", HeaderValue::from_static("1"));
+    }
+    if !effects.schedules.is_empty() {
+        let schedules = effects.schedules.iter().map(|p| encode(p)).collect::<Vec<_>>().join(", ");
+        response.headers_mut().insert("orrery-schedules", HeaderValue::from_str(&schedules).unwrap());
     }
     if !effects.settings_keys.is_empty() {
         let keys = effects.settings_keys.iter().map(|k| encode(k)).collect::<Vec<_>>().join(", ");
@@ -103,6 +107,7 @@ mod tests {
             settings: true,
             epics: true,
             settings_keys: vec!["theme".into(), "auth_on".into()],
+            schedules: vec!["primes".into(), "my board".into()],
             ..Effects::default()
         };
         effects.tell("doc.created", "primes", "plan");
@@ -113,6 +118,7 @@ mod tests {
         assert_eq!(header(&response, "orrery-settings").as_deref(), Some("1"));
         assert_eq!(header(&response, "orrery-epics").as_deref(), Some("1"));
         assert_eq!(header(&response, "orrery-settings-keys").as_deref(), Some("theme, auth%5Fon"));
+        assert_eq!(header(&response, "orrery-schedules").as_deref(), Some("primes, my%20board"));
         assert_eq!(header(&response, "orrery-told").as_deref(), Some("doc%2Ecreated primes plan, issue%2Eassignee my%20board MY%2D2 ada ~"));
     }
 
@@ -131,7 +137,7 @@ mod tests {
     fn only_what_changed_is_said() {
         let response = reply(StatusCode::OK, None, Effects { settings: true, ..Effects::default() });
         assert_eq!(header(&response, "orrery-settings").as_deref(), Some("1"));
-        for name in ["orrery-changed", "orrery-epics", "orrery-settings-keys", "orrery-told"] {
+        for name in ["orrery-changed", "orrery-epics", "orrery-schedules", "orrery-settings-keys", "orrery-told"] {
             assert_eq!(header(&response, name), None, "{name}");
         }
     }

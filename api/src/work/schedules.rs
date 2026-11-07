@@ -1,9 +1,12 @@
-// The schedules, reading them (ORR-930, ORR-950): what `list`, `get` and `listAcross` in web/server/utils/schedules.ts
-// do, answering as their `GET` routes do. Making, changing and running them stays the Nuxt server's: a run starts a
-// session and a write can set one off, which waits on how the local app hears the board (ORR-929).
+// The schedules (ORR-930, ORR-950): what `list`, `get` and `listAcross` in web/server/utils/schedules.ts do, answering
+// as their `GET` routes do; and of its writes, the owner making one theirs (`adopt`) and deleting one (`delete`). Each
+// write says the project's schedules changed (`Effects::schedules`), so the local app's scheduler reads them again.
+// Making and changing them, which work out the next run from a cron, and running them stay the Nuxt server's for now.
+use crate::changes::{self, Outbox};
 use crate::db::sql;
 use crate::error::{ApiError, Result};
 use crate::work::presets::server_id;
+use crate::write::{stamp, Actor, Effects};
 use serde_json::{json, Map, Value};
 use sqlx::any::AnyRow;
 use sqlx::{AnyConnection, Row};
@@ -30,11 +33,119 @@ fn title_cmp(a: &str, b: &str) -> Ordering {
 
 pub struct Schedules<'c> {
     pub conn: &'c mut AnyConnection,
+    pub effects: Effects,
+    pub outbox: Option<Outbox>,
+}
+
+/// What a write needs of a schedule's row: whether it's the owner's, the schedule across projects it's made from, and
+/// when it last changed.
+struct Held {
+    owned: bool,
+    across: Option<i64>,
+    updated_at: String,
 }
 
 impl<'c> Schedules<'c> {
     pub fn new(conn: &'c mut AnyConnection) -> Self {
-        Schedules { conn }
+        Schedules { conn, effects: Effects::default(), outbox: None }
+    }
+
+    /// The schedule's row as a write needs it (`row`), or a 404.
+    async fn held(&mut self, project: &str, id: i64) -> Result<Held> {
+        let row = sqlx::query(&sql("SELECT CAST(owned AS BIGINT) AS owned, CAST(across AS BIGINT) AS across, updated_at FROM schedules WHERE project = ? AND id = ?"))
+            .bind(project)
+            .bind(id)
+            .fetch_optional(&mut *self.conn)
+            .await?
+            .ok_or_else(|| ApiError::not_found(format!("No schedule {id} in {project}")))?;
+        Ok(Held { owned: row.get::<i64, _>("owned") != 0, across: row.get::<Option<i64>, _>("across").filter(|a| *a != 0), updated_at: row.get("updated_at") })
+    }
+
+    /// The owner making an agent's schedule theirs ("Make it mine", ORR-456, `adopt`): from then on it runs as them,
+    /// and only they change it. `seen` is the `updated_at` they read it at: one changed since is a 409, so they never
+    /// take on words they haven't seen. One theirs already comes back as it is.
+    pub async fn adopt(&mut self, project: &str, sent: &str, uid: &str, actor: &Actor, seen: Option<&str>) -> Result<Value> {
+        let id = server_id("sch-", "schedule", sent, uid)?;
+        if !actor.owner {
+            return Err(ApiError::refused_for(
+                "schedules.adopt",
+                format!("Making schedule {id} yours: only the owner takes a schedule on; send Orrery-Actor: <owner>"),
+            ));
+        }
+        let row = self.held(project, id).await?;
+        if row.owned {
+            return self.get(project, sent, uid).await;
+        }
+        if seen.is_some_and(|seen| seen != row.updated_at) {
+            return Err(ApiError::conflict(format!("Schedule {id} changed after you read it: read it again, then make it yours")));
+        }
+        self.effects.schedules.push(project.into());
+        changes::begin(self.conn).await?;
+        let done = sqlx::query(&sql("UPDATE schedules SET owned = 1, created_by = ?, updated_at = ? WHERE id = ? AND updated_at = ?"))
+            .bind(&actor.name)
+            .bind(stamp())
+            .bind(id)
+            .bind(&row.updated_at)
+            .execute(&mut *self.conn)
+            .await
+            .map(|_| ())
+            .map_err(Into::into);
+        changes::finish(self.conn, self.outbox.as_mut(), &self.effects, done).await?;
+        let now = self.get(project, sent, uid).await?;
+        if now["protected"] != json!(true) {
+            return Err(ApiError::conflict(format!("Schedule {id} changed as you made it yours: read it again, then make it yours")));
+        }
+        Ok(now)
+    }
+
+    /// Deletes the schedule (`delete`): the owner's only by the owner. Its issues stay, no longer its. One made from a
+    /// schedule across projects leaves that project out of it, and the last one out takes it with it (`leaveOut`).
+    pub async fn delete(&mut self, project: &str, sent: &str, uid: &str, actor: &Actor) -> Result<()> {
+        let id = server_id("sch-", "schedule", sent, uid)?;
+        let row = self.held(project, id).await?;
+        if row.owned && !actor.owner {
+            return Err(ApiError::refused_for("schedules.owners", format!("Deleting schedule {id}: it's the owner's; only they can delete it")));
+        }
+        self.effects.schedules.push(project.into());
+        changes::begin(self.conn).await?;
+        let done = self.remove(project, id, row.across).await;
+        changes::finish(self.conn, self.outbox.as_mut(), &self.effects, done).await
+    }
+
+    async fn remove(&mut self, project: &str, id: i64, across: Option<i64>) -> Result<()> {
+        if let Some(across) = across {
+            self.leave_out(across, project).await?;
+        }
+        sqlx::query(&sql("DELETE FROM schedules WHERE id = ?")).bind(id).execute(&mut *self.conn).await?;
+        sqlx::query(&sql("UPDATE issues SET schedule = NULL WHERE schedule = ?")).bind(id).execute(&mut *self.conn).await?;
+        Ok(())
+    }
+
+    /// Leaves `project` out of schedule across projects `id` (`leaveOut`): one for every project skips it from then on;
+    /// one naming projects names it no more, and with none left it's gone.
+    async fn leave_out(&mut self, id: i64, project: &str) -> Result<()> {
+        let Some(row) = sqlx::query(&sql("SELECT projects, skip FROM schedules_across WHERE id = ?")).bind(id).fetch_optional(&mut *self.conn).await? else {
+            return Err(ApiError::not_found(format!("No schedule across projects {id}")));
+        };
+        let list = |text: String| serde_json::from_str::<Vec<String>>(&text).unwrap_or_default();
+        let projects: String = row.get("projects");
+        let now = stamp();
+        if projects == "*" {
+            let mut skip = list(row.get("skip"));
+            if !skip.iter().any(|p| p == project) {
+                skip.push(project.into());
+            }
+            sqlx::query(&sql("UPDATE schedules_across SET skip = ?, updated_at = ? WHERE id = ?")).bind(json!(skip).to_string()).bind(now).bind(id).execute(&mut *self.conn).await?;
+            return Ok(());
+        }
+        let left: Vec<String> = list(projects).into_iter().filter(|p| p != project).collect();
+        if left.is_empty() {
+            sqlx::query(&sql("UPDATE schedules SET across = NULL WHERE across = ?")).bind(id).execute(&mut *self.conn).await?;
+            sqlx::query(&sql("DELETE FROM schedules_across WHERE id = ?")).bind(id).execute(&mut *self.conn).await?;
+        } else {
+            sqlx::query(&sql("UPDATE schedules_across SET projects = ?, updated_at = ? WHERE id = ?")).bind(json!(left).to_string()).bind(now).bind(id).execute(&mut *self.conn).await?;
+        }
+        Ok(())
     }
 
     /// The schedule as the API gives it (`scheduleOf`): with its latest runs, and how many runs it holds back.

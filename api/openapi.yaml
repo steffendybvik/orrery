@@ -1231,6 +1231,27 @@ paths:
       responses:
         '200': {description: The schedule, content: {application/json: {schema: {type: object}}}}
         '404': {$ref: '#/components/responses/NotFound'}
+    delete:
+      summary: 'Deletes the schedule (ORR-950); the issues it made stay. One made across projects leaves this project out'
+      responses:
+        '204': {description: Deleted}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/projects/{project}/schedules/{schedule}/adopt:
+    parameters:
+      - {$ref: '#/components/parameters/project'}
+      - {name: schedule, in: path, required: true, description: 'Its number, or its full id: `sch-12-x7k2m9qd`', schema: {type: string}}
+    post:
+      summary: 'The owner makes an agent''s schedule theirs (ORR-456, ORR-950); one already theirs comes back as it is'
+      requestBody:
+        required: false
+        content: {application/json: {schema: {type: object, properties: {seen: {type: string, description: 'The updated_at it was read at; changed since is a 409'}}}}}
+      responses:
+        '200': {description: The schedule, content: {application/json: {schema: {type: object}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
   /api/schedules:
     get:
       summary: 'Every project''s schedules (the agenda): the soonest next run first, those with none last, ties by title'

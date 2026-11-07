@@ -180,6 +180,13 @@ export class Schedules {
             .sort((a, b) => (due(a) < due(b) ? -1 : due(a) > due(b) ? 1 : 0) || a.title.localeCompare(b.title))
     }
 
+    /** A change to `project`'s schedules made elsewhere (the Rust API, ORR-950): the event listeners are read again, and
+     * it's told as a write here tells it. */
+    changedElsewhere(project: string) {
+        this.listeners = null
+        this.onChange(project)
+    }
+
     async get(project: string, id: number): Promise<Schedule> {
         return await this.scheduleOf(await this.row(project, id))
     }
