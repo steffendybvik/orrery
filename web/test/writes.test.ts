@@ -107,7 +107,7 @@ describe('a session’s stream', () => {
     it('doesn’t open for a picture, on another site or in orrery’s own page', () => {
         expect(refused('GET', stream, {'sec-fetch-site': 'cross-site', 'sec-fetch-dest': 'image'})).toBe(403)
         // The router serves a stream with a slash on the end too (ORR-752).
-        for (const path of ['/api/projects/greenhouse/signals/stream/?session=abc', '/api/projects/greenhouse/launches/stream/', '/api/signals/stream/?session=abc']) {
+        for (const path of ['/api/projects/greenhouse/signals/stream/?session=abc', '/api/projects/greenhouse/launches/stream/', '/api/launches/stream?serve=[]', '/api/signals/stream/?session=abc']) {
             expect(refused('GET', path, {'sec-fetch-site': 'cross-site', 'sec-fetch-dest': 'image'})).toBe(403)
         }
         expect(refused('GET', stream, {'sec-fetch-site': 'same-origin', 'sec-fetch-dest': 'image'})).toBe(403)

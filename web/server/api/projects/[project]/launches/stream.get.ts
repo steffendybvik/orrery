@@ -13,22 +13,12 @@ export default defineEventHandler(async event => {
     const starts = await useStore().starts(project)
     const stream = createEventStream(event)
     const {dir, every, version, picked, connected, home} = getQuery(event)
-    // Kept only as a time, so nothing else a launcher says reaches the page through it.
-    const when = (at: unknown) => typeof at === 'string' && !Number.isNaN(Date.parse(at)) ? new Date(at).toISOString() : undefined
-    const [pickedAt, connectedAt] = [when(picked), when(connected)]
     // A launcher on a member's agent key hears only its own person's launches, and isn't counted as the project's (ORR-963).
     const member = launcherMember(event)
-    const done = member ? addMemberLauncher(project, member) : addLauncher(project, typeof dir === 'string' && dir ? dir : undefined, every === '1', typeof version === 'string' ? version.slice(0, 40) : '', {...pickedAt ? {picked_at: pickedAt} : {}, ...connectedAt ? {connected_at: connectedAt} : {}}, home === '1')
-    const where = typeof dir === 'string' && dir ? {dir} : home === '1' ? {home: true} : {}
-    useEventLog().note({level: 'info', kind: 'launcher.connected', project, message: member ? `A launcher on ${member}'s key connected: it hears only their launches` : home === '1' ? "A launcher connected, serving the project from its machine's default folder" : 'A launcher connected', details: where})
+    const done = connectLauncher({project, dir: typeof dir === 'string' ? dir : undefined, every: every === '1', home: home === '1', picked, connected}, typeof version === 'string' ? version : '', member)
     const send = (sent: LaunchEvent) => {
-        if (!hearsLaunch(member, sent.type === 'launch' ? sent.launch.id : sent.id)) return
-        if (sent.type === 'launch') {
-            if (sent.launch.project === project) stream.push({id: sent.launch.id, event: 'launch', data: JSON.stringify(sent.launch)})
-        } else if (sent.project === project) {
-            const {type, ...data} = sent
-            stream.push({event: type, data: JSON.stringify(data)})
-        }
+        const on = launchEventOn(sent)
+        if (on.project === project && hearsLaunch(member, on.id)) stream.push(launchEventSent(sent))
     }
     projectEvents.on('launches', send)
     const ping = setInterval(() => stream.push({event: 'ping', data: ''}), 25_000)
@@ -42,7 +32,6 @@ export default defineEventHandler(async event => {
         clearInterval(ping)
         projectEvents.off('launches', send)
         done()
-        useEventLog().note({level: 'info', kind: 'launcher.gone', project, message: 'A launcher went', details: where})
         await stream.close()
     })
     return stream.send()
