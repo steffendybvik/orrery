@@ -18,6 +18,7 @@ import {Secrets} from '../server/utils/secrets'
 import {Pulls, pullForSession} from '../server/utils/pulls'
 import {known} from '../shared/known'
 import {numberOf} from '../shared/roadmap'
+import {withoutClosed, withoutNotes} from '../shared/patch'
 import {Schedules} from '../server/utils/schedules'
 import {PullPoll} from '../server/utils/pull-poll'
 import type {PolledRow} from '../server/utils/pull-poll'
@@ -605,6 +606,16 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         expect(await viaApi('GET', '/api/projects')).toEqual(await viaStore(() => store.listProjects()))
         expect(domainOf('GET', '/api/projects')).toBe('projects, listed')
         expect(domainOf('POST', '/api/projects')).toBe('a project, made')
+        // One project with its board (ORR-1006), whole and trimmed as the page's reads ask, without the events stream's
+        // `rev`, which only the Nuxt server has: so the router doesn't send it on yet.
+        const board = await store.project('through-api')
+        expect((await viaApi('GET', '/api/projects/through-api')).body).toEqual(JSON.parse(JSON.stringify(board)))
+        for (const query of ['notes=0', 'closed=0', 'notes=0&closed=0']) {
+            const lighter = query.includes('notes') ? withoutNotes(board) : board
+            const trimmed = query.includes('closed') ? withoutClosed(lighter) : lighter
+            expect((await viaApi('GET', `/api/projects/through-api?${query}`)).body, query).toEqual(JSON.parse(JSON.stringify(trimmed)))
+        }
+        expect((await viaApi('GET', '/api/projects/nowhere')).status).toBe(404)
         expect(domainOf('GET', '/api/projects/through-api')).toBeUndefined()
         const listed = (await viaApi('GET', '/api/projects')).body as {id: string, milestones: number, docs: unknown[], starts?: unknown}[]
         expect(listed.find(p => p.id === 'through-api')).toMatchObject({milestones: 4, docs: expect.arrayContaining([expect.objectContaining({title: 'Joinery', section: 'Shop'})]), starts: {max: 2}})
@@ -2904,7 +2915,7 @@ describe('the contract (api/openapi.yaml)', () => {
     })
 
     it('sends none of the routes written ahead of the Rust API to it', () => {
-        expect(contract(true)).toEqual(['DELETE /api/chats/{chat}', 'GET /api/auth/oidc/callback', 'GET /api/auth/oidc/start', 'GET /api/chats', 'GET /api/chats/{chat}', 'POST /api/auth/login', 'POST /api/auth/logout', 'POST /api/pulls/forget', 'PUT /api/chats/{chat}', 'PUT /api/pulls/{owner}/{name}', 'PUT /api/pulls/{owner}/{name}/error', 'PUT /api/pulls/{owner}/{name}/history', 'PUT /api/pulls/{owner}/{name}/{number}'])
+        expect(contract(true)).toEqual(['DELETE /api/chats/{chat}', 'GET /api/auth/oidc/callback', 'GET /api/auth/oidc/start', 'GET /api/chats', 'GET /api/chats/{chat}', 'GET /api/projects/{project}', 'POST /api/auth/login', 'POST /api/auth/logout', 'POST /api/pulls/forget', 'PUT /api/chats/{chat}', 'PUT /api/pulls/{owner}/{name}', 'PUT /api/pulls/{owner}/{name}/error', 'PUT /api/pulls/{owner}/{name}/history', 'PUT /api/pulls/{owner}/{name}/{number}'])
         expect(contract(true).filter(operation => routes().includes(operation))).toEqual([])
     })
 })
