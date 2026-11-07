@@ -36,6 +36,7 @@ beforeEach(async () => {
     vi.stubGlobal('actorOf', async () => ({name: 'claude', owner: false}))
     vi.stubGlobal('created', (_event: Event, value: unknown) => value)
     vi.stubGlobal('untrustedSession', (id: string) => id === 'locked')
+    vi.stubGlobal('untrustedProject', () => undefined)
     vi.stubGlobal('chatSession', (id: string) => id === 'chat')
     vi.stubGlobal('forbidden', (message: string) => Object.assign(new Error(message), {statusCode: 403}))
     vi.resetModules()

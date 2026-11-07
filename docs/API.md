@@ -493,10 +493,10 @@ and keeps in `orrery.key` beside the database; only when it can't keep one there
 | `PUT /secrets/:name` | `{value, hosts, projects?}`, the owner only: sets it, new (201) or replacing. `name` is capitals, digits and `_` (`STRIPE_KEY`); `value` at least 8 characters; `hosts` the host names it may go to (`api.stripe.com`, with a port if not 443); `projects` the projects that may use it (none: every one) |
 | `PATCH /secrets/:name` | `{hosts?, projects?}`, the owner only: only narrows them. Letting it go somewhere new takes the value again (`PUT`), so whoever doesn't know it can't send it elsewhere |
 | `DELETE /secrets/:name` | the owner only; its uses go with it |
-| `POST /egress` | `{url, method?, headers?, body?, project?, issue?}` → `{status, headers, body, truncated?, secrets}`: the request made with each `{{secret:NAME}}` filled in (in the url, a header or the body) |
+| `POST /egress` | `{url, method?, headers?, body?, project, issue?}` → `{status, headers, body, truncated?, secrets}`: the request made with each `{{secret:NAME}}` filled in (in the url, a header or the body) |
 
 - **Only to its hosts.** Every secret in a request must allow the url's host (else a 403), and the url must be
-  https (else a 400); either way nothing is sent. A secret kept to some `projects` needs the `project` it's for.
+  https (else a 400); either way nothing is sent. Every request names the `project` it's for (else a 400, ORR-1069), and a secret kept to some `projects` is only sent for one of them.
   That keeps a key from being used in the wrong project by mistake; it isn't a boundary, as any caller
   can name any project. The hosts are the boundary.
 - **Escaped where it goes.** In the url the value is percent-encoded; in a body sent as JSON it's

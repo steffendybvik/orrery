@@ -53,6 +53,8 @@ describe('the guards', () => {
         vi.stubGlobal('decoded', (part: string) => part)
         vi.stubGlobal('untrustedWrite', (event: Event) => event.headers['orrery-untrusted'] === 'yes')
         vi.stubGlobal('chatWrite', (event: Event) => event.headers['orrery-chat'] === 'yes')
+        vi.stubGlobal('untrustedProject', () => undefined)
+        vi.stubGlobal('sessionHeader', () => undefined)
         vi.stubGlobal('EXTERNAL', 'external')
         // The issue it comments on is one of its own proposals.
         vi.stubGlobal('useStore', () => ({issue: async () => ({proposal: 'pending', labels: ['external']})}))
