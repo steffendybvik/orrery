@@ -334,7 +334,7 @@ describe.concurrent("a launcher's own loop", {timeout: 40_000}, () => {
             await vi.waitFor(() => expect(orrery.ended()).toEqual([ID.a]), WAIT)
             expect(Object.keys(state())).toEqual([nameOf(ID.b, 'pantry')])
             await vi.waitFor(() => expect(orrery.listening('greenhouse')).toBe(0), WAIT)
-            expect(orrery.listening('pantry')).toBe(1)
+            await vi.waitFor(() => expect(orrery.listening('pantry')).toBe(1), WAIT)
         })
 
         it('serves all its projects on an orrery on one stream, connecting it again as the list changes (ORR-1076)', async context => {
@@ -369,7 +369,8 @@ describe.concurrent("a launcher's own loop", {timeout: 40_000}, () => {
             writeList([entry('pantry')])
             await vi.waitFor(() => expect(orrery.ended()).toEqual([ID.a]), WAIT)
             await vi.waitFor(() => expect(orrery.listening('greenhouse')).toBe(0), WAIT)
-            expect(orrery.listening('pantry')).toBe(1)
+            // Its old stream goes once the new one is ready, so for a moment it may have both.
+            await vi.waitFor(() => expect(orrery.listening('pantry')).toBe(1), WAIT)
         })
 
         it('keeps the sessions of a project that only moved, serving it from its new folder', async context => {
