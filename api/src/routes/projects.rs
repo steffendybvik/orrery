@@ -72,3 +72,7 @@ async fn export_project(State(app): Shared, Path(project): Path<String>) -> Resu
     }
     Ok(response)
 }
+
+#[cfg(test)]
+#[path = "projects_tests.rs"]
+mod tests;

@@ -27,6 +27,10 @@ reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"
 jsonwebtoken = "9"
 url = "2"
 
+[dev-dependencies]
+# The tests send requests through the router (`oneshot`, ORR-1053).
+tower = { version = "0.5", features = ["util"] }
+
 # Proc macros (sqlx's) left unstripped: a release build strips them by default, and macOS's dyld then refuses the
 # stripped dylib ("mis-aligned LINKEDIT string pool"), failing the build (ORR-1029). Only build-time code, so the
 # binary is as it was.

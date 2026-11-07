@@ -1,5 +1,7 @@
 // Reading a request (ORR-1047): who it's from, as the Nuxt router in front sends it (`actor_of`, `who_of`, `ways_of`,
-// `came_of`), the guard every request passes (the shared token, then the login mode), and a body as JSON.
+// `came_of`), the guard every request passes (the shared token, then which database it's for), and a body as JSON.
+// The guard doesn't check a login: the Nuxt router does that before it forwards a request, so this API must only ever
+// be reached through it. `auth_mode` answers the login status (`GET /api/auth/status`) and the phone's link, no more.
 use crate::access::people::{People, Ways, Who};
 use crate::error::{ApiError, Result};
 use crate::write::Actor;
@@ -165,5 +167,175 @@ mod tests {
         assert!(actor.asked && actor.untrusted && !actor.chat);
         let bare = actor_of(&HeaderMap::new());
         assert_eq!((bare.name.as_str(), bare.person, bare.named, bare.asked, bare.untrusted, bare.chat), ("agent", None, None, false, false, false));
+    }
+
+    fn headers(pairs: &[(&'static str, &'static str)]) -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        for (name, value) in pairs {
+            headers.insert(*name, HeaderValue::from_static(value));
+        }
+        headers
+    }
+
+    #[test]
+    fn who_of_reads_a_browser_or_an_agent_and_nothing_else() {
+        let browser = who_of(&headers(&[("orrery-who", "browser"), ("orrery-who-person", "ada"), ("orrery-who-owner", "0")])).unwrap();
+        assert_eq!((browser.person.as_str(), browser.owner, browser.browser), ("ada", false, true));
+        let agent = who_of(&headers(&[("orrery-who", "agent"), ("orrery-who-person", "steffen"), ("orrery-who-owner", "1")])).unwrap();
+        assert_eq!((agent.person.as_str(), agent.owner, agent.browser), ("steffen", true, false));
+        // Only `1` is the owner.
+        assert!(!who_of(&headers(&[("orrery-who", "browser"), ("orrery-who-person", "ada"), ("orrery-who-owner", "true")])).unwrap().owner);
+        assert!(who_of(&headers(&[("orrery-who", "owner"), ("orrery-who-person", "steffen"), ("orrery-who-owner", "1")])).is_none());
+        assert!(who_of(&headers(&[("orrery-who", "browser"), ("orrery-who-owner", "1")])).is_none(), "a credential names its person");
+        assert!(who_of(&headers(&[("orrery-who", "browser"), ("orrery-who-person", ""), ("orrery-who-owner", "1")])).is_none());
+        assert!(who_of(&HeaderMap::new()).is_none());
+    }
+
+    #[test]
+    fn ways_of_reads_each_way_whole() {
+        let ways = ways_of(&headers(&[("orrery-login-ways", "provider, off")]));
+        assert!(ways.provider && ways.off && !ways.on);
+        assert!(ways_of(&headers(&[("orrery-login-ways", "on")])).on);
+        let near = ways_of(&headers(&[("orrery-login-ways", "offline,providers,once")]));
+        assert!(!near.provider && !near.off && !near.on);
+        let none = ways_of(&HeaderMap::new());
+        assert!(!none.provider && !none.off && !none.on);
+    }
+
+    #[test]
+    fn came_of_assumes_nothing_left_unsaid() {
+        let came = came_of(&headers(&[("orrery-came", "loopback,proxied , phone, https")]));
+        assert!(came.loopback && came.proxied && came.phone && came.https);
+        let none = came_of(&HeaderMap::new());
+        assert!(!none.loopback && !none.proxied && !none.phone && !none.https);
+        let near = came_of(&headers(&[("orrery-came", "loopbacks, http")]));
+        assert!(!near.loopback && !near.https);
+    }
+
+    #[test]
+    fn local_host_is_only_this_machines_own_address() {
+        for host in ["localhost", "localhost:9010", "127.0.0.1", "127.0.0.1:9010", "127.255.0.9:1", "[::1]", "[::1]:9010"] {
+            assert!(local_host(host), "{host}");
+        }
+        for host in [
+            "orrery.example",
+            "localhost.example",
+            "localhost.example:9010",
+            "127.0.0.1.example",
+            "128.0.0.1",
+            "127.1",
+            "127.0.0.1000",
+            "::1",
+            "[::2]:9010",
+            "10.0.0.1:9010",
+            "",
+        ] {
+            assert!(!local_host(host), "{host}");
+        }
+    }
+
+    #[test]
+    fn login_of_is_none_when_empty() {
+        assert_eq!(login_of(&headers(&[("orrery-login", "abc")])).as_deref(), Some("abc"));
+        assert_eq!(login_of(&headers(&[("orrery-login", "")])), None);
+        assert_eq!(login_of(&HeaderMap::new()), None);
+    }
+
+    #[test]
+    fn the_routers_kind_has_the_last_word_on_whether_the_owner_asks() {
+        assert!(owner_asking(&headers(&[("orrery-actor-kind", "owner")])));
+        for kind in ["chat", "untrusted", "session"] {
+            assert!(!owner_asking(&headers(&[("orrery-actor-kind", kind), ("orrery-actor-owner", "1")])), "{kind}");
+        }
+        assert!(owner_asking(&headers(&[("orrery-actor-owner", "1")])));
+        assert!(!owner_asking(&HeaderMap::new()));
+    }
+
+    #[test]
+    fn a_header_is_percent_decoded() {
+        let decoded = header(&headers(&[("orrery-actor-name", "%C3%85se%20Lu")]), "orrery-actor-name");
+        assert_eq!(decoded.as_deref(), Some("Åse Lu"));
+        assert_eq!(header(&HeaderMap::new(), "orrery-actor-name"), None);
+    }
+
+    #[test]
+    fn a_body_that_isnt_json_reads_as_null() {
+        assert_eq!(body_of(&Bytes::new()), Value::Null);
+        assert_eq!(body_of(&Bytes::from_static(b"{nope")), Value::Null);
+        assert_eq!(body_of(&Bytes::from_static(br#"{"a":1}"#)), serde_json::json!({"a": 1}));
+    }
+
+    /// `auth_mode` for what the router says, on a database of `people` people.
+    async fn mode(people: usize, came: &'static str, ways: &'static str) -> &'static str {
+        let api = crate::testing::TestApi::new().await;
+        for n in 0..people {
+            sqlx::query("INSERT INTO people (id, name, role, created_at) VALUES (?, ?, ?, ?)")
+                .bind(format!("p{n}"))
+                .bind(format!("P{n}"))
+                .bind(if n == 0 { "owner" } else { "member" })
+                .bind(crate::write::stamp())
+                .execute(&api.app.pool)
+                .await
+                .unwrap();
+        }
+        let mut conn = api.app.pool.acquire().await.unwrap();
+        let said = headers(&[("orrery-came", came), ("orrery-login-ways", ways)]);
+        auth_mode(&mut People::new(&mut conn), came_of(&said), &ways_of(&said)).await.unwrap()
+    }
+
+    #[tokio::test]
+    async fn auth_mode_is_off_only_on_loopback_for_one_person_or_with_auth_off() {
+        let table = [
+            (1, "loopback", "", "off"),
+            (0, "loopback", "", "off"),
+            (2, "loopback", "", "on"),
+            (1, "loopback", "on", "on"),
+            (1, "loopback, proxied", "", "on"),
+            (1, "", "", "on"),
+            (1, "https", "", "on"),
+            (2, "loopback", "off", "off"),
+            (1, "", "off", "closed"),
+            (1, "proxied", "off", "closed"),
+            (1, "loopback, phone", "", "on"),
+            (1, "loopback, phone", "off", "closed"),
+            (1, "phone", "off", "closed"),
+            // `off` wins over `on`, as ORRERY_AUTH holds one of them.
+            (1, "loopback", "on, off", "off"),
+        ];
+        for (people, came, ways, expected) in table {
+            assert_eq!(mode(people, came, ways).await, expected, "{people} people, came {came:?}, ways {ways:?}");
+        }
+    }
+
+    #[tokio::test]
+    async fn auth_mode_stays_on_once_a_second_person_has_been_and_when_the_database_cant_say() {
+        let api = crate::testing::TestApi::new().await;
+        let said = headers(&[("orrery-came", "loopback")]);
+        sqlx::query("INSERT INTO settings (key, value) VALUES ('auth_on', 'true')").execute(&api.app.pool).await.unwrap();
+        let mut conn = api.app.pool.acquire().await.unwrap();
+        assert_eq!(auth_mode(&mut People::new(&mut conn), came_of(&said), &ways_of(&said)).await.unwrap(), "on");
+        sqlx::query("DELETE FROM settings WHERE key = 'auth_on'").execute(&mut *conn).await.unwrap();
+        assert_eq!(auth_mode(&mut People::new(&mut conn), came_of(&said), &ways_of(&said)).await.unwrap(), "off");
+        sqlx::query("ALTER TABLE people RENAME TO people_gone").execute(&mut *conn).await.unwrap();
+        assert_eq!(auth_mode(&mut People::new(&mut conn), came_of(&said), &ways_of(&said)).await.unwrap(), "on");
+    }
+
+    #[tokio::test]
+    async fn the_guard_compares_the_whole_token() {
+        let api = crate::testing::TestApi::new().await;
+        let token = crate::testing::TOKEN;
+        for wrong in [format!("{token}!"), token[..31].to_string(), String::new(), token.to_uppercase()] {
+            let refused = api.get("/api/statuses").header("orrery-api-token", &wrong).send().await;
+            assert_eq!(refused.status, 401, "{wrong:?}");
+        }
+    }
+
+    #[tokio::test]
+    async fn the_guard_wants_this_database_named() {
+        let api = crate::testing::TestApi::new().await;
+        assert_eq!(api.get("/api/statuses").without("orrery-database").send().await.status, 421);
+        // The token is checked first, so the database's hash says nothing to a caller without it.
+        assert_eq!(api.get("/api/statuses").without("orrery-database").without("orrery-api-token").send().await.status, 401);
+        assert_eq!(api.get("/health").without("orrery-database").without("orrery-api-token").send().await.status, 200);
     }
 }

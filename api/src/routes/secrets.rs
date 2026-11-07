@@ -21,3 +21,7 @@ async fn get_secret(State(app): Shared, Path(name): Path<String>) -> Result<Resp
     let mut conn = app.pool.acquire().await?;
     Ok(Json(Secrets::new(&mut conn).secret(&name).await?).into_response())
 }
+
+#[cfg(test)]
+#[path = "secrets_tests.rs"]
+mod tests;

@@ -65,3 +65,7 @@ async fn all_releases(State(app): Shared) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
     Ok(Json(Plans::new(&mut Issues::new(&mut conn)).all_releases().await?).into_response())
 }
+
+#[cfg(test)]
+#[path = "releases_tests.rs"]
+mod tests;

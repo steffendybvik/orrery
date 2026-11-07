@@ -25,6 +25,8 @@ mod reply;
 mod request;
 mod routes;
 mod steps;
+#[cfg(test)]
+mod testing;
 mod text;
 mod work;
 mod write;

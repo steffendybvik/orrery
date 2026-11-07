@@ -30,3 +30,7 @@ async fn patch_settings(State(app): Shared, headers: HeaderMap, body: Bytes) -> 
     let value = settings.update(&body_of(&body), &actor_of(&headers)).await?;
     Ok(reply(StatusCode::OK, Some(value), std::mem::take(&mut settings.effects)))
 }
+
+#[cfg(test)]
+#[path = "settings_tests.rs"]
+mod tests;

@@ -59,3 +59,7 @@ async fn delete_epic(State(app): Shared, Path(epic): Path<String>, headers: Head
     epics.delete(id, &actor_of(&headers)).await?;
     Ok(reply(StatusCode::NO_CONTENT, None, std::mem::take(&mut epics.effects)))
 }
+
+#[cfg(test)]
+#[path = "epics_tests.rs"]
+mod tests;

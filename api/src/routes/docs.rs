@@ -115,3 +115,7 @@ async fn delete_section(State(app): Shared, Path((project, section)): Path<(Stri
     let ((), effects) = with_docs!(app, headers, |docs| docs.delete_section(&project, &section).await?);
     Ok(reply(StatusCode::NO_CONTENT, None, effects))
 }
+
+#[cfg(test)]
+#[path = "docs_tests.rs"]
+mod tests;

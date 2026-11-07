@@ -59,3 +59,7 @@ async fn delete_milestone(State(app): Shared, Path((project, milestone)): Path<(
     milestones.delete(&project, &milestone, &actor_of(&headers)).await?;
     Ok(reply(StatusCode::NO_CONTENT, None, std::mem::take(&mut milestones.effects)))
 }
+
+#[cfg(test)]
+#[path = "milestones_tests.rs"]
+mod tests;

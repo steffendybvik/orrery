@@ -42,3 +42,7 @@ async fn get_chat(State(app): Shared, Path(chat): Path<String>) -> Result<Respon
     let mut conn = app.pool.acquire().await?;
     Ok(Json(Chats::new(&mut conn).get(&chat).await?).into_response())
 }
+
+#[cfg(test)]
+#[path = "chats_tests.rs"]
+mod tests;

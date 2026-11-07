@@ -56,3 +56,7 @@ async fn delete_status(State(app): Shared, Path(status): Path<String>, Query(que
     let ((), effects) = with_statuses!(app, headers, |statuses| statuses.delete(&status, into, &actor_of(&headers)).await?);
     Ok(reply(StatusCode::NO_CONTENT, None, effects))
 }
+
+#[cfg(test)]
+#[path = "statuses_tests.rs"]
+mod tests;

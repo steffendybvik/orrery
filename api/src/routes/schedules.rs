@@ -38,3 +38,7 @@ async fn schedules_across(State(app): Shared) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
     Ok(Json(Schedules::new(&mut conn).across().await?).into_response())
 }
+
+#[cfg(test)]
+#[path = "schedules_tests.rs"]
+mod tests;

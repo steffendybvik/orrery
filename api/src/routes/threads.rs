@@ -124,3 +124,7 @@ async fn delete_epic_comment(State(app): Shared, Path((epic, comment)): Path<(St
     let id = comment_id(&comment)?;
     remove_from_thread(threads, thread, id, &headers).await
 }
+
+#[cfg(test)]
+#[path = "threads_tests.rs"]
+mod tests;

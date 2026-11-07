@@ -24,7 +24,7 @@ export function rustRoutes(): string[] {
     const main = read('../../api/src/main.rs')
     const prefix = /const P: &str = "([^"]+)";/.exec(read('../../api/src/routes/mod.rs'))?.[1] ?? ''
     const dir = fileURLToPath(new URL('../../api/src/routes', import.meta.url))
-    const sources = [main, ...readdirSync(dir).filter(file => file !== 'mod.rs' && file.endsWith('.rs')).map(file => readFileSync(join(dir, file), 'utf8'))]
+    const sources = [main, ...readdirSync(dir).filter(file => file !== 'mod.rs' && file.endsWith('.rs') && !file.endsWith('_tests.rs')).map(file => readFileSync(join(dir, file), 'utf8'))]
     const routes: string[] = []
     for (const source of sources) {
         const body = /\nfn router\([^)]*\)[^{]*\{([\s\S]*?)\n\}/.exec(source)?.[1] ?? /\npub\(crate\) fn routes\(\)[^{]*\{([\s\S]*?)\n\}/.exec(source)?.[1]

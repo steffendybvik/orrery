@@ -90,3 +90,7 @@ async fn rate_pull(
     let value = pulls.rate(&project, &issue, &format!("{owner}/{name}"), number, risk, owner_asking(&headers)).await?;
     Ok(reply(StatusCode::OK, Some(value), std::mem::take(&mut pulls.effects)))
 }
+
+#[cfg(test)]
+#[path = "pulls_tests.rs"]
+mod tests;

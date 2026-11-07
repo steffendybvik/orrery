@@ -16,3 +16,7 @@ async fn get_upload(State(app): Shared, Path(upload): Path<String>) -> Result<Re
     let mut conn = app.pool.acquire().await?;
     uploads::upload(&mut conn, &upload).await
 }
+
+#[cfg(test)]
+#[path = "uploads_tests.rs"]
+mod tests;

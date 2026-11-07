@@ -1046,6 +1046,7 @@ dependencies = [
  "sha2",
  "sqlx",
  "tokio",
+ "tower",
  "unicode-normalization",
  "url",
 ]

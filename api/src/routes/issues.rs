@@ -424,3 +424,7 @@ async fn get_comment(State(app): Shared, Path((project, issue, comment)): Path<(
     let mut conn = app.pool.acquire().await?;
     Ok(Json(IssueWrites::new(&mut conn).comment(&project, &issue, id).await?).into_response())
 }
+
+#[cfg(test)]
+#[path = "issues_tests.rs"]
+mod tests;

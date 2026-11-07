@@ -27,3 +27,7 @@ async fn list_changes(State(app): Shared, headers: HeaderMap, Query(query): Quer
     let mut conn = app.pool.acquire().await?;
     Ok(Json(changes::after(&mut conn, query.get("after").map(String::as_str)).await?).into_response())
 }
+
+#[cfg(test)]
+#[path = "changes_tests.rs"]
+mod tests;

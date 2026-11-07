@@ -77,3 +77,7 @@ async fn restore_presets(State(app): Shared, headers: HeaderMap) -> Result<Respo
     let mut conn = app.pool.acquire().await?;
     Ok(Json(Presets::new(&mut conn).restore(&actor_of(&headers)).await?).into_response())
 }
+
+#[cfg(test)]
+#[path = "presets_tests.rs"]
+mod tests;

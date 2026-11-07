@@ -230,3 +230,7 @@ async fn oidc_callback(State(app): Shared, headers: HeaderMap, RawQuery(raw): Ra
     }
     Ok(response)
 }
+
+#[cfg(test)]
+#[path = "auth_tests.rs"]
+mod tests;

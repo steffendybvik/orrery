@@ -93,3 +93,7 @@ async fn end_login(State(app): Shared, Path(login): Path<String>, headers: Heade
     People::new(&mut conn).end_login(&login, (!owner).then_some(person.as_str())).await?;
     Ok(StatusCode::NO_CONTENT.into_response())
 }
+
+#[cfg(test)]
+#[path = "people_tests.rs"]
+mod tests;

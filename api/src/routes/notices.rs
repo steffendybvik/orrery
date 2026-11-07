@@ -71,3 +71,7 @@ async fn read_notices(State(app): Shared, headers: HeaderMap, body: Bytes) -> Re
     let read = Notices::new(&mut conn).read(&body_of(&body), person.as_deref()).await?;
     Ok(Json(json!({"read": read})).into_response())
 }
+
+#[cfg(test)]
+#[path = "notices_tests.rs"]
+mod tests;
