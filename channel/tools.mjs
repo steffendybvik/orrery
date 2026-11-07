@@ -205,7 +205,7 @@ const DOC_FIELDS = {
 const WHY = {type: 'string'}
 
 /** What the owner's chat session has besides, listed: answering in the chat, seeing what the owner pasted in it,
- * changing an issue's fields when they ask, asking to move or assign issues, and asking for the rest (`CHAT_REQUESTS`)
+ * changing an issue's fields when they ask, moving or assigning issues (at once when they named them), and asking for the rest (`CHAT_REQUESTS`)
  * through `request`. Each request shows the owner what would happen with Allow and Deny (Send and Don't send for a
  * message), and the chat hears which they pressed; the chat's instructions say so once (ORR-624). */
 export const CHAT_TOOLS = [
@@ -216,7 +216,7 @@ export const CHAT_TOOLS = [
     },
     {
         name: 'edit_issue',
-        description: "Changes an issue's title, notes, priority, labels, team tasks, GitHub issues, milestone, epic, release, parent or what it depends on, when the owner asks in this chat. To move one to another status or assign it, ask with move_issues.",
+        description: "Changes an issue's title, notes, priority, labels, team tasks, GitHub issues, milestone, epic, release, parent or what it depends on, when the owner asks in this chat. To move one to another status or assign it, use move_issues.",
         inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'string'}, ...Object.fromEntries(['title', 'notes', 'priority', 'labels', 'external', 'github_issues', 'milestone', 'epic', 'release', 'parent', 'depends_on'].map(f => [f, FIELDS[f]]))}},
     },
     {
@@ -226,7 +226,7 @@ export const CHAT_TOOLS = [
     },
     {
         name: 'move_issues',
-        description: "Asks the owner to move issues in this project to another status (an id or a kind: todo, done, canceled…), or assign them (a name, owner, or null for nobody). Not a proposal waiting on the owner: that's theirs to decide.",
+        description: "Moves issues in this project to a status (an id or a kind: todo, done…), or assigns them (a name, owner, or null). At once if the owner named each in their last message or is on its page; else asks them. Not a proposal waiting on the owner.",
         inputSchema: {type: 'object', required: ['ids'], properties: {
             ids: {type: 'array', items: {type: 'string'}, description: 'The issues, e.g. ["ORR-12", "ORR-14"]'},
             status: {type: 'string'},
@@ -754,8 +754,9 @@ export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''),
             return message.text
         },
         async move_issues({ids, status, assignee, why}) {
-            const {move} = await call('POST', `/chats/${encodeURIComponent(chat)}/requests`, {move: {ids, ...status !== undefined ? {status} : {}, ...assignee !== undefined ? {assignee} : {}}, ...why ? {why} : {}}, root)
-            return `Asked: the owner sees ${move.changes.length === 1 ? 'the change' : `the ${move.changes.length} changes`} with Allow and Deny, and you'll hear which they pressed. Nothing moves until they allow it.`
+            const {move, text} = await call('POST', `/chats/${encodeURIComponent(chat)}/requests`, {move: {ids, ...status !== undefined ? {status} : {}, ...assignee !== undefined ? {assignee} : {}}, ...why ? {why} : {}}, root)
+            if (!move) return `Done, as the owner asked: ${text}`
+            return `Asked, as the owner didn't name ${ids.length === 1 ? 'it' : 'them all'} in their last message: the owner sees ${move.changes.length === 1 ? 'the change' : `the ${move.changes.length} changes`} with Allow and Deny, and you'll hear which they pressed. Nothing moves until they allow it.`
         },
         async update_settings({setting, value, why}) {
             await call('POST', `/chats/${encodeURIComponent(chat)}/requests`, {setting, value, ...why ? {why} : {}}, root)

@@ -275,7 +275,7 @@ describe("the channel's tools", () => {
         expect(toolsFor(['greenhouse']).map((t: {name: string}) => t.name)).not.toContain('update_settings')
     })
 
-    it("in the owner's chat, ask them to move or assign issues, moving nothing itself", async () => {
+    it("in the owner's chat, ask them to move or assign issues they didn't name, moving nothing itself", async () => {
         const calls: {url: string, method: string, body?: unknown}[] = []
         const fetch = async (url: string, init: {method: string, body?: string}) => {
             calls.push({url, method: init.method, body: init.body ? JSON.parse(init.body) : undefined})
@@ -285,6 +285,12 @@ describe("the channel's tools", () => {
         expect((await call('move_issues', {ids: ['GRE-1', 'GRE-2'], status: 'done', assignee: null})).content[0]!.text).toMatch(/the 2 changes with Allow and Deny.*Nothing moves until they allow it/)
         expect(calls).toEqual([{url: 'http://o/api/chats/c1c2c3c4c5c6/requests', method: 'POST', body: {move: {ids: ['GRE-1', 'GRE-2'], status: 'done', assignee: null}}}])
         expect(toolsFor(['greenhouse']).map((t: {name: string}) => t.name)).not.toContain('move_issues')
+    })
+
+    it("in the owner's chat, say what moved when the owner named the issues (ORR-1042)", async () => {
+        const fetch = async () => ({ok: true, status: 201, statusText: '', text: async () => JSON.stringify({id: 9, text: 'Put GRE-1 in done.'})})
+        const call = orreryTools({api: 'http://o/api/projects/greenhouse', session: 'c', chat: 'c1c2c3c4c5c6', fetch}) as (name: string, args?: object) => Promise<{content: {text: string}[]}>
+        expect((await call('move_issues', {ids: ['GRE-1'], status: 'done'})).content[0]!.text).toBe('Done, as the owner asked: Put GRE-1 in done.')
     })
 
     it("in the owner's chat, ask them to make or change a schedule in the chat", async () => {
