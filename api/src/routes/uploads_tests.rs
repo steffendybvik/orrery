@@ -84,7 +84,11 @@ async fn an_upload_is_kept_compressed_and_served_back() {
     assert_eq!(reply.body["markdown"], format!("![shot one](/api/uploads/{id})"), "no extension, and no brackets to end the alt text");
     assert_eq!(reply.header("orrery-changed"), None, "an image is on no board until a comment shows it");
     let row: (String, Option<String>, i64, String, i64) =
-        sqlx::query_as("SELECT type, name, size, created_by, owned FROM uploads WHERE id = ?").bind(&id).fetch_one(&api.app.pool).await.unwrap();
+        sqlx::query_as(&crate::db::sql("SELECT type, name, size, created_by, owned FROM uploads WHERE id = ?"))
+            .bind(&id)
+            .fetch_one(&api.app.pool)
+            .await
+            .unwrap();
     assert_eq!(row, ("image/webp".into(), Some("shot [one].png".into()), size as i64, "owner".into(), 1));
     let served = api.get(&format!("/api/uploads/{id}")).send().await;
     assert_eq!((served.status.as_u16(), served.header("content-type")), (200, Some("image/webp")));
@@ -101,7 +105,7 @@ async fn an_upload_takes_a_data_url_and_keeps_who_sent_it() {
     assert!(reply.body["markdown"].as_str().unwrap().starts_with("![image](/api/uploads/"), "no name, so \"image\"");
     let id = reply.body["id"].as_str().unwrap();
     let row: (Option<String>, String, i64) =
-        sqlx::query_as("SELECT name, created_by, owned FROM uploads WHERE id = ?").bind(id).fetch_one(&api.app.pool).await.unwrap();
+        sqlx::query_as(&crate::db::sql("SELECT name, created_by, owned FROM uploads WHERE id = ?")).bind(id).fetch_one(&api.app.pool).await.unwrap();
     assert_eq!(row, (None, "claude".into(), 0));
 }
 
