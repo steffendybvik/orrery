@@ -535,7 +535,8 @@ function part(entry) {
         // Which repo it's in (ORR-1070), in its system prompt so a `/clear` keeps it; its hook then leaves it out. The
         // default folder is in none, and says so.
         const where = repoContext(folder, {project, repo: launch.global ? undefined : claim.repo})
-        const env = {ORRERY_URL: url, ORRERY_PROJECT: project, ORRERY_STARTED: launch.id, ORRERY_REPO_TOLD: 'yes', ORRERY_AFTER: String(launch.after), ...hears.length ? {ORRERY_HEAR: hears.join(',')} : {}, ...launch.untrusted ? {ORRERY_UNTRUSTED: 'yes'} : {}, ...launch.chat ? {ORRERY_CHAT: 'yes'} : {}, ...launch.global ? {ORRERY_GLOBAL: 'yes'} : {}, ...launch.person ? {ORRERY_PERSON: launch.person} : {}, ...keyFor(url) ? {ORRERY_KEY: keyFor(url)} : {}}
+        const startedOn = await orreryIdOf(url)
+        const env = {ORRERY_URL: url, ORRERY_PROJECT: project, ORRERY_STARTED: launch.id, ...startedOn ? {ORRERY_STARTED_ON: startedOn} : {}, ORRERY_REPO_TOLD: 'yes', ORRERY_AFTER: String(launch.after), ...hears.length ? {ORRERY_HEAR: hears.join(',')} : {}, ...launch.untrusted ? {ORRERY_UNTRUSTED: 'yes'} : {}, ...launch.chat ? {ORRERY_CHAT: 'yes'} : {}, ...launch.global ? {ORRERY_GLOBAL: 'yes'} : {}, ...launch.person ? {ORRERY_PERSON: launch.person} : {}, ...keyFor(url) ? {ORRERY_KEY: keyFor(url)} : {}}
         const server = channelFor(folder, url, project)?.name ?? project
         tmux('new-session', '-d', '-s', launch.tmux, '-c', folder, ...Object.entries(env).flatMap(([k, v]) => ['-e', `${k}=${v}`]),
             ...agent.command({dir: folder, server, launch, mode, told: where}))
@@ -812,6 +813,16 @@ function follows() {
 
 /** The default folder of each orrery it serves (ORR-1066), by address: where it is, once it's set up. */
 const homes = new Map()
+/** Each orrery's id, by address, once it has said: a session it starts is told which orrery started it
+ * (ORRERY_STARTED_ON), so the other orrerys' user-level hooks leave it alone (ORR-1071). */
+const orreryIds = new Map()
+async function orreryIdOf(url) {
+    if (!orreryIds.has(url)) {
+        const settings = await fetch(`${url}/api/settings`, {headers: authHeaders(url), signal: AbortSignal.timeout(10_000)}).then(r => r.ok ? r.json() : null, () => null)
+        if (settings?.id) orreryIds.set(url, settings.id)
+    }
+    return orreryIds.get(url)
+}
 /** What the default folder's channel and hooks run. */
 const commands = () => commandsFor({bootstrap: BOOTSTRAP, checkout: dirname(fileURLToPath(import.meta.url))})
 
@@ -823,6 +834,7 @@ async function followHomes(list) {
         const read = path => fetch(`${url}/api/${path}`, {headers: authHeaders(url), signal: AbortSignal.timeout(10_000)}).then(r => r.ok ? r.json() : null, () => null)
         const [settings, machine, projects] = await Promise.all([read('settings'), read('machine'), read('projects')])
         if (!settings?.id || !Array.isArray(projects)) continue
+        orreryIds.set(url, settings.id)
         let home = homes.get(url)
         if (!home) {
             try {
