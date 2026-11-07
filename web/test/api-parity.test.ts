@@ -23,7 +23,8 @@ import {PullPoll} from '../server/utils/pull-poll'
 import type {PolledRow} from '../server/utils/pull-poll'
 import {openDb} from '../server/utils/db'
 import {PostgresDb} from '../server/utils/postgres'
-import {actorHeaders, changedOf, countedOf, databaseMark, domainOf, DOMAINS, handedOn, handoffsOf, handOn, loginHeaders, movesStatus, onlyWords, passedThrough, servedByApi, toldOf, urgentOf, whoHeaders} from '../server/utils/api-router'
+import {PHONE_LOGIN} from '#shared/phone'
+import {actorHeaders, cameHeaders, changedOf, countedOf, databaseMark, domainOf, DOMAINS, handedOn, handoffsOf, handOn, loginHeaders, movesStatus, onlyWords, passedThrough, servedByApi, toldOf, urgentOf, whoHeaders} from '../server/utils/api-router'
 import {permission, refused} from '../server/utils/permission'
 import {followOutbox, readPage} from '../server/utils/outbox-follower'
 import {contract, methodOf, nuxtRoutes, pathOf} from './routes'
@@ -1144,6 +1145,71 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         expect((await call('/api/auth/login', {key: person.key})).status).toBe(401)
         // Neither is the router's to send yet: the Nuxt server logs in for itself until the swap.
         for (const path of ['/api/auth/login', '/api/auth/logout']) expect(servedByApi('POST', path), path).toBe(false)
+    })
+
+    it('says the login status, and makes and takes a phone\'s sign-in link, as the Nuxt server does (ORR-928)', async () => {
+        const call = (method: string, path: string, body?: unknown, extra: Record<string, string> = {}) => fetch(`${url}${path}`, {
+            method,
+            headers: {'Content-Type': 'application/json', 'Orrery-Api-Token': TOKEN, 'Orrery-Database': databaseMark(setting), ...extra},
+            ...body === undefined ? {} : {body: JSON.stringify(body)},
+        })
+        const status = async (came: Parameters<typeof cameHeaders>[0], host = 'localhost:9000', ways: {provider: boolean, off: boolean, on?: boolean} = {provider: false, off: false}, extra: Record<string, string> = {}) =>
+            (await call('GET', '/api/auth/status', undefined, {...cameHeaders(came, host), ...loginHeaders(ways, 'http://x'), ...extra})).json() as Promise<Record<string, unknown>>
+        if (!(await store.ownerOf()).named) await store.nameOwner({name: 'Steffen'})
+        const none = {loopback: false, proxied: false, phone: false, https: false}
+        const loopback = {...none, loopback: true}
+        const stays = await store.authStaysOn()
+        const canGetIn = await store.ownerHasKey()
+        // On loopback it's off unless auth stays on; anywhere else, through a proxy or on the phone's port it asks.
+        expect(await status(loopback)).toEqual({mode: stays ? 'on' : 'off', can_get_in: canGetIn, oidc: false, warn_http: false, phone: false})
+        expect((await status(none, '192.168.1.9:9000')).mode).toBe('on')
+        expect((await status(none, '192.168.1.9:9000')).warn_http).toBe(true)
+        expect((await status({...none, https: true}, 'orrery.example')).warn_http).toBe(false)
+        expect((await status({...loopback, proxied: true})).mode).toBe('on')
+        expect((await status(loopback, 'localhost:9000', {provider: false, off: false, on: true})).mode).toBe('on')
+        expect(await status({...loopback, phone: true})).toMatchObject({mode: 'on', phone: true})
+        // ORRERY_AUTH=off lets only loopback in, and the phone's port never.
+        expect((await status(loopback, 'localhost:9000', {provider: false, off: true})).mode).toBe('off')
+        expect((await status(none, '192.168.1.9:9000', {provider: false, off: true})).mode).toBe('closed')
+        expect((await status({...none, phone: true}, '192.168.1.9:9000', {provider: false, off: true})).mode).toBe('closed')
+        expect(await status(loopback, 'localhost:9000', {provider: true, off: false})).toMatchObject({oidc: true, can_get_in: true})
+        expect(await status(none, '192.168.1.9:9000', undefined, whoHeaders({person: 'ada', owner: false, via: 'browser'}, undefined))).toMatchObject({person: 'ada', via: 'browser'})
+
+        // Making a link: only the owner's own page, never over the phone's port or from a session.
+        const owner = await store.ownerOf()
+        const asOwner = {...actorHeaders(OWNER), ...whoHeaders({person: owner.name, owner: true, via: 'browser'}, undefined), ...cameHeaders(none, '192.168.1.9:9000')}
+        expect((await call('POST', '/api/phone/link', undefined, {...asOwner, ...cameHeaders({...none, phone: true}, 'x')})).status).toBe(403)
+        expect((await call('POST', '/api/phone/link', undefined, {...actorHeaders(OWNER), ...whoHeaders({person: 'ada', owner: false, via: 'browser'}, undefined)})).status).toBe(403)
+        expect((await call('POST', '/api/phone/link', undefined, {...actorHeaders(OWNER), ...whoHeaders({person: owner.name, owner: true, via: 'agent'}, undefined)})).status).toBe(403)
+        const fromSession = await call('POST', '/api/phone/link', undefined, {...actorHeaders(SESSION), ...whoHeaders({person: owner.name, owner: true, via: 'browser'}, undefined)})
+        expect(fromSession.status).toBe(403)
+        expect(await fromSession.json()).toMatchObject({data: {permission: 'phone.link'}})
+        const made = await call('POST', '/api/phone/link', undefined, asOwner)
+        expect(made.status).toBe(201)
+        const link = await made.json() as {token: string, code: string, expires_at: string}
+        expect(link.token).toMatch(/^[\w-]{32}$/)
+        expect(link.code).toMatch(/^[A-HJKMNP-Z2-9]{6}$/)
+        expect(Date.parse(link.expires_at) - Date.now()).toBeGreaterThan(4 * 60_000)
+
+        // Taking it: once, by the link or its code, with a login named as the phone's that the store knows.
+        const taken = await call('POST', '/api/auth/link', {token: link.token}, cameHeaders({...none, phone: true, https: true}, 'x'))
+        expect(taken.status).toBe(201)
+        expect(await taken.json()).toEqual({person: owner.name})
+        const cookie = taken.headers.get('set-cookie')!
+        expect(cookie).toMatch(/; HttpOnly; Secure; SameSite=Lax$/)
+        const secret = /=([^;]+)/.exec(cookie)![1]!
+        expect(await store.loginHolder(secret)).toEqual({person: owner.name, owner: true})
+        expect(await store.logins(owner.name, secret)).toContainEqual(expect.objectContaining({current: true, name: PHONE_LOGIN}))
+        const again = await call('POST', '/api/auth/link', {token: link.token})
+        expect(again.status).toBe(401)
+        expect(await again.json()).toMatchObject({message: 'This sign-in link has been used or has run out: show the QR code in App settings again'})
+        expect((await call('POST', '/api/auth/link', {code: link.code})).status).toBe(401)
+        const second = await (await call('POST', '/api/phone/link', undefined, asOwner)).json() as {token: string, code: string}
+        const typed = await call('POST', '/api/auth/link', {code: `${second.code.slice(0, 3).toLowerCase()} ${second.code.slice(3)}`})
+        expect(typed.status).toBe(201)
+        expect((await call('POST', '/api/auth/link', {token: second.token})).status).toBe(401)
+        // None of the three is the router's to send yet: the Nuxt server keeps them until the swap.
+        for (const [method, path] of [['GET', '/api/auth/status'], ['POST', '/api/auth/link'], ['POST', '/api/phone/link']] as const) expect(servedByApi(method, path), path).toBe(false)
     })
 
     it('logs in through a provider as the Nuxt server does, with an invite the store made (ORR-928)', async () => {
@@ -2904,7 +2970,7 @@ describe('the contract (api/openapi.yaml)', () => {
     })
 
     it('sends none of the routes written ahead of the Rust API to it', () => {
-        expect(contract(true)).toEqual(['DELETE /api/chats/{chat}', 'GET /api/auth/oidc/callback', 'GET /api/auth/oidc/start', 'GET /api/chats', 'GET /api/chats/{chat}', 'POST /api/auth/login', 'POST /api/auth/logout', 'POST /api/pulls/forget', 'PUT /api/chats/{chat}', 'PUT /api/pulls/{owner}/{name}', 'PUT /api/pulls/{owner}/{name}/error', 'PUT /api/pulls/{owner}/{name}/history', 'PUT /api/pulls/{owner}/{name}/{number}'])
+        expect(contract(true)).toEqual(['DELETE /api/chats/{chat}', 'GET /api/auth/oidc/callback', 'GET /api/auth/oidc/start', 'GET /api/auth/status', 'GET /api/chats', 'GET /api/chats/{chat}', 'POST /api/auth/link', 'POST /api/auth/login', 'POST /api/auth/logout', 'POST /api/phone/link', 'POST /api/pulls/forget', 'PUT /api/chats/{chat}', 'PUT /api/pulls/{owner}/{name}', 'PUT /api/pulls/{owner}/{name}/error', 'PUT /api/pulls/{owner}/{name}/history', 'PUT /api/pulls/{owner}/{name}/{number}'])
         expect(contract(true).filter(operation => routes().includes(operation))).toEqual([])
     })
 })
