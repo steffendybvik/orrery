@@ -49,6 +49,9 @@ const untrusted = process.env.ORRERY_UNTRUSTED === 'yes'
 /** Started for the owner's chat (the launcher says, in ORRERY_CHAT): the launch, which is the chat's id. It answers in
  * the chat, and says so on all it sends. */
 const chat = process.env.ORRERY_CHAT === 'yes' ? process.env.ORRERY_STARTED : undefined
+/** What a chat's tools reach (ORR-1063): every project its channel lists, not only the one it hears, so it can ask for
+ * a schedule or a doc on another, its own when it names none. Filled in once the orrery is reached, for `*`. */
+const reached = chat && !every ? (listed.includes('*') ? [] : [...new Set(listed)]) : projects
 const who = new URLSearchParams(Object.entries({session: window.id, pid: window.pid, name: window.name, stops: window.pid && 'yes', untrusted: untrusted && 'yes', chat: chat && 'yes', version: VERSION})
     .filter(([, v]) => v).map(([k, v]) => [k, String(v)]))
 /** The project orrery started the session for (the launcher says, in ORRERY_PROJECT), whose stream says so. */
@@ -76,8 +79,8 @@ const loadTools = async group => {
     loaded.add(group)
     await server.notification({method: 'notifications/tools/list_changed'}).catch(() => {})
 }
-const callTool = orreryTools({root: `${base}/api`, projects, session: window.id, person, auth: authHeaders(base), untrusted, chat, report: reportCall, load: loadTools})
-server.setRequestHandler(ListToolsRequestSchema, async () => ({tools: toolsFor(projects, {chat: !!chat, untrusted, loaded: [...loaded]})}))
+const callTool = orreryTools({root: `${base}/api`, projects: reached, home: chat ? startedFor() : undefined, session: window.id, person, auth: authHeaders(base), untrusted, chat, report: reportCall, load: loadTools})
+server.setRequestHandler(ListToolsRequestSchema, async () => ({tools: toolsFor(reached, {chat: !!chat, untrusted, loaded: [...loaded], home: chat ? startedFor() : undefined})}))
 server.setRequestHandler(CallToolRequestSchema, async request => {
     const why = refused || (!projects.length && `orrery (${base}) hasn't been reached yet, so the projects it serves aren't known; try again shortly`)
     if (why) return {isError: true, content: [{type: 'text', text: why}]}
@@ -145,9 +148,12 @@ async function reach() {
                 refused = `The orrery at ${base} is ${settings.id} (${settings.environment ?? 'no environment'}), not ${process.env.ORRERY_ID}, the one this repo is set up for (ORRERY_ID): it won't be read or written. Point ORRERY_URL at the right one.`
                 return
             }
-            if (every) {
+            // A chat on `*` that hears one project still reaches them all.
+            const reachesAll = reached !== projects && listed.includes('*')
+            if (every || reachesAll) {
                 const all = await fetch(`${base}/api/projects`, {headers: personHeaders}).then(r => r.json())
-                projects.push(...all.map(p => p.id))
+                if (every) projects.push(...all.map(p => p.id))
+                if (reachesAll) reached.push(...all.map(p => p.id))
                 await server.notification({method: 'notifications/tools/list_changed'}).catch(() => {})
             }
             return
