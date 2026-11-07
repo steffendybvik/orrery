@@ -99,7 +99,10 @@ const everywhere = counter('everywhere')
 const versions = new Map<string, string[]>()
 /** Each connected launcher's token, to the project it serves: its stream hands it over (`ready`), and a claim counts
  * only with one, so nothing but a launcher on its stream can take a launch and keep it from starting (ORR-443). */
-const tokens = new Map<string, {project: string, person?: string}>()
+const tokens = new Map<string, {project: string, person?: string, home?: boolean}>()
+/** How many of each project's launchers serve it from their machine's default folder (`?home=1`, ORR-1066), as it has no
+ * repo there: one in the project's repo is given its sessions first. */
+const homeLaunchers = counter('home-launchers')
 /** Whose each launch is, by id, from when it's held until its session ends (`Launch.person`): a member's launcher hears
  * and claims only its own person's (ORR-963), the events that carry only an id included. */
 const whose = new Map<string, string>()
@@ -137,11 +140,13 @@ export function addMemberLauncher(project: string, person: string): (() => void)
     return Object.assign(() => void tokens.delete(token), {token})
 }
 /** Counts a project's launcher in, in its folder when it says, and as serving every project when it does, and the
- * version of its code, until `done` is called. `done.token` is the one its claims are to send. */
-export function addLauncher(project: string, dir?: string, every = false, version = '', how: RepoAdded = {}): (() => void) & {token: string} {
+ * version of its code, until `done` is called. `done.token` is the one its claims are to send. `home`: it serves the
+ * project from its machine's default folder, with no repo (ORR-1066). */
+export function addLauncher(project: string, dir?: string, every = false, version = '', how: RepoAdded = {}, home = false): (() => void) & {token: string} {
     const token = randomBytes(18).toString('base64url')
-    tokens.set(token, {project})
+    tokens.set(token, {project, ...home ? {home: true} : {}})
     const gone = launchers.add(project)
+    const homeGone = home ? homeLaunchers.add(project) : () => {}
     const away = every ? everywhere.add(project) : () => {}
     versions.set(project, [...versions.get(project) ?? [], version])
     let held = true
@@ -153,6 +158,7 @@ export function addLauncher(project: string, dir?: string, every = false, versio
             left.splice(left.indexOf(version), 1)
         }
         away()
+        homeGone()
         gone()
     }
     if (!dir) return Object.assign(done, {token})
@@ -471,6 +477,8 @@ export function claim(project: string, id: string, token: string | undefined, lo
     }
     // A member's launcher takes only that person's launches, never the owner's (ORR-963).
     if (launcher.person && launch.person !== launcher.person) return false
+    // One in the default folder leaves it to one in the project's repo, while there is one (ORR-1066).
+    if (launcher.home && launchers.count(project) > homeLaunchers.count(project)) return false
     if (launch.untrusted && !locksDown || launch.chat && !chats) {
         const what = launch.chat ? 'a chat' : "an untrusted schedule's session"
         outdated(project, id, `A launcher on ${project} is running older code that can't start ${what}, so it was refused it. Restart the launcher, and it's offered it again (it runs the channel folder's code when it starts).`)

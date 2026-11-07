@@ -3,7 +3,8 @@ import {launcherMinimum} from '#shared/version'
 
 // `GET /api/projects/:project/launches/stream?dir=&every=1&version=&picked=` → server-sent events for the project's launcher
 // (channel/orrery-launcher.mjs) on the host, running in the folder `dir` (projects served from one folder can share a
-// session), with `every` where its channel serves every project (`*`), `version` its code's, `picked` when its channel picked the repo up (ORR-605), and `connected` when Connect a repo added it (ORR-774): `ready` {project, starts,
+// session), or with `home=1` from its machine's default folder, as the project has no repo there (ORR-1066), when a
+// launcher in its repo is given its sessions first, with `every` where its channel serves every project (`*`), `version` its code's, `picked` when its channel picked the repo up (ORR-605), and `connected` when Connect a repo added it (ORR-774): `ready` {project, starts,
 // version, oldest, token}, the orrery's version among them and the oldest launcher it takes (ORR-965), and the token its claims send (`Orrery-Launcher`), so a launcher on older code knows to restart once it can; then each of the project's launches no launcher has taken yet; `launch` {id, project, after, minutes?, tmux, context?, hears?}, a session to start
 // once it has claimed it (no minutes: until stopped); `stop` {id}, one of its sessions to stop (the owner stopped
 // it, also while no launcher was connected, or it's done and its time is up or it sat idle too long); `extend` {id, stops_at}, the owner giving one longer; `clear` {id}, one of its sessions done with a piece of work, to `/clear` for a fresh context; `watch` {id, terminal}, the owner pressing Watch, to open a terminal on it in that app; `view` {id}, the owner viewing its screen, to send it (POST …/screen) until nobody is.
@@ -11,15 +12,15 @@ export default defineEventHandler(async event => {
     const project = param(event, 'project')
     const starts = await useStore().starts(project)
     const stream = createEventStream(event)
-    const {dir, every, version, picked, connected} = getQuery(event)
+    const {dir, every, version, picked, connected, home} = getQuery(event)
     // Kept only as a time, so nothing else a launcher says reaches the page through it.
     const when = (at: unknown) => typeof at === 'string' && !Number.isNaN(Date.parse(at)) ? new Date(at).toISOString() : undefined
     const [pickedAt, connectedAt] = [when(picked), when(connected)]
     // A launcher on a member's agent key hears only its own person's launches, and isn't counted as the project's (ORR-963).
     const member = launcherMember(event)
-    const done = member ? addMemberLauncher(project, member) : addLauncher(project, typeof dir === 'string' && dir ? dir : undefined, every === '1', typeof version === 'string' ? version.slice(0, 40) : '', {...pickedAt ? {picked_at: pickedAt} : {}, ...connectedAt ? {connected_at: connectedAt} : {}})
-    const where = typeof dir === 'string' && dir ? {dir} : {}
-    useEventLog().note({level: 'info', kind: 'launcher.connected', project, message: member ? `A launcher on ${member}'s key connected: it hears only their launches` : 'A launcher connected', details: where})
+    const done = member ? addMemberLauncher(project, member) : addLauncher(project, typeof dir === 'string' && dir ? dir : undefined, every === '1', typeof version === 'string' ? version.slice(0, 40) : '', {...pickedAt ? {picked_at: pickedAt} : {}, ...connectedAt ? {connected_at: connectedAt} : {}}, home === '1')
+    const where = typeof dir === 'string' && dir ? {dir} : home === '1' ? {home: true} : {}
+    useEventLog().note({level: 'info', kind: 'launcher.connected', project, message: member ? `A launcher on ${member}'s key connected: it hears only their launches` : home === '1' ? "A launcher connected, serving the project from its machine's default folder" : 'A launcher connected', details: where})
     const send = (sent: LaunchEvent) => {
         if (!hearsLaunch(member, sent.type === 'launch' ? sent.launch.id : sent.id)) return
         if (sent.type === 'launch') {
