@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import {launcherInstall} from '#shared/connect'
 // Getting started: the steps from a new orrery to a Claude session working from it, each ticked from what the
 // orrery knows (useGettingStarted), with what to do for the one you're on. As a page it's the first run (in place
 // of "No projects yet", and at /getting-started); `card` is its fold-away form at the top of My issues. Opening it on a
@@ -15,6 +16,11 @@ const {open: newIssue} = useNewIssue()
 const demo = useDemoProject()
 const router = useRouter()
 const open = ref(true)
+// The install line (ORR-1067), on the first open: the launcher, and orrery in Claude Code's user config for every
+// folder, so a session reaches it before any repo is connected. Gone once a launcher connects.
+const {launchers} = useRoadmaps()
+const machineReady = computed(() => Object.values(launchers.value).some(count => count > 0))
+const machineLine = launcherInstall(serverOrigin())
 
 const TEXT = [
     {title: 'You own this orrery', text: 'What you make, no one else can delete. Your name is in App settings.'},
@@ -90,6 +96,15 @@ async function tryDemo() {
     </div>
     <div class="h-1 overflow-hidden rounded-full bg-well" role="progressbar" :aria-valuenow="done" :aria-valuemax="steps.length" aria-label="Steps done">
       <div class="h-full rounded-full bg-accent-fill transition-all" :style="{width: `${(done / steps.length) * 100}%`}" />
+    </div>
+    <div v-if="!machineReady" class="flex flex-col gap-2 rounded-xl bg-panel p-4 text-[13px] leading-relaxed text-muted ring-1 ring-line" data-step="machine">
+      <span class="font-medium text-fg">Set up this machine once</span>
+      <span>
+        Run this in a terminal, from any folder. It installs the launcher, so orrery can start sessions, and adds orrery to
+        Claude Code for every folder, so a <span class="font-mono">claude</span> anywhere reaches it, repo or not. Safe to run again;
+        <span class="font-mono">--uninstall</span> in place of <span class="font-mono">--install</span> takes it all out. Needs tmux 3.2 or newer.
+      </span>
+      <CopyBlock title="Anywhere on your machine, run" :text="machineLine" />
     </div>
     <ol class="flex flex-col gap-4 text-[13px] leading-relaxed text-muted">
       <template v-for="(step, i) in steps" :key="step.key">

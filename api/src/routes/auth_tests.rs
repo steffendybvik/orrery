@@ -8,24 +8,6 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use sqlx::Row;
 
-async fn owner(api: &TestApi) {
-    sqlx::query(&crate::db::sql("INSERT INTO people (id, name, role, created_at) VALUES ('steffen', 'Steffen', 'owner', ?)"))
-        .bind(stamp())
-        .execute(&api.app.pool)
-        .await
-        .unwrap();
-}
-
-async fn member(api: &TestApi, id: &str) {
-    sqlx::query(&crate::db::sql("INSERT INTO people (id, name, role, created_at) VALUES (?, ?, 'member', ?)"))
-        .bind(id)
-        .bind(id)
-        .bind(stamp())
-        .execute(&api.app.pool)
-        .await
-        .unwrap();
-}
-
 /// A key for `person` made as the owner with login off: its id and its secret.
 async fn key(api: &TestApi, person: &str, kind: &str) -> (String, String) {
     let made = api.post("/api/keys", json!({"kind": kind, "name": "laptop", "person": person})).header("orrery-actor-name", "Steffen").send().await;
@@ -41,10 +23,6 @@ fn hash(secret: &str) -> String {
 fn cookie_secret(reply: &Reply) -> String {
     let cookie = reply.header("set-cookie").expect("a login cookie");
     cookie.split(';').next().unwrap().split_once('=').unwrap().1.to_string()
-}
-
-fn browser(req: Req, person: &str, owner: bool) -> Req {
-    req.header("orrery-who", "browser").header("orrery-who-person", person).header("orrery-who-owner", if owner { "1" } else { "0" })
 }
 
 async fn status(req: Req) -> Value {
@@ -66,7 +44,7 @@ async fn logins(api: &TestApi) -> Vec<(String, String, Option<String>, Option<St
 #[tokio::test]
 async fn logging_in_swaps_a_person_key_for_an_http_only_cookie_named_for_the_port() {
     let api = TestApi::new().await;
-    owner(&api).await;
+    api.owner().await;
     let (id, secret) = key(&api, "steffen", "person").await;
     let reply = api.post("/api/auth/login", json!({"key": format!("  {secret}\n")})).header("host", "localhost:9010").send().await;
     assert_eq!(reply.status, 200, "{}", reply.body);
@@ -81,7 +59,7 @@ async fn logging_in_swaps_a_person_key_for_an_http_only_cookie_named_for_the_por
 #[tokio::test]
 async fn a_login_cookie_is_secure_over_https_and_plain_without_a_port() {
     let api = TestApi::new().await;
-    owner(&api).await;
+    api.owner().await;
     let (_, secret) = key(&api, "steffen", "person").await;
     let proxied = api.post("/api/auth/login", json!({"key": secret})).header("host", "orrery.example").header("x-forwarded-proto", "https,http").send().await;
     let cookie = proxied.header("set-cookie").unwrap();
@@ -93,8 +71,8 @@ async fn a_login_cookie_is_secure_over_https_and_plain_without_a_port() {
 #[tokio::test]
 async fn an_agent_key_a_revoked_key_or_a_removed_persons_never_logs_in() {
     let api = TestApi::new().await;
-    owner(&api).await;
-    member(&api, "ada").await;
+    api.owner().await;
+    api.member("ada", "ada").await;
     let (_, agent) = key(&api, "steffen", "agent").await;
     let (revoked_id, revoked) = key(&api, "steffen", "person").await;
     assert_eq!(api.delete(&format!("/api/keys/{revoked_id}")).header("orrery-actor-name", "Steffen").send().await.status, 204);
@@ -113,7 +91,7 @@ async fn an_agent_key_a_revoked_key_or_a_removed_persons_never_logs_in() {
 #[tokio::test]
 async fn logging_out_ends_this_browsers_login_on_the_server_too() {
     let api = TestApi::new().await;
-    owner(&api).await;
+    api.owner().await;
     let (_, secret) = key(&api, "steffen", "person").await;
     let mine = cookie_secret(&api.post("/api/auth/login", json!({"key": secret})).header("host", "localhost:9010").send().await);
     let other = cookie_secret(&api.post("/api/auth/login", json!({"key": secret})).header("host", "localhost:9010").send().await);
@@ -145,7 +123,7 @@ async fn logging_out_without_a_login_still_clears_the_cookie() {
 #[tokio::test]
 async fn status_is_off_on_loopback_for_one_person_and_says_nothing_of_anyone() {
     let api = TestApi::new().await;
-    owner(&api).await;
+    api.owner().await;
     let said = status(api.get("/api/auth/status").without("orrery-actor-name").without("orrery-actor-owner")).await;
     assert_eq!(said, json!({"mode": "off", "can_get_in": false, "oidc": false, "warn_http": false, "phone": false}));
 }
@@ -153,7 +131,7 @@ async fn status_is_off_on_loopback_for_one_person_and_says_nothing_of_anyone() {
 #[tokio::test]
 async fn status_asks_for_a_login_off_loopback_behind_a_proxy_or_when_told_to() {
     let api = TestApi::new().await;
-    owner(&api).await;
+    api.owner().await;
     for (came, ways) in [("", ""), ("proxied", ""), ("loopback, proxied", ""), ("loopback", "on")] {
         let said = status(api.get("/api/auth/status").header("orrery-came", came).header("orrery-login-ways", ways)).await;
         assert_eq!(said["mode"], "on", "came {came:?}, ways {ways:?}");
@@ -165,7 +143,7 @@ async fn status_asks_for_a_login_off_loopback_behind_a_proxy_or_when_told_to() {
 #[tokio::test]
 async fn status_is_closed_with_auth_off_anywhere_but_loopback() {
     let api = TestApi::new().await;
-    owner(&api).await;
+    api.owner().await;
     let off = |came: &str| api.get("/api/auth/status").header("orrery-came", came).header("orrery-login-ways", "off");
     assert_eq!(status(off("loopback")).await["mode"], "off");
     assert_eq!(status(off("")).await["mode"], "closed");
@@ -176,7 +154,7 @@ async fn status_is_closed_with_auth_off_anywhere_but_loopback() {
 #[tokio::test]
 async fn the_phones_port_always_asks_for_a_login() {
     let api = TestApi::new().await;
-    owner(&api).await;
+    api.owner().await;
     let phone = status(api.get("/api/auth/status").header("orrery-came", "loopback, phone")).await;
     assert_eq!((phone["mode"].as_str(), phone["phone"].as_bool()), (Some("on"), Some(true)));
     let off = status(api.get("/api/auth/status").header("orrery-came", "loopback, phone").header("orrery-login-ways", "off")).await;
@@ -186,8 +164,8 @@ async fn the_phones_port_always_asks_for_a_login() {
 #[tokio::test]
 async fn a_second_person_turns_login_on_for_good() {
     let api = TestApi::new().await;
-    owner(&api).await;
-    member(&api, "ada").await;
+    api.owner().await;
+    api.member("ada", "ada").await;
     assert_eq!(status(api.get("/api/auth/status")).await["mode"], "on");
     sqlx::query(&crate::db::sql("UPDATE people SET removed_at = ? WHERE id = 'ada'")).bind(stamp()).execute(&api.app.pool).await.unwrap();
     assert_eq!(status(api.get("/api/auth/status")).await["mode"], "on", "it stays on after they go");
@@ -196,7 +174,7 @@ async fn a_second_person_turns_login_on_for_good() {
 #[tokio::test]
 async fn status_says_someone_can_get_in_with_a_provider_or_the_owners_person_key() {
     let api = TestApi::new().await;
-    owner(&api).await;
+    api.owner().await;
     assert_eq!(status(api.get("/api/auth/status").header("orrery-login-ways", "provider")).await["can_get_in"], true);
     assert_eq!(status(api.get("/api/auth/status").header("orrery-login-ways", "provider")).await["oidc"], true);
     key(&api, "steffen", "agent").await;
@@ -208,8 +186,8 @@ async fn status_says_someone_can_get_in_with_a_provider_or_the_owners_person_key
 #[tokio::test]
 async fn status_says_who_this_browser_or_agent_is() {
     let api = TestApi::new().await;
-    owner(&api).await;
-    let said = status(browser(api.get("/api/auth/status"), "steffen", true)).await;
+    api.owner().await;
+    let said = status(api.get("/api/auth/status").browser("steffen", true)).await;
     assert_eq!((said["person"].as_str(), said["via"].as_str()), (Some("steffen"), Some("browser")));
     let said = status(api.get("/api/auth/status").header("orrery-who", "agent").header("orrery-who-person", "steffen")).await;
     assert_eq!(said["via"], "agent");
@@ -220,7 +198,7 @@ async fn status_says_who_this_browser_or_agent_is() {
 #[tokio::test]
 async fn status_warns_of_plain_http_only_to_another_machine() {
     let api = TestApi::new().await;
-    owner(&api).await;
+    api.owner().await;
     let on = |came: &str, host: &str| api.get("/api/auth/status").header("orrery-came", came).header("orrery-host", host);
     assert_eq!(status(on("", "orrery.example")).await["warn_http"], true);
     assert_eq!(status(on("", "192.168.1.4:9010")).await["warn_http"], true);
@@ -237,7 +215,7 @@ async fn status_warns_of_plain_http_only_to_another_machine() {
 #[tokio::test]
 async fn the_owner_makes_a_sign_in_link_good_for_five_minutes() {
     let api = TestApi::new().await;
-    owner(&api).await;
+    api.owner().await;
     let made = api.post("/api/phone/link", json!(null)).send().await;
     assert_eq!(made.status, 201, "{}", made.body);
     assert!(made.body["token"].as_str().unwrap().len() >= 20);
@@ -247,17 +225,17 @@ async fn the_owner_makes_a_sign_in_link_good_for_five_minutes() {
     let left = (expires - chrono::Utc::now()).num_seconds();
     assert!(left > LINK_MINUTES * 60 - 10 && left <= LINK_MINUTES * 60, "{left}s");
     // With login on, from the owner's own browser.
-    member(&api, "ada").await;
-    assert_eq!(browser(api.post("/api/phone/link", json!(null)), "steffen", true).send().await.status, 201);
+    api.member("ada", "ada").await;
+    assert_eq!(api.post("/api/phone/link", json!(null)).browser("steffen", true).send().await.status, 201);
 }
 
 #[tokio::test]
 async fn a_sign_in_link_is_never_made_over_the_phones_port() {
     let api = TestApi::new().await;
-    owner(&api).await;
+    api.owner().await;
     for came in ["loopback, phone", "phone"] {
         let refused =
-            browser(api.post("/api/phone/link", json!(null)), "steffen", true).header("orrery-came", came).header("orrery-login-ways", "off").send().await;
+            api.post("/api/phone/link", json!(null)).browser("steffen", true).header("orrery-came", came).header("orrery-login-ways", "off").send().await;
         assert_eq!(refused.status, 403, "{}", refused.body);
     }
 }
@@ -265,11 +243,11 @@ async fn a_sign_in_link_is_never_made_over_the_phones_port() {
 #[tokio::test]
 async fn with_login_on_only_the_owners_own_browser_makes_a_sign_in_link() {
     let api = TestApi::new().await;
-    owner(&api).await;
-    member(&api, "ada").await;
+    api.owner().await;
+    api.member("ada", "ada").await;
     let tries = [
         api.post("/api/phone/link", json!(null)),
-        browser(api.post("/api/phone/link", json!(null)), "ada", false),
+        api.post("/api/phone/link", json!(null)).browser("ada", false),
         api.post("/api/phone/link", json!(null)).header("orrery-who", "agent").header("orrery-who-person", "steffen").header("orrery-who-owner", "1"),
         // Closed: nobody gets in, so nobody makes one.
         api.post("/api/phone/link", json!(null)).header("orrery-came", "").header("orrery-login-ways", "off"),
@@ -283,7 +261,7 @@ async fn with_login_on_only_the_owners_own_browser_makes_a_sign_in_link() {
 #[tokio::test]
 async fn a_session_the_chat_or_an_untrusted_one_never_makes_a_sign_in_link() {
     let api = TestApi::new().await;
-    owner(&api).await;
+    api.owner().await;
     for (kind, named) in [("session", "a session"), ("chat", "the owner's chat"), ("untrusted", "an untrusted session")] {
         // Even claiming the owner, and with login on even from the owner's browser.
         let off = api.post("/api/phone/link", json!(null)).header("orrery-actor-kind", kind).send().await;
@@ -298,7 +276,7 @@ async fn a_session_the_chat_or_an_untrusted_one_never_makes_a_sign_in_link() {
             off.body
         );
         let on =
-            browser(api.post("/api/phone/link", json!(null)), "steffen", true).header("orrery-actor-kind", kind).header("orrery-login-ways", "on").send().await;
+            api.post("/api/phone/link", json!(null)).browser("steffen", true).header("orrery-actor-kind", kind).header("orrery-login-ways", "on").send().await;
         assert_eq!(on.status, 403, "{kind}: {}", on.body);
     }
     let agent = api.post("/api/phone/link", json!(null)).by_agent("claude").send().await;
@@ -316,7 +294,7 @@ async fn a_sign_in_link_needs_the_owner_named() {
 #[tokio::test]
 async fn a_phones_link_signs_it_in_as_the_owner_once() {
     let api = TestApi::new().await;
-    owner(&api).await;
+    api.owner().await;
     let made = api.post("/api/phone/link", json!(null)).send().await;
     let token = made.body["token"].as_str().unwrap();
     let signed = api.post("/api/auth/link", json!({"token": token})).header("host", "192.168.1.4:9011").without("orrery-actor-owner").send().await;
@@ -335,7 +313,7 @@ async fn a_phones_link_signs_it_in_as_the_owner_once() {
 #[tokio::test]
 async fn a_typed_code_signs_a_phone_in_and_uses_up_its_link() {
     let api = TestApi::new().await;
-    owner(&api).await;
+    api.owner().await;
     let made = api.post("/api/phone/link", json!(null)).send().await;
     let code = made.body["code"].as_str().unwrap().to_lowercase();
     let typed = format!("{} {}", &code[..3], &code[3..]);
@@ -348,7 +326,7 @@ async fn a_typed_code_signs_a_phone_in_and_uses_up_its_link() {
 #[tokio::test]
 async fn a_link_run_out_or_never_made_signs_nobody_in() {
     let api = TestApi::new().await;
-    owner(&api).await;
+    api.owner().await;
     let old = api.app.phone.make("steffen", phone::now_ms() - (LINK_MINUTES * 60_000 + 1_000));
     for body in
         [json!({"token": old.token}), json!({"code": old.code}), json!({"token": "a".repeat(32)}), json!({}), json!({"token": 5}), json!({"code": "ABC"})]
@@ -365,7 +343,7 @@ async fn a_link_run_out_or_never_made_signs_nobody_in() {
 #[tokio::test]
 async fn a_run_of_wrong_codes_ends_every_code_but_not_the_qr_links() {
     let api = TestApi::new().await;
-    owner(&api).await;
+    api.owner().await;
     let made = api.post("/api/phone/link", json!(null)).send().await;
     for _ in 0..WRONG_CODES {
         assert_eq!(api.post("/api/auth/link", json!({"code": "ZZZZZZ"})).send().await.status, 401);
@@ -377,7 +355,7 @@ async fn a_run_of_wrong_codes_ends_every_code_but_not_the_qr_links() {
 #[tokio::test]
 async fn a_null_code_is_no_code_so_the_token_is_read() {
     let api = TestApi::new().await;
-    owner(&api).await;
+    api.owner().await;
     let made = api.post("/api/phone/link", json!(null)).send().await;
     assert_eq!(api.post("/api/auth/link", json!({"code": null, "token": made.body["token"]})).send().await.status, 201);
 }

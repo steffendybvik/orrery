@@ -122,6 +122,8 @@ export type ChatScheduleField = keyof typeof CHAT_SCHEDULE_FIELDS
 /** A schedule the chat asked to make (no `id`) or change (`id`), each field it sets from → to, `body` as it's sent to
  * Schedules: saved as the owner's only once they allow it, and `expired` as a setting's request is. */
 export interface ChatScheduleRequest {
+    /** The project it's on, when not the chat's own (ORR-1063). */
+    project?: string
     id?: number
     title: string
     changes: {field: ChatScheduleField, from?: unknown, to: unknown}[]
@@ -145,6 +147,8 @@ export type ChatReleaseField = keyof typeof CHAT_RELEASE_FIELDS
 /** A release the chat asked to make, or change (`change`), each field it sets from → to (a place as "2nd from the top"),
  * `body` as it's sent to Releases: saved only once the owner allows it, and `expired` as a setting's request is. */
 export interface ChatReleaseRequest {
+    /** The project it's on, when not the chat's own (ORR-1063). */
+    project?: string
     version: string
     change: boolean
     changes: {field: ChatReleaseField, from?: unknown, to: unknown}[]
@@ -165,6 +169,8 @@ export type ChatMilestoneField = keyof typeof CHAT_MILESTONE_FIELDS
 /** A milestone the chat asked to make (no `id`) or change (`id`), each field it sets from → to: saved as the owner's only
  * once they allow it, and `expired` as a setting's request is. */
 export interface ChatMilestoneRequest {
+    /** The project it's on, when not the chat's own (ORR-1063). */
+    project?: string
     id?: string
     title: string
     changes: {field: ChatMilestoneField, from?: unknown, to: unknown}[]
@@ -186,6 +192,8 @@ export const CHAT_DOC_FIELDS = {
  * no longer matches `was`, so they never approve one against text they didn't see: that leaves it `expired` and `stale`.
  * `expired` otherwise as a setting's request is. */
 export interface ChatDocRequest {
+    /** The project it's on, when not the chat's own (ORR-1063). */
+    project?: string
     id?: string
     title: string
     body: {title?: string, section?: string | null, body?: string}
@@ -197,6 +205,8 @@ export interface ChatDocRequest {
 /** An issue the chat offers to file (ORR-711): nothing is filed until the owner presses File issue, when `id` says what it
  * became. `denied` is their Don't file, and `expired` as a setting's request is. */
 export interface ChatIssueRequest {
+    /** The project it's on, when not the chat's own (ORR-1063). */
+    project?: string
     id?: string
     title: string
     notes?: string
@@ -226,6 +236,8 @@ export interface ChatSendRequest {
  * when it was asked, and `drifted` what has changed on them since: Allow then moves nothing until it's allowed anyway
  * (ORR-644). `expired` as a setting's request is. */
 export interface ChatMoveRequest {
+    /** The project it's on, when not the chat's own (ORR-1063). */
+    project?: string
     changes: {issue: string, title: string, field: 'status' | 'assignee', from: string | null, to: string | null}[]
     was?: Record<string, {status: string, assignee: string | null}>
     drifted?: {issue: string, field: 'status' | 'assignee', from: string | null, to: string | null}[]

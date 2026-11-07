@@ -1,13 +1,7 @@
 // The tests of routes/epics.rs (ORR-1052), through `router()` on a database of their own (`crate::testing`).
-use crate::testing::{Reply, TestApi};
-use percent_encoding::percent_decode_str;
+use crate::testing::TestApi;
 use serde_json::{json, Value};
 use sqlx::Row;
-
-/// What a reply's `orrery-told` says, decoded, each event in turn.
-fn told(reply: &Reply) -> Vec<String> {
-    reply.header("orrery-told").map(|t| t.split(", ").map(|e| percent_decode_str(e).decode_utf8_lossy().into_owned()).collect()).unwrap_or_default()
-}
 
 async fn epic(api: &TestApi, body: Value) -> Value {
     let reply = api.post("/api/epics", body).send().await;
@@ -95,7 +89,7 @@ async fn rewording_an_epic_tells_each_project_in_it_and_moving_it_tells_none() {
     assert_eq!(reworded.status, 200, "{}", reworded.body);
     assert_eq!(reworded.body["title"], "Big wheels");
     assert!(reworded.body.get("notes").is_none(), "{}", reworded.body);
-    assert_eq!(told(&reworded), [format!("epic.changed {project} 1")]);
+    assert_eq!(reworded.told(), [format!("epic.changed {project} 1")]);
     assert_eq!(reworded.header("orrery-epics"), Some("1"));
     let same = api.patch("/api/epics/1", json!({"title": "Big wheels"})).send().await;
     assert_eq!(same.header("orrery-told"), None, "the same words are no change");
@@ -129,7 +123,7 @@ async fn deleting_an_epic_leaves_its_issues_in_none() {
     let issue = api.issue(&project, json!({"title": "Sieve", "epic": 1})).await;
     let gone = api.delete("/api/epics/1").send().await;
     assert_eq!(gone.status, 204, "{}", gone.body);
-    assert_eq!(told(&gone), [format!("issue.epic {project} {issue} 1 ~")]);
+    assert_eq!(gone.told(), [format!("issue.epic {project} {issue} 1 ~")]);
     assert_eq!(gone.header("orrery-changed"), Some(project.as_str()));
     assert_eq!(gone.header("orrery-epics"), Some("1"));
     assert_eq!(api.get("/api/epics").send().await.body, json!([]));
@@ -169,5 +163,5 @@ async fn deleting_an_epic_says_each_project_in_it_changed() {
     let mut expected = vec![a.as_str(), b.as_str()];
     expected.sort();
     assert_eq!(changed, expected);
-    assert_eq!(told(&gone).len(), 2);
+    assert_eq!(gone.told().len(), 2);
 }

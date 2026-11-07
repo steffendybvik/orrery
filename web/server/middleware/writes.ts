@@ -11,14 +11,14 @@
 //   hosted there (ORR-667, 0-cors.ts); none is by default.
 // - A write's body must be JSON, which a page on another site can't send without the browser asking
 //   first, and orrery never says yes.
-// - The sessions' streams (`…/signals/stream`, `…/launches/stream`) change what orrery thinks is listening
+// - The sessions' streams (`…/signals/stream`, `…/launches/stream`, and `/api/launches/stream` for all of a launcher's) change what orrery thinks is listening
 //   just by being opened, so they're guarded like a write; and since a picture (`<img>`, an agent's
 //   Markdown image) sends no Origin, a browser opening one has to be orrery's own page, as an EventSource.
 //   The channel, the launcher and curl send no Sec-Fetch headers.
 import {originAllowed} from '../utils/origins'
 
 const WRITES = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
-const STREAM = /^\/api\/(projects\/[^/]+\/(signals|launches)|signals)\/stream\/?(\?|$)/
+const STREAM = /^\/api\/(projects\/[^/]+\/(signals|launches)|signals|launches)\/stream\/?(\?|$)/
 const LOCAL = /^(localhost|.+\.localhost|[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.local|\d{1,3}(\.\d{1,3}){3}|\[[0-9a-f:.]+\])$/i
 
 export default defineEventHandler(event => {

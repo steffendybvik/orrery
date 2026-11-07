@@ -25,10 +25,13 @@ const nameOf = (id: string, project = 'greenhouse') => `orrery-${project}-${id}`
 type Launch = Record<string, unknown> & {id: string}
 type Asked = {method: string, path: string, query: URLSearchParams, headers: Record<string, unknown>, body: string}
 
-/** An orrery as far as a launcher sees it: a project's stream, which says it's ready, and what the launcher posts back. */
-async function standInOrrery(version: string) {
+/** An orrery as far as a launcher sees it: its streams, which say they're ready, and what the launcher posts back. Its
+ * launcher's stream is one for all its projects (ORR-1076), or with `older`, one each, as before that. */
+async function standInOrrery(version: string, {older = false} = {}) {
     const asked: Asked[] = []
     const streams = new Map<string, Set<import('node:http').ServerResponse>>()
+    /** The streams for all of a launcher's projects, as `/api/launches/stream` is, each with what it serves. */
+    const wide = new Map<import('node:http').ServerResponse, string[]>()
     const refused = new Set<string>()
     const connectStreams = new Set<import('node:http').ServerResponse>()
     const server = createServer((req, res) => {
@@ -44,6 +47,15 @@ async function standInOrrery(version: string) {
                 const open = streams.get(stream[1]!) ?? new Set()
                 streams.set(stream[1]!, open.add(res))
                 res.on('close', () => open.delete(res))
+                return
+            }
+            if (url.pathname === '/api/launches/stream') {
+                if (older) return void res.writeHead(404, {'Content-Type': 'application/json'}).end('{"statusMessage":"Not Found"}')
+                const projects = (JSON.parse(url.searchParams.get('serve') ?? '[]') as {project: string}[]).map(entry => entry.project)
+                res.writeHead(200, {'Content-Type': 'text/event-stream'})
+                res.write(`event: ready\ndata: ${JSON.stringify({projects: Object.fromEntries(projects.map(p => [p, {starts: {limit: 3, minutes: 0}, token: 'launcher-token'}])), unknown: [], version})}\n\n`)
+                wide.set(res, projects)
+                res.on('close', () => wide.delete(res))
                 return
             }
             if (url.pathname === '/api/connects/stream') {
@@ -65,8 +77,16 @@ async function standInOrrery(version: string) {
         url: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
         asked,
         refuse: (id: string) => refused.add(id),
-        event: (event: string, data: unknown, project = 'greenhouse') => streams.get(project)?.forEach(s => s.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)),
-        listening: (project = 'greenhouse') => streams.get(project)?.size ?? 0,
+        event: (event: string, data: unknown, project = 'greenhouse') => {
+            streams.get(project)?.forEach(s => s.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`))
+            // On the one stream, each event names its project, as orrery's do.
+            for (const [s, projects] of wide) if (projects.includes(project)) s.write(`event: ${event}\ndata: ${JSON.stringify({project, ...data as object})}\n\n`)
+        },
+        listening: (project = 'greenhouse') => (streams.get(project)?.size ?? 0) + [...wide.values()].filter(projects => projects.includes(project)).length,
+        /** How many streams for all of a launcher's projects are open. */
+        wideStreams: () => wide.size,
+        /** What each launcher stream asked for serves, by project: its folder, or `home`. */
+        serving: () => orreryServing(asked),
         connectEvent: (event: string, data: unknown) => connectStreams.forEach(s => s.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)),
         connecting: () => connectStreams.size,
         connectReports: () => paths('/report').map(a => JSON.parse(a.body) as Record<string, unknown>),
@@ -80,11 +100,24 @@ async function standInOrrery(version: string) {
     }
 }
 
+/** The folder each project was last asked to be served from, on either kind of launcher stream, or `home`. */
+function orreryServing(asked: Asked[]): Record<string, string> {
+    const serving: Record<string, string> = {}
+    for (const a of asked) {
+        const one = /^\/api\/projects\/([^/]+)\/launches\/stream$/.exec(a.path)
+        if (one) serving[one[1]!] = a.query.get('home') === '1' ? 'home' : a.query.get('dir') ?? ''
+        if (a.path === '/api/launches/stream') {
+            for (const entry of JSON.parse(a.query.get('serve') ?? '[]') as {project: string, dir?: string, home?: boolean}[]) serving[entry.project] = entry.home ? 'home' : entry.dir ?? ''
+        }
+    }
+    return serving
+}
+
 type Sessions = Record<string, Record<string, string>>
 type Finishing = {onTestFinished: (done: () => unknown) => void}
 
 /** A folder with a fake tmux, a stand-in orrery, and a way to start the launcher on them. */
-async function bench({onTestFinished}: Finishing, sessions: Sessions = {}) {
+async function bench({onTestFinished}: Finishing, sessions: Sessions = {}, {older = false} = {}) {
     // Its real path, as the launcher sees its own folder: on macOS the temp folder is behind a link.
     const root = realpathSync(mkdtempSync(join(tmpdir(), 'orrery-launcher-loop-')))
     const [bin, fake, home, sockets, repo] = ['bin', 'fake', 'home', 'sockets', 'repo'].map(part => join(root, part)) as [string, string, string, string, string]
@@ -99,7 +132,7 @@ async function bench({onTestFinished}: Finishing, sessions: Sessions = {}) {
     writeFileSync(join(fake, 'calls'), '')
     writeFileSync(join(fake, 'state.json'), JSON.stringify(sessions))
     const version = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version as string
-    const orrery = await standInOrrery(version)
+    const orrery = await standInOrrery(version, {older})
     // `ps` is how it tells a live launcher, so the system's folders stay on PATH, after the fake.
     const env = {PATH: `${bin}:/usr/bin:/bin`, HOME: home, XDG_CONFIG_HOME: join(home, '.config'), TMUX_TMPDIR: sockets, FAKE_TMUX: fake, DISPLAY: ':0'}
     const children: ChildProcess[] = []
@@ -301,7 +334,43 @@ describe.concurrent("a launcher's own loop", {timeout: 40_000}, () => {
             await vi.waitFor(() => expect(orrery.ended()).toEqual([ID.a]), WAIT)
             expect(Object.keys(state())).toEqual([nameOf(ID.b, 'pantry')])
             await vi.waitFor(() => expect(orrery.listening('greenhouse')).toBe(0), WAIT)
+            await vi.waitFor(() => expect(orrery.listening('pantry')).toBe(1), WAIT)
+        })
+
+        it('serves all its projects on an orrery on one stream, connecting it again as the list changes (ORR-1076)', async context => {
+            const {orrery, repo, start, writeList, state} = await bench(context)
+            const entry = (project: string) => ({url: orrery.url, project, dir: repo})
+            writeList([entry('greenhouse'), entry('pantry')])
+            await start({service: true})
+            await vi.waitFor(() => expect(orrery.reported()).toHaveLength(2), WAIT)
+            expect(orrery.wideStreams()).toBe(1)
+            expect(orrery.asked.filter(a => /^\/api\/projects\/[^/]+\/launches\/stream$/.test(a.path))).toEqual([])
+            orrery.event('launch', {id: ID.b, tmux: nameOf(ID.b, 'pantry'), after: 0}, 'pantry')
+            await vi.waitFor(() => expect(state()[nameOf(ID.b, 'pantry')]?.['@orrery_stops_at']).toBe('never'), WAIT)
+            writeList([entry('greenhouse'), entry('pantry'), entry('orchard')])
+            await vi.waitFor(() => expect(orrery.listening('orchard')).toBe(1), WAIT)
+            // The stream before goes once the new one is ready, so pantry is never left with no launcher.
+            await vi.waitFor(() => expect(orrery.wideStreams()).toBe(1), WAIT)
             expect(orrery.listening('pantry')).toBe(1)
+            // Connecting again for the new set leaves the sessions running.
+            expect(orrery.ended()).toEqual([])
+            expect(Object.keys(state())).toEqual([nameOf(ID.b, 'pantry')])
+        })
+
+        it('serves each project on its own stream from an orrery on older code, which has no one stream (ORR-1076)', async context => {
+            const {orrery, repo, start, writeList, state} = await bench(context, {}, {older: true})
+            const entry = (project: string) => ({url: orrery.url, project, dir: repo})
+            writeList([entry('greenhouse'), entry('pantry')])
+            await start({service: true})
+            await vi.waitFor(() => expect(orrery.listening('greenhouse')).toBe(1), WAIT)
+            await vi.waitFor(() => expect(orrery.listening('pantry')).toBe(1), WAIT)
+            orrery.event('launch', launchOf(ID.a))
+            await vi.waitFor(() => expect(state()[nameOf(ID.a)]?.['@orrery_stops_at']).toBe('never'), WAIT)
+            writeList([entry('pantry')])
+            await vi.waitFor(() => expect(orrery.ended()).toEqual([ID.a]), WAIT)
+            await vi.waitFor(() => expect(orrery.listening('greenhouse')).toBe(0), WAIT)
+            // Its old stream goes once the new one is ready, so for a moment it may have both.
+            await vi.waitFor(() => expect(orrery.listening('pantry')).toBe(1), WAIT)
         })
 
         it('keeps the sessions of a project that only moved, serving it from its new folder', async context => {
@@ -314,8 +383,7 @@ describe.concurrent("a launcher's own loop", {timeout: 40_000}, () => {
             orrery.event('launch', launchOf(ID.a))
             await vi.waitFor(() => expect(state()[nameOf(ID.a)]?.['@orrery_stops_at']).toBe('never'), WAIT)
             writeList([{url: orrery.url, project: 'greenhouse', dir: moved}])
-            const streams = () => orrery.asked.filter(a => a.path.endsWith('/launches/stream'))
-            await vi.waitFor(() => expect(streams().at(-1)!.query.get('dir')).toBe(moved), WAIT)
+            await vi.waitFor(() => expect(orrery.serving().greenhouse).toBe(moved), WAIT)
             expect(orrery.ended()).toEqual([])
             expect(Object.keys(state())).toEqual([nameOf(ID.a)])
         })

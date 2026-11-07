@@ -11,6 +11,33 @@ Linux it needs a desktop with `zenity` or `kdialog`. In WSL, or with neither, us
 project on the same page, and hand the Claude session in that repo the line it gives you, which has it write the same
 files. What follows is the same by hand.
 
+## Set up the machine once
+
+Getting started shows one line on the first open, to run in a terminal from any folder (ORR-1067):
+
+```bash
+mkdir -p ~/.orrery && curl -fsS http://localhost:9000/channel/bootstrap.mjs -o ~/.orrery/bootstrap.mjs && ORRERY_URL=http://localhost:9000 node ~/.orrery/bootstrap.mjs launcher --install
+```
+
+It puts the bootstrap in place and installs the launcher service ([step 4](#4-optionally-let-orrery-start-sessions)).
+Given `ORRERY_URL`, outside a repo, it also sets Claude Code up for that orrery in every folder, through the Claude adapter:
+
+- **A user-level server**, `orrery-<environment>` (`claude mcp add-json --scope user`), the channel serving every
+  project (`ORRERY_PROJECTS=*`). A `claude` in any folder gets orrery's tools, repo or not. A tool on an issue finds its
+  project from the id; the others take `project`, or, left out, the session's own: the one orrery started it for, else
+  the one the launcher's list maps its folder (or a folder above it) to. A connected repo's own server of the same name
+  takes precedence there.
+- **orrery's hooks at user level**, in `~/.claude/settings.json`, beside your own. Claude Code runs them as well as a
+  folder's own hooks, so the user-level one says nothing where the folder has orrery's hook already, or where no project
+  is known for the session: none started it, and the launcher's list maps no project to its folder. So a `claude` in a
+  folder no orrery knows isn't listed as a session. The folder's name is never taken for a project's.
+- **The default folder** (`~/.orrery/<orrery id>/home`) set up and trusted in `~/.claude.json`, so the launcher can start
+  sessions there for projects with no repo without asking you to run `claude` there first.
+
+Each piece is marked `ORRERY_SCOPE=user`. Running the line again changes nothing. With `--uninstall` in place of
+`--install`, outside a repo, it removes the service and takes out the servers, the hooks and the trust it added, leaving
+the rest of your config alone.
+
 The channel and hooks run on macOS and Linux, and on Windows inside WSL: the hook commands set their
 variables the POSIX shell way (`ORRERY_PROJECT=shop node …`), and the channel finds its Claude window
 with `ps`. orrery itself runs anywhere Docker does.

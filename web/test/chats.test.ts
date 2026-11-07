@@ -530,6 +530,41 @@ describe("the owner's chat", () => {
         expect(notes.map(n => n.kind)).toEqual(['chat.asked', 'chat.answered', 'chat.asked', 'chat.asked', 'chat.answered'])
     })
 
+    it('asks for a schedule or an issue on another project it names, and saves it there (ORR-1063)', async () => {
+        const made: {what: string, project: string}[] = []
+        const checkedOn: string[] = []
+        vi.stubGlobal('useStore', () => ({
+            ownerOf: async () => ({name: 'skoll'}),
+            presets: async () => [],
+            projectId: async (id: string) => id === 'reading-list' ? id : Promise.reject(Object.assign(new Error(`No project ${id}`), {statusCode: 404})),
+            createIssue: async (project: string, body: {title: string}) => (made.push({what: 'issue', project}), {id: 'REA-1', title: body.title}),
+            messageSession: async (project: string, target: string, text: string) => void messages.push({project, target, text}),
+        }))
+        vi.stubGlobal('useScheduler', () => ({
+            check: async (project: string) => void checkedOn.push(project),
+            create: async (project: string, body: {title: string}) => (made.push({what: 'schedule', project}), {id: 1, title: body.title, enabled: true}),
+        }))
+        vi.stubGlobal('useEventLog', () => ({note: () => {}}))
+        vi.stubGlobal('writeToApi', () => false)
+        vi.stubGlobal('conflict', (message: string) => Object.assign(new Error(message), {statusCode: 409}))
+        vi.stubGlobal('forbidden', (message: string) => Object.assign(new Error(message), {statusCode: 403}))
+        await chats.openChat('greenhouse')
+        const watch = await chats.ask('c1c2c3c4c5c6', {schedule: {title: 'Daily watch', cron: '0 8 * * *'}, project: 'reading-list'})
+        expect(watch.schedule).toMatchObject({project: 'reading-list', state: 'asked'})
+        expect(checkedOn).toEqual(['reading-list'])
+        await chats.answer('c1c2c3c4c5c6', watch.id, true, owner)
+        const offered = await chats.ask('c1c2c3c4c5c6', {issue: {title: 'Read Dune'}, project: 'reading-list'})
+        await chats.answer('c1c2c3c4c5c6', offered.id, true, owner)
+        expect(made).toEqual([{what: 'schedule', project: 'reading-list'}, {what: 'issue', project: 'reading-list'}])
+        // The chat's session hears it on its own project, where it runs.
+        expect(messages.map(m => m.project)).toEqual(['greenhouse', 'greenhouse'])
+        // Its own project, named or not, isn't marked; one orrery doesn't have is refused.
+        const own = await chats.ask('c1c2c3c4c5c6', {issue: {title: 'Water the ferns'}, project: 'greenhouse'})
+        expect(own.issue).not.toHaveProperty('project')
+        await expect(chats.ask('c1c2c3c4c5c6', {issue: {title: 'X'}, project: 'nowhere'})).rejects.toMatchObject({statusCode: 404})
+        await expect(chats.ask('c1c2c3c4c5c6', {issue: {title: 'X'}, project: 7})).rejects.toMatchObject({statusCode: 400})
+    })
+
     it("asks to add a release or change one, checked as Releases would, and saves it as the owner's only once they allow it", async () => {
         const notes: {kind: string}[] = []
         const saved: {how: string, project: string, version?: string, body: unknown, actor: unknown}[] = []

@@ -69,6 +69,7 @@ export const NOT_ROUTED: Readonly<Record<string, Line>> = {
     'POST /api/events/log/{event}/resolve': MACHINE,
     'GET /api/guide': MACHINE,
     'GET /api/guide/using': MACHINE,
+    'GET /api/launches/stream': SESSIONS,
     'GET /api/machine': MACHINE,
     'GET /api/mcp': MACHINE,
     'GET /api/owner': ORR_928,

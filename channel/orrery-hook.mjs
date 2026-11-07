@@ -2,17 +2,19 @@
 // orrery's Claude Code hook: tells orrery what this session is doing, so the owner can see it and
 // point work at an idle one, and which issues it writes to. Registered for SessionStart, UserPromptSubmit,
 // PreToolUse, PermissionRequest, Stop, StopFailure, Notification and SessionEnd in the repo's .claude/settings.json, with ORRERY_PROJECT
-// (and ORRERY_URL) set. It never fails the hook, and prints nothing (a hook's output goes to Claude) but
+// (and ORRERY_URL) set, or at user level by the install line (ORRERY_SCOPE=user), where the launcher's list says which
+// project a folder is (ORR-1068); in a folder it doesn't know, the hook says nothing. It never fails the hook, and prints nothing (a hook's output goes to Claude) but
 // after a `/clear`, a compaction or a resume: then orrery's brief of what the session was working on, which
 // Claude Code adds to the fresh context so the work carries on. A session orrery started with context gets that
 // in the brief too, as it starts and after each of those. Every `SessionStart` also says which repo it's in (ORR-1070),
 // but in a session the launcher started, which has that in its system prompt already (ORRERY_REPO_TOLD).
 // What the hook's input means is the agent adapter's to read (`report`, agents.mjs): this file knows only the report.
-import {basename} from 'node:path'
 import {authHeaders} from './credentials.mjs'
 import {repoContext} from './repo-context.mjs'
 import {claudeWindow} from './session.mjs'
 import {agentFor} from './agents.mjs'
+import {standsDown} from './claude-user-setup.mjs'
+import {projectAt} from './launcher-service.mjs'
 
 // The agent this hook is registered for: Claude Code, the only adapter so far.
 const agent = agentFor()
@@ -21,10 +23,15 @@ let input = ''
 for await (const chunk of process.stdin) input += chunk
 try {
     const hook = JSON.parse(input || '{}')
-    const window = claudeWindow()
     // What the session is doing, as its agent's adapter reads its hook's input (ORR-1074).
     const {id, cwd, ...report} = agent.report(hook)
-    const project = process.env.ORRERY_PROJECT ?? basename(cwd ?? process.cwd())
+    const dir = process.env.CLAUDE_PROJECT_DIR ?? cwd ?? process.cwd()
+    // Its project (ORR-1068): the one it was set up or started for, else the one the launcher's list maps its folder to.
+    const project = process.env.ORRERY_PROJECT || projectAt(dir, base)
+    // In a folder no orrery knows it says nothing, so other work on the machine isn't taken for a session. The
+    // user-level copy (ORR-1067) also leaves a folder with orrery's hook of its own to that one.
+    if (!project || standsDown({dir, project})) process.exit(0)
+    const window = claudeWindow()
     const response = await fetch(`${base}/api/sessions`, {
         method: 'POST',
         // Whose this session is, from the user's environment.

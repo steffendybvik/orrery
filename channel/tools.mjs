@@ -209,6 +209,9 @@ const DOC_FIELDS = {
 /** Why the chat asks: a line for the owner, shown with the request. */
 const WHY = {type: 'string'}
 
+/** Which project a chat's request is on, when not its own (ORR-1063). */
+const ON = {project: {type: 'string', description: 'Another project'}}
+
 /** What the owner's chat session has besides, listed: answering in the chat, seeing what the owner pasted in it,
  * changing an issue's fields when they ask, moving or assigning issues (at once when they named them), and asking for the rest (`CHAT_REQUESTS`)
  * through `request`. Each request shows the owner what would happen with Allow and Deny (Send and Don't send for a
@@ -236,6 +239,7 @@ export const CHAT_TOOLS = [
             ids: {type: 'array', items: {type: 'string'}, description: 'The issues, e.g. ["ORR-12", "ORR-14"]'},
             status: {type: 'string'},
             assignee: {type: ['string', 'null']},
+            ...ON,
             why: WHY,
         }},
     },
@@ -316,37 +320,37 @@ export const CHAT_REQUESTS = [
     {
         name: 'create_schedule',
         description: "Makes a schedule in this project, the owner's once allowed. Give a title and one of cron, at or on. The presets tool lists preset ids.",
-        inputSchema: {type: 'object', required: ['title'], properties: SCHEDULE_FIELDS},
+        inputSchema: {type: 'object', required: ['title'], properties: {...SCHEDULE_FIELDS, ...ON}},
     },
     {
         name: 'update_schedule',
         description: "Changes one of this project's schedules, by its id (the schedules tool lists them). Send only what changes; enabled false pauses it, true resumes it. Setting one of cron, at or on lets go of the others. Never deletes one: that's the owner's, on the Schedules page.",
-        inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'number'}, ...SCHEDULE_FIELDS}},
+        inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'number'}, ...SCHEDULE_FIELDS, ...ON}},
     },
     {
         name: 'create_release',
         description: 'Adds a release to this project. Give its version (1.0.0-rc.2) and, by convention, its branch v<version>.',
-        inputSchema: {type: 'object', required: ['version'], properties: {version: {type: 'string'}, ...RELEASE_FIELDS}},
+        inputSchema: {type: 'object', required: ['version'], properties: {version: {type: 'string'}, ...RELEASE_FIELDS, ...ON}},
     },
     {
         name: 'update_release',
         description: "Changes one of this project's releases, by its version (the releases tool lists them): send only what changes. Its version can't change, and removing one is the owner's, on the Releases page.",
-        inputSchema: {type: 'object', required: ['version'], properties: {version: {type: 'string'}, ...RELEASE_FIELDS}},
+        inputSchema: {type: 'object', required: ['version'], properties: {version: {type: 'string'}, ...RELEASE_FIELDS, ...ON}},
     },
     {
         name: 'offer_issue',
         description: "Offers an issue the owner didn't ask you to file: they see it marked as not filed, with File issue and Don't file, and you hear which they pressed. Nothing is filed until they press it. Use create_issue when they did ask.",
-        inputSchema: {type: 'object', required: ['title'], properties: {title: {type: 'string'}, notes: {type: 'string', description: 'The description, in Markdown'}, priority: {type: 'string', enum: ['P0', 'P1', 'P2', 'P3']}, labels: {type: 'array', items: {type: 'string'}}, milestone: {type: 'string'}}},
+        inputSchema: {type: 'object', required: ['title'], properties: {title: {type: 'string'}, notes: {type: 'string', description: 'The description, in Markdown'}, priority: {type: 'string', enum: ['P0', 'P1', 'P2', 'P3']}, labels: {type: 'array', items: {type: 'string'}}, milestone: {type: 'string'}, ...ON}},
     },
     {
         name: 'create_doc',
         description: 'Makes a doc in this project: a decision and why, or how something works. Its id comes from its title. The owner sees the title, section and full text.',
-        inputSchema: {type: 'object', required: ['title'], properties: DOC_FIELDS},
+        inputSchema: {type: 'object', required: ['title'], properties: {...DOC_FIELDS, ...ON}},
     },
     {
         name: 'update_doc',
         description: "Changes one of this project's docs, by its id (the docs tool lists them): send only what changes, with body the whole new text. The owner sees a diff. If the doc changes after you ask, their Allow is refused: read it again and ask again. Removing a doc, and renaming or deleting a section, are the owner's, on the page.",
-        inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'string'}, ...DOC_FIELDS}},
+        inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'string'}, ...DOC_FIELDS, ...ON}},
     },
 ]
 
@@ -470,16 +474,17 @@ const SCOPED = ['issues', 'create_issue', 'milestones', 'create_milestone', 'upd
  * (`chat`) are its own; a work session's leave out the chat's reads and ask the owner on its issue (`ASK_TOOLS`), with
  * the groups of `ON_DEMAND` it hasn't `loaded` behind `more_tools`; an untrusted schedule's session (`untrusted`) has
  * what it's allowed, and reads GitHub issues; a chat reads their pull requests too. */
-export function toolsFor(projects, {chat = false, untrusted = false, loaded = []} = {}) {
+export function toolsFor(projects, {chat = false, untrusted = false, loaded = [], home} = {}) {
     const work = TOOLS.filter(t => !CHAT_READS.includes(t.name))
     const later = Object.entries(ON_DEMAND).filter(([group]) => !loaded.includes(group)).flatMap(([, names]) => names)
     const tools = chat ? [...TOOLS.filter(t => !NOT_FOR_CHAT.includes(t.name)), ...CHAT_TOOLS, ...GITHUB_TOOLS, GITHUB_PULLS]
         : untrusted ? [...work.filter(t => !NOT_FOR_UNTRUSTED.includes(t.name)), ...GITHUB_TOOLS]
             : [...[...work, ...ASK_TOOLS].filter(t => !later.includes(t.name)), ...later.length ? [MORE_TOOLS] : []]
     if (projects.length < 2) return tools
-    const project = {type: 'string', enum: projects, description: `Which project: ${projects.join(', ')}`}
+    // With a `home` (a chat's own project, ORR-1063, or a session's, ORR-1068), naming one is only for another.
+    const project = {type: 'string', enum: projects, description: `Which project: ${projects.join(', ')}${home ? `; ${home} when left out` : ''}`}
     return tools.map(tool => SCOPED.includes(tool.name)
-        ? {...tool, inputSchema: {...tool.inputSchema, required: ['project', ...tool.inputSchema.required ?? []], properties: {project, ...tool.inputSchema.properties}}}
+        ? {...tool, inputSchema: {...tool.inputSchema, required: [...home ? [] : ['project'], ...tool.inputSchema.required ?? []], properties: {project, ...tool.inputSchema.properties}}}
         : tool.name === 'egress'
             ? {...tool, inputSchema: {...tool.inputSchema, properties: {...tool.inputSchema.properties, project: {...project, description: `Which project it's for, when no issue says: ${projects.join(', ')}`}}}}
             : tool)
@@ -490,7 +495,7 @@ export function toolsFor(projects, {chat = false, untrusted = false, loaded = []
  * schedule's session, which says so on every call and reads GitHub issues through `gh` (its arguments; run in the
  * session's folder); `chat`, the launch of the owner's chat this session is for, the same way. `report` hears each call's
  * tool and the text it answered, for the Context page (ORR-549); `load` a group of `ON_DEMAND` a work session asked for. */
-export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''), projects = api ? [decodeURIComponent(api.split('/').pop())] : [], session, person, auth = {}, untrusted = false, chat, fetch = globalThis.fetch, gh = runGh, report = () => {}, load = () => {}}) {
+export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''), projects = api ? [decodeURIComponent(api.split('/').pop())] : [], session, person, auth = {}, untrusted = false, chat, home, fetch = globalThis.fetch, gh = runGh, report = () => {}, load = () => {}}) {
     const headers = {'Content-Type': 'application/json', 'Orrery-Actor': 'claude', ...session ? {'Orrery-Session': session} : {}, ...person ? {'Orrery-Person': person} : {}, ...auth, ...untrusted ? {'Orrery-Untrusted': 'yes'} : {},
         ...chat ? {'Orrery-Chat': 'yes', 'Orrery-Launch': chat} : {}}
     async function call(method, path, body, base) {
@@ -506,6 +511,8 @@ export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''),
         if (!response.ok) throw new Error(data?.message ?? data?.statusMessage ?? `${response.status} ${response.statusText}`)
         return data
     }
+    // `home` can be read at each call (ORR-1068), as a `*` server's projects are known only once its orrery answers.
+    const homeOf = typeof home === 'function' ? home : () => home
     const at = project => `${root}/projects/${encodeURIComponent(project)}`
     // The projects' keys, asked for the first time an issue's id needs one, and again for a key not yet known.
     let keys
@@ -522,9 +529,18 @@ export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''),
             if (!found) throw new Error(`${ref} isn't an issue of ${projects.join(', ')}: its key is none of theirs`)
             return found
         }
+        if (!project && homeOf()) return homeOf()
         if (!project) throw new Error(`Say which project: ${projects.join(', ')}`)
         if (!projects.includes(project)) throw new Error(`This server serves ${projects.join(', ')}, not ${project}`)
         return project
+    }
+    /** A chat's request's project, as its body names it: none for the chat's own (`home`), which orrery takes then. */
+    async function on({project, id}) {
+        // One it doesn't reach is refused, not taken for its only one, as projectOf would.
+        if (project && projects.length && !projects.includes(project)) throw new Error(`This chat reaches ${projects.join(', ')}, not ${project}`)
+        if (!project && (!id || !homeOf())) return {}
+        const named = await projectOf({project, id})
+        return named === homeOf() ? {} : {project: named}
     }
     const issuePath = id => `/issues/${encodeURIComponent(id)}`
     /** A working session's create_schedule or update_schedule (`schedule_id`): asked on its issue `id` (ORR-458). */
@@ -763,8 +779,8 @@ export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''),
             const message = await call('POST', `/chats/${encodeURIComponent(chat)}/requests`, {delegate: {issue: id}}, root)
             return message.text
         },
-        async move_issues({ids, status, assignee, why}) {
-            const {move, text} = await call('POST', `/chats/${encodeURIComponent(chat)}/requests`, {move: {ids, ...status !== undefined ? {status} : {}, ...assignee !== undefined ? {assignee} : {}}, ...why ? {why} : {}}, root)
+        async move_issues({ids, status, assignee, project, why}) {
+            const {move, text} = await call('POST', `/chats/${encodeURIComponent(chat)}/requests`, {move: {ids, ...status !== undefined ? {status} : {}, ...assignee !== undefined ? {assignee} : {}}, ...await on({project, id: ids?.[0]}), ...why ? {why} : {}}, root)
             if (!move) return `Done, as the owner asked: ${text}`
             return `Asked, as the owner didn't name ${ids.length === 1 ? 'it' : 'them all'} in their last message: the owner sees ${move.changes.length === 1 ? 'the change' : `the ${move.changes.length} changes`} with Allow and Deny, and you'll hear which they pressed. Nothing moves until they allow it.`
         },
@@ -774,22 +790,22 @@ export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''),
         },
         async create_schedule(args) {
             if (!chat) return await askOnIssue(args)
-            const {why, ...schedule} = args
-            await call('POST', `/chats/${encodeURIComponent(chat)}/requests`, {schedule, ...why ? {why} : {}}, root)
+            const {why, project, ...schedule} = args
+            await call('POST', `/chats/${encodeURIComponent(chat)}/requests`, {schedule, ...await on({project}), ...why ? {why} : {}}, root)
             return "Asked: the owner sees the schedule with Allow and Deny, and you'll hear which they pressed. Nothing is saved until they allow it."
         },
         async update_schedule(args) {
             if (!chat) return await askOnIssue(args)
-            const {id, why, ...schedule} = args
-            await call('POST', `/chats/${encodeURIComponent(chat)}/requests`, {id, schedule, ...why ? {why} : {}}, root)
+            const {id, why, project, ...schedule} = args
+            await call('POST', `/chats/${encodeURIComponent(chat)}/requests`, {id, schedule, ...await on({project}), ...why ? {why} : {}}, root)
             return "Asked: the owner sees the change with Allow and Deny, and you'll hear which they pressed. Nothing is saved until they allow it."
         },
-        async create_release({why, ...release}) {
-            await call('POST', `/chats/${encodeURIComponent(chat)}/requests`, {release, ...why ? {why} : {}}, root)
+        async create_release({why, project, ...release}) {
+            await call('POST', `/chats/${encodeURIComponent(chat)}/requests`, {release, ...await on({project}), ...why ? {why} : {}}, root)
             return "Asked: the owner sees the release with Allow and Deny, and you'll hear which they pressed. Nothing is saved until they allow it."
         },
-        async update_release({version, why, ...release}) {
-            await call('POST', `/chats/${encodeURIComponent(chat)}/requests`, {version, release, ...why ? {why} : {}}, root)
+        async update_release({version, why, project, ...release}) {
+            await call('POST', `/chats/${encodeURIComponent(chat)}/requests`, {version, release, ...await on({project}), ...why ? {why} : {}}, root)
             return "Asked: the owner sees the change with Allow and Deny, and you'll hear which they pressed. Nothing is saved until they allow it."
         },
         // Made and changed at once, as the owner asked in the chat (ORR-988).
@@ -801,16 +817,16 @@ export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''),
             const changed = await call('PATCH', `/milestones/${encodeURIComponent(id)}`, pick(args, ['title', 'summary', 'priority']), at(await projectOf(args)))
             return `Milestone ${changed.id} is now: ${changed.title}`
         },
-        async offer_issue({why, ...issue}) {
-            await call('POST', `/chats/${encodeURIComponent(chat)}/requests`, {issue, ...why ? {why} : {}}, root)
+        async offer_issue({why, project, ...issue}) {
+            await call('POST', `/chats/${encodeURIComponent(chat)}/requests`, {issue, ...await on({project}), ...why ? {why} : {}}, root)
             return "Offered: the owner sees it as not filed, with File issue and Don't file, and you'll hear which they pressed. Nothing is filed until they press it."
         },
-        async create_doc({why, ...doc}) {
-            await call('POST', `/chats/${encodeURIComponent(chat)}/requests`, {doc, ...why ? {why} : {}}, root)
+        async create_doc({why, project, ...doc}) {
+            await call('POST', `/chats/${encodeURIComponent(chat)}/requests`, {doc, ...await on({project}), ...why ? {why} : {}}, root)
             return "Asked: the owner sees the doc with Allow and Deny, and you'll hear which they pressed. Nothing is saved until they allow it."
         },
-        async update_doc({id, why, ...doc}) {
-            await call('POST', `/chats/${encodeURIComponent(chat)}/requests`, {id, doc, ...why ? {why} : {}}, root)
+        async update_doc({id, why, project, ...doc}) {
+            await call('POST', `/chats/${encodeURIComponent(chat)}/requests`, {id, doc, ...await on({project}), ...why ? {why} : {}}, root)
             return "Asked: the owner sees the change with Allow and Deny, and you'll hear which they pressed. Nothing is saved until they allow it."
         },
         async message_sessions({text, projects, states, why}) {

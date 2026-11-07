@@ -231,13 +231,5 @@ export const madeUpName = (session: {name: string, project: string}) => session.
 export const nameBesideProject = (session: {name: string, project: string}) =>
     session.name.startsWith(`${session.project} · `) ? session.name.slice(session.project.length + 3) || session.name : session.name
 
-/** A model's id as people say it (ORR-871): `claude-opus-5-5` is Opus 5.5, `claude-sonnet-5-20260101` Sonnet 5, and a
- * 1M context (`[1m]`) says so. An id it can't read is shown as it is. */
-export function modelLabel(id: string): string {
-    const long = /\[1m\]$/i.test(id)
-    const match = /^(?:anthropic\.)?claude-([a-z]+)-(\d+)(?:-(\d{1,2}))?(?:-\d{8})?(?:-v\d+(?::\d+)?)?(?:\[1m\])?$/i.exec(id.trim())
-    if (!match) return id
-    const [, family, major, minor] = match as unknown as [string, string, string, string | undefined]
-    const name = `${family.charAt(0).toUpperCase()}${family.slice(1).toLowerCase()} ${major}${minor ? `.${minor}` : ''}`
-    return long ? `${name} · 1M` : name
-}
+/** A model's id as people say it (ORR-871), as the Claude adapter's card says it (ORR-1074). */
+export {modelLabel} from '#channel/claude-card.mjs'

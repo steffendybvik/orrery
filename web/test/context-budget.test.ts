@@ -53,9 +53,10 @@ describe('the tool list a session carries on every turn', () => {
         expect(size(tools(['greenhouse'], {loaded: ['schedules', 'secrets', 'debug']}))).toBeLessThanOrEqual(9_400)
         expect(size(tools(['greenhouse'], {untrusted: true}))).toBeLessThanOrEqual(4_860)
         // The chat's fell from about 20,100 when its requests went behind request (ORR-624), reading GitHub (ORR-748) added about 1,500, and its own docs, egress and event log (ORR-750) about 1,900,
-        // reading the epics (ORR-895) about 290, and writing epics and milestones itself instead of asking (ORR-988) about 1,700.
-        expect(size(tools(['greenhouse'], {chat: true}))).toBeLessThanOrEqual(14_680)
-        expect(size(tools(['greenhouse', 'pantry'], {chat: true}))).toBeLessThanOrEqual(16_450)
+        // reading the epics (ORR-895) about 290, writing epics and milestones itself instead of asking (ORR-988) about 1,700,
+        // and moving issues on another project (ORR-1063) about 55.
+        expect(size(tools(['greenhouse'], {chat: true}))).toBeLessThanOrEqual(14_740)
+        expect(size(tools(['greenhouse', 'pantry'], {chat: true}))).toBeLessThanOrEqual(16_510)
     })
 
     it('has no description, of a tool or of its arguments, longer than a short paragraph', () => {

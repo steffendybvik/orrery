@@ -1,29 +1,13 @@
 // The tests of routes/statuses.rs (ORR-1052), through `router()` on a database of their own (`crate::testing`).
-use crate::testing::{Reply, TestApi};
+use crate::testing::{ids, TestApi};
 use serde_json::json;
-use sqlx::Row;
-
-fn ids(reply: &Reply) -> Vec<String> {
-    reply.body.as_array().unwrap().iter().map(|s| s["id"].as_str().unwrap().to_string()).collect()
-}
-
-fn changed(reply: &Reply) -> Vec<String> {
-    let mut projects: Vec<String> = reply.header("orrery-changed").unwrap_or_default().split(", ").filter(|p| !p.is_empty()).map(str::to_string).collect();
-    projects.sort();
-    projects
-}
-
-async fn outbox_kinds(api: &TestApi) -> Vec<String> {
-    let rows = sqlx::query("SELECT kind FROM changes ORDER BY id").fetch_all(&api.app.pool).await.unwrap();
-    rows.iter().map(|r| r.get::<String, _>("kind")).collect()
-}
 
 #[tokio::test]
 async fn a_new_orrery_has_the_default_statuses_in_board_order() {
     let api = TestApi::new().await;
     let reply = api.get("/api/statuses").send().await;
     assert_eq!(reply.status, 200);
-    assert_eq!(ids(&reply), ["backlog", "todo", "in-progress", "in-review", "done", "canceled"]);
+    assert_eq!(ids(&reply.body), ["backlog", "todo", "in-progress", "in-review", "done", "canceled"]);
     assert_eq!(reply.body[2], json!({"id": "in-progress", "name": "In progress", "kind": "started", "color": "amber", "position": 2.0}));
 }
 
@@ -31,20 +15,20 @@ async fn a_new_orrery_has_the_default_statuses_in_board_order() {
 async fn a_new_status_goes_last_and_tells_every_board_and_the_settings() {
     let api = TestApi::new().await;
     let (a, b) = (api.project("Primes").await, api.project("Gears").await);
-    let before = outbox_kinds(&api).await.len();
+    let before = api.outbox().await.len();
     let reply = api.post("/api/statuses", json!({"name": " QA ", "kind": "started"})).send().await;
     assert_eq!(reply.status, 201, "{}", reply.body);
     assert_eq!(reply.body, json!({"id": "qa", "name": "QA", "kind": "started", "color": "slate", "position": 6.0}));
     let mut both = vec![a, b];
     both.sort();
-    assert_eq!(changed(&reply), both);
+    assert_eq!(reply.changed(), both);
     assert_eq!(reply.header("orrery-settings"), Some("1"));
     assert_eq!(reply.header("orrery-told"), None);
-    let kinds = outbox_kinds(&api).await;
+    let kinds: Vec<String> = api.outbox().await.into_iter().map(|row| row.kind).collect();
     assert_eq!(kinds[before..].iter().filter(|k| *k == "project.changed").count(), 2);
     assert!(kinds[before..].contains(&"settings".to_string()), "{kinds:?}");
     // Listed with the other started ones, not last, as it's in board order.
-    assert_eq!(ids(&api.get("/api/statuses").send().await), ["backlog", "todo", "in-progress", "in-review", "qa", "done", "canceled"]);
+    assert_eq!(ids(&api.get("/api/statuses").send().await.body), ["backlog", "todo", "in-progress", "in-review", "qa", "done", "canceled"]);
 }
 
 #[tokio::test]
@@ -54,7 +38,7 @@ async fn a_status_takes_its_own_id_colour_and_position() {
     assert_eq!(reply.status, 201, "{}", reply.body);
     assert_eq!(reply.body["id"], "triage");
     assert_eq!(reply.body["color"], "#3b82f6");
-    assert_eq!(ids(&api.get("/api/statuses").send().await)[..2], ["triage".to_string(), "backlog".to_string()]);
+    assert_eq!(ids(&api.get("/api/statuses").send().await.body)[..2], ["triage".to_string(), "backlog".to_string()]);
 }
 
 #[tokio::test]
@@ -69,7 +53,7 @@ async fn a_bad_status_is_refused_with_its_problems() {
     assert_eq!(api.post("/api/statuses", json!({"name": "Proposed", "kind": "backlog"})).send().await.status, 400, "proposed is taken by proposals");
     assert_eq!(api.post("/api/statuses", json!({"name": "!!!", "kind": "backlog"})).send().await.status, 400, "no id to make");
     assert_eq!(api.post("/api/statuses", json!({"name": "Todo", "kind": "todo"})).send().await.status, 409);
-    assert_eq!(ids(&api.get("/api/statuses").send().await).len(), 6, "nothing was made");
+    assert_eq!(ids(&api.get("/api/statuses").send().await.body).len(), 6, "nothing was made");
 }
 
 #[tokio::test]
@@ -84,7 +68,7 @@ async fn an_agent_cannot_change_the_statuses() {
         assert_eq!(reply.body["data"]["permission"], "settings.write");
     }
     assert_eq!(api.get("/api/statuses").by_agent("claude").send().await.status, 200, "reading them is anyone's");
-    assert_eq!(ids(&api.get("/api/statuses").send().await).len(), 6);
+    assert_eq!(ids(&api.get("/api/statuses").send().await.body).len(), 6);
 }
 
 #[tokio::test]
@@ -96,7 +80,7 @@ async fn a_status_is_renamed_recoloured_and_moved() {
     assert_eq!(reply.header("orrery-settings"), Some("1"));
     let moved = api.patch("/api/statuses/in-review", json!({"kind": "done"})).send().await;
     assert_eq!(moved.status, 200);
-    assert_eq!(ids(&api.get("/api/statuses").send().await), ["backlog", "todo", "in-progress", "in-review", "done", "canceled"]);
+    assert_eq!(ids(&api.get("/api/statuses").send().await.body), ["backlog", "todo", "in-progress", "in-review", "done", "canceled"]);
     let placed = api.patch("/api/statuses/in-review", json!({"position": 9})).send().await;
     assert_eq!(placed.body["position"], 9.0, "{}", placed.body);
 }
@@ -118,7 +102,7 @@ async fn a_status_with_nothing_in_it_is_deleted() {
     let reply = api.delete("/api/statuses/in-review").send().await;
     assert_eq!(reply.status, 204, "{}", reply.body);
     assert_eq!(reply.header("orrery-settings"), Some("1"));
-    assert!(!ids(&api.get("/api/statuses").send().await).contains(&"in-review".to_string()));
+    assert!(!ids(&api.get("/api/statuses").send().await.body).contains(&"in-review".to_string()));
     assert_eq!(api.delete("/api/statuses/in-review").send().await.status, 404);
 }
 
