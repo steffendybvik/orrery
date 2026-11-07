@@ -8,11 +8,19 @@
 //     let project = api.project("Primes").await;
 //     let reply = api.post(&format!("/api/projects/{project}/docs"), json!({"title": "Plan"})).send().await;
 //     assert_eq!(reply.status, 201);
+//
+// The helpers the route tests share live here too, once (ORR-1056): people put straight in the table (`owner`,
+// `member`, `team`), who a request is from (`agent_of`, `browser`, …), what a reply said (`told`, `problems`,
+// `changed`, `ids`) and what the database holds (`count`, `outbox`).
+use crate::db::sql;
+use crate::write::stamp;
 use crate::{access, database_hash, db, migrate, router, App};
 use axum::body::Body;
 use axum::http::{Method, Request, StatusCode};
 use axum::Router;
+use percent_encoding::percent_decode_str;
 use serde_json::{json, Value};
+use sqlx::Row;
 use std::sync::Arc;
 use tower::ServiceExt;
 
@@ -138,6 +146,81 @@ impl TestApi {
         assert_eq!(reply.status, 201, "making an issue: {}", reply.body);
         reply.body["id"].as_str().expect("an issue's id").to_string()
     }
+
+    /// Project Primes with an issue on it, Sieve: their ids.
+    pub(crate) async fn board(&self) -> (String, String) {
+        let project = self.project("Primes").await;
+        let issue = self.issue(&project, json!({"title": "Sieve"})).await;
+        (project, issue)
+    }
+
+    /// The owner, `steffen` named Steffen, as `PUT /api/owner` would leave them.
+    pub(crate) async fn owner(&self) {
+        self.run("INSERT INTO people (id, name, role, created_at) VALUES ('steffen', 'Steffen', 'owner', ?)", &[&stamp()]).await;
+    }
+
+    /// A member, put straight in the table (no way-in check).
+    pub(crate) async fn member(&self, id: &str, name: &str) {
+        self.run("INSERT INTO people (id, name, role, created_at) VALUES (?, ?, 'member', ?)", &[id, name, &stamp()]).await;
+    }
+
+    /// The owner, `steffen`, and two members, `ana` and `bo`: with more than one person the rails hold.
+    pub(crate) async fn team(&self) {
+        for (id, role) in [("steffen", "owner"), ("ana", "member"), ("bo", "member")] {
+            self.run("INSERT INTO people (id, name, role, created_at) VALUES (?, ?, ?, ?)", &[id, id, role, STAMP]).await;
+        }
+    }
+
+    /// Runs a statement on the database, for what no route sets (a claim another session holds).
+    pub(crate) async fn run(&self, statement: &str, binds: &[&str]) {
+        let statement = sql(statement);
+        let mut query = sqlx::query(&statement);
+        for bind in binds {
+            query = query.bind(*bind);
+        }
+        query.execute(&self.app.pool).await.unwrap();
+    }
+
+    /// The number a query gives back, as `SELECT count(*) FROM people`.
+    pub(crate) async fn count(&self, query: &str) -> i64 {
+        sqlx::query_scalar::<_, i64>(query).fetch_one(&self.app.pool).await.unwrap()
+    }
+
+    /// The outbox's rows, oldest first.
+    pub(crate) async fn outbox(&self) -> Vec<Change> {
+        let rows = sqlx::query("SELECT kind, project, subject, payload FROM changes ORDER BY id").fetch_all(&self.app.pool).await.unwrap();
+        rows.iter().map(|r| Change { kind: r.get("kind"), project: r.get("project"), subject: r.get("subject"), payload: r.get("payload") }).collect()
+    }
+}
+
+/// When `team` says its people joined (`owner` and `member` say now, so they list in the order they were put in).
+const STAMP: &str = "2026-11-01T00:00:00.000Z";
+
+/// An outbox row.
+#[derive(Debug)]
+pub(crate) struct Change {
+    pub(crate) kind: String,
+    pub(crate) project: Option<String>,
+    pub(crate) subject: Option<String>,
+    pub(crate) payload: Option<String>,
+}
+
+impl Change {
+    /// `<kind> <project> <subject>`, leaving out what it hasn't.
+    pub(crate) fn line(&self) -> String {
+        let part = |p: &Option<String>| p.clone().unwrap_or_default();
+        format!("{} {} {}", self.kind, part(&self.project), part(&self.subject)).trim_end().to_string()
+    }
+
+    /// Its payload, as JSON.
+    pub(crate) fn payload(&self) -> Value {
+        serde_json::from_str(self.payload.as_deref().expect("a payload")).unwrap()
+    }
+}
+
+/// The `id` of each entry in a list a route gave back.
+pub(crate) fn ids(list: &Value) -> Vec<String> {
+    list.as_array().expect("a list").iter().map(|entry| entry["id"].as_str().expect("an id").to_string()).collect()
 }
 
 /// A request being made: change who it's from with `header`, then `send` it.
@@ -173,6 +256,50 @@ impl Req {
         self.header("orrery-actor-name", name).without("orrery-actor-owner")
     }
 
+    // Who's asking, as the router sends it (`actor_of`).
+
+    /// An agent's request on the rails (`Orrery-Actor-Asked: 1`), its session naming `person`.
+    pub(crate) fn agent_of(self, person: &str) -> Req {
+        self.agent_of_nobody().header("orrery-actor-named", person)
+    }
+
+    /// An agent's request on the rails whose session names nobody here.
+    pub(crate) fn agent_of_nobody(self) -> Req {
+        self.by_agent("claude").header("orrery-actor-asked", "1")
+    }
+
+    /// An untrusted session's request (`Orrery-Actor-Kind: untrusted`).
+    pub(crate) fn untrusted(self) -> Req {
+        self.by_agent("outsider").header("orrery-actor-asked", "1").header("orrery-actor-kind", "untrusted")
+    }
+
+    /// A person's own request on the rails: `person`, not the owner.
+    pub(crate) fn person(self, person: &str) -> Req {
+        self.by_agent(person).header("orrery-actor-person", person).header("orrery-actor-asked", "1")
+    }
+
+    /// From a browser signed in with `login` (`TestApi::login`), the cookie hashed as the router sends it. The guard
+    /// looks it up on an orrery `at_the_door`.
+    pub(crate) fn signed_in(self, login: &str) -> Req {
+        self.header("orrery-login", login)
+    }
+
+    /// As the router says a person signed in to the page is asking: taken only from the Nuxt server's own calls
+    /// (`TestApi::new`), as the guard finds who's asking itself otherwise (ORR-1038).
+    pub(crate) fn browser(self, person: &str, owner: bool) -> Req {
+        self.header("orrery-who", "browser").header("orrery-who-person", person).header("orrery-who-owner", if owner { "1" } else { "0" })
+    }
+
+    /// As the router sends a request made with an agent key of `person`.
+    pub(crate) fn agent_key(self, person: &str, owner: bool) -> Req {
+        self.header("orrery-who", "agent").header("orrery-who-person", person).header("orrery-who-owner", if owner { "1" } else { "0" })
+    }
+
+    /// A member signed in to their own page: the router names them, never the owner.
+    pub(crate) fn member_browser(self, person: &str) -> Req {
+        self.header("orrery-actor-name", person).without("orrery-actor-owner").browser(person, false)
+    }
+
     pub(crate) async fn send(self) -> Reply {
         let mut request = Request::builder().method(self.method).uri(&self.path);
         for (name, value) in &self.headers {
@@ -203,6 +330,29 @@ pub(crate) struct Reply {
 impl Reply {
     pub(crate) fn header(&self, name: &str) -> Option<&str> {
         self.headers.iter().find(|(n, _)| n == name).map(|(_, v)| v.as_str())
+    }
+
+    /// A header's list, each entry percent-decoded: `issue.priority primes PRI-1 ~ P0`.
+    pub(crate) fn said(&self, name: &str) -> Vec<String> {
+        let decode = |part: &str| percent_decode_str(part).decode_utf8_lossy().into_owned();
+        self.header(name).map(|all| all.split(", ").filter(|one| !one.is_empty()).map(decode).collect()).unwrap_or_default()
+    }
+
+    /// The events a write told (`Orrery-Told`), each in turn: `doc.created primes plan`.
+    pub(crate) fn told(&self) -> Vec<String> {
+        self.said("orrery-told")
+    }
+
+    /// The projects a write changed (`Orrery-Changed`), sorted.
+    pub(crate) fn changed(&self) -> Vec<String> {
+        let mut projects = self.said("orrery-changed");
+        projects.sort();
+        projects
+    }
+
+    /// The problems a 400 lists.
+    pub(crate) fn problems(&self) -> Vec<String> {
+        self.body["data"]["problems"].as_array().map(|p| p.iter().map(|p| p.as_str().unwrap_or_default().to_string()).collect()).unwrap_or_default()
     }
 }
 

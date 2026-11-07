@@ -710,7 +710,7 @@ describe("the channel's tools", () => {
 describe('one channel serving several projects', () => {
     /** The tools on greenhouse (GRE) and pantry (PAN) at a pretend orrery: `answers` by `METHOD path` under /api; the
      * chat's (`chat`, its launch) for the tools only it has. */
-    function several(answers: Record<string, unknown>, chat?: string) {
+    function several(answers: Record<string, unknown>, chat?: string, home?: string | (() => string | undefined)) {
         const calls: Call[] = []
         const fetch = async (url: string, init: {method: string, headers: Record<string, string>, body?: string}) => {
             const path = url.replace('http://o/api', '')
@@ -718,7 +718,7 @@ describe('one channel serving several projects', () => {
             const body = answers[`${init.method} ${path.split('?')[0]}`]
             return {ok: body !== undefined, status: body === undefined ? 404 : 200, statusText: '', text: async () => JSON.stringify(body ?? {message: `No ${path}`})}
         }
-        const call = orreryTools({root: 'http://o/api', projects: ['greenhouse', 'pantry'], session: 'abc', chat, fetch}) as (name: string, args?: object) => Promise<{isError?: boolean, content: {text: string}[]}>
+        const call = orreryTools({root: 'http://o/api', projects: ['greenhouse', 'pantry'], session: 'abc', chat, home, fetch}) as (name: string, args?: object) => Promise<{isError?: boolean, content: {text: string}[]}>
         return {calls, call: async (name: string, args?: object) => {
             const result = await call(name, args)
             return {error: !!result.isError, text: result.content[0]!.text}
@@ -740,6 +740,21 @@ describe('one channel serving several projects', () => {
         expect(calls[0]!.url).toBe('/projects/greenhouse/docs')
         expect((await call('docs')).text).toBe('orrery said no: Say which project: greenhouse, pantry')
         expect((await call('docs', {project: 'garden'})).text).toBe('orrery said no: This server serves greenhouse, pantry, not garden')
+    })
+
+    it("take the session's own project for a call that names none (ORR-1068), read at each call", async () => {
+        const own: {project?: string} = {}
+        const {call, calls} = several({'GET /projects/pantry/docs': [{id: 'jars', title: 'Jars'}], 'GET /projects/greenhouse/docs': []}, undefined, () => own.project)
+        // Not known yet (a `*` channel before its orrery answers, or a folder the launcher's list doesn't map): it asks.
+        expect((await call('docs')).text).toBe('orrery said no: Say which project: greenhouse, pantry')
+        own.project = 'pantry'
+        expect((await call('docs')).text).toBe('jars: Jars')
+        await call('docs', {project: 'greenhouse'})
+        expect(calls.map(c => c.url)).toEqual(['/projects/pantry/docs', '/projects/greenhouse/docs'])
+        // With one, the project isn't required, and the schema says which is taken.
+        const docs = (toolsFor(['greenhouse', 'pantry'], {home: 'pantry'}) as {name: string, inputSchema: {required?: string[], properties: Record<string, {description?: string}>}}[]).find(t => t.name === 'docs')!
+        expect(docs.inputSchema.required ?? []).not.toContain('project')
+        expect(docs.inputSchema.properties.project!.description).toContain('pantry when left out')
     })
 
     it("read a preset from the project said, not another's", async () => {

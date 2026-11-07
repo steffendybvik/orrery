@@ -1,20 +1,7 @@
 // The tests of routes/projects.rs (ORR-1052), through `router()` on a database of their own (`crate::testing`).
-use crate::testing::{Reply, TestApi};
-use percent_encoding::percent_decode_str;
+use crate::testing::TestApi;
 use serde_json::{json, Value};
 use sqlx::Row;
-
-fn changed(reply: &Reply) -> Vec<String> {
-    let mut projects: Vec<String> = reply
-        .header("orrery-changed")
-        .unwrap_or_default()
-        .split(", ")
-        .filter(|p| !p.is_empty())
-        .map(|p| percent_decode_str(p).decode_utf8_lossy().into_owned())
-        .collect();
-    projects.sort();
-    projects
-}
 
 async fn make(api: &TestApi, body: Value) -> Value {
     let reply = api.post("/api/projects", body).send().await;
@@ -57,7 +44,7 @@ async fn a_new_project_takes_its_id_and_key_from_its_name() {
     assert_eq!(body["instructions"], json!([]));
     assert!(body["board"]["milestones"].is_array() && body["board"]["counts"].is_object(), "{body}");
     assert!(body["uid"].as_str().is_some_and(|u| !u.is_empty()));
-    assert_eq!(changed(&reply), ["prime-numbers"], "each project in it percent-encoded");
+    assert_eq!(reply.changed(), ["prime-numbers"], "each project in it percent-encoded");
     assert_eq!(reply.header("orrery-changed"), Some("prime%2Dnumbers"));
     let rows = sqlx::query(&crate::db::sql("SELECT kind, project FROM changes WHERE id > ? ORDER BY id")).bind(before).fetch_all(&api.app.pool).await.unwrap();
     let rows: Vec<(String, Option<String>)> = rows.iter().map(|r| (r.get("kind"), r.get("project"))).collect();
@@ -213,7 +200,7 @@ async fn a_project_s_fields_are_changed_and_its_id_is_not() {
     assert_eq!(reply.body["name"], "Prime Sieve");
     assert_eq!(reply.body["key"], "SIV");
     assert_eq!(reply.body["id"], json!(project));
-    assert_eq!(changed(&reply), vec![project.clone()]);
+    assert_eq!(reply.changed(), vec![project.clone()]);
     assert_eq!(api.patch(&format!("/api/projects/{project}"), json!({"id": "other"})).send().await.status, 400);
     assert_eq!(api.patch(&format!("/api/projects/{project}"), json!({"name": null})).send().await.status, 400);
     assert_eq!(api.patch("/api/projects/nope", json!({"name": "x"})).send().await.status, 404);
@@ -253,7 +240,7 @@ async fn a_source_keeps_its_own_releases_while_one_draws_on_it_or_it_has_some() 
     // Leaving it says both changed: the old source counted its issues.
     let left = api.patch("/api/projects/drawing", json!({"release_mode": "own"})).send().await;
     assert_eq!(left.status, 200, "{}", left.body);
-    assert_eq!(changed(&left), ["drawing", "source"]);
+    assert_eq!(left.changed(), ["drawing", "source"]);
     assert!(left.body.get("releases_from").is_none(), "{}", left.body);
     api.post("/api/projects/source/releases", json!({"version": "1.0"})).send().await;
     let has = api.patch("/api/projects/source", json!({"release_mode": "none"})).send().await;
@@ -272,7 +259,7 @@ async fn moving_to_another_source_lets_go_of_releases_it_does_not_have() {
     let issue = api.issue("drawing", json!({"title": "Teeth", "release": "1.0"})).await;
     let moved = api.patch("/api/projects/drawing", json!({"releases_from": "other"})).send().await;
     assert_eq!(moved.status, 200, "{}", moved.body);
-    assert_eq!(changed(&moved), ["drawing", "source"]);
+    assert_eq!(moved.changed(), ["drawing", "source"]);
     let read = api.get(&format!("/api/projects/drawing/issues/{issue}")).send().await.body;
     assert!(read.get("release").is_none_or(Value::is_null), "{read}");
     assert_eq!(moved.body["releases"][0]["version"], "2.0");
@@ -352,7 +339,7 @@ async fn a_roadmap_is_imported_with_the_projects_ids_and_the_files_as_aliases() 
     let key = api.get(&format!("/api/projects/{project}")).send().await.body["key"].as_str().unwrap().to_string();
     let reply = api.post(&format!("/api/projects/{project}/import"), roadmap()).send().await;
     assert_eq!(reply.status, 200, "{}", reply.body);
-    assert_eq!(changed(&reply), std::slice::from_ref(&project));
+    assert_eq!(reply.changed(), std::slice::from_ref(&project));
     let milestones = reply.body["board"]["milestones"].as_array().unwrap();
     assert_eq!(milestones.iter().map(|m| m["id"].as_str().unwrap()).collect::<Vec<_>>(), ["1", "2"]);
     assert_eq!(milestones[0]["summary"], "The start");

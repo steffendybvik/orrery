@@ -424,16 +424,8 @@ mod tests {
     /// A door-facing orrery with an owner and a member, so login is on.
     async fn two_people() -> crate::testing::TestApi {
         let api = crate::testing::TestApi::at_the_door().await;
-        for (id, role) in [("steffen", "owner"), ("ada", "member")] {
-            sqlx::query(&crate::db::sql("INSERT INTO people (id, name, role, created_at) VALUES (?, ?, ?, ?)"))
-                .bind(id)
-                .bind(id)
-                .bind(role)
-                .bind(crate::write::stamp())
-                .execute(&api.app.pool)
-                .await
-                .unwrap();
-        }
+        api.owner().await;
+        api.member("ada", "ada").await;
         // Login stays on for good once a second person has been here, which the first request would note.
         sqlx::query("INSERT INTO settings (key, value) VALUES ('auth_on', 'true')").execute(&api.app.pool).await.unwrap();
         api
