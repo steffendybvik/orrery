@@ -60,10 +60,10 @@ globalThis.fetch = (input: string | URL | Request, init?: RequestInit) => {
     return realFetch(input, init)
 }
 
-/** The routes of the contract that no request here reached. */
+/** The routes of the contract, those written ahead of the router too, that no request here reached. */
 function unreached(): string[] {
     const asked = [...reached]
-    return contract().filter(route => {
+    return [...contract(), ...contract(true)].filter(route => {
         const [method, path] = [methodOf(route), route.slice(route.indexOf(' ') + 1)]
         const pattern = new RegExp(`^${method} ${path.replace(/[.*+?^$()|[\]\\]/g, '\\$&').replace(/\{\w+\}/g, '[^/]+')}/?$`)
         return !asked.some(request => pattern.test(request))
@@ -2888,7 +2888,7 @@ describe('the router', () => {
 
     // Last, once every step above has run: each route the API serves was driven by one of them (ORR-1010), so a route
     // moved without a step here fails. Skipped when they didn't run (no binary, or a filter left them out).
-    it('drives every route of the contract at least once', context => {
+    it('drives every route of the contract at least once, those written ahead too', context => {
         if (!reached.size) context.skip()
         expect(unreached()).toEqual([])
     })
