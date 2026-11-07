@@ -24,6 +24,8 @@ services:
       NUXT_API_URL: http://api:9100
       NUXT_API_TOKEN: ${ORRERY_API_TOKEN:-}
       NUXT_API_ONLY: "1"
+      # The image's own copy, which it starts beside itself without this file (ORR-1041), isn't started: this one is.
+      NUXT_API_BIN: ""
     depends_on:
       api: {condition: service_started}
 

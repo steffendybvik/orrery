@@ -29,9 +29,24 @@ jobs:
       - id: version
         run: echo "version=$(jq -r '.devDependencies["@playwright/test"]' web/package.json)" >> "$GITHUB_OUTPUT"
 
+  # The Rust API, which serves the board's data now that its Nuxt routes are gone (ORR-1041).
+  api:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - run: cargo build --locked
+        working-directory: api
+      - uses: actions/upload-artifact@v7
+        with:
+          name: orrery-api
+          path: api/target/debug/orrery-api
+          retention-days: 1
+
   # Runs the app and its dependencies, so it holds no token that can write.
   take:
-    needs: playwright
+    needs: [playwright, api]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     container:
@@ -47,7 +62,15 @@ jobs:
           node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - uses: actions/download-artifact@v8
+        with:
+          name: orrery-api
+          path: .api
+      # An artifact doesn't keep the file's mode.
+      - run: chmod +x .api/orrery-api
       - run: pnpm --dir web images:readme
+        env:
+          NUXT_API_BIN: ${{ github.workspace }}/.api/orrery-api
       - uses: actions/upload-artifact@v7
         with:
           name: images
