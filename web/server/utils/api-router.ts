@@ -10,11 +10,13 @@
 // unless the swap is on (`apiOnly`, NUXT_API_ONLY, ORR-1034): then it fails, and says why in the log.
 import {createHash} from 'node:crypto'
 import type {H3Event} from 'h3'
-import {createError, getCookie, getQuery, getRequestHeader, getRequestURL, readRawBody, setResponseHeader, setResponseStatus} from 'h3'
+import {createError, getCookie, getQuery, getRequestHeader, getRequestHost, getRequestURL, readRawBody, setResponseHeader, setResponseStatus} from 'h3'
 import type {Feature} from '#shared/usage'
 import type {Actor} from '../store/schema'
 import type {Who} from './auth'
-import {loginCookie, pathOf, toldOff} from './auth'
+import {loginCookie, onLoopback, pathOf, toldOff, toldOn} from './auth'
+import {proxied} from './move'
+import {viaPhone} from './phone-port'
 import {caughtUp, followingOutbox} from './outbox-follower'
 import {oidcOn} from './oidc'
 import {countOwnUse} from './usage'
@@ -265,10 +267,19 @@ export function whoHeaders(who: Who | undefined, login: string | undefined): Rec
 }
 
 /** What this server's settings say about getting in, which the API can't read: `provider` with a login provider set up
- * (`oidcOn`), `off` with ORRERY_AUTH=off; and the address the request came to, for an invite's link. */
-export function loginHeaders(ways: {provider: boolean, off: boolean}, origin: string): Record<string, string> {
-    const said = [...ways.provider ? ['provider'] : [], ...ways.off ? ['off'] : []]
+ * (`oidcOn`), `off` with ORRERY_AUTH=off, `on` with ORRERY_AUTH=on; and the address the request came to, for an
+ * invite's link. */
+export function loginHeaders(ways: {provider: boolean, off: boolean, on?: boolean}, origin: string): Record<string, string> {
+    const said = [...ways.provider ? ['provider'] : [], ...ways.off ? ['off'] : [], ...ways.on ? ['on'] : []]
     return {...said.length ? {'Orrery-Login-Ways': said.join(', ')} : {}, 'Orrery-Origin': encodeURIComponent(origin)}
+}
+
+/** How the request reached this server, which only its socket knows (ORR-928), for the API's `authMode`: `loopback`
+ * (`onLoopback`), `proxied`, `phone` (the phone's own port, `viaPhone`) and `https` (`overHttps`), any of them; and
+ * the host it asked for, as `Orrery-Host`, for the login page's plain-http warning. */
+export function cameHeaders(came: {loopback: boolean, proxied: boolean, phone: boolean, https: boolean}, host: string): Record<string, string> {
+    const said = (['loopback', 'proxied', 'phone', 'https'] as const).filter(how => came[how])
+    return {...said.length ? {'Orrery-Came': said.join(', ')} : {}, 'Orrery-Host': encodeURIComponent(host)}
 }
 
 /** The projects a reply's `Orrery-Changed` names: comma-separated, each percent-encoded (a status is every project's). */
@@ -390,7 +401,8 @@ export async function forwardToApi(event: H3Event, api: {url: string, token: str
         'Orrery-Database': databaseMark(databaseSetting()),
         ...actorHeaders(actor),
         ...whoHeaders(event.context.who as Who | undefined, getCookie(event, loginCookie(event))),
-        ...loginHeaders({provider: oidcOn(), off: toldOff()}, getRequestURL(event, {xForwardedHost: true, xForwardedProto: true}).origin),
+        ...loginHeaders({provider: oidcOn(), off: toldOff(), on: toldOn()}, getRequestURL(event, {xForwardedHost: true, xForwardedProto: true}).origin),
+        ...cameHeaders({loopback: onLoopback(event), proxied: proxied(event), phone: viaPhone(event), https: getRequestURL(event, {xForwardedProto: true}).protocol === 'https:'}, getRequestHost(event)),
     }
     let response: Response
     try {
