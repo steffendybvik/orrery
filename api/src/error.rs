@@ -60,6 +60,11 @@ impl ApiError {
         Self::new(StatusCode::INTERNAL_SERVER_ERROR, format!("Expected {}", missing.into()))
     }
 
+    /// A body bigger than the route takes, said before it's read.
+    pub fn too_large(message: impl Into<String>) -> Self {
+        Self::new(StatusCode::PAYLOAD_TOO_LARGE, message)
+    }
+
     /// A request for another database than this API's: the router serves it from the Nuxt server instead.
     pub fn misdirected(message: impl Into<String>) -> Self {
         Self::new(StatusCode::MISDIRECTED_REQUEST, message)

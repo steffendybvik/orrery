@@ -126,7 +126,10 @@ of these, Nuxt answers every route as before.
 Its checks: `cargo fmt --check`, `cargo clippy -- -D warnings` and `cargo test` in `api/`. `web/test/api-parity.test.ts`
 runs the same steps through the store and through the API on one database (SQLite, or Postgres with
 `TEST_POSTGRES_URL`) and compares the replies, failures and what each said changed; it skips without a built binary,
-and CI's `api` job builds one first. It also holds `openapi.yaml` to the routes the router sends on. The browser suite
+and CI's `api` job builds one first. It also holds `openapi.yaml` to the routes the router sends on.
+`web/test/one-writer.test.ts` reads every table the API writes off its SQL and holds them to `web/test/table-writers.ts`,
+where each says it's the API's alone once routed, or what the Nuxt server still writes there and the issue that ends
+it: a table the API starts writing needs its line there. The browser suite
 runs through the API with `NUXT_API_BIN` set for `pnpm test:e2e` (or `test:e2e:login`), as its server inherits it,
 and with `NUXT_API_ONLY=1` as well for the swap as the playground runs it;
 CI doesn't run it that way yet, and what it found the first time is in [Rust API swap](/p/orrery/docs/rust-api-swap).

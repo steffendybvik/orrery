@@ -79,8 +79,9 @@ export const DOMAINS: readonly {domain: string, paths: RegExp, methods?: readonl
     // and logging in and out, stay here (auth.ts): the API hears what that found (`whoHeaders`).
     {domain: 'keys', paths: /^keys(\/[^/]+)?$/},
     {domain: 'logins', paths: /^logins(\/[^/]+)?$/},
-    // An image kept for Markdown, read (ORR-927). Keeping one stays here, as it's compressed here first.
+    // An image kept for Markdown, read (ORR-927), and kept, compressed in Rust as compress.ts does here (ORR-1058).
     {domain: 'uploads, reading', paths: /^uploads\/[^/]+$/, methods: ['GET']},
+    {domain: 'an upload, kept', paths: /^uploads$/, methods: ['POST']},
     // The orrery's presets and a project's own (ORR-949). Seeding the ones orrery ships, as this server starts, stays here.
     {domain: 'presets', paths: /^(presets(\/[^/]+(\/reset)?)?|projects\/[^/]+\/presets)$/},
     // The orrery's secrets, read: never a value (ORR-953). Setting and narrowing one seal its value with the key, which
@@ -398,20 +399,24 @@ let unreachable = ''
 
 /** The API can't answer `event` (`why`): with the swap off, said once and left to the routes here (undefined); with it
  * on, a 503 that says why, logged once to the server's log and the event log while it lasts. */
-export function cantReach(event: H3Event, why: string, only: boolean): undefined {
+export function cantReach(event: H3Event | string, why: string, only: boolean): undefined {
     const again = unreachable === why
     unreachable = why
     if (!only) {
         if (!again) console.warn(`[orrery] the Rust API ${why}, so this server answers its routes`)
         return undefined
     }
-    const message = `The Rust API ${why}, and this server is set to the API alone (NUXT_API_ONLY), so it doesn't answer ${event.method} ${pathOf(event, true)} itself.`
+    const asked = typeof event === 'string' ? event : `${event.method} ${pathOf(event, true)}`
+    const message = `The Rust API ${why}, and this server is set to the API alone (NUXT_API_ONLY), so it doesn't answer ${asked} itself.`
     if (!again) {
         console.error(`[orrery] ${message}`)
         useEventLog().note({level: 'error', kind: 'api.unreachable', message, details: {why}})
     }
     throw createError({statusCode: 503, statusMessage: 'The Rust API can\'t be reached', message})
 }
+
+/** Why the API isn't there to send to, said as `cantReach` takes it. */
+const NOT_RUNNING = 'isn\'t running (not started yet, stopped, or not set up)'
 
 /** Sends the request to the API when it serves it (`DOMAINS`), and gives back its reply, or undefined to leave it to the
  * routes here: always with no API, with the swap off (`apiOnly`); with it on, only what a line's check keeps here. */
@@ -421,7 +426,7 @@ export async function routeToApi(event: H3Event, config: {apiUrl?: unknown, apiT
     // With the swap on, a request that comes while the API is starting waits a few seconds for it, rather than failing.
     if (only && !apiTarget(config)) await apiListening()
     const api = apiTarget(config)
-    if (!api) return only ? cantReach(event, 'isn\'t running (not started yet, stopped, or not set up)', true) : undefined
+    if (!api) return only ? cantReach(event, NOT_RUNNING, true) : undefined
     return forwardToApi(event, api, only)
 }
 
@@ -460,9 +465,27 @@ export async function forwardToApi(event: H3Event, api: {url: string, token: str
     }
     const text = await response.text()
     const json = text ? JSON.parse(text) as Record<string, unknown> : null
-    if (response.status >= 400) {
-        throw createError({statusCode: response.status, statusMessage: String(json?.statusMessage ?? ''), message: String(json?.message ?? ''), ...json?.data === undefined ? {} : {data: json.data}})
-    }
+    if (response.status >= 400) throw refusal(response.status, json)
+    await relayed(response, actor, event.method)
+    const counted = countedOf(event.method, pathOf(event))
+    if (counted) countOwnUse(event, counted)
+    setResponseStatus(event, response.status)
+    if (response.status === 204) return null
+    setResponseHeader(event, 'Content-Type', 'application/json')
+    // A file to save (a board's export) keeps the name it's saved as.
+    const saved = response.headers.get('content-disposition')
+    if (saved) setResponseHeader(event, 'Content-Disposition', saved)
+    return json
+}
+
+/** A reply of 400 or more, as the error the routes here would throw. */
+function refusal(status: number, json: Record<string, unknown> | null) {
+    return createError({statusCode: status, statusMessage: String(json?.statusMessage ?? ''), message: String(json?.message ?? ''), ...json?.data === undefined ? {} : {data: json.data}})
+}
+
+/** Tells what a reply from the API says it set off, as the store would have: open pages read the project again, and the
+ * event log, schedules and sessions hear it. `noteKeys` off: the caller notes a change of the settings itself. */
+async function relayed(response: Response, actor: Actor, method: string, {noteKeys = true} = {}) {
     const store = useStore()
     // The API put what it set off in the outbox already, so the store's hooks don't again (ORR-929). While this server
     // follows the outbox, they hear it from there instead of from these headers (ORR-983).
@@ -474,21 +497,54 @@ export async function forwardToApi(event: H3Event, api: {url: string, token: str
         // Open pages ask for the epics again (ORR-1004).
         if (relayHeaders && response.headers.get('orrery-epics') === '1') store.epicsChanged()
         const keys = changedOf(response.headers.get('orrery-settings-keys'))
-        if (keys.length) useEventLog().note({level: 'info', kind: 'settings.changed', message: `${actor.name} changed the settings: ${keys.join(', ')}`, details: {by: actor.name, keys}})
+        if (noteKeys && keys.length) useEventLog().note({level: 'info', kind: 'settings.changed', message: `${actor.name} changed the settings: ${keys.join(', ')}`, details: {by: actor.name, keys}})
         if (relayHeaders) for (const {type, project, subject, from, to} of toldOf(response.headers.get('orrery-told'))) store.told(type, project, subject, actor, {from, to})
     })
     // Outside `relaying`: the signal and the bell's notice are this server's own, with their own rows in the outbox.
     for (const handoff of handoffsOf(response.headers)) await handOn(store, handoff, actor)
     for (const urgent of urgentOf(response.headers.get('orrery-urgent'))) await store.sayUrgent(urgent.project, urgent.issue, actor)
     // What it set off is told before the reply, as the page that asked reads the board next (ORR-1029).
-    if (!relayHeaders && WRITES.has(event.method)) await caughtUp()
-    const counted = countedOf(event.method, pathOf(event))
-    if (counted) countOwnUse(event, counted)
-    setResponseStatus(event, response.status)
-    if (response.status === 204) return null
-    setResponseHeader(event, 'Content-Type', 'application/json')
-    // A file to save (a board's export) keeps the name it's saved as.
-    const saved = response.headers.get('content-disposition')
-    if (saved) setResponseHeader(event, 'Content-Disposition', saved)
-    return json
+    if (!relayHeaders && WRITES.has(method)) await caughtUp()
+}
+
+/** The runtime config, or none where there's no Nitro (unit tests that don't stub it). */
+function configHere(): {apiUrl?: unknown, apiToken?: unknown, apiOnly?: unknown} {
+    try {
+        return useRuntimeConfig()
+    } catch {
+        return {}
+    }
+}
+
+/** A write this server makes itself rather than for a request, such as the chat's Allow (ORR-1044): with the API there
+ * and serving `method` on `path` (`DOMAINS`, or `always` for a route only this server calls, like the chat's row), it's
+ * sent there as the page's request would be, as `actor`, so the API stays the one writer of its tables and its outbox
+ * hears it. The reply comes back as `{reply}`; undefined leaves it to the store here, as the router would: no API, or
+ * one that can't be reached with the swap off. With the swap on, that fails instead (`cantReach`). `noteKeys` off: the
+ * caller notes a settings change in the event log itself. */
+export async function writeToApi(method: string, path: string, body: unknown, actor: Actor, {always = false, noteKeys = true, config = configHere()} = {}): Promise<{reply: unknown} | undefined> {
+    if (!always && !servedByApi(method, path)) return undefined
+    const only = apiOnly(config)
+    const asked = `${method} ${path}`
+    if (only && !apiTarget(config)) await apiListening()
+    const api = apiTarget(config)
+    if (!api) return only ? cantReach(asked, NOT_RUNNING, true) : undefined
+    let response: Response
+    try {
+        response = await fetch(`${api.url.replace(/\/+$/, '')}${path}`, {
+            method,
+            headers: {'Content-Type': 'application/json', 'Orrery-Api-Token': api.token, 'Orrery-Database': databaseMark(databaseSetting()), ...actorHeaders(actor)},
+            body: body === undefined ? undefined : JSON.stringify(body),
+            redirect: 'manual',
+        })
+    } catch (error) {
+        return cantReach(asked, `at ${api.url} can't be reached (${(error as Error).message})`, only)
+    }
+    if (response.status === 421) return cantReach(asked, `at ${api.url} is on another database than this server`, only)
+    unreachable = ''
+    const text = await response.text()
+    const json = text ? JSON.parse(text) as Record<string, unknown> : null
+    if (response.status >= 400) throw refusal(response.status, json)
+    await relayed(response, actor, method, {noteKeys})
+    return {reply: json}
 }

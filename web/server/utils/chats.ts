@@ -4,13 +4,14 @@ import type {Chat, ChatRequestDrift, SessionContext, ChatMilestoneField, ChatMil
 import {CHAT_MILESTONE_FIELDS, CHAT_DOC_FIELDS, CHAT_ISSUES, CHAT_RELEASE_FIELDS, CHAT_SETTINGS, SESSION_STATES, scheduleValue, settingValue} from '#shared/roadmap'
 import type {OrreryEvent} from '#shared/happenings'
 import type {Actor} from '../store/schema'
-import {MILESTONE_FIELDS, DOC_FIELDS, ISSUE_FIELDS, SETTINGS_FIELDS} from '../store/schema'
+import {MILESTONE_FIELDS, DOC_FIELDS, ISSUE_FIELDS, ORRERY, SETTINGS_FIELDS} from '../store/schema'
 import {sectionOf} from '../store/docs'
 import {checkInput, isObject} from './input'
 import {known} from '#shared/known'
 import {refusedFor} from './permission'
 import {anotherPersons, sessionHeader} from './actor'
 import {scheduleAsk, scheduleDrift, scheduleRequest} from './schedule-requests'
+import {onlyWords, writeToApi} from './api-router'
 
 // The owner's chats: a Claude session started for one alone (launches.ts `startChat`), which the owner talks to on the
 // page instead of in a terminal. It answers questions about the project and makes issues and comments when asked;
@@ -45,7 +46,7 @@ const saving = new Map<string, Promise<void>>()
 /** Keeps the chat in the database as it is now (`gone`: drops it), after its writes before. Why its launcher couldn't
  * start it isn't kept: that's said again, if it still holds, once orrery is up again. */
 function save(chat: Chat, gone = false) {
-    const write = () => keepChat(useDatabase(), chat, gone)
+    const write = () => keepChatThrough(chat, gone)
     const done = (saving.get(chat.id) ?? Promise.resolve()).then(write).catch(error => console.error(`[orrery] keeping chat ${chat.id}:`, error))
     saving.set(chat.id, done)
     void done.then(() => { if (saving.get(chat.id) === done) saving.delete(chat.id) })
@@ -58,6 +59,31 @@ export async function keepChat(db: Db, chat: Chat, gone = false) {
     const {problem: _problem, ...kept} = chat
     await db.run('INSERT INTO chats (id, project, started_at, ended_at, chat) VALUES (?, ?, ?, ?, ?) ON CONFLICT (id) DO UPDATE SET ended_at = excluded.ended_at, chat = excluded.chat',
         chat.id, chat.project, chat.started_at, chat.ended_at ?? null, JSON.stringify(kept))
+}
+
+/** The chat's row kept through the Rust API when it's in front (`PUT`/`DELETE /api/chats/:chat`, ORR-951), as it's the
+ * one writer of the `chats` table then (ORR-1044); otherwise straight into the database here (`keepChat`). */
+async function keepChatThrough(chat: Chat, gone: boolean) {
+    const {problem: _problem, ...kept} = chat
+    const sent = await writeToApi(gone ? 'DELETE' : 'PUT', `/api/chats/${encodeURIComponent(chat.id)}`, gone ? undefined : kept, ORRERY, {always: true})
+    if (!sent) await keepChat(useDatabase(), chat, gone)
+}
+
+/** The path of `parts` under the chat's project, each percent-encoded. */
+const under = (project: string, ...parts: string[]) => `/api/projects/${[project, ...parts].map(encodeURIComponent).join('/')}`
+
+/** A board write the owner allowed through their chat: sent to the Rust API as the page's request would be, when it's in
+ * front and serves it (`writeToApi`), so it's the one writer of its tables and its outbox hears it (ORR-1044); otherwise
+ * `here`, the store's own write. `noteKeys` off: the settings change is noted here already. */
+async function through<T>(method: string, path: string, body: unknown, as: Actor, here: () => Promise<T>, opts: {noteKeys?: boolean} = {}): Promise<T> {
+    const sent = await writeToApi(method, path, body, as, opts)
+    return sent ? sent.reply as T : await here()
+}
+
+/** An issue's write the owner allowed: through the Rust API only when it names nothing but the issue's words, as the
+ * router sends it on (`onlyWords`); the rest stays with the store here. */
+async function issueThrough<T>(method: string, path: string, body: Record<string, unknown>, as: Actor, here: () => Promise<T>): Promise<T> {
+    return onlyWords(body) ? await through(method, path, body, as, here) : await here()
 }
 
 /** Waits for every chat's writes so far to land (tests, and a server closing). */
@@ -377,7 +403,7 @@ async function moveNow(chat: Chat, ids: string[], to: Omit<ChatMoveRequest['body
     const moved: string[] = []
     try {
         for (const issue of ids) {
-            await useStore().updateIssue(chat.project, issue, to, as)
+            await issueThrough('PATCH', under(chat.project, 'issues', issue), to, as, () => useStore().updateIssue(chat.project, issue, to, as))
             moved.push(issue)
         }
     } catch (error) {
@@ -695,8 +721,8 @@ async function answerSchedule(chat: Chat, request: ChatScheduleRequest, allow: b
 async function answerRelease(chat: Chat, request: ChatReleaseRequest, allow: boolean, actor: Actor) {
     if (allow) {
         const as: Actor = {...actor, via: 'chat'}
-        if (request.change) await useStore().updateRelease(chat.project, request.version, request.body, as)
-        else await useStore().createRelease(chat.project, request.body, as)
+        if (request.change) await through('PATCH', under(chat.project, 'releases', request.version), request.body, as, () => useStore().updateRelease(chat.project, request.version, request.body, as))
+        else await through('POST', under(chat.project, 'releases'), request.body, as, () => useStore().createRelease(chat.project, request.body, as))
     }
     request.state = allow ? 'allowed' : 'denied'
     changed(chat)
@@ -726,7 +752,7 @@ async function answerMove(chat: Chat, request: ChatMoveRequest, allow: boolean, 
             for (const id of ids) {
                 if (moved.includes(id)) continue
                 if (undecided((await useStore().issue(chat.project, id)).proposal)) throw refusedFor('issues.edit', `${id} is a proposal waiting on you now: decide it on its page`)
-                await useStore().updateIssue(chat.project, id, to, as)
+                await issueThrough('PATCH', under(chat.project, 'issues', id), to, as, () => useStore().updateIssue(chat.project, id, to, as))
                 moved.push(id)
             }
         } catch (error) {
@@ -754,9 +780,11 @@ async function answerMove(chat: Chat, request: ChatMoveRequest, allow: boolean, 
 async function answerMilestone(chat: Chat, request: ChatMilestoneRequest, allow: boolean, actor: Actor) {
     let made: {id: string, title: string} | undefined
     if (allow) {
-        made = request.id === undefined
-            ? await useStore().createMilestone(chat.project, request.body, {...actor, via: 'chat'})
-            : await useStore().updateMilestone(chat.project, request.id, request.body, {...actor, via: 'chat'})
+        const as: Actor = {...actor, via: 'chat'}
+        const {id: target} = request
+        made = target === undefined
+            ? await through('POST', under(chat.project, 'milestones'), request.body, as, () => useStore().createMilestone(chat.project, request.body, as))
+            : await through('PATCH', under(chat.project, 'milestones', target), request.body, as, () => useStore().updateMilestone(chat.project, target, request.body, as))
     }
     request.state = allow ? 'allowed' : 'denied'
     if (made) request.id = made.id
@@ -777,9 +805,16 @@ async function answerDoc(chat: Chat, request: ChatDocRequest, allow: boolean, ac
     if (allow) {
         const as: Actor = {...actor, via: 'chat'}
         try {
-            made = request.was
-                ? await useStore().updateDoc(chat.project, known(request.id, 'the doc a change is to'), request.body, as, request.was)
-                : await useStore().createDoc(chat.project, request.body, as)
+            const {was} = request
+            if (was) {
+                const target = known(request.id, 'the doc a change is to')
+                // The Rust API's PATCH has no "as it was" to check against, so it's checked here first; the store's
+                // own write checks it again in its transaction.
+                await stillAsShown(chat.project, target, was)
+                made = await through('PATCH', under(chat.project, 'docs', target), request.body, as, () => useStore().updateDoc(chat.project, target, request.body, as, was))
+            } else {
+                made = await through('POST', under(chat.project, 'docs'), request.body, as, () => useStore().createDoc(chat.project, request.body, as))
+            }
         } catch (error) {
             const {statusCode} = error as {statusCode?: number}
             if (!request.was || (statusCode !== 409 && statusCode !== 404)) throw error
@@ -805,11 +840,19 @@ async function answerDoc(chat: Chat, request: ChatDocRequest, allow: boolean, ac
         : `(I denied your request to ${docAsk(request)}: nothing changed.)`, actor)
 }
 
+/** Refuses (409) a change to doc `id` that's no longer what the owner was shown (`was`); 404 when it's gone. */
+async function stillAsShown(project: string, id: string, was: {title: string, section: string | null, body: string}) {
+    const now = await useStore().doc(project, id)
+    if (now.title !== was.title || now.body !== was.body || (now.section ?? null) !== was.section) throw conflict(`Doc "${id}" has changed since then`)
+}
+
 /** The owner's File issue or Don't file on the issue the chat offered: filed, it's theirs, through their chat, where they
  * have the chat's issues land. An offer that no longer holds (its milestone removed since) fails as making it would, still asked. */
 async function answerIssue(chat: Chat, request: ChatIssueRequest, allow: boolean, actor: Actor) {
     const {id: _, state: __, ...fields} = request
-    const made = allow ? await useStore().createIssue(chat.project, {...fields, status: chat.issues}, {...actor, via: 'chat'}) : undefined
+    const as: Actor = {...actor, via: 'chat'}
+    const body = {...fields, status: chat.issues}
+    const made = allow ? await issueThrough('POST', under(chat.project, 'issues'), body, as, () => useStore().createIssue(chat.project, body, as)) : undefined
     request.state = allow ? 'allowed' : 'denied'
     if (made) request.id = made.id
     changed(chat)
@@ -862,7 +905,8 @@ async function answerSend(chat: Chat, request: ChatSendRequest, allow: boolean, 
 async function answerSetting(chat: Chat, request: NonNullable<ChatMessage['request']>, allow: boolean, actor: Actor) {
     const label = CHAT_SETTINGS[request.setting]
     if (allow) {
-        await useStore().updateSettings({[request.setting]: request.to}, actor)
+        const body = {[request.setting]: request.to}
+        await through('PATCH', '/api/settings', body, actor, () => useStore().updateSettings(body, actor), {noteKeys: false})
         useEventLog().note({level: 'info', kind: 'settings.changed', message: `${actor.name} changed the settings through their chat: ${request.setting}`,
             details: {by: actor.name, keys: [request.setting], via: 'chat', from: request.from, to: request.to}})
     }
