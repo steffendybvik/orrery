@@ -13,7 +13,7 @@ const ORR_927: Line = {issue: 'ORR-927', gap: 'uploading, with the issue writes'
 const ORR_928: Line = {issue: 'ORR-928', gap: 'the owner, permissions and members, with auth'}
 const ORR_950: Line = {issue: 'ORR-950', gap: 'schedule writes and runs, and the schedule requests that write them'}
 const ORR_1006: Line = {issue: 'ORR-1006', gap: 'reading, deleting, exporting and importing a project'}
-const ORR_1038: Line = {issue: 'ORR-1038', gap: 'the front door: what it says depends on how the request came in'}
+const ORR_1038: Line = {issue: 'ORR-1038', gap: 'the front door: served ahead, routed once how the request came in reaches the API'}
 
 const FOCUS: Line = {stays: "a focus signals the sessions, which are the machine's (ORR-1004, ORR-927)"}
 const CHAT: Line = {stays: "the chat's sessions are the local app's; the API keeps their rows, through PUT /api/chats/{chat}"}
