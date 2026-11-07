@@ -22,7 +22,7 @@ import {CallToolRequestSchema, ListToolsRequestSchema} from '@modelcontextprotoc
 import {authHeaders} from './credentials.mjs'
 import {pickedUpMessage, pickUpRepo} from './pick-up.mjs'
 import {narrowed} from './repo-channels.mjs'
-import {projectAt} from './launcher-service.mjs'
+import {addToList, projectAt, readConfig} from './launcher-service.mjs'
 import {serverName} from './server-name.mjs'
 import {signalWords} from './signal-words.mjs'
 import {claudeWindow} from './session.mjs'
@@ -59,6 +59,8 @@ const globalSession = process.env.ORRERY_GLOBAL === 'yes' && !chat
 const reached = chat && !every ? (listed.includes('*') ? [] : [...new Set(listed)]) : projects
 const who = new URLSearchParams(Object.entries({session: window.id, pid: window.pid, name: window.name, stops: window.pid && 'yes', untrusted: untrusted && 'yes', chat: chat && 'yes', version: VERSION})
     .filter(([, v]) => v).map(([k, v]) => [k, String(v)]))
+/** The project the launcher's list maps this folder to, for a session orrery didn't start (ORR-1068); `link_folder` sets it. */
+let mapped = process.env.ORRERY_STARTED ? undefined : projectAt(process.cwd(), base)
 /** The project orrery started the session for (the launcher says, in ORRERY_PROJECT), whose stream says so. */
 const startedFor = () => process.env.ORRERY_STARTED && (projects.includes(process.env.ORRERY_PROJECT) ? process.env.ORRERY_PROJECT : projects[0])
 /** Why it won't serve this orrery (another than ORRERY_ID), once it knows. */
@@ -67,7 +69,8 @@ let refused = ''
 const serves = every ? 'every project on it' : projects.length === 1 ? `project "${projects[0]}"` : `projects ${projects.map(p => `"${p}"`).join(', ')}`
 const server = new Server({name: 'orrery', version: VERSION}, {
     capabilities: {experimental: {'claude/channel': {}}, tools: {listChanged: true}},
-    instructions: instructionsFor({base, serves, chat: !!chat, untrusted, several: every || projects.length > 1, global: globalSession}),
+    instructions: instructionsFor({base, serves, chat: !!chat, untrusted, several: every || projects.length > 1, global: globalSession,
+        unlinked: !chat && !untrusted && !process.env.ORRERY_STARTED && !mapped}),
 })
 // Each call's answer, for the Context page's "so far" (ORR-549): sent plain, as `delivered` is, so the chat's and an
 // untrusted session's guards don't take it for one of their writes.
@@ -87,13 +90,23 @@ const loadTools = async group => {
 /** The project a call that names none is on (ORR-1068), when it serves several: a chat's own; a session orrery started,
  * the one it was started for; else the one the launcher's list maps this folder to. None when it serves none of
  * those, and the call says which. Read at each call, as `*` knows its projects only once the orrery is reached. */
-const mapped = process.env.ORRERY_STARTED ? undefined : projectAt(process.cwd(), base)
 const own = () => {
     if (globalSession) return undefined
     const project = process.env.ORRERY_STARTED ? startedFor() : mapped
     return project && reached.includes(project) ? project : undefined
 }
-const callTool = orreryTools({root: `${base}/api`, projects: reached, home: own, session: window.id, person, auth: authHeaders(base), untrusted, chat, report: reportCall, load: loadTools})
+/** Links this session's folder to `project` on this orrery (`link_folder`, ORR-1071): puts it on the launcher's list, as
+ * Connect a repo does, so its sessions report there and default to it, and the launcher serves it from here. A project
+ * served from another folder stays there unless `move`, as linking here moves its sessions here. */
+function link(project, {move}) {
+    const dir = process.cwd()
+    const elsewhere = readConfig().projects.find(entry => entry.url?.replace(/\/+$/, '') === base && entry.project === project && entry.dir !== dir)
+    if (elsewhere && !move) throw new Error(`${project} is served from ${elsewhere.dir}, and linking it here moves the sessions orrery starts for it here: ask the user, and call again with move: true if they want that`)
+    addToList([{url: base, project, dir}], dir)
+    mapped = projectAt(dir, base)
+    return `Linked ${dir} to ${project}${elsewhere ? ` (it was served from ${elsewhere.dir})` : ''}. Sessions here report to it${mapped ? ' and default to it' : ''}, and orrery can start sessions here.${mapped ? '' : ' This folder serves other projects too, so calls here still name theirs.'}`
+}
+const callTool = orreryTools({root: `${base}/api`, projects: reached, home: own, session: window.id, person, auth: authHeaders(base), untrusted, chat, report: reportCall, load: loadTools, link})
 server.setRequestHandler(ListToolsRequestSchema, async () => ({tools: toolsFor(reached, {chat: !!chat, untrusted, loaded: [...loaded], home: own()})}))
 server.setRequestHandler(CallToolRequestSchema, async request => {
     const why = refused || (!projects.length && `orrery (${base}) hasn't been reached yet, so the projects it serves aren't known; try again shortly`)
