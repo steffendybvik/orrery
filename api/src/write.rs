@@ -29,6 +29,8 @@ pub struct Effects {
     pub settings_keys: Vec<String>,
     /// Whether the epics changed (ORR-1004): open pages ask for them again.
     pub epics: bool,
+    /// The projects whose schedules changed (ORR-950): the local app's scheduler reads them again, and open pages hear.
+    pub schedules: Vec<String>,
 }
 
 /// An event a write told: its kind, project and subject, and where a value went (`from`, `to`) when one changed, as a

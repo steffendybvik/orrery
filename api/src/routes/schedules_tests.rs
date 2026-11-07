@@ -237,3 +237,98 @@ async fn a_schedule_across_projects_says_which_its_made_on() {
     let copy = api.get(&format!("/api/projects/{primes}/schedules")).send().await.body;
     assert_eq!(copy[0]["across"], across, "a copy points back to it");
 }
+
+/// The outbox's rows, as `(kind, project)`.
+async fn outbox(api: &TestApi) -> Vec<(String, Option<String>)> {
+    let rows = sqlx::query("SELECT kind, project FROM changes ORDER BY id").fetch_all(&api.app.pool).await.unwrap();
+    rows.iter().map(|r| (sqlx::Row::get(r, "kind"), sqlx::Row::get(r, "project"))).collect()
+}
+
+async fn count(api: &TestApi, query: &str) -> i64 {
+    sqlx::query_scalar::<_, i64>(query).fetch_one(&api.app.pool).await.unwrap()
+}
+
+#[tokio::test]
+async fn the_owner_makes_an_agents_schedule_theirs() {
+    let api = TestApi::new().await;
+    let project = api.project("Primes").await;
+    let id = schedule(&api, &project, "Nightly tidy", None, &[("created_by", "'claude'")]).await;
+    let path = format!("/api/projects/{project}/schedules/{id}/adopt");
+    // Only the owner takes one on.
+    let refused = api.post(&path, json!({})).by_agent("claude").send().await;
+    assert_eq!(refused.status, 403);
+    assert_eq!(refused.body["data"]["permission"], "schedules.adopt");
+    // Read before a change, it's refused, so they never take on words they haven't seen.
+    let stale = api.post(&path, json!({"seen": "2026-10-01T00:00:00.000Z"})).send().await;
+    assert_eq!(stale.status, 409, "{}", stale.body);
+    assert_eq!(api.post(&path, json!({"seen": 3})).send().await.status, 400);
+    let adopted = api.post(&path, json!({"seen": "2026-11-02T00:00:00.000Z"})).send().await;
+    assert_eq!(adopted.status, 200, "{}", adopted.body);
+    assert_eq!(adopted.body["protected"], true);
+    assert_eq!(adopted.body["created_by"], "owner");
+    assert_ne!(adopted.body["updated_at"], "2026-11-02T00:00:00.000Z");
+    assert_eq!(adopted.header("orrery-schedules"), Some(project.as_str()));
+    assert_eq!(outbox(&api).await.last(), Some(&("schedules".into(), Some(project.clone()))));
+    // Theirs already, with no body at all, it comes back as it is, and nothing changed.
+    let again = api.post(&path, json!(null)).send().await;
+    assert_eq!(again.status, 200, "{}", again.body);
+    assert_eq!(again.body["updated_at"], adopted.body["updated_at"]);
+    assert_eq!(again.header("orrery-schedules"), None);
+    assert_eq!(api.post(&format!("/api/projects/{project}/schedules/999/adopt"), json!({})).send().await.status, 404);
+}
+
+#[tokio::test]
+async fn deleting_a_schedule_keeps_its_issues() {
+    let api = TestApi::new().await;
+    let project = api.project("Primes").await;
+    let id = schedule(&api, &project, "Weekly review", None, &[]).await;
+    let issue = api.issue(&project, json!({"title": "Review week 45"})).await;
+    sqlx::query(&crate::db::sql("UPDATE issues SET schedule = ? WHERE project = ?")).bind(id).bind(&project).execute(&api.app.pool).await.unwrap();
+    run(&api, id, "2026-11-03T08:00:00.000Z", "created", Some(&issue)).await;
+    let reply = api.delete(&format!("/api/projects/{project}/schedules/{id}")).send().await;
+    assert_eq!(reply.status, 204, "{}", reply.body);
+    assert_eq!(reply.header("orrery-schedules"), Some(project.as_str()));
+    assert_eq!(api.get(&format!("/api/projects/{project}/schedules/{id}")).send().await.status, 404);
+    assert_eq!(count(&api, "SELECT CAST(count(*) AS BIGINT) FROM issues WHERE schedule IS NULL").await, 1);
+    assert_eq!(outbox(&api).await.iter().filter(|(kind, _)| kind == "schedules").count(), 1);
+    assert_eq!(api.delete(&format!("/api/projects/{project}/schedules/{id}")).send().await.status, 404);
+}
+
+#[tokio::test]
+async fn only_the_owner_deletes_their_own() {
+    let api = TestApi::new().await;
+    let project = api.project("Primes").await;
+    let mine = schedule(&api, &project, "Mine", None, &[("owned", "1")]).await;
+    let theirs = schedule(&api, &project, "An agent's", None, &[("created_by", "'claude'")]).await;
+    let refused = api.delete(&format!("/api/projects/{project}/schedules/{mine}")).by_agent("claude").send().await;
+    assert_eq!(refused.status, 403);
+    assert_eq!(refused.body["data"]["permission"], "schedules.owners");
+    assert!(outbox(&api).await.iter().all(|(kind, _)| kind != "schedules"));
+    assert_eq!(api.delete(&format!("/api/projects/{project}/schedules/{theirs}")).by_agent("claude").send().await.status, 204);
+    assert_eq!(api.delete(&format!("/api/projects/{project}/schedules/{mine}")).send().await.status, 204);
+}
+
+#[tokio::test]
+async fn deleting_one_made_across_projects_leaves_its_project_out() {
+    let api = TestApi::new().await;
+    let primes = api.project("Primes").await;
+    let shop = api.project("Shop").await;
+    let across = |projects: &str, skip: &str| {
+        format!("INSERT INTO schedules_across (projects, skip, body, created_by, created_at, updated_at) VALUES ('{projects}', '{skip}', '{{\"title\":\"Standup\"}}', 'owner', '2026-11-01T00:00:00.000Z', '2026-11-01T00:00:00.000Z') RETURNING id")
+    };
+    // One for every project skips this one from then on.
+    let every = sqlx::query_scalar::<_, i64>(&across("*", "[]")).fetch_one(&api.app.pool).await.unwrap();
+    let copy = schedule(&api, &primes, "Standup", None, &[("across", &every.to_string())]).await;
+    assert_eq!(api.delete(&format!("/api/projects/{primes}/schedules/{copy}")).send().await.status, 204);
+    let skip: String = sqlx::query_scalar(&crate::db::sql("SELECT skip FROM schedules_across WHERE id = ?")).bind(every).fetch_one(&api.app.pool).await.unwrap();
+    assert_eq!(serde_json::from_str::<Value>(&skip).unwrap(), json!([primes]));
+    // One naming projects names it no more; the last one out takes it with it.
+    let named = sqlx::query_scalar::<_, i64>(&across(&json!([primes, shop]).to_string(), "[]")).fetch_one(&api.app.pool).await.unwrap();
+    let on_primes = schedule(&api, &primes, "Standup", None, &[("across", &named.to_string())]).await;
+    let on_shop = schedule(&api, &shop, "Standup", None, &[("across", &named.to_string())]).await;
+    assert_eq!(api.delete(&format!("/api/projects/{primes}/schedules/{on_primes}")).send().await.status, 204);
+    let projects: String = sqlx::query_scalar(&crate::db::sql("SELECT projects FROM schedules_across WHERE id = ?")).bind(named).fetch_one(&api.app.pool).await.unwrap();
+    assert_eq!(serde_json::from_str::<Value>(&projects).unwrap(), json!([shop]));
+    assert_eq!(api.delete(&format!("/api/projects/{shop}/schedules/{on_shop}")).send().await.status, 204);
+    assert_eq!(count(&api, &format!("SELECT CAST(count(*) AS BIGINT) FROM schedules_across WHERE id = {named}")).await, 0);
+}
