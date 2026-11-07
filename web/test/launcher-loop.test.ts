@@ -349,7 +349,8 @@ describe.concurrent("a launcher's own loop", {timeout: 40_000}, () => {
             await vi.waitFor(() => expect(state()[nameOf(ID.b, 'pantry')]?.['@orrery_stops_at']).toBe('never'), WAIT)
             writeList([entry('greenhouse'), entry('pantry'), entry('orchard')])
             await vi.waitFor(() => expect(orrery.listening('orchard')).toBe(1), WAIT)
-            expect(orrery.wideStreams()).toBe(1)
+            // The stream before goes once the new one is ready, so pantry is never left with no launcher.
+            await vi.waitFor(() => expect(orrery.wideStreams()).toBe(1), WAIT)
             expect(orrery.listening('pantry')).toBe(1)
             // Connecting again for the new set leaves the sessions running.
             expect(orrery.ended()).toEqual([])

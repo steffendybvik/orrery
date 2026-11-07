@@ -555,12 +555,16 @@ function part(entry) {
 
 /** Serves one project on its own stream, as an orrery from before one stream per orrery (ORR-1076) has only that, until
  * `signal` lets it go. */
-function serveProject({entry: {url, project, dir, home}, serves, ready, hear}, signal) {
+function serveProject({entry: {url, project, dir, home}, serves, ready, hear}, signal, connected = () => {}) {
     const query = home ? 'home=1' : `dir=${encodeURIComponent(dir)}${serves.every ? '&every=1' : ''}${serves.picked ? `&picked=${encodeURIComponent(serves.picked)}` : ''}${serves.connected ? `&connected=${encodeURIComponent(serves.connected)}` : ''}`
     return follow({
         headers: authHeaders(url),
         url: () => `${apiOf({url, project})}/launches/stream?${query}&version=${encodeURIComponent(VERSION)}`,
-        onEvent: async ({event, data}) => event === 'ready' ? ready(JSON.parse(data)) : hear(event, data),
+        onEvent: async ({event, data}) => {
+            if (event !== 'ready') return hear(event, data)
+            await ready(JSON.parse(data))
+            connected()
+        },
         log: (...parts) => log(`${project}:`, ...parts),
         // A project on the list nothing answers for (an orrery gone, or a project it doesn't have): said once (ORR-604).
         down: (since, error) => log(`${project}: nothing at ${url} for it since ${since.toLocaleString()} (${error.message}); still trying every 30s, quietly.${home ? '' : ` --uninstall in ${dir} takes it off`}`),
@@ -570,7 +574,7 @@ function serveProject({entry: {url, project, dir, home}, serves, ready, hear}, s
 
 /** Serves every project it has on one orrery on one stream (ORR-1076), handing each event to the project it names, until
  * `signal` lets it go. An orrery with no such stream, on older code, calls `older`. */
-function serveOrrery(url, parts, signal, older) {
+function serveOrrery(url, parts, signal, older, connected = () => {}) {
     const byProject = new Map(parts.map(p => [p.entry.project, p]))
     return follow({
         headers: authHeaders(url),
@@ -581,7 +585,7 @@ function serveOrrery(url, parts, signal, older) {
                 const {projects = {}, unknown = [], version, oldest} = JSON.parse(data)
                 for (const project of unknown) log(`${project}: ${url} has no such project, or none this launcher's key is on; ${byProject.get(project)?.entry.home ? 'it serves it once there is' : `--uninstall in ${byProject.get(project)?.entry.dir} takes it off`}`)
                 for (const [project, given] of Object.entries(projects)) await byProject.get(project)?.ready({...given, version, oldest})
-                return
+                return connected()
             }
             const {project} = JSON.parse(data)
             await byProject.get(project)?.hear(event, data)
@@ -693,19 +697,30 @@ function restream(url) {
         const key = JSON.stringify(parts.map(p => p.serves))
         const was = streams.get(url)
         if (was?.key === key) return
-        was?.abort.abort()
-        if (!parts.length) return void streams.delete(url)
+        if (!parts.length) {
+            was?.abort.abort()
+            return void streams.delete(url)
+        }
         const now = {abort: new AbortController(), key, older: was?.older}
         streams.set(url, now)
+        // The stream before it goes once this one is ready (or soon, if it never is), so the projects both serve aren't
+        // left with no launcher between them; a launch either sends is claimed once, by the same part.
+        let handedOver = false
+        const handOver = () => {
+            if (handedOver) return
+            handedOver = true
+            was?.abort.abort()
+        }
+        if (was) setTimeout(handOver, 15_000).unref()
         const each = () => {
-            for (const p of parts) serveProject(p, now.abort.signal).catch(error => log(`${p.entry.project}: ${error.message}`))
+            for (const p of parts) serveProject(p, now.abort.signal, handOver).catch(error => log(`${p.entry.project}: ${error.message}`))
         }
         if (now.older) return each()
         serveOrrery(url, parts, now.abort.signal, () => {
             log(`${url} runs older code, with a stream for each project: it serves ${parts.length === 1 ? 'it' : `the ${parts.length}`} that way`)
             now.older = true
             each()
-        }).catch(error => log(`${url}: ${error.message}`))
+        }, handOver).catch(error => log(`${url}: ${error.message}`))
     }, 100))
 }
 
