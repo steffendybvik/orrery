@@ -1,7 +1,8 @@
 // The bell: the handlers and the routes they answer (ORR-1048).
 use crate::error::{ApiError, Result};
 use crate::notices::{Asked, Notices};
-use crate::{actor_of, body_of, owner_asking, who_of, App, Shared};
+use crate::request::{actor_of, body_of, owner_asking, who_of};
+use crate::{App, Shared};
 use axum::body::Bytes;
 use axum::extract::{Query, State};
 use axum::http::HeaderMap;

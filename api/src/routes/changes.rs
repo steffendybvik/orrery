@@ -1,6 +1,7 @@
 // The outbox feed (`GET /api/changes`): the handlers and the routes they answer (ORR-1048).
 use crate::error::Result;
-use crate::{changes, header, App, Shared};
+use crate::request::header;
+use crate::{changes, App, Shared};
 use axum::extract::{Query, State};
 use axum::http::header::ACCEPT;
 use axum::http::HeaderMap;

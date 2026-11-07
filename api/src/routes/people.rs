@@ -2,7 +2,9 @@
 use crate::changes::Outbox;
 use crate::error::Result;
 use crate::people::{holder_of, People};
-use crate::{actor_of, body_of, header, login_of, reply, ways_of, who_of, App, Shared};
+use crate::reply::reply;
+use crate::request::{actor_of, body_of, header, login_of, ways_of, who_of};
+use crate::{App, Shared};
 use axum::body::Bytes;
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
