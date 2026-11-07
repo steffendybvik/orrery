@@ -929,13 +929,15 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         const api = (at: number) => `/schedules/${ids['through-api']![at]}`
         // A refusal names the schedule by its number, which differs between the two projects, so it's compared with the
         // store's number put in the API's place.
-        const refusedAlike = async (name: string, store: Promise<unknown>, api: Promise<Outcome>) => {
-            const [kept, sent] = [await viaStore(() => store), await api]
+        // The store's step goes in as a function: viaStore settles first, and a promise made before then would reject
+        // with nothing yet waiting on it.
+        const refusedAlike = async (name: string, store: () => Promise<unknown>, api: Promise<Outcome>) => {
+            const [kept, sent] = [await viaStore(store), await api]
             const swap = (text: unknown) => String(text).replace(new RegExp(`(schedule) ${ids['through-store']![2]}\\b`, 'i'), `$1 ${ids['through-api']![2]}`)
             expect({status: sent.status, message: (sent.body as {message?: string}).message}, name).toEqual({status: kept.status, message: swap((kept.body as {message?: string}).message)})
         }
-        await refusedAlike('adopting, as an agent', schedules.adopt(on('through-store'), ids['through-store']![2]!, AGENT), viaApi('POST', `${api(2)}/adopt`, undefined, AGENT, 'through-api-timed'))
-        await refusedAlike('adopting what changed since', schedules.adopt(on('through-store'), ids['through-store']![2]!, OWNER, '2000-01-01T00:00:00.000Z'), viaApi('POST', `${api(2)}/adopt`, {seen: '2000-01-01T00:00:00.000Z'}, OWNER, 'through-api-timed'))
+        await refusedAlike('adopting, as an agent', () => schedules.adopt(on('through-store'), ids['through-store']![2]!, AGENT), viaApi('POST', `${api(2)}/adopt`, undefined, AGENT, 'through-api-timed'))
+        await refusedAlike('adopting what changed since', () => schedules.adopt(on('through-store'), ids['through-store']![2]!, OWNER, '2000-01-01T00:00:00.000Z'), viaApi('POST', `${api(2)}/adopt`, {seen: '2000-01-01T00:00:00.000Z'}, OWNER, 'through-api-timed'))
         // The route checks `seen` before the store is asked, so there's only the API's answer to look at.
         expect(await viaApi('POST', `${api(2)}/adopt`, {seen: 5}, OWNER, 'through-api-timed')).toMatchObject({status: 400, body: {message: '"seen" is the updated_at you read the schedule at'}})
         await both('adopting', p => viaStore(() => schedules.adopt(on(p), ids[p]![2]!, OWNER)), () => viaApi('POST', `${api(2)}/adopt`, undefined, OWNER, 'through-api-timed'))
