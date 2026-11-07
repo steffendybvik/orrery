@@ -141,6 +141,12 @@ export function filterTree(issues: Issue[], matches: (issue: Issue) => boolean):
     })
 }
 
+/** The board's cards from filtered issues: a parent whose own status the filter leaves out (kept for a sub-issue that
+ * matches) gives way to those sub-issues, so its column doesn't show just for it (ORR-1061). */
+export function boardCards(issues: Issue[], picked: Column[]): Issue[] {
+    return issues.flatMap(issue => !picked.length || picked.includes(issue.column) ? [issue] : boardCards(issue.tasks, picked))
+}
+
 /** An issue to paste elsewhere, as Markdown: its ref, title and description, then its comments in order, each saying
  * who wrote it and when. */
 export function issueAsMarkdown({ref, title, notes, comments, who}: {ref: string, title: string, notes: string, comments: Comment[], who: (actor: string, session?: string) => string}): string {

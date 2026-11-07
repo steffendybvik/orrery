@@ -4,7 +4,8 @@ import {total} from '#shared/roadmap'
 
 // Issues as cards in their columns, started first and closed last. A parent stands for its
 // sub-issues. One waiting on others stays in its column, with a Blocked chip (ORR-601). A status the filter leaves
-// out has no column, unless a card is in it (a parent kept for a sub-issue that matches). Closed columns start folded to a count. Right-clicking a card opens its menu (IssueMenu). An unfolded
+// out has no column: a parent in it, kept for a sub-issue that matches, gives way to those sub-issues as cards in their
+// own columns (ORR-1061). Closed columns start folded to a count. Right-clicking a card opens its menu (IssueMenu). An unfolded
 // column's header has a tick (GroupTick) for all its cards.
 // A card dragged to another column (a folded one too) moves there, as the menu's move does, and so do the other ticked
 // cards when it's ticked; [ and ] move the focused card (or the ticked ones) one column left or right. While
@@ -30,10 +31,10 @@ const dragging = ref<Issue[]>([])
 const refused = (column: Column) => !!dragging.value.length && !takes(dragging.value, column) && !dragging.value.some(i => i.column === column)
 
 const columns = computed(() => {
-    const issues = props.milestones.flatMap(milestone => milestone.tasks.map(issue => ({issue, milestone})))
     const picked = filters.value.columns
+    const issues = props.milestones.flatMap(milestone => boardCards(milestone.tasks, picked).map(issue => ({issue, milestone})))
     return order.value.map(({id}) => ({column: id, cards: issues.filter(({issue}) => issue.column === id)}))
-        .map(c => ({...c, shown: !picked.length || picked.includes(c.column) || !!c.cards.length}))
+        .map(c => ({...c, shown: !picked.length || picked.includes(c.column)}))
 })
 // The filter's hidden columns (Done and Canceled, to begin with) show as places to drop while a card is dragged.
 const placed = computed(() => columns.value.filter(c => c.shown || takes(dragging.value, c.column)))
