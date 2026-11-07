@@ -35,6 +35,10 @@ test('asks where to keep the data, then the owner\'s name, on first open', async
     await expect(page.getByRole('heading', {name: 'Getting started'})).toBeVisible()
     await expect(page.getByRole('progressbar', {name: 'Steps done'})).toHaveAttribute('aria-valuenow', '1')
     await expect(page.getByRole('button', {name: 'Try it with a demo project'})).toBeVisible()
+    // And the one line that sets the machine up, from any folder, while no launcher is connected (ORR-1067).
+    const machine = page.locator('[data-step="machine"]')
+    await expect(machine.getByText('Set up this machine once')).toBeVisible()
+    await expect(machine.getByText(/launcher --install/)).toBeVisible()
 })
 
 test('makes a project', async ({page}) => {
