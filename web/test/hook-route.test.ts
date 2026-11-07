@@ -31,6 +31,7 @@ beforeEach(() => {
     vi.stubGlobal('useStore', () => ({}))
     vi.stubGlobal('useEventLog', () => ({note: () => {}}))
     vi.stubGlobal('sessionBrief', async () => undefined)
+    vi.stubGlobal('projectRepo', async (project: string) => project === 'greenhouse' ? 'https://github.com/hati/greenhouse' : null)
     vi.resetModules()
 })
 
@@ -74,6 +75,12 @@ describe("the hook's route", () => {
         const tools = [{name: 'Bash', detail: ''}, {name: ''}, {detail: 'rm -rf /'}, 'Bash', ['Bash'], {name: 7}]
         for (const tool of tools) await hook({project: 'greenhouse', event: 'PreToolUse', id: 'abc', tool})
         expect(reported.map(r => r.tool)).toEqual([{name: 'Bash'}, undefined, undefined, undefined, undefined, undefined])
+    })
+
+    it("answers a SessionStart with the project's repo, or null, for the hook to tell the session (ORR-1070)", async () => {
+        expect(await hook({project: 'greenhouse', event: 'SessionStart', id: 'abc'})).toMatchObject({id: 'abc', repo: 'https://github.com/hati/greenhouse'})
+        expect(await hook({project: 'observatory', event: 'SessionStart', id: 'def'})).toMatchObject({id: 'def', repo: null})
+        expect(await hook({project: 'greenhouse', event: 'Stop', id: 'abc'})).not.toHaveProperty('repo')
     })
 
     it('passes on only strings that say something, and the pid as a number', async () => {

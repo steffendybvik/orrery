@@ -144,6 +144,11 @@ With the hooks, a session can clear its context without losing its place: after 
 Claude Code compacts it) the channel stays connected, and `SessionStart` hands the fresh context the
 issues it had in progress and their latest comment, so it carries on with them.
 
+Every `SessionStart` also tells the session which repo it's in: the repo's path, its `origin`, the branch it's on and
+the default branch, all read on your machine, and the project's repo as orrery has it, with a warning when that isn't
+the folder's `origin`. A folder outside any git repo is told there's no repo, so Claude doesn't go looking for one. A
+session orrery starts gets the same in its system prompt instead, so a `/clear` keeps it.
+
 ## 4. Optionally, let orrery start sessions
 
 orrery can start a session itself when you send the project work and nobody is listening, when you

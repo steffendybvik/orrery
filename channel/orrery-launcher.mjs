@@ -47,6 +47,7 @@ import {authHeaders, keyFor, keysFile} from './credentials.mjs'
 import {addToList, adoptable, configFile, inWsl, install, listChanges, listIn, readConfig, removeService, restartKeepsSessions, servedElsewhere, serviceProblem, uninstall, wslLocalhost} from './launcher-service.mjs'
 import {chatOnly, lockedDown, modelArgs, resumeArgs} from './locked-down.mjs'
 import {onYes} from './permission-prompt.mjs'
+import {repoContext} from './repo-context.mjs'
 import {channelFor, channelsIn, projectsIn, servesEvery} from './repo-channels.mjs'
 import {follow} from './sse.mjs'
 import {openWatch} from './terminal.mjs'
@@ -491,10 +492,12 @@ function serve({url, project, dir, picked_at: picked, connected_at: connected}, 
         if (!claim.claimed) return
         // An untrusted one's channel says so on everything it sends, so orrery holds it to that even when it has
         // restarted and doesn't know the launch yet.
-        const env = {ORRERY_URL: url, ORRERY_PROJECT: project, ORRERY_STARTED: launch.id, ORRERY_AFTER: String(launch.after), ...launch.hears?.length ? {ORRERY_HEAR: launch.hears.join(',')} : {}, ...launch.untrusted ? {ORRERY_UNTRUSTED: 'yes'} : {}, ...launch.chat ? {ORRERY_CHAT: 'yes'} : {}, ...launch.person ? {ORRERY_PERSON: launch.person} : {}, ...keyFor(url) ? {ORRERY_KEY: keyFor(url)} : {}}
+        // Which repo it's in (ORR-1070), in its system prompt so a `/clear` keeps it; its hook then leaves it out.
+        const where = repoContext(dir, {project, repo: claim.repo})
+        const env = {ORRERY_URL: url, ORRERY_PROJECT: project, ORRERY_STARTED: launch.id, ORRERY_REPO_TOLD: 'yes', ORRERY_AFTER: String(launch.after), ...launch.hears?.length ? {ORRERY_HEAR: launch.hears.join(',')} : {}, ...launch.untrusted ? {ORRERY_UNTRUSTED: 'yes'} : {}, ...launch.chat ? {ORRERY_CHAT: 'yes'} : {}, ...launch.person ? {ORRERY_PERSON: launch.person} : {}, ...keyFor(url) ? {ORRERY_KEY: keyFor(url)} : {}}
         const server = channelFor(dir, url, project)?.name ?? project
         tmux('new-session', '-d', '-s', launch.tmux, '-c', dir, ...Object.entries(env).flatMap(([k, v]) => ['-e', `${k}=${v}`]),
-            'claude', '--dangerously-load-development-channels', `server:${server}`, ...launch.untrusted ? lockedDown(dir, server) : launch.chat ? chatOnly(dir, server) : ['--permission-mode', mode], ...modelArgs(launch), ...resumeArgs(launch))
+            'claude', '--dangerously-load-development-channels', `server:${server}`, ...launch.untrusted ? lockedDown(dir, server) : launch.chat ? chatOnly(dir, server) : ['--permission-mode', mode], ...modelArgs(launch), ...resumeArgs(launch), '--append-system-prompt', where)
         tmux('set-option', '-t', launch.tmux, LAUNCHER, String(process.pid))
         running.set(launch.id, {tmux: launch.tmux, api, context: launch.context, ...launch.untrusted ? {untrusted: true} : {}, ...launch.chat ? {chat: true} : {}, ...launch.model ? {model: launch.model} : {}, ...launch.effort ? {effort: launch.effort} : {}})
         if (launch.model) tmux('set-option', '-t', launch.tmux, MODEL, launch.model)
