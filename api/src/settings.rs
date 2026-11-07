@@ -17,7 +17,7 @@ use sqlx::{AnyConnection, Row};
 use std::sync::LazyLock;
 
 /// `SETTINGS_FIELDS` in web/server/store/schema.ts, in its order, which is the order its problems are found in.
-const FIELDS: [&str; 15] = [
+const FIELDS: [&str; 14] = [
     "tint",
     "focus_prompt",
     "milestone_prompt",
@@ -28,7 +28,6 @@ const FIELDS: [&str; 15] = [
     "terminal",
     "restrict_proposals",
     "advanced",
-    "pick_next",
     "work_kinds",
     "count_use",
     "starred",
@@ -196,7 +195,7 @@ fn check_input(body: &Value) -> Result<Map<String, Value>> {
         let Some(value) = sent.get(key) else { continue };
         if value.is_null() {
             // Every setting but the booleans can be null.
-            if ["restrict_proposals", "advanced", "pick_next", "count_use"].contains(&key) {
+            if ["restrict_proposals", "advanced", "count_use"].contains(&key) {
                 problems.push(format!("\"{key}\" can't be null"));
             } else {
                 input.insert(key.into(), Value::Null);
@@ -245,7 +244,7 @@ fn check_input(body: &Value) -> Result<Map<String, Value>> {
                 }
                 None => problems.push(format!("\"{key}\" should be a list of strings, not {}", js(value))),
             },
-            "restrict_proposals" | "advanced" | "pick_next" | "count_use" => match value {
+            "restrict_proposals" | "advanced" | "count_use" => match value {
                 Value::Bool(_) => {
                     input.insert(key.into(), value.clone());
                 }
@@ -338,7 +337,6 @@ impl<'c> Settings<'c> {
             "terminal": or("terminal", json!("terminal")),
             "restrict_proposals": or("restrict_proposals", json!(true)),
             "advanced": or("advanced", json!(true)),
-            "pick_next": or("pick_next", json!(false)),
             "count_use": or("count_use", json!(false)),
             "work_kinds": or("work_kinds", work_kinds()),
             "starred": starred,

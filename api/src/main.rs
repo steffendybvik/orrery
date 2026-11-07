@@ -980,6 +980,17 @@ async fn list_projects(State(app): Shared) -> Result<Response> {
     Ok(Json(Projects::new(&mut conn).list().await?).into_response())
 }
 
+/// `GET /api/projects/{project}` → the project with its board (`project`), without the events stream's `rev`, which the
+/// Nuxt server adds; `?notes=0` leaves the issues' notes out (`withoutNotes`), and `?closed=0` the closed issues with no
+/// open sub-issue (`withoutClosed`).
+async fn get_project(State(app): Shared, Path(project): Path<String>, Query(query): Query<HashMap<String, String>>) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    let mut value = Projects::new(&mut conn).project(&project).await?;
+    let dropped = |key: &str| query.get(key).is_some_and(|v| v == "0");
+    projects::trim_board(&mut value, !dropped("notes"), !dropped("closed"));
+    Ok(Json(value).into_response())
+}
+
 async fn create_project(State(app): Shared, headers: HeaderMap, body: Bytes) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
     let mut projects = Projects::new(&mut conn);
@@ -1614,7 +1625,7 @@ fn router(app: Arc<App>) -> Router {
         .route(&format!("{P}/milestones/{{milestone}}/comments"), get(list_milestone_comments).post(create_milestone_comment))
         .route(&format!("{P}/milestones/{{milestone}}/comments/{{comment}}"), patch(patch_milestone_comment).delete(delete_milestone_comment))
         .route("/api/projects", get(list_projects).post(create_project))
-        .route(P, patch(patch_project))
+        .route(P, get(get_project).patch(patch_project))
         .route("/api/uploads/{upload}", get(get_upload))
         .route("/api/changes", get(list_changes))
         .route("/api/statuses", get(list_statuses).post(create_status))

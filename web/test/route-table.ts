@@ -9,7 +9,8 @@
  * the Rust API has, for the local app to keep its records with. */
 export type Line = {issue: `ORR-${number}`, gap: string} | {stays: string} | {rustOnly: string}
 
-const ORR_927: Line = {issue: 'ORR-927', gap: 'uploading, with the issue writes'}
+// Uploading re-encodes images with sharp, which Rust lacks: how it moves is decided with the Nuxt server's retirement.
+const ORR_1036: Line = {issue: 'ORR-1036', gap: 'uploading, which re-encodes images with sharp'}
 const ORR_928: Line = {issue: 'ORR-928', gap: 'the owner, permissions and members, with auth'}
 const ORR_950: Line = {issue: 'ORR-950', gap: 'schedule writes and runs, and the schedule requests that write them'}
 const ORR_1006: Line = {issue: 'ORR-1006', gap: 'reading, deleting, exporting and importing a project'}
@@ -141,7 +142,7 @@ export const NOT_ROUTED: Readonly<Record<string, Line>> = {
     'GET /api/sessions/work': SESSIONS,
     'POST /api/sessions/{session}/calls': SESSIONS,
     'GET /api/signals/stream': SESSIONS,
-    'POST /api/uploads': ORR_927,
+    'POST /api/uploads': ORR_1036,
     'DELETE /api/usage': MACHINE,
     'GET /api/usage': MACHINE,
     'POST /api/usage': MACHINE,

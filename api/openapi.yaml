@@ -716,14 +716,26 @@ paths:
         '409': {$ref: '#/components/responses/Conflict'}
   /api/projects/{project}:
     parameters: [{$ref: '#/components/parameters/project'}]
+    get:
+      x-served: false
+      summary: The project, with its board
+      description: |
+        Its own fields, docs, doc sections, releases and board. `?notes=0` leaves the issues' notes out, and `?closed=0`
+        the closed issues (done, canceled) with no open sub-issue under them. The events stream's `rev`, which the page's
+        patches build on, isn't here: it's the Nuxt server's, so the router sends this read on only once it can add it.
+      parameters:
+        - {name: notes, in: query, required: false, description: '`0` leaves the issues'' notes out', schema: {type: string}}
+        - {name: closed, in: query, required: false, description: '`0` leaves out the closed issues with no open sub-issue', schema: {type: string}}
+      responses:
+        '200': {description: 'The project, with its board', content: {application/json: {schema: {$ref: '#/components/schemas/Project'}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
     patch:
       summary: Changes a project
       description: |
         Its name, key, description, icon, tint, repo and where its releases come from; its prompts (`focus_prompt`,
         `milestone_prompt`, `instructions`, `muted`) are the owner's (403). Its id can't change (400). Sending
         `releases_from` makes it `shared`, and null gives it its own; leaving its own releases is refused while it has
-        some or another project draws on them (409). Its issues keep only the releases the new source has. Reading a
-        project stays with the Nuxt server, which adds the events stream's `rev`.
+        some or another project draws on them (409). Its issues keep only the releases the new source has.
       parameters: [{$ref: '#/components/parameters/actor'}]
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/ProjectInput'}}}}
       responses:
@@ -1664,7 +1676,7 @@ components:
         effort: {type: string, enum: [low, medium, high, xhigh, max]}
     Settings:
       type: object
-      required: [id, tint, statuses, focus_prompt, milestone_prompt, instructions, handle, uid, tracker, starts, terminal, restrict_proposals, advanced, pick_next, count_use, work_kinds, starred, hidden]
+      required: [id, tint, statuses, focus_prompt, milestone_prompt, instructions, handle, uid, tracker, starts, terminal, restrict_proposals, advanced, count_use, work_kinds, starred, hidden]
       properties:
         id: {type: string, description: 'This orrery''s id, `orr_` and six hex digits'}
         tint: {type: [string, 'null']}
@@ -1679,7 +1691,6 @@ components:
         terminal: {type: string, enum: [terminal, iterm, warp, ghostty]}
         restrict_proposals: {type: boolean}
         advanced: {type: boolean}
-        pick_next: {type: boolean}
         count_use: {type: boolean}
         work_kinds: {type: array, items: {$ref: '#/components/schemas/WorkKind'}}
         starred: {type: array, items: {type: string}, description: Project ids listed first; none that are hidden}
@@ -1699,7 +1710,6 @@ components:
         terminal: {type: [string, 'null'], enum: [terminal, iterm, warp, ghostty, null]}
         restrict_proposals: {type: boolean}
         advanced: {type: boolean}
-        pick_next: {type: boolean}
         work_kinds: {type: [array, 'null'], minItems: 1, items: {$ref: '#/components/schemas/WorkKind'}}
         count_use: {type: boolean}
         starred: {type: [array, 'null'], items: {type: string, minLength: 1}}

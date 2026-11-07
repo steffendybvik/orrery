@@ -1,4 +1,4 @@
-// A session out of work picks its next issue (ORR-452), with the owner's `pick_next` setting on. Once a listening
+// A session out of work picks its next issue (ORR-452), always: there's no setting (ORR-1043). Once a listening
 // session is idle with nothing in progress but parked issues (waiting on the owner, or in review: ORR-1032), no run with issues left, nothing waiting on the owner and no signal queued,
 // it's sent, alone, the issues it may start (Todo, most urgent first; Backlog is the owner's to point at, ORR-759) and starts the one
 // it judges best, passing over one it can't do yet with a comment saying why. With nothing on the list, nothing is
@@ -84,12 +84,11 @@ export async function pickMessage(issues: (IssueRecord & {project: string})[]): 
     return `${PICK_NOTE} Read the one you choose and the docs it touches, then start it as you would a focus on it. Pass over one you can't do yet (blocked on another, say), with a comment on it saying why. If another session has it already ("pick another issue"), take the next. If none is one you can do, stop: you'll be handed the list again when the board changes.\n\n${lines.join('\n')}`
 }
 
-/** Hands the session the issues it may start, if `pick_next` is on and it's out of work: listening, idle, not a chat
+/** Hands the session the issues it may start, if it's out of work: listening, idle, not a chat
  * or an untrusted schedule's, not due its clear (handed the list first, it would skip the clear), nothing in progress, no run with issues left, nothing waiting on the owner, no signal
  * queued. Not again while the list is what it was last handed. Says whether it sent one. */
 export async function pickNext(project: string, id: string): Promise<boolean> {
     const store = useStore()
-    if (!(await store.settings()).pick_next) return false
     const session = sessionNow(id)
     if (!session?.listening || session.state !== 'idle' || untrustedSession(id) || chatSession(id) || clearPending(id)) return false
     const ids = sessionIds(id)
@@ -133,7 +132,6 @@ export function recheckIdle() {
     rechecking = setTimeout(async () => {
         rechecking = undefined
         try {
-            if (!(await useStore().settings()).pick_next) return
             // Each is checked as its turn comes (`pickNext`): one can go busy, or due its clear, while the one before waits.
             for (const session of listSessions().filter(s => s.listening && s.state === 'idle')) {
                 if (await pickNext(session.project, session.id)) await new Promise(resolve => setTimeout(resolve, PICK_APART))
