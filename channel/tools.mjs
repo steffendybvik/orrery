@@ -481,7 +481,7 @@ export function toolsFor(projects, {chat = false, untrusted = false, loaded = []
         : untrusted ? [...work.filter(t => !NOT_FOR_UNTRUSTED.includes(t.name)), ...GITHUB_TOOLS]
             : [...[...work, ...ASK_TOOLS].filter(t => !later.includes(t.name)), ...later.length ? [MORE_TOOLS] : []]
     if (projects.length < 2) return tools
-    // With a `home` (a chat's own project, ORR-1063), naming one is only for another.
+    // With a `home` (a chat's own project, ORR-1063, or a session's, ORR-1068), naming one is only for another.
     const project = {type: 'string', enum: projects, description: `Which project: ${projects.join(', ')}${home ? `; ${home} when left out` : ''}`}
     return tools.map(tool => SCOPED.includes(tool.name)
         ? {...tool, inputSchema: {...tool.inputSchema, required: [...home ? [] : ['project'], ...tool.inputSchema.required ?? []], properties: {project, ...tool.inputSchema.properties}}}
@@ -511,6 +511,8 @@ export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''),
         if (!response.ok) throw new Error(data?.message ?? data?.statusMessage ?? `${response.status} ${response.statusText}`)
         return data
     }
+    // `home` can be read at each call (ORR-1068), as a `*` server's projects are known only once its orrery answers.
+    const homeOf = typeof home === 'function' ? home : () => home
     const at = project => `${root}/projects/${encodeURIComponent(project)}`
     // The projects' keys, asked for the first time an issue's id needs one, and again for a key not yet known.
     let keys
@@ -527,7 +529,7 @@ export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''),
             if (!found) throw new Error(`${ref} isn't an issue of ${projects.join(', ')}: its key is none of theirs`)
             return found
         }
-        if (!project && home) return home
+        if (!project && homeOf()) return homeOf()
         if (!project) throw new Error(`Say which project: ${projects.join(', ')}`)
         if (!projects.includes(project)) throw new Error(`This server serves ${projects.join(', ')}, not ${project}`)
         return project
@@ -536,9 +538,9 @@ export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''),
     async function on({project, id}) {
         // One it doesn't reach is refused, not taken for its only one, as projectOf would.
         if (project && projects.length && !projects.includes(project)) throw new Error(`This chat reaches ${projects.join(', ')}, not ${project}`)
-        if (!project && (!id || !home)) return {}
+        if (!project && (!id || !homeOf())) return {}
         const named = await projectOf({project, id})
-        return named === home ? {} : {project: named}
+        return named === homeOf() ? {} : {project: named}
     }
     const issuePath = id => `/issues/${encodeURIComponent(id)}`
     /** A working session's create_schedule or update_schedule (`schedule_id`): asked on its issue `id` (ORR-458). */
