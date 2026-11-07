@@ -26,9 +26,22 @@ pub(crate) fn routes() -> Router<Arc<App>> {
         .route(&format!("{P}/import"), post(import_project))
 }
 
-async fn list_projects(State(app): Shared) -> Result<Response> {
+/// `GET /api/projects` → every project with its counts; `?expand=board` gives each one's board instead, without the
+/// events stream's `rev`, which the Nuxt server adds. `&notes=0` and `&closed=0` trim the boards as one project's read
+/// does, but for the projects in `&whole=` (comma-separated ids).
+async fn list_projects(State(app): Shared, Query(query): Query<HashMap<String, String>>) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
-    Ok(Json(Projects::new(&mut conn).list().await?).into_response())
+    let boards = query.get("expand").is_some_and(|e| e == "board");
+    let mut value = Projects::new(&mut conn).list(boards).await?;
+    if boards {
+        let dropped = |key: &str| query.get(key).is_some_and(|v| v == "0");
+        let whole: Vec<&str> = query.get("whole").map(|w| w.split(',').collect()).unwrap_or_default();
+        for project in value.as_array_mut().into_iter().flatten() {
+            let kept = project["id"].as_str().is_some_and(|id| whole.contains(&id));
+            projects::trim_board(project, !dropped("notes"), kept || !dropped("closed"));
+        }
+    }
+    Ok(Json(value).into_response())
 }
 
 /// `GET /api/projects/{project}` → the project with its board (`project`), without the events stream's `rev`, which the
