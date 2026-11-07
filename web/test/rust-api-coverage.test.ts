@@ -16,7 +16,7 @@ const UNROUTED: readonly Line[] = [
     // Uploading re-encodes images with sharp, which Rust lacks: how it moves is decided with the Nuxt server's retirement.
     {routes: /^POST \/api\/uploads$/, issue: 'ORR-1036'},
     {routes: /^(GET|POST|PUT|DELETE) \/api\/(auth\/(link|status)|owner|permissions|projects\/\{project\}\/members(\/\{person\})?)$/, issue: 'ORR-928'},
-    {routes: /^(GET|DELETE) \/api\/projects\/\{project\}$|^\w+ \/api\/projects\/(\{project\}\/(export|import)|upload)$/, issue: 'ORR-1006'},
+    {routes: /^(GET|DELETE) \/api\/projects\/\{project\}$|^\w+ \/api\/projects\/(\{project\}\/import|upload)$/, issue: 'ORR-1006'},
     // An issue's schedule requests write schedules, so they move with them.
     {routes: /^(POST|PATCH|DELETE) \/api\/(projects\/\{project\}\/schedules(\/\{schedule\}(\/(adopt|run))?|\/enabled)?|schedules(\/across\/\{across\})?)$|^POST \/api\/projects\/\{project\}\/issues\/\{issue\}\/schedule-requests(\/\{comment\})?$/, issue: 'ORR-950'},
     // What stays with the local app: the machine, its sessions and launcher, and what only it can do.

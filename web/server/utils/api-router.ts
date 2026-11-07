@@ -107,6 +107,9 @@ export const DOMAINS: readonly {domain: string, paths: RegExp, methods?: readonl
     // Changing a project (ORR-923): its name, key, icon, prompts, repo and where its releases come from. The reply is the
     // project with its board, without the `rev` that reading one adds here.
     {domain: 'a project, changed', paths: /^projects\/[^/]+$/, methods: ['PATCH']},
+    // A board as one file (ORR-1006): read in one transaction, named for the project and the day (`Content-Disposition`).
+    // Whether the asker is on the board is checked here first (`needsBoard`), as a write's board is in middleware/board.ts.
+    {domain: 'a project, exported', paths: /^projects\/[^/]+\/export$/, methods: ['GET'], first: {GET: onTheBoard}},
     // The bell (ORR-1005): agents' comments across projects with the proposals waiting on the owner, the status changes
     // on their issues, and clearing them or marking them read, each person's their own (ORR-658). Clearing tells nothing:
     // the page that did it reads the bell again.
@@ -177,6 +180,12 @@ async function newWordsOnly(event: H3Event) {
 /** The projects' list, kept here when it asks for their boards (`?expand=board`), as their `rev` is this server's. */
 async function listedOnly(event: H3Event) {
     if (getQuery(event).expand !== undefined) return 'here' as const
+}
+
+/** A read refused to a person off the project's board, as if it weren't there (`needsBoard`). */
+async function onTheBoard(event: H3Event, rest: string) {
+    const [, project] = /^projects\/([^/]+)\//.exec(rest) ?? []
+    if (project) await needsBoard(event, decodeURIComponent(project))
 }
 
 /** A comment's edit, refused while another session is working on its issue (ORR-627), as its route here does. */
@@ -475,5 +484,8 @@ export async function forwardToApi(event: H3Event, api: {url: string, token: str
     setResponseStatus(event, response.status)
     if (response.status === 204) return null
     setResponseHeader(event, 'Content-Type', 'application/json')
+    // A file to save (a board's export) keeps the name it's saved as.
+    const saved = response.headers.get('content-disposition')
+    if (saved) setResponseHeader(event, 'Content-Disposition', saved)
     return json
 }
