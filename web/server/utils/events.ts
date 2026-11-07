@@ -3,7 +3,7 @@
 // asks the sessions on a project to focus on an issue, `schedules` (the project) when its schedules
 // change or run, `secrets` (the list, no values) when they change or one is used, `logged` ({event, fresh}) when the
 // event log records or resolves one, and `happened` ({event, cause}) for what the schedules can run on (ORR-341), `cause`
-// the schedule whose run did it. `/api/events` and the signal streams pass them on.
+// the schedule whose run did it, and `database` once the owner has moved the database (`rebindDatabase`). `/api/events` and the signal streams pass them on.
 import {Branches} from './branches'
 import {EventEmitter} from 'node:events'
 import type {H3Event} from 'h3'
@@ -167,6 +167,8 @@ export function rebindDatabase(db: Db) {
     if (store) store.db = db
     if (log) log.db = db
     store?.seedPresets().catch(error => console.error('[orrery] adding the presets orrery ships:', error))
+    // The Rust API and its outbox follower start again on it (plugins/api.ts, plugins/outbox.ts, ORR-1035).
+    projectEvents.emit('database')
 }
 
 /** Passes it on once what did it is done (the write's transaction has committed, and nothing when it rolls back),

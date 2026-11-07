@@ -331,6 +331,31 @@ let started: {url: string, token: string} | null = null
 
 export function apiStarted(api: {url: string, token: string} | null) {
     started = api
+    if (api) apiStarting(false)
+}
+
+/** Whether this server is starting the API now (at boot, or again after a move, ORR-1035), and who waits for it. */
+let starting = false
+const listening = new Set<() => void>()
+
+export function apiStarting(value: boolean) {
+    starting = value
+    if (!value) for (const done of [...listening]) done()
+}
+
+/** Resolves once the API this server is starting listens, or gives up starting, `within` ms at most; at once when it's
+ * listening already or nothing is starting it. */
+export function apiListening(within = 5000): Promise<void> {
+    if (started || !starting) return Promise.resolve()
+    return new Promise(resolve => {
+        const timer = setTimeout(done, within)
+        function done() {
+            clearTimeout(timer)
+            listening.delete(done)
+            resolve()
+        }
+        listening.add(done)
+    })
 }
 
 /** Where the API is, and its token: the one this server started, or the one the settings name; none, no API. */
@@ -369,8 +394,10 @@ export function cantReach(event: H3Event, why: string, only: boolean): undefined
  * routes here: always with no API, with the swap off (`apiOnly`); with it on, only what a line's check keeps here. */
 export async function routeToApi(event: H3Event, config: {apiUrl?: unknown, apiToken?: unknown, apiOnly?: unknown}): Promise<unknown> {
     if (!servedByApi(event.method, pathOf(event))) return undefined
-    const api = apiTarget(config)
     const only = apiOnly(config)
+    // With the swap on, a request that comes while the API is starting waits a few seconds for it, rather than failing.
+    if (only && !apiTarget(config)) await apiListening()
+    const api = apiTarget(config)
     if (!api) return only ? cantReach(event, 'isn\'t running (not started yet, stopped, or not set up)', true) : undefined
     return forwardToApi(event, api, only)
 }
