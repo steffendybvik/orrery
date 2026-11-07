@@ -1,24 +1,25 @@
 // Follows the Rust API's outbox (ORR-983) while this server fronts the API: NUXT_API_BIN or NUXT_API_URL set. With
 // neither, it does nothing, and this server hears its own writes from the store's hooks as ever. Its cursor is kept
 // beside the database (outbox-follower.ts), so a restart carries on from where it was; the first start begins at the
-// newest row, as there's nothing it missed.
+// newest row, as there's nothing it missed. When the owner moves the database it follows the new one's outbox, with
+// that one's cursor (ORR-1035).
 import {apiTarget, databaseMark} from '../utils/api-router'
 import {cursorFile, followOutbox, readCursor, readPage, saveCursor, setFollowingOutbox} from '../utils/outbox-follower'
 
 export default defineNitroPlugin(nitro => {
     const config = useRuntimeConfig()
     if (!config.apiBin && !config.apiUrl) return
-    let stopped = false
-    nitro.hooks.hook('close', () => {
-        stopped = true
-        setFollowingOutbox(false)
-    })
-    const run = async () => {
+    let closed = false
+    /** Which run follows now: a move starts another, and the one before stops at its next page. */
+    let runs = 0
+    let running: Promise<void> = Promise.resolve()
+    const run = async (mine: number) => {
         const store = useStore()
         const database = databaseSetting()
         const file = cursorFile(database)
         const newest = async () => Number((await store.db.get<{n: number | string | null}>('SELECT max(id) AS n FROM changes'))?.n ?? 0)
         const after = readCursor(file, database) ?? await newest()
+        if (closed || mine !== runs) return
         store.keepOwnChanges()
         setFollowingOutbox(true)
         await followOutbox(store, {
@@ -30,11 +31,22 @@ export default defineNitroPlugin(nitro => {
             },
             after,
             saved: last => saveCursor(file, database, last),
-            stopped: () => stopped,
+            stopped: () => closed || mine !== runs,
         })
     }
-    run().catch(error => {
+    const follow = () => {
+        const mine = ++runs
+        running = running.then(() => run(mine)).catch(error => {
+            if (mine !== runs) return
+            setFollowingOutbox(false)
+            console.error("[orrery] stopped following the Rust API's outbox:", error)
+        })
+    }
+    follow()
+    projectEvents.on('database', follow)
+    nitro.hooks.hook('close', () => {
+        closed = true
+        projectEvents.off('database', follow)
         setFollowingOutbox(false)
-        console.error("[orrery] stopped following the Rust API's outbox:", error)
     })
 })
