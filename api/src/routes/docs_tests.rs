@@ -1,24 +1,6 @@
 // The tests of routes/docs.rs (ORR-1052), through `router()` on a database of their own (`crate::testing`).
-use crate::testing::{Reply, TestApi};
-use percent_encoding::percent_decode_str;
+use crate::testing::{Change, TestApi};
 use serde_json::{json, Value};
-use sqlx::Row;
-
-/// What a reply's `orrery-told` says, decoded: `doc.created primes plan`, each event in turn.
-fn told(reply: &Reply) -> Vec<String> {
-    reply.header("orrery-told").map(|t| t.split(", ").map(|e| percent_decode_str(e).decode_utf8_lossy().into_owned()).collect()).unwrap_or_default()
-}
-
-/// The outbox's rows, oldest first, as `<kind> <project> <subject>`.
-async fn outbox(api: &TestApi) -> Vec<String> {
-    let rows = sqlx::query("SELECT kind, project, subject FROM changes ORDER BY id").fetch_all(&api.app.pool).await.unwrap();
-    rows.iter()
-        .map(|r| {
-            let part = |key: &str| r.get::<Option<String>, _>(key).unwrap_or_default();
-            format!("{} {} {}", part("kind"), part("project"), part("subject")).trim_end().to_string()
-        })
-        .collect()
-}
 
 async fn doc(api: &TestApi, project: &str, body: Value) -> Value {
     let reply = api.post(&format!("/api/projects/{project}/docs"), body).send().await;
@@ -26,15 +8,11 @@ async fn doc(api: &TestApi, project: &str, body: Value) -> Value {
     reply.body
 }
 
-fn problems(reply: &Reply) -> Vec<String> {
-    reply.body["data"]["problems"].as_array().map(|p| p.iter().map(|p| p.as_str().unwrap_or_default().to_string()).collect()).unwrap_or_default()
-}
-
 #[tokio::test]
 async fn a_new_doc_is_made_from_its_title_and_read_back() {
     let api = TestApi::new().await;
     let project = api.project("Primes").await;
-    let before = outbox(&api).await.len();
+    let before = api.outbox().await.len();
     let reply = api.post(&format!("/api/projects/{project}/docs"), json!({"title": "  The Plan ", "body": "Sieve first.\n\nThen more."})).send().await;
     assert_eq!(reply.status, 201, "{}", reply.body);
     assert_eq!(reply.body["id"], "the-plan");
@@ -46,8 +24,9 @@ async fn a_new_doc_is_made_from_its_title_and_read_back() {
     assert_eq!(reply.body["protected"], true);
     assert!(reply.body["full_id"].as_str().unwrap().starts_with("doc-the-plan-"), "{}", reply.body);
     assert_eq!(reply.header("orrery-changed"), Some(project.as_str()));
-    assert_eq!(told(&reply), vec![format!("doc.created {project} the-plan")]);
-    assert_eq!(outbox(&api).await[before..], [format!("project.changed {project}"), format!("doc.created {project} the-plan")]);
+    assert_eq!(reply.told(), vec![format!("doc.created {project} the-plan")]);
+    let lines: Vec<String> = api.outbox().await.iter().map(Change::line).collect();
+    assert_eq!(lines[before..], [format!("project.changed {project}"), format!("doc.created {project} the-plan")]);
 
     let read = api.get(&format!("/api/projects/{project}/docs/the-plan")).send().await;
     assert_eq!(read.status, 200);
@@ -98,7 +77,7 @@ async fn a_bad_doc_body_is_refused_with_each_problem() {
     let path = format!("/api/projects/{project}/docs");
     let reply = api.post(&path, json!({"title": " ", "kind": "pdf", "colour": "red", "position": "top", "id": "Not A Slug"})).send().await;
     assert_eq!(reply.status, 400);
-    let found = problems(&reply);
+    let found = reply.problems();
     assert_eq!(found.len(), 5, "{found:?}");
     assert_eq!(reply.body["message"], "5 problems in the body");
     assert!(found.iter().any(|p| p.starts_with("unknown field \"colour\"")), "{found:?}");
@@ -106,7 +85,7 @@ async fn a_bad_doc_body_is_refused_with_each_problem() {
 
     let missing = api.post(&path, json!({"body": "words"})).send().await;
     assert_eq!(missing.status, 400);
-    assert_eq!(problems(&missing), ["missing \"title\""]);
+    assert_eq!(missing.problems(), ["missing \"title\""]);
     let not_object = api.post(&path, json!(["Plan"])).send().await;
     assert_eq!(not_object.status, 400);
     assert_eq!(api.get(&path).send().await.body, json!([]), "nothing was made");
@@ -161,7 +140,7 @@ async fn changing_a_doc_s_text_keeps_a_revision_and_tells_it_changed() {
     assert_eq!(reply.body["body"], "Two.");
     assert_eq!(reply.body["title"], "Plan B");
     assert_eq!(reply.body["id"], "plan", "the id stays");
-    assert_eq!(told(&reply), [format!("doc.changed {project} plan")]);
+    assert_eq!(reply.told(), [format!("doc.changed {project} plan")]);
     assert_eq!(reply.header("orrery-changed"), Some(project.as_str()));
     let revisions = api.get(&format!("{path}/revisions")).send().await;
     assert_eq!(revisions.status, 200);
@@ -219,12 +198,12 @@ async fn put_makes_the_doc_at_its_id_then_replaces_its_text() {
     let made = api.put(&path, json!({"title": "Readme", "body": "First.", "section": "Repo"})).send().await;
     assert_eq!(made.status, 201, "{}", made.body);
     assert_eq!(made.body["id"], "readme");
-    assert_eq!(told(&made), [format!("doc.created {project} readme")]);
+    assert_eq!(made.told(), [format!("doc.created {project} readme")]);
     let replaced = api.put(&path, json!({"title": "Readme", "body": "Second."})).send().await;
     assert_eq!(replaced.status, 200, "{}", replaced.body);
     assert_eq!(replaced.body["body"], "Second.");
     assert_eq!(replaced.body["section"], "Repo", "a section left out keeps the one it has");
-    assert_eq!(told(&replaced), [format!("doc.changed {project} readme")]);
+    assert_eq!(replaced.told(), [format!("doc.changed {project} readme")]);
     // Left out, the text is emptied: the file is the whole doc.
     let emptied = api.put(&path, json!({"title": "Readme"})).send().await;
     assert_eq!(emptied.body["body"], "");
@@ -241,7 +220,7 @@ async fn put_refuses_an_id_it_cannot_make() {
     assert_eq!(other.status, 400, "{}", other.body);
     let untitled = api.put(&format!("{base}/readme"), json!({"body": "x"})).send().await;
     assert_eq!(untitled.status, 400);
-    assert_eq!(problems(&untitled), ["missing \"title\""]);
+    assert_eq!(untitled.problems(), ["missing \"title\""]);
     // Another board's full id isn't a doc to make here.
     let foreign = api.put(&format!("{base}/doc-readme-abcdefgh"), json!({"title": "Readme"})).send().await;
     assert_eq!(foreign.status, 404, "{}", foreign.body);
@@ -257,7 +236,7 @@ async fn a_deleted_doc_is_listed_as_deleted_and_can_be_restored() {
     let gone = api.delete(&path).send().await;
     assert_eq!(gone.status, 204);
     assert_eq!(gone.body, Value::Null);
-    assert_eq!(told(&gone), [format!("doc.deleted {project} plan")]);
+    assert_eq!(gone.told(), [format!("doc.deleted {project} plan")]);
     assert_eq!(api.get(&path).send().await.status, 404);
 
     let deleted = api.get(&format!("/api/projects/{project}/deleted-docs")).send().await;
@@ -278,7 +257,7 @@ async fn a_deleted_doc_is_listed_as_deleted_and_can_be_restored() {
     assert_eq!(back.body["body"], "Keep me.");
     assert_eq!(back.body["section"], "Guides", "it comes back where it was filed");
     assert_eq!(back.body["protected"], true, "and stays the owner's");
-    assert_eq!(told(&back), [format!("doc.created {project} plan")]);
+    assert_eq!(back.told(), [format!("doc.created {project} plan")]);
     assert_eq!(api.get(&format!("/api/projects/{project}/deleted-docs")).send().await.body, json!([]));
 }
 
@@ -299,7 +278,7 @@ async fn restoring_an_older_revision_of_a_live_doc_puts_its_text_back() {
     let back = api.post(&format!("{path}/revisions/{oldest}/restore"), json!({})).send().await;
     assert_eq!(back.status, 200, "{}", back.body);
     assert_eq!(back.body["body"], "One.");
-    assert_eq!(told(&back), [format!("doc.changed {project} plan")]);
+    assert_eq!(back.told(), [format!("doc.changed {project} plan")]);
     assert_eq!(api.get(&format!("{path}/revisions")).send().await.body.as_array().unwrap().len(), 3, "a restore is a revision to undo too");
 }
 

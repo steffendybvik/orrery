@@ -1,5 +1,5 @@
 import {execFileSync, spawn} from 'node:child_process'
-import {mkdirSync, mkdtempSync, realpathSync} from 'node:fs'
+import {mkdirSync, mkdtempSync, realpathSync, writeFileSync} from 'node:fs'
 import {createServer} from 'node:http'
 import type {AddressInfo} from 'node:net'
 import {tmpdir} from 'node:os'
@@ -107,5 +107,50 @@ describe("the hook's SessionStart", () => {
         const dir = repo()
         expect(await runHook({hook_event_name: 'SessionStart', session_id: 'abc', cwd: dir}, {id: 'abc', brief: 'b', repo: null}, {ORRERY_REPO_TOLD: 'yes'})).toBe('b\n')
         expect(await runHook({hook_event_name: 'Stop', session_id: 'abc', cwd: dir}, {id: 'abc', repo: null})).toBe('')
+    })
+})
+
+/** What the hook, run on `hook` with `env` and no ORRERY_PROJECT, posts to a stand-in orrery whose launcher's list is
+ * `list` (none when left out). */
+async function hookPosts(hook: Record<string, unknown>, list?: (url: string) => object, env: Record<string, string> = {}) {
+    const posted: {project?: string}[] = []
+    const server = createServer((req, res) => {
+        let body = ''
+        req.on('data', chunk => body += chunk)
+        req.on('end', () => {
+            posted.push(JSON.parse(body || '{}'))
+            res.writeHead(200, {'Content-Type': 'application/json'}).end('{}')
+        })
+    })
+    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
+    try {
+        const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
+        const config = folder()
+        if (list) {
+            mkdirSync(join(config, 'orrery'))
+            writeFileSync(join(config, 'orrery', 'launcher.json'), JSON.stringify(list(url)))
+        }
+        const child = spawn(process.execPath, [HOOK], {env: {PATH: process.env.PATH, HOME: folder(), XDG_CONFIG_HOME: config, ORRERY_URL: url, ...env}})
+        child.stdin.end(JSON.stringify(hook))
+        await new Promise(resolve => child.on('close', resolve))
+        return posted
+    } finally {
+        server.close()
+    }
+}
+
+describe("the hook's project (ORR-1068)", () => {
+    it("is the one the launcher's list maps the folder to, the folder inside it too", async () => {
+        const dir = repo()
+        mkdirSync(join(dir, 'web'))
+        const list = (url: string) => ({projects: [{url, project: 'pantry', dir}]})
+        expect(await hookPosts({hook_event_name: 'Stop', session_id: 'abc', cwd: join(dir, 'web')}, list)).toMatchObject([{project: 'pantry'}])
+        expect(await hookPosts({hook_event_name: 'Stop', session_id: 'abc', cwd: dir}, list, {ORRERY_SCOPE: 'user'})).toMatchObject([{project: 'pantry'}])
+    })
+
+    it("says nothing in a folder no orrery knows, rather than taking the folder's name for a project", async () => {
+        const dir = repo()
+        expect(await hookPosts({hook_event_name: 'Stop', session_id: 'abc', cwd: dir})).toEqual([])
+        expect(await hookPosts({hook_event_name: 'Stop', session_id: 'abc', cwd: dir}, url => ({projects: [{url: `${url}/other`, project: 'pantry', dir}]}))).toEqual([])
     })
 })

@@ -35,11 +35,14 @@ It puts the bootstrap in place and installs the launcher service ([step 4](#4-op
 Given `ORRERY_URL`, outside a repo, it also sets Claude Code up for that orrery in every folder, through the Claude adapter:
 
 - **A user-level server**, `orrery-<environment>` (`claude mcp add-json --scope user`), the channel serving every
-  project (`ORRERY_PROJECTS=*`). A `claude` in any folder gets orrery's tools, repo or not. A connected repo's own server
-  of the same name takes precedence there.
+  project (`ORRERY_PROJECTS=*`). A `claude` in any folder gets orrery's tools, repo or not. A tool on an issue finds its
+  project from the id; the others take `project`, or, left out, the session's own: the one orrery started it for, else
+  the one the launcher's list maps its folder (or a folder above it) to. A connected repo's own server of the same name
+  takes precedence there.
 - **orrery's hooks at user level**, in `~/.claude/settings.json`, beside your own. Claude Code runs them as well as a
   folder's own hooks, so the user-level one says nothing where the folder has orrery's hook already, or where no project
-  is known for the session.
+  is known for the session: none started it, and the launcher's list maps no project to its folder. So a `claude` in a
+  folder no orrery knows isn't listed as a session. The folder's name is never taken for a project's.
 - **The default folder** (`~/.orrery/<orrery id>/home`) set up and trusted in `~/.claude.json`, so the launcher can start
   sessions there for projects with no repo without asking you to run `claude` there first.
 

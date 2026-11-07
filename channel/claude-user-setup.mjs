@@ -140,11 +140,11 @@ export function undoUser({run, homeOf, files = claudeFiles()}) {
 }
 
 /** Whether the user-level hook should say nothing for this session (ORR-1067): it isn't the user-level one, it is but
- * the folder has orrery's hook of its own (which Claude Code runs as well), or no project is known for it (ORR-1068
- * maps folders to projects; until then only a launched session, which has ORRERY_PROJECT, is reported). */
-export function standsDown({env = process.env, dir}) {
+ * the folder has orrery's hook of its own (which Claude Code runs as well), or no project is known for it: `project`, as
+ * the hook found it (ORRERY_PROJECT, or the launcher's list mapping the folder, ORR-1068). */
+export function standsDown({env = process.env, dir, project = env.ORRERY_PROJECT}) {
     if (env.ORRERY_SCOPE !== 'user') return false
-    if (!env.ORRERY_PROJECT) return true
+    if (!project) return true
     for (const name of ['settings.json', 'settings.local.json']) {
         try {
             const text = readFileSync(join(dir, '.claude', name), 'utf8')

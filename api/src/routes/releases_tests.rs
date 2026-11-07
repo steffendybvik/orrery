@@ -1,12 +1,6 @@
 // The tests of routes/releases.rs (ORR-1052), through `router()` on a database of their own (`crate::testing`).
-use crate::testing::{Reply, TestApi};
-use percent_encoding::percent_decode_str;
+use crate::testing::TestApi;
 use serde_json::{json, Value};
-
-/// What a reply's `orrery-told` says, decoded, each event in turn.
-fn told(reply: &Reply) -> Vec<String> {
-    reply.header("orrery-told").map(|t| t.split(", ").map(|e| percent_decode_str(e).decode_utf8_lossy().into_owned()).collect()).unwrap_or_default()
-}
 
 /// A project with releases of its own, or taking them from `from`: its id.
 async fn shipping(api: &TestApi, name: &str, from: Option<&str>) -> String {
@@ -56,7 +50,7 @@ async fn a_new_release_goes_on_top_and_is_told() {
     assert_eq!(reply.body["protected"], true);
     assert!(reply.body.get("doc_mark").is_none(), "only shipping marks the docs");
     assert_eq!(reply.header("orrery-changed"), Some(project.as_str()));
-    assert_eq!(told(&reply), [format!("release.created {project} 1.0.0")]);
+    assert_eq!(reply.told(), [format!("release.created {project} 1.0.0")]);
     release(&api, &project, json!({"version": "1.1.0"})).await;
     release(&api, &project, json!({"version": "0.9.0", "position": 99})).await;
     let listed = api.get(&format!("/api/projects/{project}/releases")).send().await.body;
@@ -103,18 +97,18 @@ async fn freezing_and_shipping_a_release_are_told_and_shipping_marks_the_docs() 
     let frozen = api.patch(&path, json!({"frozen_on": "2026-11-01"})).send().await;
     assert_eq!(frozen.status, 200, "{}", frozen.body);
     assert_eq!(frozen.body["frozen_on"], "2026-11-01");
-    assert_eq!(told(&frozen), [format!("release.frozen {project} 1.0")]);
+    assert_eq!(frozen.told(), [format!("release.frozen {project} 1.0")]);
     let again = api.patch(&path, json!({"frozen_on": "2026-11-02"})).send().await;
     assert_eq!(again.header("orrery-told"), None, "a new day on one already frozen is no event");
     assert_eq!(again.header("orrery-changed"), Some(project.as_str()));
 
     let shipped = api.patch(&path, json!({"shipped_on": "2026-11-05"})).send().await;
-    assert_eq!(told(&shipped), [format!("release.shipped {project} 1.0")]);
+    assert_eq!(shipped.told(), [format!("release.shipped {project} 1.0")]);
     assert!(shipped.body["doc_mark"].as_i64().is_some_and(|m| m > 0), "{}", shipped.body);
 
     let back = api.patch(&path, json!({"shipped_on": null, "frozen_on": null})).send().await;
     assert_eq!(back.status, 200);
-    assert_eq!(told(&back), [format!("release.thawed {project} 1.0"), format!("release.unshipped {project} 1.0")]);
+    assert_eq!(back.told(), [format!("release.thawed {project} 1.0"), format!("release.unshipped {project} 1.0")]);
     assert!(back.body.get("doc_mark").is_none(), "un-shipping lets go of the mark: {}", back.body);
     assert!(back.body.get("shipped_on").is_none());
 }
@@ -150,7 +144,7 @@ async fn deleting_a_release_leaves_its_issues_set_for_none() {
 
     let gone = api.delete(&format!("/api/projects/{project}/releases/1.0")).send().await;
     assert_eq!(gone.status, 204, "{}", gone.body);
-    assert_eq!(told(&gone), [format!("release.deleted {project} 1.0")]);
+    assert_eq!(gone.told(), [format!("release.deleted {project} 1.0")]);
     assert_eq!(api.get(&format!("/api/projects/{project}/releases")).send().await.body, json!([]));
     let read = api.get(&format!("/api/projects/{project}/issues/{issue}")).send().await.body;
     assert!(read.get("release").is_none_or(Value::is_null), "{read}");
@@ -238,7 +232,7 @@ async fn a_release_made_shipped_marks_the_docs_as_they_are() {
     assert!(after["doc_mark"].as_i64().is_some_and(|m| m > 0), "{after}");
     assert_eq!(after["frozen_on"], "2026-01-20");
     assert_eq!(
-        told(&api.post(&format!("/api/projects/{project}/releases"), json!({"version": "0.3", "shipped_on": "2026-03-01"})).send().await),
+        api.post(&format!("/api/projects/{project}/releases"), json!({"version": "0.3", "shipped_on": "2026-03-01"})).send().await.told(),
         [format!("release.created {project} 0.3")],
         "made shipped is made, not shipped"
     );

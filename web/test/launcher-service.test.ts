@@ -4,7 +4,7 @@ import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {describe, expect, it, vi} from 'vitest'
 // @ts-expect-error: the launcher is plain JavaScript, run by node on the host
-import {addToList, adoptable, inWsl, installedFrom, keepingSessions, launcherAlive, listChanges, listIn, pickUp, plist, readConfig, RELOADS, servedElsewhere, serviceProblem, skipping, systemdUnit, withAgent, withProject, withoutProject, wslLocalhost} from '../../channel/launcher-service.mjs'
+import {addToList, adoptable, inWsl, installedFrom, keepingSessions, launcherAlive, listChanges, listIn, pickUp, plist, projectAt, readConfig, RELOADS, servedElsewhere, serviceProblem, skipping, systemdUnit, withAgent, withProject, withoutProject, wslLocalhost} from '../../channel/launcher-service.mjs'
 // @ts-expect-error: the same
 import {follow} from '../../channel/sse.mjs'
 
@@ -26,6 +26,30 @@ describe("the launcher's list", () => {
         const now = new Date('2026-10-31T08:00:00.000Z')
         addToList([{url: 'http://localhost:9000', project: 'shop', dir: '/code/shop'}], '/code/shop', {file, now})
         expect(readConfig(file)).toMatchObject({projects: [{project: 'shop', dir: '/code/shop', connected_at: now.toISOString()}], skip: []})
+    })
+
+    it("maps a folder to its project on an orrery, the nearest repo's, and to none where that can't be told (ORR-1068)", () => {
+        const file = join(mkdtempSync(join(tmpdir(), 'orrery-launcher-')), 'list.json')
+        writeFileSync(file, JSON.stringify({projects: [
+            greenhouse,
+            {url: 'http://localhost:9010/', project: 'orrery', dir: '/code/orrery'},
+            {url: 'http://localhost:9010', project: 'site', dir: '/code/orrery/site'},
+            {url: 'http://localhost:9020', project: 'hub', dir: '/code/mono'},
+            {url: 'http://localhost:9020', project: 'pos', dir: '/code/mono'},
+        ]}))
+        expect(projectAt('/code/greenhouse', 'http://localhost:9000/', {file})).toBe('greenhouse')
+        expect(projectAt('/code/greenhouse/web', 'http://localhost:9000', {file})).toBe('greenhouse')
+        // Another orrery's list entry for the folder isn't this one's.
+        expect(projectAt('/code/greenhouse', 'http://localhost:9010', {file})).toBeUndefined()
+        expect(projectAt('/code/orrery', 'http://localhost:9010', {file})).toBe('orrery')
+        expect(projectAt('/code/orrery/site/pages', 'http://localhost:9010', {file})).toBe('site')
+        // A folder that only starts with a repo's name isn't in it.
+        expect(projectAt('/code/orrery-worktrees/orr-1', 'http://localhost:9010', {file})).toBeUndefined()
+        // A monorepo serving several there: which one a call is for can't be told.
+        expect(projectAt('/code/mono', 'http://localhost:9020', {file})).toBeUndefined()
+        expect(projectAt('/elsewhere', 'http://localhost:9000', {file})).toBeUndefined()
+        writeFileSync(file, '{')
+        expect(projectAt('/code/greenhouse', 'http://localhost:9000', {file})).toBeUndefined()
     })
 
     it('is empty when its file is missing or broken', () => {

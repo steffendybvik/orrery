@@ -13,7 +13,7 @@
 // or run it in a terminal for the repo's project alone, for as long as the terminal stays open:
 //   ORRERY_PROJECT=shop node /path/to/orrery/channel/orrery-launcher.mjs
 // The projects are ORRERY_PROJECT, else every one the channels in .mcp.json name (each channel's ORRERY_PROJECTS,
-// or its ORRERY_PROJECT), else the folder's name, each on its channel's orrery (see repo-channels.mjs), and each
+// or its ORRERY_PROJECT), else none (ORR-1068: a folder's name is no project's), each on its channel's orrery (see repo-channels.mjs), and each
 // project's sessions load the channel that serves it. A launch can name the projects its session hears (Start session
 // with several of the repo's projects, or one alone), which it gets as ORRERY_HEAR; one naming none hears what the
 // channel lists, every project with `*`. orrery asks only once the owner lets it start sessions (Starting sessions,
@@ -165,7 +165,11 @@ if (args.includes('--install') || args.includes('--uninstall')) {
             if (elsewhere && !process.env.ORRERY_PROJECT) console.log(`Left ${entry.project} (${entry.url}) as it is, served from ${elsewhere.dir}; ORRERY_PROJECT=${entry.project} acts on it from here.`)
             return !elsewhere || process.env.ORRERY_PROJECT
         })
-        if (!entries.length) process.exit(0)
+        if (!entries.length) {
+            // A channel serving `*` names no project, and the folder's name is no project's (ORR-1068).
+            if (!here().length) console.log("This repo's channel names no project, so there's nothing to serve from here: run this with ORRERY_PROJECT=<project> set.")
+            process.exit(0)
+        }
         // All of the repo's projects at once. The running service follows the list; it restarts (stopping the sessions
         // it runs) only when its file changed, at most once.
         if (args.includes('--uninstall')) {
@@ -177,7 +181,7 @@ if (args.includes('--install') || args.includes('--uninstall')) {
         needsTmuxAndAgent()
         for (const entry of entries) {
             // Without the channel its sessions couldn't hear orrery, and its address and project may be guesses
-            // (localhost:9000, the folder's name): connecting the repo comes first (ORR-604).
+            // (localhost:9000, an ORRERY_PROJECT typed by hand): connecting the repo comes first (ORR-604).
             if (!channelFor(entry.dir, entry.url, entry.project)) throw new Error(`no .mcp.json here registers orrery's channel, so nothing was installed: connect this repo first, from orrery's Connect an agent page (or have a Claude session here read ${entry.url}/connect/${entry.project}.md), then run this again`)
         }
         for (const entry of entries) {

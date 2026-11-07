@@ -11,7 +11,7 @@
 import {execFileSync} from 'node:child_process'
 import {existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync} from 'node:fs'
 import {homedir} from 'node:os'
-import {dirname, join} from 'node:path'
+import {dirname, join, sep} from 'node:path'
 
 export const LABEL = 'orrery.launcher'
 export const configFile = () => join(process.env.XDG_CONFIG_HOME || join(homedir(), '.config'), 'orrery', 'launcher.json')
@@ -72,6 +72,21 @@ export function listIn(file = configFile()) {
     } catch {
         return null
     }
+}
+
+/** The project the launcher's list maps the folder `dir` to on the orrery at `url` (ORR-1068): the entry whose folder is
+ * `dir` or holds it, the nearest one if several do. None when no entry does, or when the nearest folder serves several
+ * projects there (a monorepo's), as which one a call is for can't be told; nor for a list that can't be read. */
+export function projectAt(dir, url, {file = configFile()} = {}) {
+    const list = listIn(file)
+    if (!list || !dir || !url) return undefined
+    const trimmed = url.replace(/\/+$/, '')
+    const holds = entry => typeof entry.dir === 'string' && entry.dir && (dir === entry.dir || dir.startsWith(entry.dir.endsWith(sep) ? entry.dir : `${entry.dir}${sep}`))
+    const found = list.projects.filter(entry => typeof entry.url === 'string' && entry.url.replace(/\/+$/, '') === trimmed && typeof entry.project === 'string' && holds(entry))
+    if (!found.length) return undefined
+    const nearest = Math.max(...found.map(entry => entry.dir.length))
+    const named = [...new Set(found.filter(entry => entry.dir.length === nearest).map(entry => entry.project))]
+    return named.length === 1 ? named[0] : undefined
 }
 
 /** Writes the list whole, by a rename, so the running service following it never reads it half written. */
