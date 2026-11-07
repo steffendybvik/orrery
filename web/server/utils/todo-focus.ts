@@ -1,5 +1,5 @@
 // The owner moving an issue into Todo, or making one there, hands it to an idle session at once (ORR-515), without
-// Focus on this and whether or not sessions pick their next issue (`pick_next`). Each issue goes, as a focus aimed at
+// Focus on this. Each issue goes, as a focus aimed at
 // it, to a different idle listening session out of work: one session per issue, and never one that's busy, so a
 // working session isn't interrupted. With nobody idle, the issue waits in Todo as before: nothing is queued and no
 // session is started. A burst of moves (a bulk move to Todo) is collected first, so the most urgent go out first and
