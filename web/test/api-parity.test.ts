@@ -4,6 +4,7 @@
 // builds it first.
 import type {ChildProcess} from 'node:child_process'
 import {createHash} from 'node:crypto'
+import {EventEmitter} from 'node:events'
 import {spawn} from 'node:child_process'
 import {existsSync, mkdtempSync} from 'node:fs'
 import {tmpdir} from 'node:os'
@@ -12,6 +13,7 @@ import {fileURLToPath} from 'node:url'
 import {afterAll, beforeAll, describe, expect, it, vi} from 'vitest'
 import sharp from 'sharp'
 import type {OrreryEvent} from '#shared/happenings'
+import type {Chat} from '#shared/roadmap'
 import {Store} from '../server/utils/store'
 import type {Actor, IssueFilter} from '../server/store/schema'
 import {SqliteDb} from '../server/utils/database'
@@ -1076,6 +1078,101 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
             await viaApi('DELETE', '/docs/asked-by-the-chat', undefined, OWNER)
         } finally {
             apiStarted(null)
+            vi.unstubAllGlobals()
+        }
+    })
+
+    it('runs the owner\'s chat end to end alike, with the store and with the Rust API in front (ORR-1044)', async () => {
+        // The chat module with Nitro's globals stubbed: its launches and the messages to its session are caught here, the
+        // board is the real store, and the chat's row goes to the database or through the API as the app sends it.
+        let launches = 0
+        const heard: {shown: Chat[], sent: string[], noted: string[]} = {shown: [], sent: [], noted: []}
+        const page = new EventEmitter()
+        page.on('chat', (chat: Chat) => heard.shown.push(structuredClone(chat)))
+        vi.stubGlobal('projectEvents', page)
+        vi.stubGlobal('startChat', async () => ({id: `c0ffee0001${String(++launches).padStart(2, '0')}`}))
+        vi.stubGlobal('launchTarget', (id: string) => `launch-${id}`)
+        vi.stubGlobal('endLaunch', () => {})
+        vi.stubGlobal('sessionOfLaunch', () => ({id: 'claude-session', model: 'opus'}))
+        vi.stubGlobal('launchKnown', () => true)
+        vi.stubGlobal('useStore', () => store)
+        vi.stubGlobal('useDatabase', () => store.db)
+        vi.stubGlobal('databaseSetting', () => setting)
+        vi.stubGlobal('useEventLog', () => ({note: (e: {kind: string, message: string}) => heard.noted.push(`${e.kind}: ${e.message}`)}))
+        const input = await import('../server/utils/input')
+        vi.stubGlobal('notFound', input.notFound)
+        vi.stubGlobal('badRequest', input.badRequest)
+        vi.stubGlobal('conflict', input.conflict)
+        vi.stubGlobal('forbidden', input.forbidden)
+        const messageSession = store.messageSession
+        store.messageSession = (async (_project: string, target: string, text: string) => void heard.sent.push(`${target}: ${text}`)) as never
+        vi.resetModules()
+        // The router the fresh chats module uses, to put the API in front of it or not.
+        const router = await import('../server/utils/api-router')
+        const chats = await import('../server/utils/chats')
+
+        /** The flow on `project`: started, written in, answered, its requests allowed and denied, cleared, ended and
+         * deleted, as the page and the chat's session drive it. What the page heard, the session was told and the event
+         * log noted, the row as kept, and the board it made. */
+        async function flow(project: string): Promise<Outcome & {heard: typeof heard, row: unknown, board: unknown}> {
+            const at = {shown: heard.shown.length, sent: heard.sent.length, noted: heard.noted.length, told: events.length, changed: changes.length}
+            const chat = await chats.openChat(project)
+            await chats.say(chat.id, 'Offer an issue for the hinge, and write down how joints work.', [], OWNER, {path: `/p/${project}`})
+            chats.reply(chat.id, 'On it.')
+            const decide = async (body: unknown, allow: boolean) => (await chats.answer(chat.id, (await chats.ask(chat.id, body)).id, allow, OWNER))
+            const filed = (await decide({issue: {title: 'Fit the hinge', priority: 'P2', notes: 'It squeaks.'}, why: 'You asked.'}, true)).issue!.id!
+            await decide({doc: {title: 'How joints work', body: 'A hinge turns.', section: 'How it works'}}, true)
+            await decide({doc: {body: 'A hinge turns, and squeaks.'}, id: 'how-joints-work'}, true)
+            await decide({milestone: {title: 'Hinges'}}, false)
+            await decide({milestone: {title: 'Joints', summary: 'All of them.'}}, true)
+            await decide({move: {ids: [filed], status: 'in-progress'}, why: 'Started.'}, true)
+            await decide({move: {ids: [filed], assignee: 'owner'}}, false)
+            chats.landChatIssues(chat.id, 'backlog')
+            chats.clearChat(chat.id)
+            await decide({issue: {title: 'Oil the hinge'}}, true)
+            await decide({issue: {title: 'Paint it'}}, false)
+            chats.endChat(chat.id)
+            await chats.chatsSaved()
+            const row = await store.db.get<{project: string, ended: number, chat: string}>('SELECT project, ended_at IS NOT NULL AS ended, chat FROM chats WHERE id = ?', chat.id)
+            const board = {
+                issues: (await store.listIssues(project)).map(i => ({id: i.id, title: i.title, status: i.column, priority: i.priority ?? null, created_by: i.created_by})),
+                docs: (await store.listDocs(project)).map(d => ({id: d.id, title: d.title, section: d.section ?? null})),
+                joints: (await store.doc(project, 'how-joints-work')).body,
+                milestones: (await store.listMilestones(project)).map(m => ({title: m.title, summary: m.summary ?? null})),
+            }
+            chats.deleteChat(chat.id, OWNER)
+            await chats.chatsSaved()
+            expect(await store.db.get('SELECT id FROM chats WHERE id = ?', chat.id), `${project}: deleted`).toBeUndefined()
+            await quiet()
+            return {
+                status: 200, body: null, settings: false, changed: await sharing(changes.slice(at.changed)), told: events.slice(at.told).map(e => `${e.type} ${e.subject}`),
+                heard: {shown: heard.shown.slice(at.shown), sent: heard.sent.slice(at.sent), noted: heard.noted.slice(at.noted)},
+                row: row && {...row, ended: !!row.ended, chat: JSON.parse(row.chat)}, board,
+            }
+        }
+
+        // A project each of its own, as what the steps above made differs between the two.
+        for (const [name, key] of [['chat-through-store', 'CHS'], ['chat-through-api', 'CHA']] as const) await store.createProject({name, key})
+        try {
+            const byStore = await flow('chat-through-store')
+            router.apiStarted({url, token: TOKEN})
+            const before = new Set(reached)
+            const byApi = await flow('chat-through-api')
+            // The chat's own row and Allow's writes went to the API.
+            const asked = [...reached].filter(r => !before.has(r) || /chats|docs|milestones/.test(r))
+            for (const route of ['PUT /api/chats/c0ffee000102', 'DELETE /api/chats/c0ffee000102', 'POST /api/projects/chat-through-api/docs', 'PATCH /api/projects/chat-through-api/docs/how-joints-work', 'POST /api/projects/chat-through-api/milestones']) {
+                expect(asked, route).toContain(route)
+            }
+            // The two chats' ids differ by their launch, and the issues' keys by their project, keys of `was` too.
+            const alike = (outcome: Outcome, project: string) => same(JSON.parse(JSON.stringify(outcome).replaceAll(/c0ffee0001\d\d/g, '<chat>').replaceAll(/\bCH[SA]-(\d+)\b/g, 'KEY-$1')) as Outcome, project)
+            expect(alike(byApi, 'chat-through-api')).toEqual(alike(byStore, 'chat-through-store'))
+            expect(byStore.heard.shown.at(-1)).toMatchObject({deleted: true, ended: true})
+            expect(byStore.row).toMatchObject({ended: true, project: 'chat-through-store'})
+            expect(byApi.heard.noted).toContain('chat.answered: steffen allowed the chat\'s request to make the milestone "Joints"')
+            expect(byApi.board).toMatchObject({joints: 'A hinge turns, and squeaks.', issues: [{title: 'Fit the hinge', status: 'in-progress'}, {title: 'Oil the hinge', status: 'backlog'}]})
+        } finally {
+            router.apiStarted(null)
+            store.messageSession = messageSession
             vi.unstubAllGlobals()
         }
     })

@@ -779,6 +779,8 @@ async function answerMove(chat: Chat, request: ChatMoveRequest, allow: boolean, 
  * chat. A milestone removed since fails as its page would, still asked. */
 async function answerMilestone(chat: Chat, request: ChatMilestoneRequest, allow: boolean, actor: Actor) {
     let made: {id: string, title: string} | undefined
+    // What it asked, before a milestone it made gets its id: "make", not "change" (ORR-1044).
+    const asked = milestoneAsk(request)
     if (allow) {
         const as: Actor = {...actor, via: 'chat'}
         const {id: target} = request
@@ -789,7 +791,7 @@ async function answerMilestone(chat: Chat, request: ChatMilestoneRequest, allow:
     request.state = allow ? 'allowed' : 'denied'
     if (made) request.id = made.id
     changed(chat)
-    useEventLog().note({level: 'info', kind: 'chat.answered', project: chat.project, message: `${actor.name} ${request.state} the chat's request to ${milestoneAsk(request)}`,
+    useEventLog().note({level: 'info', kind: 'chat.answered', project: chat.project, message: `${actor.name} ${request.state} the chat's request to ${asked}`,
         details: {milestone: request.id ?? null, fields: Object.keys(request.body), allowed: allow}})
     await useStore().messageSession(chat.project, launchTarget(chat.id), made
         ? `(I allowed your request: milestone ${made.id} ("${made.title}") is saved.)`
