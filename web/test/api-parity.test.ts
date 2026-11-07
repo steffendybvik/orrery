@@ -729,7 +729,41 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         expect(outcomes[23]).toMatchObject({status: 200, body: {release_mode: 'own'}, changed: ['through-api-bench', 'through-api-src']})
         expect((outcomes[23]!.body as {board: {milestones: {tasks: {release?: string}[]}[]}}).board.milestones[0]!.tasks[0]).not.toHaveProperty('release')
         expect(domainOf('PATCH', '/api/projects/p')).toBe('a project, changed')
-        for (const method of ['GET', 'DELETE']) expect(domainOf(method, '/api/projects/p'), method).toBeUndefined()
+        expect(domainOf('GET', '/api/projects/p')).toBeUndefined()
+    })
+
+    it('deletes a project alike, with everything in it, refusing what the store refuses (ORR-1006)', async () => {
+        const schedules = new Schedules(store)
+        const on = (p: string) => `${p}-gone`
+        for (const p of ['through-store', 'through-api']) {
+            const key = p === 'through-store' ? 'STG' : 'APG'
+            await store.createProject({name: on(p), key, release_mode: 'own'}, OWNER)
+            await store.createProject({name: `${p}-drawn`, key: `${key}D`, releases_from: on(p)})
+            const issue = await store.createIssue(on(p), {title: 'Sieve'})
+            await store.createComment(on(p), issue.id, {body: 'Begun.'})
+            await store.createMilestone(on(p), {title: 'First'})
+            await store.createDoc(on(p), {title: 'How', body: 'x'})
+            await schedules.create(on(p), {title: 'Water', cron: '0 9 * * *', timezone: 'UTC'}, OWNER)
+        }
+        const step = (name: string, actor: Actor, of: (p: string) => string = on): [string, (p: string) => Promise<Outcome>, () => Promise<Outcome>] =>
+            [name, p => viaStore(() => store.deleteProject(of(p), actor)), () => viaApi('DELETE', '', undefined, actor, of('through-api'))]
+        const steps = [
+            step('one that isn\'t there', OWNER, () => 'nowhere'),
+            step('by an agent, the owner\'s', AGENT),
+            step('drawn on', OWNER),
+            step('the one drawing on it', OWNER, p => `${p}-drawn`),
+            step('deleted', OWNER),
+        ]
+        const outcomes: Outcome[] = []
+        for (const [name, ts, rs] of steps) outcomes.push(await both(name, ts, rs))
+        expect(outcomes.map(o => o.status)).toEqual([404, 403, 409, 204, 204])
+        expect(outcomes[4]).toMatchObject({changed: ['through-api-gone']})
+        for (const p of ['through-store', 'through-api']) {
+            for (const table of ['projects WHERE id', 'issues WHERE project', 'comments WHERE project', 'milestones WHERE project', 'docs WHERE project', 'schedules WHERE project']) {
+                expect((await store.db.get<{n: number}>(`SELECT count(*) AS n FROM ${table} = ?`, on(p)))?.n, `${p}: ${table}`).toBe(0)
+            }
+        }
+        expect(domainOf('DELETE', '/api/projects/p')).toBe('a project, deleted')
     })
 
     it('makes a project alike, its id and key from its name, refusing what the store refuses (ORR-1002)', async () => {
@@ -929,13 +963,14 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         const api = (at: number) => `/schedules/${ids['through-api']![at]}`
         // A refusal names the schedule by its number, which differs between the two projects, so it's compared with the
         // store's number put in the API's place.
-        const refusedAlike = async (name: string, store: Promise<unknown>, api: Promise<Outcome>) => {
-            const [kept, sent] = [await viaStore(() => store), await api]
+        // Each side is asked in its turn, so neither rejects unheard while the other's settling.
+        const refusedAlike = async (name: string, store: () => Promise<unknown>, api: () => Promise<Outcome>) => {
+            const [kept, sent] = [await viaStore(store), await api()]
             const swap = (text: unknown) => String(text).replace(new RegExp(`(schedule) ${ids['through-store']![2]}\\b`, 'i'), `$1 ${ids['through-api']![2]}`)
             expect({status: sent.status, message: (sent.body as {message?: string}).message}, name).toEqual({status: kept.status, message: swap((kept.body as {message?: string}).message)})
         }
-        await refusedAlike('adopting, as an agent', schedules.adopt(on('through-store'), ids['through-store']![2]!, AGENT), viaApi('POST', `${api(2)}/adopt`, undefined, AGENT, 'through-api-timed'))
-        await refusedAlike('adopting what changed since', schedules.adopt(on('through-store'), ids['through-store']![2]!, OWNER, '2000-01-01T00:00:00.000Z'), viaApi('POST', `${api(2)}/adopt`, {seen: '2000-01-01T00:00:00.000Z'}, OWNER, 'through-api-timed'))
+        await refusedAlike('adopting, as an agent', () => schedules.adopt(on('through-store'), ids['through-store']![2]!, AGENT), () => viaApi('POST', `${api(2)}/adopt`, undefined, AGENT, 'through-api-timed'))
+        await refusedAlike('adopting what changed since', () => schedules.adopt(on('through-store'), ids['through-store']![2]!, OWNER, '2000-01-01T00:00:00.000Z'), () => viaApi('POST', `${api(2)}/adopt`, {seen: '2000-01-01T00:00:00.000Z'}, OWNER, 'through-api-timed'))
         // The route checks `seen` before the store is asked, so there's only the API's answer to look at.
         expect(await viaApi('POST', `${api(2)}/adopt`, {seen: 5}, OWNER, 'through-api-timed')).toMatchObject({status: 400, body: {message: '"seen" is the updated_at you read the schedule at'}})
         await both('adopting', p => viaStore(() => schedules.adopt(on(p), ids[p]![2]!, OWNER)), () => viaApi('POST', `${api(2)}/adopt`, undefined, OWNER, 'through-api-timed'))
@@ -3118,7 +3153,7 @@ describe('the router', () => {
     })
 
     it('routes by a table with a line per domain, so taking one back is taking its line out (ORR-925)', () => {
-        expect(DOMAINS.map(({domain}) => domain)).toEqual(['docs', 'statuses', 'issues, reading', 'comments', 'an issue, deleted', 'an issue, made', 'an issue, its words', 'issues, changed at once', 'a proposal, decided', 'claims', 'activity', 'milestones', 'releases', 'releases, every project\'s', 'people', 'invites', 'keys', 'logins', 'uploads, reading', 'an upload, kept', 'presets', 'secrets, reading', 'settings', 'a pull request, reading', "a pull request's risk", 'schedules, reading', 'a schedule, adopted', 'a schedule, deleted', 'projects, listed', 'a project, made', 'a project, changed', 'a project, exported', 'a project, imported', 'the bell', 'epics', 'milestone and epic comments'])
+        expect(DOMAINS.map(({domain}) => domain)).toEqual(['docs', 'statuses', 'issues, reading', 'comments', 'an issue, deleted', 'an issue, made', 'an issue, its words', 'issues, changed at once', 'a proposal, decided', 'claims', 'activity', 'milestones', 'releases', 'releases, every project\'s', 'people', 'invites', 'keys', 'logins', 'uploads, reading', 'an upload, kept', 'presets', 'secrets, reading', 'settings', 'a pull request, reading', "a pull request's risk", 'schedules, reading', 'a schedule, adopted', 'a schedule, deleted', 'projects, listed', 'a project, made', 'a project, changed', 'a project, deleted', 'a project, exported', 'a project, imported', 'the bell', 'epics', 'milestone and epic comments'])
         expect(domainOf('PATCH', '/api/projects/p/docs/d')).toBe('docs')
         expect(domainOf('head', '/api/projects/p/doc-sections/')).toBe('docs')
         for (const method of ['POST', 'DELETE']) expect(domainOf(method, '/api/projects/p/issues/P-1/claim'), method).toBe('claims')
@@ -3267,7 +3302,7 @@ describe('the contract (api/openapi.yaml)', () => {
     const routes = () => nuxtRoutes().filter(route => servedByApi(methodOf(route), pathOf(route)))
 
     it('has every route the router sends to the API, and no other', () => {
-        expect(contract()).toHaveLength(101)
+        expect(contract()).toHaveLength(102)
         expect(contract()).toEqual(routes())
     })
 

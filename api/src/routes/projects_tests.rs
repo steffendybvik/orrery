@@ -412,3 +412,46 @@ async fn a_file_that_isnt_a_roadmap_is_refused_with_each_problem() {
     );
     assert_eq!(api.post("/api/projects/nowhere/import", roadmap()).send().await.status, 404);
 }
+
+#[tokio::test]
+async fn a_project_is_deleted_with_everything_in_it() {
+    let api = TestApi::new().await;
+    let project = api.project("Primes").await;
+    let issue = api.issue(&project, json!({"title": "Sieve"})).await;
+    api.post(&format!("/api/projects/{project}/issues/{issue}/comments"), json!({"body": "Begun."})).send().await;
+    api.post(&format!("/api/projects/{project}/milestones"), json!({"title": "First"})).send().await;
+    api.post(&format!("/api/projects/{project}/docs"), json!({"title": "How", "body": "x"})).send().await;
+    let reply = api.delete(&format!("/api/projects/{project}")).send().await;
+    assert_eq!(reply.status, 204, "{}", reply.body);
+    assert_eq!(reply.changed(), vec![project.clone()]);
+    assert_eq!(reply.said("orrery-schedules"), vec![project.clone()], "its schedules went with it");
+    for table in ["projects WHERE id", "issues WHERE project", "comments WHERE project", "milestones WHERE project", "docs WHERE project"] {
+        assert_eq!(api.count(&format!("SELECT count(*) AS n FROM {table} = '{project}'")).await, 0, "{table}");
+    }
+    assert_eq!(api.get(&format!("/api/projects/{project}")).send().await.status, 404);
+    assert_eq!(api.delete(&format!("/api/projects/{project}")).send().await.status, 404);
+}
+
+#[tokio::test]
+async fn an_agent_deletes_a_project_only_when_nothing_in_it_is_the_owners() {
+    let api = TestApi::new().await;
+    let project = api.project("Primes").await;
+    let refused = api.delete(&format!("/api/projects/{project}")).by_agent("claude").send().await;
+    assert_eq!(refused.status, 403, "{}", refused.body);
+    assert_eq!(refused.body["message"], format!("Deleting {project} is the owner's call: project \"{project}\" was made by the owner"));
+    let made = api.post("/api/projects", json!({"name": "Scratch"})).by_agent("claude").send().await;
+    assert_eq!(made.status, 201, "{}", made.body);
+    assert_eq!(api.delete("/api/projects/scratch").by_agent("claude").send().await.status, 204);
+}
+
+#[tokio::test]
+async fn a_project_another_takes_releases_from_is_not_deleted() {
+    let api = TestApi::new().await;
+    make(&api, json!({"name": "Source", "release_mode": "own"})).await;
+    make(&api, json!({"name": "Drawing", "releases_from": "source"})).await;
+    let reply = api.delete("/api/projects/source").send().await;
+    assert_eq!(reply.status, 409, "{}", reply.body);
+    assert_eq!(reply.body["message"], "drawing takes its releases from source; give it its own first (releases_from: null)");
+    assert_eq!(api.delete("/api/projects/drawing").send().await.status, 204);
+    assert_eq!(api.delete("/api/projects/source").send().await.status, 204);
+}

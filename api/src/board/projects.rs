@@ -3,7 +3,8 @@
 // /api/projects/:project` do. Each project is its row as `projectOf` hands it out (base.ts), with its docs, doc
 // sections and releases, and its board or, listed, the board's counts and kinds and how many milestones it has.
 // Reading boards (`?expand=board`, `GET /api/projects/:project`) stays on the Nuxt server, as their `rev` is the events
-// stream's; deleting projects stays there too. Making one (`createProject`) answers as `POST /api/projects` does.
+// stream's. Making one (`createProject`) answers as `POST /api/projects` does, and deleting one (`deleteProject`) as
+// `DELETE /api/projects/:project` does.
 use crate::access::people::Who;
 use crate::board::docs::Docs;
 use crate::board::issue_writes::IssueWrites;
@@ -515,6 +516,79 @@ impl<'c> Projects<'c> {
             if let Some(before) = row.from.clone().filter(|before| Some(before) != from.as_ref()) {
                 self.effects.changed.push(before);
             }
+            Ok(())
+        }
+        .await;
+        changes::finish(self.conn, self.outbox.as_mut(), &self.effects, done).await
+    }
+
+    /// What the owner made in the project, the project included (`ownedIn`).
+    async fn owned_in(&mut self, id: &str, owned: bool) -> Result<Vec<String>> {
+        let mut out = if owned { vec![format!("project \"{id}\"")] } else { vec![] };
+        for (query, shown) in [
+            ("SELECT id FROM milestones WHERE project = ? AND owned = 1", "milestone \"{}\""),
+            ("SELECT id FROM docs WHERE project = ? AND owned = 1", "doc \"{}\""),
+            ("SELECT version FROM releases WHERE project = ? AND owned = 1", "release {}"),
+        ] {
+            let ids: Vec<String> = sqlx::query_scalar(&sql(query)).bind(id).fetch_all(&mut *self.conn).await?;
+            out.extend(ids.into_iter().map(|one| shown.replace("{}", &one)));
+        }
+        let issues: Vec<String> = sqlx::query_scalar(&sql("SELECT id FROM issues WHERE project = ?")).bind(id).fetch_all(&mut *self.conn).await?;
+        if !issues.is_empty() {
+            out.extend(IssueWrites::new(&mut *self.conn).owned_under(id, &issues).await?);
+        }
+        Ok(out)
+    }
+
+    /// Deletes the project and everything in it, for good (`deleteProject`). An agent can't while it holds anything the
+    /// owner made, and nobody can while another project takes its releases from it.
+    pub async fn delete(&mut self, id: &str, actor: &Actor) -> Result<()> {
+        let owned: Option<i64> =
+            sqlx::query_scalar(&sql("SELECT CAST(owned AS BIGINT) FROM projects WHERE id = ?")).bind(id).fetch_optional(&mut *self.conn).await?;
+        let owned = owned.ok_or_else(|| ApiError::not_found(format!("No project \"{id}\"")))? != 0;
+        if !actor.owner {
+            let owned = self.owned_in(id, owned).await?;
+            if !owned.is_empty() {
+                let shown = if owned.len() > 4 { [owned[..3].to_vec(), vec![format!("{} more", owned.len() - 3)]].concat() } else { owned.clone() };
+                let was = if owned.len() == 1 { "was" } else { "were" };
+                return Err(ApiError::refused_for("issues.delete", format!("Deleting {id} is the owner's call: {} {was} made by the owner", shown.join(", "))));
+            }
+        }
+        let drawing = self.drawing_on(id).await?;
+        if !drawing.is_empty() {
+            let one = drawing.len() == 1;
+            return Err(ApiError::conflict(format!(
+                "{} {} releases from {id}; give {} own first (releases_from: null)",
+                drawing.join(", "),
+                if one { "takes its" } else { "take their" },
+                if one { "it its" } else { "them their" },
+            )));
+        }
+        changes::begin(self.conn).await?;
+        let done: Result<()> = async {
+            // Comments and issues first: the foreign keys would refuse the project going before them.
+            for statement in [
+                "DELETE FROM comments WHERE project = ?",
+                "UPDATE issues SET parent = NULL, milestone = NULL WHERE project = ?",
+                "DELETE FROM issues WHERE project = ?",
+                "DELETE FROM milestones WHERE project = ?",
+                "DELETE FROM docs WHERE project = ?",
+                "DELETE FROM doc_sections WHERE project = ?",
+                "DELETE FROM doc_revisions WHERE project = ?",
+                "DELETE FROM releases WHERE project = ?",
+                "DELETE FROM issue_aliases WHERE project = ?",
+                "DELETE FROM milestone_aliases WHERE project = ?",
+                "DELETE FROM signals WHERE project = ?",
+                "DELETE FROM schedules WHERE project = ?",
+                "DELETE FROM presets WHERE project = ?",
+            ] {
+                sqlx::query(&sql(statement)).bind(id).execute(&mut *self.conn).await?;
+            }
+            sqlx::query(&sql("DELETE FROM issue_links WHERE project = ? OR on_project = ?")).bind(id).bind(id).execute(&mut *self.conn).await?;
+            sqlx::query(&sql("DELETE FROM projects WHERE id = ?")).bind(id).execute(&mut *self.conn).await?;
+            self.effects.changed = vec![id.into()];
+            // Its schedules went with it, for the local app's runner to drop.
+            self.effects.schedules = vec![id.into()];
             Ok(())
         }
         .await;
