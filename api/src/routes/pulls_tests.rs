@@ -25,12 +25,6 @@ fn poll(at: &str, more: bool, pulls: Vec<Value>) -> Value {
     json!({"at": at, "token": true, "more": more, "pulls": pulls})
 }
 
-async fn board(api: &TestApi) -> (String, String) {
-    let project = api.project("Primes").await;
-    let issue = api.issue(&project, json!({"title": "Sieve"})).await;
-    (project, issue)
-}
-
 async fn keep(api: &TestApi, number: i64, body: Value) {
     let reply = api.put(&format!("/api/pulls/ada/primes/{number}"), body).send().await;
     assert_eq!(reply.status, 204, "keeping a PR: {}", reply.body);
@@ -44,10 +38,6 @@ async fn scalar(api: &TestApi, query: &str) -> Option<String> {
     sqlx::query_scalar::<_, Option<String>>(query).fetch_optional(&api.app.pool).await.unwrap().flatten()
 }
 
-async fn count(api: &TestApi, query: &str) -> i64 {
-    sqlx::query_scalar::<_, i64>(query).fetch_one(&api.app.pool).await.unwrap()
-}
-
 fn risk_path(project: &str, issue: &str, number: &str) -> String {
     format!("/api/projects/{project}/issues/{issue}/pulls/ada/primes/{number}/risk")
 }
@@ -55,7 +45,7 @@ fn risk_path(project: &str, issue: &str, number: &str) -> String {
 #[tokio::test]
 async fn a_kept_pr_reads_back_with_the_issues_it_names() {
     let api = TestApi::new().await;
-    let (project, issue) = board(&api).await;
+    let (project, issue) = api.board().await;
     keep(&api, 12, kept(&[&project], &[&issue], "feat/sieve")).await;
     let reply = api.get("/api/pulls/ada/primes/12").send().await;
     assert_eq!(reply.status, 200, "{}", reply.body);
@@ -73,7 +63,7 @@ async fn a_kept_pr_reads_back_with_the_issues_it_names() {
 #[tokio::test]
 async fn a_pr_is_found_by_its_number_with_a_hash_and_its_repo_in_any_case() {
     let api = TestApi::new().await;
-    let (project, issue) = board(&api).await;
+    let (project, issue) = api.board().await;
     keep(&api, 12, kept(&[&project], &[&issue], "feat/sieve")).await;
     assert_eq!(api.get("/api/pulls/ada/primes/%2312").send().await.status, 200);
     let upper = api.get("/api/pulls/Ada/Primes/12").send().await;
@@ -84,7 +74,7 @@ async fn a_pr_is_found_by_its_number_with_a_hash_and_its_repo_in_any_case() {
 #[tokio::test]
 async fn a_session_reads_a_pr_without_what_an_outsider_wrote() {
     let api = TestApi::new().await;
-    let (project, issue) = board(&api).await;
+    let (project, issue) = api.board().await;
     keep(&api, 12, kept(&[&project], &[&issue], "feat/sieve")).await;
     let reply = api.get("/api/pulls/ada/primes/12").by_agent("claude").send().await;
     assert_eq!(reply.status, 200);
@@ -116,7 +106,7 @@ async fn a_pr_it_doesnt_keep_is_a_404_and_a_bad_number_a_400() {
 #[tokio::test]
 async fn a_pr_is_kept_on_an_issue_by_its_old_id_and_its_state_follows() {
     let api = TestApi::new().await;
-    let (project, issue) = board(&api).await;
+    let (project, issue) = api.board().await;
     sqlx::query(&crate::db::sql("INSERT INTO issue_aliases (project, alias, issue) VALUES (?, 'OLD-7', ?)"))
         .bind(&project)
         .bind(&issue)
@@ -140,7 +130,7 @@ async fn a_pr_is_kept_on_an_issue_by_its_old_id_and_its_state_follows() {
 #[tokio::test]
 async fn a_pr_that_no_longer_names_an_issue_comes_off_it() {
     let api = TestApi::new().await;
-    let (project, first) = board(&api).await;
+    let (project, first) = api.board().await;
     let second = api.issue(&project, json!({"title": "Wheel"})).await;
     keep(&api, 12, kept(&[&project], &[&first, &second], "feat/sieve")).await;
     assert_eq!(issue_ids(&api.get("/api/pulls/ada/primes/12").send().await.body).len(), 2);
@@ -153,7 +143,7 @@ async fn a_pr_that_no_longer_names_an_issue_comes_off_it() {
 #[tokio::test]
 async fn a_pr_names_only_issues_among_its_projects() {
     let api = TestApi::new().await;
-    let (project, issue) = board(&api).await;
+    let (project, issue) = api.board().await;
     let other = api.project("Squares").await;
     keep(&api, 12, kept(&[&other], &[&issue], "feat/sieve")).await;
     assert_eq!(api.get("/api/pulls/ada/primes/12").send().await.status, 404);
@@ -164,7 +154,7 @@ async fn a_pr_names_only_issues_among_its_projects() {
 #[tokio::test]
 async fn a_release_pr_is_on_every_issue_in_its_release() {
     let api = TestApi::new().await;
-    let (project, first) = board(&api).await;
+    let (project, first) = api.board().await;
     let second = api.issue(&project, json!({"title": "Wheel"})).await;
     api.issue(&project, json!({"title": "Not shipping"})).await;
     sqlx::query(&crate::db::sql("INSERT INTO releases (project, version, branch, created_by, created_at, updated_at) VALUES (?, 'v1.0', 'release/v1', 'owner', '2026-11-01', '2026-11-01')"))
@@ -213,7 +203,7 @@ async fn keeping_a_pr_says_each_problem_with_its_body() {
 #[tokio::test]
 async fn the_owner_rates_a_prs_risk_on_an_issue() {
     let api = TestApi::new().await;
-    let (project, issue) = board(&api).await;
+    let (project, issue) = api.board().await;
     keep(&api, 12, kept(&[&project], &[&issue], "feat/sieve")).await;
     let reply = api.put(&risk_path(&project, &issue, "12"), json!({"level": "high", "why": "  touches signals  "})).send().await;
     assert_eq!(reply.status, 200, "{}", reply.body);
@@ -229,7 +219,7 @@ async fn the_owner_rates_a_prs_risk_on_an_issue() {
 #[tokio::test]
 async fn a_session_rates_a_pr_but_doesnt_replace_the_owners_rating() {
     let api = TestApi::new().await;
-    let (project, issue) = board(&api).await;
+    let (project, issue) = api.board().await;
     keep(&api, 12, kept(&[&project], &[&issue], "feat/sieve")).await;
     let by_session = api.put(&risk_path(&project, &issue, "12"), json!({"level": "low", "why": "docs only"})).by_agent("claude").send().await;
     assert_eq!(by_session.status, 200);
@@ -247,7 +237,7 @@ async fn a_session_rates_a_pr_but_doesnt_replace_the_owners_rating() {
 #[tokio::test]
 async fn a_rating_is_checked() {
     let api = TestApi::new().await;
-    let (project, issue) = board(&api).await;
+    let (project, issue) = api.board().await;
     keep(&api, 12, kept(&[&project], &[&issue], "feat/sieve")).await;
     let path = risk_path(&project, &issue, "12");
     let no_why = api.put(&path, json!({"level": "high"})).send().await;
@@ -271,7 +261,7 @@ async fn a_rating_is_checked() {
 #[tokio::test]
 async fn rating_a_pr_orrery_doesnt_keep_on_the_issue_is_a_404() {
     let api = TestApi::new().await;
-    let (project, issue) = board(&api).await;
+    let (project, issue) = api.board().await;
     let other = api.issue(&project, json!({"title": "Wheel"})).await;
     keep(&api, 12, kept(&[&project], &[&issue], "feat/sieve")).await;
     let body = json!({"level": "low", "why": "x"});
@@ -290,7 +280,7 @@ async fn rating_a_pr_orrery_doesnt_keep_on_the_issue_is_a_404() {
 #[tokio::test]
 async fn a_pr_is_rated_by_its_issue_old_id_and_its_repo_in_any_case() {
     let api = TestApi::new().await;
-    let (project, issue) = board(&api).await;
+    let (project, issue) = api.board().await;
     sqlx::query(&crate::db::sql("INSERT INTO issue_aliases (project, alias, issue) VALUES (?, 'OLD-7', ?)"))
         .bind(&project)
         .bind(&issue)
@@ -307,7 +297,7 @@ async fn a_pr_is_rated_by_its_issue_old_id_and_its_repo_in_any_case() {
 #[tokio::test]
 async fn the_issues_on_a_pr_come_riskiest_first_each_with_its_riskiest_rated_pr() {
     let api = TestApi::new().await;
-    let (project, a) = board(&api).await;
+    let (project, a) = api.board().await;
     let b = api.issue(&project, json!({"title": "Wheel"})).await;
     let c = api.issue(&project, json!({"title": "Unrated"})).await;
     keep(&api, 12, kept(&[&project], &[&a, &b, &c], "feat/sieve")).await;
@@ -329,7 +319,7 @@ async fn a_repos_poll_keeps_each_pr_and_the_repo_as_polled() {
         api.put("/api/pulls/ada/primes", poll("2026-11-05T10:00:00Z", false, vec![polled_pull(1, false, false), polled_pull(2, true, false)])).send().await;
     assert_eq!(reply.status, 204, "{}", reply.body);
     assert_eq!(reply.header("orrery-changed"), None, "it tells nobody");
-    assert_eq!(count(&api, "SELECT count(*) FROM pull_states WHERE repo = 'ada/primes'").await, 2);
+    assert_eq!(api.count("SELECT count(*) FROM pull_states WHERE repo = 'ada/primes'").await, 2);
     let row: (String, String, i64, String, String) =
         sqlx::query_as("SELECT names, told, merged, seen_at, checks FROM pull_states WHERE number = 2").fetch_one(&api.app.pool).await.unwrap();
     assert_eq!(row, ("[\"PRI-1\"]".into(), "[\"opened\"]".into(), 1, "2026-11-05T10:00:00Z".into(), "passing".into()));
@@ -341,15 +331,15 @@ async fn a_repos_poll_keeps_each_pr_and_the_repo_as_polled() {
 #[tokio::test]
 async fn an_open_pr_the_poll_missed_is_kept_as_closed_unless_the_list_was_cut_short() {
     let api = TestApi::new().await;
-    let (project, issue) = board(&api).await;
+    let (project, issue) = api.board().await;
     keep(&api, 1, kept(&[&project], &[&issue], "feat/sieve")).await;
     api.put("/api/pulls/ada/primes", poll("2026-11-05T10:00:00Z", false, vec![polled_pull(1, false, false), polled_pull(2, false, false)])).send().await;
     api.put("/api/pulls/ada/primes", poll("2026-11-05T11:00:00Z", true, vec![polled_pull(2, false, false)])).send().await;
-    assert_eq!(count(&api, "SELECT closed FROM pull_states WHERE number = 1").await, 0, "more: the open ones were cut short");
+    assert_eq!(api.count("SELECT closed FROM pull_states WHERE number = 1").await, 0, "more: the open ones were cut short");
     api.put("/api/pulls/ada/primes", poll("2026-11-05T12:00:00Z", false, vec![polled_pull(2, false, false)])).send().await;
     let missed: (i64, String) = sqlx::query_as("SELECT closed, seen_at FROM pull_states WHERE number = 1").fetch_one(&api.app.pool).await.unwrap();
     assert_eq!(missed, (1, "2026-11-05T12:00:00Z".into()));
-    assert_eq!(count(&api, "SELECT closed FROM pull_states WHERE number = 2").await, 0);
+    assert_eq!(api.count("SELECT closed FROM pull_states WHERE number = 2").await, 0);
     let on_issue = api.get("/api/pulls/ada/primes/1").send().await.body;
     assert_eq!(on_issue["pull"]["state"], "closed", "its row on the issue too");
     assert_eq!(on_issue["pull"]["updated_at"], "2026-11-05T12:00:00Z");
@@ -376,7 +366,7 @@ async fn a_poll_says_each_problem_with_its_body() {
     assert!(problems.iter().any(|p| p.starts_with("pulls[0]: unknown field \"colour\"")), "{problems:?}");
     let no_pulls = api.put("/api/pulls/ada/primes", json!({"at": "x", "token": false, "more": false})).send().await;
     assert_eq!(no_pulls.body["message"], "missing \"pulls\"");
-    assert_eq!(count(&api, "SELECT count(*) FROM pull_repos").await, 0, "nothing kept");
+    assert_eq!(api.count("SELECT count(*) FROM pull_repos").await, 0, "nothing kept");
 }
 
 #[tokio::test]
@@ -390,7 +380,7 @@ async fn a_failed_poll_is_said_on_a_repo_read_before_and_cleared_by_the_next() {
     assert_eq!(scalar(&api, "SELECT error FROM pull_repos WHERE repo = 'ada/primes'").await, None);
     let never = api.put("/api/pulls/ada/other/error", json!({"error": "404"})).send().await;
     assert_eq!(never.status, 204);
-    assert_eq!(count(&api, "SELECT count(*) FROM pull_repos WHERE repo = 'ada/other'").await, 0, "nothing on a repo never read");
+    assert_eq!(api.count("SELECT count(*) FROM pull_repos WHERE repo = 'ada/other'").await, 0, "nothing on a repo never read");
     let bad = api.put("/api/pulls/ada/primes/error", json!({"error": null, "why": 1})).send().await;
     assert_eq!(bad.status, 400);
     assert_eq!(bad.body["data"]["problems"], json!(["unknown field \"why\"; this takes error", "\"error\" should be a string, not null"]));
@@ -400,12 +390,12 @@ async fn a_failed_poll_is_said_on_a_repo_read_before_and_cleared_by_the_next() {
 async fn a_repos_history_page_is_kept() {
     let api = TestApi::new().await;
     api.put("/api/pulls/ada/primes", poll("2026-11-05T10:00:00Z", false, vec![])).send().await;
-    assert_eq!(count(&api, "SELECT history_page FROM pull_repos").await, 1, "the first page to start");
+    assert_eq!(api.count("SELECT history_page FROM pull_repos").await, 1, "the first page to start");
     let reply = api.put("/api/pulls/ada/primes/history", json!({"page": 4})).send().await;
     assert_eq!(reply.status, 204);
-    assert_eq!(count(&api, "SELECT history_page FROM pull_repos").await, 4);
+    assert_eq!(api.count("SELECT history_page FROM pull_repos").await, 4);
     api.put("/api/pulls/ada/primes/history", json!({"page": 0})).send().await;
-    assert_eq!(count(&api, "SELECT history_page FROM pull_repos").await, 0, "0 once they're all read");
+    assert_eq!(api.count("SELECT history_page FROM pull_repos").await, 0, "0 once they're all read");
     for bad in [json!({"page": -1}), json!({"page": 1.5}), json!({}), json!("4")] {
         assert_eq!(api.put("/api/pulls/ada/primes/history", bad.clone()).send().await.status, 400, "{bad}");
     }
@@ -427,8 +417,8 @@ async fn forgetting_lets_go_of_old_done_prs_and_repos_no_longer_polled() {
     assert_eq!(reply.body, json!({"gone": ["ada/gone"]}));
     let left: Vec<i64> = sqlx::query_scalar("SELECT number FROM pull_states WHERE repo = 'ada/primes' ORDER BY number").fetch_all(&api.app.pool).await.unwrap();
     assert_eq!(left, [3, 4], "the open one stays, and the merged one seen since");
-    assert_eq!(count(&api, "SELECT count(*) FROM pull_states WHERE repo = 'ada/gone'").await, 0);
-    assert_eq!(count(&api, "SELECT count(*) FROM pull_repos").await, 1);
+    assert_eq!(api.count("SELECT count(*) FROM pull_states WHERE repo = 'ada/gone'").await, 0);
+    assert_eq!(api.count("SELECT count(*) FROM pull_repos").await, 1);
     let bad = api.post("/api/pulls/forget", json!({"repos": "ada/primes"})).send().await;
     assert_eq!(bad.status, 400);
     assert_eq!(bad.body["data"]["problems"], json!(["\"repos\" should be a list of strings, not \"ada/primes\"", "missing \"before\""]));

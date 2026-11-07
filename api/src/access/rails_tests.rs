@@ -5,19 +5,6 @@ use crate::db::sql;
 use crate::testing::{Req, TestApi};
 use serde_json::json;
 
-/// The owner, `steffen`, and two members, `ana` and `bo`.
-async fn team(api: &TestApi) {
-    for (id, role) in [("steffen", "owner"), ("ana", "member"), ("bo", "member")] {
-        sqlx::query(&sql("INSERT INTO people (id, name, role, created_at) VALUES (?, ?, ?, '2026-11-01')"))
-            .bind(id)
-            .bind(id)
-            .bind(role)
-            .execute(&api.app.pool)
-            .await
-            .unwrap();
-    }
-}
-
 async fn on_board(api: &TestApi, project: &str, person: &str) {
     sqlx::query(&sql("INSERT INTO project_members (project, person, role, created_at) VALUES (?, ?, 'member', '2026-11-01')"))
         .bind(project)
@@ -66,7 +53,7 @@ async fn with_one_person_an_agent_naming_nobody_writes() {
 #[tokio::test]
 async fn with_more_a_session_naming_nobody_cant_let_a_claim_go_or_edit_a_comment_but_can_comment() {
     let api = TestApi::new().await;
-    team(&api).await;
+    api.team().await;
     let project = api.project("Primes").await;
     let issue = api.issue(&project, json!({"title": "Sieve"})).await;
     let at = format!("/api/projects/{project}/issues/{issue}");
@@ -87,7 +74,7 @@ async fn with_more_a_session_naming_nobody_cant_let_a_claim_go_or_edit_a_comment
 #[tokio::test]
 async fn a_member_off_the_board_is_told_theres_no_such_project() {
     let api = TestApi::new().await;
-    team(&api).await;
+    api.team().await;
     let project = api.project("Primes").await;
     let reply = agent(api.post(&format!("/api/projects/{project}/issues"), json!({"title": "Sieve"})), Some("ana")).send().await;
     assert_eq!(reply.status, 404, "{}", reply.body);
@@ -100,7 +87,7 @@ async fn a_member_off_the_board_is_told_theres_no_such_project() {
 #[tokio::test]
 async fn a_member_on_the_board_cant_do_what_is_the_owners() {
     let api = TestApi::new().await;
-    team(&api).await;
+    api.team().await;
     let project = api.project("Primes").await;
     on_board(&api, &project, "ana").await;
     let issue = api.issue(&project, json!({"title": "Sieve", "proposal": "pending"})).await;
@@ -113,7 +100,7 @@ async fn a_member_on_the_board_cant_do_what_is_the_owners() {
 #[tokio::test]
 async fn with_more_a_route_the_table_doesnt_name_is_refused_unless_the_server_itself_writes() {
     let api = TestApi::new().await;
-    team(&api).await;
+    api.team().await;
     let reply = agent(api.put("/api/chats/c1", json!({})), Some("ana")).send().await;
     assert_eq!(reply.status, 403, "{}", reply.body);
     assert!(reply.body["message"].as_str().unwrap().starts_with("Nobody has said who may PUT /api/chats/c1"), "{}", reply.body);
@@ -159,7 +146,7 @@ async fn an_untrusted_session_comments_only_on_its_own_external_proposals() {
 #[tokio::test]
 async fn only_the_boards_holder_passes_its_check() {
     let api = TestApi::new().await;
-    team(&api).await;
+    api.team().await;
     let project = api.project("Primes").await;
     on_board(&api, &project, "ana").await;
     sqlx::query(&sql("UPDATE project_members SET role = 'owner' WHERE project = ? AND person = 'steffen'"))

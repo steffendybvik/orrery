@@ -1,13 +1,7 @@
 // The tests of routes/milestones.rs (ORR-1052), through `router()` on a database of their own (`crate::testing`).
-use crate::testing::{Reply, TestApi};
-use percent_encoding::percent_decode_str;
+use crate::testing::TestApi;
 use serde_json::{json, Value};
 use sqlx::Row;
-
-/// What a reply's `orrery-told` says, decoded, each event in turn.
-fn told(reply: &Reply) -> Vec<String> {
-    reply.header("orrery-told").map(|t| t.split(", ").map(|e| percent_decode_str(e).decode_utf8_lossy().into_owned()).collect()).unwrap_or_default()
-}
 
 async fn milestone(api: &TestApi, project: &str, body: Value) -> Value {
     let reply = api.post(&format!("/api/projects/{project}/milestones"), body).send().await;
@@ -31,7 +25,7 @@ async fn a_new_milestone_takes_the_project_s_next_number() {
     assert_eq!(reply.body["protected"], true);
     assert!(reply.body["full_id"].as_str().unwrap().starts_with("MLS-1-"), "{}", reply.body);
     assert_eq!(reply.header("orrery-changed"), Some(project.as_str()));
-    assert_eq!(told(&reply), [format!("milestone.created {project} 1")]);
+    assert_eq!(reply.told(), [format!("milestone.created {project} 1")]);
     assert_eq!(milestone(&api, &project, json!({"title": "Wheel"})).await["id"], "2");
     assert_eq!(api.get(&format!("/api/projects/{project}/milestones/1")).send().await.body, reply.body);
 }
@@ -74,7 +68,7 @@ async fn a_new_title_or_summary_tells_the_milestone_changed_and_a_move_does_not(
     assert_eq!(reworded.status, 200, "{}", reworded.body);
     assert_eq!(reworded.body["title"], "Sieve of Eratosthenes");
     assert!(reworded.body.get("priority").is_none_or(Value::is_null), "{}", reworded.body);
-    assert_eq!(told(&reworded), [format!("milestone.changed {project} 1")]);
+    assert_eq!(reworded.told(), [format!("milestone.changed {project} 1")]);
     let moved = api.patch(&path, json!({"position": 5, "priority": "P0"})).send().await;
     assert_eq!(moved.status, 200);
     assert_eq!(moved.body["priority"], "P0");
@@ -118,7 +112,7 @@ async fn deleting_a_milestone_leaves_its_issues_in_none() {
     let issue = api.issue(&project, json!({"title": "Sieve", "milestone": "1"})).await;
     let gone = api.delete(&format!("/api/projects/{project}/milestones/1")).send().await;
     assert_eq!(gone.status, 204, "{}", gone.body);
-    assert_eq!(told(&gone), [format!("issue.milestone {project} {issue} 1 ~")]);
+    assert_eq!(gone.told(), [format!("issue.milestone {project} {issue} 1 ~")]);
     assert_eq!(gone.header("orrery-changed"), Some(project.as_str()));
     let row = sqlx::query("SELECT payload FROM changes WHERE kind = 'issue.milestone'").fetch_one(&api.app.pool).await.unwrap();
     assert_eq!(row.get::<Option<String>, _>("payload").as_deref(), Some(r#"{"from":"1"}"#));
