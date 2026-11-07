@@ -1,6 +1,6 @@
 // The orrery's statuses (every project's board has them) and its own settings.
 import {randomBytes} from 'node:crypto'
-import type {IssueStatus, Kind, Settings, Starts, TerminalApp, WorkKind} from '#shared/roadmap'
+import type {AgentChoice, IssueStatus, Kind, Settings, Starts, TerminalApp, WorkKind} from '#shared/roadmap'
 import {KINDS, WORK_KINDS, slugify} from '#shared/roadmap'
 import type {Input} from '../utils/input'
 import {badRequest, checkInput, conflict, notFound} from '../utils/input'
@@ -36,6 +36,7 @@ export abstract class StatusStore extends StoreBase {
             tracker: (value('tracker') as string | undefined) || null,
             starts: (value('starts') as Starts | null | undefined) ?? null,
             terminal: (value('terminal') as TerminalApp | undefined) ?? 'terminal',
+            agent: (value('agent') as AgentChoice | undefined) ?? 'claude',
             restrict_proposals: (value('restrict_proposals') as boolean | undefined) ?? true,
             advanced: (value('advanced') as boolean | undefined) ?? true,
             count_use: (value('count_use') as boolean | undefined) ?? false,

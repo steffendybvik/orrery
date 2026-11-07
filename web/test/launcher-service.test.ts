@@ -4,7 +4,7 @@ import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {describe, expect, it, vi} from 'vitest'
 // @ts-expect-error: the launcher is plain JavaScript, run by node on the host
-import {addToList, adoptable, inWsl, installedFrom, keepingSessions, launcherAlive, listChanges, listIn, pickUp, plist, readConfig, RELOADS, servedElsewhere, serviceProblem, skipping, systemdUnit, withProject, withoutProject, wslLocalhost} from '../../channel/launcher-service.mjs'
+import {addToList, adoptable, inWsl, installedFrom, keepingSessions, launcherAlive, listChanges, listIn, pickUp, plist, readConfig, RELOADS, servedElsewhere, serviceProblem, skipping, systemdUnit, withAgent, withProject, withoutProject, wslLocalhost} from '../../channel/launcher-service.mjs'
 // @ts-expect-error: the same
 import {follow} from '../../channel/sse.mjs'
 
@@ -53,6 +53,18 @@ describe("the launcher's list", () => {
         expect(off.skip).toEqual(['/code/shop', '/code/greenhouse'])
         expect(skipping(off, '/code/greenhouse', true).skip).toEqual(['/code/shop', '/code/greenhouse'])
         expect(skipping(off, '/code/greenhouse', false).skip).toEqual(['/code/shop'])
+    })
+
+    it('keeps the agent --install --agent= named, with none for Claude Code (ORR-1075)', () => {
+        const dir = mkdtempSync(join(tmpdir(), 'orrery-launcher-'))
+        writeFileSync(join(dir, 'codex.json'), JSON.stringify({projects: [], agent: 'codex'}))
+        expect(readConfig(join(dir, 'codex.json')).agent).toBe('codex')
+        writeFileSync(join(dir, 'odd.json'), JSON.stringify({projects: [], agent: 7}))
+        expect(readConfig(join(dir, 'odd.json'))).not.toHaveProperty('agent')
+        const listed = {projects: [], pickUp: true, skip: []}
+        expect(withAgent(listed, 'codex')).toEqual({...listed, agent: 'codex'})
+        expect(withAgent({...listed, agent: 'codex'}, undefined)).toEqual({...listed, agent: 'codex'})
+        expect(withAgent({...listed, agent: 'codex'}, 'claude')).toEqual(listed)
     })
 
     it('reads a half-written file as none, so the running service skips it (ORR-597)', () => {

@@ -1719,7 +1719,7 @@ components:
         effort: {type: string, enum: [low, medium, high, xhigh, max]}
     Settings:
       type: object
-      required: [id, tint, statuses, focus_prompt, milestone_prompt, instructions, handle, uid, tracker, starts, terminal, restrict_proposals, advanced, count_use, work_kinds, starred, hidden]
+      required: [id, tint, statuses, focus_prompt, milestone_prompt, instructions, handle, uid, tracker, starts, terminal, agent, restrict_proposals, advanced, count_use, work_kinds, starred, hidden]
       properties:
         id: {type: string, description: 'This orrery''s id, `orr_` and six hex digits'}
         tint: {type: [string, 'null']}
@@ -1732,6 +1732,7 @@ components:
         tracker: {type: [string, 'null']}
         starts: {oneOf: [{$ref: '#/components/schemas/Starts'}, {type: 'null'}]}
         terminal: {type: string, enum: [terminal, iterm, warp, ghostty]}
+        agent: {type: string, enum: [claude, other], description: 'The AI agent the owner runs (ORR-1075): claude, or other for one with no launcher adapter yet'}
         restrict_proposals: {type: boolean}
         advanced: {type: boolean}
         count_use: {type: boolean}
@@ -1751,6 +1752,7 @@ components:
         handle: {type: [string, 'null'], pattern: '^[A-Za-z0-9][A-Za-z0-9._-]{0,38}$'}
         starts: {oneOf: [{$ref: '#/components/schemas/Starts'}, {type: 'null'}]}
         terminal: {type: [string, 'null'], enum: [terminal, iterm, warp, ghostty, null]}
+        agent: {type: [string, 'null'], enum: [claude, other, null]}
         restrict_proposals: {type: boolean}
         advanced: {type: boolean}
         work_kinds: {type: [array, 'null'], minItems: 1, items: {$ref: '#/components/schemas/WorkKind'}}

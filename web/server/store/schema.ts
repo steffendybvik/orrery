@@ -1,6 +1,6 @@
 // The store's records and rows, the fields each write takes, and turning rows into records.
 import type {ActivityField, Asks, Board, Milestone, Comment, Counts, Decision, Doc, DocKind, DocRevision, DocRevisionSummary, Issue, IssueEvent, Kind, Kinds, Priority, Project, Proposal, Release, ReleaseMode, Signal, Effort} from '#shared/roadmap'
-import {ASKS, DECISIONS, DOC_KINDS, EFFORTS, KINDS, PRIORITIES, RELEASE_MODES, TERMINALS, TINTS, emptyKinds, isEffort, isModel} from '#shared/roadmap'
+import {AGENT_CHOICES, ASKS, DECISIONS, DOC_KINDS, EFFORTS, KINDS, PRIORITIES, RELEASE_MODES, TERMINALS, TINTS, emptyKinds, isEffort, isModel} from '#shared/roadmap'
 import type {Field, Input} from '../utils/input'
 import {badRequest, isObject} from '../utils/input'
 import {parseChoices} from '../utils/choices'
@@ -362,6 +362,8 @@ export const SETTINGS_FIELDS: Record<string, Field> = {
     starts: {type: 'json', nullable: true, parse: parseStarts},
     /** The terminal app Watch opens; null is Terminal. */
     terminal: {type: 'string', nullable: true, values: Object.keys(TERMINALS)},
+    /** The AI agent the owner runs (ORR-1075); null is Claude Code. */
+    agent: {type: 'string', nullable: true, values: Object.keys(AGENT_CHOICES)},
     /** Keeps agents off a proposal while it waits on the owner; false lets them. */
     restrict_proposals: {type: 'boolean'},
     /** Shows the Events page and error notices in the bell, and records what orrery did as well as its errors. */
