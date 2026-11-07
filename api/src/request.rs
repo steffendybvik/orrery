@@ -281,7 +281,7 @@ mod tests {
     async fn mode(people: usize, came: &'static str, ways: &'static str) -> &'static str {
         let api = crate::testing::TestApi::new().await;
         for n in 0..people {
-            sqlx::query("INSERT INTO people (id, name, role, created_at) VALUES (?, ?, ?, ?)")
+            sqlx::query(&crate::db::sql("INSERT INTO people (id, name, role, created_at) VALUES (?, ?, ?, ?)"))
                 .bind(format!("p{n}"))
                 .bind(format!("P{n}"))
                 .bind(if n == 0 { "owner" } else { "member" })

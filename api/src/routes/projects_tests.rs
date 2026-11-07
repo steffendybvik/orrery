@@ -59,7 +59,7 @@ async fn a_new_project_takes_its_id_and_key_from_its_name() {
     assert!(body["uid"].as_str().is_some_and(|u| !u.is_empty()));
     assert_eq!(changed(&reply), ["prime-numbers"], "each project in it percent-encoded");
     assert_eq!(reply.header("orrery-changed"), Some("prime%2Dnumbers"));
-    let rows = sqlx::query("SELECT kind, project FROM changes WHERE id > ? ORDER BY id").bind(before).fetch_all(&api.app.pool).await.unwrap();
+    let rows = sqlx::query(&crate::db::sql("SELECT kind, project FROM changes WHERE id > ? ORDER BY id")).bind(before).fetch_all(&api.app.pool).await.unwrap();
     let rows: Vec<(String, Option<String>)> = rows.iter().map(|r| (r.get("kind"), r.get("project"))).collect();
     assert_eq!(rows, [("project.changed".to_string(), Some("prime-numbers".to_string()))]);
     assert_eq!(api.get("/api/projects/prime-numbers").send().await.body, reply.body);
@@ -69,7 +69,7 @@ async fn a_new_project_takes_its_id_and_key_from_its_name() {
 async fn whoever_makes_a_project_holds_it() {
     let api = TestApi::new().await;
     for (id, role) in [("owner", "owner"), ("ann", "member")] {
-        sqlx::query("INSERT INTO people (id, name, role, created_at) VALUES (?, ?, ?, ?)")
+        sqlx::query(&crate::db::sql("INSERT INTO people (id, name, role, created_at) VALUES (?, ?, ?, ?)"))
             .bind(id)
             .bind(id)
             .bind(role)
@@ -81,7 +81,7 @@ async fn whoever_makes_a_project_holds_it() {
     let holders = |project: &'static str| {
         let pool = api.app.pool.clone();
         async move {
-            let rows = sqlx::query("SELECT person, role FROM project_members WHERE project = ?").bind(project).fetch_all(&pool).await.unwrap();
+            let rows = sqlx::query(&crate::db::sql("SELECT person, role FROM project_members WHERE project = ?")).bind(project).fetch_all(&pool).await.unwrap();
             rows.iter().map(|r| (r.get::<String, _>("person"), r.get::<String, _>("role"))).collect::<Vec<_>>()
         }
     };
@@ -282,7 +282,7 @@ async fn moving_to_another_source_lets_go_of_releases_it_does_not_have() {
 async fn a_board_is_exported_as_one_file_named_for_the_day() {
     let api = TestApi::new().await;
     let project = api.project("Primes").await;
-    sqlx::query("INSERT INTO uploads (id, type, name, size, data, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+    sqlx::query(&crate::db::sql("INSERT INTO uploads (id, type, name, size, data, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"))
         .bind("0123456789abcdef01234567")
         .bind("image/png")
         .bind("dot.png")

@@ -124,6 +124,11 @@ jobs:
           tool: cargo-llvm-cov
       - run: cargo llvm-cov --locked --summary-only --ignore-filename-regex '(testing|_tests)\.rs$' --fail-under-lines 92
         working-directory: api
+      # The same tests again on Postgres, each in a schema of its own (ORR-1057), so db.rs's Postgres side runs too.
+      - run: cargo test --locked
+        working-directory: api
+        env:
+          TEST_POSTGRES_URL: postgres://orrery:orrery@localhost:5432/orrery
       - run: cargo build --locked
         working-directory: api
       # The binary e2e-api runs the browser suite with, when the e2e flows run.

@@ -25,17 +25,25 @@ pub(crate) struct TestApi {
 }
 
 impl TestApi {
-    /// A new orrery on a database of its own, migrated to the latest step.
+    /// A new orrery on a database of its own, migrated to the latest step: a SQLite file, or with `TEST_POSTGRES_URL`
+    /// set, a schema of its own there (ORR-1057), as web/test/db.ts makes them for the Nuxt server's tests.
     pub(crate) async fn new() -> TestApi {
         let mut bytes = [0u8; 8];
         getrandom::getrandom(&mut bytes).unwrap();
-        let dir = std::env::temp_dir().join(format!("orrery-api-test-{}", bytes.iter().map(|b| format!("{b:02x}")).collect::<String>()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let file = dir.join("orrery.db");
-        let setting = file.to_string_lossy().into_owned();
-        migrate::migrate(&setting, None).await.expect("the API's migrations make a database");
-        let pool = db::open(&setting, None).await.expect("the API opens the database it migrated");
-        let app = Arc::new(App { pool, token: TOKEN.into(), database: database_hash(&setting), log: false, phone: access::phone::Links::default() });
+        let id = bytes.iter().map(|b| format!("{b:02x}")).collect::<String>();
+        let (setting, schema) = match std::env::var("TEST_POSTGRES_URL") {
+            Ok(url) if !url.is_empty() => (url, Some(format!("api_test_{id}"))),
+            _ => {
+                let dir = std::env::temp_dir().join(format!("orrery-api-test-{id}"));
+                std::fs::create_dir_all(&dir).unwrap();
+                (dir.join("orrery.db").to_string_lossy().into_owned(), None)
+            }
+        };
+        migrate::migrate(&setting, schema.as_deref()).await.expect("the API's migrations make a database");
+        let pool = db::open(&setting, schema.clone()).await.expect("the API opens the database it migrated");
+        // Each test's database is its own, so its hash is too: on Postgres the URL is shared, the schema isn't.
+        let database = database_hash(&format!("{setting}#{}", schema.unwrap_or_default()));
+        let app = Arc::new(App { pool, token: TOKEN.into(), database, log: false, phone: access::phone::Links::default() });
         TestApi { router: router(app.clone()), app }
     }
 

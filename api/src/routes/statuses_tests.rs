@@ -97,7 +97,8 @@ async fn a_status_is_renamed_recoloured_and_moved() {
     let moved = api.patch("/api/statuses/in-review", json!({"kind": "done"})).send().await;
     assert_eq!(moved.status, 200);
     assert_eq!(ids(&api.get("/api/statuses").send().await), ["backlog", "todo", "in-progress", "in-review", "done", "canceled"]);
-    assert_eq!(api.patch("/api/statuses/in-review", json!({"position": 9})).send().await.body["position"], 9.0);
+    let placed = api.patch("/api/statuses/in-review", json!({"position": 9})).send().await;
+    assert_eq!(placed.body["position"], 9.0, "{}", placed.body);
 }
 
 #[tokio::test]

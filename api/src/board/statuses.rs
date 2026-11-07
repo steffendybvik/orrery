@@ -203,16 +203,16 @@ impl<'c> Statuses<'c> {
         }
         changes::begin(self.conn).await?;
         let done: Result<()> = async {
-            sqlx::query(&sql(
-                "UPDATE statuses SET name = coalesce(?, name), kind = coalesce(?, kind), color = coalesce(?, color), position = coalesce(?, position) WHERE id = ?",
-            ))
-            .bind(input.get("name").and_then(Value::as_str).map(|n| n.trim().to_string()))
-            .bind(kind.map(str::to_string))
-            .bind(input.get("color").and_then(Value::as_str).map(str::to_string))
-            .bind(input.get("position").and_then(Value::as_f64))
-            .bind(id)
-            .execute(&mut *self.conn)
-            .await?;
+            sqlx::query(&sql("UPDATE statuses SET name = coalesce(?, name), kind = coalesce(?, kind), color = coalesce(?, color), position = ? WHERE id = ?"))
+                .bind(input.get("name").and_then(Value::as_str).map(|n| n.trim().to_string()))
+                .bind(kind.map(str::to_string))
+                .bind(input.get("color").and_then(Value::as_str).map(str::to_string))
+                // Its position as it was when none is sent, never a null: sqlx 0.8's Any driver binds a null f64 as a float4,
+                // and Postgres keeps that type for the statement, so a later real position on the same connection fails (ORR-1057).
+                .bind(input.get("position").and_then(Value::as_f64).unwrap_or(before.position))
+                .bind(id)
+                .execute(&mut *self.conn)
+                .await?;
             self.changed().await
         }
         .await;
