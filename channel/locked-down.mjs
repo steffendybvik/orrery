@@ -10,11 +10,12 @@ import {NOT_FOR_CHAT, NOT_FOR_UNTRUSTED} from './tools.mjs'
  * `github_issues`, and has no Bash, nor any other of Claude Code's own tools, so it can't point gh at another host and
  * send what it read there (ORR-415). It has the channel's tools but `NOT_FOR_UNTRUSTED` (tools.mjs) and `more_tools`; everything else is
  * refused, not asked (`dontAsk`, as nobody is there to answer). `--restricted` leaves out the user's and the repo's
- * settings (their allow lists among them), so the repo's hooks are passed back on their own, and only the repo's MCP
- * servers load. */
+ * settings (their allow lists among them), so the repo's hooks are passed back on their own. Its one MCP server is
+ * orrery's channel, which the launcher hands it itself (ORR-1066): not the repo's .mcp.json, whose other servers would
+ * give it tools beyond orrery's. */
 export function lockedDown(dir, server) {
     return ['--restricted', '--tools', '', '--permission-mode', 'dontAsk', '--settings', JSON.stringify({hooks: hooksOf(dir)}),
-        '--strict-mcp-config', '--mcp-config', join(dir, '.mcp.json'),
+        '--strict-mcp-config', '--mcp-config', JSON.stringify(channelOnly(dir, server)),
         '--allowedTools', `mcp__${server}`,
         '--disallowedTools', ...[...NOT_FOR_UNTRUSTED, 'more_tools'].map(tool => `mcp__${server}__${tool}`)]
 }
@@ -25,6 +26,13 @@ export function lockedDown(dir, server) {
 export function chatOnly(dir, server) {
     return ['--allowedTools', `mcp__${server}`,
         '--disallowedTools', ...NOT_FOR_CHAT.map(tool => `mcp__${server}__${tool}`)]
+}
+
+/** The MCP config an untrusted session loads: only the folder's `server`, orrery's channel, as its .mcp.json has it;
+ * no server at all when it has none by that name. */
+function channelOnly(dir, server) {
+    const entry = settingsIn(join(dir, '.mcp.json')).mcpServers?.[server]
+    return {mcpServers: entry ? {[server]: entry} : {}}
 }
 
 /** The repo's hooks, passed back on their own, as `--restricted` leaves out its settings: `settings.json`'s and

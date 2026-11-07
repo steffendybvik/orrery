@@ -7,18 +7,21 @@ import {chatOnly, lockedDown, modelArgs, resumeArgs} from '../../channel/locked-
 // @ts-expect-error: the channel is plain JavaScript, run by node on the host
 import {NOT_FOR_CHAT} from '../../channel/tools.mjs'
 
+const channel = {command: 'node', args: ['/home/me/.orrery/bootstrap.mjs', 'channel'], env: {ORRERY_PROJECTS: 'shop'}}
 const hooks = {Stop: [{hooks: [{type: 'command', command: 'node channel/orrery-hook.mjs'}]}]}
 
 describe("an untrusted schedule's session", () => {
-    it('gets none of Claude Code\'s own tools, no Bash among them, and the channel but egress and secrets, refusing the rest, with only the repo\'s hooks and servers', () => {
+    it('gets none of Claude Code\'s own tools, no Bash among them, and the channel but egress and secrets, refusing the rest, with only the repo\'s hooks and orrery\'s channel', () => {
         const dir = mkdtempSync(join(tmpdir(), 'orrery-repo-'))
         mkdirSync(join(dir, '.claude'))
         writeFileSync(join(dir, '.claude', 'settings.json'), JSON.stringify({hooks, permissions: {allow: ['Bash(curl:*)']}}))
+        writeFileSync(join(dir, '.mcp.json'), JSON.stringify({mcpServers: {'orrery-shop': channel, shell: {command: 'shell-mcp'}}}))
         const args: string[] = lockedDown(dir, 'orrery-shop')
         expect(args).toEqual(expect.arrayContaining(['--restricted', '--strict-mcp-config']))
         expect(args.slice(args.indexOf('--tools'), args.indexOf('--tools') + 2)).toEqual(['--tools', ''])
         expect(args.slice(args.indexOf('--permission-mode'), args.indexOf('--permission-mode') + 2)).toEqual(['--permission-mode', 'dontAsk'])
-        expect(args[args.indexOf('--mcp-config') + 1]).toBe(join(dir, '.mcp.json'))
+        // Only orrery's channel, which the launcher hands it, not the repo's other servers (ORR-1066).
+        expect(JSON.parse(args[args.indexOf('--mcp-config') + 1]!)).toEqual({mcpServers: {'orrery-shop': channel}})
         // The repo's hooks, and nothing else from its settings: not its allow list.
         expect(JSON.parse(args[args.indexOf('--settings') + 1]!)).toEqual({hooks})
         const allowed = args.slice(args.indexOf('--allowedTools') + 1, args.indexOf('--disallowedTools'))
@@ -26,9 +29,10 @@ describe("an untrusted schedule's session", () => {
         expect(args.slice(args.indexOf('--disallowedTools') + 1)).toEqual(['epics', 'create_epic', 'update_epic', 'comment_epic', 'update_issue', 'start_issue', 'next', 'finish_issue', 'rate_pull', 'write_doc', 'secrets', 'egress', 'events', 'resolve_event', 'more_tools'].map(t => `mcp__orrery-shop__${t}`))
     })
 
-    it('starts with no hooks in a repo that has none', () => {
+    it('starts with no hooks and no servers in a repo that has none', () => {
         const args: string[] = lockedDown(mkdtempSync(join(tmpdir(), 'orrery-repo-')), 'orrery')
         expect(JSON.parse(args[args.indexOf('--settings') + 1]!)).toEqual({hooks: {}})
+        expect(JSON.parse(args[args.indexOf('--mcp-config') + 1]!)).toEqual({mcpServers: {}})
     })
 })
 

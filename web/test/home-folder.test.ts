@@ -37,7 +37,7 @@ describe('the default folder', () => {
         expect(readFileSync(join(dir, 'CLAUDE.md'), 'utf8')).toBe(HOME_CLAUDE_MD)
         // An untrusted schedule's session there loads only this folder's channel and hooks.
         const flags = lockedDown(dir, server)
-        expect(flags[flags.indexOf('--mcp-config') + 1]).toBe(join(dir, '.mcp.json'))
+        expect(JSON.parse(flags[flags.indexOf('--mcp-config') + 1])).toEqual(JSON.parse(readFileSync(join(dir, '.mcp.json'), 'utf8')))
         expect(JSON.parse(flags[flags.indexOf('--settings') + 1]).hooks.Stop[0].hooks[0].command).toBe(command)
     })
 
