@@ -36,7 +36,7 @@ import {PHONE_LOGIN} from '#shared/phone'
 import {actorHeaders, apiStarted, cameHeaders, changedOf, countedOf, databaseMark, domainOf, DOMAINS, handedOn, handoffsOf, handOn, loginHeaders, withRev, boardsWithRev, movesStatus, onlyWords, passedThrough, servedByApi, toldOf, urgentOf, whoHeaders, writeToApi, OWN_WORK} from '../server/utils/api-router'
 import {permission, refused} from '../server/utils/permission'
 import {followOutbox, readPage} from '../server/utils/outbox-follower'
-import {contract, methodOf, nuxtRoutes, pathOf} from './routes'
+import {contract, methodOf, nuxtRoutes, pathOf, rustRoutes} from './routes'
 
 const BIN = process.env.ORRERY_API_BIN || fileURLToPath(new URL('../../api/target/debug/orrery-api', import.meta.url))
 const TOKEN = 'parity-token-0123456789'
@@ -3330,8 +3330,8 @@ describe('the router', () => {
 })
 
 describe('the contract (api/openapi.yaml)', () => {
-    /** The Nuxt server's routes the router sends on. */
-    const routes = () => nuxtRoutes().filter(route => servedByApi(methodOf(route), pathOf(route)))
+    /** The routes the router sends on, the Nuxt server's few that keep some requests here included (ORR-1041). */
+    const routes = () => [...new Set([...nuxtRoutes(), ...rustRoutes()])].sort().filter(route => servedByApi(methodOf(route), pathOf(route)))
 
     it('has every route the router sends to the API, and no other', () => {
         expect(contract()).toHaveLength(103)

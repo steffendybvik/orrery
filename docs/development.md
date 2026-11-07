@@ -6,7 +6,7 @@
 web/          the Nuxt app: app/ (the page), server/ (the API and the store), shared/ (both),
               public/, test/ (unit), e2e/ (browser), scripts/ (copy.ts, claim.mjs, worktrees.mjs), its package.json
 channel/      the channel, hooks and launcher Claude sessions run, which orrery serves to their machines
-api/          the Rust API (ORR-922), beside the Nuxt server: the domains moved so far, listed in openapi.yaml, its contract
+api/          the Rust API (ORR-922), behind the Nuxt server: the board's data, listed in openapi.yaml, its contract
 docs/         these docs; docs/API.md is also served to agents (/api/guide, /llms-full.txt)
 ```
 
@@ -16,7 +16,7 @@ Inside `web/`:
 app/pages/              one file per page; app/layouts/default.vue holds the sidebar and the dialogs
 app/components/         the page's pieces, ui/ the kit (see UI components below)
 app/composables/, utils/  shared state and behaviour, auto-imported
-server/api/             the routes, one file per method and path (/api/…)
+server/api/             the routes the Rust API doesn't serve, one file per method and path (/api/…)
 server/store/           the store, a file per domain (issues, milestones, comments, signals, releases, docs, presets…),
                         each class extending the one before; server/utils/store.ts is the last, `Store`, which the routes use
 server/utils/           the rest of the server: the database and its migrations, sessions and launches, schedules, secrets
@@ -67,7 +67,7 @@ ORR-926), **milestones and releases** (ORR-926: a project's, one of each, and `/
 shipped and deleted too, ORR-974), **reading
 issues and their comments**, and **making, editing and deleting a comment**, **claiming an issue and letting it go, changing its own words, status, priority, assignee and where it sits (title, status, priority, assignee, notes, labels, links, parent, milestone, release, epic, what it depends on, whether it's a proposal and its choices, model, effort, place; a session's change of status stays on Nuxt, which holds its lock) changing many at once (their status, priority, assignee, milestone, release, epic and labels), the owner's decision on a proposal, or on many at once (a rejection told to its session but starting no work), and deleting one, or many at once** (ORR-927: the list with its filters, one issue, its comments) and **people, invites, keys
 and logins** (ORR-928, removing a person included; logging in and out aside) **reading the secrets** (ORR-953, never a value) and **reading the schedules** (ORR-930: a project's, one with its runs, every project's and those across projects), **reading one pull request, and rating its risk** (ORR-952,
-`/api/pulls/:owner/:name/:number`), **listing the projects** with their counts (ORR-997, `GET /api/projects`; `?expand=board` and one project's board stay in Nuxt, as their `rev` is the events stream's) and **changing a project** (ORR-923, `PATCH /api/projects/:project`, its prompts the owner's), **making one** (ORR-1002, `POST /api/projects`, held by whoever asks; deleting one stays in Nuxt) **the bell** (ORR-1005, `/api/notices`: reading it, its status changes, clearing it and marking it read, each person's their own) and **the epics** (ORR-1004, `/api/epics`: listing, reading, making, changing and deleting one, and its comments and a milestone's; an epic's focus stays in Nuxt): the routes in
+`/api/pulls/:owner/:name/:number`), **listing the projects** with their counts and boards (ORR-997, ORR-1006, `GET /api/projects`), **reading one with its board** (each labelled in Nuxt with the events stream's `rev`), **deleting, exporting and importing one** (ORR-1006) and **changing a project** (ORR-923, `PATCH /api/projects/:project`, its prompts the owner's), **making one** (ORR-1002, `POST /api/projects`, held by whoever asks), **uploading an image** (ORR-1058), **the presets** (ORR-949), **the settings** (ORR-954), adopting and deleting a schedule (ORR-950) **the bell** (ORR-1005, `/api/notices`: reading it, its status changes, clearing it and marking it read, each person's their own) and **the epics** (ORR-1004, `/api/epics`: listing, reading, making, changing and deleting one, and its comments and a milestone's; an epic's focus stays in Nuxt): the routes in
 `api/openapi.yaml`. An artifact's page (`…/docs/:doc/artifact`), a milestone's focus, and writing an issue (its claim, its own words, changing many at once, deciding proposals and deleting issues aside) stays in Nuxt, and so do setting, narrowing and deleting a secret and egress.
 
 How it fits together:
@@ -96,13 +96,15 @@ How it fits together:
   (`handOn` in `store/comments.ts`), each with its own outbox row. An edit's carry ends `edited`, as its words replace
   ones the session may have read. A line can also name a check this server runs before forwarding (`first`): a
   comment's edit checks the session's claim on the issue (`claimFor`), as only this server knows the sessions.
-- **Falling back.** When the API is down, not started yet, or on another database (the owner moved it in App settings),
-  the request goes on to the Nuxt routes, which still answer it.
-- **The swap's flag.** `NUXT_API_ONLY=1` (ORR-1034, off by default) makes the routed domains the API's alone: when it
-  can't answer, the request fails with a 503 that says why, logged once to the server's log and the event log
-  (`api.unreachable`) while it lasts, instead of falling back. What a line's `first` check keeps here (a session's
-  change of status, a session's or the chat's new issue, `?expand=board`) still goes to Nuxt, as the API doesn't do it
-  yet, and what a write sets off (open pages, the event log, schedules, sessions, the bell) stays Nuxt's either way.
+- **No falling back (ORR-1041).** The Nuxt routes for what the router sends on are gone, so when the API is down, not
+  started yet, or on another database (the owner moved it in App settings), the request fails with a 503 that says
+  why, logged once to the server's log and the event log (`api.unreachable`) while it lasts. The one exception is a
+  line marked `here`: making an issue and editing one, whose `first` check keeps a session's, the chat's and an
+  untrusted session's requests (and an edit's status change by a session) for the Nuxt route, which still exists for
+  them. A test in `rust-api-coverage.test.ts` fails when a Nuxt route comes back for what's routed without `here`.
+- **The swap's flag.** `NUXT_API_ONLY=1` (ORR-1034, off by default) makes the `here` lines the API's alone too: with
+  the API down, their requests fail instead of falling through. What their `first` check keeps here still goes to
+  Nuxt, and what a write sets off (open pages, the event log, schedules, sessions, the bell) stays Nuxt's either way.
   The playground and any orrery with `docker-compose.api.yml` run with it on.
 
 **The page's side (ORR-943).** The page reaches the API through `web/app/utils/api.ts` alone, so where it sends a path is one
@@ -118,12 +120,13 @@ to it directly it has to check the login itself ([ORR-928](/p/orrery/issues/ORR-
 Nuxt applies before forwarding (the board's permissions, the chat's and untrusted rails, the browser guards). Until then
 the way in stays through Nuxt (`zz-api.ts`).
 
-Running it: `cargo build` in `api/` (Rust 1.80 or later), then start the Nuxt server with
-`NUXT_API_BIN=../api/target/debug/orrery-api`, which starts it beside itself on its own database with a fresh token,
-and stops it with itself. Or run one yourself and point at it: `NUXT_API_TOKEN` (16 characters or more) and
+Running it: the Nuxt server needs it, as the board's data is the API's alone. `cargo build` in `api/` (Rust 1.80 or
+later) once, and `pnpm dev` (`nuxt dev`) starts `api/target/debug/orrery-api` beside itself on its own database with a
+fresh token, and stops it with itself; build again after a change in `api/`. `NUXT_API_BIN` names another binary (the
+image sets it to its own copy). Or run one yourself and point at it: `NUXT_API_TOKEN` (16 characters or more) and
 `NUXT_DATABASE` for both, `ORRERY_API_LISTEN` for the API (`127.0.0.1:9100` by default), `NUXT_API_URL` for Nuxt.
-`ORRERY_API_LOG=1` has the API say each request it answers, and `NUXT_API_ONLY=1` turns the swap's flag on. Without any
-of these, Nuxt answers every route as before.
+`ORRERY_API_LOG=1` has the API say each request it answers, and `NUXT_API_ONLY=1` turns the swap's flag on. With none
+of these and no build, the server says so as it starts, and the API's routes answer 503.
 
 Its checks: `cargo fmt --check`, `cargo clippy -- -D warnings` and `cargo test` in `api/`; with `TEST_POSTGRES_URL` set,
 `cargo test` runs on that Postgres instead, each test in a schema of its own, and CI runs it both ways. SQL in a test
@@ -134,13 +137,14 @@ and CI's `api` job builds one first. It also holds `openapi.yaml` to the routes 
 `web/test/one-writer.test.ts` reads every table the API writes off its SQL and holds them to `web/test/table-writers.ts`,
 where each says it's the API's alone once routed, or what the Nuxt server still writes there and the issue that ends
 it: a table the API starts writing needs its line there. The browser suite
-runs through the API with `NUXT_API_BIN` set for `pnpm test:e2e` (or `test:e2e:login`), as its server inherits it,
-and with `NUXT_API_ONLY=1` as well for the swap as the playground runs it;
-CI doesn't run it that way yet, and what it found the first time is in [Rust API swap](/p/orrery/docs/rust-api-swap).
+runs through the API, as its `nuxt dev` starts the debug build (or `NUXT_API_BIN`), so `cargo build` in `api/` before
+`pnpm test:e2e`; CI hands its jobs the `api` job's binary. With `NUXT_API_ONLY=1` as well it runs as the playground
+does (CI's `e2e-api`), and what it found the first time is in [Rust API swap](/p/orrery/docs/rust-api-swap).
 
-A change to a docs, statuses or issue-reading route is now a change in three places: the store
-(`web/server/store/docs.ts`, `statuses.ts`, `issues.ts`), the API (`api/src/docs.rs`, `statuses.rs`, `issues.rs`) and the
-contract, with the parity test saying when they differ. That includes how the board is built: a field `readBoard` or
+A change to a route the API serves is a change in the API (`api/src/routes/`, `api/src/board/`…) and the contract. Its
+Nuxt route is gone, but the store's code for it stays while the parity test holds the API to it and the local app still
+writes through it with no request (the chat's Allow, the scheduler, sessions finishing work); change it too, with the
+parity test saying when they differ. That includes how the board is built: a field `readBoard` or
 `buildBoard` adds to an issue, or a change to how its column rolls up, goes into `issues.rs` too. The statuses are the orrery's, not a project's, so their parity steps run on each side in turn, with the table
 put back between.
 

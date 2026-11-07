@@ -63,16 +63,6 @@ const event = (method: string, path: string, params: Record<string, string>, bod
 const settle = () => new Promise(resolve => setTimeout(resolve))
 
 describe("a session's writes", () => {
-    it("aren't checked against the issue's claim when they comment: a comment neither starts nor changes it (ORR-613)", async () => {
-        const comment = (await import('../server/api/projects/[project]/issues/[issue]/comments/index.post')).default as unknown as (event: object) => Promise<unknown>
-        const at = {project: 'greenhouse', issue: 'GRE-1'}
-        await comment(event('POST', '/api/projects/greenhouse/issues/GRE-1/comments', at, {body: 'Done the hinges'}))
-        await comment(event('POST', '/api/projects/greenhouse/issues/GRE-1/comments', at, {body: 'Without a session'}, ''))
-        const owners = {...event('POST', '/api/projects/greenhouse/issues/GRE-1/comments', at, {body: 'Mine'}), headers: {'orrery-session': 'abc', 'orrery-actor': 'Skoll'}}
-        await comment(owners)
-        expect(claims).toEqual([])
-    })
-
     it('make an issue it creates its work, so it hears the decision on its proposal', async () => {
         const create = (await import('../server/api/projects/[project]/issues/index.post')).default as unknown as (event: object) => Promise<unknown>
         await create(event('POST', '/api/projects/greenhouse/issues', {project: 'greenhouse'}, {title: 'Shelves', proposal: 'pending'}))

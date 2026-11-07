@@ -11,9 +11,13 @@ import {NOT_ROUTED} from './route-table'
 import type {Line} from './route-table'
 import {contract, methodOf, nuxtRoutes, pathOf, replies, rustRoutes} from './routes'
 
-const routed = (route: string) => nuxtRoutes().includes(route) && servedByApi(methodOf(route), pathOf(route))
+/** The line of DOMAINS that sends a request on. */
+const domainLine = (method: string, path: string) => DOMAINS.find(({paths, methods}) => paths.test(path.slice('/api/'.length)) && (!methods || methods.includes(method)))
+
 /** Every operation either server has, by path and then method, as the table lists them. */
 const operations = () => [...new Set([...nuxtRoutes(), ...rustRoutes()])].sort((a, b) => pathOf(a).localeCompare(pathOf(b)) || a.localeCompare(b))
+/** Whether the router sends the operation on: the Nuxt route for it is gone, unless its line keeps some here (ORR-1041). */
+const routed = (route: string) => operations().includes(route) && servedByApi(methodOf(route), pathOf(route))
 
 describe('every Nuxt route, against the Rust API', () => {
     it('is sent to the API, or has a line in the table with the issue that moves it or why it stays', () => {
@@ -34,18 +38,24 @@ describe('every Nuxt route, against the Rust API', () => {
 
     it('says only of what Nuxt lacks that the Rust API has it alone, and of nothing Nuxt has', () => {
         const nuxt = nuxtRoutes()
-        expect(operations().filter(route => !nuxt.includes(route) && !(NOT_ROUTED[route] && 'rustOnly' in NOT_ROUTED[route])), 'Rust-only routes without a rustOnly line').toEqual([])
+        expect(operations().filter(route => !nuxt.includes(route) && !routed(route) && !(NOT_ROUTED[route] && 'rustOnly' in NOT_ROUTED[route])), 'Rust-only routes without a rustOnly line').toEqual([])
         expect(nuxt.filter(route => NOT_ROUTED[route] && 'rustOnly' in NOT_ROUTED[route]), 'Nuxt routes marked Rust-only').toEqual([])
     })
 
     it('has every route the router sends on served by the Rust API, so none is answered 404 or 405', () => {
         const rust = rustRoutes()
-        expect(nuxtRoutes().filter(routed).filter(route => !rust.includes(route)), 'routed routes router() lacks').toEqual([])
+        expect(operations().filter(routed).filter(route => !rust.includes(route)), 'routed routes router() lacks').toEqual([])
+    })
+
+    it("has no Nuxt route left for what it sends on, but for a line that keeps some of its requests here (ORR-1041)", () => {
+        const kept = (route: string) => domainLine(methodOf(route), pathOf(route))?.here
+        expect(nuxtRoutes().filter(route => routed(route) && !kept(route)), 'Nuxt routes the Rust API serves alone').toEqual([])
+        expect(DOMAINS.filter(line => line.here && !nuxtRoutes().some(route => routed(route) && domainLine(methodOf(route), pathOf(route)) === line)).map(d => d.domain), 'lines with here and no route here').toEqual([])
     })
 
     it('leaves no line of DOMAINS that sends nothing on', () => {
-        const nuxt = nuxtRoutes()
-        expect(DOMAINS.filter(({paths, methods}) => !nuxt.some(route => paths.test(pathOf(route).slice('/api/'.length)) && (!methods || methods.includes(methodOf(route))))).map(d => d.domain)).toEqual([])
+        const all = operations()
+        expect(DOMAINS.filter(({paths, methods}) => !all.some(route => paths.test(pathOf(route).slice('/api/'.length)) && (!methods || methods.includes(methodOf(route))))).map(d => d.domain)).toEqual([])
     })
 })
 

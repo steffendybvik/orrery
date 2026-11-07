@@ -48,9 +48,12 @@ RUN pnpm build
 FROM node:24.22.1-bookworm-slim AS prod
 COPY --from=build /src/web/.output /app
 COPY web/scripts/claim.mjs /app/server/claim.mjs
+# The Rust API, which serves the board's data now that the Nuxt server's routes for it are gone (ORR-1041): the server
+# starts it beside itself on its own database (NUXT_API_BIN). docker-compose.api.yml runs it in a container instead.
+COPY --from=api /orrery-api /usr/local/bin/orrery-api
 RUN mkdir /data /backup && chown node:node /data /backup
 USER node
-ENV HOST=0.0.0.0 PORT=9000 ORRERY_IMAGE=1 NODE_ENV=production NUXT_DATABASE=/data/orrery.db
+ENV HOST=0.0.0.0 PORT=9000 ORRERY_IMAGE=1 NODE_ENV=production NUXT_DATABASE=/data/orrery.db NUXT_API_BIN=/usr/local/bin/orrery-api
 VOLUME /data
 EXPOSE 9000
 HEALTHCHECK --interval=10s --timeout=3s --retries=5 \

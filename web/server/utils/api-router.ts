@@ -28,8 +28,12 @@ import {withoutClosed, withoutNotes} from '#shared/patch'
 /** The domains the Rust API serves, a line each (ORR-925): moving a domain there is adding its line once the parity test
  * passes, and taking it back to the routes here is taking the line out. Each matches a whole path after `/api/`, with no
  * slash at the end. A line with `methods` sends only those there, so a domain's reads can move before its writes
- * (`GET …/comments` before `POST …/comments`, ORR-927); one without takes every method its routes do. */
-export const DOMAINS: readonly {domain: string, paths: RegExp, methods?: readonly string[], first?: Partial<Record<string, LocalCheck>>, reply?: Partial<Record<string, Shaping>>}[] = [
+ * (`GET …/comments` before `POST …/comments`, ORR-927); one without takes every method its routes do.
+ *
+ * The routes here for a line's domain are gone (ORR-1041), so it's the API's alone: with the API down, or not set up, a
+ * request for it fails (`cantReach`) whether or not the swap is on. Only a line with `here` still has its route here,
+ * for the requests its `first` check keeps (a session's, the chat's), and falls through to it unless the swap is on. */
+export const DOMAINS: readonly {domain: string, paths: RegExp, methods?: readonly string[], first?: Partial<Record<string, LocalCheck>>, reply?: Partial<Record<string, Shaping>>, here?: true}[] = [
     // A project's docs, their revisions and sections (ORR-922). An artifact's page stays here: it's drawn with the
     // page's own sanitising and its locked-down headers (`artifact.get.ts`).
     {domain: 'docs', paths: /^projects\/[^/]+\/(docs(\/[^/]+(\/revisions(\/[^/]+(\/restore)?)?)?)?|deleted-docs|doc-sections(\/[^/]+)?)$/},
@@ -53,8 +57,8 @@ export const DOMAINS: readonly {domain: string, paths: RegExp, methods?: readonl
     // Making an issue (ORR-927): only one that names nothing but an issue's words (`onlyWords`), from neither a session,
     // whose issue is noted as worked on here (`workedOn`), nor the chat or an untrusted session, whose asks are rewritten
     // here (`asChatIssue`, `asProposal`). One that's urgent comes back with `Orrery-Urgent`, for the push here.
-    {domain: 'an issue, made', paths: /^projects\/[^/]+\/issues$/, methods: ['POST'], first: {POST: newWordsOnly}},
-    {domain: 'an issue, its words', paths: /^projects\/[^/]+\/issues\/[^/]+$/, methods: ['PATCH'], first: {PATCH: wordsOnly}},
+    {domain: 'an issue, made', paths: /^projects\/[^/]+\/issues$/, methods: ['POST'], first: {POST: newWordsOnly}, here: true},
+    {domain: 'an issue, its words', paths: /^projects\/[^/]+\/issues\/[^/]+$/, methods: ['PATCH'], first: {PATCH: wordsOnly}, here: true},
     // One change to many issues (`{ids, set, labels}`, ORR-927): each edited as one is, the route here taking no session's
     // lock or chat's rewrite for it either. The ones it makes urgent come back in `Orrery-Urgent`, for the push here.
     {domain: 'issues, changed at once', paths: /^projects\/[^/]+\/issues$/, methods: ['PATCH']},
@@ -480,10 +484,12 @@ export function cantReach(event: H3Event | string, why: string, only: boolean): 
 const NOT_RUNNING = 'isn\'t running (not started yet, stopped, or not set up)'
 
 /** Sends the request to the API when it serves it (`DOMAINS`), and gives back its reply, or undefined to leave it to the
- * routes here: always with no API, with the swap off (`apiOnly`); with it on, only what a line's check keeps here. */
+ * routes here: for a line with `here`, with no API and the swap off (`apiOnly`), and what its check keeps here. */
 export async function routeToApi(event: H3Event, config: {apiUrl?: unknown, apiToken?: unknown, apiOnly?: unknown}): Promise<unknown> {
-    if (!servedByApi(event.method, pathOf(event))) return undefined
-    const only = apiOnly(config)
+    const found = lineOf(event.method, pathOf(event))
+    if (!found) return undefined
+    // A domain whose routes here are gone has nothing to fall through to (ORR-1041).
+    const only = apiOnly(config) || !found.line.here
     // With the swap on, a request that comes while the API is starting waits a few seconds for it, rather than failing.
     if (only && !apiTarget(config)) await apiListening()
     const api = apiTarget(config)

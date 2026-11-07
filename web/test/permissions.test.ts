@@ -7,11 +7,13 @@ import {Pulls} from '../server/utils/pulls'
 import {Schedules} from '../server/utils/schedules'
 import {Store} from '../server/utils/store'
 import {testDb} from './db'
+import {rustRoutes} from './routes'
 
 // The permissions table (shared/permissions.ts) against what the server does, so it can't say one thing while the code
 // does another (ORR-459): each route it names is there, the chat's and an untrusted session's guards let through what
 // it says and refuse the rest, and a working session meets what its column says, tried on the store or, for a rule a
-// route holds, read in the code that holds it.
+// route holds, read in the code that holds it. A route the Rust API alone serves is held there, and tested in its own
+// route tests (api/src/routes/*_tests.rs).
 
 const me = {name: 'skoll', owner: true}
 const agent = {name: 'claude', owner: false}
@@ -25,6 +27,9 @@ function routeFile(route: string): string | undefined {
     return [`${base}.${method!.toLowerCase()}.ts`, `${base}/index.${method!.toLowerCase()}.ts`].find(f => existsSync(f))
 }
 
+/** Whether the Rust API alone serves the route, its Nuxt route gone (ORR-1041): its rules are held and tested there. */
+const rustOnly = (route: string) => !routeFile(route) && rustRoutes().includes(route.replace(/:(\w+)/g, '{$1}'))
+
 /** A route as a request would ask for it. */
 const concrete = (route: string) => {
     const [method, path] = route.split(' ')
@@ -36,7 +41,7 @@ describe('the permissions table', () => {
         expect(new Set(PERMISSIONS.map(p => p.id)).size).toBe(PERMISSIONS.length)
         for (const p of PERMISSIONS) {
             expect(p.why, p.id).toMatch(/\S/)
-            for (const route of p.routes) expect(routeFile(route), `${p.id}: ${route}`).toBeDefined()
+            for (const route of p.routes) expect(routeFile(route) ?? (rustOnly(route) || undefined), `${p.id}: ${route}`).toBeDefined()
         }
     })
 })
@@ -226,7 +231,7 @@ describe("a working session's column", () => {
     const server = sources().join('\n')
 
     /** Whether every route of the row asks `authorize` for it (ORR-512). */
-    const authorized = (p: Permission) => p.routes.every(route => readFileSync(routeFile(route)!, 'utf8').includes(`authorize(event, '${p.id}')`))
+    const authorized = (p: Permission) => p.routes.every(route => rustOnly(route) || readFileSync(routeFile(route)!, 'utf8').includes(`authorize(event, '${p.id}')`))
     /** Whether the store or a util refuses by the row, owner-only or within its limits. */
     const held = (p: Permission) => server.includes(`ownerOnly(actor, '${p.id}')`) || server.includes(`refusedFor('${p.id}'`)
 
