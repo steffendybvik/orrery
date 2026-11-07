@@ -26,7 +26,7 @@ import type {PolledRow} from '../server/utils/pull-poll'
 import {openDb} from '../server/utils/db'
 import {PostgresDb} from '../server/utils/postgres'
 import {PHONE_LOGIN} from '#shared/phone'
-import {actorHeaders, cameHeaders, changedOf, countedOf, databaseMark, domainOf, DOMAINS, handedOn, handoffsOf, handOn, loginHeaders, movesStatus, onlyWords, passedThrough, servedByApi, toldOf, urgentOf, whoHeaders} from '../server/utils/api-router'
+import {actorHeaders, apiStarted, cameHeaders, changedOf, countedOf, databaseMark, domainOf, DOMAINS, handedOn, handoffsOf, handOn, loginHeaders, movesStatus, onlyWords, passedThrough, servedByApi, toldOf, urgentOf, whoHeaders, writeToApi} from '../server/utils/api-router'
 import {permission, refused} from '../server/utils/permission'
 import {followOutbox, readPage} from '../server/utils/outbox-follower'
 import {contract, methodOf, nuxtRoutes, pathOf} from './routes'
@@ -1053,6 +1053,28 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         vi.unstubAllGlobals()
         expect(domainOf('GET', '/api/chats')).toBeUndefined()
         expect(domainOf('PUT', '/api/chats/c0ffee000011')).toBeUndefined()
+    })
+
+    it('takes the local app\'s own writes, the chat\'s row and its Allow, as the page\'s requests (ORR-1044)', async () => {
+        vi.stubGlobal('useStore', () => store)
+        vi.stubGlobal('databaseSetting', () => setting)
+        apiStarted({url, token: TOKEN})
+        try {
+            const chat = {id: 'c0ffee000020', project: 'through-api', started_at: '2026-11-07T06:00:00.000Z', issues: 'todo', messages: []}
+            expect(await writeToApi('PUT', `/api/chats/${chat.id}`, chat, {name: 'orrery', owner: false}, {always: true, config: {}})).toEqual({reply: null})
+            expect((await store.db.get<{project: string}>('SELECT project FROM chats WHERE id = ?', chat.id))?.project).toBe('through-api')
+            expect(await writeToApi('DELETE', `/api/chats/${chat.id}`, undefined, {name: 'orrery', owner: false}, {always: true, config: {}})).toEqual({reply: null})
+            expect(await store.db.get('SELECT id FROM chats WHERE id = ?', chat.id)).toBeUndefined()
+            // The owner's Allow on a doc the chat asked for, as theirs through the chat.
+            const made = await writeToApi('POST', '/api/projects/through-api/docs', {title: 'Asked by the chat', body: 'Kept.'}, {...OWNER, via: 'chat'}, {config: {}})
+            expect(made?.reply).toMatchObject({id: 'asked-by-the-chat', title: 'Asked by the chat'})
+            expect((await store.doc('through-api', 'asked-by-the-chat')).body).toBe('Kept.')
+            await expect(writeToApi('PATCH', '/api/projects/through-api/docs/nope', {body: 'x'}, OWNER, {config: {}})).rejects.toMatchObject({statusCode: 404})
+            await viaApi('DELETE', '/docs/asked-by-the-chat', undefined, OWNER)
+        } finally {
+            apiStarted(null)
+            vi.unstubAllGlobals()
+        }
     })
 
     it('lists people, and makes, lists and revokes keys and ends logins alike (ORR-928)', async () => {
