@@ -39,7 +39,7 @@ export function pathOf(event: {path: string}, keepCase = false): string {
 /** Whether the server listens on loopback alone: outside Docker the address it bound to (a socket's path is `nuxt dev`'s
  * own), and inside it, where every request comes over the bridge, the address compose publishes it on, empty counting as
  * not. A server that can't say is taken as reachable. */
-function onLoopback(event: H3Event): boolean {
+export function onLoopback(event: H3Event): boolean {
     if (inDocker()) return LOOPBACK.test(String(useRuntimeConfig().listenHost ?? ''))
     const server = (event.node.req.socket as {server?: {address?: () => unknown}} | undefined)?.server
     const bound = server?.address?.()
@@ -49,6 +49,9 @@ function onLoopback(event: H3Event): boolean {
 
 /** Whether ORRERY_AUTH=off is set, for trying people out on one machine. */
 export const toldOff = () => String(useRuntimeConfig().auth || process.env.ORRERY_AUTH || '').toLowerCase() === 'off'
+
+/** Whether ORRERY_AUTH=on is set: a login asked for even on loopback. */
+export const toldOn = () => String(useRuntimeConfig().auth || process.env.ORRERY_AUTH || '').toLowerCase() === 'on'
 
 /** A second person turns auth on, so without a way in that would lock the owner out: they claim the server first. */
 export async function needsWayInForPeople() {
@@ -86,8 +89,7 @@ export async function authMode(event: H3Event): Promise<'off' | 'on' | 'closed'>
     if (viaPhone(event)) return toldOff() ? 'closed' : 'on'
     const loopback = onLoopback(event)
     if (toldOff()) return loopback ? 'off' : 'closed'
-    const on = String(useRuntimeConfig().auth || process.env.ORRERY_AUTH || '').toLowerCase() === 'on'
-    if (on || !loopback || proxied(event)) return 'on'
+    if (toldOn() || !loopback || proxied(event)) return 'on'
     return await useStore().authStaysOn().catch(() => true) ? 'on' : 'off'
 }
 

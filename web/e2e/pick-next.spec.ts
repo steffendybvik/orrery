@@ -1,21 +1,7 @@
 import {expect, test} from './test'
-import {AGENT, OWNER, hold} from './support'
+import {AGENT, hold} from './support'
 
-// The owner letting sessions out of work pick their next issue (ORR-452), on Sessions → Setup, and back off.
-test('turns picking the next issue on and off from Sessions → Setup', async ({page, request}) => {
-    await page.goto('/sessions?tab=setup')
-    const pick = page.getByLabel('Sessions pick their own next issue')
-    await expect(pick).not.toBeChecked()
-    await pick.check()
-    await expect.poll(async () => (await (await request.get('/api/settings')).json()).pick_next).toBe(true)
-    await page.reload()
-    await expect(pick).toBeChecked()
-    await pick.uncheck()
-    await expect.poll(async () => (await (await request.get('/api/settings')).json()).pick_next).toBe(false)
-    await request.patch('/api/settings', {data: {pick_next: false}, headers: OWNER})
-})
-
-// The whole flow (ORR-1032): a session done with its topic is handed the list and starts the next, and so is one that
+// The whole flow (ORR-1032), with no setting to turn on (ORR-1043): a session done with its topic is handed the list and starts the next, and so is one that
 // leaves its issue in progress waiting on the owner's answer, as it's done with it for now.
 test('a session out of work picks its next issue, and so does one whose issue waits on the owner', async ({request, baseURL}) => {
     const api = async (method: 'get' | 'post' | 'patch' | 'put', path: string, data?: object, headers?: Record<string, string>) => {
@@ -47,7 +33,6 @@ test('a session out of work picks its next issue, and so does one whose issue wa
     }
     try {
         await expect.poll(async () => (await api('get', `/projects/${slug}/sessions`)).some((s: {id: string, listening: boolean}) => s.id === session && s.listening)).toBe(true)
-        await api('patch', '/settings', {pick_next: true}, OWNER)
 
         // Its topic, then done: it goes idle and is handed what's left.
         await api('patch', `/projects/${slug}/issues/${ids[0]}`, {status: 'in-progress'}, as)
@@ -70,6 +55,5 @@ test('a session out of work picks its next issue, and so does one whose issue wa
         expect((await api('get', `/projects/${slug}/issues/${ids[1]}`)).status).toBe('in-progress')
     } finally {
         stream.stop()
-        await request.patch('/api/settings', {data: {pick_next: false}, headers: OWNER})
     }
 })

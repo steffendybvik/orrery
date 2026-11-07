@@ -27,6 +27,7 @@ mod milestones;
 mod notices;
 mod oidc;
 mod people;
+mod phone;
 mod plans;
 mod presets;
 mod projects;
@@ -86,6 +87,8 @@ struct App {
     /// App settings, and this API wasn't restarted) is turned back rather than written to the old one.
     database: String,
     log: bool,
+    /// The phone's one-time sign-in links (ORR-837), kept in memory as the Nuxt server keeps its own.
+    phone: phone::Links,
 }
 
 type Shared = State<Arc<App>>;
@@ -130,7 +133,54 @@ fn who_of(headers: &HeaderMap) -> Option<Who> {
 fn ways_of(headers: &HeaderMap) -> Ways {
     let said = header(headers, "orrery-login-ways").unwrap_or_default();
     let has = |way: &str| said.split(',').any(|w| w.trim() == way);
-    Ways { provider: has("provider"), off: has("off") }
+    Ways { provider: has("provider"), off: has("off"), on: has("on") }
+}
+
+/// How the request reached the router, which only the router's socket knows (ORR-928): `Orrery-Came: loopback, proxied,
+/// phone, https`, any of them. `loopback`: its listener is on loopback (or in Docker, published only there). `proxied`:
+/// a proxy's headers came with it. `phone`: on the phone's own port. `https`: over https, as the proxy says. With it
+/// left out, nothing is assumed: not loopback, so a login is asked for.
+#[derive(Default, Clone, Copy)]
+struct Came {
+    loopback: bool,
+    proxied: bool,
+    phone: bool,
+    https: bool,
+}
+
+fn came_of(headers: &HeaderMap) -> Came {
+    let said = header(headers, "orrery-came").unwrap_or_default();
+    let has = |how: &str| said.split(',').any(|w| w.trim() == how);
+    Came { loopback: has("loopback"), proxied: has("proxied"), phone: has("phone"), https: has("https") }
+}
+
+/// Whether this orrery asks this request for a login (`authMode`): `off`, `on`, or `closed` when ORRERY_AUTH=off but
+/// the request didn't come over loopback, so nobody gets in at all.
+async fn auth_mode(people: &mut People<'_>, came: Came, ways: &Ways) -> Result<&'static str> {
+    // The phone's port always asks (ORR-837), whatever the main one does.
+    if came.phone {
+        return Ok(if ways.off { "closed" } else { "on" });
+    }
+    if ways.off {
+        return Ok(if came.loopback { "off" } else { "closed" });
+    }
+    if ways.on || !came.loopback || came.proxied {
+        return Ok("on");
+    }
+    // A database that can't say keeps it on, as the Nuxt server does.
+    Ok(if people.auth_stays_on().await.unwrap_or(true) { "on" } else { "off" })
+}
+
+/// Whether the address asked for is this machine's own, where plain http is fine: `localhost`, `127.x.y.z` or `[::1]`.
+fn local_host(host: &str) -> bool {
+    let name = match host.rsplit_once(':') {
+        Some((name, port)) if !host.ends_with(']') && port.bytes().all(|b| b.is_ascii_digit()) => name,
+        _ => host,
+    };
+    name == "localhost" || name == "[::1]" || {
+        let parts: Vec<&str> = name.split('.').collect();
+        parts.len() == 4 && parts[0] == "127" && parts[1..].iter().all(|p| (1..=3).contains(&p.len()) && p.bytes().all(|b| b.is_ascii_digit()))
+    }
 }
 
 /// The asking browser's login, hashed as the logins table keeps it: the cookie itself stays with the router.
@@ -1110,7 +1160,8 @@ fn cookie_of(headers: &HeaderMap, name: &str) -> Option<String> {
 /// The login's cookie, as `logIn` sets it: http-only so the page's scripts never see it, `Secure` when the request came
 /// over https (as the proxy in front says, `X-Forwarded-Proto`).
 fn login_set_cookie(headers: &HeaderMap, secret: &str) -> String {
-    let secure = header(headers, "x-forwarded-proto").is_some_and(|p| p.split(',').next().unwrap_or("").trim().eq_ignore_ascii_case("https"));
+    let secure =
+        came_of(headers).https || header(headers, "x-forwarded-proto").is_some_and(|p| p.split(',').next().unwrap_or("").trim().eq_ignore_ascii_case("https"));
     format!(
         "{}={secret}; Max-Age={}; Path=/; HttpOnly;{} SameSite=Lax",
         login_cookie(headers),
@@ -1139,6 +1190,92 @@ async fn log_out(State(app): Shared, headers: HeaderMap) -> Result<Response> {
     }
     let mut response = StatusCode::NO_CONTENT.into_response();
     let cookie = HeaderValue::from_str(&format!("{name}=; Max-Age=0; Path=/")).map_err(|_| ApiError::internal("a login cookie"))?;
+    response.headers_mut().append(axum::http::header::SET_COOKIE, cookie);
+    Ok(response)
+}
+
+/// `GET /api/auth/status` → {mode, person?, via?, can_get_in, oidc, warn_http, phone} (status.get.ts): whether this
+/// orrery asks for a login, who this browser is, and `phone` on the phone's own port (ORR-837). Open, as the login page
+/// needs it first; it says nothing about anyone else. Written ahead of the swap: the router keeps it the Nuxt server's.
+async fn auth_status(State(app): Shared, headers: HeaderMap) -> Result<Response> {
+    let came = came_of(&headers);
+    let ways = ways_of(&headers);
+    let mut conn = app.pool.acquire().await?;
+    let mut people = People::new(&mut conn);
+    let mode = auth_mode(&mut people, came, &ways).await?;
+    let can_get_in = ways.provider || people.owner_has_key().await?;
+    let host = header(&headers, "orrery-host").or_else(|| header(&headers, "host")).unwrap_or_default();
+    let mut status = json!({
+        "mode": mode,
+        "can_get_in": can_get_in,
+        "oidc": ways.provider,
+        "warn_http": mode == "on" && !came.https && !local_host(&host),
+        "phone": came.phone,
+    });
+    if let Some(who) = who_of(&headers) {
+        status["person"] = json!(who.person);
+        status["via"] = json!(if who.browser { "browser" } else { "agent" });
+    }
+    Ok(Json(status).into_response())
+}
+
+/// `POST /api/phone/link` → 201 {token, code, expires_at} (phone/link.post.ts): a one-time sign-in link for App
+/// settings' QR code (ORR-837), and its code (ORR-875). Only the owner makes one, from their own page: never over the
+/// phone's port, so a phone signed in can't hand out more, and never a session, the chat or an untrusted one, which
+/// would get a login as the owner. Written ahead of the swap.
+async fn phone_link(State(app): Shared, headers: HeaderMap) -> Result<Response> {
+    let came = came_of(&headers);
+    if came.phone {
+        return Err(ApiError::forbidden("A sign-in link is made from orrery's page on its own machine"));
+    }
+    let mut conn = app.pool.acquire().await?;
+    let mut people = People::new(&mut conn);
+    let mode = auth_mode(&mut people, came, &ways_of(&headers)).await?;
+    let who = who_of(&headers);
+    if mode != "off" && !who.as_ref().is_some_and(|w| w.owner && w.browser) {
+        return Err(ApiError::forbidden("Only the owner makes a sign-in link, from their own page"));
+    }
+    if !owner_asking(&headers) {
+        let kind = match header(&headers, "orrery-actor-kind").as_deref() {
+            Some("chat") => "the owner's chat",
+            Some("untrusted") => "an untrusted session",
+            _ => "a session",
+        };
+        return Err(ApiError::refused_for(
+            "phone.link",
+            format!("Make a sign-in link for a phone: refused for {kind} (phone.link). The link signs a phone in as the owner (ORR-837), so only the owner’s own page on this machine makes one, never a session, which would get a login it must never have."),
+        ));
+    }
+    let Some(owner) = people.named_owner().await? else {
+        return Err(ApiError::conflict("This orrery has no owner yet: give your name first (App settings → You)"));
+    };
+    let made = app.phone.make(&owner, phone::now_ms());
+    Ok((StatusCode::CREATED, Json(json!({"token": made.token, "code": made.code, "expires_at": made.expires_at}))).into_response())
+}
+
+/// `POST /api/auth/link` {token} or {code} → 201 {person} (auth/link.post.ts): signs this browser in with a one-time link
+/// from the QR code, or the six-letter code under it (ORR-875), using it up. The login is the phone's own, named so, so
+/// it's ended on its own from App settings (ORR-838). Open, as the browser has nothing else yet. Written ahead of the swap.
+async fn auth_link(State(app): Shared, headers: HeaderMap, body: Bytes) -> Result<Response> {
+    let body = body_of(&body);
+    let now = phone::now_ms();
+    let typed = body.get("code").is_some_and(|c| !c.is_null());
+    let person = if typed {
+        app.phone.take_code(body.get("code").and_then(Value::as_str), now)
+    } else {
+        app.phone.take_link(body.get("token").and_then(Value::as_str), now)
+    };
+    let Some(person) = person else {
+        return Err(ApiError::unauthorized(if typed {
+            "That code is wrong, used or has run out: check it against App settings on your computer, or press New code there"
+        } else {
+            "This sign-in link has been used or has run out: show the QR code in App settings again"
+        }));
+    };
+    let mut conn = app.pool.acquire().await?;
+    let secret = People::new(&mut conn).start_login(&person, None, Some(phone::PHONE_LOGIN)).await?;
+    let mut response = (StatusCode::CREATED, Json(json!({"person": person}))).into_response();
+    let cookie = HeaderValue::from_str(&login_set_cookie(&headers, &secret)).map_err(|_| ApiError::internal("a login cookie"))?;
     response.headers_mut().append(axum::http::header::SET_COOKIE, cookie);
     Ok(response)
 }
@@ -1503,6 +1640,9 @@ fn router(app: Arc<App>) -> Router {
         .route("/api/logins/{login}", axum::routing::delete(end_login))
         .route("/api/auth/login", post(log_in))
         .route("/api/auth/logout", post(log_out))
+        .route("/api/auth/status", get(auth_status))
+        .route("/api/auth/link", post(auth_link))
+        .route("/api/phone/link", post(phone_link))
         .route("/api/auth/oidc/start", get(oidc_start))
         .route("/api/auth/oidc/callback", get(oidc_callback))
         .route("/api/presets", get(list_presets).post(create_preset))
@@ -1571,7 +1711,13 @@ async fn main() {
             tokio::time::sleep(std::time::Duration::from_secs(3600)).await;
         }
     });
-    let app = Arc::new(App { pool, token, database: database_hash(&named), log: std::env::var("ORRERY_API_LOG").is_ok_and(|v| v == "1") });
+    let app = Arc::new(App {
+        pool,
+        token,
+        database: database_hash(&named),
+        log: std::env::var("ORRERY_API_LOG").is_ok_and(|v| v == "1"),
+        phone: phone::Links::default(),
+    });
     let listener = tokio::net::TcpListener::bind(&listen).await.unwrap_or_else(|e| fail(format!("can't listen on {listen}: {e}")));
     let at = listener.local_addr().map(|a| a.to_string()).unwrap_or(listen);
     eprintln!("[orrery-api] serving docs on http://{at}, {}", if db::is_postgres(&setting) { "Postgres" } else { "SQLite" });

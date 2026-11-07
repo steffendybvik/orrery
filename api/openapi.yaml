@@ -872,6 +872,36 @@ paths:
       summary: Ends this browser's login, on the server as well as its cookie
       responses:
         '204': {description: Logged out, or wasn't logged in}
+  /api/auth/status:
+    get:
+      x-served: false
+      summary: Whether this orrery asks for a login, and who this browser is
+      description: >-
+        Open, as the login page needs it first. How the request reached the router comes in `Orrery-Came` (`loopback`,
+        `proxied`, `phone`, `https`), and `Orrery-Login-Ways` says `on` for ORRERY_AUTH=on. Written ahead of the swap.
+      responses:
+        '200': {description: '{mode, person?, via?, can_get_in, oidc, warn_http, phone}'}
+  /api/auth/link:
+    post:
+      x-served: false
+      summary: Signs this browser in with a phone's one-time link or its six-letter code, using it up
+      description: >-
+        `{token}` from the QR code, or `{code}` typed. The login is named as the phone's own. Five wrong codes in a row
+        end every code still open. Links are kept in memory, so a restart ends them. Written ahead of the swap.
+      responses:
+        '201': {description: '{person}, with the login cookie'}
+        '401': {description: The link or code is wrong, used or has run out}
+  /api/phone/link:
+    post:
+      x-served: false
+      summary: A one-time sign-in link and code for App settings' QR code
+      description: >-
+        Good once, for five minutes. Only the owner's own page makes one: never over the phone's port
+        (`Orrery-Came: phone`), never a session, the chat or an untrusted one. Written ahead of the swap.
+      responses:
+        '201': {description: '{token, code, expires_at}'}
+        '403': {description: Over the phone's port, or not the owner's own page}
+        '409': {description: The owner hasn't given their name yet}
   /api/auth/oidc/start:
     get:
       x-served: false
@@ -1646,7 +1676,7 @@ components:
         effort: {type: string, enum: [low, medium, high, xhigh, max]}
     Settings:
       type: object
-      required: [id, tint, statuses, focus_prompt, milestone_prompt, instructions, handle, uid, tracker, starts, terminal, restrict_proposals, advanced, pick_next, count_use, work_kinds, starred, hidden]
+      required: [id, tint, statuses, focus_prompt, milestone_prompt, instructions, handle, uid, tracker, starts, terminal, restrict_proposals, advanced, count_use, work_kinds, starred, hidden]
       properties:
         id: {type: string, description: 'This orrery''s id, `orr_` and six hex digits'}
         tint: {type: [string, 'null']}
@@ -1661,7 +1691,6 @@ components:
         terminal: {type: string, enum: [terminal, iterm, warp, ghostty]}
         restrict_proposals: {type: boolean}
         advanced: {type: boolean}
-        pick_next: {type: boolean}
         count_use: {type: boolean}
         work_kinds: {type: array, items: {$ref: '#/components/schemas/WorkKind'}}
         starred: {type: array, items: {type: string}, description: Project ids listed first; none that are hidden}
@@ -1681,7 +1710,6 @@ components:
         terminal: {type: [string, 'null'], enum: [terminal, iterm, warp, ghostty, null]}
         restrict_proposals: {type: boolean}
         advanced: {type: boolean}
-        pick_next: {type: boolean}
         work_kinds: {type: [array, 'null'], minItems: 1, items: {$ref: '#/components/schemas/WorkKind'}}
         count_use: {type: boolean}
         starred: {type: [array, 'null'], items: {type: string, minLength: 1}}
