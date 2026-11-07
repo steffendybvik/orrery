@@ -14,8 +14,7 @@ overview, is one list.
 - **The board's data is served by orrery's Rust API.** Docs, issues and comments, milestones, releases, people and
   keys, presets, settings, the bell, epics, projects and uploads are answered by it alone; the Nuxt server checks each
   request, forwards it, and keeps the page, sessions, the launcher, chats and schedules' runs. The Docker image runs
-  the API inside the same container, so `docker compose up` works as before. `docker-compose.api.yml` runs it in a
-  container of its own instead.
+  the API inside the same container, so `docker compose up` works as before: one container, one compose file.
 - **Without Docker, the server needs the API:** `cargo build --release` in `api/`, and `NUXT_API_BIN` pointing at it
   (see *Running orrery*). Without it, the board's requests answer 503.
 

@@ -9,12 +9,6 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 set -a; . .playground/compose.env; set +a
 url="http://localhost:${ORRERY_PORT}"
-# The Rust API in a container of its own (ORR-1051), which the Nuxt server needs (ORR-1041), and the token the two
-# share, made once per database and thrown away with it on reset.
-export COMPOSE_FILE="$COMPOSE_FILE:docker-compose.api.yml"
-token=.playground/data/api-token
-if [ ! -s "$token" ]; then mkdir -p .playground/data; openssl rand -hex 24 > "$token"; fi
-ORRERY_API_TOKEN="$(cat "$token")"; export ORRERY_API_TOKEN
 compose() { docker compose --env-file .playground/compose.env "$@"; }
 
 ready() {

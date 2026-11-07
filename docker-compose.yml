@@ -40,8 +40,8 @@
 # ORRERY_BUILD_CONTEXT is what the image is built from: this folder by default, or a ref on GitHub, so a
 # branch switched here never ends up in it: ORRERY_BUILD_CONTEXT=https://github.com/steffendybvik/orrery.git#main
 #
-# The image runs orrery's Rust API inside the same container, which serves the board's data (ORR-1041).
-# docker-compose.api.yml runs it in a container of its own instead (its comment says how).
+# The image runs orrery's Rust API inside the same container, which serves the board's data (ORR-1041): one
+# container, nothing to set up for it.
 #
 # Working on orrery itself: the playground (.playground/play), docker-compose.dev.yml on top of this.
 
