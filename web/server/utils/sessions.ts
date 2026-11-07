@@ -86,7 +86,7 @@ export interface Report {
     /** For `StopFailure`: why the turn was cut off, and what Claude Code told the session. */
     error?: string
     errorText?: string
-    /** For `Notification`: what Claude Code is waiting for. */
+    /** What it's waiting for, when `waiting` (or a `Notification`, from a hook before ORR-1074). */
     message?: string
     /** For `PreToolUse` on Bash: the command it's about to run, to see which issues it writes to. */
     command?: string
@@ -260,6 +260,7 @@ export function report(input: Report): Session | null {
     // A permission dialog opening says which tool it's for and leaves the state to the notification that comes with it:
     // the two can arrive in either order.
     const event = input.event === 'PermissionRequest' ? session?.state ?? 'working'
+        // A hook from before the adapter read Claude Code's notification itself (ORR-1074): one asking for a permission.
         : input.event === 'Notification'
         ? (/permission|approv|allow/i.test(input.message ?? '') ? 'waiting' : 'idle')
         : STATES[input.event] ?? input.event

@@ -104,3 +104,32 @@ describe('the Claude adapter', () => {
         }
     })
 })
+
+// What the hook posts is the adapter's reading of Claude Code's hook input (ORR-1074), so the hook knows nothing of it.
+describe("the Claude adapter's report", () => {
+    it("passes Claude Code's events on by name, with the session, its folder and what started it", () => {
+        expect(claude.report({hook_event_name: 'SessionStart', session_id: 'abc', cwd: '/repo', source: 'compact'}))
+            .toMatchObject({id: 'abc', cwd: '/repo', event: 'SessionStart', source: 'compact'})
+        expect(claude.report({hook_event_name: 'SessionEnd', session_id: 'abc', reason: 'clear'})).toMatchObject({event: 'SessionEnd', reason: 'clear'})
+        expect(claude.report({}).event).toBe('idle')
+    })
+
+    it('reads a notification asking for a permission as waiting, with what it asks, and any other as idle', () => {
+        expect(claude.report({hook_event_name: 'Notification', message: 'Claude needs your permission to use Bash'}))
+            .toMatchObject({event: 'waiting', message: 'Claude needs your permission to use Bash'})
+        expect(claude.report({hook_event_name: 'Notification', message: 'Claude is waiting for your input'}).event).toBe('idle')
+    })
+
+    it("says the tool in a line, and a Bash command only on PreToolUse, never another tool's input", () => {
+        const bash = claude.report({hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: {command: 'git status'}})
+        expect(bash).toMatchObject({command: 'git status', tool: {name: 'Bash', detail: 'git status'}})
+        expect(claude.report({hook_event_name: 'PermissionRequest', tool_name: 'Bash', tool_input: {command: 'git push'}}).command).toBeUndefined()
+        expect(claude.report({hook_event_name: 'PreToolUse', tool_name: 'mcp__x__write', tool_input: {body: 'secret'}}).tool).toEqual({name: 'mcp__x__write', detail: undefined})
+    })
+
+    it("keeps what Claude Code said of a cut-off turn to StopFailure, capped", () => {
+        const long = 'x'.repeat(500)
+        expect(claude.report({hook_event_name: 'StopFailure', error: 'rate_limit', last_assistant_message: long})).toMatchObject({error: 'rate_limit', error_text: 'x'.repeat(300)})
+        expect(claude.report({hook_event_name: 'Stop', last_assistant_message: 'done'}).error_text).toBeUndefined()
+    })
+})
