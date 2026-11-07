@@ -52,7 +52,7 @@ describe('the Claude adapter', () => {
     })
 
     it('claims what orrery offers only to a launcher that does it', () => {
-        expect(claude.claims).toBe('untrusted=no-bash&chat=yes&model=yes&resume=yes')
+        expect(claude.claims).toBe('untrusted=no-bash&chat=yes&model=yes&resume=yes&global=yes')
     })
 
     it("measures context off the hook's transcript, against its model's window, and says nothing when it can't tell", () => {

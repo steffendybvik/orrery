@@ -52,6 +52,8 @@ const untrusted = process.env.ORRERY_UNTRUSTED === 'yes'
 /** Started for the owner's chat (the launcher says, in ORRERY_CHAT): the launch, which is the chat's id. It answers in
  * the chat, and says so on all it sends. */
 const chat = process.env.ORRERY_CHAT === 'yes' ? process.env.ORRERY_STARTED : undefined
+/** Started as a global session (the launcher says, in ORRERY_GLOBAL, ORR-1079): it has no project of its own. */
+const globalSession = process.env.ORRERY_GLOBAL === 'yes' && !chat
 /** What a chat's tools reach (ORR-1063): every project its channel lists, not only the one it hears, so it can ask for
  * a schedule or a doc on another, its own when it names none. Filled in once the orrery is reached, for `*`. */
 const reached = chat && !every ? (listed.includes('*') ? [] : [...new Set(listed)]) : projects
@@ -65,7 +67,7 @@ let refused = ''
 const serves = every ? 'every project on it' : projects.length === 1 ? `project "${projects[0]}"` : `projects ${projects.map(p => `"${p}"`).join(', ')}`
 const server = new Server({name: 'orrery', version: VERSION}, {
     capabilities: {experimental: {'claude/channel': {}}, tools: {listChanged: true}},
-    instructions: instructionsFor({base, serves, chat: !!chat, untrusted, several: every || projects.length > 1}),
+    instructions: instructionsFor({base, serves, chat: !!chat, untrusted, several: every || projects.length > 1, global: globalSession}),
 })
 // Each call's answer, for the Context page's "so far" (ORR-549): sent plain, as `delivered` is, so the chat's and an
 // untrusted session's guards don't take it for one of their writes.
@@ -87,6 +89,7 @@ const loadTools = async group => {
  * those, and the call says which. Read at each call, as `*` knows its projects only once the orrery is reached. */
 const mapped = process.env.ORRERY_STARTED ? undefined : projectAt(process.cwd(), base)
 const own = () => {
+    if (globalSession) return undefined
     const project = process.env.ORRERY_STARTED ? startedFor() : mapped
     return project && reached.includes(project) ? project : undefined
 }

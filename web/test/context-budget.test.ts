@@ -91,6 +91,13 @@ describe("the server's instructions a session carries on every turn", () => {
         expect(instructionsFor({base, serves: 'project "greenhouse"'})).not.toContain('HUB-12')
         expect(instructionsFor({base, serves: 'projects "greenhouse", "pantry"', several: true})).toContain('HUB-12')
     })
+
+    it('tell a global session it has no project of its own (ORR-1079), in a line', () => {
+        const global = instructionsFor({base, serves: 'every project on it', several: true, global: true})
+        expect(global).toContain('This is a global session')
+        expect(size(global)).toBeLessThanOrEqual(1_400)
+        expect(instructionsFor({base, serves: 'every project on it', several: true})).not.toContain('global session')
+    })
 })
 
 describe('what a search brings', () => {

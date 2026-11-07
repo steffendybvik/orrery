@@ -1007,6 +1007,34 @@ describe('a session started on a model (ORR-868)', () => {
     })
 })
 
+describe('a global session (ORR-1079)', () => {
+    it('is asked for with {global}, and not with {hears}, as it hears every project', async () => {
+        vi.stubGlobal('badRequest', (message: string) => Object.assign(new Error(message), {statusCode: 400}))
+        expect(launches.startInput({global: true})).toMatchObject({global: true})
+        expect(launches.startInput({global: false})).not.toHaveProperty('global')
+        expect(() => launches.startInput({global: 'yes'})).toThrow('Send {global}')
+        launches.addLauncher('greenhouse')
+        expect(await launches.startLaunch('greenhouse', {global: true})).toMatchObject({project: 'greenhouse', global: true})
+        await expect(launches.startLaunch('greenhouse', {global: true, hears: ['greenhouse']})).rejects.toThrow('a global session hears every project')
+    })
+
+    it('goes only to a launcher that says it starts one, and says so once it has', async () => {
+        const {token} = launches.addLauncher('greenhouse')
+        const launch = await launches.startLaunch('greenhouse', {global: true})
+        // A launcher from before global sessions would start it in the project's repo, as the project's.
+        expect(launches.claim('greenhouse', launch.id, token, true, true, true, true)).toBe(false)
+        expect(noted).toEqual([expect.objectContaining({level: 'warn', kind: 'launcher.outdated', message: expect.stringMatching(/start a global session.*Restart the launcher/)})])
+        expect(launches.claim('greenhouse', launch.id, token, true, true, true, true, true)).toBe(true)
+        expect(launches.launched(launch.id)).toMatchObject({launch: launch.id, global: true})
+    })
+
+    it('is known as global again after orrery restarts, from its launcher\'s report', () => {
+        const running = {id: 'b1b2b3b4b5b6', tmux: 'orrery-greenhouse-b1b2b3b4b5b6', global: true}
+        launches.reportRunning('greenhouse', [running])
+        expect(launches.launched(running.id)).toEqual({launch: running.id, tmux: running.tmux, global: true})
+    })
+})
+
 describe('a launcher reporting the sessions it runs', () => {
     const running = {id: 'a1b2c3d4e5f6', tmux: 'orrery-greenhouse-a1b2c3d4e5f6', stops_at: '2026-10-25T20:00:00.000Z'}
 
