@@ -119,6 +119,10 @@ describe('the user-level hook', () => {
         expect(standsDown({env: user, dir: folder('node /code/orrery/channel/orrery-hook.mjs')})).toBe(true)
         expect(standsDown({env: user, dir: folder('say done')})).toBe(false)
         expect(standsDown({env: {ORRERY_SCOPE: 'user'}, dir: folder()})).toBe(true)
+        // Another orrery started it (ORR-1071): that orrery's hook reports it, this one's says nothing.
+        const started = {ORRERY_SCOPE: 'user', ORRERY_ID: 'orr_personal', ORRERY_PROJECT: 'reading-list'}
+        expect(standsDown({env: {...started, ORRERY_STARTED_ON: 'orr_work'}, dir: folder()})).toBe(true)
+        expect(standsDown({env: {...started, ORRERY_STARTED_ON: 'orr_personal'}, dir: folder()})).toBe(false)
         // The project the launcher's list maps the folder to (ORR-1068) is one known.
         expect(standsDown({env: {ORRERY_SCOPE: 'user'}, dir: folder(), project: 'reading-list'})).toBe(false)
         expect(standsDown({env: {ORRERY_SCOPE: 'user'}, dir: folder('node /code/orrery/channel/orrery-hook.mjs'), project: 'reading-list'})).toBe(true)
