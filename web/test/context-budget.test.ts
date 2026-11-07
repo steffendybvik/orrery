@@ -27,11 +27,11 @@ describe('the tool list a session carries on every turn', () => {
         // The chat's planning reads (milestones, presets, preset, schedules) are the chat's alone (ORR-544).
         // A work session's rarer tools (asking for a schedule, secrets and egress, the event log, rating a PR) wait behind more_tools
         // (ORR-625), and come in its list once it asks for their group.
-        const work = ['issues', 'issue', 'create_issue', 'update_issue', 'start_issue', 'finish_issue', 'comment', 'releases', 'docs', 'doc',
+        const work = ['issues', 'issue', 'create_issue', 'update_issue', 'start_issue', 'next', 'finish_issue', 'comment', 'releases', 'docs', 'doc',
             'write_doc', 'sessions', 'guide']
         expect(tools(['greenhouse']).map(t => t.name)).toEqual([...work, 'more_tools'])
         expect(tools(['greenhouse'], {loaded: ['schedules', 'secrets', 'debug', 'review']}).map(t => t.name)).toEqual(['issues', 'issue', 'create_issue',
-            'update_issue', 'start_issue', 'finish_issue', 'rate_pull', 'comment', 'releases', 'docs', 'doc', 'write_doc', 'sessions', 'secrets', 'egress',
+            'update_issue', 'start_issue', 'next', 'finish_issue', 'rate_pull', 'comment', 'releases', 'docs', 'doc', 'write_doc', 'sessions', 'secrets', 'egress',
             'events', 'guide', 'resolve_event', 'create_schedule', 'update_schedule', 'more_tools'])
         expect(tools(['greenhouse'], {loaded: ['debug']}).map(t => t.name)).toEqual([...work.slice(0, -1), 'events', 'guide', 'resolve_event', 'more_tools'])
         // An untrusted one has only what orrery lets it do: read, raise proposals and comment on them, and read GitHub issues.
@@ -47,9 +47,10 @@ describe('the tool list a session carries on every turn', () => {
         // issue's GitHub issues (ORR-635) added about 140 to each, a doc's past (ORR-675) about 130, writing an artifact (ORR-677) about 95, and
         // the guide's section (ORR-848) about 65, which saves a session most of the 39,000 the guide sent whole. An issue's
         // epic (ORR-895) about 155, its tools waiting behind more_tools, and about 80 on an untrusted run, which has none of them.
-        expect(size(tools(['greenhouse']))).toBeLessThanOrEqual(6_630)
-        expect(size(tools(['greenhouse', 'pantry']))).toBeLessThanOrEqual(7_515)
-        expect(size(tools(['greenhouse'], {loaded: ['schedules', 'secrets', 'debug']}))).toBeLessThanOrEqual(9_260)
+        // Asking for its next issue (`next`, ORR-521) about 140, on a work session only.
+        expect(size(tools(['greenhouse']))).toBeLessThanOrEqual(6_770)
+        expect(size(tools(['greenhouse', 'pantry']))).toBeLessThanOrEqual(7_655)
+        expect(size(tools(['greenhouse'], {loaded: ['schedules', 'secrets', 'debug']}))).toBeLessThanOrEqual(9_400)
         expect(size(tools(['greenhouse'], {untrusted: true}))).toBeLessThanOrEqual(4_860)
         // The chat's fell from about 20,100 when its requests went behind request (ORR-624), reading GitHub (ORR-748) added about 1,500, and its own docs, egress and event log (ORR-750) about 1,900,
         // reading the epics (ORR-895) about 290, and writing epics and milestones itself instead of asking (ORR-988) about 1,700.
