@@ -24,11 +24,13 @@ export function loginCookie(event: H3Event): string {
     return port ? `${LOGIN_COOKIE}_${port}` : LOGIN_COOKIE
 }
 
-/** The path as a router might come to read it, so no spelling of /api slips past as something else. */
-export function pathOf(event: {path: string}): string {
+/** The path as a router might come to read it, so no spelling of /api slips past as something else. `keepCase` leaves
+ * its case as asked, for what reads an id out of it (an issue is `CEL-1` to the store, not `cel-1`). */
+export function pathOf(event: {path: string}, keepCase = false): string {
     const path = event.path.split('?')[0] ?? ''
     try {
-        return decodeURIComponent(path).replace(/\\/g, '/').replace(/\/{2,}/g, '/').toLowerCase()
+        const read = decodeURIComponent(path).replace(/\\/g, '/').replace(/\/{2,}/g, '/')
+        return keepCase ? read : read.toLowerCase()
     } catch {
         return '/api/'
     }
@@ -37,7 +39,7 @@ export function pathOf(event: {path: string}): string {
 /** Whether the server listens on loopback alone: outside Docker the address it bound to (a socket's path is `nuxt dev`'s
  * own), and inside it, where every request comes over the bridge, the address compose publishes it on, empty counting as
  * not. A server that can't say is taken as reachable. */
-function onLoopback(event: H3Event): boolean {
+export function onLoopback(event: H3Event): boolean {
     if (inDocker()) return LOOPBACK.test(String(useRuntimeConfig().listenHost ?? ''))
     const server = (event.node.req.socket as {server?: {address?: () => unknown}} | undefined)?.server
     const bound = server?.address?.()
@@ -47,6 +49,9 @@ function onLoopback(event: H3Event): boolean {
 
 /** Whether ORRERY_AUTH=off is set, for trying people out on one machine. */
 export const toldOff = () => String(useRuntimeConfig().auth || process.env.ORRERY_AUTH || '').toLowerCase() === 'off'
+
+/** Whether ORRERY_AUTH=on is set: a login asked for even on loopback. */
+export const toldOn = () => String(useRuntimeConfig().auth || process.env.ORRERY_AUTH || '').toLowerCase() === 'on'
 
 /** A second person turns auth on, so without a way in that would lock the owner out: they claim the server first. */
 export async function needsWayInForPeople() {
@@ -84,8 +89,7 @@ export async function authMode(event: H3Event): Promise<'off' | 'on' | 'closed'>
     if (viaPhone(event)) return toldOff() ? 'closed' : 'on'
     const loopback = onLoopback(event)
     if (toldOff()) return loopback ? 'off' : 'closed'
-    const on = String(useRuntimeConfig().auth || process.env.ORRERY_AUTH || '').toLowerCase() === 'on'
-    if (on || !loopback || proxied(event)) return 'on'
+    if (toldOn() || !loopback || proxied(event)) return 'on'
     return await useStore().authStaysOn().catch(() => true) ? 'on' : 'off'
 }
 
@@ -101,7 +105,8 @@ export async function canGetIn(): Promise<boolean> {
     return oidcOn() || await useStore().ownerHasKey()
 }
 
-const bearer = (event: H3Event) => /^Bearer\s+(\S+)$/i.exec(getHeader(event, 'authorization') ?? '')?.[1]
+/** The request's bearer, if it sent one: an agent key, or a person key that's no credential here. */
+export const bearer = (event: H3Event) => /^Bearer\s+(\S+)$/i.exec(getHeader(event, 'authorization') ?? '')?.[1]
 
 /** Who the request's credential says it is. A bearer is an agent key only: a person key is swapped for a cookie at
  * login and is no use here, so nothing with a key in its environment can act as a person. */

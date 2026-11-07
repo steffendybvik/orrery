@@ -49,7 +49,7 @@ const reset = () => editing.value && send(`/presets/${editing.value.id}/reset`, 
 </script>
 
 <template>
-  <UiDialog :open="open" :label="editing ? `Edit ${editing.name}` : 'New preset'" width="2xl" @close="emit('close')" @submit="save">
+  <UiDialog :open="open" name="preset" :label="editing ? `Edit ${editing.name}` : 'New preset'" width="2xl" @close="emit('close')" @submit="save">
     <div class="flex items-center gap-2 text-xs text-faint">
       <span>{{ editing ? 'Preset' : 'New preset' }} · for {{ project ? `sessions on ${project.name}` : 'sessions on any project' }}</span>
       <KeyHint class="ml-auto">esc</KeyHint>

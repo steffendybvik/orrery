@@ -78,13 +78,19 @@ export default defineNuxtConfig({
         // Encrypts the secrets agents use without seeing (a long random string; without it there are none).
         // Override with NUXT_SECRET_KEY (ORRERY_SECRET_KEY in compose).
         secretKey: '',
-        // The Rust API (ORR-922, api/), which serves the docs routes while the rest stay here. `apiBin`: its binary, which
-        // this server starts beside itself on its own database (NUXT_API_BIN, e.g. ../api/target/release/orrery-api). Or
-        // one already running: `apiUrl` where it listens (http://127.0.0.1:9100) and `apiToken` the token both are given
-        // (NUXT_API_URL, NUXT_API_TOKEN). Neither: this server answers every route, as before.
+        // The Rust API (ORR-922, api/), which serves the board's data: its routes here are gone (ORR-1041), so this server
+        // needs one. `apiBin`: its binary, which this server starts beside itself on its own database (NUXT_API_BIN, e.g.
+        // ../api/target/release/orrery-api; the image sets it, and `nuxt dev` takes ../api/target/debug/orrery-api when
+        // it's unset). Or one already running: `apiUrl` where it listens (http://127.0.0.1:9100) and `apiToken` the token
+        // both are given (NUXT_API_URL, NUXT_API_TOKEN). Neither: the API's routes fail with a 503.
         apiBin: '',
         apiUrl: '',
         apiToken: '',
+        // The swap (ORR-1034): on (NUXT_API_ONLY=1), the few routes the API serves that still have a route here for some
+        // requests (a session's or the chat's new issue and edit, `here` in api-router.ts) are its alone too, so with it
+        // down, not started yet or on another database they fail (503) instead of falling through. Every other route
+        // the API serves fails that way whether it's on or not, as its route here is gone (ORR-1041).
+        apiOnly: false,
         // Login and keys (ORR-664): `on` always asks for them; `off` never, for trying people out, and only on loopback.
         // Unset, they're on when the server is reachable from other machines or has a second person. Override with
         // NUXT_AUTH (ORRERY_AUTH in compose).

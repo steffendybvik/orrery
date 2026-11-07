@@ -33,6 +33,10 @@ export interface Launch {
     hears?: string[]
     untrusted?: boolean
     chat?: boolean
+    /** A global session (ORR-1079): the launcher starts it in the orrery's default folder, hearing every project, with
+     * none of its own. Only a launcher that says it can (`?global=yes` on its claim) may take it, as an older one would
+     * start it in the project's repo, as the project's. */
+    global?: boolean
     /** Who started it: its session's `ORRERY_PERSON`, so it's theirs. */
     person?: string
     /** The model and effort to start it on (`--model`, `--effort`); none, Claude Code's default. Only a launcher that
@@ -76,7 +80,7 @@ const PENDING_FOR = 3 * 60 * 1000
 const REFUSED_FOR = 30 * 60 * 1000
 /** The launches its launchers say they run, kept across this server's restarts by the launchers themselves:
  * each reports its sessions when it connects, so one that reconnects to a restarted orrery is known again. */
-const reported = new Map<string, {project: string, tmux: string, stops_at?: string, context?: SessionContext, untrusted?: boolean, chat?: boolean, model?: string, effort?: Effort}>()
+const reported = new Map<string, {project: string, tmux: string, stops_at?: string, context?: SessionContext, untrusted?: boolean, chat?: boolean, global?: boolean, model?: string, effort?: Effort}>()
 /** Stops the owner asked for that no launcher has said it carried out, by launch: each launcher that connects hears them,
  * so one with no launcher there to hear it, and no channel to go through, isn't lost (ORR-789). Kept a day at most, as one
  * for a session that ended meanwhile is never answered. */
@@ -99,7 +103,10 @@ const everywhere = counter('everywhere')
 const versions = new Map<string, string[]>()
 /** Each connected launcher's token, to the project it serves: its stream hands it over (`ready`), and a claim counts
  * only with one, so nothing but a launcher on its stream can take a launch and keep it from starting (ORR-443). */
-const tokens = new Map<string, {project: string, person?: string}>()
+const tokens = new Map<string, {project: string, person?: string, home?: boolean}>()
+/** How many of each project's launchers serve it from their machine's default folder (`?home=1`, ORR-1066), as it has no
+ * repo there: one in the project's repo is given its sessions first. */
+const homeLaunchers = counter('home-launchers')
 /** Whose each launch is, by id, from when it's held until its session ends (`Launch.person`): a member's launcher hears
  * and claims only its own person's (ORR-963), the events that carry only an id included. */
 const whose = new Map<string, string>()
@@ -137,11 +144,13 @@ export function addMemberLauncher(project: string, person: string): (() => void)
     return Object.assign(() => void tokens.delete(token), {token})
 }
 /** Counts a project's launcher in, in its folder when it says, and as serving every project when it does, and the
- * version of its code, until `done` is called. `done.token` is the one its claims are to send. */
-export function addLauncher(project: string, dir?: string, every = false, version = '', how: RepoAdded = {}): (() => void) & {token: string} {
+ * version of its code, until `done` is called. `done.token` is the one its claims are to send. `home`: it serves the
+ * project from its machine's default folder, with no repo (ORR-1066). */
+export function addLauncher(project: string, dir?: string, every = false, version = '', how: RepoAdded = {}, home = false): (() => void) & {token: string} {
     const token = randomBytes(18).toString('base64url')
-    tokens.set(token, {project})
+    tokens.set(token, {project, ...home ? {home: true} : {}})
     const gone = launchers.add(project)
+    const homeGone = home ? homeLaunchers.add(project) : () => {}
     const away = every ? everywhere.add(project) : () => {}
     versions.set(project, [...versions.get(project) ?? [], version])
     let held = true
@@ -153,6 +162,7 @@ export function addLauncher(project: string, dir?: string, every = false, versio
             left.splice(left.indexOf(version), 1)
         }
         away()
+        homeGone()
         gone()
     }
     if (!dir) return Object.assign(done, {token})
@@ -172,8 +182,44 @@ export function addLauncher(project: string, dir?: string, every = false, versio
         done()
     }, {token})
 }
+/** Where a launcher serves a project from and how, as its stream's query says: `dir` its folder, or `home` its machine's
+ * default folder (ORR-1066), `every` where its channel serves every project, and when the folder was picked up or connected. */
+export type LauncherServes = {project: string, dir?: string, every?: boolean, home?: boolean, picked?: unknown, connected?: unknown}
+
+/** Kept only as a time, so nothing else a launcher says reaches the page through it. */
+const timeOf = (at: unknown) => typeof at === 'string' && !Number.isNaN(Date.parse(at)) ? new Date(at).toISOString() : undefined
+
+/** Counts a launcher's stream in for one project it serves, as `…/launches/stream` and `/api/launches/stream` both do,
+ * and notes it in the event log; the token is the one its claims on the project send, and calling it counts it out. A
+ * launcher on a member's agent key (`member`) hears only its own person's launches, and isn't counted as the project's
+ * (ORR-963). */
+export function connectLauncher({project, dir, every, home, picked, connected}: LauncherServes, version: string, member?: string): (() => void) & {token: string} {
+    const [pickedAt, connectedAt] = [timeOf(picked), timeOf(connected)]
+    const done = member ? addMemberLauncher(project, member) : addLauncher(project, dir || undefined, !!every, version.slice(0, 40), {...pickedAt ? {picked_at: pickedAt} : {}, ...connectedAt ? {connected_at: connectedAt} : {}}, !!home)
+    const where = dir ? {dir} : home ? {home: true} : {}
+    useEventLog().note({level: 'info', kind: 'launcher.connected', project, message: member ? `A launcher on ${member}'s key connected: it hears only their launches` : home ? "A launcher connected, serving the project from its machine's default folder" : 'A launcher connected', details: where})
+    let held = true
+    return Object.assign(() => {
+        if (!held) return
+        held = false
+        done()
+        useEventLog().note({level: 'info', kind: 'launcher.gone', project, message: 'A launcher went', details: where})
+    }, {token: done.token})
+}
+
+/** The project a launch event is on, and the launch it's about. */
+export const launchEventOn = (sent: LaunchEvent): {project: string, id: string} =>
+    sent.type === 'launch' ? {project: sent.launch.project, id: sent.launch.id} : {project: sent.project, id: sent.id}
+
+/** A launch event as a launcher's stream sends it: a launch with its id, the rest with their project in the data. */
+export function launchEventSent(sent: LaunchEvent): {id?: string, event: string, data: string} {
+    if (sent.type === 'launch') return {id: sent.launch.id, event: 'launch', data: JSON.stringify(sent.launch)}
+    const {type, ...data} = sent
+    return {event: type, data: JSON.stringify(data)}
+}
+
 /** The folders a project's launchers run in. */
-const foldersOf = (project: string): string[] => [...folders.get(project)?.keys() ?? []]
+const foldersOf =(project: string): string[] => [...folders.get(project)?.keys() ?? []]
 /** The folders its launchers run in, each with when it was picked up or connected, if it was. */
 const reposOf = (project: string): LauncherRepo[] => foldersOf(project).map(dir => ({dir, ...added.get(project)?.get(dir)}))
 
@@ -287,7 +333,9 @@ export const launchTarget = (launch: string) => `launch-${launch}`
  * (`statuses`, `release`), from a focus on the project's issues in it, made the same way. Needs the
  * owner's opt-in and a launcher, and counts the sessions on their way against the limit, as it doesn't stand
  * in for them the way a signal's launch does. */
-export async function startLaunch(project: string, {issue, statuses, release: version, context, hears, model, effort, actor}: {issue?: string, statuses?: string[], release?: string, context?: SessionContext, hears?: string[], model?: string, effort?: Effort, actor?: Actor} = {}): Promise<Launch> {
+export async function startLaunch(project: string, {issue, statuses, release: version, context, hears, model, effort, global, actor}: {issue?: string, statuses?: string[], release?: string, context?: SessionContext, hears?: string[], model?: string, effort?: Effort, global?: boolean, actor?: Actor} = {}): Promise<Launch> {
+    // A global session hears every project already (ORR-1079).
+    if (global && hears) throw badRequest('Send {global} or {hears}, not both: a global session hears every project')
     if (hears) hears = [project, ...new Set(hears.filter(p => p !== project))]
     const apart = hears?.filter(p => p !== project && !foldersOf(project).some(dir => foldersOf(p).includes(dir)))
     if (apart?.length) throw conflict(`${apart.join(', ')} ${apart.length === 1 ? "isn't" : "aren't"} served from ${project}'s repo, so one session there can't hear ${apart.length === 1 ? 'it' : 'them'}: start a session for each`)
@@ -299,7 +347,7 @@ export async function startLaunch(project: string, {issue, statuses, release: ve
         if (picked.model !== 'best') ({model, effort} = picked)
     }
     // Held from here, so the limit counts it while its focus is made.
-    const held = hold(project, {after: 0, ...starts.minutes ? {minutes: starts.minutes} : {}, ...context ? {context} : {}, ...hears ? {hears} : {}, ...model ? {model} : {}, ...effort ? {effort} : {}, ...actor?.owner ? {person: actor.name} : {}})
+    const held = hold(project, {after: 0, ...starts.minutes ? {minutes: starts.minutes} : {}, ...context ? {context} : {}, ...hears ? {hears} : {}, ...model ? {model} : {}, ...effort ? {effort} : {}, ...global ? {global} : {}, ...actor?.owner ? {person: actor.name} : {}})
     try {
         const session = launchTarget(held.id)
         held.after = issue
@@ -383,13 +431,16 @@ export interface StartInput {
     presets: number[]
     instructions: string
     hears?: string[]
+    /** A global session (ORR-1079). */
+    global?: boolean
     /** The model and effort to start it on; none, Claude Code's default (ORR-868). */
     model?: string
     effort?: Effort
 }
 
 export function startInput(body: unknown): StartInput {
-    const {issue, statuses, release, presets, instructions, hears, model, effort} = (body && typeof body === 'object' ? body : {}) as Record<string, unknown>
+    const {issue, statuses, release, presets, instructions, hears, model, effort, global} = (body && typeof body === 'object' ? body : {}) as Record<string, unknown>
+    if (global !== undefined && global !== null && typeof global !== 'boolean') throw badRequest('Send {global}: true for a global session, hearing every project, or nothing')
     if (issue !== undefined && issue !== null && typeof issue !== 'string') throw badRequest('Send {issue}: the id of an issue for the session to focus on, or nothing')
     if (statuses !== undefined && statuses !== null && (!Array.isArray(statuses) || statuses.some(s => typeof s !== 'string' || !s))) {
         throw badRequest('Send {statuses}: a list of status ids or kinds for the session to work through, e.g. ["todo", "started"]')
@@ -416,6 +467,7 @@ export function startInput(body: unknown): StartInput {
         presets: (presets as number[] | null) ?? [],
         instructions: (instructions as string | null) ?? '',
         ...hears ? {hears: hears as string[]} : {},
+        ...global ? {global: true} : {},
     }
 }
 
@@ -461,7 +513,7 @@ async function allowedStarts(project: string): Promise<Starts | null> {
 /** A launcher taking the launch on: only the first gets it, so several launchers start one session between them. Only
  * a launcher connected for the project counts, by the `token` its stream gave it. An untrusted launch only goes to one
  * that `locksDown`, and a chat to one that `chats`: an older launcher would start either with every tool. */
-export function claim(project: string, id: string, token: string | undefined, locksDown = false, chats = false, models = false, resumes = false): boolean {
+export function claim(project: string, id: string, token: string | undefined, locksDown = false, chats = false, models = false, resumes = false, globals = false): boolean {
     const launch = pending.get(id)
     if (!launch || launch.project !== project || launch.claimed) return false
     const launcher = token ? tokens.get(token) : undefined
@@ -471,9 +523,15 @@ export function claim(project: string, id: string, token: string | undefined, lo
     }
     // A member's launcher takes only that person's launches, never the owner's (ORR-963).
     if (launcher.person && launch.person !== launcher.person) return false
+    // One in the default folder leaves it to one in the project's repo, while there is one (ORR-1066).
+    if (launcher.home && launchers.count(project) > homeLaunchers.count(project)) return false
     if (launch.untrusted && !locksDown || launch.chat && !chats) {
         const what = launch.chat ? 'a chat' : "an untrusted schedule's session"
         outdated(project, id, `A launcher on ${project} is running older code that can't start ${what}, so it was refused it. Restart the launcher, and it's offered it again (it runs the channel folder's code when it starts).`)
+        return false
+    }
+    if (launch.global && !globals) {
+        outdated(project, id, `A launcher on ${project} is running older code that can't start a global session, so it was refused it. Restart the launcher, and it's offered it again (it runs the channel folder's code when it starts).`)
         return false
     }
     if ((launch.model || launch.effort) && !models) {
@@ -516,7 +574,7 @@ export function launched(id: string): StartedSession | undefined {
     const known = launch ? {...launch, stops_at: launch.minutes ? new Date(Date.now() + launch.minutes * 60_000).toISOString() : undefined} : reported.get(id)
     return known && {launch: id, tmux: known.tmux, ...known.stops_at ? {stops_at: known.stops_at} : {}, ...known.context ? {context: known.context} : {},
         ...launch?.hears ? {hears: launch.hears} : {}, ...known.untrusted ? {untrusted: true} : {}, ...known.chat ? {chat: true} : {},
-        ...known.model ? {model: known.model} : {}, ...known.effort ? {effort: known.effort} : {}}
+        ...known.global ? {global: true} : {}, ...known.model ? {model: known.model} : {}, ...known.effort ? {effort: known.effort} : {}}
 }
 
 /** A launcher saying which of the project's sessions it runs, as it connects: they count as started again,
@@ -524,8 +582,8 @@ export function launched(id: string): StartedSession | undefined {
  * and stop time it keeps count only for a launch orrery has forgotten (it restarted): what orrery knows stands, a
  * launch started with no context and none to stop at among it, as anyone can send this. Untrusted is kept whichever
  * says so, and so is a chat. */
-export function reportRunning(project: string, launches: {id: string, tmux: string, stops_at?: string, context?: SessionContext, untrusted?: boolean, chat?: boolean, model?: string, effort?: Effort}[]) {
-    for (const {id, tmux, stops_at: keptStop, context: kept, untrusted: said, chat: chatSaid, model: modelSaid, effort: effortSaid} of launches) {
+export function reportRunning(project: string, launches: {id: string, tmux: string, stops_at?: string, context?: SessionContext, untrusted?: boolean, chat?: boolean, global?: boolean, model?: string, effort?: Effort}[]) {
+    for (const {id, tmux, stops_at: keptStop, context: kept, untrusted: said, chat: chatSaid, global: globalSaid, model: modelSaid, effort: effortSaid} of launches) {
         const was = pending.get(id) ?? reported.get(id)
         const started = sessionOfLaunch(project, id)?.started
         const context = was || started ? launchContext(project, id) : kept
@@ -536,11 +594,12 @@ export function reportRunning(project: string, launches: {id: string, tmux: stri
             : was ? reported.get(id)?.stops_at : keptStop
         const untrusted = said || !!was?.untrusted || !!sessionOfLaunch(project, id)?.started?.untrusted
         const chat = chatSaid || !!was?.chat || !!sessionOfLaunch(project, id)?.started?.chat
+        const global = globalSaid || !!was?.global || !!sessionOfLaunch(project, id)?.started?.global
         // What it was started on: what orrery asked for, when it still knows, else what its launcher kept.
         const model = was || started ? (was?.model ?? started?.model) : modelSaid
         const effort = was || started ? (was?.effort ?? started?.effort) : effortSaid
         const known = {tmux, ...stops_at ? {stops_at} : {}, ...context ? {context} : {}, ...untrusted ? {untrusted} : {}, ...chat ? {chat} : {},
-            ...model ? {model} : {}, ...effort ? {effort} : {}}
+            ...global ? {global} : {}, ...model ? {model} : {}, ...effort ? {effort} : {}}
         reported.set(id, {project, ...known})
         adoptLaunch(project, {launch: id, ...known})
         if (chat) chatRunning(id)
@@ -603,7 +662,7 @@ export async function stopDue(now = Date.now()): Promise<string[]> {
         if (!overdue && await store.busy(session.project, ids, !!started.untrusted)) continue
         stopping.set(started.launch, now)
         if (starts.get(session.project)?.min && !started.untrusted) {
-            replacing.set(started.launch, {project: session.project, ...started.context ? {context: started.context} : {}, ...started.hears ? {hears: started.hears} : {},
+            replacing.set(started.launch, {project: session.project, ...started.context ? {context: started.context} : {}, ...started.hears ? {hears: started.hears} : {}, ...started.global ? {global: true} : {},
                 ...started.model ? {model: started.model} : {}, ...started.effort ? {effort: started.effort} : {}, ended: false})
         }
         emit({type: 'stop', project: session.project, id: started.launch})
@@ -616,7 +675,7 @@ export async function stopDue(now = Date.now()): Promise<string[]> {
  * once one has `ended`, one like it (its project, context, the projects it hears and its model) is started in its place, with a
  * fresh context. One the owner stops isn't among them, nor an untrusted run's. Kept in memory: an orrery that restarts
  * before one has been replaced forgets it, and its launchers' sessions carry on as they were. */
-const replacing = new Map<string, {project: string, context?: SessionContext, hears?: string[], model?: string, effort?: Effort, ended: boolean}>()
+const replacing = new Map<string, {project: string, context?: SessionContext, hears?: string[], global?: boolean, model?: string, effort?: Effort, ended: boolean}>()
 /** The launches that have ended lately, and when: their sessions' channels may not have closed yet. */
 const ended = new Map<string, number>()
 const ENDED_FOR = 5 * 60 * 1000
@@ -640,7 +699,7 @@ async function fill(): Promise<Launch[]> {
     // take its place once it's gone (ORR-481).
     for (const [id, at] of ended) if (Date.now() - at > ENDED_FOR) ended.delete(id)
     const dying = listSessions().filter(s => s.started && !s.started.chat && s.listening && ended.has(s.started.launch)).length
-    for (const [id, {project, context, hears, model, effort, ended}] of replacing) {
+    for (const [id, {project, context, hears, global, model, effort, ended}] of replacing) {
         if (!ended) continue
         const starts = await useStore().starts(project).catch(() => undefined)
         if (!starts?.min || startedSessions() - dying + pendingOn() >= starts.min) {
@@ -649,7 +708,7 @@ async function fill(): Promise<Launch[]> {
         }
         if (!launchersOf(project)) continue
         try {
-            started.push(await startLaunch(project, {...context ? {context} : {}, ...hears ? {hears} : {}, ...model ? {model} : {}, ...effort ? {effort} : {}}))
+            started.push(await startLaunch(project, {...context ? {context} : {}, ...hears ? {hears} : {}, ...global ? {global} : {}, ...model ? {model} : {}, ...effort ? {effort} : {}}))
             replacing.delete(id)
         } catch {
             // No room under the limit, or its repo no longer serves what it heard: tried again at the next check.

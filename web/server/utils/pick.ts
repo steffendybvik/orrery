@@ -1,12 +1,13 @@
-// A session out of work picks its next issue (ORR-452), with the owner's `pick_next` setting on. Once a listening
-// session is idle with nothing in progress, no run with issues left, nothing waiting on the owner and no signal queued,
+// A session out of work picks its next issue (ORR-452), always: there's no setting (ORR-1043). Once a listening
+// session is idle with nothing in progress but parked issues (waiting on the owner, or in review: ORR-1032), no run with issues left, nothing waiting on the owner and no signal queued,
 // it's sent, alone, the issues it may start (Todo, most urgent first; Backlog is the owner's to point at, ORR-759) and starts the one
 // it judges best, passing over one it can't do yet with a comment saying why. With nothing on the list, nothing is
 // sent: no turn starts, and it stays idle. A session orrery started is picked for once its `/clear` is done (from the
 // SessionStart that follows it, when it has no run to resume), as clearing it after would lose what it was handed.
 // When the board changes, the idle sessions are tried again (not one due its clear, even one that became due while the
 // others were tried: it picks after the clear), one at a time a few seconds apart, so they don't all go for the same issue; the one-session-per-issue lock (`claim` in
-// store.ts) turns away a second start anyway.
+// store.ts) turns away a second start anyway. A session can also ask for the list itself, with the channel's `next`
+// (ORR-521): the same list and message, by the same rules (`stillBusy`), whenever it asks.
 import type {Issue} from '#shared/roadmap'
 import {freezeNote, isBlocked} from '#shared/roadmap'
 import type {IssueRecord} from '../store/schema'
@@ -84,27 +85,56 @@ export async function pickMessage(issues: (IssueRecord & {project: string})[]): 
     return `${PICK_NOTE} Read the one you choose and the docs it touches, then start it as you would a focus on it. Pass over one you can't do yet (blocked on another, say), with a comment on it saying why. If another session has it already ("pick another issue"), take the next. If none is one you can do, stop: you'll be handed the list again when the board changes.\n\n${lines.join('\n')}`
 }
 
-/** Hands the session the issues it may start, if `pick_next` is on and it's out of work: listening, idle, not a chat
- * or an untrusted schedule's, not due its clear (handed the list first, it would skip the clear), nothing in progress, no run with issues left, nothing waiting on the owner, no signal
- * queued. Not again while the list is what it was last handed. Says whether it sent one. */
+/** Why the session isn't out of work, by the rules the push (`pickNext`) and the pull (`nextFor`, ORR-521) share: it's
+ * a chat or an untrusted schedule's, it has an issue in progress that isn't parked (waiting on the owner, or in review:
+ * ORR-1032) or something waiting on the owner, or a run with issues left. Nothing when it's out of work. */
+export async function stillBusy(project: string, id: string): Promise<string | null> {
+    if (chatSession(id)) return "The chat doesn't take up work: it files and delegates it."
+    if (untrustedSession(id)) return "An untrusted schedule's session doesn't take up work: it raises proposals."
+    const store = useStore()
+    if (await store.engaged(project, sessionIds(id))) return 'You still have work: an issue in progress that isn\'t parked, or a question waiting on the owner. Finish or park it first.'
+    const run = runOf(id)
+    if (run?.milestone) {
+        const {open} = await scopeOf(store, run.project, run)
+        if (open.length) return `Your run has issues left (${open.map(i => i.id).join(', ')}): carry on with those.`
+    }
+    return null
+}
+
+/** What `handed` keeps of a list, to tell it hasn't changed. */
+const listed = (issues: (IssueRecord & {project: string})[]) => issues.map(i => `${i.project} ${i.id} ${i.column} ${i.priority ?? ''}`).join('\n')
+
+/** Hands the session the issues it may start, if it's out of work (`stillBusy`), listening, idle and not due its clear
+ * (handed the list first, it would skip the clear). Not again while the list is what it was last handed, by this or
+ * by its own ask (`nextFor`). Says whether it sent one. */
 export async function pickNext(project: string, id: string): Promise<boolean> {
     const store = useStore()
-    if (!(await store.settings()).pick_next) return false
     const session = sessionNow(id)
-    if (!session?.listening || session.state !== 'idle' || untrustedSession(id) || chatSession(id) || clearPending(id)) return false
-    const ids = sessionIds(id)
-    if (await store.busy(project, ids)) return false
-    const run = runOf(id)
-    if (run?.milestone && (await scopeOf(store, run.project, run)).open.length) return false
+    if (!session?.listening || session.state !== 'idle' || clearPending(id)) return false
+    if (await stillBusy(project, id)) return false
     const issues = await pickable([session.project, ...session.also ?? []], session.person)
     for (const known of handed.keys()) {
         if (!sessionNow(known)) handed.delete(known)
     }
-    const list = issues.map(i => `${i.project} ${i.id} ${i.column} ${i.priority ?? ''}`).join('\n')
+    const list = listed(issues)
     if (!issues.length || handed.get(currentId(id)) === list) return false
     handed.set(currentId(id), list)
     await store.messageSession(session.project, currentId(id), await pickMessage(issues), {name: (await store.ownerOf()).name, owner: true})
     return true
+}
+
+/** A session asking for its next issue itself (ORR-521, the channel's `next`): what the push would hand it, now, with
+ * no rules of its own. `issues` the list, `text` the message that goes with it (`pickMessage`), or why there's none.
+ * The list counts as handed, so the push doesn't send it again unchanged. Nothing for a session orrery doesn't know. */
+export async function nextFor(id: string): Promise<{issues: {id: string, project: string, title: string, column?: string, priority: string | null}[], text: string} | undefined> {
+    const session = sessionNow(id)
+    if (!session) return undefined
+    const busy = await stillBusy(session.project, id)
+    if (busy) return {issues: [], text: busy}
+    const issues = await pickable([session.project, ...session.also ?? []], session.person)
+    if (!issues.length) return {issues: [], text: "Nothing to pick: no Todo issue is free for you. Stop here: you'll be handed the list when the board changes."}
+    handed.set(currentId(id), listed(issues))
+    return {issues: issues.map(i => ({id: i.id, project: i.project, title: i.title, column: i.column, priority: i.priority ?? null})), text: await pickMessage(issues)}
 }
 
 /** The session went idle: a moment later, if it's still idle and wasn't started by orrery (that one picks after its
@@ -132,7 +162,6 @@ export function recheckIdle() {
     rechecking = setTimeout(async () => {
         rechecking = undefined
         try {
-            if (!(await useStore().settings()).pick_next) return
             // Each is checked as its turn comes (`pickNext`): one can go busy, or due its clear, while the one before waits.
             for (const session of listSessions().filter(s => s.listening && s.state === 'idle')) {
                 if (await pickNext(session.project, session.id)) await new Promise(resolve => setTimeout(resolve, PICK_APART))

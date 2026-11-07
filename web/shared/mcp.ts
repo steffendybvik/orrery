@@ -29,14 +29,14 @@ export interface McpReference {
 
 /** The tools by what they do, in the order the tab shows them. A tool in none is listed under Other, and a test fails on it. */
 export const MCP_GROUPS: {title: string, tools: string[]}[] = [
-    {title: 'Issues', tools: ['issues', 'issue', 'create_issue', 'update_issue', 'edit_issue', 'start_issue', 'finish_issue', 'rate_pull', 'move_issues', 'delegate_issue', 'comment']},
+    {title: 'Issues', tools: ['issues', 'issue', 'create_issue', 'update_issue', 'edit_issue', 'start_issue', 'next', 'finish_issue', 'rate_pull', 'move_issues', 'delegate_issue', 'comment']},
     {title: 'Roadmap', tools: ['milestones', 'create_milestone', 'update_milestone', 'releases', 'epics', 'create_epic', 'update_epic', 'comment_epic']},
     {title: 'Docs', tools: ['docs', 'doc', 'write_doc']},
     {title: 'Sessions and presets', tools: ['sessions', 'presets', 'preset']},
     {title: 'Schedules', tools: ['schedules', 'create_schedule', 'update_schedule']},
     {title: 'Outside services', tools: ['secrets', 'egress', 'github_issues', 'github_pulls']},
     {title: 'The chat', tools: ['reply', 'image', 'request', 'request_fields']},
-    {title: 'orrery itself', tools: ['guide', 'events', 'resolve_event', 'more_tools']},
+    {title: 'orrery itself', tools: ['guide', 'events', 'resolve_event', 'more_tools', 'link_folder']},
 ]
 
 /** The environment the channel reads, that a person sets. */
@@ -51,4 +51,4 @@ export const MCP_ENV: McpEnv[] = [
 ]
 
 /** What orrery's own launcher and bootstrap set for themselves: nobody needs to set these, so the tab leaves them out. */
-export const MCP_ENV_INTERNAL = ['ORRERY_AFTER', 'ORRERY_BOOTSTRAP', 'ORRERY_CHAT', 'ORRERY_CODE', 'ORRERY_FROM', 'ORRERY_HOME', 'ORRERY_LAUNCHER_RELOADS', 'ORRERY_PERMISSION_MODE', 'ORRERY_SESSION', 'ORRERY_STARTED', 'ORRERY_UNTRUSTED', 'ORRERY_VERSION__']
+export const MCP_ENV_INTERNAL = ['ORRERY_AFTER', 'ORRERY_BOOTSTRAP', 'ORRERY_CHAT', 'ORRERY_CODE', 'ORRERY_FROM', 'ORRERY_GLOBAL', 'ORRERY_HOME', 'ORRERY_LAUNCHER_RELOADS', 'ORRERY_PERMISSION_MODE', 'ORRERY_REPO_TOLD', 'ORRERY_SCOPE', 'ORRERY_SESSION', 'ORRERY_STARTED', 'ORRERY_STARTED_ON', 'ORRERY_UNTRUSTED', 'ORRERY_VERSION__']

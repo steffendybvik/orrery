@@ -400,6 +400,33 @@ test('asks the owner to move or assign issues, and moves them as theirs only on 
     }
 })
 
+test("moves an issue at once, as the owner's, when they named it in the chat (ORR-1042)", async ({request, baseURL}) => {
+    const launcher = hold(baseURL!, '/api/projects/observatory/launches/stream')
+    let session: ReturnType<typeof hold> | undefined
+    let made: string | undefined
+    try {
+        made = (await (await request.post('/api/projects/observatory/issues', {data: {title: 'Oil the dome', status: 'todo'}, headers: OWNER})).json()).id
+        await expect.poll(async () => (await (await request.get('/api/projects/observatory/launches')).json()).launchers).toBe(1)
+        await endChats(request)
+        const chat = await (await request.post('/api/chats', {data: {project: 'observatory'}, headers: OWNER})).json()
+        session = hold(baseURL!, `/api/projects/observatory/signals/stream?session=e2e-chat-moves&name=e2e-chat-moves&started=${chat.id}&chat=yes&format=text`)
+        const asChat = {'Orrery-Actor': 'claude', 'Orrery-Session': 'e2e-chat-moves', 'Orrery-Chat': 'yes', 'Orrery-Launch': chat.id}
+        expect((await request.post(`/api/chats/${chat.id}/messages`, {data: {text: `Put ${made} in done, on me`}, headers: OWNER})).status()).toBe(201)
+        const moved = await request.post(`/api/chats/${chat.id}/requests`, {data: {move: {ids: [made], status: 'done', assignee: 'owner'}}, headers: asChat})
+        expect(moved.status(), await moved.text()).toBe(201)
+        expect(await moved.json()).not.toHaveProperty('move')
+        const issue = (await (await request.get(`/api/projects/observatory/issues/${made}`)).json()) as {column: string, assignee?: string}
+        expect(issue.column).toBe('done')
+        expect(issue.assignee).toBeTruthy()
+        expect((await moved.json()).text).toContain(`Put [${made}](/p/observatory/issues/${made}) in done`)
+    } finally {
+        await endChats(request)
+        if (made) await request.delete(`/api/projects/observatory/issues/${made}`, {headers: OWNER})
+        session?.stop()
+        launcher.stop()
+    }
+})
+
 test('asks the owner to add or ship a release, and saves it only on their Allow', async ({page, request, baseURL}) => {
     const launcher = hold(baseURL!, '/api/projects/observatory/launches/stream')
     let session: ReturnType<typeof hold> | undefined
@@ -1075,12 +1102,29 @@ test('opens from ⌘K ready to type into, and leaves typing elsewhere on the pag
     await expect(box).toBeFocused()
     // Typing elsewhere with the pane open stays there.
     const filter = page.getByRole('searchbox', {name: 'Filter by id or title'})
-    await filter.click()
+    // Focused rather than clicked: the toolbar is right-aligned, so whether the box sits under the floating pane hangs on
+    // which filter menus show (a Label one once an issue has a label), and a click there lands on the pane (ORR-1033).
+    await filter.focus()
     await page.keyboard.type('abc', {delay: 50})
     await expect(filter).toHaveValue('abc')
     await expect(filter).toBeFocused()
     await expect(box).toHaveValue('')
     await page.getByRole('region', {name: 'Chat'}).getByRole('button', {name: 'Close the chat'}).click()
+})
+
+test('opens and closes on ⌘J, the cursor in its box, but not from typing in another field (ORR-1030)', async ({page}) => {
+    await page.goto('/p/observatory')
+    await expect(page.getByRole('heading', {level: 1}).first()).toBeVisible()
+    const pane = page.getByRole('region', {name: 'Chat'})
+    const filter = page.getByRole('searchbox', {name: 'Filter by id or title'})
+    await filter.click()
+    await page.keyboard.press('ControlOrMeta+j')
+    await expect(pane).toHaveCount(0)
+    await filter.blur()
+    await page.keyboard.press('ControlOrMeta+j')
+    await expect(pane.getByRole('textbox', {name: 'Message', exact: true})).toBeFocused()
+    await page.keyboard.press('ControlOrMeta+j')
+    await expect(pane).toHaveCount(0)
 })
 
 test('pops out into a window of its own, which the corner button brings back, and docks back into the pane (ORR-938)', async ({page}) => {

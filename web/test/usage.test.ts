@@ -60,9 +60,18 @@ describe('counting feature use', () => {
 
     it("ignores a name that isn't a feature's", async () => {
         await store.updateSettings({count_use: true}, owner)
-        for (const name of ['', 'Milestones', 'page:../etc', 'evil<script>', 'x'.repeat(41)]) usage.countUse(name, NOW)
+        for (const name of ['', 'Milestones', 'page:../etc', 'dialog:New issue', 'popup:new-issue', 'evil<script>', 'x'.repeat(41)]) usage.countUse(name, NOW)
         await usage.flushUse(NOW)
         expect(await counted()).toEqual([])
+    })
+
+    it('counts each dialog opened under its name, labelled by it (ORR-1011)', async () => {
+        await store.updateSettings({count_use: true}, owner)
+        usage.countUse('dialog:new-issue', NOW)
+        usage.countUse('dialog:new-issue', NOW)
+        await usage.flushUse(NOW)
+        expect((await usage.featureUse(NOW)).find(f => f.feature === 'dialog:new-issue')).toEqual(
+            {feature: 'dialog:new-issue', label: 'new-issue', last: '2026-11-04', days30: 2, days90: 2})
     })
 
     it('lists every listed feature, coldest first, with its last use and its uses over 30 and 90 days', async () => {

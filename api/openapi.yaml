@@ -13,8 +13,9 @@ info:
       their `GET`s there, and a comment's `POST`, `PATCH` and `DELETE`, checking a session's claim on the issue first
       for an edit. Writing an issue stays the Nuxt server's, as a change wakes sessions. A new or edited comment's reply
       says what the Nuxt server passes on to the sessions and the owner's bell (`Orrery-Carry`, `Orrery-Notice`).
-    - **Uploads, reading** (ORR-927): an image kept for Markdown (web/server/api/uploads/[upload].get.ts), passed on by
-      the router as it came. Keeping one stays the Nuxt server's, as it compresses the image there.
+    - **Uploads** (ORR-927, ORR-1058): an image kept for Markdown (web/server/api/uploads), read back and passed on by
+      the router as it came, and kept, a PNG or JPEG compressed as WebP where that's smaller (board/compress.rs, as
+      web/server/utils/compress.ts does with sharp).
     - **Schedules, reading** (ORR-930): a project's schedules, one with its runs, every project's and those across
       projects (web/server/api/projects/[project]/schedules, schedules.get.ts, schedules/across). Served by both; making,
       changing and running them stays the Nuxt server's, as a run starts a session.
@@ -42,8 +43,9 @@ info:
       changes on their issues, and clearing them or marking them read (web/server/api/notices). Served by both; each
       person's bell is their own (ORR-658).
     - **Epics** (ORR-1004): every epic with its progress, one with its issues, and making, changing and deleting one
-      (web/server/api/epics). Served by both; an epic's comments and its focus, which signals sessions, stay the Nuxt
-      server's.
+      (web/server/api/epics), and an epic's comments and a milestone's (web/server/api/epics/[epic]/comments,
+      web/server/api/projects/[project]/milestones/[milestone]/comments). Served by both; an epic's focus, which signals
+      sessions, stays the Nuxt server's.
 
     An operation marked `x-served: false` is written ahead of the Rust API's: the router doesn't send it there yet, and
     the parity test holds it to that. The mark comes off in the pull request that serves it.
@@ -218,6 +220,16 @@ paths:
       responses:
         '204': {description: Deleted}
         '404': {$ref: '#/components/responses/NotFound'}
+  /api/uploads:
+    post:
+      summary: Keeps an image for Markdown to show
+      description: '`data` is the image in base64 (a `data:` URL works too), a PNG, JPEG, GIF or WebP of 10 MB at most; `name` gives the Markdown its alt text. A PNG or JPEG of 16 KB or more is kept as WebP when that''s smaller (quality 90 and 82), no wider than 2560 and turned as its EXIF says, losing its metadata; a JPEG WebP doesn''t shrink is written again as a JPEG when that is smaller. A body too big for the largest image is refused before it''s read (413).'
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      requestBody: {required: true, content: {application/json: {schema: {type: object, required: [data], additionalProperties: false, properties: {data: {type: string}, name: {type: [string, 'null']}}}}}}
+      responses:
+        '201': {description: Where it's served and the Markdown that shows it, content: {application/json: {schema: {type: object, required: [id, type, size, url, markdown], properties: {id: {type: string}, type: {type: string, enum: [image/png, image/jpeg, image/gif, image/webp]}, size: {type: integer}, url: {type: string}, markdown: {type: string}}}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '413': {description: The body is bigger than the largest image, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
   /api/uploads/{upload}:
     parameters: [{name: upload, in: path, required: true, description: The image's id, 24 hex digits, schema: {type: string}}]
     get:
@@ -324,6 +336,77 @@ paths:
         '200': {description: The issues, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/IssueRecord'}}}}}
         '400': {$ref: '#/components/responses/BadRequest'}
         '404': {$ref: '#/components/responses/NotFound'}
+    post:
+      summary: Makes an issue, with the project's next id
+      description: |
+        Takes the same fields as an issue's edit (`PATCH …/issues/{issue}`), with a `title`: the router keeps one naming
+        any other field for the Nuxt server, and one from a session, the chat or an untrusted session too, as their asks
+        are rewritten or noted there. It's noted as `created` and told (`issue.created`). A proposal (`proposal: pending`)
+        is the owner's. An agent's, with more than one person, goes under its person's issue only, and is theirs then
+        (taken up when it's started), unless it's a proposal; one at the top stays nobody's, so it's refused (409) started,
+        closed or given to anyone but the owner. Urgent open work made by the owner or a member (P0, not a proposal, not
+        closed) comes back with `Orrery-Urgent`, for the Nuxt server to push it to the sessions.
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {type: object, required: [title], description: 'The fields `PATCH …/issues/{issue}` takes'}
+      responses:
+        '201': {description: The new issue, content: {application/json: {schema: {$ref: '#/components/schemas/IssueDetail'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {description: 'An agent''s that the rails between people refuse', content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+    patch:
+      summary: Makes one change to many issues
+      description: |
+        Each edited on its own, as `PATCH …/issues/{issue}` edits one, so one refused doesn't stop the rest. `set` takes
+        only `status`, `priority`, `assignee`, `milestone`, `release` and `epic`; `labels` adds and takes off labels, each
+        once, from what each issue has. Each id sent comes back once, in the order sent, with `error` saying why when it
+        wasn't changed. The ones it makes urgent open work come back in `Orrery-Urgent`, apart by commas, for the Nuxt
+        server to push them to the sessions.
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ids]
+              properties:
+                ids: {type: array, minItems: 1, items: {type: string}}
+                set:
+                  type: object
+                  additionalProperties: false
+                  properties: {status: {type: string}, priority: {type: [string, 'null']}, assignee: {type: [string, 'null']}, milestone: {type: [string, 'null']}, release: {type: [string, 'null']}, epic: {type: [string, integer, 'null']}}
+                labels: {type: object, properties: {add: {type: array, items: {type: string}}, remove: {type: array, items: {type: string}}}}
+      responses:
+        '200':
+          description: How each went
+          content:
+            application/json:
+              schema: {type: array, items: {type: object, required: [id, ok], properties: {id: {type: string}, ok: {type: boolean}, error: {type: string}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+    delete:
+      summary: Deletes many issues, each with its sub-issues and comments
+      description: |
+        Each on its own, as one is deleted, so one refused doesn't stop the rest. Each id sent comes back once, in the
+        order sent, with `error` saying why when it wasn't deleted. One already gone with an issue above it in the
+        list is ok.
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      requestBody:
+        required: true
+        content: {application/json: {schema: {type: object, required: [ids], properties: {ids: {type: array, minItems: 1, items: {type: string}}}}}}
+      responses:
+        '200':
+          description: How each went
+          content:
+            application/json:
+              schema: {type: array, items: {type: object, required: [id, ok], properties: {id: {type: string}, ok: {type: boolean}, error: {type: string}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
   /api/projects/{project}/issues/{issue}:
     parameters: [{$ref: '#/components/parameters/project'}, {$ref: '#/components/parameters/issue'}]
     get:
@@ -332,14 +415,19 @@ paths:
         '200': {description: The issue, content: {application/json: {schema: {$ref: '#/components/schemas/IssueDetail'}}}}
         '404': {$ref: '#/components/responses/NotFound'}
     patch:
-      summary: Changes the issue's own words, priority, where it sits, what it depends on and whether it's a proposal
+      summary: Changes the issue's words, status, priority, assignee, where it sits, what it depends on and whether it's a proposal
       description: |
-        Only its `title`, `priority`, `notes`, `labels`, `external`, `github_issues`, `parent`, `milestone`, `release`,
-        `epic`, `depends_on`, `proposal`, `choices`, `model`, `effort` and `position`: the router keeps an edit naming any other field
-        for the Nuxt server. `epic` is an epic's number, `EPC-1` or its full id, 404 for one there isn't. Null clears all but the title and position. A sub-issue is in its parent's milestone, so `parent` and
+        Only its `title`, `status`, `plan`, `priority`, `assignee`, `notes`, `labels`, `external`, `github_issues`, `parent`,
+        `milestone`, `release`, `epic`, `depends_on`, `proposal`, `choices`, `model`, `effort` and `position`: the router keeps
+        an edit naming any other field for the Nuxt server, and a session's edit of the status (`status` or `plan`) too, as
+        the session's lock on the issue is the Nuxt server's. `status` is a status's id, a kind (its first status) or an old
+        word (`doing`, `now`, `next`, `later`); `plan` is the old way to say Todo (any plan) or Backlog (null). `assignee:
+        owner` is the owner, and blank or null is nobody. Closing or reassigning it ends a claim on it; an agent on the rails
+        that starts its person's issue claims it for them, and hands one on only back to the owner. `epic` is an epic's number, `EPC-1` or its full id, 404 for one there isn't. Null clears all but the title and position. A sub-issue is in its parent's milestone, so `parent` and
         `milestone` aren't sent together; `parent: null` lifts it to the top, into its root's milestone unless one is
         sent. An agent's, with more than one person, only on its person's issue or its own proposal, and under a parent
-        that's its person's too; and, with `restrict_proposals`, not the release of a proposal waiting on the owner.
+        that's its person's too; and, with `restrict_proposals`, not the status, plan, assignee or release of a proposal waiting
+        on the owner.
         Each changed field goes to the activity and is told (`issue.<field>`), without a title's or a link's words.
         `depends_on` is all it depends on, ids here or `project/ID`, null or none to clear: refused for itself, its
         parent or a sub-issue, or one that already depends on it; the change is told as `issue.depends`. `proposal:
@@ -357,7 +445,10 @@ paths:
               additionalProperties: false
               properties:
                 title: {type: string, minLength: 1}
+                status: {type: string, description: 'A status''s id, a kind (`backlog`, `todo`, `started`, `done`, `canceled`) or an old word (`doing`, `now`, `next`, `later`)'}
+                plan: {type: [string, 'null'], enum: [now, next, later, null], description: 'From before statuses: any plan is Todo, null is Backlog'}
                 priority: {type: [string, 'null'], enum: [P0, P1, P2, P3, null]}
+                assignee: {type: [string, 'null'], description: 'Who it''s with: `owner` is the owner, blank or null is nobody'}
                 notes: {type: [string, 'null']}
                 labels: {type: [array, 'null'], items: {type: string}}
                 external: {type: [array, 'null'], items: {type: string}}
@@ -410,6 +501,64 @@ paths:
         '200': {description: The issue, content: {application/json: {schema: {$ref: '#/components/schemas/IssueDetail'}}}}
         '404': {$ref: '#/components/responses/NotFound'}
         '409': {description: Someone else holds it, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+  /api/projects/{project}/issues/decide:
+    parameters: [{$ref: '#/components/parameters/project'}]
+    post:
+      summary: The owner's one decision on many proposals
+      description: |
+        Each decided on its own, as `POST …/issues/{issue}/decide` decides one, so one refused doesn't stop the rest.
+        Picks and explore go one at a time: approving takes each one's recommendations, and refuses one with a choice
+        that has none. Each id sent comes back once, in the order sent, with `error` saying why when it wasn't decided.
+        Each comment comes back in `Orrery-Carry` and the ones approving made urgent in `Orrery-Urgent`, apart by commas.
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ids, decision]
+              properties:
+                ids: {type: array, minItems: 1, items: {type: string}}
+                decision: {type: string, enum: [approved, changes, rejected]}
+                note: {type: [string, 'null']}
+      responses:
+        '200':
+          description: How each went
+          content:
+            application/json:
+              schema: {type: array, items: {type: object, required: [id, ok], properties: {id: {type: string}, ok: {type: boolean}, error: {type: string}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/projects/{project}/issues/{issue}/decide:
+    parameters: [{$ref: '#/components/parameters/project'}, {$ref: '#/components/parameters/issue'}]
+    post:
+      summary: The owner's decision on a proposal
+      description: |
+        Approving commits it, into Todo while it's in the backlog, with the picks sent or each choice's recommendation;
+        asking for changes can name an option to go further down (`explore`); a rejection is told to the session on it
+        but starts no work. It goes back to whoever proposed it, and the decision is left on it as the owner's comment,
+        which comes back in `Orrery-Carry` (marked ` quiet` for a rejection) for the Nuxt server to pass on, with
+        `Orrery-Urgent` when approving made it urgent open work.
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [decision]
+              additionalProperties: false
+              properties:
+                decision: {type: string, enum: [approved, changes, rejected]}
+                note: {type: [string, 'null']}
+                picks: {type: object, additionalProperties: {type: array, items: {type: string}}}
+                explore: {type: object, required: [choice, option], properties: {choice: {type: string}, option: {type: string}}}
+      responses:
+        '200': {description: The issue, content: {application/json: {schema: {$ref: '#/components/schemas/IssueDetail'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
   /api/projects/{project}/issues/{issue}/comments:
     parameters: [{$ref: '#/components/parameters/project'}, {$ref: '#/components/parameters/issue'}]
     get:
@@ -557,10 +706,16 @@ paths:
       summary: Every project, by name, each with its counts
       description: |
         Each project's own fields, docs, doc sections and releases, and for its board only the counts and kinds of its
-        leaf issues and how many milestones it has. With `?expand=board` it's each one's board instead, with the events
-        stream's `rev`: the Nuxt server answers that, so the router never sends it here.
+        leaf issues and how many milestones it has. With `?expand=board` it's each one's board instead, trimmed by
+        `&notes=0` and `&closed=0` but for the projects in `&whole=`. The events stream's `rev` isn't here: the router asks
+        for the whole boards and labels them with it, then leaves the closed issues out itself.
+      parameters:
+        - {name: expand, in: query, required: false, description: '`board` gives each project''s board in place of its counts', schema: {type: string}}
+        - {name: notes, in: query, required: false, description: '`0` leaves the issues'' notes out', schema: {type: string}}
+        - {name: closed, in: query, required: false, description: '`0` leaves out the closed issues with no open sub-issue', schema: {type: string}}
+        - {name: whole, in: query, required: false, description: 'Projects, comma-separated, whose boards keep their closed issues', schema: {type: string}}
       responses:
-        '200': {description: The projects, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/ProjectSummary'}}}}}
+        '200': {description: 'The projects, with their counts or, expanded, their boards', content: {application/json: {schema: {type: array, items: {oneOf: [{$ref: '#/components/schemas/ProjectSummary'}, {$ref: '#/components/schemas/Project'}]}}}}}
     post:
       summary: Makes a project
       description: |
@@ -578,16 +733,72 @@ paths:
         '409': {$ref: '#/components/responses/Conflict'}
   /api/projects/{project}:
     parameters: [{$ref: '#/components/parameters/project'}]
+    get:
+      summary: The project, with its board
+      description: |
+        Its own fields, docs, doc sections, releases and board. `?notes=0` leaves the issues' notes out, and `?closed=0`
+        the closed issues (done, canceled) with no open sub-issue under them. The events stream's `rev`, which the page's
+        patches build on, isn't here: it's the Nuxt server's, so the router asks for the whole board and labels the reply
+        with it, then leaves the closed issues out itself.
+      parameters:
+        - {name: notes, in: query, required: false, description: '`0` leaves the issues'' notes out', schema: {type: string}}
+        - {name: closed, in: query, required: false, description: '`0` leaves out the closed issues with no open sub-issue', schema: {type: string}}
+      responses:
+        '200': {description: 'The project, with its board', content: {application/json: {schema: {$ref: '#/components/schemas/Project'}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
     patch:
       summary: Changes a project
       description: |
         Its name, key, description, icon, tint, repo and where its releases come from; its prompts (`focus_prompt`,
         `milestone_prompt`, `instructions`, `muted`) are the owner's (403). Its id can't change (400). Sending
         `releases_from` makes it `shared`, and null gives it its own; leaving its own releases is refused while it has
-        some or another project draws on them (409). Its issues keep only the releases the new source has. Reading a
-        project stays with the Nuxt server, which adds the events stream's `rev`.
+        some or another project draws on them (409). Its issues keep only the releases the new source has.
       parameters: [{$ref: '#/components/parameters/actor'}]
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/ProjectInput'}}}}
+      responses:
+        '200': {description: 'The project, with its board', content: {application/json: {schema: {$ref: '#/components/schemas/Project'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+    delete:
+      summary: Deletes a project, for good
+      description: |
+        Everything in it goes too: milestones, issues, comments, docs, releases, schedules and signals. An agent can't
+        while it holds anything the owner made (403), and nobody can while another project takes its releases from it
+        (409). The reply says its schedules changed (`Orrery-Schedules`), for the local app's runner to drop them.
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      responses:
+        '204': {description: Deleted}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+  /api/projects/{project}/export:
+    parameters: [{$ref: '#/components/parameters/project'}]
+    get:
+      summary: The board as one file
+      description: |
+        A snapshot of the project, read in one transaction, that leaves the board as it is: its rows of each table a board
+        takes (`tables`), the people it names, the statuses its issues are in, and the images its text shows (`data` in
+        base64). Secrets, credentials and live state stay behind. `Content-Disposition` names it for the project and the
+        day, so a browser saves it. Whether the asker is on the board is the Nuxt server's to check, before it sends this on.
+      responses:
+        '200': {description: The board's file, content: {application/json: {schema: {type: object, required: [format, format_version, schema_step, exported_at, project, people, statuses, uploads, tables], properties: {format: {type: string, enum: [orrery-board]}, format_version: {type: integer}, schema_step: {type: integer}, exported_at: {type: string}, project: {type: string}, people: {type: array, items: {type: object}}, statuses: {type: array, items: {type: object}}, uploads: {type: array, items: {type: object}}, tables: {type: object}}}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/projects/{project}/import:
+    parameters: [{$ref: '#/components/parameters/project'}]
+    post:
+      summary: Imports a roadmap
+      description: |
+        A roadmap in `docs/roadmap.json`'s format: milestones of tasks with a status (`todo`, `doing`, `done`) and a plan.
+        Everything gets the project's ids (milestones 1, 2, …, issues KEY-1, …), the file's ids becoming aliases. A file
+        with problems is a 400 naming each, with unknown fields among them. Refused when the project has milestones or
+        issues already (409) unless `replace=true`, which clears them first; replacing what the owner made is theirs
+        (403). With more than one person on this orrery, only a person imports one (409).
+      parameters:
+        - {$ref: '#/components/parameters/actor'}
+        - {name: replace, in: query, required: false, description: '`true` clears the milestones and issues first', schema: {type: string}}
+      requestBody: {required: true, content: {application/json: {schema: {type: object, required: [milestones], properties: {$comment: {type: string}, milestones: {type: array, items: {type: object}}}}}}}
       responses:
         '200': {description: 'The project, with its board', content: {application/json: {schema: {$ref: '#/components/schemas/Project'}}}}
         '400': {$ref: '#/components/responses/BadRequest'}
@@ -722,6 +933,36 @@ paths:
       summary: Ends this browser's login, on the server as well as its cookie
       responses:
         '204': {description: Logged out, or wasn't logged in}
+  /api/auth/status:
+    get:
+      x-served: false
+      summary: Whether this orrery asks for a login, and who this browser is
+      description: >-
+        Open, as the login page needs it first. How the request reached the router comes in `Orrery-Came` (`loopback`,
+        `proxied`, `phone`, `https`), and `Orrery-Login-Ways` says `on` for ORRERY_AUTH=on. Written ahead of the swap.
+      responses:
+        '200': {description: '{mode, person?, via?, can_get_in, oidc, warn_http, phone}'}
+  /api/auth/link:
+    post:
+      x-served: false
+      summary: Signs this browser in with a phone's one-time link or its six-letter code, using it up
+      description: >-
+        `{token}` from the QR code, or `{code}` typed. The login is named as the phone's own. Five wrong codes in a row
+        end every code still open. Links are kept in memory, so a restart ends them. Written ahead of the swap.
+      responses:
+        '201': {description: '{person}, with the login cookie'}
+        '401': {description: The link or code is wrong, used or has run out}
+  /api/phone/link:
+    post:
+      x-served: false
+      summary: A one-time sign-in link and code for App settings' QR code
+      description: >-
+        Good once, for five minutes. Only the owner's own page makes one: never over the phone's port
+        (`Orrery-Came: phone`), never a session, the chat or an untrusted one. Written ahead of the swap.
+      responses:
+        '201': {description: '{token, code, expires_at}'}
+        '403': {description: Over the phone's port, or not the owner's own page}
+        '409': {description: The owner hasn't given their name yet}
   /api/auth/oidc/start:
     get:
       x-served: false
@@ -852,6 +1093,78 @@ paths:
         '204': {description: Deleted}
         '403': {$ref: '#/components/responses/Forbidden'}
         '404': {$ref: '#/components/responses/NotFound'}
+  /api/epics/{epic}/comments:
+    parameters: [{$ref: '#/components/parameters/epic'}]
+    get:
+      summary: An epic's comments, oldest first
+      responses:
+        '200': {description: The comments, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/ThreadComment'}}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
+    post:
+      summary: Comments on an epic
+      description: Words on its page, which ask nothing and wake no session.
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/ThreadCommentInput'}}}}
+      responses:
+        '201': {description: The comment, content: {application/json: {schema: {$ref: '#/components/schemas/ThreadComment'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/epics/{epic}/comments/{comment}:
+    parameters: [{$ref: '#/components/parameters/epic'}, {$ref: '#/components/parameters/comment'}]
+    patch:
+      summary: Changes a comment on an epic
+      description: The owner's are theirs, and a member's theirs and their agents' (403).
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/ThreadCommentInput'}}}}
+      responses:
+        '200': {description: The comment, content: {application/json: {schema: {$ref: '#/components/schemas/ThreadComment'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+    delete:
+      summary: Deletes a comment on an epic
+      description: The owner's are theirs, and a member's theirs and their agents' (403).
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      responses:
+        '204': {description: Deleted}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/projects/{project}/milestones/{milestone}/comments:
+    parameters: [{$ref: '#/components/parameters/project'}, {$ref: '#/components/parameters/milestone'}]
+    get:
+      summary: A milestone's comments, oldest first
+      responses:
+        '200': {description: The comments, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/ThreadComment'}}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
+    post:
+      summary: Comments on a milestone
+      description: Words on its page, which ask nothing and wake no session.
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/ThreadCommentInput'}}}}
+      responses:
+        '201': {description: The comment, content: {application/json: {schema: {$ref: '#/components/schemas/ThreadComment'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/projects/{project}/milestones/{milestone}/comments/{comment}:
+    parameters: [{$ref: '#/components/parameters/project'}, {$ref: '#/components/parameters/milestone'}, {$ref: '#/components/parameters/comment'}]
+    patch:
+      summary: Changes a comment on a milestone
+      description: The owner's are theirs, and a member's theirs and their agents' (403).
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/ThreadCommentInput'}}}}
+      responses:
+        '200': {description: The comment, content: {application/json: {schema: {$ref: '#/components/schemas/ThreadComment'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+    delete:
+      summary: Deletes a comment on a milestone
+      description: The owner's are theirs, and a member's theirs and their agents' (403).
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      responses:
+        '204': {description: Deleted}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
   /api/secrets:
     get:
       summary: Every secret by name, never its value
@@ -936,6 +1249,27 @@ paths:
       responses:
         '200': {description: The schedule, content: {application/json: {schema: {type: object}}}}
         '404': {$ref: '#/components/responses/NotFound'}
+    delete:
+      summary: 'Deletes the schedule (ORR-950); the issues it made stay. One made across projects leaves this project out'
+      responses:
+        '204': {description: Deleted}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/projects/{project}/schedules/{schedule}/adopt:
+    parameters:
+      - {$ref: '#/components/parameters/project'}
+      - {name: schedule, in: path, required: true, description: 'Its number, or its full id: `sch-12-x7k2m9qd`', schema: {type: string}}
+    post:
+      summary: 'The owner makes an agent''s schedule theirs (ORR-456, ORR-950); one already theirs comes back as it is'
+      requestBody:
+        required: false
+        content: {application/json: {schema: {type: object, properties: {seen: {type: string, description: 'The updated_at it was read at; changed since is a 409'}}}}}
+      responses:
+        '200': {description: The schedule, content: {application/json: {schema: {type: object}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
   /api/schedules:
     get:
       summary: 'Every project''s schedules (the agenda): the soonest next run first, those with none last, ties by title'
@@ -1184,6 +1518,7 @@ components:
     release: {name: release, in: path, required: true, description: The release's version, schema: {type: string}}
     preset: {name: preset, in: path, required: true, description: 'The preset''s number, or its full id on this server (`pst-12-x7k2m3qd`)', schema: {type: string}}
     comment: {name: comment, in: path, required: true, description: 'A comment''s id; ids run across the orrery', schema: {type: integer, minimum: 1}}
+    epic: {name: epic, in: path, required: true, description: 'The epic''s number (`3`), as it''s shown (`EPC-3`), or its full id on this server (`EPC-3-x7k2m3qd`)', schema: {type: string}}
     actor:
       name: Orrery-Actor
       in: header
@@ -1423,7 +1758,7 @@ components:
         effort: {type: string, enum: [low, medium, high, xhigh, max]}
     Settings:
       type: object
-      required: [id, tint, statuses, focus_prompt, milestone_prompt, instructions, handle, uid, tracker, starts, terminal, restrict_proposals, advanced, pick_next, count_use, work_kinds, starred, hidden]
+      required: [id, tint, statuses, focus_prompt, milestone_prompt, instructions, handle, uid, tracker, starts, terminal, agent, restrict_proposals, advanced, count_use, work_kinds, starred, hidden]
       properties:
         id: {type: string, description: 'This orrery''s id, `orr_` and six hex digits'}
         tint: {type: [string, 'null']}
@@ -1436,9 +1771,9 @@ components:
         tracker: {type: [string, 'null']}
         starts: {oneOf: [{$ref: '#/components/schemas/Starts'}, {type: 'null'}]}
         terminal: {type: string, enum: [terminal, iterm, warp, ghostty]}
+        agent: {type: string, enum: [claude, other], description: 'The AI agent the owner runs (ORR-1075): claude, or other for one with no launcher adapter yet'}
         restrict_proposals: {type: boolean}
         advanced: {type: boolean}
-        pick_next: {type: boolean}
         count_use: {type: boolean}
         work_kinds: {type: array, items: {$ref: '#/components/schemas/WorkKind'}}
         starred: {type: array, items: {type: string}, description: Project ids listed first; none that are hidden}
@@ -1456,9 +1791,9 @@ components:
         handle: {type: [string, 'null'], pattern: '^[A-Za-z0-9][A-Za-z0-9._-]{0,38}$'}
         starts: {oneOf: [{$ref: '#/components/schemas/Starts'}, {type: 'null'}]}
         terminal: {type: [string, 'null'], enum: [terminal, iterm, warp, ghostty, null]}
+        agent: {type: [string, 'null'], enum: [claude, other, null]}
         restrict_proposals: {type: boolean}
         advanced: {type: boolean}
-        pick_next: {type: boolean}
         work_kinds: {type: [array, 'null'], minItems: 1, items: {$ref: '#/components/schemas/WorkKind'}}
         count_use: {type: boolean}
         starred: {type: [array, 'null'], items: {type: string, minLength: 1}}
@@ -1793,6 +2128,24 @@ components:
                 allOf:
                   - {$ref: '#/components/schemas/EpicPart'}
                   - {type: object, required: [name, tasks], properties: {name: {type: string}, tasks: {type: array, items: {$ref: '#/components/schemas/Issue'}}}}
+    ThreadCommentInput:
+      type: object
+      properties:
+        body: {type: string, description: 'Markdown, not blank; needed to make one'}
+    ThreadComment:
+      type: object
+      required: [id, body, created_by, protected, created_at, updated_at]
+      properties:
+        id: {type: integer, description: Numbered across the orrery's milestone comments, or its epic comments}
+        project: {type: string, description: On a milestone's}
+        milestone: {type: string, description: On a milestone's}
+        epic: {type: integer, description: On an epic's}
+        body: {type: string, description: Markdown}
+        created_by: {type: string}
+        session_name: {type: string, description: Only with one}
+        protected: {type: boolean, description: Written by the owner}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
     Secret:
       type: object
       required: [name, last4, hosts, projects, created_by, created_at, updated_at, last_used]

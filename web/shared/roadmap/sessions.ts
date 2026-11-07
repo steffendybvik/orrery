@@ -117,22 +117,6 @@ export function sameScope(a: IssueScope, b: IssueScope): boolean {
 /** How much context a session carries, as its hook last said (ORR-968). */
 export interface ContextUse {tokens: number, window: number, compacted?: boolean}
 
-/** A model's context window in tokens (ORR-968, ORR-993), as Claude Code's own table of models has it: 1M for a `[1m]`
- * id and for the models whose window is 1M as they are (every Claude 5 model, and Opus 4.7 on), whose ids don't say so;
- * 200k for the older ones. A model it can't tell (none said yet, or an id it can't read) is on Claude Code's default,
- * which is 1M. More than 200k in use is 1M whatever the model. */
-export function contextWindow(model: string | undefined, tokens: number): number {
-    if (tokens > 200_000 || /\[1m\]/i.test(model ?? '')) return 1_000_000
-    // Claude 3's ids put the version first (`claude-3-5-sonnet`): all 200k.
-    if (/claude-\d/i.test(model ?? '')) return 200_000
-    const match = /claude-([a-z]+)-(\d+)(?:-(\d{1,2}))?(?!\d)/i.exec(model ?? '')
-    if (!match) return 1_000_000
-    const [, family, major, minor] = match as unknown as [string, string, string, string | undefined]
-    const version = Number(major) + Number(minor ?? 0) / 100
-    if (version >= 5) return 1_000_000
-    return family.toLowerCase() === 'opus' && version >= 4.07 ? 1_000_000 : 200_000
-}
-
 /** How full a session's context is, from 0 to 1. */
 export const contextShare = ({tokens, window}: ContextUse) => Math.min(1, Math.max(0, tokens / window))
 
@@ -180,6 +164,9 @@ export interface StartedSession {
     /** Started for the owner's chat: it hears only the chat's messages, reads and answers, and makes issues and
      * comments when asked; nothing else. */
     chat?: boolean
+    /** Started as a global session (ORR-1079): in the orrery's default folder, hearing every project, with none of its
+     * own for a call that names none. It's kept under the project it was started from. */
+    global?: boolean
     /** The model and effort it was started on (`claude --model … --effort …`), when it asked for any; none, on
      * Claude Code's default there (ORR-868). */
     model?: string
@@ -247,13 +234,5 @@ export const madeUpName = (session: {name: string, project: string}) => session.
 export const nameBesideProject = (session: {name: string, project: string}) =>
     session.name.startsWith(`${session.project} · `) ? session.name.slice(session.project.length + 3) || session.name : session.name
 
-/** A model's id as people say it (ORR-871): `claude-opus-5-5` is Opus 5.5, `claude-sonnet-5-20260101` Sonnet 5, and a
- * 1M context (`[1m]`) says so. An id it can't read is shown as it is. */
-export function modelLabel(id: string): string {
-    const long = /\[1m\]$/i.test(id)
-    const match = /^(?:anthropic\.)?claude-([a-z]+)-(\d+)(?:-(\d{1,2}))?(?:-\d{8})?(?:-v\d+(?::\d+)?)?(?:\[1m\])?$/i.exec(id.trim())
-    if (!match) return id
-    const [, family, major, minor] = match as unknown as [string, string, string, string | undefined]
-    const name = `${family.charAt(0).toUpperCase()}${family.slice(1).toLowerCase()} ${major}${minor ? `.${minor}` : ''}`
-    return long ? `${name} · 1M` : name
-}
+/** A model's id as people say it (ORR-871), as the Claude adapter's card says it (ORR-1074). */
+export {modelLabel} from '#channel/claude-card.mjs'

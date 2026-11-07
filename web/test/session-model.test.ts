@@ -2,8 +2,8 @@ import {mkdtempSync, writeFileSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {describe, expect, it} from 'vitest'
-import {contextOf, effortOf, lastModel, modelOf} from '../../channel/transcript.mjs'
-import {contextWindow, modelLabel} from '../shared/roadmap'
+import {contextOf, contextWindow, effortOf, lastModel, modelOf} from '../../channel/transcript.mjs'
+import {modelLabel} from '../shared/roadmap'
 
 // Each session's model on the Sessions page (ORR-871): the hook reads it off the session's transcript, the latest
 // reply's, and the page names it as people say it.

@@ -11,7 +11,7 @@ import type {Chat, ChatIssues, ChatMessage} from '#shared/roadmap'
 // only what couldn't go says so (Not sent, Retry). ⌘/Ctrl-Enter or Send sends at once, and Esc in an empty box takes the
 // last one back. A slash command goes at once, after what's held. The chat ending, or closing the pane before one has
 // started, puts what's held back in the box, so nothing starts a chat on its own after it (ORR-523). An image pasted or
-// dropped anywhere on the pane goes with the message. The pane is open or closed: closing it (× or Esc) only hides it,
+// dropped anywhere on the pane goes with the message. The pane is open or closed (⌘J toggles it, ORR-1030): closing it (× or Esc) only hides it,
 // with the chat still running (ORR-878, ORR-883), and the corner button brings it back as it was. Whether the chat is
 // live isn't shown, only a session that can't start. Only a row's × in the list ends a chat. The pane can be made large; a phone's fills the screen either way, as it has no Larger button. Beside
 // Send, the owner picks where the issues it makes land, Todo or Backlog; the server holds the chat to it. A setting the
@@ -437,6 +437,19 @@ function corner() {
     if (popup && !popup.closed) popup.focus()
     else show()
 }
+/** ⌘J (Ctrl-J) does what the corner button does, and with the pane open closes it as Esc does (ORR-1030). Opening
+ * puts the cursor in the box (focusField). Not while typing in a field outside the pane, nor over the palette or New
+ * issue; in its own window there's no pane to toggle. */
+function toggleKey(event: KeyboardEvent) {
+    if (!(event.metaKey || event.ctrlKey) || event.shiftKey || event.altKey || event.key.toLowerCase() !== 'j') return
+    if (useState('palette-open').value || useNewIssue().target.value) return
+    if (isTyping(event.target) && !pane.value?.contains(event.target as Node)) return
+    event.preventDefault()
+    if (open.value) shut()
+    else corner()
+}
+onMounted(() => !props.standalone && window.addEventListener('keydown', toggleKey))
+onBeforeUnmount(() => window.removeEventListener('keydown', toggleKey))
 /** In the window: back into the pane of the window it came from, on the same chat, and this one closes. With that
  * window gone, it stays as it is. */
 function dockBack() {
@@ -786,8 +799,9 @@ v-if="m.milestone" class="flex w-full flex-col gap-2 rounded-xl bg-well p-3 ring
     <div v-if="session?.state === 'waiting'" class="px-3 pt-2">
       <PermissionPrompt :session="session" :hideable="false" class="w-full! max-w-none!" />
     </div>
-    <!-- An ended chat takes a message too: it starts its session again, on the same conversation (ORR-884). -->
-    <form class="flex flex-col gap-2 p-3" @submit.prevent="submit(true)">
+    <!-- An ended chat takes a message too: it starts its session again, on the same conversation (ORR-884). Not a <form>:
+         Enter sends through onKey, and iOS Safari draws its form bar (arrows and a tick) over the keyboard for a box in one (ORR-1084). -->
+    <div class="flex flex-col gap-2 p-3">
       <LauncherHint v-if="unlaunched" :project="about!" chat />
       <p v-else-if="failed" class="px-1 text-xs text-rose-700 dark:text-rose-400">{{ failed }}</p>
       <div class="flex flex-col gap-2 rounded-2xl bg-well p-2 ring-1 ring-line transition focus-within:ring-accent-500/50">
@@ -827,12 +841,12 @@ v-if="m.milestone" class="flex w-full flex-col gap-2 rounded-xl bg-well p-3 ring
               </MenuItem>
             </MenuItems>
           </Menu>
-          <UiButton type="submit" variant="primary" size="xs" square class="rounded-full" aria-label="Send" title="Send now (⌘↵)" :disabled="sending || !!uploading || !about || !draft.trim() && !images.length && !held.length">
+          <UiButton variant="primary" size="xs" square class="rounded-full" aria-label="Send" title="Send now (⌘↵)" :disabled="sending || !!uploading || !about || !draft.trim() && !images.length && !held.length" @click="submit(true)">
             <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5m0 0-6 6m6-6 6 6" /></svg>
           </UiButton>
         </div>
       </div>
-    </form>
+    </div>
     </div>
   </section>
 </template>

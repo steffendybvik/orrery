@@ -11,7 +11,7 @@
 import {execFileSync} from 'node:child_process'
 import {existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync} from 'node:fs'
 import {homedir} from 'node:os'
-import {dirname, join} from 'node:path'
+import {dirname, join, sep} from 'node:path'
 
 export const LABEL = 'orrery.launcher'
 export const configFile = () => join(process.env.XDG_CONFIG_HOME || join(homedir(), '.config'), 'orrery', 'launcher.json')
@@ -40,10 +40,11 @@ export function serviceProblem({platform = process.platform, wsl = platform === 
     return "systemd isn't running here, so the launcher can't install as a service; run it in a terminal instead"
 }
 
-/** The launcher's list: `{projects: [{url, project, dir}], pickUp, skip, orreries}`, empty when there's none yet. `pickUp`:
+/** The launcher's list: `{projects: [{url, project, dir}], pickUp, skip, orreries, agent}`, empty when there's none yet. `pickUp`:
  * whether a repo's channel adds the repo as it connects; `skip`: the repos `--uninstall` took off, which it doesn't;
  * `orreries`: those it was installed for with no project, which it follows for Connect a repo (ORR-708), the latest first:
- * the first is where its code comes from (ORR-960). */
+ * the first is where its code comes from (ORR-960); `agent`: the adapter its sessions run, as `--install --agent=<name>`
+ * set it (ORR-1075), none for Claude Code's. */
 export function readConfig(file = configFile()) {
     return listIn(file) ?? empty()
 }
@@ -66,10 +67,26 @@ export function listIn(file = configFile()) {
             pickUp: config.pickUp === true,
             skip: Array.isArray(config.skip) ? config.skip.filter(dir => typeof dir === 'string') : [],
             ...Array.isArray(config.orreries) && config.orreries.length ? {orreries: config.orreries.filter(url => typeof url === 'string')} : {},
+            ...typeof config.agent === 'string' && config.agent ? {agent: config.agent} : {},
         }
     } catch {
         return null
     }
+}
+
+/** The project the launcher's list maps the folder `dir` to on the orrery at `url` (ORR-1068): the entry whose folder is
+ * `dir` or holds it, the nearest one if several do. None when no entry does, or when the nearest folder serves several
+ * projects there (a monorepo's), as which one a call is for can't be told; nor for a list that can't be read. */
+export function projectAt(dir, url, {file = configFile()} = {}) {
+    const list = listIn(file)
+    if (!list || !dir || !url) return undefined
+    const trimmed = url.replace(/\/+$/, '')
+    const holds = entry => typeof entry.dir === 'string' && entry.dir && (dir === entry.dir || dir.startsWith(entry.dir.endsWith(sep) ? entry.dir : `${entry.dir}${sep}`))
+    const found = list.projects.filter(entry => typeof entry.url === 'string' && entry.url.replace(/\/+$/, '') === trimmed && typeof entry.project === 'string' && holds(entry))
+    if (!found.length) return undefined
+    const nearest = Math.max(...found.map(entry => entry.dir.length))
+    const named = [...new Set(found.filter(entry => entry.dir.length === nearest).map(entry => entry.project))]
+    return named.length === 1 ? named[0] : undefined
 }
 
 /** Writes the list whole, by a rename, so the running service following it never reads it half written. */
@@ -271,14 +288,24 @@ export function installedFrom(orreries, orrery) {
 }
 
 /** Adds the projects of the repo at `dir` to the list (none, and no `dir`, to install the service alone), sets
- * pick-up, and starts the service if it isn't running on the same file. A restart stops the sessions it was running. */
-export function install(entries, {node = process.execPath, script, path = process.env.PATH ?? '', dir, pickUp = true, orrery}) {
+ * pick-up, and the agent when one is named, and starts the service if it isn't running on the same file. A restart
+ * stops the sessions it was running. */
+export function install(entries, {node = process.execPath, script, path = process.env.PATH ?? '', dir, pickUp = true, orrery, agent}) {
     const where = platform()
     const before = readConfig()
-    const listed = {...entries.reduce(withProject, before), pickUp, ...orrery ? {orreries: installedFrom(before.orreries, orrery)} : {}}
+    const listed = {...withAgent(entries.reduce(withProject, before), agent), pickUp, ...orrery ? {orreries: installedFrom(before.orreries, orrery)} : {}}
     const config = dir ? skipping(listed, dir, false) : listed
     const restarted = apply(where, config, {node, script, path})
     return {config, file: where.file, logs: where.logs, restarted}
+}
+
+/** The list with the agent its sessions run (ORR-1075): Claude Code's is the default, so it's kept as none, and a list
+ * installed with no agent named keeps the one it had. */
+export function withAgent(config, agent) {
+    if (!agent) return config
+    const rest = {...config}
+    delete rest.agent
+    return agent === 'claude' ? rest : {...rest, agent}
 }
 
 /** Takes the projects of the repo at `dir` off the list and keeps the repo off it, which the running service follows.

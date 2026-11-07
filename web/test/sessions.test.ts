@@ -861,6 +861,11 @@ describe("a session's context (ORR-968)", () => {
         expect(session('o')?.context).toEqual({tokens: 198_000, window: 1_000_000})
     })
 
+    it("is against the window its agent's adapter says, when its hook sends one (ORR-1074)", () => {
+        sessions.report({id: 'a', project: 'hub', event: 'Stop', model: 'claude-sonnet-4-6', context: 50_000, window: 128_000})
+        expect(session('a')?.context).toEqual({tokens: 50_000, window: 128_000})
+    })
+
     it('is marked compacted after a compaction, until a clear starts it afresh', () => {
         sessions.report({id: 'k', project: 'hub', event: 'Stop', context: 150_000})
         sessions.report({id: 'k', project: 'hub', event: 'SessionStart', source: 'compact'})

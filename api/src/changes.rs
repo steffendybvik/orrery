@@ -5,8 +5,8 @@
 // woken by `wake()` once a write has committed, and rows older than a week are pruned. Nothing reads them yet: the
 // reply headers still carry what changed.
 use crate::db::sql;
-use crate::docs::{stamp, Actor, Effects, Told};
 use crate::error::{ApiError, Result};
+use crate::write::{stamp, Actor, Effects, Told};
 use axum::response::sse::Event;
 use futures_util::stream::{self, Stream};
 use serde_json::{json, Value};
@@ -26,12 +26,13 @@ pub struct Outbox {
     changed: Vec<String>,
     settings: bool,
     epics: bool,
+    schedules: Vec<String>,
     told: usize,
 }
 
 impl Outbox {
     pub fn new(actor: Actor) -> Self {
-        Outbox { actor, changed: vec![], settings: false, epics: false, told: 0 }
+        Outbox { actor, changed: vec![], settings: false, epics: false, schedules: vec![], told: 0 }
     }
 
     /// Records what `effects` holds that this request hasn't recorded yet, on `conn`, inside its transaction.
@@ -39,9 +40,11 @@ impl Outbox {
         let changed: Vec<&String> = effects.changed.iter().filter(|p| !self.changed.contains(p)).collect();
         let settings = effects.settings && !self.settings;
         let epics = effects.epics && !self.epics;
+        let schedules: Vec<&String> = effects.schedules.iter().filter(|p| !self.schedules.contains(p)).collect();
         let told = &effects.told[self.told.min(effects.told.len())..];
-        record(conn, &changed, settings, epics, told, &self.actor).await?;
+        record(conn, &changed, settings, epics, &schedules, told, &self.actor).await?;
         self.changed.extend(changed.into_iter().cloned());
+        self.schedules.extend(schedules.into_iter().cloned());
         self.settings |= settings;
         self.epics |= epics;
         self.told = effects.told.len();
@@ -74,9 +77,9 @@ pub async fn finish<T>(conn: &mut AnyConnection, outbox: Option<&mut Outbox>, ef
     }
 }
 
-/// Writes the rows for what a write by `actor` set off: each project it changed, the settings, the epics, and each event
-/// told.
-async fn record(conn: &mut AnyConnection, changed: &[&String], settings: bool, epics: bool, told: &[Told], actor: &Actor) -> Result<()> {
+/// Writes the rows for what a write by `actor` set off: each project it changed, the settings, the epics, each project
+/// whose schedules changed, and each event told.
+async fn record(conn: &mut AnyConnection, changed: &[&String], settings: bool, epics: bool, schedules: &[&String], told: &[Told], actor: &Actor) -> Result<()> {
     // Each row's kind, project, subject and payload.
     type Row<'a> = (&'a str, Option<&'a str>, Option<&'a str>, Option<String>);
     let mut rows: Vec<Row> = vec![];
@@ -88,6 +91,9 @@ async fn record(conn: &mut AnyConnection, changed: &[&String], settings: bool, e
     }
     if epics {
         rows.push(("epics", None, None, None));
+    }
+    for project in schedules {
+        rows.push(("schedules", Some(project.as_str()), None, None));
     }
     for told in told {
         rows.push((told.kind.as_str(), Some(told.project.as_str()), Some(told.subject.as_str()), payload_of(told, actor)));

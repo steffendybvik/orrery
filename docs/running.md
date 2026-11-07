@@ -3,7 +3,7 @@
 In a folder of its own:
 
 ```sh
-curl -LO https://github.com/steffendybvik/orrery/releases/download/v1.0.0-rc.18/compose.yml
+curl -LO https://github.com/steffendybvik/orrery/releases/download/v1.0.0-rc.19/compose.yml
 docker compose up -d        # http://localhost:9000
 ```
 
@@ -373,11 +373,16 @@ database with them; plain `down` keeps them.
 
 ## Without Docker
 
-Node 24.22.1 and pnpm 10.14.0: `pnpm install && pnpm build`, then, in `web/`,
+Node 24.22.1, pnpm 10.14.0 and Rust 1.80 or later: `pnpm install && pnpm build`, and `cargo build --release` in
+`api/`. Then, in `web/`,
 
 ```sh
-NUXT_DATABASE=/path/to/orrery.db PORT=9000 node .output/server/index.mjs
+NUXT_DATABASE=/path/to/orrery.db NUXT_API_BIN=../api/target/release/orrery-api PORT=9000 node .output/server/index.mjs
 ```
+
+`NUXT_API_BIN` is the Rust API, which serves the board's data: the server starts it beside itself, on the same
+database, and stops it with itself. Without it, the board doesn't load (its requests answer 503). The Docker image
+has it built in.
 
 The database file is made if it isn't there (by default the repo's `.data/orrery.db`, wherever the server starts). A
 relative `NUXT_DATABASE` is taken from the folder the server starts in, so give it an absolute one. It can also be a

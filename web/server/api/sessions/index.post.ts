@@ -1,10 +1,11 @@
-// `POST /api/sessions` {id?, pid?, project, name?, cwd?, event, message?, command?, tool?, reason?, source?, started?, error?, model?, effort?, context?} →
+// `POST /api/sessions` {id?, pid?, project, name?, cwd?, event, message?, command?, tool?, reason?, source?, started?, error?, model?, effort?, context?, window?} →
 // the session: a Claude session's hook saying who it is and what it's doing (see channel/orrery-hook.mjs). `event` is
 // the hook's event name; a `StopFailure` (with its `error`) lets go of the issues the session has in progress. A
 // `SessionStart` after a `/clear`, a compaction or a resume (`source`) also brings `brief`: what the session was working
 // on, for the hook to hand the fresh context so the work carries on. A session orrery started (`started`, its launch)
 // with context gets that in the brief on every `SessionStart`, its first included. `tool` ({name, detail?}, on
-// `PreToolUse` and `PermissionRequest`) is what a permission prompt it waits at is for.
+// `PreToolUse` and `PermissionRequest`) is what a permission prompt it waits at is for. Every `SessionStart` brings the
+// project's `repo` too (its address, or null), which the hook tells the session with the folder's own repo (ORR-1070).
 import {cutOffLabel, isEffort} from '#shared/roadmap'
 export default defineEventHandler(async event => {
     const body = await readBody(event).catch(() => null) as Record<string, unknown> | null
@@ -30,6 +31,8 @@ export default defineEventHandler(async event => {
         effort: isEffort(body.effort) ? body.effort : undefined,
         // And the tokens its context holds (ORR-968): a whole count, kept only when it's a sane one.
         context: Number.isSafeInteger(body.context) && (body.context as number) >= 0 && (body.context as number) <= 10_000_000 ? body.context as number : undefined,
+        // And its model's window, as its agent's adapter measures it (ORR-1074), kept the same way.
+        window: Number.isSafeInteger(body.window) && (body.window as number) > 0 && (body.window as number) <= 10_000_000 ? body.window as number : undefined,
         tool: tool && typeof tool.name === 'string' && tool.name ? {
             name: tool.name.slice(0, 200), ...typeof tool.detail === 'string' && tool.detail ? {detail: tool.detail.slice(0, 300)} : {},
         } : undefined,
@@ -62,6 +65,9 @@ export default defineEventHandler(async event => {
     }
     const api = `${getRequestURL(event).origin}/api/projects/${encodeURIComponent(body.project)}`
     // Its launch as its hook says (before its channel has connected) or as orrery knows it.
-    const brief = await sessionBrief(useStore(), {project: body.project, session: session.id, source, launch: text('started') ?? session.started?.launch, api})
-    return brief ? {...session, brief} : session
+    const [brief, repo] = await Promise.all([
+        sessionBrief(useStore(), {project: body.project, session: session.id, source, launch: text('started') ?? session.started?.launch, api}),
+        projectRepo(body.project),
+    ])
+    return {...session, ...brief ? {brief} : {}, repo}
 })

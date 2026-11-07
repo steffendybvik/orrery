@@ -6,6 +6,7 @@ import {runOf} from './clearing'
 import {issueLine} from './roadmap'
 import {scopeOf} from './scope'
 import {sessionIds} from './sessions'
+import {useStore} from './events'
 import type {Store} from './store'
 
 /** What happened to the session, by `source`, for the brief's first line. */
@@ -52,4 +53,10 @@ async function workBrief(store: Store, project: string, session: string, happene
         ] : [],
         `Read each in full (the issue tool, or curl ${api}/issues/<id>) before going on.`,
     ].join('\n')
+}
+
+/** The project's `repo` as orrery has it (its GitHub address), for a session told which repo it's in (ORR-1070); null
+ * when it names none or isn't there. */
+export async function projectRepo(project: string): Promise<string | null> {
+    return (await useStore().project(project).catch(() => undefined))?.repo || null
 }

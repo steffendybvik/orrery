@@ -13,7 +13,7 @@
 // or run it in a terminal for the repo's project alone, for as long as the terminal stays open:
 //   ORRERY_PROJECT=shop node /path/to/orrery/channel/orrery-launcher.mjs
 // The projects are ORRERY_PROJECT, else every one the channels in .mcp.json name (each channel's ORRERY_PROJECTS,
-// or its ORRERY_PROJECT), else the folder's name, each on its channel's orrery (see repo-channels.mjs), and each
+// or its ORRERY_PROJECT), else none (ORR-1068: a folder's name is no project's), each on its channel's orrery (see repo-channels.mjs), and each
 // project's sessions load the channel that serves it. A launch can name the projects its session hears (Start session
 // with several of the repo's projects, or one alone), which it gets as ORRERY_HEAR; one naming none hears what the
 // channel lists, every project with `*`. orrery asks only once the owner lets it start sessions (Starting sessions,
@@ -43,10 +43,11 @@ import {hostname, networkInterfaces} from 'node:os'
 import {dirname, join} from 'node:path'
 import {fileURLToPath} from 'node:url'
 import {connector, pickerFor} from './connect-repo.mjs'
+import {commandsFor, homeFolder, homeProjects, setUpHome} from './home-folder.mjs'
 import {authHeaders, keyFor, keysFile} from './credentials.mjs'
 import {addToList, adoptable, configFile, inWsl, install, listChanges, listIn, readConfig, removeService, restartKeepsSessions, servedElsewhere, serviceProblem, uninstall, wslLocalhost} from './launcher-service.mjs'
-import {chatOnly, lockedDown, modelArgs, resumeArgs} from './locked-down.mjs'
-import {onYes} from './permission-prompt.mjs'
+import {agentFor} from './agents.mjs'
+import {repoContext} from './repo-context.mjs'
 import {channelFor, channelsIn, projectsIn, servesEvery} from './repo-channels.mjs'
 import {follow} from './sse.mjs'
 import {openWatch} from './terminal.mjs'
@@ -55,6 +56,23 @@ import {BOOTSTRAP, CODE, VERSION, codeOnDisk, launcherMove, olderThan, servedOth
 const mode = process.env.ORRERY_PERMISSION_MODE || 'auto'
 const log = (...parts) => console.error('[orrery launcher]', ...parts)
 const tmux = (...args) => execFileSync('tmux', args, {encoding: 'utf8'}).trim()
+const args = process.argv.slice(2)
+/** The agent `--install --agent=<name>` names (ORR-1075), the one its list keeps otherwise: Claude Code's by default,
+ * the only adapter so far (agents.mjs). */
+const named = args.find(arg => arg.startsWith('--agent='))?.slice('--agent='.length)
+let agent
+try {
+    agent = agentFor(named || readConfig().agent)
+} catch (error) {
+    console.error(`[orrery launcher] ${error.message}`)
+    process.exit(1)
+}
+/** A tmux session's pane, as an adapter reads and types into it. */
+const paneOf = name => ({
+    read: () => tmux('capture-pane', '-p', '-t', name),
+    type: text => tmux('send-keys', '-t', name, '-l', text),
+    press: key => tmux('send-keys', '-t', name, key),
+})
 
 /** The repo here as the launcher serves it: for each of its projects, its orrery, the project, and its folder. */
 const here = () => projectsIn(process.cwd(), {project: process.env.ORRERY_PROJECT, url: process.env.ORRERY_URL})
@@ -75,15 +93,10 @@ function tmuxProblem() {
     return null
 }
 
-/** Throws what to do when the service couldn't start sessions here: no tmux, or no claude, on this PATH. */
-function needsTmuxAndClaude() {
-    const problem = tmuxProblem()
+/** Throws what to do when the service couldn't start sessions here: no tmux, or not its agent, on this PATH. */
+function needsTmuxAndAgent() {
+    const problem = tmuxProblem() ?? agent.problem()
     if (problem) throw new Error(problem)
-    try {
-        execFileSync('claude', ['--version'], {stdio: 'ignore'})
-    } catch {
-        throw new Error('claude isn\'t on your PATH: install Claude Code, then run this again from the same shell')
-    }
 }
 
 const USAGE = `orrery's launcher: starts Claude sessions for orrery's projects, in their repos.
@@ -91,6 +104,7 @@ const USAGE = `orrery's launcher: starts Claude sessions for orrery's projects, 
   node orrery-launcher.mjs --install      install the service once; in a repo connected to orrery (its .mcp.json
                                           registers orrery's channel), add the repo's projects too
                        --no-pick-up       with --install: don't let a Claude session add its repo
+                       --agent=<name>     with --install: the agent its sessions run (claude, the default and only one so far)
   node orrery-launcher.mjs --uninstall    in a repo, take its projects off and keep them off; elsewhere, remove the service
   node orrery-launcher.mjs --list         which projects this repo would add, and with which channel
   node orrery-launcher.mjs                run in this terminal for this repo's projects, until stopped
@@ -98,7 +112,6 @@ const USAGE = `orrery's launcher: starts Claude sessions for orrery's projects, 
 Connect the repo first (orrery's Connect an agent page), so its .mcp.json has the channel.`
 const FLAGS = ['--install', '--uninstall', '--no-pick-up', '--list', '--service', '--help', '-h']
 
-const args = process.argv.slice(2)
 // What the service runs: the bootstrap, when it's that that ran this.
 const script = BOOTSTRAP ? [BOOTSTRAP, 'launcher'] : fileURLToPath(import.meta.url)
 if (args.includes('--help') || args.includes('-h')) {
@@ -106,7 +119,7 @@ if (args.includes('--help') || args.includes('-h')) {
     process.exit(0)
 }
 // An unknown flag isn't taken for running in the foreground (ORR-604).
-const unknown = args.filter(arg => !FLAGS.includes(arg))
+const unknown = args.filter(arg => !FLAGS.includes(arg) && !arg.startsWith('--agent='))
 if (unknown.length) {
     console.error(`[orrery launcher] doesn't know ${unknown.join(' ')}\n\n${USAGE}`)
     process.exit(1)
@@ -121,7 +134,7 @@ if (args.includes('--list')) {
 }
 if (args.includes('--install') || args.includes('--uninstall')) {
     try {
-        // Before tmux and claude are looked for: on Windows itself, neither is the problem.
+        // Before tmux and the agent are looked for: on Windows itself, neither is the problem.
         const unserved = serviceProblem()
         if (unserved) throw new Error(unserved)
         const pickUp = !args.includes('--no-pick-up')
@@ -129,16 +142,19 @@ if (args.includes('--install') || args.includes('--uninstall')) {
         if (!channelsIn(process.cwd()).length && !process.env.ORRERY_PROJECT) {
             if (args.includes('--uninstall')) {
                 removeService()
+                const servers = agent.undo({homeOf: id => homeFolder(id)})
                 console.log(`Removed the launcher service. Its list stays in ${configFile()}, for the next --install.`)
+                if (servers.length) console.log(`Took ${servers.join(', ')} and orrery's hooks out of ${agent.name}'s user config, and the default folder's trust with them.`)
                 process.exit(0)
             }
-            needsTmuxAndClaude()
-            const {config, logs, restarted} = install([], {script, pickUp, orrery: process.env.ORRERY_URL})
+            needsTmuxAndAgent()
+            const {config, logs, restarted} = install([], {script, pickUp, orrery: process.env.ORRERY_URL, agent: named})
             console.log(`The launcher service is installed and starts at login. It serves ${config.projects.length ? config.projects.map(p => p.project).join(', ') : 'no project yet'}; the list is ${configFile()}.${restarted ? '' : ' It was running already, so its sessions go on.'}`)
             console.log(pickUp
                 ? "Pick-up is on: a Claude session opened in a repo whose .mcp.json registers orrery's channel puts that repo on it. --uninstall in a repo keeps it off."
                 : "Pick-up is off: run this with --install in a project's repo to put its projects on it.")
             console.log(`Its log: ${logs}`)
+            if (process.env.ORRERY_URL) await setUpMachine(process.env.ORRERY_URL.replace(/\/+$/, ''))
             process.exit(0)
         }
         // Several channels can name a project served from its own repo (a monorepo's channel to the personal
@@ -149,7 +165,11 @@ if (args.includes('--install') || args.includes('--uninstall')) {
             if (elsewhere && !process.env.ORRERY_PROJECT) console.log(`Left ${entry.project} (${entry.url}) as it is, served from ${elsewhere.dir}; ORRERY_PROJECT=${entry.project} acts on it from here.`)
             return !elsewhere || process.env.ORRERY_PROJECT
         })
-        if (!entries.length) process.exit(0)
+        if (!entries.length) {
+            // A channel serving `*` names no project, and the folder's name is no project's (ORR-1068).
+            if (!here().length) console.log("This repo's channel names no project, so there's nothing to serve from here: run this with ORRERY_PROJECT=<project> set.")
+            process.exit(0)
+        }
         // All of the repo's projects at once. The running service follows the list; it restarts (stopping the sessions
         // it runs) only when its file changed, at most once.
         if (args.includes('--uninstall')) {
@@ -158,10 +178,10 @@ if (args.includes('--install') || args.includes('--uninstall')) {
             console.log(config.projects.length ? `It still serves ${config.projects.map(p => p.project).join(', ')}.` : config.pickUp ? 'It serves no project now, and waits for pick-up to put one on; --uninstall outside a repo removes it.' : 'Nothing was left on it, so the service is removed.')
             process.exit(0)
         }
-        needsTmuxAndClaude()
+        needsTmuxAndAgent()
         for (const entry of entries) {
             // Without the channel its sessions couldn't hear orrery, and its address and project may be guesses
-            // (localhost:9000, the folder's name): connecting the repo comes first (ORR-604).
+            // (localhost:9000, an ORRERY_PROJECT typed by hand): connecting the repo comes first (ORR-604).
             if (!channelFor(entry.dir, entry.url, entry.project)) throw new Error(`no .mcp.json here registers orrery's channel, so nothing was installed: connect this repo first, from orrery's Connect an agent page (or have a Claude session here read ${entry.url}/connect/${entry.project}.md), then run this again`)
         }
         for (const entry of entries) {
@@ -170,7 +190,7 @@ if (args.includes('--install') || args.includes('--uninstall')) {
             if (found === 404) throw new Error(`${entry.url} has no project ${entry.project}: set ORRERY_PROJECT (and ORRERY_URL) to the one to serve`)
             if (!found) log(`can't reach ${entry.url} now; the launcher keeps trying once it's installed${inWsl() && wslLocalhost(entry.url) ? `. ${WSL_LOCALHOST}` : ''}`)
         }
-        const {config, logs, restarted} = install(entries, {script, dir: process.cwd(), pickUp})
+        const {config, logs, restarted} = install(entries, {script, dir: process.cwd(), pickUp, agent: named})
         for (const {url, project, dir} of entries) {
             console.log(`The launcher now starts sessions for ${project} (${url}) in ${dir}, with ${channelFor(dir, url, project)?.name ?? 'no channel'}, from login on.`)
         }
@@ -183,6 +203,20 @@ if (args.includes('--install') || args.includes('--uninstall')) {
         log(error.message)
         process.exit(1)
     }
+}
+
+/** The install line's part beyond the service (ORR-1067): the orrery's default folder, and orrery in the agent's own
+ * user config, so a session in any folder reaches it before any repo is connected. */
+async function setUpMachine(url) {
+    const read = path => fetch(`${url}/api/${path}`, {headers: authHeaders(url), signal: AbortSignal.timeout(10_000)}).then(r => r.ok ? r.json() : null, () => null)
+    const [settings, machine] = await Promise.all([read('settings'), read('machine')])
+    if (!settings?.id) throw new Error(`couldn't read ${url}/api/settings, so ${agent.name} wasn't set up for it: run this again once it answers${authHeaders(url).Authorization ? '' : `, with ORRERY_KEY set if it asks for a credential`}`)
+    const orrery = {id: settings.id, environment: machine?.environment}
+    const commands = commandsFor({bootstrap: BOOTSTRAP, checkout: dirname(fileURLToPath(import.meta.url))})
+    const home = homeFolder(orrery.id)
+    setUpHome(home, {url, orrery, commands})
+    const {server, settings: file} = agent.setUp({url, orrery, commands, home})
+    console.log(`${agent.name} reaches ${url} from any folder now: ${server} is a user-level server, orrery's hooks are in ${file}, and ${home} is trusted for the sessions it starts there.`)
 }
 
 const problem = tmuxProblem()
@@ -306,8 +340,7 @@ function allow(id) {
     const session = running.get(id)
     if (!session) return
     try {
-        if (!onYes(tmux('capture-pane', '-p', '-t', session.tmux))) return log(`${session.tmux} isn't at a permission prompt on "Yes" any more: left as it is`)
-        tmux('send-keys', '-t', session.tmux, 'Enter')
+        if (!agent.allow(paneOf(session.tmux))) return log(`${session.tmux} isn't at a permission prompt on "Yes" any more: left as it is`)
         log(`allowed what ${session.tmux} asked, as the owner said`)
     } catch {
         // It has ended.
@@ -320,23 +353,20 @@ function deny(id) {
     const session = running.get(id)
     if (!session) return
     try {
-        if (!onYes(tmux('capture-pane', '-p', '-t', session.tmux))) return log(`${session.tmux} isn't at a permission prompt any more: left as it is`)
-        tmux('send-keys', '-t', session.tmux, 'Escape')
+        if (!agent.deny(paneOf(session.tmux))) return log(`${session.tmux} isn't at a permission prompt any more: left as it is`)
         log(`denied what ${session.tmux} asked, as the owner said`)
     } catch {
         // It has ended.
     }
 }
 
-/** Gives a session it started a fresh context between pieces of work, as orrery asks once it's idle: types
- * `/clear` into it. Its channel stays, and its hooks hand the new context what's left to do. */
+/** Gives a session it started a fresh context between pieces of work, as orrery asks once it's idle, as its agent
+ * does that (Claude Code's `/clear`). */
 async function clear(id) {
     const session = running.get(id)
     if (!session) return
     try {
-        tmux('send-keys', '-t', session.tmux, '-l', '/clear')
-        await new Promise(resolve => setTimeout(resolve, 300))
-        tmux('send-keys', '-t', session.tmux, 'Enter')
+        await agent.clear(paneOf(session.tmux))
         log(`cleared ${session.tmux}'s context: its work was done`)
     } catch {
         // It has ended.
@@ -369,6 +399,8 @@ function keepStopTime(id, stopsAt) {
  * or the owner's chat, the same way. */
 const UNTRUSTED = '@orrery_untrusted'
 const CHAT = '@orrery_chat'
+/** And that it's a global session (ORR-1079), the same way. */
+const GLOBAL = '@orrery_global'
 /** The model and effort it was started on, when orrery asked for them (ORR-868), kept the same way. */
 const MODEL = '@orrery_model'
 const EFFORT = '@orrery_effort'
@@ -434,6 +466,11 @@ function adopt(project, api) {
         } catch {
             // Not a chat.
         }
+        try {
+            if (tmux('show-options', '-v', '-t', name, GLOBAL) === 'yes') running.get(id).global = true
+        } catch {
+            // A project's session.
+        }
         for (const [key, option] of [['model', MODEL], ['effort', EFFORT]]) {
             try {
                 const value = tmux('show-options', '-v', '-t', name, option)
@@ -449,108 +486,161 @@ function adopt(project, api) {
 /** Tells the project's orrery which of its sessions this launcher runs, so one that restarted knows them again. */
 async function report(api) {
     const launches = [...running.entries()].filter(([, s]) => s.api === api)
-        .map(([id, s]) => ({id, tmux: s.tmux, ...s.stops_at ? {stops_at: s.stops_at} : {}, ...s.context ? {context: s.context} : {}, ...s.untrusted ? {untrusted: true} : {}, ...s.chat ? {chat: true} : {}, ...s.model ? {model: s.model} : {}, ...s.effort ? {effort: s.effort} : {}}))
+        .map(([id, s]) => ({id, tmux: s.tmux, ...s.stops_at ? {stops_at: s.stops_at} : {}, ...s.context ? {context: s.context} : {}, ...s.untrusted ? {untrusted: true} : {}, ...s.chat ? {chat: true} : {}, ...s.global ? {global: true} : {}, ...s.model ? {model: s.model} : {}, ...s.effort ? {effort: s.effort} : {}}))
     await fetch(`${api}/launches/running`, {method: 'POST', headers: {'Content-Type': 'application/json', ...authHeaders(api)}, body: JSON.stringify({launches})})
         .catch(() => {})
 }
 
-/** Gets the new session past Claude Code's startup prompts: the channel flag's warning it accepts; a folder
- * not yet trusted it won't answer for the owner, so it stops the session and says so. */
+/** Gets the new session past its agent's startup prompts, as the adapter says: one it won't answer for the owner (a
+ * folder Claude Code doesn't trust yet) stops the session and says so. */
 async function getPast(id, dir) {
     const name = running.get(id)?.tmux
-    for (let tries = 0; name && tries < 60; tries++) {
-        await new Promise(resolve => setTimeout(resolve, 500))
-        const screen = tmux('capture-pane', '-p', '-t', name)
-        if (/trust (the files in )?this folder/i.test(screen)) return stop(id, `the folder isn't trusted yet: run claude in ${dir} once by hand and accept it`)
-        if (screen.includes('Loading development channels') && screen.includes('I am using this for local development')) {
-            tmux('send-keys', '-t', name, 'Enter')
-            return
-        }
-    }
-    log(`${name}: didn't see the channel's warning; if it's stuck on a prompt, answer it with: tmux attach -t ${name}`)
+    if (!name) return
+    const {stop: why, stuck} = await agent.getPast(paneOf(name), {dir})
+    if (why) return stop(id, why)
+    if (stuck) log(`${name}: ${stuck}; if it's stuck on a prompt, answer it with: tmux attach -t ${name}`)
 }
 
 /** Where a project's launches are, on its orrery. */
 const apiOf = ({url, project}) => `${url}/api/projects/${encodeURIComponent(project)}`
 
-/** Serves one project: listens for its launches, and for the owner stopping or extending the sessions it started,
- * until `signal` lets it go. */
-function serve({url, project, dir, picked_at: picked, connected_at: connected}, signal) {
+/** What it does for one project it serves, whichever stream brings it: takes back the project's sessions, and then
+ * starts its launches and stops, extends, clears, shows and answers the sessions it started, as orrery asks. */
+function part(entry) {
+    const {url, project, dir, home} = entry
     const api = apiOf({url, project})
     adopt(project, api)
-    /** The token this connection's stream gave it (`ready`), which its claims send, so orrery knows they're a
-     * launcher's (ORR-443). A new one comes with each reconnect. */
+    /** The token its stream gave it (`ready`), which its claims send, so orrery knows they're a launcher's (ORR-443).
+     * A new one comes with each reconnect. */
     let token = ''
 
     /** Starts the launch's session, once this launcher has claimed it (another may have first). */
     async function start(launch) {
-        // It says it locks an untrusted launch down with no Bash, starts a chat as `chatOnly` says, and starts a session
-        // on the model and effort asked for, and takes a chat's Claude session up again (ORR-884): orrery gives each only
-        // to a launcher that does.
-        const claim = await fetch(`${api}/launches/${launch.id}/claim?untrusted=no-bash&chat=yes&model=yes&resume=yes`, {method: 'POST', headers: {'Orrery-Launcher': token, ...authHeaders(api)}}).then(r => r.json()).catch(() => ({claimed: false}))
+        // A global session (ORR-1079) runs in the orrery's default folder, never a repo: none set up yet, and it's left
+        // for a launcher that has one.
+        const folder = launch.global ? homes.get(url)?.dir : dir
+        if (!folder) {
+            log(`can't start global session ${launch.tmux} on ${url}: its default folder isn't set up here yet`)
+            return
+        }
+        // It says what its agent's sessions can be started as (an untrusted one locked down, a chat, a model and effort,
+        // a chat taken up again): orrery gives each only to a launcher that does.
+        const claim = await fetch(`${api}/launches/${launch.id}/claim?${agent.claims}`, {method: 'POST', headers: {'Orrery-Launcher': token, ...authHeaders(api)}}).then(r => r.json()).catch(() => ({claimed: false}))
         if (!claim.claimed) return
         // An untrusted one's channel says so on everything it sends, so orrery holds it to that even when it has
         // restarted and doesn't know the launch yet.
-        const env = {ORRERY_URL: url, ORRERY_PROJECT: project, ORRERY_STARTED: launch.id, ORRERY_AFTER: String(launch.after), ...launch.hears?.length ? {ORRERY_HEAR: launch.hears.join(',')} : {}, ...launch.untrusted ? {ORRERY_UNTRUSTED: 'yes'} : {}, ...launch.chat ? {ORRERY_CHAT: 'yes'} : {}, ...launch.person ? {ORRERY_PERSON: launch.person} : {}, ...keyFor(url) ? {ORRERY_KEY: keyFor(url)} : {}}
-        const server = channelFor(dir, url, project)?.name ?? project
-        tmux('new-session', '-d', '-s', launch.tmux, '-c', dir, ...Object.entries(env).flatMap(([k, v]) => ['-e', `${k}=${v}`]),
-            'claude', '--dangerously-load-development-channels', `server:${server}`, ...launch.untrusted ? lockedDown(dir, server) : launch.chat ? chatOnly(dir, server) : ['--permission-mode', mode], ...modelArgs(launch), ...resumeArgs(launch))
+        // In the default folder the channel serves every project, so a session there hears its own unless told more.
+        // A global one hears every project there, with none of its own (ORR-1079).
+        const hears = launch.global ? [] : launch.hears?.length ? launch.hears : home ? [project] : []
+        // Which repo it's in (ORR-1070), in its system prompt so a `/clear` keeps it; its hook then leaves it out. The
+        // default folder is in none, and says so.
+        const where = repoContext(folder, {project, repo: launch.global ? undefined : claim.repo})
+        const startedOn = await orreryIdOf(url)
+        const env = {ORRERY_URL: url, ORRERY_PROJECT: project, ORRERY_STARTED: launch.id, ...startedOn ? {ORRERY_STARTED_ON: startedOn} : {}, ORRERY_REPO_TOLD: 'yes', ORRERY_AFTER: String(launch.after), ...hears.length ? {ORRERY_HEAR: hears.join(',')} : {}, ...launch.untrusted ? {ORRERY_UNTRUSTED: 'yes'} : {}, ...launch.chat ? {ORRERY_CHAT: 'yes'} : {}, ...launch.global ? {ORRERY_GLOBAL: 'yes'} : {}, ...launch.person ? {ORRERY_PERSON: launch.person} : {}, ...keyFor(url) ? {ORRERY_KEY: keyFor(url)} : {}}
+        const server = channelFor(folder, url, project)?.name ?? project
+        tmux('new-session', '-d', '-s', launch.tmux, '-c', folder, ...Object.entries(env).flatMap(([k, v]) => ['-e', `${k}=${v}`]),
+            ...agent.command({dir: folder, server, launch, mode, told: where}))
         tmux('set-option', '-t', launch.tmux, LAUNCHER, String(process.pid))
-        running.set(launch.id, {tmux: launch.tmux, api, context: launch.context, ...launch.untrusted ? {untrusted: true} : {}, ...launch.chat ? {chat: true} : {}, ...launch.model ? {model: launch.model} : {}, ...launch.effort ? {effort: launch.effort} : {}})
+        running.set(launch.id, {tmux: launch.tmux, api, context: launch.context, ...launch.untrusted ? {untrusted: true} : {}, ...launch.chat ? {chat: true} : {}, ...launch.global ? {global: true} : {}, ...launch.model ? {model: launch.model} : {}, ...launch.effort ? {effort: launch.effort} : {}})
         if (launch.model) tmux('set-option', '-t', launch.tmux, MODEL, launch.model)
         if (launch.effort) tmux('set-option', '-t', launch.tmux, EFFORT, launch.effort)
         if (launch.context) tmux('set-option', '-t', launch.tmux, CONTEXT, JSON.stringify(launch.context))
         if (launch.untrusted) tmux('set-option', '-t', launch.tmux, UNTRUSTED, 'yes')
         if (launch.chat) tmux('set-option', '-t', launch.tmux, CHAT, 'yes')
+        if (launch.global) tmux('set-option', '-t', launch.tmux, GLOBAL, 'yes')
         keepStopTime(launch.id, launch.minutes ? new Date(Date.now() + launch.minutes * 60_000).toISOString() : undefined)
-        log(`started ${launch.tmux}${launch.untrusted ? ' locked down, for an untrusted schedule,' : launch.chat ? ' for a chat,' : ''} ${launch.minutes ? `for ${launch.minutes} minutes` : 'until stopped'}; watch it with: tmux attach -t ${launch.tmux}`)
-        midway(() => getPast(launch.id, dir)).catch(error => log(`${launch.tmux}: ${error.message}`))
+        log(`started ${launch.tmux}${launch.untrusted ? ' locked down, for an untrusted schedule,' : launch.chat ? ' for a chat,' : launch.global ? ' as a global session,' : ''} ${launch.minutes ? `for ${launch.minutes} minutes` : 'until stopped'}; watch it with: tmux attach -t ${launch.tmux}`)
+        midway(() => getPast(launch.id, folder)).catch(error => log(`${launch.tmux}: ${error.message}`))
     }
 
+    /** Its stream connected: `starts` is what orrery lets it start on the project, `token` what its claims send. */
+    async function ready({starts, version, oldest, token: given}) {
+        token = given ?? ''
+        // Older than the oldest launcher the orrery takes (ORR-965): said plainly, rather than half working.
+        if (oldest && olderThan(VERSION, oldest)) log(`this launcher runs ${VERSION}, and ${project}'s orrery takes ${oldest} or newer: update the checkout it runs from (git pull), or sessions it's asked to start may be refused`)
+        await report(api)
+        if (version) orreryVersions.set(url, version)
+        await checkServed(url)
+        restartIfBehind()
+        log(starts
+            ? `ready to start up to ${starts.limit} session(s) for ${project}, ${starts.minutes ? `${starts.minutes} minutes each` : 'each until stopped'}`
+            : `${project}: connected, but orrery doesn't start sessions yet: turn it on under Starting sessions, on its Sessions page`)
+    }
+
+    /** What orrery asks of it on the project, after `ready`. */
+    async function hear(event, data) {
+        if (event === 'launch') {
+            await midway(() => start(JSON.parse(data))).catch(error => log(`couldn't start a session for ${project}: ${error.message}`))
+        } else if (event === 'stop') {
+            await stop(JSON.parse(data).id, 'orrery asked for it to stop')
+        } else if (event === 'extend') {
+            const {id, stops_at} = JSON.parse(data)
+            keepStopTime(id, stops_at)
+            if (running.has(id)) log(`${running.get(id).tmux} runs until ${new Date(stops_at).toLocaleTimeString()}`)
+        } else if (event === 'clear') {
+            await midway(() => clear(JSON.parse(data).id))
+        } else if (event === 'watch') {
+            const {id, terminal} = JSON.parse(data)
+            watch(id, terminal)
+        } else if (event === 'allow') {
+            allow(JSON.parse(data).id)
+        } else if (event === 'deny') {
+            deny(JSON.parse(data).id)
+        } else if (event === 'view') {
+            // Not awaited: it sends for as long as the owner views it, and the stream goes on meanwhile.
+            view(JSON.parse(data).id).catch(error => log(`couldn't send a screen: ${error.message}`))
+        }
+    }
+
+    // What its stream says it serves: the folder, so orrery knows which projects share one and can share a session, and
+    // whether its channel serves every project, so a session started here hearing no one project hears them all. And when
+    // its channel picked the repo up (ORR-605) or Connect a repo added it (ORR-774), for Connected repos. From the default
+    // folder (ORR-1066) it names none, and says it's that, so a launcher in the project's repo is given its sessions first.
+    const serves = home ? {project, home: true} : {project, dir, ...servesEvery(dir, url, project) ? {every: true} : {}, ...entry.picked_at ? {picked: entry.picked_at} : {}, ...entry.connected_at ? {connected: entry.connected_at} : {}}
+    return {entry, serves, ready, hear}
+}
+
+/** Serves one project on its own stream, as an orrery from before one stream per orrery (ORR-1076) has only that, until
+ * `signal` lets it go. */
+function serveProject({entry: {url, project, dir, home}, serves, ready, hear}, signal, connected = () => {}) {
+    const query = home ? 'home=1' : `dir=${encodeURIComponent(dir)}${serves.every ? '&every=1' : ''}${serves.picked ? `&picked=${encodeURIComponent(serves.picked)}` : ''}${serves.connected ? `&connected=${encodeURIComponent(serves.connected)}` : ''}`
     return follow({
         headers: authHeaders(url),
-        // The folder it serves from, so orrery knows which projects share one and can share a session, and whether its
-        // channel serves every project, so a session started here hearing no one project hears them all.
-        // And when its channel picked the repo up (ORR-605) or Connect a repo added it (ORR-774), for Connected repos.
-        url: () => `${api}/launches/stream?dir=${encodeURIComponent(dir)}${servesEvery(dir, url, project) ? '&every=1' : ''}&version=${encodeURIComponent(VERSION)}${picked ? `&picked=${encodeURIComponent(picked)}` : ''}${connected ? `&connected=${encodeURIComponent(connected)}` : ''}`,
+        url: () => `${apiOf({url, project})}/launches/stream?${query}&version=${encodeURIComponent(VERSION)}`,
         onEvent: async ({event, data}) => {
-            if (event === 'ready') {
-                const {starts, version, oldest, token: given} = JSON.parse(data)
-                token = given ?? ''
-                // Older than the oldest launcher the orrery takes (ORR-965): said plainly, rather than half working.
-                if (oldest && olderThan(VERSION, oldest)) log(`this launcher runs ${VERSION}, and ${project}'s orrery takes ${oldest} or newer: update the checkout it runs from (git pull), or sessions it's asked to start may be refused`)
-                await report(api)
-                if (version) orreryVersions.set(url, version)
-                await checkServed(url)
-                restartIfBehind()
-                log(starts
-                    ? `ready to start up to ${starts.limit} session(s) for ${project}, ${starts.minutes ? `${starts.minutes} minutes each` : 'each until stopped'}`
-                    : "connected, but orrery doesn't start sessions yet: turn it on under Starting sessions, on its Sessions page")
-            } else if (event === 'launch') {
-                await midway(() => start(JSON.parse(data))).catch(error => log(`couldn't start a session for ${project}: ${error.message}`))
-            } else if (event === 'stop') {
-                await stop(JSON.parse(data).id, 'orrery asked for it to stop')
-            } else if (event === 'extend') {
-                const {id, stops_at} = JSON.parse(data)
-                keepStopTime(id, stops_at)
-                if (running.has(id)) log(`${running.get(id).tmux} runs until ${new Date(stops_at).toLocaleTimeString()}`)
-            } else if (event === 'clear') {
-                await midway(() => clear(JSON.parse(data).id))
-            } else if (event === 'watch') {
-                const {id, terminal} = JSON.parse(data)
-                watch(id, terminal)
-            } else if (event === 'allow') {
-                allow(JSON.parse(data).id)
-            } else if (event === 'deny') {
-                deny(JSON.parse(data).id)
-            } else if (event === 'view') {
-                // Not awaited: it sends for as long as the owner views it, and the stream goes on meanwhile.
-                view(JSON.parse(data).id).catch(error => log(`couldn't send a screen: ${error.message}`))
-            }
+            if (event !== 'ready') return hear(event, data)
+            await ready(JSON.parse(data))
+            connected()
         },
         log: (...parts) => log(`${project}:`, ...parts),
         // A project on the list nothing answers for (an orrery gone, or a project it doesn't have): said once (ORR-604).
-        down: (since, error) => log(`${project}: nothing at ${url} for it since ${since.toLocaleString()} (${error.message}); still trying every 30s, quietly. --uninstall in ${dir} takes it off`),
+        down: (since, error) => log(`${project}: nothing at ${url} for it since ${since.toLocaleString()} (${error.message}); still trying every 30s, quietly.${home ? '' : ` --uninstall in ${dir} takes it off`}`),
+        signal,
+    })
+}
+
+/** Serves every project it has on one orrery on one stream (ORR-1076), handing each event to the project it names, until
+ * `signal` lets it go. An orrery with no such stream, on older code, calls `older`. */
+function serveOrrery(url, parts, signal, older, connected = () => {}) {
+    const byProject = new Map(parts.map(p => [p.entry.project, p]))
+    return follow({
+        headers: authHeaders(url),
+        url: () => `${url}/api/launches/stream?serve=${encodeURIComponent(JSON.stringify(parts.map(p => p.serves)))}&version=${encodeURIComponent(VERSION)}`,
+        onEvent: async ({event, data}) => {
+            if (event === 'ping') return
+            if (event === 'ready') {
+                const {projects = {}, unknown = [], version, oldest} = JSON.parse(data)
+                for (const project of unknown) log(`${project}: ${url} has no such project, or none this launcher's key is on; ${byProject.get(project)?.entry.home ? 'it serves it once there is' : `--uninstall in ${byProject.get(project)?.entry.dir} takes it off`}`)
+                for (const [project, given] of Object.entries(projects)) await byProject.get(project)?.ready({...given, version, oldest})
+                return connected()
+            }
+            const {project} = JSON.parse(data)
+            await byProject.get(project)?.hear(event, data)
+        },
+        log: (...words) => log(`${url}:`, ...words),
+        // An orrery gone: said once (ORR-604).
+        down: (since, error) => log(`nothing at ${url} since ${since.toLocaleString()} (${error.message}), for ${[...byProject.keys()].join(', ')}; still trying every 30s, quietly`),
+        missing: older,
         signal,
     })
 }
@@ -636,21 +726,61 @@ for (const signal of ['SIGINT', 'SIGTERM']) {
     })
 }
 
-/** The projects it serves, by orrery and project: each one's entry, and what lets it go. */
+/** The projects it serves, by orrery and project: each one's entry and its part. */
 const serving = new Map()
 const servingKey = ({url, project}) => `${url} ${project}`
+/** Each orrery's stream (ORR-1076), by address: what it serves, as its query says, and what lets it go; `older` once the
+ * orrery turned out to have only a stream per project, which it then follows for each. */
+const streams = new Map()
+const restreams = new Map()
+
+/** Follows the orrery at `url` on a stream for what it serves there now, soon, so that several changes at once make one
+ * new stream. Nothing changed, nothing's done; anything did, and its stream connects again for the new set. */
+function restream(url) {
+    clearTimeout(restreams.get(url))
+    restreams.set(url, setTimeout(() => {
+        restreams.delete(url)
+        const parts = [...serving.values()].filter(s => s.entry.url === url).map(s => s.part)
+        const key = JSON.stringify(parts.map(p => p.serves))
+        const was = streams.get(url)
+        if (was?.key === key) return
+        if (!parts.length) {
+            was?.abort.abort()
+            return void streams.delete(url)
+        }
+        const now = {abort: new AbortController(), key, older: was?.older}
+        streams.set(url, now)
+        // The stream before it goes once this one is ready (or soon, if it never is), so the projects both serve aren't
+        // left with no launcher between them; a launch either sends is claimed once, by the same part.
+        let handedOver = false
+        const handOver = () => {
+            if (handedOver) return
+            handedOver = true
+            was?.abort.abort()
+        }
+        if (was) setTimeout(handOver, 15_000).unref()
+        const each = () => {
+            for (const p of parts) serveProject(p, now.abort.signal, handOver).catch(error => log(`${p.entry.project}: ${error.message}`))
+        }
+        if (now.older) return each()
+        serveOrrery(url, parts, now.abort.signal, () => {
+            log(`${url} runs older code, with a stream for each project: it serves ${parts.length === 1 ? 'it' : `the ${parts.length}`} that way`)
+            now.older = true
+            each()
+        }, handOver).catch(error => log(`${url}: ${error.message}`))
+    }, 100))
+}
 
 function begin(entry) {
-    const abort = new AbortController()
-    serving.set(servingKey(entry), {entry, abort})
-    serve(entry, abort.signal).catch(error => log(`${entry.project}: ${error.message}`))
+    serving.set(servingKey(entry), {entry, part: part(entry)})
+    restream(entry.url)
 }
 
 /** Lets go of a project taken off the list: stops following it, and stops the sessions it started for it, as taking it
  * off with --uninstall means. One that only moved to another repo keeps its sessions, served from there next. */
 async function letGo(entry, {moved}) {
-    serving.get(servingKey(entry))?.abort.abort()
     serving.delete(servingKey(entry))
+    restream(entry.url)
     if (![...serving.values()].some(s => s.entry.url === entry.url)) orreryVersions.delete(entry.url)
     if (moved) return
     const api = apiOf(entry)
@@ -664,17 +794,75 @@ function follows() {
         const list = listIn()
         if (!list) return log(`${configFile()} can't be read as a list; it serves what it did until it can`)
         followConnects(list)
-        const {added, removed} = listChanges([...serving.values()].map(s => s.entry), list.projects)
+        const {added, removed} = listChanges([...serving.values()].map(s => s.entry).filter(entry => !entry.home), list.projects)
         for (const entry of removed) {
             const moved = added.some(a => servingKey(a) === servingKey(entry))
             await letGo(entry, {moved})
             log(moved ? `${entry.project} (${entry.url}) moved to ${added.find(a => servingKey(a) === servingKey(entry)).dir}` : `let go of ${entry.project} (${entry.url}): it's off the list`)
         }
         for (const entry of added) {
+            // Served from the default folder until now: its sessions there go on, and new ones start in the repo.
+            const fromHome = serving.get(servingKey(entry))?.entry.home
+            if (fromHome) await letGo(serving.get(servingKey(entry)).entry, {moved: true})
             if (!removed.some(r => servingKey(r) === servingKey(entry))) log(`now serving ${entry.project} (${entry.url}) in ${entry.dir}: it's on the list`)
             begin(entry)
         }
+        await followHomes(list)
     }).catch(error => log(`couldn't follow ${configFile()}: ${error.message}`))
+}
+
+/** The default folder of each orrery it serves (ORR-1066), by address: where it is, once it's set up. */
+const homes = new Map()
+/** Each orrery's id, by address, once it has said: a session it starts is told which orrery started it
+ * (ORRERY_STARTED_ON), so the other orrerys' user-level hooks leave it alone (ORR-1071). */
+const orreryIds = new Map()
+async function orreryIdOf(url) {
+    if (!orreryIds.has(url)) {
+        const settings = await fetch(`${url}/api/settings`, {headers: authHeaders(url), signal: AbortSignal.timeout(10_000)}).then(r => r.ok ? r.json() : null, () => null)
+        if (settings?.id) orreryIds.set(url, settings.id)
+    }
+    return orreryIds.get(url)
+}
+/** What the default folder's channel and hooks run. */
+const commands = () => commandsFor({bootstrap: BOOTSTRAP, checkout: dirname(fileURLToPath(import.meta.url))})
+
+/** Serves, from each orrery's default folder, its projects with no repo that the list doesn't serve from a repo here,
+ * and lets go of those that have gained one, or gone. An orrery it can't reach keeps what it was served from there. */
+async function followHomes(list) {
+    const urls = new Set([...list.projects.map(entry => entry.url), ...list.orreries ?? []])
+    for (const url of urls) {
+        const read = path => fetch(`${url}/api/${path}`, {headers: authHeaders(url), signal: AbortSignal.timeout(10_000)}).then(r => r.ok ? r.json() : null, () => null)
+        const [settings, machine, projects] = await Promise.all([read('settings'), read('machine'), read('projects')])
+        if (!settings?.id || !Array.isArray(projects)) continue
+        orreryIds.set(url, settings.id)
+        let home = homes.get(url)
+        if (!home) {
+            try {
+                const dir = homeFolder(settings.id)
+                const {created} = setUpHome(dir, {url, orrery: {id: settings.id, environment: machine?.environment}, commands: commands()})
+                home = {dir}
+                homes.set(url, home)
+                log(`serves ${url}'s projects with no repo from ${dir}${created ? `; if claude hasn't run there before, run it there once to trust the folder` : ''}`)
+            } catch (error) {
+                log(`can't serve ${url}'s projects with no repo: ${error.message}`)
+                continue
+            }
+        }
+        const wanted = new Set(homeProjects(projects, list.projects, url))
+        for (const {entry} of [...serving.values()]) {
+            if (entry.home && entry.url === url && !wanted.has(entry.project)) {
+                // Its sessions there go on, unless the project is gone.
+                const gone = !projects.some(project => project?.id === entry.project)
+                await letGo(entry, {moved: !gone})
+                log(`no longer serves ${entry.project} (${url}) from the default folder: ${gone ? "it's gone" : 'it has a repo now'}`)
+            }
+        }
+        for (const project of wanted) {
+            if (serving.has(servingKey({url, project}))) continue
+            begin({url, project, dir: home.dir, home: true})
+            log(`now serving ${project} (${url}) from the default folder: it has no repo`)
+        }
+    }
 }
 
 // As the service, every project on the list, following it as it changes; in a terminal, the repo's.
@@ -690,4 +878,7 @@ for (const entry of projects) begin(entry)
 if (service) {
     followConnects(readConfig())
     watchFile(configFile(), {interval: 2000}, follows)
+    // New projects, and those that gain or lose a repo, are seen within a minute.
+    follows()
+    setInterval(follows, 60_000)
 }

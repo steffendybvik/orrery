@@ -2,27 +2,38 @@
 // goes there, after everything here has checked it as ever (auth, the board's permissions, the chat's and untrusted
 // sessions' rails, the browser guards: the middleware before zz-api.ts). Both run on the same database, one writer per
 // table, so while the API serves docs and the statuses nothing else here writes them except what it can't yet reach
-// (the chat's doc requests, a board's upload or copy, deleting a project), which work on the same rows.
+// (the chat's doc requests, a board's upload or copy), which work on the same rows.
 //
 // It sends who's asking (`actorOf`) and which database this server is on, and the API's reply says what a write changed,
 // which this tells as the store would: open pages read the project again, and the event log and schedules hear the event.
-// When the API is down, or is on another database (the owner moved it), the request falls through to the routes here.
+// When the API is down, or is on another database (the owner moved it), the request falls through to the routes here,
+// unless the swap is on (`apiOnly`, NUXT_API_ONLY, ORR-1034): then it fails, and says why in the log.
 import {createHash} from 'node:crypto'
 import type {H3Event} from 'h3'
-import {createError, getCookie, getQuery, getRequestHeader, getRequestURL, readRawBody, setResponseHeader, setResponseStatus} from 'h3'
+import {createError, getCookie, getQuery, getRequestHeader, getRequestHost, getRequestURL, readRawBody, setResponseHeader, setResponseStatus} from 'h3'
 import type {Feature} from '#shared/usage'
 import type {Actor} from '../store/schema'
 import type {Who} from './auth'
-import {loginCookie, pathOf, toldOff} from './auth'
-import {followingOutbox} from './outbox-follower'
+import {bearer, loginCookie, onLoopback, pathOf, toldOff, toldOn} from './auth'
+import {proxied} from './move'
+import {viaPhone} from './phone-port'
+import {caughtUp, followingOutbox} from './outbox-follower'
 import {oidcOn} from './oidc'
 import {countOwnUse} from './usage'
+import {startsNone} from './starts-none'
+import {revLabel} from './events'
+import type {Project} from '#shared/roadmap'
+import {withoutClosed, withoutNotes} from '#shared/patch'
 
 /** The domains the Rust API serves, a line each (ORR-925): moving a domain there is adding its line once the parity test
  * passes, and taking it back to the routes here is taking the line out. Each matches a whole path after `/api/`, with no
  * slash at the end. A line with `methods` sends only those there, so a domain's reads can move before its writes
- * (`GET …/comments` before `POST …/comments`, ORR-927); one without takes every method its routes do. */
-export const DOMAINS: readonly {domain: string, paths: RegExp, methods?: readonly string[], first?: Partial<Record<string, LocalCheck>>}[] = [
+ * (`GET …/comments` before `POST …/comments`, ORR-927); one without takes every method its routes do.
+ *
+ * The routes here for a line's domain are gone (ORR-1041), so it's the API's alone: with the API down, or not set up, a
+ * request for it fails (`cantReach`) whether or not the swap is on. Only a line with `here` still has its route here,
+ * for the requests its `first` check keeps (a session's, the chat's), and falls through to it unless the swap is on. */
+export const DOMAINS: readonly {domain: string, paths: RegExp, methods?: readonly string[], first?: Partial<Record<string, LocalCheck>>, reply?: Partial<Record<string, Shaping>>, here?: true}[] = [
     // A project's docs, their revisions and sections (ORR-922). An artifact's page stays here: it's drawn with the
     // page's own sanitising and its locked-down headers (`artifact.get.ts`).
     {domain: 'docs', paths: /^projects\/[^/]+\/(docs(\/[^/]+(\/revisions(\/[^/]+(\/restore)?)?)?)?|deleted-docs|doc-sections(\/[^/]+)?)$/},
@@ -35,14 +46,26 @@ export const DOMAINS: readonly {domain: string, paths: RegExp, methods?: readonl
     // edited one leaves this server to pass on to the sessions and the owner's bell (`handedOn`). An edit checks the
     // session's claim on the issue here first, as only this server knows the sessions (`claimFor`, ORR-627).
     {domain: 'comments', paths: /^projects\/[^/]+\/issues\/[^/]+\/comments(\/[^/]+)?$/, first: {PATCH: claimOnComment}},
-    // Deleting an issue, with its sub-issues and comments (ORR-927): the API tells it back, and the dependents it frees,
-    // as `Orrery-Told`, and puts them in the outbox (ORR-929). Deleting many at once stays here.
-    {domain: 'an issue, deleted', paths: /^projects\/[^/]+\/issues\/[^/]+$/, methods: ['DELETE']},
-    // Changing an issue's own words (ORR-927): its title, priority, notes, labels, tasks, GitHub issues, parent,
-    // milestone, release, epic, what it depends on, whether it's a proposal and its choices, model, effort and place. One it makes urgent comes
-    // back with `Orrery-Urgent`, for the push here (`sayUrgent`). An edit naming any other field stays here (`wordsOnly`),
-    // as its status, assignee and moving it to another project wake sessions or claim the issue. The chat's rails and a session's claim are checked here first.
-    {domain: 'an issue, its words', paths: /^projects\/[^/]+\/issues\/[^/]+$/, methods: ['PATCH'], first: {PATCH: wordsOnly}},
+    // Deleting an issue, with its sub-issues and comments, or many at once (`{ids}`, ORR-927): the API tells each back,
+    // and the dependents it frees, as `Orrery-Told`, and puts them in the outbox (ORR-929).
+    {domain: 'an issue, deleted', paths: /^projects\/[^/]+\/issues(\/[^/]+)?$/, methods: ['DELETE']},
+    // Changing an issue (ORR-927): its title, status, priority, assignee, notes, labels, tasks, GitHub issues, parent,
+    // milestone, release, epic, what it depends on, whether it's a proposal and its choices, model, effort and place. One
+    // it makes urgent comes back with `Orrery-Urgent`, for the push here (`sayUrgent`). Moving it to another project stays
+    // here (`wordsOnly`), and so does a session's change of its status, as the session's lock on the issue is this
+    // server's (`claimed`). The chat's rails and a session's claim are checked here first.
+    // Making an issue (ORR-927): only one that names nothing but an issue's words (`onlyWords`), from neither a session,
+    // whose issue is noted as worked on here (`workedOn`), nor the chat or an untrusted session, whose asks are rewritten
+    // here (`asChatIssue`, `asProposal`). One that's urgent comes back with `Orrery-Urgent`, for the push here.
+    {domain: 'an issue, made', paths: /^projects\/[^/]+\/issues$/, methods: ['POST'], first: {POST: newWordsOnly}, here: true},
+    {domain: 'an issue, its words', paths: /^projects\/[^/]+\/issues\/[^/]+$/, methods: ['PATCH'], first: {PATCH: wordsOnly}, here: true},
+    // One change to many issues (`{ids, set, labels}`, ORR-927): each edited as one is, the route here taking no session's
+    // lock or chat's rewrite for it either. The ones it makes urgent come back in `Orrery-Urgent`, for the push here.
+    {domain: 'issues, changed at once', paths: /^projects\/[^/]+\/issues$/, methods: ['PATCH']},
+    // The owner's decision on a proposal (ORR-927): its comment comes back as `Orrery-Carry`, marked ` quiet` for a
+    // rejection, which is passed on to the session here but starts no work (`startsNone`, ORR-606).
+    // Many at once (`{ids, decision, note?}`) come back with a carry each, apart by commas.
+    {domain: 'a proposal, decided', paths: /^projects\/[^/]+\/issues(\/[^/]+)?\/decide$/, methods: ['POST']},
     // Taking an issue up and letting it go (ORR-927, ORR-657): the API tells the claim and a new assignee back, as
     // `Orrery-Told`, and puts them in the outbox (ORR-929).
     {domain: 'claims', paths: /^projects\/[^/]+\/issues\/[^/]+\/claim$/},
@@ -63,8 +86,9 @@ export const DOMAINS: readonly {domain: string, paths: RegExp, methods?: readonl
     // and logging in and out, stay here (auth.ts): the API hears what that found (`whoHeaders`).
     {domain: 'keys', paths: /^keys(\/[^/]+)?$/},
     {domain: 'logins', paths: /^logins(\/[^/]+)?$/},
-    // An image kept for Markdown, read (ORR-927). Keeping one stays here, as it's compressed here first.
+    // An image kept for Markdown, read (ORR-927), and kept, compressed in Rust as compress.ts does here (ORR-1058).
     {domain: 'uploads, reading', paths: /^uploads\/[^/]+$/, methods: ['GET']},
+    {domain: 'an upload, kept', paths: /^uploads$/, methods: ['POST']},
     // The orrery's presets and a project's own (ORR-949). Seeding the ones orrery ships, as this server starts, stays here.
     {domain: 'presets', paths: /^(presets(\/[^/]+(\/reset)?)?|projects\/[^/]+\/presets)$/},
     // The orrery's secrets, read: never a value (ORR-953). Setting and narrowing one seal its value with the key, which
@@ -82,31 +106,95 @@ export const DOMAINS: readonly {domain: string, paths: RegExp, methods?: readonl
     // The schedules, read (ORR-930): a project's, one with its runs, every project's and those across projects. Making,
     // changing and running them stays here, as a run starts a session and a write can set one off (ORR-929).
     {domain: 'schedules, reading', paths: /^(projects\/[^/]+\/schedules(\/[^/]+)?|schedules(\/across)?)$/, methods: ['GET']},
-    // Every project, listed with its counts (ORR-997). With `?expand=board` it's their boards, each with the events
-    // stream's `rev`, so that stays here (`listedOnly`), as do reading one project and deleting one.
-    {domain: 'projects, listed', paths: /^projects$/, methods: ['GET'], first: {GET: listedOnly}},
+    // Of the writes (ORR-950): adopting an agent's schedule and deleting one, neither of which starts a session.
+    {domain: 'a schedule, adopted', paths: /^projects\/[^/]+\/schedules\/[^/]+\/adopt$/, methods: ['POST']},
+    {domain: 'a schedule, deleted', paths: /^projects\/[^/]+\/schedules\/[^/]+$/, methods: ['DELETE']},
+    // Every project, listed with its counts (ORR-997). With `?expand=board` it's their boards (ORR-1006), each labelled
+    // here with the events stream's `rev`, as one project's read is (`boardsWithRev`).
+    {domain: 'projects, listed', paths: /^projects$/, methods: ['GET'], reply: {GET: boardsWithRev}},
     // Making a project (ORR-1002), held by whoever asks, as `personOf` has it here. The reply is the project with its
     // board, without the `rev` that reading one adds here.
     {domain: 'a project, made', paths: /^projects$/, methods: ['POST']},
     // Changing a project (ORR-923): its name, key, icon, prompts, repo and where its releases come from. The reply is the
     // project with its board, without the `rev` that reading one adds here.
     {domain: 'a project, changed', paths: /^projects\/[^/]+$/, methods: ['PATCH']},
+    // Reading a project with its board (ORR-1006). The `rev` the page's patches build on is this server's, so the reply
+    // is labelled here with it, as it was before the read (`withRev`).
+    {domain: 'a project, read', paths: /^projects\/[^/]+$/, methods: ['GET'], reply: {GET: withRev}},
+    // Deleting a project (ORR-1006), with everything in it: its schedules too, told back as `Orrery-Schedules` for the
+    // runner here to drop, and its signals, which are only rows.
+    {domain: 'a project, deleted', paths: /^projects\/[^/]+$/, methods: ['DELETE']},
+    // A board as one file (ORR-1006): read in one transaction, named for the project and the day (`Content-Disposition`).
+    // Whether the asker is on the board is checked here first (`needsBoard`), as a write's board is in middleware/board.ts.
+    {domain: 'a project, exported', paths: /^projects\/[^/]+\/export$/, methods: ['GET'], first: {GET: onTheBoard}},
+    // A roadmap in `docs/roadmap.json`'s format, imported into a project (ORR-1006): its milestones and issues, given the
+    // project's ids, the file's kept as aliases; `?replace=true` clears what was there first.
+    {domain: 'a project, imported', paths: /^projects\/[^/]+\/import$/, methods: ['POST']},
     // The bell (ORR-1005): agents' comments across projects with the proposals waiting on the owner, the status changes
     // on their issues, and clearing them or marking them read, each person's their own (ORR-658). Clearing tells nothing:
     // the page that did it reads the bell again.
     {domain: 'the bell', paths: /^notices(\/(changes|clear|read))?$/},
     // The epics (ORR-1004): every one with its progress, one with its issues, and making, changing and deleting one. A
-    // write's reply says the epics changed (`Orrery-Epics`), for open pages to ask for them again. An epic's comments and
-    // its focus, which signals sessions, stay here.
+    // write's reply says the epics changed (`Orrery-Epics`), for open pages to ask for them again. An epic's focus, which
+    // signals sessions, stays here.
     {domain: 'epics', paths: /^epics(\/[^/]+)?$/},
+    // A milestone's comments and an epic's (ORR-1004): words on its page, which ask nothing and wake no session. A write
+    // says the milestone's project changed, or the epics did (`Orrery-Epics`).
+    {domain: 'milestone and epic comments', paths: /^(projects\/[^/]+\/milestones|epics)\/[^/]+\/comments(\/[^/]+)?$/},
 ]
+
+/** What this server does to a reply from the API, as only it knows it, taken before the request goes on: the path to ask
+ * instead, and what to make of the reply's JSON when it succeeds. */
+type Shaping = (event: H3Event) => {path?: string, reply: (json: unknown) => unknown} | undefined
+
+/** A board read labelled with the events stream's `rev` as it is before the read (`revLabel`, ORR-482). The API is
+ * asked for every issue, as a board never read before is kept as the base its first patch is made from, and its
+ * closed issues are left out here once that's kept, as the route here does (`?closed=0`). */
+export function withRev(event: H3Event): NonNullable<ReturnType<Shaping>> {
+    const label = revLabel()
+    const query = getQuery(event)
+    return {
+        path: without(event.path, ['closed']),
+        reply: json => {
+            const project = label(json as Project)
+            const lighter = query.notes === '0' ? withoutNotes(project) : project
+            return query.closed === '0' ? withoutClosed(lighter) : lighter
+        },
+    }
+}
+
+/** Every project's board (`?expand=board`), each labelled as `withRev` labels one, and asked for whole the same way:
+ * the closed issues are left out here, but for the projects in `&whole=`. Without `expand=board` it's the counts, as
+ * they came. */
+export function boardsWithRev(event: H3Event): ReturnType<Shaping> {
+    const query = getQuery(event)
+    if (query.expand !== 'board') return undefined
+    const label = revLabel()
+    const whole = new Set(typeof query.whole === 'string' ? query.whole.split(',') : [])
+    return {
+        path: without(event.path, ['closed', 'whole']),
+        reply: json => (json as Project[]).map(label).map(board => {
+            const lighter = query.notes === '0' ? withoutNotes(board) : board
+            return query.closed === '0' && !whole.has(board.id) ? withoutClosed(lighter) : lighter
+        }),
+    }
+}
+
+/** The path with these query parameters left out. */
+function without(asked: string, names: string[]): string {
+    const [path = '', search = ''] = asked.split('?')
+    const params = new URLSearchParams(search)
+    for (const name of names) params.delete(name)
+    const kept = params.toString()
+    return kept ? `${path}?${kept}` : path
+}
 
 /** What this server checks itself before a request goes on, as only it knows (the sessions): refusing it throws, and
  * `'here'` keeps it for the routes here, for what the API doesn't do yet. */
 type LocalCheck = (event: H3Event, rest: string) => Promise<unknown>
 
-/** The fields of an issue's edit the API changes (`api/src/issue_edits.rs`, `WORDS`). */
-export const ISSUE_WORDS: readonly string[] = ['title', 'priority', 'labels', 'external', 'github_issues', 'notes', 'proposal', 'choices', 'parent', 'milestone', 'release', 'epic', 'depends_on', 'model', 'effort', 'position']
+/** The fields of an issue's edit the API changes (`api/src/board/issue_edits.rs`, `WORDS`). */
+export const ISSUE_WORDS: readonly string[] = ['title', 'status', 'plan', 'priority', 'assignee', 'labels', 'external', 'github_issues', 'notes', 'proposal', 'choices', 'parent', 'milestone', 'release', 'epic', 'depends_on', 'model', 'effort', 'position']
 
 /** Whether an issue's edit names only its own words, so the API can make it: a body that isn't an object, or is
  * empty, stays here too, for its answer. */
@@ -116,9 +204,15 @@ export function onlyWords(body: unknown): boolean {
     return keys.length > 0 && keys.every(key => ISSUE_WORDS.includes(key))
 }
 
-/** An issue's edit, kept here unless it names only its words (`onlyWords`). One that goes on is the chat's only within
- * what it may change (`asChatEdit`), and a session's only while no other session is on the issue (`claimFor`), as the
- * route here has them. */
+/** Whether an edit changes the issue's status (`status`, or the old `plan`). */
+export function movesStatus(body: unknown): boolean {
+    return typeof body === 'object' && body !== null && ('status' in body || 'plan' in body)
+}
+
+/** An issue's edit, kept here unless it names only its words (`onlyWords`), and a session's here too when it changes the
+ * status: starting one takes the session's lock on it, which only this server holds (`claimed`). One that goes on is
+ * the chat's only within what it may change (`asChatEdit`), and a session's only while no other session is on the
+ * issue (`claimFor`), as the route here has them. */
 async function wordsOnly(event: H3Event, rest: string) {
     const raw = await readRawBody(event, 'utf8')
     let body: unknown
@@ -132,13 +226,28 @@ async function wordsOnly(event: H3Event, rest: string) {
         asChatEdit(body)
         return
     }
+    if (movesStatus(body) && sessionHeader(event) && !(await actorOf(event)).owner) return 'here' as const
     const [, project, issue] = /^projects\/([^/]+)\/issues\/([^/]+)$/.exec(rest) ?? []
     if (project && issue) await claimFor(event, decodeURIComponent(project), decodeURIComponent(issue))
 }
 
-/** The projects' list, kept here when it asks for their boards (`?expand=board`), as their `rev` is this server's. */
-async function listedOnly(event: H3Event) {
-    if (getQuery(event).expand !== undefined) return 'here' as const
+/** A new issue, kept here unless it names only an issue's words and comes from neither a session, the chat nor an
+ * untrusted session, whose asks the route here rewrites or notes. */
+async function newWordsOnly(event: H3Event) {
+    if (sessionHeader(event) || chatWrite(event) || untrustedWrite(event)) return 'here' as const
+    const raw = await readRawBody(event, 'utf8')
+    try {
+        if (!onlyWords(raw ? JSON.parse(raw) : undefined)) return 'here' as const
+    } catch {
+        return 'here' as const
+    }
+}
+
+
+/** A read refused to a person off the project's board, as if it weren't there (`needsBoard`). */
+async function onTheBoard(event: H3Event, rest: string) {
+    const [, project] = /^projects\/([^/]+)\//.exec(rest) ?? []
+    if (project) await needsBoard(event, decodeURIComponent(project))
 }
 
 /** A comment's edit, refused while another session is working on its issue (ORR-627), as its route here does. */
@@ -219,20 +328,36 @@ export function actorHeaders(actor: Actor): Record<string, string> {
     }
 }
 
-/** What the auth middleware's credential said (`Who`), as the API reads it, and the asking browser's login hashed as the
- * logins table keeps it, so its cookie never leaves this server. Nothing with auth off. */
-export function whoHeaders(who: Who | undefined, login: string | undefined): Record<string, string> {
+/** What the auth middleware's credential said (`Who`), and the credential itself, hashed as the logins and keys tables
+ * keep them, so a cookie or key never leaves this server: the asking browser's login, and the bearer (`Orrery-Key`).
+ * The API checks the credential again for itself (ORR-1038), and goes by what it finds, not by `Orrery-Who`. */
+export function whoHeaders(who: Who | undefined, login: string | undefined, key?: string): Record<string, string> {
+    const hashed = (secret: string) => createHash('sha256').update(secret).digest('hex')
     return {
         ...who ? {'Orrery-Who': who.via, 'Orrery-Who-Person': encodeURIComponent(who.person), 'Orrery-Who-Owner': who.owner ? '1' : '0'} : {},
-        ...login ? {'Orrery-Login': createHash('sha256').update(login).digest('hex')} : {},
+        ...login ? {'Orrery-Login': hashed(login)} : {},
+        ...key ? {'Orrery-Key': hashed(key)} : {},
     }
 }
 
+/** Said on a call this server makes for its own work (`writeToApi`, the outbox's follower), which no outside request set
+ * off: the API checks no login for it, and takes who it says it's for (ORR-1038). Only a holder of the token sends it. */
+export const OWN_WORK = {'Orrery-Came': 'server'} as const
+
 /** What this server's settings say about getting in, which the API can't read: `provider` with a login provider set up
- * (`oidcOn`), `off` with ORRERY_AUTH=off; and the address the request came to, for an invite's link. */
-export function loginHeaders(ways: {provider: boolean, off: boolean}, origin: string): Record<string, string> {
-    const said = [...ways.provider ? ['provider'] : [], ...ways.off ? ['off'] : []]
+ * (`oidcOn`), `off` with ORRERY_AUTH=off, `on` with ORRERY_AUTH=on; and the address the request came to, for an
+ * invite's link. */
+export function loginHeaders(ways: {provider: boolean, off: boolean, on?: boolean}, origin: string): Record<string, string> {
+    const said = [...ways.provider ? ['provider'] : [], ...ways.off ? ['off'] : [], ...ways.on ? ['on'] : []]
     return {...said.length ? {'Orrery-Login-Ways': said.join(', ')} : {}, 'Orrery-Origin': encodeURIComponent(origin)}
+}
+
+/** How the request reached this server, which only its socket knows (ORR-928), for the API's `authMode`: `loopback`
+ * (`onLoopback`), `proxied`, `phone` (the phone's own port, `viaPhone`) and `https` (`overHttps`), any of them; and
+ * the host it asked for, as `Orrery-Host`, for the login page's plain-http warning. */
+export function cameHeaders(came: {loopback: boolean, proxied: boolean, phone: boolean, https: boolean}, host: string): Record<string, string> {
+    const said = (['loopback', 'proxied', 'phone', 'https'] as const).filter(how => came[how])
+    return {...said.length ? {'Orrery-Came': said.join(', ')} : {}, 'Orrery-Host': encodeURIComponent(host)}
 }
 
 /** The projects a reply's `Orrery-Changed` names: comma-separated, each percent-encoded (a status is every project's). */
@@ -253,19 +378,41 @@ export function toldOf(header: string | null): {type: string, project: string, s
 
 /** What a new or edited comment's reply leaves this server to do (ORR-927): `Orrery-Carry` and `Orrery-Notice`, each
  * `<project> <issue> <comment>` percent-encoded, to pass it on to the session on its issue and to the owner's bell; an
- * edit's carry ends ` edited`, as its words replace ones the session may have read. */
-export function handedOn(headers: Headers): {project: string, issue: string, comment: number, carry: boolean, notice: boolean, edited: boolean} | undefined {
-    const said = headers.get('orrery-carry') ?? headers.get('orrery-notice')
-    const [project, issue, comment, mark] = said?.trim().split(' ').map(decodeURIComponent) ?? []
-    if (!project || !issue || !Number.isInteger(Number(comment))) return undefined
-    return {project, issue, comment: Number(comment), carry: headers.has('orrery-carry'), notice: headers.has('orrery-notice'), edited: mark === 'edited'}
+ * edit's carry ends ` edited`, as its words replace ones the session may have read, and a rejection's ` quiet`, as it
+ * starts no work (`startsNone`). Many decisions at once say many, apart by commas, in the order they were made. */
+export function handoffsOf(headers: Headers): {project: string, issue: string, comment: number, carry: boolean, notice: boolean, edited: boolean, quiet: boolean}[] {
+    const all = new Map<string, {project: string, issue: string, comment: number, carry: boolean, notice: boolean, edited: boolean, quiet: boolean}>()
+    for (const header of ['orrery-carry', 'orrery-notice'] as const) {
+        for (const one of (headers.get(header) ?? '').split(',')) {
+            const [project, issue, comment, mark] = one.trim().split(' ').map(decodeURIComponent)
+            if (!project || !issue || !Number.isInteger(Number(comment))) continue
+            const key = `${project} ${issue} ${comment}`
+            const said = all.get(key) ?? {project, issue, comment: Number(comment), carry: false, notice: false, edited: mark === 'edited', quiet: mark === 'quiet'}
+            said[header === 'orrery-carry' ? 'carry' : 'notice'] = true
+            all.set(key, said)
+        }
+    }
+    return [...all.values()]
 }
 
-/** The issue an edit's reply says it made urgent open work (`Orrery-Urgent`, `<project> <issue>` percent-encoded), for
- * the push to the sessions only this server can make (`sayUrgent`, ORR-927). */
-export function urgentOf(header: string | null): {project: string, issue: string} | undefined {
-    const [project, issue, ...rest] = header?.trim().split(' ').map(decodeURIComponent) ?? []
-    return project && issue && !rest.length ? {project, issue} : undefined
+/** The one comment a reply hands on (`handoffsOf`), if it does. */
+export function handedOn(headers: Headers) {
+    return handoffsOf(headers)[0]
+}
+
+/** Passes a comment the API made on to the session and the bell, as `handedOn` read it: a quiet one starts no work. */
+export async function handOn(store: Pick<ReturnType<typeof useStore>, 'handOn'>, handoff: ReturnType<typeof handoffsOf>[number], actor: Actor) {
+    const pass = () => store.handOn(handoff.project, handoff.issue, handoff.comment, handoff, actor)
+    await (handoff.quiet ? startsNone.run(true, pass) : pass())
+}
+
+/** The issues an edit's reply says it made urgent open work (`Orrery-Urgent`, `<project> <issue>` percent-encoded, many
+ * apart by commas), for the push to the sessions only this server can make (`sayUrgent`, ORR-927). */
+export function urgentOf(header: string | null): {project: string, issue: string}[] {
+    return (header ?? '').split(',').flatMap(one => {
+        const [project, issue, ...rest] = one.trim().split(' ').map(decodeURIComponent)
+        return project && issue && !rest.length ? [{project, issue}] : []
+    })
 }
 
 /** The API this server started itself (`plugins/api.ts`), once it's listening. */
@@ -273,6 +420,31 @@ let started: {url: string, token: string} | null = null
 
 export function apiStarted(api: {url: string, token: string} | null) {
     started = api
+    if (api) apiStarting(false)
+}
+
+/** Whether this server is starting the API now (at boot, or again after a move, ORR-1035), and who waits for it. */
+let starting = false
+const listening = new Set<() => void>()
+
+export function apiStarting(value: boolean) {
+    starting = value
+    if (!value) for (const done of [...listening]) done()
+}
+
+/** Resolves once the API this server is starting listens, or gives up starting, `within` ms at most; at once when it's
+ * listening already or nothing is starting it. */
+export function apiListening(within = 5000): Promise<void> {
+    if (started || !starting) return Promise.resolve()
+    return new Promise(resolve => {
+        const timer = setTimeout(done, within)
+        function done() {
+            clearTimeout(timer)
+            listening.delete(done)
+            resolve()
+        }
+        listening.add(done)
+    })
 }
 
 /** Where the API is, and its token: the one this server started, or the one the settings name; none, no API. */
@@ -281,38 +453,78 @@ export function apiTarget(config: {apiUrl?: unknown, apiToken?: unknown}): {url:
     return config.apiUrl && config.apiToken ? {url: String(config.apiUrl), token: String(config.apiToken)} : null
 }
 
-/** Said once, not on every request, while the API can't be reached. */
-let unreachable = false
+/** Whether the swap is on (`apiOnly`, NUXT_API_ONLY, ORR-1034): the routes in `DOMAINS` are the API's alone, with no
+ * falling through to the routes here when it can't answer. Off unless it says so. */
+export function apiOnly(config: {apiOnly?: unknown}): boolean {
+    return ['1', 'true', 'on', 'yes'].includes(String(config.apiOnly ?? '').trim().toLowerCase())
+}
 
-/** Sends the request to the API and gives back its reply, or undefined to leave it to the routes here. */
-export async function forwardToApi(event: H3Event, api: {url: string, token: string}): Promise<unknown> {
-    const found = lineOf(event.method, pathOf(event))
-    if (await found?.line.first?.[event.method.toUpperCase()]?.(event, found.rest) === 'here') return undefined
-    const actor = await actorOf(event)
-    const body = WRITES.has(event.method) ? await readRawBody(event, false) : undefined
-    let response: Response
-    try {
-        response = await fetch(`${api.url.replace(/\/+$/, '')}${event.path}`, {
-            method: event.method,
-            headers: {
-                'Content-Type': getRequestHeader(event, 'content-type') ?? 'application/json',
-                'Orrery-Api-Token': api.token,
-                'Orrery-Database': databaseMark(databaseSetting()),
-                ...actorHeaders(actor),
-                ...whoHeaders(event.context.who as Who | undefined, getCookie(event, loginCookie(event))),
-                ...loginHeaders({provider: oidcOn(), off: toldOff()}, getRequestURL(event, {xForwardedHost: true, xForwardedProto: true}).origin),
-            },
-            body: body ? new Uint8Array(body) : undefined,
-            redirect: 'manual',
-        })
-    } catch (error) {
-        if (!unreachable) console.warn(`[orrery] the Rust API at ${api.url} can't be reached, so this server answers its routes:`, (error as Error).message)
-        unreachable = true
+/** Why the API last couldn't answer, said once, not on every request, until it answers again. */
+let unreachable = ''
+
+/** The API can't answer `event` (`why`): with the swap off, said once and left to the routes here (undefined); with it
+ * on, a 503 that says why, logged once to the server's log and the event log while it lasts. */
+export function cantReach(event: H3Event | string, why: string, only: boolean): undefined {
+    const again = unreachable === why
+    unreachable = why
+    if (!only) {
+        if (!again) console.warn(`[orrery] the Rust API ${why}, so this server answers its routes`)
         return undefined
     }
-    unreachable = false
+    const asked = typeof event === 'string' ? event : `${event.method} ${pathOf(event, true)}`
+    const message = `The Rust API ${why}, and this server is set to the API alone (NUXT_API_ONLY), so it doesn't answer ${asked} itself.`
+    if (!again) {
+        console.error(`[orrery] ${message}`)
+        useEventLog().note({level: 'error', kind: 'api.unreachable', message, details: {why}})
+    }
+    throw createError({statusCode: 503, statusMessage: 'The Rust API can\'t be reached', message})
+}
+
+/** Why the API isn't there to send to, said as `cantReach` takes it. */
+const NOT_RUNNING = 'isn\'t running (not started yet, stopped, or not set up)'
+
+/** Sends the request to the API when it serves it (`DOMAINS`), and gives back its reply, or undefined to leave it to the
+ * routes here: for a line with `here`, with no API and the swap off (`apiOnly`), and what its check keeps here. */
+export async function routeToApi(event: H3Event, config: {apiUrl?: unknown, apiToken?: unknown, apiOnly?: unknown}): Promise<unknown> {
+    const found = lineOf(event.method, pathOf(event))
+    if (!found) return undefined
+    // A domain whose routes here are gone has nothing to fall through to (ORR-1041).
+    const only = apiOnly(config) || !found.line.here
+    // With the swap on, a request that comes while the API is starting waits a few seconds for it, rather than failing.
+    if (only && !apiTarget(config)) await apiListening()
+    const api = apiTarget(config)
+    if (!api) return only ? cantReach(event, NOT_RUNNING, true) : undefined
+    return forwardToApi(event, api, only)
+}
+
+/** Sends the request to the API and gives back its reply, or undefined to leave it to the routes here. With the swap on
+ * (`only`), an API that can't be reached or is on another database fails the request instead (`cantReach`). */
+export async function forwardToApi(event: H3Event, api: {url: string, token: string}, only = false): Promise<unknown> {
+    const found = lineOf(event.method, pathOf(event))
+    // The checks here read ids out of the path, so they get it as it was asked: lowercased, an issue isn't found (ORR-1029).
+    const asked = /^\/api\/(.*?)\/?$/.exec(pathOf(event, true))?.[1] ?? ''
+    if (found && await found.line.first?.[event.method.toUpperCase()]?.(event, asked) === 'here') return undefined
+    const shaped = found?.line.reply?.[event.method.toUpperCase()]?.(event)
+    const actor = await actorOf(event)
+    const body = WRITES.has(event.method) ? await readRawBody(event, false) : undefined
+    const headers = {
+        'Content-Type': getRequestHeader(event, 'content-type') ?? 'application/json',
+        'Orrery-Api-Token': api.token,
+        'Orrery-Database': databaseMark(databaseSetting()),
+        ...actorHeaders(actor),
+        ...whoHeaders(event.context.who as Who | undefined, getCookie(event, loginCookie(event)), bearer(event)),
+        ...loginHeaders({provider: oidcOn(), off: toldOff(), on: toldOn()}, getRequestURL(event, {xForwardedHost: true, xForwardedProto: true}).origin),
+        ...cameHeaders({loopback: onLoopback(event), proxied: proxied(event), phone: viaPhone(event), https: getRequestURL(event, {xForwardedProto: true}).protocol === 'https:'}, getRequestHost(event)),
+    }
+    let response: Response
+    try {
+        response = await fetch(`${api.url.replace(/\/+$/, '')}${shaped?.path ?? event.path}`, {method: event.method, headers, body: body ? new Uint8Array(body) : undefined, redirect: 'manual'})
+    } catch (error) {
+        return cantReach(event, `at ${api.url} can't be reached (${(error as Error).message})`, only)
+    }
     // On another database than this server's: the owner moved it, and the API hasn't been started again on the new one.
-    if (response.status === 421) return undefined
+    if (response.status === 421) return cantReach(event, `at ${api.url} is on another database than this server`, only)
+    unreachable = ''
     const passed = await passedThrough(response)
     if (passed) {
         setResponseStatus(event, response.status)
@@ -321,9 +533,27 @@ export async function forwardToApi(event: H3Event, api: {url: string, token: str
     }
     const text = await response.text()
     const json = text ? JSON.parse(text) as Record<string, unknown> : null
-    if (response.status >= 400) {
-        throw createError({statusCode: response.status, statusMessage: String(json?.statusMessage ?? ''), message: String(json?.message ?? ''), ...json?.data === undefined ? {} : {data: json.data}})
-    }
+    if (response.status >= 400) throw refusal(response.status, json)
+    await relayed(response, actor, event.method)
+    const counted = countedOf(event.method, pathOf(event))
+    if (counted) countOwnUse(event, counted)
+    setResponseStatus(event, response.status)
+    if (response.status === 204) return null
+    setResponseHeader(event, 'Content-Type', 'application/json')
+    // A file to save (a board's export) keeps the name it's saved as.
+    const saved = response.headers.get('content-disposition')
+    if (saved) setResponseHeader(event, 'Content-Disposition', saved)
+    return shaped ? shaped.reply(json) : json
+}
+
+/** A reply of 400 or more, as the error the routes here would throw. */
+function refusal(status: number, json: Record<string, unknown> | null) {
+    return createError({statusCode: status, statusMessage: String(json?.statusMessage ?? ''), message: String(json?.message ?? ''), ...json?.data === undefined ? {} : {data: json.data}})
+}
+
+/** Tells what a reply from the API says it set off, as the store would have: open pages read the project again, and the
+ * event log, schedules and sessions hear it. `noteKeys` off: the caller notes a change of the settings itself. */
+async function relayed(response: Response, actor: Actor, method: string, {noteKeys = true} = {}) {
     const store = useStore()
     // The API put what it set off in the outbox already, so the store's hooks don't again (ORR-929). While this server
     // follows the outbox, they hear it from there instead of from these headers (ORR-983).
@@ -334,19 +564,57 @@ export async function forwardToApi(event: H3Event, api: {url: string, token: str
         if (relayHeaders && response.headers.get('orrery-settings') === '1') await store.settingsChanged()
         // Open pages ask for the epics again (ORR-1004).
         if (relayHeaders && response.headers.get('orrery-epics') === '1') store.epicsChanged()
+        // The scheduler reads the event listeners again, and open pages the schedules (ORR-950).
+        if (relayHeaders) for (const project of changedOf(response.headers.get('orrery-schedules'))) useScheduler().changedElsewhere(project)
         const keys = changedOf(response.headers.get('orrery-settings-keys'))
-        if (keys.length) useEventLog().note({level: 'info', kind: 'settings.changed', message: `${actor.name} changed the settings: ${keys.join(', ')}`, details: {by: actor.name, keys}})
+        if (noteKeys && keys.length) useEventLog().note({level: 'info', kind: 'settings.changed', message: `${actor.name} changed the settings: ${keys.join(', ')}`, details: {by: actor.name, keys}})
         if (relayHeaders) for (const {type, project, subject, from, to} of toldOf(response.headers.get('orrery-told'))) store.told(type, project, subject, actor, {from, to})
     })
     // Outside `relaying`: the signal and the bell's notice are this server's own, with their own rows in the outbox.
-    const handoff = handedOn(response.headers)
-    if (handoff) await store.handOn(handoff.project, handoff.issue, handoff.comment, handoff, actor)
-    const urgent = urgentOf(response.headers.get('orrery-urgent'))
-    if (urgent) await store.sayUrgent(urgent.project, urgent.issue, actor)
-    const counted = countedOf(event.method, pathOf(event))
-    if (counted) countOwnUse(event, counted)
-    setResponseStatus(event, response.status)
-    if (response.status === 204) return null
-    setResponseHeader(event, 'Content-Type', 'application/json')
-    return json
+    for (const handoff of handoffsOf(response.headers)) await handOn(store, handoff, actor)
+    for (const urgent of urgentOf(response.headers.get('orrery-urgent'))) await store.sayUrgent(urgent.project, urgent.issue, actor)
+    // What it set off is told before the reply, as the page that asked reads the board next (ORR-1029).
+    if (!relayHeaders && WRITES.has(method)) await caughtUp()
+}
+
+/** The runtime config, or none where there's no Nitro (unit tests that don't stub it). */
+function configHere(): {apiUrl?: unknown, apiToken?: unknown, apiOnly?: unknown} {
+    try {
+        return useRuntimeConfig()
+    } catch {
+        return {}
+    }
+}
+
+/** A write this server makes itself rather than for a request, such as the chat's Allow (ORR-1044): with the API there
+ * and serving `method` on `path` (`DOMAINS`, or `always` for a route only this server calls, like the chat's row), it's
+ * sent there as the page's request would be, as `actor`, so the API stays the one writer of its tables and its outbox
+ * hears it. The reply comes back as `{reply}`; undefined leaves it to the store here, as the router would: no API, or
+ * one that can't be reached with the swap off. With the swap on, that fails instead (`cantReach`). `noteKeys` off: the
+ * caller notes a settings change in the event log itself. */
+export async function writeToApi(method: string, path: string, body: unknown, actor: Actor, {always = false, noteKeys = true, config = configHere()} = {}): Promise<{reply: unknown} | undefined> {
+    if (!always && !servedByApi(method, path)) return undefined
+    const only = apiOnly(config)
+    const asked = `${method} ${path}`
+    if (only && !apiTarget(config)) await apiListening()
+    const api = apiTarget(config)
+    if (!api) return only ? cantReach(asked, NOT_RUNNING, true) : undefined
+    let response: Response
+    try {
+        response = await fetch(`${api.url.replace(/\/+$/, '')}${path}`, {
+            method,
+            headers: {'Content-Type': 'application/json', 'Orrery-Api-Token': api.token, 'Orrery-Database': databaseMark(databaseSetting()), ...OWN_WORK, ...actorHeaders(actor)},
+            body: body === undefined ? undefined : JSON.stringify(body),
+            redirect: 'manual',
+        })
+    } catch (error) {
+        return cantReach(asked, `at ${api.url} can't be reached (${(error as Error).message})`, only)
+    }
+    if (response.status === 421) return cantReach(asked, `at ${api.url} is on another database than this server`, only)
+    unreachable = ''
+    const text = await response.text()
+    const json = text ? JSON.parse(text) as Record<string, unknown> : null
+    if (response.status >= 400) throw refusal(response.status, json)
+    await relayed(response, actor, method, {noteKeys})
+    return {reply: json}
 }

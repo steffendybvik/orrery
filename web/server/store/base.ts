@@ -67,9 +67,10 @@ export abstract class StoreBase {
     /** The outbox rows this server wrote, kept only while it follows the feed (ORR-983): its own hooks heard those. */
     private own: Set<number> | null = null
 
-    /** From now on, keeps the ids of the outbox rows this server writes, for the follower to skip (ORR-983). */
+    /** From now on, keeps the ids of the outbox rows this server writes, for the follower to skip (ORR-983), starting
+     * afresh: the ids kept from a database before a move mean other rows on this one (ORR-1035). */
     keepOwnChanges() {
-        this.own ??= new Set()
+        this.own = new Set()
     }
 
     /** Whether this server wrote the outbox row `id`, forgetting it: each is read once. */

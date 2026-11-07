@@ -5,6 +5,7 @@
 // Each domain is its own file under `server/store/`, one class extending the one before, and `Store` is the last of them:
 // the one the server makes and the routes use.
 import type {Comment} from '#shared/roadmap'
+import {parked} from '#shared/roadmap'
 import type {IssueRecord, CommentRow} from '../store/schema'
 import {ANSWERED, commentOf} from '../store/schema'
 import {ImportStore} from '../store/imports'
@@ -39,6 +40,14 @@ export class Store extends ImportStore {
      * run's session, which what's for every session never reaches). */
     async busy(project: string, ids: string[], own = false): Promise<boolean> {
         return (await this.workingOn(project, ids)).length > 0 || (own ? await this.waitingFor(project, ids) : await this.waiting(project, ids))
+    }
+
+    /** Whether the session (any of its `ids`) has work of its own to get on with (ORR-1032): an issue in progress that
+     * isn't parked, or a signal of the owner's waiting for it. Parked is waiting on the owner's answer, or In review: it
+     * stays the session's, but it's done with it for now, so it's out of work and may be handed more (picking, the Todo
+     * hand-out). Clearing and stopping still go by `busy`. */
+    async engaged(project: string, ids: string[]): Promise<boolean> {
+        return (await this.workingOn(project, ids)).some(issue => !parked(issue)) || await this.waiting(project, ids)
     }
 
     /** A session's new id (after a `/clear`) takes over what its old one worked and was sent, so none of it

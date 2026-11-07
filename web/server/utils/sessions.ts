@@ -7,7 +7,8 @@
 // listens (and can be stopped) through its own project's channel only.
 import {randomInt} from 'node:crypto'
 import type {CarriedOver, Effort, IssueScope, Session, SessionState, SessionTool, StartedSession} from '#shared/roadmap'
-import {CARRY_FROM, SESSION_NAMES, contextWindow, madeUpName, sameScope} from '#shared/roadmap'
+import {CARRY_FROM, SESSION_NAMES, madeUpName, sameScope} from '#shared/roadmap'
+import {agentFor} from '#channel/agents.mjs'
 
 interface Known extends Session {
     pid?: number
@@ -85,7 +86,7 @@ export interface Report {
     /** For `StopFailure`: why the turn was cut off, and what Claude Code told the session. */
     error?: string
     errorText?: string
-    /** For `Notification`: what Claude Code is waiting for. */
+    /** What it's waiting for, when `waiting` (or a `Notification`, from a hook before ORR-1074). */
     message?: string
     /** For `PreToolUse` on Bash: the command it's about to run, to see which issues it writes to. */
     command?: string
@@ -101,6 +102,8 @@ export interface Report {
     effort?: Effort
     /** The tokens its context holds, when its hook could tell (ORR-968). */
     context?: number
+    /** And its model's window, when its agent's adapter said (ORR-1074). */
+    window?: number
 }
 
 /** What a hook says of a session's context (ORR-968): the tokens it holds, against its model's window. A compaction
@@ -113,7 +116,9 @@ function noteContext(session: Known, input: Report) {
     }
     if (input.context === undefined) return
     const compacted = session.context?.compacted
-    session.context = {tokens: input.context, window: contextWindow(session.model, input.context), ...compacted ? {compacted} : {}}
+    // A hook from before the adapter said the window sends tokens alone: Claude Code's, as it can only be.
+    const window = input.window ?? agentFor('claude').window(session.model, input.context)
+    session.context = {tokens: input.context, window, ...compacted ? {compacted} : {}}
 }
 
 /** A session started an issue (ORR-968). One out of the scope of the issue it started before, since its last clear,
@@ -255,6 +260,7 @@ export function report(input: Report): Session | null {
     // A permission dialog opening says which tool it's for and leaves the state to the notification that comes with it:
     // the two can arrive in either order.
     const event = input.event === 'PermissionRequest' ? session?.state ?? 'working'
+        // A hook from before the adapter read Claude Code's notification itself (ORR-1074): one asking for a permission.
         : input.event === 'Notification'
         ? (/permission|approv|allow/i.test(input.message ?? '') ? 'waiting' : 'idle')
         : STATES[input.event] ?? input.event
@@ -596,6 +602,13 @@ export function sessionNow(id: string): (Session & {idleAt?: number}) | undefine
 export function untrustedSession(id: string): boolean {
     const session = sessions.get(currentId(id))
     return !!session?.untrusted || !!session?.started?.untrusted
+}
+
+/** The project an untrusted schedule's session was started for, as its hooks name it (the launcher sets its
+ * ORRERY_PROJECT to the launch's): nothing for one orrery doesn't know, or that isn't untrusted. */
+export function untrustedProject(id: string | undefined): string | undefined {
+    const session = id ? sessions.get(currentId(id)) : undefined
+    return session && (session.untrusted || session.started?.untrusted) ? session.project : undefined
 }
 
 /** Whether it's the owner's chat (chats.ts), by its channel's word or its launch's. */

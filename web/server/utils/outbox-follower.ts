@@ -69,6 +69,8 @@ async function apply(store: Store, change: Change, unknown: Set<string>) {
         await store.settingsChanged()
     } else if (change.kind === 'epics') {
         store.epicsChanged()
+    } else if (change.kind === 'schedules') {
+        if (change.project) useScheduler().changedElsewhere(change.project)
     } else if (change.kind === 'signal' || change.kind === 'notice') {
         if (!unknown.has(change.kind)) console.warn(`[orrery] the outbox has a ${change.kind} this server didn't write, which it doesn't deliver yet (ORR-983)`)
         unknown.add(change.kind)
@@ -98,8 +100,11 @@ export async function followOutbox(store: Store, options: {
     const unknown = new Set<string>()
     let after = options.after
     let failing = false
+    // Those waiting on a page read after they asked (`caughtUp`), told once the feed has nothing more.
+    const served: (() => void)[] = []
     while (!options.stopped()) {
         let full = false
+        served.push(...waiting.splice(0))
         try {
             const page = await options.read(after)
             failing = false
@@ -113,13 +118,43 @@ export async function followOutbox(store: Store, options: {
             if (!failing) console.warn("[orrery] can't read the Rust API's outbox, trying again:", (error as Error).message)
             failing = true
         }
-        if (!full) await new Promise(resolve => setTimeout(resolve, options.every ?? 1000))
+        if (!full) {
+            for (const done of served.splice(0)) done()
+            if (!waiting.length) await new Promise<void>(resolve => {
+                wake = resolve
+                setTimeout(resolve, options.every ?? 1000)
+            })
+            wake = null
+        }
     }
+    for (const done of [...served, ...waiting.splice(0)]) done()
+}
+
+/** Who's waiting for the follower to read the outbox as it is now, and how to wake it from its pause. */
+const waiting: (() => void)[] = []
+let wake: (() => void) | null = null
+
+/** Resolves once the follower has read every change in the outbox as it is now, so a write forwarded to the API is
+ * told to open pages before its own reply goes back, as a write here is (ORR-1029): else the page that made it acts
+ * on a board that doesn't have it yet. At once when not following; after `within` ms at most, so a feed that can't be
+ * read never holds a reply. */
+export function caughtUp(within = 2000): Promise<void> {
+    if (!on) return Promise.resolve()
+    return new Promise(resolve => {
+        const timer = setTimeout(done, within)
+        function done() {
+            clearTimeout(timer)
+            resolve()
+        }
+        waiting.push(done)
+        wake?.()
+    })
 }
 
 /** A page from the API at `url`, with its token and the mark of the database this server is on (`databaseMark`). */
 export async function readPage(api: {url: string, token: string}, database: string, after: number): Promise<Page> {
-    const response = await fetch(`${api.url.replace(/\/+$/, '')}/api/changes?after=${after}`, {headers: {'Orrery-Api-Token': api.token, 'Orrery-Database': database}})
+    // This server's own work, so no login is checked (`OWN_WORK` in api-router.ts, which imports this file).
+    const response = await fetch(`${api.url.replace(/\/+$/, '')}/api/changes?after=${after}`, {headers: {'Orrery-Api-Token': api.token, 'Orrery-Database': database, 'Orrery-Came': 'server'}})
     if (!response.ok) throw new Error(`the outbox answered ${response.status}`)
     return await response.json() as Page
 }

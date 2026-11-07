@@ -8,11 +8,15 @@ import LauncherHint from '~/components/LauncherHint.vue'
 // and it goes once one connects, heard through the launchers coming and going.
 let launchers = 0
 registerEndpoint('/api/projects/greenhouse/launches', () => ({launchers, folders: [], every: false, started: 0, starting: 0, total: 0}))
+registerEndpoint('/api/projects/reading/launches', () => ({launchers: 0, folders: [], every: false, started: 0, starting: 0, total: 0}))
 
 const mounted: VueWrapper[] = []
 beforeEach(() => {
     launchers = 0
-    useRoadmaps().projects.value = [{id: 'greenhouse', name: 'Greenhouse', key: 'GRE', releases: [], board: {milestones: []}} as unknown as Project]
+    useRoadmaps().projects.value = [
+        {id: 'greenhouse', name: 'Greenhouse', key: 'GRE', repo: 'skoll/greenhouse', releases: [], board: {milestones: []}},
+        {id: 'reading', name: 'Reading list', key: 'REA', releases: [], board: {milestones: []}},
+    ] as unknown as Project[]
 })
 afterEach(() => {
     mounted.splice(0).forEach(w => w.unmount())
@@ -37,6 +41,18 @@ describe('LauncherHint', () => {
         mounted.push(wrapper)
         await vi.waitFor(() => expect(wrapper.text()).toMatch(/No launcher is running for Greenhouse\.\s+The chat starts its session through it/))
         expect(wrapper.text()).not.toContain('Start session')
+        expect(wrapper.text()).toContain('bootstrap.mjs launcher --install')
+    })
+
+    it("doesn't ask a project with no repo for one: it names the default folder (ORR-1063)", async () => {
+        useAppSettings().settings.value.id = 'orr_abc123'
+        const wrapper = await mountSuspended(LauncherHint, {props: {project: 'reading', chat: true}})
+        mounted.push(wrapper)
+        await vi.waitFor(() => expect(wrapper.text()).toContain('No launcher is running for Reading list.'))
+        expect(wrapper.text()).toContain('The chat starts its session through it.')
+        expect(wrapper.text()).toContain('~/.orrery/orr_abc123/home')
+        expect(wrapper.text()).toContain('Anywhere on your machine, run')
+        expect(wrapper.text()).not.toMatch(/in the repo/i)
         expect(wrapper.text()).toContain('bootstrap.mjs launcher --install')
     })
 
