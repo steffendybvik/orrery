@@ -65,6 +65,14 @@ describe("an epic's focus", () => {
         await expect(store.focusEpic(epic, {session: 's-3'}, me)).rejects.toMatchObject({statusCode: 400})
     })
 
+    it('narrowed to a status, goes only to the projects with an open issue of it in the epic (ORR-958)', async () => {
+        await store.updateIssue('shop', 'SHO-2', {status: 'in-progress'}, me)
+        expect((await store.focusEpic(epic, {status: 'in-progress'}, me)).map(s => [s.project, s.status])).toEqual([['shop', 'in-progress']])
+        expect((await store.focusEpic(epic, {status: 'todo'}, me)).map(s => s.project)).toEqual(['api'])
+        // A kind, or the old word for it, as a milestone's takes.
+        expect((await store.focusEpic(epic, {status: 'doing'}, me)).map(s => s.project)).toEqual(['shop'])
+    })
+
     it("is an agent's as theirs, which no session hears", async () => {
         expect((await store.focusEpic(epic, {}, agent)).every(s => !s.protected)).toBe(true)
     })

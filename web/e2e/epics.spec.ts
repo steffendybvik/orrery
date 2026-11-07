@@ -1,5 +1,5 @@
 import {expect, test} from './test'
-import {AGENT, makeProject, projectApi} from './support'
+import {AGENT, hold, makeProject, projectApi} from './support'
 
 // An epic (ORR-895) made on the Epics page, picked on issues in two projects, and its page showing each project's part,
 // with progress counted across both. Removing it leaves the issues where they are.
@@ -80,6 +80,48 @@ test('focuses on an epic: a focus for each project with open issues in it (ORR-9
     for (const api of [front, back]) {
         const signals = await api(request, 'get', '/signals') as {epic?: number, milestone?: string}[]
         expect(signals.at(-1)).toMatchObject({epic: epic.id, milestone: 'all'})
+    }
+})
+
+test("an epic's Sessions panel points one session, all of them, or a status at it, across its projects (ORR-958)", async ({page, request, baseURL}) => {
+    const epic = await (await request.post('/api/epics', {data: {title: 'Gift cards'}, headers: AGENT})).json() as {id: number}
+    await front(request, 'post', '/issues', {title: 'Show the card', status: 'todo', epic: epic.id})
+    await back(request, 'post', '/issues', {title: 'Charge the card', status: 'in-progress', epic: epic.id})
+    const both = hold(baseURL!, '/api/signals/stream?projects=storefront,tannery&session=e2e-both&name=both&format=text')
+    const one = hold(baseURL!, '/api/projects/storefront/signals/stream?session=e2e-front&name=front&format=text')
+    const last = async (api: typeof front) => (await api(request, 'get', '/signals') as {epic?: number, target?: string, status?: string}[]).at(-1)
+    try {
+        await page.goto(`/epics/${epic.id}`)
+        const panel = page.getByRole('region', {name: 'Sessions'})
+        await expect(panel.getByText('2 listening')).toBeVisible()
+        const row = (name: string) => panel.getByRole('listitem').filter({hasText: name})
+        await expect(row('both')).toContainText('hears all its projects')
+        await expect(row('front')).toContainText('hears Storefront')
+
+        // One that hears only Storefront takes just its part there.
+        await row('front').getByRole('button', {name: 'Focus on this'}).click()
+        await expect(panel.getByRole('status')).toHaveText('Sent to front, on Storefront')
+        expect(await last(front)).toMatchObject({epic: epic.id, target: 'e2e-front'})
+        await expect.poll(() => one.said.text).toContain('Show the card')
+
+        // A status goes only where the epic has issues in it.
+        await panel.getByRole('button', {name: 'Focus on all In progress'}).click()
+        await page.getByRole('menuitem', {name: 'All 2 sessions'}).click()
+        await expect.poll(async () => (await last(back))?.status).toBe('in-progress')
+        expect(await last(front)).toMatchObject({target: 'e2e-front'})
+        await expect.poll(() => both.said.text).toContain('Charge the card')
+
+        // Right-clicking it in the Epics list does the same.
+        await page.goto('/epics')
+        await page.getByRole('link').filter({hasText: 'Gift cards'}).click({button: 'right'})
+        const menu = page.getByRole('menu', {name: /Actions for EPC-/})
+        await menu.getByRole('button', {name: 'Focus all 2 sessions on this'}).click()
+        await expect(menu.getByRole('status')).toHaveText('Sent to 2 projects')
+        expect(await last(front)).toMatchObject({epic: epic.id, target: '*'})
+        expect(await last(back)).toMatchObject({epic: epic.id, target: '*'})
+    } finally {
+        both.stop()
+        one.stop()
     }
 })
 

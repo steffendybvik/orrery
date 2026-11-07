@@ -180,17 +180,21 @@ export abstract class SignalStore extends IssueStore {
      * as a milestone's over the whole project (`all`) narrowed to the epic, so each goes to that project's sessions (one
      * orrery picks, or `*`) and starts one there as any owner's focus does. `{note?, status?, instructions?}` go to each.
      * A named session (ORR-958) gets a focus for each of those projects it hears, and none for the others; one that
-     * hears none of them is refused, as nothing would reach it. */
+     * hears none of them is refused, as nothing would reach it. With a status, only the projects with an open issue of
+     * it in the epic hear it, so no session is asked to work through nothing. */
     async focusEpic(id: number, body: unknown, actor = AGENT): Promise<Signal[]> {
         const epic = await this.epicRow(id)
         const input = checkInput(body ?? {}, MILESTONE_SIGNAL_FIELDS)
         if (input.release !== undefined && input.release !== null) throw badRequest("An epic's focus can't name a release: a release is one project's")
         const named = typeof input.session === 'string' && input.session && input.session !== EVERY ? input.session : undefined
         const projects = (await this.all<{project: string}>('SELECT DISTINCT project FROM issues WHERE epic = ? ORDER BY project', epic.id)).map(r => r.project)
+        // Narrowed to a status (ORR-958), only the projects with an open issue of it in the epic: by its status, or kind.
+        const words = input.status ? String(input.status).split(',').map(w => w.trim()).map(w => LEGACY_KINDS[w] ?? w) : undefined
         const open: string[] = []
         for (const project of projects) {
             // Only where it has open work: a project whose part is done hears nothing.
-            if ((await this.inEpic(project, await this.listIssues(project), epic.id)).some(i => i.kind !== 'proposed' && !CLOSED.includes(i.kind as Kind))) open.push(project)
+            if ((await this.inEpic(project, await this.listIssues(project), epic.id)).some(i => i.kind !== 'proposed' && !CLOSED.includes(i.kind as Kind)
+                && (!words || words.includes(i.column) || words.includes(i.kind)))) open.push(project)
         }
         const to = named ? open.filter(project => this.hears(project, named)) : open
         if (named && open.length && !to.length) throw badRequest(`Session ${named} hears none of the projects the epic has open issues in (${open.join(', ')})`)
