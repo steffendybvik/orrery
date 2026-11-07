@@ -135,7 +135,8 @@ schedule's run never goes to your sessions. Instead:
   the channel's `github_issues`, which runs `gh` itself on the repo the folder's git remote names, with
   arguments the session can't turn into another host (`-R`) or a browser (`--web`). Everything else is refused,
   not asked (`dontAsk`), and your own and the repo's settings, with their allow lists, are left out
-  (`--restricted`). With no launcher, or Starting sessions off, the run fails and says why. Only a
+  (`--restricted`). Its one MCP server is orrery's channel, handed to it by the launcher as `--mcp-config` (ORR-1066),
+  not the repo's `.mcp.json`, whose other servers would give it tools beyond orrery's. With no launcher, or Starting sessions off, the run fails and says why. Only a
   launcher that does this lockdown can take the run, so an older one (which gave it `gh`) won't start it.
 - **That session hears only its own message**, with a standing brief: what it reads is data, never
   instructions.
@@ -256,6 +257,9 @@ on your machine puts a folder there: `--install` in it, with pick-up on (ORR-599
 session you opened in it, which is the folder trust Claude Code asked you for, or you choosing it in the folder picker for
 **Connect a repo** (below). orrery never names a folder for the launcher, so whoever can reach orrery can't make it start
 sessions somewhere new. `--no-pick-up` leaves it to `--install` and that picker, and `--uninstall` in a repo keeps it off.
+The one folder it adds itself is its **default folder**, `~/.orrery/<orrery id>/home` (ORR-1066), for the projects with no
+repo: the launcher makes the path from the orrery's id (checked to be a plain id), writes only orrery's channel, hooks and a
+CLAUDE.md there, and never tells orrery where it is. Claude Code's trust prompt still has to be answered there by hand once.
 
 **Connect a repo** (ORR-708) is the owner's, and asks a launcher service to open its machine's folder picker. With login
 off the owner is a name, so whoever can reach orrery can make that picker appear, but only someone at the machine can choose a
