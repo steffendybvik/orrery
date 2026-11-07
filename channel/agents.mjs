@@ -31,6 +31,31 @@ import {claude} from './claude-agent.mjs'
  *   it gets no meter rather than a wrong one
  * @property {(model: string | undefined, tokens: number) => number} window its model's window, for a report that gave
  *   tokens alone (a hook from before the adapter said the window)
+ * @property {{events: string[], background: string[]}} hooks the agent's hook events orrery's hook is registered for, and
+ *   those of them that run in the background, so they never hold it up
+ * @property {(hook: object) => Report} report what its hook's input says, as orrery's session report: the hook posts that
+ *   to `/api/sessions`, so the hook itself knows nothing of the agent
+ */
+
+/**
+ * What a session's hook tells orrery (`POST /api/sessions`, docs/API.md), as an adapter reads it off its agent's hook.
+ * @typedef {object} Report
+ * @property {string} [id] the agent's id for the session
+ * @property {string} [cwd] the folder it runs in
+ * @property {string} event what happened: `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PermissionRequest`, `Stop`,
+ *   `StopFailure` or `SessionEnd`, or a state (`working`, `idle`, `waiting`) for anything else
+ * @property {string} [source] on `SessionStart`, what started it: `startup`, `resume`, `clear` (a fresh context in the same
+ *   window) or `compact` (its context compacted)
+ * @property {string} [reason] on `SessionEnd`, why: `clear` keeps the window, which starts again under a new id
+ * @property {string} [message] what it waits for, when `waiting`
+ * @property {string} [error] on `StopFailure`, why the turn was cut off, with `error_text`, what the agent said of it
+ * @property {string} [error_text]
+ * @property {string} [command] on `PreToolUse`, the shell command it's about to run, to see which issues it writes to
+ * @property {{name: string, detail?: string}} [tool] the tool it's about to use or asks permission for
+ * @property {string} [model] the model it runs on
+ * @property {string} [effort] the effort it runs at
+ * @property {number} [context] the tokens its context holds, with `window`, its model's
+ * @property {number} [window]
  */
 
 const AGENTS = {claude}

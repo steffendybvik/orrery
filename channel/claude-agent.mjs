@@ -3,8 +3,9 @@
 // session's pane, which it reads and types into.
 import {execFileSync} from 'node:child_process'
 import {chatOnly, lockedDown, modelArgs, resumeArgs} from './locked-down.mjs'
+import {ASYNC_EVENTS, HOOK_EVENTS} from './claude-hooks.mjs'
 import {onYes} from './permission-prompt.mjs'
-import {contextOf, contextWindow, modelOf} from './transcript.mjs'
+import {contextOf, contextWindow, effortOf, modelOf} from './transcript.mjs'
 
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms))
 
@@ -70,10 +71,55 @@ export const claude = {
 
     window: contextWindow,
 
+    // The hook events orrery's hook is registered for, and those of them that run in the background (claude-hooks.mjs).
+    hooks: {events: HOOK_EVENTS, background: ASYNC_EVENTS},
+
+    // Its hook's input, as orrery's session report. Claude Code's events are the report's own names, but for a
+    // Notification, which it says in words: one asking for a permission is the session waiting, any other one it idle.
+    report(hook) {
+        const name = hook.hook_event_name
+        const context = claude.context(hook)
+        return {
+            id: hook.session_id,
+            cwd: hook.cwd,
+            event: name === 'Notification' ? (/permission|approv|allow/i.test(hook.message ?? '') ? 'waiting' : 'idle') : name ?? 'idle',
+            // What it waits for, which the Sessions page shows.
+            message: hook.message,
+            // `clear` on SessionEnd keeps the window; SessionStart's `source` says if the context was cleared or compacted.
+            reason: hook.reason,
+            source: hook.source,
+            // StopFailure's: why the turn was cut off (`rate_limit`, `overloaded`, `server_error`…).
+            error: hook.error,
+            // And what Claude Code told it, which says when a usage limit resets.
+            error_text: name === 'StopFailure' && typeof hook.last_assistant_message === 'string' ? hook.last_assistant_message.slice(0, 300) : undefined,
+            // Which issues it's about to write to: an owner's comment on one goes to this session.
+            command: name === 'PreToolUse' && hook.tool_name === 'Bash' ? String(hook.tool_input?.command ?? '').slice(0, 4000) : undefined,
+            // The tool it's about to use, or asks permission for, in a line: what the owner's prompt says it wants.
+            tool: hook.tool_name ? {name: String(hook.tool_name).slice(0, 200), detail: toolDetail(hook.tool_name, hook.tool_input)} : undefined,
+            // The model it runs on (ORR-871), and the effort level, when its hook says (ORR-894).
+            model: modelOf(hook),
+            effort: effortOf(hook),
+            // And how much context it carries, after a turn and on tool events (ORR-968), against its model's window.
+            context: context?.tokens,
+            window: context?.window,
+        }
+    },
+
     // `/clear`, typed: its channel stays, and its hooks hand the new context what's left to do.
     async clear(pane) {
         pane.type('/clear')
         await wait(300)
         pane.press('Enter')
     },
+}
+
+/** What a tool would do, short: the command, the file, the address or the search. Never a file's contents or
+ * anything else from its input: an MCP tool's arguments can hold anything, so it goes by its name alone. */
+function toolDetail(name, input) {
+    const field = {
+        Bash: 'command', Edit: 'file_path', MultiEdit: 'file_path', Write: 'file_path', Read: 'file_path',
+        NotebookEdit: 'notebook_path', WebFetch: 'url', WebSearch: 'query', Glob: 'pattern', Grep: 'pattern',
+    }[name]
+    const value = field ? input?.[field] : undefined
+    return typeof value === 'string' && value ? value.slice(0, 300) : undefined
 }
