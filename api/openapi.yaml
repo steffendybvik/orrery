@@ -13,8 +13,9 @@ info:
       their `GET`s there, and a comment's `POST`, `PATCH` and `DELETE`, checking a session's claim on the issue first
       for an edit. Writing an issue stays the Nuxt server's, as a change wakes sessions. A new or edited comment's reply
       says what the Nuxt server passes on to the sessions and the owner's bell (`Orrery-Carry`, `Orrery-Notice`).
-    - **Uploads, reading** (ORR-927): an image kept for Markdown (web/server/api/uploads/[upload].get.ts), passed on by
-      the router as it came. Keeping one stays the Nuxt server's, as it compresses the image there.
+    - **Uploads** (ORR-927, ORR-1058): an image kept for Markdown (web/server/api/uploads), read back and passed on by
+      the router as it came, and kept, a PNG or JPEG compressed as WebP where that's smaller (board/compress.rs, as
+      web/server/utils/compress.ts does with sharp).
     - **Schedules, reading** (ORR-930): a project's schedules, one with its runs, every project's and those across
       projects (web/server/api/projects/[project]/schedules, schedules.get.ts, schedules/across). Served by both; making,
       changing and running them stays the Nuxt server's, as a run starts a session.
@@ -219,6 +220,16 @@ paths:
       responses:
         '204': {description: Deleted}
         '404': {$ref: '#/components/responses/NotFound'}
+  /api/uploads:
+    post:
+      summary: Keeps an image for Markdown to show
+      description: '`data` is the image in base64 (a `data:` URL works too), a PNG, JPEG, GIF or WebP of 10 MB at most; `name` gives the Markdown its alt text. A PNG or JPEG of 16 KB or more is kept as WebP when that''s smaller (quality 90 and 82), no wider than 2560 and turned as its EXIF says, losing its metadata; a JPEG WebP doesn''t shrink is written again as a JPEG when that is smaller. A body too big for the largest image is refused before it''s read (413).'
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      requestBody: {required: true, content: {application/json: {schema: {type: object, required: [data], additionalProperties: false, properties: {data: {type: string}, name: {type: [string, 'null']}}}}}}
+      responses:
+        '201': {description: Where it's served and the Markdown that shows it, content: {application/json: {schema: {type: object, required: [id, type, size, url, markdown], properties: {id: {type: string}, type: {type: string, enum: [image/png, image/jpeg, image/gif, image/webp]}, size: {type: integer}, url: {type: string}, markdown: {type: string}}}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '413': {description: The body is bigger than the largest image, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
   /api/uploads/{upload}:
     parameters: [{name: upload, in: path, required: true, description: The image's id, 24 hex digits, schema: {type: string}}]
     get:

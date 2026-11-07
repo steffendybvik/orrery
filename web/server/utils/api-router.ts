@@ -79,8 +79,9 @@ export const DOMAINS: readonly {domain: string, paths: RegExp, methods?: readonl
     // and logging in and out, stay here (auth.ts): the API hears what that found (`whoHeaders`).
     {domain: 'keys', paths: /^keys(\/[^/]+)?$/},
     {domain: 'logins', paths: /^logins(\/[^/]+)?$/},
-    // An image kept for Markdown, read (ORR-927). Keeping one stays here, as it's compressed here first.
+    // An image kept for Markdown, read (ORR-927), and kept, compressed in Rust as compress.ts does here (ORR-1058).
     {domain: 'uploads, reading', paths: /^uploads\/[^/]+$/, methods: ['GET']},
+    {domain: 'an upload, kept', paths: /^uploads$/, methods: ['POST']},
     // The orrery's presets and a project's own (ORR-949). Seeding the ones orrery ships, as this server starts, stays here.
     {domain: 'presets', paths: /^(presets(\/[^/]+(\/reset)?)?|projects\/[^/]+\/presets)$/},
     // The orrery's secrets, read: never a value (ORR-953). Setting and narrowing one seal its value with the key, which
