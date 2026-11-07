@@ -2,7 +2,7 @@
 // monorepo can register several, one per project or per orrery (`orrery-hub`, `orrery-css` on work's, `orrery` on
 // the personal one), so each project's sessions must load the channel that serves it, not the first.
 import {readFileSync} from 'node:fs'
-import {basename, join} from 'node:path'
+import {join} from 'node:path'
 
 const DEFAULT_URL = 'http://localhost:9000'
 
@@ -41,7 +41,8 @@ export function served(channel, fallbackUrl) {
  * that one, on the orrery of the channel that names it (or serves every project); without, every project each
  * channel names. `url` (ORRERY_URL) stands in where a channel's own address isn't plain, but doesn't override one
  * that is: a session's own ORRERY_URL would send a monorepo's projects to another orrery. With no channel naming
- * any, the folder's name. A project no channel serves is on `url`, else the first channel's orrery. */
+ * any (none, or only `*`), none: the folder's name is no project's (ORR-1068). A project no channel serves is on `url`,
+ * else the first channel's orrery. */
 export function projectsIn(dir, {project, url} = {}) {
     const channels = channelsIn(dir).map(channel => ({channel, ...served(channel, url)}))
     const unnamed = trim(url ?? channels[0]?.url ?? DEFAULT_URL)
@@ -59,7 +60,7 @@ export function projectsIn(dir, {project, url} = {}) {
             out.push({url: c.url, project: p, dir})
         }
     }
-    return out.length ? out : [{url: unnamed, project: basename(dir), dir}]
+    return out
 }
 
 /** The channel a session for `project` on the orrery at `url` loads: the one naming that project there, else
