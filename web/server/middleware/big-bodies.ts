@@ -3,15 +3,17 @@
 // anything reads a body. A body with no length is read here, as it comes, up to the limit, and left for the route.
 import {BOARD_LIMIT} from '../utils/board-upload'
 import {pathOf} from '../utils/auth'
+import {UPLOAD_BODY_LIMIT} from '../store/schema'
 
 const WRITES = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
 const LOGIN_LIMIT = 64 * 1024
-/** Takes the largest image, a third bigger as base64, and more text than any doc. */
-const LIMIT = 32 * 1024 * 1024
+/** Eight times the biggest doc there is (about 120 KB), and the Rust API's own (ORR-1062). Images have their own. */
+const LIMIT = 1024 * 1024
 
 function limitOf(path: string): number {
     if (path.startsWith('/api/auth/')) return LOGIN_LIMIT
     if (path === '/api/projects/upload' || /^\/api\/projects\/[^/]+\/import\/?$/.test(path)) return BOARD_LIMIT
+    if (/^\/api\/uploads\/?$/.test(path)) return UPLOAD_BODY_LIMIT
     return LIMIT
 }
 

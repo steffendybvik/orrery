@@ -105,6 +105,18 @@ pub(crate) fn login_of(headers: &HeaderMap) -> Option<String> {
     header(headers, "orrery-login").filter(|l| !l.is_empty())
 }
 
+/// What a request's body may be (`LIMIT` in web/server/middleware/big-bodies.ts): eight times the biggest doc there is.
+pub(crate) const BODY_LIMIT: usize = 1024 * 1024;
+
+/// axum's own refusal of a body past the limit is plain text: said again as the JSON 413 the Nuxt server sends.
+fn too_large(response: Response) -> Response {
+    let json = response.headers().get(axum::http::header::CONTENT_TYPE).is_some_and(|t| t.as_bytes().starts_with(b"application/json"));
+    if response.status() != axum::http::StatusCode::PAYLOAD_TOO_LARGE || json {
+        return response;
+    }
+    ApiError::too_large(format!("A request's body is {} MB at most here", BODY_LIMIT / 1024 / 1024)).into_response()
+}
+
 pub(crate) async fn guard(State(app): Shared, request: Request, next: Next) -> Response {
     if request.uri().path() == "/health" {
         return next.run(request).await;
@@ -120,7 +132,7 @@ pub(crate) async fn guard(State(app): Shared, request: Request, next: Next) -> R
         return ApiError::misdirected("This API is on another database than the one asked for").into_response();
     }
     let said = app.log.then(|| format!("{} {}", request.method(), request.uri()));
-    let response = next.run(request).await;
+    let response = too_large(next.run(request).await);
     if let Some(said) = said {
         eprintln!("[orrery-api] {said} {}", response.status().as_u16());
     }
@@ -337,5 +349,18 @@ mod tests {
         // The token is checked first, so the database's hash says nothing to a caller without it.
         assert_eq!(api.get("/api/statuses").without("orrery-database").without("orrery-api-token").send().await.status, 401);
         assert_eq!(api.get("/health").without("orrery-database").without("orrery-api-token").send().await.status, 200);
+    }
+
+    #[tokio::test]
+    async fn a_body_past_the_limit_is_refused_in_nuxts_words() {
+        let api = crate::testing::TestApi::new().await;
+        let project = api.project("big").await;
+        let docs = format!("/api/projects/{project}/docs");
+        let big = api.post(&docs, serde_json::json!({"title": "Big", "body": "x".repeat(BODY_LIMIT)})).send().await;
+        assert_eq!(big.status, 413);
+        assert_eq!(big.body["message"], "A request's body is 1 MB at most here", "JSON, as the Nuxt server says it");
+        assert_eq!(big.body["statusMessage"], "Payload Too Large");
+        let fits = api.post(&docs, serde_json::json!({"title": "Fits", "body": "x".repeat(BODY_LIMIT - 1024)})).send().await;
+        assert_eq!(fits.status, 201, "just under it is kept: {}", fits.body);
     }
 }
