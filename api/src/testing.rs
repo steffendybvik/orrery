@@ -25,20 +25,30 @@ use std::sync::Arc;
 use tower::ServiceExt;
 
 /// The token the tests' router and API share.
+fn random_id() -> String {
+    let mut bytes = [0u8; 8];
+    getrandom::getrandom(&mut bytes).unwrap();
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+fn hash_of(secret: &str) -> String {
+    use sha2::{Digest, Sha256};
+    Sha256::digest(secret.as_bytes()).iter().map(|b| format!("{b:02x}")).collect()
+}
+
 pub(crate) const TOKEN: &str = "a-test-token-of-32-characters!!!";
 
 pub(crate) struct TestApi {
     pub(crate) app: Arc<App>,
     router: Router,
+    came: &'static str,
 }
 
 impl TestApi {
     /// A new orrery on a database of its own, migrated to the latest step: a SQLite file, or with `TEST_POSTGRES_URL`
     /// set, a schema of its own there (ORR-1057), as web/test/db.ts makes them for the Nuxt server's tests.
     pub(crate) async fn new() -> TestApi {
-        let mut bytes = [0u8; 8];
-        getrandom::getrandom(&mut bytes).unwrap();
-        let id = bytes.iter().map(|b| format!("{b:02x}")).collect::<String>();
+        let id = random_id();
         let (setting, schema) = match std::env::var("TEST_POSTGRES_URL") {
             Ok(url) if !url.is_empty() => (url, Some(format!("api_test_{id}"))),
             _ => {
@@ -52,7 +62,45 @@ impl TestApi {
         // Each test's database is its own, so its hash is too: on Postgres the URL is shared, the schema isn't.
         let database = database_hash(&format!("{setting}#{}", schema.unwrap_or_default()));
         let app = Arc::new(App { pool, token: TOKEN.into(), database, log: false, phone: access::phone::Links::default() });
-        TestApi { router: router(app.clone()), app }
+        TestApi { router: router(app.clone()), app, came: "server" }
+    }
+
+    /// Like `new`, but each request comes as one from outside would, over loopback, so the guard checks its login
+    /// (ORR-1038). `new`'s come as the Nuxt server's own work (`Orrery-Came: server`), which says who it's for itself.
+    pub(crate) async fn at_the_door() -> TestApi {
+        TestApi { came: "loopback", ..TestApi::new().await }
+    }
+
+    /// A browser's login for `person`, as `Orrery-Login` sends it: the cookie's secret hashed.
+    pub(crate) async fn login(&self, person: &str) -> String {
+        let hash = hash_of(&format!("login-{}", random_id()));
+        let expires = (chrono::Utc::now() + chrono::Duration::days(30)).format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
+        sqlx::query(&db::sql("INSERT INTO logins (id, person, expires_at, known, created_at, last_used_at) VALUES (?, ?, ?, 1, ?, ?)"))
+            .bind(&hash)
+            .bind(person)
+            .bind(expires)
+            .bind(crate::write::stamp())
+            .bind(crate::write::stamp())
+            .execute(&self.app.pool)
+            .await
+            .unwrap();
+        hash
+    }
+
+    /// A key of `kind` (`agent` or `person`) for `person`, as `Orrery-Key` sends a bearer: the key hashed.
+    pub(crate) async fn key(&self, person: &str, kind: &str) -> String {
+        let id = random_id();
+        let hash = hash_of(&format!("key-{id}"));
+        sqlx::query(&db::sql("INSERT INTO keys (id, person, kind, name, hash, created_at) VALUES (?, ?, ?, 'test', ?, ?)"))
+            .bind(id)
+            .bind(person)
+            .bind(kind)
+            .bind(&hash)
+            .bind(crate::write::stamp())
+            .execute(&self.app.pool)
+            .await
+            .unwrap();
+        hash
     }
 
     /// A request as the owner sends it through the router: the token, this database, and the owner as the actor.
@@ -62,7 +110,7 @@ impl TestApi {
             .header("orrery-database", &self.app.database)
             .header("orrery-actor-name", "owner")
             .header("orrery-actor-owner", "1")
-            .header("orrery-came", "loopback")
+            .header("orrery-came", self.came)
     }
 
     pub(crate) fn get(&self, path: &str) -> Req {
@@ -230,7 +278,14 @@ impl Req {
         self.by_agent(person).header("orrery-actor-person", person).header("orrery-actor-asked", "1")
     }
 
-    /// As the router sends a person signed in to the page.
+    /// From a browser signed in with `login` (`TestApi::login`), the cookie hashed as the router sends it. The guard
+    /// looks it up on an orrery `at_the_door`.
+    pub(crate) fn signed_in(self, login: &str) -> Req {
+        self.header("orrery-login", login)
+    }
+
+    /// As the router says a person signed in to the page is asking: taken only from the Nuxt server's own calls
+    /// (`TestApi::new`), as the guard finds who's asking itself otherwise (ORR-1038).
     pub(crate) fn browser(self, person: &str, owner: bool) -> Req {
         self.header("orrery-who", "browser").header("orrery-who-person", person).header("orrery-who-owner", if owner { "1" } else { "0" })
     }

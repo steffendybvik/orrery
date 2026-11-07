@@ -151,7 +151,8 @@ export function caughtUp(within = 2000): Promise<void> {
 
 /** A page from the API at `url`, with its token and the mark of the database this server is on (`databaseMark`). */
 export async function readPage(api: {url: string, token: string}, database: string, after: number): Promise<Page> {
-    const response = await fetch(`${api.url.replace(/\/+$/, '')}/api/changes?after=${after}`, {headers: {'Orrery-Api-Token': api.token, 'Orrery-Database': database}})
+    // This server's own work, so no login is checked (`OWN_WORK` in api-router.ts, which imports this file).
+    const response = await fetch(`${api.url.replace(/\/+$/, '')}/api/changes?after=${after}`, {headers: {'Orrery-Api-Token': api.token, 'Orrery-Database': database, 'Orrery-Came': 'server'}})
     if (!response.ok) throw new Error(`the outbox answered ${response.status}`)
     return await response.json() as Page
 }

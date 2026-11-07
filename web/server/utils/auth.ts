@@ -105,7 +105,8 @@ export async function canGetIn(): Promise<boolean> {
     return oidcOn() || await useStore().ownerHasKey()
 }
 
-const bearer = (event: H3Event) => /^Bearer\s+(\S+)$/i.exec(getHeader(event, 'authorization') ?? '')?.[1]
+/** The request's bearer, if it sent one: an agent key, or a person key that's no credential here. */
+export const bearer = (event: H3Event) => /^Bearer\s+(\S+)$/i.exec(getHeader(event, 'authorization') ?? '')?.[1]
 
 /** Who the request's credential says it is. A bearer is an agent key only: a person key is swapped for a cookie at
  * login and is no use here, so nothing with a key in its environment can act as a person. */

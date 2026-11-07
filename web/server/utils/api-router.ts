@@ -14,7 +14,7 @@ import {createError, getCookie, getQuery, getRequestHeader, getRequestHost, getR
 import type {Feature} from '#shared/usage'
 import type {Actor} from '../store/schema'
 import type {Who} from './auth'
-import {loginCookie, onLoopback, pathOf, toldOff, toldOn} from './auth'
+import {bearer, loginCookie, onLoopback, pathOf, toldOff, toldOn} from './auth'
 import {proxied} from './move'
 import {viaPhone} from './phone-port'
 import {caughtUp, followingOutbox} from './outbox-follower'
@@ -270,14 +270,21 @@ export function actorHeaders(actor: Actor): Record<string, string> {
     }
 }
 
-/** What the auth middleware's credential said (`Who`), as the API reads it, and the asking browser's login hashed as the
- * logins table keeps it, so its cookie never leaves this server. Nothing with auth off. */
-export function whoHeaders(who: Who | undefined, login: string | undefined): Record<string, string> {
+/** What the auth middleware's credential said (`Who`), and the credential itself, hashed as the logins and keys tables
+ * keep them, so a cookie or key never leaves this server: the asking browser's login, and the bearer (`Orrery-Key`).
+ * The API checks the credential again for itself (ORR-1038), and goes by what it finds, not by `Orrery-Who`. */
+export function whoHeaders(who: Who | undefined, login: string | undefined, key?: string): Record<string, string> {
+    const hashed = (secret: string) => createHash('sha256').update(secret).digest('hex')
     return {
         ...who ? {'Orrery-Who': who.via, 'Orrery-Who-Person': encodeURIComponent(who.person), 'Orrery-Who-Owner': who.owner ? '1' : '0'} : {},
-        ...login ? {'Orrery-Login': createHash('sha256').update(login).digest('hex')} : {},
+        ...login ? {'Orrery-Login': hashed(login)} : {},
+        ...key ? {'Orrery-Key': hashed(key)} : {},
     }
 }
+
+/** Said on a call this server makes for its own work (`writeToApi`, the outbox's follower), which no outside request set
+ * off: the API checks no login for it, and takes who it says it's for (ORR-1038). Only a holder of the token sends it. */
+export const OWN_WORK = {'Orrery-Came': 'server'} as const
 
 /** What this server's settings say about getting in, which the API can't read: `provider` with a login provider set up
  * (`oidcOn`), `off` with ORRERY_AUTH=off, `on` with ORRERY_AUTH=on; and the address the request came to, for an
@@ -444,7 +451,7 @@ export async function forwardToApi(event: H3Event, api: {url: string, token: str
         'Orrery-Api-Token': api.token,
         'Orrery-Database': databaseMark(databaseSetting()),
         ...actorHeaders(actor),
-        ...whoHeaders(event.context.who as Who | undefined, getCookie(event, loginCookie(event))),
+        ...whoHeaders(event.context.who as Who | undefined, getCookie(event, loginCookie(event)), bearer(event)),
         ...loginHeaders({provider: oidcOn(), off: toldOff(), on: toldOn()}, getRequestURL(event, {xForwardedHost: true, xForwardedProto: true}).origin),
         ...cameHeaders({loopback: onLoopback(event), proxied: proxied(event), phone: viaPhone(event), https: getRequestURL(event, {xForwardedProto: true}).protocol === 'https:'}, getRequestHost(event)),
     }
@@ -533,7 +540,7 @@ export async function writeToApi(method: string, path: string, body: unknown, ac
     try {
         response = await fetch(`${api.url.replace(/\/+$/, '')}${path}`, {
             method,
-            headers: {'Content-Type': 'application/json', 'Orrery-Api-Token': api.token, 'Orrery-Database': databaseMark(databaseSetting()), ...actorHeaders(actor)},
+            headers: {'Content-Type': 'application/json', 'Orrery-Api-Token': api.token, 'Orrery-Database': databaseMark(databaseSetting()), ...OWN_WORK, ...actorHeaders(actor)},
             body: body === undefined ? undefined : JSON.stringify(body),
             redirect: 'manual',
         })

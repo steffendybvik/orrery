@@ -65,6 +65,11 @@ impl ApiError {
         Self::new(StatusCode::PAYLOAD_TOO_LARGE, message)
     }
 
+    /// What nobody can do here yet, as this orrery is set up: `closed`, or nobody able to log in.
+    pub fn unavailable(message: impl Into<String>) -> Self {
+        Self::new(StatusCode::SERVICE_UNAVAILABLE, message)
+    }
+
     /// A request for another database than this API's: the router serves it from the Nuxt server instead.
     pub fn misdirected(message: impl Into<String>) -> Self {
         Self::new(StatusCode::MISDIRECTED_REQUEST, message)

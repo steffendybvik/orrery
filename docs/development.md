@@ -145,9 +145,12 @@ put back between.
 People, invites, keys and logins (ORR-928, `api/src/people.rs`) are the same: a change to `web/server/store/people.ts`'s
 `people`, `addPerson` or `renamePerson`, or to `keys.ts`, goes into `people.rs` too. Removing a person stays in the Nuxt
 server, as it unassigns their issues (ORR-929). What only the Nuxt server's settings say (a login provider,
-ORRERY_AUTH=off, the address for an invite's link) goes along as `Orrery-Login-Ways` and `Orrery-Origin`. Checking a key or a login cookie on each request stays in the Nuxt
-server (`web/server/utils/auth.ts`), which sends the API what it found (`Orrery-Who`) and the asking browser's login only
-hashed, so the API never sees a secret it didn't make. Who may handle people, keys and logins (`authorize`, `key-rights.ts`) is checked on
+ORRERY_AUTH=off, the address for an invite's link) goes along as `Orrery-Login-Ways` and `Orrery-Origin`. Both servers check
+the credential on each request (ORR-1038): the Nuxt server (`web/server/utils/auth.ts`) first, then the API's guard
+(`api/src/request.rs`), which looks up the login and the bearer itself, from `Orrery-Login` and `Orrery-Key`, sent only
+hashed so the API never sees a secret it didn't make, and goes by what it finds rather than the router's `Orrery-Who`.
+It turns away a `closed` request too. A call the Nuxt server makes for its own work (`writeToApi`, the outbox's
+follower) says `Orrery-Came: server` (`OWN_WORK`) and has no login checked, as does each step of the parity test. Who may handle people, keys and logins (`authorize`, `key-rights.ts`) is checked on
 both sides, the credential having the last word over the actor, so the parity test compares the refusals with the permissions table's own words.
 
 The secrets (ORR-953, `api/src/secrets.rs`) are read there and written here. A secret's value is sealed with the key
