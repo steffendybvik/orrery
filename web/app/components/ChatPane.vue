@@ -799,8 +799,9 @@ v-if="m.milestone" class="flex w-full flex-col gap-2 rounded-xl bg-well p-3 ring
     <div v-if="session?.state === 'waiting'" class="px-3 pt-2">
       <PermissionPrompt :session="session" :hideable="false" class="w-full! max-w-none!" />
     </div>
-    <!-- An ended chat takes a message too: it starts its session again, on the same conversation (ORR-884). -->
-    <form class="flex flex-col gap-2 p-3" @submit.prevent="submit(true)">
+    <!-- An ended chat takes a message too: it starts its session again, on the same conversation (ORR-884). Not a <form>:
+         Enter sends through onKey, and iOS Safari draws its form bar (arrows and a tick) over the keyboard for a box in one (ORR-1084). -->
+    <div class="flex flex-col gap-2 p-3">
       <LauncherHint v-if="unlaunched" :project="about!" chat />
       <p v-else-if="failed" class="px-1 text-xs text-rose-700 dark:text-rose-400">{{ failed }}</p>
       <div class="flex flex-col gap-2 rounded-2xl bg-well p-2 ring-1 ring-line transition focus-within:ring-accent-500/50">
@@ -840,12 +841,12 @@ v-if="m.milestone" class="flex w-full flex-col gap-2 rounded-xl bg-well p-3 ring
               </MenuItem>
             </MenuItems>
           </Menu>
-          <UiButton type="submit" variant="primary" size="xs" square class="rounded-full" aria-label="Send" title="Send now (⌘↵)" :disabled="sending || !!uploading || !about || !draft.trim() && !images.length && !held.length">
+          <UiButton variant="primary" size="xs" square class="rounded-full" aria-label="Send" title="Send now (⌘↵)" :disabled="sending || !!uploading || !about || !draft.trim() && !images.length && !held.length" @click="submit(true)">
             <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5m0 0-6 6m6-6 6 6" /></svg>
           </UiButton>
         </div>
       </div>
-    </form>
+    </div>
     </div>
   </section>
 </template>
