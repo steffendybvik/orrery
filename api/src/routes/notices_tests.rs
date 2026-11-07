@@ -258,10 +258,12 @@ async fn the_chat_and_an_untrusted_session_cant_clear_the_bell_even_naming_the_o
     let api = TestApi::new().await;
     let chat = api.post("/api/notices/clear", json!({"read": true})).header("orrery-actor-kind", "chat").without("orrery-actor-owner").send().await;
     assert_eq!(chat.status, 403);
-    assert!(chat.body["message"].as_str().unwrap().contains("refused for the owner's chat"), "{}", chat.body);
+    assert_eq!(chat.body["data"]["permission"], "notices.clear");
+    assert!(chat.body["message"].as_str().unwrap().starts_with("This session is the owner's chat"), "{}", chat.body);
     let untrusted = api.post("/api/notices/read", json!({"ids": [1]})).header("orrery-actor-kind", "untrusted").send().await;
     assert_eq!(untrusted.status, 403, "the kind wins over the owner flag");
-    assert!(untrusted.body["message"].as_str().unwrap().contains("refused for an untrusted session"), "{}", untrusted.body);
+    assert_eq!(untrusted.body["data"]["permission"], "notices.clear");
+    assert!(untrusted.body["message"].as_str().unwrap().starts_with("This session reads what others wrote"), "{}", untrusted.body);
 }
 
 #[tokio::test]

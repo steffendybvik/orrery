@@ -204,7 +204,7 @@ async fn a_session_cant_add_rename_remove_or_invite_anyone() {
         api.post("/api/invites", json!({"person": "ada"})),
     ];
     for req in tries {
-        let refused = req.by_agent("claude").header("orrery-login-ways", ways).send().await;
+        let refused = req.by_agent("claude").header("orrery-actor-named", "ada").header("orrery-login-ways", ways).send().await;
         assert_eq!(refused.status, 403, "{}", refused.body);
         assert_eq!(refused.body["data"]["permission"], "people.write");
     }

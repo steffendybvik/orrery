@@ -2,7 +2,8 @@
 // serves is in routes/ (and the rust-api-parity doc), the domains they reach are board/, access/ and work/, and how the
 // code is laid out is the rust-api-structure doc (ORR-1045). The Nuxt server's router (web/server/middleware/zz-api.ts)
 // checks a request as it always has (auth, the board's permissions, the chat's and untrusted sessions' rails, the
-// browser guards) and then forwards it here with who it's from. So this listens on loopback, or on the playground's
+// browser guards) and then forwards it here with who it's from, and each write is held to the same permissions table
+// here too (access/rails.rs, ORR-1059). This listens on loopback, or on the playground's
 // compose network (ORR-1051), and answers only a request that carries the token they share.
 //
 //   NUXT_API_TOKEN     the token they share, as the Nuxt server's setting of that name; required
@@ -67,7 +68,8 @@ async fn health() -> Json<Value> {
 fn router(app: Arc<App>) -> Router {
     Router::new()
         .route("/health", get(health))
-        .merge(routes::all())
+        // Each write held to its rails first (ORR-1059), once it's a route this API has.
+        .merge(routes::all().route_layer(middleware::from_fn_with_state(app.clone(), access::rails::rails)))
         // What a body may be, as the Nuxt server's big-bodies.ts has it (ORR-1062). A route that takes more reads its own.
         .layer(DefaultBodyLimit::max(request::BODY_LIMIT))
         .layer(middleware::from_fn_with_state(app.clone(), guard))
