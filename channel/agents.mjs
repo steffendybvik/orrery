@@ -25,6 +25,11 @@ import {claude} from './claude-agent.mjs'
  * @property {(pane: Pane) => boolean} allow answers yes once to the permission prompt it shows; false when it shows none
  * @property {(pane: Pane) => boolean} deny answers no once the same way
  * @property {(pane: Pane) => Promise<void>} clear gives it a fresh context between pieces of work
+ * @property {(report: object) => {tokens: number, window: number} | undefined} context how much context it carries, from
+ *   what it reports (Claude Code's hook input): the tokens in use and its model's window; nothing when it can't tell, so
+ *   it gets no meter rather than a wrong one
+ * @property {(model: string | undefined, tokens: number) => number} window its model's window, for a report that gave
+ *   tokens alone (a hook from before the adapter said the window)
  */
 
 const AGENTS = {claude}

@@ -9,7 +9,8 @@
 import {basename} from 'node:path'
 import {authHeaders} from './credentials.mjs'
 import {claudeWindow} from './session.mjs'
-import {contextOf, effortOf, modelOf} from './transcript.mjs'
+import {claude} from './claude-agent.mjs'
+import {effortOf, modelOf} from './transcript.mjs'
 
 const base = (process.env.ORRERY_URL ?? 'http://localhost:9000').replace(/\/+$/, '')
 let input = ''
@@ -17,6 +18,7 @@ for await (const chunk of process.stdin) input += chunk
 try {
     const hook = JSON.parse(input || '{}')
     const window = claudeWindow()
+    const context = claude.context(hook)
     const response = await fetch(`${base}/api/sessions`, {
         method: 'POST',
         // Whose this session is, from the user's environment.
@@ -47,8 +49,10 @@ try {
             model: modelOf(hook),
             // And the effort level it runs at, when its hook says (ORR-894).
             effort: effortOf(hook),
-            // And how much context it carries, in tokens, after a turn and on tool events (ORR-968).
-            context: contextOf(hook),
+            // And how much context it carries, in tokens, after a turn and on tool events (ORR-968), against its model's
+            // window, as the Claude adapter measures them (ORR-1074).
+            context: context?.tokens,
+            window: context?.window,
         }),
     })
     const {brief} = response.ok ? await response.json() ?? {} : {}

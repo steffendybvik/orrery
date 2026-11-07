@@ -4,6 +4,7 @@
 import {execFileSync} from 'node:child_process'
 import {chatOnly, lockedDown, modelArgs, resumeArgs} from './locked-down.mjs'
 import {onYes} from './permission-prompt.mjs'
+import {contextOf, contextWindow, modelOf} from './transcript.mjs'
 
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms))
 
@@ -58,6 +59,15 @@ export const claude = {
         pane.press('Escape')
         return true
     },
+
+    // Context, from its hook: the tokens the latest reply in its transcript was given (input, cache read and cache
+    // written), against the window Claude Code's table of models gives its model.
+    context(hook) {
+        const tokens = contextOf(hook)
+        return tokens === undefined ? undefined : {tokens, window: contextWindow(modelOf(hook), tokens)}
+    },
+
+    window: contextWindow,
 
     // `/clear`, typed: its channel stays, and its hooks hand the new context what's left to do.
     async clear(pane) {
