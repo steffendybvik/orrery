@@ -6,7 +6,8 @@ import {afterAll, afterEach, beforeAll, describe, expect, it, vi} from 'vitest'
 import {apiOnly, apiStarted, routeToApi} from '../server/utils/api-router'
 
 // The swap's flag (ORR-1034): on, the routes the Rust API serves are its alone, so an API that can't answer fails the
-// request instead of leaving it to Nuxt's routes and store.
+// request instead of leaving it to Nuxt's routes and store. Most of those routes are gone from Nuxt (ORR-1041), so for
+// them it fails either way; the flag still matters for the few lines that keep a route here (`here`).
 
 function eventOf(path: string, method = 'GET') {
     const req = new IncomingMessage(new Socket())
@@ -67,19 +68,19 @@ describe('the swap flag', () => {
         expect(errors).toHaveBeenCalledTimes(1)
     })
 
-    it('off, leaves a routed request to the routes here with the API down, as before', async () => {
+    it('off, still fails a request for a domain with no route here left, with the API down (ORR-1041)', async () => {
         apiStarted({url: `http://127.0.0.1:${await closedPort()}`, token: 't'.repeat(24)})
-        expect(await routeToApi(eventOf('/api/statuses'), {})).toBeUndefined()
-        expect(warnings).toHaveBeenCalledTimes(1)
-        expect(noted).toEqual([])
+        await expect(routeToApi(eventOf('/api/statuses'), {})).rejects.toMatchObject({statusCode: 503})
     })
 
-    it('on, fails a routed request when no API is running, and off leaves it here', async () => {
+    it('on or off, fails a request for a domain with no route here when no API is running, and off leaves one with a route here to it', async () => {
         await expect(routeToApi(eventOf('/api/projects/p/docs'), {apiOnly: true})).rejects.toMatchObject({statusCode: 503})
-        expect(await routeToApi(eventOf('/api/projects/p/docs'), {})).toBeUndefined()
+        await expect(routeToApi(eventOf('/api/projects/p/docs'), {})).rejects.toMatchObject({statusCode: 503})
+        await expect(routeToApi(eventOf('/api/projects/p/issues', 'POST'), {apiOnly: true})).rejects.toMatchObject({statusCode: 503})
+        expect(await routeToApi(eventOf('/api/projects/p/issues', 'POST'), {})).toBeUndefined()
     })
 
-    it('on, fails a routed request when the API is on another database', async () => {
+    it('on or off, fails a request for a domain with no route here when the API is on another database', async () => {
         const api = createServer((_req, res) => {
             res.statusCode = 421
             res.end()
@@ -88,7 +89,7 @@ describe('the swap flag', () => {
         try {
             apiStarted({url: `http://127.0.0.1:${(api.address() as AddressInfo).port}`, token: 't'.repeat(24)})
             await expect(routeToApi(eventOf('/api/statuses'), {apiOnly: true})).rejects.toThrow(/on another database.*NUXT_API_ONLY/)
-            expect(await routeToApi(eventOf('/api/statuses'), {})).toBeUndefined()
+            await expect(routeToApi(eventOf('/api/statuses'), {})).rejects.toMatchObject({statusCode: 503})
         } finally {
             await new Promise<void>(resolve => api.close(() => resolve()))
         }
