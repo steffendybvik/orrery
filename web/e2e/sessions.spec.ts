@@ -589,6 +589,10 @@ test('on a phone a started session keeps its name whole, with Watch and Stop und
         expect(Math.round((await meta.boundingBox())!.height / lineHeight)).toBeLessThan(items)
         await card.getByRole('button', {name: 'More for e2e-on-a-phone'}).click()
         await expect(page.getByRole('menuitem', {name: /Watch · opens on its launcher's machine/})).toBeVisible()
+        // ⋯'s list stays on the screen, not cut off past its left edge (ORR-1083).
+        const list = (await page.getByRole('menu').boundingBox())!
+        expect(list.x).toBeGreaterThanOrEqual(0)
+        expect(list.x + list.width).toBeLessThanOrEqual(390)
         await page.getByRole('menuitem', {name: 'Stop', exact: true}).click()
         await expect.poll(() => launcher.said.text).toContain('event: stop')
     } finally {
