@@ -1434,7 +1434,8 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         expect(await status(loopback, 'localhost:9000', {provider: true, off: false})).toMatchObject({oidc: true, can_get_in: true})
         // Who's asking is what the API finds of the credential: a real login, not the router's word (ORR-1038).
         await store.addPerson({name: 'Ada'}).catch(() => undefined)
-        const signedIn = async (person: string) => whoHeaders(undefined, (await store.startLogin(person)).secret)
+        // A page's fetch says which page it's from, which the router passes on and the guard asks of a write (ORR-1081).
+        const signedIn = async (person: string, origin = 'http://192.168.1.9:9000') => whoHeaders(undefined, (await store.startLogin(person)).secret, undefined, {origin})
         expect(await status(none, '192.168.1.9:9000', undefined, await signedIn('ada'))).toMatchObject({person: 'ada', via: 'browser'})
         expect(await status(none, '192.168.1.9:9000', undefined, whoHeaders({person: 'ada', owner: false, via: 'browser'}, undefined))).not.toHaveProperty('person')
 
@@ -1448,6 +1449,8 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         const fromSession = await call('POST', '/api/phone/link', undefined, {...actorHeaders(SESSION), ...await signedIn(owner.name)})
         expect(fromSession.status).toBe(403)
         expect(await fromSession.json()).toMatchObject({data: {permission: 'phone.link'}})
+        const bare = await call('POST', '/api/phone/link', undefined, {...actorHeaders(OWNER), ...await signedIn(owner.name, ''), ...cameHeaders(none, '192.168.1.9:9000')})
+        expect([bare.status, await bare.json()]).toMatchObject([403, {message: "A logged-in write comes from orrery's own page"}])
         const made = await call('POST', '/api/phone/link', undefined, asOwner)
         expect(made.status).toBe(201)
         const link = await made.json() as {token: string, code: string, expires_at: string}
