@@ -181,6 +181,11 @@ impl TestApi {
         query.execute(&self.app.pool).await.unwrap();
     }
 
+    /// Fixes `session` to `person`, as the router claims it (`fixSessionPerson`, ORR-705) before the API hears a write.
+    pub(crate) async fn session_held_by(&self, session: &str, person: &str) {
+        self.run("INSERT INTO session_people (session, person, at) VALUES (?, ?, ?)", &[session, person, STAMP]).await;
+    }
+
     /// The number a query gives back, as `SELECT count(*) FROM people`.
     pub(crate) async fn count(&self, query: &str) -> i64 {
         sqlx::query_scalar::<_, i64>(query).fetch_one(&self.app.pool).await.unwrap()
@@ -279,9 +284,10 @@ impl Req {
     }
 
     /// From a browser signed in with `login` (`TestApi::login`), the cookie hashed as the router sends it. The guard
-    /// looks it up on an orrery `at_the_door`.
+    /// looks it up on an orrery `at_the_door`. A page's fetch says which page it's from, as the router passes it on
+    /// (`Orrery-Sent-Origin`, ORR-1081): leave that `without` for a write that doesn't.
     pub(crate) fn signed_in(self, login: &str) -> Req {
-        self.header("orrery-login", login)
+        self.header("orrery-login", login).header("orrery-sent-origin", "http%3A%2F%2Flocalhost%3A9000")
     }
 
     /// As the router says a person signed in to the page is asking: taken only from the Nuxt server's own calls

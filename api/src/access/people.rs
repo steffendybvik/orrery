@@ -190,6 +190,13 @@ impl<'c> People<'c> {
         Ok(row.is_some())
     }
 
+    /// Whose `session` is, if anyone's yet (ORR-705). Only read here: the Nuxt server claims it (`fixSessionPerson`),
+    /// as `session_people`'s one writer (ORR-1010).
+    pub async fn session_holder(&mut self, session: &str) -> Result<Option<String>> {
+        let row = sqlx::query(&sql("SELECT person FROM session_people WHERE session = ?")).bind(session).fetch_optional(&mut *self.conn).await?;
+        Ok(row.map(|row| row.get("person")))
+    }
+
     /// Whether auth stays on (`authStaysOn`): once a second person is here, it does for good, even after they go.
     pub async fn auth_stays_on(&mut self) -> Result<bool> {
         if sqlx::query("SELECT 1 AS one FROM settings WHERE key = 'auth_on'").fetch_optional(&mut *self.conn).await?.is_some() {

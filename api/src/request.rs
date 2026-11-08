@@ -2,8 +2,9 @@
 // `came_of`), the guard every request passes, and a body as JSON. The guard checks the shared token, then which
 // database it's for, then the login, as web/server/middleware/auth.ts does (ORR-1038): `auth_mode` for how the request
 // came, a `closed` one turned away, and with it `on` the credential looked up here, so `Orrery-Who` is this API's own
-// finding and never the router's word. Left to the router still: a browser write's `Origin`, and a session's person
-// (`holdSession`).
+// finding and never the router's word. A write is then checked as the middleware checks it after that (ORR-1081): a
+// browser's has to say which page it's from (`Origin`), and one with an agent key can't write as a session that's
+// another person's (`holdSession`). Whether that `Origin` is ours stays with the router's browser guards (writes.ts).
 use crate::access::people::{People, Ways, Who};
 use crate::error::{ApiError, Result};
 use crate::write::Actor;
@@ -149,6 +150,29 @@ async fn checked(app: &crate::App, headers: &HeaderMap, open: bool) -> Result<Op
     Err(ApiError::unauthorized("This orrery asks for a credential: log in on its page, or give a session an agent key (ORRERY_KEY)"))
 }
 
+/// What a write by `who` has to show after its credential (ORR-1081), as web/server/middleware/auth.ts asks. A cookie
+/// goes along by itself, so a browser's write says it comes from a page (`Orrery-Sent-Origin`, the request's `Origin`).
+/// And a session is the person's whose agent key it first wrote with (`holdSession`, ORR-705): the router claims it in
+/// `session_people` before the request comes here, so this only reads whose it is, and refuses another person's key.
+async fn write_checked(app: &crate::App, headers: &HeaderMap, who: &Who) -> Result<()> {
+    if who.browser {
+        if !header(headers, "orrery-sent-origin").is_some_and(|o| !o.is_empty()) {
+            return Err(ApiError::forbidden("A logged-in write comes from orrery's own page"));
+        }
+        return Ok(());
+    }
+    let Some(session) = header(headers, "orrery-session").filter(|s| !s.is_empty()) else { return Ok(()) };
+    let mut conn = app.pool.acquire().await?;
+    match People::new(&mut conn).session_holder(&session).await? {
+        Some(holder) if holder != who.person => {
+            Err(ApiError::conflict(format!("This session is {holder}'s, and this is {}'s agent key, so it can't write as that session", who.person)))
+        }
+        _ => Ok(()),
+    }
+}
+
+const WRITES: [&str; 4] = ["POST", "PUT", "PATCH", "DELETE"];
+
 /// `Orrery-Who` as this API found it, in place of whatever the router said.
 fn say_who(headers: &mut HeaderMap, who: Option<&Who>) {
     for name in WHO {
@@ -196,10 +220,16 @@ pub(crate) async fn guard(State(app): Shared, mut request: Request, next: Next) 
     // The Nuxt server's own work says who it's for in its own words. Anything else has its login checked here.
     if !came_of(request.headers()).server {
         let open = OPEN.contains(&request.uri().path());
-        match checked(&app, request.headers(), open).await {
-            Ok(who) => say_who(request.headers_mut(), who.as_ref()),
+        let who = match checked(&app, request.headers(), open).await {
+            Ok(who) => who,
             Err(refused) => return refused.into_response(),
+        };
+        if let Some(who) = who.as_ref().filter(|_| !open && WRITES.contains(&request.method().as_str())) {
+            if let Err(refused) = write_checked(&app, request.headers(), who).await {
+                return refused.into_response();
+            }
         }
+        say_who(request.headers_mut(), who.as_ref());
     }
     let said = app.log.then(|| format!("{} {}", request.method(), request.uri()));
     let response = too_large(next.run(request).await);
@@ -527,6 +557,61 @@ mod tests {
         assert_eq!(api.get("/api/statuses").header("orrery-came", "server").send().await.status, 200);
         // `server` is the whole of what's said, not one of several ways.
         assert_eq!(api.get("/api/statuses").header("orrery-came", "loopback, server").send().await.status, 503);
+    }
+
+    /// A project's docs, the project made by the owner's agent key, as the guard lets in nothing else.
+    async fn docs_of(api: &crate::testing::TestApi) -> String {
+        let key = api.key("steffen", "agent").await;
+        let made = api.post("/api/projects", serde_json::json!({"name": "Primes"})).header("orrery-key", &key).send().await;
+        assert_eq!(made.status, 201, "{}", made.body);
+        format!("/api/projects/{}/docs", made.body["id"].as_str().unwrap())
+    }
+
+    #[tokio::test]
+    async fn a_logged_in_browsers_write_has_to_say_which_page_its_from() {
+        let api = two_people().await;
+        api.key("steffen", "person").await;
+        let login = api.login("steffen").await;
+        let docs = docs_of(&api).await;
+        let bare = api.post(&docs, serde_json::json!({"title": "Plan"})).signed_in(&login).without("orrery-sent-origin").send().await;
+        assert_eq!(bare.status, 403, "{}", bare.body);
+        assert_eq!(bare.body["message"], "A logged-in write comes from orrery's own page");
+        assert_eq!(api.post(&docs, serde_json::json!({"title": "Plan"})).signed_in(&login).header("orrery-sent-origin", "").send().await.status, 403);
+        let sent =
+            api.post(&docs, serde_json::json!({"title": "Plan"})).signed_in(&login).header("orrery-sent-origin", "http%3A%2F%2Flocalhost%3A9000").send().await;
+        assert_eq!(sent.status, 201, "{}", sent.body);
+        // A read needs none, nor does an agent key's write, nor logging out.
+        assert_eq!(api.get(&docs).signed_in(&login).send().await.status, 200);
+        let agent = api.key("steffen", "agent").await;
+        assert_eq!(api.post(&docs, serde_json::json!({"title": "Agent's"})).header("orrery-key", &agent).send().await.status, 201);
+        assert_ne!(api.post("/api/auth/logout", serde_json::json!({})).signed_in(&login).send().await.status, 403);
+    }
+
+    #[tokio::test]
+    async fn an_agent_key_cant_write_as_another_persons_session() {
+        let api = two_people().await;
+        api.key("steffen", "person").await;
+        let docs = docs_of(&api).await;
+        let ada = api.key("ada", "agent").await;
+        let steffen = api.key("steffen", "agent").await;
+        api.session_held_by("s 1", "ada").await;
+        let theirs = api.post(&docs, serde_json::json!({"title": "Mine"})).header("orrery-key", &steffen).header("orrery-session", "s%201").send().await;
+        assert_eq!(theirs.status, 409, "{}", theirs.body);
+        assert_eq!(theirs.body["message"], "This session is ada's, and this is steffen's agent key, so it can't write as that session");
+        let own = api.post(&docs, serde_json::json!({"title": "Ada's"})).header("orrery-key", &ada).header("orrery-session", "s%201").send().await;
+        assert_eq!(own.status, 201, "{}", own.body);
+        // A session nobody holds yet, a read, and a browser's write naming it go by.
+        let free = api.post(&docs, serde_json::json!({"title": "New"})).header("orrery-key", &steffen).header("orrery-session", "s2").send().await;
+        assert_eq!(free.status, 201, "{}", free.body);
+        assert_eq!(api.get(&docs).header("orrery-key", &steffen).header("orrery-session", "s%201").send().await.status, 200);
+        let login = api.login("steffen").await;
+        let page = api
+            .post(&docs, serde_json::json!({"title": "Page"}))
+            .signed_in(&login)
+            .header("orrery-sent-origin", "http%3A%2F%2Flocalhost")
+            .header("orrery-session", "s%201");
+        assert_eq!(page.send().await.status, 201);
+        assert_eq!(api.count("SELECT count(*) AS n FROM session_people").await, 1, "the API only reads whose a session is");
     }
 
     #[tokio::test]

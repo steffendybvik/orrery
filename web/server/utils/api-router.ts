@@ -332,10 +332,14 @@ export function actorHeaders(actor: Actor): Record<string, string> {
 
 /** What the auth middleware's credential said (`Who`), and the credential itself, hashed as the logins and keys tables
  * keep them, so a cookie or key never leaves this server: the asking browser's login, and the bearer (`Orrery-Key`).
- * The API checks the credential again for itself (ORR-1038), and goes by what it finds, not by `Orrery-Who`. */
-export function whoHeaders(who: Who | undefined, login: string | undefined, key?: string): Record<string, string> {
+ * The API checks the credential again for itself (ORR-1038), and goes by what it finds, not by `Orrery-Who`. With it, what
+ * the API's guard checks again (ORR-1081): the request's own `Origin`, as `Orrery-Sent-Origin` (`Orrery-Origin` is the
+ * address it came to), and the session it names (`Orrery-Session`), both percent-encoded. */
+export function whoHeaders(who: Who | undefined, login: string | undefined, key?: string, sent: {origin?: string, session?: string} = {}): Record<string, string> {
     const hashed = (secret: string) => createHash('sha256').update(secret).digest('hex')
     return {
+        ...sent.origin ? {'Orrery-Sent-Origin': encodeURIComponent(sent.origin)} : {},
+        ...sent.session ? {'Orrery-Session': encodeURIComponent(sent.session)} : {},
         ...who ? {'Orrery-Who': who.via, 'Orrery-Who-Person': encodeURIComponent(who.person), 'Orrery-Who-Owner': who.owner ? '1' : '0'} : {},
         ...login ? {'Orrery-Login': hashed(login)} : {},
         ...key ? {'Orrery-Key': hashed(key)} : {},
@@ -514,7 +518,7 @@ export async function forwardToApi(event: H3Event, api: {url: string, token: str
         'Orrery-Api-Token': api.token,
         'Orrery-Database': databaseMark(databaseSetting()),
         ...actorHeaders(actor),
-        ...whoHeaders(event.context.who as Who | undefined, getCookie(event, loginCookie(event)), bearer(event)),
+        ...whoHeaders(event.context.who as Who | undefined, getCookie(event, loginCookie(event)), bearer(event), {origin: getHeader(event, 'origin'), session: getHeader(event, 'orrery-session')}),
         ...loginHeaders({provider: oidcOn(), off: toldOff(), on: toldOn()}, getRequestURL(event, {xForwardedHost: true, xForwardedProto: true}).origin),
         ...cameHeaders({loopback: onLoopback(event), proxied: proxied(event), phone: viaPhone(event), https: getRequestURL(event, {xForwardedProto: true}).protocol === 'https:'}, getRequestHost(event)),
     }
