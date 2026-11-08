@@ -1,4 +1,5 @@
-// Schedules: the handlers and the routes they answer (ORR-1048); of the writes, adopting and deleting one (ORR-950).
+// Schedules: the handlers and the routes they answer (ORR-1048); of the writes, adopting and deleting one (ORR-950), and
+// pausing or activating all of a project's (ORR-1082).
 use super::P;
 use crate::changes::Outbox;
 use crate::error::{ApiError, Result};
@@ -21,6 +22,7 @@ pub(crate) fn routes() -> Router<Arc<App>> {
         .route(&format!("{P}/schedules"), get(list_schedules))
         .route(&format!("{P}/schedules/{{schedule}}"), get(get_schedule).delete(delete_schedule))
         .route(&format!("{P}/schedules/{{schedule}}/adopt"), post(adopt_schedule))
+        .route(&format!("{P}/schedules/enabled"), post(set_all_enabled))
         .route("/api/schedules", get(all_schedules))
         .route("/api/schedules/across", get(schedules_across))
 }
@@ -57,6 +59,21 @@ async fn adopt_schedule(State(app): Shared, Path((project, schedule)): Path<(Str
     schedules.outbox = Some(Outbox::new(actor.clone()));
     let adopted = schedules.adopt(&project, &schedule, &uid, &actor, seen.as_deref()).await?;
     Ok(reply(StatusCode::OK, Some(adopted), std::mem::take(&mut schedules.effects)))
+}
+
+/// `POST …/schedules/enabled` {enabled} → {changed, failed}: the owner pausing or activating all of the project's
+/// schedules. A paused one-off isn't activated, as it may have run, and one that fails doesn't stop the rest.
+async fn set_all_enabled(State(app): Shared, Path(project): Path<String>, headers: HeaderMap, body: Bytes) -> Result<Response> {
+    let Some(enabled) = body_of(&body).get("enabled").and_then(Value::as_bool) else {
+        return Err(ApiError::bad_request("Send {\"enabled\": true} or {\"enabled\": false}"));
+    };
+    let mut conn = app.pool.acquire().await?;
+    let uid = Presets::new(&mut conn).uid().await?;
+    let actor = actor_of(&headers);
+    let mut schedules = Schedules::new(&mut conn);
+    schedules.outbox = Some(Outbox::new(actor.clone()));
+    let done = schedules.set_all_enabled(&project, enabled, &uid, &actor).await?;
+    Ok(reply(StatusCode::OK, Some(done), std::mem::take(&mut schedules.effects)))
 }
 
 /// `DELETE …/schedules/:schedule`: the issues it made stay.

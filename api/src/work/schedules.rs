@@ -1,11 +1,13 @@
 // The schedules (ORR-930, ORR-950): what `list`, `get` and `listAcross` in web/server/utils/schedules.ts do, answering
-// as their `GET` routes do; and of its writes, the owner making one theirs (`adopt`) and deleting one (`delete`). Each
-// write says the project's schedules changed (`Effects::schedules`), so the local app's scheduler reads them again.
-// Making and changing them, which work out the next run from a cron, and running them stay the Nuxt server's for now.
+// as their `GET` routes do; and of its writes, the owner making one theirs (`adopt`), deleting one (`delete`), and
+// pausing or activating all of a project's at once (`set_all_enabled`, ORR-1082). Each write says the project's
+// schedules changed (`Effects::schedules`), so the local app's scheduler reads them again. Making and changing one, and
+// running them, stay the Nuxt server's for now.
 use crate::changes::{self, Outbox};
 use crate::db::sql;
 use crate::error::{ApiError, Result};
 use crate::work::presets::server_id;
+use crate::work::schedule_when::{next_run, when};
 use crate::write::{stamp, Actor, Effects};
 use serde_json::{json, Map, Value};
 use sqlx::any::AnyRow;
@@ -43,6 +45,61 @@ struct Held {
     owned: bool,
     across: Option<i64>,
     updated_at: String,
+}
+
+/// What pausing or activating a schedule sets (`toUpdate(…, {enabled})`): its time checked again as it's stored, and its
+/// next run, worked out again when it's turned on.
+struct Toggled {
+    cron: Option<String>,
+    at: Option<String>,
+    on: Option<String>,
+    on_filter: Option<String>,
+    timezone: String,
+    enabled: bool,
+    next_run: Option<String>,
+}
+
+/// A schedule `row` paused or activated, checked as `toUpdate` checks a change of `enabled` alone, or why it can't be.
+fn toggled(row: &AnyRow, enabled: bool) -> std::result::Result<Toggled, String> {
+    let text = |key: &str| row.get::<Option<String>, _>(key);
+    let when = when(text("cron").as_deref(), text("at").as_deref(), text("on_event").as_deref(), text("timezone").as_deref(), false)?;
+    let kind = row.get::<String, _>("kind");
+    let notes = text("notes");
+    let presets = row.get::<String, _>("presets");
+    let untrusted = row.get::<i64, _>("untrusted") != 0;
+    // `checkKind`, for the owner: a session or action schedule is theirs to keep.
+    if kind == "message" && notes.as_deref().map_or(true, |n| n.trim().is_empty()) && presets == "[]" {
+        return Err("A message schedule needs its message in \"notes\", or a preset in \"presets\"".into());
+    }
+    if kind == "action" && when.on.is_none() {
+        return Err("An action schedule moves what an event is about: send \"on\", not \"cron\" or \"at\"".into());
+    }
+    if untrusted && kind != "message" {
+        return Err("Only a message schedule is untrusted: send \"kind\": \"message\", or \"untrusted\": false".into());
+    }
+    // `filterOf`: an event schedule's filter, none on a clock's.
+    let on_filter = text("on_filter").filter(|f| when.on.is_some() && f != "{}");
+    let was_on = row.get::<i64, _>("enabled") != 0;
+    let next_run = if !enabled {
+        None
+    } else if !was_on || text("next_run").is_none() {
+        next_run(&when, chrono::Utc::now())
+    } else {
+        text("next_run")
+    };
+    Ok(Toggled { cron: when.cron, at: when.at, on: when.on, on_filter, timezone: when.timezone, enabled, next_run })
+}
+
+/// The 403 for anyone but the owner, as `ownerOnly(actor, 'schedules.enabled')` words it.
+fn enabled_refused(actor: &Actor) -> ApiError {
+    let action = "Pause or activate all of a project\u{2019}s schedules";
+    let why = "Activating all also turns on what was paused on purpose, so it\u{2019}s the owner\u{2019}s to do, on Schedules.";
+    let message = if actor.untrusted {
+        format!("{action}: refused for an untrusted session (schedules.enabled). {why}")
+    } else {
+        format!("{action}: owner only for a session (schedules.enabled). {why} Send Orrery-Actor: <owner>")
+    };
+    ApiError::refused_for("schedules.enabled", message)
 }
 
 impl<'c> Schedules<'c> {
@@ -112,6 +169,64 @@ impl<'c> Schedules<'c> {
         changes::begin(self.conn).await?;
         let done = self.remove(project, id, row.across).await;
         changes::finish(self.conn, self.outbox.as_mut(), &self.effects, done).await
+    }
+
+    /// The owner pausing or activating all of a project's schedules at once (`setAllEnabled`, ORR-783): its copies of ones
+    /// across projects too, but not those themselves. Activating leaves a paused one-off, which may have run. One that
+    /// can't change (its stored time no longer checks out) is said in `failed` and doesn't stop the rest, and the project's
+    /// schedules are said to have changed once. A project with none, or that isn't there, changes nothing.
+    pub async fn set_all_enabled(&mut self, project: &str, enabled: bool, uid: &str, actor: &Actor) -> Result<Value> {
+        if !actor.owner {
+            return Err(enabled_refused(actor));
+        }
+        let rows =
+            sqlx::query(&sql(&format!("SELECT {COLUMNS} FROM schedules WHERE project = ? ORDER BY id"))).bind(project).fetch_all(&mut *self.conn).await?;
+        // `canActivate`: only one that's paused and isn't a one-off; pausing, any that's on.
+        let on = |row: &AnyRow| row.get::<i64, _>("enabled") != 0;
+        let changing: Vec<&AnyRow> =
+            rows.iter().filter(|row| if enabled { !on(row) && row.get::<Option<String>, _>("at").is_none() } else { on(row) }).collect();
+        let mut sets = vec![];
+        let mut failed = vec![];
+        for row in &changing {
+            let id: i64 = row.get("id");
+            match toggled(row, enabled) {
+                Ok(set) => sets.push((id, set)),
+                Err(message) => failed.push(json!({"id": id, "title": row.get::<String, _>("title"), "message": message})),
+            }
+        }
+        if changing.is_empty() {
+            return Ok(json!({"changed": [], "failed": failed}));
+        }
+        self.effects.schedules.push(project.into());
+        changes::begin(self.conn).await?;
+        let done = self.write_toggled(&sets).await;
+        changes::finish(self.conn, self.outbox.as_mut(), &self.effects, done).await?;
+        let mut changed = vec![];
+        for (id, _) in &sets {
+            changed.push(self.get(project, &id.to_string(), uid).await?);
+        }
+        Ok(json!({"changed": changed, "failed": failed}))
+    }
+
+    async fn write_toggled(&mut self, sets: &[(i64, Toggled)]) -> Result<()> {
+        let now = stamp();
+        for (id, set) in sets {
+            sqlx::query(&sql(
+                "UPDATE schedules SET cron = ?, at = ?, on_event = ?, on_filter = ?, timezone = ?, enabled = ?, next_run = ?, updated_at = ? WHERE id = ?",
+            ))
+            .bind(&set.cron)
+            .bind(&set.at)
+            .bind(&set.on)
+            .bind(&set.on_filter)
+            .bind(&set.timezone)
+            .bind(i64::from(set.enabled))
+            .bind(&set.next_run)
+            .bind(&now)
+            .bind(id)
+            .execute(&mut *self.conn)
+            .await?;
+        }
+        Ok(())
     }
 
     async fn remove(&mut self, project: &str, id: i64, across: Option<i64>) -> Result<()> {

@@ -340,3 +340,88 @@ async fn deleting_one_made_across_projects_leaves_its_project_out() {
     assert_eq!(api.delete(&format!("/api/projects/{shop}/schedules/{on_shop}")).send().await.status, 204);
     assert_eq!(count(&api, &format!("SELECT CAST(count(*) AS BIGINT) FROM schedules_across WHERE id = {named}")).await, 0);
 }
+
+#[tokio::test]
+async fn the_owner_pauses_all_of_a_projects_schedules_at_once() {
+    let api = TestApi::new().await;
+    let project = api.project("Primes").await;
+    let weekly = schedule(&api, &project, "Weekly", Some("2026-11-09T08:00:00.000Z"), &[("enabled", "1")]).await;
+    let _paused = schedule(&api, &project, "Paused", None, &[("enabled", "0")]).await;
+    let theirs = schedule(&api, &project, "An agent's", Some("2026-11-10T08:00:00.000Z"), &[("enabled", "1"), ("created_by", "'claude'")]).await;
+    let path = format!("/api/projects/{project}/schedules/enabled");
+    let reply = api.post(&path, json!({"enabled": false})).send().await;
+    assert_eq!(reply.status, 200, "{}", reply.body);
+    let ids: Vec<i64> = reply.body["changed"].as_array().unwrap().iter().map(|s| s["id"].as_i64().unwrap()).collect();
+    assert_eq!(ids, [weekly, theirs], "the paused one isn't changed again");
+    assert_eq!(reply.body["failed"], json!([]));
+    for changed in reply.body["changed"].as_array().unwrap() {
+        assert_eq!(changed["enabled"], false);
+        assert_eq!(changed.get("next_run"), None, "a paused one has no next run");
+        assert_ne!(changed["updated_at"], "2026-11-02T00:00:00.000Z");
+    }
+    assert_eq!(api.get(&format!("/api/projects/{project}/schedules/{theirs}")).send().await.body["created_by"], "claude", "an agent's stays the agent's");
+    assert_eq!(reply.header("orrery-schedules"), Some(project.as_str()));
+    assert_eq!(outbox(&api).await.iter().filter(|(kind, _)| kind == "schedules").count(), 1, "said once, for all of them");
+}
+
+#[tokio::test]
+async fn activating_all_works_out_each_next_run_and_leaves_a_one_off() {
+    let api = TestApi::new().await;
+    let project = api.project("Primes").await;
+    let weekly = schedule(&api, &project, "Weekly", None, &[("enabled", "0")]).await;
+    let _once = schedule(&api, &project, "Once", None, &[("enabled", "0"), ("at", "'2099-01-01T09:00:00.000Z'")]).await;
+    let on_event =
+        schedule(&api, &project, "On review", None, &[("enabled", "0"), ("on_event", "'issue.status'"), ("on_filter", "'{\"to\":\"in-review\"}'")]).await;
+    let reply = api.post(&format!("/api/projects/{project}/schedules/enabled"), json!({"enabled": true})).send().await;
+    assert_eq!(reply.status, 200, "{}", reply.body);
+    let changed = reply.body["changed"].as_array().unwrap();
+    let ids: Vec<i64> = changed.iter().map(|s| s["id"].as_i64().unwrap()).collect();
+    assert_eq!(ids, [weekly, on_event], "a paused one-off may have run, so it stays paused");
+    // `0 9 * * 1` in Oslo: a Monday, at 08:00 or 07:00 UTC, still ahead.
+    let next = changed[0]["next_run"].as_str().unwrap();
+    let at = chrono::DateTime::parse_from_rfc3339(next).unwrap();
+    assert!(at > chrono::Utc::now(), "{next}");
+    assert_eq!(chrono::Datelike::weekday(&at.with_timezone(&chrono_tz::Europe::Oslo)), chrono::Weekday::Mon);
+    assert!(next.ends_with(":00:00.000Z"), "{next}");
+    assert_eq!(changed[1]["enabled"], true);
+    assert_eq!(changed[1].get("next_run"), None, "an event's runs on the event");
+    assert_eq!(changed[1]["on_filter"], json!({"to": "in-review"}));
+    // Nothing left to turn on: no change said.
+    let again = api.post(&format!("/api/projects/{project}/schedules/enabled"), json!({"enabled": true})).send().await;
+    assert_eq!(again.body, json!({"changed": [], "failed": []}));
+    assert_eq!(again.header("orrery-schedules"), None);
+}
+
+#[tokio::test]
+async fn one_that_cant_be_activated_doesnt_stop_the_rest() {
+    let api = TestApi::new().await;
+    let project = api.project("Primes").await;
+    let broken = schedule(&api, &project, "Lost zone", None, &[("enabled", "0"), ("timezone", "'Mars/Olympus'")]).await;
+    let fine = schedule(&api, &project, "Fine", None, &[("enabled", "0")]).await;
+    let reply = api.post(&format!("/api/projects/{project}/schedules/enabled"), json!({"enabled": true})).send().await;
+    assert_eq!(reply.status, 200, "{}", reply.body);
+    assert_eq!(reply.body["changed"][0]["id"], fine);
+    assert_eq!(
+        reply.body["failed"],
+        json!([{"id": broken, "title": "Lost zone", "message": "\"timezone\" is \"Mars/Olympus\", not a timezone orrery knows (e.g. Europe/Oslo)"}])
+    );
+    assert_eq!(api.get(&format!("/api/projects/{project}/schedules/{broken}")).send().await.body["enabled"], false);
+}
+
+#[tokio::test]
+async fn only_the_owner_pauses_or_activates_them_all() {
+    let api = TestApi::new().await;
+    let project = api.project("Primes").await;
+    let id = schedule(&api, &project, "Weekly", Some("2026-11-09T08:00:00.000Z"), &[("enabled", "1")]).await;
+    let path = format!("/api/projects/{project}/schedules/enabled");
+    let refused = api.post(&path, json!({"enabled": false})).by_agent("claude").send().await;
+    assert_eq!(refused.status, 403);
+    assert_eq!(refused.body["data"]["permission"], "schedules.enabled");
+    assert!(refused.body["message"].as_str().unwrap().ends_with("Send Orrery-Actor: <owner>"), "{}", refused.body);
+    assert_eq!(api.get(&format!("/api/projects/{project}/schedules/{id}")).send().await.body["enabled"], true);
+    for body in [json!({}), json!({"enabled": "no"}), json!(null)] {
+        let bad = api.post(&path, body.clone()).send().await;
+        assert_eq!(bad.status, 400, "{body}");
+        assert_eq!(bad.body["message"], "Send {\"enabled\": true} or {\"enabled\": false}");
+    }
+}

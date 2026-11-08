@@ -109,6 +109,8 @@ export const DOMAINS: readonly {domain: string, paths: RegExp, methods?: readonl
     // Of the writes (ORR-950): adopting an agent's schedule and deleting one, neither of which starts a session.
     {domain: 'a schedule, adopted', paths: /^projects\/[^/]+\/schedules\/[^/]+\/adopt$/, methods: ['POST']},
     {domain: 'a schedule, deleted', paths: /^projects\/[^/]+\/schedules\/[^/]+$/, methods: ['DELETE']},
+    // Pausing or activating all of a project's (ORR-1082): it works out each next run, and starts no session.
+    {domain: 'schedules, paused or activated', paths: /^projects\/[^/]+\/schedules\/enabled$/, methods: ['POST']},
     // Every project, listed with its counts (ORR-997). With `?expand=board` it's their boards (ORR-1006), each labelled
     // here with the events stream's `rev`, as one project's read is (`boardsWithRev`).
     {domain: 'projects, listed', paths: /^projects$/, methods: ['GET'], reply: {GET: boardsWithRev}},

@@ -28,6 +28,9 @@ jsonwebtoken = "9"
 url = "2"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 webp = { version = "0.3", default-features = false }
+# When a schedule runs next (ORR-1082), as croner reads a cron on the Nuxt server, in its timezone.
+croner = "4.0.3"
+chrono-tz = { version = "0.10.4", features = ["case-insensitive"] }
 
 [dev-dependencies]
 # The tests send requests through the router (`oneshot`, ORR-1053).

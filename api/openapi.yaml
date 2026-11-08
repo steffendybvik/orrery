@@ -1270,6 +1270,18 @@ paths:
         '403': {$ref: '#/components/responses/Forbidden'}
         '404': {$ref: '#/components/responses/NotFound'}
         '409': {$ref: '#/components/responses/Conflict'}
+  /api/projects/{project}/schedules/enabled:
+    parameters:
+      - {$ref: '#/components/parameters/project'}
+    post:
+      summary: 'The owner pauses or activates all of the project''s schedules (ORR-783, ORR-1082); a paused one-off stays paused, and one that fails doesn''t stop the rest'
+      requestBody:
+        required: true
+        content: {application/json: {schema: {type: object, required: [enabled], properties: {enabled: {type: boolean}}}}}
+      responses:
+        '200': {description: 'What changed, and what couldn''t', content: {application/json: {schema: {type: object, properties: {changed: {type: array, items: {type: object}}, failed: {type: array, items: {type: object, properties: {id: {type: integer}, title: {type: string}, message: {type: string}}}}}}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
   /api/schedules:
     get:
       summary: 'Every project''s schedules (the agenda): the soonest next run first, those with none last, ties by title'
