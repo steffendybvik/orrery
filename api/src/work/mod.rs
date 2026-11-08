@@ -4,5 +4,6 @@ pub(crate) mod notices;
 pub(crate) mod presets;
 pub(crate) mod pull_poll;
 pub(crate) mod pulls;
+pub(crate) mod schedule_when;
 pub(crate) mod schedules;
 pub(crate) mod settings;
