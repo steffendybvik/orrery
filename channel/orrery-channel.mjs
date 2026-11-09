@@ -23,12 +23,13 @@ import {authHeaders} from './credentials.mjs'
 import {pickedUpMessage, pickUpRepo} from './pick-up.mjs'
 import {narrowed} from './repo-channels.mjs'
 import {addToList, projectAt, readConfig} from './launcher-service.mjs'
+import {appNamed, appsHere, askToChoose, choiceFor, choseOther, writeChoice} from './app-choice.mjs'
 import {serverName} from './server-name.mjs'
 import {signalWords} from './signal-words.mjs'
 import {claudeWindow} from './session.mjs'
 import {instructionsFor} from './instructions.mjs'
 import {follow} from './sse.mjs'
-import {orreryTools, toolsFor} from './tools.mjs'
+import {CHOOSE_APP, orreryTools, toolsFor} from './tools.mjs'
 import {BOOTSTRAP, VERSION, olderThan} from './version.mjs'
 
 const base = (process.env.ORRERY_URL ?? 'http://localhost:9000').replace(/\/+$/, '')
@@ -92,23 +93,62 @@ const loadTools = async group => {
  * those, and the call says which. Read at each call, as `*` knows its projects only once the orrery is reached. */
 const own = () => {
     if (globalSession) return undefined
-    const project = process.env.ORRERY_STARTED ? startedFor() : mapped
+    const project = process.env.ORRERY_STARTED ? startedFor() : mapped ?? chosen().project
     return project && reached.includes(project) ? project : undefined
 }
+/** Which orrery this session chose, in a folder linked to none with several set up here (ORR-1080): read at each call,
+ * as another orrery's server may have recorded it. */
+const chosen = () => choiceFor({session: window.id, linked: !!mapped})
 /** Links this session's folder to `project` on this orrery (`link_folder`, ORR-1071): puts it on the launcher's list, as
  * Connect a repo does, so its sessions report there and default to it, and the launcher serves it from here. A project
  * served from another folder stays there unless `move`, as linking here moves its sessions here. */
-function link(project, {move}) {
+function link(project, {move, url = base}) {
     const dir = process.cwd()
-    const elsewhere = readConfig().projects.find(entry => entry.url?.replace(/\/+$/, '') === base && entry.project === project && entry.dir !== dir)
+    const elsewhere = servedElsewhere(project, url)
     if (elsewhere && !move) throw new Error(`${project} is served from ${elsewhere.dir}, and linking it here moves the sessions orrery starts for it here: ask the user, and call again with move: true if they want that`)
-    addToList([{url: base, project, dir}], dir)
+    addToList([{url, project, dir}], dir)
     mapped = projectAt(dir, base)
     return `Linked ${dir} to ${project}${elsewhere ? ` (it was served from ${elsewhere.dir})` : ''}. Sessions here report to it${mapped ? ' and default to it' : ''}, and orrery can start sessions here.${mapped ? '' : ' This folder serves other projects too, so calls here still name theirs.'}`
 }
+/** The list entry serving `project` of the orrery at `url` from a folder other than this one, if any. */
+const servedElsewhere = (project, url) => readConfig().projects.find(entry => entry.url?.replace(/\/+$/, '') === url.replace(/\/+$/, '') && entry.project === project && entry.dir !== process.cwd())
+/** `choose_app` (ORR-1080): records which orrery this session uses, and with a project links the folder to it, unless
+ * that project is served from another folder, which only `link_folder`'s move takes it from. */
+async function chooseApp({app, project}) {
+    const apps = appsHere()
+    const picked = appNamed(apps, app)
+    if (!picked) throw new Error(`app is one of: ${apps.map(a => a.name).join(', ')}`)
+    if (project) {
+        const there = await fetch(`${picked.url}/api/projects`, {headers: authHeaders(picked.url)}).then(r => r.ok ? r.json() : Promise.reject(new Error(`${r.status} ${r.statusText}`)))
+            .catch(error => {
+                throw new Error(`${picked.name} (${picked.url}) can't be reached to check its projects (${error.message}); try again once it's running`)
+            })
+        if (!there.some(p => p.id === project)) throw new Error(`${picked.name} has no project ${project}: it has ${there.map(p => p.id).join(', ') || 'none'}`)
+    }
+    writeChoice(window.id, {id: picked.id, url: picked.url, environment: picked.name.replace(/^orrery-/, ''), project})
+    await server.notification({method: 'notifications/tools/list_changed'}).catch(() => {})
+    const tools = picked.id === process.env.ORRERY_ID ? 'these tools' : `${picked.name}'s tools`
+    if (!project) return `This session uses ${picked.name} (${picked.url}), with no project of its own: name the project each call is for, with ${tools}. Other orrerys' tools refuse it from now on.`
+    const elsewhere = servedElsewhere(project, picked.url)
+    if (elsewhere) return `This session uses ${picked.name} (${picked.url}) and defaults to ${project}, with ${tools}. ${project} is served from ${elsewhere.dir}, so this folder isn't linked to it: link_folder with move: true does that, if the user wants it.`
+    addToList([{url: picked.url, project, dir: process.cwd()}], process.cwd())
+    if (picked.url.replace(/\/+$/, '') === base) mapped = projectAt(process.cwd(), base)
+    return `This session uses ${picked.name} (${picked.url}) with ${tools}, and this folder is linked to ${project}, so later sessions here report to it without asking.`
+}
 const callTool = orreryTools({root: `${base}/api`, projects: reached, home: own, session: window.id, person, auth: authHeaders(base), untrusted, chat, report: reportCall, load: loadTools, link})
-server.setRequestHandler(ListToolsRequestSchema, async () => ({tools: toolsFor(reached, {chat: !!chat, untrusted, loaded: [...loaded], home: own()})}))
+server.setRequestHandler(ListToolsRequestSchema, async () => ({tools: [...chosen().state === 'unchosen' ? [CHOOSE_APP] : [], ...toolsFor(reached, {chat: !!chat, untrusted, loaded: [...loaded], home: own()})]}))
 server.setRequestHandler(CallToolRequestSchema, async request => {
+    const choice = chosen()
+    if (request.params.name === 'choose_app') {
+        if (choice.state !== 'unchosen') return {isError: true, content: [{type: 'text', text: choice.state === 'free' ? 'Nothing to choose: this session already knows its orrery.' : `This session has chosen its orrery already. ${choice.state === 'other' ? choseOther(choice.choice) : ''}`.trim()}]}
+        try {
+            return {content: [{type: 'text', text: await chooseApp(request.params.arguments ?? {})}]}
+        } catch (error) {
+            return {isError: true, content: [{type: 'text', text: error.message}]}
+        }
+    }
+    if (choice.state === 'unchosen') return {isError: true, content: [{type: 'text', text: askToChoose(choice.apps)}]}
+    if (choice.state === 'other') return {isError: true, content: [{type: 'text', text: choseOther(choice.choice)}]}
     const why = refused || (!projects.length && `orrery (${base}) hasn't been reached yet, so the projects it serves aren't known; try again shortly`)
     if (why) return {isError: true, content: [{type: 'text', text: why}]}
     // One use of the tool, for App settings' Usage (ORR-881): orrery counts it only while the owner has counting on.

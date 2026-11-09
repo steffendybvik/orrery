@@ -49,6 +49,15 @@ Given `ORRERY_URL`, outside a repo, it also sets Claude Code up for that orrery 
   session is told so, and links it when you ask, putting it on the launcher's list as Connect a repo does. Sessions there
   then report to that project and default to it, and orrery can start sessions there. A project served from another
   folder moves only when you say so (`move`). Only a working session has it, not the chat or an untrusted run.
+- **Choosing the app, with several orrerys set up** (`choose_app`, ORR-1080): a `claude` you open by hand in a folder
+  linked to no project, with personal and work both set up, is asked which orrery it's for on its first orrery call, not
+  before: one that never calls an orrery tool is left alone. The tool doesn't run; it names the orrerys on the machine,
+  Claude asks you, and `choose_app` records your answer for that Claude session in `~/.config/orrery/apps/<session>.json`,
+  which every orrery's server and hook reads. With a project, the folder is linked to it too (unless it's served from
+  another folder), so later sessions there aren't asked. From then on that session's calls and reports go to the chosen
+  orrery only, and the other's tools refuse, saying which it chose. With no project it uses the chosen orrery's tools,
+  naming a project per call, and isn't listed as a session, as orrery keeps a session under a project. With one orrery
+  set up, nothing is asked.
 - **The default folder** (`~/.orrery/<orrery id>/home`) set up and trusted in `~/.claude.json`, so the launcher can start
   sessions there for projects with no repo without asking you to run `claude` there first.
 
