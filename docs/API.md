@@ -24,6 +24,11 @@ versions, today); a channel older than that tells its session so as it connects,
 `oldest` was sent hears nothing of it, which is why Sessions still marks one that's behind. The claim flags (`untrusted`, `chat`, `model`, `resume`) say what a launcher can do, so a server never
 hands one a launch it can't start safely.
 
+## Which server answered
+
+Every reply carries `X-Served-By`: `rust` when the Rust API answered it (its refusals too), `nuxt` when the server in
+front of it did. It's there to look at while the Nuxt server's routes move to the API; a client doesn't act on it.
+
 ## Ids
 
 orrery hands ids out; you can't pick them. An issue is the project's prefix and a number:
