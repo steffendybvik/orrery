@@ -208,6 +208,7 @@ useHead(() => ({title: doc.value ? `${doc.value.title} · orrery` : 'orrery'}))
             <span class="whitespace-nowrap font-mono">{{ doc.id }}</span>
             <CopyButton :text="fullId('doc', doc.id, project.uid)" label="Copy id" name="this doc's id" />
             <CopyButton :text="address" label="Copy URL" name="this doc's URL" />
+            <CopyButton :text="doc.body" label="Copy content" :name="isArtifact ? `this doc's HTML` : `this doc's Markdown`" />
           </span>
         </div>
         <p v-if="rendered?.changed" class="flex items-center gap-2 text-xs text-accent-700 dark:text-accent-400">
