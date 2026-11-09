@@ -123,6 +123,12 @@ image sets it to its own copy). Or run one yourself and point at it: `NUXT_API_T
 `ORRERY_API_LOG=1` has the API say each request it answers, and `NUXT_API_ONLY=1` turns the swap's flag on. With none
 of these and no build, the server says so as it starts, and the API's routes answer 503.
 
+Which server answered: every reply to an `/api/` request carries `X-Served-By: rust` or `X-Served-By: nuxt` (the
+browser's network tab shows it). A request the API serves that it didn't answer logs one line, `[orrery api-route]
+served=nuxt reason=… domain=… method=… path=…`, or `served=none` when it failed instead; `reason` is `not-running`,
+`unreachable`, `other-database`, or `kept-here` with the `check` that kept a session's or the chat's request here. The
+playground runs the API with `ORRERY_API_LOG=1`, so `play logs | grep 'api-route'` and the API's own lines sit side by side.
+
 Its checks: `cargo fmt --check`, `cargo clippy -- -D warnings` and `cargo test` in `api/`; with `TEST_POSTGRES_URL` set,
 `cargo test` runs on that Postgres instead, each test in a schema of its own, and CI runs it both ways. SQL in a test
 goes through `db::sql`, as the API's own does, so its `?` are numbered for Postgres. `web/test/api-parity.test.ts`
