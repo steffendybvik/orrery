@@ -423,6 +423,16 @@ export const ON_DEMAND = {
     folder: ['link_folder'],
 }
 
+/** Listed only to a session that has to pick its orrery before its first call (ORR-1080, app-choice.mjs). */
+export const CHOOSE_APP = {
+    name: 'choose_app',
+    description: "Chooses which orrery this session uses, as the user answers when an orrery tool asks: their app, and the project this folder is for if any (that links the folder, so later sessions here aren't asked).",
+    inputSchema: {type: 'object', required: ['app'], properties: {
+        app: {type: 'string', description: "The orrery: its server's name (orrery-work), environment (work) or address"},
+        project: {type: 'string', description: "One of its projects' ids; leave out for none"},
+    }},
+}
+
 const MORE_TOOLS = {
     name: 'more_tools',
     description: "Adds tools: schedules (ask the owner on your issue for one), secrets (egress: call an outside service with a key), debug (orrery's event log), review (rate each PR you open), epics (work across projects), folder (link this session's folder to a project).",

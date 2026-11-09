@@ -15,6 +15,7 @@ import {claudeWindow} from './session.mjs'
 import {agentFor} from './agents.mjs'
 import {standsDown} from './claude-user-setup.mjs'
 import {projectAt} from './launcher-service.mjs'
+import {choiceFor} from './app-choice.mjs'
 
 // The agent this hook is registered for: Claude Code, the only adapter so far.
 const agent = agentFor()
@@ -27,7 +28,11 @@ try {
     const {id, cwd, ...report} = agent.report(hook)
     const dir = process.env.CLAUDE_PROJECT_DIR ?? cwd ?? process.cwd()
     // Its project (ORR-1068): the one it was set up or started for, else the one the launcher's list maps its folder to.
-    const project = process.env.ORRERY_PROJECT || projectAt(dir, base)
+    const linked = process.env.ORRERY_PROJECT || projectAt(dir, base)
+    // In a folder linked to none, the orrery the session chose and its project, if it chose this one and a project
+    // (ORR-1080); with another orrery, or none chosen yet, nothing.
+    const choice = choiceFor({session: [id, process.env.CLAUDE_CODE_SESSION_ID], linked: !!linked})
+    const project = linked || (choice.state === 'mine' ? choice.project : undefined)
     // In a folder no orrery knows it says nothing, so other work on the machine isn't taken for a session. The
     // user-level copy (ORR-1067) also leaves a folder with orrery's hook of its own to that one.
     if (!project || standsDown({dir, project})) process.exit(0)
