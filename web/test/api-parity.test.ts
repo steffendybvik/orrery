@@ -1111,6 +1111,36 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         expect(domainOf('PUT', `/api/pulls/ada/${on('through-api')}/5`)).toBeUndefined()
     })
 
+    it('keeps a sealed secret, its uses and its deletion alike (ORR-1096)', async () => {
+        const secrets = new Secrets(store, () => 'a long random test key', () => {}, (async () => new Response('{}', {status: 200})) as typeof fetch)
+        const name = (p: string) => p === 'through-store' ? 'STORE_KEY' : 'API_KEY'
+        const step = (label: string, ts: (p: string) => Promise<unknown>, method: string, path: string, body?: (p: string) => unknown) => both(label,
+            p => viaStore(async () => { await ts(p) }), () => viaApi(method, `/api/secrets/${name('through-api')}${path}`, body?.('through-api')))
+        const kept = () => both('what\'s kept', p => viaStore(async () => ({
+            secret: await store.db.all('SELECT last4, hosts, projects, created_by, owned FROM secrets WHERE name = ?', name(p)),
+            uses: await store.db.all('SELECT method, host, path, project, issue, status, error, created_by FROM secret_uses WHERE secret = ? ORDER BY id', name(p)),
+        })), () => viaStore(async () => ({
+            secret: await store.db.all('SELECT last4, hosts, projects, created_by, owned FROM secrets WHERE name = ?', name('through-api')),
+            uses: await store.db.all('SELECT method, host, path, project, issue, status, error, created_by FROM secret_uses WHERE secret = ? ORDER BY id', name('through-api')),
+        })))
+        const at = '2026-11-10T10:00:00.000Z'
+        const use = {method: 'GET', host: 'api.stripe.com', path: '/v1/me', project: 'through-api', issue: null, status: 200, error: null, created_by: 'orrery', created_at: at}
+        const outcomes = [
+            await step('set', p => secrets.set(name(p), {value: 'sk_live_abcdef123456', hosts: ['api.stripe.com', 'files.stripe.com']}, OWNER), 'PUT', '/sealed',
+                () => ({value: 'v1:sealed', last4: '3456', hosts: ['api.stripe.com', 'files.stripe.com'], projects: null, created_by: OWNER.name, owned: true, at})),
+            await step('narrowed', p => secrets.narrow(name(p), {hosts: ['api.stripe.com'], projects: [p]}, OWNER), 'PUT', '/sealed',
+                () => ({value: 'v1:sealed', last4: '3456', hosts: ['api.stripe.com'], projects: ['through-api'], created_by: OWNER.name, owned: true, at})),
+            await step('orrery\'s own use', p => secrets.own('https://api.stripe.com/v1/me', name(p), p), 'POST', '/uses', () => ({...use, keep: 20})),
+            await kept(),
+            await step('deleted', p => secrets.delete(name(p), OWNER), 'DELETE', '/sealed'),
+            await kept(),
+        ]
+        expect(outcomes[0]).toMatchObject({status: 204})
+        expect(outcomes[3]!.body).toMatchObject({secret: [{last4: '3456', owned: 1}], uses: [{created_by: 'orrery', status: 200}]})
+        expect(outcomes[5]!.body).toEqual({secret: [], uses: []})
+        expect(domainOf('PUT', `/api/secrets/${name('through-api')}/sealed`)).toBeUndefined()
+    })
+
     it('keeps a repo\'s poll, its failure, its history page and what it lets go of alike (ORR-952)', async () => {
         const pulls = new Pulls(store, async () => { throw new Error('no GitHub here') })
         const poll = new PullPoll(store, pulls, async () => false, () => {}, () => {})
@@ -3389,7 +3419,7 @@ describe('the contract (api/openapi.yaml)', () => {
     })
 
     it('sends none of the routes written ahead of the Rust API to it', () => {
-        expect(contract(true)).toEqual(['DELETE /api/chats/{chat}', 'GET /api/auth/oidc/callback', 'GET /api/auth/oidc/start', 'GET /api/auth/status', 'GET /api/chats', 'GET /api/chats/{chat}', 'POST /api/auth/link', 'POST /api/auth/login', 'POST /api/auth/logout', 'POST /api/phone/link', 'POST /api/pulls/forget', 'PUT /api/chats/{chat}', 'PUT /api/pulls/{owner}/{name}', 'PUT /api/pulls/{owner}/{name}/error', 'PUT /api/pulls/{owner}/{name}/history', 'PUT /api/pulls/{owner}/{name}/{number}'])
+        expect(contract(true)).toEqual(['DELETE /api/chats/{chat}', 'DELETE /api/secrets/{name}/sealed', 'GET /api/auth/oidc/callback', 'GET /api/auth/oidc/start', 'GET /api/auth/status', 'GET /api/chats', 'GET /api/chats/{chat}', 'POST /api/auth/link', 'POST /api/auth/login', 'POST /api/auth/logout', 'POST /api/phone/link', 'POST /api/pulls/forget', 'POST /api/secrets/{name}/uses', 'PUT /api/chats/{chat}', 'PUT /api/pulls/{owner}/{name}', 'PUT /api/pulls/{owner}/{name}/error', 'PUT /api/pulls/{owner}/{name}/history', 'PUT /api/pulls/{owner}/{name}/{number}', 'PUT /api/secrets/{name}/sealed'])
         expect(contract(true).filter(operation => routes().includes(operation))).toEqual([])
     })
 })

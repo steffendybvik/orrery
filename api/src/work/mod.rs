@@ -6,5 +6,6 @@ pub(crate) mod pull_poll;
 pub(crate) mod pulls;
 pub(crate) mod schedule_when;
 pub(crate) mod schedules;
+pub(crate) mod secrets;
 pub(crate) mod settings;
 pub(crate) mod signals;
