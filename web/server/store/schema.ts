@@ -558,7 +558,12 @@ export function matchOf(body: string, words: string[]): string {
     if (!Number.isFinite(at)) return ''
     let start = Math.max(0, at - 60)
     let end = Math.min(body.length, at + 100)
-    if (start > 0) start = body.indexOf(' ', start) + 1 || start
+    // Up to a space, but only one before the match: one past it (a long URL, a table row) would cut the match off
+    // (ORR-1111).
+    if (start > 0) {
+        const space = body.indexOf(' ', start)
+        if (space >= 0 && space < at) start = space + 1
+    }
     if (end < body.length) end = body.lastIndexOf(' ', end) > at ? body.lastIndexOf(' ', end) : end
     return `${start > 0 ? '…' : ''}${body.slice(start, end).replace(/\s+/g, ' ').trim()}${end < body.length ? '…' : ''}`
 }
