@@ -96,7 +96,7 @@ fn handoffs_headers(handoffs: &[Handoff]) -> Vec<(&'static str, String)> {
 }
 
 /// The headers a new comment's `Handoff` is said in.
-fn handoff_headers(handoff: &Handoff) -> Vec<(&'static str, String)> {
+pub(crate) fn handoff_headers(handoff: &Handoff) -> Vec<(&'static str, String)> {
     let encode = |s: &str| utf8_percent_encode(s, NON_ALPHANUMERIC).to_string();
     let edited = if handoff.edited {
         " edited"
