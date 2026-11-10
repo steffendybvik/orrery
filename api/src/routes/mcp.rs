@@ -52,7 +52,7 @@ async fn post_mcp(State(app): Shared, headers: HeaderMap, body: Bytes) -> Result
     let initializes = messages.iter().any(|m| m["method"] == "initialize");
     // A new session's id on `initialize`, whatever it came with; else the one it came with.
     let session = if initializes { Some(new_session()) } else { header(&headers, SESSION).filter(|s| !s.is_empty()) };
-    let call = Call { kind: kind_of(&headers), session: session.as_deref() };
+    let call = Call { app: &app, headers: &headers, kind: kind_of(&headers), session: session.as_deref() };
     let mut conn = app.pool.acquire().await?;
     let mut answers = Vec::new();
     for message in &messages {

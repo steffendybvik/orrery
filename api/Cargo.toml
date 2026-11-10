@@ -32,8 +32,7 @@ webp = { version = "0.3", default-features = false }
 croner = "4.0.3"
 chrono-tz = { version = "0.10.4", features = ["case-insensitive"] }
 
-[dev-dependencies]
-# The tests send requests through the router (`oneshot`, ORR-1053).
+# A board tool at /mcp runs this API's own routes (`oneshot`, ORR-1099), as the tests do (ORR-1053).
 tower = { version = "0.5", features = ["util"] }
 
 # Proc macros (sqlx's) left unstripped: a release build strips them by default, and macOS's dyld then refuses the

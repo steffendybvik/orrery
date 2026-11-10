@@ -5,6 +5,7 @@
 //
 // Who's asking is the guard's (request.rs): with login on, an agent key as the bearer. A browser's login is refused, as
 // a session's tools are an agent's. The kind of session is the router's `Orrery-Actor-Kind`, as on the REST routes.
+pub(crate) mod board;
 pub(crate) mod guide;
 pub(crate) mod tools;
 
@@ -70,6 +71,9 @@ async fn projects(conn: &mut AnyConnection) -> Result<Vec<String>> {
 
 /// What answers one JSON-RPC message: `None` for a notification, which has no answer.
 pub(crate) struct Call<'a> {
+    pub(crate) app: &'a std::sync::Arc<crate::App>,
+    /// The `/mcp` request's headers: who's asking, for the routes a board tool calls (board.rs).
+    pub(crate) headers: &'a axum::http::HeaderMap,
     pub(crate) kind: Kind,
     /// The `Mcp-Session-Id` it came with.
     pub(crate) session: Option<&'a str>,
@@ -134,7 +138,8 @@ impl Call<'_> {
     async fn call(&self, conn: &mut AnyConnection, name: &str, args: &Value) -> Result<Value> {
         // Every tool the session's kind could ever have listed, whatever it has loaded.
         let all: Vec<String> = tools::groups().iter().map(|g| g.to_string()).collect();
-        let listed = tools::tools_for(&projects(conn).await?, self.kind, &all);
+        let projects = projects(conn).await?;
+        let listed = tools::tools_for(&projects, self.kind, &all);
         let has = listed.iter().any(|t| t["name"] == name) || (name == "more_tools" && self.kind == Kind::Work);
         if !has {
             return Ok(text(format!("No tool \"{name}\""), true));
@@ -154,7 +159,11 @@ impl Call<'_> {
                     None => text(format!("orrery said no: group is {}", tools::groups().join(", ")), true),
                 }
             }
-            _ => text(format!("{name} isn't served at /mcp yet (ORR-1099): orrery's channel still has it"), true),
+            _ => match (board::Api { app: self.app, headers: self.headers, projects: &projects }).run(name, args).await {
+                Some(Ok(said)) => text(said, false),
+                Some(Err(board::No(why))) => text(format!("orrery said no: {why}"), true),
+                None => text(format!("{name} isn't served at /mcp yet (ORR-1099): orrery's channel still has it"), true),
+            },
         })
     }
 }

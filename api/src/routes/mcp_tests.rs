@@ -144,7 +144,7 @@ async fn a_tool_the_session_lacks_is_refused_and_one_not_moved_yet_says_so() {
     assert_eq!(said(&untrusted), "No tool \"start_issue\"");
     let chat_more = call("more_tools").header("orrery-actor-kind", "chat").send().await;
     assert_eq!(said(&chat_more), "No tool \"more_tools\"");
-    let later = call("issues").send().await;
+    let later = call("issue").send().await;
     assert!(said(&later).contains("isn't served at /mcp yet"), "{}", later.body);
 }
 
@@ -193,4 +193,61 @@ async fn without_the_routers_token_mcp_is_refused_as_every_route_is() {
     let api = TestApi::new().await;
     let reply = rpc(&api, "ping", json!({})).without("orrery-api-token").send().await;
     assert_eq!(reply.status, 401);
+}
+
+/// A tool's call, as a work session sends it.
+fn tool(api: &TestApi, name: &str, args: Value) -> Req {
+    rpc(api, "tools/call", json!({"name": name, "arguments": args}))
+}
+
+#[tokio::test]
+async fn write_doc_docs_and_doc_read_and_write_through_the_docs_routes() {
+    let api = TestApi::new().await;
+    api.project("alpha").await;
+    assert_eq!(said(&tool(&api, "docs", json!({})).send().await), "No docs yet.");
+    let saved = tool(&api, "write_doc", json!({"id": "how-it-works", "title": "How it works", "body": "It turns.", "section": "Guides"})).send().await;
+    assert_eq!(said(&saved), "Saved the doc how-it-works.", "{}", saved.body);
+    let listed = said(&tool(&api, "docs", json!({})).send().await).to_string();
+    assert!(listed.starts_with("how-it-works: How it works [Guides]"), "{listed}");
+    assert_eq!(said(&tool(&api, "docs", json!({"q": "nothing-like-it"})).send().await), "No docs match.");
+    assert_eq!(said(&tool(&api, "doc", json!({"id": "how-it-works"})).send().await), "# How it works\n\nIt turns.");
+    let history = said(&tool(&api, "doc", json!({"id": "how-it-works", "history": true})).send().await).to_string();
+    assert!(history.starts_with("1: How it works (owner, "), "{history}");
+    let missing = tool(&api, "doc", json!({"id": "nope"})).send().await;
+    assert_eq!(missing.body["result"]["isError"], true);
+    assert!(said(&missing).starts_with("orrery said no: "), "{}", missing.body);
+}
+
+#[tokio::test]
+async fn with_several_projects_a_board_tool_says_which_or_is_refused() {
+    let api = TestApi::new().await;
+    api.project("alpha").await;
+    api.project("beta").await;
+    assert_eq!(said(&tool(&api, "docs", json!({})).send().await), "orrery said no: Say which project: alpha, beta");
+    assert_eq!(said(&tool(&api, "docs", json!({"project": "gamma"})).send().await), "orrery said no: This server serves alpha, beta, not gamma");
+    assert_eq!(said(&tool(&api, "docs", json!({"project": "beta"})).send().await), "No docs yet.");
+}
+
+#[tokio::test]
+async fn an_untrusted_session_reads_docs_but_cant_write_one() {
+    let api = TestApi::new().await;
+    api.project("alpha").await;
+    assert_eq!(said(&tool(&api, "docs", json!({})).untrusted().send().await), "No docs yet.");
+    assert_eq!(said(&tool(&api, "write_doc", json!({"id": "x", "title": "X", "body": "x"})).untrusted().send().await), "No tool \"write_doc\"");
+}
+
+#[tokio::test]
+async fn presets_and_preset_read_the_projects_list() {
+    let api = TestApi::new().await;
+    api.project("alpha").await;
+    let chat = |name: &str, args: Value| tool(&api, name, args).header("orrery-actor-kind", "chat");
+    assert_eq!(said(&chat("presets", json!({})).send().await), "No presets yet; the owner makes them.");
+    let made = api.post("/api/presets", json!({"name": "Careful", "text": "Run the tests first.\nThen ship."})).send().await;
+    let id = made.body["id"].clone();
+    let listed = said(&chat("presets", json!({})).send().await).to_string();
+    assert_eq!(listed, format!("{}: Careful (the orrery's) — Run the tests first.", id.as_str().map(String::from).unwrap_or(id.to_string())));
+    let one = said(&chat("preset", json!({"id": id})).send().await).to_string();
+    assert!(one.starts_with("# Careful (the orrery's)\n\nWhat a session started with it is told"), "{one}");
+    assert!(one.ends_with("Run the tests first.\nThen ship."));
+    assert_eq!(said(&chat("preset", json!({"id": "nope"})).send().await), "No preset nope for this project; presets lists them.");
 }
