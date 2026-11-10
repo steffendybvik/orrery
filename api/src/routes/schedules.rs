@@ -1,5 +1,5 @@
 // Schedules: the handlers and the routes they answer (ORR-1048); of the writes, adopting and deleting one (ORR-950), and
-// pausing or activating all of a project's, and making and changing one (ORR-1082).
+// pausing or activating all of a project's, making and changing one, and deleting one across projects (ORR-1082).
 use super::P;
 use crate::changes::Outbox;
 use crate::error::{ApiError, Result};
@@ -12,7 +12,7 @@ use axum::body::Bytes;
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, post};
+use axum::routing::{delete, get, post};
 use axum::{Json, Router};
 use serde_json::Value;
 use std::sync::Arc;
@@ -25,6 +25,7 @@ pub(crate) fn routes() -> Router<Arc<App>> {
         .route(&format!("{P}/schedules/enabled"), post(set_all_enabled))
         .route("/api/schedules", get(all_schedules))
         .route("/api/schedules/across", get(schedules_across))
+        .route("/api/schedules/across/{across}", delete(delete_across))
 }
 
 async fn all_schedules(State(app): Shared) -> Result<Response> {
@@ -117,3 +118,13 @@ async fn schedules_across(State(app): Shared) -> Result<Response> {
 #[cfg(test)]
 #[path = "schedules_tests.rs"]
 mod tests;
+
+/// `DELETE /api/schedules/across/:across` → 204: it and the schedules made from it; their issues stay.
+async fn delete_across(State(app): Shared, Path(across): Path<String>, headers: HeaderMap) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    let actor = actor_of(&headers);
+    let mut schedules = Schedules::new(&mut conn);
+    schedules.outbox = Some(Outbox::new(actor.clone()));
+    schedules.delete_across(&across, &actor).await?;
+    Ok(reply(StatusCode::NO_CONTENT, None, std::mem::take(&mut schedules.effects)))
+}

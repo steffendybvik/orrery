@@ -69,7 +69,8 @@ describe('with auth on', () => {
 
     it('every route refuses a request with no credential, reads included', async () => {
         const all = routes()
-        expect(all.length).toBeGreaterThan(100)
+        // A floor that catches the scan finding nothing, not a count: it falls as routes move to the Rust API (ORR-1036).
+        expect(all.length).toBeGreaterThan(50)
         for (const {method, path} of all) {
             if (OPEN.includes(path)) continue
             expect((await failure(() => gate(asking(path, {method})))).status, `${method} ${path}`).toBe(401)

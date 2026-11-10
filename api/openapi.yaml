@@ -1457,6 +1457,15 @@ paths:
       summary: The schedules across projects, oldest first, each with the projects it's made on
       responses:
         '200': {description: The schedules across projects, content: {application/json: {schema: {type: array, items: {type: object}}}}}
+  /api/schedules/across/{across}:
+    parameters:
+      - {name: across, in: path, required: true, description: Its number, schema: {type: string}}
+    delete:
+      summary: 'Deletes a schedule across projects and the schedules made from it (ORR-1082); their issues stay. The owner''s alone'
+      responses:
+        '204': {description: Deleted}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
   /api/pulls/{owner}/{name}:
     parameters:
       - {name: owner, in: path, required: true, description: The GitHub repo's owner, schema: {type: string}}
