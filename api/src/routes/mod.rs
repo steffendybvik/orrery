@@ -10,6 +10,7 @@ pub(crate) mod chats;
 pub(crate) mod docs;
 pub(crate) mod epics;
 pub(crate) mod issues;
+pub(crate) mod mcp;
 pub(crate) mod milestones;
 pub(crate) mod notices;
 pub(crate) mod people;
@@ -48,4 +49,5 @@ pub(crate) fn all() -> Router<Arc<App>> {
         .merge(chats::routes())
         .merge(uploads::routes())
         .merge(changes::routes())
+        .merge(mcp::routes())
 }

@@ -484,7 +484,7 @@ function pickedOf({decided_by, proposal, picks, choices}) {
 const LOGIN = /^[\w-]+$/
 
 /** The tools that work on one project, which take `project` when the server serves several. */
-const SCOPED = ['issues', 'create_issue', 'milestones', 'create_milestone', 'update_milestone', 'releases', 'docs', 'doc', 'write_doc', 'presets', 'preset', 'schedules', 'sessions', 'link_folder']
+export const SCOPED = ['issues', 'create_issue', 'milestones', 'create_milestone', 'update_milestone', 'releases', 'docs', 'doc', 'write_doc', 'presets', 'preset', 'schedules', 'sessions', 'link_folder']
 
 /** The tools as a server serving `projects` lists them: with several, each project-scoped one takes which. A chat's
  * (`chat`) are its own; a work session's leave out the chat's reads and ask the owner on its issue (`ASK_TOOLS`), with

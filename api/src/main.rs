@@ -21,6 +21,7 @@ mod board;
 mod changes;
 mod db;
 mod error;
+mod mcp;
 mod migrate;
 mod reply;
 mod request;

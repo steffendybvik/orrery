@@ -27,6 +27,7 @@ const MACHINE: Line = {stays: "the machine's: its files, the event log, its own 
 const STORAGE: Line = {rustOnly: 'how the local app keeps its record of a chat or a GitHub poll (written ahead)'}
 const OUTBOX: Line = {rustOnly: "the outbox, which the local app follows to hear what the API's writes set off (ORR-929)"}
 const HEALTH: Line = {rustOnly: 'whether the API is up, for the local app that starts it'}
+const MCP: Line = {rustOnly: "orrery's MCP tools over streamable HTTP (ORR-1098): JSON-RPC, so not in the REST contract; the channel serves them until ORR-1102"}
 
 /** Every operation the router keeps, or only the Rust API has, by path and then method. */
 export const NOT_ROUTED: Readonly<Record<string, Line>> = {
@@ -141,4 +142,7 @@ export const NOT_ROUTED: Readonly<Record<string, Line>> = {
     'POST /api/usage': MACHINE,
     'GET /api/version': MACHINE,
     'GET /health': HEALTH,
+    'DELETE /mcp': MCP,
+    'GET /mcp': MCP,
+    'POST /mcp': MCP,
 }
