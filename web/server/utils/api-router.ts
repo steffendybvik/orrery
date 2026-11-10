@@ -54,9 +54,10 @@ export const DOMAINS: readonly {domain: string, paths: RegExp, methods?: readonl
     // it makes urgent comes back with `Orrery-Urgent`, for the push here (`sayUrgent`). Moving it to another project stays
     // here (`wordsOnly`), and so does a session's change of its status, as the session's lock on the issue is this
     // server's (`claimed`). The chat's rails and a session's claim are checked here first.
-    // Making an issue (ORR-927): only one that names nothing but an issue's words (`onlyWords`), from neither a session,
-    // whose issue is noted as worked on here (`workedOn`), nor the chat or an untrusted session, whose asks are rewritten
-    // here (`asChatIssue`, `asProposal`). One that's urgent comes back with `Orrery-Urgent`, for the push here.
+    // Making an issue (ORR-927): one that names nothing but an issue's words (`onlyWords`). The API rewrites the chat's
+    // and an untrusted session's asks itself (`asChatIssue`, `asProposal`, ORR-1059), and notes a session's issue as its
+    // work (`workedOn`), told what only this server knows (`askerHeaders`). One that's urgent comes back with
+    // `Orrery-Urgent`, for the push here.
     {domain: 'an issue, made', paths: /^projects\/[^/]+\/issues$/, methods: ['POST'], first: {POST: newWordsOnly}, here: true},
     {domain: 'an issue, its words', paths: /^projects\/[^/]+\/issues\/[^/]+$/, methods: ['PATCH'], first: {PATCH: wordsOnly}, here: true},
     // One change to many issues (`{ids, set, labels}`, ORR-927): each edited as one is, the route here taking no session's
@@ -233,10 +234,10 @@ async function wordsOnly(event: H3Event, rest: string) {
     if (project && issue) await claimFor(event, decodeURIComponent(project), decodeURIComponent(issue))
 }
 
-/** A new issue, kept here unless it names only an issue's words and comes from neither a session, the chat nor an
- * untrusted session, whose asks the route here rewrites or notes. */
+/** A new issue, kept here unless it names only an issue's words. An untrusted session's always goes on, as the API
+ * keeps only its words (`asProposal`). */
 async function newWordsOnly(event: H3Event) {
-    if (sessionHeader(event) || chatWrite(event) || untrustedWrite(event)) return 'here' as const
+    if (untrustedWrite(event)) return
     const raw = await readRawBody(event, 'utf8')
     try {
         if (!onlyWords(raw ? JSON.parse(raw) : undefined)) return 'here' as const
@@ -328,6 +329,15 @@ export function actorHeaders(actor: Actor): Record<string, string> {
         ...actor.named ? {'Orrery-Actor-Named': encodeURIComponent(actor.named)} : {},
         ...actor.asked ? {'Orrery-Actor-Asked': '1'} : {},
     }
+}
+
+/** What only this server knows of who's asking, for the API's rewrite of a new issue (ORR-1059): the status the owner
+ * picked for the chat's issues (`Orrery-Chat-Issues`), or the session a write is noted as worked by, by the id it goes
+ * by after a `/clear` (`Orrery-Worked-By`, percent-encoded). An untrusted session's is never the chat's. */
+export function askerHeaders(event: H3Event, actor: Actor): Record<string, string> {
+    if (actor.chat && !actor.untrusted) return {'Orrery-Chat-Issues': chatIssuesFor(getHeader(event, 'orrery-launch')?.trim())}
+    const session = getHeader(event, 'orrery-session')?.trim()
+    return session ? {'Orrery-Worked-By': encodeURIComponent(currentId(session))} : {}
 }
 
 /** What the auth middleware's credential said (`Who`), and the credential itself, hashed as the logins and keys tables
@@ -543,6 +553,7 @@ export async function forwardToApi(event: H3Event, api: {url: string, token: str
         'Orrery-Api-Token': api.token,
         'Orrery-Database': databaseMark(databaseSetting()),
         ...actorHeaders(actor),
+        ...askerHeaders(event, actor),
         ...whoHeaders(event.context.who as Who | undefined, getCookie(event, loginCookie(event)), bearer(event), {origin: getHeader(event, 'origin'), session: getHeader(event, 'orrery-session')}),
         ...loginHeaders({provider: oidcOn(), off: toldOff(), on: toldOn()}, getRequestURL(event, {xForwardedHost: true, xForwardedProto: true}).origin),
         ...cameHeaders({loopback: onLoopback(event), proxied: proxied(event), phone: viaPhone(event), https: getRequestURL(event, {xForwardedProto: true}).protocol === 'https:'}, getRequestHost(event)),

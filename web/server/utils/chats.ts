@@ -1166,7 +1166,12 @@ export function messaged(actor: Actor, project: string, session: string) {
 export function asChatIssue(body: unknown, chat?: string): unknown {
     if (!body || typeof body !== 'object' || Array.isArray(body)) return body
     const {status: _status, plan: _plan, assignee: _assignee, ...rest} = body as Record<string, unknown>
-    return rest.proposal === 'pending' ? rest : {...rest, status: (chat && chats.get(chat)?.issues) || 'todo'}
+    return rest.proposal === 'pending' ? rest : {...rest, status: chatIssuesFor(chat)}
+}
+
+/** The status the owner picked for what the chat `chat` (its `Orrery-Launch`) makes: Todo unless it's Backlog. */
+export function chatIssuesFor(chat?: string): ChatIssues {
+    return (chat && chats.get(chat)?.issues) || 'todo'
 }
 
 /** What the chat may change on an issue when the owner asks: what it says and where it sits, never its state of work. */

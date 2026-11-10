@@ -1,6 +1,7 @@
 // Issues: reading them, their comments and activity, claims, edits, decisions, bulk changes and deletes: the handlers
 // and the routes they answer (ORR-1048).
 use super::P;
+use crate::access::rewrites;
 use crate::board::comments::{comment_id, Handoff};
 use crate::board::issue_edits;
 use crate::board::issue_writes::IssueWrites;
@@ -131,12 +132,28 @@ async fn release_issue(State(app): Shared, Path((project, issue)): Path<(String,
 }
 
 /// `POST …/issues` with only an issue's own words (`issue_edits::WORDS`): 201 the new issue (`createIssue`), and
-/// `Orrery-Urgent` when it's urgent open work.
+/// `Orrery-Urgent` when it's urgent open work. An untrusted session's is made a proposal and the chat's lands in its
+/// status with nobody on it (`rewrites`), and the session the router names is noted as working it (`workedOn`).
 async fn create_issue(State(app): Shared, Path(project): Path<String>, headers: HeaderMap, body: Bytes) -> Result<Response> {
+    let actor = actor_of(&headers);
+    let sent = body_of(&body);
+    let asked = if actor.untrusted {
+        rewrites::as_proposal(&sent)
+    } else if actor.chat {
+        rewrites::as_chat_issue(sent, &headers)
+    } else {
+        sent
+    };
     let mut conn = app.pool.acquire().await?;
     let mut comments = IssueWrites::new(&mut conn);
-    comments.outbox = Some(Outbox::new(actor_of(&headers)));
-    let (id, urgent) = comments.create_issue(&project, &body_of(&body), &actor_of(&headers)).await?;
+    comments.outbox = Some(Outbox::new(actor.clone()));
+    let (id, urgent) = comments.create_issue(&project, &asked, &actor).await?;
+    // The issue's made: not noting its session only means the owner's comments on it don't reach that session.
+    if let Some(session) = rewrites::worked_by(&headers, actor.chat) {
+        if let Err(error) = comments.worked_by(&project, &id, &session).await {
+            eprintln!("[orrery-api] tying {project}/{id} to its session: {error:?}");
+        }
+    }
     let effects = std::mem::take(&mut comments.effects);
     let value = Issues::new(&mut conn).issue(&project, &id).await?;
     let mut response = reply(StatusCode::CREATED, Some(value), effects);
