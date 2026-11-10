@@ -14,6 +14,9 @@ use sqlx::any::AnyRow;
 use sqlx::Row;
 use std::collections::HashMap;
 
+/// Who orrery's own comments are by (`ORRERY` in web/server/store/schema.ts).
+const ORRERY: &str = "orrery";
+
 /// What a person's own words on comment `o` are: the owner's, or a member's (`PERSONS_WORDS`, ORR-658).
 const SINCE: &str = "EXISTS (SELECT 1 FROM comments o WHERE o.project = c.project AND o.issue = c.issue AND (o.owned = 1 OR (o.person IS NOT NULL AND o.by_agent = 0)) AND o.id > c.id)";
 
@@ -284,6 +287,55 @@ impl IssueWrites<'_> {
             edited: false,
             quiet: false,
         };
+        Ok((self.comment(project, &issue, id).await?, handoff))
+    }
+
+    /// orrery's own word on an issue (ORR-1094), as `systemComment` and `systemNote` in web/server/store/comments.ts
+    /// write it: a comment by `orrery`, nobody's words but its own, so nobody's bell hears it. `wakes` passes it on to
+    /// the session on the issue, as a pull request's news does, unless the issue is closed, where there's no work left
+    /// to wake anyone for; a note (why a schedule moved it) wakes nobody. Only the Nuxt server's own work sends it.
+    pub async fn said(&mut self, project: &str, sent: &str, body: &Value) -> Result<(Value, Handoff)> {
+        let issue = self.issue_id(project, sent).await?;
+        self.issue_there(project, &issue).await?;
+        let text = match body.get("body") {
+            Some(Value::String(text)) if !text.trim().is_empty() => text.clone(),
+            _ => return Err(ApiError::bad_request("Send \"body\": orrery's words, as a string")),
+        };
+        let wakes = match body.get("wakes") {
+            None | Some(Value::Bool(false)) => false,
+            Some(Value::Bool(true)) => true,
+            Some(other) => return Err(ApiError::bad_request(format!("\"wakes\" should be true or false, not {}", js(other)))),
+        };
+        let kind: Option<String> = sqlx::query(&sql("SELECT s.kind FROM issues i JOIN statuses s ON s.id = i.status WHERE i.project = ? AND i.id = ?"))
+            .bind(project)
+            .bind(&issue)
+            .fetch_optional(&mut *self.conn)
+            .await?
+            .map(|row| row.get("kind"));
+        let closed = kind.as_deref().is_some_and(|k| k == "done" || k == "canceled");
+        let now = stamp();
+        changes::begin(self.conn).await?;
+        let done: Result<i64> = async {
+            let id: i64 = sqlx::query(&sql(
+                "INSERT INTO comments (project, issue, body, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, 0, ?, ?) RETURNING CAST(id AS BIGINT) AS id",
+            ))
+            .bind(project)
+            .bind(&issue)
+            .bind(&text)
+            .bind(ORRERY)
+            .bind(&now)
+            .bind(&now)
+            .fetch_one(&mut *self.conn)
+            .await?
+            .get("id");
+            self.touch_issue(project, &issue).await?;
+            Ok(id)
+        }
+        .await;
+        self.effects.changed = vec![project.into()];
+        self.effects.tell("comment.added", project, &issue);
+        let id = changes::finish(self.conn, self.outbox.as_mut(), &self.effects, done).await?;
+        let handoff = Handoff { project: project.into(), issue: issue.clone(), comment: id, carry: wakes && !closed, ..Handoff::default() };
         Ok((self.comment(project, &issue, id).await?, handoff))
     }
 

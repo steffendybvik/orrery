@@ -9,7 +9,7 @@ use crate::board::issues::Issues;
 use crate::changes::Outbox;
 use crate::error::{ApiError, Result};
 use crate::reply::reply;
-use crate::request::{actor_of, body_of};
+use crate::request::{actor_of, body_of, came_of};
 use crate::{changes, write, App, Shared};
 use axum::body::Bytes;
 use axum::extract::{Path, Query, State};
@@ -32,6 +32,7 @@ pub(crate) fn routes() -> Router<Arc<App>> {
         .route(&format!("{P}/issues/{{issue}}/comments"), get(list_comments).post(create_comment))
         .route(&format!("{P}/issues/{{issue}}/comments/{{comment}}"), get(get_comment).patch(patch_comment).delete(delete_comment))
         .route(&format!("{P}/issues/{{issue}}/activity"), get(get_activity))
+        .route(&format!("{P}/issues/{{issue}}/said"), post(said_on_issue))
 }
 
 async fn list_issues(State(app): Shared, Path(project): Path<String>, Query(query): Query<HashMap<String, String>>) -> Result<Response> {
@@ -56,6 +57,24 @@ async fn create_comment(State(app): Shared, Path((project, issue)): Path<(String
     let mut comments = IssueWrites::new(&mut conn);
     comments.outbox = Some(Outbox::new(actor_of(&headers)));
     let (value, handoff) = comments.create(&project, &issue, &body_of(&body), &actor_of(&headers)).await?;
+    let effects = std::mem::take(&mut comments.effects);
+    let mut response = reply(StatusCode::CREATED, Some(value), effects);
+    for (header, said) in handoff_headers(&handoff) {
+        response.headers_mut().insert(header, HeaderValue::from_str(&said).unwrap());
+    }
+    Ok(response)
+}
+
+/// `POST …/issues/{issue}/said`: orrery's own word on the issue (ORR-1094), from the Nuxt server's own work alone (a
+/// pull request's news, a schedule's note), with in `Orrery-Carry` whether to pass it on to the session on the issue.
+async fn said_on_issue(State(app): Shared, Path((project, issue)): Path<(String, String)>, headers: HeaderMap, body: Bytes) -> Result<Response> {
+    if !came_of(&headers).server {
+        return Err(ApiError::forbidden("Only orrery itself says things as orrery"));
+    }
+    let mut conn = app.pool.acquire().await?;
+    let mut comments = IssueWrites::new(&mut conn);
+    comments.outbox = Some(Outbox::new(actor_of(&headers)));
+    let (value, handoff) = comments.said(&project, &issue, &body_of(&body)).await?;
     let effects = std::mem::take(&mut comments.effects);
     let mut response = reply(StatusCode::CREATED, Some(value), effects);
     for (header, said) in handoff_headers(&handoff) {

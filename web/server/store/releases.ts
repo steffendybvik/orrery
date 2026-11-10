@@ -79,6 +79,11 @@ export abstract class ReleaseStore extends DocStore {
             if (up.ships_in === release.version) return null
             return {left: release.version, kept: up.ships_in, ...up.id === id ? {} : {from: up.id}}
         }
+        // Through the Rust API when it's in front, as it's the one writer of `issues` then (ORR-1094). Imported when
+        // used, as the router reads the store.
+        const {writeToApi} = await import('../utils/api-router')
+        const path = `/api/projects/${encodeURIComponent(project)}/issues/${encodeURIComponent(id)}`
+        if (await writeToApi('PATCH', path, {release: release.version}, ORRERY, {always: true})) return {set: release.version}
         await this.db.transaction(async () => {
             await this.record(project, id, ORRERY, [['release', null, release.version]])
             await this.update('issues', 'project = ? AND id = ?', [project, id], {ships_in: release.version})
