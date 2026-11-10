@@ -32,6 +32,8 @@ import {Schedules} from '../server/utils/schedules'
 import {PullPoll} from '../server/utils/pull-poll'
 import type {PolledRow} from '../server/utils/pull-poll'
 import {openDb} from '../server/utils/db'
+import {backUpTo, snapshotsBy} from '../server/utils/backup'
+import {DatabaseSync} from 'node:sqlite'
 import {PostgresDb} from '../server/utils/postgres'
 import {PHONE_LOGIN} from '#shared/phone'
 import {actorHeaders, apiStarted, cameHeaders, changedOf, countedOf, databaseMark, domainOf, DOMAINS, handedOn, handoffsOf, handOn, loginHeaders, withRev, boardsWithRev, movesStatus, onlyWords, passedThrough, servedByApi, toldOf, urgentOf, whoHeaders, writeToApi, OWN_WORK} from '../server/utils/api-router'
@@ -1147,6 +1149,35 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         expect(refused).toMatchObject({status: 400})
         expect((refused.body as {data: {problems: string[]}}).data.problems).toEqual(expect.arrayContaining(['unknown field "colour"; this takes projects, names, title, url, branch, base, author, merged, closed, merged_at, created_at, updated_at']))
         expect(domainOf('PUT', `/api/pulls/ada/${on('through-api')}/5`)).toBeUndefined()
+    })
+
+    it('backs the database up alike, the API taking the copy (ORR-1097)', async context => {
+        if (POSTGRES) {
+            // A Postgres database is still the local app's to snapshot.
+            expect((await viaApi('POST', '/api/database/snapshot', {to: join(tmpdir(), '.orrery.db.partial')})).status).toBe(409)
+            context.skip()
+        }
+        /** What a backup in `dir` holds: each table's rows counted. */
+        const held = (dir: string) => {
+            const copy = new DatabaseSync(join(dir, 'orrery.db'), {readOnly: true})
+            try {
+                const tables = (copy.prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name").all() as {name: string}[]).map(t => t.name)
+                return Object.fromEntries(tables.map(t => [t, (copy.prepare(`SELECT count(*) AS n FROM "${t}"`).get() as {n: number}).n]))
+            } finally {
+                copy.close()
+            }
+        }
+        const here = mkdtempSync(join(tmpdir(), 'orrery-backup-here-'))
+        await backUpTo(store.db, {kind: 'folder', dir: here})
+        const there = mkdtempSync(join(tmpdir(), 'orrery-backup-api-'))
+        snapshotsBy(async to => (await viaApi('POST', '/api/database/snapshot', {to})).status === 204)
+        try {
+            await backUpTo(store.db, {kind: 'folder', dir: there})
+        } finally {
+            snapshotsBy(null)
+        }
+        expect(held(there)).toEqual(held(here))
+        expect(domainOf('POST', '/api/database/snapshot')).toBeUndefined()
     })
 
     it('keeps a sealed secret, its uses and its deletion alike (ORR-1096)', async () => {
@@ -3457,7 +3488,7 @@ describe('the contract (api/openapi.yaml)', () => {
     })
 
     it('sends none of the routes written ahead of the Rust API to it', () => {
-        expect(contract(true)).toEqual(['DELETE /api/chats/{chat}', 'DELETE /api/secrets/{name}/sealed', 'GET /api/auth/oidc/callback', 'GET /api/auth/oidc/start', 'GET /api/auth/status', 'GET /api/chats', 'GET /api/chats/{chat}', 'POST /api/auth/link', 'POST /api/auth/login', 'POST /api/auth/logout', 'POST /api/phone/link', 'POST /api/pulls/forget', 'POST /api/secrets/{name}/uses', 'PUT /api/chats/{chat}', 'PUT /api/pulls/{owner}/{name}', 'PUT /api/pulls/{owner}/{name}/error', 'PUT /api/pulls/{owner}/{name}/history', 'PUT /api/pulls/{owner}/{name}/{number}', 'PUT /api/secrets/{name}/sealed'])
+        expect(contract(true)).toEqual(['DELETE /api/chats/{chat}', 'DELETE /api/secrets/{name}/sealed', 'GET /api/auth/oidc/callback', 'GET /api/auth/oidc/start', 'GET /api/auth/status', 'GET /api/chats', 'GET /api/chats/{chat}', 'POST /api/auth/link', 'POST /api/auth/login', 'POST /api/auth/logout', 'POST /api/database/snapshot', 'POST /api/phone/link', 'POST /api/pulls/forget', 'POST /api/secrets/{name}/uses', 'PUT /api/chats/{chat}', 'PUT /api/pulls/{owner}/{name}', 'PUT /api/pulls/{owner}/{name}/error', 'PUT /api/pulls/{owner}/{name}/history', 'PUT /api/pulls/{owner}/{name}/{number}', 'PUT /api/secrets/{name}/sealed'])
         expect(contract(true).filter(operation => routes().includes(operation))).toEqual([])
     })
 })
