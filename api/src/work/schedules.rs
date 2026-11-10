@@ -1,8 +1,8 @@
 // The schedules (ORR-930, ORR-950): what `list`, `get` and `listAcross` in web/server/utils/schedules.ts do, answering
 // as their `GET` routes do; and of its writes, the owner making one theirs (`adopt`), deleting one (`delete`), and
-// pausing or activating all of a project's at once (`set_all_enabled`, ORR-1082), and changing one (`update`). Each write says the project's
-// schedules changed (`Effects::schedules`), so the local app's scheduler reads them again. Making one, and
-// running them, stay the Nuxt server's for now.
+// pausing or activating all of a project's at once (`set_all_enabled`, ORR-1082), and making and changing one (`create`,
+// `update`). Each write says the project's schedules changed (`Effects::schedules`), so the local app's scheduler reads
+// them again. Running them, the requests on comments and the ones across projects stay the Nuxt server's for now.
 use crate::board::issue_edits::resolve_status;
 use crate::board::issues::Issues;
 use crate::board::milestones::Milestones;
@@ -366,6 +366,87 @@ impl<'c> Schedules<'c> {
         changes::begin(self.conn).await?;
         let done = self.write(id, &set).await;
         changes::finish(self.conn, self.outbox.as_mut(), &self.effects, done).await?;
+        self.get(project, &id.to_string(), uid).await
+    }
+
+    /// Makes a schedule (`create`, `toCreate`), checked in the order Schedules checks it, with its next run worked out
+    /// unless it's made paused. It's the maker's: the owner's only when the owner makes it.
+    pub async fn create(&mut self, project: &str, body: &Value, uid: &str, actor: &Actor) -> Result<Value> {
+        let found = sqlx::query(&sql("SELECT 1 FROM projects WHERE id = ?")).bind(project).fetch_optional(&mut *self.conn).await?;
+        if found.is_none() {
+            return Err(ApiError::not_found(format!("No project \"{project}\"")));
+        }
+        let input = check_input(body, false)?;
+        let given = |key: &str| input.get(key).and_then(Value::as_str).filter(|s| !s.is_empty());
+        let when = when(given("cron"), given("at"), given("on"), given("timezone"), true).map_err(ApiError::bad_request)?;
+        let milestone = match given("milestone") {
+            Some(m) => Some(Milestones::new(&mut *self.conn).milestone_id(project, m).await?.0),
+            None => None,
+        };
+        let enabled = input.get("enabled").and_then(Value::as_bool).unwrap_or(true);
+        let kind = given("kind").unwrap_or("issue").to_string();
+        let presets = if kind == "issue" || kind == "action" {
+            "[]".to_string()
+        } else {
+            let ids = given("presets").unwrap_or("[]").to_string();
+            self.usable_presets(project, &ids).await?;
+            ids
+        };
+        let notes = given("notes").map(String::from);
+        let flag = |key: &str, or: bool| input.get(key).and_then(Value::as_bool).unwrap_or(or);
+        check_kind(&kind, notes.as_deref(), &presets, flag("untrusted", false), actor, when.on.as_deref())?;
+        if kind == "action" && input.get("column").is_none() {
+            return Err(ApiError::bad_request("An action schedule moves issues to a status: send it in \"column\""));
+        }
+        let on_filter = given("on_filter").filter(|f| when.on.is_some() && *f != "{}").map(String::from);
+        let move_from = self.move_from(input.get("move_from").unwrap_or(&Value::Null)).await?;
+        let place = self.place(given("column").unwrap_or("todo"), &kind).await?;
+        let labels = input.get("labels").filter(|l| !l.is_null()).cloned().unwrap_or_else(|| json!([])).to_string();
+        let next = if enabled { next_run(&when, chrono::Utc::now()) } else { None };
+        let title = input.get("title").and_then(Value::as_str).unwrap_or_default().trim().to_string();
+        let now = stamp();
+        let bit = |on: bool| i64::from(on);
+        self.effects.schedules.push(project.into());
+        changes::begin(self.conn).await?;
+        let done: Result<i64> = async {
+            let row = sqlx::query(&sql(
+                "INSERT INTO schedules (project, kind, title, notes, cron, at, on_event, on_filter, presets, move_from, timezone, place, milestone, priority,
+                    labels, ask, skip_open, only_if_changed, untrusted, enabled, next_run, created_by, owned, created_at, updated_at, model, effort)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING CAST(id AS BIGINT) AS id",
+            ))
+            .bind(project)
+            .bind(&kind)
+            .bind(&title)
+            .bind(&notes)
+            .bind(&when.cron)
+            .bind(&when.at)
+            .bind(&when.on)
+            .bind(&on_filter)
+            .bind(&presets)
+            .bind(&move_from)
+            .bind(&when.timezone)
+            .bind(&place)
+            .bind(&milestone)
+            .bind(given("priority"))
+            .bind(&labels)
+            .bind(bit(flag("ask", false)))
+            .bind(bit(flag("skip_open", true)))
+            .bind(bit(flag("only_if_changed", false)))
+            .bind(bit(flag("untrusted", false)))
+            .bind(bit(enabled))
+            .bind(&next)
+            .bind(&actor.name)
+            .bind(bit(actor.owner))
+            .bind(&now)
+            .bind(&now)
+            .bind(given("model"))
+            .bind(given("effort"))
+            .fetch_one(&mut *self.conn)
+            .await?;
+            Ok(row.get("id"))
+        }
+        .await;
+        let id = changes::finish(self.conn, self.outbox.as_mut(), &self.effects, done).await?;
         self.get(project, &id.to_string(), uid).await
     }
 

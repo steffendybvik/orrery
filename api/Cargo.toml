@@ -31,6 +31,7 @@ webp = { version = "0.3", default-features = false }
 # When a schedule runs next (ORR-1082), as croner reads a cron on the Nuxt server, in its timezone.
 croner = "4.0.3"
 chrono-tz = { version = "0.10.4", features = ["case-insensitive"] }
+iana-time-zone = "0.1"
 
 # A board tool at /mcp runs this API's own routes (`oneshot`, ORR-1099), as the tests do (ORR-1053).
 tower = { version = "0.5", features = ["util"] }

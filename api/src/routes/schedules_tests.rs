@@ -506,3 +506,49 @@ async fn the_owners_is_theirs_and_one_across_projects_is_only_paused_here() {
     assert_eq!(refused.body["message"], format!("Schedule {copy} is made from schedule across projects {across}: change it there, or pause it here"));
     assert_eq!(api.patch(&path, json!({"enabled": false})).send().await.body["enabled"], false);
 }
+
+#[tokio::test]
+async fn making_one_keeps_what_was_sent_and_works_out_its_first_run() {
+    let api = TestApi::new().await;
+    let project = api.project("Primes").await;
+    let path = format!("/api/projects/{project}/schedules");
+    let made = api.post(&path, json!({"title": "  Daily ", "cron": "0 7 * * *", "timezone": "UTC", "labels": ["a", "a"], "priority": "P1"})).send().await;
+    assert_eq!(made.status, 201, "{}", made.body);
+    let s = &made.body;
+    assert_eq!(
+        (s["title"].as_str(), s["kind"].as_str(), s["column"].as_str(), s["priority"].as_str(), s["skip_open"].as_bool()),
+        (Some("Daily"), Some("issue"), Some("todo"), Some("P1"), Some(true))
+    );
+    assert_eq!((s["labels"].clone(), s["enabled"].as_bool(), s["protected"].as_bool()), (json!(["a"]), Some(true), Some(true)));
+    assert!(s["next_run"].as_str().is_some_and(|n| n.ends_with("T07:00:00.000Z")), "{s}");
+    assert_eq!(made.header("orrery-schedules"), Some(project.as_str()));
+    let paused = api.post(&path, json!({"title": "Later", "at": "2099-01-01T09:00:00Z", "enabled": false})).by_agent("claude").send().await;
+    assert_eq!(paused.status, 201, "{}", paused.body);
+    assert_eq!((paused.body.get("next_run"), paused.body["protected"].as_bool(), paused.body["created_by"].as_str()), (None, Some(false), Some("claude")));
+    let event = api.post(&path, json!({"kind": "message", "title": "Hear", "notes": "Look.", "on": "issue.status", "on_filter": {"to": "done"}})).send().await;
+    assert_eq!(event.status, 201, "{}", event.body);
+    assert_eq!((event.body["on"].as_str(), event.body["on_filter"].clone(), event.body.get("next_run")), (Some("issue.status"), json!({"to": "done"}), None));
+    assert_eq!(api.get(&path).send().await.body.as_array().map(Vec::len), Some(3));
+}
+
+#[tokio::test]
+async fn a_new_one_is_checked_as_schedules_checks_it() {
+    let api = TestApi::new().await;
+    let project = api.project("Primes").await;
+    let path = format!("/api/projects/{project}/schedules");
+    let bad = |body: Value| api.post(&path, body).send();
+    let reply = bad(json!({"cron": "0 9 * * *"})).await;
+    assert_eq!(reply.body["data"]["problems"], json!(["missing \"title\""]));
+    let reply = bad(json!({"title": "x", "at": "2020-01-01T00:00:00Z"})).await;
+    assert_eq!(reply.body["message"], "\"at\" is 2020-01-01T00:00:00.000Z, which has passed");
+    let reply = bad(json!({"title": "x", "kind": "action", "on": "issue.status"})).await;
+    assert_eq!(reply.body["message"], "An action schedule moves issues to a status: send it in \"column\"");
+    let reply = bad(json!({"title": "x", "cron": "0 9 * * *", "column": "done"})).await;
+    assert_eq!(reply.body["message"], "A schedule's issues start open, not in Done");
+    let reply = bad(json!({"title": "x", "kind": "message", "cron": "0 9 * * *"})).await;
+    assert_eq!(reply.body["message"], "A message schedule needs its message in \"notes\", or a preset in \"presets\"");
+    let refused = api.post(&path, json!({"title": "x", "kind": "session", "cron": "0 9 * * *"})).by_agent("claude").send().await;
+    assert_eq!((refused.status.as_u16(), refused.body["data"]["permission"].as_str()), (403, Some("schedules.session")));
+    assert_eq!(api.post("/api/projects/nowhere/schedules", json!({"title": "x", "cron": "0 9 * * *"})).send().await.status, 404);
+    assert_eq!(api.get(&path).send().await.body, json!([]), "nothing was made");
+}
