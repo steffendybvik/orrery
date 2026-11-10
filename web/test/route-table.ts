@@ -19,6 +19,7 @@ const FOCUS: Line = {stays: "a focus signals the sessions, which are the machine
 const CHAT: Line = {stays: "the chat's sessions are the local app's; the API keeps their rows, through PUT /api/chats/{chat}"}
 const LOGIN: Line = {stays: 'logging in and out is checked here (auth.ts); the API hears what that found'}
 const SEALED: Line = {stays: "sealed with the machine's key (decision-rust-api-secrets-settings)"}
+const SEALED_ROWS: Line = {rustOnly: 'how the local app keeps a secret it sealed, and its uses: it sends them here itself (`writeToApi`, ORR-1096)'}
 const GIT: Line = {stays: "reads the local git repo or asks GitHub, which is the local app's to do (ORR-952, ORR-927)"}
 const ARTIFACT: Line = {stays: "drawn with the page's own sanitising and its locked-down headers"}
 const SESSIONS: Line = {stays: "the sessions, the launcher and their signals are the machine's"}
@@ -104,7 +105,6 @@ export const NOT_ROUTED: Readonly<Record<string, Line>> = {
     'DELETE /api/projects/{project}/members/{person}': ORR_928,
     'POST /api/projects/{project}/milestones/{milestone}/focus': FOCUS,
     'POST /api/projects/{project}/schedules': ORR_950,
-    'PATCH /api/projects/{project}/schedules/{schedule}': ORR_950,
     'POST /api/projects/{project}/schedules/{schedule}/run': ORR_950,
     'GET /api/projects/{project}/sessions': SESSIONS,
     'GET /api/projects/{project}/sessions/work': SESSIONS,
@@ -129,6 +129,9 @@ export const NOT_ROUTED: Readonly<Record<string, Line>> = {
     'DELETE /api/secrets/{name}': SEALED,
     'PATCH /api/secrets/{name}': SEALED,
     'PUT /api/secrets/{name}': SEALED,
+    'DELETE /api/secrets/{name}/sealed': SEALED_ROWS,
+    'PUT /api/secrets/{name}/sealed': SEALED_ROWS,
+    'POST /api/secrets/{name}/uses': SEALED_ROWS,
     'GET /api/sessions': SESSIONS,
     'POST /api/sessions': SESSIONS,
     'POST /api/sessions/message': SESSIONS,

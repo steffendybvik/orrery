@@ -112,6 +112,8 @@ export const DOMAINS: readonly {domain: string, paths: RegExp, methods?: readonl
     // Of the writes (ORR-950): adopting an agent's schedule and deleting one, neither of which starts a session.
     {domain: 'a schedule, adopted', paths: /^projects\/[^/]+\/schedules\/[^/]+\/adopt$/, methods: ['POST']},
     {domain: 'a schedule, deleted', paths: /^projects\/[^/]+\/schedules\/[^/]+$/, methods: ['DELETE']},
+    // Changing one (ORR-1082): it works out its next run again, and starts no session.
+    {domain: 'a schedule, changed', paths: /^projects\/[^/]+\/schedules\/[^/]+$/, methods: ['PATCH']},
     // Pausing or activating all of a project's (ORR-1082): it works out each next run, and starts no session.
     {domain: 'schedules, paused or activated', paths: /^projects\/[^/]+\/schedules\/enabled$/, methods: ['POST']},
     // A project's signals, read (ORR-1087): after an id, or the latest about an issue or milestone. Their delivery, the

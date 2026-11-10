@@ -54,6 +54,8 @@ export const WRITERS: Record<string, Writer> = {
     schedule_runs: SCHEDULES,
     schedules: SCHEDULES,
     schedules_across: SCHEDULES,
+    secret_uses: {nuxt: 'egress and orrery\'s own requests (utils/secrets.ts keepUse) only with no API in front; it sends them to POST /api/secrets/{name}/uses otherwise', issue: 'ORR-1093'},
+    secrets: {nuxt: 'setting, narrowing and deleting one (utils/secrets.ts keepSealed) only with no API in front; it sends the sealed row to /api/secrets/{name}/sealed otherwise', issue: 'ORR-1093'},
     settings: {nuxt: "the machine's settings, the sealed ones and auth staying on (store/keys.ts, store/signals.ts)"},
     signals: {nuxt: "the sessions' signals, which are the machine's (store/signals.ts)"},
     statuses: {nuxt: UPLOAD, issue: 'ORR-747'},

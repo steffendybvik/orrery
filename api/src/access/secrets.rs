@@ -1,8 +1,8 @@
 // The orrery's secrets, reading them (ORR-953): what `list` and `get` in web/server/utils/secrets.ts do, on the same
 // tables, answering as `GET /api/secrets` and `GET /api/secrets/{name}` do. Neither reads `value`: it's ciphertext, and
 // the key that opens it stays with the local app (decision-rust-api-secrets-settings). So setting, narrowing and
-// deleting one, and sending one out (egress), stay the Nuxt server's: setting and narrowing seal the value with the key,
-// and each write is told to the event log. The router sends only these reads here.
+// deleting one, and sending one out (egress), stay the Nuxt server's routes: it checks each, seals the value with the
+// key and tells the event log, then keeps the row through work/secrets.rs (ORR-1096). The router sends only these reads here.
 use crate::db::sql;
 use crate::error::{ApiError, Result};
 use serde_json::{json, Map, Value};

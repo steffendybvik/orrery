@@ -1080,10 +1080,28 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         const nextRuns = async (p: string) => (await schedules.list(on(p))).map(s => [s.title, s.next_run ?? null])
         expect(await nextRuns('through-api')).toEqual(await nextRuns('through-store'))
         expect((activated.body as {changed: {title: string}[]}).changed.map(s => s.title)).toEqual(['Water', 'air', 'Triage', 'Weekly look', 'Daily'])
+        // Changing one (ORR-1082): the owner's refused to an agent, changes that don't check out, then the owner's changes.
+        const change = (name: string, at: number, body: object, actor = OWNER) =>
+            both(name, p => viaStore(() => schedules.update(on(p), ids[p]![at]!, body, actor)), () => viaApi('PATCH', api(at), body, actor, 'through-api-timed'))
+        await refusedAlike('changing the owner\'s, as an agent', () => schedules.update(on('through-store'), ids['through-store']![2]!, {title: 'Mine now'}, AGENT), viaApi('PATCH', api(2), {title: 'Mine now'}, AGENT, 'through-api-timed'))
+        await change('a cron that doesn\'t parse', 0, {cron: 'nope'})
+        await change('two problems', 0, {title: 3, nope: true})
+        await change('a message with no words', 0, {kind: 'message', notes: null})
+        await change('an action with no column', 0, {kind: 'action', on: 'issue.status'})
+        await change('a closed status to start in', 0, {column: 'done'})
+        await change('moving from a status that isn\'t there', 0, {move_from: ['nope']})
+        await change('a preset that isn\'t there', 4, {presets: [9999]})
+        await change('renaming it and changing when', 0, {title: '  Water more ', cron: '0 6 * * *', timezone: 'UTC', labels: ['garden', 'garden', 'beds'], priority: null, milestone: null, move_from: ['todo']})
+        await change('making it an event\'s', 1, {on: 'issue.created', on_filter: {by: 'owner', to: ''}, enabled: true})
+        await change('pausing one', 0, {enabled: false})
+        await change('an action, with its column', 1, {kind: 'action', column: 'done'})
+        await both('changing one that isn\'t there', p => viaStore(() => schedules.update(on(p), 9999, {title: 'x'}, OWNER)), () => viaApi('PATCH', '/schedules/9999', {title: 'x'}, OWNER, 'through-api-timed'))
+        expect(await nextRuns('through-api')).toEqual(await nextRuns('through-store'))
+        expect(domainOf('PATCH', '/api/projects/p/schedules/3')).toBe('a schedule, changed')
         expect(domainOf('POST', '/api/projects/p/schedules/enabled')).toBe('schedules, paused or activated')
         expect(domainOf('DELETE', '/api/projects/p/schedules/3')).toBe('a schedule, deleted')
         expect(domainOf('GET', '/api/schedules/across')).toBe('schedules, reading')
-        for (const [method, path] of [['POST', '/api/schedules'], ['PATCH', '/api/projects/p/schedules/3'], ['POST', '/api/projects/p/schedules/3/run'], ['DELETE', '/api/schedules/across/2']])
+        for (const [method, path] of [['POST', '/api/schedules'], ['POST', '/api/projects/p/schedules/3/run'], ['DELETE', '/api/schedules/across/2']])
             expect(domainOf(method!, path!), `${method} ${path}`).toBeUndefined()
     })
 
@@ -1132,6 +1150,36 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         expect(refused).toMatchObject({status: 400})
         expect((refused.body as {data: {problems: string[]}}).data.problems).toEqual(expect.arrayContaining(['unknown field "colour"; this takes projects, names, title, url, branch, base, author, merged, closed, merged_at, created_at, updated_at']))
         expect(domainOf('PUT', `/api/pulls/ada/${on('through-api')}/5`)).toBeUndefined()
+    })
+
+    it('keeps a sealed secret, its uses and its deletion alike (ORR-1096)', async () => {
+        const secrets = new Secrets(store, () => 'a long random test key', () => {}, (async () => new Response('{}', {status: 200})) as typeof fetch)
+        const name = (p: string) => p === 'through-store' ? 'STORE_KEY' : 'API_KEY'
+        const step = (label: string, ts: (p: string) => Promise<unknown>, method: string, path: string, body?: (p: string) => unknown) => both(label,
+            p => viaStore(async () => { await ts(p) }), () => viaApi(method, `/api/secrets/${name('through-api')}${path}`, body?.('through-api')))
+        const kept = () => both('what\'s kept', p => viaStore(async () => ({
+            secret: await store.db.all('SELECT last4, hosts, projects, created_by, owned FROM secrets WHERE name = ?', name(p)),
+            uses: await store.db.all('SELECT method, host, path, project, issue, status, error, created_by FROM secret_uses WHERE secret = ? ORDER BY id', name(p)),
+        })), () => viaStore(async () => ({
+            secret: await store.db.all('SELECT last4, hosts, projects, created_by, owned FROM secrets WHERE name = ?', name('through-api')),
+            uses: await store.db.all('SELECT method, host, path, project, issue, status, error, created_by FROM secret_uses WHERE secret = ? ORDER BY id', name('through-api')),
+        })))
+        const at = '2026-11-10T10:00:00.000Z'
+        const use = {method: 'GET', host: 'api.stripe.com', path: '/v1/me', project: 'through-api', issue: null, status: 200, error: null, created_by: 'orrery', created_at: at}
+        const outcomes = [
+            await step('set', p => secrets.set(name(p), {value: 'sk_live_abcdef123456', hosts: ['api.stripe.com', 'files.stripe.com']}, OWNER), 'PUT', '/sealed',
+                () => ({value: 'v1:sealed', last4: '3456', hosts: ['api.stripe.com', 'files.stripe.com'], projects: null, created_by: OWNER.name, owned: true, at})),
+            await step('narrowed', p => secrets.narrow(name(p), {hosts: ['api.stripe.com'], projects: [p]}, OWNER), 'PUT', '/sealed',
+                () => ({value: 'v1:sealed', last4: '3456', hosts: ['api.stripe.com'], projects: ['through-api'], created_by: OWNER.name, owned: true, at})),
+            await step('orrery\'s own use', p => secrets.own('https://api.stripe.com/v1/me', name(p), p), 'POST', '/uses', () => ({...use, keep: 20})),
+            await kept(),
+            await step('deleted', p => secrets.delete(name(p), OWNER), 'DELETE', '/sealed'),
+            await kept(),
+        ]
+        expect(outcomes[0]).toMatchObject({status: 204})
+        expect(outcomes[3]!.body).toMatchObject({secret: [{last4: '3456', owned: 1}], uses: [{created_by: 'orrery', status: 200}]})
+        expect(outcomes[5]!.body).toEqual({secret: [], uses: []})
+        expect(domainOf('PUT', `/api/secrets/${name('through-api')}/sealed`)).toBeUndefined()
     })
 
     it('keeps a repo\'s poll, its failure, its history page and what it lets go of alike (ORR-952)', async () => {
@@ -3258,7 +3306,7 @@ describe('the router', () => {
     })
 
     it('routes by a table with a line per domain, so taking one back is taking its line out (ORR-925)', () => {
-        expect(DOMAINS.map(({domain}) => domain)).toEqual(['docs', 'statuses', 'permissions', 'issues, reading', 'comments', 'an issue, deleted', 'an issue, made', 'an issue, its words', 'issues, changed at once', 'a proposal, decided', 'claims', 'activity', 'milestones', 'releases', 'releases, every project\'s', 'people', 'invites', 'keys', 'logins', 'uploads, reading', 'an upload, kept', 'presets', 'secrets, reading', 'settings', 'a pull request, reading', "a pull request's risk", 'schedules, reading', 'a schedule, adopted', 'a schedule, deleted', 'schedules, paused or activated', 'signals, reading', 'projects, listed', 'a project, made', 'a project, changed', 'a project, read', 'a project, deleted', 'a project, exported', 'a project, imported', 'usage', 'the bell', 'epics', 'milestone and epic comments'])
+        expect(DOMAINS.map(({domain}) => domain)).toEqual(['docs', 'statuses', 'permissions', 'issues, reading', 'comments', 'an issue, deleted', 'an issue, made', 'an issue, its words', 'issues, changed at once', 'a proposal, decided', 'claims', 'activity', 'milestones', 'releases', 'releases, every project\'s', 'people', 'invites', 'keys', 'logins', 'uploads, reading', 'an upload, kept', 'presets', 'secrets, reading', 'settings', 'a pull request, reading', "a pull request's risk", 'schedules, reading', 'a schedule, adopted', 'a schedule, deleted', 'a schedule, changed', 'schedules, paused or activated', 'signals, reading', 'projects, listed', 'a project, made', 'a project, changed', 'a project, read', 'a project, deleted', 'a project, exported', 'a project, imported', 'usage', 'the bell', 'epics', 'milestone and epic comments'])
         expect(domainOf('PATCH', '/api/projects/p/docs/d')).toBe('docs')
         expect(domainOf('head', '/api/projects/p/doc-sections/')).toBe('docs')
         for (const method of ['POST', 'DELETE']) expect(domainOf(method, '/api/projects/p/issues/P-1/claim'), method).toBe('claims')
@@ -3407,12 +3455,12 @@ describe('the contract (api/openapi.yaml)', () => {
     const routes = () => [...new Set([...nuxtRoutes(), ...rustRoutes()])].sort().filter(route => servedByApi(methodOf(route), pathOf(route)))
 
     it('has every route the router sends to the API, and no other', () => {
-        expect(contract()).toHaveLength(108)
+        expect(contract()).toHaveLength(109)
         expect(contract()).toEqual(routes())
     })
 
     it('sends none of the routes written ahead of the Rust API to it', () => {
-        expect(contract(true)).toEqual(['DELETE /api/chats/{chat}', 'GET /api/auth/oidc/callback', 'GET /api/auth/oidc/start', 'GET /api/auth/status', 'GET /api/chats', 'GET /api/chats/{chat}', 'POST /api/auth/link', 'POST /api/auth/login', 'POST /api/auth/logout', 'POST /api/phone/link', 'POST /api/pulls/forget', 'PUT /api/chats/{chat}', 'PUT /api/pulls/{owner}/{name}', 'PUT /api/pulls/{owner}/{name}/error', 'PUT /api/pulls/{owner}/{name}/history', 'PUT /api/pulls/{owner}/{name}/{number}', 'PUT /api/usage'])
+        expect(contract(true)).toEqual(['DELETE /api/chats/{chat}', 'DELETE /api/secrets/{name}/sealed', 'GET /api/auth/oidc/callback', 'GET /api/auth/oidc/start', 'GET /api/auth/status', 'GET /api/chats', 'GET /api/chats/{chat}', 'POST /api/auth/link', 'POST /api/auth/login', 'POST /api/auth/logout', 'POST /api/phone/link', 'POST /api/pulls/forget', 'POST /api/secrets/{name}/uses', 'PUT /api/chats/{chat}', 'PUT /api/pulls/{owner}/{name}', 'PUT /api/pulls/{owner}/{name}/error', 'PUT /api/pulls/{owner}/{name}/history', 'PUT /api/pulls/{owner}/{name}/{number}', 'PUT /api/secrets/{name}/sealed', 'PUT /api/usage'])
         expect(contract(true).filter(operation => routes().includes(operation))).toEqual([])
     })
 })

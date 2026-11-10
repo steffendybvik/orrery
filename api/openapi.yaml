@@ -1221,6 +1221,72 @@ paths:
                   - {$ref: '#/components/schemas/Secret'}
                   - {type: object, required: [uses], properties: {uses: {type: array, items: {$ref: '#/components/schemas/SecretUse'}}}}
         '404': {$ref: '#/components/responses/NotFound'}
+  /api/secrets/{name}/sealed:
+    parameters:
+      - {name: name, in: path, required: true, description: 'The secret''s name: capitals, digits and `_`', schema: {type: string}}
+    put:
+      x-served: false
+      summary: Keeps a secret as the local app sealed it
+      description: >-
+        The local app's alone (ORR-1096): it checks the write, seals the value with the key that stays on the machine,
+        and sends the row here. A new one is made; one already kept takes the new value, hosts and projects, and keeps who
+        made it and when.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [value, last4, hosts, created_by, owned, at]
+              properties:
+                value: {type: string, description: The sealed value}
+                last4: {type: string}
+                hosts: {type: array, items: {type: string}}
+                projects: {type: [array, 'null'], items: {type: string}}
+                created_by: {type: string}
+                owned: {type: boolean}
+                at: {type: string}
+      responses:
+        '204': {description: Kept}
+        '400': {$ref: '#/components/responses/BadRequest'}
+    delete:
+      x-served: false
+      summary: Lets go of a secret and its uses
+      description: The local app's alone (ORR-1096), once it's checked the owner asked. Nothing when there's none.
+      responses:
+        '204': {description: Gone}
+  /api/secrets/{name}/uses:
+    parameters:
+      - {name: name, in: path, required: true, description: 'The secret''s name: capitals, digits and `_`', schema: {type: string}}
+    post:
+      x-served: false
+      summary: Keeps a use of a secret the local app made
+      description: >-
+        The local app's alone (ORR-1096): an agent's egress, or orrery's own request. With `keep`, only that many of the
+        secret's uses by `created_by` stay, the latest.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [method, host, path, created_by, created_at]
+              properties:
+                method: {type: string}
+                host: {type: string}
+                path: {type: string}
+                project: {type: [string, 'null']}
+                issue: {type: [string, 'null']}
+                status: {type: [integer, 'null']}
+                error: {type: [string, 'null']}
+                created_by: {type: string}
+                created_at: {type: string}
+                keep: {type: integer, minimum: 0}
+      responses:
+        '204': {description: Kept}
+        '400': {$ref: '#/components/responses/BadRequest'}
   /api/projects/{project}/issues/{issue}/pulls/{owner}/{name}/{number}/risk:
     parameters:
       - {$ref: '#/components/parameters/project'}
@@ -1296,6 +1362,17 @@ paths:
       responses:
         '200': {description: The schedule, content: {application/json: {schema: {type: object}}}}
         '404': {$ref: '#/components/responses/NotFound'}
+    patch:
+      summary: 'Changes the schedule (ORR-1082): any of its fields, checked as making one checks them; `enabled: false` pauses it. The owner''s only by the owner, and one made across projects only paused or resumed here'
+      requestBody:
+        required: true
+        content: {application/json: {schema: {type: object}}}
+      responses:
+        '200': {description: The schedule, content: {application/json: {schema: {type: object}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
     delete:
       summary: 'Deletes the schedule (ORR-950); the issues it made stay. One made across projects leaves this project out'
       responses:

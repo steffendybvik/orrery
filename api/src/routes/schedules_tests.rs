@@ -425,3 +425,84 @@ async fn only_the_owner_pauses_or_activates_them_all() {
         assert_eq!(bad.body["message"], "Send {\"enabled\": true} or {\"enabled\": false}");
     }
 }
+
+#[tokio::test]
+async fn changing_one_sets_what_was_sent_and_works_out_its_next_run_again() {
+    let api = TestApi::new().await;
+    let project = api.project("Primes").await;
+    let id = schedule(&api, &project, "Weekly", Some("2026-11-09T08:00:00.000Z"), &[]).await;
+    let path = format!("/api/projects/{project}/schedules/{id}");
+    let changed = api.patch(&path, json!({"title": "  Daily ", "cron": "0 7 * * *", "timezone": "UTC", "labels": ["a", "a"], "priority": "P1"})).send().await;
+    assert_eq!(changed.status, 200, "{}", changed.body);
+    let s = &changed.body;
+    assert_eq!(
+        (s["title"].as_str(), s["cron"].as_str(), s["timezone"].as_str(), s["priority"].as_str()),
+        (Some("Daily"), Some("0 7 * * *"), Some("UTC"), Some("P1"))
+    );
+    assert_eq!(s["labels"], json!(["a"]));
+    assert!(s["next_run"].as_str().is_some_and(|n| n.ends_with("T07:00:00.000Z")), "{s}");
+    assert_eq!(changed.header("orrery-schedules"), Some(project.as_str()));
+    // Setting `at` lets go of the cron; pausing leaves no next run.
+    let once = api.patch(&path, json!({"at": "2099-01-01T09:00:00Z", "enabled": false})).send().await;
+    assert_eq!(once.status, 200, "{}", once.body);
+    assert_eq!((once.body.get("cron"), once.body["at"].as_str(), once.body.get("next_run")), (None, Some("2099-01-01T09:00:00.000Z"), None));
+    assert_eq!(once.body["enabled"], false);
+    let event = api.patch(&path, json!({"on": "issue.status", "on_filter": {"to": "done"}, "enabled": true})).send().await;
+    assert_eq!(event.status, 200, "{}", event.body);
+    assert_eq!((event.body["on"].as_str(), event.body.get("at"), event.body["on_filter"].clone()), (Some("issue.status"), None, json!({"to": "done"})));
+}
+
+#[tokio::test]
+async fn a_change_is_checked_as_schedules_checks_it() {
+    let api = TestApi::new().await;
+    let project = api.project("Primes").await;
+    let id = schedule(&api, &project, "Weekly", None, &[]).await;
+    let path = format!("/api/projects/{project}/schedules/{id}");
+    let bad = |body: Value| api.patch(&path, body).send();
+    let reply = bad(json!({"cron": "nope"})).await;
+    assert_eq!(
+        (reply.status.as_u16(), reply.body["message"].as_str()),
+        (400, Some("\"cron\" is \"nope\"; use five fields: minute hour day month weekday, e.g. \"0 9 * * 1-5\""))
+    );
+    let reply = bad(json!({"kind": "message"})).await;
+    assert_eq!(reply.body["message"], "A message schedule needs its message in \"notes\", or a preset in \"presets\"");
+    let reply = bad(json!({"kind": "action", "on": "issue.status"})).await;
+    assert_eq!(reply.body["message"], "An action schedule moves issues to a status: send it in \"column\"");
+    let reply = bad(json!({"column": "done"})).await;
+    assert_eq!(reply.body["message"], "A schedule's issues start open, not in Done");
+    let reply = bad(json!({"move_from": ["nope"]})).await;
+    assert_eq!((reply.status.as_u16(), reply.body["message"].as_str()), (404, Some("No status \"nope\"")));
+    let reply = bad(json!({"kind": "message", "presets": [999]})).await;
+    assert!(reply.body["message"].as_str().is_some_and(|m| m.starts_with(&format!("No preset 999 for {project}; its sessions can have "))), "{}", reply.body);
+    let reply = bad(json!({"untrusted": true})).await;
+    assert_eq!(reply.body["message"], "Only a message schedule is untrusted: send \"kind\": \"message\", or \"untrusted\": false");
+    let reply = bad(json!({"title": 3, "nope": 1})).await;
+    assert_eq!((reply.status.as_u16(), reply.body["message"].as_str()), (400, Some("2 problems in the body")));
+    assert_eq!(api.patch(&format!("/api/projects/{project}/schedules/999"), json!({})).send().await.status, 404);
+}
+
+#[tokio::test]
+async fn the_owners_is_theirs_and_one_across_projects_is_only_paused_here() {
+    let api = TestApi::new().await;
+    let project = api.project("Primes").await;
+    let owned = schedule(&api, &project, "Mine", None, &[("owned", "1")]).await;
+    let refused = api.patch(&format!("/api/projects/{project}/schedules/{owned}"), json!({"title": "Yours"})).by_agent("claude").send().await;
+    assert_eq!((refused.status.as_u16(), refused.body["data"]["permission"].as_str()), (403, Some("schedules.owners")));
+    let session = api.patch(&format!("/api/projects/{project}/schedules/{owned}"), json!({"kind": "session"})).send().await;
+    assert_eq!(session.status, 200, "the owner makes a session schedule: {}", session.body);
+    let agents = schedule(&api, &project, "Agent's", None, &[("created_by", "'claude'")]).await;
+    let refused = api.patch(&format!("/api/projects/{project}/schedules/{agents}"), json!({"kind": "session"})).by_agent("claude").send().await;
+    assert_eq!((refused.status.as_u16(), refused.body["data"]["permission"].as_str()), (403, Some("schedules.session")));
+    let across = sqlx::query_scalar::<_, i64>(
+        "INSERT INTO schedules_across (projects, skip, body, created_by, created_at, updated_at) VALUES ('*', '[]', '{}', 'owner', '2026-11-01', '2026-11-02') RETURNING id",
+    )
+    .fetch_one(&api.app.pool)
+    .await
+    .unwrap();
+    let copy = schedule(&api, &project, "Copy", None, &[("across", &across.to_string())]).await;
+    let path = format!("/api/projects/{project}/schedules/{copy}");
+    let refused = api.patch(&path, json!({"title": "Other"})).send().await;
+    assert_eq!(refused.status, 409);
+    assert_eq!(refused.body["message"], format!("Schedule {copy} is made from schedule across projects {across}: change it there, or pause it here"));
+    assert_eq!(api.patch(&path, json!({"enabled": false})).send().await.body["enabled"], false);
+}
