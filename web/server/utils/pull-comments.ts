@@ -160,7 +160,10 @@ async function closeMerged(store: Store, change: PullChange): Promise<void> {
     const done = (await store.statuses()).find(s => s.kind === 'done')
     if (!done) return
     const asks = await store.db.all<{id: number}>(`SELECT c.id FROM comments c WHERE c.project = ? AND c.issue = ? AND ${OPEN_ASK}`, project, issue)
-    if (asks.length) await store.db.run(`UPDATE comments SET cleared = 1 WHERE id IN (${asks.map(() => '?').join(', ')})`, ...asks.map(a => a.id))
+    const ids = asks.map(a => a.id)
+    if (ids.length && !await writeToApi('POST', '/api/notices/clear', {ids}, ORRERY_ACTOR, {always: true})) {
+        await store.db.run(`UPDATE comments SET cleared = 1 WHERE id IN (${ids.map(() => '?').join(', ')})`, ...ids)
+    }
     // Through the Rust API when it's in front, as it's the one writer of `issues` then (ORR-1094).
     const path = `/api/projects/${encodeURIComponent(project)}/issues/${encodeURIComponent(issue)}`
     if (!await writeToApi('PATCH', path, {status: done.id}, ORRERY_ACTOR, {always: true})) await store.updateIssue(project, issue, {status: done.id}, ORRERY_ACTOR)

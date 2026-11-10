@@ -1,4 +1,6 @@
 import {beforeEach, describe, expect, it, vi} from 'vitest'
+import {commentOnPull} from '../server/utils/pull-comments'
+import {Pulls} from '../server/utils/pulls'
 import {Store} from '../server/utils/store'
 import {testDb} from './db'
 
@@ -48,5 +50,24 @@ describe("orrery's own words through the Rust API (ORR-1094)", () => {
         await store.systemAsk('shop', 'SHO-1', 'Review it.', 'pr.risky_merged')
         expect(sent).toEqual([])
         expect(await count()).toBe(3)
+    })
+
+    it("sends a merge's release, its cleared ask and its move to Done there too", async () => {
+        inFront = false
+        await store.updateProject('shop', {release_mode: 'own'})
+        await store.createRelease('shop', {version: '1.0.0', branch: 'v1.0.0-rc.11'})
+        await new Pulls(store, async () => { throw new Error('no GitHub here') }).remember('you/shop', ['shop'], {number: 12, title: 'x', url: 'u', branch: 'feat/sho-1-cards',
+            base: 'v1.0.0-rc.11', author: 'claude', merged: true, closed: false, merged_at: '2026-11-07T07:02:30Z', created_at: '2026-11-07T06:55:00Z', updated_at: '2026-11-07T07:02:30Z', names: ['SHO-1']})
+        const ask = await store.createComment('shop', 'SHO-1', {body: 'Does it look right?', asks: 'feedback'}, {name: 'claude', owner: false})
+        inFront = true
+        await commentOnPull(store, {project: 'shop', issue: 'SHO-1', repo: 'you/shop', kind: 'merged', key: 'you/shop#12 merged',
+            pull: {number: 12, title: 'x', url: 'u', branch: 'feat/sho-1-cards', base: 'v1.0.0-rc.11', head_sha: 'a', merge_sha: 'b', closed_by: null, review_id: null}})
+        expect(sent.map(s => `${s.method} ${s.path}`)).toEqual([
+            'PATCH /api/projects/shop/issues/SHO-1', 'POST /api/projects/shop/issues/SHO-1/said', 'POST /api/notices/clear', 'PATCH /api/projects/shop/issues/SHO-1',
+            'POST /api/projects/shop/issues/SHO-1/said',
+        ])
+        expect([sent[0]!.body, sent[2]!.body, sent[3]!.body]).toEqual([{release: '1.0.0'}, {ids: [ask.id]}, {status: 'done'}])
+        const row = await store.db.get<{status: string, ships_in: string | null}>("SELECT status, ships_in FROM issues WHERE project = 'shop' AND id = 'SHO-1'")
+        expect(row).toEqual({status: 'backlog', ships_in: null})
     })
 })
