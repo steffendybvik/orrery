@@ -1,8 +1,9 @@
 // The schedules (ORR-930, ORR-950): what `list`, `get` and `listAcross` in web/server/utils/schedules.ts do, answering
 // as their `GET` routes do; and of its writes, the owner making one theirs (`adopt`), deleting one (`delete`), and
 // pausing or activating all of a project's at once (`set_all_enabled`, ORR-1082), and making and changing one (`create`,
-// `update`). Each write says the project's schedules changed (`Effects::schedules`), so the local app's scheduler reads
-// them again. Running them, the requests on comments and the ones across projects stay the Nuxt server's for now.
+// `update`), and deleting one across projects (`delete_across`). Each write says the project's schedules changed
+// (`Effects::schedules`), so the local app's scheduler reads them again. Running them, the requests on comments, and
+// making or changing one across projects stay the Nuxt server's for now.
 use crate::board::issue_edits::resolve_status;
 use crate::board::issues::Issues;
 use crate::board::milestones::Milestones;
@@ -129,6 +130,18 @@ fn enabled_refused(actor: &Actor) -> ApiError {
         format!("{action}: owner only for a session (schedules.enabled). {why} Send Orrery-Actor: <owner>")
     };
     ApiError::refused_for("schedules.enabled", message)
+}
+
+/// The 403 for anyone but the owner, as `ownerOnly(actor, 'schedules.across')` words it.
+fn across_refused(actor: &Actor) -> ApiError {
+    let action = "Make, change or delete a schedule across projects";
+    let why = "It runs as the owner on every project it names, and on ones added later.";
+    let message = if actor.untrusted {
+        format!("{action}: refused for an untrusted session (schedules.across). {why}")
+    } else {
+        format!("{action}: owner only for a session (schedules.across). {why} Send Orrery-Actor: <owner>")
+    };
+    ApiError::refused_for("schedules.across", message)
 }
 
 impl<'c> Schedules<'c> {
@@ -448,6 +461,41 @@ impl<'c> Schedules<'c> {
         .await;
         let id = changes::finish(self.conn, self.outbox.as_mut(), &self.effects, done).await?;
         self.get(project, &id.to_string(), uid).await
+    }
+
+    /// Deletes a schedule across projects and the schedules made from it (`deleteAcross`); their issues stay. The
+    /// owner's alone, as it runs as them on every project.
+    pub async fn delete_across(&mut self, sent: &str, actor: &Actor) -> Result<()> {
+        if !actor.owner {
+            return Err(across_refused(actor));
+        }
+        let missing = || ApiError::not_found(format!("No schedule across projects {}", sent.parse::<i64>().map_or("NaN".into(), |n| n.to_string())));
+        let id = sent.parse::<i64>().map_err(|_| missing())?;
+        if sqlx::query(&sql("SELECT 1 FROM schedules_across WHERE id = ?")).bind(id).fetch_optional(&mut *self.conn).await?.is_none() {
+            return Err(missing());
+        }
+        let copies: Vec<(i64, String)> = sqlx::query(&sql("SELECT CAST(id AS BIGINT) AS id, project FROM schedules WHERE across = ? ORDER BY id"))
+            .bind(id)
+            .fetch_all(&mut *self.conn)
+            .await?
+            .iter()
+            .map(|row| (row.get("id"), row.get("project")))
+            .collect();
+        for (_, project) in &copies {
+            if !self.effects.schedules.contains(project) {
+                self.effects.schedules.push(project.clone());
+            }
+        }
+        changes::begin(self.conn).await?;
+        let done: Result<()> = async {
+            for (copy, project) in &copies {
+                self.remove(project, *copy, None).await?;
+            }
+            sqlx::query(&sql("DELETE FROM schedules_across WHERE id = ?")).bind(id).execute(&mut *self.conn).await?;
+            Ok(())
+        }
+        .await;
+        changes::finish(self.conn, self.outbox.as_mut(), &self.effects, done).await
     }
 
     async fn write(&mut self, id: i64, set: &[(&str, Value)]) -> Result<()> {

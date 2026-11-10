@@ -552,3 +552,34 @@ async fn a_new_one_is_checked_as_schedules_checks_it() {
     assert_eq!(api.post("/api/projects/nowhere/schedules", json!({"title": "x", "cron": "0 9 * * *"})).send().await.status, 404);
     assert_eq!(api.get(&path).send().await.body, json!([]), "nothing was made");
 }
+
+#[tokio::test]
+async fn deleting_one_across_projects_takes_its_copies_and_is_the_owners_alone() {
+    let api = TestApi::new().await;
+    let project = api.project("Primes").await;
+    let across = sqlx::query_scalar::<_, i64>(
+        "INSERT INTO schedules_across (projects, skip, body, created_by, created_at, updated_at) VALUES ('*', '[]', '{}', 'owner', '2026-11-01', '2026-11-02') RETURNING id",
+    )
+    .fetch_one(&api.app.pool)
+    .await
+    .unwrap();
+    let copy = schedule(&api, &project, "Copy", None, &[("across", &across.to_string())]).await;
+    let own = schedule(&api, &project, "Own", None, &[]).await;
+    let path = format!("/api/schedules/across/{across}");
+    let refused = api.delete(&path).by_agent("claude").send().await;
+    assert_eq!((refused.status.as_u16(), refused.body["data"]["permission"].as_str()), (403, Some("schedules.across")));
+    assert_eq!(
+        refused.body["message"],
+        "Make, change or delete a schedule across projects: owner only for a session (schedules.across). It runs as the owner on every project it names, and on ones added later. Send Orrery-Actor: <owner>"
+    );
+    let deleted = api.delete(&path).send().await;
+    assert_eq!(deleted.status, 204, "{}", deleted.body);
+    assert_eq!(deleted.header("orrery-schedules"), Some(project.as_str()));
+    assert_eq!(api.get("/api/schedules/across").send().await.body, json!([]));
+    let left = api.get(&format!("/api/projects/{project}/schedules")).send().await.body;
+    let ids: Vec<i64> = left.as_array().unwrap().iter().map(|s| s["id"].as_i64().unwrap()).collect();
+    assert_eq!(ids, [own], "its copy {copy} went with it, and only that");
+    let gone = api.delete(&path).send().await;
+    assert_eq!((gone.status.as_u16(), gone.body["message"].clone()), (404, json!(format!("No schedule across projects {across}"))));
+    assert_eq!(api.delete("/api/schedules/across/nope").send().await.body["message"], "No schedule across projects NaN");
+}
