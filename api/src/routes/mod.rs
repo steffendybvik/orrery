@@ -14,6 +14,7 @@ pub(crate) mod mcp;
 pub(crate) mod milestones;
 pub(crate) mod notices;
 pub(crate) mod people;
+pub(crate) mod permissions;
 pub(crate) mod presets;
 pub(crate) mod projects;
 pub(crate) mod pulls;
@@ -41,6 +42,7 @@ pub(crate) fn all() -> Router<Arc<App>> {
         .merge(settings::routes())
         .merge(people::routes())
         .merge(auth::routes())
+        .merge(permissions::routes())
         .merge(presets::routes())
         .merge(notices::routes())
         .merge(secrets::routes())
