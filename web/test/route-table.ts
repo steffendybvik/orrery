@@ -105,7 +105,6 @@ export const NOT_ROUTED: Readonly<Record<string, Line>> = {
     'DELETE /api/projects/{project}/members/{person}': ORR_928,
     'POST /api/projects/{project}/milestones/{milestone}/focus': FOCUS,
     'POST /api/projects/{project}/schedules': ORR_950,
-    'PATCH /api/projects/{project}/schedules/{schedule}': ORR_950,
     'POST /api/projects/{project}/schedules/{schedule}/run': ORR_950,
     'GET /api/projects/{project}/sessions': SESSIONS,
     'GET /api/projects/{project}/sessions/work': SESSIONS,

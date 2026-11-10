@@ -1057,10 +1057,28 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         const nextRuns = async (p: string) => (await schedules.list(on(p))).map(s => [s.title, s.next_run ?? null])
         expect(await nextRuns('through-api')).toEqual(await nextRuns('through-store'))
         expect((activated.body as {changed: {title: string}[]}).changed.map(s => s.title)).toEqual(['Water', 'air', 'Triage', 'Weekly look', 'Daily'])
+        // Changing one (ORR-1082): the owner's refused to an agent, changes that don't check out, then the owner's changes.
+        const change = (name: string, at: number, body: object, actor = OWNER) =>
+            both(name, p => viaStore(() => schedules.update(on(p), ids[p]![at]!, body, actor)), () => viaApi('PATCH', api(at), body, actor, 'through-api-timed'))
+        await refusedAlike('changing the owner\'s, as an agent', () => schedules.update(on('through-store'), ids['through-store']![2]!, {title: 'Mine now'}, AGENT), viaApi('PATCH', api(2), {title: 'Mine now'}, AGENT, 'through-api-timed'))
+        await change('a cron that doesn\'t parse', 0, {cron: 'nope'})
+        await change('two problems', 0, {title: 3, nope: true})
+        await change('a message with no words', 0, {kind: 'message', notes: null})
+        await change('an action with no column', 0, {kind: 'action', on: 'issue.status'})
+        await change('a closed status to start in', 0, {column: 'done'})
+        await change('moving from a status that isn\'t there', 0, {move_from: ['nope']})
+        await change('a preset that isn\'t there', 4, {presets: [9999]})
+        await change('renaming it and changing when', 0, {title: '  Water more ', cron: '0 6 * * *', timezone: 'UTC', labels: ['garden', 'garden', 'beds'], priority: null, milestone: null, move_from: ['todo']})
+        await change('making it an event\'s', 1, {on: 'issue.created', on_filter: {by: 'owner', to: ''}, enabled: true})
+        await change('pausing one', 0, {enabled: false})
+        await change('an action, with its column', 1, {kind: 'action', column: 'done'})
+        await both('changing one that isn\'t there', p => viaStore(() => schedules.update(on(p), 9999, {title: 'x'}, OWNER)), () => viaApi('PATCH', '/schedules/9999', {title: 'x'}, OWNER, 'through-api-timed'))
+        expect(await nextRuns('through-api')).toEqual(await nextRuns('through-store'))
+        expect(domainOf('PATCH', '/api/projects/p/schedules/3')).toBe('a schedule, changed')
         expect(domainOf('POST', '/api/projects/p/schedules/enabled')).toBe('schedules, paused or activated')
         expect(domainOf('DELETE', '/api/projects/p/schedules/3')).toBe('a schedule, deleted')
         expect(domainOf('GET', '/api/schedules/across')).toBe('schedules, reading')
-        for (const [method, path] of [['POST', '/api/schedules'], ['PATCH', '/api/projects/p/schedules/3'], ['POST', '/api/projects/p/schedules/3/run'], ['DELETE', '/api/schedules/across/2']])
+        for (const [method, path] of [['POST', '/api/schedules'], ['POST', '/api/projects/p/schedules/3/run'], ['DELETE', '/api/schedules/across/2']])
             expect(domainOf(method!, path!), `${method} ${path}`).toBeUndefined()
     })
 
@@ -3265,7 +3283,7 @@ describe('the router', () => {
     })
 
     it('routes by a table with a line per domain, so taking one back is taking its line out (ORR-925)', () => {
-        expect(DOMAINS.map(({domain}) => domain)).toEqual(['docs', 'statuses', 'permissions', 'issues, reading', 'comments', 'an issue, deleted', 'an issue, made', 'an issue, its words', 'issues, changed at once', 'a proposal, decided', 'claims', 'activity', 'milestones', 'releases', 'releases, every project\'s', 'people', 'invites', 'keys', 'logins', 'uploads, reading', 'an upload, kept', 'presets', 'secrets, reading', 'settings', 'a pull request, reading', "a pull request's risk", 'schedules, reading', 'a schedule, adopted', 'a schedule, deleted', 'schedules, paused or activated', 'signals, reading', 'projects, listed', 'a project, made', 'a project, changed', 'a project, read', 'a project, deleted', 'a project, exported', 'a project, imported', 'the bell', 'epics', 'milestone and epic comments'])
+        expect(DOMAINS.map(({domain}) => domain)).toEqual(['docs', 'statuses', 'permissions', 'issues, reading', 'comments', 'an issue, deleted', 'an issue, made', 'an issue, its words', 'issues, changed at once', 'a proposal, decided', 'claims', 'activity', 'milestones', 'releases', 'releases, every project\'s', 'people', 'invites', 'keys', 'logins', 'uploads, reading', 'an upload, kept', 'presets', 'secrets, reading', 'settings', 'a pull request, reading', "a pull request's risk", 'schedules, reading', 'a schedule, adopted', 'a schedule, deleted', 'a schedule, changed', 'schedules, paused or activated', 'signals, reading', 'projects, listed', 'a project, made', 'a project, changed', 'a project, read', 'a project, deleted', 'a project, exported', 'a project, imported', 'the bell', 'epics', 'milestone and epic comments'])
         expect(domainOf('PATCH', '/api/projects/p/docs/d')).toBe('docs')
         expect(domainOf('head', '/api/projects/p/doc-sections/')).toBe('docs')
         for (const method of ['POST', 'DELETE']) expect(domainOf(method, '/api/projects/p/issues/P-1/claim'), method).toBe('claims')
@@ -3414,7 +3432,7 @@ describe('the contract (api/openapi.yaml)', () => {
     const routes = () => [...new Set([...nuxtRoutes(), ...rustRoutes()])].sort().filter(route => servedByApi(methodOf(route), pathOf(route)))
 
     it('has every route the router sends to the API, and no other', () => {
-        expect(contract()).toHaveLength(106)
+        expect(contract()).toHaveLength(107)
         expect(contract()).toEqual(routes())
     })
 
