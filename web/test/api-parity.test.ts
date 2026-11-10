@@ -493,6 +493,33 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         expect((await viaApi('GET', `/issues/${ids['through-api']}/comments/1.5`)).status).toBe(404)
     })
 
+    it('reads a project\'s signals alike (ORR-1087)', async () => {
+        const ids: Record<string, string> = {}
+        for (const p of ['through-store', 'through-api']) {
+            const {id} = await store.createIssue(p, {title: 'Signal it'}, OWNER)
+            ids[p] = id
+            const add = (sql: string, ...binds: unknown[]) => store.db.run(sql, ...binds)
+            await add("INSERT INTO signals (project, issue, kind, created_by, owned, created_at) VALUES (?, ?, 'focus', 'owner', 1, '2026-11-10T10:00:00.000Z')", p, id)
+            await add("INSERT INTO signals (project, kind, note, via, target, delivered_to, instructions, model, created_by, owned, created_at) VALUES (?, 'message', 'Look', 'chat', 's1', '[\"orrery · Frøy\"]', '[\"Be brief\"]', 'opus', 'owner', 1, '2026-11-10T10:01:00.000Z')", p)
+            await add("INSERT INTO signals (project, issue, kind, note, created_by, owned, created_at) VALUES (?, ?, 'comment', 'Done?', 'owner', 1, '2026-11-10T10:02:00.000Z')", p, id)
+            await store.db.run('INSERT INTO issue_aliases (project, alias, issue) VALUES (?, ?, ?)', p, `${p === 'through-store' ? 'STO' : 'API'}-92`, id)
+        }
+        const first = async (p: string) => (await store.listSignals(p))[0]!.id
+        await both('every signal', p => viaStore(() => store.listSignals(p)), () => viaApi('GET', '/signals'))
+        await both('after the first', async p => viaStore(async () => store.listSignals(p, await first(p))), async () => viaApi('GET', `/signals?after=${await first('through-api')}`))
+        await both('after something not a number', p => viaStore(() => store.listSignals(p, Number('soon') || 0)), () => viaApi('GET', '/signals?after=soon'))
+        await both('about an issue', p => viaStore(() => store.listSignals(p, 0, 50, {issue: ids[p]})), () => viaApi('GET', `/signals?issue=${ids['through-api']}`))
+        await both('about an issue, by an id it had before', p => viaStore(() => store.listSignals(p, 0, 50, {issue: p === 'through-store' ? 'STO-92' : 'API-92'})), () => viaApi('GET', '/signals?issue=API-92'))
+        await both('about an issue that isn\'t there', p => viaStore(() => store.listSignals(p, 0, 50, {issue: 'X-404'})), () => viaApi('GET', '/signals?issue=X-404'))
+        await both('about a milestone', p => viaStore(() => store.listSignals(p, 0, 50, {milestone: '1'})), () => viaApi('GET', '/signals?milestone=1'))
+        await both('a project that isn\'t there', () => viaStore(() => store.listSignals('nowhere')), () => viaApi('GET', '/signals', undefined, AGENT, 'nowhere'))
+        expect(domainOf('GET', '/api/projects/p/signals')).toBe('signals, reading')
+        for (const [method, path] of [['GET', '/api/projects/p/signals/stream'], ['POST', '/api/projects/p/signals/3/delivered']])
+            expect(domainOf(method!, path!), `${method} ${path}`).toBeUndefined()
+        // Taken out again, as later steps read every signal on these projects as one about an issue.
+        await store.db.run("DELETE FROM signals WHERE project IN ('through-store', 'through-api')")
+    })
+
     it('reads an issue\'s activity alike (ORR-927)', async () => {
         const ids: Record<string, string> = {}
         for (const p of ['through-store', 'through-api']) {
@@ -3199,7 +3226,7 @@ describe('the router', () => {
     })
 
     it('routes by a table with a line per domain, so taking one back is taking its line out (ORR-925)', () => {
-        expect(DOMAINS.map(({domain}) => domain)).toEqual(['docs', 'statuses', 'issues, reading', 'comments', 'an issue, deleted', 'an issue, made', 'an issue, its words', 'issues, changed at once', 'a proposal, decided', 'claims', 'activity', 'milestones', 'releases', 'releases, every project\'s', 'people', 'invites', 'keys', 'logins', 'uploads, reading', 'an upload, kept', 'presets', 'secrets, reading', 'settings', 'a pull request, reading', "a pull request's risk", 'schedules, reading', 'a schedule, adopted', 'a schedule, deleted', 'schedules, paused or activated', 'projects, listed', 'a project, made', 'a project, changed', 'a project, read', 'a project, deleted', 'a project, exported', 'a project, imported', 'the bell', 'epics', 'milestone and epic comments'])
+        expect(DOMAINS.map(({domain}) => domain)).toEqual(['docs', 'statuses', 'issues, reading', 'comments', 'an issue, deleted', 'an issue, made', 'an issue, its words', 'issues, changed at once', 'a proposal, decided', 'claims', 'activity', 'milestones', 'releases', 'releases, every project\'s', 'people', 'invites', 'keys', 'logins', 'uploads, reading', 'an upload, kept', 'presets', 'secrets, reading', 'settings', 'a pull request, reading', "a pull request's risk", 'schedules, reading', 'a schedule, adopted', 'a schedule, deleted', 'schedules, paused or activated', 'signals, reading', 'projects, listed', 'a project, made', 'a project, changed', 'a project, read', 'a project, deleted', 'a project, exported', 'a project, imported', 'the bell', 'epics', 'milestone and epic comments'])
         expect(domainOf('PATCH', '/api/projects/p/docs/d')).toBe('docs')
         expect(domainOf('head', '/api/projects/p/doc-sections/')).toBe('docs')
         for (const method of ['POST', 'DELETE']) expect(domainOf(method, '/api/projects/p/issues/P-1/claim'), method).toBe('claims')
@@ -3348,7 +3375,7 @@ describe('the contract (api/openapi.yaml)', () => {
     const routes = () => [...new Set([...nuxtRoutes(), ...rustRoutes()])].sort().filter(route => servedByApi(methodOf(route), pathOf(route)))
 
     it('has every route the router sends to the API, and no other', () => {
-        expect(contract()).toHaveLength(104)
+        expect(contract()).toHaveLength(105)
         expect(contract()).toEqual(routes())
     })
 

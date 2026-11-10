@@ -21,6 +21,7 @@ pub(crate) mod releases;
 pub(crate) mod schedules;
 pub(crate) mod secrets;
 pub(crate) mod settings;
+pub(crate) mod signals;
 pub(crate) mod statuses;
 pub(crate) mod threads;
 pub(crate) mod uploads;
@@ -46,6 +47,7 @@ pub(crate) fn all() -> Router<Arc<App>> {
         .merge(secrets::routes())
         .merge(pulls::routes())
         .merge(schedules::routes())
+        .merge(signals::routes())
         .merge(chats::routes())
         .merge(uploads::routes())
         .merge(changes::routes())
