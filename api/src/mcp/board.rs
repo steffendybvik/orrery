@@ -1,7 +1,7 @@
 // The board's tools at `/mcp` (ORR-1099), each as channel/tools.mjs runs it: a call to one of this API's own routes,
 // as the channel calls the REST API, and its answer in the channel's words. A route is run through `routes::all()` with
 // its rails (access/rails.rs), as whoever called `/mcp` (their `Orrery-*` headers, which the guard already checked), so
-// a tool can do only what that route lets them. So far: docs and presets.
+// a tool can do only what that route lets them. So far: docs, presets, milestones, releases and epics.
 use crate::{access, routes, App};
 use axum::body::Body;
 use axum::extract::Request;
@@ -194,6 +194,106 @@ impl Api<'_> {
         ))
     }
 
+    async fn list(&self, path: &str) -> std::result::Result<Vec<Value>, No> {
+        Ok(self.call(Method::GET, path, None).await?.as_array().cloned().unwrap_or_default())
+    }
+
+    async fn milestones(&self, args: &Value) -> Said {
+        let milestones = self.list(&format!("{}/milestones", self.at(&self.project_of(args)?))).await?;
+        let all = truthy(&args["all"]);
+        let shown: Vec<&Value> = milestones.iter().filter(|c| all || c["kind"] != "done").collect();
+        let hidden = milestones.len() - shown.len();
+        let mut lines: Vec<String> = shown
+            .iter()
+            .map(|c| {
+                let id =
+                    c["id"]
+                        .as_str()
+                        .filter(|i| !i.is_empty())
+                        .map(String::from)
+                        .unwrap_or_else(|| if truthy(&c["id"]) { text(&c["id"]) } else { "none".into() });
+                let priority = c["priority"].as_str().filter(|p| !p.is_empty()).map(|p| format!(", {p}")).unwrap_or_default();
+                format!("{id} [{}{priority}] {}: {}", text(&c["column"]), text(&c["title"]), done_of(&c["kinds"]))
+            })
+            .collect();
+        if hidden > 0 {
+            lines.push(format!("{hidden} done milestone{} not shown: all lists them", if hidden == 1 { "" } else { "s" }));
+        }
+        Ok(if lines.is_empty() { "No milestones yet.".into() } else { lines.join("\n") })
+    }
+
+    async fn releases(&self, args: &Value) -> Said {
+        let releases = self.list(&format!("{}/releases", self.at(&self.project_of(args)?))).await?;
+        let shipped = |r: &Value| r["shipped_on"].as_str().filter(|s| !s.is_empty()).map(String::from);
+        // The latest shipped: the first with the greatest date, as the channel's reduce finds it.
+        let mut latest: Option<usize> = None;
+        for (i, r) in releases.iter().enumerate() {
+            if let Some(on) = shipped(r) {
+                if latest.map_or(true, |l| on > shipped(&releases[l]).unwrap_or_default()) {
+                    latest = Some(i);
+                }
+            }
+        }
+        let all = truthy(&args["all"]);
+        let shown: Vec<&Value> = releases.iter().enumerate().filter(|(i, r)| all || shipped(r).is_none() || Some(*i) == latest).map(|(_, r)| r).collect();
+        let hidden = releases.len() - shown.len();
+        let mut lines: Vec<String> = shown
+            .iter()
+            .map(|r| {
+                let when = match (shipped(r), r["frozen_on"].as_str().filter(|f| !f.is_empty())) {
+                    (Some(on), _) => format!(" (shipped {on})"),
+                    (None, Some(frozen)) => format!(" (feature freeze since {frozen}: fixes, tests and docs)"),
+                    _ => String::new(),
+                };
+                let branch = r["branch"].as_str().filter(|b| !b.is_empty()).map(|b| format!(" on {b}")).unwrap_or_default();
+                let issues = r["issues"].as_i64().unwrap_or(0);
+                format!("{}{when}{branch}: {issues} issue{}, {}", text(&r["version"]), if issues == 1 { "" } else { "s" }, done_of(&r["kinds"]))
+            })
+            .collect();
+        if hidden > 0 {
+            lines.push(format!("{hidden} older shipped release{} not shown: all lists them", if hidden == 1 { "" } else { "s" }));
+        }
+        Ok(if lines.is_empty() { "No releases yet.".into() } else { lines.join("\n") })
+    }
+
+    async fn create_milestone(&self, args: &Value) -> Said {
+        let made =
+            self.call(Method::POST, &format!("{}/milestones", self.at(&self.project_of(args)?)), Some(pick(args, &["title", "summary", "priority"]))).await?;
+        Ok(format!("Made milestone {}: {}. Put issues in it with edit_issue (milestone: \"{}\").", text(&made["id"]), text(&made["title"]), text(&made["id"])))
+    }
+
+    async fn update_milestone(&self, args: &Value) -> Said {
+        let id = text(&args["id"]);
+        let path = format!("{}/milestones/{}", self.at(&self.project_of(args)?), enc(&id));
+        let changed = self.call(Method::PATCH, &path, Some(pick(args, &["title", "summary", "priority"]))).await?;
+        Ok(format!("Milestone {} is now: {}", text(&changed["id"]), text(&changed["title"])))
+    }
+
+    async fn epics(&self) -> Said {
+        let lines: Vec<String> = self
+            .list("/api/epics")
+            .await?
+            .iter()
+            .map(|e| {
+                let issues = e["issues"].as_i64().unwrap_or(0);
+                let projects: Vec<String> = e["projects"].as_array().into_iter().flatten().map(|p| text(&p["project"])).collect();
+                let within = if projects.is_empty() { String::new() } else { format!(" in {}", projects.join(", ")) };
+                format!("{} {}: {issues} issue{}, {}{within}", text(&e["id"]), text(&e["title"]), if issues == 1 { "" } else { "s" }, done_of(&e["kinds"]))
+            })
+            .collect();
+        Ok(if lines.is_empty() { "No epics yet.".into() } else { lines.join("\n") })
+    }
+
+    async fn create_epic(&self, args: &Value) -> Said {
+        let epic = self.call(Method::POST, "/api/epics", Some(pick(args, &["title", "notes"]))).await?;
+        Ok(format!("Made epic {}: {}. Set epic: {} on each issue in it.", text(&epic["id"]), text(&epic["title"]), text(&epic["id"])))
+    }
+
+    async fn update_epic(&self, args: &Value) -> Said {
+        let epic = self.call(Method::PATCH, &format!("/api/epics/{}", enc(&text(&args["id"]))), Some(pick(args, &["title", "notes"]))).await?;
+        Ok(format!("Epic {} is now: {}", text(&epic["id"]), text(&epic["title"])))
+    }
+
     /// The tool's answer, if it's one of the board's served here.
     pub(crate) async fn run(&self, name: &str, args: &Value) -> Option<Said> {
         Some(match name {
@@ -202,6 +302,13 @@ impl Api<'_> {
             "write_doc" => self.write_doc(args).await,
             "presets" => self.presets(args).await,
             "preset" => self.preset(args).await,
+            "milestones" => self.milestones(args).await,
+            "releases" => self.releases(args).await,
+            "create_milestone" => self.create_milestone(args).await,
+            "update_milestone" => self.update_milestone(args).await,
+            "epics" => self.epics().await,
+            "create_epic" => self.create_epic(args).await,
+            "update_epic" => self.update_epic(args).await,
             _ => return None,
         })
     }
@@ -214,6 +321,34 @@ fn text(value: &Value) -> String {
         Value::Null => "null".into(),
         other => other.to_string(),
     }
+}
+
+/// Whether JavaScript takes a value as true.
+fn truthy(value: &Value) -> bool {
+    match value {
+        Value::Null => false,
+        Value::Bool(b) => *b,
+        Value::Number(n) => n.as_f64().is_some_and(|n| n != 0.0),
+        Value::String(s) => !s.is_empty(),
+        _ => true,
+    }
+}
+
+/// `done/total done` from a list's `kinds`.
+fn done_of(kinds: &Value) -> String {
+    let n = |k: &str| kinds[k].as_i64().unwrap_or(0);
+    format!("{}/{} done", n("done"), n("backlog") + n("todo") + n("started") + n("done"))
+}
+
+/// The fields sent, as the channel's `pick`: only those given.
+fn pick(args: &Value, keys: &[&str]) -> Value {
+    let mut picked = serde_json::Map::new();
+    for key in keys {
+        if let Some(value) = args.get(*key) {
+            picked.insert((*key).into(), value.clone());
+        }
+    }
+    Value::Object(picked)
 }
 
 fn whose(preset: &Value) -> String {

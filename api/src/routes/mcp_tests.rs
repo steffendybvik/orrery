@@ -251,3 +251,42 @@ async fn presets_and_preset_read_the_projects_list() {
     assert!(one.ends_with("Run the tests first.\nThen ship."));
     assert_eq!(said(&chat("preset", json!({"id": "nope"})).send().await), "No preset nope for this project; presets lists them.");
 }
+
+#[tokio::test]
+async fn milestones_are_made_changed_and_listed_through_their_routes() {
+    let api = TestApi::new().await;
+    api.project("alpha").await;
+    // Milestones are the chat's to plan with.
+    let list = || tool(&api, "milestones", json!({})).header("orrery-actor-kind", "chat");
+    assert_eq!(said(&list().send().await), "No milestones yet.");
+    let made = said(&tool(&api, "create_milestone", json!({"title": "Launch", "priority": "P1"})).header("orrery-actor-kind", "chat").send().await).to_string();
+    assert!(made.starts_with("Made milestone ") && made.ends_with("\")."), "{made}");
+    let id = made.trim_start_matches("Made milestone ").split(':').next().unwrap().to_string();
+    let listed = said(&list().send().await).to_string();
+    assert!(listed.starts_with(&format!("{id} [")) && listed.contains(", P1] Launch: 0/0 done"), "{listed}");
+    let changed = said(&tool(&api, "update_milestone", json!({"id": id, "title": "Lift-off"})).header("orrery-actor-kind", "chat").send().await).to_string();
+    assert_eq!(changed, format!("Milestone {id} is now: Lift-off"));
+}
+
+#[tokio::test]
+async fn releases_say_none_yet_and_a_new_one_with_its_count() {
+    let api = TestApi::new().await;
+    api.project("alpha").await;
+    assert_eq!(said(&tool(&api, "releases", json!({})).send().await), "No releases yet.");
+    api.patch("/api/projects/alpha", json!({"release_mode": "own"})).send().await;
+    let made = api.post("/api/projects/alpha/releases", json!({"version": "1.0.0"})).send().await;
+    assert!(made.status.is_success(), "{}", made.body);
+    assert_eq!(said(&tool(&api, "releases", json!({})).send().await), "1.0.0: 0 issues, 0/0 done");
+}
+
+#[tokio::test]
+async fn epics_are_made_changed_and_listed() {
+    let api = TestApi::new().await;
+    api.project("alpha").await;
+    let chat = |name: &str, args: Value| tool(&api, name, args).header("orrery-actor-kind", "chat");
+    assert_eq!(said(&chat("epics", json!({})).send().await), "No epics yet.");
+    let made = said(&tool(&api, "create_epic", json!({"title": "Big thing"})).send().await).to_string();
+    assert!(made.starts_with("Made epic ") && made.ends_with(". Set epic: 1 on each issue in it."), "{made}");
+    assert_eq!(said(&tool(&api, "update_epic", json!({"id": "1", "title": "Bigger"})).send().await), "Epic 1 is now: Bigger");
+    assert_eq!(said(&chat("epics", json!({})).send().await), "1 Bigger: 0 issues, 0/0 done");
+}
