@@ -208,6 +208,38 @@ impl Api<'_> {
         Ok(format!("Commented on {id} (comment {}){asking}.", text(&posted["id"])))
     }
 
+    async fn comment_epic(&self, args: &Value) -> Said {
+        let id = text(&args["id"]);
+        let posted = self
+            .call(Method::POST, &format!("/api/epics/{}/comments", enc(&id)), Some(json!({"body": args.get("body").cloned().unwrap_or(Value::Null)})))
+            .await?;
+        Ok(format!("Commented on epic {id} (comment {}).", text(&posted["id"])))
+    }
+
+    /// `rate_pull`: a PR's risk, given as `owner/name#number` or its link, as the channel reads it.
+    async fn rate_pull(&self, args: &Value) -> Said {
+        let pull = match args.get("pull") {
+            None | Some(Value::Null) => String::new(),
+            Some(value) => text(value),
+        };
+        let found = regex::Regex::new(r"(?:github\.com/)?([\w.-]+)/([\w.-]+)(?:#|/pull/)(\d+)")
+            .expect("the PR pattern")
+            .captures(&pull)
+            .map(|c| (c[1].to_string(), c[2].to_string(), c[3].to_string()));
+        let Some((owner, name, number)) = found else {
+            let shown = match args.get("pull") {
+                None => "undefined".to_string(),
+                Some(value) => value.to_string(),
+            };
+            return Ok(format!("Give the PR as owner/name#number or its link, not {shown}"));
+        };
+        let id = text(&args["id"]);
+        let project = self.project_of_issue(&json!({"id": id})).await?;
+        let path = format!("{}/pulls/{}/{}/{number}/risk", self.issue_path(&project, &id), enc(&owner), enc(&name));
+        let rated = self.call(Method::PUT, &path, Some(pick(args, &["level", "why"]))).await?;
+        Ok(format!("Rated {owner}/{name}#{number} on {id}: {} risk, {}", text(&rated["risk"]["level"]), text(&rated["risk"]["why"])))
+    }
+
     fn at(&self, project: &str) -> String {
         format!("/api/projects/{}", enc(project))
     }
@@ -434,6 +466,8 @@ impl Api<'_> {
             "create_issue" => self.create_issue(args).await,
             "update_issue" | "edit_issue" => self.change_issue(args).await,
             "comment" => self.comment(args).await,
+            "comment_epic" => self.comment_epic(args).await,
+            "rate_pull" => self.rate_pull(args).await,
             _ => return None,
         })
     }
