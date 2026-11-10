@@ -3,7 +3,7 @@ import type {AddressInfo} from 'node:net'
 import {Socket} from 'node:net'
 import {createEvent, getHeader} from 'h3'
 import {afterAll, afterEach, beforeAll, describe, expect, it, vi} from 'vitest'
-import {apiOnly, apiStarted, routeToApi, SERVED_BY} from '../server/utils/api-router'
+import {apiOnly, apiStarted, askerHeaders, routeToApi, SERVED_BY} from '../server/utils/api-router'
 
 // The swap's flag (ORR-1034): on, the routes the Rust API serves are its alone, so an API that can't answer fails the
 // request instead of leaving it to Nuxt's routes and store. Most of those routes are gone from Nuxt (ORR-1041), so for
@@ -164,5 +164,28 @@ describe('which server answered', () => {
             await close()
         }
         expect(lines(warnings)).toEqual(['[orrery api-route] served=none reason=other-database domain="statuses" method=GET path=/api/statuses'])
+    })
+})
+
+describe('what the API is told of the asker (ORR-1059)', () => {
+    const asking = (headers: Record<string, string>) => {
+        const event = eventOf('/api/projects/orrery/issues', 'POST')
+        Object.assign(event.node.req.headers, headers)
+        return event
+    }
+
+    it('tells the chat\'s status, and no session to note, as what the chat makes is for others to work', () => {
+        vi.stubGlobal('chatIssuesFor', (chat?: string) => chat === 'c-1' ? 'backlog' : 'todo')
+        vi.stubGlobal('currentId', (id: string) => id)
+        const event = asking({'orrery-launch': 'c-1', 'orrery-session': 's-1'})
+        expect(askerHeaders(event, {name: 'claude', owner: false, chat: true})).toEqual({'Orrery-Chat-Issues': 'backlog'})
+    })
+
+    it('tells a session\'s id as it is after a /clear, an untrusted one\'s too, and nothing with no session', () => {
+        vi.stubGlobal('currentId', (id: string) => id === 'old id' ? 'new id' : id)
+        const event = asking({'orrery-session': 'old id'})
+        expect(askerHeaders(event, {name: 'claude', owner: false})).toEqual({'Orrery-Worked-By': 'new%20id'})
+        expect(askerHeaders(event, {name: 'outsider', owner: false, untrusted: true, chat: true})).toEqual({'Orrery-Worked-By': 'new%20id'})
+        expect(askerHeaders(asking({}), {name: 'steffen', owner: true})).toEqual({})
     })
 })

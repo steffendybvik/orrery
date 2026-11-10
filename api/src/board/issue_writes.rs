@@ -30,6 +30,27 @@ impl<'c> IssueWrites<'c> {
         IssueWrites { conn, effects: Effects::default(), outbox: None }
     }
 
+    /// Notes that `session` is working an issue it just made (`workedBy`), so the owner's comments on it go to that
+    /// session. A new issue has no session on it yet, so there's no one else's to keep (`takenFrom`).
+    pub async fn worked_by(&mut self, project: &str, issue: &str, session: &str) -> Result<()> {
+        let now = stamp();
+        sqlx::query(&sql(
+            "INSERT INTO issue_sessions (project, issue, session, at, since) SELECT ?, ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM issues WHERE project = ? AND id = ?) \
+             ON CONFLICT (project, issue) DO UPDATE SET since = CASE WHEN issue_sessions.session = excluded.session THEN issue_sessions.since ELSE excluded.since END, \
+             session = excluded.session, at = excluded.at",
+        ))
+        .bind(project)
+        .bind(issue)
+        .bind(session)
+        .bind(&now)
+        .bind(&now)
+        .bind(project)
+        .bind(issue)
+        .execute(&mut *self.conn)
+        .await?;
+        Ok(())
+    }
+
     async fn exists(&mut self, query: &str, project: &str, key: &str) -> Result<bool> {
         Ok(sqlx::query(&sql(query)).bind(project).bind(key).fetch_optional(&mut *self.conn).await?.is_some())
     }

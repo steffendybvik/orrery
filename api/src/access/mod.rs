@@ -3,4 +3,5 @@ pub(crate) mod oidc;
 pub(crate) mod people;
 pub(crate) mod phone;
 pub(crate) mod rails;
+pub(crate) mod rewrites;
 pub(crate) mod secrets;
