@@ -1401,3 +1401,39 @@ async fn the_activity_lists_who_changed_what_oldest_first() {
     assert_eq!((&activity[2]["before"], &activity[2]["after"], &activity[2]["protected"]), (&json!("backlog"), &json!("todo"), &json!(true)));
     assert_eq!(activity[0]["issue"], json!(id));
 }
+
+#[tokio::test]
+async fn orrerys_own_word_wakes_the_session_only_when_asked_and_open() {
+    let api = TestApi::new().await;
+    let board = Board::new(&api).await;
+    let id = board.issue(json!({"title": "Sieve"})).await;
+    let said = format!("{}/said", board.at(&id));
+    let reply = api.post(&said, json!({"body": "#1 was merged into `main`.", "wakes": true})).send().await;
+    assert_eq!(reply.status, 201, "{}", reply.body);
+    let n = reply.body["id"].as_i64().unwrap();
+    assert_eq!((&reply.body["created_by"], &reply.body["protected"]), (&json!("orrery"), &json!(false)));
+    assert_eq!(reply.said("orrery-carry"), [format!("primes PRI-1 {n}")]);
+    assert_eq!(reply.header("orrery-notice"), None, "orrery's own word rings no bell");
+    assert_eq!(reply.told(), ["comment.added primes PRI-1"]);
+
+    let note = api.post(&said, json!({"body": "Moved to Done."})).send().await;
+    assert_eq!((note.status.as_u16(), note.header("orrery-carry")), (201, None), "a note wakes nobody");
+
+    let closed = api.patch(&board.at(&id), json!({"status": "done"})).send().await;
+    assert_eq!(closed.status, 200, "{}", closed.body);
+    let late = api.post(&said, json!({"body": "#2 was merged.", "wakes": true})).send().await;
+    assert_eq!((late.status.as_u16(), late.header("orrery-carry")), (201, None), "nor does news on a closed issue");
+    assert_eq!(board.comments(&id).await.len(), 3);
+
+    assert_eq!(api.post(&said, json!({"body": " "})).send().await.status, 400);
+    assert_eq!(api.post(&said, json!({"body": "x", "wakes": "yes"})).send().await.status, 400);
+    assert_eq!(api.post(&format!("{}/said", board.at("PRI-9")), json!({"body": "x"})).send().await.status, 404);
+}
+
+#[tokio::test]
+async fn only_orrery_itself_says_things_as_orrery() {
+    let api = TestApi::at_the_door().await;
+    let project = api.project("Primes").await;
+    let reply = api.post(&format!("/api/projects/{project}/issues/PRI-1/said"), json!({"body": "Merged."})).send().await;
+    assert_eq!(reply.status, 403, "{}", reply.body);
+}

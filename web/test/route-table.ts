@@ -27,6 +27,7 @@ const MACHINE: Line = {stays: "the machine's: its files, the event log, its own 
 
 const SNAPSHOT: Line = {rustOnly: 'the copy a backup takes of the database: the local app asks for it itself, then checks and keeps it (`snapshotsBy`, ORR-1097)'}
 const STORAGE: Line = {rustOnly: 'how the local app keeps its record of a chat or a GitHub poll: it sends them here itself (`writeToApi`)'}
+const SAID: Line = {rustOnly: "orrery's own word on an issue (a pull request's news, a schedule's note): the local app sends it here itself (`writeToApi`, ORR-1094)"}
 const OUTBOX: Line = {rustOnly: "the outbox, which the local app follows to hear what the API's writes set off (ORR-929)"}
 const HEALTH: Line = {rustOnly: 'whether the API is up, for the local app that starts it'}
 const MCP: Line = {rustOnly: "orrery's MCP tools over streamable HTTP (ORR-1098): JSON-RPC, so not in the REST contract; the channel serves them until ORR-1102"}
@@ -86,6 +87,7 @@ export const NOT_ROUTED: Readonly<Record<string, Line>> = {
     'GET /api/projects/{project}/issues/{issue}/branches': GIT,
     'POST /api/projects/{project}/issues/{issue}/focus': FOCUS,
     'GET /api/projects/{project}/issues/{issue}/pulls': GIT,
+    'POST /api/projects/{project}/issues/{issue}/said': SAID,
     'POST /api/projects/{project}/issues/{issue}/schedule-requests': ORR_950,
     'POST /api/projects/{project}/issues/{issue}/schedule-requests/{comment}': ORR_950,
     'GET /api/projects/{project}/launches': SESSIONS,
