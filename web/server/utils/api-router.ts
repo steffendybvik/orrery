@@ -120,6 +120,10 @@ export const DOMAINS: readonly {domain: string, paths: RegExp, methods?: readonl
     {domain: 'a schedule across projects, deleted', paths: /^schedules\/across\/[^/]+$/, methods: ['DELETE']},
     // Pausing or activating all of a project's (ORR-1082): it works out each next run, and starts no session.
     {domain: 'schedules, paused or activated', paths: /^projects\/[^/]+\/schedules\/enabled$/, methods: ['POST']},
+    // A working session asking the owner for a schedule on its issue (ORR-1100): a comment with the request beside it,
+    // checked as Schedules would check it, saving nothing. Its claim on the issue is checked here first (`claimFor`), and
+    // the event log's line comes back as `Orrery-Asked`. Allow and Deny stay here for now.
+    {domain: 'a schedule, asked for', paths: /^projects\/[^/]+\/issues\/[^/]+\/schedule-requests$/, methods: ['POST'], first: {POST: claimOnComment}},
     // A project's signals, read (ORR-1087): after an id, or the latest about an issue or milestone. Their delivery, the
     // stream and the listeners stay here, as they set what each session is doing.
     {domain: 'signals, reading', paths: /^projects\/[^/]+\/signals$/, methods: ['GET']},
@@ -450,6 +454,14 @@ export async function handOn(store: Pick<ReturnType<typeof useStore>, 'handOn'>,
     await (handoff.quiet ? startsNone.run(true, pass) : pass())
 }
 
+/** A session's ask for a schedule, as its reply says it (`Orrery-Asked`: `<project> <issue> <schedule or -> <fields>
+ * <line>`, each percent-encoded, the fields apart by commas), for the event log's line (ORR-1100). */
+export function askedOf(header: string | null): {project: string, issue: string, schedule: number | null, fields: string[], line: string} | undefined {
+    const [project, issue, schedule, fields, line, ...rest] = (header ?? '').trim().split(' ').map(decodeURIComponent)
+    if (!project || !issue || !schedule || fields === undefined || !line || rest.length) return undefined
+    return {project, issue, schedule: schedule === '-' ? null : Number(schedule), fields: fields ? fields.split(',') : [], line}
+}
+
 /** The issues an edit's reply says it made urgent open work (`Orrery-Urgent`, `<project> <issue>` percent-encoded, many
  * apart by commas), for the push to the sessions only this server can make (`sayUrgent`, ORR-927). */
 export function urgentOf(header: string | null): {project: string, issue: string}[] {
@@ -639,6 +651,10 @@ async function relayed(response: Response, actor: Actor, method: string, {noteKe
         if (relayHeaders) for (const project of changedOf(response.headers.get('orrery-schedules'))) useScheduler().changedElsewhere(project)
         const keys = changedOf(response.headers.get('orrery-settings-keys'))
         if (noteKeys && keys.length) useEventLog().note({level: 'info', kind: 'settings.changed', message: `${actor.name} changed the settings: ${keys.join(', ')}`, details: {by: actor.name, keys}})
+        // A session's ask for a schedule (ORR-1100), noted as the route here noted it.
+        const asked = askedOf(response.headers.get('orrery-asked'))
+        if (asked) useEventLog().note({level: 'info', kind: 'schedule.asked', project: asked.project, message: `${actor.session ?? actor.name} asked on ${asked.issue} to ${asked.line}`,
+            details: {issue: asked.issue, schedule: asked.schedule, fields: asked.fields}})
         if (relayHeaders) for (const {type, project, subject, from, to} of toldOf(response.headers.get('orrery-told'))) store.told(type, project, subject, actor, {from, to})
     })
     // Outside `relaying`: the signal and the bell's notice are this server's own, with their own rows in the outbox.

@@ -1,19 +1,22 @@
 // Schedules: the handlers and the routes they answer (ORR-1048); of the writes, adopting and deleting one (ORR-950), and
 // pausing or activating all of a project's, making and changing one, and deleting one across projects (ORR-1082).
+use super::issues::handoff_headers;
 use super::P;
 use crate::changes::Outbox;
 use crate::error::{ApiError, Result};
 use crate::reply::reply;
 use crate::request::{actor_of, body_of};
 use crate::work::presets::Presets;
+use crate::work::schedule_requests::ScheduleRequests;
 use crate::work::schedules::Schedules;
 use crate::{App, Shared};
 use axum::body::Bytes;
 use axum::extract::{Path, State};
-use axum::http::{HeaderMap, StatusCode};
+use axum::http::{HeaderMap, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, post};
 use axum::{Json, Router};
+use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
 use serde_json::Value;
 use std::sync::Arc;
 
@@ -26,6 +29,30 @@ pub(crate) fn routes() -> Router<Arc<App>> {
         .route("/api/schedules", get(all_schedules))
         .route("/api/schedules/across", get(schedules_across))
         .route("/api/schedules/across/{across}", delete(delete_across))
+        .route(&format!("{P}/issues/{{issue}}/schedule-requests"), post(ask_schedule))
+}
+
+/// `POST …/issues/:issue/schedule-requests` {schedule, id?, why?} → 201 the comment asking (ORR-458, ORR-1100): a working
+/// session asking the owner, on the issue it's working, to make a schedule or change schedule `id`. The comment waits on
+/// their decision with Allow and Deny, which the Nuxt server answers; nothing is saved until they allow it. The router
+/// checks the session's claim on the issue first, and the rails who may ask. The comment's hand-on comes back as a new
+/// comment's does, and the event log's line as `Orrery-Asked` (`<project> <issue> <schedule or -> <fields> <line>`,
+/// each percent-encoded, fields apart by commas), as only the Nuxt server keeps that log.
+async fn ask_schedule(State(app): Shared, Path((project, issue)): Path<(String, String)>, headers: HeaderMap, body: Bytes) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    let actor = actor_of(&headers);
+    let asked = ScheduleRequests::new(&mut conn).ask(&project, &issue, &body_of(&body), &actor).await?;
+    let mut response = reply(StatusCode::CREATED, Some(asked.comment.clone()), asked.effects);
+    for (header, said) in handoff_headers(&asked.handoff) {
+        response.headers_mut().insert(header, HeaderValue::from_str(&said).unwrap());
+    }
+    let encode = |s: &str| utf8_percent_encode(s, NON_ALPHANUMERIC).to_string();
+    let schedule = asked.request.get("id").and_then(Value::as_i64).map(|id| id.to_string()).unwrap_or_else(|| "-".into());
+    let fields = asked.request["body"].as_object().map(|b| b.keys().cloned().collect::<Vec<_>>().join(",")).unwrap_or_default();
+    let issue = asked.comment["issue"].as_str().unwrap_or(&issue).to_string();
+    let said = format!("{} {} {} {} {}", encode(&project), encode(&issue), schedule, encode(&fields), encode(&asked.line));
+    response.headers_mut().insert("orrery-asked", HeaderValue::from_str(&said).unwrap());
+    Ok(response)
 }
 
 async fn all_schedules(State(app): Shared) -> Result<Response> {

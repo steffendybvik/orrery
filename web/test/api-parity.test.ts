@@ -1119,6 +1119,20 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         await both('making one in a project that isn\'t there', () => viaStore(() => schedules.create('nowhere', {title: 'x', cron: '0 9 * * *'}, OWNER), 201), () => viaApi('POST', '/schedules', {title: 'x', cron: '0 9 * * *'}, OWNER, 'nowhere'))
         expect(await nextRuns('through-api')).toEqual(await nextRuns('through-store'))
         expect(domainOf('POST', '/api/projects/p/schedules')).toBe('a schedule, made')
+        // A working session asking for one on its issue (ORR-1100): the comment asking, with the request beside it. The
+        // store's side is handed the request the route works out (`scheduleRequest`), as that needs the scheduler's globals.
+        const asking: Record<string, string> = {}
+        for (const p of ['through-store', 'through-api']) asking[p] = (await store.createIssue(on(p), {title: 'Ask for it'}, OWNER)).id
+        const nudge = {title: 'Nudge', kind: 'message', notes: 'Look.', cron: '0 9 * * 1'}
+        const words = 'You asked.\n\nAsks to make the schedule "Nudge". Nothing is saved until you press Allow.'
+        const request = {title: 'Nudge', changes: Object.entries(nudge).map(([field, to]) => ({field, to})), body: nudge, state: 'asked'} as never
+        for (const time of ['first', 'again']) {
+            await both(`asking for a schedule, ${time}`, p => viaStore(() => store.askForSchedule(on(p), asking[p]!, words, request, AGENT), 201),
+                () => viaApi('POST', `/issues/${asking['through-api']}/schedule-requests`, {schedule: nudge, why: 'You asked.'}, AGENT, 'through-api-timed'))
+        }
+        await both('the comments asking, the first expired', p => viaStore(() => store.listComments(on(p), asking[p]!)), () => viaApi('GET', `/issues/${asking['through-api']}/comments`, undefined, AGENT, 'through-api-timed'))
+        expect(domainOf('POST', '/api/projects/p/issues/P-1/schedule-requests')).toBe('a schedule, asked for')
+        expect(domainOf('POST', '/api/projects/p/issues/P-1/schedule-requests/3')).toBeUndefined()
         // Deleting one across projects (ORR-1082): refused to an agent, then the owner's, with the schedules made from it.
         // The orrery's own list holds both projects' copies, so it's read whole.
         const [weekly] = (await schedules.listAcross()).filter(a => a.title === 'Weekly look')
@@ -3370,7 +3384,7 @@ describe('the router', () => {
     })
 
     it('routes by a table with a line per domain, so taking one back is taking its line out (ORR-925)', () => {
-        expect(DOMAINS.map(({domain}) => domain)).toEqual(['docs', 'statuses', 'permissions', 'issues, reading', 'comments', 'an issue, deleted', 'an issue, made', 'an issue, its words', 'issues, changed at once', 'a proposal, decided', 'claims', 'activity', 'milestones', 'releases', 'releases, every project\'s', 'people', 'invites', 'keys', 'logins', 'uploads, reading', 'an upload, kept', 'presets', 'secrets, reading', 'settings', 'a pull request, reading', "a pull request's risk", 'schedules, reading', 'a schedule, adopted', 'a schedule, deleted', 'a schedule, changed', 'a schedule, made', 'a schedule across projects, deleted', 'schedules, paused or activated', 'signals, reading', 'projects, listed', 'a project, made', 'a project, changed', 'a project, read', 'a project, deleted', 'a project, exported', 'a project, imported', 'usage', 'the bell', 'epics', 'milestone and epic comments'])
+        expect(DOMAINS.map(({domain}) => domain)).toEqual(['docs', 'statuses', 'permissions', 'issues, reading', 'comments', 'an issue, deleted', 'an issue, made', 'an issue, its words', 'issues, changed at once', 'a proposal, decided', 'claims', 'activity', 'milestones', 'releases', 'releases, every project\'s', 'people', 'invites', 'keys', 'logins', 'uploads, reading', 'an upload, kept', 'presets', 'secrets, reading', 'settings', 'a pull request, reading', "a pull request's risk", 'schedules, reading', 'a schedule, adopted', 'a schedule, deleted', 'a schedule, changed', 'a schedule, made', 'a schedule across projects, deleted', 'schedules, paused or activated', 'a schedule, asked for', 'signals, reading', 'projects, listed', 'a project, made', 'a project, changed', 'a project, read', 'a project, deleted', 'a project, exported', 'a project, imported', 'usage', 'the bell', 'epics', 'milestone and epic comments'])
         expect(domainOf('PATCH', '/api/projects/p/docs/d')).toBe('docs')
         expect(domainOf('head', '/api/projects/p/doc-sections/')).toBe('docs')
         for (const method of ['POST', 'DELETE']) expect(domainOf(method, '/api/projects/p/issues/P-1/claim'), method).toBe('claims')
@@ -3519,7 +3533,7 @@ describe('the contract (api/openapi.yaml)', () => {
     const routes = () => [...new Set([...nuxtRoutes(), ...rustRoutes()])].sort().filter(route => servedByApi(methodOf(route), pathOf(route)))
 
     it('has every route the router sends to the API, and no other', () => {
-        expect(contract()).toHaveLength(111)
+        expect(contract()).toHaveLength(112)
         expect(contract()).toEqual(routes())
     })
 

@@ -451,6 +451,9 @@ impl Api<'_> {
 
     /// The tool's answer, if it's one of the board's served here.
     pub(crate) async fn run(&self, name: &str, args: &Value) -> Option<Said> {
+        if name == "create_schedule" || name == "update_schedule" {
+            return self.ask_schedule(args).await;
+        }
         Some(match name {
             "schedules" => self.schedules(args).await,
             "docs" => self.docs(args).await,
