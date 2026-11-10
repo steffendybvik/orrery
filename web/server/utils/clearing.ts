@@ -12,6 +12,7 @@
 import type {Signal} from '#shared/roadmap'
 import {CARRY_FROM, CLOSED, byPriority, isBlocked, modelFor, sameScope} from '#shared/roadmap'
 import {heavyEnough} from './pool'
+import {writeToApi} from './api-router'
 
 /** How long a session stays idle before it's cleared: a signal its channel has just handed Claude Code starts
  * another turn in that time, and then it isn't cleared. */
@@ -303,10 +304,12 @@ async function handBack(project: string, ids: string[], name: string, what: stri
     }
     const actor = {name: 'claude', owner: false}
     for (const issue of issues) {
-        await store.updateIssue(project, issue.id, shared ? {status: 'todo'} : {status: 'todo', assignee: null}, actor)
-        await store.createComment(project, issue.id, {
-            body: `The session working on this (${name}) ${what}, so it's back in Todo with nobody on it. Focus a session on it to pick it up again.`,
-        }, actor)
+        const change = shared ? {status: 'todo'} : {status: 'todo', assignee: null}
+        const comment = {body: `The session working on this (${name}) ${what}, so it's back in Todo with nobody on it. Focus a session on it to pick it up again.`}
+        // Through the Rust API when it's in front, as it's the one writer of `issues` and `comments` then (ORR-1094).
+        const path = `/api/projects/${encodeURIComponent(project)}/issues/${encodeURIComponent(issue.id)}`
+        if (!await writeToApi('PATCH', path, change, actor, {always: true})) await store.updateIssue(project, issue.id, change, actor)
+        if (!await writeToApi('POST', `${path}/comments`, comment, actor, {always: true})) await store.createComment(project, issue.id, comment, actor)
     }
     return issues.map(i => i.id)
 }

@@ -36,6 +36,7 @@ import type {Field, Input} from './input'
 import {badRequest, checkInput, conflict, notFound} from './input'
 import type {Actor, Store} from './store'
 import {AGENT} from './store'
+import {writeToApi} from './api-router'
 import {ownerOnly, refusedFor} from './permission'
 import {startsNone} from './starts-none'
 import {splitChecklist} from './schedule-checklist'
@@ -765,7 +766,9 @@ export class Schedules {
                 continue
             }
             try {
-                await this.store.updateIssue(row.project, issue.id, {status: to.id}, actor)
+                // Through the Rust API when it's in front, as it's the one writer of `issues` then (ORR-1094).
+                const path = `/api/projects/${encodeURIComponent(row.project)}/issues/${encodeURIComponent(issue.id)}`
+                if (!await writeToApi('PATCH', path, {status: to.id}, actor, {always: true})) await this.store.updateIssue(row.project, issue.id, {status: to.id}, actor)
                 await this.store.systemNote(row.project, issue.id, [
                     `Moved from ${statuses.get(issue.column) ?? issue.column} to ${to.name} by the schedule "${row.title}". ${about ?? ''}`.trim(),
                     row.notes,
