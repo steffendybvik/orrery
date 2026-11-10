@@ -321,3 +321,17 @@ async fn a_members_bell_is_their_own_and_has_no_proposals() {
     let theirs: i64 = sqlx::query_scalar("SELECT count(*) FROM notice_reads WHERE person = 'ana'").fetch_one(&api.app.pool).await.unwrap();
     assert_eq!(theirs, 1);
 }
+
+#[tokio::test]
+async fn orrery_itself_clears_what_a_merge_answered_but_no_session_named_orrery_does() {
+    let api = TestApi::new().await;
+    let (project, issue) = api.board().await;
+    let one = agent_says(&api, &project, &issue, "One", None).await;
+    let posing = api.post("/api/notices/clear", json!({"ids": [one]})).by_agent("orrery").header("orrery-actor-asked", "1").send().await;
+    assert_eq!(posing.status, 403, "a request naming orrery isn't orrery's own work");
+    let chat = api.post("/api/notices/clear", json!({"ids": [one]})).by_agent("orrery").header("orrery-actor-kind", "chat").send().await;
+    assert_eq!(chat.status, 403);
+    let reply = api.post("/api/notices/clear", json!({"ids": [one]})).by_agent("orrery").send().await;
+    assert_eq!((reply.status.as_u16(), &reply.body), (200, &json!({"cleared": 1})));
+    assert!(bell(&api, "").await.as_array().unwrap().is_empty());
+}

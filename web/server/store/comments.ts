@@ -132,10 +132,20 @@ export abstract class CommentStore extends SignalStore {
         return {person: person ?? null, by_agent: 1}
     }
 
+    /** orrery's own word sent to the Rust API when it's in front, as it's the one writer of `comments` then (ORR-1094):
+     * `said` for a comment of orrery's own (waking the session on the issue with `wakes`), `comments` for its ask. What
+     * it sets off comes back as a request's would (the carry to the session, the bell). None leaves it to the store
+     * here: no API in front. Imported when used, as the router reads the store. */
+    private async saidThroughApi(project: string, issue: string, to: 'said' | 'comments', body: Record<string, unknown>): Promise<Comment | undefined> {
+        const {writeToApi} = await import('../utils/api-router')
+        const sent = await writeToApi('POST', `/api/projects/${encodeURIComponent(project)}/issues/${encodeURIComponent(issue)}/${to}`, body, ORRERY, {always: true})
+        return sent?.reply as Comment | undefined
+    }
+
     /** orrery asking the owner on an issue (`asks: feedback`, ORR-508, or a `decision`): to the bell, as an agent's ask,
      * and assigned to them; not to a session. `type` is what happened, for the schedules. */
     async systemAsk(project: string, issue: string, body: string, type: string, asks: 'feedback' | 'decision' = 'feedback'): Promise<Comment> {
-        const comment = await this.createComment(project, issue, {body, asks}, ORRERY)
+        const comment = await this.saidThroughApi(project, issue, 'comments', {body, asks}) ?? await this.createComment(project, issue, {body, asks}, ORRERY)
         this.tell(type, project, await this.issueId(project, issue), ORRERY)
         return comment
     }
@@ -152,6 +162,11 @@ export abstract class CommentStore extends SignalStore {
      * orrery's own, never another's, so they're safe for a session to read as the owner's. */
     async systemComment(project: string, issue: string, body: string, type: string): Promise<Comment> {
         issue = await this.issueId(project, issue)
+        const sent = await this.saidThroughApi(project, issue, 'said', {body, wakes: true})
+        if (sent) {
+            this.tell(type, project, issue, ORRERY)
+            return sent
+        }
         const row = await this.issueRow(project, issue)
         const now = stamp()
         const id = await this.db.transaction(async () => {
@@ -171,6 +186,8 @@ export abstract class CommentStore extends SignalStore {
     /** orrery's own word on an issue that wakes nobody, as `orrery`: why an action schedule moved it (ORR-636), which was
      * done so that no session need be. */
     async systemNote(project: string, issue: string, body: string): Promise<Comment> {
+        const sent = await this.saidThroughApi(project, issue, 'said', {body})
+        if (sent) return sent
         const now = stamp()
         const id = await this.db.transaction(async () => {
             const {id} = await this.one<{id: number}>('INSERT INTO comments (project, issue, body, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, 0, ?, ?) RETURNING id',

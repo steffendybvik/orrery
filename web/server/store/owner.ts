@@ -48,6 +48,8 @@ export abstract class OwnerStore extends StatusStore {
         if (name === 'claude') throw badRequest('"claude" is what agents send as Orrery-Actor; pick another name')
         if (name !== before.name && await this.get("SELECT 1 FROM people WHERE id = ? AND role <> 'owner'", name)) throw conflict(`"${name}" is someone else on this orrery; pick another name`)
         await this.db.transaction(async () => {
+            // The outbox row goes in with the write, so it's there once this returns (ORR-1112).
+            this.outbox('settings', {actor})
             const renamed = await this.run("UPDATE people SET id = ?, name = ? WHERE role = 'owner'", name, display)
             if (!Number(renamed.changes)) await this.run("INSERT INTO people (id, name, role, created_at) VALUES (?, ?, 'owner', ?)", name, display, stamp())
             await this.run('UPDATE project_members SET person = ? WHERE person = ?', name, before.name)
@@ -66,7 +68,7 @@ export abstract class OwnerStore extends StatusStore {
         })
         if (name !== before.name) for (const {id} of await this.all<{id: string}>('SELECT id FROM projects')) this.changed(id)
         // Open pages hear it with the settings, and ask who the owner is now.
-        this.saySettings(await this.settings(), actor)
+        this.onSettings(await this.settings())
         return await this.ownerOf()
     }
 

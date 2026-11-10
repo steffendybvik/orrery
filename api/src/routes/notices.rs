@@ -1,6 +1,6 @@
 // The bell: the handlers and the routes they answer (ORR-1048).
 use crate::error::{ApiError, Result};
-use crate::request::{actor_of, body_of, owner_asking, who_of};
+use crate::request::{actor_of, body_of, came_of, owner_asking, who_of};
 use crate::work::notices::{Asked, Notices};
 use crate::{App, Shared};
 use axum::body::Bytes;
@@ -43,7 +43,8 @@ fn bell_keeper(headers: &HeaderMap) -> Result<Option<String>> {
     if let Some(person) = actor.person {
         return Ok(Some(person));
     }
-    if owner_asking(headers) {
+    // orrery itself clears what a merge answered (ORR-1094): the Nuxt server's own work, never a request's.
+    if owner_asking(headers) || (came_of(headers).server && !actor.asked && !actor.chat && !actor.untrusted && actor.name == "orrery") {
         return Ok(None);
     }
     let what = "Clear the bell or mark it read, or forget a session";
