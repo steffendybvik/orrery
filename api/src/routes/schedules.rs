@@ -1,5 +1,5 @@
 // Schedules: the handlers and the routes they answer (ORR-1048); of the writes, adopting and deleting one (ORR-950), and
-// pausing or activating all of a project's, and changing one (ORR-1082).
+// pausing or activating all of a project's, and making and changing one (ORR-1082).
 use super::P;
 use crate::changes::Outbox;
 use crate::error::{ApiError, Result};
@@ -19,7 +19,7 @@ use std::sync::Arc;
 
 pub(crate) fn routes() -> Router<Arc<App>> {
     Router::new()
-        .route(&format!("{P}/schedules"), get(list_schedules))
+        .route(&format!("{P}/schedules"), get(list_schedules).post(create_schedule))
         .route(&format!("{P}/schedules/{{schedule}}"), get(get_schedule).patch(patch_schedule).delete(delete_schedule))
         .route(&format!("{P}/schedules/{{schedule}}/adopt"), post(adopt_schedule))
         .route(&format!("{P}/schedules/enabled"), post(set_all_enabled))
@@ -74,6 +74,17 @@ async fn set_all_enabled(State(app): Shared, Path(project): Path<String>, header
     schedules.outbox = Some(Outbox::new(actor.clone()));
     let done = schedules.set_all_enabled(&project, enabled, &uid, &actor).await?;
     Ok(reply(StatusCode::OK, Some(done), std::mem::take(&mut schedules.effects)))
+}
+
+/// `POST …/schedules` {title, cron | at | on, …} → the schedule (201), with its next run worked out.
+async fn create_schedule(State(app): Shared, Path(project): Path<String>, headers: HeaderMap, body: Bytes) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    let uid = Presets::new(&mut conn).uid().await?;
+    let actor = actor_of(&headers);
+    let mut schedules = Schedules::new(&mut conn);
+    schedules.outbox = Some(Outbox::new(actor.clone()));
+    let made = schedules.create(&project, &body_of(&body), &uid, &actor).await?;
+    Ok(reply(StatusCode::CREATED, Some(made), std::mem::take(&mut schedules.effects)))
 }
 
 /// `PATCH …/schedules/:schedule` {any of its fields} → the schedule: `enabled: false` pauses it.

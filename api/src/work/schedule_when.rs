@@ -19,10 +19,14 @@ pub struct When {
     pub timezone: String,
 }
 
-/// The zone used when none is given: the server's, as `Intl.DateTimeFormat().resolvedOptions().timeZone` has it, from `TZ`
-/// here, or UTC.
+/// The zone used when none is given: the server's, as `Intl.DateTimeFormat().resolvedOptions().timeZone` has it: `TZ`,
+/// else the machine's own zone, else UTC (a container with neither).
 fn server_zone() -> String {
-    std::env::var("TZ").ok().filter(|tz| tz.parse::<Tz>().is_ok()).unwrap_or_else(|| "UTC".into())
+    std::env::var("TZ")
+        .ok()
+        .filter(|tz| tz.parse::<Tz>().is_ok())
+        .or_else(|| iana_time_zone::get_timezone().ok().filter(|tz| tz.parse::<Tz>().is_ok()))
+        .unwrap_or_else(|| "UTC".into())
 }
 
 fn zone(timezone: &str) -> Option<Tz> {

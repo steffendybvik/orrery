@@ -1353,6 +1353,16 @@ paths:
       responses:
         '200': {description: The schedules, content: {application/json: {schema: {type: array, items: {type: object}}}}}
         '404': {$ref: '#/components/responses/NotFound'}
+    post:
+      summary: 'Makes a schedule (ORR-1082): a title and one of cron, at (once, in the future) and on (an event), with its next run worked out unless made paused. A session or action schedule only by the owner'
+      requestBody:
+        required: true
+        content: {application/json: {schema: {type: object}}}
+      responses:
+        '201': {description: The schedule, content: {application/json: {schema: {type: object}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
   /api/projects/{project}/schedules/{schedule}:
     parameters:
       - {$ref: '#/components/parameters/project'}
