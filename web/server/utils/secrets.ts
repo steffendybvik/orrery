@@ -15,6 +15,8 @@ import {badRequest, checkInput, forbidden, isObject, notFound} from './input'
 import type {Store} from './store'
 import {AGENT} from './store'
 import {ownerOnly, refusedFor} from './permission'
+import {writeToApi} from './api-router'
+import {ORRERY as ORRERY_ACTOR} from '../store/schema'
 
 interface SecretRow { name: string, value: string, last4: string, hosts: string, projects: string | null, created_by: string, owned: number, created_at: string, updated_at: string }
 interface UseRow { id: number, secret: string, method: string, host: string, path: string, project: string | null, issue: string | null, status: number | null, error: string | null, created_by: string, created_at: string }
@@ -82,6 +84,34 @@ export class Secrets {
         return this.store.db
     }
 
+    // The writes, each one step (ORR-1096): sent to the Rust API when it's in front, as it's the one writer of `secrets`
+    // and `secret_uses` then, already sealed, as the key stays here (decision-rust-api-secrets-settings); otherwise
+    // straight into the database here.
+
+    /** The step sent to the Rust API as orrery, true once it's taken it; false leaves it to the database here. */
+    private async toApi(method: string, path: string, body?: unknown): Promise<boolean> {
+        return !!await writeToApi(method, path, body, ORRERY_ACTOR, {always: true})
+    }
+
+    /** The secret `name` as sealed here: new, or replacing the value, hosts and projects of the one kept. */
+    private async keepSealed(name: string, row: {value: string, last4: string, hosts: string[], projects: string[] | null, created_by: string, owned: boolean, at: string}) {
+        if (await this.toApi('PUT', `/api/secrets/${encodeURIComponent(name)}/sealed`, row)) return
+        await this.db.run(`INSERT INTO secrets (name, value, last4, hosts, projects, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (name) DO UPDATE SET value = excluded.value, last4 = excluded.last4, hosts = excluded.hosts, projects = excluded.projects, updated_at = excluded.updated_at`,
+        name, row.value, row.last4, JSON.stringify(row.hosts), row.projects && JSON.stringify(row.projects), row.created_by, Number(row.owned), row.at, row.at)
+    }
+
+    /** A use of the secret `name`; with `keep`, only that many of its uses by `created_by` stay, the latest. */
+    private async keepUse(name: string, use: {method: string, host: string, path: string, project: string | null, issue: string | null, status: number | null, error: string | null, created_by: string, created_at: string}, keep?: number) {
+        if (await this.toApi('POST', `/api/secrets/${encodeURIComponent(name)}/uses`, keep === undefined ? use : {...use, keep})) return
+        await this.db.run('INSERT INTO secret_uses (secret, method, host, path, project, issue, status, error, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            name, use.method, use.host, use.path, use.project, use.issue, use.status, use.error, use.created_by, use.created_at)
+        if (keep !== undefined) {
+            await this.db.run(`DELETE FROM secret_uses WHERE secret = ? AND created_by = ? AND id NOT IN
+                (SELECT id FROM (SELECT id FROM secret_uses WHERE secret = ? AND created_by = ? ORDER BY id DESC LIMIT ${keep}) AS latest)`, name, use.created_by, name, use.created_by)
+        }
+    }
+
     /** Every secret, by name, without its value. */
     async list(): Promise<Secret[]> {
         const rows = await this.db.all<SecretRow>('SELECT * FROM secrets ORDER BY name')
@@ -108,9 +138,7 @@ export class Secrets {
         const projects = await this.projectsOf(input.projects as string[] | null | undefined)
         const now = new Date().toISOString()
         const before = await this.db.get<SecretRow>('SELECT * FROM secrets WHERE name = ?', name)
-        await this.db.run(`INSERT INTO secrets (name, value, last4, hosts, projects, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT (name) DO UPDATE SET value = excluded.value, last4 = excluded.last4, hosts = excluded.hosts, projects = excluded.projects, updated_at = excluded.updated_at`,
-        name, this.seal(name, value, hosts, projects), value.slice(-4), JSON.stringify(hosts), projects && JSON.stringify(projects), actor.name, Number(actor.owner), now, now)
+        await this.keepSealed(name, {value: this.seal(name, value, hosts, projects), last4: value.slice(-4), hosts, projects, created_by: actor.name, owned: !!actor.owner, at: now})
         await this.changed()
         this.note({level: 'info', kind: 'secret.set', message: `${actor.name} ${before ? 'replaced' : 'set'} ${name}, for ${hosts.join(', ')}`,
             details: {by: actor.name, secret: name, hosts, ...projects ? {projects} : {}, created: !before}})
@@ -130,8 +158,7 @@ export class Secrets {
         const wider = hosts.some(h => !was.hosts.includes(h)) || (wasIn !== null && (projects === null || projects.some(p => !wasIn.includes(p))))
         if (wider) throw forbidden(`Letting ${name} go somewhere new takes its value again: PUT /api/secrets/${name} with {value, hosts, projects}`)
         const value = this.open(row)
-        await this.db.run('UPDATE secrets SET value = ?, hosts = ?, projects = ?, updated_at = ? WHERE name = ?',
-            this.seal(name, value, hosts, projects), JSON.stringify(hosts), projects && JSON.stringify(projects), new Date().toISOString(), name)
+        await this.keepSealed(name, {value: this.seal(name, value, hosts, projects), last4: row.last4, hosts, projects, created_by: row.created_by, owned: !!row.owned, at: new Date().toISOString()})
         await this.changed()
         this.note({level: 'info', kind: 'secret.narrowed', message: `${actor.name} narrowed ${name} to ${hosts.join(', ')}`,
             details: {by: actor.name, secret: name, hosts, ...projects ? {projects} : {}}})
@@ -141,8 +168,10 @@ export class Secrets {
     async delete(name: string, actor = AGENT) {
         ownerOnly(actor, 'secrets.write')
         await this.row(name)
-        await this.db.run('DELETE FROM secrets WHERE name = ?', name)
-        await this.db.run('DELETE FROM secret_uses WHERE secret = ?', name)
+        if (!await this.toApi('DELETE', `/api/secrets/${encodeURIComponent(name)}/sealed`)) {
+            await this.db.run('DELETE FROM secrets WHERE name = ?', name)
+            await this.db.run('DELETE FROM secret_uses WHERE secret = ?', name)
+        }
         await this.changed()
         this.note({level: 'info', kind: 'secret.deleted', message: `${actor.name} deleted ${name}`, details: {by: actor.name, secret: name}})
     }
@@ -200,8 +229,7 @@ export class Secrets {
                 : undefined
         const record = async (status: number | null, error: string | null) => {
             for (const name of names) {
-                await this.db.run('INSERT INTO secret_uses (secret, method, host, path, project, issue, status, error, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                    name, method, host, scrub(url.pathname), project, issue, status, error, actor.name, new Date().toISOString())
+                await this.keepUse(name, {method, host, path: scrub(url.pathname), project, issue, status, error, created_by: actor.name, created_at: new Date().toISOString()})
             }
             await this.changed(true)
             // Not its path: what the secret is used on is the secret's own record, not the log's.
@@ -250,10 +278,7 @@ export class Secrets {
         const sent = value ? {...headers, Authorization: `Bearer ${value}`} : headers
         const record = async (status: number | null, error: string | null) => {
             if (!value) return
-            await this.db.run('INSERT INTO secret_uses (secret, method, host, path, project, issue, status, error, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                name, method, target.host, target.pathname, project, null, status, error, ORRERY, new Date().toISOString())
-            await this.db.run(`DELETE FROM secret_uses WHERE secret = ? AND created_by = ? AND id NOT IN
-                (SELECT id FROM (SELECT id FROM secret_uses WHERE secret = ? AND created_by = ? ORDER BY id DESC LIMIT ${OWN_USES}) AS latest)`, name, ORRERY, name, ORRERY)
+            await this.keepUse(name, {method, host: target.host, path: target.pathname, project, issue: null, status, error, created_by: ORRERY, created_at: new Date().toISOString()}, OWN_USES)
             await this.changed(true)
         }
         try {

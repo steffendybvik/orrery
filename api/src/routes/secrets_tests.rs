@@ -118,3 +118,83 @@ async fn reading_secrets_writes_nothing() {
     let changes: i64 = sqlx::query("SELECT count(*) FROM changes").fetch_one(&api.app.pool).await.unwrap().get(0);
     assert_eq!((uses, changes), (0, 0));
 }
+
+fn sealed(value: &str, hosts: serde_json::Value, projects: serde_json::Value, at: &str) -> serde_json::Value {
+    json!({"value": value, "last4": "wxyz", "hosts": hosts, "projects": projects, "created_by": "owner", "owned": true, "at": at})
+}
+
+#[tokio::test]
+async fn keeps_a_sealed_secret_and_reads_it_back_without_its_value() {
+    let api = TestApi::new().await;
+    let reply = api.put("/api/secrets/STRIPE_KEY/sealed", sealed(SEALED, json!(["api.stripe.com"]), json!(["shop"]), "2026-11-10T10:00:00.000Z")).send().await;
+    assert_eq!(reply.status, 204, "{}", reply.body);
+    let read = api.get("/api/secrets/STRIPE_KEY").send().await.body;
+    assert_eq!(read["hosts"], json!(["api.stripe.com"]));
+    assert_eq!(read["projects"], json!(["shop"]));
+    assert!(!read.to_string().contains(SEALED), "{read}");
+    let kept: String = sqlx::query("SELECT value FROM secrets WHERE name = 'STRIPE_KEY'").fetch_one(&api.app.pool).await.unwrap().get("value");
+    assert_eq!(kept, SEALED, "kept as the local app sealed it");
+}
+
+#[tokio::test]
+async fn keeping_one_again_replaces_its_value_and_keeps_who_made_it_and_when() {
+    let api = TestApi::new().await;
+    api.put("/api/secrets/STRIPE_KEY/sealed", sealed(SEALED, json!(["api.stripe.com"]), json!(null), "2026-11-01T00:00:00.000Z")).send().await;
+    let mut again = sealed("v1:another", json!(["api.stripe.com"]), json!(["shop"]), "2026-11-10T10:00:00.000Z");
+    again["created_by"] = json!("claude");
+    assert_eq!(api.put("/api/secrets/STRIPE_KEY/sealed", again).send().await.status, 204);
+    let row = sqlx::query("SELECT value, projects, created_by, created_at, updated_at FROM secrets WHERE name = 'STRIPE_KEY'")
+        .fetch_one(&api.app.pool)
+        .await
+        .unwrap();
+    assert_eq!(row.get::<String, _>("value"), "v1:another");
+    assert_eq!(row.get::<Option<String>, _>("projects").as_deref(), Some(r#"["shop"]"#));
+    assert_eq!(row.get::<String, _>("created_by"), "owner");
+    assert_eq!(row.get::<String, _>("created_at"), "2026-11-01T00:00:00.000Z");
+    assert_eq!(row.get::<String, _>("updated_at"), "2026-11-10T10:00:00.000Z");
+}
+
+#[tokio::test]
+async fn says_each_problem_with_a_sealed_secret_or_a_use() {
+    let api = TestApi::new().await;
+    let reply = api.put("/api/secrets/STRIPE_KEY/sealed", json!({"value": 1, "hosts": "all", "colour": "red"})).send().await;
+    assert_eq!(reply.status, 400, "{}", reply.body);
+    let said = reply.body.to_string();
+    for part in ["colour", "\\\"value\\\"", "hosts", "last4", "owned"] {
+        assert!(said.contains(part), "{part} in {said}");
+    }
+    assert_eq!(api.post("/api/secrets/STRIPE_KEY/uses", json!({"method": "GET", "status": "ok"})).send().await.status, 400);
+}
+
+#[tokio::test]
+async fn forgetting_a_secret_takes_its_uses_too() {
+    let api = TestApi::new().await;
+    secret(&api, "STRIPE_KEY", r#"["api.stripe.com"]"#, None).await;
+    secret(&api, "GITHUB_TOKEN", r#"["api.github.com"]"#, None).await;
+    used(&api, "STRIPE_KEY", "/v1/a", Some(200)).await;
+    used(&api, "GITHUB_TOKEN", "/graphql", Some(200)).await;
+    assert_eq!(api.delete("/api/secrets/STRIPE_KEY/sealed").send().await.status, 204);
+    let left: Vec<String> = sqlx::query("SELECT name FROM secrets").fetch_all(&api.app.pool).await.unwrap().iter().map(|r| r.get("name")).collect();
+    assert_eq!(left, vec!["GITHUB_TOKEN".to_string()]);
+    let uses: Vec<String> = sqlx::query("SELECT secret FROM secret_uses").fetch_all(&api.app.pool).await.unwrap().iter().map(|r| r.get("secret")).collect();
+    assert_eq!(uses, vec!["GITHUB_TOKEN".to_string()]);
+}
+
+#[tokio::test]
+async fn keeps_a_use_and_with_keep_only_the_latest_by_who_made_them() {
+    let api = TestApi::new().await;
+    secret(&api, "GITHUB_TOKEN", r#"["api.github.com"]"#, None).await;
+    used(&api, "GITHUB_TOKEN", "/a-session", Some(200)).await;
+    let made = |path: &str| json!({"method": "POST", "host": "api.github.com", "path": path, "project": "primes", "issue": null, "status": 200, "error": null, "created_by": "orrery", "created_at": "2026-11-10T10:00:00.000Z", "keep": 2});
+    for path in ["/one", "/two", "/three"] {
+        let reply = api.post("/api/secrets/GITHUB_TOKEN/uses", made(path)).send().await;
+        assert_eq!(reply.status, 204, "{}", reply.body);
+    }
+    let failed = json!({"method": "GET", "host": "api.github.com", "path": "/x", "project": null, "issue": "PRI-1", "status": null, "error": "timed out", "created_by": "claude", "created_at": "2026-11-10T10:01:00.000Z"});
+    assert_eq!(api.post("/api/secrets/GITHUB_TOKEN/uses", failed).send().await.status, 204);
+    let paths: Vec<String> =
+        sqlx::query("SELECT path FROM secret_uses ORDER BY id").fetch_all(&api.app.pool).await.unwrap().iter().map(|r| r.get("path")).collect();
+    assert_eq!(paths, vec!["/a-session", "/two", "/three", "/x"], "orrery's own kept to the latest two; the others untouched");
+    let read = api.get("/api/secrets/GITHUB_TOKEN").send().await.body;
+    assert_eq!(read["last_used"]["error"], "timed out");
+}
