@@ -159,6 +159,8 @@ export abstract class StatusStore extends StoreBase {
         ownerOnly(actor, 'settings.write')
         const input = checkInput(body, SETTINGS_FIELDS, true)
         await this.db.transaction(async () => {
+            // The outbox row goes in with the write, so it's there once this returns (ORR-1112).
+            this.outbox('settings', {actor})
             for (const [key, sent] of Object.entries(input)) {
                 if (sent === undefined) continue
                 // An empty template is none: the default.
@@ -170,7 +172,7 @@ export abstract class StatusStore extends StoreBase {
             }
         })
         const settings = await this.settings()
-        this.saySettings(settings, actor)
+        this.onSettings(settings)
         // Every project says whether orrery starts its sessions.
         if (input.starts !== undefined) for (const {id} of await this.all<{id: string}>('SELECT id FROM projects')) this.changed(id)
         return settings
