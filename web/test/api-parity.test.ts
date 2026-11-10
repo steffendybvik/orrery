@@ -1108,8 +1108,26 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
                 () => viaApi('POST', `/issues/${asking['through-api']}/schedule-requests`, {schedule: nudge, why: 'You asked.'}, AGENT, 'through-api-timed'))
         }
         await both('the comments asking, the first expired', p => viaStore(() => store.listComments(on(p), asking[p]!)), () => viaApi('GET', `/issues/${asking['through-api']}/comments`, undefined, AGENT, 'through-api-timed'))
+        // The owner's Deny of the second ask, and Allow of a third, through each side: the store's by its own steps, as
+        // the route's needs the scheduler's globals (`answerScheduleRequest`).
+        const latest = async (p: string) => (await store.listComments(on(p), asking[p]!)).at(-1)!.id
+        const answerHere = async (p: string, allow: boolean, words: string) => {
+            const id = await latest(p)
+            const made = allow ? await schedules.create(on(p), nudge, OWNER) : undefined
+            await store.answerScheduleRequest(on(p), id, allow ? 'allowed' : 'denied', made?.id, OWNER)
+            await store.createComment(on(p), asking[p]!, {body: words.replace('<id>', String(made?.id))}, OWNER)
+            return (await store.listComments(on(p), asking[p]!)).find(c => c.id === id)
+        }
+        const answerThere = async (allow: boolean) => viaApi('POST', `/issues/${asking['through-api']}/schedule-requests/${await latest('through-api')}`, {allow}, OWNER, 'through-api-timed')
+        await both('denying it', p => viaStore(() => answerHere(p, false, 'Denied: don\'t make the schedule "Nudge". Nothing changed.')), () => answerThere(false))
+        for (const p of ['through-store', 'through-api']) await store.askForSchedule(on(p), asking[p]!, words, request, AGENT)
+        await both('allowing it', p => viaStore(() => answerHere(p, true, 'Allowed: schedule <id> ("Nudge") is saved as mine.')), () => answerThere(true))
+        // The schedule's number is numbered across both projects, so it's left out of the words.
+        const numberless = <T,>(value: T): T => JSON.parse(JSON.stringify(value).replace(/schedule \d+/g, 'schedule N')) as T
+        await both('the comments after', p => viaStore(async () => numberless(await store.listComments(on(p), asking[p]!))),
+            async () => numberless(await viaApi('GET', `/issues/${asking['through-api']}/comments`, undefined, AGENT, 'through-api-timed')))
         expect(domainOf('POST', '/api/projects/p/issues/P-1/schedule-requests')).toBe('a schedule, asked for')
-        expect(domainOf('POST', '/api/projects/p/issues/P-1/schedule-requests/3')).toBeUndefined()
+        expect(domainOf('POST', '/api/projects/p/issues/P-1/schedule-requests/3')).toBe('a schedule, answered')
         // Deleting one across projects (ORR-1082): refused to an agent, then the owner's, with the schedules made from it.
         // The orrery's own list holds both projects' copies, so it's read whole.
         const [weekly] = (await schedules.listAcross()).filter(a => a.title === 'Weekly look')
@@ -3361,7 +3379,7 @@ describe('the router', () => {
     })
 
     it('routes by a table with a line per domain, so taking one back is taking its line out (ORR-925)', () => {
-        expect(DOMAINS.map(({domain}) => domain)).toEqual(['docs', 'statuses', 'permissions', 'issues, reading', 'comments', 'an issue, deleted', 'an issue, made', 'an issue, its words', 'issues, changed at once', 'a proposal, decided', 'claims', 'activity', 'milestones', 'releases', 'releases, every project\'s', 'people', 'invites', 'keys', 'logins', 'uploads, reading', 'an upload, kept', 'presets', 'secrets, reading', 'settings', 'a pull request, reading', "a pull request's risk", 'schedules, reading', 'a schedule, adopted', 'a schedule, deleted', 'a schedule, changed', 'a schedule, made', 'a schedule across projects, deleted', 'schedules, paused or activated', 'a schedule, asked for', 'signals, reading', 'projects, listed', 'a project, made', 'a project, changed', 'a project, read', 'a project, deleted', 'a project, exported', 'a project, imported', 'the bell', 'epics', 'milestone and epic comments'])
+        expect(DOMAINS.map(({domain}) => domain)).toEqual(['docs', 'statuses', 'permissions', 'issues, reading', 'comments', 'an issue, deleted', 'an issue, made', 'an issue, its words', 'issues, changed at once', 'a proposal, decided', 'claims', 'activity', 'milestones', 'releases', 'releases, every project\'s', 'people', 'invites', 'keys', 'logins', 'uploads, reading', 'an upload, kept', 'presets', 'secrets, reading', 'settings', 'a pull request, reading', "a pull request's risk", 'schedules, reading', 'a schedule, adopted', 'a schedule, deleted', 'a schedule, changed', 'a schedule, made', 'a schedule across projects, deleted', 'schedules, paused or activated', 'a schedule, asked for', 'a schedule, answered', 'signals, reading', 'projects, listed', 'a project, made', 'a project, changed', 'a project, read', 'a project, deleted', 'a project, exported', 'a project, imported', 'the bell', 'epics', 'milestone and epic comments'])
         expect(domainOf('PATCH', '/api/projects/p/docs/d')).toBe('docs')
         expect(domainOf('head', '/api/projects/p/doc-sections/')).toBe('docs')
         for (const method of ['POST', 'DELETE']) expect(domainOf(method, '/api/projects/p/issues/P-1/claim'), method).toBe('claims')
@@ -3510,7 +3528,7 @@ describe('the contract (api/openapi.yaml)', () => {
     const routes = () => [...new Set([...nuxtRoutes(), ...rustRoutes()])].sort().filter(route => servedByApi(methodOf(route), pathOf(route)))
 
     it('has every route the router sends to the API, and no other', () => {
-        expect(contract()).toHaveLength(110)
+        expect(contract()).toHaveLength(111)
         expect(contract()).toEqual(routes())
     })
 

@@ -1432,6 +1432,25 @@ paths:
         '400': {$ref: '#/components/responses/BadRequest'}
         '403': {$ref: '#/components/responses/Forbidden'}
         '404': {$ref: '#/components/responses/NotFound'}
+  /api/projects/{project}/issues/{issue}/schedule-requests/{comment}:
+    parameters:
+      - {$ref: '#/components/parameters/project'}
+      - {name: issue, in: path, required: true, description: The issue's id, schema: {type: string}}
+      - {name: comment, in: path, required: true, description: The asking comment's id, schema: {type: integer}}
+    post:
+      summary: 'The owner allows a session''s request for a schedule (saved as theirs) or denies it (ORR-458, ORR-1100)'
+      description: >-
+        Their answer is a comment of theirs, handed on quietly so it starts no session, and the event log's line comes
+        back in `Orrery-Answered`. Owner only; 409 once answered or expired.
+      requestBody:
+        required: true
+        content: {application/json: {schema: {type: object, required: [allow], properties: {allow: {type: boolean}}}}}
+      responses:
+        '200': {description: 'The comment asking, answered', content: {application/json: {schema: {type: object}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
   /api/schedules:
     get:
       summary: 'Every project''s schedules (the agenda): the soonest next run first, those with none last, ties by title'

@@ -10,10 +10,11 @@ use crate::db::sql;
 use crate::error::{ApiError, Result};
 use crate::work::presets::Presets;
 use crate::work::schedules::Schedules;
-use crate::write::{Actor, Effects};
+use crate::write::{stamp, Actor, Effects};
 use serde_json::{json, Map, Value};
 use sqlx::AnyConnection;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::sync::{LazyLock, Mutex};
 
 /// What of a schedule a session may ask to set, by what New schedule calls it (`CHAT_SCHEDULE_FIELDS`). Whether one is
 /// untrusted stays the owner's to set on Schedules.
@@ -236,6 +237,106 @@ impl<'c> ScheduleRequests<'c> {
             .await?;
         let comment = IssueWrites::new(self.conn).comment(project, &issue, id).await?;
         Ok(Asked { comment, handoff, effects, line, request })
+    }
+}
+
+/// The requests being answered now, by their database and comment's id: a second click doesn't save the schedule twice.
+static ANSWERING: LazyLock<Mutex<HashSet<String>>> = LazyLock::new(|| Mutex::new(HashSet::new()));
+
+/// Lets go of a request being answered, however the answer ends.
+struct Answering(String);
+
+impl Drop for Answering {
+    fn drop(&mut self) {
+        ANSWERING.lock().unwrap().remove(&self.0);
+    }
+}
+
+/// What an answer left, as `Asked` does: the comment asking, answered, the owner's comment's hand-on, what the writes
+/// set off, and the event log's line.
+pub(crate) struct Answered {
+    pub comment: Value,
+    pub handoff: Handoff,
+    pub effects: Effects,
+    pub line: String,
+    pub schedule: Option<i64>,
+    pub fields: Vec<String>,
+}
+
+impl ScheduleRequests<'_> {
+    /// The owner allowing or denying the request comment `id` holds (`answerScheduleRequest`): allowed, the schedule is
+    /// made or changed as theirs. Either way their answer is a comment of theirs, which answers the ask and reaches the
+    /// session without starting one. 409 once answered, or expired by a later request for the same schedule; one that no
+    /// longer holds (its preset deleted since) fails as Schedules would, still asked.
+    pub(crate) async fn answer(&mut self, database: &str, project: &str, sent: &str, id: i64, allow: bool, actor: &Actor) -> Result<Answered> {
+        if !actor.owner {
+            let message = if actor.untrusted {
+                "Allow or deny a session’s request for a schedule: refused for an untrusted session (schedules.answer). Allowing saves the schedule as the owner’s, so only they can."
+            } else {
+                "Allow or deny a session’s request for a schedule: owner only for a session (schedules.answer). Allowing saves the schedule as the owner’s, so only they can. Send Orrery-Actor: <owner>"
+            };
+            return Err(ApiError::refused_for("schedules.answer", message));
+        }
+        let issue = IssueWrites::new(self.conn).issue_id(project, sent).await?;
+        let comment = IssueWrites::new(self.conn).comment(project, &issue, id).await?;
+        let Some(request) = comment.get("schedule").filter(|r| r.is_object()).cloned() else {
+            return Err(ApiError::not_found(format!("Comment {id} on {issue} asks for no schedule")));
+        };
+        let state = request["state"].as_str().unwrap_or_default().to_string();
+        if state != "asked" {
+            let since = if state == "expired" { ": it was asked again since" } else { "" };
+            return Err(ApiError::conflict(format!("That request is {state} already{since}")));
+        }
+        let key = format!("{database} {id}");
+        if !ANSWERING.lock().unwrap().insert(key.clone()) {
+            return Err(ApiError::conflict("That request is being answered already"));
+        }
+        let _answering = Answering(key);
+        let line = ask_line(&request);
+        let mut effects = Effects::default();
+        let made = if allow {
+            let uid = Presets::new(self.conn).uid().await?;
+            let mut schedules = Schedules::new(self.conn);
+            schedules.outbox = Some(Outbox::new(actor.clone()));
+            let made = match request.get("id").and_then(Value::as_i64) {
+                Some(schedule) => schedules.update(project, &schedule.to_string(), &request["body"], &uid, actor).await?,
+                None => schedules.create(project, &request["body"], &uid, actor).await?,
+            };
+            effects = std::mem::take(&mut schedules.effects);
+            Some(made)
+        } else {
+            None
+        };
+        let schedule = made.as_ref().and_then(|m| m["id"].as_i64());
+        sqlx::query(&sql("UPDATE schedule_requests SET state = ?, schedule = COALESCE(?, schedule), answered_by = ?, answered_at = ? WHERE comment = ?"))
+            .bind(if allow { "allowed" } else { "denied" })
+            .bind(schedule)
+            .bind(&actor.name)
+            .bind(stamp())
+            .bind(id)
+            .execute(&mut *self.conn)
+            .await?;
+        let words = match &made {
+            Some(made) => format!(
+                "Allowed: schedule {} (\"{}\") is saved as mine{}.",
+                js_string(&made["id"]),
+                js_string(&made["title"]),
+                if made["enabled"] == true { "" } else { ", paused" }
+            ),
+            None => format!("Denied: don't {line}. Nothing changed."),
+        };
+        let mut writes = IssueWrites::new(self.conn);
+        writes.outbox = Some(Outbox::new(actor.clone()));
+        let (_, mut handoff) = writes.create(project, &issue, &json!({"body": words}), actor).await?;
+        // Said to the session that asked, but not work: it starts no session (ORR-606).
+        handoff.quiet = true;
+        let said = std::mem::take(&mut writes.effects);
+        effects.changed.extend(said.changed);
+        effects.schedules.extend(said.schedules);
+        effects.told.extend(said.told);
+        let comment = IssueWrites::new(self.conn).comment(project, &issue, id).await?;
+        let fields = request["body"].as_object().map(|b| b.keys().cloned().collect()).unwrap_or_default();
+        Ok(Answered { comment, handoff, effects, line, schedule: schedule.or_else(|| request.get("id").and_then(Value::as_i64)), fields })
     }
 }
 

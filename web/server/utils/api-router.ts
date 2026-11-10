@@ -122,8 +122,11 @@ export const DOMAINS: readonly {domain: string, paths: RegExp, methods?: readonl
     {domain: 'schedules, paused or activated', paths: /^projects\/[^/]+\/schedules\/enabled$/, methods: ['POST']},
     // A working session asking the owner for a schedule on its issue (ORR-1100): a comment with the request beside it,
     // checked as Schedules would check it, saving nothing. Its claim on the issue is checked here first (`claimFor`), and
-    // the event log's line comes back as `Orrery-Asked`. Allow and Deny stay here for now.
+    // the event log's line comes back as `Orrery-Asked`.
     {domain: 'a schedule, asked for', paths: /^projects\/[^/]+\/issues\/[^/]+\/schedule-requests$/, methods: ['POST'], first: {POST: claimOnComment}},
+    // The owner's Allow or Deny of it (ORR-1100): the schedule made or changed as theirs, and their answer a comment
+    // handed on quietly. The event log's line comes back as `Orrery-Answered`.
+    {domain: 'a schedule, answered', paths: /^projects\/[^/]+\/issues\/[^/]+\/schedule-requests\/[^/]+$/, methods: ['POST']},
     // A project's signals, read (ORR-1087): after an id, or the latest about an issue or milestone. Their delivery, the
     // stream and the listeners stay here, as they set what each session is doing.
     {domain: 'signals, reading', paths: /^projects\/[^/]+\/signals$/, methods: ['GET']},
@@ -445,6 +448,14 @@ export function askedOf(header: string | null): {project: string, issue: string,
     return {project, issue, schedule: schedule === '-' ? null : Number(schedule), fields: fields ? fields.split(',') : [], line}
 }
 
+/** The owner's answer to a session's ask for a schedule, as its reply says it (`Orrery-Answered`: `<project> <issue>
+ * <schedule or -> <fields> <allowed or denied> <line>`, each percent-encoded), for the event log's line (ORR-1100). */
+export function answeredOf(header: string | null): {project: string, issue: string, schedule: number | null, fields: string[], how: 'allowed' | 'denied', line: string} | undefined {
+    const [project, issue, schedule, fields, how, line, ...rest] = (header ?? '').trim().split(' ').map(decodeURIComponent)
+    if (!project || !issue || !schedule || fields === undefined || (how !== 'allowed' && how !== 'denied') || !line || rest.length) return undefined
+    return {project, issue, schedule: schedule === '-' ? null : Number(schedule), fields: fields ? fields.split(',') : [], how, line}
+}
+
 /** The issues an edit's reply says it made urgent open work (`Orrery-Urgent`, `<project> <issue>` percent-encoded, many
  * apart by commas), for the push to the sessions only this server can make (`sayUrgent`, ORR-927). */
 export function urgentOf(header: string | null): {project: string, issue: string}[] {
@@ -638,6 +649,9 @@ async function relayed(response: Response, actor: Actor, method: string, {noteKe
         const asked = askedOf(response.headers.get('orrery-asked'))
         if (asked) useEventLog().note({level: 'info', kind: 'schedule.asked', project: asked.project, message: `${actor.session ?? actor.name} asked on ${asked.issue} to ${asked.line}`,
             details: {issue: asked.issue, schedule: asked.schedule, fields: asked.fields}})
+        const answered = answeredOf(response.headers.get('orrery-answered'))
+        if (answered) useEventLog().note({level: 'info', kind: 'schedule.answered', project: answered.project, message: `${actor.name} ${answered.how} the request on ${answered.issue} to ${answered.line}`,
+            details: {issue: answered.issue, schedule: answered.schedule, fields: answered.fields, allowed: answered.how === 'allowed'}})
         if (relayHeaders) for (const {type, project, subject, from, to} of toldOf(response.headers.get('orrery-told'))) store.told(type, project, subject, actor, {from, to})
     })
     // Outside `relaying`: the signal and the bell's notice are this server's own, with their own rows in the outbox.
