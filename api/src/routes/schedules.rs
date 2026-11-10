@@ -30,6 +30,7 @@ pub(crate) fn routes() -> Router<Arc<App>> {
         .route("/api/schedules/across", get(schedules_across))
         .route("/api/schedules/across/{across}", delete(delete_across))
         .route(&format!("{P}/issues/{{issue}}/schedule-requests"), post(ask_schedule))
+        .route(&format!("{P}/issues/{{issue}}/schedule-requests/{{comment}}"), post(answer_schedule))
 }
 
 /// `POST …/issues/:issue/schedule-requests` {schedule, id?, why?} → 201 the comment asking (ORR-458, ORR-1100): a working
@@ -154,4 +155,36 @@ async fn delete_across(State(app): Shared, Path(across): Path<String>, headers: 
     schedules.outbox = Some(Outbox::new(actor.clone()));
     schedules.delete_across(&across, &actor).await?;
     Ok(reply(StatusCode::NO_CONTENT, None, std::mem::take(&mut schedules.effects)))
+}
+
+/// `POST …/issues/:issue/schedule-requests/:comment` {allow} → the comment asking, answered (ORR-458, ORR-1100): the
+/// owner allowing (the schedule is made or changed as theirs) or denying a session's request. Their answer is a comment
+/// of theirs, handed on quietly so it starts no session, and the event log's line comes back as `Orrery-Answered`
+/// (`<project> <issue> <schedule or -> <fields> <allowed or denied> <line>`, each percent-encoded).
+async fn answer_schedule(
+    State(app): Shared,
+    Path((project, issue, comment)): Path<(String, String, String)>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Response> {
+    let Some(allow) = body_of(&body).get("allow").and_then(Value::as_bool) else {
+        return Err(ApiError::bad_request("Send {\"allow\": true} or {\"allow\": false}"));
+    };
+    let Ok(comment) = comment.parse::<i64>() else {
+        return Err(ApiError::bad_request("Send the asking comment's id"));
+    };
+    let mut conn = app.pool.acquire().await?;
+    let actor = actor_of(&headers);
+    let answered = ScheduleRequests::new(&mut conn).answer(&app.database, &project, &issue, comment, allow, &actor).await?;
+    let mut response = reply(StatusCode::OK, Some(answered.comment.clone()), answered.effects);
+    for (header, said) in handoff_headers(&answered.handoff) {
+        response.headers_mut().insert(header, HeaderValue::from_str(&said).unwrap());
+    }
+    let encode = |s: &str| utf8_percent_encode(s, NON_ALPHANUMERIC).to_string();
+    let schedule = answered.schedule.map(|id| id.to_string()).unwrap_or_else(|| "-".into());
+    let issue = answered.comment["issue"].as_str().unwrap_or(&issue).to_string();
+    let how = if allow { "allowed" } else { "denied" };
+    let said = format!("{} {} {schedule} {} {how} {}", encode(&project), encode(&issue), encode(&answered.fields.join(",")), encode(&answered.line));
+    response.headers_mut().insert("orrery-answered", HeaderValue::from_str(&said).unwrap());
+    Ok(response)
 }

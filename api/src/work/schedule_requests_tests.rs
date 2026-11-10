@@ -101,3 +101,78 @@ fn says_what_it_asks_as_the_channel_does() {
     assert_eq!(ask_line(&change), "change schedule 3 (\"Daily\"): Presets to Reviewer, 9, Event filter to to: done, Notes to (none), Ask sessions to on");
     assert_eq!(js_string(&json!([1, null, "a"])), "1,,a");
 }
+
+async fn asked(api: &TestApi, project: &str, issue: &str, body: Value) -> i64 {
+    let reply = api.post(&path(project, issue), body).by_agent("claude").send().await;
+    assert_eq!(reply.status, 201, "{}", reply.body);
+    reply.body["id"].as_i64().unwrap()
+}
+
+fn answer(project: &str, issue: &str, comment: i64) -> String {
+    format!("{}/{comment}", path(project, issue))
+}
+
+#[tokio::test]
+async fn allowed_it_makes_the_schedule_the_owners() {
+    let api = TestApi::new().await;
+    let (project, issue) = api.board().await;
+    let comment =
+        asked(&api, &project, &issue, json!({"schedule": {"title": "Morning check", "kind": "message", "notes": "Look.", "cron": "0 9 * * 1-5"}})).await;
+    // A session can't allow its own.
+    let refused = api.post(&answer(&project, &issue, comment), json!({"allow": true})).by_agent("claude").send().await;
+    assert_eq!(refused.status, 403, "{}", refused.body);
+    assert_eq!(schedules(&api, &project).await, json!([]));
+    let reply = api.post(&answer(&project, &issue, comment), json!({"allow": true})).send().await;
+    assert_eq!(reply.status, 200, "{}", reply.body);
+    let made = schedules(&api, &project).await[0].clone();
+    assert_eq!(made["title"], "Morning check");
+    assert_eq!(made["kind"], "message");
+    assert_eq!(made["created_by"], "owner");
+    assert_eq!(reply.body["answered"], true);
+    assert_eq!(reply.body["schedule"]["state"], "allowed");
+    assert_eq!(reply.body["schedule"]["id"], made["id"]);
+    let comments = api.get(&format!("/api/projects/{project}/issues/{issue}/comments")).send().await.body;
+    let said = comments.as_array().unwrap().last().unwrap();
+    assert_eq!(said["body"], format!("Allowed: schedule {} (\"Morning check\") is saved as mine.", made["id"]));
+    // Handed on quietly, so it starts no session, and noted in the event log through the router.
+    assert!(reply.header("orrery-carry").unwrap().ends_with(" quiet"), "{:?}", reply.header("orrery-carry"));
+    assert!(reply.header("orrery-answered").unwrap().contains(" allowed make%20the%20schedule"));
+    let again = api.post(&answer(&project, &issue, comment), json!({"allow": false})).send().await;
+    assert_eq!(again.status, 409);
+    assert_eq!(again.body["message"], "That request is allowed already");
+}
+
+#[tokio::test]
+async fn denied_it_changes_nothing() {
+    let api = TestApi::new().await;
+    let (project, issue) = api.board().await;
+    let made = api
+        .post(&format!("/api/projects/{project}/schedules"), json!({"title": "Nightly", "kind": "message", "notes": "Hi", "cron": "0 2 * * *"}))
+        .send()
+        .await;
+    let id = made.body["id"].as_i64().unwrap();
+    let comment = asked(&api, &project, &issue, json!({"id": id, "schedule": {"enabled": false}})).await;
+    let reply = api.post(&answer(&project, &issue, comment), json!({"allow": false})).send().await;
+    assert_eq!(reply.status, 200, "{}", reply.body);
+    assert_eq!(reply.body["schedule"]["state"], "denied");
+    assert_eq!(schedules(&api, &project).await[0]["enabled"], true);
+    let comments = api.get(&format!("/api/projects/{project}/issues/{issue}/comments")).send().await.body;
+    let said = comments.as_array().unwrap().last().unwrap()["body"].as_str().unwrap().to_string();
+    assert!(said.starts_with(&format!("Denied: don't change schedule {id} (\"Nightly\"): Running to off.")), "{said}");
+}
+
+#[tokio::test]
+async fn an_expired_or_unknown_request_isnt_answered() {
+    let api = TestApi::new().await;
+    let (project, issue) = api.board().await;
+    let ask = json!({"schedule": {"title": "Weekly", "kind": "message", "notes": "A", "cron": "0 9 * * 1"}});
+    let first = asked(&api, &project, &issue, ask.clone()).await;
+    asked(&api, &project, &issue, ask).await;
+    let reply = api.post(&answer(&project, &issue, first), json!({"allow": true})).send().await;
+    assert_eq!(reply.status, 409);
+    assert_eq!(reply.body["message"], "That request is expired already: it was asked again since");
+    assert_eq!(api.post(&answer(&project, &issue, first), json!({"allow": "yes"})).send().await.status, 400);
+    assert_eq!(api.post(&format!("{}/x", path(&project, &issue)), json!({"allow": true})).send().await.status, 400);
+    assert_eq!(api.post(&answer(&project, &issue, 99999), json!({"allow": true})).send().await.status, 404);
+    assert_eq!(schedules(&api, &project).await, json!([]));
+}

@@ -51,7 +51,7 @@ export const WRITERS: Record<string, Writer> = {
     pull_repos: {nuxt: 'the GitHub poll (utils/pull-poll.ts keepPolled) only with no API in front; it sends its writes to /api/pulls otherwise', issue: 'ORR-1093'},
     pull_states: {nuxt: 'the GitHub poll (utils/pull-poll.ts keepPolled) only with no API in front; it sends its writes to /api/pulls otherwise', issue: 'ORR-1093'},
     releases: {nuxt: `${UPLOAD}, and ${PROJECT.nuxt}`, issue: 'ORR-1006'},
-    schedule_requests: {nuxt: "the owner's Allow and Deny of a session's ask (utils/schedule-requests.ts answerScheduleRequest), which the API asks", issue: 'ORR-1100'},
+    schedule_requests: {alone: "a session's ask for a schedule and the owner's Allow and Deny, both routed (ORR-1100)"},
     schedule_runs: SCHEDULES,
     schedules: SCHEDULES,
     schedules_across: SCHEDULES,
