@@ -13,8 +13,10 @@ import type {PullState} from '#shared/roadmap'
 import {PULL_NEEDS} from '#shared/roadmap'
 import type {EventEntry} from './event-log'
 import type {KeptPull, ListedPull, Pulls} from './pulls'
-import {GITHUB_SECRET, issueIdsIn, PAGE, PAGES, pullState} from './pulls'
+import {GITHUB_SECRET, issueIdsIn, PAGE, PAGES, pullState, repoPath} from './pulls'
 import type {Store} from './store'
+import {writeToApi} from './api-router'
+import {ORRERY} from '../store/schema'
 
 /** How often a repo is polled: with a token, and without one. */
 const POLL_EVERY = 60_000
@@ -422,11 +424,18 @@ export class PullPoll {
         }
     }
 
-    // The poll's writes, each one step, as the Rust API takes them from the local app once it's swapped in (ORR-952).
+    // The poll's writes, each one step (ORR-952): sent to the Rust API when it's in front, as it's the one writer of
+    // `pull_states`, `pull_repos` and `issue_pulls` then (ORR-1095); otherwise straight into the database here.
+
+    /** The step sent to the Rust API as orrery, `{reply}` once it's taken it; undefined leaves it to the database here. */
+    private async toApi(method: string, path: string, body: unknown): Promise<{reply: unknown} | undefined> {
+        return await writeToApi(method, path, body, ORRERY, {always: true})
+    }
 
     /** A repo's poll: each PR as read, those open when last seen and in neither list now kept as closed (not when the
      * open ones were cut short, `more`: those past the cut are still open, ORR-615), and the repo as polled. */
     async keepPolled(repo: string, polled: {at: string, token: boolean, more: boolean, pulls: PolledRow[]}) {
+        if (await this.toApi('PUT', `/api/pulls/${repoPath(repo)}`, polled)) return
         const {at, token, more, pulls} = polled
         const before = await this.store.db.all<{number: number, merged: number, closed: number}>('SELECT number, merged, closed FROM pull_states WHERE repo = ?', repo)
         for (const pull of pulls) {
@@ -454,16 +463,20 @@ export class PullPoll {
     /** What a repo's poll failed on: said on a repo read before; one never read stays unread, so its first good poll
      * still only records (ORR-525). */
     async keepFailed(repo: string, error: string) {
+        if (await this.toApi('PUT', `/api/pulls/${repoPath(repo)}/error`, {error})) return
         await this.store.db.run('UPDATE pull_repos SET error = ? WHERE repo = ?', error, repo)
     }
 
     /** The page of a repo's closed PRs to read next, 0 once they're all on their issues (ORR-795). */
     async keepHistory(repo: string, page: number) {
+        if (await this.toApi('PUT', `/api/pulls/${repoPath(repo)}/history`, {page})) return
         await this.store.db.run('UPDATE pull_repos SET history_page = ? WHERE repo = ?', page, repo)
     }
 
     /** Lets go of merged and closed PRs last seen before `before`, and of repos not in `repos`: those let go of. */
     async keepForgotten(repos: string[], before: string): Promise<string[]> {
+        const sent = await this.toApi('POST', '/api/pulls/forget', {repos, before})
+        if (sent) return (sent.reply as {gone: string[]}).gone
         await this.store.db.run('DELETE FROM pull_states WHERE (merged = 1 OR closed = 1) AND seen_at < ?', before)
         const gone = (await this.store.db.all<{repo: string}>('SELECT repo FROM pull_repos')).map(r => r.repo).filter(r => !repos.includes(r))
         for (const repo of gone) {
