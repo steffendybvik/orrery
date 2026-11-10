@@ -125,7 +125,6 @@ export const NOT_ROUTED: Readonly<Record<string, Line>> = {
     'PUT /api/pulls/{owner}/{name}/history': STORAGE,
     'PUT /api/pulls/{owner}/{name}/{number}': STORAGE,
     'POST /api/schedules': ORR_950,
-    'DELETE /api/schedules/across/{across}': ORR_950,
     'PATCH /api/schedules/across/{across}': ORR_950,
     'DELETE /api/secrets/{name}': SEALED,
     'PATCH /api/secrets/{name}': SEALED,

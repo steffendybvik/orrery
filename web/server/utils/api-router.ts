@@ -116,6 +116,8 @@ export const DOMAINS: readonly {domain: string, paths: RegExp, methods?: readonl
     {domain: 'a schedule, changed', paths: /^projects\/[^/]+\/schedules\/[^/]+$/, methods: ['PATCH']},
     // Making one (ORR-1082): it works out its first run, and starts no session.
     {domain: 'a schedule, made', paths: /^projects\/[^/]+\/schedules$/, methods: ['POST']},
+    // Deleting one across projects (ORR-1082), with the schedules made from it: it starts no session.
+    {domain: 'a schedule across projects, deleted', paths: /^schedules\/across\/[^/]+$/, methods: ['DELETE']},
     // Pausing or activating all of a project's (ORR-1082): it works out each next run, and starts no session.
     {domain: 'schedules, paused or activated', paths: /^projects\/[^/]+\/schedules\/enabled$/, methods: ['POST']},
     // A project's signals, read (ORR-1087): after an id, or the latest about an issue or milestone. Their delivery, the

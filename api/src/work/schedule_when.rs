@@ -22,11 +22,22 @@ pub struct When {
 /// The zone used when none is given: the server's, as `Intl.DateTimeFormat().resolvedOptions().timeZone` has it: `TZ`,
 /// else the machine's own zone, else UTC (a container with neither).
 fn server_zone() -> String {
-    std::env::var("TZ")
+    let zone = std::env::var("TZ")
         .ok()
         .filter(|tz| tz.parse::<Tz>().is_ok())
         .or_else(|| iana_time_zone::get_timezone().ok().filter(|tz| tz.parse::<Tz>().is_ok()))
-        .unwrap_or_else(|| "UTC".into())
+        .unwrap_or_else(|| "UTC".into());
+    utc_named(zone)
+}
+
+/// UTC under any of its other names (`Etc/UTC`, as a Linux machine has it, `Etc/GMT`, `Zulu`…) is `UTC`, as `Intl` names it.
+fn utc_named(zone: String) -> String {
+    const UTC: [&str; 9] = ["Etc/UTC", "Etc/GMT", "Etc/UCT", "Etc/Universal", "Etc/Zulu", "UCT", "Universal", "Zulu", "Etc/Greenwich"];
+    if UTC.contains(&zone.as_str()) {
+        "UTC".into()
+    } else {
+        zone
+    }
 }
 
 fn zone(timezone: &str) -> Option<Tz> {
@@ -164,5 +175,13 @@ mod tests {
             "\"timezone\" is \"Mars/Olympus\", not a timezone orrery knows (e.g. Europe/Oslo)"
         );
         assert_eq!(when(None, Some("tomorrow"), None, Some("UTC"), false).unwrap_err(), "\"at\" is \"tomorrow\", not a time (e.g. 2026-10-26T09:00:00+01:00)");
+    }
+
+    #[test]
+    fn names_utc_as_intl_does() {
+        for zone in ["Etc/UTC", "Etc/GMT", "Zulu", "UCT", "UTC"] {
+            assert_eq!(utc_named(zone.into()), "UTC", "{zone}");
+        }
+        assert_eq!(utc_named("Europe/Oslo".into()), "Europe/Oslo");
     }
 }
