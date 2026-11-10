@@ -1074,6 +1074,26 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         await change('an action, with its column', 1, {kind: 'action', column: 'done'})
         await both('changing one that isn\'t there', p => viaStore(() => schedules.update(on(p), 9999, {title: 'x'}, OWNER)), () => viaApi('PATCH', '/schedules/9999', {title: 'x'}, OWNER, 'through-api-timed'))
         expect(await nextRuns('through-api')).toEqual(await nextRuns('through-store'))
+        // Making one (ORR-1082): what doesn't check out, then an agent's and the owner's.
+        const make = (name: string, body: object, actor = OWNER) =>
+            both(name, p => viaStore(() => schedules.create(on(p), body, actor), 201), () => viaApi('POST', '/schedules', body, actor, 'through-api-timed'))
+        await make('making one with no title', {cron: '0 9 * * *'})
+        await make('making one with no time', {title: 'When?'})
+        await make('making one with two times', {title: 'Both', cron: '0 9 * * *', on: 'issue.created'})
+        await make('making one for a time gone by', {title: 'Late', at: '2000-01-01T00:00:00Z'})
+        await make('making a session schedule, as an agent', {kind: 'session', title: 'Work', cron: '0 9 * * *'}, AGENT)
+        await make('making an action with no column', {kind: 'action', title: 'Move', on: 'issue.created'})
+        await make('making a message with no words', {kind: 'message', title: 'Quiet', cron: '0 9 * * *'})
+        await make('making one in a milestone that isn\'t there', {title: 'M', cron: '0 9 * * *', milestone: 'nope'})
+        await make('making one with a preset that isn\'t there', {kind: 'message', title: 'P', notes: 'Hi.', cron: '0 9 * * *', presets: [9999]})
+        await make('making one that starts closed', {title: 'Shut', cron: '0 9 * * *', column: 'done'})
+        await make('making an agent\'s', {title: '  Sweep ', cron: '30 6 * * 1-5', timezone: 'UTC', labels: ['beds', 'beds', 'paths'], move_from: ['todo'], priority: 'P1', model: 'sonnet', effort: 'high'}, AGENT)
+        await make('making a paused message on an event', {kind: 'message', title: 'Hear', notes: 'Look.', on: 'issue.status', on_filter: {to: 'done', from: ''}, enabled: false, untrusted: true})
+        await make('making an action', {kind: 'action', title: 'Close', on: 'issue.status', column: 'done', skip_open: false, ask: true})
+        await make('making one once', {title: 'Later', at: '2099-06-01T09:00:00Z', only_if_changed: true})
+        await both('making one in a project that isn\'t there', () => viaStore(() => schedules.create('nowhere', {title: 'x', cron: '0 9 * * *'}, OWNER), 201), () => viaApi('POST', '/schedules', {title: 'x', cron: '0 9 * * *'}, OWNER, 'nowhere'))
+        expect(await nextRuns('through-api')).toEqual(await nextRuns('through-store'))
+        expect(domainOf('POST', '/api/projects/p/schedules')).toBe('a schedule, made')
         expect(domainOf('PATCH', '/api/projects/p/schedules/3')).toBe('a schedule, changed')
         expect(domainOf('POST', '/api/projects/p/schedules/enabled')).toBe('schedules, paused or activated')
         expect(domainOf('DELETE', '/api/projects/p/schedules/3')).toBe('a schedule, deleted')
@@ -3283,7 +3303,7 @@ describe('the router', () => {
     })
 
     it('routes by a table with a line per domain, so taking one back is taking its line out (ORR-925)', () => {
-        expect(DOMAINS.map(({domain}) => domain)).toEqual(['docs', 'statuses', 'permissions', 'issues, reading', 'comments', 'an issue, deleted', 'an issue, made', 'an issue, its words', 'issues, changed at once', 'a proposal, decided', 'claims', 'activity', 'milestones', 'releases', 'releases, every project\'s', 'people', 'invites', 'keys', 'logins', 'uploads, reading', 'an upload, kept', 'presets', 'secrets, reading', 'settings', 'a pull request, reading', "a pull request's risk", 'schedules, reading', 'a schedule, adopted', 'a schedule, deleted', 'a schedule, changed', 'schedules, paused or activated', 'signals, reading', 'projects, listed', 'a project, made', 'a project, changed', 'a project, read', 'a project, deleted', 'a project, exported', 'a project, imported', 'the bell', 'epics', 'milestone and epic comments'])
+        expect(DOMAINS.map(({domain}) => domain)).toEqual(['docs', 'statuses', 'permissions', 'issues, reading', 'comments', 'an issue, deleted', 'an issue, made', 'an issue, its words', 'issues, changed at once', 'a proposal, decided', 'claims', 'activity', 'milestones', 'releases', 'releases, every project\'s', 'people', 'invites', 'keys', 'logins', 'uploads, reading', 'an upload, kept', 'presets', 'secrets, reading', 'settings', 'a pull request, reading', "a pull request's risk", 'schedules, reading', 'a schedule, adopted', 'a schedule, deleted', 'a schedule, changed', 'a schedule, made', 'schedules, paused or activated', 'signals, reading', 'projects, listed', 'a project, made', 'a project, changed', 'a project, read', 'a project, deleted', 'a project, exported', 'a project, imported', 'the bell', 'epics', 'milestone and epic comments'])
         expect(domainOf('PATCH', '/api/projects/p/docs/d')).toBe('docs')
         expect(domainOf('head', '/api/projects/p/doc-sections/')).toBe('docs')
         for (const method of ['POST', 'DELETE']) expect(domainOf(method, '/api/projects/p/issues/P-1/claim'), method).toBe('claims')
@@ -3432,7 +3452,7 @@ describe('the contract (api/openapi.yaml)', () => {
     const routes = () => [...new Set([...nuxtRoutes(), ...rustRoutes()])].sort().filter(route => servedByApi(methodOf(route), pathOf(route)))
 
     it('has every route the router sends to the API, and no other', () => {
-        expect(contract()).toHaveLength(107)
+        expect(contract()).toHaveLength(108)
         expect(contract()).toEqual(routes())
     })
 

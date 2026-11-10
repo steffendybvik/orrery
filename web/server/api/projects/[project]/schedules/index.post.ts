@@ -1,3 +1,0 @@
-// `POST /api/projects/:project/schedules` {title, notes?, cron | at, timezone?, column?, milestone?, priority?,
-// labels?, ask?, skip_open?, only_if_changed?, enabled?, model?, effort?} → the schedule, with its next run worked out.
-export default defineEventHandler(async event => created(event, await useScheduler().create(param(event, 'project'), await readBody(event), await actorOf(event))))
