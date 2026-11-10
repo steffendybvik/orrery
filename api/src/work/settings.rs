@@ -68,7 +68,7 @@ pub(crate) fn hex(n: usize) -> String {
 }
 
 /// The 403 for a session changing them, as `ownerOnly(actor, 'settings.write')` words it.
-fn owner_only(actor: &Actor) -> Result<()> {
+pub(crate) fn owner_only(actor: &Actor) -> Result<()> {
     if actor.owner {
         return Ok(());
     }
