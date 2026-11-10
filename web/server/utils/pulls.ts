@@ -12,6 +12,8 @@ import type {AllPulls, IssuePulls, OpenPull, PastPull, PullIssues, PullRequest, 
 import {PULL_NEEDS, RISK_LEVELS, githubRepo, highestRisk} from '#shared/roadmap'
 import {badRequest, checkInput, conflict, notFound} from './input'
 import type {Store} from './store'
+import {writeToApi} from './api-router'
+import {ORRERY} from '../store/schema'
 
 /** The secret orrery sends to api.github.com, when there's one that may go there. */
 export const GITHUB_SECRET = 'GITHUB_TOKEN'
@@ -253,6 +255,10 @@ export class Pulls {
      * on every issue in that release too (ORR-913): its body names none, and its branch is the release's. Only kept: what
      * a PR does next (merged, failing) still goes to the issue it names, so a release PR's news goes to none. */
     async remember(repo: string, projects: string[], pull: RememberedPull) {
+        // Through the Rust API when it's in front, as it's the one writer of `issue_pulls` then (ORR-1095).
+        const {title, url, branch, base, author, merged, closed, merged_at, created_at, updated_at, names} = pull
+        const body = {projects, names, title, url, branch, base, author, merged, closed, merged_at, created_at, updated_at}
+        if (await writeToApi('PUT', `/api/pulls/${repoPath(repo)}/${pull.number}`, body, ORRERY, {always: true})) return
         const issues = new Map<string, {project: string, id: string}>()
         for (const name of pull.names) {
             const issue = await this.issueOf(projects, [name])
@@ -626,4 +632,9 @@ export function pullsPage(all: AllPulls, query: {page?: unknown, limit?: unknown
     const limit = Math.min(counted(query.limit, PULLS_PAGE), PULLS_PAGE_MOST)
     const page = Math.min(counted(query.page, 1), Math.max(1, Math.ceil(found.length / limit)))
     return {...all, ...searched, pulls: found.slice((page - 1) * limit, page * limit), page, limit}
+}
+
+/** `owner/name` as a path, each part percent-encoded. */
+export function repoPath(repo: string): string {
+    return repo.split('/').map(encodeURIComponent).join('/')
 }
