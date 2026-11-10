@@ -349,3 +349,24 @@ async fn with_several_projects_an_issues_id_says_which() {
     let unnamed = said(&tool(&api, "create_issue", json!({"title": "Where?"})).send().await).to_string();
     assert_eq!(unnamed, "orrery said no: Say which project: alpha, beta");
 }
+
+#[tokio::test]
+async fn comment_epic_posts_on_the_epic() {
+    let api = TestApi::new().await;
+    api.project("alpha").await;
+    tool(&api, "create_epic", json!({"title": "Big thing"})).send().await;
+    let commented = said(&tool(&api, "comment_epic", json!({"id": "1", "body": "Going well."})).send().await).to_string();
+    assert!(commented.starts_with("Commented on epic 1 (comment ") && commented.ends_with(")."), "{commented}");
+}
+
+#[tokio::test]
+async fn rate_pull_reads_the_pr_as_the_channel_does_and_asks_its_route() {
+    let api = TestApi::new().await;
+    let (_, issue) = api.board().await;
+    let rate = |pull: Value| tool(&api, "rate_pull", json!({"id": issue, "pull": pull, "level": "high", "why": "touches signals"}));
+    // No PR is kept here, so the route refuses: what it names shows the link was read as the channel reads it.
+    let refused = said(&rate(json!("https://github.com/ada/primes/pull/12")).send().await).to_string();
+    assert!(refused.starts_with(&format!("orrery said no: orrery keeps no pull request #12 on ada/primes for {issue}")), "{refused}");
+    assert_eq!(said(&rate(json!("ada/primes#12")).send().await), refused);
+    assert_eq!(said(&rate(json!("twelve")).send().await), "Give the PR as owner/name#number or its link, not \"twelve\"");
+}
