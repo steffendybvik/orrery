@@ -7,6 +7,7 @@ use std::sync::Arc;
 pub(crate) mod auth;
 pub(crate) mod changes;
 pub(crate) mod chats;
+pub(crate) mod database;
 pub(crate) mod docs;
 pub(crate) mod epics;
 pub(crate) mod issues;
@@ -55,5 +56,6 @@ pub(crate) fn all() -> Router<Arc<App>> {
         .merge(uploads::routes())
         .merge(usage::routes())
         .merge(changes::routes())
+        .merge(database::routes())
         .merge(mcp::routes())
 }

@@ -3,8 +3,13 @@
 // schedules), on start and as the server closes; when, and when not, is the scheduler's (utils/backup-scheduler.ts). A
 // Postgres one, or one into Postgres, is copied whole each time, so it waits a minute after a change instead of a few
 // seconds, for the rest that come with it.
+import {ORRERY as ORRERY_ACTOR} from '../store/schema'
+
 export default defineNitroPlugin(nitro => {
     const log = useEventLog()
+    // With the Rust API in front, it takes the SQLite copy, as the one on the database (ORR-1097); this server checks
+    // it and puts it in place. With none, or one that can't be reached with the swap off, it's taken here.
+    snapshotsBy(async to => !!await writeToApi('POST', '/api/database/snapshot', {to}, ORRERY_ACTOR, {always: true}))
     const backups = new BackupScheduler({
         target: backupTarget,
         fresh: () => isFresh(useDatabase()),
@@ -38,6 +43,8 @@ export default defineNitroPlugin(nitro => {
         log.note({level: 'warn', kind: 'database.empty', message, details: {backups: found.length}})
     }
     nitro.hooks.hook('close', async () => {
+        // The last backup, as it closes, is taken here: the API may be stopping too.
+        snapshotsBy(null)
         await backups.close()
         await closeBackupDb()
     })

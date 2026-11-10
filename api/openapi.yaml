@@ -1256,6 +1256,27 @@ paths:
       description: The local app's alone (ORR-1096), once it's checked the owner asked. Nothing when there's none.
       responses:
         '204': {description: Gone}
+  /api/database/snapshot:
+    post:
+      x-served: false
+      summary: Writes a copy of the database for a backup
+      description: >-
+        The local app's alone (ORR-1097): a SQLite copy of the database, written with `VACUUM INTO` to `to`, a
+        `.partial` file not there yet in a folder that is. The local app checks it, puts it in place and lets old ones
+        go. A Postgres database is the local app's to snapshot still (409).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [to]
+              properties:
+                to: {type: string, description: 'An absolute path to a `.partial` file'}
+      responses:
+        '204': {description: Written}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '409': {$ref: '#/components/responses/Conflict'}
   /api/secrets/{name}/uses:
     parameters:
       - {name: name, in: path, required: true, description: 'The secret''s name: capitals, digits and `_`', schema: {type: string}}

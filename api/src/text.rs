@@ -84,8 +84,10 @@ pub fn match_of(body: &str, words: &[String]) -> String {
     let len = chars.len();
     let mut start = at.saturating_sub(60);
     let mut end = (at + 100).min(len);
+    // Up to a space, but only one before the match: one past it (a long URL, a table row) would cut the match off, or
+    // pass the snippet's end (ORR-1111).
     if start > 0 {
-        start = index_of(&chars, &[' '], start).map(|i| i + 1).unwrap_or(start)
+        start = index_of(&chars, &[' '], start).filter(|i| *i < at).map(|i| i + 1).unwrap_or(start)
     }
     if end < len {
         let space = chars[..=end.min(len - 1)].iter().rposition(|c| *c == ' ');
@@ -210,6 +212,17 @@ mod tests {
         let body = "Issues get the project's **prefix** and a number, [handed out](https://x.y) by `orrery`.\nNever reused.";
         assert!(match_of(body, &["reused".into()]).contains("Never reused."));
         assert_eq!(match_of("nothing", &["else".into()]), "");
+    }
+
+    #[test]
+    fn a_match_in_a_long_run_without_spaces_keeps_its_snippet() {
+        // No space from 60 before the match until past its 100 after: the start stays put (ORR-1111).
+        let body = format!("Lead in {}backup{} tail", "x".repeat(80), "y".repeat(200));
+        let found = match_of(&body, &["backup".into()]);
+        assert!(found.contains("backup") && found.starts_with('…') && found.ends_with('…'), "{found}");
+        // A space past the match isn't taken for the start either.
+        let found = match_of(&format!("{}backup and more", "z".repeat(70)), &["backup".into()]);
+        assert!(found.contains("backup"), "{found}");
     }
 
     #[test]
