@@ -290,3 +290,62 @@ async fn epics_are_made_changed_and_listed() {
     assert_eq!(said(&tool(&api, "update_epic", json!({"id": "1", "title": "Bigger"})).send().await), "Epic 1 is now: Bigger");
     assert_eq!(said(&chat("epics", json!({})).send().await), "1 Bigger: 0 issues, 0/0 done");
 }
+
+#[tokio::test]
+async fn issues_are_made_listed_changed_and_commented_on_through_their_routes() {
+    let api = TestApi::new().await;
+    api.project("alpha").await;
+    assert_eq!(said(&tool(&api, "issues", json!({})).send().await), "No issues match.");
+    let made = said(&tool(&api, "create_issue", json!({"title": "Sieve", "status": "todo", "priority": "P1"})).send().await).to_string();
+    assert!(made.starts_with("Made ") && made.ends_with(" [todo, P1] Sieve"), "{made}");
+    let id = made.trim_start_matches("Made ").split(' ').next().unwrap().to_string();
+    assert_eq!(said(&tool(&api, "issues", json!({})).send().await), format!("{id} [todo, P1] Sieve"));
+    let changed = said(&tool(&api, "update_issue", json!({"id": id, "assignee": "claude"})).send().await).to_string();
+    assert_eq!(changed, format!("Now {id} [todo, P1, claude] Sieve"));
+    let edited = said(&tool(&api, "edit_issue", json!({"id": id, "title": "Wheel"})).header("orrery-actor-kind", "chat").send().await).to_string();
+    assert_eq!(edited, format!("Now {id} [todo, P1, claude] Wheel"));
+    let commented = said(&tool(&api, "comment", json!({"id": id, "body": "On it.", "asks": "decision"})).send().await).to_string();
+    assert!(commented.starts_with(&format!("Commented on {id} (comment ")) && commented.ends_with("), asking the owner for a decision."), "{commented}");
+    let plain = said(&tool(&api, "comment", json!({"id": id, "body": "Done."})).send().await).to_string();
+    assert!(plain.ends_with(")."), "{plain}");
+}
+
+#[tokio::test]
+async fn a_work_sessions_list_leaves_out_backlog_and_finished_issues_but_says_so() {
+    let api = TestApi::new().await;
+    let project = api.project("alpha").await;
+    api.issue(&project, json!({"title": "Someday"})).await;
+    api.issue(&project, json!({"title": "Shipped", "status": "done"})).await;
+    assert_eq!(said(&tool(&api, "issues", json!({})).send().await), "No issues match.\n1 in backlog not shown: status: backlog lists them");
+    let chat = said(&tool(&api, "issues", json!({})).header("orrery-actor-kind", "chat").send().await).to_string();
+    assert!(chat.ends_with("[backlog] Someday"), "the chat keeps backlog: {chat}");
+    let every = said(&tool(&api, "issues", json!({"open": false})).send().await).to_string();
+    assert!(every.contains("Shipped") && every.contains("Someday"), "{every}");
+    let done = said(&tool(&api, "issues", json!({"status": "done"})).send().await).to_string();
+    assert!(done.ends_with("[done] Shipped"), "{done}");
+}
+
+#[tokio::test]
+async fn a_search_says_where_it_found_a_word_but_never_quotes_it_to_an_untrusted_session() {
+    let api = TestApi::new().await;
+    let project = api.project("alpha").await;
+    api.issue(&project, json!({"title": "Sieve", "status": "todo", "notes": "Find the primes below a million."})).await;
+    let found = said(&tool(&api, "issues", json!({"q": "million"})).send().await).to_string();
+    assert!(found.contains("\n    in its description: "), "{found}");
+    let untrusted = said(&tool(&api, "issues", json!({"q": "million"})).untrusted().send().await).to_string();
+    assert!(untrusted.ends_with("\n    in its description"), "{untrusted}");
+}
+
+#[tokio::test]
+async fn with_several_projects_an_issues_id_says_which() {
+    let api = TestApi::new().await;
+    let alpha = api.project("alpha").await;
+    api.project("beta").await;
+    let id = api.issue(&alpha, json!({"title": "Sieve", "status": "todo"})).await;
+    let changed = said(&tool(&api, "update_issue", json!({"id": id, "priority": "P2"})).send().await).to_string();
+    assert_eq!(changed, format!("Now {id} [todo, P2] Sieve"));
+    let stranger = said(&tool(&api, "comment", json!({"id": "ZZZ-1", "body": "Hi"})).send().await).to_string();
+    assert_eq!(stranger, "orrery said no: ZZZ-1 isn't an issue of alpha, beta: its key is none of theirs");
+    let unnamed = said(&tool(&api, "create_issue", json!({"title": "Where?"})).send().await).to_string();
+    assert_eq!(unnamed, "orrery said no: Say which project: alpha, beta");
+}

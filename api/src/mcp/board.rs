@@ -1,7 +1,8 @@
 // The board's tools at `/mcp` (ORR-1099), each as channel/tools.mjs runs it: a call to one of this API's own routes,
 // as the channel calls the REST API, and its answer in the channel's words. A route is run through `routes::all()` with
 // its rails (access/rails.rs), as whoever called `/mcp` (their `Orrery-*` headers, which the guard already checked), so
-// a tool can do only what that route lets them. So far: docs, presets, milestones, releases and epics.
+// a tool can do only what that route lets them. So far: docs, presets, milestones,
+// releases, epics, and issues (listed, made, changed, commented on).
 use crate::{access, routes, App};
 use axum::body::Body;
 use axum::extract::Request;
@@ -85,6 +86,126 @@ impl Api<'_> {
             Some(p) if !self.projects.iter().any(|x| x == p) => Err(No(format!("This server serves {listed}, not {p}"))),
             Some(p) => Ok(p.to_string()),
         }
+    }
+
+    /// The project a call is on when it may name an issue (`id` or `issue`), as `projectOf` has it: the only one;
+    /// else the issue's, by its id's key; else the one it names.
+    async fn project_of_issue(&self, args: &Value) -> std::result::Result<String, No> {
+        if self.projects.len() == 1 {
+            return Ok(self.projects[0].clone());
+        }
+        let named = str_of(args, "project").filter(|p| !p.is_empty());
+        let reference = str_of(args, "id").or_else(|| str_of(args, "issue"));
+        if let (None, Some(reference)) = (named, reference) {
+            let shaped = reference.split_once('-').is_some_and(|(key, n)| {
+                key.chars().next().is_some_and(|c| c.is_ascii_alphabetic())
+                    && key.chars().all(|c| c.is_ascii_alphanumeric())
+                    && !n.is_empty()
+                    && n.chars().all(|c| c.is_ascii_digit())
+            });
+            if shaped {
+                let key = reference.split('-').next().unwrap_or_default().to_uppercase();
+                let found = self
+                    .list("/api/projects")
+                    .await?
+                    .into_iter()
+                    .find(|p| p["key"].as_str() == Some(key.as_str()) && self.projects.iter().any(|x| p["id"].as_str() == Some(x)));
+                return match found {
+                    Some(project) => Ok(text(&project["id"])),
+                    None => Err(No(format!("{reference} isn't an issue of {}: its key is none of theirs", self.projects.join(", ")))),
+                };
+            }
+        }
+        self.project_of(args)
+    }
+
+    fn issue_path(&self, project: &str, id: &str) -> String {
+        format!("{}/issues/{}", self.at(project), enc(id))
+    }
+
+    async fn issues(&self, args: &Value) -> Said {
+        // Made before the first await: the serializer isn't Send.
+        let query = {
+            let mut query = url::form_urlencoded::Serializer::new(String::new());
+            for key in ["status", "assignee", "milestone", "release", "label", "external", "blocked", "q"] {
+                if let Some(value) = args.get(key) {
+                    query.append_pair(key, &text(value));
+                }
+            }
+            if args.get("q").is_some_and(truthy) {
+                query.append_pair("in", "all");
+            }
+            query.finish()
+        };
+        let mut issues = self.list(&format!("{}/issues?{query}", self.at(&self.project_of(args)?))).await?;
+        let filtered = args.get("status").is_some_and(truthy);
+        if args["open"] != false && !filtered {
+            issues.retain(|i| i["kind"] != "done" && i["kind"] != "canceled");
+        }
+        let actor = crate::request::actor_of(self.headers);
+        // A work session lists only what it could take up: backlog is mostly proposals and research (ORR-545).
+        let backlog = if actor.chat || args["open"] == false || filtered { 0 } else { issues.iter().filter(|i| i["kind"] == "backlog").count() };
+        if backlog > 0 {
+            issues.retain(|i| i["kind"] != "backlog");
+        }
+        let mut shown = 0;
+        let said: Vec<String> = issues
+            .iter()
+            .map(|i| {
+                let Some(within) = i["match_in"].as_str().filter(|m| !m.is_empty()) else { return line(i) };
+                let mut said = format!("{}\n    in its {within}", line(i));
+                if let Some(found) = i["match"].as_str().filter(|m| !m.is_empty() && !actor.untrusted) {
+                    shown += 1;
+                    if shown <= MATCHES_SHOWN {
+                        said.push_str(&format!(": {found}"));
+                    }
+                }
+                said
+            })
+            .collect();
+        let mut parts = vec![if said.is_empty() { "No issues match.".to_string() } else { said.join("\n") }];
+        if backlog > 0 {
+            parts.push(format!("{backlog} in backlog not shown: status: backlog lists them"));
+        }
+        Ok(parts.join("\n"))
+    }
+
+    async fn create_issue(&self, args: &Value) -> Said {
+        let mut fields = args.as_object().cloned().unwrap_or_default();
+        let proposal = fields.remove("proposal").is_some_and(|p| truthy(&p));
+        fields.remove("project");
+        if proposal {
+            fields.insert("proposal".into(), json!("pending"));
+        }
+        let project = self.project_of(&json!({"project": args.get("project")}))?;
+        let issue = self.call(Method::POST, &format!("{}/issues", self.at(&project)), Some(Value::Object(fields))).await?;
+        Ok(format!("Made {}", line(&issue)))
+    }
+
+    /// `update_issue` and `edit_issue`: the fields sent, on the issue `id`.
+    async fn change_issue(&self, args: &Value) -> Said {
+        let mut fields = args.as_object().cloned().unwrap_or_default();
+        let id = fields.remove("id").map(|i| text(&i)).unwrap_or_default();
+        let project = self.project_of_issue(&json!({"id": id})).await?;
+        let issue = self.call(Method::PATCH, &self.issue_path(&project, &id), Some(Value::Object(fields))).await?;
+        Ok(format!("Now {}", line(&issue)))
+    }
+
+    async fn comment(&self, args: &Value) -> Said {
+        let id = text(&args["id"]);
+        let project = self.project_of_issue(&json!({"id": id})).await?;
+        let mut body = json!({"body": args.get("body").cloned().unwrap_or(Value::Null)});
+        let asks = args.get("asks").filter(|a| truthy(a)).cloned();
+        if let Some(asks) = &asks {
+            body["asks"] = asks.clone();
+        }
+        let posted = self.call(Method::POST, &format!("{}/comments", self.issue_path(&project, &id)), Some(body)).await?;
+        let asking = match asks.as_ref().and_then(Value::as_str) {
+            Some("decision") => ", asking the owner for a decision".to_string(),
+            Some(_) => ", asking the owner for feedback".to_string(),
+            None => String::new(),
+        };
+        Ok(format!("Commented on {id} (comment {}){asking}.", text(&posted["id"])))
     }
 
     fn at(&self, project: &str) -> String {
@@ -309,9 +430,30 @@ impl Api<'_> {
             "epics" => self.epics().await,
             "create_epic" => self.create_epic(args).await,
             "update_epic" => self.update_epic(args).await,
+            "issues" => self.issues(args).await,
+            "create_issue" => self.create_issue(args).await,
+            "update_issue" | "edit_issue" => self.change_issue(args).await,
+            "comment" => self.comment(args).await,
             _ => return None,
         })
     }
+}
+
+/// How many of a search's hits in the text `issues` quotes (ORR-641), as the channel's `MATCHES_SHOWN`.
+const MATCHES_SHOWN: usize = 15;
+
+/// An issue in a line, as the channel's `line`: its id, status, priority and assignee, title, proposal and blockers.
+fn line(i: &Value) -> String {
+    let tags: Vec<String> = ["status", "priority", "assignee"].iter().filter(|k| truthy(&i[**k])).map(|k| text(&i[*k])).collect();
+    let mut said = format!("{} [{}] {}", text(&i["id"]), tags.join(", "), text(&i["title"]));
+    if truthy(&i["proposal"]) {
+        said.push_str(&format!(" (proposal: {})", text(&i["proposal"])));
+    }
+    let blockers: Vec<String> = i["blocked_by"].as_array().into_iter().flatten().map(text).collect();
+    if !blockers.is_empty() {
+        said.push_str(&format!(" (blocked by {})", blockers.join(", ")));
+    }
+    said
 }
 
 /// A value as JavaScript's template string writes it.
