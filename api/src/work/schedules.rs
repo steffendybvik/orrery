@@ -1,12 +1,17 @@
 // The schedules (ORR-930, ORR-950): what `list`, `get` and `listAcross` in web/server/utils/schedules.ts do, answering
 // as their `GET` routes do; and of its writes, the owner making one theirs (`adopt`), deleting one (`delete`), and
-// pausing or activating all of a project's at once (`set_all_enabled`, ORR-1082). Each write says the project's
-// schedules changed (`Effects::schedules`), so the local app's scheduler reads them again. Making and changing one, and
+// pausing or activating all of a project's at once (`set_all_enabled`, ORR-1082), and changing one (`update`). Each write says the project's
+// schedules changed (`Effects::schedules`), so the local app's scheduler reads them again. Making one, and
 // running them, stay the Nuxt server's for now.
+use crate::board::issue_edits::resolve_status;
+use crate::board::issues::Issues;
+use crate::board::milestones::Milestones;
+use crate::board::statuses::Statuses;
 use crate::changes::{self, Outbox};
 use crate::db::sql;
 use crate::error::{ApiError, Result};
-use crate::work::presets::server_id;
+use crate::work::presets::{server_id, Presets};
+use crate::work::schedule_input::check_input;
 use crate::work::schedule_when::{next_run, when};
 use crate::write::{stamp, Actor, Effects};
 use serde_json::{json, Map, Value};
@@ -88,6 +93,30 @@ fn toggled(row: &AnyRow, enabled: bool) -> std::result::Result<Toggled, String> 
         text("next_run")
     };
     Ok(Toggled { cron: when.cron, at: when.at, on: when.on, on_filter, timezone: when.timezone, enabled, next_run })
+}
+
+/// The statuses' kinds, which `move_from` may name instead of a status.
+const STATUS_KINDS: [&str; 5] = ["backlog", "todo", "started", "done", "canceled"];
+
+/// What each kind needs (`checkKind`): a message has words, its own or a preset's; a session is the owner's to start, as
+/// it works as them; an action is too, and needs an event to move what it's about; only a message is untrusted.
+fn check_kind(kind: &str, notes: Option<&str>, presets: &str, untrusted: bool, actor: &Actor, on: Option<&str>) -> Result<()> {
+    if kind == "message" && notes.map_or(true, |n| n.trim().is_empty()) && presets == "[]" {
+        return Err(ApiError::bad_request("A message schedule needs its message in \"notes\", or a preset in \"presets\""));
+    }
+    if kind == "session" && !actor.owner {
+        return Err(ApiError::refused_for("schedules.session", "Only the owner makes a session schedule: it starts work as them; send Orrery-Actor: <owner>"));
+    }
+    if kind == "action" && !actor.owner {
+        return Err(ApiError::refused_for("schedules.action", "Only the owner makes an action schedule: it moves issues as them; send Orrery-Actor: <owner>"));
+    }
+    if kind == "action" && on.is_none() {
+        return Err(ApiError::bad_request("An action schedule moves what an event is about: send \"on\", not \"cron\" or \"at\""));
+    }
+    if untrusted && kind != "message" {
+        return Err(ApiError::bad_request("Only a message schedule is untrusted: send \"kind\": \"message\", or \"untrusted\": false"));
+    }
+    Ok(())
 }
 
 /// The 403 for anyone but the owner, as `ownerOnly(actor, 'schedules.enabled')` words it.
@@ -206,6 +235,197 @@ impl<'c> Schedules<'c> {
             changed.push(self.get(project, &id.to_string(), uid).await?);
         }
         Ok(json!({"changed": changed, "failed": failed}))
+    }
+
+    /// Changes the schedule (`update`, `toUpdate`): checked as Schedules checks it, the owner's only by the owner, and one
+    /// made from a schedule across projects only paused or resumed here. Changing when it runs, or turning it back on,
+    /// works out its next run again; setting one of cron, at and on lets go of the others.
+    pub async fn update(&mut self, project: &str, sent: &str, body: &Value, uid: &str, actor: &Actor) -> Result<Value> {
+        let id = server_id("sch-", "schedule", sent, uid)?;
+        let row = sqlx::query(&sql(&format!("SELECT {COLUMNS} FROM schedules WHERE project = ? AND id = ?")))
+            .bind(project)
+            .bind(id)
+            .fetch_optional(&mut *self.conn)
+            .await?
+            .ok_or_else(|| ApiError::not_found(format!("No schedule {id} in {project}")))?;
+        let text = |key: &str| row.get::<Option<String>, _>(key);
+        let flag = |key: &str| row.get::<i64, _>(key) != 0;
+        if flag("owned") && !actor.owner {
+            return Err(ApiError::refused_for("schedules.owners", format!("Changing schedule {id}: it's the owner's; only they can change it")));
+        }
+        if let Some(across) = row.get::<Option<i64>, _>("across").filter(|a| *a != 0) {
+            if body.as_object().is_some_and(|b| b.keys().any(|k| k != "enabled")) {
+                return Err(ApiError::conflict(format!("Schedule {id} is made from schedule across projects {across}: change it there, or pause it here")));
+            }
+        }
+        let input = check_input(body, true)?;
+        let sent = |key: &str| input.get(key);
+        let given = |key: &str| sent(key).and_then(Value::as_str).filter(|s| !s.is_empty());
+        let timing = ["cron", "at", "on", "timezone"].iter().any(|k| sent(k).is_some());
+        // Setting one of cron, at and on lets go of the others.
+        let pick = |key: &str, others: [&str; 2], column: &str| match sent(key) {
+            Some(value) => value.as_str().map(String::from),
+            None if others.iter().any(|o| given(o).is_some()) => None,
+            None => text(column),
+        };
+        let cron = pick("cron", ["at", "on"], "cron");
+        let at = pick("at", ["cron", "on"], "at");
+        let on = pick("on", ["cron", "at"], "on_event");
+        let timezone = sent("timezone").and_then(Value::as_str).map(String::from).or_else(|| text("timezone"));
+        let when = when(cron.as_deref(), at.as_deref(), on.as_deref(), timezone.as_deref(), timing).map_err(ApiError::bad_request)?;
+        // `filterOf`: an event schedule's filter, none on a clock's.
+        let filter = match sent("on_filter") {
+            Some(value) => value.as_str().map(String::from),
+            None => text("on_filter"),
+        };
+        let on_filter = filter.filter(|f| when.on.is_some() && f != "{}");
+        let enabled = sent("enabled").and_then(Value::as_bool).unwrap_or(flag("enabled"));
+        let next = if !enabled {
+            None
+        } else if timing || !flag("enabled") || text("next_run").is_none() {
+            next_run(&when, chrono::Utc::now())
+        } else {
+            text("next_run")
+        };
+        let was: String = row.get("kind");
+        let kind = given("kind").map(String::from).unwrap_or_else(|| was.clone());
+        let notes = match sent("notes") {
+            Some(value) => value.as_str().filter(|n| !n.is_empty()).map(String::from),
+            None => text("notes"),
+        };
+        let presets = if sent("presets").is_none() && kind == was {
+            row.get::<String, _>("presets")
+        } else if kind == "issue" || kind == "action" {
+            "[]".into()
+        } else {
+            let ids = match sent("presets") {
+                Some(value) => value.as_str().unwrap_or("[]").to_string(),
+                None => row.get::<String, _>("presets"),
+            };
+            self.usable_presets(project, &ids).await?;
+            ids
+        };
+        let untrusted = sent("untrusted").and_then(Value::as_bool).unwrap_or(flag("untrusted"));
+        check_kind(&kind, notes.as_deref(), &presets, untrusted, actor, when.on.as_deref())?;
+        if kind == "action" && was != "action" && sent("column").is_none() {
+            return Err(ApiError::bad_request("An action schedule moves issues to a status: send it in \"column\""));
+        }
+        let mut set: Vec<(&str, Value)> = vec![];
+        if let Some(kind) = sent("kind") {
+            set.push(("kind", kind.clone()));
+        }
+        if let Some(title) = sent("title").and_then(Value::as_str) {
+            set.push(("title", json!(title.trim())));
+        }
+        if sent("notes").is_some() {
+            set.push(("notes", json!(notes)));
+        }
+        set.extend([
+            ("cron", json!(when.cron)),
+            ("at", json!(when.at)),
+            ("on_event", json!(when.on)),
+            ("on_filter", json!(on_filter)),
+            ("presets", json!(presets)),
+            ("timezone", json!(when.timezone)),
+        ]);
+        // A status an action schedule moved issues to may be closed, which is no place for another kind's issues to start.
+        if let Some(column) = sent("column").and_then(Value::as_str) {
+            set.push(("place", json!(self.place(column, &kind).await?)));
+        } else if kind != was {
+            let place: String = row.get("place");
+            set.push(("place", json!(self.place(&place, &kind).await?)));
+        }
+        if let Some(from) = sent("move_from") {
+            set.push(("move_from", json!(self.move_from(from).await?)));
+        }
+        if let Some(milestone) = sent("milestone") {
+            let id = match milestone.as_str().filter(|m| !m.is_empty()) {
+                Some(m) => Some(Milestones::new(&mut *self.conn).milestone_id(project, m).await?.0),
+                None => None,
+            };
+            set.push(("milestone", json!(id)));
+        }
+        if let Some(priority) = sent("priority") {
+            set.push(("priority", json!(priority.as_str().filter(|p| !p.is_empty()))));
+        }
+        if let Some(labels) = sent("labels") {
+            set.push(("labels", json!(if labels.is_null() { json!([]) } else { labels.clone() }.to_string())));
+        }
+        for key in ["ask", "skip_open", "only_if_changed", "untrusted"] {
+            if let Some(on) = sent(key).and_then(Value::as_bool) {
+                set.push((key, json!(i64::from(on))));
+            }
+        }
+        for key in ["model", "effort"] {
+            if let Some(value) = sent(key) {
+                set.push((key, json!(value.as_str().filter(|v| !v.is_empty()))));
+            }
+        }
+        set.extend([("enabled", json!(i64::from(enabled))), ("next_run", json!(next)), ("updated_at", json!(stamp()))]);
+        self.effects.schedules.push(project.into());
+        changes::begin(self.conn).await?;
+        let done = self.write(id, &set).await;
+        changes::finish(self.conn, self.outbox.as_mut(), &self.effects, done).await?;
+        self.get(project, &id.to_string(), uid).await
+    }
+
+    async fn write(&mut self, id: i64, set: &[(&str, Value)]) -> Result<()> {
+        let columns: Vec<String> = set.iter().map(|(k, _)| format!("{k} = ?")).collect();
+        let query = sql(&format!("UPDATE schedules SET {} WHERE id = ?", columns.join(", ")));
+        let mut update = sqlx::query(&query);
+        for (_, value) in set {
+            update = match value {
+                Value::Null => update.bind(None::<String>),
+                Value::Number(n) => update.bind(n.as_i64()),
+                Value::String(s) => update.bind(s.clone()),
+                other => update.bind(other.to_string()),
+            };
+        }
+        update.bind(id).execute(&mut *self.conn).await?;
+        Ok(())
+    }
+
+    /// The presets a message or session schedule is given (`presetsFor`): each one its project's sessions can have.
+    async fn usable_presets(&mut self, project: &str, ids: &str) -> Result<()> {
+        let ids: Vec<i64> = serde_json::from_str(ids).unwrap_or_default();
+        let usable = Presets::new(&mut *self.conn).list(Some(project)).await?;
+        let usable = usable.as_array().cloned().unwrap_or_default();
+        let unknown: Vec<String> = ids.iter().filter(|id| !usable.iter().any(|p| p["id"] == json!(id))).map(i64::to_string).collect();
+        if unknown.is_empty() {
+            return Ok(());
+        }
+        let can: Vec<String> = usable.iter().map(|p| format!("{} ({})", p["id"], p["name"].as_str().unwrap_or_default())).collect();
+        let can = if can.is_empty() { "none yet".to_string() } else { can.join(", ") };
+        Err(ApiError::bad_request(format!("No preset {} for {project}; its sessions can have {can}", unknown.join(", "))))
+    }
+
+    /// The status a schedule's issues start in (`place`), from an id or a kind; an action schedule's may be closed, as
+    /// it's where it moves them.
+    async fn place(&mut self, column: &str, kind: &str) -> Result<String> {
+        let statuses = Issues::new(&mut *self.conn).statuses().await?;
+        let id = resolve_status(&statuses, Some(column), None)?;
+        let status = self.status(&id).await?;
+        if kind != "action" && ["done", "canceled"].contains(&status["kind"].as_str().unwrap_or_default()) {
+            return Err(ApiError::bad_request(format!("A schedule's issues start open, not in {}", status["name"].as_str().unwrap_or_default())));
+        }
+        Ok(id)
+    }
+
+    /// `move_from` as it's stored: statuses' ids or kinds, each once.
+    async fn move_from(&mut self, from: &Value) -> Result<String> {
+        let from: Vec<String> = from.as_array().into_iter().flatten().filter_map(|s| s.as_str().map(String::from)).collect();
+        for status in &from {
+            if !STATUS_KINDS.contains(&status.as_str()) {
+                self.status(status).await?;
+            }
+        }
+        Ok(json!(from).to_string())
+    }
+
+    /// A status as the API gives it (`status`), or a 404.
+    async fn status(&mut self, id: &str) -> Result<Value> {
+        let statuses = Statuses::new(&mut *self.conn).list().await?;
+        statuses.as_array().into_iter().flatten().find(|s| s["id"] == id).cloned().ok_or_else(|| ApiError::not_found(format!("No status \"{id}\"")))
     }
 
     async fn write_toggled(&mut self, sets: &[(i64, Toggled)]) -> Result<()> {

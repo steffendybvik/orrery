@@ -1273,6 +1273,17 @@ paths:
       responses:
         '200': {description: The schedule, content: {application/json: {schema: {type: object}}}}
         '404': {$ref: '#/components/responses/NotFound'}
+    patch:
+      summary: 'Changes the schedule (ORR-1082): any of its fields, checked as making one checks them; `enabled: false` pauses it. The owner''s only by the owner, and one made across projects only paused or resumed here'
+      requestBody:
+        required: true
+        content: {application/json: {schema: {type: object}}}
+      responses:
+        '200': {description: The schedule, content: {application/json: {schema: {type: object}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
     delete:
       summary: 'Deletes the schedule (ORR-950); the issues it made stay. One made across projects leaves this project out'
       responses:
