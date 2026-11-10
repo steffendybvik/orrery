@@ -318,6 +318,29 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         for (const [name, ts, rs] of steps) await both(name, ts, rs)
     })
 
+    it('keeps, reads and forgets the feature counts as the routes here did (ORR-1089)', async () => {
+        // The store's side is utils/usage.ts reading the same table, with Nitro's database stubbed.
+        vi.stubGlobal('useDatabase', () => store.db)
+        vi.resetModules()
+        const usage = await import('../server/utils/usage')
+        const day = (ago: number) => new Date(Date.now() - ago * 86_400_000).toISOString().slice(0, 10)
+        const counts = [{feature: 'chat', day: day(1), count: 2}, {feature: 'chat', day: day(60), count: 3}, {feature: 'page:board', day: day(0), count: 5}, {feature: 'backup-now', day: day(400), count: 9}]
+        expect((await viaApi('PUT', '/api/usage', {counts}, OWNER)).status).toBe(204)
+        expect((await viaApi('PUT', '/api/usage', {counts: [{feature: 'chat', day: day(1), count: 1}]}, OWNER)).status).toBe(204)
+        const read = await viaApi('GET', '/api/usage', undefined, OWNER)
+        expect(read.status).toBe(200)
+        expect(read.body).toEqual({on: (await store.settings()).count_use, features: JSON.parse(JSON.stringify(await usage.featureUse()))})
+        expect((read.body as {features: {feature: string, days90: number}[]}).features.find(f => f.feature === 'chat')!.days90).toBe(6)
+        expect(await viaApi('GET', '/api/usage', undefined, AGENT)).toMatchObject({status: 403, body: {message: 'How the features are used is the owner\'s to read'}})
+        expect((await viaApi('PUT', '/api/usage', {counts: [{feature: 'Not One', day: day(0), count: 1}]}, OWNER)).status).toBe(400)
+        expect((await viaApi('DELETE', '/api/usage', undefined, AGENT)).status).toBe(403)
+        expect((await viaApi('DELETE', '/api/usage', undefined, OWNER)).status).toBe(204)
+        expect((await usage.featureUse()).every(f => f.last === null)).toBe(true)
+        for (const method of ['GET', 'DELETE']) expect(domainOf(method, '/api/usage'), method).toBe('usage')
+        for (const method of ['POST', 'PUT']) expect(domainOf(method, '/api/usage'), method).toBeUndefined()
+        vi.unstubAllGlobals()
+    })
+
     it('gives the permissions table as the route here did (ORR-1086)', async () => {
         const reply = await viaApi('GET', '/api/permissions', undefined, SESSION)
         expect(reply.status).toBe(200)
@@ -3235,7 +3258,7 @@ describe('the router', () => {
     })
 
     it('routes by a table with a line per domain, so taking one back is taking its line out (ORR-925)', () => {
-        expect(DOMAINS.map(({domain}) => domain)).toEqual(['docs', 'statuses', 'permissions', 'issues, reading', 'comments', 'an issue, deleted', 'an issue, made', 'an issue, its words', 'issues, changed at once', 'a proposal, decided', 'claims', 'activity', 'milestones', 'releases', 'releases, every project\'s', 'people', 'invites', 'keys', 'logins', 'uploads, reading', 'an upload, kept', 'presets', 'secrets, reading', 'settings', 'a pull request, reading', "a pull request's risk", 'schedules, reading', 'a schedule, adopted', 'a schedule, deleted', 'schedules, paused or activated', 'signals, reading', 'projects, listed', 'a project, made', 'a project, changed', 'a project, read', 'a project, deleted', 'a project, exported', 'a project, imported', 'the bell', 'epics', 'milestone and epic comments'])
+        expect(DOMAINS.map(({domain}) => domain)).toEqual(['docs', 'statuses', 'permissions', 'issues, reading', 'comments', 'an issue, deleted', 'an issue, made', 'an issue, its words', 'issues, changed at once', 'a proposal, decided', 'claims', 'activity', 'milestones', 'releases', 'releases, every project\'s', 'people', 'invites', 'keys', 'logins', 'uploads, reading', 'an upload, kept', 'presets', 'secrets, reading', 'settings', 'a pull request, reading', "a pull request's risk", 'schedules, reading', 'a schedule, adopted', 'a schedule, deleted', 'schedules, paused or activated', 'signals, reading', 'projects, listed', 'a project, made', 'a project, changed', 'a project, read', 'a project, deleted', 'a project, exported', 'a project, imported', 'usage', 'the bell', 'epics', 'milestone and epic comments'])
         expect(domainOf('PATCH', '/api/projects/p/docs/d')).toBe('docs')
         expect(domainOf('head', '/api/projects/p/doc-sections/')).toBe('docs')
         for (const method of ['POST', 'DELETE']) expect(domainOf(method, '/api/projects/p/issues/P-1/claim'), method).toBe('claims')
@@ -3384,12 +3407,12 @@ describe('the contract (api/openapi.yaml)', () => {
     const routes = () => [...new Set([...nuxtRoutes(), ...rustRoutes()])].sort().filter(route => servedByApi(methodOf(route), pathOf(route)))
 
     it('has every route the router sends to the API, and no other', () => {
-        expect(contract()).toHaveLength(106)
+        expect(contract()).toHaveLength(108)
         expect(contract()).toEqual(routes())
     })
 
     it('sends none of the routes written ahead of the Rust API to it', () => {
-        expect(contract(true)).toEqual(['DELETE /api/chats/{chat}', 'GET /api/auth/oidc/callback', 'GET /api/auth/oidc/start', 'GET /api/auth/status', 'GET /api/chats', 'GET /api/chats/{chat}', 'POST /api/auth/link', 'POST /api/auth/login', 'POST /api/auth/logout', 'POST /api/phone/link', 'POST /api/pulls/forget', 'PUT /api/chats/{chat}', 'PUT /api/pulls/{owner}/{name}', 'PUT /api/pulls/{owner}/{name}/error', 'PUT /api/pulls/{owner}/{name}/history', 'PUT /api/pulls/{owner}/{name}/{number}'])
+        expect(contract(true)).toEqual(['DELETE /api/chats/{chat}', 'GET /api/auth/oidc/callback', 'GET /api/auth/oidc/start', 'GET /api/auth/status', 'GET /api/chats', 'GET /api/chats/{chat}', 'POST /api/auth/link', 'POST /api/auth/login', 'POST /api/auth/logout', 'POST /api/phone/link', 'POST /api/pulls/forget', 'PUT /api/chats/{chat}', 'PUT /api/pulls/{owner}/{name}', 'PUT /api/pulls/{owner}/{name}/error', 'PUT /api/pulls/{owner}/{name}/history', 'PUT /api/pulls/{owner}/{name}/{number}', 'PUT /api/usage'])
         expect(contract(true).filter(operation => routes().includes(operation))).toEqual([])
     })
 })

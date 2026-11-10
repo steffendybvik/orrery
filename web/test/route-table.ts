@@ -24,7 +24,7 @@ const ARTIFACT: Line = {stays: "drawn with the page's own sanitising and its loc
 const SESSIONS: Line = {stays: "the sessions, the launcher and their signals are the machine's"}
 const MACHINE: Line = {stays: "the machine's: its files, the event log, its own use, and what it says about itself"}
 
-const STORAGE: Line = {rustOnly: 'how the local app keeps its record of a chat or a GitHub poll: it sends them here itself (`writeToApi`)'}
+const STORAGE: Line = {rustOnly: 'how the local app keeps its record of a chat, a GitHub poll or the feature counts it gathered: it sends them here itself (`writeToApi`)'}
 const OUTBOX: Line = {rustOnly: "the outbox, which the local app follows to hear what the API's writes set off (ORR-929)"}
 const HEALTH: Line = {rustOnly: 'whether the API is up, for the local app that starts it'}
 const MCP: Line = {rustOnly: "orrery's MCP tools over streamable HTTP (ORR-1098): JSON-RPC, so not in the REST contract; the channel serves them until ORR-1102"}
@@ -135,9 +135,8 @@ export const NOT_ROUTED: Readonly<Record<string, Line>> = {
     'GET /api/sessions/work': SESSIONS,
     'POST /api/sessions/{session}/calls': SESSIONS,
     'GET /api/signals/stream': SESSIONS,
-    'DELETE /api/usage': MACHINE,
-    'GET /api/usage': MACHINE,
-    'POST /api/usage': MACHINE,
+    'POST /api/usage': {stays: 'a use is counted in memory here, and sent on once a minute (PUT /api/usage, ORR-1089)'},
+    'PUT /api/usage': STORAGE,
     'GET /api/version': MACHINE,
     'GET /health': HEALTH,
     'DELETE /mcp': MCP,

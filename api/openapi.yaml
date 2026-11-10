@@ -225,6 +225,29 @@ paths:
       responses:
         '204': {description: Deleted}
         '404': {$ref: '#/components/responses/NotFound'}
+  /api/usage:
+    get:
+      summary: 'How often the owner used each counted feature, coldest first, for App settings'' Usage (ORR-881, ORR-1089); the owner''s alone'
+      description: '`on` is the owner''s switch (`count_use`). The router writes what it gathered in memory first, and adds `allowed`, its own setting (`ORRERY_USAGE`), to the reply.'
+      responses:
+        '200': {description: 'The switch and the features', content: {application/json: {schema: {type: object, properties: {on: {type: boolean}, features: {type: array, items: {type: object, properties: {feature: {type: string}, label: {type: string}, last: {type: [string, 'null']}, days30: {type: integer}, days90: {type: integer}}}}}}}}}
+        '403': {$ref: '#/components/responses/Forbidden'}
+    put:
+      x-served: false
+      summary: 'The feature counts the local app gathered in memory, sent once a minute: each added to its day, and those over a year old dropped (ORR-1089)'
+      description: 'Only the Nuxt server''s own call (`Orrery-Came: server`). A count that isn''t one refuses them all.'
+      requestBody:
+        required: true
+        content: {application/json: {schema: {type: object, required: [counts], properties: {counts: {type: array, items: {type: object, properties: {feature: {type: string}, day: {type: string}, count: {type: integer}}}}}}}}
+      responses:
+        '204': {description: Kept}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+    delete:
+      summary: 'Forgets every feature count, as turning counting off offers to; the owner''s (settings.write)'
+      responses:
+        '204': {description: Forgotten}
+        '403': {$ref: '#/components/responses/Forbidden'}
   /api/uploads:
     post:
       summary: Keeps an image for Markdown to show

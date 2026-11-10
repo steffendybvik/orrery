@@ -19,7 +19,7 @@ import {proxied} from './move'
 import {viaPhone} from './phone-port'
 import {caughtUp, followingOutbox} from './outbox-follower'
 import {oidcOn} from './oidc'
-import {countOwnUse} from './usage'
+import {countOwnUse, dropGathered, flushUse, usageAllowed} from './usage'
 import {startsNone} from './starts-none'
 import {revLabel} from './events'
 import type {Project} from '#shared/roadmap'
@@ -141,6 +141,10 @@ export const DOMAINS: readonly {domain: string, paths: RegExp, methods?: readonl
     // The bell (ORR-1005): agents' comments across projects with the proposals waiting on the owner, the status changes
     // on their issues, and clearing them or marking them read, each person's their own (ORR-658). Clearing tells nothing:
     // the page that did it reads the bell again.
+    // The owner's feature counts (ORR-1089): read with what's gathered in memory here written first, and `allowed`, the
+    // server's own setting (`ORRERY_USAGE`), added to the reply; forgotten with what's gathered dropped first, when it's
+    // the owner asking. Counting a use stays here (`POST`), in memory, and is sent on once a minute (`flushUse`).
+    {domain: 'usage', paths: /^usage$/, methods: ['GET', 'DELETE'], first: {GET: async () => await flushUse(), DELETE: dropForOwner}, reply: {GET: withAllowed}},
     {domain: 'the bell', paths: /^notices(\/(changes|clear|read))?$/},
     // The epics (ORR-1004): every one with its progress, one with its issues, and making, changing and deleting one. A
     // write's reply says the epics changed (`Orrery-Epics`), for open pages to ask for them again. An epic's focus, which
@@ -186,6 +190,19 @@ export function boardsWithRev(event: H3Event): ReturnType<Shaping> {
             return query.closed === '0' && !whole.has(board.id) ? withoutClosed(lighter) : lighter
         }),
     }
+}
+
+/** The feature counts with `allowed`, the server's own setting, put in as the route here had it: `{on, allowed, features}`. */
+function withAllowed(): ReturnType<Shaping> {
+    return {reply: json => {
+        const {on, features} = json as {on: boolean, features: unknown[]}
+        return {on, allowed: usageAllowed(), features}
+    }}
+}
+
+/** What's gathered here dropped before the owner forgets every count; anyone else is refused by the API, so it's kept. */
+async function dropForOwner(event: H3Event) {
+    if ((await actorOf(event)).owner) dropGathered()
 }
 
 /** The path with these query parameters left out. */

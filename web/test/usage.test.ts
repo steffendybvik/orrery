@@ -98,8 +98,25 @@ describe('counting feature use', () => {
     })
 })
 
-// The routes behind App settings' Usage (ORR-888): the counts are the owner's own record, so only the owner reads or
-// wipes them, and anyone else's `POST` is dropped with the same 204, saying nothing of whether counting is on.
+// The route that counts a use (ORR-888): anyone else's `POST` is dropped with the same 204, saying nothing of whether
+// counting is on. Reading and wiping the counts are the Rust API's (api/src/routes/usage.rs, ORR-1089).
+describe('with the Rust API in front (ORR-1089)', () => {
+    it('sends what gathered to it, and writes nothing here', async () => {
+        const sent: unknown[] = []
+        vi.doMock('../server/utils/api-router', () => ({writeToApi: async (...args: unknown[]) => { sent.push(args); return {reply: null} }}))
+        vi.resetModules()
+        const viaApi = await import('../server/utils/usage')
+        await store.updateSettings({count_use: true}, owner)
+        viaApi.countUse('milestones', NOW)
+        viaApi.countUse('milestones', NOW)
+        viaApi.countUse('page:board', NOW)
+        await viaApi.flushUse(NOW)
+        vi.doUnmock('../server/utils/api-router')
+        expect(sent).toEqual([['PUT', '/api/usage', {counts: [{feature: 'milestones', day: '2026-11-04', count: 2}, {feature: 'page:board', day: '2026-11-04', count: 1}]}, {name: 'orrery', owner: false}, {always: true}]])
+        expect(await counted()).toEqual([])
+    })
+})
+
 describe("Usage's routes", () => {
     type Who = {name: string, owner: boolean, untrusted?: boolean}
     type Event = {context: {who?: Who}, body?: unknown, status?: number}
@@ -107,14 +124,10 @@ describe("Usage's routes", () => {
     const session: Who = {name: 'claude', owner: false, untrusted: true}
 
     beforeEach(async () => {
-        const {forbidden} = await import('../server/utils/input')
-        const {ownerOnly} = await import('../server/utils/permission')
         vi.stubGlobal('defineEventHandler', (handler: unknown) => handler)
         vi.stubGlobal('actorOf', async (event: Event) => event.context.who ?? {name: 'nobody', owner: false})
         vi.stubGlobal('readBody', async (event: Event) => event.body)
         vi.stubGlobal('setResponseStatus', (event: Event, status: number) => { event.status = status })
-        vi.stubGlobal('forbidden', forbidden)
-        vi.stubGlobal('ownerOnly', ownerOnly)
         for (const name of ['countUse', 'flushUse', 'featureUse', 'forgetUse', 'usageAllowed'] as const) vi.stubGlobal(name, usage[name])
         await store.updateSettings({count_use: true}, owner)
     })
@@ -128,20 +141,6 @@ describe("Usage's routes", () => {
             return {status: (error as {statusCode: number}).statusCode}
         }
     }
-
-    it("reads the counts for the owner alone", async () => {
-        expect((await call('index.get', owner)).data).toMatchObject({on: true, allowed: true})
-        for (const who of [member, session, undefined]) expect((await call('index.get', who)).status).toBe(403)
-    })
-
-    it('wipes them for the owner alone', async () => {
-        usage.countUse('milestones', NOW)
-        await usage.flushUse(NOW)
-        for (const who of [member, session, undefined]) expect((await call('index.delete', who)).status).toBe(403)
-        expect(await counted()).toHaveLength(1)
-        expect((await call('index.delete', owner)).status).toBe(204)
-        expect(await counted()).toEqual([])
-    })
 
     it("counts the owner's use, and drops anyone else's with the same 204", async () => {
         for (const who of [member, session]) expect((await call('index.post', who, {feature: 'milestones'})).status).toBe(204)
