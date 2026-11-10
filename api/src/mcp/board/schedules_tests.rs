@@ -85,3 +85,43 @@ async fn a_work_session_doesnt_have_it() {
     assert_eq!(reply.body["result"]["isError"], true);
     assert_eq!(said(&reply), "No tool \"schedules\"");
 }
+
+fn ask(name: &str, args: Value) -> Value {
+    json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": name, "arguments": args}})
+}
+
+#[tokio::test]
+async fn a_work_session_asks_on_its_issue() {
+    let api = TestApi::new().await;
+    let (project, issue) = api.board().await;
+    let schedule = json!({"title": "Nudge", "kind": "message", "notes": "Hi", "cron": "0 9 * * 1"});
+    let reply = api.post("/mcp", ask("create_schedule", json!({"id": issue, "schedule": schedule, "why": "You asked"}))).by_agent("claude").send().await;
+    assert_ne!(reply.body["result"]["isError"], true, "{}", reply.body);
+    let comment = api.get(&format!("/api/projects/{project}/issues/{issue}/comments")).send().await.body[0].clone();
+    assert_eq!(
+        said(&reply),
+        format!("Asked on {issue} (comment {}): the owner sees the schedule with Allow and Deny, and their answer comes back as a comment. Nothing is saved until they allow it.", comment["id"])
+    );
+    assert_eq!(comment["schedule"]["title"], "Nudge");
+    let id = schedule_id(&api, &project).await;
+    let reply =
+        api.post("/mcp", ask("update_schedule", json!({"id": issue, "schedule_id": id, "schedule": {"enabled": false}}))).by_agent("claude").send().await;
+    assert!(said(&reply).contains("the owner sees the change with Allow and Deny"), "{}", reply.body);
+    let comments = api.get(&format!("/api/projects/{project}/issues/{issue}/comments")).send().await.body;
+    assert_eq!(comments[1]["schedule"]["id"], id);
+}
+
+async fn schedule_id(api: &TestApi, project: &str) -> i64 {
+    schedule(api, project, &[("title", "'Nightly'"), ("kind", "'message'"), ("notes", "'Hi'"), ("cron", "'0 2 * * *'"), ("timezone", "'UTC'")]).await
+}
+
+#[tokio::test]
+async fn the_chats_asks_stay_with_its_channel() {
+    let api = TestApi::new().await;
+    let (_, issue) = api.board().await;
+    let reply = api.post("/mcp", ask("create_schedule", json!({"title": "Nudge", "cron": "0 9 * * 1"}))).header("orrery-actor-kind", "chat").send().await;
+    assert_eq!(reply.body["result"]["isError"], true);
+    // Not asked on an issue: the chat's tools ask in its chat, which its channel keeps.
+    assert!(!said(&reply).starts_with("Asked"), "{}", reply.body);
+    assert_eq!(api.get(&format!("/api/projects/primes/issues/{issue}/comments")).send().await.body, json!([]));
+}

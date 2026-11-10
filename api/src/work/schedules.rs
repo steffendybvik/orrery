@@ -43,6 +43,8 @@ pub struct Schedules<'c> {
     pub conn: &'c mut AnyConnection,
     pub effects: Effects,
     pub outbox: Option<Outbox>,
+    /// Checks a write as it would be made and stops before saving it (`check`).
+    dry: bool,
 }
 
 /// What a write needs of a schedule's row: whether it's the owner's, the schedule across projects it's made from, and
@@ -146,7 +148,7 @@ fn across_refused(actor: &Actor) -> ApiError {
 
 impl<'c> Schedules<'c> {
     pub fn new(conn: &'c mut AnyConnection) -> Self {
-        Schedules { conn, effects: Effects::default(), outbox: None }
+        Schedules { conn, effects: Effects::default(), outbox: None, dry: false }
     }
 
     /// The schedule's row as a write needs it (`row`), or a 404.
@@ -375,11 +377,26 @@ impl<'c> Schedules<'c> {
             }
         }
         set.extend([("enabled", json!(i64::from(enabled))), ("next_run", json!(next)), ("updated_at", json!(stamp()))]);
+        if self.dry {
+            return Ok(Value::Null);
+        }
         self.effects.schedules.push(project.into());
         changes::begin(self.conn).await?;
         let done = self.write(id, &set).await;
         changes::finish(self.conn, self.outbox.as_mut(), &self.effects, done).await?;
         self.get(project, &id.to_string(), uid).await
+    }
+
+    /// Checks a new schedule (`schedule` none) or a change to one as `create` and `update` would, saving nothing
+    /// (`check`): so a session's request for one fails when it asks, not once the owner allows it.
+    pub async fn check(&mut self, project: &str, schedule: Option<i64>, body: &Value, uid: &str, actor: &Actor) -> Result<()> {
+        self.dry = true;
+        let checked = match schedule {
+            Some(id) => self.update(project, &id.to_string(), body, uid, actor).await,
+            None => self.create(project, body, uid, actor).await,
+        };
+        self.dry = false;
+        checked.map(|_| ())
     }
 
     /// Makes a schedule (`create`, `toCreate`), checked in the order Schedules checks it, with its next run worked out
@@ -417,6 +434,9 @@ impl<'c> Schedules<'c> {
         let labels = input.get("labels").filter(|l| !l.is_null()).cloned().unwrap_or_else(|| json!([])).to_string();
         let next = if enabled { next_run(&when, chrono::Utc::now()) } else { None };
         let title = input.get("title").and_then(Value::as_str).unwrap_or_default().trim().to_string();
+        if self.dry {
+            return Ok(Value::Null);
+        }
         let now = stamp();
         let bit = |on: bool| i64::from(on);
         self.effects.schedules.push(project.into());

@@ -1414,6 +1414,24 @@ paths:
         '200': {description: 'What changed, and what couldn''t', content: {application/json: {schema: {type: object, properties: {changed: {type: array, items: {type: object}}, failed: {type: array, items: {type: object, properties: {id: {type: integer}, title: {type: string}, message: {type: string}}}}}}}}}
         '400': {$ref: '#/components/responses/BadRequest'}
         '403': {$ref: '#/components/responses/Forbidden'}
+  /api/projects/{project}/issues/{issue}/schedule-requests:
+    parameters:
+      - {$ref: '#/components/parameters/project'}
+      - {name: issue, in: path, required: true, description: The issue's id, schema: {type: string}}
+    post:
+      summary: 'A working session asks the owner, on the issue it''s working, to make a schedule or change one (ORR-458, ORR-1100); nothing is saved until they press Allow'
+      description: >-
+        The comment asking waits on the owner's decision, with the request beside it, checked as Schedules would check
+        it for the owner. One asked before for the same schedule, still unanswered, expires. Its hand-on comes back as a
+        new comment's does, and the event log's line in `Orrery-Asked`. Allow and Deny stay the Nuxt server's.
+      requestBody:
+        required: true
+        content: {application/json: {schema: {type: object, required: [schedule], properties: {schedule: {type: object}, id: {type: integer}, why: {type: string}}}}}
+      responses:
+        '201': {description: The comment asking, with its request in `schedule`, content: {application/json: {schema: {type: object}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
   /api/schedules:
     get:
       summary: 'Every project''s schedules (the agenda): the soonest next run first, those with none last, ties by title'
