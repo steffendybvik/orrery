@@ -25,6 +25,7 @@ const ARTIFACT: Line = {stays: "drawn with the page's own sanitising and its loc
 const SESSIONS: Line = {stays: "the sessions, the launcher and their signals are the machine's"}
 const MACHINE: Line = {stays: "the machine's: its files, the event log, its own use, and what it says about itself"}
 
+const SNAPSHOT: Line = {rustOnly: 'the copy a backup takes of the database: the local app asks for it itself, then checks and keeps it (`snapshotsBy`, ORR-1097)'}
 const STORAGE: Line = {rustOnly: 'how the local app keeps its record of a chat or a GitHub poll: it sends them here itself (`writeToApi`)'}
 const OUTBOX: Line = {rustOnly: "the outbox, which the local app follows to hear what the API's writes set off (ORR-929)"}
 const HEALTH: Line = {rustOnly: 'whether the API is up, for the local app that starts it'}
@@ -62,6 +63,7 @@ export const NOT_ROUTED: Readonly<Record<string, Line>> = {
     'POST /api/connects/{connect}/report': MACHINE,
     'POST /api/connects/{connect}/write': MACHINE,
     'POST /api/database/check': MACHINE,
+    'POST /api/database/snapshot': SNAPSHOT,
     'POST /api/database/move': MACHINE,
     'POST /api/egress': SEALED,
     'POST /api/epics/{epic}/focus': FOCUS,

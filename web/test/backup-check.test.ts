@@ -2,8 +2,8 @@ import {existsSync, mkdtempSync, readFileSync, writeFileSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {DatabaseSync} from 'node:sqlite'
-import {beforeEach, describe, expect, it} from 'vitest'
-import {backUpTo, checkSnapshot, lastBackupFailure, putInPlace} from '../server/utils/backup'
+import {afterEach, beforeEach, describe, expect, it} from 'vitest'
+import {backUpTo, checkSnapshot, lastBackupFailure, putInPlace, snapshotsBy} from '../server/utils/backup'
 import {SqliteDb} from '../server/utils/database'
 import {openDb} from '../server/utils/db'
 import {Store} from '../server/utils/store'
@@ -83,5 +83,46 @@ describe('the copy before an upgrade', () => {
         openDb(path, undefined, join(dir, 'backup', 'orrery-pre-1.0.0.db')).close()
         expect(() => checkSnapshot(snapshot, true)).not.toThrow()
         expect(existsSync(`${snapshot}.partial`)).toBe(false)
+    })
+})
+
+describe('a copy taken elsewhere (ORR-1097)', () => {
+    afterEach(() => snapshotsBy(null))
+
+    it('is checked and kept as one taken here is, with nothing read here', async () => {
+        const store = await made(join(dir, 'orrery.db'))
+        const asked: string[] = []
+        // As the Rust API takes it: a copy of the same file, written where it's told.
+        snapshotsBy(async to => {
+            asked.push(to)
+            new DatabaseSync(join(dir, 'orrery.db')).prepare('VACUUM INTO ?').run(to)
+            return true
+        })
+        const backups = join(dir, 'backups')
+        await backUpTo(store.db, {kind: 'folder', dir: backups})
+        expect(asked).toEqual([join(backups, '.orrery.db.partial')])
+        expect(existsSync(join(backups, '.orrery.db.partial'))).toBe(false)
+        expect(() => checkSnapshot(join(backups, 'orrery.db'))).not.toThrow()
+    })
+
+    it('falls to this server when the API doesn\'t take it', async () => {
+        const store = await made(join(dir, 'orrery.db'))
+        snapshotsBy(async () => false)
+        const backups = join(dir, 'backups')
+        await backUpTo(store.db, {kind: 'folder', dir: backups})
+        expect(() => checkSnapshot(join(backups, 'orrery.db'))).not.toThrow()
+    })
+
+    it('that\'s damaged isn\'t kept', async () => {
+        const store = await made(join(dir, 'orrery.db'))
+        const backups = join(dir, 'backups')
+        await backUpTo(store.db, {kind: 'folder', dir: backups})
+        const before = readFileSync(join(backups, 'orrery.db'))
+        snapshotsBy(async to => {
+            writeFileSync(to, 'cut short')
+            return true
+        })
+        await expect(backUpTo(store.db, {kind: 'folder', dir: backups})).rejects.toThrow('kept the one before')
+        expect(readFileSync(join(backups, 'orrery.db'))).toEqual(before)
     })
 })

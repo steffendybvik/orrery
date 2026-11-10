@@ -54,9 +54,6 @@ export function backupDelay(every: BackupEvery, settle: number, now: number, sin
     return Math.max(settle, last + INTERVAL[every] - now)
 }
 
-/** Writes a consistent copy of `db` beside the latest in `dir`, for `keep` to check and put in place. */
-const snapshot = (db: DatabaseSync, dir: string) => db.prepare('VACUUM INTO ?').run(partial(dir))
-
 /** Writes a SQLite snapshot of the Postgres database `db` to `dir`, as `backup` does a SQLite one. */
 export async function backupPostgres(db: Db, dir: string, days = KEEP_DAYS) {
     const snapshot = emptyDb(partial(dir))
@@ -77,9 +74,24 @@ let making: Promise<void> = Promise.resolve()
  * doesn't (ORR-483). */
 export function backUp(database: Db, dir: string, days = KEEP_DAYS): Promise<void> {
     making = making.catch(() => {}).then(() => database instanceof SqliteDb
-        ? database.alone(raw => snapshot(raw, dir)).then(() => keep(dir, days))
+        ? snapshotSqlite(database, dir).then(() => keep(dir, days))
         : backupPostgres(database, dir, days))
     return making
+}
+
+/** Who else takes the SQLite copy: the Rust API, when it's in front (ORR-1097), set by plugins/backup.ts. It says
+ * whether it took it; false leaves it to the database here. */
+let takenElsewhere: ((to: string) => Promise<boolean>) | null = null
+
+export function snapshotsBy(take: ((to: string) => Promise<boolean>) | null) {
+    takenElsewhere = take
+}
+
+/** Writes the SQLite copy beside the latest in `dir`: the API's, when it takes it, so only it reads the database. */
+async function snapshotSqlite(database: SqliteDb, dir: string) {
+    const to = partial(dir)
+    if (takenElsewhere && await takenElsewhere(to)) return
+    await database.alone(raw => raw.prepare('VACUUM INTO ?').run(to))
 }
 
 /** The last backup that failed, since orrery started, until one to the same place works (ORR-448). */
