@@ -114,6 +114,9 @@ export const DOMAINS: readonly {domain: string, paths: RegExp, methods?: readonl
     {domain: 'a schedule, deleted', paths: /^projects\/[^/]+\/schedules\/[^/]+$/, methods: ['DELETE']},
     // Pausing or activating all of a project's (ORR-1082): it works out each next run, and starts no session.
     {domain: 'schedules, paused or activated', paths: /^projects\/[^/]+\/schedules\/enabled$/, methods: ['POST']},
+    // A project's signals, read (ORR-1087): after an id, or the latest about an issue or milestone. Their delivery, the
+    // stream and the listeners stay here, as they set what each session is doing.
+    {domain: 'signals, reading', paths: /^projects\/[^/]+\/signals$/, methods: ['GET']},
     // Every project, listed with its counts (ORR-997). With `?expand=board` it's their boards (ORR-1006), each labelled
     // here with the events stream's `rev`, as one project's read is (`boardsWithRev`).
     {domain: 'projects, listed', paths: /^projects$/, methods: ['GET'], reply: {GET: boardsWithRev}},

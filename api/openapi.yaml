@@ -16,6 +16,9 @@ info:
     - **Uploads** (ORR-927, ORR-1058): an image kept for Markdown (web/server/api/uploads), read back and passed on by
       the router as it came, and kept, a PNG or JPEG compressed as WebP where that's smaller (board/compress.rs, as
       web/server/utils/compress.ts does with sharp).
+    - **Signals, reading** (ORR-1087): a project's signals, after an id or about an issue or milestone
+      (web/server/api/projects/[project]/signals). Served here alone; writing them, their delivery, the stream and the
+      listeners stay the Nuxt server's, as they set what each session is doing.
     - **Schedules, reading** (ORR-930): a project's schedules, one with its runs, every project's and those across
       projects (web/server/api/projects/[project]/schedules, schedules.get.ts, schedules/across). Served by both; making,
       changing and running them stays the Nuxt server's, as a run starts a session.
@@ -1241,6 +1244,19 @@ paths:
         '400': {$ref: '#/components/responses/BadRequest'}
         '404': {$ref: '#/components/responses/NotFound'}
         '409': {$ref: '#/components/responses/Conflict'}
+  /api/projects/{project}/signals:
+    parameters:
+      - {$ref: '#/components/parameters/project'}
+    get:
+      summary: 'The project''s signals after an id, oldest first, or the latest about an issue or a milestone (ORR-1087); 50 at most'
+      description: 'Anything in `after` that isn''t a number reads as 0. With `issue` or `milestone`, `after` is left out; one there isn''t has none.'
+      parameters:
+        - {name: after, in: query, schema: {type: string}}
+        - {name: issue, in: query, schema: {type: string}}
+        - {name: milestone, in: query, schema: {type: string}}
+      responses:
+        '200': {description: 'The signals', content: {application/json: {schema: {type: array, items: {type: object}}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
   /api/projects/{project}/schedules:
     parameters: [{$ref: '#/components/parameters/project'}]
     get:
