@@ -1,7 +1,7 @@
 // The board's tools at `/mcp` (ORR-1099), each as channel/tools.mjs runs it: a call to one of this API's own routes,
 // as the channel calls the REST API, and its answer in the channel's words. A route is run through `routes::all()` with
 // its rails (access/rails.rs), as whoever called `/mcp` (their `Orrery-*` headers, which the guard already checked), so
-// a tool can do only what that route lets them. So far: docs, presets, milestones,
+// a tool can do only what that route lets them. So far: docs, presets, milestones, schedules (board/schedules.rs),
 // releases, epics, and issues (listed, made, changed, commented on).
 use crate::{access, routes, App};
 use axum::body::Body;
@@ -11,6 +11,8 @@ use axum::middleware;
 use serde_json::{json, Value};
 use std::sync::Arc;
 use tower::ServiceExt;
+
+mod schedules;
 
 /// What a tool says when orrery refuses it, or the tool can't run: `orrery said no: …`, as the channel words it.
 pub(crate) struct No(pub(crate) String);
@@ -450,6 +452,7 @@ impl Api<'_> {
     /// The tool's answer, if it's one of the board's served here.
     pub(crate) async fn run(&self, name: &str, args: &Value) -> Option<Said> {
         Some(match name {
+            "schedules" => self.schedules(args).await,
             "docs" => self.docs(args).await,
             "doc" => self.doc(args).await,
             "write_doc" => self.write_doc(args).await,

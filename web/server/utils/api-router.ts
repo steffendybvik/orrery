@@ -39,6 +39,8 @@ export const DOMAINS: readonly {domain: string, paths: RegExp, methods?: readonl
     {domain: 'docs', paths: /^projects\/[^/]+\/(docs(\/[^/]+(\/revisions(\/[^/]+(\/restore)?)?)?)?|deleted-docs|doc-sections(\/[^/]+)?)$/},
     // The orrery's issue statuses (ORR-926).
     {domain: 'statuses', paths: /^statuses(\/[^/]+)?$/},
+    // What each kind of session may do (ORR-1086): the table in shared/permissions.ts, as api/permissions.json holds it.
+    {domain: 'permissions', paths: /^permissions$/, methods: ['GET']},
     // A project's issues, read: the list with its filters, and one issue (ORR-927). Writing them stays here, as a change
     // wakes sessions (ORR-929).
     {domain: 'issues, reading', paths: /^projects\/[^/]+\/issues(\/[^/]+)?$/, methods: ['GET']},

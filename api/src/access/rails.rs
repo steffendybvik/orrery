@@ -5,7 +5,8 @@
 // that reaches this API with the token and no Nuxt in front is refused what Nuxt would refuse. Who's asking is what the
 // `Orrery-Actor-*` and `Orrery-Who-*` headers say (request.rs).
 //
-// The table is web/shared/permissions.ts, copied to api/permissions.json by web/test/rust-permissions.test.ts. Reads
+// The table is web/shared/permissions.ts, copied whole to api/permissions.json by web/test/rust-permissions.test.ts,
+// which `GET /api/permissions` answers with (routes/permissions.rs, ORR-1086); the rails read its rows. Reads
 // go through: a board's reads are each route's (`needsBoard`), as they are on Nuxt.
 use crate::access::people::Who;
 use crate::board::issue_writes::IssueWrites;
@@ -43,8 +44,16 @@ pub(crate) struct Permission {
     unnamed: Option<Vec<String>>,
 }
 
+/// api/permissions.json as written: `GET /api/permissions`'s reply, `{levels, kinds, permissions}`.
+pub(crate) const TABLE: &str = include_str!("../../permissions.json");
+
+#[derive(Deserialize)]
+struct Table {
+    permissions: Vec<Permission>,
+}
+
 pub(crate) static PERMISSIONS: LazyLock<Vec<Permission>> =
-    LazyLock::new(|| serde_json::from_str(include_str!("../../permissions.json")).expect("api/permissions.json is the permissions table"));
+    LazyLock::new(|| serde_json::from_str::<Table>(TABLE).expect("api/permissions.json is the permissions table").permissions);
 
 #[derive(Clone, Copy, PartialEq)]
 enum Kind {
