@@ -75,7 +75,6 @@ export const NOT_ROUTED: Readonly<Record<string, Line>> = {
     'GET /api/mcp': MACHINE,
     'GET /api/owner': ORR_928,
     'PUT /api/owner': ORR_928,
-    'GET /api/permissions': ORR_928,
     'GET /api/phone': MACHINE,
     'POST /api/phone/link': ORR_1038,
     'POST /api/projects/upload': ORR_1006,

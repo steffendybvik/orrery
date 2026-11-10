@@ -21,6 +21,7 @@ import {Secrets} from '../server/utils/secrets'
 import {Pulls, pullForSession} from '../server/utils/pulls'
 import {known} from '../shared/known'
 import {numberOf} from '../shared/roadmap'
+import {PERMISSION_LEVELS, PERMISSIONS, SESSION_KINDS} from '../shared/permissions'
 import {withoutClosed, withoutNotes} from '../shared/patch'
 import {exportBoard} from '../server/utils/board-export'
 import {revLabel} from '../server/utils/events'
@@ -315,6 +316,14 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
             ['the docs at the end', p => viaStore(() => store.listDocs(p)), () => viaApi('GET', '/docs')],
         ]
         for (const [name, ts, rs] of steps) await both(name, ts, rs)
+    })
+
+    it('gives the permissions table as the route here did (ORR-1086)', async () => {
+        const reply = await viaApi('GET', '/api/permissions', undefined, SESSION)
+        expect(reply.status).toBe(200)
+        expect(reply.body).toEqual({levels: PERMISSION_LEVELS, kinds: SESSION_KINDS, permissions: PERMISSIONS})
+        expect(domainOf('GET', '/api/permissions')).toBe('permissions')
+        expect(domainOf('POST', '/api/permissions')).toBeUndefined()
     })
 
     it('lists, adds, changes, refuses and removes statuses alike (ORR-926)', async () => {
@@ -3199,7 +3208,7 @@ describe('the router', () => {
     })
 
     it('routes by a table with a line per domain, so taking one back is taking its line out (ORR-925)', () => {
-        expect(DOMAINS.map(({domain}) => domain)).toEqual(['docs', 'statuses', 'issues, reading', 'comments', 'an issue, deleted', 'an issue, made', 'an issue, its words', 'issues, changed at once', 'a proposal, decided', 'claims', 'activity', 'milestones', 'releases', 'releases, every project\'s', 'people', 'invites', 'keys', 'logins', 'uploads, reading', 'an upload, kept', 'presets', 'secrets, reading', 'settings', 'a pull request, reading', "a pull request's risk", 'schedules, reading', 'a schedule, adopted', 'a schedule, deleted', 'schedules, paused or activated', 'projects, listed', 'a project, made', 'a project, changed', 'a project, read', 'a project, deleted', 'a project, exported', 'a project, imported', 'the bell', 'epics', 'milestone and epic comments'])
+        expect(DOMAINS.map(({domain}) => domain)).toEqual(['docs', 'statuses', 'permissions', 'issues, reading', 'comments', 'an issue, deleted', 'an issue, made', 'an issue, its words', 'issues, changed at once', 'a proposal, decided', 'claims', 'activity', 'milestones', 'releases', 'releases, every project\'s', 'people', 'invites', 'keys', 'logins', 'uploads, reading', 'an upload, kept', 'presets', 'secrets, reading', 'settings', 'a pull request, reading', "a pull request's risk", 'schedules, reading', 'a schedule, adopted', 'a schedule, deleted', 'schedules, paused or activated', 'projects, listed', 'a project, made', 'a project, changed', 'a project, read', 'a project, deleted', 'a project, exported', 'a project, imported', 'the bell', 'epics', 'milestone and epic comments'])
         expect(domainOf('PATCH', '/api/projects/p/docs/d')).toBe('docs')
         expect(domainOf('head', '/api/projects/p/doc-sections/')).toBe('docs')
         for (const method of ['POST', 'DELETE']) expect(domainOf(method, '/api/projects/p/issues/P-1/claim'), method).toBe('claims')
@@ -3348,7 +3357,7 @@ describe('the contract (api/openapi.yaml)', () => {
     const routes = () => [...new Set([...nuxtRoutes(), ...rustRoutes()])].sort().filter(route => servedByApi(methodOf(route), pathOf(route)))
 
     it('has every route the router sends to the API, and no other', () => {
-        expect(contract()).toHaveLength(104)
+        expect(contract()).toHaveLength(105)
         expect(contract()).toEqual(routes())
     })
 

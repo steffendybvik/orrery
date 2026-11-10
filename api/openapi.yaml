@@ -20,6 +20,8 @@ info:
       projects (web/server/api/projects/[project]/schedules, schedules.get.ts, schedules/across). Served by both; making,
       changing and running them stays the Nuxt server's, as a run starts a session.
     - **Statuses** (ORR-926): the orrery's issue statuses (web/server/api/statuses). Served by both.
+    - **Permissions** (ORR-1086): what each kind of session may do, the table in web/shared/permissions.ts as
+      api/permissions.json holds it. Served here alone.
     - **Milestones and releases** (ORR-926, written in ORR-974): a project's milestones and releases, one of each,
       made, changed (a release frozen and shipped too) and deleted, and every project's releases
       (web/server/api/projects/[project]/milestones, releases, and web/server/api/releases.get.ts). Served by both; a
@@ -280,6 +282,12 @@ paths:
         '403': {$ref: '#/components/responses/Forbidden'}
         '404': {$ref: '#/components/responses/NotFound'}
         '409': {$ref: '#/components/responses/Conflict'}
+  /api/permissions:
+    get:
+      summary: 'What each kind of session may do (web/shared/permissions.ts), so a session can ask before it tries and is refused'
+      description: 'The table api/permissions.json holds, as written: the levels'' names, the kinds of session, and a row per thing a session might do, with each kind''s cell.'
+      responses:
+        '200': {description: 'The levels, the kinds and the rows', content: {application/json: {schema: {type: object, required: [levels, kinds, permissions], properties: {levels: {type: object, additionalProperties: {type: string}}, kinds: {type: object, additionalProperties: {type: string}}, permissions: {type: array, items: {type: object}}}}}}}
   /api/settings:
     get:
       summary: This orrery's own settings, every one that's stored
