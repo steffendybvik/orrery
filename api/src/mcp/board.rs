@@ -2,7 +2,7 @@
 // as the channel calls the REST API, and its answer in the channel's words. A route is run through `routes::all()` with
 // its rails (access/rails.rs), as whoever called `/mcp` (their `Orrery-*` headers, which the guard already checked), so
 // a tool can do only what that route lets them. So far: docs, presets, milestones, schedules (board/schedules.rs),
-// releases, epics, issues (listed, made, changed, commented on), and the event log, secrets and the chat's images
+// releases, epics, issues (listed, read (board/issue.rs), made, changed, commented on), and the event log, secrets and the chat's images
 // (board/machine.rs).
 use crate::{access, routes, App};
 use axum::body::{Body, Bytes};
@@ -13,6 +13,7 @@ use serde_json::{json, Value};
 use std::sync::Arc;
 use tower::ServiceExt;
 
+mod issue;
 mod machine;
 mod schedules;
 
@@ -493,6 +494,7 @@ impl Api<'_> {
             "create_epic" => self.create_epic(args).await,
             "update_epic" => self.update_epic(args).await,
             "issues" => self.issues(args).await,
+            "issue" => self.issue(args).await,
             "create_issue" => self.create_issue(args).await,
             "update_issue" | "edit_issue" => self.change_issue(args).await,
             "comment" => self.comment(args).await,

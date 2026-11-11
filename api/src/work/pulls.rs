@@ -431,7 +431,96 @@ impl<'a> Pulls<'a> {
         });
         Ok(json!({"repo": repo, "pull": pull, "issues": issues.into_iter().map(|(_, _, i)| i).collect::<Vec<_>>()}))
     }
+
+    /// The issue's pull requests as the channel's `issue` lists them (ORR-1101): its open ones on its project's repo, then
+    /// those merged or closed, each with only `number`, `state`, `base`, `url`, `merged_at` and a plain-login `author`.
+    /// The open ones are the poll's (`pull_states`) while it read the repo with a token in the last few minutes, as
+    /// `forIssue` has them. Past that the Nuxt server asks GitHub, which is the machine's to do, so this gives what's kept
+    /// on the issue (`issue_pulls`) as `open`, without where each stands.
+    pub async fn for_issue(&mut self, project: &str, issue: &str) -> Result<Vec<Value>> {
+        let id = self.issue_id(project, issue).await?;
+        let row = sqlx::query(&sql("SELECT repo FROM projects WHERE id = ?")).bind(project).fetch_optional(&mut *self.conn).await?;
+        let repo = crate::board::issues::github_repo(row.and_then(|r| r.get::<Option<String>, _>("repo")).as_deref());
+        let shown = |row: &sqlx::any::AnyRow, state: String, merged_at: Option<String>| {
+            let mut pull = Map::new();
+            pull.insert("number".into(), json!(row.get::<i64, _>("number")));
+            pull.insert("state".into(), json!(state));
+            pull.insert("base".into(), json!(row.get::<String, _>("base")));
+            pull.insert("url".into(), json!(row.get::<String, _>("url")));
+            if let Some(merged_at) = merged_at.filter(|m| !m.is_empty()) {
+                pull.insert("merged_at".into(), json!(merged_at));
+            }
+            let author: String = row.get("author");
+            if LOGIN.is_match(&author) {
+                pull.insert("author".into(), json!(author));
+            }
+            Value::Object(pull)
+        };
+
+        let mut open = vec![];
+        let mut kept = false;
+        if let Some(repo) = &repo {
+            let polled = sqlx::query(&sql("SELECT polled_at, CAST(token AS BIGINT) AS token FROM pull_repos WHERE repo = ?"))
+                .bind(repo)
+                .fetch_optional(&mut *self.conn)
+                .await?;
+            kept = polled.is_some_and(|p| {
+                let at = chrono::DateTime::parse_from_rfc3339(&p.get::<String, _>("polled_at")).ok();
+                p.get::<i64, _>("token") != 0
+                    && at.is_some_and(|at| chrono::Utc::now().signed_duration_since(at) <= chrono::Duration::milliseconds(POLL_STANDS))
+            });
+            if kept {
+                let mut ids = vec![id.to_uppercase()];
+                let aliases = sqlx::query(&sql("SELECT alias FROM issue_aliases WHERE project = ? AND issue = ?"))
+                    .bind(project)
+                    .bind(&id)
+                    .fetch_all(&mut *self.conn)
+                    .await?;
+                ids.extend(aliases.iter().map(|a| a.get::<String, _>("alias").to_uppercase()));
+                let rows = sqlx::query(&sql(
+                    "SELECT CAST(number AS BIGINT) AS number, names, base, url, author, state FROM pull_states WHERE repo = ? AND merged = 0 AND closed = 0 ORDER BY number",
+                ))
+                .bind(repo)
+                .fetch_all(&mut *self.conn)
+                .await?;
+                for row in &rows {
+                    let names: Vec<String> = serde_json::from_str(&row.get::<String, _>("names")).unwrap_or_default();
+                    if names.iter().any(|n| ids.contains(n)) {
+                        open.push(shown(row, row.get("state"), None));
+                    }
+                }
+            }
+        }
+
+        let rows = sqlx::query(&sql(
+            "SELECT repo, CAST(number AS BIGINT) AS number, base, url, author, state, merged_at FROM issue_pulls WHERE project = ? AND issue = ? ORDER BY updated_at DESC, number DESC",
+        ))
+        .bind(project)
+        .bind(&id)
+        .fetch_all(&mut *self.conn)
+        .await?;
+        let mut done = vec![];
+        let mut unpolled = vec![];
+        for row in &rows {
+            let state: String = row.get("state");
+            if state == "open" && repo.as_deref() == Some(row.get::<String, _>("repo").as_str()) {
+                // An open one on the repo is the poll's word; with none that stands, what's kept says it's open.
+                if !kept {
+                    unpolled.push(shown(row, state, None));
+                }
+                continue;
+            }
+            done.push(shown(row, state, row.get("merged_at")));
+        }
+        unpolled.sort_by_key(|p| p["number"].as_i64());
+        open.extend(unpolled);
+        open.extend(done);
+        Ok(open)
+    }
 }
+
+/// How long the poll's read of a repo stands for the open pull requests (`POLL_STANDS`), in milliseconds.
+const POLL_STANDS: i64 = 3 * 60_000;
 
 #[cfg(test)]
 mod tests {
