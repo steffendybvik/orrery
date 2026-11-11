@@ -314,3 +314,89 @@ async fn the_chat_asks_only_for_its_settings_as_the_settings_take_them_and_only_
     assert_eq!(api.post("/api/chats/c1/setting-requests", json!({"setting": "tint", "value": "blue"})).send().await.status, 404);
     assert!(api.get("/api/chats/c1").send().await.body["messages"].as_array().unwrap().is_empty());
 }
+
+/// Schedule `title` on `project`, put there with SQL.
+async fn nightly(api: &TestApi, project: &str) -> i64 {
+    sqlx::query_scalar::<_, i64>(&crate::db::sql(
+        "INSERT INTO schedules (project, title, kind, notes, cron, timezone, created_by, created_at, updated_at) \
+         VALUES (?, 'Nightly', 'message', 'Hi', '0 2 * * *', 'UTC', 'owner', '2026-11-01T00:00:00.000Z', '2026-11-01T00:00:00.000Z') RETURNING id",
+    ))
+    .bind(project)
+    .fetch_one(&api.app.pool)
+    .await
+    .unwrap()
+}
+
+#[tokio::test]
+async fn the_chat_asks_for_a_schedule_and_nothing_is_saved_until_allowed() {
+    let api = TestApi::new().await;
+    let project = api.project("Primes").await;
+    api.put("/api/chats/c1", chat("c1", &project, "2026-11-01T10:00:00.000Z")).send().await;
+    let fields = json!({"title": "Nudge", "kind": "message", "notes": "Hi", "cron": "0 9 * * 1"});
+    let asked = api.post("/api/chats/c1/schedule-requests", json!({"schedule": fields, "why": " You asked "})).send().await;
+    assert_eq!(asked.status, 201, "{}", asked.body);
+    assert_eq!(asked.body["from"], "claude");
+    assert_eq!(asked.body["text"], "You asked");
+    let request = &asked.body["schedule"];
+    assert_eq!(request["title"], "Nudge");
+    assert_eq!(request["state"], "asked");
+    assert_eq!(request["body"], fields);
+    assert!(request.get("id").is_none() && request.get("project").is_none(), "{request}");
+    assert_eq!(request["changes"][0], json!({"field": "title", "to": "Nudge"}));
+    assert_eq!(api.get("/api/chats/c1").send().await.body["messages"][0], asked.body);
+    assert_eq!(api.get(&format!("/api/projects/{project}/schedules")).send().await.body, json!([]), "nothing is saved until the owner allows it");
+    let read = api.get("/api/changes").send().await.body;
+    assert!(read["changes"].as_array().unwrap().iter().any(|c| c["kind"] == "chat" && c["subject"] == "c1"), "{read}");
+}
+
+#[tokio::test]
+async fn asking_to_change_the_same_schedule_again_expires_the_unanswered_ask() {
+    let api = TestApi::new().await;
+    let project = api.project("Primes").await;
+    api.put("/api/chats/c1", chat("c1", &project, "2026-11-01T10:00:00.000Z")).send().await;
+    let id = nightly(&api, &project).await;
+    let first = api.post("/api/chats/c1/schedule-requests", json!({"id": id, "schedule": {"enabled": false}})).send().await;
+    assert_eq!(first.status, 201, "{}", first.body);
+    assert_eq!(first.body["schedule"]["changes"][0], json!({"field": "enabled", "from": true, "to": false}));
+    api.post("/api/chats/c1/schedule-requests", json!({"schedule": {"title": "New", "kind": "message", "notes": "Hi", "cron": "0 9 * * 1"}})).send().await;
+    api.post("/api/chats/c1/schedule-requests", json!({"id": id, "schedule": {"title": "Nightly too"}})).send().await;
+    let messages = api.get("/api/chats/c1").send().await.body["messages"].clone();
+    let states: Vec<&str> = messages.as_array().unwrap().iter().map(|m| m["schedule"]["state"].as_str().unwrap()).collect();
+    assert_eq!(states, ["expired", "asked", "asked"]);
+}
+
+#[tokio::test]
+async fn the_chat_asks_for_a_schedule_on_another_project_it_names() {
+    let api = TestApi::new().await;
+    let project = api.project("Primes").await;
+    let other = api.project("Evens").await;
+    api.put("/api/chats/c1", chat("c1", &project, "2026-11-01T10:00:00.000Z")).send().await;
+    let fields = json!({"title": "Nudge", "kind": "message", "notes": "Hi", "cron": "0 9 * * 1"});
+    let there = api.post("/api/chats/c1/schedule-requests", json!({"schedule": fields, "project": other})).send().await;
+    assert_eq!(there.status, 201, "{}", there.body);
+    assert_eq!(there.body["schedule"]["project"], json!(other));
+    let own = api.post("/api/chats/c1/schedule-requests", json!({"schedule": fields, "project": project})).send().await;
+    assert!(own.body["schedule"].get("project").is_none(), "the chat's own project goes unsaid");
+    assert_eq!(api.post("/api/chats/c1/schedule-requests", json!({"schedule": fields, "project": "nope"})).send().await.status, 404);
+    assert_eq!(api.post("/api/chats/c1/schedule-requests", json!({"schedule": fields, "project": 3})).send().await.status, 400);
+}
+
+#[tokio::test]
+async fn the_chat_asks_only_for_what_schedules_take_and_only_while_it_runs() {
+    let api = TestApi::new().await;
+    let project = api.project("Primes").await;
+    api.put("/api/chats/c1", chat("c1", &project, "2026-11-01T10:00:00.000Z")).send().await;
+    let untrusted = api.post("/api/chats/c1/schedule-requests", json!({"schedule": {"title": "X", "untrusted": true}})).send().await;
+    assert_eq!(untrusted.status, 403);
+    assert!(untrusted.body["message"].as_str().unwrap().starts_with("The owner's chat sets a schedule's"), "{}", untrusted.body);
+    assert_eq!(api.post("/api/chats/c1/schedule-requests", json!({"schedule": {}})).send().await.status, 400);
+    assert_eq!(api.post("/api/chats/c1/schedule-requests", json!({"id": "one", "schedule": {"enabled": false}})).send().await.status, 400);
+    assert_eq!(api.post("/api/chats/c1/schedule-requests", json!({"id": 999, "schedule": {"enabled": false}})).send().await.status, 404);
+    let fields = json!({"title": "Nudge", "kind": "message", "notes": "Hi", "cron": "0 9 * * 1"});
+    assert_eq!(api.post("/api/chats/nope/schedule-requests", json!({"schedule": fields})).send().await.status, 404);
+    let mut over = chat("c1", &project, "2026-11-01T10:00:00.000Z");
+    over["ended_at"] = json!("2026-11-01T11:00:00.000Z");
+    api.put("/api/chats/c1", over).send().await;
+    assert_eq!(api.post("/api/chats/c1/schedule-requests", json!({"schedule": fields})).send().await.status, 404);
+    assert!(api.get("/api/chats/c1").send().await.body["messages"].as_array().unwrap().is_empty());
+}
