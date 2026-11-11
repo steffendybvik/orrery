@@ -28,44 +28,44 @@ function hold(baseURL: string, path: string) {
 test("keeps an issue to the session on it: another's edit and start are refused, its comment isn't, and its list says to skip it", async ({request, baseURL}) => {
     if (!(await api(request, 'get', '/owner')).named) await api(request, 'put', '/owner', {name: 'Ada Lovelace'})
     const OWNER = {'Orrery-Actor': (await api(request, 'get', '/owner')).name}
-    await api(request, 'post', '/projects', {name: 'Cellar', key: 'CEL'})
+    await api(request, 'post', '/projects', {name: 'Brewhouse', key: 'BRW'})
     const as = (session: string) => ({'Orrery-Actor': 'claude', 'Orrery-Session': session})
     const ids = ['e2e-c1', 'e2e-c2']
-    for (const id of ids) await request.post('/api/sessions', {data: {id, project: 'cellar', event: 'SessionStart', name: id}})
-    const streams = ids.map(id => hold(baseURL!, `/api/projects/cellar/signals/stream?session=${id}&name=${id}&format=text`))
+    for (const id of ids) await request.post('/api/sessions', {data: {id, project: 'brewhouse', event: 'SessionStart', name: id}})
+    const streams = ids.map(id => hold(baseURL!, `/api/projects/brewhouse/signals/stream?session=${id}&name=${id}&format=text`))
     try {
-        await expect.poll(async () => (await api(request, 'get', '/projects/cellar/sessions')).filter((s: {id: string, listening: boolean}) => ids.includes(s.id) && s.listening).length).toBe(2)
-        const {id} = await api(request, 'post', '/projects/cellar/issues', {title: 'Rack the wine', status: 'todo'}, OWNER)
+        await expect.poll(async () => (await api(request, 'get', '/projects/brewhouse/sessions')).filter((s: {id: string, listening: boolean}) => ids.includes(s.id) && s.listening).length).toBe(2)
+        const {id} = await api(request, 'post', '/projects/brewhouse/issues', {title: 'Rack the wine', status: 'todo'}, OWNER)
         // The other session's comment while it's in Todo doesn't keep it from the one that starts it (ORR-627).
-        await api(request, 'post', `/projects/cellar/issues/${id}/comments`, {body: 'Mind the bottom rack'}, as('e2e-c2'))
-        await api(request, 'patch', `/projects/cellar/issues/${id}`, {status: 'in-review'}, as('e2e-c1'))
+        await api(request, 'post', `/projects/brewhouse/issues/${id}/comments`, {body: 'Mind the bottom rack'}, as('e2e-c2'))
+        await api(request, 'patch', `/projects/brewhouse/issues/${id}`, {status: 'in-review'}, as('e2e-c1'))
 
         // The other session: no edit, no start, but it may comment, as a reviewer does with its findings.
-        const refused = await request.patch(`/api/projects/cellar/issues/${id}`, {data: {title: 'Mine now'}, headers: as('e2e-c2')})
+        const refused = await request.patch(`/api/projects/brewhouse/issues/${id}`, {data: {title: 'Mine now'}, headers: as('e2e-c2')})
         expect(refused.status()).toBe(409)
         expect(await refused.text()).toContain('already being worked on by another session (e2e-c1)')
-        expect((await request.patch(`/api/projects/cellar/issues/${id}`, {data: {status: 'in-progress'}, headers: as('e2e-c2')})).status()).toBe(409)
-        const review = await api(request, 'post', `/projects/cellar/issues/${id}/comments`, {body: 'Found two loose racks'}, as('e2e-c2'))
+        expect((await request.patch(`/api/projects/brewhouse/issues/${id}`, {data: {status: 'in-progress'}, headers: as('e2e-c2')})).status()).toBe(409)
+        const review = await api(request, 'post', `/projects/brewhouse/issues/${id}/comments`, {body: 'Found two loose racks'}, as('e2e-c2'))
         // Its comment doesn't make the issue its own (ORR-627): its edit, even of that comment, is still refused, and
         // the first session still moves it back to fix what the review found.
-        const after = await request.patch(`/api/projects/cellar/issues/${id}`, {data: {title: 'Mine now'}, headers: as('e2e-c2')})
+        const after = await request.patch(`/api/projects/brewhouse/issues/${id}`, {data: {title: 'Mine now'}, headers: as('e2e-c2')})
         expect(await after.text()).toContain('already being worked on by another session (e2e-c1)')
-        expect((await request.patch(`/api/projects/cellar/issues/${id}/comments/${review.id}`, {data: {body: 'Three'}, headers: as('e2e-c2')})).status()).toBe(409)
-        await api(request, 'patch', `/projects/cellar/issues/${id}`, {status: 'in-progress'}, as('e2e-c1'))
-        await api(request, 'patch', `/projects/cellar/issues/${id}`, {status: 'in-review'}, as('e2e-c1'))
+        expect((await request.patch(`/api/projects/brewhouse/issues/${id}/comments/${review.id}`, {data: {body: 'Three'}, headers: as('e2e-c2')})).status()).toBe(409)
+        await api(request, 'patch', `/projects/brewhouse/issues/${id}`, {status: 'in-progress'}, as('e2e-c1'))
+        await api(request, 'patch', `/projects/brewhouse/issues/${id}`, {status: 'in-review'}, as('e2e-c1'))
         // Its own session and the owner may.
-        await api(request, 'post', `/projects/cellar/issues/${id}/comments`, {body: 'Racked the reds'}, as('e2e-c1'))
-        await api(request, 'post', `/projects/cellar/issues/${id}/comments`, {body: 'Whites next'}, OWNER)
+        await api(request, 'post', `/projects/brewhouse/issues/${id}/comments`, {body: 'Racked the reds'}, as('e2e-c1'))
+        await api(request, 'post', `/projects/brewhouse/issues/${id}/comments`, {body: 'Whites next'}, OWNER)
 
         // A follow-up filed under it is its session's to start too (ORR-611), though it has an id of its own.
-        const followUp = (await api(request, 'post', '/projects/cellar/issues', {title: 'Label the racks', status: 'todo', parent: id}, OWNER)).id
-        const taken = await request.patch(`/api/projects/cellar/issues/${followUp}`, {data: {status: 'in-progress'}, headers: as('e2e-c2')})
+        const followUp = (await api(request, 'post', '/projects/brewhouse/issues', {title: 'Label the racks', status: 'todo', parent: id}, OWNER)).id
+        const taken = await request.patch(`/api/projects/brewhouse/issues/${followUp}`, {data: {status: 'in-progress'}, headers: as('e2e-c2')})
         expect(taken.status()).toBe(409)
         expect(await taken.text()).toContain(`is a sub-issue of ${id}, which another session (e2e-c1) is working on`)
-        await api(request, 'patch', `/projects/cellar/issues/${followUp}`, {status: 'in-progress'}, as('e2e-c1'))
+        await api(request, 'patch', `/projects/brewhouse/issues/${followUp}`, {status: 'in-progress'}, as('e2e-c1'))
 
         // A milestone's list marks it for the other session only.
-        await api(request, 'post', '/projects/cellar/milestones/all/focus', {session: '*'}, OWNER)
+        await api(request, 'post', '/projects/brewhouse/milestones/all/focus', {session: '*'}, OWNER)
         await expect.poll(() => streams.map(s => s.said.text.includes('Rack the wine'))).toEqual([true, true])
         const line = (text: string) => text.split('\n').find(l => l.includes(`${id}: Rack the wine`))
         expect(line(streams[1]!.said.text)).toContain('another session is on it')
