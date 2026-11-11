@@ -467,7 +467,8 @@ impl Api<'_> {
         // the rest stay in the channel until they move (ORR-1100).
         if name == "request" {
             let action = args["action"].as_str().unwrap_or_default();
-            if !["update_settings", "create_schedule", "update_schedule"].contains(&action) {
+            let asks = ["update_settings", "create_schedule", "update_schedule", "create_doc", "update_doc"];
+            if !asks.contains(&action) {
                 return None;
             }
             let mut fields = args.get("fields").filter(|f| f.is_object()).cloned().unwrap_or_else(|| json!({}));
@@ -476,7 +477,10 @@ impl Api<'_> {
             }
             return Some(match action {
                 "update_settings" => self.update_settings(&fields).await,
-                _ => self.ask_schedule_in_chat(action == "update_schedule", &fields).await,
+                _ => {
+                    let (verb, kind) = action.split_once('_').unwrap_or_default();
+                    self.ask_in_chat(kind, verb == "update", &fields).await
+                }
             });
         }
         Some(match name {

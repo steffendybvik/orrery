@@ -16,6 +16,9 @@ const REVISION_COLUMNS: &str = "CAST(id AS BIGINT) AS id, project, doc, title, k
 /// The largest id a revision's column can hold: past it there's no such revision.
 const MOST_REVISIONS: i64 = 2_147_483_647;
 const DOC_FIELDS: [&str; 6] = ["id", "title", "body", "position", "section", "kind"];
+
+/// What of a doc the chat may ask to set (`CHAT_DOC_FIELDS`); where it's listed, its kind and its id stay the owner's.
+const CHAT_DOC_FIELDS: [&str; 3] = ["title", "section", "body"];
 const DOC_KINDS: [&str; 2] = ["markdown", "artifact"];
 
 #[derive(Clone, Debug)]
@@ -285,6 +288,59 @@ impl<'c> Docs<'c> {
         };
         docs.sort_by(|a, b| in_title(b).cmp(&in_title(a)).then_with(|| natural_cmp(&a.title, &b.title)).then_with(|| a.id.cmp(&b.id)));
         Ok(Value::Array(docs.iter().map(|row| Value::Object(summary_json(row, (!words.is_empty()).then(|| match_of(&row.body, &words))))).collect()))
+    }
+
+    /// The chat's ask to make a doc in `project`, or change doc `target` there (`askDoc`): `fields` its title, section
+    /// and text, checked as a doc's are, each kept only when it would change something. `was` holds the doc as it is, for
+    /// the owner's diff and for refusing their Allow should it change since. Saves nothing.
+    pub(crate) async fn chat_request(&mut self, project: &str, fields: Option<&Value>, target: Option<&Value>) -> Result<Value> {
+        let names = CHAT_DOC_FIELDS.join(", ");
+        let Some(fields) = fields.and_then(Value::as_object).filter(|f| !f.is_empty()) else {
+            return Err(ApiError::bad_request(format!("Send {{doc: {{…}}, id?}}: the fields to set, any of {names}, and the doc's id to change one")));
+        };
+        let refused = fields.keys().filter(|k| !CHAT_DOC_FIELDS.contains(&k.as_str())).cloned().collect::<Vec<_>>();
+        if !refused.is_empty() {
+            return Err(ApiError::forbidden(format!("The owner's chat sets a doc's {names}, not its {}", refused.join(", "))));
+        }
+        let target = match target {
+            None | Some(Value::Null) => None,
+            Some(Value::String(id)) => Some(id.as_str()),
+            Some(_) => return Err(ApiError::bad_request("Send \"id\" as the doc to change, or leave it out to make one")),
+        };
+        let current = match target {
+            Some(id) => Some(self.doc(project, id).await?),
+            None => None,
+        };
+        let input = check_doc_input(&Value::Object(fields.clone()), current.is_some())?;
+        let title = input.get("title").and_then(Value::as_str).map(|t| t.trim().to_string());
+        let was = current.as_ref().map(|c| json!({"title": c["title"], "section": c.get("section").cloned().unwrap_or(Value::Null), "body": c["body"]}));
+        // Whether `value` would change the doc's `field`: always, for a new one.
+        let changes = |field: &str, value: &Value| was.as_ref().map_or(true, |w| w[field] != *value);
+        let mut wanted = Map::new();
+        if let Some(title) = title.as_ref().filter(|t| changes("title", &json!(t))) {
+            wanted.insert("title".into(), json!(title));
+        }
+        if let Some(section) = section_of(input.get("section")) {
+            if changes("section", &json!(section)) {
+                wanted.insert("section".into(), json!(section));
+            }
+        }
+        if let Some(body) = input.get("body").filter(|b| changes("body", b)) {
+            wanted.insert("body".into(), body.clone());
+        }
+        if was.is_some() && wanted.is_empty() {
+            return Err(ApiError::conflict(format!("Doc {} is like that already: nothing would change", target.unwrap_or_default())));
+        }
+        let mut request = Map::new();
+        if let (Some(current), Some(was)) = (&current, was) {
+            request.insert("id".into(), current["id"].clone());
+            request.insert("was".into(), was);
+        }
+        let title = title.map(Value::from).or_else(|| current.as_ref().map(|c| c["title"].clone())).unwrap_or_else(|| json!(""));
+        request.insert("title".into(), title);
+        request.insert("body".into(), Value::Object(wanted));
+        request.insert("state".into(), json!("asked"));
+        Ok(Value::Object(request))
     }
 
     pub async fn doc(&mut self, project: &str, id: &str) -> Result<Value> {

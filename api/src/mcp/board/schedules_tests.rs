@@ -226,3 +226,25 @@ async fn the_chats_schedule_asks_say_no_to_what_schedules_refuse_and_to_a_projec
     assert_eq!(said(&elsewhere), "orrery said no: This chat reaches alpha, not beta");
     assert!(api.get("/api/chats/c1").send().await.body["messages"].as_array().unwrap().is_empty());
 }
+
+#[tokio::test]
+async fn the_chats_doc_asks_are_kept_in_its_chat() {
+    let api = TestApi::new().await;
+    let project = api.project("alpha").await;
+    api.put("/api/chats/c1", json!({"id": "c1", "project": project, "started_at": "2026-11-01T10:00:00.000Z"})).send().await;
+    let made = request(&api, "create_doc", json!({"title": "Plan", "body": "Sieve"})).await;
+    assert_eq!(said(&made), "Asked: the owner sees the doc with Allow and Deny, and you'll hear which they pressed. Nothing is saved until they allow it.");
+    api.post(&format!("/api/projects/{project}/docs"), json!({"title": "Notes", "body": "Hi"})).send().await;
+    let changed = request(&api, "update_doc", json!({"id": "notes", "body": "Hello"})).await;
+    assert_eq!(
+        said(&changed),
+        "Asked: the owner sees the change with Allow and Deny, and you'll hear which they pressed. Nothing is saved until they allow it."
+    );
+    let messages = api.get("/api/chats/c1").send().await.body["messages"].clone();
+    assert_eq!(messages[0]["text"], "You asked");
+    assert_eq!(messages[0]["doc"]["body"], json!({"title": "Plan", "body": "Sieve"}));
+    assert_eq!(messages[1]["doc"]["id"], "notes");
+    assert_eq!(messages[1]["doc"]["body"], json!({"body": "Hello"}));
+    let refused = request(&api, "create_doc", json!({"title": "X", "kind": "artifact"})).await;
+    assert!(said(&refused).starts_with("orrery said no: "), "{}", refused.body);
+}
