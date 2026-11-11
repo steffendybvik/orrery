@@ -258,17 +258,18 @@ e2e flows and keeps the report as an artifact. `PERF_NO_BUILD=1` reuses the last
 
 `pnpm soak`, after `pnpm build`, runs the built app on a fresh `web/.data/soak.db` and works it faster than real use: sessions listening, their streams and the page's live feed dropping and coming back, hooks, comments, edits and a backup every five minutes. `web/soak-report/` keeps its memory, open files and the project list's time every 15 seconds, and `summary.json` the totals. It fails on a request that errors or when open files keep growing, and memory is for reading. `SOAK_MINUTES` (30), `SOAK_SESSIONS` (8) and `SOAK_PORT` (3360) change it. A short run catches a fast leak, and says nothing of what only shows after days.
 
-The database's migrations are numbered steps in `web/server/utils/migrations/sqlite.ts`, with Postgres's after its baseline
-beside them in `web/server/utils/migrations/postgres.ts`: add a step to both, never edit one. `test/schema-parity.test.ts` checks that both end
+The database's migrations are the Rust API's numbered steps (see [Migrations in Rust](#migrations-in-rust)): a SQL file
+each in `api/migrations/sqlite` and in `api/migrations/postgres`, after Postgres's baseline. Add a step to both, never
+edit one. `test/schema-parity.test.ts` checks that both end
 on the same step with the same tables, columns, indexes and checks, and that a step changing data does the same on
 each; a step that changes data gets an upgrade test there. Before a SQLite file takes steps it's copied to
 `orrery-pre-<version>-step<n>.db`, and a database past the newest step the code knows (from a newer orrery) isn't opened.
 
 ### Migrations in Rust
 
-The Rust API has the same steps (ORR-931): each SQL step as a numbered file in `api/migrations/sqlite` and
-`api/migrations/postgres` (Postgres's baseline as `023-baseline.sql`), listed in `api/src/steps.rs`, and the steps that are
-code here written again in `api/src/migrate.rs`. `orrery-api migrate` brings `NUXT_DATABASE` up to the newest step, counted
+The Rust API owns the migrations (ORR-931): each SQL step as a numbered file in `api/migrations/sqlite` and
+`api/migrations/postgres` (Postgres's baseline as `023-baseline.sql`), listed in `api/src/steps.rs`, and the Node app's
+old code steps written again in `api/src/migrate.rs`. `orrery-api migrate` brings `NUXT_DATABASE` up to the newest step, counted
 as the Node app counts them, so a database either one migrated carries on with the other. The Nuxt server runs it
 before it opens a database (`server/utils/api-migrate.ts`), so the steps that run are these: on start, on a database
 moved to from App settings, on SQLite and Postgres. It passes `ORRERY_API_STEPS`, its own newest step, and a build whose
@@ -279,15 +280,19 @@ without the copy: `orrery-pre-<ORRERY_VERSION>-step<n>.db` in `ORRERY_API_BACKUP
 setting that isn't JSON stops the step that moves the owner to `people`. It leaves a database from before step 4 (when
 issues were renumbered per board) to the Node app.
 
-A new step is still written in `web/server/utils/migrations` first, then ported with
+The Node app's own steps, in `web/server/utils/migrations/sqlite.ts` and `postgres.ts`, are frozen at step 87, where
+it handed over: a test fails on one added there. A new step is a SQL file in both `api/migrations/sqlite` and
+`api/migrations/postgres`, numbered on from the last (`088.sql`, …), and never code, as the Node app couldn't run it.
+Then
 
 ```sh
 ORRERY_WRITE_MIGRATIONS=1 pnpm --dir web exec vitest run --project unit test/rust-migrations.test.ts
 ```
 
-which writes the files. A step that's code needs its arm in `migrate.rs` by hand. `test/rust-migrations.test.ts` fails
-until both are done, and with the binary built it checks that `orrery-api migrate` makes the database Node makes: from
-empty, and carrying on from a step Node stopped at, on SQLite and (with `TEST_POSTGRES_URL`) on Postgres.
+writes `api/src/steps.rs` and `web/server/utils/migrations/from-api.ts`, which the Node app reads the new steps through
+when it migrates without the binary. `test/rust-migrations.test.ts` fails until they match the files, and with the
+binary built it checks that `orrery-api migrate` makes the database Node makes: from empty, and carrying on from a step
+Node stopped at, on SQLite and (with `TEST_POSTGRES_URL`) on Postgres.
 
 ## Benchmarking the browser suite
 

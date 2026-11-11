@@ -1,8 +1,8 @@
-// The schema's migrations, ported from web/server/utils/migrations (ORR-931): `orrery-api migrate` brings a database to
-// the latest step. The Nuxt server runs it before it opens a database whenever it has this binary, and only falls back
-// to its own steps without one (tests, a bare `nuxt dev`) or with a build whose steps end elsewhere. A new step is still
-// written there first. web/test/rust-migrations.test.ts copies each
-// SQL step into api/migrations and the list into steps.rs, and fails until a step that's code there has an arm here.
+// The schema's migrations (ORR-931): `orrery-api migrate` brings a database to the latest step. The Nuxt server runs it
+// before it opens a database whenever it has this binary, and only falls back to its own copy of the steps without one
+// (tests, a bare `nuxt dev`) or with a build whose steps end elsewhere. A new step is a SQL file in api/migrations;
+// web/test/rust-migrations.test.ts lists them in steps.rs, and in the Nuxt server's from-api.ts. Its own steps, ported
+// from there, are frozen, and the code steps among them have their arms here.
 //
 // The steps are the same ones, counted the same way: SQLite's in `PRAGMA user_version`, Postgres's in `schema_version`
 // from its baseline. So a database either one migrated carries on with the other, with no reset.

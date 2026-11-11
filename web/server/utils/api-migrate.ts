@@ -1,7 +1,8 @@
 // The Rust API runs the migrations (ORR-931): before this server opens a database, `orrery-api migrate` brings it up to
-// date, so the steps that run are the crate's (api/migrations, api/src/migrate.rs). This server's own steps then find
-// nothing to do. They still run when there's no binary to ask (the tests, a bare `nuxt dev`), or when the binary's steps
-// end at a different one from this server's (a stale `cargo build`): then this server says so and migrates as before.
+// date, so the steps that run are the crate's (api/migrations, api/src/migrate.rs). This server's copy of the steps (its
+// frozen ones, then the crate's through from-api.ts) then finds nothing to do. It still runs when there's no binary to
+// ask (the tests, a bare `nuxt dev`), or when the binary's steps end at a different one from this server's (a stale
+// `cargo build`): then this server says so and migrates as before.
 import {spawnSync} from 'node:child_process'
 import {existsSync} from 'node:fs'
 import {resolve} from 'node:path'
