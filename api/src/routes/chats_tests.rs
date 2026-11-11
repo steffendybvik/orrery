@@ -266,3 +266,51 @@ async fn adding_or_changing_a_message_says_so_in_the_outbox_but_keeping_the_chat
     api.post("/api/chats/nope/lines", said("claude", "Hi")).send().await;
     assert_eq!(chat_rows().await.len(), 2);
 }
+
+#[tokio::test]
+async fn the_chat_asks_to_change_a_setting_and_nothing_is_saved_until_allowed() {
+    let api = TestApi::new().await;
+    let project = api.project("Primes").await;
+    api.put("/api/chats/c1", chat("c1", &project, "2026-11-01T10:00:00.000Z")).send().await;
+    let asked = api.post("/api/chats/c1/setting-requests", json!({"setting": "handle", "value": "Ada", "why": " Shorter "})).send().await;
+    assert_eq!(asked.status, 201, "{}", asked.body);
+    assert_eq!(asked.body["from"], "claude");
+    assert_eq!(asked.body["text"], "Shorter");
+    assert_eq!(asked.body["request"], json!({"setting": "handle", "from": null, "to": "ada", "state": "asked"}));
+    assert_eq!(api.get("/api/chats/c1").send().await.body["messages"][0], asked.body);
+    assert!(api.get("/api/settings").send().await.body["handle"].is_null(), "nothing is saved until the owner allows it");
+    let read = api.get("/api/changes").send().await.body;
+    assert!(read["changes"].as_array().unwrap().iter().any(|c| c["kind"] == "chat" && c["subject"] == "c1"), "{read}");
+}
+
+#[tokio::test]
+async fn asking_for_the_same_setting_again_expires_the_unanswered_ask() {
+    let api = TestApi::new().await;
+    let project = api.project("Primes").await;
+    api.put("/api/chats/c1", chat("c1", &project, "2026-11-01T10:00:00.000Z")).send().await;
+    api.post("/api/chats/c1/setting-requests", json!({"setting": "tint", "value": "blue"})).send().await;
+    api.post("/api/chats/c1/setting-requests", json!({"setting": "advanced", "value": true})).send().await;
+    api.post("/api/chats/c1/setting-requests", json!({"setting": "tint", "value": "green"})).send().await;
+    let messages = api.get("/api/chats/c1").send().await.body["messages"].clone();
+    let states: Vec<(&str, &str)> =
+        messages.as_array().unwrap().iter().map(|m| (m["request"]["setting"].as_str().unwrap(), m["request"]["state"].as_str().unwrap())).collect();
+    assert_eq!(states, [("tint", "expired"), ("advanced", "asked"), ("tint", "asked")]);
+}
+
+#[tokio::test]
+async fn the_chat_asks_only_for_its_settings_as_the_settings_take_them_and_only_while_it_runs() {
+    let api = TestApi::new().await;
+    let project = api.project("Primes").await;
+    api.put("/api/chats/c1", chat("c1", &project, "2026-11-01T10:00:00.000Z")).send().await;
+    let owners = api.post("/api/chats/c1/setting-requests", json!({"setting": "instructions", "value": []})).send().await;
+    assert_eq!(owners.status, 400);
+    assert!(owners.body["message"].as_str().unwrap().contains("the rest are the owner's"), "{}", owners.body);
+    assert_eq!(api.post("/api/chats/c1/setting-requests", json!({"setting": "tint"})).send().await.status, 400);
+    assert_eq!(api.post("/api/chats/c1/setting-requests", json!({"setting": "advanced", "value": null})).send().await.status, 400);
+    assert_eq!(api.post("/api/chats/nope/setting-requests", json!({"setting": "tint", "value": "blue"})).send().await.status, 404);
+    let mut over = chat("c1", &project, "2026-11-01T10:00:00.000Z");
+    over["ended_at"] = json!("2026-11-01T11:00:00.000Z");
+    api.put("/api/chats/c1", over).send().await;
+    assert_eq!(api.post("/api/chats/c1/setting-requests", json!({"setting": "tint", "value": "blue"})).send().await.status, 404);
+    assert!(api.get("/api/chats/c1").send().await.body["messages"].as_array().unwrap().is_empty());
+}

@@ -19,6 +19,17 @@ pub(crate) fn routes() -> Router<Arc<App>> {
         .route("/api/chats/{chat}", get(get_chat).put(keep_chat).delete(forget_chat))
         .route("/api/chats/{chat}/lines", post(add_message))
         .route("/api/chats/{chat}/lines/{message}", put(change_message))
+        .route("/api/chats/{chat}/setting-requests", post(ask_setting))
+}
+
+/// `POST /api/chats/:chat/setting-requests` {setting, value, why?} → 201 the message asking (ORR-1100): the chat's
+/// `update_settings`, kept as a request the owner allows or denies on the chat's page.
+async fn ask_setting(State(app): Shared, Path(chat): Path<String>, headers: HeaderMap, body: Bytes) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    let mut chats = Chats::new(&mut conn);
+    chats.outbox = Some(Outbox::new(actor_of(&headers)));
+    let asked = chats.ask_setting(&chat, &body_of(&body)).await?;
+    Ok(reply(StatusCode::CREATED, Some(asked), std::mem::take(&mut chats.effects)))
 }
 
 async fn add_message(State(app): Shared, Path(chat): Path<String>, headers: HeaderMap, body: Bytes) -> Result<Response> {

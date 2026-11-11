@@ -182,7 +182,7 @@ fn parse_work_kinds(value: &Value) -> std::result::Result<Value, String> {
 }
 
 /// A body as `checkInput(body, SETTINGS_FIELDS, true)` takes it, each value as the store keeps it.
-fn check_input(body: &Value) -> Result<Map<String, Value>> {
+pub(crate) fn check_input(body: &Value) -> Result<Map<String, Value>> {
     let Some(sent) = body.as_object() else {
         return Err(ApiError::bad_request("The body should be a JSON object"));
     };
