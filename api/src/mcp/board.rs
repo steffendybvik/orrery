@@ -2,16 +2,18 @@
 // as the channel calls the REST API, and its answer in the channel's words. A route is run through `routes::all()` with
 // its rails (access/rails.rs), as whoever called `/mcp` (their `Orrery-*` headers, which the guard already checked), so
 // a tool can do only what that route lets them. So far: docs, presets, milestones, schedules (board/schedules.rs),
-// releases, epics, and issues (listed, made, changed, commented on).
+// releases, epics, issues (listed, made, changed, commented on), and the event log, secrets and the chat's images
+// (board/machine.rs).
 use crate::{access, routes, App};
-use axum::body::Body;
+use axum::body::{Body, Bytes};
 use axum::extract::Request;
-use axum::http::{header, HeaderMap, Method};
+use axum::http::{header, HeaderMap, Method, StatusCode};
 use axum::middleware;
 use serde_json::{json, Value};
 use std::sync::Arc;
 use tower::ServiceExt;
 
+mod machine;
 mod schedules;
 
 /// What a tool says when orrery refuses it, or the tool can't run: `orrery said no: …`, as the channel words it.
@@ -53,6 +55,17 @@ fn str_of<'v>(args: &'v Value, key: &str) -> Option<&'v str> {
 
 impl Api<'_> {
     async fn call(&self, method: Method, path: &str, body: Option<Value>) -> std::result::Result<Value, No> {
+        let (status, _, bytes) = self.send(method, path, body).await?;
+        let data: Value = if bytes.is_empty() { Value::Null } else { serde_json::from_slice(&bytes).unwrap_or(Value::Null) };
+        if !status.is_success() {
+            let message = data["message"].as_str().or(data["statusMessage"].as_str()).map(String::from);
+            return Err(No(message.unwrap_or_else(|| format!("{} {}", status.as_u16(), status.canonical_reason().unwrap_or("")))));
+        }
+        Ok(data)
+    }
+
+    /// A route's reply as it came: its status, headers and body, for one that isn't JSON (`image`).
+    async fn send(&self, method: Method, path: &str, body: Option<Value>) -> std::result::Result<(StatusCode, HeaderMap, Bytes), No> {
         let mut request = Request::builder().method(method).uri(path);
         for (name, value) in self.headers {
             if name != header::CONTENT_LENGTH && name != header::CONTENT_TYPE && name != header::ACCEPT {
@@ -66,14 +79,9 @@ impl Api<'_> {
         .map_err(|e| No(e.to_string()))?;
         let router = routes::all().route_layer(middleware::from_fn_with_state(self.app.clone(), access::rails::rails)).with_state(self.app.clone());
         let response = router.oneshot(request).await.map_err(|e| No(e.to_string()))?;
-        let status = response.status();
-        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.map_err(|e| No(e.to_string()))?;
-        let data: Value = if bytes.is_empty() { Value::Null } else { serde_json::from_slice(&bytes).unwrap_or(Value::Null) };
-        if !status.is_success() {
-            let message = data["message"].as_str().or(data["statusMessage"].as_str()).map(String::from);
-            return Err(No(message.unwrap_or_else(|| format!("{} {}", status.as_u16(), status.canonical_reason().unwrap_or("")))));
-        }
-        Ok(data)
+        let (parts, body) = response.into_parts();
+        let bytes = axum::body::to_bytes(body, usize::MAX).await.map_err(|e| No(e.to_string()))?;
+        Ok((parts.status, parts.headers, bytes))
     }
 
     /// The project a call is on, as the channel's `projectOf` has it for a tool that names no issue: the only one, or
@@ -474,6 +482,9 @@ impl Api<'_> {
             "comment" => self.comment(args).await,
             "comment_epic" => self.comment_epic(args).await,
             "rate_pull" => self.rate_pull(args).await,
+            "events" => self.events(args).await,
+            "resolve_event" => self.resolve_event(args).await,
+            "secrets" => self.secrets().await,
             _ => return None,
         })
     }
