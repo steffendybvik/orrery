@@ -5,17 +5,18 @@
 import {spawnSync} from 'node:child_process'
 import {existsSync} from 'node:fs'
 import {resolve} from 'node:path'
-import {apiTarget} from './api-router'
 import {backupDir} from './backup-choice'
 
 /** The repo's own debug build of the API, from web/ where `nuxt dev` runs. */
 const DEV_BIN = resolve(process.cwd(), '../api/target/debug/orrery-api')
 
-/** The Rust API's binary: NUXT_API_BIN, or under `nuxt dev` the repo's own build when no API is named to use instead;
- * empty when there's none. */
+/** The Rust API's binary: NUXT_API_BIN, or under `nuxt dev` the repo's own build when no API is named to use instead
+ * (NUXT_API_URL and NUXT_API_TOKEN); empty when there's none. Not api-router's `apiTarget`: that's this server's own
+ * once it has started one, and api-router would bring its imports into everything that opens the database. */
 export function apiBinary(): string {
     const config = useRuntimeConfig()
-    const devBin = import.meta.dev && !apiTarget(config) && existsSync(DEV_BIN) ? DEV_BIN : ''
+    const named = Boolean(config.apiUrl && config.apiToken)
+    const devBin = import.meta.dev && !named && existsSync(DEV_BIN) ? DEV_BIN : ''
     return String(config.apiBin || devBin)
 }
 
