@@ -4,8 +4,8 @@
 //
 // The rest stay in the channel, as their work is on the machine the session runs on: `egress` opens a secret with the
 // machine's key, which the API never holds (decision-rust-api-secrets-settings); `github_issues` and `github_pulls`
-// run `gh` in the session's folder; `link_folder` writes the launcher's list there. The chat's `reply` waits on the
-// chat moving into the API (ORR-1100).
+// run `gh` in the session's folder; `link_folder` writes the launcher's list there; `sessions` and `next` read the
+// launcher's live view of tmux. The chat's `reply` is board/schedules.rs's, with its other chat tools.
 use super::{enc, text, truthy, Api, No, Said};
 use axum::http::{header, Method};
 use base64::Engine;

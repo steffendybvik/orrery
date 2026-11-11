@@ -4,6 +4,7 @@
 // schedule-requests`). The chat's `update_settings` is asked in its chat too. Either chat ask is kept in the chat it
 // names (`Orrery-Launch`, as the channel sends it), which the local app hears and the owner answers. So is the chat's
 // `create_release` and `update_release` (`/api/chats/:chat/release-requests`), kept beside them here.
+// The chat's `reply` goes in that chat the same way (`/api/chats/:chat/replies`, ORR-1101).
 use super::{text, truthy, Api, Said};
 use axum::http::Method;
 use serde_json::{json, Value};
@@ -146,6 +147,12 @@ impl Api<'_> {
             "Asked: the owner sees the {} with Allow and Deny, and you'll hear which they pressed. Nothing is saved until they allow it.",
             if change { "change" } else { "release" }
         ))
+    /// The chat's `reply`: its answer, in the chat `Orrery-Launch` names (ORR-1101), which the local app hears.
+    pub(super) async fn reply(&self, args: &Value) -> Said {
+        let chat = self.chat("reply")?;
+        let body = json!({"text": args.get("text").cloned().unwrap_or(Value::Null)});
+        self.call(Method::POST, &format!("/api/chats/{}/replies", super::enc(&chat)), Some(body)).await?;
+        Ok("Sent.".into())
     }
 
     /// The chat's `update_settings`: asked in its chat, which saves nothing until the owner allows it.

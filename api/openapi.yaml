@@ -1636,6 +1636,21 @@ paths:
         '200': {description: The message, content: {application/json: {schema: {type: object}}}}
         '400': {$ref: '#/components/responses/BadRequest'}
         '404': {$ref: '#/components/responses/NotFound'}
+  /api/chats/{chat}/replies:
+    parameters: [{name: chat, in: path, required: true, description: The chat's id, schema: {type: string}}]
+    post:
+      x-served: false
+      summary: The chat's session answers in it
+      description: >-
+        The chat's `reply` (`reply`, ORR-1101): the text, trimmed, kept as the chat's message from claude, which the
+        local app hears. Only the chat's own session (`Orrery-Actor-Kind: chat`, with `Orrery-Launch` naming the chat),
+        and only while the chat runs.
+      requestBody: {required: true, content: {application/json: {schema: {type: object, required: [text], properties: {text: {type: string}}}}}}
+      responses:
+        '201': {description: 'The message, with its id and time', content: {application/json: {schema: {type: object}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {description: Not the chat's own session}
+        '404': {$ref: '#/components/responses/NotFound'}
   /api/chats/{chat}/setting-requests:
     parameters: [{name: chat, in: path, required: true, description: The chat's id, schema: {type: string}}]
     post:

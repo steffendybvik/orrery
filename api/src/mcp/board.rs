@@ -504,6 +504,7 @@ impl Api<'_> {
             "events" => self.events(args).await,
             "resolve_event" => self.resolve_event(args).await,
             "secrets" => self.secrets().await,
+            "reply" => self.reply(args).await,
             _ => return None,
         })
     }

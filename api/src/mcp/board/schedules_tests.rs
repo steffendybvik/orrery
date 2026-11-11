@@ -248,4 +248,29 @@ async fn the_chats_release_asks_are_kept_in_its_chat() {
     assert_eq!(messages[1]["release"]["body"], json!({"notes": "Soon"}));
     let releases = api.get(&format!("/api/projects/{project}/releases")).send().await.body;
     assert_eq!(releases.as_array().map(Vec::len), Some(1), "only the one put there: {releases}");
+async fn reply(api: &TestApi, launch: Option<&str>, text: &str) -> Reply {
+    let request = api
+        .post("/mcp", json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "reply", "arguments": {"text": text}}}))
+        .header("orrery-actor-kind", "chat");
+    match launch {
+        Some(launch) => request.header("orrery-launch", launch),
+        None => request,
+    }
+    .send()
+    .await
+}
+
+#[tokio::test]
+async fn the_chats_reply_is_said_in_its_chat() {
+    let api = TestApi::new().await;
+    let project = api.project("alpha").await;
+    api.put("/api/chats/c1", json!({"id": "c1", "project": project, "started_at": "2026-11-01T10:00:00.000Z"})).send().await;
+    assert_eq!(said(&reply(&api, Some("c1"), "It's blue now.").await), "Sent.");
+    let messages = api.get("/api/chats/c1").send().await.body["messages"].clone();
+    assert_eq!((&messages[0]["from"], &messages[0]["text"]), (&json!("claude"), &json!("It's blue now.")));
+    let blank = reply(&api, Some("c1"), " ").await;
+    assert_eq!(said(&blank), "orrery said no: Send the answer as {\"text\": \"…\"}");
+    let nameless = reply(&api, None, "Hi").await;
+    assert!(said(&nameless).contains("says no chat"), "{}", nameless.body);
+    assert_eq!(api.get("/api/chats/c1").send().await.body["messages"].as_array().unwrap().len(), 1);
 }

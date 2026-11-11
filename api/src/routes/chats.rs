@@ -19,6 +19,7 @@ pub(crate) fn routes() -> Router<Arc<App>> {
         .route("/api/chats/{chat}", get(get_chat).put(keep_chat).delete(forget_chat))
         .route("/api/chats/{chat}/lines", post(add_message))
         .route("/api/chats/{chat}/lines/{message}", put(change_message))
+        .route("/api/chats/{chat}/replies", post(reply_in_chat))
         .route("/api/chats/{chat}/setting-requests", post(ask_setting))
         .route("/api/chats/{chat}/schedule-requests", post(ask_schedule))
         .route("/api/chats/{chat}/release-requests", post(ask_release))
@@ -32,6 +33,20 @@ async fn ask_release(State(app): Shared, Path(chat): Path<String>, headers: Head
     chats.outbox = Some(Outbox::new(actor_of(&headers)));
     let asked = chats.ask_release(&chat, &body_of(&body)).await?;
     Ok(reply(StatusCode::CREATED, Some(asked), std::mem::take(&mut chats.effects)))
+}
+
+/// `POST /api/chats/:chat/replies` {text} → 201 the message (ORR-1101): the chat's session answering, for the Rust
+/// /mcp's `reply`. Only that session's: it's a chat (`Orrery-Actor-Kind`), started for this one (`Orrery-Launch`).
+async fn reply_in_chat(State(app): Shared, Path(chat): Path<String>, headers: HeaderMap, body: Bytes) -> Result<Response> {
+    let launch = crate::request::header(&headers, "orrery-launch");
+    if !actor_of(&headers).chat || launch.as_deref() != Some(chat.as_str()) {
+        return Err(crate::error::ApiError::forbidden("Only the chat's own session answers in it"));
+    }
+    let mut conn = app.pool.acquire().await?;
+    let mut chats = Chats::new(&mut conn);
+    chats.outbox = Some(Outbox::new(actor_of(&headers)));
+    let said = chats.reply(&chat, &body_of(&body)).await?;
+    Ok(reply(StatusCode::CREATED, Some(said), std::mem::take(&mut chats.effects)))
 }
 
 /// `POST /api/chats/:chat/schedule-requests` {schedule, id?, project?, why?} → 201 the message asking (ORR-1100): the
