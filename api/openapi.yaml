@@ -1546,9 +1546,10 @@ paths:
       x-served: false
       summary: Keeps the chat as it is now, whole, but why its launcher couldn't start it
       description: >-
-        The one write the local app makes of a chat (`keepChat`), as it changes: a chat runs as a session on the local
-        machine, so what it does stays there, and this keeps its record. Its project and start stay as first kept.
-      requestBody: {required: true, content: {application/json: {schema: {type: object, required: [id, project, started_at, messages], description: The chat, as `GET` gives it}}}}
+        The write the local app makes of a chat (`keepChat`), as it changes: a chat runs as a session on the local
+        machine, so what it does stays there, and this keeps its record. Its project and start stay as first kept. Its
+        messages are kept one at a time, through `…/lines` (ORR-1100).
+      requestBody: {required: true, content: {application/json: {schema: {type: object, required: [id, project, started_at], description: 'The chat, as `GET` gives it. Its messages are rows of their own, so any sent are left'}}}}
       responses:
         '204': {description: Kept}
         '400': {$ref: '#/components/responses/BadRequest'}
@@ -1557,6 +1558,33 @@ paths:
       summary: Lets go of the chat's record, one that ended before anything was said, or deleted
       responses:
         '204': {description: Gone}
+  /api/chats/{chat}/lines:
+    parameters: [{name: chat, in: path, required: true, description: The chat's id, schema: {type: string}}]
+    post:
+      x-served: false
+      summary: Adds a message to the chat, giving it its id (the next after every chat's) and its time
+      description: >-
+        How the local app keeps a message said in a chat (`add`, ORR-1100): the owner's words, the chat's answer, or a
+        request it asks, as the page reads it. An id or time sent is left.
+      requestBody: {required: true, content: {application/json: {schema: {type: object, required: [from, text, images], description: 'The message: from (owner or claude), text, images, and what it asks'}}}}
+      responses:
+        '201': {description: 'The message, with its id and time', content: {application/json: {schema: {type: object}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/chats/{chat}/lines/{message}:
+    parameters:
+      - {name: chat, in: path, required: true, description: The chat's id, schema: {type: string}}
+      - {name: message, in: path, required: true, description: The message's id, schema: {type: string}}
+    put:
+      x-served: false
+      summary: Keeps the chat's message as it is now, its id and time as they were
+      description: >-
+        How the local app keeps a message that changed (ORR-1100): a request answered or expired, what drifted on it.
+      requestBody: {required: true, content: {application/json: {schema: {type: object, required: [from, text, images], description: The message, as `POST` takes it}}}}
+      responses:
+        '200': {description: The message, content: {application/json: {schema: {type: object}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
   /api/schedules/across:
     get:
       summary: The schedules across projects, oldest first, each with the projects it's made on

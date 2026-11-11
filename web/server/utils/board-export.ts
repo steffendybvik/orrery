@@ -60,6 +60,7 @@ export const NOT_EXPORTED = {
     pull_states: 'the pull request cache',
     pull_repos: 'the pull request cache',
     chats: "the owner's chats on this server",
+    chat_messages: "the owner's chats on this server",
     feature_use: "the owner's use of this server's features",
     epics: "the server's, across its boards: an upload clears its issues' epic, which names one here",
     epic_comments: "the server's, as its epics are (ORR-977)",

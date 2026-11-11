@@ -35,6 +35,17 @@ beforeEach(async () => {
         },
     }))
     vi.stubGlobal('useEventLog', () => ({note: () => {}}))
+    // Where the chat is kept: nowhere, though its messages' ids run on (ORR-1100).
+    let lines = 0
+    vi.stubGlobal('useDatabase', () => ({
+        run: async (sql: string) => {
+            if (sql.startsWith('INSERT INTO chat_messages')) lines++
+            return {changes: 0}
+        },
+        all: async () => [],
+        get: async () => ({n: lines}),
+        transaction: async <T>(work: () => Promise<T>) => await work(),
+    }))
     for (const [name, code] of [['notFound', 404], ['badRequest', 400], ['conflict', 409], ['forbidden', 403]] as const) vi.stubGlobal(name, error(code))
     vi.stubGlobal('currentId', (id: string) => id)
     vi.stubGlobal('listSessions', () => listed)

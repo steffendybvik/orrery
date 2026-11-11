@@ -20,6 +20,7 @@ export const DYNAMIC: Record<string, string[]> = {
 
 export const WRITERS: Record<string, Writer> = {
     changes: {nuxt: 'a change row for every write it still makes (store/base.ts), so the browser hears it'},
+    chat_messages: {nuxt: "a chat's messages (utils/chats.ts addLine, keepLine) only with no API in front; it sends them to POST /api/chats/{chat}/lines and PUT …/lines/{message} otherwise", issue: 'ORR-1093'},
     chats: {nuxt: "the chat's sessions, which are the local app's (utils/chats.ts)", issue: 'ORR-1044'},
     comments: {nuxt: `naming the owner (store/owner.ts nameOwner, ORR-928), and ${PROJECT.nuxt}`, issue: 'ORR-1006'},
     doc_revisions: PROJECT,
