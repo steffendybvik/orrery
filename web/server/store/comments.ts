@@ -2,8 +2,8 @@
 import type {ChatScheduleRequest, Comment, IssueEvent} from '#shared/roadmap'
 import {CLOSED} from '#shared/roadmap'
 import {checkInput, notFound} from '../utils/input'
-import type {Actor, CommentRow, EventRow, SignalRow} from './schema'
-import {AGENT, COMMENT_FIELDS, ANSWERED, OPEN_ASK, PERSONS_WORDS, commentOf, eventOf, signalOf, nullable, stamp, ORRERY} from './schema'
+import type {Actor, CommentRow, EventRow} from './schema'
+import {AGENT, COMMENT_FIELDS, ANSWERED, OPEN_ASK, PERSONS_WORDS, commentOf, eventOf, nullable, stamp, ORRERY} from './schema'
 import {refusedFor} from '../utils/permission'
 import {KEEP_SIGNALS, SignalStore} from './signals'
 
@@ -221,9 +221,7 @@ export abstract class CommentStore extends SignalStore {
             const to = whose === null ? await this.ownerId() : whose
             if (to && to !== person) continue
             carried++
-            const row = await this.one<SignalRow>('INSERT INTO signals (project, issue, kind, note, target, person, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *',
-                project, comment.issue, 'comment', comment.body, session, to ?? null, comment.created_by, comment.owned, stamp())
-            this.signalled(signalOf(row))
+            await this.writeSignal(project, {issue: comment.issue, kind: 'comment', note: comment.body, target: session, person: to ?? null, created_by: comment.created_by, owned: !!comment.owned})
         }
         return carried
     }
@@ -243,9 +241,7 @@ export abstract class CommentStore extends SignalStore {
         const held = worker && this.sessionPerson(worker)
         const target = person && worker && (member ? held !== member : held && held !== person) ? null : worker
         if (member && !target && await this.holderOf(assignee) !== member) return
-        const row = await this.one<SignalRow>('INSERT INTO signals (project, issue, kind, note, target, person, model, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *',
-            project, issue, 'comment', body, target, person ?? null, await this.modelNeeded(project, issue), actor.name, member ? 0 : 1, stamp())
-        this.signalled(signalOf(row))
+        await this.writeSignal(project, {issue, kind: 'comment', note: body, target, person: person ?? null, model: await this.modelNeeded(project, issue), created_by: actor.name, owned: !member})
     }
 
     /** The owner's comments are theirs: an agent can't reword them. */

@@ -159,10 +159,15 @@ impl Call<'_> {
                     None => text(format!("orrery said no: group is {}", tools::groups().join(", ")), true),
                 }
             }
+            // Not text: the image as itself.
+            "image" => match (board::Api { app: self.app, headers: self.headers, projects: &projects }).image(args).await {
+                Ok(image) => image,
+                Err(board::No(why)) => text(format!("orrery said no: {why}"), true),
+            },
             _ => match (board::Api { app: self.app, headers: self.headers, projects: &projects }).run(name, args).await {
                 Some(Ok(said)) => text(said, false),
                 Some(Err(board::No(why))) => text(format!("orrery said no: {why}"), true),
-                None => text(format!("{name} isn't served at /mcp yet (ORR-1099): orrery's channel still has it"), true),
+                None => text(format!("{name} isn't served at /mcp yet: orrery's channel still has it"), true),
             },
         })
     }

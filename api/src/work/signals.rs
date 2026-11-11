@@ -1,9 +1,12 @@
-// A project's signals, read (ORR-1087): what `listSignals` in web/server/store/signals.ts does, on the same `signals`
-// rows, each as `signalOf` (web/server/store/schema.ts) gives it, answering as `GET …/signals` does. Writing them, a
-// signal's delivery, the stream and the listeners stay the Nuxt server's, as they set what each session is doing.
+// A project's signals (ORR-1087, ORR-1090): read as `listSignals` in web/server/store/signals.ts does, on the same
+// `signals` rows, each as `signalOf` (web/server/store/schema.ts) gives it, answering as `GET …/signals` does; and
+// written, so the API is the table's one writer. Which session a signal goes to, telling it, the stream and the
+// listeners stay the Nuxt server's, as they're what this machine's sessions are doing: it picks the target, sends the
+// finished row here, and tells its sessions of what comes back.
 use crate::board::issues::Issues;
 use crate::db::sql;
-use crate::error::Result;
+use crate::error::{ApiError, Result};
+use crate::write::stamp;
 use serde_json::{json, Map, Value};
 use sqlx::any::AnyRow;
 use sqlx::{AnyConnection, Row};
@@ -60,6 +63,116 @@ impl<'c> Signals<'c> {
             }
         };
         Ok(Value::Array(rows.iter().map(signal_of).collect()))
+    }
+}
+
+/// How long a signal is kept (ORR-778), as `KEEP_SIGNALS`: what it's for is over within a day; the rest is the
+/// Sessions page's history.
+const KEEP_DAYS: i64 = 30;
+
+/// How many times a receipt reads the list again when another session's receipt changed it first.
+const TRIES: usize = 10;
+
+impl Signals<'_> {
+    /// Writes a signal the local app made (`POST …/signals`): `{kind, created_by, owned, issue?, milestone?, status?,
+    /// release?, epic?, schedule?, note?, preset?, via?, target?, person?, instructions?, model?}`, its target already
+    /// picked there. The row, as `signalOf` gives it.
+    pub(crate) async fn write(&mut self, project: &str, sent: &Value) -> Result<Value> {
+        Issues::new(self.conn).project(project).await?;
+        let text = |key: &str| sent.get(key).and_then(Value::as_str).filter(|v| !v.is_empty()).map(str::to_string);
+        let number = |key: &str| -> Result<Option<i64>> {
+            match sent.get(key) {
+                None | Some(Value::Null) => Ok(None),
+                Some(value) => value.as_i64().map(Some).ok_or_else(|| ApiError::bad_request(format!("\"{key}\" is a whole number"))),
+            }
+        };
+        let kind = text("kind").unwrap_or_default();
+        if !["focus", "comment", "message"].contains(&kind.as_str()) {
+            return Err(ApiError::bad_request(format!("\"kind\" is \"{kind}\"; use focus, comment, message")));
+        }
+        let created_by = text("created_by").ok_or_else(|| ApiError::bad_request("\"created_by\" says who it's from"))?;
+        let instructions = match sent.get("instructions") {
+            None | Some(Value::Null) => "[]".to_string(),
+            Some(Value::Array(list)) if list.iter().all(Value::is_string) => Value::Array(list.clone()).to_string(),
+            Some(_) => return Err(ApiError::bad_request("\"instructions\" is a list of texts")),
+        };
+        let owned = sent.get("owned").and_then(Value::as_bool).unwrap_or(false);
+        let row = sqlx::query(&sql(&format!(
+            "INSERT INTO signals (project, issue, milestone, status, release, epic, schedule, kind, note, preset, via, target, person, \
+             instructions, model, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING {COLUMNS}"
+        )))
+        .bind(project)
+        .bind(text("issue"))
+        .bind(text("milestone"))
+        .bind(text("status"))
+        .bind(text("release"))
+        .bind(number("epic")?)
+        .bind(number("schedule")?)
+        .bind(&kind)
+        .bind(text("note"))
+        .bind(text("preset"))
+        .bind(text("via"))
+        .bind(text("target"))
+        .bind(text("person"))
+        .bind(instructions)
+        .bind(text("model"))
+        .bind(created_by)
+        .bind(i32::from(owned))
+        .bind(stamp())
+        .fetch_one(&mut *self.conn)
+        .await?;
+        Ok(signal_of(&row))
+    }
+
+    /// Notes that a session (`to`, its name) got the signal, as `delivered` does: two saying so at once both count, as
+    /// the list is only written over while it's still the one read. A 404 for a signal there isn't, a 409 when it lost
+    /// every race.
+    pub(crate) async fn receipt(&mut self, project: &str, id: i64, to: &str) -> Result<Value> {
+        for _ in 0..TRIES {
+            let row = sqlx::query(&sql(&format!("SELECT {COLUMNS} FROM signals WHERE project = ? AND id = ?")))
+                .bind(project)
+                .bind(id)
+                .fetch_optional(&mut *self.conn)
+                .await?
+                .ok_or_else(|| ApiError::not_found(format!("No signal {id} in {project}")))?;
+            let was: String = row.get("delivered_to");
+            let mut names: Vec<String> = serde_json::from_str(&was).unwrap_or_default();
+            if !names.iter().any(|n| n == to) {
+                names.push(to.to_string());
+            }
+            let now = Value::from(names.clone()).to_string();
+            let changed = sqlx::query(&sql("UPDATE signals SET delivered_to = ? WHERE id = ? AND delivered_to = ?"))
+                .bind(&now)
+                .bind(id)
+                .bind(&was)
+                .execute(&mut *self.conn)
+                .await?
+                .rows_affected();
+            if changed > 0 {
+                let mut signal = signal_of(&row);
+                signal["delivered_to"] = json!(names);
+                return Ok(signal);
+            }
+        }
+        Err(ApiError::conflict(format!("Signal {id} is being marked by too many sessions at once; try again")))
+    }
+
+    /// A session's new id (after a `/clear`) takes over the signals sent to its old one, as `renameSession` does. How
+    /// many moved.
+    pub(crate) async fn retarget(&mut self, project: &str, from: &str, to: &str) -> Result<u64> {
+        Ok(sqlx::query(&sql("UPDATE signals SET target = ? WHERE project = ? AND target = ?"))
+            .bind(to)
+            .bind(project)
+            .bind(from)
+            .execute(&mut *self.conn)
+            .await?
+            .rows_affected())
+    }
+
+    /// Lets go of signals past KEEP_DAYS, heard or not (ORR-778), as `pruneSignals` does. How many went.
+    pub(crate) async fn prune(&mut self) -> Result<u64> {
+        let before = (chrono::Utc::now() - chrono::Duration::days(KEEP_DAYS)).format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
+        Ok(sqlx::query(&sql("DELETE FROM signals WHERE created_at < ?")).bind(before).execute(&mut *self.conn).await?.rows_affected())
     }
 }
 

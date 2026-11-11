@@ -17,6 +17,7 @@ import type {Chat} from '#shared/roadmap'
 import {Store} from '../server/utils/store'
 import type {Actor, IssueFilter} from '../server/store/schema'
 import {ORRERY} from '../server/store/schema'
+import type {SignalFields} from '../server/store/signals'
 import {SqliteDb} from '../server/utils/database'
 import {Secrets} from '../server/utils/secrets'
 import {Pulls, pullForSession} from '../server/utils/pulls'
@@ -613,6 +614,30 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         for (const [method, path] of [['GET', '/api/projects/p/signals/stream'], ['POST', '/api/projects/p/signals/3/delivered']])
             expect(domainOf(method!, path!), `${method} ${path}`).toBeUndefined()
         // Taken out again, as later steps read every signal on these projects as one about an issue.
+        await store.db.run("DELETE FROM signals WHERE project IN ('through-store', 'through-api')")
+    })
+
+    it('writes, marks, moves and prunes signals alike (ORR-1090)', async () => {
+        // The store's side is its own write with no API in front (`writeSignal`), the target picked as the API's caller does.
+        const write = (p: string, fields: SignalFields) => (store as unknown as {writeSignal: (p: string, f: SignalFields) => Promise<unknown>}).writeSignal(p, fields)
+        const ids: Record<string, string> = {}
+        for (const p of ['through-store', 'through-api']) ids[p] = (await store.createIssue(p, {title: 'Signal it'}, OWNER)).id
+        const focus = (p: string): SignalFields => ({issue: ids[p], kind: 'focus', note: 'Go', target: 's-old', person: 'steffen', instructions: ['Be brief'], model: 'opus', created_by: 'steffen', owned: true})
+        await both('a focus on an issue', p => viaStore(() => write(p, focus(p)), 201), () => viaApi('POST', '/signals', focus('through-api'), ORRERY))
+        const milestone: SignalFields = {milestone: 'all', status: 'todo,in-progress', epic: 3, kind: 'focus', created_by: 'claude', owned: false}
+        await both('a focus on every milestone', p => viaStore(() => write(p, milestone), 201), () => viaApi('POST', '/signals', milestone, ORRERY))
+        const message: SignalFields = {kind: 'message', note: 'Look', preset: 'Review', via: 'chat', target: 's-old', created_by: 'steffen', owned: true}
+        await both('a message', p => viaStore(() => write(p, message), 201), () => viaApi('POST', '/signals', message, ORRERY))
+        const first = async (p: string) => (await store.listSignals(p))[0]!.id
+        await both('heard', async p => viaStore(async () => store.delivered(p, await first(p), 'orrery · Frøy')), async () => viaApi('POST', `/signals/${await first('through-api')}/receipts`, {to: 'orrery · Frøy'}, ORRERY))
+        await both('heard by another', async p => viaStore(async () => store.delivered(p, await first(p), 'orrery · Siv')), async () => viaApi('POST', `/signals/${await first('through-api')}/receipts`, {to: 'orrery · Siv'}, ORRERY))
+        await both('heard, a signal that isn\'t there', p => viaStore(() => store.delivered(p, 99999, 'orrery · Siv')), () => viaApi('POST', '/signals/99999/receipts', {to: 'orrery · Siv'}, ORRERY))
+        await store.renameSession('through-store', 's-old', 's-new')
+        expect((await viaApi('POST', '/signals/retarget', {from: 's-old', to: 's-new'}, ORRERY)).body).toEqual({moved: 2})
+        await both('every signal, after a new session id', p => viaStore(() => store.listSignals(p)), () => viaApi('GET', '/signals'))
+        expect((await viaApi('POST', '/api/signals/prune', {}, ORRERY)).body).toEqual({pruned: 0})
+        for (const [method, path] of [['POST', '/api/projects/p/signals'], ['POST', '/api/projects/p/signals/retarget'], ['POST', '/api/projects/p/signals/3/receipts'], ['POST', '/api/signals/prune']])
+            expect(domainOf(method!, path!), `${method} ${path}`).toBeUndefined()
         await store.db.run("DELETE FROM signals WHERE project IN ('through-store', 'through-api')")
     })
 
@@ -3638,7 +3663,7 @@ describe('the contract (api/openapi.yaml)', () => {
     })
 
     it('sends none of the routes written ahead of the Rust API to it', () => {
-        expect(contract(true)).toEqual(['DELETE /api/chats/{chat}', 'DELETE /api/secrets/{name}/sealed', 'GET /api/auth/oidc/callback', 'GET /api/auth/oidc/start', 'GET /api/auth/status', 'GET /api/chats', 'GET /api/chats/{chat}', 'POST /api/auth/link', 'POST /api/auth/login', 'POST /api/auth/logout', 'POST /api/chats/{chat}/lines', 'POST /api/database/snapshot', 'POST /api/events/log/prune', 'POST /api/phone/link', 'POST /api/pulls/forget', 'POST /api/secrets/{name}/uses', 'PUT /api/chats/{chat}', 'PUT /api/chats/{chat}/lines/{message}', 'PUT /api/events/log/lines', 'PUT /api/pulls/{owner}/{name}', 'PUT /api/pulls/{owner}/{name}/error', 'PUT /api/pulls/{owner}/{name}/history', 'PUT /api/pulls/{owner}/{name}/{number}', 'PUT /api/secrets/{name}/sealed', 'PUT /api/usage'])
+        expect(contract(true)).toEqual(['DELETE /api/chats/{chat}', 'DELETE /api/secrets/{name}/sealed', 'GET /api/auth/oidc/callback', 'GET /api/auth/oidc/start', 'GET /api/auth/status', 'GET /api/chats', 'GET /api/chats/{chat}', 'POST /api/auth/link', 'POST /api/auth/login', 'POST /api/auth/logout', 'POST /api/chats/{chat}/lines', 'POST /api/database/snapshot', 'POST /api/events/log/prune', 'POST /api/phone/link', 'POST /api/projects/{project}/signals', 'POST /api/projects/{project}/signals/retarget', 'POST /api/projects/{project}/signals/{signal}/receipts', 'POST /api/pulls/forget', 'POST /api/secrets/{name}/uses', 'POST /api/signals/prune', 'PUT /api/chats/{chat}', 'PUT /api/chats/{chat}/lines/{message}', 'PUT /api/events/log/lines', 'PUT /api/pulls/{owner}/{name}', 'PUT /api/pulls/{owner}/{name}/error', 'PUT /api/pulls/{owner}/{name}/history', 'PUT /api/pulls/{owner}/{name}/{number}', 'PUT /api/secrets/{name}/sealed', 'PUT /api/usage'])
         expect(contract(true).filter(operation => routes().includes(operation))).toEqual([])
     })
 })
