@@ -1495,6 +1495,13 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         const scheduling = await viaApi('POST', '/api/chats/c0ffee000003/schedule-requests', {schedule: {title: 'Nudge', kind: 'message', notes: 'Hi', cron: '0 9 * * 1'}, why: 'You asked.'})
         expect(scheduling).toMatchObject({status: 201, body: {from: 'claude', text: 'You asked.', images: [], schedule: {title: 'Nudge', state: 'asked', body: {title: 'Nudge', kind: 'message', notes: 'Hi', cron: '0 9 * * 1'}}}})
         expect(await viaApi('POST', '/api/chats/c0ffee000011/schedule-requests', {schedule: {title: 'Nudge', cron: '0 9 * * 1'}})).toMatchObject({status: 404})
+        // And a release (ORR-1100), for its `create_release`: kept as `askRelease` keeps it, saving nothing.
+        await viaApi('PATCH', '/api/projects/through-api', {release_mode: 'own'})
+        const releasing = await viaApi('POST', '/api/chats/c0ffee000003/release-requests', {release: {version: '7.7.7', branch: 'v7.7.7'}, why: 'Next.'})
+        expect(releasing).toMatchObject({status: 201, body: {from: 'claude', text: 'Next.', release: {version: '7.7.7', change: false, state: 'asked',
+            changes: [{field: 'version', to: '7.7.7'}, {field: 'branch', to: 'v7.7.7'}], body: {version: '7.7.7', branch: 'v7.7.7'}}}})
+        expect((await viaApi('GET', '/api/projects/through-api/releases')).body).not.toContainEqual(expect.objectContaining({version: '7.7.7'}))
+        expect(await viaApi('POST', '/api/chats/c0ffee000011/release-requests', {release: {version: '1.0.0'}})).toMatchObject({status: 404})
         await chats.keepChat(store.db, said('c0ffee000010', 'through-store') as never, true)
         expect(await viaApi('DELETE', '/api/chats/c0ffee000011')).toMatchObject({status: 204})
         expect([await row('c0ffee000010'), await row('c0ffee000011')]).toEqual([undefined, undefined])
@@ -3672,7 +3679,7 @@ describe('the contract (api/openapi.yaml)', () => {
     })
 
     it('sends none of the routes written ahead of the Rust API to it', () => {
-        expect(contract(true)).toEqual(['DELETE /api/chats/{chat}', 'DELETE /api/secrets/{name}/sealed', 'GET /api/auth/oidc/callback', 'GET /api/auth/oidc/start', 'GET /api/auth/status', 'GET /api/chats', 'GET /api/chats/{chat}', 'POST /api/auth/link', 'POST /api/auth/login', 'POST /api/auth/logout', 'POST /api/chats/{chat}/lines', 'POST /api/chats/{chat}/schedule-requests', 'POST /api/chats/{chat}/setting-requests', 'POST /api/database/snapshot', 'POST /api/events/log/prune', 'POST /api/phone/link', 'POST /api/projects/{project}/signals', 'POST /api/projects/{project}/signals/retarget', 'POST /api/projects/{project}/signals/{signal}/receipts', 'POST /api/pulls/forget', 'POST /api/secrets/{name}/uses', 'POST /api/signals/prune', 'PUT /api/chats/{chat}', 'PUT /api/chats/{chat}/lines/{message}', 'PUT /api/events/log/lines', 'PUT /api/pulls/{owner}/{name}', 'PUT /api/pulls/{owner}/{name}/error', 'PUT /api/pulls/{owner}/{name}/history', 'PUT /api/pulls/{owner}/{name}/{number}', 'PUT /api/secrets/{name}/sealed', 'PUT /api/usage'])
+        expect(contract(true)).toEqual(['DELETE /api/chats/{chat}', 'DELETE /api/secrets/{name}/sealed', 'GET /api/auth/oidc/callback', 'GET /api/auth/oidc/start', 'GET /api/auth/status', 'GET /api/chats', 'GET /api/chats/{chat}', 'POST /api/auth/link', 'POST /api/auth/login', 'POST /api/auth/logout', 'POST /api/chats/{chat}/lines', 'POST /api/chats/{chat}/release-requests', 'POST /api/chats/{chat}/schedule-requests', 'POST /api/chats/{chat}/setting-requests', 'POST /api/database/snapshot', 'POST /api/events/log/prune', 'POST /api/phone/link', 'POST /api/projects/{project}/signals', 'POST /api/projects/{project}/signals/retarget', 'POST /api/projects/{project}/signals/{signal}/receipts', 'POST /api/pulls/forget', 'POST /api/secrets/{name}/uses', 'POST /api/signals/prune', 'PUT /api/chats/{chat}', 'PUT /api/chats/{chat}/lines/{message}', 'PUT /api/events/log/lines', 'PUT /api/pulls/{owner}/{name}', 'PUT /api/pulls/{owner}/{name}/error', 'PUT /api/pulls/{owner}/{name}/history', 'PUT /api/pulls/{owner}/{name}/{number}', 'PUT /api/secrets/{name}/sealed', 'PUT /api/usage'])
         expect(contract(true).filter(operation => routes().includes(operation))).toEqual([])
     })
 })
