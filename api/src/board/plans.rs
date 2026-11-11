@@ -2,7 +2,7 @@
 // `release` and `allReleases` do (web/server/store/milestones.ts, releases.ts), answering as their `GET` routes do. Each
 // is worked out from the board as `issues.rs` reads it, as the store works them out from `readBoard`'s. Writing them
 // is `milestones.rs` and `releases.rs` (ORR-974).
-use crate::board::issues::{kinds_json, Board, Issues, Kinds, Node, Project, Status};
+use crate::board::issues::{kinds_json, milestone_group, Board, Issues, Kinds, Node, Project, Rules, Status, MILESTONE_COLUMNS};
 use crate::db::sql;
 use crate::error::{ApiError, Result};
 use serde_json::{json, Map, Value};
@@ -117,16 +117,29 @@ impl<'c, 'i> Plans<'c, 'i> {
         Ok(Value::Array(board.milestones.iter().filter(|g| !g.id.is_empty()).map(|g| Value::Object(record(&g.fields, &g.tasks))).collect()))
     }
 
-    /// One milestone, with its issues in full (`milestone`).
+    /// One milestone, with its issues in full (`milestone`): only its own issues read (ORR-1118).
     pub async fn milestone(&mut self, project: &str, sent: &str) -> Result<Value> {
         let id = self.issues.resolve(project, sent, true).await?;
         let row = self.issues.project(project).await?;
-        if !self.issues.exists("SELECT 1 FROM milestones WHERE project = ? AND id = ?", &[project, &id]).await? {
-            return Err(ApiError::not_found(format!("No milestone \"{id}\" in {project}")));
-        }
+        let found = sqlx::query(&sql(&format!("SELECT {MILESTONE_COLUMNS} FROM milestones WHERE project = ? AND id = ?")))
+            .bind(project)
+            .bind(&id)
+            .fetch_optional(&mut *self.issues.conn)
+            .await?;
+        let found = found.ok_or_else(|| ApiError::not_found(format!("No milestone \"{id}\" in {project}")))?;
         let statuses = self.issues.statuses().await?;
-        let board = self.issues.board(project, &statuses).await?;
-        let group = board.milestones.iter().find(|g| g.id == id).ok_or_else(|| ApiError::not_found(format!("No milestone \"{id}\" in {project}")))?;
+        let top: Vec<String> = sqlx::query(&sql("SELECT id FROM issues WHERE project = ? AND parent IS NULL AND milestone = ? ORDER BY position, created_at"))
+            .bind(project)
+            .bind(&id)
+            .fetch_all(&mut *self.issues.conn)
+            .await?
+            .iter()
+            .map(|r| r.get("id"))
+            .collect();
+        let mut built = self.issues.nodes(project, &statuses, &top).await?;
+        let tasks: Vec<Node> = top.iter().filter_map(|t| built.remove(t)).collect();
+        let aliases = self.issues.aliases(project, "milestone_aliases", "milestone", Some(std::slice::from_ref(&id))).await?;
+        let group = milestone_group(project, &found, &Rules::new(&statuses), &aliases, tasks);
         let mut out = record(&group.fields, &group.tasks);
         out.insert("tasks".into(), Value::Array(group.tasks.iter().map(Node::json).collect()));
         out.insert("full_id".into(), json!(format!("MLS-{id}-{}", row.uid)));
@@ -194,8 +207,10 @@ impl<'c, 'i> Plans<'c, 'i> {
     }
 
     /// The release with its issues: those set for it, each with its sub-issues, as `tasks` (the project's own) and by
-    /// project in `projects`, with those drawing on it when it's their source (`release`).
+    /// project in `projects`, with those drawing on it when it's their source (`release`). Counted on the outlines, with
+    /// only the issues set for it built in full (ORR-1118).
     pub async fn release(&mut self, project: &str, version: &str) -> Result<Value> {
+        self.counted = true;
         let row = self.issues.project(project).await?;
         self.issues.release_there(project, &row, version).await?;
         let statuses = self.issues.statuses().await?;
@@ -212,19 +227,21 @@ impl<'c, 'i> Plans<'c, 'i> {
             let releases = self.releases_of(read, &statuses).await?;
             let found =
                 releases.into_iter().find(|r| r["version"] == version).ok_or_else(|| ApiError::internal(format!("release {version} in {}", read.id)))?;
-            let mut tasks = Vec::new();
-            fn walk(tasks: &mut Vec<Value>, issues: &[Node], version: &str) {
+            let mut set = Vec::new();
+            fn walk(set: &mut Vec<String>, issues: &[Node], version: &str) {
                 for issue in issues {
                     if issue.fields.get("release").and_then(Value::as_str) == Some(version) {
-                        tasks.push(issue.json());
+                        set.push(issue.id().to_string());
                     } else {
-                        walk(tasks, &issue.tasks, version);
+                        walk(set, &issue.tasks, version);
                     }
                 }
             }
             for group in &read.board.milestones {
-                walk(&mut tasks, &group.tasks, version);
+                walk(&mut set, &group.tasks, version);
             }
+            let mut built = self.issues.nodes(&read.id, &statuses, &set).await?;
+            let tasks: Vec<Value> = set.iter().filter_map(|id| built.remove(id)).map(|node| node.json()).collect();
             let mut part = Map::new();
             part.insert("project".into(), json!(read.id));
             part.insert("name".into(), json!(read.row.name));

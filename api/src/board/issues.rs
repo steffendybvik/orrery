@@ -198,6 +198,14 @@ const ISSUE_COLUMNS: &str = "id, title, status, priority, assignee, labels, exte
     CAST(schedule AS BIGINT) AS schedule, proposal, decided_by, decided_at, decision_note, choices, picks, explore, ships_in, \
     CAST(epic AS BIGINT) AS epic, claimed_by, claimed_at, session_name, model, effort, created_by, CAST(owned AS BIGINT) AS owned, created_at, updated_at";
 
+/// The columns a filter on the issue list reads (`sketch`), by filter; those in `WIDE_JSON` are lists kept as JSON.
+const WIDE: [(&str, &str); 6] =
+    [("priority", "priority"), ("assignee", "assignee"), ("label", "labels"), ("external", "external"), ("github_issue", "github_issues"), ("q", "title")];
+const WIDE_JSON: [&str; 3] = ["labels", "external", "github_issues"];
+
+pub(crate) const MILESTONE_COLUMNS: &str =
+    "id, title, summary, priority, created_by, CAST(owned AS BIGINT) AS owned, CAST(position AS BIGINT) AS position, created_at, updated_at";
+
 /// What an issue was linked to and by (ORR-601), each as a `linkRef` from the project.
 #[derive(Default)]
 struct Links {
@@ -433,7 +441,7 @@ impl<'c> Issues<'c> {
     }
 
     /// The ids each issue or milestone had before, A–Z.
-    async fn aliases(&mut self, project: &str, table: &str, column: &str, ids: Option<&[String]>) -> Result<HashMap<String, Vec<String>>> {
+    pub(crate) async fn aliases(&mut self, project: &str, table: &str, column: &str, ids: Option<&[String]>) -> Result<HashMap<String, Vec<String>>> {
         let query = sql(&format!("SELECT alias, {column} AS target FROM {table} WHERE project = ?{} ORDER BY alias", within(column, ids)));
         let rows = scoped(&query, project, ids).fetch_all(&mut *self.conn).await?;
         let mut found: HashMap<String, Vec<String>> = HashMap::new();
@@ -446,20 +454,17 @@ impl<'c> Issues<'c> {
     /// The project's board (`readBoard`, then `buildBoard`): its milestones and their issues, sub-issues within, each
     /// with its comment count, open question, the ids it had before, its dependency links and its risk.
     pub(crate) async fn board(&mut self, project: &str, statuses: &[Status]) -> Result<Board> {
-        let milestones = sqlx::query(&sql(
-            "SELECT id, title, summary, priority, created_by, CAST(owned AS BIGINT) AS owned, CAST(position AS BIGINT) AS position, created_at, updated_at \
-             FROM milestones WHERE project = ? ORDER BY position, created_at",
-        ))
-        .bind(project)
-        .fetch_all(&mut *self.conn)
-        .await?;
+        let milestones = sqlx::query(&sql(&format!("SELECT {MILESTONE_COLUMNS} FROM milestones WHERE project = ? ORDER BY position, created_at")))
+            .bind(project)
+            .fetch_all(&mut *self.conn)
+            .await?;
         let rows = issue_rows(
             sqlx::query(&sql(&format!("SELECT {ISSUE_COLUMNS} FROM issues WHERE project = ? ORDER BY position, created_at")))
                 .bind(project)
                 .fetch_all(&mut *self.conn)
                 .await?,
         );
-        let extras = self.extras(project, statuses, &rows, None, None).await?;
+        let extras = self.extras(project, statuses, &rows, None, &[]).await?;
         let milestone_aliases = self.aliases(project, "milestone_aliases", "milestone", None).await?;
         let mut children: HashMap<Option<String>, Vec<&IssueRow>> = HashMap::new();
         for row in &rows {
@@ -474,25 +479,7 @@ impl<'c> Issues<'c> {
             .map(|m| {
                 let id: String = m.get("id");
                 let tasks: Vec<Node> = top.iter().filter(|t| t.milestone.as_deref() == Some(id.as_str())).map(|t| context.issue(t, false)).collect();
-                let text = |key: &str| m.get::<Option<String>, _>(key);
-                let mut fields = Map::new();
-                fields.insert("id".into(), json!(id));
-                fields.insert("title".into(), json!(text("title").unwrap_or_default()));
-                if let Some(summary) = text("summary").filter(|s| !s.is_empty()) {
-                    fields.insert("summary".into(), json!(summary));
-                }
-                if let Some(priority) = text("priority") {
-                    fields.insert("priority".into(), json!(priority));
-                }
-                fields.insert("aliases".into(), json!(milestone_aliases.get(&id).cloned().unwrap_or_default()));
-                fields.insert("created_by".into(), json!(text("created_by").unwrap_or_default()));
-                fields.insert("protected".into(), json!(m.get::<i64, _>("owned") != 0));
-                fields.insert("project".into(), json!(project));
-                fields.insert("position".into(), json!(m.get::<i64, _>("position")));
-                fields.insert("created_at".into(), json!(text("created_at").unwrap_or_default()));
-                fields.insert("updated_at".into(), json!(text("updated_at").unwrap_or_default()));
-                rules.roll_up(&mut fields, &tasks);
-                Group { id, fields, tasks }
+                milestone_group(project, m, &rules, &milestone_aliases, tasks)
             })
             .collect();
         let loose: Vec<&&IssueRow> = top.iter().filter(|t| t.milestone.as_deref().map_or(true, str::is_empty)).collect();
@@ -506,9 +493,9 @@ impl<'c> Issues<'c> {
     }
 
     /// What each issue on the board carries besides its row (`readBoard`): its comment count, open question, the ids it
-    /// had before, its dependency links and its risk. With `ids`, for those issues only, `rows` being them; `parent` is
-    /// then the proposal the first of them is under, if any, as it's outside `rows`.
-    async fn extras(&mut self, project: &str, statuses: &[Status], rows: &[IssueRow], ids: Option<&[String]>, parent: Option<&str>) -> Result<Extras> {
+    /// had before, its dependency links and its risk. With `ids`, for those issues only, `rows` being them; `above` is
+    /// then the proposals outside `rows` that one of them is directly under.
+    async fn extras(&mut self, project: &str, statuses: &[Status], rows: &[IssueRow], ids: Option<&[String]>, above: &[String]) -> Result<Extras> {
         let query = sql(&format!("SELECT issue, CAST(count(*) AS BIGINT) AS n FROM comments WHERE project = ?{} GROUP BY issue", within("issue", ids)));
         let comments: HashMap<String, i64> =
             scoped(&query, project, ids).fetch_all(&mut *self.conn).await?.iter().map(|r| (r.get("issue"), r.get("n"))).collect();
@@ -524,7 +511,7 @@ impl<'c> Issues<'c> {
         // An agent's proposal waiting on the owner (pending, not under another proposal) waits on their decision too,
         // when no question of its own is open.
         let mut proposals: HashSet<&str> = rows.iter().filter(|r| r.proposal.is_some()).map(|r| r.id.as_str()).collect();
-        proposals.extend(parent);
+        proposals.extend(above.iter().map(String::as_str));
         for row in rows {
             let under_proposal = row.parent.as_deref().is_some_and(|p| proposals.contains(p));
             if row.proposal.as_deref() == Some("pending") && !row.owned && !under_proposal && !waiting.contains_key(&row.id) {
@@ -586,13 +573,13 @@ impl<'c> Issues<'c> {
         };
         let query = sql(&format!(
             "WITH RECURSIVE tree(id) AS (SELECT id FROM issues WHERE project = ? AND id = ? \
-             UNION SELECT i.id FROM issues i JOIN tree t ON i.parent = t.id WHERE i.project = ?) \
+             UNION SELECT i.id FROM tree t CROSS JOIN issues i WHERE i.project = ? AND i.parent = t.id) \
              SELECT {ISSUE_COLUMNS} FROM issues WHERE project = ? AND id IN (SELECT id FROM tree) ORDER BY position, created_at"
         ));
         let rows = issue_rows(sqlx::query(&query).bind(project).bind(id).bind(project).bind(project).fetch_all(&mut *self.conn).await?);
         let ids: Vec<String> = rows.iter().map(|r| r.id.clone()).collect();
-        let parent = place.parent.as_deref().filter(|_| place.parent_proposal);
-        let extras = self.extras(project, statuses, &rows, Some(&ids), parent).await?;
+        let above: Vec<String> = place.parent.clone().filter(|_| place.parent_proposal).into_iter().collect();
+        let extras = self.extras(project, statuses, &rows, Some(&ids), &above).await?;
         let mut children: HashMap<Option<String>, Vec<&IssueRow>> = HashMap::new();
         for row in &rows {
             children.entry(row.parent.clone()).or_default().push(row);
@@ -605,12 +592,80 @@ impl<'c> Issues<'c> {
         Ok(Some((node, place)))
     }
 
-    /// The issue's tasks in the shape `listIssues` filters: a whole board read, then filtered here.
+    /// Each of `roots` as the board builds it, its sub-issues within, read without the rest of the board (ORR-1118):
+    /// their subtrees' rows and what `extras` gathers about those only. Each must be on the board.
+    pub(crate) async fn nodes(&mut self, project: &str, statuses: &[Status], roots: &[String]) -> Result<HashMap<String, Node>> {
+        if roots.is_empty() {
+            return Ok(HashMap::new());
+        }
+        let query = sql(&format!(
+            "WITH RECURSIVE tree(id) AS (SELECT id FROM issues WHERE project = ?{} \
+             UNION SELECT i.id FROM tree t CROSS JOIN issues i WHERE i.project = ? AND i.parent = t.id) \
+             SELECT {ISSUE_COLUMNS} FROM issues WHERE project = ? AND id IN (SELECT id FROM tree) ORDER BY position, created_at",
+            within("id", Some(roots))
+        ));
+        let rows = issue_rows(scoped(&query, project, Some(roots)).bind(project).bind(project).fetch_all(&mut *self.conn).await?);
+        // Where each issue hangs, its own rows and those above them, to know which roots are under a proposal.
+        let mut up: HashMap<String, (Option<String>, bool)> = rows.iter().map(|r| (r.id.clone(), (r.parent.clone(), r.proposal.is_some()))).collect();
+        let query = sql(&format!(
+            "WITH RECURSIVE up(id) AS (SELECT parent FROM issues WHERE project = ?{} AND parent IS NOT NULL \
+             UNION SELECT i.parent FROM up u CROSS JOIN issues i WHERE i.project = ? AND i.id = u.id AND i.parent IS NOT NULL) \
+             SELECT id, parent, proposal FROM issues WHERE project = ? AND id IN (SELECT id FROM up)",
+            within("id", Some(roots))
+        ));
+        for r in scoped(&query, project, Some(roots)).bind(project).bind(project).fetch_all(&mut *self.conn).await? {
+            up.insert(r.get("id"), (r.get("parent"), r.get::<Option<String>, _>("proposal").is_some()));
+        }
+        let proposed = |id: &str| {
+            let (mut at, mut seen) = (up.get(id).and_then(|(p, _)| p.clone()), HashSet::new());
+            while let Some(here) = at.filter(|h| seen.insert(h.clone())) {
+                match up.get(&here) {
+                    Some((_, true)) => return true,
+                    Some((parent, false)) => at = parent.clone(),
+                    None => return false,
+                }
+            }
+            false
+        };
+        let ids: Vec<String> = rows.iter().map(|r| r.id.clone()).collect();
+        let inside: HashSet<&str> = ids.iter().map(String::as_str).collect();
+        let mut above: Vec<String> = roots
+            .iter()
+            .filter_map(|root| up.get(root).and_then(|(p, _)| p.clone()))
+            .filter(|p| !inside.contains(p.as_str()) && up.get(p).is_some_and(|(_, proposal)| *proposal))
+            .collect();
+        above.sort();
+        above.dedup();
+        let extras = self.extras(project, statuses, &rows, Some(&ids), &above).await?;
+        let mut children: HashMap<Option<String>, Vec<&IssueRow>> = HashMap::new();
+        for row in &rows {
+            children.entry(row.parent.clone()).or_default().push(row);
+        }
+        let rules = Rules::new(statuses);
+        let context = Context { rules: &rules, children: &children, extras: &extras };
+        let roots: HashSet<&str> = roots.iter().map(String::as_str).collect();
+        Ok(rows.iter().filter(|r| roots.contains(r.id.as_str())).map(|r| (r.id.clone(), context.issue(r, proposed(&r.id)))).collect())
+    }
+
+    /// The issue's tasks in the shape `listIssues` filters (ORR-1118): filtered on the board's wide outline, then only
+    /// those listed built in full, with their subtrees.
     pub async fn list(&mut self, project: &str, filter: &HashMap<String, String>) -> Result<Value> {
+        self.listing(project, filter, None).await
+    }
+
+    /// The list, building those listed from the `whole` board or not, or, with None, whichever is quicker.
+    async fn listing(&mut self, project: &str, filter: &HashMap<String, String>, whole: Option<bool>) -> Result<Value> {
         let row = self.project(project).await?;
         let statuses = self.statuses().await?;
-        let records = self.board(project, &statuses).await?.records(project);
         let get = |key: &str| filter.get(key).map(String::as_str).filter(|v| !v.is_empty() && FILTERS.contains(&key));
+        let wide: Vec<&str> = WIDE.iter().filter(|(by, _)| get(by).is_some()).map(|(_, column)| *column).collect();
+        // With no filter, each is listed, so the whole board is read as it is.
+        let unfiltered = FILTERS.iter().all(|key| get(key).is_none());
+        let mut records = if unfiltered {
+            self.board(project, &statuses).await?.records(project)
+        } else {
+            self.sketch(project, &statuses, Some(&wide)).await?.records(project)
+        };
         let milestone = match get("milestone") {
             Some(m) if m != "none" => Some(self.resolve(project, m, true).await?),
             other => other.map(String::from),
@@ -642,14 +697,19 @@ impl<'c> Issues<'c> {
         let words: Option<Vec<String>> = q.as_ref().filter(|_| get("in") == Some("all")).map(|q| q.split_whitespace().map(String::from).collect());
         let text = |r: &Map<String, Value>, key: &str| r.get(key).and_then(Value::as_str).map(String::from);
         let has_in = |r: &Map<String, Value>, key: &str, value: &str| r[key].as_array().is_some_and(|a| a.iter().any(|v| v.as_str() == Some(value)));
-        let listed: Vec<Map<String, Value>> = records
+        if get("blocked").is_some() {
+            let links = self.links(project, &statuses, None).await?;
+            for record in &mut records {
+                if let Some(blocked_by) = text(record, "id").and_then(|id| links.blocked_by.get(&id).cloned()) {
+                    record.insert("blocked_by".into(), json!(blocked_by));
+                }
+            }
+        }
+        let total = records.len();
+        let below: HashMap<String, Vec<Value>> =
+            records.iter().map(|r| (text(r, "id").unwrap_or_default(), r["sub_issues"].as_array().cloned().unwrap_or_default())).collect();
+        let matched: Vec<Map<String, Value>> = records
             .into_iter()
-            .map(|mut r| {
-                let id = text(&r, "id").unwrap_or_default();
-                r.insert("ref".into(), json!(format!("orrery-{}: {id}", handle.to_lowercase())));
-                r.insert("full_id".into(), json!(format!("{id}-{}", row.uid)));
-                r
-            })
             .filter(|r| {
                 let status = text(r, "status").unwrap_or_default();
                 let column = text(r, "column").unwrap_or_default();
@@ -685,6 +745,43 @@ impl<'c> Issues<'c> {
                         (None, _) | (_, Some(_)) => true,
                         (Some(q), None) => id_or_title(r).0.to_lowercase().contains(q) || id_or_title(r).1.to_lowercase().contains(q),
                     }
+            })
+            .collect();
+        // Each listed in full, with its subtree. When those cover most of the board, building it whole is as quick.
+        let ids: Vec<String> = matched.iter().filter_map(|r| text(r, "id")).collect();
+        let covered = {
+            let (mut seen, mut queue): (HashSet<&str>, Vec<&str>) = (HashSet::new(), ids.iter().map(String::as_str).collect());
+            while let Some(id) = queue.pop() {
+                if seen.insert(id) {
+                    queue.extend(below.get(id).into_iter().flatten().filter_map(Value::as_str));
+                }
+            }
+            seen.len()
+        };
+        let mut built: Option<HashMap<String, Map<String, Value>>> = if unfiltered {
+            None
+        } else if whole.unwrap_or(covered * 2 > total) {
+            Some(self.board(project, &statuses).await?.records(project).into_iter().map(|r| (text(&r, "id").unwrap_or_default(), r)).collect())
+        } else {
+            Some(self.nodes(project, &statuses, &ids).await?.into_iter().map(|(id, node)| (id, node.fields)).collect())
+        };
+        let listed: Vec<Map<String, Value>> = matched
+            .into_iter()
+            .map(|sketched| {
+                let id = text(&sketched, "id").unwrap_or_default();
+                let mut r = match built.as_mut() {
+                    Some(built) => {
+                        let mut r = built.remove(&id).unwrap_or_default();
+                        for key in ["project", "parent", "milestone", "sub_issues"] {
+                            r.insert(key.into(), sketched[key].clone());
+                        }
+                        r
+                    }
+                    None => sketched,
+                };
+                r.insert("ref".into(), json!(format!("orrery-{}: {id}", handle.to_lowercase())));
+                r.insert("full_id".into(), json!(format!("{id}-{}", row.uid)));
+                r
             })
             .collect();
         let found = match words {
@@ -759,16 +856,23 @@ impl<'c> Issues<'c> {
     /// column, counts and kinds, the milestones with only their roll-up. What counting the board up takes (a project's
     /// counts, its releases' tallies), read without each issue in full and what `board` gathers about it.
     pub(crate) async fn outline(&mut self, project: &str, statuses: &[Status]) -> Result<Board> {
+        self.sketch(project, statuses, None).await
+    }
+
+    /// The outline, or, with `wide`, what filtering the issue list takes too (ORR-1118): each issue's status, column
+    /// and proposal, and those of its title, priority, assignee, labels, external tasks and GitHub issues named.
+    async fn sketch(&mut self, project: &str, statuses: &[Status], wide: Option<&[&str]>) -> Result<Board> {
         struct Thin {
             id: String,
             parent: Option<String>,
             milestone: Option<String>,
             status: String,
-            proposal: bool,
+            proposal: Option<String>,
             release: Option<String>,
+            wide: Option<Map<String, Value>>,
         }
         fn build(rules: &Rules, children: &HashMap<Option<String>, Vec<&Thin>>, issue: &Thin, proposed: bool) -> Node {
-            let proposed = proposed || issue.proposal;
+            let proposed = proposed || issue.proposal.is_some();
             let tasks: Vec<Node> = children.get(&Some(issue.id.clone())).into_iter().flatten().map(|t| build(rules, children, t, proposed)).collect();
             let (mut counts, mut kinds) = (Map::new(), [0; 6]);
             for task in &tasks {
@@ -790,6 +894,14 @@ impl<'c> Issues<'c> {
             if let Some(release) = &issue.release {
                 fields.insert("release".into(), json!(release));
             }
+            if let Some(wide) = &issue.wide {
+                fields.extend(wide.clone());
+                fields.insert("status".into(), json!(issue.status));
+                if let Some(proposal) = &issue.proposal {
+                    fields.insert("proposal".into(), json!(proposal));
+                }
+                fields.insert("column".into(), json!(rules.column_of(&counts, &kinds)));
+            }
             Node { fields, counts, kinds, tasks }
         }
         let milestones: Vec<String> = sqlx::query(&sql("SELECT id FROM milestones WHERE project = ? ORDER BY position, created_at"))
@@ -799,21 +911,35 @@ impl<'c> Issues<'c> {
             .iter()
             .map(|r| r.get("id"))
             .collect();
-        let rows: Vec<Thin> =
-            sqlx::query(&sql("SELECT id, parent, milestone, status, proposal, ships_in FROM issues WHERE project = ? ORDER BY position, created_at"))
-                .bind(project)
-                .fetch_all(&mut *self.conn)
-                .await?
-                .iter()
-                .map(|r| Thin {
-                    id: r.get("id"),
-                    parent: r.get("parent"),
-                    milestone: r.get("milestone"),
-                    status: r.get("status"),
-                    proposal: r.get::<Option<String>, _>("proposal").is_some(),
-                    release: r.get("ships_in"),
-                })
-                .collect();
+        let more: String = wide.into_iter().flatten().map(|c| format!(", {c}")).collect();
+        let rows: Vec<Thin> = sqlx::query(&sql(&format!(
+            "SELECT id, parent, milestone, status, proposal, ships_in{more} FROM issues WHERE project = ? ORDER BY position, created_at"
+        )))
+        .bind(project)
+        .fetch_all(&mut *self.conn)
+        .await?
+        .iter()
+        .map(|r| Thin {
+            id: r.get("id"),
+            parent: r.get("parent"),
+            milestone: r.get("milestone"),
+            status: r.get("status"),
+            proposal: r.get("proposal"),
+            release: r.get("ships_in"),
+            wide: wide.map(|columns| {
+                let mut f = Map::new();
+                for key in columns {
+                    let text = r.get::<Option<String>, _>(*key);
+                    if WIDE_JSON.contains(key) {
+                        f.insert(key.to_string(), text.and_then(|t| serde_json::from_str(&t).ok()).unwrap_or(json!([])));
+                    } else if let Some(value) = text {
+                        f.insert(key.to_string(), json!(value));
+                    }
+                }
+                f
+            }),
+        })
+        .collect();
         let mut children: HashMap<Option<String>, Vec<&Thin>> = HashMap::new();
         for row in &rows {
             children.entry(row.parent.clone()).or_default().push(row);
@@ -948,6 +1074,30 @@ fn scoped<'q>(query: &'q str, project: &'q str, ids: Option<&'q [String]>) -> sq
         asked = asked.bind(id.as_str());
     }
     asked
+}
+
+/// A milestone on the board from its row and its issues (`buildBoard`, `milestoneRecord`), rolled up from them.
+pub(crate) fn milestone_group(project: &str, m: &AnyRow, rules: &Rules, aliases: &HashMap<String, Vec<String>>, tasks: Vec<Node>) -> Group {
+    let id: String = m.get("id");
+    let text = |key: &str| m.get::<Option<String>, _>(key);
+    let mut fields = Map::new();
+    fields.insert("id".into(), json!(id));
+    fields.insert("title".into(), json!(text("title").unwrap_or_default()));
+    if let Some(summary) = text("summary").filter(|s| !s.is_empty()) {
+        fields.insert("summary".into(), json!(summary));
+    }
+    if let Some(priority) = text("priority") {
+        fields.insert("priority".into(), json!(priority));
+    }
+    fields.insert("aliases".into(), json!(aliases.get(&id).cloned().unwrap_or_default()));
+    fields.insert("created_by".into(), json!(text("created_by").unwrap_or_default()));
+    fields.insert("protected".into(), json!(m.get::<i64, _>("owned") != 0));
+    fields.insert("project".into(), json!(project));
+    fields.insert("position".into(), json!(m.get::<i64, _>("position")));
+    fields.insert("created_at".into(), json!(text("created_at").unwrap_or_default()));
+    fields.insert("updated_at".into(), json!(text("updated_at").unwrap_or_default()));
+    rules.roll_up(&mut fields, &tasks);
+    Group { id, fields, tasks }
 }
 
 impl Context<'_> {
@@ -1111,5 +1261,161 @@ mod tests {
         assert_eq!(top["tasks"][0]["aliases"], json!(["OLD-1"]));
         assert_eq!(read.subtree(&project, &asked, &statuses).await.unwrap().unwrap().0.json()["waiting"], "decision");
         assert_eq!(read.subtree(&project, &proposal, &statuses).await.unwrap().unwrap().0.json()["tasks"][0]["column"], "proposed");
+    }
+
+    /// A board with a bit of everything on it, for reading parts of it as the whole has them: a milestone with sub-issues
+    /// and their roll-up, links either way, proposals and what's under one, an open question, a risk, an alias, labels,
+    /// assignees, a release, and two issues in a loop (not on the board).
+    async fn mixed(api: &crate::testing::TestApi) -> (String, String) {
+        let (project, other) = (api.project("Primes").await, api.project("Sieve").await);
+        api.patch(&format!("/api/projects/{project}"), json!({"release_mode": "own"})).send().await;
+        api.post(&format!("/api/projects/{project}/releases"), json!({"version": "1.0"})).send().await;
+        let issues = format!("/api/projects/{project}/issues");
+        let made = |reply: crate::testing::Reply| reply.body["id"].as_str().unwrap().to_string();
+        let milestone =
+            api.post(&format!("/api/projects/{project}/milestones"), json!({"title": "First"})).send().await.body["id"].as_str().unwrap().to_string();
+        let top = api.issue(&project, json!({"title": "Top", "milestone": milestone, "labels": ["ui"], "release": "1.0"})).await;
+        let sub = api.issue(&project, json!({"title": "Sub", "parent": top, "status": "in-progress", "assignee": "claude", "priority": "P0"})).await;
+        let deep = api.issue(&project, json!({"title": "Deep", "parent": sub, "status": "done", "labels": ["ui", "api"]})).await;
+        api.issue(&project, json!({"title": "Second", "milestone": milestone, "status": "todo", "release": "1.0"})).await;
+        let elsewhere = api.issue(&other, json!({"title": "Over there"})).await;
+        api.issue(&project, json!({"title": "Blocked", "depends_on": [top, format!("{other}/{elsewhere}")], "external": ["T-1"]})).await;
+        api.issue(&project, json!({"title": "Free", "depends_on": [deep], "release": "1.0"})).await;
+        let proposal = made(api.post(&issues, json!({"title": "Idea", "proposal": "pending"})).by_agent("claude").send().await);
+        let under = made(api.post(&issues, json!({"title": "Part", "parent": proposal, "proposal": "pending"})).by_agent("claude").send().await);
+        api.issue(&project, json!({"title": "Below", "parent": under, "release": "1.0"})).await;
+        let asked = api.issue(&project, json!({"title": "Asked", "github_issues": ["a/b#5"]})).await;
+        api.post(&format!("{issues}/{asked}/comments"), json!({"body": "Which?", "asks": "decision"})).by_agent("claude").send().await;
+        api.run("INSERT INTO issue_aliases (project, alias, issue) VALUES (?, 'OLD-1', ?)", &[&project, &sub]).await;
+        api.run(
+            "INSERT INTO issue_pulls (project, issue, repo, number, title, url, branch, base, author, state, created_at, updated_at, risk, risk_why, risk_by) \
+             VALUES (?, ?, 'a/b', 7, 't', 'u', 'b', 'main', 'me', 'open', '2026-11-01', '2026-11-01', 'high', 'why', 'owner')",
+            &[&project, &deep],
+        )
+        .await;
+        let (a, b) = (api.issue(&project, json!({"title": "Loop A"})).await, api.issue(&project, json!({"title": "Loop B"})).await);
+        api.run("UPDATE issues SET parent = ? WHERE project = ? AND id = ?", &[&b, &project, &a]).await;
+        api.run("UPDATE issues SET parent = ? WHERE project = ? AND id = ?", &[&a, &project, &b]).await;
+        (project, milestone)
+    }
+
+    /// The list (ORR-1118) filters on the wide outline as it would on the whole board, and builds those listed alone as
+    /// the whole board has them.
+    #[tokio::test]
+    async fn the_list_reads_as_the_whole_board_has_it() {
+        use crate::testing::TestApi;
+        let api = TestApi::new().await;
+        let (project, milestone) = mixed(&api).await;
+        let mut conn = api.app.pool.acquire().await.unwrap();
+        let mut read = Issues::new(&mut conn);
+        let statuses = read.statuses().await.unwrap();
+
+        let whole: HashMap<String, Map<String, Value>> =
+            read.board(&project, &statuses).await.unwrap().records(&project).into_iter().map(|r| (id_or_title(&r).0, r)).collect();
+        let sketched = read.sketch(&project, &statuses, Some(&WIDE.map(|(_, column)| column))).await.unwrap().records(&project);
+        assert_eq!(sketched.len(), whole.len());
+        for sketch in &sketched {
+            let full = &whole[&id_or_title(sketch).0];
+            for (key, value) in sketch {
+                assert_eq!(full.get(key), Some(value), "{key} of {}", id_or_title(sketch).0);
+            }
+        }
+
+        let filters: &[&[(&str, &str)]] = &[
+            &[],
+            &[("status", "todo")],
+            &[("status", "started,done")],
+            &[("column", "in-progress")],
+            &[("column", "proposed")],
+            &[("priority", "P0")],
+            &[("priority", "none")],
+            &[("assignee", "claude")],
+            &[("assignee", "none")],
+            &[("label", "ui")],
+            &[("external", "T-1")],
+            &[("github_issue", "a/b#5")],
+            &[("milestone", &milestone)],
+            &[("milestone", "none")],
+            &[("release", "1.0")],
+            &[("release", "none")],
+            &[("parent", "none")],
+            &[("proposal", "pending")],
+            &[("proposal", "none")],
+            &[("blocked", "true")],
+            &[("blocked", "false")],
+            &[("q", "deep")],
+            &[("q", "which"), ("in", "all")],
+            &[("label", "ui"), ("status", "done")],
+        ];
+        for filter in filters {
+            let filter: HashMap<String, String> = filter.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
+            let alone = read.listing(&project, &filter, Some(false)).await.unwrap();
+            let from_whole = read.listing(&project, &filter, Some(true)).await.unwrap();
+            assert_eq!(alone.to_string(), from_whole.to_string(), "{filter:?}");
+            assert_eq!(read.list(&project, &filter).await.unwrap(), alone, "{filter:?}");
+        }
+        let listed = |filter: &[(&str, &str)]| {
+            let filter: HashMap<String, String> = filter.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
+            filter
+        };
+        let blocked = read.listing(&project, &listed(&[("blocked", "true")]), Some(false)).await.unwrap();
+        assert_eq!(blocked.as_array().unwrap().iter().map(|r| r["title"].as_str().unwrap()).collect::<Vec<_>>(), ["Blocked"]);
+        let ui = read.listing(&project, &listed(&[("label", "ui")]), Some(false)).await.unwrap();
+        assert_eq!(ui[0]["kinds"]["done"], 1, "a listed issue's roll-up counts the leaves under it");
+    }
+
+    /// A milestone and a release (ORR-1118), read with only their own issues built, as the whole board has them.
+    #[tokio::test]
+    async fn a_milestone_and_a_release_read_as_the_whole_board_has_them() {
+        use crate::testing::TestApi;
+        let api = TestApi::new().await;
+        let (project, milestone) = mixed(&api).await;
+        let whole = api.get(&format!("/api/projects/{project}")).send().await.body;
+        let group = whole["board"]["milestones"].as_array().unwrap().iter().find(|g| g["id"] == milestone.as_str()).unwrap().clone();
+        let one = api.get(&format!("/api/projects/{project}/milestones/{milestone}")).send().await.body;
+        for key in ["tasks", "column", "kind", "counts", "kinds", "title", "aliases"] {
+            assert_eq!(one[key].to_string(), group[key].to_string(), "{key}");
+        }
+        assert_eq!(one["tasks"][0]["tasks"][0]["tasks"][0]["risk"]["level"], "high");
+
+        fn walk(out: &mut Vec<Value>, issues: &Value) {
+            for issue in issues.as_array().into_iter().flatten() {
+                if issue["release"] == "1.0" {
+                    out.push(issue.clone());
+                } else {
+                    walk(out, &issue["tasks"]);
+                }
+            }
+        }
+        let mut set = Vec::new();
+        for group in whole["board"]["milestones"].as_array().unwrap() {
+            walk(&mut set, &group["tasks"]);
+        }
+        let release = api.get(&format!("/api/projects/{project}/releases/1.0")).send().await.body;
+        assert_eq!(release["tasks"].to_string(), Value::Array(set).to_string());
+        assert_eq!(release["tasks"].as_array().unwrap().len(), 4, "Top, Second, Free and the one under a proposal");
+        let listed = whole["releases"].as_array().unwrap().iter().find(|r| r["version"] == "1.0").unwrap();
+        assert_eq!((&release["issues"], &release["kinds"]), (&listed["issues"], &listed["kinds"]));
+    }
+
+    /// Building several issues at once (ORR-1118), one inside another and one under a proposal, gives each as the
+    /// whole board has it.
+    #[tokio::test]
+    async fn issues_built_together_read_as_the_whole_board_has_them() {
+        use crate::testing::TestApi;
+        let api = TestApi::new().await;
+        let (project, _) = mixed(&api).await;
+        let mut conn = api.app.pool.acquire().await.unwrap();
+        let mut read = Issues::new(&mut conn);
+        let statuses = read.statuses().await.unwrap();
+        let board = read.board(&project, &statuses).await.unwrap();
+        let ids: Vec<String> = board.records(&project).iter().map(|r| id_or_title(r).0).collect();
+        for chosen in [ids.clone(), ids.iter().rev().step_by(2).cloned().collect(), ids[1..3].to_vec()] {
+            let built = read.nodes(&project, &statuses, &chosen).await.unwrap();
+            assert_eq!(built.len(), chosen.len());
+            for id in &chosen {
+                assert_eq!(built[id].json(), board.find(id).unwrap().0.json(), "{id}");
+            }
+        }
     }
 }

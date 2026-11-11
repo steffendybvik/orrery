@@ -51,12 +51,19 @@ for (let tries = 0; ; tries++) {
 const P = `/api/projects/${encodeURIComponent(project)}`
 const issues = (await (await fetch(base + `${P}/issues`, {headers: HEADERS})).json()).map(i => i.id)
 const latest = (await (await fetch(base + '/api/changes?after=0', {headers: HEADERS})).json()).changes.at(-1)?.id ?? 0
+const first = async (path, pick) => fetch(base + path, {headers: HEADERS}).then(r => r.ok ? r.json() : []).then(list => pick(list[0]))
+const milestone = await first(`${P}/milestones`, m => m?.id)
+const release = await first(`${P}/releases`, r => r?.version)
 let n = 0
 const next = () => issues[n++ % issues.length]
 const ROUTES = {
     'GET /api/projects': () => ['GET', '/api/projects'],
     'GET issues': () => ['GET', `${P}/issues`],
     'GET one issue': () => ['GET', `${P}/issues/${next()}`],
+    'GET issues?status=todo': () => ['GET', `${P}/issues?status=todo`],
+    'GET issues?assignee=claude': () => ['GET', `${P}/issues?assignee=claude`],
+    ...milestone && {'GET a milestone': () => ['GET', `${P}/milestones/${encodeURIComponent(milestone)}`]},
+    ...release && {'GET a release': () => ['GET', `${P}/releases/${encodeURIComponent(release)}`]},
     'GET docs?q=': () => ['GET', `${P}/docs?q=${['plan', 'release notes', 'nothing-like-it'][n++ % 3]}`],
     'GET docs': () => ['GET', `${P}/docs`],
     'GET settings': () => ['GET', '/api/settings'],
