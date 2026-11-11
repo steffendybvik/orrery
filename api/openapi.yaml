@@ -311,6 +311,14 @@ paths:
       responses:
         '200': {description: The image, content: {image/png: {}, image/jpeg: {}, image/gif: {}, image/webp: {}}}
         '404': {$ref: '#/components/responses/NotFound'}
+  /api/signals/prune:
+    post:
+      x-served: false
+      summary: 'Lets go of signals past 30 days, heard or not (ORR-1090)'
+      description: 'Only the Nuxt server''s own call (`Orrery-Came: server`), with its daily clean-up.'
+      responses:
+        '200': {description: 'How many went', content: {application/json: {schema: {type: object, properties: {pruned: {type: integer}}}}}}
+        '403': {$ref: '#/components/responses/Forbidden'}
   /api/statuses:
     get:
       summary: The issue statuses, in board order
@@ -1412,6 +1420,49 @@ paths:
       responses:
         '200': {description: 'The signals', content: {application/json: {schema: {type: array, items: {type: object}}}}}
         '404': {$ref: '#/components/responses/NotFound'}
+    post:
+      x-served: false
+      summary: 'A signal the local app made, written (ORR-1090): a focus, a comment carried to a session or a message, with the session it goes to already picked there'
+      description: 'Only the Nuxt server''s own call (`Orrery-Came: server`), which tells its sessions of it itself, as they''re its machine''s.'
+      requestBody:
+        required: true
+        content: {application/json: {schema: {type: object, required: [kind, created_by], properties: {kind: {type: string, enum: [focus, comment, message]}, created_by: {type: string}, owned: {type: boolean}, issue: {type: string}, milestone: {type: string}, status: {type: string}, release: {type: string}, epic: {type: integer}, schedule: {type: integer}, note: {type: string}, preset: {type: string}, via: {type: string}, target: {type: string}, person: {type: string}, instructions: {type: array, items: {type: string}}, model: {type: string}}}}}
+      responses:
+        '201': {description: 'The signal', content: {application/json: {schema: {type: object}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/projects/{project}/signals/retarget:
+    parameters:
+      - {$ref: '#/components/parameters/project'}
+    post:
+      x-served: false
+      summary: 'A session''s new id (after a `/clear`) takes over the signals sent to its old one (ORR-1090)'
+      description: 'Only the Nuxt server''s own call (`Orrery-Came: server`).'
+      requestBody:
+        required: true
+        content: {application/json: {schema: {type: object, required: [from, to], properties: {from: {type: string}, to: {type: string}}}}}
+      responses:
+        '200': {description: 'How many moved', content: {application/json: {schema: {type: object, properties: {moved: {type: integer}}}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+  /api/projects/{project}/signals/{signal}/receipts:
+    parameters:
+      - {$ref: '#/components/parameters/project'}
+      - {name: signal, in: path, required: true, schema: {type: string}}
+    post:
+      x-served: false
+      summary: 'A session (`to`, its name) heard the signal (ORR-1090): two saying so at once both count'
+      description: 'Only the Nuxt server''s own call (`Orrery-Came: server`). A 409 when the list kept changing under it.'
+      requestBody:
+        required: true
+        content: {application/json: {schema: {type: object, required: [to], properties: {to: {type: string}}}}}
+      responses:
+        '200': {description: 'The signal, with who heard it', content: {application/json: {schema: {type: object}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
   /api/projects/{project}/schedules:
     parameters: [{$ref: '#/components/parameters/project'}]
     get:

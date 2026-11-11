@@ -4,7 +4,7 @@ import type {Kind, SessionWork, Signal, Upload} from '#shared/roadmap'
 import {CLOSED, heaviest, modelFor} from '#shared/roadmap'
 import {badRequest, checkInput, conflict, notFound} from '../utils/input'
 import type {Actor, IssueRecord, SignalRow} from './schema'
-import {AGENT, SIGNAL_FIELDS, MILESTONE_SIGNAL_FIELDS, LEGACY_KINDS, UPLOAD_FIELDS, UPLOAD_LIMIT, IMAGE_TYPES, signalOf, nullable, stamp} from './schema'
+import {AGENT, SIGNAL_FIELDS, MILESTONE_SIGNAL_FIELDS, LEGACY_KINDS, UPLOAD_FIELDS, UPLOAD_LIMIT, IMAGE_TYPES, ORRERY, signalOf, nullable, stamp} from './schema'
 import {IssueStore} from './issues'
 import {EVERY} from '../utils/pool'
 import {compressImage} from '../utils/compress'
@@ -17,7 +17,55 @@ export const KEEP_SIGNALS = 30 * 86_400_000
 const KEEP_UNUSED_UPLOADS = 90 * 86_400_000
 const UPLOAD_LINK = /\/api\/uploads\/([0-9a-f]{24})/g
 
+/** A signal's row as it's written: what it's about, its target already picked, and who it's from. */
+export interface SignalFields {
+    kind: 'focus' | 'comment' | 'message'
+    created_by: string
+    owned: boolean
+    issue?: string | null
+    milestone?: string | null
+    status?: string | null
+    release?: string | null
+    epic?: number | null
+    schedule?: number | null
+    note?: string | null
+    preset?: string | null
+    via?: string | null
+    target?: string | null
+    person?: string | null
+    instructions?: string[]
+    model?: string | null
+}
+
 export abstract class SignalStore extends IssueStore {
+    /** A signal write sent to the Rust API when it's in front, as it's the `signals` table's one writer then (ORR-1090):
+     * its reply, or undefined with no API set up, which leaves the write to the store here. Imported when used, as the
+     * router reads the store. */
+    private async signalsApi<T>(method: string, path: string, body: unknown): Promise<T | undefined> {
+        const {writeToApi} = await import('../utils/api-router')
+        return (await writeToApi(method, path, body, ORRERY, {always: true}))?.reply as T | undefined
+    }
+
+    /** Writes a signal whose target is picked (`POST …/signals`), and tells the sessions of it here, as they're this
+     * machine's. */
+    protected async writeSignal(project: string, fields: SignalFields): Promise<Signal> {
+        const sent = Object.fromEntries(Object.entries(fields).filter(([, value]) => value !== undefined && value !== null))
+        const signal = await this.signalsApi<Signal>('POST', `/api/projects/${encodeURIComponent(project)}/signals`, sent) ?? await this.writeSignalHere(project, fields)
+        this.signalled(signal)
+        return signal
+    }
+
+    private async writeSignalHere(project: string, fields: SignalFields): Promise<Signal> {
+        const {instructions, owned, ...rest} = fields
+        type Value = string | number | null
+        const columns: [string, Value][] = [['project', project]]
+        for (const [name, value] of Object.entries(rest) as [string, Value | undefined][]) if (value !== undefined) columns.push([name, value])
+        if (instructions) columns.push(['instructions', JSON.stringify(instructions)])
+        columns.push(['owned', Number(owned)], ['created_at', stamp()])
+        return signalOf(await this.one<SignalRow>(`INSERT INTO signals (${columns.map(([name]) => name).join(', ')}) VALUES (${columns.map(() => '?').join(', ')}) RETURNING *`,
+            ...columns.map(([, value]) => value)))
+    }
+
     /** Keeps an image for Markdown to show: `{data, name?}` → where it's served and the Markdown that shows it. A PNG or
      * JPEG is kept as WebP when that's smaller (see compress.ts). */
     async createUpload(body: unknown, actor = AGENT): Promise<Upload> {
@@ -98,7 +146,7 @@ export abstract class SignalStore extends IssueStore {
     protected async sendFocus(project: string, issue: string, body: unknown, actor: Actor): Promise<Signal> {
         const input = checkInput(body ?? {}, SIGNAL_FIELDS)
         if (input.session === EVERY) throw badRequest(`Only a milestone can go to every session, not issue ${issue}: name one in "session", or leave it out for orrery to pick one`)
-        const instructions = JSON.stringify(await this.instructionsFor(project, input.instructions))
+        const instructions = await this.instructionsFor(project, input.instructions)
         const member = this.memberAiming(actor, input.session)
         // The owner's goes to the sessions of whoever has the issue, and on what's nobody's, to their own (ORR-656).
         const whose = member ?? (actor.owner ? await this.whoseWork(project, (await this.issueRow(project, issue)).assignee) ?? (await this.isShared() ? await this.ownerId() : undefined) : undefined)
@@ -110,12 +158,10 @@ export abstract class SignalStore extends IssueStore {
             return !whose || person === whose || !member && !person ? session : null
         }
         const target = nullable(input.session) ?? theirs(await this.listeningWorker(project, issue)) ?? theirs((await this.heldAbove(project, issue))?.holder) ?? null
-        const row = await this.one<SignalRow>('INSERT INTO signals (project, issue, kind, note, target, person, instructions, model, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *',
-            project, issue, 'focus', nullable(input.note), target, whose ?? null, instructions, await this.modelNeeded(project, issue), actor.name, Number(actor.owner), stamp())
-        const signal = signalOf(row)
+        const signal = await this.writeSignal(project, {issue, kind: 'focus', note: nullable(input.note), target, person: whose ?? null, instructions,
+            model: await this.modelNeeded(project, issue), created_by: actor.name, owned: actor.owner})
         // A started issue another session is still on stays its: the one asked gets the claim's 409 if it starts it.
         if (signal.target && signal.target !== EVERY && !await this.takenFrom(project, issue, signal.target)) await this.workedBy(project, issue, signal.target)
-        this.signalled(signal)
         return signal
     }
 
@@ -168,12 +214,9 @@ export abstract class SignalStore extends IssueStore {
         }
         const release = input.release ? (await this.releaseRow(project, String(input.release))).version : null
         const epic = input.epic === undefined || input.epic === null ? null : (await this.epicRow(input.epic as string)).id
-        const instructions = JSON.stringify(await this.instructionsFor(project, input.instructions))
-        const row = await this.one<SignalRow>('INSERT INTO signals (project, milestone, status, release, epic, kind, note, target, person, instructions, model, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *',
-            project, milestone, status, release, epic, 'focus', nullable(input.note), nullable(input.session), this.memberAiming(actor, input.session) ?? null, instructions, await this.milestoneModelNeeded(project, milestone, epic), actor.name, Number(actor.owner), stamp())
-        const signal = signalOf(row)
-        this.signalled(signal)
-        return signal
+        const instructions = await this.instructionsFor(project, input.instructions)
+        return await this.writeSignal(project, {milestone, status, release, epic, kind: 'focus', note: nullable(input.note), target: nullable(input.session),
+            person: this.memberAiming(actor, input.session) ?? null, instructions, model: await this.milestoneModelNeeded(project, milestone, epic), created_by: actor.name, owned: actor.owner})
     }
 
     /** Asks the sessions to work through an epic's open issues (ORR-987): a focus on each project it has open issues in,
@@ -218,6 +261,8 @@ export abstract class SignalStore extends IssueStore {
     /** Lets go of signals past KEEP_SIGNALS, heard or not (ORR-778). Nothing they answer for reaches back that far: what
      * waits on one looks a day back, and `carryUnanswered` no further than this. */
     async pruneSignals(now = Date.now()): Promise<number> {
+        const sent = await this.signalsApi<{pruned: number}>('POST', '/api/signals/prune', {})
+        if (sent) return sent.pruned
         return (await this.run('DELETE FROM signals WHERE created_at < ?', new Date(now - KEEP_SIGNALS).toISOString())).changes
     }
 
@@ -296,11 +341,8 @@ export abstract class SignalStore extends IssueStore {
      * With the schedule's own `model` (ORR-869), no session on a lighter one takes it. */
     async message(project: string, schedule: number, text: string, actor = AGENT, target?: string, preset?: string, model?: string): Promise<Signal> {
         await this.projectRow(project)
-        const row = await this.one<SignalRow>('INSERT INTO signals (project, schedule, kind, note, preset, target, model, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *',
-            project, schedule, 'message', text, preset ?? null, target ?? null, model && model !== 'best' ? model : null, actor.name, Number(actor.owner), stamp())
-        const signal = signalOf(row)
-        this.signalled(signal)
-        return signal
+        return await this.writeSignal(project, {schedule, kind: 'message', note: text, preset: preset ?? null, target: target ?? null,
+            model: model && model !== 'best' ? model : null, created_by: actor.name, owned: actor.owner})
     }
 
     /** The owner's own words to one session, through its channel: about no issue, from no schedule; their chat's for
@@ -314,11 +356,7 @@ export abstract class SignalStore extends IssueStore {
         if (!note) throw badRequest('Send the message as {"text": "…"}')
         if (preset !== undefined && preset !== null && !Number.isInteger(preset)) throw badRequest('Send preset as a preset\'s id')
         const from = typeof preset === 'number' ? known((await this.presetsFor(project, [preset]))[0], 'the preset').name : null
-        const row = await this.one<SignalRow>('INSERT INTO signals (project, kind, note, preset, via, target, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *',
-            project, 'message', note, from, actor.via ?? null, session, actor.name, 1, stamp())
-        const signal = signalOf(row)
-        this.signalled(signal)
-        return signal
+        return await this.writeSignal(project, {kind: 'message', note, preset: from, via: actor.via ?? null, target: session, created_by: actor.name, owned: true})
     }
 
     /** Whether the owner sent this session something of its own (by one of its ids) that it hasn't heard yet. */
@@ -364,6 +402,12 @@ export abstract class SignalStore extends IssueStore {
     /** Notes that a session got the signal. Two sessions saying so at once both count: the list is only written
      * over if it's still the one read, else read again. */
     async delivered(project: string, id: number, to: string): Promise<Signal> {
+        const signal = await this.signalsApi<Signal>('POST', `/api/projects/${encodeURIComponent(project)}/signals/${id}/receipts`, {to}) ?? await this.deliveredHere(project, id, to)
+        this.signalled(signal)
+        return signal
+    }
+
+    private async deliveredHere(project: string, id: number, to: string): Promise<Signal> {
         let row: SignalRow | undefined
         let names: string[]
         for (let tries = 0; ; tries++) {
@@ -375,8 +419,12 @@ export abstract class SignalStore extends IssueStore {
             // Lost every race: say so, rather than a receipt that wasn't kept.
             if (tries === 9) throw conflict(`Signal ${id} is being marked by too many sessions at once; try again`)
         }
-        const signal = signalOf({...row, delivered_to: JSON.stringify(names)})
-        this.signalled(signal)
-        return signal
+        return signalOf({...row, delivered_to: JSON.stringify(names)})
+    }
+
+    /** A session's new id (after a `/clear`) takes over the signals sent to its old one. */
+    protected async retargetSignals(project: string, from: string, to: string) {
+        if (await this.signalsApi('POST', `/api/projects/${encodeURIComponent(project)}/signals/retarget`, {from, to})) return
+        await this.run('UPDATE signals SET target = ? WHERE project = ? AND target = ?', to, project, from)
     }
 }
