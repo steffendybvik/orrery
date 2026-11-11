@@ -144,7 +144,7 @@ async fn a_tool_the_session_lacks_is_refused_and_one_not_moved_yet_says_so() {
     assert_eq!(said(&untrusted), "No tool \"start_issue\"");
     let chat_more = call("more_tools").header("orrery-actor-kind", "chat").send().await;
     assert_eq!(said(&chat_more), "No tool \"more_tools\"");
-    let later = call("issue").send().await;
+    let later = call("start_issue").send().await;
     assert!(said(&later).contains("isn't served at /mcp yet"), "{}", later.body);
 }
 
