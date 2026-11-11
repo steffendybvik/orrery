@@ -1,8 +1,9 @@
-// The event log's reads and resolve (ORR-1088): what web/server/utils/event-log.ts `list` and `resolve` do with the
-// `events` table. Writing a line (the page's error reports, the local app's own `note`s and the roadmap's activity)
-// stays the Nuxt server's for now, as it scrubs secrets' values out with the machine's key and hears each line as it's
-// written. A resolve says each line it changed in the outbox (`event.logged`), so the local app pushes it to open
-// pages' bells as its own resolve did.
+// The event log (ORR-1088): what web/server/utils/event-log.ts did with the `events` table, so this API is its one
+// writer. Reading it (`list`), resolving a line (`resolve`), writing one (`write`) and letting old ones go (`prune`).
+// What a line says is still made by the Nuxt server: it scrubs secrets' values out with the machine's key, counts a
+// page's reports in memory and checks Advanced, then sends the finished line here. Only while this API can't be
+// reached does it write the line itself, marked `details.local`. Each line written or resolved goes in the outbox
+// (`event.logged`), so the local app pushes it to open pages' bells: a new one with `fresh`, when it's news.
 use crate::changes::{self, Outbox};
 use crate::db::sql;
 use crate::error::{ApiError, Result};
@@ -10,9 +11,48 @@ use crate::write::{stamp, Actor, Effects};
 use serde_json::{json, Map, Value};
 use sqlx::any::AnyRow;
 use sqlx::{AnyConnection, Row};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 /// `EVENT_LEVELS` in web/shared/roadmap/events.ts.
 pub(crate) const LEVELS: [&str; 3] = ["error", "warn", "info"];
+/// `ACTIVITY_FAMILIES`: the kinds under these are changes to the roadmap, kept apart from the rest when pruning.
+const ACTIVITY_FAMILIES: [&str; 5] = ["issue", "comment", "milestone", "doc", "release"];
+/// How long what orrery did is kept, and how long warnings and errors are, in days.
+const KEEP_INFO: i64 = 7;
+const KEEP_PROBLEMS: i64 = 30;
+/// The most rows kept, the oldest going first: of changes to the roadmap, and of the rest.
+const MAX_ACTIVITY: i64 = 5000;
+const MAX_ROWS: i64 = 5000;
+/// How often (in lines written) old ones are pruned, besides when the local app asks (on its start and hourly).
+const PRUNE_EVERY: u64 = 200;
+/// How long a message is kept, as the local app cuts it.
+const MESSAGE: usize = 1000;
+/// Lines written since this API started, for `PRUNE_EVERY`.
+static WRITTEN: AtomicU64 = AtomicU64::new(0);
+
+/// A dotted name, as `KIND` in event-log.ts: `page.error`, `session.started`.
+fn is_kind(kind: &str) -> bool {
+    !kind.is_empty()
+        && kind.split('.').all(|part| {
+            let mut chars = part.chars();
+            chars.next().is_some_and(|c| c.is_ascii_lowercase()) && chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '-')
+        })
+}
+
+/// Whether a row is a change to the roadmap, in SQL: a family's names hold no `_` or `%`.
+fn activity_sql() -> String {
+    format!("({})", ACTIVITY_FAMILIES.iter().map(|family| format!("kind LIKE '{family}.%'")).collect::<Vec<_>>().join(" OR "))
+}
+
+/// `text` cut to `length` characters, the last an ellipsis, as `cut` in event-log.ts.
+fn cut(text: &str, length: usize) -> String {
+    if text.chars().count() <= length {
+        return text.to_string();
+    }
+    let mut kept: String = text.chars().take(length - 1).collect();
+    kept.push('…');
+    kept
+}
 /// How many lines a read gives when it doesn't say, and at most.
 const LIMIT: i64 = 200;
 const MOST: i64 = 1000;
@@ -107,6 +147,110 @@ impl<'c> EventLog<'c> {
         self.effects
     }
 
+    /// Writes a line the local app made (`PUT /api/events/log/lines`): `{level, kind, project?, subject?, message,
+    /// details?, activity?}`, its texts scrubbed and cut there already. `{event, fresh}`: fresh unless it repeats one
+    /// not resolved yet (same level, kind, project and message), which is a line too but no news. A change to the
+    /// roadmap (`activity`) is always news. It goes into the outbox, and every PRUNE_EVERY lines old ones go.
+    pub(crate) async fn write(&mut self, line: &Value) -> Result<Value> {
+        let text = |key: &str| line.get(key).and_then(Value::as_str).map(str::trim).filter(|v| !v.is_empty());
+        let level = line.get("level").and_then(Value::as_str).unwrap_or_default();
+        if !LEVELS.contains(&level) {
+            return Err(ApiError::bad_request(format!("\"level\" is \"{level}\"; use {}", LEVELS.join(", "))));
+        }
+        let kind = line.get("kind").and_then(Value::as_str).unwrap_or_default();
+        if !is_kind(kind) {
+            return Err(ApiError::bad_request(format!("\"kind\" is \"{kind}\"; use a dotted name, e.g. page.error")));
+        }
+        let activity = line.get("activity").and_then(Value::as_bool).unwrap_or(false);
+        let message = cut(text("message").unwrap_or(kind), MESSAGE);
+        let project = text("project");
+        let subject = text("subject");
+        let details = match line.get("details") {
+            Some(Value::Object(details)) if !details.is_empty() => Some(Value::Object(details.clone()).to_string()),
+            None | Some(Value::Null) | Some(Value::Object(_)) => None,
+            Some(_) => return Err(ApiError::bad_request("\"details\" is an object")),
+        };
+        changes::begin(self.conn).await?;
+        let done = self.writing(level, kind, project, subject, &message, details, activity).await;
+        let written = changes::finish(self.conn, self.outbox.as_mut(), &self.effects, done).await?;
+        if WRITTEN.fetch_add(1, Ordering::Relaxed) % PRUNE_EVERY == PRUNE_EVERY - 1 {
+            self.prune().await?;
+        }
+        Ok(written)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn writing(
+        &mut self,
+        level: &str,
+        kind: &str,
+        project: Option<&str>,
+        subject: Option<&str>,
+        message: &str,
+        details: Option<String>,
+        activity: bool,
+    ) -> Result<Value> {
+        let again = !activity
+            && sqlx::query(&sql(
+                "SELECT id FROM events WHERE level = ? AND kind = ? AND coalesce(project, '') = ? AND message = ? AND resolved_at IS NULL LIMIT 1",
+            ))
+            .bind(level)
+            .bind(kind)
+            .bind(project.unwrap_or_default())
+            .bind(message)
+            .fetch_optional(&mut *self.conn)
+            .await?
+            .is_some();
+        let at = stamp();
+        let row = sqlx::query(&sql(&format!(
+            "INSERT INTO events (level, kind, project, subject, message, details, count, first_seen, last_seen) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?) \
+             RETURNING {COLUMNS}"
+        )))
+        .bind(level)
+        .bind(kind)
+        .bind(project)
+        .bind(subject)
+        .bind(message)
+        .bind(details)
+        .bind(&at)
+        .bind(&at)
+        .fetch_one(&mut *self.conn)
+        .await?;
+        let event = event_of(&row);
+        let mut told = event.clone();
+        if !again {
+            told["fresh"] = json!(true);
+        }
+        self.effects.logged.push(told);
+        Ok(json!({"event": event, "fresh": !again}))
+    }
+
+    /// Lets go of what's old: info after KEEP_INFO days, the rest after KEEP_PROBLEMS, and the oldest past MAX_ACTIVITY
+    /// changes to the roadmap and past MAX_ROWS of the rest, so many changes can't push an error out. How many went.
+    pub(crate) async fn prune(&mut self) -> Result<u64> {
+        let before = |days: i64| (chrono::Utc::now() - chrono::Duration::days(days)).format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
+        let mut gone = sqlx::query(&sql("DELETE FROM events WHERE level = 'info' AND last_seen < ?"))
+            .bind(before(KEEP_INFO))
+            .execute(&mut *self.conn)
+            .await?
+            .rows_affected();
+        gone += sqlx::query(&sql("DELETE FROM events WHERE level <> 'info' AND last_seen < ?"))
+            .bind(before(KEEP_PROBLEMS))
+            .execute(&mut *self.conn)
+            .await?
+            .rows_affected();
+        let activity = activity_sql();
+        for (which, most) in [(activity.clone(), MAX_ACTIVITY), (format!("NOT {activity}"), MAX_ROWS)] {
+            gone += sqlx::query(&sql(&format!(
+                "DELETE FROM events WHERE {which} AND id NOT IN (SELECT id FROM events WHERE {which} ORDER BY last_seen DESC, id DESC LIMIT {most})"
+            )))
+            .execute(&mut *self.conn)
+            .await?
+            .rows_affected();
+        }
+        Ok(gone)
+    }
+
     /// The lines that match, newest first (by when they were last seen).
     pub(crate) async fn list(&mut self, filter: &Filter<'_>) -> Result<Value> {
         let mut wheres: Vec<String> = vec![];
@@ -197,6 +341,23 @@ impl<'c> EventLog<'c> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_kind_is_a_dotted_name() {
+        for kind in ["page.error", "session.started", "api.unreachable", "a", "issue.due_date", "x-y.z9"] {
+            assert!(is_kind(kind), "{kind}");
+        }
+        for kind in ["", "Page.error", "page.", ".page", "page..error", "9page", "page error", "page.Error"] {
+            assert!(!is_kind(kind), "{kind}");
+        }
+    }
+
+    #[test]
+    fn a_long_text_is_cut_with_an_ellipsis() {
+        assert_eq!(cut("short", 10), "short");
+        assert_eq!(cut("abcdefghijk", 5), "abcd…");
+        assert_eq!(cut("ééééé", 5), "ééééé", "characters, not bytes");
+    }
 
     #[test]
     fn a_limit_is_a_whole_number_from_one_to_a_thousand() {

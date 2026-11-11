@@ -77,6 +77,16 @@ describe('following the outbox', () => {
         expect(changed).toEqual([])
     })
 
+    it("pushes a new line the API wrote as news only when it says it's fresh (ORR-1088)", async () => {
+        const heard: unknown[] = []
+        const hear = (logged: unknown) => heard.push(logged)
+        projectEvents.on('logged', hear)
+        const line = {id: 8, level: 'error', kind: 'page.error', message: 'Boom', count: 1, first_seen: 'x', last_seen: 'x'}
+        await follow([{changes: [row(101, 'event.logged', {project: null, payload: {...line, fresh: true}}), row(102, 'event.logged', {project: null, payload: {...line, id: 9}})], last: 102}])
+        projectEvents.off('logged', hear)
+        expect(heard).toEqual([{event: line, fresh: true}, {event: {...line, id: 9}, fresh: false}])
+    })
+
     it("skips this server's own rows, whose hooks it heard already", async () => {
         const from = Number((await store.db.get<{n: number | string | null}>('SELECT max(id) AS n FROM changes'))?.n ?? 0)
         store.keepOwnChanges()

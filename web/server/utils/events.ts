@@ -13,6 +13,8 @@ import {numberOf, shortId} from '#shared/roadmap'
 import {diffProject, withoutNotes} from '#shared/patch'
 import type {Db} from './database'
 import {EventLog} from './event-log'
+import {writeToApi} from './api-router'
+import {ORRERY} from '../store/schema'
 import {GITHUB_SECRET, Pulls} from './pulls'
 import {commentOnPull} from './pull-comments'
 import {PullPoll} from './pull-poll'
@@ -150,8 +152,10 @@ let log: EventLog | null = null
 /** The event log, secrets' values scrubbed out of what it keeps. */
 export function useEventLog(): EventLog {
     if (!log) {
+        // With the Rust API in front, it writes each line (ORR-1088), and its outbox tells open pages' bells.
         const made = new EventLog(useDatabase(), () => useSecrets().scrubber(),
-            (event: LoggedEvent, fresh: boolean) => projectEvents.emit('logged', {event, fresh}))
+            (event: LoggedEvent, fresh: boolean) => projectEvents.emit('logged', {event, fresh}), undefined,
+            async (method, path, body) => (await writeToApi(method, path, body, ORRERY, {always: true}))?.reply)
         // Advanced and the secrets are read once, and again after either changes.
         projectEvents.on('settings', () => made.forget())
         projectEvents.on('secrets', () => made.forget())

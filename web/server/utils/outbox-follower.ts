@@ -73,8 +73,10 @@ async function apply(store: Store, change: Change, unknown: Set<string>) {
     } else if (change.kind === 'schedules') {
         if (change.project) useScheduler().changedElsewhere(change.project)
     } else if (change.kind === 'event.logged') {
-        // A line of the event log the API resolved (ORR-1088): open pages' bells hear it, as they heard this server's own.
-        projectEvents.emit('logged', {event: payload, fresh: false})
+        // A line of the event log the API wrote or resolved (ORR-1088): open pages' bells hear it, a new one that's news
+        // (`fresh`, said beside the line) counted again.
+        const {fresh, ...event} = payload
+        projectEvents.emit('logged', {event, fresh: fresh === true})
     } else if (change.kind === 'signal' || change.kind === 'notice') {
         if (!unknown.has(change.kind)) console.warn(`[orrery] the outbox has a ${change.kind} this server didn't write, which it doesn't deliver yet (ORR-983)`)
         unknown.add(change.kind)

@@ -1,14 +1,16 @@
-// Follows the Rust API's outbox (ORR-983) while this server fronts the API: NUXT_API_BIN or NUXT_API_URL set. With
-// neither, it does nothing, and this server hears its own writes from the store's hooks as ever. Its cursor is kept
+// Follows the Rust API's outbox (ORR-983) while this server fronts the API: NUXT_API_BIN or NUXT_API_URL set, or under
+// `nuxt dev` the repo's own build, as plugins/api.ts starts it (`apiBinary`), so the dev server and the browser suite hear
+// the API's writes as the image does (ORR-1088). With none, it does nothing, and this server hears its own writes from the store's hooks as ever. Its cursor is kept
 // beside the database (outbox-follower.ts), so a restart carries on from where it was; the first start begins at the
 // newest row, as there's nothing it missed. When the owner moves the database it follows the new one's outbox, with
 // that one's cursor (ORR-1035).
+import {apiBinary} from '../utils/api-migrate'
 import {apiTarget, databaseMark} from '../utils/api-router'
 import {cursorFile, followOutbox, readCursor, readPage, saveCursor, setFollowingOutbox} from '../utils/outbox-follower'
 
 export default defineNitroPlugin(nitro => {
     const config = useRuntimeConfig()
-    if (!config.apiBin && !config.apiUrl) return
+    if (!apiBinary() && !config.apiUrl) return
     let closed = false
     /** Which run follows now: a move starts another, and the one before stops at its next page. */
     let runs = 0

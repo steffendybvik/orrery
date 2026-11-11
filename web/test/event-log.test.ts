@@ -216,6 +216,48 @@ describe('the event log', () => {
         expect(told.map(event => !!event.untrusted)).toEqual([true, true, false])
     })
 
+    it('sends a finished line to the API, its one writer, and keeps none here (ORR-1088)', async () => {
+        const sent: {method: string, path: string, body?: unknown}[] = []
+        const toApi = new EventLog(store.db, async () => text => text.replaceAll('sk-live-123', '{{secret:STRIPE}}'), (event, fresh) => heard.push({event, fresh}), () => now,
+            async (method, path, body) => {
+                sent.push({method, path, body})
+                if (path.endsWith('/prune')) return {pruned: 3}
+                const line = body as {level: string, kind: string, message: string}
+                return {event: {id: 41, ...line, count: 1, first_seen: 'x', last_seen: 'x'}, fresh: false}
+            })
+        const ran: unknown[] = []
+        toApi.happened = event => ran.push(event)
+        const event = await toApi.record({level: 'error', kind: 'server.error', project: 'hub', message: 'Paid with sk-live-123', details: {stack: 'at sk-live-123'}})
+        expect(event).toMatchObject({id: 41, kind: 'server.error'})
+        expect(sent).toEqual([{method: 'PUT', path: '/api/events/log/lines', body: {level: 'error', kind: 'server.error', project: 'hub',
+            message: 'Paid with {{secret:STRIPE}}', details: {stack: 'at {{secret:STRIPE}}'}}}])
+        // A repeat the API says is no news isn't an error for the schedules, and the bell hears it from the outbox, not here.
+        expect(ran).toEqual([])
+        expect(heard).toEqual([])
+        await toApi.activity({type: 'issue.status', project: 'hub', subject: 'HUB-1', by: {name: 'claude', owner: false}, from: 'todo', to: 'done'})
+        expect(sent[1]).toEqual({method: 'PUT', path: '/api/events/log/lines', body: {level: 'info', kind: 'issue.status', project: 'hub', subject: 'HUB-1',
+            message: 'claude moved HUB-1: todo → done', details: {by: 'claude', owner: false, from: 'todo', to: 'done'}, activity: true}})
+        expect(await toApi.prune()).toBe(3)
+        expect(await log.list()).toEqual([])
+    })
+
+    it("writes a line here, marked local, only while the API can't be reached (ORR-1088)", async () => {
+        const down = Object.assign(new Error("The Rust API can't be reached"), {statusCode: 503})
+        const fallback = new EventLog(store.db, async () => text => text, (event, fresh) => heard.push({event, fresh}), () => now, async () => {
+            throw down
+        })
+        const event = await fallback.record({level: 'error', kind: 'api.unreachable', message: 'Gone', details: {why: 'unreachable'}})
+        expect(event).toMatchObject({kind: 'api.unreachable', details: {why: 'unreachable', local: true}})
+        expect(heard).toEqual([{event, fresh: true}])
+        expect(await fallback.prune()).toBe(0)
+        // A refusal isn't an outage: it's said, not written here.
+        const refusing = new EventLog(store.db, async () => text => text, () => {}, () => now, async () => {
+            throw Object.assign(new Error('"kind" is wrong'), {statusCode: 400})
+        })
+        await expect(refusing.record({level: 'error', kind: 'server.error', message: 'Boom'})).rejects.toThrow('"kind" is wrong')
+        expect((await log.list()).map(e => e.kind)).toEqual(['api.unreachable'])
+    })
+
     it('caps the changes to the roadmap apart from the rest, so they cannot push an error out', async () => {
         await store.updateSettings({advanced: true}, owner)
         log.forget()

@@ -157,8 +157,9 @@ export const DOMAINS: readonly {domain: string, paths: RegExp, methods?: readonl
     // server's own setting (`ORRERY_USAGE`), added to the reply; forgotten with what's gathered dropped first, when it's
     // the owner asking. Counting a use stays here (`POST`), in memory, and is sent on once a minute (`flushUse`).
     // The event log, read, and a line in it resolved with its repeats (ORR-1088). Each line a resolve changed comes back
-    // through the outbox (`event.logged`) for open pages' bells. Writing a line stays here: a page's error report
-    // (`POST`) and this server's own, as they're counted in memory and have secrets' values scrubbed out.
+    // through the outbox (`event.logged`) for open pages' bells. A page's error report (`POST`) stays here, as each
+    // sender is counted in memory; the line it makes, scrubbed of secrets' values, goes on as this server's own do
+    // (`EventLog.keep`, `PUT /api/events/log/lines`).
     {domain: 'the event log, read', paths: /^events\/log$/, methods: ['GET']},
     {domain: 'an event, resolved', paths: /^events\/log\/[^/]+\/resolve$/, methods: ['POST']},
     {domain: 'usage', paths: /^usage$/, methods: ['GET', 'DELETE'], first: {GET: async () => await flushUse(), DELETE: dropForOwner}, reply: {GET: withAllowed}},
