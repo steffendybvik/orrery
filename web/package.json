@@ -21,6 +21,7 @@
     "test:e2e:restart": "([ -n \"$RESTART_NO_BUILD\" ] || nuxt build) && playwright test --config playwright.restart.config.ts",
     "images:readme": "playwright test --config playwright.readme.config.ts",
     "soak": "node scripts/soak.mjs",
+    "api-bench": "node scripts/api-bench.mjs",
     "orrery:claim": "node scripts/claim.mjs",
     "orrery:copy": "jiti scripts/copy.ts"
   },
