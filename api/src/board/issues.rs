@@ -755,6 +755,90 @@ impl<'c> Issues<'c> {
         Ok(())
     }
 
+    /// The board's outline (ORR-1117): its milestones and issues in board order, each issue with only its id, release,
+    /// column, counts and kinds, the milestones with only their roll-up. What counting the board up takes (a project's
+    /// counts, its releases' tallies), read without each issue in full and what `board` gathers about it.
+    pub(crate) async fn outline(&mut self, project: &str, statuses: &[Status]) -> Result<Board> {
+        struct Thin {
+            id: String,
+            parent: Option<String>,
+            milestone: Option<String>,
+            status: String,
+            proposal: bool,
+            release: Option<String>,
+        }
+        fn build(rules: &Rules, children: &HashMap<Option<String>, Vec<&Thin>>, issue: &Thin, proposed: bool) -> Node {
+            let proposed = proposed || issue.proposal;
+            let tasks: Vec<Node> = children.get(&Some(issue.id.clone())).into_iter().flatten().map(|t| build(rules, children, t, proposed)).collect();
+            let (mut counts, mut kinds) = (Map::new(), [0; 6]);
+            for task in &tasks {
+                sum(&mut counts, &mut kinds, task);
+            }
+            if tasks.is_empty() {
+                let column = if proposed {
+                    "proposed".to_string()
+                } else if rules.known(&issue.status) {
+                    issue.status.clone()
+                } else {
+                    rules.first("backlog")
+                };
+                kinds[kind_at(&rules.kind_of(&column))] = 1;
+                counts.insert(column, json!(1));
+            }
+            let mut fields = Map::new();
+            fields.insert("id".into(), json!(issue.id));
+            if let Some(release) = &issue.release {
+                fields.insert("release".into(), json!(release));
+            }
+            Node { fields, counts, kinds, tasks }
+        }
+        let milestones: Vec<String> = sqlx::query(&sql("SELECT id FROM milestones WHERE project = ? ORDER BY position, created_at"))
+            .bind(project)
+            .fetch_all(&mut *self.conn)
+            .await?
+            .iter()
+            .map(|r| r.get("id"))
+            .collect();
+        let rows: Vec<Thin> =
+            sqlx::query(&sql("SELECT id, parent, milestone, status, proposal, ships_in FROM issues WHERE project = ? ORDER BY position, created_at"))
+                .bind(project)
+                .fetch_all(&mut *self.conn)
+                .await?
+                .iter()
+                .map(|r| Thin {
+                    id: r.get("id"),
+                    parent: r.get("parent"),
+                    milestone: r.get("milestone"),
+                    status: r.get("status"),
+                    proposal: r.get::<Option<String>, _>("proposal").is_some(),
+                    release: r.get("ships_in"),
+                })
+                .collect();
+        let mut children: HashMap<Option<String>, Vec<&Thin>> = HashMap::new();
+        for row in &rows {
+            children.entry(row.parent.clone()).or_default().push(row);
+        }
+        let rules = Rules::new(statuses);
+        let top = children.get(&None).cloned().unwrap_or_default();
+        let group = |id: String, tasks: Vec<Node>| {
+            let mut fields = Map::new();
+            rules.roll_up(&mut fields, &tasks);
+            Group { id, fields, tasks }
+        };
+        let mut grouped: Vec<Group> = milestones
+            .into_iter()
+            .map(|id| {
+                let tasks = top.iter().filter(|t| t.milestone.as_deref() == Some(id.as_str())).map(|t| build(&rules, &children, t, false)).collect();
+                group(id, tasks)
+            })
+            .collect();
+        let loose: Vec<Node> = top.iter().filter(|t| t.milestone.as_deref().map_or(true, str::is_empty)).map(|t| build(&rules, &children, t, false)).collect();
+        if !loose.is_empty() {
+            grouped.push(group(String::new(), loose));
+        }
+        Ok(Board { milestones: grouped })
+    }
+
     /// The GitHub issue a filter names, as kept (`githubIssuesOf`): refused when it isn't one.
     fn github_issue(&self, project: &str, row: &Project, sent: &str) -> Result<String> {
         let repo = github_repo(row.repo.as_deref());

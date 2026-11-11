@@ -295,7 +295,9 @@ impl<'c> Projects<'c> {
         project.insert("doc_sections".into(), docs.sections(&id).await?);
         let mut issues = Issues::new(&mut *self.conn);
         let statuses = issues.statuses().await?;
-        let (board, releases) = Plans::new(&mut issues).board_and_releases(&id, &statuses).await?;
+        // Listed, only the board's counts are wanted, so its outline does (ORR-1117).
+        let mut plans = if listed { Plans::counting(&mut issues) } else { Plans::new(&mut issues) };
+        let (board, releases) = plans.board_and_releases(&id, &statuses).await?;
         project.insert("releases".into(), Value::Array(releases.into_iter().map(Value::Object).collect()));
         let whole = board_json(&board);
         if listed {
