@@ -14,10 +14,11 @@ import {dirname, join} from 'node:path'
 import {DatabaseSync} from 'node:sqlite'
 import {fileURLToPath} from 'node:url'
 import pg from 'pg'
-import {describe, expect, it} from 'vitest'
+import {describe, expect, it, vi} from 'vitest'
 import {MIGRATIONS} from '../server/utils/migrations/sqlite'
 import {BASELINE, SCHEMA, STEPS} from '../server/utils/migrations/postgres'
 import {migrate} from '../server/utils/db'
+import {migrateWithApi} from '../server/utils/api-migrate'
 import {PostgresDb} from '../server/utils/postgres'
 
 const API = fileURLToPath(new URL('../../api/', import.meta.url))
@@ -195,6 +196,44 @@ describe.skipIf(!existsSync(BIN))('orrery-api migrate on SQLite', () => {
         expect(db.prepare("SELECT value FROM settings WHERE key = 'owner'").get()).toEqual({value: 'Åse'})
         expect((db.prepare('PRAGMA user_version').get() as {user_version: number}).user_version).toBe(BEFORE_PEOPLE)
         db.close()
+    })
+
+    it('says what it did on stdout, for the Nuxt server to log (ORR-931)', () => {
+        const path = nodeSqlite(BEFORE_PEOPLE)
+        const run = spawnSync(BIN, ['migrate'], {env: {...process.env, NUXT_DATABASE: path, ORRERY_API_STEPS: String(MIGRATIONS.length)}, encoding: 'utf8'})
+        expect(run.status, run.stderr).toBe(0)
+        expect(JSON.parse(run.stdout)).toEqual({from: BEFORE_PEOPLE, to: MIGRATIONS.length})
+    })
+
+    it('migrates nothing when its steps end elsewhere than the caller\'s', () => {
+        const path = nodeSqlite(BEFORE_PEOPLE)
+        const run = spawnSync(BIN, ['migrate'], {env: {...process.env, NUXT_DATABASE: path, ORRERY_API_STEPS: String(MIGRATIONS.length + 1)}, encoding: 'utf8'})
+        expect(run.status).toBe(3)
+        expect(run.stderr).toMatch(`end at schema step ${MIGRATIONS.length}, not ${MIGRATIONS.length + 1}`)
+        expect(sqliteState(path).step).toBe(BEFORE_PEOPLE)
+        expect(readdirSync(dirname(path))).toEqual(['orrery.db'])
+    })
+
+    it('is what the Nuxt server opens a database with, falling back to its own steps on a mismatched build', () => {
+        vi.stubGlobal('useRuntimeConfig', () => ({public: {version: '9.9.9'}}))
+        try {
+            const path = nodeSqlite(BEFORE_PEOPLE)
+            expect(migrateWithApi(path, MIGRATIONS.length, BIN)).toEqual({from: BEFORE_PEOPLE, to: MIGRATIONS.length})
+            expect(sqliteState(path).step).toBe(MIGRATIONS.length)
+            expect(readdirSync(dirname(path)).sort()).toEqual(['orrery-pre-9.9.9-step' + BEFORE_PEOPLE + '.db', 'orrery.db'])
+            expect(migrateWithApi(path, MIGRATIONS.length, BIN)).toBeNull()
+            const stale = nodeSqlite(BEFORE_PEOPLE)
+            const said = vi.spyOn(console, 'error').mockImplementation(() => {})
+            expect(migrateWithApi(stale, MIGRATIONS.length - 1, BIN)).toBeUndefined()
+            expect(migrateWithApi(stale, MIGRATIONS.length, join(dirname(stale), 'no-such-binary'))).toBeUndefined()
+            expect(said).toHaveBeenCalledTimes(2)
+            said.mockRestore()
+            expect(sqliteState(stale).step).toBe(BEFORE_PEOPLE)
+            const newer = nodeSqlite(MIGRATIONS.length, db => db.exec(`PRAGMA user_version = ${MIGRATIONS.length + 1}`))
+            expect(() => migrateWithApi(newer, MIGRATIONS.length, BIN)).toThrow('written by a newer orrery')
+        } finally {
+            vi.unstubAllGlobals()
+        }
     })
 
     it('refuses a database from a newer orrery', () => {

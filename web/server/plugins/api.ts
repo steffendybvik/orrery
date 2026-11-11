@@ -1,23 +1,19 @@
 // Starts the Rust API beside this server (ORR-922) when NUXT_API_BIN names its binary: on this server's database, once
-// that's open and migrated (the API runs no migrations), on a loopback port of its own, with a token made fresh each
-// start. It starts again on the new database when the owner moves it (ORR-1035), and stops with this server. Until it's
-// listening a request for its routes waits a few seconds for it, then fails with a 503: most of them are its alone, as
-// their routes here are gone (ORR-1041). The image sets NUXT_API_BIN; `nuxt dev` takes the repo's own build
-// (`cargo build` in api/) when it's unset, so the dev server and the browser suite have the API without saying so.
+// that's open and migrated (by this same binary's `migrate` as it opened, utils/api-migrate.ts), on a loopback port of
+// its own, with a token made fresh each start. It starts again on the new database when the owner moves it (ORR-1035),
+// and stops with this server. Until it's listening a request for its routes waits a few seconds for it, then fails with
+// a 503: most of them are its alone, as their routes here are gone (ORR-1041). The image sets NUXT_API_BIN; `nuxt dev`
+// takes the repo's own build (`cargo build` in api/) when it's unset, so the dev server and the browser suite have the
+// API without saying so.
 import {spawn} from 'node:child_process'
-import {existsSync} from 'node:fs'
-import {resolve} from 'node:path'
 import {ApiProcess} from '../utils/api-process'
+import {apiBinary} from '../utils/api-migrate'
 import {apiTarget} from '../utils/api-router'
-
-/** The repo's own debug build of the API, from web/ where `nuxt dev` runs. */
-const DEV_BIN = resolve(process.cwd(), '../api/target/debug/orrery-api')
 
 export default defineNitroPlugin(nitro => {
     const config = useRuntimeConfig()
     // An API already running (NUXT_API_URL and NUXT_API_TOKEN) is used as it is.
-    const devBin = import.meta.dev && !apiTarget(config) && existsSync(DEV_BIN) ? DEV_BIN : ''
-    const bin = String(config.apiBin || devBin)
+    const bin = apiBinary()
     if (!bin) {
         if (!apiTarget(config)) console.error('[orrery] no Rust API: set NUXT_API_BIN (or run `cargo build` in api/ for `nuxt dev`), or NUXT_API_URL and NUXT_API_TOKEN; most routes fail with a 503 until then')
         return

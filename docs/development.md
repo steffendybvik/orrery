@@ -67,9 +67,9 @@ and logins** (ORR-928, removing a person included; logging in and out aside) **r
 
 How it fits together:
 
-- **One database, one writer per table.** The API opens the database the Nuxt server is on and runs no migrations: those
-  stay in `web/server/utils/migrations`, and it refuses to start on a schema without the columns it reads, so start the
-  Nuxt server on a new database first. Their port is ready for when the last domain has moved (ORR-931): see
+- **One database, one writer per table.** The API opens the database the Nuxt server is on. Serving, it runs no
+  migrations, and it refuses to start on a schema without the columns it reads, so start the Nuxt server on a new
+  database first: the Nuxt server runs `orrery-api migrate` before it opens one (ORR-931), see
   [Migrations in Rust](#migrations-in-rust). While it serves docs, the docs routes write through it alone. What still writes
   docs in Nuxt, not through a route (the chat's doc requests, a board's upload or copy, deleting a project), works on
   the same rows.
@@ -269,8 +269,12 @@ each; a step that changes data gets an upgrade test there. Before a SQLite file 
 The Rust API has the same steps (ORR-931): each SQL step as a numbered file in `api/migrations/sqlite` and
 `api/migrations/postgres` (Postgres's baseline as `023-baseline.sql`), listed in `api/src/steps.rs`, and the steps that are
 code here written again in `api/src/migrate.rs`. `orrery-api migrate` brings `NUXT_DATABASE` up to the newest step, counted
-as the Node app counts them, so a database either one migrated carries on with the other. Nothing runs it yet: the Node
-app migrates until the last domain has moved. Like Node, it copies a SQLite file before upgrading it, and won't upgrade
+as the Node app counts them, so a database either one migrated carries on with the other. The Nuxt server runs it
+before it opens a database (`server/utils/api-migrate.ts`), so the steps that run are these: on start, on a database
+moved to from App settings, on SQLite and Postgres. It passes `ORRERY_API_STEPS`, its own newest step, and a build whose
+steps end elsewhere (a stale `cargo build`) exits 3 having done nothing; the Nuxt server then says so and runs its own
+steps, as it does with no binary at all (the unit tests, `nuxt dev` before `cargo build`). It prints `{"from":n,"to":m}`,
+which the event log's `migration.ran` takes. Like Node, it copies a SQLite file before upgrading it, and won't upgrade
 without the copy: `orrery-pre-<ORRERY_VERSION>-step<n>.db` in `ORRERY_API_BACKUP_DIR`, or beside the file. An owner
 setting that isn't JSON stops the step that moves the owner to `people`. It leaves a database from before step 4 (when
 issues were renumbered per board) to the Node app.
