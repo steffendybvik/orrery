@@ -157,6 +157,11 @@ export const DOMAINS: readonly {domain: string, paths: RegExp, methods?: readonl
     // The owner's feature counts (ORR-1089): read with what's gathered in memory here written first, and `allowed`, the
     // server's own setting (`ORRERY_USAGE`), added to the reply; forgotten with what's gathered dropped first, when it's
     // the owner asking. Counting a use stays here (`POST`), in memory, and is sent on once a minute (`flushUse`).
+    // The event log, read, and a line in it resolved with its repeats (ORR-1088). Each line a resolve changed comes back
+    // through the outbox (`event.logged`) for open pages' bells. Writing a line stays here: a page's error report
+    // (`POST`) and this server's own, as they're counted in memory and have secrets' values scrubbed out.
+    {domain: 'the event log, read', paths: /^events\/log$/, methods: ['GET']},
+    {domain: 'an event, resolved', paths: /^events\/log\/[^/]+\/resolve$/, methods: ['POST']},
     {domain: 'usage', paths: /^usage$/, methods: ['GET', 'DELETE'], first: {GET: async () => await flushUse(), DELETE: dropForOwner}, reply: {GET: withAllowed}},
     {domain: 'the bell', paths: /^notices(\/(changes|clear|read))?$/},
     // The epics (ORR-1004): every one with its progress, one with its issues, and making, changing and deleting one. A

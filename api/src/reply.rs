@@ -23,7 +23,13 @@ pub(crate) fn told_of(told: &crate::write::Told, encode: &impl Fn(&str) -> Strin
 /// schedules changed, and `Orrery-Told: <type> <project> <subject>, …`, each part percent-encoded.
 pub(crate) fn reply(status: StatusCode, body: Option<Value>, effects: Effects) -> Response {
     // The write is committed by now, with its outbox rows: the open streams can send them (ORR-929).
-    if !effects.changed.is_empty() || effects.settings || effects.epics || !effects.schedules.is_empty() || !effects.told.is_empty() {
+    if !effects.changed.is_empty()
+        || effects.settings
+        || effects.epics
+        || !effects.schedules.is_empty()
+        || !effects.told.is_empty()
+        || !effects.logged.is_empty()
+    {
         crate::changes::wake();
     }
     let mut response = match body {

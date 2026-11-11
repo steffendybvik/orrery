@@ -39,6 +39,7 @@ import {PHONE_LOGIN} from '#shared/phone'
 import {actorHeaders, apiStarted, cameHeaders, changedOf, countedOf, databaseMark, domainOf, DOMAINS, handedOn, handoffsOf, handOn, loginHeaders, withRev, boardsWithRev, movesStatus, onlyWords, passedThrough, servedByApi, toldOf, urgentOf, whoHeaders, writeToApi, OWN_WORK} from '../server/utils/api-router'
 import {permission, refused} from '../server/utils/permission'
 import {followOutbox, readPage} from '../server/utils/outbox-follower'
+import {EventLog} from '../server/utils/event-log'
 import {contract, methodOf, nuxtRoutes, pathOf, rustRoutes} from './routes'
 
 const BIN = process.env.ORRERY_API_BIN || fileURLToPath(new URL('../../api/target/debug/orrery-api', import.meta.url))
@@ -318,6 +319,37 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
             ['the docs at the end', p => viaStore(() => store.listDocs(p)), () => viaApi('GET', '/docs')],
         ]
         for (const [name, ts, rs] of steps) await both(name, ts, rs)
+    })
+
+    it('reads the event log and resolves a line in it as the routes here did (ORR-1088)', async () => {
+        // The store's side is utils/event-log.ts on the same database: each read is asked of both and must match.
+        const log = new EventLog(store.db)
+        await store.db.run('DELETE FROM events')
+        const at = (minute: number) => `2026-11-11T09:0${minute}:00.000Z`
+        for (const [level, kind, project, message, minute] of [['error', 'server.error', null, 'Boom', 0], ['info', 'session.started', 'primes', 'Started', 1],
+            ['warn', 'session_x.odd', 'primes', 'Odd', 2], ['error', 'server.error', null, 'Boom', 3]] as const) {
+            await store.db.run('INSERT INTO events (level, kind, project, message, count, first_seen, last_seen) VALUES (?, ?, ?, ?, 1, ?, ?)', level, kind, project, message, at(minute), at(minute))
+        }
+        await store.db.run("INSERT INTO events (level, kind, project, subject, message, details, count, first_seen, last_seen) VALUES ('info', 'issue.status', 'primes', 'PRI-1', 'Moved', '{\"by\":\"claude\"}', 1, ?, ?)", at(4), at(4))
+        const reads: [string, Parameters<EventLog['list']>[0]][] = [['', {}], ['?level=error,warn', {level: 'error,warn'}], ['?kind=session', {kind: 'session'}],
+            ['?project=primes&subject=PRI-1', {project: 'primes', subject: 'PRI-1'}], ['?since=2026-11-11T09:01:30Z', {since: '2026-11-11T09:01:30Z'}],
+            ['?open=1&limit=2', {open: true, limit: 2}], ['?limit=0', {limit: undefined}]]
+        for (const [query, filter] of reads) {
+            const read = await viaApi('GET', `/api/events/log${query}`, undefined, OWNER)
+            expect(read.status, query).toBe(200)
+            expect(read.body, query).toEqual(JSON.parse(JSON.stringify(await log.list(filter))))
+        }
+        expect(await viaApi('GET', '/api/events/log?level=loud', undefined, OWNER)).toMatchObject({status: 400, body: {message: '"level" has "loud"; use error, warn, info'}})
+        const [first] = (await log.list({kind: 'server.error'})).reverse()
+        const resolved = await viaApi('POST', `/api/events/log/${first!.id}/resolve`, {}, SESSION)
+        expect(resolved.status).toBe(200)
+        expect(resolved.body).toEqual(JSON.parse(JSON.stringify((await log.list({kind: 'server.error'})).find(e => e.id === first!.id))))
+        expect(resolved.body).toMatchObject({resolved_by: 'agent'})
+        expect((await log.list({kind: 'server.error', open: true}))).toEqual([])
+        expect(await viaApi('POST', '/api/events/log/999999/resolve', {}, OWNER)).toMatchObject({status: 404, body: {message: 'No event 999999'}})
+        expect(domainOf('GET', '/api/events/log')).toBe('the event log, read')
+        expect(domainOf('POST', '/api/events/log/4/resolve')).toBe('an event, resolved')
+        expect(domainOf('POST', '/api/events/log')).toBeUndefined()
     })
 
     it('keeps, reads and forgets the feature counts as the routes here did (ORR-1089)', async () => {
@@ -3402,7 +3434,7 @@ describe('the router', () => {
     })
 
     it('routes by a table with a line per domain, so taking one back is taking its line out (ORR-925)', () => {
-        expect(DOMAINS.map(({domain}) => domain)).toEqual(['docs', 'statuses', 'permissions', 'issues, reading', 'comments', 'an issue, deleted', 'an issue, made', 'an issue, its words', 'issues, changed at once', 'a proposal, decided', 'claims', 'activity', 'milestones', 'releases', 'releases, every project\'s', 'people', 'invites', 'keys', 'logins', 'uploads, reading', 'an upload, kept', 'presets', 'secrets, reading', 'settings', 'a pull request, reading', "a pull request's risk", 'schedules, reading', 'a schedule, adopted', 'a schedule, deleted', 'a schedule, changed', 'a schedule, made', 'a schedule across projects, deleted', 'schedules, paused or activated', 'a schedule, asked for', 'a schedule, answered', 'signals, reading', 'projects, listed', 'a project, made', 'a project, changed', 'a project, read', 'a project, deleted', 'a project, exported', 'a project, imported', 'usage', 'the bell', 'epics', 'milestone and epic comments'])
+        expect(DOMAINS.map(({domain}) => domain)).toEqual(['docs', 'statuses', 'permissions', 'issues, reading', 'comments', 'an issue, deleted', 'an issue, made', 'an issue, its words', 'issues, changed at once', 'a proposal, decided', 'claims', 'activity', 'milestones', 'releases', 'releases, every project\'s', 'people', 'invites', 'keys', 'logins', 'uploads, reading', 'an upload, kept', 'presets', 'secrets, reading', 'settings', 'a pull request, reading', "a pull request's risk", 'schedules, reading', 'a schedule, adopted', 'a schedule, deleted', 'a schedule, changed', 'a schedule, made', 'a schedule across projects, deleted', 'schedules, paused or activated', 'a schedule, asked for', 'a schedule, answered', 'signals, reading', 'projects, listed', 'a project, made', 'a project, changed', 'a project, read', 'a project, deleted', 'a project, exported', 'a project, imported', 'the event log, read', 'an event, resolved', 'usage', 'the bell', 'epics', 'milestone and epic comments'])
         expect(domainOf('PATCH', '/api/projects/p/docs/d')).toBe('docs')
         expect(domainOf('head', '/api/projects/p/doc-sections/')).toBe('docs')
         for (const method of ['POST', 'DELETE']) expect(domainOf(method, '/api/projects/p/issues/P-1/claim'), method).toBe('claims')
@@ -3551,7 +3583,7 @@ describe('the contract (api/openapi.yaml)', () => {
     const routes = () => [...new Set([...nuxtRoutes(), ...rustRoutes()])].sort().filter(route => servedByApi(methodOf(route), pathOf(route)))
 
     it('has every route the router sends to the API, and no other', () => {
-        expect(contract()).toHaveLength(113)
+        expect(contract()).toHaveLength(115)
         expect(contract()).toEqual(routes())
     })
 

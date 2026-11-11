@@ -1,5 +1,6 @@
-// What the local app's work keeps on the board: pull requests and the GitHub poll, schedules, the chats, the signals read, session presets, the bell, the orrery's settings and the owner's feature counts. (ORR-1050)
+// What the local app's work keeps on the board: pull requests and the GitHub poll, schedules, the chats, the signals read, session presets, the bell, the orrery's settings, the owner's feature counts and the event log's reads and resolve. (ORR-1050)
 pub(crate) mod chats;
+pub(crate) mod event_log;
 pub(crate) mod notices;
 pub(crate) mod presets;
 pub(crate) mod pull_poll;
