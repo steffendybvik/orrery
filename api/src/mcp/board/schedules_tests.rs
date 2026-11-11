@@ -125,3 +125,59 @@ async fn the_chats_asks_stay_with_its_channel() {
     assert!(!said(&reply).starts_with("Asked"), "{}", reply.body);
     assert_eq!(api.get(&format!("/api/projects/primes/issues/{issue}/comments")).send().await.body, json!([]));
 }
+
+/// The chat's `request` for `update_settings` with `fields`, as the channel's `callTool` takes it, from the chat `launch`.
+async fn ask_setting(api: &TestApi, launch: Option<&str>, mut fields: Value) -> Reply {
+    let why = fields.as_object_mut().and_then(|f| f.remove("why"));
+    let mut args = json!({"action": "update_settings", "fields": fields});
+    if let Some(why) = why {
+        args["why"] = why;
+    }
+    let request = api
+        .post("/mcp", json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "request", "arguments": args}}))
+        .header("orrery-actor-kind", "chat");
+    match launch {
+        Some(launch) => request.header("orrery-launch", launch),
+        None => request,
+    }
+    .send()
+    .await
+}
+
+#[tokio::test]
+async fn the_chats_update_settings_is_asked_in_its_chat_and_saves_nothing() {
+    let api = TestApi::new().await;
+    let project = api.project("alpha").await;
+    api.put("/api/chats/c1", json!({"id": "c1", "project": project, "started_at": "2026-11-01T10:00:00.000Z"})).send().await;
+    let reply = ask_setting(&api, Some("c1"), json!({"setting": "tint", "value": "blue", "why": "Brighter"})).await;
+    assert_eq!(said(&reply), "Asked: the owner sees it with Allow and Deny, and you'll hear which they pressed. Nothing is saved until they allow it.");
+    let messages = api.get("/api/chats/c1").send().await.body["messages"].clone();
+    assert_eq!(messages[0]["text"], "Brighter");
+    assert_eq!(messages[0]["request"], json!({"setting": "tint", "from": null, "to": "blue", "state": "asked"}));
+    assert!(api.get("/api/settings").send().await.body["tint"].is_null());
+}
+
+#[tokio::test]
+async fn the_chats_update_settings_says_no_to_what_the_settings_refuse_and_with_no_chat_named() {
+    let api = TestApi::new().await;
+    let project = api.project("alpha").await;
+    api.put("/api/chats/c1", json!({"id": "c1", "project": project, "started_at": "2026-11-01T10:00:00.000Z"})).send().await;
+    let refused = ask_setting(&api, Some("c1"), json!({"setting": "instructions", "value": []})).await;
+    assert!(said(&refused).starts_with("orrery said no: "), "{}", refused.body);
+    let nameless = ask_setting(&api, None, json!({"setting": "tint", "value": "blue"})).await;
+    assert!(said(&nameless).contains("says no chat"), "{}", nameless.body);
+    assert!(api.get("/api/chats/c1").send().await.body["messages"].as_array().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn the_chats_other_requests_stay_in_the_channel() {
+    let api = TestApi::new().await;
+    api.project("alpha").await;
+    let reply = api
+        .post("/mcp", json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "request", "arguments": {"action": "create_release", "fields": {"version": "1.0.0"}}}}))
+        .header("orrery-actor-kind", "chat")
+        .header("orrery-launch", "c1")
+        .send()
+        .await;
+    assert_eq!(said(&reply), "request isn't served at /mcp yet: orrery's channel still has it");
+}
