@@ -1,7 +1,8 @@
 // The `schedules` tool at `/mcp` (ORR-1100), as channel/tools.mjs runs it: the project's schedules from its route, a
 // line each. Making and changing one (`create_schedule`, `update_schedule`) are asks: a work session's on its issue
 // (`…/schedule-requests`, `askOnIssue`), served here, and the chat's in its chat (`utils/chats.ts`, still Node's), which
-// isn't, so the channel keeps it, as it keeps `update_settings`.
+// isn't, so the channel keeps it. The chat's `update_settings` is served here (ORR-1100): its ask is kept in the chat it
+// names (`Orrery-Launch`, as the channel sends it), which the local app hears and the owner answers.
 use super::{text, truthy, Api, Said};
 use axum::http::Method;
 use serde_json::{json, Value};
@@ -71,6 +72,22 @@ impl Api<'_> {
             text(&asked["id"]),
             if change.is_some() { "change" } else { "schedule" }
         ))
+    }
+
+    /// The chat's `update_settings`: asked in its chat, which saves nothing until the owner allows it.
+    pub(super) async fn update_settings(&self, args: &Value) -> Said {
+        let Some(chat) = crate::request::header(self.headers, "orrery-launch").filter(|c| !c.trim().is_empty()) else {
+            return Err(super::No("update_settings is the owner's chat's, and this session says no chat (Orrery-Launch)".into()));
+        };
+        let mut body = json!({"setting": args.get("setting").cloned().unwrap_or(Value::Null)});
+        if let Some(value) = args.get("value") {
+            body["value"] = value.clone();
+        }
+        if let Some(why) = args.get("why").filter(|w| truthy(w)) {
+            body["why"] = why.clone();
+        }
+        self.call(Method::POST, &format!("/api/chats/{}/setting-requests", super::enc(chat.trim())), Some(body)).await?;
+        Ok("Asked: the owner sees it with Allow and Deny, and you'll hear which they pressed. Nothing is saved until they allow it.".into())
     }
 
     pub(super) async fn schedules(&self, args: &Value) -> Said {
