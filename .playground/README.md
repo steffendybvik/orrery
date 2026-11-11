@@ -9,15 +9,15 @@ throws it away. For Postgres instead, add `COMPOSE_PROFILES=postgres` and
 
 It runs on the Rust API, which serves the board's data (ORR-1041): the dev image builds it from this checkout, and
 the server starts it beside itself on the same database. `play` builds the image each start, so a change in `api/` is
-in it. With the API down, the board's requests fail with a 503 that says why, in the log too. The API publishes no port, and the Nuxt server's is `127.0.0.1` only, as the
-board check isn't the Rust API's yet. A database move from App settings leaves the API container on the old file
-until `play down` and `play`, so moved routes answer 503 until then.
+in it. With the API down, the board's requests fail with a 503 that says why, in the log too. The API publishes no
+port, and the Nuxt server's is `127.0.0.1` only. A database move from App settings starts the API again on the new
+file.
 
 ```sh
 .playground/play          # start it (building the image, so a change in api/ is in it); an empty database gets the demo
 .playground/play reset    # throw the database away and start over with a fresh demo
 .playground/play down     # stop it, keeping the database
-.playground/play logs     # follow the server (logs api: the Rust API)
+.playground/play logs     # follow the server, the Rust API inside it included
 ```
 
 The demo (`seed.mjs`, through the API) is the owner **Skoll**, the wolf who chases the sun, and his brother **Hate**, who chases the moon
