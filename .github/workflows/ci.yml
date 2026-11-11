@@ -1,8 +1,8 @@
 # Tests, typecheck and the production image, on every push and pull request; also the gate a release
 # tag has to pass before `release.yml` publishes anything. The e2e flows and the performance run, on SQLite and on Postgres,
 # run on a pull request into `main` that isn't a draft, on a release tag, and by hand (Run workflow); any other pull request runs the unit tests alone.
-# The flows also run on Safari's engine and Firefox then, on SQLite.
-# And once more on Chrome and SQLite with the Rust API in front (e2e-api, ORR-1039).
+# The flows also run on Safari's engine and Firefox then, on SQLite. Every job runs with the Rust API in front, as it's
+# no longer opt-in (ORR-1091).
 name: CI
 
 on:
@@ -245,54 +245,6 @@ jobs:
         if: failure() || cancelled()
         with:
           name: playwright-report-${{ matrix.database }}-${{ matrix.browser }}-${{ matrix.shard }}
-          path: web/playwright-report/
-          retention-days: 7
-
-  # The browser suite again with the Rust API in front (ORR-1039): the server starts the binary the api job built
-  # beside itself on its own SQLite file and routes its domains to it, with the swap's flag on, as the playground runs
-  # (rust-api-swap doc), so a change can't break the swap unseen. Chrome and SQLite only, in three shards, when the e2e
-  # flows run. Its results stay out of e2e-report's numbers.
-  e2e-api:
-    needs: [playwright, api]
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: [1, 2, 3]
-    container:
-      image: mcr.microsoft.com/playwright:v${{ needs.playwright.outputs.version }}-noble
-      options: --ipc=host
-    env:
-      E2E_BROWSER: chromium
-      E2E_SHARD: ${{ matrix.shard }}/3
-      NUXT_API_BIN: ${{ github.workspace }}/.api/orrery-api
-      NUXT_API_ONLY: '1'
-    steps:
-      - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v7
-        with:
-          node-version-file: .node-version
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - uses: actions/download-artifact@v8
-        with:
-          name: orrery-api
-          path: .api
-      # An artifact doesn't keep the file's mode.
-      - run: chmod +x .api/orrery-api
-      - run: pnpm test:e2e
-        env:
-          HOME: /root
-      - run: pnpm test:e2e:login
-        if: matrix.shard == 1
-        env:
-          HOME: /root
-      - uses: actions/upload-artifact@v7
-        if: failure() || cancelled()
-        with:
-          name: playwright-report-api-${{ matrix.shard }}
           path: web/playwright-report/
           retention-days: 7
 

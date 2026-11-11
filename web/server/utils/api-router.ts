@@ -6,8 +6,8 @@
 //
 // It sends who's asking (`actorOf`) and which database this server is on, and the API's reply says what a write changed,
 // which this tells as the store would: open pages read the project again, and the event log and schedules hear the event.
-// When the API is down, or is on another database (the owner moved it), the request falls through to the routes here,
-// unless the swap is on (`apiOnly`, NUXT_API_ONLY, ORR-1034): then it fails, and says why in the log.
+// When the API is down, or is on another database (the owner moved it), the request fails, and says why in the log: the
+// routes it serves are its alone (ORR-1091).
 import {createHash} from 'node:crypto'
 import type {H3Event} from 'h3'
 import {createError, getCookie, getQuery, getRequestHeader, getRequestHost, getRequestURL, readRawBody, setResponseHeader, setResponseStatus} from 'h3'
@@ -30,9 +30,8 @@ import {withoutClosed, withoutNotes} from '#shared/patch'
  * slash at the end. A line with `methods` sends only those there, so a domain's reads can move before its writes
  * (`GET …/comments` before `POST …/comments`, ORR-927); one without takes every method its routes do.
  *
- * The routes here for a line's domain are gone (ORR-1041), so it's the API's alone: with the API down, or not set up, a
- * request for it fails (`cantReach`) whether or not the swap is on. Only a line with `here` still has its route here,
- * for the requests its `first` check keeps (a session's, the chat's), and falls through to it unless the swap is on. */
+ * Each line's domain is the API's alone: with the API down, or not set up, a request for it fails (`cantReach`). Only a
+ * line with `here` still has its route here, for the requests its `first` check keeps (a session's, the chat's). */
 export const DOMAINS: readonly {domain: string, paths: RegExp, methods?: readonly string[], first?: Partial<Record<string, LocalCheck>>, reply?: Partial<Record<string, Shaping>>, here?: true}[] = [
     // A project's docs, their revisions and sections (ORR-922). An artifact's page stays here: it's drawn with the
     // page's own sanitising and its locked-down headers (`artifact.get.ts`).
@@ -494,9 +493,18 @@ export function apiStarted(api: {url: string, token: string} | null) {
 let starting = false
 const listening = new Set<() => void>()
 
+/** Whether this server has started the API at all: from then on its own writes are the API's alone (`writeToApi`). */
+let meant = false
+
 export function apiStarting(value: boolean) {
     starting = value
+    if (value) meant = true
     if (!value) for (const done of [...listening]) done()
+}
+
+/** Forgets that this server ever started the API, for tests. */
+export function apiForgotten() {
+    meant = false
 }
 
 /** Resolves once the API this server is starting listens, or gives up starting, `within` ms at most; at once when it's
@@ -520,27 +528,17 @@ export function apiTarget(config: {apiUrl?: unknown, apiToken?: unknown}): {url:
     return config.apiUrl && config.apiToken ? {url: String(config.apiUrl), token: String(config.apiToken)} : null
 }
 
-/** Whether the swap is on (`apiOnly`, NUXT_API_ONLY, ORR-1034): the routes in `DOMAINS` are the API's alone, with no
- * falling through to the routes here when it can't answer. Off unless it says so. */
-export function apiOnly(config: {apiOnly?: unknown}): boolean {
-    return ['1', 'true', 'on', 'yes'].includes(String(config.apiOnly ?? '').trim().toLowerCase())
-}
-
 /** Why the API last couldn't answer, said once, not on every request, until it answers again. */
 let unreachable = ''
 
-/** The API can't answer `event` (`why`): with the swap off, said once and left to the routes here (undefined); with it
- * on, a 503 that says why, logged once to the server's log and the event log while it lasts. */
-export function cantReach(event: H3Event | string, why: string, only: boolean, reason: Reason = 'unreachable'): undefined {
+/** The API can't answer `event` (`why`): a 503 that says why, logged once to the server's log and the event log while
+ * it lasts. */
+export function cantReach(event: H3Event | string, why: string, reason: Reason = 'unreachable'): never {
     const again = unreachable === why
     unreachable = why
-    servedHere(event, reason, only)
-    if (!only) {
-        if (!again) console.warn(`[orrery] the Rust API ${why}, so this server answers its routes`)
-        return undefined
-    }
+    servedHere(event, reason)
     const asked = typeof event === 'string' ? event : `${event.method} ${pathOf(event, true)}`
-    const message = `The Rust API ${why}, and this server is set to the API alone (NUXT_API_ONLY), so it doesn't answer ${asked} itself.`
+    const message = `The Rust API ${why}, so this server can't answer ${asked}: its routes are the API's alone.`
     if (!again) {
         console.error(`[orrery] ${message}`)
         useEventLog().note({level: 'error', kind: 'api.unreachable', message, details: {why}})
@@ -556,9 +554,10 @@ export const SERVED_BY = 'X-Served-By'
 export type Reason = 'not-running' | 'unreachable' | 'other-database' | 'kept-here'
 
 /** Logs a request the API serves that it didn't answer (ORR-1085), one line each, key=value after a fixed prefix, so
- * `play logs | grep 'orrery api-route'` finds them: `served=nuxt` when the routes here answered it anyway, `served=none`
- * when the swap is on (`only`), or the domain has no route here, and it failed. */
-export function servedHere(event: H3Event | string, reason: Reason, only: boolean, check?: string) {
+ * `play logs | grep 'orrery api-route'` finds them: `served=nuxt` when a line's check kept it for the routes here,
+ * `served=none` when it failed. */
+export function servedHere(event: H3Event | string, reason: Reason, check?: string) {
+    const only = reason !== 'kept-here'
     const [method = '', path = ''] = typeof event === 'string' ? event.split(' ', 2) : [event.method, pathOf(event, true)]
     const domain = domainOf(method, (path.split('?')[0] ?? '').toLowerCase()) ?? ''
     const line = `[orrery api-route] served=${only ? 'none' : 'nuxt'} reason=${reason}${check ? ` check=${check}` : ''} domain=${JSON.stringify(domain)} method=${method.toUpperCase()} path=${path}`
@@ -570,30 +569,28 @@ export function servedHere(event: H3Event | string, reason: Reason, only: boolea
 const NOT_RUNNING = 'isn\'t running (not started yet, stopped, or not set up)'
 
 /** Sends the request to the API when it serves it (`DOMAINS`), and gives back its reply, or undefined to leave it to the
- * routes here: for a line with `here`, with no API and the swap off (`apiOnly`), and what its check keeps here. */
-export async function routeToApi(event: H3Event, config: {apiUrl?: unknown, apiToken?: unknown, apiOnly?: unknown}): Promise<unknown> {
+ * routes here: one the API doesn't serve, or one its line's check keeps here. With no API, one it serves fails. */
+export async function routeToApi(event: H3Event, config: {apiUrl?: unknown, apiToken?: unknown}): Promise<unknown> {
     // Answered here unless the API answers it, which says so instead (`forwardToApi`).
     if (pathOf(event).startsWith('/api/')) setResponseHeader(event, SERVED_BY, 'nuxt')
     const found = lineOf(event.method, pathOf(event))
     if (!found) return undefined
-    // A domain whose routes here are gone has nothing to fall through to (ORR-1041).
-    const only = apiOnly(config) || !found.line.here
-    // With the swap on, a request that comes while the API is starting waits a few seconds for it, rather than failing.
-    if (only && !apiTarget(config)) await apiListening()
+    // A request that comes while the API is starting waits a few seconds for it, rather than failing.
+    if (!apiTarget(config)) await apiListening()
     const api = apiTarget(config)
-    if (!api) return cantReach(event, NOT_RUNNING, only, 'not-running')
-    return forwardToApi(event, api, only)
+    if (!api) return cantReach(event, NOT_RUNNING, 'not-running')
+    return forwardToApi(event, api)
 }
 
-/** Sends the request to the API and gives back its reply, or undefined to leave it to the routes here. With the swap on
- * (`only`), an API that can't be reached or is on another database fails the request instead (`cantReach`). */
-export async function forwardToApi(event: H3Event, api: {url: string, token: string}, only = false): Promise<unknown> {
+/** Sends the request to the API and gives back its reply, or undefined for a request its line's check keeps for the
+ * routes here. An API that can't be reached or is on another database fails the request (`cantReach`). */
+export async function forwardToApi(event: H3Event, api: {url: string, token: string}): Promise<unknown> {
     const found = lineOf(event.method, pathOf(event))
     // The checks here read ids out of the path, so they get it as it was asked: lowercased, an issue isn't found (ORR-1029).
     const asked = /^\/api\/(.*?)\/?$/.exec(pathOf(event, true))?.[1] ?? ''
     const first = found?.line.first?.[event.method.toUpperCase()]
     if (first && await first(event, asked) === 'here') {
-        servedHere(event, 'kept-here', false, first.name)
+        servedHere(event, 'kept-here', first.name)
         return undefined
     }
     const shaped = found?.line.reply?.[event.method.toUpperCase()]?.(event)
@@ -613,10 +610,10 @@ export async function forwardToApi(event: H3Event, api: {url: string, token: str
     try {
         response = await fetch(`${api.url.replace(/\/+$/, '')}${shaped?.path ?? event.path}`, {method: event.method, headers, body: body ? new Uint8Array(body) : undefined, redirect: 'manual'})
     } catch (error) {
-        return cantReach(event, `at ${api.url} can't be reached (${(error as Error).message})`, only)
+        return cantReach(event, `at ${api.url} can't be reached (${(error as Error).message})`)
     }
     // On another database than this server's: the owner moved it, and the API hasn't been started again on the new one.
-    if (response.status === 421) return cantReach(event, `at ${api.url} is on another database than this server`, only, 'other-database')
+    if (response.status === 421) return cantReach(event, `at ${api.url} is on another database than this server`, 'other-database')
     unreachable = ''
     setResponseHeader(event, SERVED_BY, 'rust')
     const passed = await passedThrough(response)
@@ -679,7 +676,7 @@ async function relayed(response: Response, actor: Actor, method: string, {noteKe
 }
 
 /** The runtime config, or none where there's no Nitro (unit tests that don't stub it). */
-function configHere(): {apiUrl?: unknown, apiToken?: unknown, apiOnly?: unknown} {
+function configHere(): {apiUrl?: unknown, apiToken?: unknown} {
     try {
         return useRuntimeConfig()
     } catch {
@@ -690,16 +687,16 @@ function configHere(): {apiUrl?: unknown, apiToken?: unknown, apiOnly?: unknown}
 /** A write this server makes itself rather than for a request, such as the chat's Allow (ORR-1044): with the API there
  * and serving `method` on `path` (`DOMAINS`, or `always` for a route only this server calls, like the chat's row), it's
  * sent there as the page's request would be, as `actor`, so the API stays the one writer of its tables and its outbox
- * hears it. The reply comes back as `{reply}`; undefined leaves it to the store here, as the router would: no API, or
- * one that can't be reached with the swap off. With the swap on, that fails instead (`cantReach`). `noteKeys` off: the
- * caller notes a settings change in the event log itself. */
+ * hears it. The reply comes back as `{reply}`; undefined leaves it to the store here: a write the API doesn't serve, or a
+ * server with no API set up at all (unit tests, a `nuxt dev` without its build). Once one is set up, it's the only
+ * writer: down or unreachable, the write fails (`cantReach`). `noteKeys` off: the caller notes a settings change in the
+ * event log itself. */
 export async function writeToApi(method: string, path: string, body: unknown, actor: Actor, {always = false, noteKeys = true, config = configHere()} = {}): Promise<{reply: unknown} | undefined> {
     if (!always && !servedByApi(method, path)) return undefined
-    const only = apiOnly(config)
     const asked = `${method} ${path}`
-    if (only && !apiTarget(config)) await apiListening()
+    if (!apiTarget(config)) await apiListening()
     const api = apiTarget(config)
-    if (!api) return cantReach(asked, NOT_RUNNING, only, 'not-running')
+    if (!api) return meant ? cantReach(asked, NOT_RUNNING, 'not-running') : undefined
     let response: Response
     try {
         response = await fetch(`${api.url.replace(/\/+$/, '')}${path}`, {
@@ -709,9 +706,9 @@ export async function writeToApi(method: string, path: string, body: unknown, ac
             redirect: 'manual',
         })
     } catch (error) {
-        return cantReach(asked, `at ${api.url} can't be reached (${(error as Error).message})`, only)
+        return cantReach(asked, `at ${api.url} can't be reached (${(error as Error).message})`)
     }
-    if (response.status === 421) return cantReach(asked, `at ${api.url} is on another database than this server`, only, 'other-database')
+    if (response.status === 421) return cantReach(asked, `at ${api.url} is on another database than this server`, 'other-database')
     unreachable = ''
     const text = await response.text()
     const json = text ? JSON.parse(text) as Record<string, unknown> : null

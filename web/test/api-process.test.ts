@@ -1,5 +1,5 @@
 // The Rust API as this server runs it (ORR-1035): started again on the new database after a move, the one before
-// stopped and no longer heard, and a request with the swap on waiting for it to listen rather than failing at once.
+// stopped and no longer heard, and a request for its routes waiting for it to listen rather than failing at once.
 import {EventEmitter} from 'node:events'
 import type {ChildProcess} from 'node:child_process'
 import {afterEach, describe, expect, it} from 'vitest'

@@ -4,7 +4,7 @@
 #   .playground/play reset  throw the database away and start over with a fresh demo
 #   .playground/play seed   seed it again (only when it has no projects)
 #   .playground/play down   stop it, keeping the database
-#   .playground/play logs   follow the server (logs api: the Rust API)
+#   .playground/play logs   follow the server, the Rust API inside it included
 set -euo pipefail
 cd "$(dirname "$0")/.."
 set -a; . .playground/compose.env; set +a
