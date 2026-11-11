@@ -86,11 +86,6 @@ export default defineNuxtConfig({
         apiBin: '',
         apiUrl: '',
         apiToken: '',
-        // The swap (ORR-1034): on (NUXT_API_ONLY=1), the few routes the API serves that still have a route here for some
-        // requests (a session's or the chat's new issue and edit, `here` in api-router.ts) are its alone too, so with it
-        // down, not started yet or on another database they fail (503) instead of falling through. Every other route
-        // the API serves fails that way whether it's on or not, as its route here is gone (ORR-1041).
-        apiOnly: false,
         // Login and keys (ORR-664): `on` always asks for them; `off` never, for trying people out, and only on loopback.
         // Unset, they're on when the server is reachable from other machines or has a second person. Override with
         // NUXT_AUTH (ORRERY_AUTH in compose).

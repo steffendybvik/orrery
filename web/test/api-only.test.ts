@@ -3,11 +3,10 @@ import type {AddressInfo} from 'node:net'
 import {Socket} from 'node:net'
 import {createEvent, getHeader} from 'h3'
 import {afterAll, afterEach, beforeAll, describe, expect, it, vi} from 'vitest'
-import {apiOnly, apiStarted, askerHeaders, routeToApi, SERVED_BY} from '../server/utils/api-router'
+import {apiStarted, askerHeaders, routeToApi, SERVED_BY} from '../server/utils/api-router'
 
-// The swap's flag (ORR-1034): on, the routes the Rust API serves are its alone, so an API that can't answer fails the
-// request instead of leaving it to Nuxt's routes and store. Most of those routes are gone from Nuxt (ORR-1041), so for
-// them it fails either way; the flag still matters for the few lines that keep a route here (`here`).
+// The routes the Rust API serves are its alone (ORR-1091, once the swap's flag, ORR-1034): an API that can't answer
+// fails the request instead of leaving it to Nuxt's routes and store.
 
 function eventOf(path: string, method = 'GET') {
     const req = new IncomingMessage(new Socket())
@@ -54,36 +53,25 @@ afterAll(() => {
     vi.restoreAllMocks()
 })
 
-describe('the swap flag', () => {
-    it('is off unless it says so', () => {
-        for (const value of [undefined, '', false, 'false', '0', 'off']) expect(apiOnly({apiOnly: value}), String(value)).toBe(false)
-        for (const value of [true, 1, '1', 'true', 'on', 'TRUE']) expect(apiOnly({apiOnly: value}), String(value)).toBe(true)
-    })
-
-    it('on, fails a routed request with the API down instead of falling through, and says so once in the log', async () => {
+describe('the routes the API serves', () => {
+    it('fail with the API down instead of falling through, and say so once in the log', async () => {
         apiStarted({url: `http://127.0.0.1:${await closedPort()}`, token: 't'.repeat(24)})
         for (let i = 0; i < 2; i++) {
-            const failed = await routeToApi(eventOf('/api/statuses'), {apiOnly: '1'}).then(() => undefined, (error: unknown) => error)
+            const failed = await routeToApi(eventOf('/api/statuses'), {}).then(() => undefined, (error: unknown) => error)
             expect(failed).toMatchObject({statusCode: 503, statusMessage: 'The Rust API can\'t be reached'})
-            expect((failed as Error).message).toMatch(/can't be reached .*NUXT_API_ONLY.*GET \/api\/statuses/)
+            expect((failed as Error).message).toMatch(/can't be reached .*GET \/api\/statuses.*the API's alone/)
         }
         expect(noted).toEqual([expect.objectContaining({level: 'error', kind: 'api.unreachable'})])
         expect(errors).toHaveBeenCalledTimes(1)
     })
 
-    it('off, still fails a request for a domain with no route here left, with the API down (ORR-1041)', async () => {
-        apiStarted({url: `http://127.0.0.1:${await closedPort()}`, token: 't'.repeat(24)})
-        await expect(routeToApi(eventOf('/api/statuses'), {})).rejects.toMatchObject({statusCode: 503})
-    })
-
-    it('on or off, fails a request for a domain with no route here when no API is running, and off leaves one with a route here to it', async () => {
-        await expect(routeToApi(eventOf('/api/projects/p/docs'), {apiOnly: true})).rejects.toMatchObject({statusCode: 503})
+    it('fail with no API running, those that keep a route here for some requests too (ORR-1091)', async () => {
         await expect(routeToApi(eventOf('/api/projects/p/docs'), {})).rejects.toMatchObject({statusCode: 503})
-        await expect(routeToApi(eventOf('/api/projects/p/issues', 'POST'), {apiOnly: true})).rejects.toMatchObject({statusCode: 503})
-        expect(await routeToApi(eventOf('/api/projects/p/issues', 'POST'), {})).toBeUndefined()
+        await expect(routeToApi(eventOf('/api/projects/p/issues', 'POST'), {})).rejects.toMatchObject({statusCode: 503})
+        await expect(routeToApi(eventOf('/api/projects/p/issues/P-1', 'PATCH'), {})).rejects.toMatchObject({statusCode: 503})
     })
 
-    it('on or off, fails a request for a domain with no route here when the API is on another database', async () => {
+    it('fail when the API is on another database', async () => {
         const api = createServer((_req, res) => {
             res.statusCode = 421
             res.end()
@@ -91,16 +79,15 @@ describe('the swap flag', () => {
         await new Promise<void>(resolve => api.listen(0, '127.0.0.1', resolve))
         try {
             apiStarted({url: `http://127.0.0.1:${(api.address() as AddressInfo).port}`, token: 't'.repeat(24)})
-            await expect(routeToApi(eventOf('/api/statuses'), {apiOnly: true})).rejects.toThrow(/on another database.*NUXT_API_ONLY/)
-            await expect(routeToApi(eventOf('/api/statuses'), {})).rejects.toMatchObject({statusCode: 503})
+            await expect(routeToApi(eventOf('/api/statuses'), {})).rejects.toThrow(/on another database/)
         } finally {
             await new Promise<void>(resolve => api.close(() => resolve()))
         }
     })
 
-    it('on, leaves what the API doesn\'t serve to the routes here', async () => {
-        expect(await routeToApi(eventOf('/api/sessions'), {apiOnly: true})).toBeUndefined()
-        expect(await routeToApi(eventOf('/api/projects/p/issues/P-1/start', 'POST'), {apiOnly: true})).toBeUndefined()
+    it('leave what the API doesn\'t serve to the routes here', async () => {
+        expect(await routeToApi(eventOf('/api/sessions'), {})).toBeUndefined()
+        expect(await routeToApi(eventOf('/api/projects/p/issues/P-1/start', 'POST'), {})).toBeUndefined()
     })
 })
 
@@ -147,13 +134,9 @@ describe('which server answered', () => {
         }
     })
 
-    it('says nuxt for a routed request left to the routes here, and logs a line a request with its reason', async () => {
-        for (let i = 0; i < 2; i++) {
-            const event = eventOf('/api/projects/P/issues', 'POST')
-            expect(await routeToApi(event, {})).toBeUndefined()
-            expect(servedBy(event)).toBe('nuxt')
-        }
-        expect(lines(infos)).toEqual(Array(2).fill('[orrery api-route] served=nuxt reason=not-running domain="an issue, made" method=POST path=/api/projects/P/issues'))
+    it('logs served=none a request with its reason when no API is running', async () => {
+        for (let i = 0; i < 2; i++) await expect(routeToApi(eventOf('/api/projects/P/issues', 'POST'), {})).rejects.toMatchObject({statusCode: 503})
+        expect(lines(warnings)).toEqual(Array(2).fill('[orrery api-route] served=none reason=not-running domain="an issue, made" method=POST path=/api/projects/P/issues'))
     })
 
     it('logs served=none with its reason when the request fails instead', async () => {
