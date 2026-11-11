@@ -21,7 +21,9 @@ import {onlyWords, writeToApi} from './api-router'
 // with no cap (ORR-870): the pane lists it with the running ones, and writing in it starts its session again, on the
 // Claude session it ran as (`reopen`, ORR-884). One that ended before anything was said goes. Each
 // is kept in the database too, as it changes (the `chats` table, ORR-877), so a restart or rebuild loses none: as orrery
-// starts, a running one waits for its launcher to say its session still runs, and ends, to read, when none does.
+// starts, a running one waits for its launcher to say its session still runs, and ends, to read, when none does. Its
+// messages are rows of their own (`chat_messages`, ORR-1100), each added through the API, which gives it its id, and
+// changed one at a time, so the chat's requests can be asked and answered there too.
 
 /** What the chat's session on `project` is told it is, with every message. */
 export const chatBrief = (project: string) => `This session is the owner's chat in orrery, on ${project}. Its tools and their asking
@@ -33,7 +35,6 @@ aren't ${project}, and what you file still goes in ${project} unless they name t
 const chats = new Map<string, Chat>()
 /** The chats that have ended, kept to read (ORR-870). Nothing writes to them. */
 const over = new Map<string, Chat>()
-let next = 1
 
 function changed(chat: Chat) {
     projectEvents.emit('chat', chat)
@@ -41,32 +42,92 @@ function changed(chat: Chat) {
 }
 
 /** Each chat's last write to the database, so its writes land in the order they were made. */
-const saving = new Map<string, Promise<void>>()
+const saving = new Map<string, Promise<unknown>>()
 
-/** Keeps the chat in the database as it is now (`gone`: drops it), after its writes before. Why its launcher couldn't
- * start it isn't kept: that's said again, if it still holds, once orrery is up again. */
-function save(chat: Chat, gone = false) {
-    const write = () => keepChatThrough(chat, gone)
-    const done = (saving.get(chat.id) ?? Promise.resolve()).then(write).catch(error => console.error(`[orrery] keeping chat ${chat.id}:`, error))
-    saving.set(chat.id, done)
-    void done.then(() => { if (saving.get(chat.id) === done) saving.delete(chat.id) })
+/** Runs `write` after the chat's writes before it, and gives back what it gives. */
+function inTurn<T>(id: string, write: () => Promise<T>): Promise<T> {
+    const done = (saving.get(id) ?? Promise.resolve()).catch(() => undefined).then(write)
+    saving.set(id, done)
+    void done.catch(() => undefined).then(() => { if (saving.get(id) === done) saving.delete(id) })
+    return done
 }
 
-/** The chat's row as it is now, or none (`gone`): its one write, as the Rust API takes it from the local app once it's
- * swapped in (ORR-951). Why its launcher couldn't start it isn't kept. */
+/** Each chat's messages as last kept, by id, as JSON: what `save` compares them with, to keep those that changed. */
+const kept = new Map<string, Map<number, string>>()
+
+function keptOf(id: string): Map<number, string> {
+    let lines = kept.get(id)
+    if (!lines) kept.set(id, lines = new Map())
+    return lines
+}
+
+/** Keeps the chat in the database as it is now (`gone`: drops it), after its writes before: its row, then each message
+ * that has changed since it was last kept (a request answered or expired, its drift). Why its launcher couldn't start
+ * it isn't kept: that's said again, if it still holds, once orrery is up again. */
+function save(chat: Chat, gone = false) {
+    void inTurn(chat.id, async () => {
+        await keepChatThrough(chat, gone)
+        if (gone) return void kept.delete(chat.id)
+        const lines = keptOf(chat.id)
+        for (const message of chat.messages) {
+            const was = lines.get(message.id)
+            const now = JSON.stringify(message)
+            if (was === undefined || was === now) continue
+            await keepLineThrough(chat.id, message)
+            lines.set(message.id, now)
+        }
+    }).catch(error => console.error(`[orrery] keeping chat ${chat.id}:`, error))
+}
+
+/** The chat's row as it is now, or none (`gone`, its messages with it): its one write, as the Rust API takes it from the
+ * local app once it's swapped in (ORR-951). Why its launcher couldn't start it isn't kept, nor its messages, which are
+ * rows of their own (`addLine`, `keepLine`). */
 export async function keepChat(db: Db, chat: Chat, gone = false) {
-    if (gone) return void await db.run('DELETE FROM chats WHERE id = ?', chat.id)
-    const {problem: _problem, ...kept} = chat
+    if (gone) {
+        await db.run('DELETE FROM chat_messages WHERE chat = ?', chat.id)
+        return void await db.run('DELETE FROM chats WHERE id = ?', chat.id)
+    }
+    const {problem: _problem, messages: _messages, ...row} = chat
     await db.run('INSERT INTO chats (id, project, started_at, ended_at, chat) VALUES (?, ?, ?, ?, ?) ON CONFLICT (id) DO UPDATE SET ended_at = excluded.ended_at, chat = excluded.chat',
-        chat.id, chat.project, chat.started_at, chat.ended_at ?? null, JSON.stringify(kept))
+        chat.id, chat.project, chat.started_at, chat.ended_at ?? null, JSON.stringify(row))
+}
+
+/** A message added to the chat's rows, given its id (the next after every chat's) and its time, as the Rust API's
+ * `POST /api/chats/:chat/lines` does. */
+export async function addLine(db: Db, chat: string, message: Omit<ChatMessage, 'id' | 'at'>): Promise<ChatMessage> {
+    const {id: _id, at: _at, ...body} = message as ChatMessage
+    return await db.transaction(async () => {
+        const last = await db.get<{n: number | string}>('SELECT COALESCE(MAX(id), 0) AS n FROM chat_messages')
+        const said = {id: Number(last?.n ?? 0) + 1, at: new Date().toISOString(), ...body}
+        await db.run('INSERT INTO chat_messages (chat, id, at, message) VALUES (?, ?, ?, ?)', chat, said.id, said.at, JSON.stringify(body))
+        return said
+    })
+}
+
+/** The chat's message as it is now, its id and time as they were, as `PUT /api/chats/:chat/lines/:id` keeps it. */
+export async function keepLine(db: Db, chat: string, message: ChatMessage) {
+    const {id, at: _at, ...body} = message
+    await db.run('UPDATE chat_messages SET message = ? WHERE chat = ? AND id = ?', JSON.stringify(body), chat, id)
 }
 
 /** The chat's row kept through the Rust API when it's in front (`PUT`/`DELETE /api/chats/:chat`, ORR-951), as it's the
  * one writer of the `chats` table then (ORR-1044); otherwise straight into the database here (`keepChat`). */
 async function keepChatThrough(chat: Chat, gone: boolean) {
-    const {problem: _problem, ...kept} = chat
-    const sent = await writeToApi(gone ? 'DELETE' : 'PUT', `/api/chats/${encodeURIComponent(chat.id)}`, gone ? undefined : kept, ORRERY, {always: true})
+    const {problem: _problem, messages: _messages, ...row} = chat
+    const sent = await writeToApi(gone ? 'DELETE' : 'PUT', `/api/chats/${encodeURIComponent(chat.id)}`, gone ? undefined : row, ORRERY, {always: true})
     if (!sent) await keepChat(useDatabase(), chat, gone)
+}
+
+/** A message added through the Rust API when it's in front (`POST /api/chats/:chat/lines`), which gives it its id. */
+async function addLineThrough(chat: string, message: Omit<ChatMessage, 'id' | 'at'>): Promise<ChatMessage> {
+    const sent = await writeToApi('POST', `/api/chats/${encodeURIComponent(chat)}/lines`, message, ORRERY, {always: true})
+    return sent ? sent.reply as ChatMessage : await addLine(useDatabase(), chat, message)
+}
+
+/** A message changed through the Rust API when it's in front (`PUT /api/chats/:chat/lines/:id`). */
+async function keepLineThrough(chat: string, message: ChatMessage) {
+    const sent = await writeToApi('PUT', `/api/chats/${encodeURIComponent(chat)}/lines/${message.id}`, message, ORRERY, {always: true})
+    if (!sent) await keepLine(useDatabase(), chat, message)
 }
 
 /** The path of `parts` under the chat's project, each percent-encoded. */
@@ -105,16 +166,25 @@ let loading: Promise<void> | undefined
 export function chatsLoaded(): Promise<void> {
     return loading ??= (async () => {
         try {
-            const rows = await useDatabase().all<{project: string, chat: string}>('SELECT project, chat FROM chats')
+            const db = useDatabase()
+            const rows = await db.all<{project: string, chat: string}>('SELECT project, chat FROM chats')
+            const lines = await db.all<{chat: string, id: number | string, at: string, message: string}>('SELECT chat, id, at, message FROM chat_messages ORDER BY id')
+            const messages = new Map<string, ChatMessage[]>()
+            for (const line of lines) {
+                const said = {id: Number(line.id), at: line.at, ...JSON.parse(line.message) as Omit<ChatMessage, 'id' | 'at'>}
+                messages.set(line.chat, [...messages.get(line.chat) ?? [], said])
+            }
             for (const row of rows) {
                 const chat = {...JSON.parse(row.chat) as Chat, project: row.project}
+                chat.messages = messages.get(chat.id) ?? []
                 if (chats.has(chat.id) || over.has(chat.id)) continue
+                const lines = keptOf(chat.id)
+                for (const message of chat.messages) lines.set(message.id, JSON.stringify(message))
                 if (chat.ended) over.set(chat.id, chat)
                 else {
                     chats.set(chat.id, chat)
                     unconfirmed.add(chat.id)
                 }
-                for (const message of chat.messages) next = Math.max(next, message.id + 1)
             }
             if (unconfirmed.size) setTimeout(endUnconfirmed, RESTORED_FOR).unref?.()
         } catch (error) {
@@ -180,8 +250,14 @@ export function chatOf(id: string): Chat {
     return chat
 }
 
-function add(chat: Chat, message: Omit<ChatMessage, 'id' | 'at'>): ChatMessage {
-    const said = {id: next++, at: new Date().toISOString(), ...message}
+/** Adds a message to the chat, after its writes before: the API gives it its id. The page hears the chat with it, and
+ * what else changed on it (a request it expires) is kept after. */
+async function add(chat: Chat, message: Omit<ChatMessage, 'id' | 'at'>): Promise<ChatMessage> {
+    const said = await inTurn(chat.id, async () => {
+        const said = await addLineThrough(chat.id, message)
+        keptOf(chat.id).set(said.id, JSON.stringify(said))
+        return said
+    })
     chat.messages.push(said)
     changed(chat)
     return said
@@ -223,7 +299,7 @@ export async function say(id: string, text: unknown, images: unknown, actor: {na
     ].filter(Boolean).join('\n\n')
     await useStore().messageSession(chat.project, launchTarget(id), note, actor)
     told.set(id, {words, ...on ? {page: on.path} : {}, started: new Set()})
-    return add(chat, {from: 'owner', text: words, images: pasted, ...run && run.length > 1 ? {parts: run} : {}})
+    return await add(chat, {from: 'owner', text: words, images: pasted, ...run && run.length > 1 ? {parts: run} : {}})
 }
 
 /** How much of an ended chat's conversation a session started fresh for it is told, at most. */
@@ -323,7 +399,7 @@ export async function askSend(id: string, body: Record<string, unknown>): Promis
         if (!to.length) throw conflict(`No ${wanted?.join(' or ') ?? 'idle'} session is listening${on?.length ? ` on ${on.join(', ')}` : ''}, so there's nobody to send it to`)
         request = {text: words, ...on?.length ? {projects: on} : {}, ...wanted ? {states: wanted as SessionState[]} : {}, to: to.map(s => s.name), state: 'asked'}
     }
-    const said = add(chat, {from: 'claude', text: typeof why === 'string' ? why.trim() : '', images: [], send: request})
+    const said = await add(chat, {from: 'claude', text: typeof why === 'string' ? why.trim() : '', images: [], send: request})
     useEventLog().note({level: 'info', kind: 'chat.asked', project: chat.project, message: `The chat asked to message ${request.to.join(', ')}`, details: {to: request.to}})
     return said
 }
@@ -353,7 +429,7 @@ async function askSchedule(id: string, body: Record<string, unknown>): Promise<C
     const request = await scheduleRequest(project, fields, target, await owner(), "The owner's chat")
     for (const m of chat.messages) if (request.id !== undefined && m.schedule?.state === 'asked' && m.schedule.id === request.id) m.schedule.state = 'expired'
     if (project !== chat.project) request.project = project
-    const said = add(chat, {from: 'claude', text: typeof why === 'string' ? why.trim() : '', images: [], schedule: request})
+    const said = await add(chat, {from: 'claude', text: typeof why === 'string' ? why.trim() : '', images: [], schedule: request})
     useEventLog().note({level: 'info', kind: 'chat.asked', project, message: `The chat asked to ${scheduleAsk(request)}`, details: {schedule: request.id ?? null, fields: Object.keys(request.body)}})
     return said
 }
@@ -402,7 +478,7 @@ async function askMove(id: string, body: Record<string, unknown>): Promise<ChatM
     const was = Object.fromEntries(issues.filter(i => moving.includes(i.id)).map(i => [i.id, {status: i.column, assignee: i.assignee ?? null}]))
     const request: ChatMoveRequest = {changes, was, body: {ids: moving, ...to}, state: 'asked'}
     if (project !== chat.project) request.project = project
-    const said = add(chat, {from: 'claude', text: typeof why === 'string' ? why.trim() : '', images: [], move: request})
+    const said = await add(chat, {from: 'claude', text: typeof why === 'string' ? why.trim() : '', images: [], move: request})
     useEventLog().note({level: 'info', kind: 'chat.asked', project, message: `The chat asked to ${moveAsk(request)}`, details: {issues: request.body.ids, ...to}})
     return said
 }
@@ -429,7 +505,7 @@ async function moveNow(chat: Chat, project: string, ids: string[], to: Omit<Chat
         }
     }
     const links = moved.map(i => `[${i}](/p/${project}/issues/${i})`).join(', ')
-    return add(chat, {from: 'claude', text: `Put ${links} ${moveTo({body: {ids: moved, ...to}})}.`, images: []})
+    return await add(chat, {from: 'claude', text: `Put ${links} ${moveTo({body: {ids: moved, ...to}})}.`, images: []})
 }
 
 /** What has changed on a move request's issues since it was asked (ORR-644), leaving out those it moved already. */
@@ -511,7 +587,7 @@ async function askMilestone(id: string, body: Record<string, unknown>): Promise<
     for (const m of chat.messages) if (current && m.milestone?.state === 'asked' && m.milestone.id === current.id) m.milestone.state = 'expired'
     const request: ChatMilestoneRequest = {...current ? {id: current.id} : {}, title: String(fields.title ?? current?.title ?? ''), changes, body: fields, state: 'asked'}
     if (project !== chat.project) request.project = project
-    const said = add(chat, {from: 'claude', text: typeof why === 'string' ? why.trim() : '', images: [], milestone: request})
+    const said = await add(chat, {from: 'claude', text: typeof why === 'string' ? why.trim() : '', images: [], milestone: request})
     useEventLog().note({level: 'info', kind: 'chat.asked', project, message: `The chat asked to ${milestoneAsk(request)}`, details: {milestone: request.id ?? null, fields: Object.keys(fields)}})
     return said
 }
@@ -547,7 +623,7 @@ async function askDoc(id: string, body: Record<string, unknown>): Promise<ChatMe
     for (const m of chat.messages) if (current && m.doc?.state === 'asked' && m.doc.id === current.id) m.doc.state = 'expired'
     const request: ChatDocRequest = {...current ? {id: current.id, was} : {}, title: title ?? current?.title ?? '', body: wanted, state: 'asked'}
     if (project !== chat.project) request.project = project
-    const said = add(chat, {from: 'claude', text: typeof why === 'string' ? why.trim() : '', images: [], doc: request})
+    const said = await add(chat, {from: 'claude', text: typeof why === 'string' ? why.trim() : '', images: [], doc: request})
     useEventLog().note({level: 'info', kind: 'chat.asked', project, message: `The chat asked to ${docAsk(request)}`, details: {doc: request.id ?? null, fields: Object.keys(wanted)}})
     return said
 }
@@ -577,7 +653,7 @@ async function askIssue(id: string, body: Record<string, unknown>): Promise<Chat
         ...typeof input.milestone === 'string' ? {milestone: input.milestone} : {},
     }
     if (project !== chat.project) request.project = project
-    const said = add(chat, {from: 'claude', text: typeof why === 'string' ? why.trim() : '', images: [], issue: request})
+    const said = await add(chat, {from: 'claude', text: typeof why === 'string' ? why.trim() : '', images: [], issue: request})
     useEventLog().note({level: 'info', kind: 'chat.asked', project, message: `The chat offered to file "${title}"`, details: {fields: Object.keys(fields)}})
     return said
 }
@@ -609,7 +685,7 @@ async function askRelease(id: string, body: Record<string, unknown>): Promise<Ch
     for (const m of chat.messages) if (m.release?.state === 'asked' && m.release.version === named) m.release.state = 'expired'
     const request: ChatReleaseRequest = {version: named, change: !!current, changes, body: fields, state: 'asked'}
     if (project !== chat.project) request.project = project
-    const said = add(chat, {from: 'claude', text: typeof why === 'string' ? why.trim() : '', images: [], release: request})
+    const said = await add(chat, {from: 'claude', text: typeof why === 'string' ? why.trim() : '', images: [], release: request})
     useEventLog().note({level: 'info', kind: 'chat.asked', project, message: `The chat asked to ${releaseAsk(request)}`, details: {release: named, fields: Object.keys(fields)}})
     return said
 }
@@ -640,7 +716,7 @@ export async function askSetting(id: string, body: unknown): Promise<ChatMessage
     const normal = setting === 'handle' && typeof to === 'string' ? to.toLowerCase() : to
     const from = (await useStore().settings())[setting as ChatSetting] ?? null
     for (const m of chat.messages) if (m.request?.state === 'asked' && m.request.setting === setting) m.request.state = 'expired'
-    const said = add(chat, {from: 'claude', text: typeof why === 'string' ? why.trim() : '', images: [], request: {setting: setting as ChatSetting, from, to: normal, state: 'asked'}})
+    const said = await add(chat, {from: 'claude', text: typeof why === 'string' ? why.trim() : '', images: [], request: {setting: setting as ChatSetting, from, to: normal, state: 'asked'}})
     useEventLog().note({level: 'info', kind: 'chat.asked', project: chat.project, message: `The chat asked to set ${CHAT_SETTINGS[setting as ChatSetting]} to ${settingValue(normal)}`, details: {setting, from, to: normal}})
     return said
 }
@@ -988,7 +1064,7 @@ async function askSession(id: string, body: Record<string, unknown>): Promise<Ch
         for (const m of chat.messages) if (m.session?.state === 'asked' && m.session.session === session.id) m.session.state = 'expired'
         request = {action, project: session.project, session: session.id, name: session.name, ...action === 'extend' ? {minutes: Number(more)} : {}, state: 'asked'}
     }
-    const said = add(chat, {from: 'claude', text: typeof why === 'string' ? why.trim() : '', images: [], session: request})
+    const said = await add(chat, {from: 'claude', text: typeof why === 'string' ? why.trim() : '', images: [], session: request})
     useEventLog().note({level: 'info', kind: 'chat.asked', project: chat.project, message: `The chat asked to ${sessionAsk(request)}`, details: {action, project: request.project, ...request.name ? {session: request.name} : {}}})
     return said
 }
@@ -1010,7 +1086,7 @@ async function delegate(id: string, body: Record<string, unknown>): Promise<Chat
     const launch = await startLaunch(chat.project, {issue: found.id, actor: await owner()})
     said.started.add(found.id)
     useEventLog().note({level: 'info', kind: 'chat.delegated', project: chat.project, message: `The chat started a session on ${found.id}`, details: {issue: found.id, launch: launch.id}})
-    return add(chat, {from: 'claude', text: `Started a session on [${found.id}](/p/${chat.project}/issues/${found.id}).`, images: []})
+    return await add(chat, {from: 'claude', text: `Started a session on [${found.id}](/p/${chat.project}/issues/${found.id}).`, images: []})
 }
 
 /** The owner's last message in each chat, and the page it was sent from, here rather than on the chat as the page has no
@@ -1075,21 +1151,21 @@ export function landChatIssues(id: string, issues: ChatIssues): Chat {
 }
 
 /** The chat's session answering (its `reply` tool). */
-export function reply(id: string, text: unknown): ChatMessage {
+export async function reply(id: string, text: unknown): Promise<ChatMessage> {
     const chat = chatOf(id)
     const words = typeof text === 'string' ? text.trim() : ''
     if (!words) throw badRequest('Send the answer as {"text": "…"}')
-    return add(chat, {from: 'claude', text: words, images: []})
+    return await add(chat, {from: 'claude', text: words, images: []})
 }
 
 /** The owner clearing the chat's context (`/clear`): its launcher types `/clear` into the session, which keeps running
  * with a fresh context. It hears its brief again, as the launch's context, on the SessionStart after, so it stays the
  * chat. The chat marks the cut, and keeps what was said above it to read. */
-export function clearChat(id: string): ChatMessage {
+export async function clearChat(id: string): Promise<ChatMessage> {
     const chat = chatOf(id)
     projectEvents.emit('launches', {type: 'clear', project: chat.project, id: chat.id})
     useEventLog().note({level: 'info', kind: 'chat.cleared', project: chat.project, message: "The owner cleared their chat's context"})
-    return add(chat, {from: 'owner', text: '', images: [], cleared: true})
+    return await add(chat, {from: 'owner', text: '', images: [], cleared: true})
 }
 
 /** The owner ending the chat: its session is stopped, and the chat goes. */

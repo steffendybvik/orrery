@@ -92,6 +92,7 @@ pub const SQLITE: &[Step] = &[
     Step::Sql(include_str!("../migrations/sqlite/085.sql")),
     Step::Sql(include_str!("../migrations/sqlite/086.sql")),
     Step::Sql(include_str!("../migrations/sqlite/087.sql")),
+    Step::Sql(include_str!("../migrations/sqlite/088.sql")),
 ];
 
 /// SQLite's step Postgres's baseline matches.
@@ -167,4 +168,5 @@ pub const POSTGRES: &[Step] = &[
     Step::Sql(include_str!("../migrations/postgres/085.sql")),
     Step::Sql(include_str!("../migrations/postgres/086.sql")),
     Step::Sql(include_str!("../migrations/postgres/087.sql")),
+    Step::Sql(include_str!("../migrations/postgres/088.sql")),
 ];

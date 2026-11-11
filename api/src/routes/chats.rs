@@ -9,12 +9,33 @@ use axum::body::Bytes;
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
-use axum::routing::get;
+use axum::routing::{get, post, put};
 use axum::{Json, Router};
 use std::sync::Arc;
 
 pub(crate) fn routes() -> Router<Arc<App>> {
-    Router::new().route("/api/chats", get(list_chats)).route("/api/chats/{chat}", get(get_chat).put(keep_chat).delete(forget_chat))
+    Router::new()
+        .route("/api/chats", get(list_chats))
+        .route("/api/chats/{chat}", get(get_chat).put(keep_chat).delete(forget_chat))
+        .route("/api/chats/{chat}/lines", post(add_message))
+        .route("/api/chats/{chat}/lines/{message}", put(change_message))
+}
+
+async fn add_message(State(app): Shared, Path(chat): Path<String>, headers: HeaderMap, body: Bytes) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    let mut chats = Chats::new(&mut conn);
+    chats.outbox = Some(Outbox::new(actor_of(&headers)));
+    let said = chats.add_message(&chat, &body_of(&body)).await?;
+    Ok(reply(StatusCode::CREATED, Some(said), std::mem::take(&mut chats.effects)))
+}
+
+async fn change_message(State(app): Shared, Path((chat, message)): Path<(String, String)>, headers: HeaderMap, body: Bytes) -> Result<Response> {
+    let Ok(id) = message.parse::<i64>() else { return Err(crate::error::ApiError::not_found(format!("No message {message} in chat {chat}"))) };
+    let mut conn = app.pool.acquire().await?;
+    let mut chats = Chats::new(&mut conn);
+    chats.outbox = Some(Outbox::new(actor_of(&headers)));
+    let changed = chats.change_message(&chat, id, &body_of(&body)).await?;
+    Ok(reply(StatusCode::OK, Some(changed), std::mem::take(&mut chats.effects)))
 }
 
 async fn list_chats(State(app): Shared) -> Result<Response> {

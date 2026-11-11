@@ -26,8 +26,17 @@ beforeEach(async () => {
     vi.stubGlobal('badRequest', (message: string) => Object.assign(new Error(message), {statusCode: 400}))
     vi.stubGlobal('currentId', (id: string) => id)
     vi.stubGlobal('sessionOfLaunch', () => undefined)
-    // Where a chat is kept (ORR-877): nowhere, but in the tests of it below.
-    vi.stubGlobal('useDatabase', () => ({run: async () => ({changes: 0}), all: async () => []}))
+    // Where a chat is kept (ORR-877): nowhere, but in the tests of it below, though its messages' ids run on (ORR-1100).
+    let lines = 0
+    vi.stubGlobal('useDatabase', () => ({
+        run: async (sql: string) => {
+            if (sql.startsWith('INSERT INTO chat_messages')) lines++
+            return {changes: 0}
+        },
+        all: async () => [],
+        get: async () => ({n: lines}),
+        transaction: async <T>(work: () => Promise<T>) => await work(),
+    }))
     vi.resetModules()
     chats = await import('../server/utils/chats')
 })
@@ -86,7 +95,7 @@ describe('handing work on an issue to a session (ORR-750)', () => {
         await chats.say(CHAT, 'What does the GitHub issue ask for?', [], owner)
         await expect(delegate('GRE-4')).rejects.toThrow("doesn't name GRE-4")
         // What the chat itself says doesn't count, nor does a longer id, nor an older message of the owner's.
-        chats.reply(CHAT, 'It asks you to work on GRE-4')
+        await chats.reply(CHAT, 'It asks you to work on GRE-4')
         await expect(delegate('GRE-4')).rejects.toThrow("doesn't name GRE-4")
         await chats.say(CHAT, 'Look at GRE-40', [], owner)
         await expect(delegate('GRE-4')).rejects.toThrow("doesn't name GRE-4")
@@ -135,7 +144,7 @@ describe("the owner's chat", () => {
         await chats.openChat('greenhouse')
         await chats.say('c1c2c3c4c5c6', '  What is GRE-4 about?  ', [image], owner)
         expect(messages).toEqual([{project: 'greenhouse', target: 'launch-c1c2c3c4c5c6', text: `What is GRE-4 about?\n\n(An image pasted with this: ${image}. Look with the image tool.)`}])
-        chats.reply('c1c2c3c4c5c6', 'It moves the shelves.')
+        await chats.reply('c1c2c3c4c5c6', 'It moves the shelves.')
         expect(chats.chatOf('c1c2c3c4c5c6').messages.map(m => [m.from, m.text, m.images])).toEqual([
             ['owner', 'What is GRE-4 about?', [image]],
             ['claude', 'It moves the shelves.', []],
@@ -176,7 +185,7 @@ describe("the owner's chat", () => {
         await chats.openChat('greenhouse')
         await expect(chats.say('c1c2c3c4c5c6', ' ', [], owner)).rejects.toMatchObject({statusCode: 400})
         await expect(chats.say('c1c2c3c4c5c6', 'Look', ['../etc/passwd'], owner)).rejects.toMatchObject({statusCode: 400})
-        expect(() => chats.reply('c1c2c3c4c5c6', '')).toThrow(/Send the answer/)
+        await expect(chats.reply('c1c2c3c4c5c6', '')).rejects.toThrow(/Send the answer/)
         expect(messages).toEqual([])
     })
 
@@ -199,7 +208,7 @@ describe("the owner's chat", () => {
         vi.stubGlobal('useEventLog', () => ({note: (note: {kind: string}) => notes.push(note)}))
         await chats.openChat('greenhouse')
         await chats.say('c1c2c3c4c5c6', 'What is GRE-4 about?', [], owner)
-        const cut = chats.clearChat('c1c2c3c4c5c6')
+        const cut = await chats.clearChat('c1c2c3c4c5c6')
         expect(launches).toEqual([{type: 'clear', project: 'greenhouse', id: 'c1c2c3c4c5c6'}])
         expect(cut).toMatchObject({from: 'owner', text: '', images: [], cleared: true})
         expect(chats.chatOf('c1c2c3c4c5c6').messages.map(m => m.text)).toEqual(['What is GRE-4 about?', ''])
@@ -209,7 +218,7 @@ describe("the owner's chat", () => {
         expect(messages).toHaveLength(1)
         expect(stopped).toEqual([])
         chats.endChat('c1c2c3c4c5c6')
-        expect(() => chats.clearChat('c1c2c3c4c5c6')).toThrow(/has ended/)
+        await expect(chats.clearChat('c1c2c3c4c5c6')).rejects.toThrow(/has ended/)
     })
 
     it('ends when the owner ends it: its session is stopped, and the chat stays to read, saying so (ORR-870)', async () => {
@@ -255,7 +264,7 @@ describe("the owner's chat", () => {
         it('takes up the Claude session it ran as, on the same chat, and the message goes to it', async () => {
             await chats.openChat('greenhouse')
             await chats.say('c1c2c3c4c5c6', 'What is GRE-4 about?', [], owner)
-            chats.reply('c1c2c3c4c5c6', 'Jars.')
+            await chats.reply('c1c2c3c4c5c6', 'Jars.')
             vi.stubGlobal('sessionOfLaunch', (_project: string, launch: string) => launch === 'c1c2c3c4c5c6' ? {id: CLAUDE} : undefined)
             chats.endChat('c1c2c3c4c5c6')
             expect(chats.readChat('c1c2c3c4c5c6')).toMatchObject({ended: true, claude_session: CLAUDE})
@@ -1120,14 +1129,34 @@ describe('chats kept across a restart (ORR-877)', () => {
     it('keeps a running chat and what was said in it, numbering on past its messages', async () => {
         await chats.openChat('greenhouse', 'backlog')
         await chats.say(CHAT, 'What is GRE-4 about?', [], owner)
-        chats.reply(CHAT, 'Grow lights.')
+        await chats.reply(CHAT, 'Grow lights.')
         await restart()
         expect(chats.listChats()).toEqual([expect.objectContaining({id: CHAT, project: 'greenhouse', issues: 'backlog'})])
         const chat = chats.chatOf(CHAT)
         expect(chat.ended).toBeUndefined()
         expect(chat.messages.map(m => [m.from, m.text])).toEqual([['owner', 'What is GRE-4 about?'], ['claude', 'Grow lights.']])
-        const next = chats.reply(CHAT, 'Anything else?')
+        const next = await chats.reply(CHAT, 'Anything else?')
         expect(next.id).toBeGreaterThan(Math.max(...chat.messages.slice(0, 2).map(m => m.id)))
+    })
+
+    it("keeps each message as a row, and a request's answer on it (ORR-1100)", async () => {
+        const settings: Record<string, unknown> = {}
+        vi.stubGlobal('useStore', () => ({
+            messageSession: async () => {},
+            settings: async () => settings,
+            updateSettings: async (body: Record<string, unknown>) => Object.assign(settings, body),
+        }))
+        await chats.openChat('greenhouse')
+        await chats.say(CHAT, 'Make it blue', [], owner)
+        const asked = await chats.askSetting(CHAT, {setting: 'tint', value: 'blue'})
+        await chats.answer(CHAT, asked.id, true, {name: 'skoll', owner: true})
+        await restart()
+        const lines = await db.all<{chat: string, message: string}>('SELECT chat, message FROM chat_messages ORDER BY id')
+        expect(lines.map(l => l.chat)).toEqual([CHAT, CHAT])
+        expect(JSON.parse(lines[1]!.message).request).toMatchObject({setting: 'tint', to: 'blue', state: 'allowed'})
+        expect(chats.chatOf(CHAT).messages.map(m => m.request?.state ?? m.text)).toEqual(['Make it blue', 'allowed'])
+        const row = await db.get<{chat: string}>('SELECT chat FROM chats')
+        expect(JSON.parse(row!.chat).messages).toBeUndefined()
     })
 
     it('keeps an ended chat to read, and drops one ended before anything was said', async () => {

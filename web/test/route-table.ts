@@ -26,7 +26,7 @@ const SESSIONS: Line = {stays: "the sessions, the launcher and their signals are
 const MACHINE: Line = {stays: "the machine's: its files, the event log, its own use, and what it says about itself"}
 
 const SNAPSHOT: Line = {rustOnly: 'the copy a backup takes of the database: the local app asks for it itself, then checks and keeps it (`snapshotsBy`, ORR-1097)'}
-const STORAGE: Line = {rustOnly: 'how the local app keeps its record of a chat, a GitHub poll, the feature counts it gathered or a line of the event log: it sends them here itself (`writeToApi`)'}
+const STORAGE: Line = {rustOnly: 'how the local app keeps its record of a chat and its messages, a GitHub poll, the feature counts it gathered or a line of the event log: it sends them here itself (`writeToApi`)'}
 const SIGNAL: Line = {rustOnly: "a session's signal, written: the local app picks the session it goes to and tells it, then sends the row here itself (`writeSignal`, ORR-1090)"}
 const SAID: Line = {rustOnly: "orrery's own word on an issue (a pull request's news, a schedule's note): the local app sends it here itself (`writeToApi`, ORR-1094)"}
 const OUTBOX: Line = {rustOnly: "the outbox, which the local app follows to hear what the API's writes set off (ORR-929)"}
@@ -54,6 +54,8 @@ export const NOT_ROUTED: Readonly<Record<string, Line>> = {
     'PUT /api/chats/{chat}': STORAGE,
     'POST /api/chats/{chat}/clear': CHAT,
     'POST /api/chats/{chat}/end': CHAT,
+    'POST /api/chats/{chat}/lines': STORAGE,
+    'PUT /api/chats/{chat}/lines/{message}': STORAGE,
     'POST /api/chats/{chat}/messages': CHAT,
     'POST /api/chats/{chat}/replies': CHAT,
     'POST /api/chats/{chat}/requests': CHAT,
