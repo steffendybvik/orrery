@@ -225,6 +225,31 @@ paths:
       responses:
         '204': {description: Deleted}
         '404': {$ref: '#/components/responses/NotFound'}
+  /api/events/log:
+    get:
+      summary: 'The event log, newest first (ORR-1088): what orrery did, what went wrong and the changes to the roadmap; up to `limit` (200, 1000 at most)'
+      description: '`level` one or more of error, warn, info, comma-separated; `kind` one, or every one under a name (`session`); `subject` what a change to the roadmap was to; `since` a time with its zone, or a day; `open=1` only those not resolved. Writing a line (`POST`) stays the Nuxt server''s.'
+      parameters:
+        - {name: level, in: query, schema: {type: string}}
+        - {name: kind, in: query, schema: {type: string}}
+        - {name: project, in: query, schema: {type: string}}
+        - {name: subject, in: query, schema: {type: string}}
+        - {name: since, in: query, schema: {type: string}}
+        - {name: open, in: query, schema: {type: string}}
+        - {name: limit, in: query, schema: {type: string}}
+      responses:
+        '200': {description: 'The lines', content: {application/json: {schema: {type: array, items: {type: object}}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+  /api/events/log/{event}/resolve:
+    parameters:
+      - {name: event, in: path, required: true, schema: {type: string}}
+    post:
+      summary: 'Marks a line dealt with, and its repeats not resolved yet (ORR-1088): the next one like it is news again. An agent''s name is kept (`resolved_by`)'
+      description: 'Each line it changed goes into the outbox as `event.logged`, for open pages'' bells.'
+      responses:
+        '200': {description: 'The line, resolved', content: {application/json: {schema: {type: object}}}}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
   /api/usage:
     get:
       summary: 'How often the owner used each counted feature, coldest first, for App settings'' Usage (ORR-881, ORR-1089); the owner''s alone'

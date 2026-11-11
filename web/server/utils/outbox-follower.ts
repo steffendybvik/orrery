@@ -6,6 +6,7 @@
 import {existsSync, mkdirSync, readFileSync, writeFileSync} from 'node:fs'
 import {dirname, resolve} from 'node:path'
 import type {Actor, Store} from './store'
+import {projectEvents} from './events'
 
 /** A row of the outbox, as the feed gives it. */
 export interface Change {
@@ -71,6 +72,9 @@ async function apply(store: Store, change: Change, unknown: Set<string>) {
         store.epicsChanged()
     } else if (change.kind === 'schedules') {
         if (change.project) useScheduler().changedElsewhere(change.project)
+    } else if (change.kind === 'event.logged') {
+        // A line of the event log the API resolved (ORR-1088): open pages' bells hear it, as they heard this server's own.
+        projectEvents.emit('logged', {event: payload, fresh: false})
     } else if (change.kind === 'signal' || change.kind === 'notice') {
         if (!unknown.has(change.kind)) console.warn(`[orrery] the outbox has a ${change.kind} this server didn't write, which it doesn't deliver yet (ORR-983)`)
         unknown.add(change.kind)

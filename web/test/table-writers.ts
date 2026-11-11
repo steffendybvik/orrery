@@ -27,6 +27,7 @@ export const WRITERS: Record<string, Writer> = {
     docs: PROJECT,
     epic_comments: {alone: 'comments on an epic, routed as "milestone and epic comments"; an uploaded board leaves them out'},
     epics: {alone: 'made, changed and deleted through /api/epics, and touched by a comment on one, both routed'},
+    events: {nuxt: "writing a line (utils/event-log.ts record, activity, prune): a page's error report and this server's own, scrubbed of secrets' values with the machine's key; the API resolves them", issue: 'ORR-1088'},
     feature_use: {nuxt: 'the minute flush of what it counted (utils/usage.ts flushUse) only with no API in front; it sends them to PUT /api/usage otherwise', issue: 'ORR-1093'},
     identities: {nuxt: 'a sign-in through the provider (store/keys.ts identity), which logging in keeps', issue: 'ORR-928'},
     invites: {nuxt: 'an invite used at a provider sign-in (store/keys.ts identity)', issue: 'ORR-928'},

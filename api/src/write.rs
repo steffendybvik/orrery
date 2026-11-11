@@ -31,6 +31,8 @@ pub struct Effects {
     pub epics: bool,
     /// The projects whose schedules changed (ORR-950): the local app's scheduler reads them again, and open pages hear.
     pub schedules: Vec<String>,
+    /// The event log's lines a resolve changed (ORR-1088): the local app pushes each to open pages' bells.
+    pub logged: Vec<Value>,
 }
 
 /// An event a write told: its kind, project and subject, and where a value went (`from`, `to`) when one changed, as a

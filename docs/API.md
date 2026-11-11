@@ -884,7 +884,7 @@ and 5000 of the rest, each the oldest going first.
 
 - `GET /events/log?level=&kind=&project=&subject=&since=&open=1&limit=`: newest first. `level` is one or more,
   comma-separated; `kind` one (`server.error`) or every one under a name (`session`, `issue`); `subject` what a change
-  was to (`ORR-12`, a release's version); `open=1` leaves out resolved ones. 200 by default, 1000 at most. A daily schedule can ask for `?level=error&open=1&since=…` and turn what's new
+  was to (`ORR-12`, a release's version); `since` a time with its zone (`2026-10-27T09:00:00Z`) or a day; `open=1` leaves out resolved ones. 200 by default, 1000 at most. A daily schedule can ask for `?level=error&open=1&since=…` and turn what's new
   into issues.
 - `POST /events/log/:id/resolve`: it's dealt with, and so are its repeats not resolved yet; the next one like it is news.
   Resolved by anyone but the owner, it keeps their name as `resolved_by`, and the bell still counts it until the owner

@@ -8,6 +8,7 @@ import type {Change, Page} from '../server/utils/outbox-follower'
 import {caughtUp, cursorFile, followOutbox, readCursor, saveCursor, setFollowingOutbox} from '../server/utils/outbox-follower'
 import type {OrreryEvent} from '../server/store/schema'
 import {Store} from '../server/utils/store'
+import {projectEvents} from '../server/utils/events'
 import {testDb} from './db'
 
 const OWNER = {name: 'owner', owner: true}
@@ -63,6 +64,17 @@ describe('following the outbox', () => {
         expect(events).toEqual([{type: 'issue.status', project: 'greenhouse', subject: 'GRE-4', by: {name: 'claude', owner: false, person: 'ada'}, from: 'todo', to: 'done'}])
         expect(settings).toBe(1)
         expect(await outboxSize()).toBe(before)
+    })
+
+    it("pushes a line of the event log the API resolved to open pages' bells (ORR-1088)", async () => {
+        const heard: unknown[] = []
+        const hear = (logged: unknown) => heard.push(logged)
+        projectEvents.on('logged', hear)
+        const line = {id: 7, level: 'error', kind: 'server.error', message: 'Boom', count: 1, first_seen: 'x', last_seen: 'x', resolved_at: 'y', resolved_by: 'claude'}
+        await follow([{changes: [row(101, 'event.logged', {project: null, payload: line})], last: 101}])
+        projectEvents.off('logged', hear)
+        expect(heard).toEqual([{event: line, fresh: false}])
+        expect(changed).toEqual([])
     })
 
     it("skips this server's own rows, whose hooks it heard already", async () => {

@@ -28,11 +28,12 @@ pub struct Outbox {
     epics: bool,
     schedules: Vec<String>,
     told: usize,
+    logged: usize,
 }
 
 impl Outbox {
     pub fn new(actor: Actor) -> Self {
-        Outbox { actor, changed: vec![], settings: false, epics: false, schedules: vec![], told: 0 }
+        Outbox { actor, changed: vec![], settings: false, epics: false, schedules: vec![], told: 0, logged: 0 }
     }
 
     /// Records what `effects` holds that this request hasn't recorded yet, on `conn`, inside its transaction.
@@ -42,12 +43,14 @@ impl Outbox {
         let epics = effects.epics && !self.epics;
         let schedules: Vec<&String> = effects.schedules.iter().filter(|p| !self.schedules.contains(p)).collect();
         let told = &effects.told[self.told.min(effects.told.len())..];
-        record(conn, &changed, settings, epics, &schedules, told, &self.actor).await?;
+        let logged = &effects.logged[self.logged.min(effects.logged.len())..];
+        record(conn, &changed, settings, epics, &schedules, told, logged, &self.actor).await?;
         self.changed.extend(changed.into_iter().cloned());
         self.schedules.extend(schedules.into_iter().cloned());
         self.settings |= settings;
         self.epics |= epics;
         self.told = effects.told.len();
+        self.logged = effects.logged.len();
         Ok(())
     }
 }
@@ -78,8 +81,19 @@ pub async fn finish<T>(conn: &mut AnyConnection, outbox: Option<&mut Outbox>, ef
 }
 
 /// Writes the rows for what a write by `actor` set off: each project it changed, the settings, the epics, each project
-/// whose schedules changed, and each event told.
-async fn record(conn: &mut AnyConnection, changed: &[&String], settings: bool, epics: bool, schedules: &[&String], told: &[Told], actor: &Actor) -> Result<()> {
+/// whose schedules changed, each event told, and each line of the event log it changed (`event.logged`, the line as
+/// its payload).
+#[allow(clippy::too_many_arguments)]
+async fn record(
+    conn: &mut AnyConnection,
+    changed: &[&String],
+    settings: bool,
+    epics: bool,
+    schedules: &[&String],
+    told: &[Told],
+    logged: &[Value],
+    actor: &Actor,
+) -> Result<()> {
     // Each row's kind, project, subject and payload.
     type Row<'a> = (&'a str, Option<&'a str>, Option<&'a str>, Option<String>);
     let mut rows: Vec<Row> = vec![];
@@ -97,6 +111,9 @@ async fn record(conn: &mut AnyConnection, changed: &[&String], settings: bool, e
     }
     for told in told {
         rows.push((told.kind.as_str(), Some(told.project.as_str()), Some(told.subject.as_str()), payload_of(told, actor)));
+    }
+    for line in logged {
+        rows.push(("event.logged", None, None, Some(line.to_string())));
     }
     let now = stamp();
     for (kind, project, subject, payload) in rows {
