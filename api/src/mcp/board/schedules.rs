@@ -1,7 +1,7 @@
 // The `schedules` tool at `/mcp` (ORR-1100), as channel/tools.mjs runs it: the project's schedules from its route, a
 // line each. Making and changing one (`create_schedule`, `update_schedule`) are asks: a work session's on its issue
-// (`…/schedule-requests`, `askOnIssue`), served here, and the chat's in its chat (`utils/chats.ts`, still Node's), which
-// isn't, so the channel keeps it. The chat's `update_settings` is served here (ORR-1100): its ask is kept in the chat it
+// (`…/schedule-requests`, `askOnIssue`), and the chat's, through its `request`, in its chat (`/api/chats/:chat/
+// schedule-requests`). The chat's `update_settings` is asked in its chat too. Either chat ask is kept in the chat it
 // names (`Orrery-Launch`, as the channel sends it), which the local app hears and the owner answers.
 use super::{text, truthy, Api, Said};
 use axum::http::Method;
@@ -74,11 +74,49 @@ impl Api<'_> {
         ))
     }
 
+    /// The chat this session is, as `Orrery-Launch` names it; refused for `tool` when it names none.
+    fn chat(&self, tool: &str) -> std::result::Result<String, super::No> {
+        match crate::request::header(self.headers, "orrery-launch").map(|c| c.trim().to_string()).filter(|c| !c.is_empty()) {
+            Some(chat) => Ok(chat),
+            None => Err(super::No(format!("{tool} is the owner's chat's, and this session says no chat (Orrery-Launch)"))),
+        }
+    }
+
+    /// The chat's `create_schedule`, or `update_schedule` by `id` (`change`): `fields` as its `request` sends them, the
+    /// schedule's fields beside `project` and `why`. Asked in its chat, on the project it names, which saves nothing until
+    /// the owner allows it. A project this server doesn't serve is refused, as the channel's `on` refuses it.
+    pub(super) async fn ask_schedule_in_chat(&self, change: bool, fields: &Value) -> Said {
+        let tool = if change { "update_schedule" } else { "create_schedule" };
+        let chat = self.chat(tool)?;
+        let mut schedule = fields.as_object().cloned().unwrap_or_default();
+        let id = schedule.shift_remove("id");
+        let why = schedule.shift_remove("why").filter(truthy);
+        let project = schedule.shift_remove("project").filter(truthy);
+        if let Some(named) = project.as_ref().and_then(Value::as_str) {
+            if !self.projects.is_empty() && !self.projects.iter().any(|p| p == named) {
+                return Err(super::No(format!("This chat reaches {}, not {named}", self.projects.join(", "))));
+            }
+        }
+        let mut body = json!({"schedule": schedule});
+        if change {
+            body["id"] = id.unwrap_or(Value::Null);
+        }
+        if let Some(project) = project {
+            body["project"] = project;
+        }
+        if let Some(why) = why {
+            body["why"] = why;
+        }
+        self.call(Method::POST, &format!("/api/chats/{}/schedule-requests", super::enc(&chat)), Some(body)).await?;
+        Ok(format!(
+            "Asked: the owner sees the {} with Allow and Deny, and you'll hear which they pressed. Nothing is saved until they allow it.",
+            if change { "change" } else { "schedule" }
+        ))
+    }
+
     /// The chat's `update_settings`: asked in its chat, which saves nothing until the owner allows it.
     pub(super) async fn update_settings(&self, args: &Value) -> Said {
-        let Some(chat) = crate::request::header(self.headers, "orrery-launch").filter(|c| !c.trim().is_empty()) else {
-            return Err(super::No("update_settings is the owner's chat's, and this session says no chat (Orrery-Launch)".into()));
-        };
+        let chat = self.chat("update_settings")?;
         let mut body = json!({"setting": args.get("setting").cloned().unwrap_or(Value::Null)});
         if let Some(value) = args.get("value") {
             body["value"] = value.clone();
@@ -86,7 +124,7 @@ impl Api<'_> {
         if let Some(why) = args.get("why").filter(|w| truthy(w)) {
             body["why"] = why.clone();
         }
-        self.call(Method::POST, &format!("/api/chats/{}/setting-requests", super::enc(chat.trim())), Some(body)).await?;
+        self.call(Method::POST, &format!("/api/chats/{}/setting-requests", super::enc(&chat)), Some(body)).await?;
         Ok("Asked: the owner sees it with Allow and Deny, and you'll hear which they pressed. Nothing is saved until they allow it.".into())
     }
 

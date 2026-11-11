@@ -465,14 +465,18 @@ impl Api<'_> {
         // The chat's asks go through `request` {action, fields, why} (ORR-624): those kept in the API are served here,
         // the rest stay in the channel until they move (ORR-1100).
         if name == "request" {
-            if args["action"] != "update_settings" {
+            let action = args["action"].as_str().unwrap_or_default();
+            if !["update_settings", "create_schedule", "update_schedule"].contains(&action) {
                 return None;
             }
             let mut fields = args.get("fields").filter(|f| f.is_object()).cloned().unwrap_or_else(|| json!({}));
             if let Some(why) = args.get("why").filter(|w| truthy(w)) {
                 fields["why"] = why.clone();
             }
-            return Some(self.update_settings(&fields).await);
+            return Some(match action {
+                "update_settings" => self.update_settings(&fields).await,
+                _ => self.ask_schedule_in_chat(action == "update_schedule", &fields).await,
+            });
         }
         Some(match name {
             "schedules" => self.schedules(args).await,

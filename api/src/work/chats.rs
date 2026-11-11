@@ -240,6 +240,56 @@ impl<'c> Chats<'c> {
         self.add_in(chat, message).await
     }
 
+    /// The chat's session asking to make a schedule, or change schedule `id` (its `create_schedule` and
+    /// `update_schedule`, `askSchedule`): `{schedule, id?, project?, why?}`, `schedule` the fields as Schedules takes
+    /// them, on the project it names or else the chat's own. Checked as Schedules would check it for the owner, and kept
+    /// as a request in the chat that saves nothing until they allow it, which the local app hears (ORR-1100). One it
+    /// asked before for the same schedule, still unanswered, expires. A 404 when the chat isn't running.
+    pub async fn ask_schedule(&mut self, chat: &str, body: &Value) -> Result<Value> {
+        let own: Option<String> =
+            sqlx::query_scalar(&sql("SELECT project FROM chats WHERE id = ? AND ended_at IS NULL")).bind(chat).fetch_optional(&mut *self.conn).await?;
+        let Some(own) = own else { return Err(ApiError::not_found(format!("No chat {chat}: it has ended"))) };
+        let project = match body.get("project") {
+            None | Some(Value::Null) => own.clone(),
+            Some(Value::String(p)) if p.trim() == own => own.clone(),
+            Some(Value::String(p)) if !p.trim().is_empty() => {
+                crate::board::issue_writes::IssueWrites::new(&mut *self.conn).project_uid(p.trim()).await?;
+                p.trim().to_string()
+            }
+            Some(_) => return Err(ApiError::bad_request("Send \"project\" as a project's id, or leave it out for the chat's own")),
+        };
+        let mut request = crate::work::schedule_requests::ScheduleRequests::new(&mut *self.conn)
+            .request(&project, body.get("schedule"), body.get("id"), "The owner's chat")
+            .await?;
+        if project != own {
+            request["project"] = json!(project);
+        }
+        let why = body.get("why").and_then(Value::as_str).map(str::trim).unwrap_or_default().to_string();
+        changes::begin(self.conn).await?;
+        let done = self.ask_schedule_in(chat, request, why).await;
+        self.effects.chats.push(chat.to_string());
+        changes::finish(self.conn, self.outbox.as_mut(), &self.effects, done).await
+    }
+
+    async fn ask_schedule_in(&mut self, chat: &str, request: Value, why: String) -> Result<Value> {
+        if let Some(id) = request.get("id").filter(|i| !i.is_null()) {
+            for mut asked in self.messages(Some(chat)).await?.remove(chat).unwrap_or_default() {
+                if asked["schedule"]["state"] != "asked" || asked["schedule"]["id"] != *id {
+                    continue;
+                }
+                asked["schedule"]["state"] = json!("expired");
+                let at = asked["id"].as_i64().unwrap_or_default();
+                let Value::Object(mut message) = asked else { continue };
+                message.shift_remove("id");
+                message.shift_remove("at");
+                self.change_in(chat, at, message).await?;
+            }
+        }
+        let asked = json!({"from": "claude", "text": why, "images": [], "schedule": request});
+        let Value::Object(message) = asked else { unreachable!("a JSON object") };
+        self.add_in(chat, message).await
+    }
+
     /// A 404 unless the chat is kept.
     async fn known(&mut self, chat: &str) -> Result<()> {
         let kept: Option<String> = sqlx::query_scalar(&sql("SELECT id FROM chats WHERE id = ?")).bind(chat).fetch_optional(&mut *self.conn).await?;

@@ -1,8 +1,8 @@
 // A working session asking the owner, on the issue it's working, to make a schedule or change one (ORR-458, ORR-1100):
 // `askScheduleOn` and `scheduleRequest` in web/server/utils/schedule-requests.ts, and `askForSchedule` in
 // web/server/store/comments.ts. The request is checked as Schedules would check it for the owner, and nothing is saved
-// until they press Allow, which stays the Nuxt server's for now (`answerScheduleRequest`). The chat's own requests
-// (`askSchedule` in utils/chats.ts) stay there too, as the live chat is that server's.
+// until they press Allow, which stays the Nuxt server's for now (`answerScheduleRequest`). The chat's own requests are
+// asked in its chat (`Chats::ask_schedule`, ORR-1100), with `request` here, and answered by the local app, which runs it.
 use crate::board::comments::Handoff;
 use crate::board::issue_writes::IssueWrites;
 use crate::changes::Outbox;
@@ -119,8 +119,9 @@ impl<'c> ScheduleRequests<'c> {
     }
 
     /// A request to make a schedule in `project`, or change schedule `target` there (`scheduleRequest`): `fields` as
-    /// Schedules takes them, checked as Schedules would check them for the owner, each shown from → to. Saves nothing.
-    pub(crate) async fn request(&mut self, project: &str, fields: Option<&Value>, target: Option<&Value>) -> Result<Value> {
+    /// Schedules takes them, checked as Schedules would check them for the owner, each shown from → to. `who` asks, for
+    /// the refusal. Saves nothing.
+    pub(crate) async fn request(&mut self, project: &str, fields: Option<&Value>, target: Option<&Value>, who: &str) -> Result<Value> {
         let names = FIELDS.iter().map(|(f, _)| *f).collect::<Vec<_>>();
         let Some(fields) = fields.and_then(Value::as_object).filter(|f| !f.is_empty()) else {
             return Err(ApiError::bad_request(format!(
@@ -131,7 +132,7 @@ impl<'c> ScheduleRequests<'c> {
         let refused = fields.keys().filter(|k| !names.contains(&k.as_str())).cloned().collect::<Vec<_>>();
         if !refused.is_empty() {
             return Err(ApiError::forbidden(format!(
-                "A session sets a schedule's {}, not its {}: the rest are the owner's to set on Schedules",
+                "{who} sets a schedule's {}, not its {}: the rest are the owner's to set on Schedules",
                 names.join(", "),
                 refused.join(", ")
             )));
@@ -191,7 +192,7 @@ impl<'c> ScheduleRequests<'c> {
         if actor.owner {
             return Err(ApiError::bad_request("The owner makes and changes schedules on Schedules: this is for a session to ask them"));
         }
-        let request = self.request(project, body.get("schedule"), body.get("id")).await?;
+        let request = self.request(project, body.get("schedule"), body.get("id"), "A session").await?;
         let line = ask_line(&request);
         let why = body.get("why").and_then(Value::as_str).map(str::trim).unwrap_or_default();
         let words = [why.to_string(), format!("Asks to {line}. Nothing is saved until you press Allow.")]

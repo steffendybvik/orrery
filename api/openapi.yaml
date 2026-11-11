@@ -1651,6 +1651,22 @@ paths:
         '201': {description: 'The message asking, with its id and time', content: {application/json: {schema: {type: object}}}}
         '400': {$ref: '#/components/responses/BadRequest'}
         '404': {$ref: '#/components/responses/NotFound'}
+  /api/chats/{chat}/schedule-requests:
+    parameters: [{name: chat, in: path, required: true, description: The chat's id, schema: {type: string}}]
+    post:
+      x-served: false
+      summary: The chat asks to make or change a schedule, which saves nothing until the owner allows it
+      description: >-
+        The chat's `create_schedule` and `update_schedule` (`askSchedule`, ORR-1100): the schedule's fields, as
+        Schedules takes them from a session, checked as Schedules would check them for the owner, on the project it
+        names or else the chat's own, kept as a request in the chat with each field from → to. One asked before for
+        the same schedule, still unanswered, expires. The owner answers on the chat's page, which the local app runs.
+      requestBody: {required: true, content: {application/json: {schema: {type: object, required: [schedule], properties: {schedule: {type: object}, id: {type: integer}, project: {type: string}, why: {type: string}}}}}}
+      responses:
+        '201': {description: 'The message asking, with its id and time', content: {application/json: {schema: {type: object}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {description: A field that stays the owner's to set, content: {application/json: {schema: {type: object}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
   /api/schedules/across:
     get:
       summary: The schedules across projects, oldest first, each with the projects it's made on

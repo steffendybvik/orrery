@@ -181,3 +181,48 @@ async fn the_chats_other_requests_stay_in_the_channel() {
         .await;
     assert_eq!(said(&reply), "request isn't served at /mcp yet: orrery's channel still has it");
 }
+
+/// The chat's `request` for `action` with `fields`, from the chat `c1`.
+async fn request(api: &TestApi, action: &str, fields: Value) -> Reply {
+    api.post("/mcp", ask("request", json!({"action": action, "fields": fields, "why": "You asked"})))
+        .header("orrery-actor-kind", "chat")
+        .header("orrery-launch", "c1")
+        .send()
+        .await
+}
+
+#[tokio::test]
+async fn the_chats_schedule_asks_are_kept_in_its_chat() {
+    let api = TestApi::new().await;
+    let project = api.project("alpha").await;
+    api.put("/api/chats/c1", json!({"id": "c1", "project": project, "started_at": "2026-11-01T10:00:00.000Z"})).send().await;
+    let made = request(&api, "create_schedule", json!({"title": "Nudge", "kind": "message", "notes": "Hi", "cron": "0 9 * * 1"})).await;
+    assert_eq!(
+        said(&made),
+        "Asked: the owner sees the schedule with Allow and Deny, and you'll hear which they pressed. Nothing is saved until they allow it."
+    );
+    let id = schedule_id(&api, &project).await;
+    let changed = request(&api, "update_schedule", json!({"id": id, "enabled": false})).await;
+    assert_eq!(
+        said(&changed),
+        "Asked: the owner sees the change with Allow and Deny, and you'll hear which they pressed. Nothing is saved until they allow it."
+    );
+    let messages = api.get("/api/chats/c1").send().await.body["messages"].clone();
+    assert_eq!(messages[0]["text"], "You asked");
+    assert_eq!(messages[0]["schedule"]["body"], json!({"title": "Nudge", "kind": "message", "notes": "Hi", "cron": "0 9 * * 1"}));
+    assert_eq!(messages[1]["schedule"]["id"], id);
+    assert_eq!(messages[1]["schedule"]["body"], json!({"enabled": false}));
+    assert_eq!(api.get(&format!("/api/projects/{project}/schedules")).send().await.body.as_array().unwrap().len(), 1, "only the one put there");
+}
+
+#[tokio::test]
+async fn the_chats_schedule_asks_say_no_to_what_schedules_refuse_and_to_a_project_out_of_reach() {
+    let api = TestApi::new().await;
+    let project = api.project("alpha").await;
+    api.put("/api/chats/c1", json!({"id": "c1", "project": project, "started_at": "2026-11-01T10:00:00.000Z"})).send().await;
+    let refused = request(&api, "create_schedule", json!({"title": "X", "untrusted": true})).await;
+    assert!(said(&refused).starts_with("orrery said no: "), "{}", refused.body);
+    let elsewhere = request(&api, "create_schedule", json!({"title": "X", "cron": "0 9 * * 1", "project": "beta"})).await;
+    assert_eq!(said(&elsewhere), "orrery said no: This chat reaches alpha, not beta");
+    assert!(api.get("/api/chats/c1").send().await.body["messages"].as_array().unwrap().is_empty());
+}

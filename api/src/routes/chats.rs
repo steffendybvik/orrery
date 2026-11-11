@@ -20,6 +20,17 @@ pub(crate) fn routes() -> Router<Arc<App>> {
         .route("/api/chats/{chat}/lines", post(add_message))
         .route("/api/chats/{chat}/lines/{message}", put(change_message))
         .route("/api/chats/{chat}/setting-requests", post(ask_setting))
+        .route("/api/chats/{chat}/schedule-requests", post(ask_schedule))
+}
+
+/// `POST /api/chats/:chat/schedule-requests` {schedule, id?, project?, why?} → 201 the message asking (ORR-1100): the
+/// chat's `create_schedule` and `update_schedule`, kept as a request the owner allows or denies on the chat's page.
+async fn ask_schedule(State(app): Shared, Path(chat): Path<String>, headers: HeaderMap, body: Bytes) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    let mut chats = Chats::new(&mut conn);
+    chats.outbox = Some(Outbox::new(actor_of(&headers)));
+    let asked = chats.ask_schedule(&chat, &body_of(&body)).await?;
+    Ok(reply(StatusCode::CREATED, Some(asked), std::mem::take(&mut chats.effects)))
 }
 
 /// `POST /api/chats/:chat/setting-requests` {setting, value, why?} → 201 the message asking (ORR-1100): the chat's
