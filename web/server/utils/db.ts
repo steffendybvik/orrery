@@ -12,6 +12,8 @@ import {PostgresDb, isPostgres} from './postgres'
 import {dirname, join, resolve} from 'node:path'
 import {DatabaseSync} from 'node:sqlite'
 import {MIGRATIONS} from './migrations/sqlite'
+import {BASELINE, STEPS} from './migrations/postgres'
+import {migrateWithApi} from './api-migrate'
 
 
 let db: DatabaseSync | null = null
@@ -19,8 +21,25 @@ let db: DatabaseSync | null = null
 function useDb(path: string): DatabaseSync {
     if (db) return db
     // A new database doesn't start from a backup by itself (ORR-448): its first page asks, see server/utils/restore.ts.
-    db = openDb(path, MIGRATIONS.length, beforeUpgrade(path))
+    db = openMigrated(path)
     return db
+}
+
+/** Opens a SQLite file with its schema up to date: migrated by the Rust API when there's one to ask (ORR-931), else here. */
+export function openMigrated(path: string): DatabaseSync {
+    if (path !== ':memory:') mkdirSync(dirname(path), {recursive: true})
+    const ran = path === ':memory:' ? undefined : migrateWithApi(path, MIGRATIONS.length)
+    const opened = openDb(path, MIGRATIONS.length, beforeUpgrade(path))
+    if (ran) migrated = ran
+    return opened
+}
+
+/** Opens Postgres with its schema up to date: migrated by the Rust API when there's one to ask (ORR-931), else here. */
+export function openPostgres(url: string): PostgresDb {
+    const ran = migrateWithApi(url, BASELINE + STEPS.length)
+    const opened = new PostgresDb(url)
+    if (ran) opened.migrated = ran
+    return opened
 }
 
 /** Where the copy of a SQLite file goes before an upgrade's steps, as it was: in the backup folder, or beside the file
@@ -101,7 +120,7 @@ export function hidePassword(url: string): string {
  * SQLite file. */
 export function useDatabase(): Db {
     const setting = databaseSetting()
-    if (isPostgres(setting)) return database ??= new PostgresDb(setting)
+    if (isPostgres(setting)) return database ??= openPostgres(setting)
     const raw = useDb(setting)
     if (!(database instanceof SqliteDb) || database.raw !== raw) database = new SqliteDb(raw)
     return database

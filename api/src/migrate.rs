@@ -1,6 +1,7 @@
 // The schema's migrations, ported from web/server/utils/migrations (ORR-931): `orrery-api migrate` brings a database to
-// the latest step, as the Node app does as it opens one. Nothing runs this yet. The Node app owns the migrations until the
-// last domain has moved here, and a new step is still written there first. web/test/rust-migrations.test.ts copies each
+// the latest step. The Nuxt server runs it before it opens a database whenever it has this binary, and only falls back
+// to its own steps without one (tests, a bare `nuxt dev`) or with a build whose steps end elsewhere. A new step is still
+// written there first. web/test/rust-migrations.test.ts copies each
 // SQL step into api/migrations and the list into steps.rs, and fails until a step that's code there has an arm here.
 //
 // The steps are the same ones, counted the same way: SQLite's in `PRAGMA user_version`, Postgres's in `schema_version`
@@ -30,6 +31,14 @@ pub struct Migrated {
     pub to: u32,
 }
 
+/// The step a database is at once this build has migrated it.
+pub fn latest(dialect: Dialect) -> u32 {
+    match dialect {
+        Dialect::Sqlite => SQLITE.len() as u32,
+        Dialect::Postgres => POSTGRES_BASELINE + POSTGRES.len() as u32,
+    }
+}
+
 /// Brings `setting`'s database (a SQLite file's path, made if it isn't there, or a `postgres://` URL) up to the latest
 /// step. `schema`, on Postgres, is the one to work in, made if it isn't there, as the Node app does.
 pub async fn migrate(setting: &str, schema: Option<&str>) -> Result<Migrated, String> {
@@ -52,7 +61,7 @@ async fn exec(conn: &mut AnyConnection, sql: &str) -> Result<(), sqlx::Error> {
 }
 
 async fn sqlite(conn: &mut AnyConnection, path: &str) -> Result<Migrated, String> {
-    let latest = SQLITE.len() as u32;
+    let latest = latest(Dialect::Sqlite);
     let version: i64 = sqlx::query("PRAGMA user_version").fetch_one(&mut *conn).await.and_then(|r| r.try_get(0)).map_err(|e| e.to_string())?;
     let version = version as u32;
     if version > latest {
@@ -144,7 +153,7 @@ async fn keep_a_copy(conn: &mut AnyConnection, path: &str, version: u32, latest:
 }
 
 async fn postgres(conn: &mut AnyConnection, schema: Option<&str>) -> Result<Migrated, String> {
-    let latest = POSTGRES_BASELINE + POSTGRES.len() as u32;
+    let latest = latest(Dialect::Postgres);
     if let Some(schema) = schema {
         let schema = schema.replace('"', "");
         exec(conn, &format!("CREATE SCHEMA IF NOT EXISTS \"{schema}\"; SET search_path TO \"{schema}\"")).await.map_err(|e| e.to_string())?;
@@ -349,6 +358,13 @@ mod tests {
         assert_eq!(owner_person("[\"Ada\",\"Lovelace\"]"), Ok(Some(("ada_lovelace".into(), "Ada,Lovelace".into()))));
         assert_eq!(owner_person("{\"a\":1}"), Ok(Some(("object_object".into(), "[object Object]".into()))));
         assert_eq!(owner_person("12"), Ok(Some(("12".into(), "12".into()))));
+    }
+
+    #[test]
+    fn the_latest_step_counts_postgres_from_its_baseline() {
+        assert_eq!(latest(Dialect::Sqlite), SQLITE.len() as u32);
+        assert_eq!(latest(Dialect::Postgres), POSTGRES_BASELINE + POSTGRES.len() as u32);
+        assert_eq!(latest(Dialect::Sqlite), latest(Dialect::Postgres), "both dialects end at the same step");
     }
 
     #[test]

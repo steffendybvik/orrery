@@ -14,8 +14,11 @@
 //   ORRERY_API_WAIT    1: until the database is there and migrated, tries again each second instead of exiting; for
 //                      a container of its own that starts beside the Nuxt server's (the playground's, ORR-1051)
 //
-// `orrery-api migrate` brings NUXT_DATABASE's schema up to date instead (ORR-931), and exits. Nothing runs it yet: the
-// Nuxt server migrates the database as it opens it until the last domain has moved here.
+// `orrery-api migrate` brings NUXT_DATABASE's schema up to date instead (ORR-931), says `{"from":n,"to":m}` on stdout,
+// and exits. The Nuxt server runs it before it opens a database, whenever it has this binary (server/utils/api-migrate.ts).
+//   ORRERY_API_STEPS   the step the caller's own migrations end at: a build that ends anywhere else migrates nothing and
+//                      exits 3, so a mismatched pair never takes a database somewhere the other can't follow
+//   ORRERY_API_BACKUP_DIR, ORRERY_VERSION  where the copy before an upgrade goes, and the version it's named by
 mod access;
 mod board;
 mod changes;
@@ -86,7 +89,15 @@ async fn main() {
     if std::env::args().nth(1).as_deref() == Some("migrate") {
         let setting =
             std::env::var("NUXT_DATABASE").ok().filter(|s| !s.is_empty()).unwrap_or_else(|| fail("set NUXT_DATABASE to the database to migrate".into()));
+        let latest = migrate::latest(if db::is_postgres(&setting) { migrate::Dialect::Postgres } else { migrate::Dialect::Sqlite });
+        if let Some(expected) = std::env::var("ORRERY_API_STEPS").ok().filter(|s| !s.is_empty()) {
+            if expected != latest.to_string() {
+                eprintln!("[orrery-api] this build's migrations end at schema step {latest}, not {expected}: migrated nothing");
+                std::process::exit(3)
+            }
+        }
         let done = migrate::migrate(&setting, std::env::var("ORRERY_API_SCHEMA").ok().as_deref()).await.unwrap_or_else(|e| fail(e));
+        println!("{}", json!({"from": done.from, "to": done.to}));
         if done.from == done.to {
             eprintln!("[orrery-api] the schema is at step {} already", done.to);
         } else {

@@ -9,7 +9,7 @@ import {apiStarted, apiStarting} from './api-router'
 export interface ApiProcessOptions {
     /** Starts the binary with this environment added, as `spawn` does. */
     spawn: (env: Record<string, string>) => ChildProcess
-    /** The database to start it on, once that's open and migrated (the API runs no migrations). */
+    /** The database to start it on, once that's open and migrated (by `orrery-api migrate`, as it opened). */
     database: () => Promise<string>
     /** Said when it stopped by itself, not because this asked. */
     stopped?: (code: number | null) => void
