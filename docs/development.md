@@ -96,11 +96,12 @@ How it fits together:
   why, logged once to the server's log and the event log (`api.unreachable`) while it lasts. The one exception is a
   line marked `here`: making an issue and editing one, whose `first` check keeps a session's, the chat's and an
   untrusted session's requests (and an edit's status change by a session) for the Nuxt route, which still exists for
-  them. A test in `rust-api-coverage.test.ts` fails when a Nuxt route comes back for what's routed without `here`.
-- **The swap's flag.** `NUXT_API_ONLY=1` (ORR-1034, off by default) makes the `here` lines the API's alone too: with
-  the API down, their requests fail instead of falling through. What their `first` check keeps here still goes to
-  Nuxt, and what a write sets off (open pages, the event log, schedules, sessions, the bell) stays Nuxt's either way.
-  Nothing sets it now that the API runs inside the image; [ORR-1091](/p/orrery/issues/ORR-1091) removes it.
+  them. With the API down, the rest of their requests fail as any other's do. A test in `rust-api-coverage.test.ts`
+  fails when a Nuxt route comes back for what's routed without `here`.
+- **No swap flag.** The API isn't opt-in any more ([ORR-1091](/p/orrery/issues/ORR-1091) removed `NUXT_API_ONLY`).
+  The local app's own writes (`writeToApi`: the chat's rows, its Allow, the poll's and the scheduler's) go to the API
+  too, and fail with it down once this server has started one. Only a server with no API set up at all (unit tests)
+  leaves them to the store.
 
 **The page's side (ORR-943).** The page reaches the API through `web/app/utils/api.ts` alone, so where it sends a path is one
 setting: `NUXT_PUBLIC_API_BASES`, a JSON object of path prefix to base (`{"/projects/atlas/docs": "https://api.example.com/api"}`).
@@ -120,7 +121,7 @@ later) once, and `pnpm dev` (`nuxt dev`) starts `api/target/debug/orrery-api` be
 fresh token, and stops it with itself; build again after a change in `api/`. `NUXT_API_BIN` names another binary (the
 image sets it to its own copy). Or run one yourself and point at it: `NUXT_API_TOKEN` (16 characters or more) and
 `NUXT_DATABASE` for both, `ORRERY_API_LISTEN` for the API (`127.0.0.1:9100` by default), `NUXT_API_URL` for Nuxt.
-`ORRERY_API_LOG=1` has the API say each request it answers, and `NUXT_API_ONLY=1` turns the swap's flag on. With none
+`ORRERY_API_LOG=1` has the API say each request it answers. With none
 of these and no build, the server says so as it starts, and the API's routes answer 503.
 
 Which server answered: every reply to an `/api/` request carries `X-Served-By: rust` or `X-Served-By: nuxt` (the
@@ -139,8 +140,8 @@ and CI's `api` job builds one first. It also holds `openapi.yaml` to the routes 
 where each says it's the API's alone once routed, or what the Nuxt server still writes there and the issue that ends
 it: a table the API starts writing needs its line there. The browser suite
 runs through the API, as its `nuxt dev` starts the debug build (or `NUXT_API_BIN`), so `cargo build` in `api/` before
-`pnpm test:e2e`; CI hands its jobs the `api` job's binary. With `NUXT_API_ONLY=1` as well it runs as the playground
-does (CI's `e2e-api`), and what it found the first time is in [Rust API swap](/p/orrery/docs/rust-api-swap).
+`pnpm test:e2e`; CI hands its jobs the `api` job's binary. What the suite found the first time it ran through the API
+alone is in [Rust API swap](/p/orrery/docs/rust-api-swap).
 
 A change to a route the API serves is a change in the API (`api/src/routes/`, `api/src/board/`…) and the contract. Its
 Nuxt route is gone, but the store's code for it stays while the parity test holds the API to it and the local app still

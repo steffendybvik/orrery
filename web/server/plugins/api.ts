@@ -8,7 +8,7 @@ import {spawn} from 'node:child_process'
 import {existsSync} from 'node:fs'
 import {resolve} from 'node:path'
 import {ApiProcess} from '../utils/api-process'
-import {apiOnly, apiTarget} from '../utils/api-router'
+import {apiTarget} from '../utils/api-router'
 
 /** The repo's own debug build of the API, from web/ where `nuxt dev` runs. */
 const DEV_BIN = resolve(process.cwd(), '../api/target/debug/orrery-api')
@@ -30,7 +30,7 @@ export default defineNitroPlugin(nitro => {
             return databaseSetting()
         },
         failed: error => console.error(`[orrery] can't start the Rust API (${bin}):`, error.message),
-        stopped: code => console.error(`[orrery] the Rust API stopped (${code}); ${apiOnly(useRuntimeConfig()) ? 'its routes fail until it starts again (NUXT_API_ONLY)' : 'its routes fail until it starts again, but for the few kept here'}`),
+        stopped: code => console.error(`[orrery] the Rust API stopped (${code}); its routes fail until it starts again`),
     })
     const waited = (error: unknown) => console.error('[orrery] the Rust API waits on the database, which failed:', error)
     api.start().catch(waited)
