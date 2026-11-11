@@ -249,7 +249,8 @@ impl Board {
         out
     }
 
-    /// The issue on the board, with its parent and milestone (`findIssue`).
+    /// The issue on the board, with its parent and milestone (`findIssue`): what reading one issue alone must match.
+    #[cfg(test)]
     fn find(&self, id: &str) -> Option<(&Node, Option<String>, String)> {
         fn search<'b>(issues: &'b [Node], parent: Option<&str>, id: &str) -> Option<(&'b Node, Option<String>)> {
             for issue in issues {
@@ -360,9 +361,10 @@ impl<'c> Issues<'c> {
         Ok(row.map(|r| r.get::<String, _>("id")).unwrap_or_else(|| "owner".into()))
     }
 
-    /// The project's issues that are done (`doneIssues`, ORR-601).
-    async fn done_issues(&mut self, project: &str, statuses: &[Status]) -> Result<HashSet<String>> {
-        let rows = sqlx::query(&sql("SELECT id, status, proposal FROM issues WHERE project = ?")).bind(project).fetch_all(&mut *self.conn).await?;
+    /// The project's issues that are done (`doneIssues`, ORR-601), of `ids` only when given.
+    async fn done_issues(&mut self, project: &str, statuses: &[Status], ids: Option<&[String]>) -> Result<HashSet<String>> {
+        let query = sql(&format!("SELECT id, status, proposal FROM issues WHERE project = ?{}", within("id", ids)));
+        let rows = scoped(&query, project, ids).fetch_all(&mut *self.conn).await?;
         Ok(rows
             .iter()
             .filter(|r| r.get::<Option<String>, _>("proposal").is_none() && statuses.iter().any(|s| s.kind == "done" && s.id == r.get::<String, _>("status")))
@@ -370,19 +372,26 @@ impl<'c> Issues<'c> {
             .collect())
     }
 
-    async fn links(&mut self, project: &str, statuses: &[Status]) -> Result<Links> {
-        let on = sqlx::query(&sql("SELECT issue, on_project, on_issue FROM issue_links WHERE project = ? ORDER BY created_at, on_project, on_issue"))
-            .bind(project)
-            .fetch_all(&mut *self.conn)
-            .await?;
-        let by = sqlx::query(&sql("SELECT project, issue, on_issue FROM issue_links WHERE on_project = ? ORDER BY created_at, project, issue"))
-            .bind(project)
-            .fetch_all(&mut *self.conn)
-            .await?;
+    /// The links on and by the project's issues, or only `ids` of them when given.
+    async fn links(&mut self, project: &str, statuses: &[Status], ids: Option<&[String]>) -> Result<Links> {
+        let query = sql(&format!(
+            "SELECT issue, on_project, on_issue FROM issue_links WHERE project = ?{} ORDER BY created_at, on_project, on_issue",
+            within("issue", ids)
+        ));
+        let on = scoped(&query, project, ids).fetch_all(&mut *self.conn).await?;
+        let query = sql(&format!(
+            "SELECT project, issue, on_issue FROM issue_links WHERE on_project = ?{} ORDER BY created_at, project, issue",
+            within("on_issue", ids)
+        ));
+        let by = scoped(&query, project, ids).fetch_all(&mut *self.conn).await?;
         let mut done: HashMap<String, HashSet<String>> = HashMap::new();
-        let others: HashSet<String> = on.iter().map(|link| link.get("on_project")).collect();
-        for other in others {
-            let found = self.done_issues(&other, statuses).await?;
+        let mut others: HashMap<String, Vec<String>> = HashMap::new();
+        for link in &on {
+            others.entry(link.get("on_project")).or_default().push(link.get("on_issue"));
+        }
+        for (other, on_issues) in others {
+            // For one issue's links, only the issues they're on; for the board, the other project's whole list.
+            let found = self.done_issues(&other, statuses, ids.map(|_| on_issues.as_slice())).await?;
             done.insert(other, found);
         }
         let mut links = Links::default();
@@ -402,11 +411,12 @@ impl<'c> Issues<'c> {
     }
 
     /// Each issue with a rated PR (ORR-879), and the riskiest of them (`readRisks`).
-    async fn risks(&mut self, project: &str) -> Result<HashMap<String, Value>> {
-        let rows = sqlx::query(&sql("SELECT issue, risk, risk_why, risk_by FROM issue_pulls WHERE project = ? AND risk IS NOT NULL ORDER BY number"))
-            .bind(project)
-            .fetch_all(&mut *self.conn)
-            .await?;
+    async fn risks(&mut self, project: &str, ids: Option<&[String]>) -> Result<HashMap<String, Value>> {
+        let query = sql(&format!(
+            "SELECT issue, risk, risk_why, risk_by FROM issue_pulls WHERE project = ? AND risk IS NOT NULL{} ORDER BY number",
+            within("issue", ids)
+        ));
+        let rows = scoped(&query, project, ids).fetch_all(&mut *self.conn).await?;
         let rank = |level: &str| ["high", "medium", "low"].iter().position(|l| *l == level).unwrap_or(3);
         let mut risks: HashMap<String, Value> = HashMap::new();
         for row in rows {
@@ -423,11 +433,9 @@ impl<'c> Issues<'c> {
     }
 
     /// The ids each issue or milestone had before, A–Z.
-    async fn aliases(&mut self, project: &str, table: &str, column: &str) -> Result<HashMap<String, Vec<String>>> {
-        let rows = sqlx::query(&sql(&format!("SELECT alias, {column} AS target FROM {table} WHERE project = ? ORDER BY alias")))
-            .bind(project)
-            .fetch_all(&mut *self.conn)
-            .await?;
+    async fn aliases(&mut self, project: &str, table: &str, column: &str, ids: Option<&[String]>) -> Result<HashMap<String, Vec<String>>> {
+        let query = sql(&format!("SELECT alias, {column} AS target FROM {table} WHERE project = ?{} ORDER BY alias", within(column, ids)));
+        let rows = scoped(&query, project, ids).fetch_all(&mut *self.conn).await?;
         let mut found: HashMap<String, Vec<String>> = HashMap::new();
         for row in rows {
             found.entry(row.get("target")).or_default().push(row.get("alias"));
@@ -445,66 +453,21 @@ impl<'c> Issues<'c> {
         .bind(project)
         .fetch_all(&mut *self.conn)
         .await?;
-        let rows: Vec<IssueRow> = sqlx::query(&sql(&format!("SELECT {ISSUE_COLUMNS} FROM issues WHERE project = ? ORDER BY position, created_at")))
-            .bind(project)
-            .fetch_all(&mut *self.conn)
-            .await?
-            .into_iter()
-            .map(|row| IssueRow {
-                id: row.get("id"),
-                parent: row.get("parent"),
-                milestone: row.get("milestone"),
-                status: row.get("status"),
-                proposal: row.get("proposal"),
-                owned: row.get::<i64, _>("owned") != 0,
-                row,
-            })
-            .collect();
-        let comments: HashMap<String, i64> = sqlx::query(&sql("SELECT issue, CAST(count(*) AS BIGINT) AS n FROM comments WHERE project = ? GROUP BY issue"))
-            .bind(project)
-            .fetch_all(&mut *self.conn)
-            .await?
-            .iter()
-            .map(|r| (r.get("issue"), r.get("n")))
-            .collect();
-        // Each issue's latest question from an agent that no comment of the owner's has come after.
-        let mut waiting: HashMap<String, String> = HashMap::new();
-        let open_ask =
-            format!("SELECT c.issue, c.asks FROM comments c WHERE c.project = ? AND c.asks IS NOT NULL AND +c.owned = 0 AND NOT {SINCE} ORDER BY c.id");
-        for row in sqlx::query(&sql(&open_ask)).bind(project).fetch_all(&mut *self.conn).await? {
-            waiting.insert(row.get("issue"), row.get("asks"));
-        }
-        // An agent's proposal waiting on the owner (pending, not under another proposal) waits on their decision too,
-        // when no question of its own is open.
-        let proposals: HashSet<&str> = rows.iter().filter(|r| r.proposal.is_some()).map(|r| r.id.as_str()).collect();
-        for row in &rows {
-            let under_proposal = row.parent.as_deref().is_some_and(|p| proposals.contains(p));
-            if row.proposal.as_deref() == Some("pending") && !row.owned && !under_proposal && !waiting.contains_key(&row.id) {
-                waiting.insert(row.id.clone(), "decision".into());
-            }
-        }
-        // One that's done or canceled waits on nobody, whatever was left unanswered on it (ORR-640).
-        let closed: HashSet<&str> = statuses.iter().filter(|s| s.kind == "done" || s.kind == "canceled").map(|s| s.id.as_str()).collect();
-        let links = self.links(project, statuses).await?;
-        let risks = self.risks(project).await?;
-        let issue_aliases = self.aliases(project, "issue_aliases", "issue").await?;
-        let milestone_aliases = self.aliases(project, "milestone_aliases", "milestone").await?;
+        let rows = issue_rows(
+            sqlx::query(&sql(&format!("SELECT {ISSUE_COLUMNS} FROM issues WHERE project = ? ORDER BY position, created_at")))
+                .bind(project)
+                .fetch_all(&mut *self.conn)
+                .await?,
+        );
+        let extras = self.extras(project, statuses, &rows, None, None).await?;
+        let milestone_aliases = self.aliases(project, "milestone_aliases", "milestone", None).await?;
         let mut children: HashMap<Option<String>, Vec<&IssueRow>> = HashMap::new();
         for row in &rows {
             children.entry(row.parent.clone()).or_default().push(row);
         }
 
         let rules = Rules::new(statuses);
-        let context = Context {
-            rules: &rules,
-            children: &children,
-            comments: &comments,
-            waiting: &waiting,
-            closed: &closed,
-            links: &links,
-            risks: &risks,
-            aliases: &issue_aliases,
-        };
+        let context = Context { rules: &rules, children: &children, extras: &extras };
         let top = children.get(&None).cloned().unwrap_or_default();
         let mut grouped: Vec<Group> = milestones
             .iter()
@@ -540,6 +503,106 @@ impl<'c> Issues<'c> {
             grouped.push(Group { id: String::new(), fields, tasks });
         }
         Ok(Board { milestones: grouped })
+    }
+
+    /// What each issue on the board carries besides its row (`readBoard`): its comment count, open question, the ids it
+    /// had before, its dependency links and its risk. With `ids`, for those issues only, `rows` being them; `parent` is
+    /// then the proposal the first of them is under, if any, as it's outside `rows`.
+    async fn extras(&mut self, project: &str, statuses: &[Status], rows: &[IssueRow], ids: Option<&[String]>, parent: Option<&str>) -> Result<Extras> {
+        let query = sql(&format!("SELECT issue, CAST(count(*) AS BIGINT) AS n FROM comments WHERE project = ?{} GROUP BY issue", within("issue", ids)));
+        let comments: HashMap<String, i64> =
+            scoped(&query, project, ids).fetch_all(&mut *self.conn).await?.iter().map(|r| (r.get("issue"), r.get("n"))).collect();
+        // Each issue's latest question from an agent that no comment of the owner's has come after.
+        let mut waiting: HashMap<String, String> = HashMap::new();
+        let open_ask = sql(&format!(
+            "SELECT c.issue, c.asks FROM comments c WHERE c.project = ?{} AND c.asks IS NOT NULL AND +c.owned = 0 AND NOT {SINCE} ORDER BY c.id",
+            within("c.issue", ids)
+        ));
+        for row in scoped(&open_ask, project, ids).fetch_all(&mut *self.conn).await? {
+            waiting.insert(row.get("issue"), row.get("asks"));
+        }
+        // An agent's proposal waiting on the owner (pending, not under another proposal) waits on their decision too,
+        // when no question of its own is open.
+        let mut proposals: HashSet<&str> = rows.iter().filter(|r| r.proposal.is_some()).map(|r| r.id.as_str()).collect();
+        proposals.extend(parent);
+        for row in rows {
+            let under_proposal = row.parent.as_deref().is_some_and(|p| proposals.contains(p));
+            if row.proposal.as_deref() == Some("pending") && !row.owned && !under_proposal && !waiting.contains_key(&row.id) {
+                waiting.insert(row.id.clone(), "decision".into());
+            }
+        }
+        // One that's done or canceled waits on nobody, whatever was left unanswered on it (ORR-640).
+        let closed: HashSet<String> = statuses.iter().filter(|s| s.kind == "done" || s.kind == "canceled").map(|s| s.id.clone()).collect();
+        let links = self.links(project, statuses, ids).await?;
+        let risks = self.risks(project, ids).await?;
+        let aliases = self.aliases(project, "issue_aliases", "issue", ids).await?;
+        Ok(Extras { comments, waiting, closed, links, risks, aliases })
+    }
+
+    /// Where an issue sits on the board, read up its parents (ORR-1117): its parent, its milestone (its top issue's), and
+    /// whether a proposal is above it. None when the board doesn't reach it, as `findIssue` wouldn't find it: under an
+    /// issue there isn't, in a loop, or at the top in a milestone there isn't.
+    async fn place(&mut self, project: &str, id: &str) -> Result<Option<Place>> {
+        let ask = sql("SELECT parent, milestone, proposal FROM issues WHERE project = ? AND id = ?");
+        let (mut at, mut seen) = (id.to_string(), HashSet::new());
+        let mut place = Place { parent: None, parent_proposal: false, milestone: String::new(), proposed: false };
+        loop {
+            if !seen.insert(at.clone()) {
+                return Ok(None);
+            }
+            let Some(row) = sqlx::query(&ask).bind(project).bind(&at).fetch_optional(&mut *self.conn).await? else {
+                return Ok(None);
+            };
+            let above = at != id;
+            if above && row.get::<Option<String>, _>("proposal").is_some() {
+                place.proposed = true;
+                if place.parent.as_deref() == Some(at.as_str()) {
+                    place.parent_proposal = true;
+                }
+            }
+            match row.get::<Option<String>, _>("parent") {
+                Some(parent) => {
+                    if !above {
+                        place.parent = Some(parent.clone());
+                    }
+                    at = parent;
+                }
+                None => {
+                    let milestone = row.get::<Option<String>, _>("milestone").unwrap_or_default();
+                    if !milestone.is_empty() && !self.exists("SELECT 1 FROM milestones WHERE project = ? AND id = ?", &[project, &milestone]).await? {
+                        return Ok(None);
+                    }
+                    place.milestone = milestone;
+                    return Ok(Some(place));
+                }
+            }
+        }
+    }
+
+    /// The issue and its sub-issues, as the board builds them, read without the rest of the board (ORR-1117).
+    async fn subtree(&mut self, project: &str, id: &str, statuses: &[Status]) -> Result<Option<(Node, Place)>> {
+        let Some(place) = self.place(project, id).await? else {
+            return Ok(None);
+        };
+        let query = sql(&format!(
+            "WITH RECURSIVE tree(id) AS (SELECT id FROM issues WHERE project = ? AND id = ? \
+             UNION SELECT i.id FROM issues i JOIN tree t ON i.parent = t.id WHERE i.project = ?) \
+             SELECT {ISSUE_COLUMNS} FROM issues WHERE project = ? AND id IN (SELECT id FROM tree) ORDER BY position, created_at"
+        ));
+        let rows = issue_rows(sqlx::query(&query).bind(project).bind(id).bind(project).bind(project).fetch_all(&mut *self.conn).await?);
+        let ids: Vec<String> = rows.iter().map(|r| r.id.clone()).collect();
+        let parent = place.parent.as_deref().filter(|_| place.parent_proposal);
+        let extras = self.extras(project, statuses, &rows, Some(&ids), parent).await?;
+        let mut children: HashMap<Option<String>, Vec<&IssueRow>> = HashMap::new();
+        for row in &rows {
+            children.entry(row.parent.clone()).or_default().push(row);
+        }
+        let Some(top) = rows.iter().find(|r| r.id == id) else {
+            return Ok(None);
+        };
+        let rules = Rules::new(statuses);
+        let node = Context { rules: &rules, children: &children, extras: &extras }.issue(top, place.proposed);
+        Ok(Some((node, place)))
     }
 
     /// The issue's tasks in the shape `listIssues` filters: a whole board read, then filtered here.
@@ -709,12 +772,11 @@ impl<'c> Issues<'c> {
         let id = self.resolve(project, sent, false).await?;
         let row = self.project(project).await?;
         let statuses = self.statuses().await?;
-        let board = self.board(project, &statuses).await?;
-        let (issue, parent, milestone) = board.find(&id).ok_or_else(|| ApiError::not_found(format!("No issue {id} in {project}")))?;
+        let (issue, place) = self.subtree(project, &id, &statuses).await?.ok_or_else(|| ApiError::not_found(format!("No issue {id} in {project}")))?;
         let Value::Object(mut out) = issue.json() else { unreachable!() };
         out.insert("project".into(), json!(project));
-        out.insert("parent".into(), json!(parent));
-        out.insert("milestone".into(), if milestone.is_empty() { Value::Null } else { json!(milestone) });
+        out.insert("parent".into(), json!(place.parent));
+        out.insert("milestone".into(), if place.milestone.is_empty() { Value::Null } else { json!(place.milestone) });
         out.insert("ref".into(), json!(format!("orrery-{}: {id}", self.handle().await?.to_lowercase())));
         out.insert("full_id".into(), json!(format!("{id}-{}", row.uid)));
         Ok(Value::Object(out))
@@ -749,12 +811,59 @@ fn status_ids(statuses: &[Status], sent: &str) -> Vec<String> {
 struct Context<'a> {
     rules: &'a Rules<'a>,
     children: &'a HashMap<Option<String>, Vec<&'a IssueRow>>,
-    comments: &'a HashMap<String, i64>,
-    waiting: &'a HashMap<String, String>,
-    closed: &'a HashSet<&'a str>,
-    links: &'a Links,
-    risks: &'a HashMap<String, Value>,
-    aliases: &'a HashMap<String, Vec<String>>,
+    extras: &'a Extras,
+}
+
+/// What `readBoard` gathers about the issues besides their rows.
+struct Extras {
+    comments: HashMap<String, i64>,
+    waiting: HashMap<String, String>,
+    closed: HashSet<String>,
+    links: Links,
+    risks: HashMap<String, Value>,
+    aliases: HashMap<String, Vec<String>>,
+}
+
+/// Where an issue sits on the board (`Issues::place`).
+struct Place {
+    parent: Option<String>,
+    /// Whether its parent is a proposal, so a pending proposal under it doesn't wait on the owner.
+    parent_proposal: bool,
+    milestone: String,
+    /// Whether a proposal is above it, so it's in the proposed column.
+    proposed: bool,
+}
+
+fn issue_rows(rows: Vec<AnyRow>) -> Vec<IssueRow> {
+    rows.into_iter()
+        .map(|row| IssueRow {
+            id: row.get("id"),
+            parent: row.get("parent"),
+            milestone: row.get("milestone"),
+            status: row.get("status"),
+            proposal: row.get("proposal"),
+            owned: row.get::<i64, _>("owned") != 0,
+            row,
+        })
+        .collect()
+}
+
+/// ` AND column IN (?, …)` for `ids`, or nothing for the whole project.
+fn within(column: &str, ids: Option<&[String]>) -> String {
+    match ids {
+        Some([]) => " AND 1 = 0".into(),
+        Some(ids) => format!(" AND {column} IN ({})", vec!["?"; ids.len()].join(", ")),
+        None => String::new(),
+    }
+}
+
+/// The query with the project bound, then `ids`, as `within` asks.
+fn scoped<'q>(query: &'q str, project: &'q str, ids: Option<&'q [String]>) -> sqlx::query::Query<'q, sqlx::Any, sqlx::any::AnyArguments<'q>> {
+    let mut asked = sqlx::query(query).bind(project);
+    for id in ids.into_iter().flatten() {
+        asked = asked.bind(id.as_str());
+    }
+    asked
 }
 
 impl Context<'_> {
@@ -800,7 +909,7 @@ impl Context<'_> {
         put("decision_note", text("decision_note").map(Value::from));
         put("picks", parsed("picks").filter(|_| text("picks").is_some_and(|t| !t.is_empty())));
         put("explore", parsed("explore").filter(|_| text("explore").is_some_and(|t| !t.is_empty())));
-        put("waiting", if self.closed.contains(issue.status.as_str()) { None } else { self.waiting.get(&issue.id).map(|w| json!(w)) });
+        put("waiting", if self.extras.closed.contains(&issue.status) { None } else { self.extras.waiting.get(&issue.id).map(|w| json!(w)) });
         put("schedule", row.get::<Option<i64>, _>("schedule").map(Value::from));
         put("release", text("ships_in").map(Value::from));
         put("epic", row.get::<Option<i64>, _>("epic").filter(|e| *e != 0).map(Value::from));
@@ -811,15 +920,15 @@ impl Context<'_> {
             put("claimed_by", Some(json!(claimed)));
             put("claimed_at", text("claimed_at").filter(|c| !c.is_empty()).map(Value::from));
         }
-        put("depends_on", self.links.depends_on.get(&issue.id).map(|l| json!(l)));
-        put("blocked_by", self.links.blocked_by.get(&issue.id).map(|l| json!(l)));
-        put("blocks", self.links.blocks.get(&issue.id).map(|l| json!(l)));
-        put("risk", self.risks.get(&issue.id).cloned());
+        put("depends_on", self.extras.links.depends_on.get(&issue.id).map(|l| json!(l)));
+        put("blocked_by", self.extras.links.blocked_by.get(&issue.id).map(|l| json!(l)));
+        put("blocks", self.extras.links.blocks.get(&issue.id).map(|l| json!(l)));
+        put("risk", self.extras.risks.get(&issue.id).cloned());
         put("external", Some(parsed("external").unwrap_or(json!([]))));
         put("github_issues", Some(parsed("github_issues").unwrap_or(json!([]))));
         put("choices", Some(parsed("choices").unwrap_or(json!([]))));
-        put("comments", Some(json!(self.comments.get(&issue.id).copied().unwrap_or(0))));
-        put("aliases", Some(json!(self.aliases.get(&issue.id).cloned().unwrap_or_default())));
+        put("comments", Some(json!(self.extras.comments.get(&issue.id).copied().unwrap_or(0))));
+        put("aliases", Some(json!(self.extras.aliases.get(&issue.id).cloned().unwrap_or_default())));
         put("created_by", Some(json!(text("created_by").unwrap_or_default())));
         put("protected", Some(json!(issue.owned)));
         put("created_at", Some(json!(text("created_at").unwrap_or_default())));
@@ -867,5 +976,56 @@ mod tests {
         assert_eq!(status_ids(&statuses, "started, todo,review"), ["in-progress", "review", "todo"]);
         assert_eq!(status_ids(&statuses, "doing"), ["in-progress", "review"]);
         assert!(status_ids(&statuses, "proposed").is_empty());
+    }
+    /// Each issue reads the same alone (ORR-1117) as it does found on the whole board: sub-issues and their roll-up,
+    /// proposals and what's under one, open questions, links either way, risks and aliases.
+    #[tokio::test]
+    async fn one_issue_reads_as_the_whole_board_has_it() {
+        use crate::testing::TestApi;
+        let api = TestApi::new().await;
+        let (project, other) = (api.project("Primes").await, api.project("Sieve").await);
+        let issues = format!("/api/projects/{project}/issues");
+        let made = |reply: crate::testing::Reply| reply.body["id"].as_str().unwrap().to_string();
+        let milestone =
+            api.post(&format!("/api/projects/{project}/milestones"), json!({"title": "First"})).send().await.body["id"].as_str().unwrap().to_string();
+        let top = api.issue(&project, json!({"title": "Top", "milestone": milestone})).await;
+        let sub = api.issue(&project, json!({"title": "Sub", "parent": top, "status": "in-progress"})).await;
+        let deep = api.issue(&project, json!({"title": "Deep", "parent": sub, "status": "done"})).await;
+        let elsewhere = api.issue(&other, json!({"title": "Over there"})).await;
+        let blocked = api.issue(&project, json!({"title": "Blocked", "depends_on": [top, format!("{other}/{elsewhere}")]})).await;
+        let proposal = made(api.post(&issues, json!({"title": "Idea", "proposal": "pending"})).by_agent("claude").send().await);
+        let under = made(api.post(&issues, json!({"title": "Part", "parent": proposal, "proposal": "pending"})).by_agent("claude").send().await);
+        let asked = api.issue(&project, json!({"title": "Asked"})).await;
+        let comments = format!("{issues}/{asked}/comments");
+        api.post(&comments, json!({"body": "Which?", "asks": "decision"})).by_agent("claude").send().await;
+        api.post(&format!("{issues}/{sub}/comments"), json!({"body": "Noted"})).send().await;
+        api.run("INSERT INTO issue_aliases (project, alias, issue) VALUES (?, 'OLD-1', ?)", &[&project, &sub]).await;
+        api.run(
+            "INSERT INTO issue_pulls (project, issue, repo, number, title, url, branch, base, author, state, created_at, updated_at, risk, risk_why, risk_by) \
+             VALUES (?, ?, 'a/b', 7, 't', 'u', 'b', 'main', 'me', 'open', '2026-11-01', '2026-11-01', 'high', 'why', 'owner')",
+            &[&project, &deep],
+        )
+        .await;
+
+        let mut conn = api.app.pool.acquire().await.unwrap();
+        let mut read = Issues::new(&mut conn);
+        let statuses = read.statuses().await.unwrap();
+        let board = read.board(&project, &statuses).await.unwrap();
+        for id in [&top, &sub, &deep, &blocked, &proposal, &under, &asked] {
+            let alone = read.subtree(&project, id, &statuses).await.unwrap();
+            match (board.find(id), alone) {
+                (Some((node, parent, milestone)), Some((issue, place))) => {
+                    assert_eq!(issue.json(), node.json(), "{id}");
+                    assert_eq!((place.parent, place.milestone), (parent, milestone), "{id}");
+                }
+                (None, None) => {}
+                (on_board, alone) => panic!("{id}: on the board {}, alone {}", on_board.is_some(), alone.is_some()),
+            }
+        }
+        let top = read.subtree(&project, &top, &statuses).await.unwrap().unwrap().0.json();
+        assert_eq!(top["tasks"][0]["tasks"][0]["risk"]["level"], "high");
+        assert_eq!(top["tasks"][0]["aliases"], json!(["OLD-1"]));
+        assert_eq!(read.subtree(&project, &asked, &statuses).await.unwrap().unwrap().0.json()["waiting"], "decision");
+        assert_eq!(read.subtree(&project, &proposal, &statuses).await.unwrap().unwrap().0.json()["tasks"][0]["column"], "proposed");
     }
 }
