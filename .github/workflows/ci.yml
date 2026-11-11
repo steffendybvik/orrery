@@ -138,7 +138,9 @@ jobs:
           name: orrery-api
           path: api/target/debug/orrery-api
           retention-days: 1
-      - run: pnpm --dir web exec vitest run --project unit test/api-parity.test.ts test/rust-migrations.test.ts
+      # And a door's refusals, the router's middleware against the API's guard (ORR-1113), on SQLite alone: the doors
+      # are the same whatever the database.
+      - run: pnpm --dir web exec vitest run --project unit test/api-parity.test.ts test/rust-migrations.test.ts test/door-refusals.test.ts
       - run: pnpm --dir web exec vitest run --project unit test/api-parity.test.ts test/rust-migrations.test.ts
         env:
           TEST_POSTGRES_URL: postgres://orrery:orrery@localhost:5432/orrery
