@@ -80,6 +80,93 @@ async fn a_project_there_isnt_is_a_404() {
     assert_eq!(reply.body["message"], "No project \"nowhere\"");
 }
 
+#[tokio::test]
+async fn the_local_app_writes_a_signal_with_its_target_picked() {
+    let api = TestApi::new().await;
+    let (project, issue) = api.board().await;
+    let sent = json!({"issue": issue, "kind": "focus", "note": "Look", "target": "sess-1", "person": "ada", "instructions": ["Be brief"],
+        "model": "opus", "created_by": "owner", "owned": true});
+    let reply = api.post(&format!("/api/projects/{project}/signals"), sent).send().await;
+    assert_eq!(reply.status, 201, "{}", reply.body);
+    let signal = &reply.body;
+    assert_eq!(
+        signal,
+        &json!({"id": signal["id"], "project": project, "issue": issue, "kind": "focus", "note": "Look", "target": "sess-1", "delivered_to": [],
+            "instructions": ["Be brief"], "person": "ada", "model": "opus", "created_by": "owner", "protected": true, "created_at": signal["created_at"]})
+    );
+    // A milestone's, an epic's and a schedule's ask carry what they're about too, and read back as written.
+    let milestone = api
+        .post(&format!("/api/projects/{project}/signals"), json!({"milestone": "all", "status": "todo", "epic": 3, "kind": "focus", "created_by": "claude"}))
+        .send()
+        .await;
+    assert_eq!(milestone.status, 201, "{}", milestone.body);
+    assert_eq!(
+        (milestone.body["milestone"].clone(), milestone.body["epic"].clone(), milestone.body["protected"].clone()),
+        (json!("all"), json!(3), json!(false))
+    );
+    let read = api.get(&format!("/api/projects/{project}/signals")).send().await;
+    assert_eq!(read.body, json!([signal, milestone.body]));
+}
+
+#[tokio::test]
+async fn a_signal_is_refused_from_anyone_but_the_local_app_or_when_it_says_nothing_usable() {
+    let door = TestApi::at_the_door().await;
+    let (project, _) = door.board().await;
+    let reply = door.post(&format!("/api/projects/{project}/signals"), json!({"kind": "message", "created_by": "owner"})).send().await;
+    assert_eq!(reply.status, 403, "{}", reply.body);
+    for path in [format!("/api/projects/{project}/signals/1/receipts"), format!("/api/projects/{project}/signals/retarget"), "/api/signals/prune".into()] {
+        assert_eq!(door.post(&path, json!({})).send().await.status, 403, "{path}");
+    }
+    let api = TestApi::new().await;
+    let (project, _) = api.board().await;
+    let path = format!("/api/projects/{project}/signals");
+    let wrong = api.post(&path, json!({"kind": "shout", "created_by": "owner"})).send().await;
+    assert_eq!(wrong.status, 400);
+    assert_eq!(wrong.body["message"], "\"kind\" is \"shout\"; use focus, comment, message");
+    assert_eq!(api.post(&path, json!({"kind": "message"})).send().await.status, 400);
+    assert_eq!(api.post(&path, json!({"kind": "message", "created_by": "owner", "epic": "three"})).send().await.status, 400);
+    assert_eq!(api.post(&path, json!({"kind": "message", "created_by": "owner", "instructions": [1]})).send().await.status, 400);
+    assert_eq!(api.post("/api/projects/nowhere/signals", json!({"kind": "message", "created_by": "owner"})).send().await.status, 404);
+}
+
+#[tokio::test]
+async fn a_receipt_adds_the_session_once_and_a_signal_there_isnt_is_a_404() {
+    let api = TestApi::new().await;
+    let (project, _) = api.board().await;
+    let written =
+        api.post(&format!("/api/projects/{project}/signals"), json!({"kind": "message", "note": "Hi", "created_by": "owner", "owned": true})).send().await;
+    let id = written.body["id"].as_i64().unwrap();
+    let path = format!("/api/projects/{project}/signals/{id}/receipts");
+    for (to, heard) in [("Frøy", json!(["Frøy"])), ("Siv", json!(["Frøy", "Siv"])), ("Frøy", json!(["Frøy", "Siv"]))] {
+        let reply = api.post(&path, json!({"to": to})).send().await;
+        assert_eq!(reply.status, 200, "{}", reply.body);
+        assert_eq!(reply.body["delivered_to"], heard, "{to}");
+    }
+    assert_eq!(api.get(&format!("/api/projects/{project}/signals")).send().await.body[0]["delivered_to"], json!(["Frøy", "Siv"]));
+    let missing = api.post(&format!("/api/projects/{project}/signals/999/receipts"), json!({"to": "Siv"})).send().await;
+    assert_eq!(missing.status, 404);
+    assert_eq!(missing.body["message"], format!("No signal 999 in {project}"));
+    assert_eq!(api.post(&format!("/api/projects/{project}/signals/soon/receipts"), json!({"to": "Siv"})).send().await.status, 404);
+    assert_eq!(api.post(&path, json!({})).send().await.status, 400);
+}
+
+#[tokio::test]
+async fn a_new_session_id_takes_over_its_old_ones_signals_and_old_signals_go() {
+    let api = TestApi::new().await;
+    let (project, issue) = api.board().await;
+    for target in ["old", "old", "other"] {
+        api.post(&format!("/api/projects/{project}/signals"), json!({"kind": "message", "target": target, "created_by": "owner"})).send().await;
+    }
+    let moved = api.post(&format!("/api/projects/{project}/signals/retarget"), json!({"from": "old", "to": "new"})).send().await;
+    assert_eq!(moved.body, json!({"moved": 2}));
+    let targets: Vec<Value> =
+        api.get(&format!("/api/projects/{project}/signals")).send().await.body.as_array().unwrap().iter().map(|s| s["target"].clone()).collect();
+    assert_eq!(targets, [json!("new"), json!("new"), json!("other")]);
+    signal(&api, &project, "focus", Some(&issue), "2026-01-01T00:00:00.000Z").await;
+    assert_eq!(api.post("/api/signals/prune", json!({})).send().await.body, json!({"pruned": 1}));
+    assert_eq!(api.get(&format!("/api/projects/{project}/signals")).send().await.body.as_array().unwrap().len(), 3);
+}
+
 #[test]
 fn after_reads_as_number_does() {
     assert_eq!(after_of(None), 0.0);

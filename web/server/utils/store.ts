@@ -54,6 +54,6 @@ export class Store extends ImportStore {
      * hangs on the server remembering the old id. */
     async renameSession(project: string, from: string, to: string) {
         await this.run('UPDATE issue_sessions SET session = ? WHERE project = ? AND session = ?', to, project, from)
-        await this.run('UPDATE signals SET target = ? WHERE project = ? AND target = ?', to, project, from)
+        await this.retargetSignals(project, from, to)
     }
 }
