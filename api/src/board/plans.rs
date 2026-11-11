@@ -86,11 +86,27 @@ struct Read {
 
 pub struct Plans<'c, 'i> {
     issues: &'i mut Issues<'c>,
+    /// Whether only the boards' counts are wanted, so their outlines will do (ORR-1117).
+    counted: bool,
 }
 
 impl<'c, 'i> Plans<'c, 'i> {
     pub fn new(issues: &'i mut Issues<'c>) -> Self {
-        Plans { issues }
+        Plans { issues, counted: false }
+    }
+
+    /// For what only counts the boards up: a project's counts, its releases' tallies (ORR-1117).
+    pub fn counting(issues: &'i mut Issues<'c>) -> Self {
+        Plans { issues, counted: true }
+    }
+
+    /// The project's board, or, counting, its outline.
+    async fn board_of(&mut self, project: &str, statuses: &[Status]) -> Result<Board> {
+        if self.counted {
+            self.issues.outline(project, statuses).await
+        } else {
+            self.issues.board(project, statuses).await
+        }
     }
 
     /// The project's milestones in order, each with its column, counts and top-level issue ids (`listMilestones`).
@@ -119,7 +135,7 @@ impl<'c, 'i> Plans<'c, 'i> {
 
     async fn read(&mut self, project: &str, statuses: &[Status]) -> Result<Read> {
         let row = self.issues.project(project).await?;
-        let board = self.issues.board(project, statuses).await?;
+        let board = self.board_of(project, statuses).await?;
         Ok(Read { id: project.into(), row, board })
     }
 
@@ -146,7 +162,7 @@ impl<'c, 'i> Plans<'c, 'i> {
         let mut others = Vec::new();
         if read.row.releases_from.is_none() {
             for other in self.drawing_on(&read.id).await? {
-                others.push(self.issues.board(&other, statuses).await?);
+                others.push(self.board_of(&other, statuses).await?);
             }
         }
         let boards: Vec<&Board> = std::iter::once(&read.board).chain(others.iter()).collect();
@@ -171,6 +187,7 @@ impl<'c, 'i> Plans<'c, 'i> {
 
     /// The project's releases, newest first, each with how far its issues are (`listReleases`).
     pub async fn releases(&mut self, project: &str) -> Result<Value> {
+        self.counted = true;
         let statuses = self.issues.statuses().await?;
         let read = self.read(project, &statuses).await?;
         Ok(Value::Array(self.releases_of(&read, &statuses).await?.into_iter().map(Value::Object).collect()))
@@ -247,7 +264,7 @@ impl<'c, 'i> Plans<'c, 'i> {
             let versions: Vec<String> = rows.iter().map(|r| r.get("version")).collect();
             let mut boards = Vec::new();
             for project in &projects {
-                boards.push(self.issues.board(project, &statuses).await?);
+                boards.push(self.issues.outline(project, &statuses).await?);
             }
             let together = tally(&versions, &boards.iter().collect::<Vec<_>>());
             let parts: Vec<HashMap<String, Tally>> = boards.iter().map(|b| tally(&versions, &[b])).collect();

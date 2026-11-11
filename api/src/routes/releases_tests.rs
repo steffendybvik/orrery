@@ -237,3 +237,43 @@ async fn a_release_made_shipped_marks_the_docs_as_they_are() {
         "made shipped is made, not shipped"
     );
 }
+
+/// What counts the boards up from their outlines (ORR-1117), a project's counts in the list and the releases' tallies,
+/// comes out as from the whole board, the order of the counts too: sub-issues with releases of their own or their
+/// parent's, proposals and what's under them, and a project drawing on another's releases.
+#[tokio::test]
+async fn counting_from_the_outline_matches_the_whole_board() {
+    let api = TestApi::new().await;
+    let source = shipping(&api, "Source", None).await;
+    let drawing = shipping(&api, "Drawing", Some(&source)).await;
+    for version in ["1.0", "2.0"] {
+        release(&api, &source, json!({"version": version})).await;
+    }
+    let issues = format!("/api/projects/{source}/issues");
+    let made = |reply: crate::testing::Reply| reply.body["id"].as_str().unwrap().to_string();
+    let milestone = api.post(&format!("/api/projects/{source}/milestones"), json!({"title": "First"})).send().await.body["id"].as_str().unwrap().to_string();
+    let top = api.issue(&source, json!({"title": "Top", "milestone": milestone, "release": "1.0"})).await;
+    api.issue(&source, json!({"title": "Sub", "parent": top, "status": "in-progress"})).await;
+    let own = api.issue(&source, json!({"title": "Own", "parent": top, "release": "2.0", "status": "done"})).await;
+    api.issue(&source, json!({"title": "Deep", "parent": own, "status": "canceled"})).await;
+    api.issue(&source, json!({"title": "Loose", "release": "2.0"})).await;
+    let idea = made(api.post(&issues, json!({"title": "Idea", "proposal": "pending"})).by_agent("claude").send().await);
+    api.post(&issues, json!({"title": "Part", "parent": idea, "release": "1.0"})).by_agent("claude").send().await;
+    api.issue(&drawing, json!({"title": "Theirs", "release": "1.0", "status": "todo"})).await;
+
+    let listed = api.get("/api/projects").send().await.body;
+    for project in [&source, &drawing] {
+        let whole = api.get(&format!("/api/projects/{project}")).send().await.body;
+        let counted = listed.as_array().unwrap().iter().find(|p| p["id"] == *project).unwrap();
+        assert_eq!(counted["counts"].to_string(), whole["board"]["counts"].to_string(), "{project}");
+        assert_eq!(counted["kinds"].to_string(), whole["board"]["kinds"].to_string(), "{project}");
+        assert_eq!(counted["releases"], whole["releases"], "{project}");
+        assert_eq!(api.get(&format!("/api/projects/{project}/releases")).send().await.body, whole["releases"], "{project}");
+    }
+    let whole = api.get(&format!("/api/projects/{source}")).send().await.body;
+    assert!(whole["releases"][0]["kinds"].as_object().unwrap().values().map(|n| n.as_i64().unwrap()).sum::<i64>() > 0);
+    let all = api.get("/api/releases").send().await.body;
+    let one = all[0]["releases"].as_array().unwrap().iter().find(|r| r["version"] == "1.0").unwrap();
+    let from_whole = whole["releases"].as_array().unwrap().iter().find(|r| r["version"] == "1.0").unwrap();
+    assert_eq!((&one["issues"], &one["kinds"]), (&from_whole["issues"], &from_whole["kinds"]));
+}
