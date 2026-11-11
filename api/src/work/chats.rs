@@ -130,6 +130,7 @@ impl<'c> Chats<'c> {
         message.shift_remove("at");
         changes::begin(self.conn).await?;
         let done = self.add_in(chat, message).await;
+        self.effects.chats.push(chat.to_string());
         changes::finish(self.conn, self.outbox.as_mut(), &self.effects, done).await
     }
 
@@ -165,6 +166,7 @@ impl<'c> Chats<'c> {
         message.shift_remove("at");
         changes::begin(self.conn).await?;
         let done = self.change_in(chat, id, message).await;
+        self.effects.chats.push(chat.to_string());
         changes::finish(self.conn, self.outbox.as_mut(), &self.effects, done).await
     }
 

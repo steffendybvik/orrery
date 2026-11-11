@@ -33,6 +33,8 @@ pub struct Effects {
     pub schedules: Vec<String>,
     /// The event log's lines a resolve changed (ORR-1088): the local app pushes each to open pages' bells.
     pub logged: Vec<Value>,
+    /// The chats whose messages changed (ORR-1100): the local app, which runs each chat's session, reads them again.
+    pub chats: Vec<String>,
 }
 
 /// An event a write told: its kind, project and subject, and where a value went (`from`, `to`) when one changed, as a

@@ -77,6 +77,9 @@ async function apply(store: Store, change: Change, unknown: Set<string>) {
         // (`fresh`, said beside the line) counted again.
         const {fresh, ...event} = payload
         projectEvents.emit('logged', {event, fresh: fresh === true})
+    } else if (change.kind === 'chat') {
+        // A chat's messages the API added or changed (ORR-1100): this server runs the chat, so it reads them again.
+        if (change.subject) await chatHeard(change.subject)
     } else if (change.kind === 'signal' || change.kind === 'notice') {
         if (!unknown.has(change.kind)) console.warn(`[orrery] the outbox has a ${change.kind} this server didn't write, which it doesn't deliver yet (ORR-983)`)
         unknown.add(change.kind)

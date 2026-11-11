@@ -258,9 +258,35 @@ async function add(chat: Chat, message: Omit<ChatMessage, 'id' | 'at'>): Promise
         keptOf(chat.id).set(said.id, JSON.stringify(said))
         return said
     })
-    chat.messages.push(said)
+    // The outbox may have brought it in already (`chatHeard`).
+    if (!chat.messages.some(m => m.id === said.id)) chat.messages.push(said)
     changed(chat)
     return said
+}
+
+/** The outbox says chat `id`'s messages changed elsewhere (ORR-1100): the Rust API added one, or changed one (a request
+ * its `/mcp` asked, an answer). Its messages are read again from their rows. One that's new here comes in; one that's
+ * here comes in only when its row isn't what this server last kept of it, so a change made here and still being kept
+ * isn't lost to the row from before it. A chat this server doesn't hold is left. */
+export async function chatHeard(id: string) {
+    const chat = chats.get(id) ?? over.get(id)
+    if (!chat) return
+    const rows = await useDatabase().all<{id: number | string, at: string, message: string}>('SELECT id, at, message FROM chat_messages WHERE chat = ? ORDER BY id', id)
+    const lines = keptOf(id)
+    let news = false
+    for (const row of rows) {
+        const message = {id: Number(row.id), at: row.at, ...JSON.parse(row.message) as Omit<ChatMessage, 'id' | 'at'>} as ChatMessage
+        const now = JSON.stringify(message)
+        const at = chat.messages.findIndex(m => m.id === message.id)
+        if (at === -1) chat.messages.push(message)
+        else if (lines.get(message.id) !== now) chat.messages[at] = message
+        else continue
+        lines.set(message.id, now)
+        news = true
+    }
+    if (!news) return
+    chat.messages.sort((a, b) => a.id - b.id)
+    projectEvents.emit('chat', chat)
 }
 
 /** The page the owner is on as they write (`{path, title?}`), if it's one: a path on this orrery, and its tab's title. */

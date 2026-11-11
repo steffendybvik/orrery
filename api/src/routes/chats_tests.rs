@@ -247,3 +247,22 @@ async fn a_forgotten_chats_messages_go_with_it() {
     api.delete("/api/chats/c1").send().await;
     assert_eq!(api.count("SELECT COUNT(*) FROM chat_messages").await, 0);
 }
+
+#[tokio::test]
+async fn adding_or_changing_a_message_says_so_in_the_outbox_but_keeping_the_chat_doesnt() {
+    let api = TestApi::new().await;
+    let project = api.project("Primes").await;
+    api.put("/api/chats/c1", chat("c1", &project, "2026-11-01T10:00:00.000Z")).send().await;
+    let chat_rows = || async {
+        let read = api.get("/api/changes").send().await.body;
+        read["changes"].as_array().unwrap().iter().filter(|c| c["kind"] == "chat").map(|c| c["subject"].as_str().unwrap().to_string()).collect::<Vec<_>>()
+    };
+    assert!(chat_rows().await.is_empty(), "keeping the chat's row is the local app's own, so it says nothing");
+    api.post("/api/chats/c1/lines", said("claude", "Hi")).send().await;
+    assert_eq!(chat_rows().await, ["c1"]);
+    api.put("/api/chats/c1/lines/1", said("claude", "Hello")).send().await;
+    assert_eq!(chat_rows().await, ["c1", "c1"]);
+    // A refused write says nothing.
+    api.post("/api/chats/nope/lines", said("claude", "Hi")).send().await;
+    assert_eq!(chat_rows().await.len(), 2);
+}
