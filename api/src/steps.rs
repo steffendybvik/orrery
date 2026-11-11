@@ -1,4 +1,5 @@
-// Written by web/test/rust-migrations.test.ts from web/server/utils/migrations (ORR-931): don't edit it, run that.
+// Written by web/test/rust-migrations.test.ts from api/migrations and the frozen steps of web/server/utils/migrations
+// (ORR-931): don't edit it, run that.
 use crate::migrate::Step;
 
 /// SQLite's steps, each bringing `PRAGMA user_version` up one.

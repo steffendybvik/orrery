@@ -1,8 +1,12 @@
 // Postgres's schema: one baseline, SQLite's schema at step BASELINE written for Postgres, then a step for each of
 // SQLite's after it (migrations/sqlite.ts), tracked in `schema_version`. postgres.ts lays down the baseline on an empty
 // database and runs the steps it hasn't had. test/schema-parity.test.ts holds the two lists to the same schema.
+//
+// Frozen, as sqlite.ts says (ORR-931): a new step is a SQL file in api/migrations/postgres, read here through
+// from-api.ts.
 import type {PoolClient} from 'pg'
 import {ownerPerson} from '../owner-person'
+import {POSTGRES_FROM_API} from './from-api'
 
 /** SQLite's step this schema matches (`PRAGMA user_version`). */
 export const BASELINE = 23
@@ -197,7 +201,7 @@ export const SCHEMA = `
 `
 
 /** Steps after the baseline, in order, each matching SQLite's step BASELINE + its place + 1. */
-export const STEPS: (string | ((client: Pick<PoolClient, 'query'>) => Promise<unknown>))[] = [`
+export const POSTGRES_FROZEN: (string | ((client: Pick<PoolClient, 'query'>) => Promise<unknown>))[] = [`
     ALTER TABLE issues ADD COLUMN choices text NOT NULL DEFAULT '[]';
     ALTER TABLE issues ADD COLUMN picks text;
     ALTER TABLE issues ADD COLUMN explore text;
@@ -768,3 +772,6 @@ export const STEPS: (string | ((client: Pick<PoolClient, 'query'>) => Promise<un
     -- release narrows a milestone's. No key to the epic: deleting one leaves its old signals pointing at nothing.
     ALTER TABLE signals ADD COLUMN epic integer;
 `]
+
+/** Every step after the baseline: the frozen ones, then the Rust API's after them (ORR-931). */
+export const STEPS: (string | ((client: Pick<PoolClient, 'query'>) => Promise<unknown>))[] = [...POSTGRES_FROZEN, ...POSTGRES_FROM_API]
