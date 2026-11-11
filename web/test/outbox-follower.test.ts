@@ -3,7 +3,7 @@
 import {mkdtempSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
-import {beforeEach, describe, expect, it} from 'vitest'
+import {beforeEach, describe, expect, it, vi} from 'vitest'
 import type {Change, Page} from '../server/utils/outbox-follower'
 import {caughtUp, cursorFile, followOutbox, readCursor, saveCursor, setFollowingOutbox} from '../server/utils/outbox-follower'
 import type {OrreryEvent} from '../server/store/schema'
@@ -85,6 +85,16 @@ describe('following the outbox', () => {
         await follow([{changes: [row(101, 'event.logged', {project: null, payload: {...line, fresh: true}}), row(102, 'event.logged', {project: null, payload: {...line, id: 9}})], last: 102}])
         projectEvents.off('logged', hear)
         expect(heard).toEqual([{event: line, fresh: true}, {event: {...line, id: 9}, fresh: false}])
+    })
+
+    it("reads a chat again when the API changed its messages, and tells the board nothing (ORR-1100)", async () => {
+        const heard: string[] = []
+        vi.stubGlobal('chatHeard', async (chat: string) => void heard.push(chat))
+        await follow([{changes: [row(101, 'chat', {project: null, subject: 'c1c2c3c4c5c6'})], last: 101}])
+        vi.unstubAllGlobals()
+        expect(heard).toEqual(['c1c2c3c4c5c6'])
+        expect(changed).toEqual([])
+        expect(events).toEqual([])
     })
 
     it("skips this server's own rows, whose hooks it heard already", async () => {

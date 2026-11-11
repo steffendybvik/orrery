@@ -29,11 +29,12 @@ pub struct Outbox {
     schedules: Vec<String>,
     told: usize,
     logged: usize,
+    chats: Vec<String>,
 }
 
 impl Outbox {
     pub fn new(actor: Actor) -> Self {
-        Outbox { actor, changed: vec![], settings: false, epics: false, schedules: vec![], told: 0, logged: 0 }
+        Outbox { actor, changed: vec![], settings: false, epics: false, schedules: vec![], told: 0, logged: 0, chats: vec![] }
     }
 
     /// Records what `effects` holds that this request hasn't recorded yet, on `conn`, inside its transaction.
@@ -44,7 +45,9 @@ impl Outbox {
         let schedules: Vec<&String> = effects.schedules.iter().filter(|p| !self.schedules.contains(p)).collect();
         let told = &effects.told[self.told.min(effects.told.len())..];
         let logged = &effects.logged[self.logged.min(effects.logged.len())..];
-        record(conn, &changed, settings, epics, &schedules, told, logged, &self.actor).await?;
+        let chats: Vec<&String> = effects.chats.iter().filter(|c| !self.chats.contains(c)).collect();
+        record(conn, &Recorded { changed: &changed, settings, epics, schedules: &schedules, told, logged, chats: &chats }, &self.actor).await?;
+        self.chats.extend(chats.into_iter().cloned());
         self.changed.extend(changed.into_iter().cloned());
         self.schedules.extend(schedules.into_iter().cloned());
         self.settings |= settings;
@@ -80,20 +83,23 @@ pub async fn finish<T>(conn: &mut AnyConnection, outbox: Option<&mut Outbox>, ef
     }
 }
 
-/// Writes the rows for what a write by `actor` set off: each project it changed, the settings, the epics, each project
-/// whose schedules changed, each event told, and each line of the event log it changed (`event.logged`, the line as
-/// its payload).
-#[allow(clippy::too_many_arguments)]
-async fn record(
-    conn: &mut AnyConnection,
-    changed: &[&String],
+/// What one transaction set off that its request hasn't recorded yet: each project it changed, the settings, the epics,
+/// each project whose schedules changed, each event told, each line of the event log it changed, and each chat whose
+/// messages changed.
+struct Recorded<'a> {
+    changed: &'a [&'a String],
     settings: bool,
     epics: bool,
-    schedules: &[&String],
-    told: &[Told],
-    logged: &[Value],
-    actor: &Actor,
-) -> Result<()> {
+    schedules: &'a [&'a String],
+    told: &'a [Told],
+    logged: &'a [Value],
+    chats: &'a [&'a String],
+}
+
+/// Writes the rows for what a write by `actor` set off (`Recorded`): `event.logged` has the line as its payload, and
+/// `chat` names the chat as its subject.
+async fn record(conn: &mut AnyConnection, set_off: &Recorded<'_>, actor: &Actor) -> Result<()> {
+    let Recorded { changed, settings, epics, schedules, told, logged, chats } = *set_off;
     // Each row's kind, project, subject and payload.
     type Row<'a> = (&'a str, Option<&'a str>, Option<&'a str>, Option<String>);
     let mut rows: Vec<Row> = vec![];
@@ -114,6 +120,9 @@ async fn record(
     }
     for line in logged {
         rows.push(("event.logged", None, None, Some(line.to_string())));
+    }
+    for chat in chats {
+        rows.push(("chat", None, Some(chat.as_str()), None));
     }
     let now = stamp();
     for (kind, project, subject, payload) in rows {

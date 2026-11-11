@@ -47,6 +47,9 @@ fn message_problems(sent: &serde_json::Map<String, Value>) -> Vec<String> {
     problems
 }
 
+/// The App settings the chat may ask to change (`CHAT_SETTINGS`); the rest are the owner's alone.
+const CHAT_SETTINGS: [&str; 5] = ["tracker", "tint", "restrict_proposals", "handle", "advanced"];
+
 pub struct Chats<'c> {
     conn: &'c mut AnyConnection,
     pub effects: Effects,
@@ -130,6 +133,7 @@ impl<'c> Chats<'c> {
         message.shift_remove("at");
         changes::begin(self.conn).await?;
         let done = self.add_in(chat, message).await;
+        self.effects.chats.push(chat.to_string());
         changes::finish(self.conn, self.outbox.as_mut(), &self.effects, done).await
     }
 
@@ -165,6 +169,7 @@ impl<'c> Chats<'c> {
         message.shift_remove("at");
         changes::begin(self.conn).await?;
         let done = self.change_in(chat, id, message).await;
+        self.effects.chats.push(chat.to_string());
         changes::finish(self.conn, self.outbox.as_mut(), &self.effects, done).await
     }
 
@@ -184,6 +189,55 @@ impl<'c> Chats<'c> {
             .fetch_one(&mut *self.conn)
             .await?;
         message_of(&row)
+    }
+
+    /// The chat's session asking to change one App setting (its `update_settings`, `askSetting`): `{setting, value,
+    /// why?}`, checked as the settings would check it, kept as a request in the chat that saves nothing until the owner
+    /// allows it, which the local app hears (ORR-1100). One it asked before for the same setting, still unanswered,
+    /// expires. A 404 when the chat isn't running.
+    pub async fn ask_setting(&mut self, chat: &str, body: &Value) -> Result<Value> {
+        let setting = body.get("setting").and_then(Value::as_str).filter(|s| CHAT_SETTINGS.contains(s));
+        let Some(setting) = setting else {
+            return Err(ApiError::bad_request(format!(
+                "Send {{setting, value}}, setting one of {}; the rest are the owner's to change on App settings",
+                CHAT_SETTINGS.join(", ")
+            )));
+        };
+        let Some(value) = body.get("value") else { return Err(ApiError::bad_request("Send the value to set as \"value\" (null for none)")) };
+        let mut to = crate::work::settings::check_input(&json!({ setting: value }))?.remove(setting).unwrap_or(Value::Null);
+        if setting == "handle" {
+            if let Some(handle) = to.as_str() {
+                to = json!(handle.to_lowercase());
+            }
+        }
+        let from = crate::work::settings::Settings::new(&mut *self.conn).get().await?.get(setting).cloned().unwrap_or(Value::Null);
+        let why = body.get("why").and_then(Value::as_str).map(str::trim).unwrap_or_default().to_string();
+        changes::begin(self.conn).await?;
+        let done = self.ask_setting_in(chat, setting, from, to, why).await;
+        self.effects.chats.push(chat.to_string());
+        changes::finish(self.conn, self.outbox.as_mut(), &self.effects, done).await
+    }
+
+    async fn ask_setting_in(&mut self, chat: &str, setting: &str, from: Value, to: Value, why: String) -> Result<Value> {
+        let ended: Option<Option<String>> =
+            sqlx::query_scalar(&sql("SELECT ended_at FROM chats WHERE id = ?")).bind(chat).fetch_optional(&mut *self.conn).await?;
+        if !matches!(ended, Some(None)) {
+            return Err(ApiError::not_found(format!("No chat {chat}: it has ended")));
+        }
+        for mut asked in self.messages(Some(chat)).await?.remove(chat).unwrap_or_default() {
+            if asked["request"]["state"] != "asked" || asked["request"]["setting"] != setting {
+                continue;
+            }
+            asked["request"]["state"] = json!("expired");
+            let id = asked["id"].as_i64().unwrap_or_default();
+            let Value::Object(mut message) = asked else { continue };
+            message.shift_remove("id");
+            message.shift_remove("at");
+            self.change_in(chat, id, message).await?;
+        }
+        let request = json!({"from": "claude", "text": why, "images": [], "request": {"setting": setting, "from": from, "to": to, "state": "asked"}});
+        let Value::Object(message) = request else { unreachable!("a JSON object") };
+        self.add_in(chat, message).await
     }
 
     /// A 404 unless the chat is kept.

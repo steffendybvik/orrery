@@ -29,6 +29,7 @@ pub(crate) fn reply(status: StatusCode, body: Option<Value>, effects: Effects) -
         || !effects.schedules.is_empty()
         || !effects.told.is_empty()
         || !effects.logged.is_empty()
+        || !effects.chats.is_empty()
     {
         crate::changes::wake();
     }

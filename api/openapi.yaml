@@ -1636,6 +1636,21 @@ paths:
         '200': {description: The message, content: {application/json: {schema: {type: object}}}}
         '400': {$ref: '#/components/responses/BadRequest'}
         '404': {$ref: '#/components/responses/NotFound'}
+  /api/chats/{chat}/setting-requests:
+    parameters: [{name: chat, in: path, required: true, description: The chat's id, schema: {type: string}}]
+    post:
+      x-served: false
+      summary: The chat asks to change one App setting, which saves nothing until the owner allows it
+      description: >-
+        The chat's `update_settings` (`askSetting`, ORR-1100): the setting (tracker, tint, restrict_proposals, handle
+        or advanced), checked as the settings would take it, kept as a request in the chat with what it is now. One
+        asked before for the same setting, still unanswered, expires. The owner answers on the chat's page, which the
+        local app runs.
+      requestBody: {required: true, content: {application/json: {schema: {type: object, required: [setting, value], properties: {setting: {type: string}, value: {}, why: {type: string}}}}}}
+      responses:
+        '201': {description: 'The message asking, with its id and time', content: {application/json: {schema: {type: object}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
   /api/schedules/across:
     get:
       summary: The schedules across projects, oldest first, each with the projects it's made on

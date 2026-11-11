@@ -1214,3 +1214,61 @@ describe('chats kept across a restart (ORR-877)', () => {
         expect(chats.readChat(CHAT)).toMatchObject({ended: true})
     })
 })
+
+describe("a chat's messages changed through the API (ORR-1100)", () => {
+    const CHAT = 'c1c2c3c4c5c6'
+    let rows: {id: number, at: string, message: string}[]
+    const row = ({id, at, ...message}: {id: number, at: string} & Record<string, unknown>) => ({id, at, message: JSON.stringify(message)})
+
+    beforeEach(() => {
+        rows = []
+        let lines = 0
+        vi.stubGlobal('useDatabase', () => ({
+            run: async (sql: string) => {
+                if (sql.startsWith('INSERT INTO chat_messages')) lines++
+                return {changes: 0}
+            },
+            all: async (sql: string, chat?: string) => sql.includes('WHERE chat = ?') && chat === CHAT ? rows : [],
+            get: async () => ({n: lines}),
+            transaction: async <T>(work: () => Promise<T>) => await work(),
+        }))
+    })
+
+    it('brings in a message the API added, and the page hears the chat with it', async () => {
+        await chats.openChat('greenhouse')
+        await chats.say(CHAT, 'Make it blue', [], owner)
+        await chats.chatsSaved()
+        const [said] = chats.chatOf(CHAT).messages
+        const asked = {id: 2, at: '2026-11-11T15:00:00.000Z', from: 'claude', text: '', images: [], request: {setting: 'tint', from: null, to: 'blue', state: 'asked'}}
+        rows = [row(said!), row(asked)]
+        changes = []
+        await chats.chatHeard(CHAT)
+        expect(chats.chatOf(CHAT).messages).toEqual([said, asked])
+        expect(changes).toHaveLength(1)
+        // Heard again, nothing has changed, so the page hears nothing.
+        await chats.chatHeard(CHAT)
+        expect(chats.chatOf(CHAT).messages).toHaveLength(2)
+        expect(changes).toHaveLength(1)
+    })
+
+    it('takes a message the API changed, but keeps one changed here that its row is behind', async () => {
+        await chats.openChat('greenhouse')
+        await chats.say(CHAT, 'Make it blue', [], owner)
+        await chats.chatsSaved()
+        const said = chats.chatOf(CHAT).messages[0]!
+        // Changed elsewhere: the row isn't what this server kept, so it comes in.
+        rows = [row({...said, text: 'Make it green'})]
+        await chats.chatHeard(CHAT)
+        expect(chats.chatOf(CHAT).messages[0]!.text).toBe('Make it green')
+        // Changed here and not kept yet: the row is what this server kept last, so the change here stays.
+        chats.chatOf(CHAT).messages[0]!.text = 'Make it red'
+        await chats.chatHeard(CHAT)
+        expect(chats.chatOf(CHAT).messages[0]!.text).toBe('Make it red')
+    })
+
+    it("leaves a chat this server doesn't hold", async () => {
+        rows = [row({id: 1, at: '2026-11-11T15:00:00.000Z', from: 'claude', text: 'Hi', images: []})]
+        await chats.chatHeard(CHAT)
+        expect(() => chats.readChat(CHAT)).toThrow()
+    })
+})
