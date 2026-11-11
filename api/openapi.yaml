@@ -1667,6 +1667,23 @@ paths:
         '400': {$ref: '#/components/responses/BadRequest'}
         '403': {description: A field that stays the owner's to set, content: {application/json: {schema: {type: object}}}}
         '404': {$ref: '#/components/responses/NotFound'}
+  /api/chats/{chat}/release-requests:
+    parameters: [{name: chat, in: path, required: true, description: The chat's id, schema: {type: string}}]
+    post:
+      x-served: false
+      summary: The chat asks to make or change a release, which saves nothing until the owner allows it
+      description: >-
+        The chat's `create_release` and `update_release` (`askRelease`, ORR-1100): the release's fields, as Releases
+        takes them, checked as Releases would check them, on the project it names or else the chat's own, kept as a
+        request in the chat with each field from → to (a place as "2nd from the top"). One asked before for the same
+        release, still unanswered, expires. The owner answers on the chat's page, which the local app runs.
+      requestBody: {required: true, content: {application/json: {schema: {type: object, required: [release], properties: {release: {type: object}, version: {type: string}, project: {type: string}, why: {type: string}}}}}}
+      responses:
+        '201': {description: 'The message asking, with its id and time', content: {application/json: {schema: {type: object}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {description: A field that stays the owner's to set, content: {application/json: {schema: {type: object}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {description: A release with that version already, content: {application/json: {schema: {type: object}}}}
   /api/schedules/across:
     get:
       summary: The schedules across projects, oldest first, each with the projects it's made on

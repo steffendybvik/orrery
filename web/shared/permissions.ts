@@ -262,7 +262,7 @@ export const PERMISSIONS: Permission[] = [
     {
         id: 'chats.reply', area: 'Sessions', action: 'Answer in a chat, and ask the owner there',
         why: 'A chat is between the owner and its own session.',
-        routes: ['POST /api/chats/:chat/replies', 'POST /api/chats/:chat/requests', 'POST /api/chats/:chat/setting-requests', 'POST /api/chats/:chat/schedule-requests'],
+        routes: ['POST /api/chats/:chat/replies', 'POST /api/chats/:chat/requests', 'POST /api/chats/:chat/setting-requests', 'POST /api/chats/:chat/schedule-requests', 'POST /api/chats/:chat/release-requests'],
         session: refused,
         chat: {level: 'limited', note: 'Only in its own chat'},
         untrusted: refused,

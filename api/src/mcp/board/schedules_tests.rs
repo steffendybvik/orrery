@@ -174,7 +174,7 @@ async fn the_chats_other_requests_stay_in_the_channel() {
     let api = TestApi::new().await;
     api.project("alpha").await;
     let reply = api
-        .post("/mcp", json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "request", "arguments": {"action": "create_release", "fields": {"version": "1.0.0"}}}}))
+        .post("/mcp", json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "request", "arguments": {"action": "move_issues", "fields": {"ids": ["ALPHA-1"], "status": "done"}}}}))
         .header("orrery-actor-kind", "chat")
         .header("orrery-launch", "c1")
         .send()
@@ -225,4 +225,27 @@ async fn the_chats_schedule_asks_say_no_to_what_schedules_refuse_and_to_a_projec
     let elsewhere = request(&api, "create_schedule", json!({"title": "X", "cron": "0 9 * * 1", "project": "beta"})).await;
     assert_eq!(said(&elsewhere), "orrery said no: This chat reaches alpha, not beta");
     assert!(api.get("/api/chats/c1").send().await.body["messages"].as_array().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn the_chats_release_asks_are_kept_in_its_chat() {
+    let api = TestApi::new().await;
+    let project = api.project("alpha").await;
+    api.patch(&format!("/api/projects/{project}"), json!({"release_mode": "own"})).send().await;
+    api.put("/api/chats/c1", json!({"id": "c1", "project": project, "started_at": "2026-11-01T10:00:00.000Z"})).send().await;
+    let made = request(&api, "create_release", json!({"version": "1.0.0", "branch": "v1.0.0"})).await;
+    assert_eq!(said(&made), "Asked: the owner sees the release with Allow and Deny, and you'll hear which they pressed. Nothing is saved until they allow it.");
+    api.post(&format!("/api/projects/{project}/releases"), json!({"version": "0.9.0"})).send().await;
+    let changed = request(&api, "update_release", json!({"version": "0.9.0", "notes": "Soon"})).await;
+    assert_eq!(
+        said(&changed),
+        "Asked: the owner sees the change with Allow and Deny, and you'll hear which they pressed. Nothing is saved until they allow it."
+    );
+    let messages = api.get("/api/chats/c1").send().await.body["messages"].clone();
+    assert_eq!(messages[0]["text"], "You asked");
+    assert_eq!(messages[0]["release"]["body"], json!({"version": "1.0.0", "branch": "v1.0.0"}));
+    assert_eq!(messages[1]["release"]["version"], "0.9.0");
+    assert_eq!(messages[1]["release"]["body"], json!({"notes": "Soon"}));
+    let releases = api.get(&format!("/api/projects/{project}/releases")).send().await.body;
+    assert_eq!(releases.as_array().map(Vec::len), Some(1), "only the one put there: {releases}");
 }

@@ -50,6 +50,25 @@ fn message_problems(sent: &serde_json::Map<String, Value>) -> Vec<String> {
 /// The App settings the chat may ask to change (`CHAT_SETTINGS`); the rest are the owner's alone.
 const CHAT_SETTINGS: [&str; 5] = ["tracker", "tint", "restrict_proposals", "handle", "advanced"];
 
+/// What of a release the chat may ask to set (`CHAT_RELEASE_FIELDS`); removing one stays the owner's.
+const CHAT_RELEASE_FIELDS: [&str; 6] = ["version", "branch", "notes", "position", "frozen_on", "shipped_on"];
+
+/// A place among the releases, as a chat's request shows it (`place`): "the top", "2nd from the top".
+fn place(index: f64) -> String {
+    if index <= 0.0 {
+        return "the top".into();
+    }
+    let n = index.trunc() as i64 + 1;
+    let suffix = match (n % 100, n % 10) {
+        (11..=13, _) => "th",
+        (_, 1) => "st",
+        (_, 2) => "nd",
+        (_, 3) => "rd",
+        _ => "th",
+    };
+    format!("{n}{suffix} from the top")
+}
+
 pub struct Chats<'c> {
     conn: &'c mut AnyConnection,
     pub effects: Effects,
@@ -246,38 +265,103 @@ impl<'c> Chats<'c> {
     /// as a request in the chat that saves nothing until they allow it, which the local app hears (ORR-1100). One it
     /// asked before for the same schedule, still unanswered, expires. A 404 when the chat isn't running.
     pub async fn ask_schedule(&mut self, chat: &str, body: &Value) -> Result<Value> {
-        let own: Option<String> =
-            sqlx::query_scalar(&sql("SELECT project FROM chats WHERE id = ? AND ended_at IS NULL")).bind(chat).fetch_optional(&mut *self.conn).await?;
-        let Some(own) = own else { return Err(ApiError::not_found(format!("No chat {chat}: it has ended"))) };
-        let project = match body.get("project") {
-            None | Some(Value::Null) => own.clone(),
-            Some(Value::String(p)) if p.trim() == own => own.clone(),
-            Some(Value::String(p)) if !p.trim().is_empty() => {
-                crate::board::issue_writes::IssueWrites::new(&mut *self.conn).project_uid(p.trim()).await?;
-                p.trim().to_string()
-            }
-            Some(_) => return Err(ApiError::bad_request("Send \"project\" as a project's id, or leave it out for the chat's own")),
-        };
+        let own = self.running(chat).await?;
+        let project = self.project_for(&own, body).await?;
         let mut request = crate::work::schedule_requests::ScheduleRequests::new(&mut *self.conn)
             .request(&project, body.get("schedule"), body.get("id"), "The owner's chat")
             .await?;
         if project != own {
             request["project"] = json!(project);
         }
+        self.ask(chat, "schedule", "id", request, body).await
+    }
+
+    /// The chat's session asking to make a release, or change release `version` (its `create_release` and
+    /// `update_release`, `askRelease`): `{release, version?, project?, why?}`, `release` the fields as Releases takes
+    /// them, on the project it names or else the chat's own. Checked as Releases would check it, and kept as a request
+    /// in the chat, each field from → to (a place as "2nd from the top"), that saves nothing until the owner allows it,
+    /// which the local app hears (ORR-1100). One it asked before for the same release, still unanswered, expires. A 404
+    /// when the chat isn't running.
+    pub async fn ask_release(&mut self, chat: &str, body: &Value) -> Result<Value> {
+        let own = self.running(chat).await?;
+        let project = self.project_for(&own, body).await?;
+        let fields = body.get("release").and_then(Value::as_object).filter(|f| !f.is_empty());
+        let Some(fields) = fields else {
+            return Err(ApiError::bad_request(format!(
+                "Send {{release: {{…}}, version?}}: the fields to set, any of {}, and the version of the release to change one",
+                CHAT_RELEASE_FIELDS.join(", ")
+            )));
+        };
+        let refused = fields.keys().filter(|k| !CHAT_RELEASE_FIELDS.contains(&k.as_str())).cloned().collect::<Vec<_>>();
+        if !refused.is_empty() {
+            return Err(ApiError::forbidden(format!("The owner's chat sets a release's {}, not its {}", CHAT_RELEASE_FIELDS.join(", "), refused.join(", "))));
+        }
+        let version = match body.get("version") {
+            None | Some(Value::Null) => None,
+            Some(Value::String(v)) => Some(v.as_str()),
+            Some(_) => return Err(ApiError::bad_request("Send \"version\" as the version of the release to change, or leave it out to make one")),
+        };
+        let fields = Value::Object(fields.clone());
+        let current = crate::board::releases::Releases::new(&mut *self.conn).check(&project, &fields, version).await?;
+        let shown = |field: &str, value: &Value| match value.as_f64() {
+            Some(at) if field == "position" => json!(place(at)),
+            _ => value.clone(),
+        };
+        let changes = fields
+            .as_object()
+            .into_iter()
+            .flatten()
+            .map(|(field, to)| match &current {
+                Some(was) => json!({"field": field, "from": shown(field, was.get(field).unwrap_or(&Value::Null)), "to": shown(field, to)}),
+                None => json!({"field": field, "to": shown(field, to)}),
+            })
+            .collect::<Vec<_>>();
+        let named = version.or(fields["version"].as_str()).unwrap_or_default().to_string();
+        let mut request = json!({"version": named, "change": current.is_some(), "changes": changes, "body": fields, "state": "asked"});
+        if project != own {
+            request["project"] = json!(project);
+        }
+        self.ask(chat, "release", "version", request, body).await
+    }
+
+    /// The project of chat `chat`, a 404 unless it's running.
+    async fn running(&mut self, chat: &str) -> Result<String> {
+        let own: Option<String> =
+            sqlx::query_scalar(&sql("SELECT project FROM chats WHERE id = ? AND ended_at IS NULL")).bind(chat).fetch_optional(&mut *self.conn).await?;
+        own.ok_or_else(|| ApiError::not_found(format!("No chat {chat}: it has ended")))
+    }
+
+    /// The project a chat's request is on (`projectFor`): the one `body` names, so a chat can ask on another project
+    /// than its own (ORR-1063), or else the chat's own, `own`.
+    async fn project_for(&mut self, own: &str, body: &Value) -> Result<String> {
+        match body.get("project") {
+            None | Some(Value::Null) => Ok(own.to_string()),
+            Some(Value::String(p)) if p.trim() == own => Ok(own.to_string()),
+            Some(Value::String(p)) if !p.trim().is_empty() => {
+                crate::board::issue_writes::IssueWrites::new(&mut *self.conn).project_uid(p.trim()).await?;
+                Ok(p.trim().to_string())
+            }
+            Some(_) => Err(ApiError::bad_request("Send \"project\" as a project's id, or leave it out for the chat's own")),
+        }
+    }
+
+    /// Keeps `request` in the chat as its `kind` (`schedule`, `release`), with `body`'s `why` for its words, and expires
+    /// one of that kind asked before with the same `key`, still unanswered.
+    async fn ask(&mut self, chat: &str, kind: &str, key: &str, request: Value, body: &Value) -> Result<Value> {
         let why = body.get("why").and_then(Value::as_str).map(str::trim).unwrap_or_default().to_string();
         changes::begin(self.conn).await?;
-        let done = self.ask_schedule_in(chat, request, why).await;
+        let done = self.ask_in(chat, kind, key, request, why).await;
         self.effects.chats.push(chat.to_string());
         changes::finish(self.conn, self.outbox.as_mut(), &self.effects, done).await
     }
 
-    async fn ask_schedule_in(&mut self, chat: &str, request: Value, why: String) -> Result<Value> {
-        if let Some(id) = request.get("id").filter(|i| !i.is_null()) {
+    async fn ask_in(&mut self, chat: &str, kind: &str, key: &str, request: Value, why: String) -> Result<Value> {
+        if let Some(named) = request.get(key).filter(|i| !i.is_null()) {
             for mut asked in self.messages(Some(chat)).await?.remove(chat).unwrap_or_default() {
-                if asked["schedule"]["state"] != "asked" || asked["schedule"]["id"] != *id {
+                if asked[kind]["state"] != "asked" || asked[kind][key] != *named {
                     continue;
                 }
-                asked["schedule"]["state"] = json!("expired");
+                asked[kind]["state"] = json!("expired");
                 let at = asked["id"].as_i64().unwrap_or_default();
                 let Value::Object(mut message) = asked else { continue };
                 message.shift_remove("id");
@@ -285,7 +369,8 @@ impl<'c> Chats<'c> {
                 self.change_in(chat, at, message).await?;
             }
         }
-        let asked = json!({"from": "claude", "text": why, "images": [], "schedule": request});
+        let mut asked = json!({"from": "claude", "text": why, "images": []});
+        asked[kind] = request;
         let Value::Object(message) = asked else { unreachable!("a JSON object") };
         self.add_in(chat, message).await
     }

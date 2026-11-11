@@ -175,6 +175,43 @@ impl<'c> Releases<'c> {
         changes::finish(self.conn, self.outbox.as_mut(), &self.effects, done).await
     }
 
+    /// Checks a release as making it (no `version`) or changing release `version` would, saving nothing
+    /// (`checkRelease`): when it's a change, the release's fields as they are, with `position` its place among the
+    /// project's, 0 the top. The owner's chat asks before it makes or changes one (ORR-504, ORR-1100).
+    pub async fn check(&mut self, project: &str, body: &Value, version: Option<&str>) -> Result<Option<Map<String, Value>>> {
+        self.own_releases(project, if version.is_none() { "make them" } else { "change them" }).await?;
+        let input = check_input(body, version.is_some())?;
+        let Some(version) = version else {
+            let wanted = input["version"].as_str().unwrap_or_default();
+            let taken = sqlx::query(&sql("SELECT 1 FROM releases WHERE project = ? AND version = ?"))
+                .bind(project)
+                .bind(wanted)
+                .fetch_optional(&mut *self.conn)
+                .await?;
+            if taken.is_some() {
+                return Err(ApiError::conflict(format!("There is already a release {wanted} in {project}")));
+            }
+            return Ok(None);
+        };
+        self.before(project, version).await?;
+        if input.get("version").is_some_and(|v| v.as_str() != Some(version)) {
+            return Err(ApiError::bad_request("A release's version can't change: make one with the new version and move its issues to it"));
+        }
+        let rows = sqlx::query(&sql("SELECT version, branch, notes, frozen_on, shipped_on FROM releases WHERE project = ? ORDER BY position, created_at DESC"))
+            .bind(project)
+            .fetch_all(&mut *self.conn)
+            .await?;
+        let Some(at) = rows.iter().position(|r| r.get::<String, _>("version") == version) else {
+            return Err(ApiError::not_found(format!("No release {version} in {project}")));
+        };
+        let mut current = Map::new();
+        current.insert("position".into(), Value::from(at));
+        for key in ["version", "branch", "notes", "frozen_on", "shipped_on"] {
+            current.insert(key.into(), rows[at].get::<Option<String>, _>(key).map_or(Value::Null, Value::from));
+        }
+        Ok(Some(current))
+    }
+
     /// Makes a release at the top of the project's: its version.
     pub async fn create(&mut self, project: &str, body: &Value, actor: &Actor) -> Result<String> {
         self.own_releases(project, "make them").await?;
