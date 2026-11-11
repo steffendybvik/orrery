@@ -5,6 +5,10 @@
 // (ORR-378); a repeat of an error that isn't resolved is no news, to the bell or the schedules, and resolving one
 // resolves its repeats. Old rows go: info after a week, the rest after a month, and past MAX_ROWS (MAX_ACTIVITY for
 // the roadmap's, so a busy day can't push errors out) the oldest, so a loop can't fill the database.
+// With the Rust API in front, it's the table's one writer (ORR-1088): a line is made here (scrubbed, cut, Advanced
+// checked) and sent there (`PUT /api/events/log/lines`), which checks for a repeat, writes it, puts it in the outbox for
+// open pages' bells and prunes. Only while the API can't be reached is a line written here, marked `details.local`, so
+// the API's own outage (`api.unreachable`) and the errors around it are still kept.
 import type {OrreryEvent} from '#shared/happenings'
 import type {EventLevel, LoggedEvent} from '#shared/roadmap'
 import {ACTIVITY_FAMILIES, EVENT_LEVELS} from '#shared/roadmap'
@@ -36,6 +40,21 @@ export interface EventFilter {
     open?: boolean
     limit?: number
 }
+
+/** A finished line, as it's sent to the API: its texts scrubbed and cut. `activity`: a change to the roadmap, always news. */
+interface Line {
+    level: EventLevel
+    kind: string
+    project?: string
+    subject?: string
+    message: string
+    details?: Record<string, unknown>
+    activity?: true
+}
+
+/** Sends a write to the Rust API (`writeToApi`): its reply, or undefined with no API set up; throws a 503 while it can't
+ * be reached. */
+export type SendToApi = (method: string, path: string, body?: unknown) => Promise<unknown>
 
 interface EventRow {
     id: number
@@ -76,6 +95,8 @@ export class EventLog {
         private readonly scrubber: () => Promise<(text: string) => string> = async () => text => text,
         private readonly onLogged: (event: LoggedEvent, fresh: boolean) => void = () => {},
         private readonly now: () => Date = () => new Date(),
+        /** The Rust API, the table's one writer when it's there; none in the tests that don't say. */
+        private readonly send: SendToApi = async () => undefined,
     ) {}
 
     private written = 0
@@ -131,21 +152,13 @@ export class EventLog {
         }
         const scrub = await this.scrub()
         const message = cut(redact(scrub(entry.message.trim() || entry.kind)), MESSAGE)
-        const details = entry.details ? JSON.stringify(clean(entry.details, scrub)) : null
+        const details = entry.details ? clean(entry.details, scrub) as Record<string, unknown> : undefined
         const project = entry.project || null
-        const at = this.now().toISOString()
-        // A repeat of one not resolved yet (same level, kind, project and message) is a line too, but no news.
-        const again = !!await this.db.get(`SELECT id FROM events WHERE level = ? AND kind = ? AND coalesce(project, '') = ? AND message = ?
-            AND resolved_at IS NULL LIMIT 1`, entry.level, entry.kind, project ?? '', message)
-        const row = await this.db.get<EventRow>(`INSERT INTO events (level, kind, project, message, details, count, first_seen, last_seen)
-            VALUES (?, ?, ?, ?, ?, 1, ?, ?) RETURNING *`, entry.level, entry.kind, project, message, details, at, at)
-        if (!row) return null
-        if (++this.written % PRUNE_EVERY === 0) await this.prune()
-        const event = eventOf(row)
-        this.onLogged(event, !again)
+        const written = await this.keep({level: entry.level, kind: entry.kind, ...project ? {project} : {}, message, ...details ? {details} : {}})
+        const {event, fresh} = written
         // Its message isn't passed on: an error's can hold what a page or another site sent. Its row is, to read.
         // What orrery did is passed on each time: each is news.
-        if (!again || entry.level === 'info') this.happened({type: entry.kind, level: entry.level, subject: `event ${row.id}`, ...project ? {project} : {}, ...entry.untrusted ? {untrusted: true} : {}})
+        if (fresh || entry.level === 'info') this.happened({type: entry.kind, level: entry.level, subject: `event ${event.id}`, ...project ? {project} : {}, ...entry.untrusted ? {untrusted: true} : {}})
         return event
     }
 
@@ -167,15 +180,35 @@ export class EventLog {
             ...event.untrusted ? {untrusted: true} : {},
             ...cause === undefined ? {} : {schedule: cause},
         }, scrub) as Record<string, unknown>
+        return (await this.keep({level: 'info', kind: event.type, ...event.project ? {project: event.project} : {}, ...event.subject ? {subject: event.subject} : {},
+            message, ...Object.keys(details).length ? {details} : {}, activity: true})).event
+    }
+
+    /** Writes a finished line: sent to the API, its one writer, which puts it in the outbox for open pages' bells.
+     * Here only with no API set up, or while it can't be reached, marked `details.local` (ORR-1088): the API's own
+     * outage is logged through here too, and a line that can't be kept there isn't lost. `fresh` unless it repeats one
+     * not resolved yet (same level, kind, project and message), as a change to the roadmap never does. */
+    private async keep(line: Line): Promise<{event: LoggedEvent, fresh: boolean}> {
+        let local = false
+        try {
+            const sent = await this.send('PUT', '/api/events/log/lines', line) as {event: LoggedEvent, fresh: boolean} | undefined
+            if (sent) return sent
+        } catch (error) {
+            if ((error as {statusCode?: number}).statusCode !== 503) throw error
+            local = true
+        }
+        const details = local ? {...line.details, local: true} : line.details
         const at = this.now().toISOString()
+        const again = !line.activity && !!await this.db.get(`SELECT id FROM events WHERE level = ? AND kind = ? AND coalesce(project, '') = ? AND message = ?
+            AND resolved_at IS NULL LIMIT 1`, line.level, line.kind, line.project ?? '', line.message)
         const row = await this.db.get<EventRow>(`INSERT INTO events (level, kind, project, subject, message, details, count, first_seen, last_seen)
-            VALUES ('info', ?, ?, ?, ?, ?, 1, ?, ?) RETURNING *`, event.type, event.project ?? null, event.subject ?? null, message,
-            Object.keys(details).length ? JSON.stringify(details) : null, at, at)
-        if (!row) return null
-        if (++this.written % PRUNE_EVERY === 0) await this.prune()
-        const logged = eventOf(row)
-        this.onLogged(logged, true)
-        return logged
+            VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?) RETURNING *`, line.level, line.kind, line.project ?? null, line.subject ?? null, line.message,
+            details ? JSON.stringify(details) : null, at, at)
+        if (!row) throw new Error(`The event log kept no row for ${line.kind}`)
+        if (++this.written % PRUNE_EVERY === 0) await this.pruneHere()
+        const event = eventOf(row)
+        this.onLogged(event, !again)
+        return {event, fresh: !again}
     }
 
     /** Newest first (by when they were last seen). */
@@ -233,8 +266,21 @@ export class EventLog {
     }
 
     /** Lets go of what's old: info after KEEP_INFO, the rest after KEEP_PROBLEMS, and the oldest past MAX_ACTIVITY
-     * changes to the roadmap and past MAX_ROWS of the rest, so many changes can't push an error out. */
+     * changes to the roadmap and past MAX_ROWS of the rest, so many changes can't push an error out. The API's to do
+     * when it's there (ORR-1088); while it can't be reached, nothing goes until the next time. */
     async prune(): Promise<number> {
+        try {
+            const sent = await this.send('POST', '/api/events/log/prune') as {pruned: number} | undefined
+            if (sent) return sent.pruned
+        } catch (error) {
+            if ((error as {statusCode?: number}).statusCode === 503) return 0
+            throw error
+        }
+        return this.pruneHere()
+    }
+
+    /** `prune`, on the table here. */
+    private async pruneHere(): Promise<number> {
         const now = this.now().getTime()
         const info = await this.db.run("DELETE FROM events WHERE level = 'info' AND last_seen < ?", new Date(now - KEEP_INFO).toISOString())
         const rest = await this.db.run("DELETE FROM events WHERE level <> 'info' AND last_seen < ?", new Date(now - KEEP_PROBLEMS).toISOString())

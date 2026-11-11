@@ -228,7 +228,7 @@ paths:
   /api/events/log:
     get:
       summary: 'The event log, newest first (ORR-1088): what orrery did, what went wrong and the changes to the roadmap; up to `limit` (200, 1000 at most)'
-      description: '`level` one or more of error, warn, info, comma-separated; `kind` one, or every one under a name (`session`); `subject` what a change to the roadmap was to; `since` a time with its zone, or a day; `open=1` only those not resolved. Writing a line (`POST`) stays the Nuxt server''s.'
+      description: '`level` one or more of error, warn, info, comma-separated; `kind` one, or every one under a name (`session`); `subject` what a change to the roadmap was to; `since` a time with its zone, or a day; `open=1` only those not resolved. A page''s error report (`POST`) stays the Nuxt server''s, which sends the line it makes to `PUT /api/events/log/lines`.'
       parameters:
         - {name: level, in: query, schema: {type: string}}
         - {name: kind, in: query, schema: {type: string}}
@@ -240,6 +240,26 @@ paths:
       responses:
         '200': {description: 'The lines', content: {application/json: {schema: {type: array, items: {type: object}}}}}
         '400': {$ref: '#/components/responses/BadRequest'}
+  /api/events/log/lines:
+    put:
+      x-served: false
+      summary: 'A line the local app made, written (ORR-1088): a page''s error report or its own, scrubbed of secrets'' values there. A repeat of one not resolved yet is a line too, but no news (`fresh` false)'
+      description: 'Only the Nuxt server''s own call (`Orrery-Came: server`). Each line goes into the outbox as `event.logged`, with `fresh` beside it when it''s news, for open pages'' bells; every 200 lines, old ones go.'
+      requestBody:
+        required: true
+        content: {application/json: {schema: {type: object, required: [level, kind, message], properties: {level: {type: string, enum: [error, warn, info]}, kind: {type: string}, project: {type: string}, subject: {type: string}, message: {type: string}, details: {type: object}, activity: {type: boolean}}}}}
+      responses:
+        '201': {description: 'The line, and whether it''s news', content: {application/json: {schema: {type: object, properties: {event: {type: object}, fresh: {type: boolean}}}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+  /api/events/log/prune:
+    post:
+      x-served: false
+      summary: 'Lets old lines go (ORR-1088): info after 7 days, the rest after 30, and the oldest past 5000 changes to the roadmap and 5000 of the rest'
+      description: 'Only the Nuxt server''s own call (`Orrery-Came: server`), on its start and every hour.'
+      responses:
+        '200': {description: 'How many went', content: {application/json: {schema: {type: object, properties: {pruned: {type: integer}}}}}}
+        '403': {$ref: '#/components/responses/Forbidden'}
   /api/events/log/{event}/resolve:
     parameters:
       - {name: event, in: path, required: true, schema: {type: string}}

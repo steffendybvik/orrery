@@ -16,6 +16,7 @@ import type {OrreryEvent} from '#shared/happenings'
 import type {Chat} from '#shared/roadmap'
 import {Store} from '../server/utils/store'
 import type {Actor, IssueFilter} from '../server/store/schema'
+import {ORRERY} from '../server/store/schema'
 import {SqliteDb} from '../server/utils/database'
 import {Secrets} from '../server/utils/secrets'
 import {Pulls, pullForSession} from '../server/utils/pulls'
@@ -350,6 +351,35 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         expect(domainOf('GET', '/api/events/log')).toBe('the event log, read')
         expect(domainOf('POST', '/api/events/log/4/resolve')).toBe('an event, resolved')
         expect(domainOf('POST', '/api/events/log')).toBeUndefined()
+    })
+
+    it('writes a line the local app made and prunes old ones as the log here did (ORR-1088)', async () => {
+        // The store's side is utils/event-log.ts with no API to send to, writing the same table itself.
+        const here: {event: unknown, fresh: boolean}[] = []
+        const log = new EventLog(store.db, async () => text => text, (event, fresh) => here.push({event, fresh}))
+        await store.db.run('DELETE FROM events')
+        const shape = (event: unknown) => {
+            const {id: _id, first_seen: _first, last_seen: _last, ...rest} = event as Record<string, unknown>
+            return rest
+        }
+        const line = {level: 'error', kind: 'page.error', project: 'primes', message: 'Boom', details: {route: 'GET /x'}} as const
+        for (const time of [1, 2]) {
+            const written = await viaApi('PUT', '/api/events/log/lines', line, ORRERY)
+            expect(written.status, `time ${time}`).toBe(201)
+            await log.record(line)
+            const [last] = here.slice(-1)
+            expect(shape((written.body as {event: unknown}).event), `time ${time}`).toEqual(shape(JSON.parse(JSON.stringify(last!.event))))
+            expect((written.body as {fresh: boolean}).fresh, `time ${time}`).toBe(time === 1)
+        }
+        const change = {type: 'issue.status', project: 'primes', subject: 'PRI-1', by: {name: 'claude', owner: false}, from: 'todo', to: 'done'}
+        await log.activity(change)
+        const kept = JSON.parse(JSON.stringify(here.at(-1)!.event)) as Record<string, unknown>
+        const sent = await viaApi('PUT', '/api/events/log/lines', {level: 'info', kind: kept.kind, project: kept.project, subject: kept.subject, message: kept.message, details: kept.details, activity: true}, ORRERY)
+        expect(shape((sent.body as {event: unknown}).event)).toEqual(shape(kept))
+        expect(await viaApi('PUT', '/api/events/log/lines', {...line, level: 'loud'}, ORRERY)).toMatchObject({status: 400, body: {message: '"level" is "loud"; use error, warn, info'}})
+        expect((await viaApi('POST', '/api/events/log/prune', {}, ORRERY)).body).toEqual({pruned: 0})
+        expect(domainOf('PUT', '/api/events/log/lines')).toBeUndefined()
+        expect(domainOf('POST', '/api/events/log/prune')).toBeUndefined()
     })
 
     it('keeps, reads and forgets the feature counts as the routes here did (ORR-1089)', async () => {
@@ -3588,7 +3618,7 @@ describe('the contract (api/openapi.yaml)', () => {
     })
 
     it('sends none of the routes written ahead of the Rust API to it', () => {
-        expect(contract(true)).toEqual(['DELETE /api/chats/{chat}', 'DELETE /api/secrets/{name}/sealed', 'GET /api/auth/oidc/callback', 'GET /api/auth/oidc/start', 'GET /api/auth/status', 'GET /api/chats', 'GET /api/chats/{chat}', 'POST /api/auth/link', 'POST /api/auth/login', 'POST /api/auth/logout', 'POST /api/database/snapshot', 'POST /api/phone/link', 'POST /api/pulls/forget', 'POST /api/secrets/{name}/uses', 'PUT /api/chats/{chat}', 'PUT /api/pulls/{owner}/{name}', 'PUT /api/pulls/{owner}/{name}/error', 'PUT /api/pulls/{owner}/{name}/history', 'PUT /api/pulls/{owner}/{name}/{number}', 'PUT /api/secrets/{name}/sealed', 'PUT /api/usage'])
+        expect(contract(true)).toEqual(['DELETE /api/chats/{chat}', 'DELETE /api/secrets/{name}/sealed', 'GET /api/auth/oidc/callback', 'GET /api/auth/oidc/start', 'GET /api/auth/status', 'GET /api/chats', 'GET /api/chats/{chat}', 'POST /api/auth/link', 'POST /api/auth/login', 'POST /api/auth/logout', 'POST /api/database/snapshot', 'POST /api/events/log/prune', 'POST /api/phone/link', 'POST /api/pulls/forget', 'POST /api/secrets/{name}/uses', 'PUT /api/chats/{chat}', 'PUT /api/events/log/lines', 'PUT /api/pulls/{owner}/{name}', 'PUT /api/pulls/{owner}/{name}/error', 'PUT /api/pulls/{owner}/{name}/history', 'PUT /api/pulls/{owner}/{name}/{number}', 'PUT /api/secrets/{name}/sealed', 'PUT /api/usage'])
         expect(contract(true).filter(operation => routes().includes(operation))).toEqual([])
     })
 })

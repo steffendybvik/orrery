@@ -99,3 +99,84 @@ async fn an_untrusted_session_cant_resolve_a_line() {
     assert_eq!(refused.status, 403, "{}", refused.body);
     assert_eq!(api.get("/api/events/log?open=1").send().await.body.as_array().unwrap().len(), 1);
 }
+
+#[tokio::test]
+async fn the_local_app_writes_a_line_and_a_repeat_of_an_open_one_is_no_news() {
+    let api = TestApi::new().await;
+    let before = api.outbox().await.len();
+    let line = json!({"level": "error", "kind": "server.error", "project": "primes", "message": "Boom", "details": {"route": "GET /api/x", "status": 500}});
+    let first = api.put("/api/events/log/lines", line.clone()).send().await;
+    assert_eq!(first.status, 201, "{}", first.body);
+    assert_eq!(first.body["fresh"], json!(true));
+    let event = &first.body["event"];
+    assert_eq!(
+        event,
+        &json!({"id": event["id"], "level": "error", "kind": "server.error", "project": "primes", "message": "Boom",
+            "details": {"route": "GET /api/x", "status": 500}, "count": 1, "first_seen": event["first_seen"], "last_seen": event["first_seen"]})
+    );
+    let again = api.put("/api/events/log/lines", line.clone()).send().await;
+    assert_eq!(again.body["fresh"], json!(false), "a repeat of an open one is a line, but no news");
+    assert_ne!(again.body["event"]["id"], event["id"], "a line of its own");
+    // Each goes into the outbox, the fresh one saying so, for open pages' bells.
+    let rows = api.outbox().await;
+    let logged: Vec<Value> = rows[before..].iter().filter(|r| r.kind == "event.logged").map(|r| r.payload()).collect();
+    assert_eq!(logged.len(), 2);
+    assert_eq!((logged[0]["id"].clone(), logged[0]["fresh"].clone()), (event["id"].clone(), json!(true)));
+    assert_eq!((logged[1]["id"].clone(), logged[1].get("fresh")), (again.body["event"]["id"].clone(), None));
+    // Once it's resolved, the next one is news again.
+    api.post(&format!("/api/events/log/{}/resolve", event["id"]), json!({})).send().await;
+    assert_eq!(api.put("/api/events/log/lines", line).send().await.body["fresh"], json!(true));
+}
+
+#[tokio::test]
+async fn a_change_to_the_roadmap_is_always_news_and_keeps_its_subject() {
+    let api = TestApi::new().await;
+    let line = json!({"level": "info", "kind": "issue.status", "project": "primes", "subject": "PRI-1", "message": "claude moved PRI-1: todo → done", "activity": true});
+    assert_eq!(api.put("/api/events/log/lines", line.clone()).send().await.body["fresh"], json!(true));
+    let again = api.put("/api/events/log/lines", line).send().await;
+    assert_eq!(again.body["fresh"], json!(true));
+    assert_eq!(again.body["event"]["subject"], json!("PRI-1"));
+    assert!(again.body["event"].get("details").is_none(), "no details, none kept");
+}
+
+#[tokio::test]
+async fn a_line_that_isnt_one_is_refused_and_a_long_message_is_cut() {
+    let api = TestApi::new().await;
+    for (line, message) in [
+        (json!({"level": "loud", "kind": "page.error", "message": "x"}), "\"level\" is \"loud\"; use error, warn, info"),
+        (json!({"level": "error", "kind": "Page Error", "message": "x"}), "\"kind\" is \"Page Error\"; use a dotted name, e.g. page.error"),
+        (json!({"level": "error", "kind": "page.error", "message": "x", "details": "text"}), "\"details\" is an object"),
+    ] {
+        let reply = api.put("/api/events/log/lines", line).send().await;
+        assert_eq!((reply.status.as_u16(), reply.body["message"].as_str()), (400, Some(message)));
+    }
+    let long = api.put("/api/events/log/lines", json!({"level": "error", "kind": "page.error", "message": "x".repeat(1500)})).send().await;
+    assert_eq!(long.body["event"]["message"].as_str().unwrap().chars().count(), 1000);
+    let blank = api.put("/api/events/log/lines", json!({"level": "error", "kind": "page.error", "message": "  "})).send().await;
+    assert_eq!(blank.body["event"]["message"], json!("page.error"), "a blank message is its kind");
+}
+
+#[tokio::test]
+async fn only_the_local_app_writes_a_line_or_prunes() {
+    let api = TestApi::new().await;
+    let line = json!({"level": "error", "kind": "page.error", "message": "Sent by a page"});
+    let refused = api.put("/api/events/log/lines", line).header("orrery-came", "loopback").send().await;
+    assert_eq!(refused.status, 403, "{}", refused.body);
+    assert_eq!(api.post("/api/events/log/prune", json!({})).header("orrery-came", "loopback").send().await.status, 403);
+    assert_eq!(api.count("SELECT COUNT(*) FROM events").await, 0);
+}
+
+#[tokio::test]
+async fn pruning_lets_old_lines_go_and_keeps_the_rest() {
+    let api = TestApi::new().await;
+    let day = |days: i64| (chrono::Utc::now() - chrono::Duration::days(days)).format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
+    line(&api, "info", "session.started", None, "Old info", &day(8)).await;
+    line(&api, "info", "session.started", None, "New info", &day(6)).await;
+    line(&api, "error", "server.error", None, "Old error", &day(31)).await;
+    line(&api, "error", "server.error", None, "Recent error", &day(29)).await;
+    let pruned = api.post("/api/events/log/prune", json!({})).send().await;
+    assert_eq!((pruned.status.as_u16(), pruned.body["pruned"].clone()), (200, json!(2)), "{}", pruned.body);
+    let left: Vec<String> =
+        api.get("/api/events/log").send().await.body.as_array().unwrap().iter().map(|e| e["message"].as_str().unwrap().to_string()).collect();
+    assert_eq!(left, ["New info", "Recent error"]);
+}
