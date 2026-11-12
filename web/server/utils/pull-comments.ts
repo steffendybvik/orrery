@@ -23,7 +23,7 @@ import type {LandedIn} from '../store/releases'
 import type {PullChange, PullChangeKind} from './pull-poll'
 import type {Store} from './store'
 import {issueIdsIn} from './pulls'
-import {writeToApi} from './api-router'
+import {settingsNow, writeToApi} from './api-router'
 
 /** The changes that are only an event: nobody needs to act. */
 const QUIET: PullChangeKind[] = ['ready', 'approved']
@@ -184,7 +184,7 @@ export async function commentOnPull(store: Store, change: PullChange): Promise<v
             if (next === 'ask') return void await store.systemAsk(change.project, change.issue, `${pr}'s checks have failed ${change.failures} times since they last passed. I've stopped sending the session on it more: have a look, and answer here or point a session at it again when it should carry on.`, 'pr.checks_failed')
         }
         const landed = change.kind === 'merged' ? await landMerged(store, change) : null
-        const body = pullComment(change, (await store.settings()).handle)
+        const body = pullComment(change, (await settingsNow(store)).handle)
         if (!body) return
         await store.systemComment(change.project, change.issue, body + landedComment(landed), `pr.${change.kind}`)
         if (change.kind === 'merged') {

@@ -11,7 +11,7 @@ import {known} from '#shared/known'
 import {refusedFor} from './permission'
 import {anotherPersons, sessionHeader} from './actor'
 import {scheduleAsk, scheduleDrift, scheduleRequest} from './schedule-requests'
-import {writeToApi} from './api-router'
+import {docNow, settingsNow, writeToApi} from './api-router'
 
 // The owner's chats: a Claude session started for one alone (launches.ts `startChat`), which the owner talks to on the
 // page instead of in a terminal. It answers questions about the project and makes issues and comments when asked;
@@ -630,7 +630,7 @@ async function askDoc(id: string, body: Record<string, unknown>): Promise<ChatMe
     const refused = Object.keys(fields).filter(key => !Object.hasOwn(CHAT_DOC_FIELDS, key))
     if (refused.length) throw forbidden(`The owner's chat sets a doc's ${Object.keys(CHAT_DOC_FIELDS).join(', ')}, not its ${refused.join(', ')}`)
     if (target !== undefined && target !== null && typeof target !== 'string') throw badRequest('Send "id" as the doc to change, or leave it out to make one')
-    const current = typeof target === 'string' ? await useStore().doc(project, target) : undefined
+    const current = typeof target === 'string' ? await docNow(project, target) : undefined
     const input = checkInput(fields, DOC_FIELDS, !!current)
     const title = input.title === undefined ? undefined : String(input.title).trim()
     if (title === '') throw badRequest('A doc needs a title')
@@ -735,7 +735,7 @@ export async function askSetting(id: string, body: unknown): Promise<ChatMessage
     if (value === undefined) throw badRequest('Send the value to set as "value" (null for none)')
     const to = checkInput({[setting]: value}, {[setting]: known(SETTINGS_FIELDS[setting], 'the setting')}, true)[setting]
     const normal = setting === 'handle' && typeof to === 'string' ? to.toLowerCase() : to
-    const from = (await useStore().settings())[setting as ChatSetting] ?? null
+    const from = (await settingsNow())[setting as ChatSetting] ?? null
     for (const m of chat.messages) if (m.request?.state === 'asked' && m.request.setting === setting) m.request.state = 'expired'
     const said = await add(chat, {from: 'claude', text: typeof why === 'string' ? why.trim() : '', images: [], request: {setting: setting as ChatSetting, from, to: normal, state: 'asked'}})
     useEventLog().note({level: 'info', kind: 'chat.asked', project: chat.project, message: `The chat asked to set ${CHAT_SETTINGS[setting as ChatSetting]} to ${settingValue(normal)}`, details: {setting, from, to: normal}})
@@ -747,7 +747,7 @@ export async function askSetting(id: string, body: unknown): Promise<ChatMessage
 async function requestDrift(chat: Chat, asked: ChatMessage): Promise<ChatRequestDrift[]> {
     const store = useStore()
     const drift = (label: string, was: unknown, now: unknown) => JSON.stringify(was) === JSON.stringify(now) ? [] : [{label, from: settingValue(was), to: settingValue(now)}]
-    if (asked.request) return drift(CHAT_SETTINGS[asked.request.setting], asked.request.from, (await store.settings())[asked.request.setting] ?? null)
+    if (asked.request) return drift(CHAT_SETTINGS[asked.request.setting], asked.request.from, (await settingsNow(store))[asked.request.setting] ?? null)
     if (asked.schedule) return await scheduleDrift(asked.schedule.project ?? chat.project, asked.schedule)
     if (asked.milestone?.id !== undefined) {
         const current = await store.milestone(asked.milestone.project ?? chat.project, asked.milestone.id).catch(() => null)
@@ -967,7 +967,7 @@ async function answerDoc(chat: Chat, request: ChatDocRequest, allow: boolean, ac
 
 /** Refuses (409) a change to doc `id` that's no longer what the owner was shown (`was`); 404 when it's gone. */
 async function stillAsShown(project: string, id: string, was: {title: string, section: string | null, body: string}) {
-    const now = await useStore().doc(project, id)
+    const now = await docNow(project, id)
     if (now.title !== was.title || now.body !== was.body || (now.section ?? null) !== was.section) throw conflict(`Doc "${id}" has changed since then`)
 }
 

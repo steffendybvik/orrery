@@ -10,7 +10,7 @@ export default defineEventHandler(async event => {
     const who = event.context?.who
     const named = getHeader(event, 'orrery-person')
     if (who ? !who.owner : named && named !== (await useStore().ownerOf()).name) throw forbidden('Only the owner\'s launcher can be asked to connect a repo')
-    const {id} = await useStore().settings()
+    const {id} = await settingsNow()
     const {host, addresses, local} = getQuery(event)
     const stream = createEventStream(event)
     const done = addPicker(typeof host === 'string' ? host.slice(0, 100) : '', ipv4List(addresses), bonjourName(local))
