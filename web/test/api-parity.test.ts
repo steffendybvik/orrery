@@ -406,6 +406,15 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         for (const method of ['POST', 'PUT']) expect(domainOf(method, '/api/usage'), method).toBeUndefined()
     })
 
+    it("seeds the presets orrery ships, once, on the local app's own call (ORR-1136)", async () => {
+        // This server calls it as the API it started begins listening (plugins/presets.ts), never sending one on from outside.
+        const first = await viaApi('POST', '/api/presets/seed', {}, ORRERY)
+        expect(first.status).toBe(200)
+        expect(typeof (first.body as {added: number}).added).toBe('number')
+        expect(await viaApi('POST', '/api/presets/seed', {}, ORRERY)).toMatchObject({status: 200, body: {added: 0}})
+        expect(domainOf('POST', '/api/presets/seed')).toBeUndefined()
+    })
+
     it('gives the permissions table as the route here did (ORR-1086)', async () => {
         const reply = await viaApi('GET', '/api/permissions', undefined, SESSION)
         expect(reply.status).toBe(200)
