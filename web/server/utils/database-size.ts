@@ -6,8 +6,9 @@ import {join} from 'node:path'
 import type {DatabaseInfo} from '#shared/roadmap'
 import type {Db} from './database'
 
-export async function databaseSize(info: DatabaseInfo, db: Db): Promise<{size?: number, backup_size?: number}> {
-    const size = info.kind === 'postgres' ? await postgresSize(db) : sqliteSize(info.where)
+/** `db` is the database to ask a Postgres one's size, or what asks it elsewhere (the Rust API's, ORR-1140). */
+export async function databaseSize(info: DatabaseInfo, db: Db | (() => Promise<number | undefined>)): Promise<{size?: number, backup_size?: number}> {
+    const size = info.kind === 'postgres' ? await (typeof db === 'function' ? db() : postgresSize(db)) : sqliteSize(info.where)
     const backup = info.backup && !info.backup_kind ? folderSize(info.backup) : undefined
     return {...size === undefined ? {} : {size}, ...backup === undefined ? {} : {backup_size: backup}}
 }

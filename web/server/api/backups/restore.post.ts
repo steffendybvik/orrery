@@ -4,7 +4,7 @@
 // as it was. The owner's, from localhost, on a SQLite orrery; on a new one (no projects, no owner) anyone on this
 // machine, as its first page asks. 409 when it can't be restored.
 export default defineEventHandler(async event => {
-    const fresh = await isFresh(useDatabase())
+    const fresh = await databaseFresh()
     if (!fresh) await mayMove(event)
     else if (!fromThisMachine(event)) throw forbidden(notThisMachine('A backup is restored'))
     if (!movedFile()) throw conflict('ORRERY_DATABASE (NUXT_DATABASE) names Postgres, so the database is set there: restore into it with Postgres\'s own tools')
@@ -29,5 +29,5 @@ export default defineEventHandler(async event => {
     const database = describeDatabase()
     useEventLog().note({level: 'info', kind: 'database.restored', message: `Restored ${name} (from ${snapshot.at}) into ${database.where}; the database as it was is in ${kept}`,
         details: {name, at: snapshot.at, kept, from: before.where, ...snapshot.of ? {of: snapshot.of} : {}, ...snapshot.environment ? {environment: snapshot.environment} : {}}})
-    return {database: {...database, ...await databaseSize(database, useDatabase())}}
+    return {database: {...database, ...await sizeOfDatabase(database)}}
 })

@@ -10,7 +10,7 @@ import {DatabaseSync} from 'node:sqlite'
 import type {Db} from './database'
 import {SqliteDb} from './database'
 import type {Snapshot} from '#shared/roadmap'
-import {checkSnapshot} from './backup'
+import {checkSnapshot, copySqliteTo} from './backup'
 
 const KINDS: [RegExp, Snapshot['kind']][] = [[/^orrery\.db$/, 'latest'], [/^orrery-\d{4}-\d{2}-\d{2}\.db$/, 'daily'], [/^orrery-pre-.+\.db$/, 'before']]
 
@@ -90,7 +90,7 @@ export async function keepBeforeRestore(database: Db, dir: string): Promise<stri
     const name = `orrery-pre-restore-${stamp()}.db`
     const temporary = join(dir, `.${name}.partial`)
     if (!(database instanceof SqliteDb)) throw new Error('Only a SQLite orrery is restored from the app')
-    await database.alone(raw => raw.prepare('VACUUM INTO ?').run(temporary))
+    await copySqliteTo(database, temporary)
     checkSnapshot(temporary)
     renameSync(temporary, join(dir, name))
     return name

@@ -13,5 +13,5 @@ export default defineEventHandler(async event => {
     useEventLog().note({level: 'info', kind: 'backup.set', message: database.backup
         ? `Backing up to ${database.backup}, ${EVERY_SAID[database.backup_every ?? 'change']}${database.backup_kind === 'postgres' ? '' : `, keeping ${database.backup_keep} daily copies`}`
         : 'Turned backups off'})
-    return {...database, ...await databaseSize(database, useDatabase())}
+    return {...database, ...await sizeOfDatabase(database)}
 })

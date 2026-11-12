@@ -1359,6 +1359,44 @@ paths:
       description: The local app's alone (ORR-1096), once it's checked the owner asked. Nothing when there's none.
       responses:
         '204': {description: Gone}
+  /api/database:
+    get:
+      x-served: false
+      summary: Whether the database is a new orrery's, and a Postgres one's size
+      description: >-
+        The local app's alone (ORR-1140): `fresh` when it has no projects and no owner yet, as the local app asks before
+        it offers a backup to start from, and `size` in bytes for a Postgres database as it reports itself (left out
+        when it can't say). A SQLite file's size is the local app's, from the file.
+      responses:
+        '200':
+          description: The database's state
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [fresh]
+                properties:
+                  fresh: {type: boolean}
+                  size: {type: integer}
+  /api/database/environment:
+    put:
+      x-served: false
+      summary: Keeps the name the orrery runs under
+      description: >-
+        The local app's alone (ORR-1140), as it starts: the name (`personal`, `work`, …) kept in its settings, so its
+        backups say which orrery they're a copy of.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [environment]
+              properties:
+                environment: {type: string}
+      responses:
+        '204': {description: Kept}
+        '400': {$ref: '#/components/responses/BadRequest'}
   /api/database/snapshot:
     post:
       x-served: false

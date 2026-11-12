@@ -7,7 +7,7 @@ export default defineEventHandler(async () => {
     const dir = backupTarget()?.kind === 'folder' ? backupDir() : ''
     return {
         snapshots: listSnapshots(dir),
-        fresh: await isFresh(useDatabase()),
+        fresh: await databaseFresh(),
         restorable: !!dir && !!movedFile() && !isPostgres(databaseSetting()),
         environment: String(useRuntimeConfig().public.environment || 'personal'),
         docker: inDocker(),
