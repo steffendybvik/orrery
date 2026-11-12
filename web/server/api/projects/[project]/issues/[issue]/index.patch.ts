@@ -15,19 +15,7 @@ export default defineEventHandler(async event => {
     const update = async () => useStore().updateIssue(project, id, body, await actorOf(event))
     const issue = session ? await useStore().claimed(project, id, (body as {status?: string} | null)?.status, currentId(session), update) : await update()
     // Started by a session: whether it carries another issue's context into it (ORR-968).
-    let carried: {from: string, tokens: number} | undefined
-    if (session && issue.kind === 'started' && (body as {status?: unknown} | null)?.status !== undefined) {
-        const carry = startedIssue(currentId(session), {project: issue.project, id: issue.id, parent: issue.parent, milestone: issue.milestone, epic: issue.epic})
-        // Kept, so how often it happens shows.
-        if (carry) {
-            const {session: on, carried: {from, to, tokens}} = carry
-            useEventLog().note({level: 'info', kind: 'session.carried_over', project: issue.project, message: `${on.name} started ${to} with ${Math.round(tokens / 1000)}k tokens of ${from} in its context`, details: {session: on.id, from, to, tokens}})
-            // One orrery started is cleared once it goes idle on it, and sent back to it (`clearCarried`): the reply
-            // says so, for the session to end its turn rather than carry on (`start_issue`).
-            const now = sessionNow(session)
-            if (now?.started && !now.started.chat && !now.started.untrusted && now.listening && !untrustedSession(session) && !chatSession(session)) carried = {from, tokens}
-        }
-    }
+    const carried = session && (body as {status?: unknown} | null)?.status !== undefined ? carriedInto(currentId(session), issue) : undefined
     // Moved, it's somewhere its address doesn't say.
     if (issue.project !== project) workedOn(event, issue)
     return carried ? {...issue, carried_over: carried} : issue

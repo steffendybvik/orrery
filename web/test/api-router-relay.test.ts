@@ -83,7 +83,9 @@ beforeAll(async () => {
         told: () => {},
         handOn: async () => {},
         sayUrgent: async () => {},
+        claim: async (project: string, issue: string, status: unknown, on: string) => void calls.push(`claim ${project} ${issue} ${String(status)} ${on}`),
     }))
+    vi.stubGlobal('currentId', (id: string) => id === 'old id' ? 'Kvase' : id)
     vi.spyOn(console, 'info').mockImplementation(() => {})
     vi.spyOn(console, 'warn').mockImplementation(() => {})
     vi.spyOn(console, 'error').mockImplementation(() => {})
@@ -239,14 +241,15 @@ describe('an issue\'s edit', () => {
         expect(asked).toHaveLength(1)
     })
 
-    it('stays here when a session moves its status, as the lock on it is this server\'s', async () => {
+    it('goes on when a session moves its status, once its claim on it is checked with that status, for the API to take its lock', async () => {
         actor = {name: 'claude', owner: false, session: 'Kvase'}
-        session = 'Kvase'
-        expect(await edit('{"status":"in-progress"}')).toBeUndefined()
-        expect(await edit('{"plan":"in-progress"}')).toBeUndefined()
-        expect(asked).toEqual([])
+        session = 'old id'
+        answer = {status: 200, body: '{"id":"P-1","project":"p","kind":"started"}'}
+        expect(await edit('{"status":"in-progress"}')).toEqual({id: 'P-1', project: 'p', kind: 'started'})
+        await edit('{"plan":"now"}')
+        expect(calls).toEqual(['claim p P-1 in-progress Kvase', 'claim p P-1 undefined Kvase'])
         await edit('{"title":"x"}')
-        expect(calls).toEqual(['claimFor p P-1'])
+        expect(calls.at(-1)).toBe('claimFor p P-1')
     })
 })
 

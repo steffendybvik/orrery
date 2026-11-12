@@ -22,8 +22,10 @@ import {oidcOn} from './oidc'
 import {countOwnUse, dropGathered, flushUse, usageAllowed} from './usage'
 import {startsNone} from './starts-none'
 import {untrustedProject} from './sessions'
+import {carriedInto} from './carried-over'
+import type {Input} from './input'
 import {revLabel} from './events'
-import type {Project} from '#shared/roadmap'
+import type {IssueScope, Project} from '#shared/roadmap'
 import {withoutClosed, withoutNotes} from '#shared/patch'
 
 /** The domains the Rust API serves, a line each (ORR-925): moving a domain there is adding its line once the parity test
@@ -54,14 +56,14 @@ export const DOMAINS: readonly {domain: string, paths: RegExp, methods?: readonl
     // Changing an issue (ORR-927): its title, status, priority, assignee, notes, labels, tasks, GitHub issues, parent,
     // milestone, release, epic, what it depends on, whether it's a proposal and its choices, model, effort and place, and
     // moving it to another project (ORR-1129). One it makes urgent comes back with `Orrery-Urgent`, for the push here
-    // (`sayUrgent`). A session's change of its status stays here (`wordsOnly`), as the session's lock on the issue is
-    // this server's (`claimed`). The chat's rails and a session's claim are checked here first.
+    // (`sayUrgent`). A session starting it takes the session's lock on it in the API (ORR-1130), and the reply comes
+    // back with what it carried into it (`withCarried`). The chat's rails and a session's claim are checked here first.
     // Making an issue (ORR-927): one that names nothing but an issue's words (`onlyWords`). The API rewrites the chat's
     // and an untrusted session's asks itself (`asChatIssue`, `asProposal`, ORR-1059), and notes a session's issue as its
     // work (`workedOn`), told what only this server knows (`askerHeaders`). One that's urgent comes back with
     // `Orrery-Urgent`, for the push here.
     {domain: 'an issue, made', paths: /^projects\/[^/]+\/issues$/, methods: ['POST'], first: {POST: newWordsOnly}, here: true},
-    {domain: 'an issue, its words', paths: /^projects\/[^/]+\/issues\/[^/]+$/, methods: ['PATCH'], first: {PATCH: wordsOnly}, here: true},
+    {domain: 'an issue, its words', paths: /^projects\/[^/]+\/issues\/[^/]+$/, methods: ['PATCH'], first: {PATCH: wordsOnly}, reply: {PATCH: withCarried}, here: true},
     // One change to many issues (`{ids, set, labels}`, ORR-927): each edited as one is, the route here taking no session's
     // lock or chat's rewrite for it either. The ones it makes urgent come back in `Orrery-Urgent`, for the push here.
     {domain: 'issues, changed at once', paths: /^projects\/[^/]+\/issues$/, methods: ['PATCH']},
@@ -262,10 +264,10 @@ export function movesStatus(body: unknown): boolean {
     return typeof body === 'object' && body !== null && ('status' in body || 'plan' in body)
 }
 
-/** An issue's edit, kept here unless it names only its words or a move (`onlyWords`), and a session's here too when it changes the
- * status: starting one takes the session's lock on it, which only this server holds (`claimed`). One that goes on is
- * the chat's only within what it may change (`asChatEdit`), and a session's only while no other session is on the
- * issue (`claimFor`), as the route here has them. */
+/** An issue's edit, kept here unless it names only its words or a move (`onlyWords`). One that goes on is the chat's
+ * only within what it may change (`asChatEdit`), and a session's only while no other session is on the issue (`claim`,
+ * with the status it moves it to: one that's blocked isn't started, and any session may close one), as the route here
+ * has them. */
 async function wordsOnly(event: H3Event, rest: string) {
     const raw = await readRawBody(event, 'utf8')
     let body: unknown
@@ -279,9 +281,30 @@ async function wordsOnly(event: H3Event, rest: string) {
         asChatEdit(body)
         return
     }
-    if (movesStatus(body) && sessionHeader(event) && !(await actorOf(event)).owner) return 'here' as const
     const [, project, issue] = /^projects\/([^/]+)\/issues\/([^/]+)$/.exec(rest) ?? []
-    if (project && issue) await claimFor(event, decodeURIComponent(project), decodeURIComponent(issue))
+    if (!project || !issue) return
+    const session = sessionHeader(event)
+    if (movesStatus(body) && session && !(await actorOf(event)).owner) {
+        // The API takes the session's lock as it starts it (ORR-1130); the claim it checks here first, as only this
+        // server knows which sessions are there to hear. The reply says what it carried into it (`withCarried`).
+        const status = (body as {status?: Input[string]}).status
+        await useStore().claim(decodeURIComponent(project), decodeURIComponent(issue), status, currentId(session))
+        event.context.startsAs = {session: currentId(session), status: status !== undefined}
+        return
+    }
+    await claimFor(event, decodeURIComponent(project), decodeURIComponent(issue))
+}
+
+/** A session's change of an issue's status, with what it carried into it, when it started it (`carriedInto`), as the
+ * route here adds it. */
+function withCarried(event: H3Event): ReturnType<Shaping> {
+    const starts = event.context.startsAs as {session: string, status: boolean} | undefined
+    if (!starts?.status) return undefined
+    return {reply: json => {
+        const issue = json as IssueScope & {kind?: string}
+        const carried = carriedInto(starts.session, issue)
+        return carried ? {...issue, carried_over: carried} : issue
+    }}
 }
 
 /** A new issue, kept here unless it names only an issue's words. An untrusted session's always goes on, as the API

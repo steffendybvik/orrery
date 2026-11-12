@@ -370,6 +370,51 @@ async fn an_edit_changes_each_field_notes_it_in_the_activity_and_tells_it() {
 }
 
 #[tokio::test]
+async fn a_session_starting_an_issue_takes_its_lock_so_a_second_at_once_is_refused() {
+    let api = TestApi::new().await;
+    let board = Board::new(&api).await;
+    let id = board.issue(json!({"title": "Sieve"})).await;
+    let started = api.patch(&board.at(&id), json!({"status": "started"})).by_agent("claude").header("orrery-worked-by", "s%201").send().await;
+    assert_eq!(started.status, 200, "{}", started.body);
+    let lock = format!("SELECT count(*) FROM issues WHERE id = '{id}' AND claimed_session = 's 1' AND claimed_at IS NOT NULL");
+    assert_eq!(api.count(&lock).await, 1, "the session is on it");
+    let tied = format!("SELECT count(*) FROM issue_sessions WHERE issue = '{id}' AND session = 's 1'");
+    assert_eq!(api.count(&tied).await, 1, "and it's the session's work");
+    // Another starting it while the first's status lands is refused, and changes nothing.
+    let second = api.patch(&board.at(&id), json!({"status": "started", "priority": "P2"})).by_agent("claude").header("orrery-worked-by", "s-2").send().await;
+    assert_eq!(second.status, 409, "{}", second.body);
+    assert!(message(&second).contains("already being worked on by another session (s 1)"), "{}", second.body);
+    assert_eq!(board.read(&id).await["priority"], json!(null));
+    assert_eq!(api.count(&tied).await, 1);
+    // The same session starting it again keeps it.
+    let again = api.patch(&board.at(&id), json!({"status": "started"})).by_agent("claude").header("orrery-worked-by", "s%201").send().await;
+    assert_eq!(again.status, 200, "{}", again.body);
+    // Once the mark has landed, the claim goes by who's there to hear, which the router checked: the next takes it.
+    api.run("UPDATE issues SET claimed_at = '2026-01-01T00:00:00.000Z' WHERE id = ?", &[&id]).await;
+    let later = api.patch(&board.at(&id), json!({"status": "started"})).by_agent("claude").header("orrery-worked-by", "s-2").send().await;
+    assert_eq!(later.status, 200, "{}", later.body);
+    assert_eq!(api.count(&format!("SELECT count(*) FROM issue_sessions WHERE issue = '{id}' AND session = 's-2'")).await, 1);
+    // Closing it lets go of the lock, and an edit that moves no status ties no session.
+    let closed = api.patch(&board.at(&id), json!({"status": "done"})).by_agent("claude").header("orrery-worked-by", "s-2").send().await;
+    assert_eq!(closed.status, 200, "{}", closed.body);
+    assert_eq!(api.count(&format!("SELECT count(*) FROM issues WHERE id = '{id}' AND claimed_session IS NULL")).await, 1);
+    let words = api.patch(&board.at(&id), json!({"title": "Sieve, segmented"})).by_agent("claude").header("orrery-worked-by", "s-3").send().await;
+    assert_eq!(words.status, 200, "{}", words.body);
+    assert_eq!(api.count("SELECT count(*) FROM issue_sessions WHERE session = 's-3'").await, 0);
+}
+
+#[tokio::test]
+async fn the_owner_starting_an_issue_takes_no_lock() {
+    let api = TestApi::new().await;
+    let board = Board::new(&api).await;
+    let id = board.issue(json!({"title": "Sieve"})).await;
+    let owner = api.patch(&board.at(&id), json!({"status": "started"})).header("orrery-worked-by", "s-1").send().await;
+    assert_eq!(owner.status, 200, "{}", owner.body);
+    assert_eq!(api.count("SELECT count(*) FROM issues WHERE claimed_session IS NOT NULL").await, 0);
+    assert_eq!(api.count("SELECT count(*) FROM issue_sessions").await, 0);
+}
+
+#[tokio::test]
 async fn a_title_or_description_is_noted_but_not_told_in_its_words() {
     let api = TestApi::new().await;
     let board = Board::new(&api).await;

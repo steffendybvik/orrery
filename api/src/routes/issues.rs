@@ -185,7 +185,8 @@ async fn create_issue(State(app): Shared, Path(project): Path<String>, headers: 
 }
 
 /// `PATCH …/issues/{issue}` with only an issue's own words and priority (`issue_edits::WORDS`): the issue
-/// (`updateIssue`), and `Orrery-Urgent` when it made it urgent open work.
+/// (`updateIssue`), and `Orrery-Urgent` when it made it urgent open work. A session (`Orrery-Worked-By`) changing its
+/// status is noted as working it, and starting it takes the session's lock on it (`claimed`, 409 when another has it).
 async fn patch_issue(State(app): Shared, Path((project, issue)): Path<(String, String)>, headers: HeaderMap, body: Bytes) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
     let mut comments = IssueWrites::new(&mut conn);
@@ -218,7 +219,18 @@ async fn patch_issue(State(app): Shared, Path((project, issue)): Path<(String, S
             }
         }
     }
+    // A session's change of status (`claimed`, ORR-1130): starting the issue takes the session's lock on it, which the
+    // router let through once the session's claim held, and the issue is noted as the session's work.
+    let moves_status = edit.get("status").is_some() || edit.get("plan").is_some();
+    let session = if actor.owner || !moves_status { None } else { rewrites::worked_by(&headers, actor.chat) };
+    comments.session = session.clone();
     let urgent = comments.edit_words(&project, &issue, &edit, &actor).await?;
+    // It's edited: not noting its session only means the owner's comments on it don't reach that session.
+    if let Some(session) = &session {
+        if let Err(error) = comments.worked_by(&project, &issue, session).await {
+            eprintln!("[orrery-api] tying {project}/{issue} to its session: {error:?}");
+        }
+    }
     let mut effects = std::mem::take(&mut comments.effects);
     for other in moved_from {
         if !effects.changed.contains(&other) {

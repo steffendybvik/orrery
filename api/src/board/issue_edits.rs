@@ -3,8 +3,8 @@
 // `plan`), `priority`, `assignee`, `notes`, `labels`, its tasks (`external`), its GitHub issues, its `parent`,
 // `milestone`, `release` and `epic`, what it depends on, whether it's a `proposal` and its `choices`, the `model` and
 // `effort` a session for it starts on, and its `position`. The router sends a `PATCH …/issues/{issue}` here only when it
-// names none of the other fields (`wordsOnly`), so moving it to another project stays the Nuxt server's, and so does a
-// session's change of status, as the session's lock on the issue (`claimed`) is the Nuxt server's. The rails are the
+// names none of the other fields (`wordsOnly`). A session starting it takes the session's lock on it here (`lockFor`,
+// ORR-1130), once the Nuxt server has checked its claim, as only that knows which sessions are there to hear. The rails are the
 // store's: an agent changes only its person's issue, or its own proposal, moves one only under an issue that's its
 // person's too, and hands one on only back to the owner.
 use crate::board::issue_writes::IssueWrites;
@@ -55,6 +55,8 @@ const KINDS: [&str; 5] = ["backlog", "todo", "started", "done", "canceled"];
 const LEGACY_KINDS: [(&str, &str); 4] = [("doing", "started"), ("now", "todo"), ("next", "todo"), ("later", "todo")];
 /// The kinds of status an issue is closed in (`CLOSED`).
 const CLOSED: [&str; 2] = ["done", "canceled"];
+/// How long a session's mark on an issue it's starting holds off another before its status lands (`LOCK_LANDS`), in ms.
+const LOCK_LANDS: i64 = 5000;
 const EFFORTS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
 static MODEL: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^(best|opus|sonnet|haiku|fable|default|opusplan|claude-[a-z0-9.-]{1,56}(\[1m\])?)$").unwrap());
 const MODEL_HINT: &str = "use best, opus, sonnet, haiku, fable, default, opusplan or a full id such as claude-sonnet-5-5";
@@ -637,6 +639,10 @@ impl IssueWrites<'_> {
         }
         changes::begin(self.conn).await?;
         let done: Result<()> = async {
+            // A session starting it puts itself on it first, so of two starting it at once, on any server, one is refused.
+            if let (Some(session), Some("started")) = (self.session.clone(), to_kind.as_deref()) {
+                self.lock_for(project, &issue, &session).await?;
+            }
             if let Some(person) = &claim_for {
                 self.claim_for(project, &issue, person, row.assignee.as_deref()).await?;
             }
@@ -918,6 +924,39 @@ impl IssueWrites<'_> {
             return Ok(assignee);
         }
         Err(ApiError::conflict(format!("Only people assign: this session can't give {issue} to {sent}")))
+    }
+
+    /// Puts `session` on the issue as it starts it (`lockFor`), with a conditional write, so of two starting it at once
+    /// one is refused (409). Another's mark only counts for a moment before its status lands, after which the claim
+    /// goes by whether it has the issue started and is there to hear, which the Nuxt server checked (`claim`).
+    async fn lock_for(&mut self, project: &str, issue: &str, session: &str) -> Result<()> {
+        let row = sqlx::query(&sql("SELECT claimed_session, claimed_at FROM issues WHERE project = ? AND id = ?"))
+            .bind(project)
+            .bind(issue)
+            .fetch_optional(&mut *self.conn)
+            .await?;
+        let before: String = row.as_ref().and_then(|r| r.get::<Option<String>, _>("claimed_session")).unwrap_or_default();
+        let at: Option<String> = row.as_ref().and_then(|r| r.get::<Option<String>, _>("claimed_at"));
+        let since = |at: &str| chrono::DateTime::parse_from_rfc3339(at).ok().map(|at| (chrono::Utc::now() - at.with_timezone(&chrono::Utc)).num_milliseconds());
+        let landing = !before.is_empty() && before != session && at.as_deref().and_then(since).is_some_and(|ms| ms < LOCK_LANDS);
+        let changed = if landing {
+            0
+        } else {
+            sqlx::query(&sql("UPDATE issues SET claimed_session = ?, claimed_at = ? WHERE project = ? AND id = ? AND coalesce(claimed_session, '') = ?"))
+                .bind(session)
+                .bind(stamp())
+                .bind(project)
+                .bind(issue)
+                .bind(&before)
+                .execute(&mut *self.conn)
+                .await?
+                .rows_affected()
+        };
+        if changed == 0 {
+            let who = if before.is_empty() { "just now".to_string() } else { before };
+            return Err(ApiError::conflict(format!("{issue} is already being worked on by another session ({who}); pick another issue")));
+        }
+        Ok(())
     }
 
     /// Takes up an issue for `person`, only if it's still assigned as the rails read it and nobody else holds it
