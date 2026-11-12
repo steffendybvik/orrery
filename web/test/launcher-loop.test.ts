@@ -239,22 +239,26 @@ describe.concurrent("a launcher's own loop", {timeout: 40_000}, () => {
         })
 
         it("gets orrery's /mcp beside its channel when the orrery serves it, and its channel only the channel's own (ORR-1102)", async context => {
-            const {orrery, start, called, state} = await bench(context, {}, {mcp: true})
+            const {orrery, repo, start, called, state} = await bench(context, {}, {mcp: true})
             await start()
             await vi.waitFor(() => expect(orrery.reported()).toHaveLength(1), WAIT)
             orrery.event('launch', launchOf(ID.a, {person: 'hati'}))
-            orrery.event('launch', launchOf(ID.b, {chat: true, resume: '0f0e0d0c-0b0a-4908-8706-050403020100'}))
+            await vi.waitFor(() => expect(state()[nameOf(ID.a)]?.['@orrery_stops_at']).toBe('never'), WAIT)
+            orrery.event('launch', launchOf(ID.b, {chat: true}))
             await vi.waitFor(() => expect(state()[nameOf(ID.b)]?.['@orrery_chat']).toBe('yes'), WAIT)
-            const [work, chat] = called('new-session')
+            orrery.event('launch', launchOf(ID.c, {untrusted: true}))
+            await vi.waitFor(() => expect(state()[nameOf(ID.c)]?.['@orrery_untrusted']).toBe('yes'), WAIT)
+            const [work, chat, untrusted] = called('new-session')
             const config = (call: string[]) => JSON.parse(call[call.indexOf('--mcp-config') + 1]!).mcpServers['greenhouse-api']
             const session = work![work!.indexOf('--session-id') + 1]!
             expect(session).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-/)
             expect(config(work!)).toEqual({type: 'http', url: `${orrery.url}/mcp`, headers: {'Orrery-Actor': 'claude', 'Orrery-Session': session, 'Orrery-Person': 'hati'}})
             expect(claudeArgs(work!)).toEqual(expect.arrayContaining(['--allowedTools', 'mcp__greenhouse-api']))
             expect(envOf(work!)).toContain('ORRERY_TOOLS=local')
-            // A chat taken up again keeps its Claude session, which /mcp is told, and says it's the chat.
-            expect(chat).not.toContain('--session-id')
-            expect(config(chat!).headers).toMatchObject({'Orrery-Session': '0f0e0d0c-0b0a-4908-8706-050403020100', 'Orrery-Chat': 'yes', 'Orrery-Launch': ID.b})
+            // Not yet the chat or an untrusted session: the server's guards for them refuse /mcp, so they keep every tool.
+            expect(claudeArgs(chat!).slice(2)).toEqual(chatOnly(repo, 'greenhouse'))
+            expect(claudeArgs(untrusted!).slice(2)).toEqual(lockedDown(repo, 'greenhouse'))
+            for (const call of [chat!, untrusted!]) expect(envOf(call)).not.toContain('ORRERY_TOOLS=local')
         })
 
         it("keeps every tool in its channel when the orrery doesn't serve /mcp", async context => {

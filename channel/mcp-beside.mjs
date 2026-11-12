@@ -27,14 +27,11 @@ export async function servesMcp(url, {headers = {}, fetch = globalThis.fetch} = 
 /** The name `/mcp`'s entry goes by beside the channel's `server`, so its tools are `mcp__<server>-api__…`. */
 export const besideName = server => `${server}-api`
 
-/** The `http` entry for a launch's session (`--mcp-config`), and the Claude session id it's for: the one a chat is taken
- * up again on (`resume`), else a new one the session is started with (`--session-id`), so `/mcp` hears which session
- * calls, as the channel says it (`Orrery-Session`). It carries who's calling as the channel's tools do: `claude`, for
- * `person`, with the machine's `auth`, and an untrusted session or a chat saying so. */
-export function besideFor({url, server, launch, person, auth = {}, resume, id = randomUUID()}) {
-    const session = resume ?? id
-    const headers = {'Orrery-Actor': 'claude', 'Orrery-Session': session, ...person ? {'Orrery-Person': person} : {}, ...auth,
-        ...launch.untrusted ? {'Orrery-Untrusted': 'yes'} : {}, ...launch.chat ? {'Orrery-Chat': 'yes', 'Orrery-Launch': launch.id} : {}}
+/** The `http` entry for a work session the launcher starts (`--mcp-config`), and the new Claude session id it's
+ * started with (`--session-id`), so `/mcp` hears which session calls, as the channel says it (`Orrery-Session`). It
+ * carries who's calling as the channel's tools do: `claude`, for `person`, with the machine's `auth`. */
+export function besideFor({url, server, person, auth = {}, id = randomUUID()}) {
+    const headers = {'Orrery-Actor': 'claude', 'Orrery-Session': id, ...person ? {'Orrery-Person': person} : {}, ...auth}
     const name = besideName(server)
-    return {name, session, fresh: !resume, config: {mcpServers: {[name]: {type: 'http', url: `${url}/mcp`, headers}}}}
+    return {name, session: id, config: {mcpServers: {[name]: {type: 'http', url: `${url}/mcp`, headers}}}}
 }

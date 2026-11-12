@@ -77,21 +77,20 @@ describe('a chat taken up again (ORR-884)', () => {
     })
 })
 
-describe("orrery's /mcp beside the channel (ORR-1102)", async () => {
+describe("orrery's /mcp beside a work session's channel (ORR-1102)", async () => {
     // @ts-expect-error: the launcher is plain JavaScript, run by node on the host
     const {besideFor, servesMcp} = await import('../../channel/mcp-beside.mjs')
+    // @ts-expect-error: the launcher is plain JavaScript, run by node on the host
+    const {claude} = await import('../../channel/claude-agent.mjs')
 
-    it('loads it for an untrusted session too, with its own tools allowed and that it is untrusted said', () => {
-        const dir = mkdtempSync(join(tmpdir(), 'orrery-repo-'))
-        writeFileSync(join(dir, '.mcp.json'), JSON.stringify({mcpServers: {'orrery-shop': channel}}))
-        const beside = besideFor({url: 'http://o', server: 'orrery-shop', launch: {id: 'l1', untrusted: true}, auth: {Authorization: 'Bearer k'}, id: '11111111-2222-4333-8444-555555555555'})
-        const args: string[] = lockedDown(dir, 'orrery-shop', beside)
-        const configs = args.flatMap((arg, at) => arg === '--mcp-config' ? [JSON.parse(args[at + 1]!).mcpServers] : [])
-        expect(configs).toEqual([{'orrery-shop': channel}, {'orrery-shop-api': {type: 'http', url: 'http://o/mcp',
-            headers: {'Orrery-Actor': 'claude', 'Orrery-Session': '11111111-2222-4333-8444-555555555555', Authorization: 'Bearer k', 'Orrery-Untrusted': 'yes'}}}])
-        expect(args).toEqual(expect.arrayContaining(['--strict-mcp-config', '--session-id', '11111111-2222-4333-8444-555555555555']))
-        expect(args.filter((arg, at) => args[at - 1] === '--allowedTools')).toEqual(['mcp__orrery-shop-api', 'mcp__orrery-shop'])
-        expect(chatOnly('/repo', 'orrery-shop', undefined)).toEqual(chatOnly('/repo', 'orrery-shop'))
+    it('is an http entry saying who calls, its tools allowed, on a Claude session id of its own', () => {
+        const beside = besideFor({url: 'http://o', server: 'orrery-shop', person: 'hati', auth: {Authorization: 'Bearer k'}, id: '11111111-2222-4333-8444-555555555555'})
+        const args: string[] = claude.command({dir: '/repo', server: 'orrery-shop', mode: 'auto', launch: {}, beside})
+        expect(JSON.parse(args[args.indexOf('--mcp-config') + 1]!)).toEqual({mcpServers: {'orrery-shop-api': {type: 'http', url: 'http://o/mcp',
+            headers: {'Orrery-Actor': 'claude', 'Orrery-Session': '11111111-2222-4333-8444-555555555555', 'Orrery-Person': 'hati', Authorization: 'Bearer k'}}}})
+        expect(args).toEqual(expect.arrayContaining(['--session-id', '11111111-2222-4333-8444-555555555555', '--allowedTools', 'mcp__orrery-shop-api']))
+        expect(claude.command({dir: '/repo', server: 'orrery-shop', mode: 'auto', launch: {}})).not.toContain('--mcp-config')
+        expect(besideFor({url: 'http://o', server: 's'}).session).not.toBe(besideFor({url: 'http://o', server: 's'}).session)
     })
 
     it('is used only when the orrery answers MCP there', async () => {
