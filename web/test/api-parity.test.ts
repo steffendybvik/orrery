@@ -1264,8 +1264,36 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         expect(domainOf('POST', '/api/projects/p/schedules/enabled')).toBe('schedules, paused or activated')
         expect(domainOf('DELETE', '/api/projects/p/schedules/3')).toBe('a schedule, deleted')
         expect(domainOf('GET', '/api/schedules/across')).toBe('schedules, reading')
-        for (const [method, path] of [['POST', '/api/schedules'], ['POST', '/api/projects/p/schedules/3/run'], ['PATCH', '/api/schedules/across/2']])
-            expect(domainOf(method!, path!), `${method} ${path}`).toBeUndefined()
+        expect(domainOf('POST', '/api/projects/p/schedules/3/run')).toBeUndefined()
+        // Making and changing one across projects (ORR-1036): each side's names only its own project, as one across every
+        // project would be made on the other side's too. What doesn't check out first, then the owner's.
+        const across = (name: string, body: (p: string) => object, actor = OWNER) =>
+            both(name, p => viaStore(() => schedules.createAcross(body(p), actor), 201), () => viaApi('POST', '/api/schedules', body('through-api'), actor))
+        await across('across, as an agent', p => ({projects: [on(p)], title: 'Tidy', cron: '0 9 * * *'}), AGENT)
+        await across('across, with no projects', () => ({title: 'Tidy', cron: '0 9 * * *'}))
+        await across('across, projects not a list', () => ({projects: 'some', title: 'Tidy', cron: '0 9 * * *'}))
+        await across('across, skip not a list', p => ({projects: [on(p)], skip: 'x', title: 'Tidy', cron: '0 9 * * *'}))
+        await across('across, in a milestone', p => ({projects: [on(p)], milestone: '1', title: 'Tidy', cron: '0 9 * * *'}))
+        await across('across, once', p => ({projects: [on(p)], title: 'Tidy', at: '2099-06-01T09:00:00Z'}))
+        await across('across, untrusted', p => ({projects: [on(p)], kind: 'message', notes: 'Hi.', untrusted: true, title: 'Tidy', cron: '0 9 * * *'}))
+        await across('across, a project that isn\'t there', () => ({projects: ['nowhere'], title: 'Tidy', cron: '0 9 * * *'}))
+        await across('across, with a cron that doesn\'t parse', p => ({projects: [on(p)], title: 'Tidy', cron: 'nope'}))
+        await across('across, made', p => ({projects: [on(p)], title: ' Tidy ', cron: '0 9 * * 1', timezone: 'UTC', labels: ['beds']}))
+        const tidy = async (p: string) => (await schedules.listAcross()).filter(a => a.on_projects.includes(on(p))).at(-1)!.id
+        const changeAcross = (name: string, body: object, actor = OWNER) =>
+            both(name, p => viaStore(async () => schedules.updateAcross(await tidy(p), body, actor)), async () => viaApi('PATCH', `/api/schedules/across/${await tidy('through-api')}`, body, actor))
+        await changeAcross('across, changed by an agent', {title: 'Mine'}, AGENT)
+        await changeAcross('across, changed to once', {at: '2099-06-01T09:00:00Z'})
+        await changeAcross('across, changed to a bad cron', {cron: 'nope'})
+        await changeAcross('across, renamed and on an event', {title: 'Tidy up', on: 'issue.created'})
+        await changeAcross('across, paused', {enabled: false})
+        await both('across, one that isn\'t there', () => viaStore(() => schedules.updateAcross(9999, {title: 'x'}, OWNER)), () => viaApi('PATCH', '/api/schedules/across/9999', {title: 'x'}, OWNER))
+        // Their schedule across projects is numbered across both sides, so only that they have one is compared.
+        const copiesOf = (list: {across?: number}[]) => list.filter(s => s.across).map(s => ({...s, across: true}))
+        await both('the schedules made from it', p => viaStore(async () => copiesOf(await schedules.list(on(p)))), () => viaApi('GET', '/schedules', undefined, OWNER, 'through-api-timed').then(o => ({...o, body: copiesOf(o.body as {across?: number}[])})))
+        for (const p of ['through-store', 'through-api']) await schedules.deleteAcross(await tidy(p), OWNER)
+        expect(domainOf('POST', '/api/schedules')).toBe('a schedule across projects, made')
+        expect(domainOf('PATCH', '/api/schedules/across/2')).toBe('a schedule across projects, changed')
     })
 
     it('keeps a pull request on the issues it names alike, as the poll does (ORR-952)', async () => {
@@ -3641,7 +3669,7 @@ describe('the router', () => {
     })
 
     it('routes by a table with a line per domain, so taking one back is taking its line out (ORR-925)', () => {
-        expect(DOMAINS.map(({domain}) => domain)).toEqual(['docs', 'statuses', 'permissions', 'issues, reading', 'comments', 'an issue, deleted', 'an issue, made', 'an issue, its words', 'issues, changed at once', 'a proposal, decided', 'claims', 'activity', 'milestones', 'releases', 'releases, every project\'s', 'people', 'invites', 'owner', 'board members', 'keys', 'logins', 'uploads, reading', 'an upload, kept', 'presets', 'secrets, reading', 'settings', 'a pull request, reading', "a pull request's risk", 'schedules, reading', 'a schedule, adopted', 'a schedule, deleted', 'a schedule, changed', 'a schedule, made', 'a schedule across projects, deleted', 'schedules, paused or activated', 'a schedule, asked for', 'a schedule, answered', 'signals, reading', 'projects, listed', 'a project, made', 'a project, changed', 'a project, read', 'a project, deleted', 'a project, exported', 'a project, imported', 'the event log, read', 'an event, resolved', 'usage', 'the bell', 'epics', 'milestone and epic comments'])
+        expect(DOMAINS.map(({domain}) => domain)).toEqual(['docs', 'statuses', 'permissions', 'issues, reading', 'comments', 'an issue, deleted', 'an issue, made', 'an issue, its words', 'issues, changed at once', 'a proposal, decided', 'claims', 'activity', 'milestones', 'releases', 'releases, every project\'s', 'people', 'invites', 'owner', 'board members', 'keys', 'logins', 'uploads, reading', 'an upload, kept', 'presets', 'secrets, reading', 'settings', 'a pull request, reading', "a pull request's risk", 'schedules, reading', 'a schedule, adopted', 'a schedule, deleted', 'a schedule, changed', 'a schedule, made', 'a schedule across projects, deleted', 'a schedule across projects, made', 'a schedule across projects, changed', 'schedules, paused or activated', 'a schedule, asked for', 'a schedule, answered', 'signals, reading', 'projects, listed', 'a project, made', 'a project, changed', 'a project, read', 'a project, deleted', 'a project, exported', 'a project, imported', 'the event log, read', 'an event, resolved', 'usage', 'the bell', 'epics', 'milestone and epic comments'])
         expect(domainOf('PATCH', '/api/projects/p/docs/d')).toBe('docs')
         expect(domainOf('head', '/api/projects/p/doc-sections/')).toBe('docs')
         for (const method of ['POST', 'DELETE']) expect(domainOf(method, '/api/projects/p/issues/P-1/claim'), method).toBe('claims')
@@ -3794,7 +3822,7 @@ describe('the contract (api/openapi.yaml)', () => {
     const routes = () => [...new Set([...nuxtRoutes(), ...rustRoutes()])].sort().filter(route => servedByApi(methodOf(route), pathOf(route)))
 
     it('has every route the router sends to the API, and no other', () => {
-        expect(contract()).toHaveLength(120)
+        expect(contract()).toHaveLength(122)
         expect(contract()).toEqual(routes())
     })
 

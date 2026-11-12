@@ -26,9 +26,9 @@ pub(crate) fn routes() -> Router<Arc<App>> {
         .route(&format!("{P}/schedules/{{schedule}}"), get(get_schedule).patch(patch_schedule).delete(delete_schedule))
         .route(&format!("{P}/schedules/{{schedule}}/adopt"), post(adopt_schedule))
         .route(&format!("{P}/schedules/enabled"), post(set_all_enabled))
-        .route("/api/schedules", get(all_schedules))
+        .route("/api/schedules", get(all_schedules).post(create_across))
         .route("/api/schedules/across", get(schedules_across))
-        .route("/api/schedules/across/{across}", delete(delete_across))
+        .route("/api/schedules/across/{across}", delete(delete_across).patch(update_across))
         .route(&format!("{P}/issues/{{issue}}/schedule-requests"), post(ask_schedule))
         .route(&format!("{P}/issues/{{issue}}/schedule-requests/{{comment}}"), post(answer_schedule))
 }
@@ -148,6 +148,30 @@ async fn schedules_across(State(app): Shared) -> Result<Response> {
 mod tests;
 
 /// `DELETE /api/schedules/across/:across` → 204: it and the schedules made from it; their issues stay.
+/// `POST /api/schedules` {projects: "*" | [ids], skip?, …a schedule's fields} → 201 the schedule across projects, made on
+/// each (ORR-1036). The owner's alone.
+async fn create_across(State(app): Shared, headers: HeaderMap, body: Bytes) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    let uid = Presets::new(&mut conn).uid().await?;
+    let actor = actor_of(&headers);
+    let mut schedules = Schedules::new(&mut conn);
+    schedules.outbox = Some(Outbox::new(actor.clone()));
+    let made = schedules.create_across(&body_of(&body), &uid, &actor).await?;
+    Ok(reply(StatusCode::CREATED, Some(made), std::mem::take(&mut schedules.effects)))
+}
+
+/// `PATCH /api/schedules/across/:across` {projects?, skip?, …a schedule's fields} → it, changed along with the schedules
+/// made from it (ORR-1036).
+async fn update_across(State(app): Shared, Path(across): Path<String>, headers: HeaderMap, body: Bytes) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    let uid = Presets::new(&mut conn).uid().await?;
+    let actor = actor_of(&headers);
+    let mut schedules = Schedules::new(&mut conn);
+    schedules.outbox = Some(Outbox::new(actor.clone()));
+    let changed = schedules.update_across(&across, &body_of(&body), &uid, &actor).await?;
+    Ok(reply(StatusCode::OK, Some(changed), std::mem::take(&mut schedules.effects)))
+}
+
 async fn delete_across(State(app): Shared, Path(across): Path<String>, headers: HeaderMap) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
     let actor = actor_of(&headers);

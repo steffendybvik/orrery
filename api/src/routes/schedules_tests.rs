@@ -583,3 +583,62 @@ async fn deleting_one_across_projects_takes_its_copies_and_is_the_owners_alone()
     assert_eq!((gone.status.as_u16(), gone.body["message"].clone()), (404, json!(format!("No schedule across projects {across}"))));
     assert_eq!(api.delete("/api/schedules/across/nope").send().await.body["message"], "No schedule across projects NaN");
 }
+
+#[tokio::test]
+async fn makes_one_across_projects_on_each_and_takes_in_a_project_added_later() {
+    let api = TestApi::new().await;
+    let alpha = api.project("alpha").await;
+    let beta = api.project("beta").await;
+    let refused = api.post("/api/schedules", json!({"projects": "*", "title": "Tidy", "cron": "0 9 * * 1"})).by_agent("claude").send().await;
+    assert_eq!((refused.status.as_u16(), refused.body["data"]["permission"].as_str()), (403, Some("schedules.across")));
+    for (body, said) in [
+        (json!({"title": "Tidy", "cron": "0 9 * * 1"}), "Send \"projects\": \"*\" for all of them, or a list of ids"),
+        (json!({"projects": [], "title": "Tidy", "cron": "0 9 * * 1"}), "\"projects\" is \"*\", or a list of ids"),
+        (json!({"projects": "*", "skip": "x", "title": "Tidy", "cron": "0 9 * * 1"}), "\"skip\" is a list of ids"),
+        (
+            json!({"projects": "*", "milestone": "1", "title": "Tidy", "cron": "0 9 * * 1"}),
+            "A schedule across projects can't name a milestone: a milestone is one project's",
+        ),
+        (json!({"projects": "*", "title": "Tidy", "at": "2099-01-01T09:00:00Z"}), "A schedule across projects runs on a cron or an event, not once"),
+        (json!({"projects": "*", "skip": [alpha, beta], "title": "Tidy", "cron": "0 9 * * 1"}), "That leaves no project for it to run on"),
+        (json!("Tidy"), "Send an object: {\"projects\": \"*\", \"title\": \"Tidy\", \"on\": \"pr.merged\"}"),
+    ] {
+        let reply = api.post("/api/schedules", body.clone()).send().await;
+        assert_eq!((reply.status.as_u16(), reply.body["message"].as_str()), (400, Some(said)), "{body}");
+    }
+    let missing = api.post("/api/schedules", json!({"projects": ["nowhere"], "title": "Tidy", "cron": "0 9 * * 1"})).send().await;
+    assert_eq!(missing.status, 404, "{}", missing.body);
+    let made = api.post("/api/schedules", json!({"projects": "*", "skip": [beta], "title": "Tidy", "cron": "0 9 * * 1"})).send().await;
+    assert_eq!(made.status, 201, "{}", made.body);
+    assert_eq!((made.body["projects"].clone(), made.body["on_projects"].clone()), (json!("*"), json!([alpha])));
+    assert_eq!(made.header("orrery-schedules"), Some(alpha.as_str()));
+    let id = made.body["id"].as_i64().unwrap();
+    // Taking `beta` in: it's made there too, as its own would be, and marked as made from it.
+    let path = format!("/api/schedules/across/{id}");
+    let changed = api.patch(&path, json!({"skip": [], "title": "Tidy up"})).send().await;
+    assert_eq!(changed.status, 200, "{}", changed.body);
+    assert_eq!((changed.body["title"].as_str(), changed.body["on_projects"].clone()), (Some("Tidy up"), json!([alpha, beta])));
+    let copies = api.get(&format!("/api/projects/{beta}/schedules")).send().await.body;
+    assert_eq!((copies[0]["title"].as_str(), copies[0]["across"].as_i64()), (Some("Tidy up"), Some(id)));
+}
+
+#[tokio::test]
+async fn changing_one_across_projects_changes_its_copies_which_alone_only_pause() {
+    let api = TestApi::new().await;
+    let alpha = api.project("alpha").await;
+    let made = api.post("/api/schedules", json!({"projects": [alpha], "title": "Tidy", "cron": "0 9 * * 1"})).send().await;
+    let id = made.body["id"].as_i64().unwrap();
+    let copy = api.get(&format!("/api/projects/{alpha}/schedules")).send().await.body[0]["id"].as_i64().unwrap();
+    let own = api.patch(&format!("/api/projects/{alpha}/schedules/{copy}"), json!({"title": "Mine"})).send().await;
+    assert_eq!(own.status, 409, "a copy is changed where it's made from: {}", own.body);
+    let path = format!("/api/schedules/across/{id}");
+    assert_eq!(api.patch(&path, json!({"title": "x"})).by_agent("claude").send().await.status, 403);
+    assert_eq!(api.patch(&path, json!({"cron": "nope"})).send().await.status, 400);
+    let evented = api.patch(&path, json!({"on": "issue.created"})).send().await;
+    assert_eq!(evented.status, 200, "{}", evented.body);
+    assert_eq!((evented.body["on"].as_str(), evented.body.get("cron")), (Some("issue.created"), None), "setting on lets go of cron");
+    let copied = api.get(&format!("/api/projects/{alpha}/schedules/{copy}")).send().await.body;
+    assert_eq!((copied["on"].as_str(), copied["cron"].as_str()), (Some("issue.created"), None));
+    let missing = api.patch("/api/schedules/across/9999", json!({"title": "x"})).send().await;
+    assert_eq!((missing.status.as_u16(), missing.body["message"].as_str()), (404, Some("No schedule across projects 9999")));
+}
