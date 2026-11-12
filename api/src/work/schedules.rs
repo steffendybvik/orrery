@@ -3,7 +3,7 @@
 // pausing or activating all of a project's at once (`set_all_enabled`, ORR-1082), and making and changing one (`create`,
 // `update`), and deleting one across projects (`delete_across`). Each write says the project's schedules changed
 // (`Effects::schedules`), so the local app's scheduler reads them again. Running them, the requests on comments, and
-// making or changing one across projects stay the Nuxt server's for now.
+// making and changing one across projects (`create_across`, `update_across`, ORR-1036) are here too.
 use crate::board::issue_edits::resolve_status;
 use crate::board::issues::Issues;
 use crate::board::milestones::Milestones;
@@ -45,6 +45,11 @@ pub struct Schedules<'c> {
     pub outbox: Option<Outbox>,
     /// Checks a write as it would be made and stops before saving it (`check`).
     dry: bool,
+    /// The schedule across projects a schedule `create` makes is a copy of (`across`).
+    across: Option<i64>,
+    /// A change that comes from the schedule across projects a schedule is made from, which may change more of it than
+    /// pausing it (`asAcross`).
+    as_across: bool,
 }
 
 /// What a write needs of a schedule's row: whether it's the owner's, the schedule across projects it's made from, and
@@ -134,6 +139,65 @@ fn enabled_refused(actor: &Actor) -> ApiError {
     ApiError::refused_for("schedules.enabled", message)
 }
 
+/// Which projects a schedule across projects is for: every one (`*`), or those named.
+enum Projects {
+    Every,
+    Named(Vec<String>),
+}
+
+/// How `schedules_across.projects` keeps them: `*`, or the ids as JSON.
+fn projects_text(projects: &Projects) -> String {
+    match projects {
+        Projects::Every => "*".into(),
+        Projects::Named(named) => json!(named).to_string(),
+    }
+}
+
+fn string_list(value: &Value) -> Vec<String> {
+    value.as_array().map(|all| all.iter().filter_map(|v| v.as_str().map(String::from)).collect()).unwrap_or_default()
+}
+
+/// Whether a field is sent as something JavaScript counts as set (not null, false, 0 or "").
+fn is_set(value: Option<&Value>) -> bool {
+    !matches!(value, None | Some(Value::Null) | Some(Value::Bool(false))) && value != Some(&json!(0)) && value != Some(&json!(""))
+}
+
+/// What's sent for a schedule across projects (`acrossInput`): its projects, those skipped, and a schedule's fields, less
+/// what can't be the same on every project.
+/// What `across_input` reads: the projects, those skipped, and the schedule's fields.
+type AcrossInput = (Option<Projects>, Option<Vec<String>>, Map<String, Value>);
+
+fn across_input(body: &Value) -> Result<AcrossInput> {
+    let Some(sent) = body.as_object() else {
+        return Err(ApiError::bad_request("Send an object: {\"projects\": \"*\", \"title\": \"Tidy\", \"on\": \"pr.merged\"}"));
+    };
+    let mut fields = sent.clone();
+    let projects = fields.remove("projects");
+    let skip = fields.remove("skip");
+    let is_list = |v: &Value| v.as_array().is_some_and(|all| all.iter().all(Value::is_string));
+    let projects = match projects {
+        None => None,
+        Some(Value::String(all)) if all == "*" => Some(Projects::Every),
+        Some(list) if is_list(&list) && !string_list(&list).is_empty() => Some(Projects::Named(string_list(&list))),
+        Some(_) => return Err(ApiError::bad_request("\"projects\" is \"*\", or a list of ids")),
+    };
+    let skip = match skip {
+        None => None,
+        Some(list) if is_list(&list) => Some(string_list(&list)),
+        Some(_) => return Err(ApiError::bad_request("\"skip\" is a list of ids")),
+    };
+    if is_set(fields.get("milestone")) {
+        return Err(ApiError::bad_request("A schedule across projects can't name a milestone: a milestone is one project's"));
+    }
+    if is_set(fields.get("at")) {
+        return Err(ApiError::bad_request("A schedule across projects runs on a cron or an event, not once"));
+    }
+    if is_set(fields.get("untrusted")) {
+        return Err(ApiError::bad_request("A schedule across projects can't be untrusted"));
+    }
+    Ok((projects, skip, fields))
+}
+
 /// The 403 for anyone but the owner, as `ownerOnly(actor, 'schedules.across')` words it.
 fn across_refused(actor: &Actor) -> ApiError {
     let action = "Make, change or delete a schedule across projects";
@@ -148,7 +212,7 @@ fn across_refused(actor: &Actor) -> ApiError {
 
 impl<'c> Schedules<'c> {
     pub fn new(conn: &'c mut AnyConnection) -> Self {
-        Schedules { conn, effects: Effects::default(), outbox: None, dry: false }
+        Schedules { conn, effects: Effects::default(), outbox: None, dry: false, across: None, as_across: false }
     }
 
     /// The schedule's row as a write needs it (`row`), or a 404.
@@ -268,7 +332,7 @@ impl<'c> Schedules<'c> {
         if flag("owned") && !actor.owner {
             return Err(ApiError::refused_for("schedules.owners", format!("Changing schedule {id}: it's the owner's; only they can change it")));
         }
-        if let Some(across) = row.get::<Option<i64>, _>("across").filter(|a| *a != 0) {
+        if let Some(across) = row.get::<Option<i64>, _>("across").filter(|a| *a != 0 && !self.as_across) {
             if body.as_object().is_some_and(|b| b.keys().any(|k| k != "enabled")) {
                 return Err(ApiError::conflict(format!("Schedule {id} is made from schedule across projects {across}: change it there, or pause it here")));
             }
@@ -444,8 +508,8 @@ impl<'c> Schedules<'c> {
         let done: Result<i64> = async {
             let row = sqlx::query(&sql(
                 "INSERT INTO schedules (project, kind, title, notes, cron, at, on_event, on_filter, presets, move_from, timezone, place, milestone, priority,
-                    labels, ask, skip_open, only_if_changed, untrusted, enabled, next_run, created_by, owned, created_at, updated_at, model, effort)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING CAST(id AS BIGINT) AS id",
+                    labels, ask, skip_open, only_if_changed, untrusted, enabled, next_run, created_by, owned, created_at, updated_at, model, effort, across)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING CAST(id AS BIGINT) AS id",
             ))
             .bind(project)
             .bind(&kind)
@@ -474,6 +538,7 @@ impl<'c> Schedules<'c> {
             .bind(&now)
             .bind(given("model"))
             .bind(given("effort"))
+            .bind(self.across)
             .fetch_one(&mut *self.conn)
             .await?;
             Ok(row.get("id"))
@@ -481,6 +546,179 @@ impl<'c> Schedules<'c> {
         .await;
         let id = changes::finish(self.conn, self.outbox.as_mut(), &self.effects, done).await?;
         self.get(project, &id.to_string(), uid).await
+    }
+
+    /// Makes a schedule across projects (`createAcross`), `{projects: "*" | [ids], skip?, …a schedule's fields}`: the
+    /// owner's alone, as it runs as them everywhere. Checked as each project's own would be, then made on each.
+    pub async fn create_across(&mut self, body: &Value, uid: &str, actor: &Actor) -> Result<Value> {
+        if !actor.owner {
+            return Err(across_refused(actor));
+        }
+        let (projects, skip, fields) = across_input(body)?;
+        let projects = projects.ok_or_else(|| ApiError::bad_request("Send \"projects\": \"*\" for all of them, or a list of ids"))?;
+        let skip = skip.unwrap_or_default();
+        let targets = self.across_targets(&projects, &skip, false).await?;
+        if targets.is_empty() {
+            return Err(ApiError::bad_request("That leaves no project for it to run on"));
+        }
+        let fields = Value::Object(fields);
+        for project in &targets {
+            self.check(project, None, &fields, uid, actor).await?;
+        }
+        let now = stamp();
+        changes::begin(self.conn).await?;
+        let done: Result<i64> = async {
+            let row = sqlx::query(&sql(
+                "INSERT INTO schedules_across (projects, skip, body, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?) RETURNING CAST(id AS BIGINT) AS id",
+            ))
+            .bind(projects_text(&projects))
+            .bind(json!(skip).to_string())
+            .bind(fields.to_string())
+            .bind(&actor.name)
+            .bind(&now)
+            .bind(&now)
+            .fetch_one(&mut *self.conn)
+            .await?;
+            Ok(row.get("id"))
+        }
+        .await;
+        let id = changes::finish(self.conn, self.outbox.as_mut(), &self.effects, done).await?;
+        self.settle_across(uid).await?;
+        self.across_one(id).await
+    }
+
+    /// Changes a schedule across projects and the schedules made from it, all checked first, and which projects it's for
+    /// (`updateAcross`). What each has run stays.
+    pub async fn update_across(&mut self, sent: &str, body: &Value, uid: &str, actor: &Actor) -> Result<Value> {
+        if !actor.owner {
+            return Err(across_refused(actor));
+        }
+        let missing = || ApiError::not_found(format!("No schedule across projects {}", sent.parse::<i64>().map_or("NaN".into(), |n| n.to_string())));
+        let id = sent.parse::<i64>().map_err(|_| missing())?;
+        let row = sqlx::query(&sql("SELECT projects, skip, body FROM schedules_across WHERE id = ?"))
+            .bind(id)
+            .fetch_optional(&mut *self.conn)
+            .await?
+            .ok_or_else(missing)?;
+        let (projects, skip, fields) = across_input(body)?;
+        let mut merged = match parsed(&row.get::<String, _>("body")) {
+            Value::Object(body) => body,
+            _ => Map::new(),
+        };
+        merged.extend(fields.clone());
+        // Setting one of cron and on lets go of the other, as a schedule's own change does.
+        if is_set(fields.get("cron")) {
+            merged.remove("on");
+        }
+        if is_set(fields.get("on")) {
+            merged.remove("cron");
+        }
+        let stored: String = row.get("projects");
+        let projects = projects.unwrap_or_else(|| if stored == "*" { Projects::Every } else { Projects::Named(string_list(&parsed(&stored))) });
+        let skip = skip.unwrap_or_else(|| string_list(&parsed(&row.get::<String, _>("skip"))));
+        let targets = self.across_targets(&projects, &skip, false).await?;
+        let copies = self.copies(id).await?;
+        let fields = Value::Object(fields);
+        let merged = Value::Object(merged);
+        self.as_across = true;
+        let checked: Result<()> = async {
+            for (copy, project) in &copies {
+                self.check(project, Some(*copy), &fields, uid, actor).await?;
+            }
+            for project in targets.iter().filter(|t| !copies.iter().any(|(_, p)| p == *t)) {
+                self.check(project, None, &merged, uid, actor).await?;
+            }
+            changes::begin(self.conn).await?;
+            let done = sqlx::query(&sql("UPDATE schedules_across SET projects = ?, skip = ?, body = ?, updated_at = ? WHERE id = ?"))
+                .bind(projects_text(&projects))
+                .bind(json!(skip).to_string())
+                .bind(merged.to_string())
+                .bind(stamp())
+                .bind(id)
+                .execute(&mut *self.conn)
+                .await
+                .map(|_| ())
+                .map_err(Into::into);
+            changes::finish(self.conn, self.outbox.as_mut(), &self.effects, done).await?;
+            for (copy, project) in &copies {
+                self.update(project, &copy.to_string(), &fields, uid, actor).await?;
+            }
+            Ok(())
+        }
+        .await;
+        self.as_across = false;
+        checked?;
+        self.settle_across(uid).await?;
+        self.across_one(id).await
+    }
+
+    /// Keeps each schedule across projects' copies to the projects it's for (`settleAcross`): makes the missing, as a
+    /// project added since, and removes those no longer named. Goes on past one that can't be made (a preset gone), to
+    /// try again next time.
+    async fn settle_across(&mut self, uid: &str) -> Result<()> {
+        let rows = sqlx::query("SELECT CAST(id AS BIGINT) AS id, projects, skip, body, created_by FROM schedules_across").fetch_all(&mut *self.conn).await?;
+        for row in &rows {
+            let id: i64 = row.get("id");
+            let stored: String = row.get("projects");
+            let projects = if stored == "*" { Projects::Every } else { Projects::Named(string_list(&parsed(&stored))) };
+            let targets = self.across_targets(&projects, &string_list(&parsed(&row.get::<String, _>("skip"))), true).await?;
+            let copies = self.copies(id).await?;
+            for (copy, project) in copies.iter().filter(|(_, p)| !targets.contains(p)) {
+                if !self.effects.schedules.contains(project) {
+                    self.effects.schedules.push(project.clone());
+                }
+                changes::begin(self.conn).await?;
+                let done = self.remove(project, *copy, None).await;
+                changes::finish(self.conn, self.outbox.as_mut(), &self.effects, done).await?;
+            }
+            let body = parsed(&row.get::<String, _>("body"));
+            let maker = Actor { name: row.get("created_by"), owner: true, ..Actor::default() };
+            for project in targets.iter().filter(|t| !copies.iter().any(|(_, p)| p == *t)) {
+                self.across = Some(id);
+                let made = self.create(project, &body, uid, &maker).await;
+                self.across = None;
+                if let Err(error) = made {
+                    eprintln!("[orrery] schedule across projects {id} on {project}: {error:?}");
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// The projects named, what opted out left out (`acrossTargets`); one named that's gone is refused, or with `lenient`
+    /// passed over.
+    async fn across_targets(&mut self, projects: &Projects, skip: &[String], lenient: bool) -> Result<Vec<String>> {
+        let every: Vec<String> = sqlx::query("SELECT id FROM projects ORDER BY id").fetch_all(&mut *self.conn).await?.iter().map(|r| r.get("id")).collect();
+        Ok(match projects {
+            Projects::Every => every.into_iter().filter(|id| !skip.contains(id)).collect(),
+            Projects::Named(named) => {
+                if !lenient {
+                    if let Some(gone) = named.iter().find(|id| !every.contains(id)) {
+                        return Err(ApiError::not_found(format!("No project \"{gone}\"")));
+                    }
+                }
+                named.iter().filter(|id| every.contains(id)).cloned().collect()
+            }
+        })
+    }
+
+    /// The schedules made from schedule across projects `id`, with their projects.
+    async fn copies(&mut self, id: i64) -> Result<Vec<(i64, String)>> {
+        Ok(sqlx::query(&sql("SELECT CAST(id AS BIGINT) AS id, project FROM schedules WHERE across = ? ORDER BY id"))
+            .bind(id)
+            .fetch_all(&mut *self.conn)
+            .await?
+            .iter()
+            .map(|row| (row.get("id"), row.get("project")))
+            .collect())
+    }
+
+    /// One schedule across projects, as `across` lists it (`acrossOf`).
+    async fn across_one(&mut self, id: i64) -> Result<Value> {
+        let all = self.across().await?;
+        all.as_array()
+            .and_then(|all| all.iter().find(|a| a["id"] == id).cloned())
+            .ok_or_else(|| ApiError::not_found(format!("No schedule across projects {id}")))
     }
 
     /// Deletes a schedule across projects and the schedules made from it (`deleteAcross`); their issues stay. The

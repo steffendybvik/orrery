@@ -123,6 +123,9 @@ export const DOMAINS: readonly {domain: string, paths: RegExp, methods?: readonl
     {domain: 'a schedule, made', paths: /^projects\/[^/]+\/schedules$/, methods: ['POST']},
     // Deleting one across projects (ORR-1082), with the schedules made from it: it starts no session.
     {domain: 'a schedule across projects, deleted', paths: /^schedules\/across\/[^/]+$/, methods: ['DELETE']},
+    // Making and changing one across projects (ORR-1036), with the schedules made from it: it starts no session.
+    {domain: 'a schedule across projects, made', paths: /^schedules$/, methods: ['POST']},
+    {domain: 'a schedule across projects, changed', paths: /^schedules\/across\/[^/]+$/, methods: ['PATCH']},
     // Pausing or activating all of a project's (ORR-1082): it works out each next run, and starts no session.
     {domain: 'schedules, paused or activated', paths: /^projects\/[^/]+\/schedules\/enabled$/, methods: ['POST']},
     // A working session asking the owner for a schedule on its issue (ORR-1100): a comment with the request beside it,
@@ -327,6 +330,7 @@ export async function passedThrough(response: Response): Promise<{headers: Recor
 const COUNTED: readonly {method: string, paths: RegExp, feature: Feature}[] = [
     {method: 'POST', paths: /^presets$/, feature: 'presets'},
     {method: 'POST', paths: /^projects\/[^/]+\/milestones$/, feature: 'milestones'},
+    {method: 'POST', paths: /^schedules$/, feature: 'schedules'},
 ]
 
 /** The feature a successful `method` on `path` counts toward, if any. */

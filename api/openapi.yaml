@@ -1625,6 +1625,16 @@ paths:
       summary: 'Every project''s schedules (the agenda): the soonest next run first, those with none last, ties by title'
       responses:
         '200': {description: The schedules, content: {application/json: {schema: {type: array, items: {type: object}}}}}
+    post:
+      summary: 'Makes a schedule across projects (ORR-1036), made on each: {projects: "*" | [ids], skip?, …a schedule''s fields}. The owner''s alone'
+      description: Checked as each project's own would be. It can't name a milestone, run once or be untrusted (400); `*` takes in a project added later.
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      requestBody: {required: true, content: {application/json: {schema: {type: object}}}}
+      responses:
+        '201': {description: The schedule across projects, content: {application/json: {schema: {type: object}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
   /api/chats:
     get:
       x-served: false
@@ -1813,6 +1823,16 @@ paths:
       summary: 'Deletes a schedule across projects and the schedules made from it (ORR-1082); their issues stay. The owner''s alone'
       responses:
         '204': {description: Deleted}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+    patch:
+      summary: 'Changes a schedule across projects and the schedules made from it, all checked first, and which projects it''s for (ORR-1036). The owner''s alone'
+      description: '{projects?, skip?, …a schedule''s fields}. What each has run stays.'
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      requestBody: {required: true, content: {application/json: {schema: {type: object}}}}
+      responses:
+        '200': {description: The schedule across projects, changed, content: {application/json: {schema: {type: object}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
         '403': {$ref: '#/components/responses/Forbidden'}
         '404': {$ref: '#/components/responses/NotFound'}
   /api/pulls/{owner}/{name}:
