@@ -1699,6 +1699,22 @@ paths:
         '400': {$ref: '#/components/responses/BadRequest'}
         '403': {description: A field that stays the owner's to set, content: {application/json: {schema: {type: object}}}}
         '404': {$ref: '#/components/responses/NotFound'}
+  /api/chats/{chat}/issue-requests:
+    parameters: [{name: chat, in: path, required: true, description: The chat's id, schema: {type: string}}]
+    post:
+      x-served: false
+      summary: The chat offers an issue the owner didn't ask for, which files nothing until they press File issue
+      description: >-
+        The chat's `offer_issue` (`askIssue`, ORR-1100): its title, notes, priority, labels and milestone, checked as
+        the issue routes check them, on the project it names or else the chat's own, kept as an offer in the chat. One
+        offered before under the same title, still unanswered, expires. The owner answers on the chat's page, which the
+        local app runs.
+      requestBody: {required: true, content: {application/json: {schema: {type: object, required: [issue], properties: {issue: {type: object}, project: {type: string}, why: {type: string}}}}}}
+      responses:
+        '201': {description: 'The message offering, with its id and time', content: {application/json: {schema: {type: object}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {description: A field the chat doesn't offer, content: {application/json: {schema: {type: object}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
   /api/chats/{chat}/release-requests:
     parameters: [{name: chat, in: path, required: true, description: The chat's id, schema: {type: string}}]
     post:

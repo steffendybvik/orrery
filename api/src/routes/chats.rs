@@ -24,6 +24,17 @@ pub(crate) fn routes() -> Router<Arc<App>> {
         .route("/api/chats/{chat}/schedule-requests", post(ask_schedule))
         .route("/api/chats/{chat}/release-requests", post(ask_release))
         .route("/api/chats/{chat}/doc-requests", post(ask_doc))
+        .route("/api/chats/{chat}/issue-requests", post(offer_issue))
+}
+
+/// `POST /api/chats/:chat/issue-requests` {issue, project?, why?} → 201 the message offering (ORR-1100): the chat's
+/// `offer_issue`, kept as an offer the owner files or doesn't on the chat's page.
+async fn offer_issue(State(app): Shared, Path(chat): Path<String>, headers: HeaderMap, body: Bytes) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    let mut chats = Chats::new(&mut conn);
+    chats.outbox = Some(Outbox::new(actor_of(&headers)));
+    let offered = chats.ask_issue(&chat, &body_of(&body)).await?;
+    Ok(reply(StatusCode::CREATED, Some(offered), std::mem::take(&mut chats.effects)))
 }
 
 /// `POST /api/chats/:chat/doc-requests` {doc, id?, project?, why?} → 201 the message asking (ORR-1100): the chat's
