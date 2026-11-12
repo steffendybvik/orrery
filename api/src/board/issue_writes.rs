@@ -23,11 +23,14 @@ pub struct IssueWrites<'c> {
     pub effects: Effects,
     /// Set for a write: what it sets off goes into the outbox in its transaction (ORR-929).
     pub outbox: Option<Outbox>,
+    /// The session an edit is for, by the id it goes by now (`Orrery-Worked-By`): starting the issue takes its lock
+    /// (`lockFor`, ORR-1130). None for the owner, their chat and what orrery does itself.
+    pub session: Option<String>,
 }
 
 impl<'c> IssueWrites<'c> {
     pub fn new(conn: &'c mut AnyConnection) -> Self {
-        IssueWrites { conn, effects: Effects::default(), outbox: None }
+        IssueWrites { conn, effects: Effects::default(), outbox: None, session: None }
     }
 
     /// Notes that `session` is working an issue it just made (`workedBy`), so the owner's comments on it go to that
