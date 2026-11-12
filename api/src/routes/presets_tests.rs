@@ -264,7 +264,8 @@ async fn seeding_brings_an_old_shipped_text_up_to_date_and_keeps_the_owners() {
     let all = api.get("/api/presets").send().await.body;
     let release_id = shipped(&all, "release")["id"].as_i64().unwrap();
     let review_id = shipped(&all, "review")["id"].as_i64().unwrap();
-    api.run("UPDATE presets SET text = ? WHERE id = ?", &[old, &release_id.to_string()]).await;
+    // The id goes in as a number: Postgres has no `integer = text` (ORR-1136).
+    api.run(&format!("UPDATE presets SET text = ? WHERE id = {release_id}"), &[old]).await;
     assert_eq!(api.patch(&format!("/api/presets/{review_id}"), json!({"text": "Mine"})).send().await.status, 200);
     seeded(&api).await;
     let all = api.get("/api/presets").send().await.body;
