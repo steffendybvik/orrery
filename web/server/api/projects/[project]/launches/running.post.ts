@@ -6,7 +6,7 @@ import {isEffort, isModel} from '#shared/roadmap'
 // counts them as started again, with their stop times (none: until stopped), the context they were started with, and whether they're locked down, a chat or global (ORR-1079), and the model and effort they were started on.
 export default defineEventHandler(async event => {
     const project = param(event, 'project')
-    await useStore().projectId(project)
+    await projectIdOf(project)
     const body = await readBody(event)
     const launches = (body as {launches?: unknown})?.launches
     const ok = (l: unknown): l is {id: string, tmux: string, stops_at?: string, context?: SessionContext, untrusted?: boolean, chat?: boolean, global?: boolean, model?: string, effort?: Effort} => {

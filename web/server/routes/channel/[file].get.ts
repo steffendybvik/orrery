@@ -7,7 +7,7 @@ export default defineEventHandler(async event => {
         const manifest = await assets.getItem<Record<string, unknown>>(file)
         if (!manifest) throw notFound('This orrery has no channel bundle')
         setResponseHeader(event, 'Cache-Control', 'no-store')
-        return {...manifest, id: (await useStore().settings()).id}
+        return {...manifest, id: await orreryId()}
     }
     const body = /^[\w-]+\.mjs$/.test(file) ? await assets.getItemRaw<Buffer | string>(file) : null
     if (!body) throw notFound(`No ${file}`)
