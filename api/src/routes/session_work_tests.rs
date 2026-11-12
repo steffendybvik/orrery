@@ -175,3 +175,31 @@ async fn working_an_issue_ties_it_to_the_session_and_keeps_since_while_its_the_s
     assert_eq!(api.count("SELECT COUNT(*) FROM issue_sessions").await, 1);
     assert_eq!(api.post(&path, json!({})).send().await.status, 400);
 }
+
+#[tokio::test]
+async fn a_focus_is_on_its_way_while_its_unheard_and_from_the_last_ten_minutes() {
+    let api = TestApi::new().await;
+    let (project, issue) = api.board().await;
+    let other = api.issue(&project, json!({"title": "Other"})).await;
+    let path = format!("/api/projects/{project}/signals?waiting=focus&issue={issue}");
+    let on_its_way = || async { api.get(&path).send().await.body.as_array().unwrap().len() };
+    let write = |body: Value| api.post(&format!("/api/projects/{project}/signals"), body);
+    // A session's own focus, a comment and a focus on another issue don't count.
+    write(json!({"kind": "focus", "issue": issue, "created_by": "claude", "owned": false})).send().await;
+    write(json!({"kind": "comment", "issue": issue, "created_by": "owner", "owned": true})).send().await;
+    write(json!({"kind": "focus", "issue": other, "created_by": "owner", "owned": true})).send().await;
+    assert_eq!(on_its_way().await, 0);
+    let sent = write(json!({"kind": "focus", "issue": issue, "created_by": "owner", "owned": true})).send().await;
+    assert_eq!(sent.status, 201, "{}", sent.body);
+    assert_eq!(on_its_way().await, 1);
+    // A member's counts too.
+    write(json!({"kind": "focus", "issue": issue, "created_by": "ann", "owned": false, "person": "ann"})).send().await;
+    assert_eq!(on_its_way().await, 2);
+    api.run("UPDATE signals SET delivered_to = '[\"sess-1\"]' WHERE person = 'ann'", &[]).await;
+    assert_eq!(on_its_way().await, 1);
+    api.run("UPDATE signals SET created_at = '2020-01-01T00:00:00.000Z' WHERE kind = 'focus'", &[]).await;
+    assert_eq!(on_its_way().await, 0);
+    // An issue there isn't has none, and `focus` needs an issue.
+    assert_eq!(api.get(&format!("/api/projects/{project}/signals?waiting=focus&issue=NOPE-9")).send().await.body, json!([]));
+    assert_eq!(api.get(&format!("/api/projects/{project}/signals?waiting=focus")).send().await.status, 400);
+}
