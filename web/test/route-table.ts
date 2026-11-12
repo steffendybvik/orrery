@@ -10,7 +10,6 @@
 export type Line = {issue: `ORR-${number}`, gap: string} | {stays: string} | {rustOnly: string}
 
 // Uploading re-encodes images with sharp, which Rust lacks: how it moves is decided with the Nuxt server's retirement.
-const ORR_928: Line = {issue: 'ORR-928', gap: 'the owner, with auth'}
 const ORR_950: Line = {issue: 'ORR-950', gap: 'schedule writes and runs, and the schedule requests that write them'}
 const ORR_1006: Line = {issue: 'ORR-1006', gap: 'uploading a project'}
 const ORR_1038: Line = {issue: 'ORR-1038', gap: 'the front door: served ahead, routed once how the request came in reaches the API'}
@@ -87,8 +86,6 @@ export const NOT_ROUTED: Readonly<Record<string, Line>> = {
     'GET /api/launches/stream': SESSIONS,
     'GET /api/machine': MACHINE,
     'GET /api/mcp': MACHINE,
-    'GET /api/owner': ORR_928,
-    'PUT /api/owner': ORR_928,
     'GET /api/phone': MACHINE,
     'POST /api/phone/link': ORR_1038,
     'POST /api/projects/upload': ORR_1006,

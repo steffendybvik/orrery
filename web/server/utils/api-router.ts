@@ -84,6 +84,8 @@ export const DOMAINS: readonly {domain: string, paths: RegExp, methods?: readonl
     // unassigns their open issues, each told back as `Orrery-Told` and put in the outbox (ORR-929).
     {domain: 'people', paths: /^people(\/[^/]+)?$/, methods: ['GET', 'POST', 'PATCH', 'DELETE']},
     {domain: 'invites', paths: /^invites$/},
+    // The owner: who they are, and naming them, which moves what was theirs to their new id (ORR-1036).
+    {domain: 'owner', paths: /^owner$/, methods: ['GET', 'PUT']},
     // Who's on a board: listing them, and its holder or the owner adding and taking off one (ORR-1036).
     {domain: 'board members', paths: /^projects\/[^/]+\/members(\/[^/]+)?$/},
     // A person's keys and the browsers signed in as them (ORR-928). Checking a key or a login's cookie on each request,
