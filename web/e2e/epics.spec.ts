@@ -140,3 +140,20 @@ test("shows an epic's id and copies its full form from its page (ORR-994, ORR-99
     await expect(copy).toHaveText('Copied')
     expect(await page.evaluate(() => (window as unknown as {copied: string[]}).copied)).toEqual([epic.full_id])
 })
+
+test('gives a parent and its sub-issues a card of their own on an epic\'s page (ORR-1146)', async ({page, request}) => {
+    const epic = await (await request.post('/api/epics', {data: {title: 'Gift wrapping'}, headers: AGENT})).json() as {id: number}
+    await front(request, 'post', '/issues', {title: 'Price the paper', status: 'todo', epic: epic.id})
+    const parent = await front(request, 'post', '/issues', {title: 'Wrap at the till', status: 'todo', epic: epic.id})
+    await front(request, 'post', '/issues', {title: 'Fold the corners', status: 'todo', parent: parent.id})
+    await front(request, 'post', '/issues', {title: 'Tie the ribbon', status: 'todo', parent: parent.id})
+    await front(request, 'post', '/issues', {title: 'Stock the tags', status: 'todo', epic: epic.id})
+    await page.goto(`/epics/${epic.id}`)
+    const own = page.locator('[data-group]').filter({hasText: 'Wrap at the till'})
+    await expect(own.locator('[data-issue]')).toHaveCount(3)
+    await expect(own).toContainText('Fold the corners')
+    await expect(own).toContainText('Tie the ribbon')
+    await expect(own).not.toContainText('Price the paper')
+    await expect(own).not.toContainText('Stock the tags')
+    await expect(page.locator('[data-group]')).toHaveCount(3)
+})
