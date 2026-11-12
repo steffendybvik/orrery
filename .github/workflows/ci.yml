@@ -55,37 +55,18 @@ jobs:
       - run: pnpm --dir web exec vitest run --project unit --coverage --reporter=default --reporter=blob --outputFile.blob=.vitest-reports/postgres.json
         env:
           TEST_POSTGRES_URL: postgres://orrery:orrery@localhost:5432/orrery
-      - run: pnpm --dir web exec vitest --merge-reports=.vitest-reports --coverage --reporter=dot
       - run: node web/scripts/coverage-lines.mjs --v8 .v8-spawned --out web/spawned-lines.json
         continue-on-error: true
-      # The total, then each area on its own, so one no test runs (the routes, say) shows rather than hiding in the total (ORR-584).
-      - name: Coverage summary
-        run: |
-          node >> "$GITHUB_STEP_SUMMARY" <<'EOF'
-          const summary = require('./web/coverage/coverage-summary.json')
-          const AREAS = [['server/api', /\/web\/server\/api\//], ['server/middleware', /\/web\/server\/middleware\//], ['server/utils', /\/web\/server\/utils\//],
-            ['server/store', /\/web\/server\/store\//], ['shared', /\/web\/shared\//], ['app', /\/web\/app\//], ['channel', /\/channel\/[^/]+\.mjs$/]]
-          const files = Object.entries(summary).filter(([file]) => file !== 'total').map(([file, f]) => ({...f, area: AREAS.find(([, path]) => path.test(file))?.[0]}))
-          const pct = ([covered, total]) => total ? `${(100 * covered / total).toFixed(1)}%` : '–'
-          const rows = AREAS.map(([area]) => {
-            const ours = files.filter(f => f.area === area)
-            const sum = k => ours.reduce(([c, t], f) => [c + f[k].covered, t + f[k].total], [0, 0])
-            return `| ${area} | ${ours.length} | ${ours.filter(f => f.lines.total && !f.lines.covered).length} | ${pct(sum('lines'))} | ${pct(sum('branches'))} |`
-          })
-          const {total} = summary
-          console.log(['### Coverage', '', `Lines ${total.lines.pct}%, branches ${total.branches.pct}%, functions ${total.functions.pct}%.`, '',
-            '| Area | Files | Run by no test | Lines | Branches |', '|---|---|---|---|---|', ...rows].join('\n'))
-          EOF
-      # What `pnpm test:report` reads at ship time (Releasing, ORR-678), with the e2e job's.
+      # Counted with the api job's in the coverage job below.
       - uses: actions/upload-artifact@v7
         with:
-          name: test-results-unit
+          name: unit-reports-check
           path: |
+            web/.vitest-reports/
             web/vitest-results.json
-            web/coverage/coverage-summary.json
-            web/coverage/coverage-final.json
             web/spawned-lines.json
-          retention-days: 30
+          include-hidden-files: true
+          retention-days: 1
       - run: pnpm typecheck
       - run: pnpm lint
 
@@ -140,10 +121,69 @@ jobs:
           retention-days: 1
       # And a door's refusals, the router's middleware against the API's guard (ORR-1113), on SQLite alone: the doors
       # are the same whatever the database.
-      - run: pnpm --dir web exec vitest run --project unit test/api-parity.test.ts test/rust-migrations.test.ts test/door-refusals.test.ts
-      - run: pnpm --dir web exec vitest run --project unit test/api-parity.test.ts test/rust-migrations.test.ts
+      # Each with its coverage, which the coverage job counts with the check job's: the router's relay of what a Rust
+      # write sets off runs only here (ORR-1123).
+      - run: pnpm --dir web exec vitest run --project unit --coverage --reporter=default --reporter=blob --outputFile.blob=.vitest-reports/api-sqlite.json test/api-parity.test.ts test/rust-migrations.test.ts test/door-refusals.test.ts
+      - run: pnpm --dir web exec vitest run --project unit --coverage --reporter=default --reporter=blob --outputFile.blob=.vitest-reports/api-postgres.json test/api-parity.test.ts test/rust-migrations.test.ts
         env:
           TEST_POSTGRES_URL: postgres://orrery:orrery@localhost:5432/orrery
+      - uses: actions/upload-artifact@v7
+        with:
+          name: unit-reports-api
+          path: web/.vitest-reports/
+          include-hidden-files: true
+          retention-days: 1
+
+  # The unit coverage: the check job's runs and the api job's, which are the only ones with the binary, counted together.
+  coverage:
+    needs: [check, api]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - uses: actions/download-artifact@v8
+        with:
+          name: unit-reports-check
+          path: web
+      - uses: actions/download-artifact@v8
+        with:
+          name: unit-reports-api
+          path: web/.vitest-reports
+      - run: ls web/.vitest-reports
+      - run: pnpm --dir web exec vitest --merge-reports=.vitest-reports --coverage --reporter=dot
+      # The total, then each area on its own, so one no test runs (the routes, say) shows rather than hiding in the total (ORR-584).
+      - name: Coverage summary
+        run: |
+          node >> "$GITHUB_STEP_SUMMARY" <<'EOF'
+          const summary = require('./web/coverage/coverage-summary.json')
+          const AREAS = [['server/api', /\/web\/server\/api\//], ['server/middleware', /\/web\/server\/middleware\//], ['server/utils', /\/web\/server\/utils\//],
+            ['server/store', /\/web\/server\/store\//], ['shared', /\/web\/shared\//], ['app', /\/web\/app\//], ['channel', /\/channel\/[^/]+\.mjs$/]]
+          const files = Object.entries(summary).filter(([file]) => file !== 'total').map(([file, f]) => ({...f, area: AREAS.find(([, path]) => path.test(file))?.[0]}))
+          const pct = ([covered, total]) => total ? `${(100 * covered / total).toFixed(1)}%` : '–'
+          const rows = AREAS.map(([area]) => {
+            const ours = files.filter(f => f.area === area)
+            const sum = k => ours.reduce(([c, t], f) => [c + f[k].covered, t + f[k].total], [0, 0])
+            return `| ${area} | ${ours.length} | ${ours.filter(f => f.lines.total && !f.lines.covered).length} | ${pct(sum('lines'))} | ${pct(sum('branches'))} |`
+          })
+          const {total} = summary
+          console.log(['### Coverage', '', `Lines ${total.lines.pct}%, branches ${total.branches.pct}%, functions ${total.functions.pct}%.`, '',
+            '| Area | Files | Run by no test | Lines | Branches |', '|---|---|---|---|---|', ...rows].join('\n'))
+          EOF
+      # What `pnpm test:report` reads at ship time (Releasing, ORR-678), with the e2e job's.
+      - uses: actions/upload-artifact@v7
+        with:
+          name: test-results-unit
+          path: |
+            web/vitest-results.json
+            web/coverage/coverage-summary.json
+            web/coverage/coverage-final.json
+            web/spawned-lines.json
+          retention-days: 30
 
   # The main flows in a real browser, against `nuxt dev` with a fresh database: on a pull request into `main`
   # that isn't a draft, each push to it included, as they take too long for every pull request (ORR-749); on a
