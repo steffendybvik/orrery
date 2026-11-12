@@ -19,6 +19,7 @@ use std::sync::Arc;
 pub(crate) fn routes() -> Router<Arc<App>> {
     Router::new()
         .route(&format!("{P}/signals"), get(list_signals).post(write_signal))
+        .route(&format!("{P}/signals/last"), get(last_signal))
         .route(&format!("{P}/signals/retarget"), post(retarget))
         .route(&format!("{P}/signals/{{signal}}/receipts"), post(receipt))
         .route("/api/signals/prune", post(prune))
@@ -69,6 +70,13 @@ async fn prune(State(app): Shared, headers: HeaderMap) -> Result<Response> {
     local_app_only(&headers)?;
     let mut conn = app.pool.acquire().await?;
     Ok(Json(json!({"pruned": Signals::new(&mut conn).prune().await?})).into_response())
+}
+
+/// `{id}`, the project's latest signal's id, 0 before its first: where the local app starts a session's stream from
+/// (`lastSignal`, ORR-1133).
+async fn last_signal(State(app): Shared, Path(project): Path<String>) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    Ok(Json(json!({"id": Signals::new(&mut conn).last(&project).await?})).into_response())
 }
 
 /// `?after=` the signals after that id, oldest first (anything not a number is 0, as `Number(…) || 0` reads it);

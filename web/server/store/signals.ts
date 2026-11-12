@@ -301,6 +301,10 @@ export abstract class SignalStore extends IssueStore {
 
     /** The id of the project's latest signal, 0 before its first. */
     async lastSignal(project: string): Promise<number> {
+        // Asked of the API when it's set up (ORR-1133), so this server reads none of it from the database.
+        const {readFromApi} = await import('../utils/api-router')
+        const read = await readFromApi<{id: number}>(`/api/projects/${encodeURIComponent(project)}/signals/last`)
+        if (read) return read.id
         await this.projectRow(project)
         return Number((await this.get<{id: number | null}>('SELECT MAX(id) AS id FROM signals WHERE project = ?', project))?.id ?? 0)
     }

@@ -45,6 +45,14 @@ impl<'c> Signals<'c> {
         Signals { conn }
     }
 
+    /// The id of the project's latest signal, 0 before its first, as `lastSignal` gives it: a 404 for a project there
+    /// isn't (ORR-1133).
+    pub(crate) async fn last(&mut self, project: &str) -> Result<i64> {
+        Issues::new(self.conn).project(project).await?;
+        let row = sqlx::query(&sql("SELECT CAST(MAX(id) AS BIGINT) AS id FROM signals WHERE project = ?")).bind(project).fetch_one(&mut *self.conn).await?;
+        Ok(row.get::<Option<i64>, _>("id").unwrap_or(0))
+    }
+
     /// The project's signals, as `listSignals` gives them: a 404 for a project there isn't; an issue or milestone found
     /// by its id, an old one or its full form, and one there isn't simply has none.
     pub(crate) async fn list(&mut self, project: &str, which: Which<'_>, limit: i64) -> Result<Value> {
