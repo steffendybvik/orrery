@@ -76,3 +76,28 @@ describe('a chat taken up again (ORR-884)', () => {
         expect(resumeArgs({chat: true, resume: `${id}; rm -rf ~`})).toEqual([])
     })
 })
+
+describe("orrery's /mcp beside a work session's channel (ORR-1102)", async () => {
+    // @ts-expect-error: the launcher is plain JavaScript, run by node on the host
+    const {besideFor, servesMcp} = await import('../../channel/mcp-beside.mjs')
+    // @ts-expect-error: the launcher is plain JavaScript, run by node on the host
+    const {claude} = await import('../../channel/claude-agent.mjs')
+
+    it('is an http entry saying who calls, its tools allowed, on a Claude session id of its own', () => {
+        const beside = besideFor({url: 'http://o', server: 'orrery-shop', person: 'hati', auth: {Authorization: 'Bearer k'}, id: '11111111-2222-4333-8444-555555555555'})
+        const args: string[] = claude.command({dir: '/repo', server: 'orrery-shop', mode: 'auto', launch: {}, beside})
+        expect(JSON.parse(args[args.indexOf('--mcp-config') + 1]!)).toEqual({mcpServers: {'orrery-shop-api': {type: 'http', url: 'http://o/mcp',
+            headers: {'Orrery-Actor': 'claude', 'Orrery-Session': '11111111-2222-4333-8444-555555555555', 'Orrery-Person': 'hati', Authorization: 'Bearer k'}}}})
+        expect(args).toEqual(expect.arrayContaining(['--session-id', '11111111-2222-4333-8444-555555555555', '--allowedTools', 'mcp__orrery-shop-api']))
+        expect(claude.command({dir: '/repo', server: 'orrery-shop', mode: 'auto', launch: {}})).not.toContain('--mcp-config')
+        expect(besideFor({url: 'http://o', server: 's'}).session).not.toBe(besideFor({url: 'http://o', server: 's'}).session)
+    })
+
+    it('is used only when the orrery answers MCP there', async () => {
+        const answering = (status: number, body: unknown) => async () => ({ok: status < 400, status, json: async () => body})
+        expect(await servesMcp('http://o', {fetch: answering(200, {jsonrpc: '2.0', id: 0, result: {protocolVersion: '2025-06-18'}})})).toBe(true)
+        expect(await servesMcp('http://o', {fetch: answering(200, {})})).toBe(false)
+        expect(await servesMcp('http://o', {fetch: answering(503, {message: 'not running'})})).toBe(false)
+        expect(await servesMcp('http://o', {fetch: async () => { throw new Error('refused') }})).toBe(false)
+    })
+})

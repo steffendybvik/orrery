@@ -27,7 +27,7 @@ type Asked = {method: string, path: string, query: URLSearchParams, headers: Rec
 
 /** An orrery as far as a launcher sees it: its streams, which say they're ready, and what the launcher posts back. Its
  * launcher's stream is one for all its projects (ORR-1076), or with `older`, one each, as before that. */
-async function standInOrrery(version: string, {older = false} = {}) {
+async function standInOrrery(version: string, {older = false, mcp = false} = {}) {
     const asked: Asked[] = []
     const streams = new Map<string, Set<import('node:http').ServerResponse>>()
     /** The streams for all of a launcher's projects, as `/api/launches/stream` is, each with what it serves. */
@@ -65,6 +65,8 @@ async function standInOrrery(version: string, {older = false} = {}) {
                 res.on('close', () => connectStreams.delete(res))
                 return
             }
+            // orrery's own MCP server (ORR-1102), only when it serves one.
+            if (url.pathname === '/mcp' && mcp) return void res.writeHead(200, {'Content-Type': 'application/json'}).end(JSON.stringify({jsonrpc: '2.0', id: 0, result: {protocolVersion: '2025-06-18'}}))
             if (url.pathname.endsWith('/report')) return void res.writeHead(200, {'Content-Type': 'application/json'}).end(JSON.stringify({claimed: true}))
             const claim = /\/launches\/([^/]+)\/claim$/.exec(url.pathname)
             if (claim) return void res.writeHead(200, {'Content-Type': 'application/json'}).end(JSON.stringify(refused.has(claim[1]!) ? {claimed: false} : {claimed: true, repo: 'https://github.com/hati/greenhouse'}))
@@ -117,7 +119,7 @@ type Sessions = Record<string, Record<string, string>>
 type Finishing = {onTestFinished: (done: () => unknown) => void}
 
 /** A folder with a fake tmux, a stand-in orrery, and a way to start the launcher on them. */
-async function bench({onTestFinished}: Finishing, sessions: Sessions = {}, {older = false} = {}) {
+async function bench({onTestFinished}: Finishing, sessions: Sessions = {}, {older = false, mcp = false} = {}) {
     // Its real path, as the launcher sees its own folder: on macOS the temp folder is behind a link.
     const root = realpathSync(mkdtempSync(join(tmpdir(), 'orrery-launcher-loop-')))
     const [bin, fake, home, sockets, repo] = ['bin', 'fake', 'home', 'sockets', 'repo'].map(part => join(root, part)) as [string, string, string, string, string]
@@ -132,7 +134,7 @@ async function bench({onTestFinished}: Finishing, sessions: Sessions = {}, {olde
     writeFileSync(join(fake, 'calls'), '')
     writeFileSync(join(fake, 'state.json'), JSON.stringify(sessions))
     const version = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version as string
-    const orrery = await standInOrrery(version, {older})
+    const orrery = await standInOrrery(version, {older, mcp})
     // `ps` is how it tells a live launcher, so the system's folders stay on PATH, after the fake.
     const env = {PATH: `${bin}:/usr/bin:/bin`, HOME: home, XDG_CONFIG_HOME: join(home, '.config'), TMUX_TMPDIR: sockets, FAKE_TMUX: fake, DISPLAY: ':0'}
     const children: ChildProcess[] = []
@@ -234,6 +236,41 @@ describe.concurrent("a launcher's own loop", {timeout: 40_000}, () => {
             const [call] = called('new-session')
             expect(claudeArgs(call!).slice(2)).toEqual(chatOnly(repo, 'greenhouse'))
             expect(envOf(call!)).toContain('ORRERY_CHAT=yes')
+        })
+
+        it("gets orrery's /mcp beside its channel when the orrery serves it, and its channel only the channel's own (ORR-1102)", async context => {
+            const {orrery, repo, start, called, state} = await bench(context, {}, {mcp: true})
+            await start()
+            await vi.waitFor(() => expect(orrery.reported()).toHaveLength(1), WAIT)
+            orrery.event('launch', launchOf(ID.a, {person: 'hati'}))
+            await vi.waitFor(() => expect(state()[nameOf(ID.a)]?.['@orrery_stops_at']).toBe('never'), WAIT)
+            orrery.event('launch', launchOf(ID.b, {chat: true}))
+            await vi.waitFor(() => expect(state()[nameOf(ID.b)]?.['@orrery_chat']).toBe('yes'), WAIT)
+            orrery.event('launch', launchOf(ID.c, {untrusted: true}))
+            await vi.waitFor(() => expect(state()[nameOf(ID.c)]?.['@orrery_untrusted']).toBe('yes'), WAIT)
+            const [work, chat, untrusted] = called('new-session')
+            const config = (call: string[]) => JSON.parse(call[call.indexOf('--mcp-config') + 1]!).mcpServers['greenhouse-api']
+            const session = work![work!.indexOf('--session-id') + 1]!
+            expect(session).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-/)
+            expect(config(work!)).toEqual({type: 'http', url: `${orrery.url}/mcp`, headers: {'Orrery-Actor': 'claude', 'Orrery-Session': session, 'Orrery-Person': 'hati'}})
+            expect(claudeArgs(work!)).toEqual(expect.arrayContaining(['--allowedTools', 'mcp__greenhouse-api']))
+            expect(envOf(work!)).toContain('ORRERY_TOOLS=local')
+            // Not yet the chat or an untrusted session: the server's guards for them refuse /mcp, so they keep every tool.
+            expect(claudeArgs(chat!).slice(2)).toEqual(chatOnly(repo, 'greenhouse'))
+            expect(claudeArgs(untrusted!).slice(2)).toEqual(lockedDown(repo, 'greenhouse'))
+            for (const call of [chat!, untrusted!]) expect(envOf(call)).not.toContain('ORRERY_TOOLS=local')
+        })
+
+        it("keeps every tool in its channel when the orrery doesn't serve /mcp", async context => {
+            const {orrery, start, called, state} = await bench(context)
+            await start()
+            await vi.waitFor(() => expect(orrery.reported()).toHaveLength(1), WAIT)
+            orrery.event('launch', launchOf(ID.a))
+            await vi.waitFor(() => expect(state()[nameOf(ID.a)]?.['@orrery_stops_at']).toBe('never'), WAIT)
+            const [call] = called('new-session')
+            expect(call).not.toContain('--mcp-config')
+            expect(call).not.toContain('--session-id')
+            expect(envOf(call!)).not.toContain('ORRERY_TOOLS=local')
         })
 
         it("that another launcher claimed starts nothing", async context => {

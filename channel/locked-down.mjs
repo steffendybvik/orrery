@@ -28,6 +28,13 @@ export function chatOnly(dir, server) {
         '--disallowedTools', ...NOT_FOR_CHAT.map(tool => `mcp__${server}__${tool}`)]
 }
 
+/** orrery's `/mcp` beside a work session's channel (`beside`, from mcp-beside.mjs, ORR-1102): its entry, its tools
+ * allowed, and the Claude session id it's for, when it's a new one. */
+export function besideArgs(beside) {
+    if (!beside) return []
+    return ['--session-id', beside.session, '--mcp-config', JSON.stringify(beside.config), '--allowedTools', `mcp__${beside.name}`]
+}
+
 /** The MCP config an untrusted session loads: only the folder's `server`, orrery's channel, as its .mcp.json has it;
  * no server at all when it has none by that name. */
 function channelOnly(dir, server) {

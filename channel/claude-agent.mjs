@@ -3,7 +3,7 @@
 // session's pane, which it reads and types into.
 import {execFileSync} from 'node:child_process'
 import {setUpUser, undoUser} from './claude-user-setup.mjs'
-import {chatOnly, lockedDown, modelArgs, resumeArgs} from './locked-down.mjs'
+import {besideArgs, chatOnly, lockedDown, modelArgs, resumeArgs} from './locked-down.mjs'
 import {ASYNC_EVENTS, HOOK_EVENTS} from './claude-hooks.mjs'
 import {onYes} from './permission-prompt.mjs'
 import {contextOf, contextWindow, effortOf, modelOf} from './transcript.mjs'
@@ -28,9 +28,12 @@ export const claude = {
     claims: 'untrusted=no-bash&chat=yes&model=yes&resume=yes&global=yes',
 
     // What it's told as it starts (`told`, the repo it's in: ORR-1070) goes in its system prompt, so a `/clear` keeps it.
-    command({dir, server, launch, mode, told}) {
+    // A work session can have orrery's `/mcp` beside its channel (ORR-1102): `beside`, from mcp-beside.mjs.
+    mcpBeside: true,
+
+    command({dir, server, launch, mode, told, beside}) {
         return ['claude', '--dangerously-load-development-channels', `server:${server}`,
-            ...launch.untrusted ? lockedDown(dir, server) : launch.chat ? chatOnly(dir, server) : ['--permission-mode', mode],
+            ...launch.untrusted ? lockedDown(dir, server) : launch.chat ? chatOnly(dir, server) : ['--permission-mode', mode, ...besideArgs(beside)],
             ...modelArgs(launch), ...resumeArgs(launch), ...told ? ['--append-system-prompt', told] : []]
     },
 
