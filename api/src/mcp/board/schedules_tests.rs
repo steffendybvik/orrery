@@ -248,6 +248,8 @@ async fn the_chats_release_asks_are_kept_in_its_chat() {
     assert_eq!(messages[1]["release"]["body"], json!({"notes": "Soon"}));
     let releases = api.get(&format!("/api/projects/{project}/releases")).send().await.body;
     assert_eq!(releases.as_array().map(Vec::len), Some(1), "only the one put there: {releases}");
+}
+
 async fn reply(api: &TestApi, launch: Option<&str>, text: &str) -> Reply {
     let request = api
         .post("/mcp", json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "reply", "arguments": {"text": text}}}))

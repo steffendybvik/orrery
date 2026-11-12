@@ -427,6 +427,10 @@ async fn the_chat_asks_for_a_release_and_nothing_is_saved_until_allowed() {
     );
     let releases = api.get(&format!("/api/projects/{project}/releases")).send().await.body;
     assert_eq!(releases.as_array().map(Vec::len), Some(2), "nothing is saved until the owner allows it: {releases}");
+    let read = api.get("/api/changes").send().await.body;
+    assert!(read["changes"].as_array().unwrap().iter().any(|c| c["kind"] == "chat" && c["subject"] == "c1"), "{read}");
+}
+
 /// `POST /api/chats/:chat/replies` as the chat `launch`'s own session sends it.
 fn reply_in(api: &TestApi, chat: &str, launch: &str, body: Value) -> crate::testing::Req {
     api.post(&format!("/api/chats/{chat}/replies"), body).header("orrery-actor-kind", "chat").header("orrery-launch", launch)
@@ -483,6 +487,10 @@ async fn the_chat_asks_only_for_what_releases_take() {
     assert_eq!(ask(json!({"version": "9.9.9", "release": {"notes": "x"}})).await.status, 404);
     assert_eq!(ask(json!({"version": "1.0.0", "release": {"version": "1.0.1"}})).await.status, 400, "its version can't change");
     assert_eq!(ask(json!({"version": 1, "release": {"notes": "x"}})).await.status, 400);
+    assert!(api.get("/api/chats/c1").send().await.body["messages"].as_array().unwrap().is_empty());
+}
+
+#[tokio::test]
 async fn only_the_chats_own_session_answers_in_it_with_words_while_it_runs() {
     let api = TestApi::new().await;
     let project = api.project("Primes").await;
