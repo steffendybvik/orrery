@@ -48,6 +48,10 @@ export abstract class StatusStore extends StoreBase {
 
     /** The kinds of work, highest-ranked first (ORR-868): the owner's, else orrery's own. */
     async workKinds(): Promise<readonly WorkKind[]> {
+        // Part of the settings the API serves, when it's set up (ORR-1133).
+        const {readFromApi} = await import('../utils/api-router')
+        const read = await readFromApi<{work_kinds: WorkKind[]}>('/api/settings')
+        if (read) return read.work_kinds
         const row = await this.get<{value: string}>("SELECT value FROM settings WHERE key = 'work_kinds'")
         return (row && JSON.parse(row.value) as WorkKind[] | null) ?? WORK_KINDS
     }
