@@ -10,7 +10,7 @@
 export type Line = {issue: `ORR-${number}`, gap: string} | {stays: string} | {rustOnly: string}
 
 // Uploading re-encodes images with sharp, which Rust lacks: how it moves is decided with the Nuxt server's retirement.
-const ORR_928: Line = {issue: 'ORR-928', gap: 'the owner, permissions and members, with auth'}
+const ORR_928: Line = {issue: 'ORR-928', gap: 'the owner, with auth'}
 const ORR_950: Line = {issue: 'ORR-950', gap: 'schedule writes and runs, and the schedule requests that write them'}
 const ORR_1006: Line = {issue: 'ORR-1006', gap: 'uploading a project'}
 const ORR_1038: Line = {issue: 'ORR-1038', gap: 'the front door: served ahead, routed once how the request came in reaches the API'}
@@ -112,9 +112,6 @@ export const NOT_ROUTED: Readonly<Record<string, Line>> = {
     'POST /api/projects/{project}/launches/{launch}/stop': SESSIONS,
     'POST /api/projects/{project}/launches/{launch}/watch': SESSIONS,
     'GET /api/projects/{project}/listeners': SESSIONS,
-    'GET /api/projects/{project}/members': ORR_928,
-    'POST /api/projects/{project}/members': ORR_928,
-    'DELETE /api/projects/{project}/members/{person}': ORR_928,
     'POST /api/projects/{project}/milestones/{milestone}/focus': FOCUS,
     'POST /api/projects/{project}/schedules/{schedule}/run': ORR_950,
     'GET /api/projects/{project}/sessions': SESSIONS,

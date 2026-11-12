@@ -22,6 +22,32 @@ pub(crate) fn routes() -> Router<Arc<App>> {
         .route("/api/keys/{key}", delete(revoke_key))
         .route("/api/logins", get(list_logins).delete(end_other_logins))
         .route("/api/logins/{login}", delete(end_login))
+        .route("/api/projects/{project}/members", get(list_members).post(add_member))
+        .route("/api/projects/{project}/members/{person}", delete(remove_member))
+}
+
+/// `GET /api/projects/:project/members` → who's on the board, its holder first (ORR-1036).
+async fn list_members(State(app): Shared, Path(project): Path<String>) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    Ok(Json(People::new(&mut conn).members(&project).await?).into_response())
+}
+
+/// `POST /api/projects/:project/members` {person} → 201 them on the board: its holder's to do, or the owner's.
+async fn add_member(State(app): Shared, Path(project): Path<String>, headers: HeaderMap, body: Bytes) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    let mut people = People::new(&mut conn);
+    people.outbox = Some(Outbox::new(actor_of(&headers)));
+    let added = people.add_member(&project, &body_of(&body), &actor_of(&headers)).await?;
+    Ok(reply(StatusCode::CREATED, Some(added), std::mem::take(&mut people.effects)))
+}
+
+/// `DELETE /api/projects/:project/members/:person` → 204: off the board, as adding does. Its holder stays (400).
+async fn remove_member(State(app): Shared, Path((project, person)): Path<(String, String)>, headers: HeaderMap) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    let mut people = People::new(&mut conn);
+    people.outbox = Some(Outbox::new(actor_of(&headers)));
+    people.remove_member(&project, &person, &actor_of(&headers)).await?;
+    Ok(reply(StatusCode::NO_CONTENT, None, std::mem::take(&mut people.effects)))
 }
 
 async fn list_people(State(app): Shared) -> Result<Response> {

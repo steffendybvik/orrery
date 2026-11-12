@@ -2031,6 +2031,30 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         await expect(store.identity('https://id.example', 'sub-2', secret)).rejects.toMatchObject({statusCode: 409})
     })
 
+    it('lists, adds and takes off a board\'s members alike, its holder staying (ORR-1036)', async () => {
+        const on = async (project: string) => (await store.members(project)).map(m => m.person)
+        const was = {'through-store': await on('through-store'), 'through-api': await on('through-api')}
+        await both('the members', p => viaStore(() => store.members(p)), () => viaApi('GET', '/members'))
+        await both('Ada added by her id', p => viaStore(() => store.addMember(p, {person: 'ada'}, OWNER), 201), () => viaApi('POST', '/members', {person: 'ada'}, OWNER))
+        await both('Ada again, by her name', p => viaStore(() => store.addMember(p, {person: 'Ada'}, OWNER), 201), () => viaApi('POST', '/members', {person: 'Ada'}, OWNER))
+        await both('nobody', p => viaStore(() => store.addMember(p, {person: 'nobody'}, OWNER), 201), () => viaApi('POST', '/members', {person: 'nobody'}, OWNER))
+        await both('not a person', p => viaStore(() => store.addMember(p, {who: 4, person: null}, OWNER), 201), () => viaApi('POST', '/members', {who: 4, person: null}, OWNER))
+        // The boards here were made before anyone held them: the owner holds both for these steps.
+        const holder = 'steffen'
+        for (const p of ['through-store', 'through-api']) await store.db.run("INSERT INTO project_members (project, person, role, created_at) VALUES (?, ?, 'owner', ?) ON CONFLICT (project, person) DO UPDATE SET role = 'owner'", p, holder, new Date().toISOString())
+        await both('its holder taken off', p => viaStore(() => store.removeMember(p, holder, OWNER)), () => viaApi('DELETE', `/members/${holder}`, undefined, OWNER))
+        await both('Ada taken off', p => viaStore(() => store.removeMember(p, 'ada', OWNER)), () => viaApi('DELETE', '/members/ada', undefined, OWNER))
+        await both('the members after', p => viaStore(() => store.members(p)), () => viaApi('GET', '/members'))
+        await both('no such board', () => viaStore(() => store.members('nowhere')), () => viaApi('GET', '/api/projects/nowhere/members'))
+        // A session never says who's on a board: the rails refuse it at the door.
+        expect(await viaApi('POST', '/members', {person: 'ada'}, SESSION)).toMatchObject({status: 403, body: {data: {permission: 'members.write'}}})
+        for (const p of ['through-store', 'through-api'] as const) {
+            await store.db.run("DELETE FROM project_members WHERE project = ? AND person = ?", p, holder)
+            for (const person of was[p]) await store.db.run("INSERT INTO project_members (project, person, role, created_at) VALUES (?, ?, 'member', ?) ON CONFLICT (project, person) DO NOTHING", p, person, new Date().toISOString())
+        }
+        expect(domainOf('DELETE', '/api/projects/p/members/ada')).toBe('board members')
+    })
+
     it('gives a new project to whoever asks alike, as the route here works it out (ORR-1002)', async () => {
         // The store is handed who holds it (`personOf`, by the route); the API works it out from the headers.
         const cases: [string, Actor, string | undefined, Record<string, string>?][] = [
@@ -3549,7 +3573,7 @@ describe('the router', () => {
     })
 
     it('routes by a table with a line per domain, so taking one back is taking its line out (ORR-925)', () => {
-        expect(DOMAINS.map(({domain}) => domain)).toEqual(['docs', 'statuses', 'permissions', 'issues, reading', 'comments', 'an issue, deleted', 'an issue, made', 'an issue, its words', 'issues, changed at once', 'a proposal, decided', 'claims', 'activity', 'milestones', 'releases', 'releases, every project\'s', 'people', 'invites', 'keys', 'logins', 'uploads, reading', 'an upload, kept', 'presets', 'secrets, reading', 'settings', 'a pull request, reading', "a pull request's risk", 'schedules, reading', 'a schedule, adopted', 'a schedule, deleted', 'a schedule, changed', 'a schedule, made', 'a schedule across projects, deleted', 'schedules, paused or activated', 'a schedule, asked for', 'a schedule, answered', 'signals, reading', 'projects, listed', 'a project, made', 'a project, changed', 'a project, read', 'a project, deleted', 'a project, exported', 'a project, imported', 'the event log, read', 'an event, resolved', 'usage', 'the bell', 'epics', 'milestone and epic comments'])
+        expect(DOMAINS.map(({domain}) => domain)).toEqual(['docs', 'statuses', 'permissions', 'issues, reading', 'comments', 'an issue, deleted', 'an issue, made', 'an issue, its words', 'issues, changed at once', 'a proposal, decided', 'claims', 'activity', 'milestones', 'releases', 'releases, every project\'s', 'people', 'invites', 'board members', 'keys', 'logins', 'uploads, reading', 'an upload, kept', 'presets', 'secrets, reading', 'settings', 'a pull request, reading', "a pull request's risk", 'schedules, reading', 'a schedule, adopted', 'a schedule, deleted', 'a schedule, changed', 'a schedule, made', 'a schedule across projects, deleted', 'schedules, paused or activated', 'a schedule, asked for', 'a schedule, answered', 'signals, reading', 'projects, listed', 'a project, made', 'a project, changed', 'a project, read', 'a project, deleted', 'a project, exported', 'a project, imported', 'the event log, read', 'an event, resolved', 'usage', 'the bell', 'epics', 'milestone and epic comments'])
         expect(domainOf('PATCH', '/api/projects/p/docs/d')).toBe('docs')
         expect(domainOf('head', '/api/projects/p/doc-sections/')).toBe('docs')
         for (const method of ['POST', 'DELETE']) expect(domainOf(method, '/api/projects/p/issues/P-1/claim'), method).toBe('claims')
@@ -3698,7 +3722,7 @@ describe('the contract (api/openapi.yaml)', () => {
     const routes = () => [...new Set([...nuxtRoutes(), ...rustRoutes()])].sort().filter(route => servedByApi(methodOf(route), pathOf(route)))
 
     it('has every route the router sends to the API, and no other', () => {
-        expect(contract()).toHaveLength(115)
+        expect(contract()).toHaveLength(118)
         expect(contract()).toEqual(routes())
     })
 
