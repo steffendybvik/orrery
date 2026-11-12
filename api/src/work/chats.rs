@@ -53,6 +53,9 @@ const CHAT_SETTINGS: [&str; 5] = ["tracker", "tint", "restrict_proposals", "hand
 /// What of a release the chat may ask to set (`CHAT_RELEASE_FIELDS`); removing one stays the owner's.
 const CHAT_RELEASE_FIELDS: [&str; 6] = ["version", "branch", "notes", "position", "frozen_on", "shipped_on"];
 
+/// What the chat's offer of an issue can say (`CHAT_ISSUE_FIELDS`).
+const CHAT_ISSUE_FIELDS: [&str; 5] = ["title", "notes", "priority", "labels", "milestone"];
+
 /// A place among the releases, as a chat's request shows it (`place`): "the top", "2nd from the top".
 fn place(index: f64) -> String {
     if index <= 0.0 {
@@ -324,6 +327,45 @@ impl<'c> Chats<'c> {
         self.ask(chat, "release", "version", request, body).await
     }
 
+    /// The chat's session offering to file an issue the owner didn't ask for (its `offer_issue`, `askIssue`, ORR-711):
+    /// `{issue, project?, why?}`, `issue` its title, notes, priority, labels and milestone, checked as the issue routes
+    /// check them, on the project it names or else the chat's own. Kept as an offer in the chat that files nothing until
+    /// the owner presses File issue, which the local app hears (ORR-1100). One it offered before under the same title,
+    /// still unanswered, expires. A 404 when the chat isn't running.
+    pub async fn ask_issue(&mut self, chat: &str, body: &Value) -> Result<Value> {
+        let own = self.running(chat).await?;
+        let project = self.project_for(&own, body).await?;
+        let Some(fields) = body.get("issue").and_then(Value::as_object) else {
+            return Err(ApiError::bad_request(format!("Send {{issue: {{…}}}}: its {}", CHAT_ISSUE_FIELDS.join(", "))));
+        };
+        let refused = fields.keys().filter(|k| !CHAT_ISSUE_FIELDS.contains(&k.as_str())).cloned().collect::<Vec<_>>();
+        if !refused.is_empty() {
+            return Err(ApiError::forbidden(format!("The owner's chat offers an issue's {}, not its {}", CHAT_ISSUE_FIELDS.join(", "), refused.join(", "))));
+        }
+        let words = crate::board::issue_edits::check_new(&Value::Object(fields.clone()))?;
+        let title = words.title.unwrap_or_default();
+        if title.is_empty() {
+            return Err(ApiError::bad_request("An issue needs a title"));
+        }
+        let mut request = json!({"title": title, "state": "asked"});
+        if let Some(notes) = words.notes.flatten().filter(|n| !n.is_empty()) {
+            request["notes"] = json!(notes);
+        }
+        if let Some(priority) = words.priority.flatten() {
+            request["priority"] = json!(priority);
+        }
+        if let Some(labels) = words.labels.filter(|l| !l.is_empty()) {
+            request["labels"] = json!(labels);
+        }
+        if let Some(milestone) = words.milestone.flatten() {
+            request["milestone"] = json!(milestone);
+        }
+        if project != own {
+            request["project"] = json!(project);
+        }
+        self.ask(chat, "issue", "title", request, body).await
+    }
+
     /// The project of chat `chat`, a 404 unless it's running.
     async fn running(&mut self, chat: &str) -> Result<String> {
         let own: Option<String> =
@@ -360,7 +402,7 @@ impl<'c> Chats<'c> {
         self.ask(chat, "doc", "id", request, body).await
     }
 
-    /// Keeps `request` in the chat as its `kind` (`schedule`, `release`, `doc`), with `body`'s `why` for its words, and expires
+    /// Keeps `request` in the chat as its `kind` (`schedule`, `release`, `doc`, `issue`), with `body`'s `why` for its words, and expires
     /// one of that kind asked before with the same `key`, still unanswered.
     async fn ask(&mut self, chat: &str, kind: &str, key: &str, request: Value, body: &Value) -> Result<Value> {
         let why = body.get("why").and_then(Value::as_str).map(str::trim).unwrap_or_default().to_string();

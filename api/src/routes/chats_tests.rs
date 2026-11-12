@@ -529,3 +529,54 @@ async fn the_chat_asks_only_for_a_docs_title_section_and_text_and_only_while_it_
     api.put("/api/chats/c1", over).send().await;
     assert_eq!(api.post("/api/chats/c1/doc-requests", json!({"doc": {"title": "X"}})).send().await.status, 404);
 }
+
+#[tokio::test]
+async fn the_chat_offers_an_issue_and_nothing_is_filed_until_the_owner_files_it() {
+    let api = TestApi::new().await;
+    let project = api.project("Primes").await;
+    api.put("/api/chats/c1", chat("c1", &project, "2026-11-01T10:00:00.000Z")).send().await;
+    let fields = json!({"title": " Odd sums ", "notes": "", "priority": "P1", "labels": [" bug ", "bug"], "milestone": "1"});
+    let offered = api.post("/api/chats/c1/issue-requests", json!({"issue": fields, "why": " Spotted "})).send().await;
+    assert_eq!(offered.status, 201, "{}", offered.body);
+    assert_eq!(offered.body["text"], "Spotted");
+    assert_eq!(offered.body["issue"], json!({"title": "Odd sums", "state": "asked", "priority": "P1", "labels": ["bug"], "milestone": "1"}));
+    let issues = api.get(&format!("/api/projects/{project}/issues")).send().await.body;
+    assert_eq!(issues.as_array().map(Vec::len), Some(0), "nothing is filed until the owner files it: {issues}");
+    let read = api.get("/api/changes").send().await.body;
+    assert!(read["changes"].as_array().unwrap().iter().any(|c| c["kind"] == "chat" && c["subject"] == "c1"), "{read}");
+}
+
+#[tokio::test]
+async fn offering_the_same_title_again_expires_the_unanswered_offer() {
+    let api = TestApi::new().await;
+    let project = api.project("Primes").await;
+    let other = api.project("Evens").await;
+    api.put("/api/chats/c1", chat("c1", &project, "2026-11-01T10:00:00.000Z")).send().await;
+    api.post("/api/chats/c1/issue-requests", json!({"issue": {"title": "Odd sums"}})).send().await;
+    let there = api.post("/api/chats/c1/issue-requests", json!({"issue": {"title": "Even sums"}, "project": other})).send().await;
+    assert_eq!(there.body["issue"]["project"], json!(other));
+    api.post("/api/chats/c1/issue-requests", json!({"issue": {"title": "Odd sums", "notes": "Again"}})).send().await;
+    let messages = api.get("/api/chats/c1").send().await.body["messages"].clone();
+    let states: Vec<&str> = messages.as_array().unwrap().iter().map(|m| m["issue"]["state"].as_str().unwrap()).collect();
+    assert_eq!(states, ["expired", "asked", "asked"]);
+}
+
+#[tokio::test]
+async fn the_chat_offers_only_what_an_issue_takes_and_only_while_it_runs() {
+    let api = TestApi::new().await;
+    let project = api.project("Primes").await;
+    api.put("/api/chats/c1", chat("c1", &project, "2026-11-01T10:00:00.000Z")).send().await;
+    let offer = |body: Value| api.post("/api/chats/c1/issue-requests", body).send();
+    let assigned = offer(json!({"issue": {"title": "X", "assignee": "claude"}})).await;
+    assert_eq!(assigned.status, 403);
+    assert!(assigned.body["message"].as_str().unwrap().starts_with("The owner's chat offers an issue's"), "{}", assigned.body);
+    assert_eq!(offer(json!({})).await.status, 400);
+    assert_eq!(offer(json!({"issue": {}})).await.status, 400, "it needs a title");
+    assert_eq!(offer(json!({"issue": {"title": "X", "priority": "P9"}})).await.status, 400);
+    assert_eq!(offer(json!({"issue": {"title": "X"}, "project": "nope"})).await.status, 404);
+    assert!(api.get("/api/chats/c1").send().await.body["messages"].as_array().unwrap().is_empty());
+    let mut over = chat("c1", &project, "2026-11-01T10:00:00.000Z");
+    over["ended_at"] = json!("2026-11-01T11:00:00.000Z");
+    api.put("/api/chats/c1", over).send().await;
+    assert_eq!(offer(json!({"issue": {"title": "X"}})).await.status, 404);
+}

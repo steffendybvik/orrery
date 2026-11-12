@@ -271,3 +271,20 @@ async fn the_chats_doc_asks_are_kept_in_its_chat() {
     let refused = request(&api, "create_doc", json!({"title": "X", "kind": "artifact"})).await;
     assert!(said(&refused).starts_with("orrery said no: "), "{}", refused.body);
 }
+
+#[tokio::test]
+async fn the_chats_offer_of_an_issue_is_kept_in_its_chat() {
+    let api = TestApi::new().await;
+    let project = api.project("alpha").await;
+    api.put("/api/chats/c1", json!({"id": "c1", "project": project, "started_at": "2026-11-01T10:00:00.000Z"})).send().await;
+    let offered = request(&api, "offer_issue", json!({"title": "Odd sums", "priority": "P2"})).await;
+    assert_eq!(
+        said(&offered),
+        "Offered: the owner sees it as not filed, with File issue and Don't file, and you'll hear which they pressed. Nothing is filed until they press it."
+    );
+    let message = api.get("/api/chats/c1").send().await.body["messages"][0].clone();
+    assert_eq!(message["text"], "You asked");
+    assert_eq!(message["issue"], json!({"title": "Odd sums", "state": "asked", "priority": "P2"}));
+    let elsewhere = request(&api, "offer_issue", json!({"title": "X", "project": "beta"})).await;
+    assert_eq!(said(&elsewhere), "orrery said no: This chat reaches alpha, not beta");
+}
