@@ -91,6 +91,7 @@ export const NOT_ROUTED: Readonly<Record<string, Line>> = {
     'PUT /api/owner': ORR_928,
     'GET /api/phone': MACHINE,
     'POST /api/phone/link': ORR_1038,
+    'POST /api/presets/seed': {rustOnly: 'the presets orrery ships, seeded by the local app itself each time the API it started begins listening (ORR-1136)'},
     'POST /api/projects/upload': ORR_1006,
     'GET /api/projects/{project}/context': SESSIONS,
     'GET /api/projects/{project}/docs/{doc}/artifact': ARTIFACT,

@@ -78,7 +78,8 @@ impl<'c> Usage<'c> {
     }
 
     /// What the Nuxt server gathered (`flushUse`): `{counts: [{feature, day, count}]}`, each added to its day's row, and
-    /// rows over a year old dropped. A name that isn't one is refused, as `countUse` never gathers one.
+    /// rows over a year old dropped. A name that isn't one is refused, as `countUse` never gathers one. While the owner
+    /// has counting off (`count_use`), what was sent is dropped, not kept, so the Nuxt server needn't read the setting.
     pub(crate) async fn keep(&mut self, body: &Value) -> Result<()> {
         let Some(counts) = body.get("counts").and_then(Value::as_array) else {
             return Err(ApiError::bad_request("Send the counts as {\"counts\": [{\"feature\", \"day\", \"count\"}]}"));
@@ -92,6 +93,9 @@ impl<'c> Usage<'c> {
                 (Some(feature), Some(day), Some(n)) => kept.push((feature.to_string(), day.to_string(), n)),
                 _ => return Err(ApiError::bad_request(format!("Each count is {{\"feature\", \"day\": \"YYYY-MM-DD\", \"count\": 1 or more}}, not {count}"))),
             }
+        }
+        if Settings::new(self.conn).get().await?["count_use"] != Value::Bool(true) {
+            return Ok(());
         }
         for (feature, day, n) in kept {
             sqlx::query(&sql("INSERT INTO feature_use (feature, day, count) VALUES (?, ?, ?) ON CONFLICT (feature, day) DO UPDATE SET count = feature_use.count + excluded.count"))

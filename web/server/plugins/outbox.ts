@@ -2,7 +2,7 @@
 // `nuxt dev` the repo's own build, as plugins/api.ts starts it (`apiBinary`), so the dev server and the browser suite hear
 // the API's writes as the image does (ORR-1088). With none, it does nothing, and this server hears its own writes from the store's hooks as ever. Its cursor is kept
 // beside the database (outbox-follower.ts), so a restart carries on from where it was; the first start begins at the
-// newest row, as there's nothing it missed. When the owner moves the database it follows the new one's outbox, with
+// newest row, as there's nothing it missed, which the API says (`after=newest`, ORR-1136). When the owner moves the database it follows the new one's outbox, with
 // that one's cursor (ORR-1035).
 import {apiBinary} from '../utils/api-migrate'
 import {apiTarget, databaseMark} from '../utils/api-router'
@@ -19,8 +19,7 @@ export default defineNitroPlugin(nitro => {
         const store = useStore()
         const database = databaseSetting()
         const file = cursorFile(database)
-        const newest = async () => Number((await store.db.get<{n: number | string | null}>('SELECT max(id) AS n FROM changes'))?.n ?? 0)
-        const after = readCursor(file, database) ?? await newest()
+        const after = readCursor(file, database) ?? 'newest'
         if (closed || mine !== runs) return
         store.keepOwnChanges()
         setFollowingOutbox(true)
@@ -28,7 +27,7 @@ export default defineNitroPlugin(nitro => {
             // Until the API is listening there's nothing to read, and the router answers its routes here.
             read: async from => {
                 const api = apiTarget(config)
-                if (!api) return {changes: [], last: from}
+                if (!api) return null
                 return await readPage(api, databaseMark(database), from)
             },
             after,

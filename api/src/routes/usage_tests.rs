@@ -11,6 +11,10 @@ fn feature<'v>(reply: &'v Value, name: &str) -> &'v Value {
     reply["features"].as_array().unwrap().iter().find(|f| f["feature"] == name).unwrap_or_else(|| panic!("no {name} in {reply}"))
 }
 
+async fn counting_on(api: &TestApi) {
+    assert_eq!(api.patch("/api/settings", json!({"count_use": true})).send().await.status, 200);
+}
+
 #[tokio::test]
 async fn a_new_orrery_lists_every_feature_unused_and_counting_off() {
     let api = TestApi::new().await;
@@ -28,6 +32,7 @@ async fn a_new_orrery_lists_every_feature_unused_and_counting_off() {
 #[tokio::test]
 async fn counts_add_up_by_day_coldest_first_and_a_year_on_theyre_gone() {
     let api = TestApi::new().await;
+    counting_on(&api).await;
     let sent = json!({"counts": [
         {"feature": "chat", "day": day(1), "count": 2},
         {"feature": "chat", "day": day(60), "count": 3},
@@ -71,6 +76,7 @@ async fn only_the_local_app_sends_counts() {
 #[tokio::test]
 async fn reading_them_is_the_owners_and_forgetting_them_too() {
     let api = TestApi::new().await;
+    counting_on(&api).await;
     api.put("/api/usage", json!({"counts": [{"feature": "chat", "day": day(0), "count": 1}]})).send().await;
     let read = api.get("/api/usage").by_agent("claude").send().await;
     assert_eq!(read.status, 403);
@@ -86,4 +92,18 @@ async fn the_switch_is_the_owners_setting() {
     let api = TestApi::new().await;
     assert_eq!(api.patch("/api/settings", json!({"count_use": true})).send().await.status, 200);
     assert_eq!(api.get("/api/usage").send().await.body["on"], true);
+}
+
+#[tokio::test]
+async fn while_counting_is_off_what_was_sent_is_dropped() {
+    let api = TestApi::new().await;
+    let sent = json!({"counts": [{"feature": "chat", "day": day(0), "count": 2}]});
+    assert_eq!(api.put("/api/usage", sent.clone()).send().await.status, 204);
+    assert_eq!(api.count("SELECT COUNT(*) FROM feature_use").await, 0);
+    counting_on(&api).await;
+    assert_eq!(api.put("/api/usage", sent).send().await.status, 204);
+    assert_eq!(api.count("SELECT COUNT(*) FROM feature_use").await, 1);
+    // A count that isn't one is still refused while it's off.
+    assert_eq!(api.patch("/api/settings", json!({"count_use": false})).send().await.status, 200);
+    assert_eq!(api.put("/api/usage", json!({"counts": [{"feature": "Not One", "day": day(0), "count": 1}]})).send().await.status, 400);
 }

@@ -166,11 +166,10 @@ export function useEventLog(): EventLog {
 }
 
 /** Points what holds the database at the one the owner moved to (server/utils/move.ts); the secrets and schedules
- * reach it through the store. It gets the presets orrery ships that it hasn't had yet, as a start would give it. */
+ * reach it through the store. The API seeds it with the presets orrery ships once it's on it (plugins/presets.ts). */
 export function rebindDatabase(db: Db) {
     if (store) store.db = db
     if (log) log.db = db
-    store?.seedPresets().catch(error => console.error('[orrery] adding the presets orrery ships:', error))
     // The Rust API and its outbox follower start again on it (plugins/api.ts, plugins/outbox.ts, ORR-1035).
     projectEvents.emit('database')
 }
