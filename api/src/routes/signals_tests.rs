@@ -81,6 +81,25 @@ async fn a_project_there_isnt_is_a_404() {
 }
 
 #[tokio::test]
+async fn the_last_signal_is_the_projects_latest_and_0_before_its_first() {
+    let api = TestApi::new().await;
+    let (project, issue) = api.board().await;
+    let none = api.get(&format!("/api/projects/{project}/signals/last")).send().await;
+    assert_eq!(none.status, 200, "{}", none.body);
+    assert_eq!(none.body, json!({"id": 0}));
+    signal(&api, &project, "focus", Some(&issue), "2026-11-10T10:00:00.000Z").await;
+    signal(&api, &project, "message", None, "2026-11-10T10:01:00.000Z").await;
+    let all = api.get(&format!("/api/projects/{project}/signals")).send().await;
+    let latest = all.body[1]["id"].as_i64().unwrap();
+    assert_eq!(api.get(&format!("/api/projects/{project}/signals/last")).send().await.body, json!({"id": latest}));
+    // Another project's signals aren't this one's.
+    let other = api.project("Composites").await;
+    assert_eq!(api.get(&format!("/api/projects/{other}/signals/last")).send().await.body, json!({"id": 0}));
+    let nowhere = api.get("/api/projects/nowhere/signals/last").send().await;
+    assert_eq!(nowhere.status, 404);
+}
+
+#[tokio::test]
 async fn the_local_app_writes_a_signal_with_its_target_picked() {
     let api = TestApi::new().await;
     let (project, issue) = api.board().await;
