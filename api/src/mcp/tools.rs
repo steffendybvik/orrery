@@ -92,12 +92,6 @@ pub(crate) fn tools_for(projects: &[String], kind: Kind, loaded: &[String]) -> V
                 properties.insert("project".into(), project.clone());
                 properties.extend(schema.get("properties").and_then(Value::as_object).cloned().unwrap_or_default());
                 schema.insert("properties".into(), Value::Object(properties));
-            } else if name == "egress" {
-                let mut egress = project.clone();
-                egress["description"] = json!(format!("Which project it's for, when no issue says: {listed}"));
-                if let Some(properties) = schema.get_mut("properties").and_then(Value::as_object_mut) {
-                    properties.insert("project".into(), egress);
-                }
             }
             tool
         })
@@ -136,11 +130,39 @@ mod tests {
         let one = ["one".to_string()];
         let names = |tools: Vec<Value>| tools.iter().map(|t| name_of(t).to_string()).collect::<Vec<_>>();
         let bare = names(tools_for(&one, Kind::Work, &[]));
-        assert!(bare.contains(&"more_tools".into()) && !bare.contains(&"egress".into()));
+        assert!(bare.contains(&"more_tools".into()) && !bare.contains(&"secrets".into()));
         let loaded = names(tools_for(&one, Kind::Work, &["secrets".into()]));
-        assert!(loaded.contains(&"egress".into()) && loaded.contains(&"more_tools".into()));
+        assert!(loaded.contains(&"secrets".into()) && loaded.contains(&"more_tools".into()));
         let all: Vec<String> = groups().iter().map(|g| g.to_string()).collect();
         assert!(!names(tools_for(&one, Kind::Work, &all)).contains(&"more_tools".into()));
+    }
+
+    #[test]
+    fn what_the_channel_keeps_is_never_listed_here() {
+        // channel/tools.mjs's CHANNELS_OWN (ORR-1102): the session has them from its channel, so here they'd be twice.
+        let own = [
+            "sessions",
+            "next",
+            "start_issue",
+            "finish_issue",
+            "link_folder",
+            "egress",
+            "github_issues",
+            "github_pulls",
+            "branches",
+            "delegate_issue",
+            "move_issues",
+        ];
+        let all: Vec<String> = groups().iter().map(|g| g.to_string()).collect();
+        assert!(group("folder").is_none(), "a group of the channel's own alone isn't offered");
+        for kind in [Kind::Work, Kind::Chat, Kind::Untrusted] {
+            for tool in tools_for(&["one".to_string()], kind, &all) {
+                assert!(!own.contains(&name_of(&tool)), "{kind:?} lists {}", name_of(&tool));
+            }
+        }
+        for action in ["start_session", "stop_session", "extend_session", "message_session", "message_sessions"] {
+            assert!(chat_request(action).is_none(), "{action} is the channel's");
+        }
     }
 
     #[test]

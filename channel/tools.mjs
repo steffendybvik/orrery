@@ -433,10 +433,53 @@ export const CHOOSE_APP = {
     }},
 }
 
-const MORE_TOOLS = {
+/** What `more_tools` says each group adds. */
+const GROUPS_SAID = {
+    schedules: 'schedules (ask the owner on your issue for one)',
+    secrets: 'secrets (egress: call an outside service with a key)',
+    debug: "debug (orrery's event log)",
+    review: 'review (rate each PR you open)',
+    epics: 'epics (work across projects)',
+    folder: "folder (link this session's folder to a project)",
+}
+
+const moreTools = (groups, said = GROUPS_SAID) => ({
     name: 'more_tools',
-    description: "Adds tools: schedules (ask the owner on your issue for one), secrets (egress: call an outside service with a key), debug (orrery's event log), review (rate each PR you open), epics (work across projects), folder (link this session's folder to a project).",
-    inputSchema: {type: 'object', required: ['group'], properties: {group: {type: 'string', enum: Object.keys(ON_DEMAND)}}},
+    description: `Adds tools: ${Object.keys(groups).map(group => said[group]).join(', ')}.`,
+    inputSchema: {type: 'object', required: ['group'], properties: {group: {type: 'string', enum: Object.keys(groups)}}},
+})
+
+const MORE_TOOLS = moreTools(ON_DEMAND)
+
+/** What the channel keeps when the server's `/mcp` serves the rest (ORR-1102, `ORRERY_TOOLS=local`): what works on
+ * this machine (the launcher's sessions and folders, `gh` in the session's folder, a secret opened with this machine's
+ * key), and what `/mcp` doesn't serve yet (ORR-1100, ORR-1101). Each tool is listed by one of the two, never both. */
+export const CHANNELS_OWN = ['sessions', 'next', 'start_issue', 'finish_issue', 'link_folder', 'egress', 'github_issues', 'github_pulls', 'branches', 'delegate_issue', 'move_issues']
+
+/** The chat's `request` actions the channel keeps, the same way: the launcher's sessions. */
+export const CHANNELS_REQUESTS = ['start_session', 'stop_session', 'extend_session', 'message_session', 'message_sessions']
+
+/** The groups `/mcp` offers with `more_tools`: `ON_DEMAND` without the channel's own, and a group left empty dropped. */
+export const SERVED_ON_DEMAND = Object.fromEntries(Object.entries(ON_DEMAND)
+    .map(([group, names]) => [group, names.filter(name => !CHANNELS_OWN.includes(name))]).filter(([, names]) => names.length))
+
+const SERVED_MORE_TOOLS = moreTools(SERVED_ON_DEMAND, {...GROUPS_SAID, secrets: 'secrets (the keys egress can use, by name)'})
+
+/** What `/mcp`'s `issue` leaves out, read here (ORR-1102): its branches to carry on from, as git on this machine has
+ * them, and its pull requests, as `issue` gives them. */
+const BRANCHES = {
+    name: 'branches',
+    description: "An issue's branches to carry on from (other_session: another session is on it) and its pull requests.",
+    inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'string'}}},
+}
+
+/** The chat's `request` and `request_fields` with only `actions`, saying what they're for. */
+function requestsOnly(tools, actions, said) {
+    return tools.map(tool => !tool.name.startsWith('request') ? tool : {
+        ...tool,
+        ...tool.name === 'request' ? {description: `Asks the owner for an action request_fields describes: ${said}. Read its fields first.`} : {},
+        inputSchema: {...tool.inputSchema, properties: {...tool.inputSchema.properties, action: {...tool.inputSchema.properties.action, enum: actions}}},
+    })
 }
 
 /** What an untrusted schedule's session goes without: what orrery refuses it (the permissions' untrusted column: it
@@ -483,6 +526,10 @@ function pickedOf({decided_by, proposal, picks, choices}) {
 /** A GitHub login as it can only be: letters, digits, `_` and `-` (ORR-532). */
 const LOGIN = /^[\w-]+$/
 
+/** A pull request as `issue` and `branches` give it: never its head branch or title, which an outsider may have written,
+ * as sessions read this as the owner's; its author only when it's a plain login (ORR-532). */
+const pullOf = p => ({number: p.number, state: p.state, base: p.base, url: p.url, ...p.merged_at ? {merged_at: p.merged_at} : {}, ...LOGIN.test(p.author ?? '') ? {author: p.author} : {}})
+
 /** The tools that work on one project, which take `project` when the server serves several. */
 export const SCOPED = ['issues', 'create_issue', 'milestones', 'create_milestone', 'update_milestone', 'releases', 'docs', 'doc', 'write_doc', 'presets', 'preset', 'schedules', 'sessions', 'link_folder']
 
@@ -490,12 +537,22 @@ export const SCOPED = ['issues', 'create_issue', 'milestones', 'create_milestone
  * (`chat`) are its own; a work session's leave out the chat's reads and ask the owner on its issue (`ASK_TOOLS`), with
  * the groups of `ON_DEMAND` it hasn't `loaded` behind `more_tools`; an untrusted schedule's session (`untrusted`) has
  * what it's allowed, and reads GitHub issues; a chat reads their pull requests too. */
-export function toolsFor(projects, {chat = false, untrusted = false, loaded = [], home} = {}) {
+export function toolsFor(projects, {chat = false, untrusted = false, loaded = [], home, split} = {}) {
     const work = TOOLS.filter(t => !CHAT_READS.includes(t.name))
-    const later = Object.entries(ON_DEMAND).filter(([group]) => !loaded.includes(group)).flatMap(([, names]) => names)
-    const tools = chat ? [...TOOLS.filter(t => !NOT_FOR_CHAT.includes(t.name)), ...CHAT_TOOLS, ...GITHUB_TOOLS, GITHUB_PULLS]
+    const all = chat ? [...TOOLS.filter(t => !NOT_FOR_CHAT.includes(t.name)), ...CHAT_TOOLS, ...GITHUB_TOOLS, GITHUB_PULLS]
         : untrusted ? [...work.filter(t => !NOT_FOR_UNTRUSTED.includes(t.name)), ...GITHUB_TOOLS]
-            : [...[...work, ...ASK_TOOLS].filter(t => !later.includes(t.name)), ...later.length ? [MORE_TOOLS] : []]
+            : [...work, ...ASK_TOOLS]
+    const groups = split === 'served' ? SERVED_ON_DEMAND : ON_DEMAND
+    const later = Object.entries(groups).filter(([group]) => !loaded.includes(group)).flatMap(([, names]) => names)
+    const gated = tools => chat || untrusted ? tools : [...tools.filter(t => !later.includes(t.name)), ...later.length ? [split === 'served' ? SERVED_MORE_TOOLS : MORE_TOOLS] : []]
+    // Split between the channel (`local`) and `/mcp` (`served`, its lists), or every tool here as before (ORR-1102).
+    const tools = split === 'local'
+        ? requestsOnly([...all.filter(t => CHANNELS_OWN.includes(t.name) || chat && t.name.startsWith('request')), ...untrusted ? [] : [BRANCHES]],
+            CHANNELS_REQUESTS, 'start, stop or extend a session, or message sessions')
+        : split === 'served'
+            ? gated(requestsOnly(all.filter(t => !CHANNELS_OWN.includes(t.name)), REQUESTS.filter(r => !CHANNELS_REQUESTS.includes(r)),
+                'change an App setting; make or change a schedule, release or doc; offer an issue'))
+            : gated(all)
     if (projects.length < 2) return tools
     // With a `home` (a chat's own project, ORR-1063, or a session's, ORR-1068), naming one is only for another.
     const project = {type: 'string', enum: projects, description: `Which project: ${projects.join(', ')}${home ? `; ${home} when left out` : ''}`}
@@ -512,8 +569,8 @@ export function toolsFor(projects, {chat = false, untrusted = false, loaded = []
  * session's folder); `chat`, the launch of the owner's chat this session is for, the same way. `report` hears each call's
  * tool and the text it answered, for the Context page (ORR-549); `load` a group of `ON_DEMAND` a work session asked for;
  * `link` puts the session's folder on the launcher's list for a project (`link_folder`, ORR-1071), as only the channel on
- * the machine can. */
-export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''), projects = api ? [decodeURIComponent(api.split('/').pop())] : [], session, person, auth = {}, untrusted = false, chat, home, fetch = globalThis.fetch, gh = runGh, report = () => {}, load = () => {}, link = noLink}) {
+ * the machine can. `local` runs only what the channel keeps when `/mcp` serves the rest (`CHANNELS_OWN`, ORR-1102). */
+export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''), projects = api ? [decodeURIComponent(api.split('/').pop())] : [], session, person, auth = {}, untrusted = false, chat, home, local = false, fetch = globalThis.fetch, gh = runGh, report = () => {}, load = () => {}, link = noLink}) {
     const headers = {'Content-Type': 'application/json', 'Orrery-Actor': 'claude', ...session ? {'Orrery-Session': session} : {}, ...person ? {'Orrery-Person': person} : {}, ...auth, ...untrusted ? {'Orrery-Untrusted': 'yes'} : {},
         ...chat ? {'Orrery-Chat': 'yes', 'Orrery-Launch': chat} : {}}
     async function call(method, path, body, base) {
@@ -612,7 +669,7 @@ export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''),
                 call('GET', `${issuePath(id)}/pulls`, undefined, base).catch(() => null),
                 untrusted ? null : call('GET', `${issuePath(id)}/branches`, undefined, base).catch(() => null)])
             const {tasks, counts, kinds, ...rest} = issue
-            const open = [...pulls?.pulls ?? [], ...pulls?.done ?? []].map(p => ({number: p.number, state: p.state, base: p.base, url: p.url, ...p.merged_at ? {merged_at: p.merged_at} : {}, ...LOGIN.test(p.author ?? '') ? {author: p.author} : {}}))
+            const open = [...pulls?.pulls ?? [], ...pulls?.done ?? []].map(pullOf)
             const finished = tasks.filter(t => ['done', 'canceled'].includes(t.kind))
             const counted = Object.entries(Object.groupBy(finished, t => t.status)).map(([status, of]) => `${of.length} ${status}`).join(', ')
             const subIssues = {sub_issues: tasks.filter(t => !finished.includes(t)).map(line), ...counted ? {finished_sub_issues: counted} : {}}
@@ -630,6 +687,12 @@ export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''),
                 ...branches?.branches?.length ? {branches: branches.branches, branches_base: branches.base} : {}, ...branches?.error ? {branches_error: branches.error} : {}, comments: said,
                 ...older ? {older_comments: `${older} shown by their first line: comments: "all" gives them in full`} : {},
                 ...picked ? {choices_left_out: 'comments: "all" gives every option'} : {}})
+        },
+        async branches({id}) {
+            const base = at(await projectOf({id}))
+            const [pulls, branches] = await Promise.all([call('GET', `${issuePath(id)}/pulls`, undefined, base).catch(() => null), call('GET', `${issuePath(id)}/branches`, undefined, base)])
+            const open = [...pulls?.pulls ?? [], ...pulls?.done ?? []].map(pullOf)
+            return JSON.stringify({branches: branches.branches ?? [], ...branches.base ? {branches_base: branches.base} : {}, ...branches.error ? {branches_error: branches.error} : {}, pull_requests: open})
         },
         async create_issue(args) {
             const {proposal, project, ...fields} = args
@@ -903,8 +966,21 @@ export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''),
         },
     }
 
-    /** Runs a tool; an MCP result, an error result when orrery refuses or can't be reached. */
-    return async function callTool(name, args = {}) {
+    const noTool = name => ({isError: true, content: [{type: 'text', text: `No tool "${name}"`}]})
+    /** Runs a tool; an MCP result, an error result when orrery refuses or can't be reached. Beside `/mcp` (`local`),
+     * only the channel's own, and the chat's requests only for the channel's own actions. */
+    if (local) {
+        return async (name, args = {}) => {
+            if (!CHANNELS_OWN.includes(name) && !(chat && name.startsWith('request'))) return noTool(name)
+            if (chat && name.startsWith('request') && !CHANNELS_REQUESTS.includes(args.action)) {
+                return {isError: true, content: [{type: 'text', text: `No action "${args.action}" here: one of ${CHANNELS_REQUESTS.join(', ')}; orrery's /mcp has the rest`}]}
+            }
+            return callTool(name, args)
+        }
+    }
+    return callTool
+
+    async function callTool(name, args = {}) {
         // The chat's requests, read and made through two tools so they aren't all listed (ORR-624).
         if (chat && (name === 'request' || name === 'request_fields')) {
             const action = CHAT_REQUESTS.find(r => r.name === args.action)
@@ -919,8 +995,8 @@ export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''),
         const github = GITHUB_TOOLS.some(t => t.name === name)
         const chatsGithub = name === GITHUB_PULLS.name
         const workOnly = name === 'more_tools'
-        if (!run[name] || chatOnly && !chat || asks && untrusted || github && !untrusted && !chat || chatsGithub && !chat || chat && NOT_FOR_CHAT.includes(name)
-            || untrusted && NOT_FOR_UNTRUSTED.includes(name) || workOnly && (chat || untrusted)) return {isError: true, content: [{type: 'text', text: `No tool "${name}"`}]}
+        if (!run[name] || name === 'branches' && (!local || untrusted) || chatOnly && !chat || asks && untrusted || github && !untrusted && !chat || chatsGithub && !chat || chat && NOT_FOR_CHAT.includes(name)
+            || untrusted && NOT_FOR_UNTRUSTED.includes(name) || workOnly && (chat || untrusted)) return noTool(name)
         let answer
         try {
             const result = await run[name](args)

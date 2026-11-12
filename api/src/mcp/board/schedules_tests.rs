@@ -179,7 +179,7 @@ async fn the_chats_other_requests_stay_in_the_channel() {
         .header("orrery-launch", "c1")
         .send()
         .await;
-    assert_eq!(said(&reply), "request isn't served at /mcp yet: orrery's channel still has it");
+    assert!(said(&reply).starts_with("No action \"start_session\": one of update_settings, "), "{}", reply.body);
 }
 
 /// The chat's `request` for `action` with `fields`, from the chat `c1`.
