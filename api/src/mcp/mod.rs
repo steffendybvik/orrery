@@ -162,6 +162,12 @@ impl Call<'_> {
                     None => text(format!("orrery said no: group is {}", tools::groups().join(", ")), true),
                 }
             }
+            // The chat's request actions, read through one tool so they aren't all listed (ORR-624).
+            "request_fields" => match tools::request_fields(&args["action"]) {
+                Ok(fields) => text(fields, false),
+                Err(no) => text(no, true),
+            },
+            "request" if tools::chat_request(args["action"].as_str().unwrap_or_default()).is_none() => text(tools::no_action(&args["action"]), true),
             // Not text: the image as itself.
             "image" => match (board::Api { app: self.app, headers: self.headers, projects: &projects, relay: self.relay }).image(args).await {
                 Ok(image) => image,

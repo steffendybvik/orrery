@@ -1,5 +1,6 @@
 // The Rust API's copy of the channel's tool lists (ORR-1098, api/mcp-tools.json): what `/mcp` lists to a work session,
-// the chat and an untrusted session (api/src/mcp/tools.rs), as channel/tools.mjs has them. The lists are still written
+// the chat and an untrusted session (api/src/mcp/tools.rs), as channel/tools.mjs has them, and the chat's request
+// actions `request_fields` describes. The lists are still written
 // in channel/tools.mjs. Then, to port a change:
 //
 //   ORRERY_WRITE_MCP_TOOLS=1 pnpm --dir web exec vitest run --project unit test/rust-mcp-tools.test.ts
@@ -9,7 +10,7 @@
 import {existsSync, readFileSync, writeFileSync} from 'node:fs'
 import {fileURLToPath} from 'node:url'
 import {describe, expect, it} from 'vitest'
-import {ON_DEMAND, SCOPED, toolsFor} from '../../channel/tools.mjs'
+import {CHAT_REQUESTS, ON_DEMAND, SCOPED, toolsFor} from '../../channel/tools.mjs'
 
 const FILE = fileURLToPath(new URL('../../api/mcp-tools.json', import.meta.url))
 const CHECKS = fileURLToPath(new URL('../../api/mcp-tools-checks.json', import.meta.url))
@@ -27,6 +28,7 @@ function expected(): string {
         more_tools: moreTools,
         on_demand: ON_DEMAND,
         scoped: SCOPED,
+        chat_requests: CHAT_REQUESTS,
     }, null, 1)}\n`
 }
 
