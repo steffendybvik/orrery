@@ -1,7 +1,7 @@
 // The `schedules` tool at `/mcp` (ORR-1100), as channel/tools.mjs runs it: the project's schedules from its route, a
 // line each. Making and changing one (`create_schedule`, `update_schedule`) are asks: a work session's on its issue
 // (`…/schedule-requests`, `askOnIssue`), and the chat's, through its `request`, in its chat (`/api/chats/:chat/
-// schedule-requests`). The chat's `update_settings` is asked in its chat too. Either chat ask is kept in the chat it
+// schedule-requests`). The chat's `update_settings`, `create_doc` and `update_doc` are asked in its chat too. Either chat ask is kept in the chat it
 // names (`Orrery-Launch`, as the channel sends it), which the local app hears and the owner answers. So is the chat's
 // `create_release` and `update_release` (`/api/chats/:chat/release-requests`), kept beside them here.
 // The chat's `reply` goes in that chat the same way (`/api/chats/:chat/replies`, ORR-1101).
@@ -84,17 +84,17 @@ impl Api<'_> {
         }
     }
 
-    /// The chat's `create_schedule`, or `update_schedule` by `id` (`change`): `fields` as its `request` sends them, the
-    /// schedule's fields beside `project` and `why`. Asked in its chat, on the project it names, which saves nothing until
-    /// the owner allows it. A project this server doesn't serve is refused, as the channel's `on` refuses it.
-    pub(super) async fn ask_schedule_in_chat(&self, change: bool, fields: &Value) -> Said {
-        let tool = if change { "update_schedule" } else { "create_schedule" };
-        let chat = self.chat(tool)?;
-        let mut schedule = fields.as_object().cloned().unwrap_or_default();
-        let id = schedule.shift_remove("id");
-        let why = schedule.shift_remove("why").filter(truthy);
-        let project = self.reached(schedule.shift_remove("project").filter(truthy))?;
-        let mut body = json!({"schedule": schedule});
+    /// The chat's `create_<kind>`, or `update_<kind>` by `id` (`change`), for a schedule or a doc: `fields` as its
+    /// `request` sends them, the thing's fields beside `project` and `why`. Asked in its chat (`…/<kind>-requests`), on
+    /// the project it names, which saves nothing until the owner allows it. A project this server doesn't serve is
+    /// refused, as the channel's `on` refuses it.
+    pub(super) async fn ask_in_chat(&self, kind: &str, change: bool, fields: &Value) -> Said {
+        let chat = self.chat(&format!("{}_{kind}", if change { "update" } else { "create" }))?;
+        let mut asked = fields.as_object().cloned().unwrap_or_default();
+        let id = asked.shift_remove("id");
+        let why = asked.shift_remove("why").filter(truthy);
+        let project = self.reached(asked.shift_remove("project").filter(truthy))?;
+        let mut body = json!({ kind: asked });
         if change {
             body["id"] = id.unwrap_or(Value::Null);
         }
@@ -104,10 +104,10 @@ impl Api<'_> {
         if let Some(why) = why {
             body["why"] = why;
         }
-        self.call(Method::POST, &format!("/api/chats/{}/schedule-requests", super::enc(&chat)), Some(body)).await?;
+        self.call(Method::POST, &format!("/api/chats/{}/{kind}-requests", super::enc(&chat)), Some(body)).await?;
         Ok(format!(
             "Asked: the owner sees the {} with Allow and Deny, and you'll hear which they pressed. Nothing is saved until they allow it.",
-            if change { "change" } else { "schedule" }
+            if change { "change" } else { kind }
         ))
     }
 

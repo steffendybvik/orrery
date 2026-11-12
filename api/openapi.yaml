@@ -1666,6 +1666,23 @@ paths:
         '201': {description: 'The message asking, with its id and time', content: {application/json: {schema: {type: object}}}}
         '400': {$ref: '#/components/responses/BadRequest'}
         '404': {$ref: '#/components/responses/NotFound'}
+  /api/chats/{chat}/doc-requests:
+    parameters: [{name: chat, in: path, required: true, description: The chat's id, schema: {type: string}}]
+    post:
+      x-served: false
+      summary: The chat asks to make or change a doc, which saves nothing until the owner allows it
+      description: >-
+        The chat's `create_doc` and `update_doc` (`askDoc`, ORR-1100): the doc's title, section and text, checked as a
+        doc's are, on the project it names or else the chat's own, kept as a request in the chat holding only what
+        would change and the doc as it was. A change that would change nothing is a 409. One asked before for the same
+        doc, still unanswered, expires. The owner answers on the chat's page, which the local app runs.
+      requestBody: {required: true, content: {application/json: {schema: {type: object, required: [doc], properties: {doc: {type: object}, id: {type: string}, project: {type: string}, why: {type: string}}}}}}
+      responses:
+        '201': {description: 'The message asking, with its id and time', content: {application/json: {schema: {type: object}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {description: A field that stays the owner's to set, content: {application/json: {schema: {type: object}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {description: The doc is like that already, content: {application/json: {schema: {type: object}}}}
   /api/chats/{chat}/schedule-requests:
     parameters: [{name: chat, in: path, required: true, description: The chat's id, schema: {type: string}}]
     post:
