@@ -367,6 +367,88 @@ mod tests {
         assert_eq!(latest(Dialect::Sqlite), latest(Dialect::Postgres), "both dialects end at the same step");
     }
 
+    /// A SQLite file brought up to `step` and no further, as an older orrery left it.
+    async fn sqlite_at(step: u32) -> (String, AnyConnection) {
+        install_default_drivers();
+        let dir = std::env::temp_dir().join(format!("orrery-migrate-test-{}", crate::testing::random_id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("orrery.db").to_string_lossy().into_owned();
+        let mut conn = AnyConnection::connect(&format!("sqlite://{path}?mode=rwc")).await.unwrap();
+        exec(&mut conn, "PRAGMA foreign_keys = OFF").await.unwrap();
+        for (i, step) in SQLITE.iter().enumerate().take(step as usize) {
+            match step {
+                Step::Sql(sql) => exec(&mut conn, sql).await.unwrap(),
+                Step::Code(n) => code(&mut conn, Dialect::Sqlite, *n).await.unwrap(),
+            }
+            exec(&mut conn, &format!("PRAGMA user_version = {}", i + 1)).await.unwrap();
+        }
+        (path, conn)
+    }
+
+    async fn rows(conn: &mut AnyConnection, query: &str) -> Vec<Vec<Option<String>>> {
+        let rows = sqlx::query(query).fetch_all(&mut *conn).await.unwrap();
+        rows.iter().map(|r| (0..r.len()).map(|i| r.try_get::<Option<String>, _>(i).unwrap()).collect()).collect()
+    }
+
+    fn some(values: &[&str]) -> Vec<Option<String>> {
+        values.iter().map(|v| Some(v.to_string())).collect()
+    }
+
+    #[tokio::test]
+    async fn step_89_puts_what_is_there_in_one_default_workspace_the_owner_holds() {
+        let (path, mut conn) = sqlite_at(88).await;
+        exec(
+            &mut conn,
+            "INSERT INTO people (id, name, role, created_at) VALUES ('ziggy', 'Ziggy', 'owner', '2026-01-01T00:00:00.000Z'), ('ada', 'Ada', 'member', '2026-02-01T00:00:00.000Z');
+             INSERT INTO projects (id, name, key, created_by, created_at, updated_at) VALUES
+                ('alpha', 'Alpha', 'ALP', 'ziggy', '2026-03-01T00:00:00.000Z', '2026-03-01T00:00:00.000Z'),
+                ('beta', 'Beta', 'BET', 'ada', '2026-04-01T00:00:00.000Z', '2026-04-01T00:00:00.000Z');
+             INSERT INTO settings (key, value) VALUES ('tint', '\"teal\"');",
+        )
+        .await
+        .unwrap();
+        conn.close().await.unwrap();
+
+        let migrated = migrate(&path, None).await.unwrap();
+        assert_eq!((migrated.from, migrated.to), (88, latest(Dialect::Sqlite)));
+        let mut conn = AnyConnection::connect(&format!("sqlite://{path}")).await.unwrap();
+        // Named Default, coloured as the orrery's tint, as old as its oldest project.
+        assert_eq!(
+            rows(&mut conn, "SELECT id, name, color, created_at FROM workspaces").await,
+            vec![some(&["default", "Default", "teal", "2026-03-01T00:00:00.000Z"])]
+        );
+        // The owner holds it; members stay on the boards they're on until access reads workspaces (step 3).
+        assert_eq!(rows(&mut conn, "SELECT workspace, person, role FROM workspace_members").await, vec![some(&["default", "ziggy", "owner"])]);
+        assert_eq!(rows(&mut conn, "SELECT id, workspace FROM projects ORDER BY id").await, vec![some(&["alpha", "default"]), some(&["beta", "default"])]);
+        // A project made as today, naming no workspace, lands in the default one.
+        exec(&mut conn, "INSERT INTO projects (id, name, key, created_by, created_at, updated_at) VALUES ('gamma', 'Gamma', 'GAM', 'ziggy', 'x', 'x')")
+            .await
+            .unwrap();
+        assert_eq!(rows(&mut conn, "SELECT workspace FROM projects WHERE id = 'gamma'").await, vec![some(&["default"])]);
+    }
+
+    #[tokio::test]
+    async fn a_new_orrery_has_the_default_workspace_with_nobody_in_it_yet() {
+        let (path, conn) = sqlite_at(0).await;
+        conn.close().await.unwrap();
+        migrate(&path, None).await.unwrap();
+        let mut conn = AnyConnection::connect(&format!("sqlite://{path}")).await.unwrap();
+        exec(&mut conn, "PRAGMA foreign_keys = ON").await.unwrap();
+        let workspaces = rows(&mut conn, "SELECT id, name, color FROM workspaces").await;
+        assert_eq!(workspaces, vec![vec![Some("default".into()), Some("Default".into()), None]], "no tint, no colour");
+        assert!(rows(&mut conn, "SELECT person FROM workspace_members").await.is_empty());
+        // Projects reach it by their key; one naming a workspace that isn't there is refused.
+        exec(&mut conn, "INSERT INTO projects (id, name, key, created_by, created_at, updated_at) VALUES ('alpha', 'Alpha', 'ALP', 'x', 'x', 'x')")
+            .await
+            .unwrap();
+        let stray = exec(
+            &mut conn,
+            "INSERT INTO projects (id, name, key, created_by, created_at, updated_at, workspace) VALUES ('beta', 'Beta', 'BET', 'x', 'x', 'x', 'nowhere')",
+        )
+        .await;
+        assert!(stray.is_err(), "a project's workspace must be there");
+    }
+
     #[test]
     fn uids_are_eight_base32_characters() {
         assert_eq!(uid_of("0000000000"), "aaaaaaaa");

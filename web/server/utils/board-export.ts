@@ -45,6 +45,8 @@ export const NOT_EXPORTED = {
     identities: 'credentials',
     invites: 'credentials',
     settings: "the server's, not a board's",
+    workspaces: "the server's, not a board's: the board lands in the workspace it's brought into",
+    workspace_members: "the server's, not a board's",
     preset_defaults: "the server's, not a board's",
     schedules_across: "the server's, not a board's: each project's copy goes with its schedules",
     events: "the server's log",

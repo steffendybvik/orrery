@@ -25,7 +25,7 @@ use std::sync::Arc;
 use tower::ServiceExt;
 
 /// The token the tests' router and API share.
-fn random_id() -> String {
+pub(crate) fn random_id() -> String {
     let mut bytes = [0u8; 8];
     getrandom::getrandom(&mut bytes).unwrap();
     bytes.iter().map(|b| format!("{b:02x}")).collect()
