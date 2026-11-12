@@ -11,7 +11,7 @@ import {known} from '#shared/known'
 import {refusedFor} from './permission'
 import {anotherPersons, sessionHeader} from './actor'
 import {scheduleAsk, scheduleDrift, scheduleRequest} from './schedule-requests'
-import {onlyWords, writeToApi} from './api-router'
+import {writeToApi} from './api-router'
 
 // The owner's chats: a Claude session started for one alone (launches.ts `startChat`), which the owner talks to on the
 // page instead of in a terminal. It answers questions about the project and makes issues and comments when asked;
@@ -139,12 +139,6 @@ const under = (project: string, ...parts: string[]) => `/api/projects/${[project
 async function through<T>(method: string, path: string, body: unknown, as: Actor, here: () => Promise<T>, opts: {noteKeys?: boolean} = {}): Promise<T> {
     const sent = await writeToApi(method, path, body, as, opts)
     return sent ? sent.reply as T : await here()
-}
-
-/** An issue's write the owner allowed: through the Rust API only when it names nothing but the issue's words, as the
- * router sends it on (`onlyWords`), or a move to another project; the rest stays with the store here. */
-async function issueThrough<T>(method: string, path: string, body: Record<string, unknown>, as: Actor, here: () => Promise<T>): Promise<T> {
-    return onlyWords(body, {moves: method === 'PATCH'}) ? await through(method, path, body, as, here) : await here()
 }
 
 /** Waits for every chat's writes so far to land (tests, and a server closing). */
@@ -519,7 +513,7 @@ async function moveNow(chat: Chat, project: string, ids: string[], to: Omit<Chat
     const moved: string[] = []
     try {
         for (const issue of ids) {
-            await issueThrough('PATCH', under(project, 'issues', issue), to, as, () => useStore().updateIssue(project, issue, to, as))
+            await through('PATCH', under(project, 'issues', issue), to, as, () => useStore().updateIssue(project, issue, to, as))
             moved.push(issue)
         }
     } catch (error) {
@@ -879,7 +873,7 @@ async function answerMove(chat: Chat, request: ChatMoveRequest, allow: boolean, 
             for (const id of ids) {
                 if (moved.includes(id)) continue
                 if (undecided((await useStore().issue(project, id)).proposal)) throw refusedFor('issues.edit', `${id} is a proposal waiting on you now: decide it on its page`)
-                await issueThrough('PATCH', under(project, 'issues', id), to, as, () => useStore().updateIssue(project, id, to, as))
+                await through('PATCH', under(project, 'issues', id), to, as, () => useStore().updateIssue(project, id, to, as))
                 moved.push(id)
             }
         } catch (error) {
@@ -984,7 +978,7 @@ async function answerIssue(chat: Chat, request: ChatIssueRequest, allow: boolean
     const {id: _, state: __, project: ___, ...fields} = request
     const as: Actor = {...actor, via: 'chat'}
     const body = {...fields, status: chat.issues}
-    const made = allow ? await issueThrough('POST', under(project, 'issues'), body, as, () => useStore().createIssue(project, body, as)) : undefined
+    const made = allow ? await through('POST', under(project, 'issues'), body, as, () => useStore().createIssue(project, body, as)) : undefined
     request.state = allow ? 'allowed' : 'denied'
     if (made) request.id = made.id
     changed(chat)
@@ -1263,16 +1257,8 @@ export function messaged(actor: Actor, project: string, session: string) {
     useEventLog().note({level: 'info', kind: 'session.messaged', project, message: `${actor.name}${actor.via ? ` (via ${actor.via})` : ''} messaged ${session}`})
 }
 
-/** An issue as the chat `chat` (its `Orrery-Launch`) asks to make it: on the roadmap as asked, but with nobody on it
- * and in the first status of the kind the owner picked for the chat (Todo, or Backlog), whatever status it asks for,
- * since a chat doesn't take work up or finish it. A proposal stays one, for the owner to decide as before. */
-export function asChatIssue(body: unknown, chat?: string): unknown {
-    if (!body || typeof body !== 'object' || Array.isArray(body)) return body
-    const {status: _status, plan: _plan, assignee: _assignee, ...rest} = body as Record<string, unknown>
-    return rest.proposal === 'pending' ? rest : {...rest, status: chatIssuesFor(chat)}
-}
-
-/** The status the owner picked for what the chat `chat` (its `Orrery-Launch`) makes: Todo unless it's Backlog. */
+/** The status the owner picked for what the chat `chat` (its `Orrery-Launch`) makes: Todo unless it's Backlog. The API
+ * lands its issues there, with nobody on them (`as_chat_issue`). */
 export function chatIssuesFor(chat?: string): ChatIssues {
     return (chat && chats.get(chat)?.issues) || 'todo'
 }

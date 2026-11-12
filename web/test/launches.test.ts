@@ -819,15 +819,6 @@ describe("an untrusted schedule's run", () => {
         expect(await launches.stopDue(now)).toEqual(['locked'])
     })
 
-    it('makes what its session raises a proposal labelled external, and nothing more', async () => {
-        const {asProposal} = await import('../server/utils/untrusted')
-        expect(asProposal({title: 'Crash on save', notes: 'From #12', labels: ['bug'], priority: 'P0', status: 'in-progress', assignee: 'claude', parent: 'GRE-1', milestone: '2', release: '1.0.0'}))
-            .toEqual({title: 'Crash on save', notes: 'From #12', proposal: 'pending', labels: ['external']})
-        expect(asProposal({title: 'x', labels: ['external']}).labels).toEqual(['external'])
-        expect(asProposal({title: 'x', github_issues: [12]})).toMatchObject({github_issues: [12], labels: ['external']})
-        expect(asProposal(null)).toMatchObject({proposal: 'pending', labels: ['external']})
-    })
-
     it("stays untrusted when a launcher reports it after orrery restarted", () => {
         launches.reportRunning('greenhouse', [{id: 'a1b2c3d4e5f6', tmux: 'orrery-greenhouse-a1b2c3d4e5f6', untrusted: true}])
         expect(launches.launched('a1b2c3d4e5f6')).toMatchObject({untrusted: true})

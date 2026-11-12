@@ -219,12 +219,11 @@ describe('usage', () => {
 describe('an issue\'s edit', () => {
     const edit = (body: string) => routeToApi(eventOf('/api/projects/p/issues/P-1', 'PATCH', body).event, {})
 
-    it('stays here when its body isn\'t JSON, or names more than its words', async () => {
-        expect(await edit('{not json')).toBeUndefined()
-        expect(await edit('{"title":"x","session":"y"}')).toBeUndefined()
-        expect(await edit('{}')).toBeUndefined()
-        expect(asked).toEqual([])
-        expect(vi.mocked(console.info)).toHaveBeenLastCalledWith(expect.stringContaining('served=nuxt reason=kept-here check=wordsOnly'))
+    it('goes on as it is when its body isn\'t JSON, or names more than its words, for the API\'s answer', async () => {
+        answer = {status: 400, body: '{"message":"no"}'}
+        for (const body of ['{not json', '{"title":"x","session":"y"}', '{}']) await edit(body).catch(() => undefined)
+        expect(asked.map(a => a.body)).toEqual(['{not json', '{"title":"x","session":"y"}', '{}'])
+        expect(calls).toEqual([])
     })
 
     it('goes on with the owner\'s words, once the session\'s claim on the issue is checked', async () => {
@@ -251,16 +250,23 @@ describe('an issue\'s edit', () => {
         await edit('{"title":"x"}')
         expect(calls.at(-1)).toBe('claimFor p P-1')
     })
+
+    it('moved to another project, needs its person on the board it goes to', async () => {
+        answer = {status: 200, body: '{"id":"Q-1","project":"q"}'}
+        await edit('{"project":"q"}')
+        expect(calls).toEqual(['needsBoard q', 'claimFor p P-1'])
+    })
 })
 
 describe('a new issue', () => {
     const made = (body: string) => routeToApi(eventOf('/api/projects/p/issues', 'POST', body).event, {})
 
-    it('goes on with only its words, and stays here otherwise', async () => {
+    it('goes on whatever its body, for the API to answer it', async () => {
         expect(await made('{"title":"x"}')).toEqual({})
-        expect(await made('{"title":"x","session":"y"}')).toBeUndefined()
-        expect(await made('{nope')).toBeUndefined()
-        expect(asked).toHaveLength(1)
+        answer = {status: 400, body: '{"message":"no"}'}
+        await expect(made('{"title":"x","session":"y"}')).rejects.toMatchObject({statusCode: 400})
+        await expect(made('{nope')).rejects.toMatchObject({statusCode: 400})
+        expect(asked).toHaveLength(3)
     })
 
     it('from an untrusted session always goes on, as the API keeps only its words', async () => {
