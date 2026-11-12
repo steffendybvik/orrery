@@ -1,6 +1,7 @@
 // `POST /api/projects/upload?id=&key=&name=` {a board's file} → the new board, held by whoever uploaded it (ORR-670). It
 // never merges into or overwrites a board: an id or key already taken is a 409, and you choose another. A member brings one in
 // in person, held to that by `checkBoards`; anyone else goes on to `authorize`, so an agent of theirs is still refused (ORR-725).
+// The file is checked here (`checkedBoard`), and the Rust API makes the board from its rows (`POST /api/boards`, ORR-1142).
 export default defineEventHandler(async event => {
     const actor = await memberAsking(event) ?? await authorize(event, 'projects.upload')
     const tooBig = () => createError({statusCode: 413, statusMessage: `A board's file is ${BOARD_LIMIT / 1024 / 1024} MB at most`})
@@ -15,9 +16,15 @@ export default defineEventHandler(async event => {
     }
     const query = getQuery(event)
     const text = (name: string) => typeof query[name] === 'string' && query[name] ? query[name] as string : undefined
-    const store = useStore()
-    const id = await uploadBoard(useDatabase(), file, {id: text('id'), key: text('key'), name: text('name')}, actor, await personOf(event) ?? (await store.ownerOf()).name)
-    store.changed(id)
-    useEventLog().note({level: 'info', kind: 'board.uploaded', project: id, message: `${actor.name} uploaded a board's file as ${id}`, details: {by: actor.name}})
-    return created(event, await store.project(id))
+    // Checked here, without the database; written by the API, which says the board changed (ORR-1142). With no API set
+    // up, the store here writes it.
+    const checked = checkedBoard(file, {id: text('id'), key: text('key'), name: text('name')})
+    const holder = await personOf(event) ?? (await ownerNow()).name
+    const sent = await writeToApi('POST', '/api/boards', boardForApi(checked, holder), actor, {always: true})
+    if (!sent) {
+        await uploadBoard(useDatabase(), file, {id: checked.id, key: checked.key, name: checked.name}, actor, holder)
+        useStore().changed(checked.id)
+    }
+    useEventLog().note({level: 'info', kind: 'board.uploaded', project: checked.id, message: `${actor.name} uploaded a board's file as ${checked.id}`, details: {by: actor.name}})
+    return created(event, sent ? sent.reply : await useStore().project(checked.id))
 })

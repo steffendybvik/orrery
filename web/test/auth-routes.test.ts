@@ -172,7 +172,13 @@ describe("POST /api/projects/upload (a board's file)", () => {
         vi.stubGlobal('useEventLog', () => ({note: () => {}}))
         vi.stubGlobal('setResponseStatus', (event: Event, status: number) => event.status = status)
         vi.stubGlobal('created', (event: Event, value: unknown) => (event.status = 201, value))
-        vi.stubGlobal('uploadBoard', (await import('../server/utils/board-upload')).uploadBoard)
+        const upload = await import('../server/utils/board-upload')
+        vi.stubGlobal('uploadBoard', upload.uploadBoard)
+        vi.stubGlobal('checkedBoard', upload.checkedBoard)
+        vi.stubGlobal('boardForApi', upload.boardForApi)
+        // No API here, so the store writes it.
+        vi.stubGlobal('writeToApi', async () => undefined)
+        vi.stubGlobal('ownerNow', async () => store.ownerOf())
         vi.stubGlobal('BOARD_LIMIT', 256 * 1024 * 1024)
     })
 

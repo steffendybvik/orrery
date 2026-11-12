@@ -1,20 +1,22 @@
 // Projects: the handlers and the routes they answer (ORR-1048).
 use super::P;
+use crate::board::board_upload::{self, Upload};
 use crate::board::imports::check_roadmap;
 use crate::board::issue_writes::IssueWrites;
 use crate::board::projects::Projects;
 use crate::board::{export, projects};
 use crate::changes::Outbox;
-use crate::error::Result;
+use crate::error::{ApiError, Result};
 use crate::reply::reply;
 use crate::request::{actor_of, body_of, who_of};
 use crate::{App, Shared};
-use axum::body::Bytes;
-use axum::extract::{Path, Query, State};
+use axum::body::{to_bytes, Bytes};
+use axum::extract::{Path, Query, Request, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
+use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -24,6 +26,31 @@ pub(crate) fn routes() -> Router<Arc<App>> {
         .route(P, get(get_project).patch(patch_project).delete(delete_project))
         .route(&format!("{P}/export"), get(export_project))
         .route(&format!("{P}/import"), post(import_project))
+        .route("/api/boards", post(upload_board))
+}
+
+/// The most a checked board's rows may be, as the local app sends them: its file's limit (`BOARD_LIMIT`), with room for
+/// what JSON adds around them.
+const BOARD_BODY_LIMIT: usize = 320 * 1024 * 1024;
+
+/// `POST /api/boards` {id, key, name?, holder, project, exported_at?, statuses, people, uploads, tables} → 201 the new
+/// board. The local app's own call (ORR-1142): it checks a board's file first (`checkedBoard` in board-upload.ts), as
+/// that's untrusted, and sends its rows here to be made a board, held by `holder` (`board_upload`). Its body is read
+/// here, past the API's own limit, as a board's file is far bigger than any other request.
+async fn upload_board(State(app): Shared, request: Request) -> Result<Response> {
+    let too_large = || ApiError::too_large(format!("A board's file is {} MB at most", BOARD_BODY_LIMIT / 1024 / 1024));
+    let actor = actor_of(request.headers());
+    let body = to_bytes(request.into_body(), BOARD_BODY_LIMIT).await.map_err(|_| too_large())?;
+    let body = body_of(&body);
+    let text = |key: &str| body.get(key).and_then(Value::as_str);
+    let (Some(id), Some(key), Some(holder)) = (text("id"), text("key"), text("holder")) else {
+        return Err(ApiError::bad_request("id, key and holder: the board's id and key, and who holds it"));
+    };
+    let mut conn = app.pool.acquire().await?;
+    let upload = Upload { id, key, name: text("name"), holder, body: &body };
+    let effects = board_upload::upload_board(&mut conn, &upload, &actor).await?;
+    let value = Projects::new(&mut conn).project(id).await?;
+    Ok(reply(StatusCode::CREATED, Some(value), effects))
 }
 
 /// `GET /api/projects` → every project with its counts; `?expand=board` gives each one's board instead, without the

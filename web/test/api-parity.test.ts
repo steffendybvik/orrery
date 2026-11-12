@@ -36,6 +36,7 @@ import type {PolledRow} from '../server/utils/pull-poll'
 import {openDb} from '../server/utils/db'
 import {backUpTo, snapshotsBy} from '../server/utils/backup'
 import {isFresh, noteEnvironment} from '../server/utils/restore'
+import {boardForApi, checkedBoard, uploadBoard} from '../server/utils/board-upload'
 import {DatabaseSync} from 'node:sqlite'
 import {PostgresDb} from '../server/utils/postgres'
 import {PHONE_LOGIN} from '#shared/phone'
@@ -3021,6 +3022,36 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         expect(domainOf('GET', '/api/projects/through-api/export')).toBe('a project, exported')
     })
 
+    it('brings a board\'s file in alike, the local app checking it and the API writing it (ORR-1142)', async () => {
+        const file = JSON.parse(JSON.stringify(await exportBoard(store.db, 'through-api'))) as Record<string, unknown>
+        const holder = OWNER.name
+        await uploadBoard(store.db, file, {id: 'upload-store', key: 'UPS'}, OWNER, holder)
+        const made = await viaApi('POST', '/api/boards', boardForApi(checkedBoard(file, {id: 'upload-api', key: 'UPA'}), holder), OWNER)
+        expect(made.status).toBe(201)
+        expect(made.changed).toEqual(['upload-api'])
+        expect((made.body as {id: string}).id).toBe('upload-api')
+        /** A board as its export has it, with what's bound to differ taken out: its id, key and uid, the times it was
+         * made, and the ids numbered across the orrery (its comments', schedules', presets' and revisions'). */
+        const board = async (project: string) => {
+            const {tables} = await exportBoard(store.db, project) as {tables: Record<string, Record<string, unknown>[]>}
+            const numbered = new Set(['id', 'comment', 'schedule', 'doc_mark', 'presets'])
+            return JSON.parse(JSON.stringify(tables, (key, value: unknown) => {
+                if (numbered.has(key) && (typeof value === 'number' || key === 'presets')) return '<n>'
+                if (key === 'uid' || key === 'key') return '<k>'
+                if (typeof value === 'string') return value.replaceAll(project, '<project>').replace(/^\d{4}-\d{2}-\d{2}T[\d:.]+Z$/, '<time>')
+                return value
+            }), (_key, value: unknown) => Array.isArray(value) ? [...value].sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))) : value)
+        }
+        expect(await board('upload-api')).toEqual(await board('upload-store'))
+        // Refused alike: a taken id, and a taken key.
+        const again = await viaApi('POST', '/api/boards', boardForApi(checkedBoard(file, {id: 'upload-store', key: 'UPZ'}), holder), OWNER)
+        expect(again).toMatchObject({status: 409, body: {message: 'There is already a project "upload-store": choose another id'}})
+        await expect(uploadBoard(store.db, file, {id: 'upload-other', key: 'UPA'}, OWNER, holder)).rejects.toMatchObject({statusCode: 409})
+        expect((await viaApi('POST', '/api/boards', boardForApi(checkedBoard(file, {id: 'upload-other', key: 'UPS'}), holder), OWNER)).status).toBe(409)
+        for (const project of ['upload-store', 'upload-api']) await store.deleteProject(project, OWNER)
+        expect(domainOf('POST', '/api/boards')).toBeUndefined()
+    })
+
     it('imports a roadmap alike, with the project\'s ids and the file\'s as aliases (ORR-1006)', async () => {
         // On projects of their own, so replacing a roadmap leaves the others' issues be.
         const on = (p: string) => `${p}-import`
@@ -3843,7 +3874,7 @@ describe('the contract (api/openapi.yaml)', () => {
     })
 
     it('sends none of the routes written ahead of the Rust API to it', () => {
-        expect(contract(true)).toEqual(['DELETE /api/chats/{chat}', 'DELETE /api/secrets/{name}/sealed', 'GET /api/auth/oidc/callback', 'GET /api/auth/oidc/start', 'GET /api/auth/status', 'GET /api/chats', 'GET /api/chats/{chat}', 'GET /api/database', 'GET /api/projects/{project}/issue-sessions', 'GET /api/projects/{project}/issues/{issue}/dependents', 'GET /api/projects/{project}/issues/{issue}/workers', 'POST /api/auth/link', 'POST /api/auth/login', 'POST /api/auth/logout', 'POST /api/chats/{chat}/doc-requests', 'POST /api/chats/{chat}/issue-requests', 'POST /api/chats/{chat}/lines', 'POST /api/chats/{chat}/move-requests', 'POST /api/chats/{chat}/release-requests', 'POST /api/chats/{chat}/replies', 'POST /api/chats/{chat}/schedule-requests', 'POST /api/chats/{chat}/setting-requests', 'POST /api/database/snapshot', 'POST /api/events/log/prune', 'POST /api/phone/link', 'POST /api/presets/seed', 'POST /api/projects/{project}/issues/{issue}/worked-by', 'POST /api/projects/{project}/signals', 'POST /api/projects/{project}/signals/retarget', 'POST /api/projects/{project}/signals/{signal}/receipts', 'POST /api/pulls/forget', 'POST /api/secrets/{name}/uses', 'POST /api/signals/prune', 'PUT /api/chats/{chat}', 'PUT /api/chats/{chat}/lines/{message}', 'PUT /api/database/environment', 'PUT /api/events/log/lines', 'PUT /api/pulls/{owner}/{name}', 'PUT /api/pulls/{owner}/{name}/error', 'PUT /api/pulls/{owner}/{name}/history', 'PUT /api/pulls/{owner}/{name}/{number}', 'PUT /api/secrets/{name}/sealed', 'PUT /api/usage'])
+        expect(contract(true)).toEqual(['DELETE /api/chats/{chat}', 'DELETE /api/secrets/{name}/sealed', 'GET /api/auth/oidc/callback', 'GET /api/auth/oidc/start', 'GET /api/auth/status', 'GET /api/chats', 'GET /api/chats/{chat}', 'GET /api/database', 'GET /api/projects/{project}/issue-sessions', 'GET /api/projects/{project}/issues/{issue}/dependents', 'GET /api/projects/{project}/issues/{issue}/workers', 'POST /api/auth/link', 'POST /api/auth/login', 'POST /api/auth/logout', 'POST /api/boards', 'POST /api/chats/{chat}/doc-requests', 'POST /api/chats/{chat}/issue-requests', 'POST /api/chats/{chat}/lines', 'POST /api/chats/{chat}/move-requests', 'POST /api/chats/{chat}/release-requests', 'POST /api/chats/{chat}/replies', 'POST /api/chats/{chat}/schedule-requests', 'POST /api/chats/{chat}/setting-requests', 'POST /api/database/snapshot', 'POST /api/events/log/prune', 'POST /api/phone/link', 'POST /api/presets/seed', 'POST /api/projects/{project}/issues/{issue}/worked-by', 'POST /api/projects/{project}/signals', 'POST /api/projects/{project}/signals/retarget', 'POST /api/projects/{project}/signals/{signal}/receipts', 'POST /api/pulls/forget', 'POST /api/secrets/{name}/uses', 'POST /api/signals/prune', 'PUT /api/chats/{chat}', 'PUT /api/chats/{chat}/lines/{message}', 'PUT /api/database/environment', 'PUT /api/events/log/lines', 'PUT /api/pulls/{owner}/{name}', 'PUT /api/pulls/{owner}/{name}/error', 'PUT /api/pulls/{owner}/{name}/history', 'PUT /api/pulls/{owner}/{name}/{number}', 'PUT /api/secrets/{name}/sealed', 'PUT /api/usage'])
         expect(contract(true).filter(operation => routes().includes(operation))).toEqual([])
     })
 })

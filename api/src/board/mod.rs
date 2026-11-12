@@ -1,4 +1,5 @@
 // The board: projects, their issues and what's written on them, milestones, releases, epics, statuses and docs. (ORR-1050)
+pub(crate) mod board_upload;
 pub(crate) mod choices;
 pub(crate) mod comments;
 pub(crate) mod compress;

@@ -9,13 +9,15 @@
 export type Writer = {alone: string} | {nuxt: string, issue?: `ORR-${number}`}
 
 const PROJECT: Writer = {nuxt: 'reading and importing a project (store/projects.ts, store/imports.ts, utils/renumber.ts)', issue: 'ORR-1006'}
-const UPLOAD = 'a board file uploaded from another server (utils/board-upload.ts)'
+const UPLOAD = 'a board file uploaded from another server (utils/board-upload.ts) only with no API in front; it sends it to POST /api/boards otherwise (ORR-1142)'
 const SCHEDULES: Writer = {nuxt: 'schedule writes and runs (utils/schedules.ts)', issue: 'ORR-950'}
 const BELL: Writer = {alone: 'the bell (store/owner.ts clearNotices, readNotices), all routed as "the bell"'}
 
 /** The tables written from a table name the code picks (`format!("… {} …", thread.table())`), by file under api/src. */
 export const DYNAMIC: Record<string, string[]> = {
     'board/threads.rs': ['milestone_comments', 'epic_comments'],
+    // A board's file brought in, its rows as the file has them (ORR-1142).
+    'board/board_upload.rs': ['projects', 'milestones', 'milestone_aliases', 'doc_sections', 'docs', 'releases', 'presets', 'schedules', 'issues', 'issue_aliases', 'issue_links', 'issue_events', 'comments', 'milestone_comments', 'schedule_requests', 'doc_revisions', 'schedule_runs'],
     // Naming the owner moves what was theirs to their new id (ORR-1036).
     'access/people.rs': ['projects', 'milestones', 'issues', 'docs', 'doc_revisions', 'comments', 'signals', 'schedules', 'issue_events', 'secrets', 'uploads', 'releases', 'epics', 'presets', 'issue_links', 'schedules_across', 'events', 'schedule_requests'],
 }

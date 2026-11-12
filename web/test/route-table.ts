@@ -24,6 +24,7 @@ const ARTIFACT: Line = {stays: "drawn with the page's own sanitising and its loc
 const SESSIONS: Line = {stays: "the sessions, the launcher and their signals are the machine's"}
 const MACHINE: Line = {stays: "the machine's: its files, the event log, its own use, and what it says about itself"}
 
+const BOARD: Line = {rustOnly: 'a board\'s file made a new board: the local app checks the file, then sends its rows itself (`writeToApi`, ORR-1142)'}
 const SNAPSHOT: Line = {rustOnly: 'the copy a backup takes of the database: the local app asks for it itself, then checks and keeps it (`snapshotsBy`, ORR-1097)'}
 const DATABASE: Line = {rustOnly: "what the local app's backups and App settings → Database ask of the database itself: whether it's a new orrery's, a Postgres one's size, and the name it runs under (ORR-1140)"}
 const SESSION_WORK: Line = {rustOnly: "which session is on which issue, as the local app's session bookkeeping asks it (clearing, picking, the Todo hand-out): it reads them itself (`sessionWork`, ORR-1141)"}
@@ -74,6 +75,7 @@ export const NOT_ROUTED: Readonly<Record<string, Line>> = {
     'GET /api/connects/{connect}': MACHINE,
     'POST /api/connects/{connect}/report': MACHINE,
     'POST /api/connects/{connect}/write': MACHINE,
+    'POST /api/boards': BOARD,
     'GET /api/database': DATABASE,
     'POST /api/database/check': MACHINE,
     'PUT /api/database/environment': DATABASE,
