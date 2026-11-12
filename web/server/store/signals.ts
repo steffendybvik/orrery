@@ -6,6 +6,7 @@ import {badRequest, checkInput, conflict, notFound} from '../utils/input'
 import type {Actor, IssueRecord, SignalRow} from './schema'
 import {AGENT, SIGNAL_FIELDS, MILESTONE_SIGNAL_FIELDS, LEGACY_KINDS, UPLOAD_FIELDS, UPLOAD_LIMIT, IMAGE_TYPES, ORRERY, signalOf, nullable, stamp} from './schema'
 import {IssueStore} from './issues'
+import {sessionWork} from './session-work'
 import {EVERY} from '../utils/pool'
 import {compressImage} from '../utils/compress'
 import {known} from '#shared/known'
@@ -361,6 +362,8 @@ export abstract class SignalStore extends IssueStore {
 
     /** Whether the owner sent this session something of its own (by one of its ids) that it hasn't heard yet. */
     async waitingFor(project: string, ids: string[]): Promise<boolean> {
+        const read = await sessionWork.of(project, ids)
+        if (read) return read.waiting_for
         return !!await this.get(`SELECT 1 FROM signals WHERE project = ? AND owned = 1 AND delivered_to = '[]'
             AND target IN (${ids.map(() => '?').join(', ')}) LIMIT 1`, project, ...ids)
     }
@@ -368,6 +371,8 @@ export abstract class SignalStore extends IssueStore {
     /** Whether a signal of the owner's waits to reach the session (any of its `ids`), for it, for every session or
      * for the one orrery picks. */
     async waiting(project: string, ids: string[]): Promise<boolean> {
+        const read = await sessionWork.of(project, ids)
+        if (read) return read.waiting
         return !!await this.get(`SELECT 1 FROM signals WHERE project = ? AND owned = 1 AND delivered_to = '[]'
             AND (target IS NULL OR target = ? OR target IN (${ids.map(() => '?').join(', ')})) LIMIT 1`, project, EVERY, ...ids)
     }
@@ -383,6 +388,8 @@ export abstract class SignalStore extends IssueStore {
     /** The owner's and members' signals from the last day for one session orrery picks (pool.ts) that none has heard
      * yet: the next session to go idle that may hear them takes them. */
     async pooledWaiting(project: string): Promise<Signal[]> {
+        const read = await sessionWork.unheard(project, 'pooled')
+        if (read) return read
         const since = new Date(Date.now() - 86_400_000).toISOString()
         return (await this.all<SignalRow>(`SELECT * FROM signals WHERE project = ? AND (owned = 1 OR person IS NOT NULL) AND delivered_to = '[]'
             AND target IS NULL AND created_at >= ? ORDER BY id`, project, since)).map(signalOf)
@@ -391,6 +398,8 @@ export abstract class SignalStore extends IssueStore {
     /** The owner's scheduled asks and messages from the last day that no session has heard yet: the next
      * one to connect gets them. */
     async unheardScheduled(project: string): Promise<Signal[]> {
+        const read = await sessionWork.unheard(project, 'scheduled')
+        if (read) return read
         const since = new Date(Date.now() - 86_400_000).toISOString()
         return (await this.all<SignalRow>(`
             SELECT s.* FROM signals s LEFT JOIN issues i ON i.project = s.project AND i.id = s.issue

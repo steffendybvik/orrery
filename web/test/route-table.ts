@@ -26,6 +26,7 @@ const MACHINE: Line = {stays: "the machine's: its files, the event log, its own 
 
 const SNAPSHOT: Line = {rustOnly: 'the copy a backup takes of the database: the local app asks for it itself, then checks and keeps it (`snapshotsBy`, ORR-1097)'}
 const DATABASE: Line = {rustOnly: "what the local app's backups and App settings → Database ask of the database itself: whether it's a new orrery's, a Postgres one's size, and the name it runs under (ORR-1140)"}
+const SESSION_WORK: Line = {rustOnly: "which session is on which issue, as the local app's session bookkeeping asks it (clearing, picking, the Todo hand-out): it reads them itself (`sessionWork`, ORR-1141)"}
 const STORAGE: Line = {rustOnly: 'how the local app keeps its record of a chat and its messages, a GitHub poll, the feature counts it gathered or a line of the event log: it sends them here itself (`writeToApi`)'}
 const CHAT_ASK: Line = {rustOnly: "the chat asking to change a setting, a schedule, a release or a doc, offering an issue or moving some, for the Rust /mcp's `update_settings`, `create_schedule`, `update_schedule`, `create_release`, `update_release`, `create_doc`, `update_doc`, `offer_issue` and `move_issues` (ORR-1100): the chat's other asks stay at POST /api/chats/{chat}/requests until they move too"}
 const SIGNAL: Line = {rustOnly: "a session's signal, written: the local app picks the session it goes to and tells it, then sends the row here itself (`writeSignal`, ORR-1090)"}
@@ -95,9 +96,12 @@ export const NOT_ROUTED: Readonly<Record<string, Line>> = {
     'POST /api/projects/upload': ORR_1006,
     'GET /api/projects/{project}/context': SESSIONS,
     'GET /api/projects/{project}/docs/{doc}/artifact': ARTIFACT,
+    'GET /api/projects/{project}/issue-sessions': SESSION_WORK,
     'GET /api/projects/{project}/issues/{issue}/branches': GIT,
+    'GET /api/projects/{project}/issues/{issue}/dependents': SESSION_WORK,
     'POST /api/projects/{project}/issues/{issue}/focus': FOCUS,
     'GET /api/projects/{project}/issues/{issue}/pulls': GIT,
+    'GET /api/projects/{project}/issues/{issue}/workers': SESSION_WORK,
     'POST /api/projects/{project}/issues/{issue}/said': SAID,
     'GET /api/projects/{project}/launches': SESSIONS,
     'POST /api/projects/{project}/launches': SESSIONS,

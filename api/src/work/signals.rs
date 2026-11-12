@@ -23,6 +23,17 @@ pub(crate) enum Which<'a> {
     After(f64),
     Issue(&'a str),
     Milestone(&'a str),
+    /// The owner's and members' signals from the last day for the one session orrery picks that none has heard yet
+    /// (`pooledWaiting`).
+    Pooled,
+    /// The owner's scheduled focuses (on an issue still open) and messages from the last day that no session has heard
+    /// yet (`unheardScheduled`).
+    Scheduled,
+}
+
+/// A day ago, as the signals' `created_at` has it.
+fn a_day_ago() -> String {
+    (chrono::Utc::now() - chrono::Duration::days(1)).format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string()
 }
 
 pub(crate) struct Signals<'c> {
@@ -60,6 +71,28 @@ impl<'c> Signals<'c> {
                     .await?;
                 rows.reverse();
                 rows
+            }
+            Which::Pooled => {
+                sqlx::query(&sql(&format!(
+                    "SELECT {COLUMNS} FROM signals WHERE project = ? AND (owned = 1 OR person IS NOT NULL) AND delivered_to = '[]' \
+                     AND target IS NULL AND created_at >= ? ORDER BY id"
+                )))
+                .bind(project)
+                .bind(a_day_ago())
+                .fetch_all(&mut *self.conn)
+                .await?
+            }
+            Which::Scheduled => {
+                sqlx::query(&sql(&format!(
+                    "SELECT {COLUMNS} FROM signals WHERE id IN (SELECT s.id FROM signals s LEFT JOIN issues i ON i.project = s.project AND i.id = s.issue \
+                     WHERE s.project = ? AND s.owned = 1 AND s.delivered_to = '[]' AND s.created_at >= ? \
+                       AND ((s.kind = 'focus' AND i.schedule IS NOT NULL AND i.status NOT IN (SELECT id FROM statuses WHERE kind IN ('done', 'canceled'))) OR s.kind = 'message')) \
+                     ORDER BY id"
+                )))
+                .bind(project)
+                .bind(a_day_ago())
+                .fetch_all(&mut *self.conn)
+                .await?
             }
         };
         Ok(Value::Array(rows.iter().map(signal_of).collect()))

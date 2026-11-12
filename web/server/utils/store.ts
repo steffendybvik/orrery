@@ -9,6 +9,7 @@ import {parked} from '#shared/roadmap'
 import type {IssueRecord, CommentRow} from '../store/schema'
 import {ANSWERED, commentOf} from '../store/schema'
 import {ImportStore} from '../store/imports'
+import {sessionWork} from '../store/session-work'
 
 export type {ProjectSummary, ReleaseDetail, IssueRecord, BulkResult, IssueDetail, MilestoneRecord, Actor, IssueFilter} from '../store/schema'
 export {AGENT, PROJECT_FIELDS, MILESTONE_FIELDS, ISSUE_FIELDS, RELEASE_FIELDS, DOC_FIELDS, DECISION_FIELDS, SIGNAL_FIELDS, MILESTONE_SIGNAL_FIELDS, STATUS_FIELDS, SETTINGS_FIELDS, PRESET_FIELDS, OWNER_FIELDS, actorId, COMMENT_FIELDS, UPLOAD_FIELDS, UPLOAD_LIMIT} from '../store/schema'
@@ -17,6 +18,8 @@ export class Store extends ImportStore {
     /** The issues in progress (a started status) that one of `sessions` worked last, with their latest comment. */
     async workingOn(project: string, sessions: string[]): Promise<(IssueRecord & {last?: Comment})[]> {
         if (!sessions.length) return []
+        const read = await sessionWork.of(project, sessions)
+        if (read) return read.issues
         const worked = new Set((await this.all<{issue: string}>(`SELECT issue FROM issue_sessions WHERE project = ? AND session IN (${sessions.map(() => '?').join(', ')})`,
             project, ...sessions)).map(r => r.issue))
         const issues = (await this.listIssues(project)).filter(r => worked.has(r.id) && r.kind === 'started')

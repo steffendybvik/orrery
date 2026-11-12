@@ -6,6 +6,8 @@ import {testDb} from './db'
 // front (ORR-1094): it's the one writer of `issues` and `comments` then, so nothing is written to the database here.
 const sent: {method: string, path: string, body: unknown, actor: {name: string, owner: boolean}, always: unknown}[] = []
 vi.mock('../server/utils/api-router', () => ({
+    // No reads from the API: the store answers them here.
+    readFromApi: async () => undefined,
     writeToApi: async (method: string, path: string, body: unknown, actor: {name: string, owner: boolean}, opts: {always?: boolean} = {}) => {
         sent.push({method, path, body, actor, always: opts.always})
         return {reply: null}

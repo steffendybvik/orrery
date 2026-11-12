@@ -10,6 +10,7 @@ pub(crate) mod schedule_requests;
 pub(crate) mod schedule_when;
 pub(crate) mod schedules;
 pub(crate) mod secrets;
+pub(crate) mod session_work;
 pub(crate) mod settings;
 pub(crate) mod signals;
 pub(crate) mod usage;
