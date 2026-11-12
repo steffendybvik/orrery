@@ -105,7 +105,7 @@ const handable = (issue: IssueRecord, parents: Set<string | null>) => issue.kind
  * that last worked the blocker while that one listens and has nothing in progress, else to an idle session out of
  * work, one each. One canceled asks the owner on each open issue waiting on it; one reopened tells the session
  * working on one. Says how many were handed out. */
-export async function handUnblocked(project: string, issues: Map<string, {from?: string, to?: string, links?: true}>): Promise<number> {
+async function handUnblocked(project: string, issues: Map<string, {from?: string, to?: string, links?: true}>): Promise<number> {
     const store = useStore()
     const kinds = new Map((await store.statuses()).map(s => [s.id, s.kind]))
     const kindOf = (status?: string) => status ? kinds.get(status) : undefined
@@ -168,7 +168,7 @@ export async function handUnblocked(project: string, issues: Map<string, {from?:
  * this, a P0's push), most urgent first, each to its own idle session out of work, the project's own before one
  * spanning projects. A follow-up under an issue another session is on goes to that session instead (ORR-613). Says
  * how many went. */
-export async function handTodo(project: string, issues: Map<string, TodoMove>): Promise<number> {
+async function handTodo(project: string, issues: Map<string, TodoMove>): Promise<number> {
     const store = useStore()
     const kinds = new Map((await store.statuses()).map(s => [s.id, s.kind]))
     const idle = await idleSessions(project)

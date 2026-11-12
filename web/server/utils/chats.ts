@@ -154,7 +154,7 @@ export async function chatsSaved() {
 
 /** How long a chat that was running when orrery stopped waits, as it starts again, for its launcher to say its
  * session still runs; after that it has ended. */
-export const RESTORED_FOR = 3 * 60_000
+const RESTORED_FOR = 3 * 60_000
 /** The chats read back as running that no launcher has said still run yet, and those that ended for that: a launcher
  * that says so later brings one back. */
 const unconfirmed = new Set<string>()

@@ -237,7 +237,7 @@ function without(asked: string, names: string[]): string {
 type LocalCheck = (event: H3Event, rest: string) => Promise<unknown>
 
 /** The fields of an issue's edit the API changes (`api/src/board/issue_edits.rs`, `WORDS`). */
-export const ISSUE_WORDS: readonly string[] = ['title', 'status', 'plan', 'priority', 'assignee', 'labels', 'external', 'github_issues', 'notes', 'proposal', 'choices', 'parent', 'milestone', 'release', 'epic', 'depends_on', 'model', 'effort', 'position']
+const ISSUE_WORDS: readonly string[] = ['title', 'status', 'plan', 'priority', 'assignee', 'labels', 'external', 'github_issues', 'notes', 'proposal', 'choices', 'parent', 'milestone', 'release', 'epic', 'depends_on', 'model', 'effort', 'position']
 
 /** Whether an issue's edit names only its own words, so the API can make it: a body that isn't an object, or is
  * empty, stays here too, for its answer. */
@@ -301,7 +301,7 @@ async function claimOnComment(event: H3Event, rest: string) {
 
 /** The headers a reply that isn't JSON keeps on its way through: what it is, how long the browser keeps it, and that
  * it's never run as a page. */
-export const PASSED_HEADERS = ['content-type', 'cache-control', 'x-content-type-options', 'content-security-policy'] as const
+const PASSED_HEADERS = ['content-type', 'cache-control', 'x-content-type-options', 'content-security-policy'] as const
 
 /** A successful reply that isn't JSON (an uploaded image, ORR-927), to send on as it came with the headers that say
  * what it is; undefined for JSON, and for a failure, which is thrown again here. */
@@ -317,7 +317,7 @@ export async function passedThrough(response: Response): Promise<{headers: Recor
 
 /** What a forwarded request counts toward the owner's own use of a feature (`countOwnUse`), as its route here did
  * before it moved: counted once the API has said yes. */
-export const COUNTED: readonly {method: string, paths: RegExp, feature: Feature}[] = [
+const COUNTED: readonly {method: string, paths: RegExp, feature: Feature}[] = [
     {method: 'POST', paths: /^presets$/, feature: 'presets'},
     {method: 'POST', paths: /^projects\/[^/]+\/milestones$/, feature: 'milestones'},
 ]
@@ -468,7 +468,7 @@ export async function handOn(store: Pick<ReturnType<typeof useStore>, 'handOn'>,
 
 /** A session's ask for a schedule, as its reply says it (`Orrery-Asked`: `<project> <issue> <schedule or -> <fields>
  * <line>`, each percent-encoded, the fields apart by commas), for the event log's line (ORR-1100). */
-export function askedOf(header: string | null): {project: string, issue: string, schedule: number | null, fields: string[], line: string} | undefined {
+function askedOf(header: string | null): {project: string, issue: string, schedule: number | null, fields: string[], line: string} | undefined {
     const [project, issue, schedule, fields, line, ...rest] = (header ?? '').trim().split(' ').map(decodeURIComponent)
     if (!project || !issue || !schedule || fields === undefined || !line || rest.length) return undefined
     return {project, issue, schedule: schedule === '-' ? null : Number(schedule), fields: fields ? fields.split(',') : [], line}
@@ -476,7 +476,7 @@ export function askedOf(header: string | null): {project: string, issue: string,
 
 /** The owner's answer to a session's ask for a schedule, as its reply says it (`Orrery-Answered`: `<project> <issue>
  * <schedule or -> <fields> <allowed or denied> <line>`, each percent-encoded), for the event log's line (ORR-1100). */
-export function answeredOf(header: string | null): {project: string, issue: string, schedule: number | null, fields: string[], how: 'allowed' | 'denied', line: string} | undefined {
+function answeredOf(header: string | null): {project: string, issue: string, schedule: number | null, fields: string[], how: 'allowed' | 'denied', line: string} | undefined {
     const [project, issue, schedule, fields, how, line, ...rest] = (header ?? '').trim().split(' ').map(decodeURIComponent)
     if (!project || !issue || !schedule || fields === undefined || (how !== 'allowed' && how !== 'denied') || !line || rest.length) return undefined
     return {project, issue, schedule: schedule === '-' ? null : Number(schedule), fields: fields ? fields.split(',') : [], how, line}
@@ -543,7 +543,7 @@ let unreachable = ''
 
 /** The API can't answer `event` (`why`): a 503 that says why, logged once to the server's log and the event log while
  * it lasts. */
-export function cantReach(event: H3Event | string, why: string, reason: Reason = 'unreachable'): never {
+function cantReach(event: H3Event | string, why: string, reason: Reason = 'unreachable'): never {
     const again = unreachable === why
     unreachable = why
     servedHere(event, reason)
@@ -566,7 +566,7 @@ export type Reason = 'not-running' | 'unreachable' | 'other-database' | 'kept-he
 /** Logs a request the API serves that it didn't answer (ORR-1085), one line each, key=value after a fixed prefix, so
  * `play logs | grep 'orrery api-route'` finds them: `served=nuxt` when a line's check kept it for the routes here,
  * `served=none` when it failed. */
-export function servedHere(event: H3Event | string, reason: Reason, check?: string) {
+function servedHere(event: H3Event | string, reason: Reason, check?: string) {
     const only = reason !== 'kept-here'
     const [method = '', path = ''] = typeof event === 'string' ? event.split(' ', 2) : [event.method, pathOf(event, true)]
     const domain = domainOf(method, (path.split('?')[0] ?? '').toLowerCase()) ?? ''

@@ -93,7 +93,7 @@ const INLINE = /(`+)([^`\n]*?[^`\n])\1(?!`)|(\*\*|__)(?=\S)(.+?)(?<=\S)\3|(==)(?
 
 /** A line's inline formatting, as spans around the source. Everything in it is kept, character for character, so the
  * drawing lines up with the text box over it. */
-export function highlightInline(line: string): string {
+function highlightInline(line: string): string {
     let out = ''
     let last = 0
     for (const match of line.matchAll(INLINE)) {

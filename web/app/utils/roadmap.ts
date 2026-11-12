@@ -231,7 +231,7 @@ export function releaseMilestones(project: Project, version: string): Milestone[
 /** The changelog's groups, in the order it lists them, and the labels that put an issue in each (ORR-516). An issue
  * goes in the first group one of its labels names, checked in this order (a `bug` labelled `docs` is a fix), and in
  * Changes when none does. */
-export const CHANGELOG_GROUPS = [
+const CHANGELOG_GROUPS = [
     {title: 'Features', labels: ['feature', 'feature request', 'feat', 'enhancement']},
     {title: 'Changes', labels: ['improvement', 'perf', 'performance', 'refactor', 'design']},
     {title: 'Fixes', labels: ['bug', 'fix', 'regression']},

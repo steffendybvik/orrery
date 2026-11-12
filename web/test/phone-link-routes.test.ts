@@ -80,7 +80,6 @@ beforeEach(async () => {
     vi.stubGlobal('authorize', authorize)
     vi.stubGlobal('memberAsking', memberAsking)
     vi.stubGlobal('refusedFor', (await import('../server/utils/permission')).refusedFor)
-    vi.stubGlobal('keyHolderOf', (await import('../server/utils/key-rights')).keyHolderOf)
     vi.stubGlobal('viaPhone', (await import('../server/utils/phone-port')).viaPhone)
     const links = await import('../server/utils/phone-sign-in')
     vi.stubGlobal('makeSignInLink', links.makeSignInLink)

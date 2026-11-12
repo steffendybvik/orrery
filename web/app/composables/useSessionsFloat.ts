@@ -13,9 +13,9 @@ const KEY = 'orrery-sessions-float'
 /** How close to the window's edge it may go. */
 const EDGE = 8
 /** Where it lands when popped out: the top right, under the page's header. */
-export const POPPED = {corner: 'top-right', x: 16, y: 64} as const satisfies FloatAt
+const POPPED = {corner: 'top-right', x: 16, y: 64} as const satisfies FloatAt
 /** How wide it is floating: the sidebar's width. */
-export const FLOAT_WIDTH = 256
+const FLOAT_WIDTH = 256
 
 const CORNERS: Corner[] = ['top-left', 'top-right', 'bottom-left', 'bottom-right']
 
