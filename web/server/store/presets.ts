@@ -13,6 +13,10 @@ import {ownerOnly} from '../utils/permission'
 export abstract class PresetStore extends ProjectStore {
     /** The orrery's presets, by name; with a project, those a session on it can have: the orrery's, then its own. */
     async presets(project?: string): Promise<Preset[]> {
+        // Asked of the API when it's set up (ORR-1133), so this server reads none of it from the database.
+        const {readFromApi} = await import('../utils/api-router')
+        const read = await readFromApi<Preset[]>(project ? `/api/projects/${encodeURIComponent(project)}/presets` : '/api/presets')
+        if (read) return read
         if (project) await this.projectRow(project)
         return (await this.all<PresetRow>(`SELECT ${PRESET} FROM presets WHERE project IS NULL OR project = ? ORDER BY project IS NOT NULL, lower(name), id`, project ?? null)).map(presetOf)
     }
