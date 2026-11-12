@@ -96,20 +96,22 @@ jobs:
         working-directory: api
       - run: cargo clippy --locked -- -D warnings
         working-directory: api
-      # Its own tests, with their coverage (ORR-1053): the floor is what `cargo test` alone covers of the code itself, the
-      # test files left out and without the parity tests below, and it only goes up (92.75% on 7 Nov 2026). Raise it as
-      # tests are added: the same command in api/ says where it stands.
+      # Its own tests, with their coverage (ORR-1053): on SQLite, then again on Postgres, each in a schema of its own
+      # (ORR-1057), so the Postgres side of db.rs and migrate.rs counts too (ORR-1128). The floor is what the two cover of
+      # the code itself, the test files left out and without the parity tests below, and it only goes up (95.25% on
+      # 12 Nov 2026). Raise it as tests are added: the same three commands in api/ say where it stands.
       - run: rustup component add llvm-tools-preview
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-llvm-cov
-      - run: cargo llvm-cov --locked --summary-only --ignore-filename-regex '(testing|_tests)\.rs$' --fail-under-lines 92
+      - run: cargo llvm-cov --locked --no-report
         working-directory: api
-      # The same tests again on Postgres, each in a schema of its own (ORR-1057), so db.rs's Postgres side runs too.
-      - run: cargo test --locked
+      - run: cargo llvm-cov --locked --no-report
         working-directory: api
         env:
           TEST_POSTGRES_URL: postgres://orrery:orrery@localhost:5432/orrery
+      - run: cargo llvm-cov report --summary-only --ignore-filename-regex '(testing|_tests)\.rs$' --fail-under-lines 95
+        working-directory: api
       - run: cargo build --locked
         working-directory: api
       # The binary the browser suites and the perf run start the server with, when they run.
