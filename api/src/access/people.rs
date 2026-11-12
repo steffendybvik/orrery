@@ -72,6 +72,24 @@ fn owner_only(actor: &Actor, who: Option<&Who>) -> Result<()> {
     ))
 }
 
+/// Who to put on a board, from a body, as `checkInput(body, MEMBER_FIELDS)` takes it: `{person}`, a string.
+fn member_of(body: &Value) -> Result<String> {
+    let Some(sent) = body.as_object() else {
+        return Err(ApiError::bad_request("The body should be a JSON object"));
+    };
+    let mut problems: Vec<String> = sent.keys().filter(|k| *k != "person").map(|k| format!("unknown field \"{k}\"; this takes person")).collect();
+    match sent.get("person") {
+        None => problems.push("missing \"person\"".into()),
+        Some(Value::Null) => problems.push("\"person\" can't be null".into()),
+        Some(Value::String(_)) => {}
+        Some(other) => problems.push(format!("\"person\" should be a string, not {}", js(other))),
+    }
+    if !problems.is_empty() {
+        return Err(ApiError::problems(problems));
+    }
+    Ok(sent["person"].as_str().unwrap_or_default().to_string())
+}
+
 /// A person's name from a body, as `personName` takes it: `checkInput(body, OWNER_FIELDS)`, trimmed to 60.
 fn person_name(body: &Value) -> Result<String> {
     let Some(sent) = body.as_object() else {
@@ -705,6 +723,91 @@ impl<'c> People<'c> {
         }
         query.execute(&mut *self.conn).await?;
         Ok(json!({"ended": ended}))
+    }
+
+    /// Who's on `project`'s board (`members`), its holder first, then in the order they joined: `[{person, name, role,
+    /// created_at}]`.
+    pub async fn members(&mut self, project: &str) -> Result<Value> {
+        crate::board::issue_writes::IssueWrites::new(&mut *self.conn).project_uid(project).await?;
+        let rows = sqlx::query(&sql("SELECT m.person, p.name, m.role, m.created_at FROM project_members m JOIN people p ON p.id = m.person \
+             WHERE m.project = ? ORDER BY m.role = 'owner' DESC, m.created_at, m.person"))
+        .bind(project)
+        .fetch_all(&mut *self.conn)
+        .await?;
+        Ok(Value::Array(
+            rows.iter()
+                .map(|r| {
+                    json!({"person": r.get::<String, _>("person"), "name": r.get::<String, _>("name"), "role": r.get::<String, _>("role"), "created_at": r.get::<String, _>("created_at")})
+                })
+                .collect(),
+        ))
+    }
+
+    /// Puts a person on `project`'s board (`addMember`): `{person}`, by their id or name. Its holder's to do, or the
+    /// owner's, and never an agent's. One already on it stays as they are.
+    pub async fn add_member(&mut self, project: &str, body: &Value, actor: &Actor) -> Result<Value> {
+        crate::board::issue_writes::IssueWrites::new(&mut *self.conn).project_uid(project).await?;
+        self.manages_board(project, actor).await?;
+        let person = self.person(&actor_id(&member_of(body)?)).await?;
+        let id: String = person.get("id");
+        if person.get::<Option<String>, _>("removed_at").is_some() {
+            return Err(ApiError::conflict(format!("{} has been removed", person.get::<String, _>("name"))));
+        }
+        changes::begin(self.conn).await?;
+        let done = sqlx::query(&sql(
+            "INSERT INTO project_members (project, person, role, created_at) VALUES (?, ?, 'member', ?) ON CONFLICT (project, person) DO NOTHING",
+        ))
+        .bind(project)
+        .bind(&id)
+        .bind(stamp())
+        .execute(&mut *self.conn)
+        .await
+        .map(|_| ())
+        .map_err(Into::into);
+        self.effects.changed.push(project.to_string());
+        changes::finish(self.conn, self.outbox.as_mut(), &self.effects, done).await?;
+        let members = self.members(project).await?;
+        members
+            .as_array()
+            .and_then(|all| all.iter().find(|m| m["person"] == id.as_str()).cloned())
+            .ok_or_else(|| ApiError::not_found(format!("{} isn't on {project}", person.get::<String, _>("name"))))
+    }
+
+    /// Takes a person off `project`'s board (`removeMember`), as adding does. Its holder stays: a board always has one.
+    pub async fn remove_member(&mut self, project: &str, person: &str, actor: &Actor) -> Result<()> {
+        crate::board::issue_writes::IssueWrites::new(&mut *self.conn).project_uid(project).await?;
+        self.manages_board(project, actor).await?;
+        if self.holds_board(project, person).await? {
+            return Err(ApiError::bad_request(format!("{person} holds {project}, so they stay on it")));
+        }
+        changes::begin(self.conn).await?;
+        let done = sqlx::query(&sql("DELETE FROM project_members WHERE project = ? AND person = ?"))
+            .bind(project)
+            .bind(person)
+            .execute(&mut *self.conn)
+            .await
+            .map(|_| ())
+            .map_err(Into::into);
+        self.effects.changed.push(project.to_string());
+        changes::finish(self.conn, self.outbox.as_mut(), &self.effects, done).await
+    }
+
+    /// Whether `person` holds `project`'s board (`holdsBoard`).
+    async fn holds_board(&mut self, project: &str, person: &str) -> Result<bool> {
+        let row = sqlx::query(&sql("SELECT 1 AS one FROM project_members WHERE project = ? AND person = ? AND role = 'owner'"))
+            .bind(project)
+            .bind(person)
+            .fetch_optional(&mut *self.conn)
+            .await?;
+        Ok(row.is_some())
+    }
+
+    /// Refused unless the owner or the board's holder asks (`managesBoard`).
+    async fn manages_board(&mut self, project: &str, actor: &Actor) -> Result<()> {
+        if actor.owner || self.holds_board(project, &actor_id(&actor.name)).await? {
+            return Ok(());
+        }
+        Err(ApiError::refused_for("members.write", format!("Only {project}'s holder or the owner says who's on it, and an agent never does (members.write)")))
     }
 }
 

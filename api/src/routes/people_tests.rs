@@ -668,3 +668,54 @@ async fn the_owner_ends_everyones_logins_but_their_own_and_with_login_off_every_
     assert_eq!(off.body, json!({"ended": 2}));
     assert_eq!(api.count("SELECT count(*) FROM logins").await, 0);
 }
+
+#[tokio::test]
+async fn a_boards_holder_or_the_owner_says_whos_on_it_and_its_holder_stays() {
+    let api = TestApi::new().await;
+    api.team().await;
+    let project = api.project("Primes").await;
+    api.run(
+        "INSERT INTO project_members (project, person, role, created_at) VALUES (?, 'steffen', 'owner', ?) ON CONFLICT (project, person) DO NOTHING",
+        &[&project, &stamp()],
+    )
+    .await;
+    // The owner holds it.
+    let members = api.get(&format!("/api/projects/{project}/members")).send().await;
+    assert_eq!(members.status, 200);
+    assert_eq!(
+        members.body.as_array().unwrap().iter().map(|m| (m["person"].clone(), m["role"].clone())).collect::<Vec<_>>(),
+        vec![(json!("steffen"), json!("owner"))]
+    );
+    let added = api.post(&format!("/api/projects/{project}/members"), json!({"person": "Ana"})).send().await;
+    assert_eq!(added.status, 201, "{}", added.body);
+    assert_eq!((added.body["person"].clone(), added.body["role"].clone(), added.body["name"].clone()), (json!("ana"), json!("member"), json!("ana")));
+    assert_eq!(added.changed(), vec![project.clone()]);
+    // Again, they stay as they are.
+    assert_eq!(api.post(&format!("/api/projects/{project}/members"), json!({"person": "ana"})).send().await.status, 201);
+    assert_eq!(api.count(&format!("SELECT count(*) FROM project_members WHERE project = '{project}'")).await, 2);
+    // A member isn't its holder, so can't say who's on it.
+    let by_ana = api.post(&format!("/api/projects/{project}/members"), json!({"person": "bo"})).person("ana").send().await;
+    assert_eq!(by_ana.status, 403, "{}", by_ana.body);
+    // Its holder stays on it; anyone else comes off.
+    let holder = api.delete(&format!("/api/projects/{project}/members/steffen")).send().await;
+    assert_eq!(holder.status, 400);
+    assert_eq!(holder.body["message"], format!("steffen holds {project}, so they stay on it"));
+    assert_eq!(api.delete(&format!("/api/projects/{project}/members/ana")).send().await.status, 204);
+    assert_eq!(api.count(&format!("SELECT count(*) FROM project_members WHERE project = '{project}'")).await, 1);
+}
+
+#[tokio::test]
+async fn a_board_takes_only_someone_here_and_named_as_a_string() {
+    let api = TestApi::new().await;
+    api.team().await;
+    let project = api.project("Primes").await;
+    let add = |body: Value| api.post(&format!("/api/projects/{project}/members"), body).send();
+    assert_eq!(add(json!({"person": "nobody"})).await.status, 404);
+    let wrong = add(json!({"person": 4, "role": "owner"})).await;
+    assert_eq!(wrong.status, 400);
+    assert_eq!(wrong.problems().len(), 2, "{}", wrong.body);
+    api.run("UPDATE people SET removed_at = ? WHERE id = 'bo'", &["2026-11-01T00:00:00.000Z"]).await;
+    assert_eq!(add(json!({"person": "bo"})).await.status, 409);
+    assert_eq!(api.get("/api/projects/nowhere/members").send().await.status, 404);
+    assert_eq!(api.delete("/api/projects/nowhere/members/ana").send().await.status, 404);
+}

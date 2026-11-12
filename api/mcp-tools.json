@@ -1200,6 +1200,41 @@
    }
   },
   {
+   "name": "move_issues",
+   "description": "Moves issues in this project to a status (an id or a kind: todo, done…), or assigns them (a name, owner, or null). At once if the owner named each in their last message or is on its page; else asks them. Not a proposal waiting on the owner.",
+   "inputSchema": {
+    "type": "object",
+    "required": [
+     "ids"
+    ],
+    "properties": {
+     "ids": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      },
+      "description": "The issues, e.g. [\"ORR-12\", \"ORR-14\"]"
+     },
+     "status": {
+      "type": "string"
+     },
+     "assignee": {
+      "type": [
+       "string",
+       "null"
+      ]
+     },
+     "project": {
+      "type": "string",
+      "description": "Another project"
+     },
+     "why": {
+      "type": "string"
+     }
+    }
+   }
+  },
+  {
    "name": "create_milestone",
    "description": "Makes a milestone (a group of issues) in this project, at once, when the owner asks in this chat; put issues in it with edit_issue.",
    "inputSchema": {

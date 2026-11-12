@@ -140,19 +140,7 @@ mod tests {
     #[test]
     fn what_the_channel_keeps_is_never_listed_here() {
         // channel/tools.mjs's CHANNELS_OWN (ORR-1102): the session has them from its channel, so here they'd be twice.
-        let own = [
-            "sessions",
-            "next",
-            "start_issue",
-            "finish_issue",
-            "link_folder",
-            "egress",
-            "github_issues",
-            "github_pulls",
-            "branches",
-            "delegate_issue",
-            "move_issues",
-        ];
+        let own = ["sessions", "next", "start_issue", "finish_issue", "link_folder", "egress", "github_issues", "github_pulls", "branches", "delegate_issue"];
         let all: Vec<String> = groups().iter().map(|g| g.to_string()).collect();
         assert!(group("folder").is_none(), "a group of the channel's own alone isn't offered");
         for kind in [Kind::Work, Kind::Chat, Kind::Untrusted] {
@@ -163,6 +151,8 @@ mod tests {
         for action in ["start_session", "stop_session", "extend_session", "message_session", "message_sessions"] {
             assert!(chat_request(action).is_none(), "{action} is the channel's");
         }
+        // The chat's `move_issues` is served here (ORR-1100), so it's listed here.
+        assert!(tools_for(&["one".to_string()], Kind::Chat, &all).iter().any(|t| name_of(t) == "move_issues"));
     }
 
     #[test]
