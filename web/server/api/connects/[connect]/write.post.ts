@@ -7,7 +7,7 @@ export default defineEventHandler(async event => {
     const named = [...new Set((projects as unknown[]).map(String))]
     const all = await store.listProjects()
     const found = named.map(id => all.find(p => p.id === id) ?? notFoundProject(id))
-    const settings = await store.settings()
+    const settings = await settingsNow(store)
     return writeConnect(param(event, 'connect'), found.map(p => ({id: p.id, key: p.key})), {id: settings.id, environment: String(useRuntimeConfig().public.environment || 'personal')}, settings.terminal)
 })
 

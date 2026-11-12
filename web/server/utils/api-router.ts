@@ -27,7 +27,8 @@ import {carriedInto} from './carried-over'
 import {forgetRoster} from './roster'
 import type {Input} from './input'
 import {revLabel} from './events'
-import type {IssueScope, Project} from '#shared/roadmap'
+import type {IssueScope, Project, Settings} from '#shared/roadmap'
+import type {Store} from './store'
 import {withoutClosed, withoutNotes} from '#shared/patch'
 
 /** The domains the Rust API serves, a line each (ORR-925): moving a domain there is adding its line once the parity test
@@ -808,9 +809,14 @@ export async function projectIdOf(project: string): Promise<string> {
     return read?.id ?? await useStore().projectId(project)
 }
 
+/** This orrery's settings, read from the API, or from `store` with none set up (ORR-1133). */
+export async function settingsNow(store: Pick<Store, 'settings'> = useStore()): Promise<Settings> {
+    return (await readFromApi<Settings>('/api/settings')) ?? await store.settings()
+}
+
 /** This orrery's id (`settings.id`), read from the API, or the store with none set up (ORR-1139). */
 export async function orreryId(): Promise<string> {
-    return ((await readFromApi<{id: string}>('/api/settings')) ?? await useStore().settings()).id
+    return (await settingsNow()).id
 }
 
 /** A write this server makes itself rather than for a request, such as the chat's Allow (ORR-1044): with the API there

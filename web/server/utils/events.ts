@@ -13,7 +13,7 @@ import {numberOf, shortId} from '#shared/roadmap'
 import {diffProject, withoutNotes} from '#shared/patch'
 import type {Db} from './database'
 import {EventLog} from './event-log'
-import {writeToApi} from './api-router'
+import {settingsNow, writeToApi} from './api-router'
 import {ORRERY} from '../store/schema'
 import {GITHUB_SECRET, Pulls} from './pulls'
 import {commentOnPull} from './pull-comments'
@@ -258,7 +258,7 @@ export function commentId(event: H3Event): number {
 /** A preset's or schedule's number from the URL, or from its full form on this server (ORR-674): `pst-12-x7k2m9qd`. */
 async function serverId(event: H3Event, kind: 'preset' | 'schedule'): Promise<number> {
     const sent = param(event, kind)
-    const id = Number(shortId(kind, sent, (await useStore().settings()).uid) ?? sent)
+    const id = Number(shortId(kind, sent, (await settingsNow(useStore())).uid) ?? sent)
     if (!Number.isInteger(id)) throw notFound(`No ${kind} ${sent}`)
     return id
 }
@@ -269,7 +269,7 @@ export const presetId = (event: H3Event) => serverId(event, 'preset')
 export async function epicId(event: H3Event): Promise<number> {
     const sent = param(event, 'epic')
     // What isn't an epic's id is none, rather than `Number(null)`'s epic 0.
-    const number = sent ? numberOf('epic', sent, (await useStore().settings()).uid) : null
+    const number = sent ? numberOf('epic', sent, (await settingsNow(useStore())).uid) : null
     const id = Number(number)
     if (number === null || !Number.isInteger(id)) throw notFound(`No epic ${sent}: GET /api/epics lists them`)
     return id
