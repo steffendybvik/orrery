@@ -378,7 +378,7 @@ let pressed: {x: number, y: number, rect: DOMRect, pointer: number} | null = nul
 function pressHeader(event: PointerEvent) {
     if (!movable.value || event.button !== 0) return
     // Its controls stay clicks: the buttons, the picker and anything else that takes a press.
-    if ((event.target as Element).closest('button, a, input, textarea, select, [role="button"], [role="combobox"], [role="listbox"], [role="option"]')) return
+    if ((event.target as Element).closest('button, a, input, textarea, select, [role="button"], [role="combobox"], [role="listbox"], [role="option"], [role="menu"], [role="menuitem"]')) return
     const rect = pane.value?.getBoundingClientRect()
     if (rect) pressed = {x: event.clientX, y: event.clientY, rect, pointer: event.pointerId}
 }
@@ -406,7 +406,7 @@ function releaseHeader(event: PointerEvent) {
 }
 /** A double-click on the header's empty parts puts it back in its corner. */
 function homeHeader(event: MouseEvent) {
-    if (!movable.value || (event.target as Element).closest('button, a, input, textarea, select, [role="button"], [role="combobox"], [role="listbox"], [role="option"]')) return
+    if (!movable.value || (event.target as Element).closest('button, a, input, textarea, select, [role="button"], [role="combobox"], [role="listbox"], [role="option"], [role="menu"], [role="menuitem"]')) return
     placed.value = null
 }
 watch(moving, on => {
@@ -640,9 +640,22 @@ onBeforeUnmount(() => window.removeEventListener('message', heard))
       <UiButton v-if="standalone" variant="ghost" size="xs" square aria-label="Dock back: the chat in the pane of the window it came from" title="Dock back" @click="dockBack">
         <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3.75" y="3.75" width="16.5" height="16.5" rx="2.25" /><path d="m15 9-6 6m0 0h4.5M9 15v-4.5" /></svg>
       </UiButton>
-      <UiButton v-else variant="ghost" size="xs" square class="max-sm:hidden" aria-label="Pop out: the chat in a window of its own" title="Pop out" @click="popOut">
-        <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13.5 6H5.25A2.25 2.25 0 0 0 3 8.25v10.5A2.25 2.25 0 0 0 5.25 21h10.5A2.25 2.25 0 0 0 18 18.75V10.5M10.5 13.5 21 3m0 0h-5.25M21 3v5.25" /></svg>
-      </UiButton>
+      <!-- More for the chat (ORR-1127): its ⋮ menu, where Pop out now lives as "Break out as own window". -->
+      <Menu v-else as="div" class="relative max-sm:hidden">
+        <MenuButton as="template">
+          <UiButton variant="ghost" size="xs" square aria-label="More for the chat" title="More">
+            <svg class="size-4" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="1.6" /><circle cx="12" cy="12" r="1.6" /><circle cx="12" cy="19" r="1.6" /></svg>
+          </UiButton>
+        </MenuButton>
+        <MenuItems class="menu absolute top-full right-0 z-40 mt-1.5 w-52">
+          <MenuItem v-slot="{active}" as="template">
+            <UiMenuItem :lit="active" title="The chat in a window of its own" @click="popOut">
+              <svg class="size-4 shrink-0 text-faint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13.5 6H5.25A2.25 2.25 0 0 0 3 8.25v10.5A2.25 2.25 0 0 0 5.25 21h10.5A2.25 2.25 0 0 0 18 18.75V10.5M10.5 13.5 21 3m0 0h-5.25M21 3v5.25" /></svg>
+              Break out as own window
+            </UiMenuItem>
+          </MenuItem>
+        </MenuItems>
+      </Menu>
       <UiButton v-if="!standalone" variant="ghost" size="xs" square class="max-sm:hidden" :aria-label="large ? 'Make the chat smaller' : 'Make the chat larger'" :title="large ? 'Smaller' : 'Larger'" @click="resize">
         <svg v-if="large" class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 9V4.5M9 9H4.5M9 9 3.75 3.75M9 15v4.5M9 15H4.5M9 15l-5.25 5.25M15 9h4.5M15 9V4.5M15 9l5.25-5.25M15 15h4.5M15 15v4.5m0-4.5 5.25 5.25" /></svg>
         <svg v-else class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3.75 3.75v4.5m0-4.5h4.5m-4.5 0L9 9M3.75 20.25v-4.5m0 4.5h4.5m-4.5 0L9 15M20.25 3.75h-4.5m4.5 0v4.5m0-4.5L15 9m5.25 11.25h-4.5m4.5 0v-4.5m0 4.5L15 15" /></svg>
