@@ -7,4 +7,4 @@ onlyBuiltDependencies:
   - '@parcel/watcher'
 # Above what a dependency asks for, for a fix it hasn't taken up yet. node-forge: nuxt's dev server (listhen), GHSA-4487-j8r4-4g2f and others.
 overrides:
-  node-forge: ^1.4.1
+  node-forge: ^1.4.3
