@@ -45,6 +45,30 @@ pub const WORDS: [&str; 19] = [
     "effort",
     "position",
 ];
+/// The fields an issue's write takes, as `ISSUE_FIELDS` lists them for an unknown one: its words, and `project`, which
+/// moves it on an edit and names its own project on a new one.
+const FIELDS: [&str; 20] = [
+    "title",
+    "status",
+    "plan",
+    "priority",
+    "assignee",
+    "labels",
+    "external",
+    "github_issues",
+    "notes",
+    "proposal",
+    "choices",
+    "project",
+    "parent",
+    "milestone",
+    "release",
+    "epic",
+    "depends_on",
+    "model",
+    "effort",
+    "position",
+];
 /// The most issues one can depend on (`MAX_DEPENDS`).
 const MAX_DEPENDS: usize = 50;
 const PRIORITIES: [&str; 4] = ["P0", "P1", "P2", "P3"];
@@ -132,6 +156,20 @@ pub fn check_words(body: &Value) -> Result<Words> {
     check_body(body, false)
 }
 
+/// A new issue's body without the `project` it may name, which is the one it's made in: another is refused, as
+/// `createIssue` refuses it, saying where to make it.
+fn in_its_project(body: &Value, project: &str) -> Result<Value> {
+    let Some(to) = body.get("project") else { return Ok(body.clone()) };
+    match to {
+        Value::String(to) if to == project => {}
+        Value::String(to) => return Err(ApiError::bad_request(format!("Create the issue in its project: POST /api/projects/{to}/issues"))),
+        other => return Err(ApiError::bad_request(format!("\"project\" should be a string, not {}", js(other)))),
+    }
+    let mut body = body.clone();
+    body.as_object_mut().map(|fields| fields.remove("project"));
+    Ok(body)
+}
+
 /// The body of a new issue (`checkInput(body, ISSUE_FIELDS)`), as the router sends it: an edit's words, with a title.
 pub fn check_new(body: &Value) -> Result<Words> {
     check_body(body, true)
@@ -142,7 +180,7 @@ fn check_body(body: &Value, new: bool) -> Result<Words> {
     let mut problems = vec![];
     for key in object.keys() {
         if !WORDS.contains(&key.as_str()) {
-            problems.push(format!("unknown field \"{key}\"; this takes {}", WORDS.join(", ")));
+            problems.push(format!("unknown field \"{key}\"; this takes {}", FIELDS.join(", ")));
         }
     }
     let mut words = Words::default();
@@ -320,7 +358,7 @@ impl IssueWrites<'_> {
     /// anyone but the owner. Gives back its id, and whether it's urgent open work (P0) to push, as `edit_words` does.
     pub async fn create_issue(&mut self, project: &str, body: &Value, actor: &Actor) -> Result<(String, bool)> {
         let row = Issues::new(&mut *self.conn).project(project).await?;
-        let words = check_new(body)?;
+        let words = check_new(&in_its_project(body, project)?)?;
         let parent = match words.parent.as_ref().and_then(|p| p.as_deref()).filter(|p| !p.is_empty()) {
             Some(sent) => Some(self.issue_id(project, sent).await?),
             None => None,

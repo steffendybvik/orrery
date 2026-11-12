@@ -197,6 +197,7 @@ async fn patch_issue(State(app): Shared, Path((project, issue)): Path<(String, S
     // is made there.
     let (mut project, mut issue) = (project, issue);
     let mut moved_from: Vec<String> = vec![];
+    let mut moved = false;
     if let Some(fields) = edit.as_object_mut() {
         if let Some(to) = fields.remove("project") {
             let Some(to) = to.as_str().map(str::to_string) else {
@@ -215,6 +216,7 @@ async fn patch_issue(State(app): Shared, Path((project, issue)): Path<(String, S
                 let assignee = fields.get("assignee").map(|a| a.as_str().map(str::to_string));
                 issue = comments.move_issue(&project, &issue, &to, parent.as_deref(), milestone.as_deref(), assignee, &actor).await?;
                 project = to;
+                moved = true;
                 moved_from = std::mem::take(&mut comments.effects.changed);
             }
         }
@@ -225,8 +227,10 @@ async fn patch_issue(State(app): Shared, Path((project, issue)): Path<(String, S
     let session = if actor.owner || !moves_status { None } else { rewrites::worked_by(&headers, actor.chat) };
     comments.session = session.clone();
     let urgent = comments.edit_words(&project, &issue, &edit, &actor).await?;
-    // It's edited: not noting its session only means the owner's comments on it don't reach that session.
-    if let Some(session) = &session {
+    // It's edited: not noting its session only means the owner's comments on it don't reach that session. Moved, it's
+    // the session's work where it is now, which its address doesn't say (`workedOn`).
+    let worked = session.or_else(|| if moved { rewrites::worked_by(&headers, actor.chat) } else { None });
+    if let Some(session) = &worked {
         if let Err(error) = comments.worked_by(&project, &issue, session).await {
             eprintln!("[orrery-api] tying {project}/{issue} to its session: {error:?}");
         }

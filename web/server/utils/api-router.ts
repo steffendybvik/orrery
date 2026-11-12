@@ -36,9 +36,8 @@ import {withoutClosed, withoutNotes} from '#shared/patch'
  * slash at the end. A line with `methods` sends only those there, so a domain's reads can move before its writes
  * (`GET …/comments` before `POST …/comments`, ORR-927); one without takes every method its routes do.
  *
- * Each line's domain is the API's alone: with the API down, or not set up, a request for it fails (`cantReach`). Only a
- * line with `here` still has its route here, for the requests its `first` check keeps (a session's, the chat's). */
-export const DOMAINS: readonly {domain: string, paths: RegExp, methods?: readonly string[], first?: Partial<Record<string, LocalCheck>>, reply?: Partial<Record<string, Shaping>>, here?: true}[] = [
+ * Each line's domain is the API's alone: with the API down, or not set up, a request for it fails (`cantReach`). */
+export const DOMAINS: readonly {domain: string, paths: RegExp, methods?: readonly string[], first?: Partial<Record<string, LocalCheck>>, reply?: Partial<Record<string, Shaping>>}[] = [
     // A project's docs, their revisions and sections (ORR-922). An artifact's page stays here: it's drawn with the
     // page's own sanitising and its locked-down headers (`artifact.get.ts`).
     {domain: 'docs', paths: /^projects\/[^/]+\/(docs(\/[^/]+(\/revisions(\/[^/]+(\/restore)?)?)?)?|deleted-docs|doc-sections(\/[^/]+)?)$/},
@@ -61,12 +60,12 @@ export const DOMAINS: readonly {domain: string, paths: RegExp, methods?: readonl
     // moving it to another project (ORR-1129). One it makes urgent comes back with `Orrery-Urgent`, for the push here
     // (`sayUrgent`). A session starting it takes the session's lock on it in the API (ORR-1130), and the reply comes
     // back with what it carried into it (`withCarried`). The chat's rails and a session's claim are checked here first.
-    // Making an issue (ORR-927): one that names nothing but an issue's words (`onlyWords`). The API rewrites the chat's
-    // and an untrusted session's asks itself (`asChatIssue`, `asProposal`, ORR-1059), and notes a session's issue as its
-    // work (`workedOn`), told what only this server knows (`askerHeaders`). One that's urgent comes back with
-    // `Orrery-Urgent`, for the push here.
-    {domain: 'an issue, made', paths: /^projects\/[^/]+\/issues$/, methods: ['POST'], first: {POST: newWordsOnly}, here: true},
-    {domain: 'an issue, its words', paths: /^projects\/[^/]+\/issues\/[^/]+$/, methods: ['PATCH'], first: {PATCH: wordsOnly}, reply: {PATCH: withCarried}, here: true},
+    // Making an issue (ORR-927). The API rewrites the chat's and an untrusted session's asks itself (`asChatIssue`,
+    // `asProposal`, ORR-1059), and notes a session's issue as its work (`workedOn`), told what only this server knows
+    // (`askerHeaders`). One that's urgent comes back with `Orrery-Urgent`, for the push here. Every body goes there, its
+    // problems answered there as the store answered them (ORR-1142).
+    {domain: 'an issue, made', paths: /^projects\/[^/]+\/issues$/, methods: ['POST']},
+    {domain: 'an issue, its words', paths: /^projects\/[^/]+\/issues\/[^/]+$/, methods: ['PATCH'], first: {PATCH: wordsOnly}, reply: {PATCH: withCarried}},
     // One change to many issues (`{ids, set, labels}`, ORR-927): each edited as one is, the route here taking no session's
     // lock or chat's rewrite for it either. The ones it makes urgent come back in `Orrery-Urgent`, for the push here.
     {domain: 'issues, changed at once', paths: /^projects\/[^/]+\/issues$/, methods: ['PATCH']},
@@ -246,8 +245,7 @@ function without(asked: string, names: string[]): string {
     return kept ? `${path}?${kept}` : path
 }
 
-/** What this server checks itself before a request goes on, as only it knows (the sessions): refusing it throws, and
- * `'here'` keeps it for the routes here, for what the API doesn't do yet. */
+/** What this server checks itself before a request goes on, as only it knows (the sessions): refusing it throws. */
 type LocalCheck = (event: H3Event, rest: string) => Promise<unknown>
 
 /** The fields of an issue's edit the API changes (`api/src/board/issue_edits.rs`, `WORDS`). */
@@ -267,23 +265,25 @@ export function movesStatus(body: unknown): boolean {
     return typeof body === 'object' && body !== null && ('status' in body || 'plan' in body)
 }
 
-/** An issue's edit, kept here unless it names only its words or a move (`onlyWords`). One that goes on is the chat's
- * only within what it may change (`asChatEdit`), and a session's only while no other session is on the issue (`claim`,
- * with the status it moves it to: one that's blocked isn't started, and any session may close one), as the route here
- * has them. */
+/** An issue's edit, checked here for what only this server knows before it goes on. A body that isn't an issue's
+ * words goes on as it is, for the API's answer (ORR-1142). The chat's is only within what it may change (`asChatEdit`);
+ * a move needs its person on the board it goes to (`needsBoard`); and a session's only while no other session is on the
+ * issue (`claim`, with the status it moves it to: one that's blocked isn't started, and any session may close one). */
 async function wordsOnly(event: H3Event, rest: string) {
     const raw = await readRawBody(event, 'utf8')
     let body: unknown
     try {
         body = raw ? JSON.parse(raw) : undefined
     } catch {
-        return 'here' as const
+        return
     }
-    if (!onlyWords(body, {moves: true})) return 'here' as const
+    if (!onlyWords(body, {moves: true})) return
     if (chatWrite(event)) {
         asChatEdit(body)
         return
     }
+    const to = (body as {project?: unknown}).project
+    if (typeof to === 'string') await needsBoard(event, to)
     const [, project, issue] = /^projects\/([^/]+)\/issues\/([^/]+)$/.exec(rest) ?? []
     if (!project || !issue) return
     const session = sessionHeader(event)
@@ -308,18 +308,6 @@ function withCarried(event: H3Event): ReturnType<Shaping> {
         const carried = carriedInto(starts.session, issue)
         return carried ? {...issue, carried_over: carried} : issue
     }}
-}
-
-/** A new issue, kept here unless it names only an issue's words. An untrusted session's always goes on, as the API
- * keeps only its words (`asProposal`). */
-async function newWordsOnly(event: H3Event) {
-    if (untrustedWrite(event)) return
-    const raw = await readRawBody(event, 'utf8')
-    try {
-        if (!onlyWords(raw ? JSON.parse(raw) : undefined)) return 'here' as const
-    } catch {
-        return 'here' as const
-    }
 }
 
 
@@ -610,25 +598,21 @@ function cantReach(event: H3Event | string, why: string, reason: Reason = 'unrea
 export const SERVED_BY = 'X-Served-By'
 
 /** Why a request the API serves (`DOMAINS`) wasn't answered there, as `servedHere` logs it. */
-export type Reason = 'not-running' | 'unreachable' | 'other-database' | 'kept-here'
+export type Reason = 'not-running' | 'unreachable' | 'other-database'
 
 /** Logs a request the API serves that it didn't answer (ORR-1085), one line each, key=value after a fixed prefix, so
- * `play logs | grep 'orrery api-route'` finds them: `served=nuxt` when a line's check kept it for the routes here,
- * `served=none` when it failed. */
-function servedHere(event: H3Event | string, reason: Reason, check?: string) {
-    const only = reason !== 'kept-here'
+ * `play logs | grep 'orrery api-route'` finds them. */
+function servedHere(event: H3Event | string, reason: Reason) {
     const [method = '', path = ''] = typeof event === 'string' ? event.split(' ', 2) : [event.method, pathOf(event, true)]
     const domain = domainOf(method, (path.split('?')[0] ?? '').toLowerCase()) ?? ''
-    const line = `[orrery api-route] served=${only ? 'none' : 'nuxt'} reason=${reason}${check ? ` check=${check}` : ''} domain=${JSON.stringify(domain)} method=${method.toUpperCase()} path=${path}`
-    if (only) console.warn(line)
-    else console.info(line)
+    console.warn(`[orrery api-route] served=none reason=${reason} domain=${JSON.stringify(domain)} method=${method.toUpperCase()} path=${path}`)
 }
 
 /** Why the API isn't there to send to, said as `cantReach` takes it. */
 const NOT_RUNNING = 'isn\'t running (not started yet, stopped, or not set up)'
 
 /** Sends the request to the API when it serves it (`DOMAINS`), and gives back its reply, or undefined to leave it to the
- * routes here: one the API doesn't serve, or one its line's check keeps here. With no API, one it serves fails. */
+ * routes here, for one the API doesn't serve. With no API, one it serves fails. */
 export async function routeToApi(event: H3Event, config: {apiUrl?: unknown, apiToken?: unknown}): Promise<unknown> {
     // Answered here unless the API answers it, which says so instead (`forwardToApi`).
     if (pathOf(event).startsWith('/api/')) setResponseHeader(event, SERVED_BY, 'nuxt')
@@ -698,17 +682,14 @@ export async function forwardMcp(event: H3Event, api: {url: string, token: strin
     return text
 }
 
-/** Sends the request to the API and gives back its reply, or undefined for a request its line's check keeps for the
- * routes here. An API that can't be reached or is on another database fails the request (`cantReach`). */
+/** Sends the request to the API, once its line's check here lets it (`first`), and gives back its reply. An API that
+ * can't be reached or is on another database fails the request (`cantReach`). */
 export async function forwardToApi(event: H3Event, api: {url: string, token: string}): Promise<unknown> {
     const found = lineOf(event.method, pathOf(event))
     // The checks here read ids out of the path, so they get it as it was asked: lowercased, an issue isn't found (ORR-1029).
     const asked = /^\/api\/(.*?)\/?$/.exec(pathOf(event, true))?.[1] ?? ''
     const first = found?.line.first?.[event.method.toUpperCase()]
-    if (first && await first(event, asked) === 'here') {
-        servedHere(event, 'kept-here', first.name)
-        return undefined
-    }
+    if (first) await first(event, asked)
     const shaped = found?.line.reply?.[event.method.toUpperCase()]?.(event)
     const actor = await actorOf(event)
     const body = WRITES.has(event.method) ? await readRawBody(event, false) : undefined
