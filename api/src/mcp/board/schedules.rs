@@ -3,7 +3,8 @@
 // (`…/schedule-requests`, `askOnIssue`), and the chat's, through its `request`, in its chat (`/api/chats/:chat/
 // schedule-requests`). The chat's `update_settings`, `create_doc` and `update_doc` are asked in its chat too. Either chat ask is kept in the chat it
 // names (`Orrery-Launch`, as the channel sends it), which the local app hears and the owner answers. So is the chat's
-// `create_release` and `update_release` (`/api/chats/:chat/release-requests`), kept beside them here.
+// `create_release` and `update_release` (`/api/chats/:chat/release-requests`) and its `offer_issue`
+// (`…/issue-requests`), kept beside them here.
 use super::{text, truthy, Api, Said};
 use axum::http::Method;
 use serde_json::{json, Value};
@@ -146,6 +147,25 @@ impl Api<'_> {
             "Asked: the owner sees the {} with Allow and Deny, and you'll hear which they pressed. Nothing is saved until they allow it.",
             if change { "change" } else { "release" }
         ))
+    }
+
+    /// The chat's `request` to `offer_issue`: an issue the owner didn't ask for, offered in its chat (`/api/chats/:chat/issue-requests`)
+    /// on the project it names, which files nothing until they press File issue.
+    pub(super) async fn offer_issue(&self, args: &Value) -> Said {
+        let chat = self.chat("offer_issue")?;
+        let mut issue = args.as_object().cloned().unwrap_or_default();
+        let why = issue.shift_remove("why").filter(truthy);
+        let project = self.reached(issue.shift_remove("project").filter(truthy))?;
+        let mut body = json!({"issue": issue});
+        if let Some(project) = project {
+            body["project"] = project;
+        }
+        if let Some(why) = why {
+            body["why"] = why;
+        }
+        self.call(Method::POST, &format!("/api/chats/{}/issue-requests", super::enc(&chat)), Some(body)).await?;
+        Ok("Offered: the owner sees it as not filed, with File issue and Don't file, and you'll hear which they pressed. Nothing is filed until they press it."
+            .into())
     }
 
     /// The chat's `update_settings`: asked in its chat, which saves nothing until the owner allows it.
