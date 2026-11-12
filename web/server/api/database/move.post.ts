@@ -17,5 +17,5 @@ export default defineEventHandler(async event => {
     }
     useEventLog().note({level: 'info', kind: 'database.moved', message: `Moved the database from ${before.where} to ${database.where}`,
         details: {from: before.kind, to: database.kind, how: body.how, ...moved.copied ? {copied: moved.copied} : {}}})
-    return {...moved, database: {...database, ...await databaseSize(database, useDatabase())}}
+    return {...moved, database: {...database, ...await sizeOfDatabase(database)}}
 })

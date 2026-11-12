@@ -52,3 +52,30 @@ async fn it_writes_only_a_partial_file_that_isnt_there_yet_in_a_folder_that_is()
     assert_eq!(refused(there.to_string_lossy().into_owned()).await.status, 409);
     assert_eq!(std::fs::read(&there).unwrap(), b"left from before");
 }
+
+#[tokio::test]
+async fn a_new_orrerys_database_is_fresh_until_it_has_a_project_or_an_owner() {
+    let api = TestApi::new().await;
+    let reply = api.get("/api/database").send().await;
+    assert_eq!(reply.status, 200, "{}", reply.body);
+    assert_eq!(reply.body["fresh"], true);
+    assert_eq!(reply.body.get("size").is_some(), on_postgres(), "only a Postgres database's size is the API's");
+    api.owner().await;
+    assert_eq!(api.get("/api/database").send().await.body["fresh"], false);
+
+    let api = TestApi::new().await;
+    api.board().await;
+    assert_eq!(api.get("/api/database").send().await.body["fresh"], false);
+}
+
+#[tokio::test]
+async fn the_name_it_runs_under_is_kept_in_its_settings() {
+    let api = TestApi::new().await;
+    for name in ["personal", "work"] {
+        assert_eq!(api.put("/api/database/environment", json!({"environment": name})).send().await.status, 204);
+        let kept: String = sqlx::query(&crate::db::sql("SELECT value FROM settings WHERE key = 'environment'")).fetch_one(&api.app.pool).await.unwrap().get(0);
+        assert_eq!(kept, format!("\"{name}\""));
+    }
+    assert_eq!(api.put("/api/database/environment", json!({})).send().await.status, 400);
+    assert_eq!(api.put("/api/database/environment", json!({"environment": ""})).send().await.status, 400);
+}
