@@ -142,9 +142,9 @@ async function through<T>(method: string, path: string, body: unknown, as: Actor
 }
 
 /** An issue's write the owner allowed: through the Rust API only when it names nothing but the issue's words, as the
- * router sends it on (`onlyWords`); the rest stays with the store here. */
+ * router sends it on (`onlyWords`), or a move to another project; the rest stays with the store here. */
 async function issueThrough<T>(method: string, path: string, body: Record<string, unknown>, as: Actor, here: () => Promise<T>): Promise<T> {
-    return onlyWords(body) ? await through(method, path, body, as, here) : await here()
+    return onlyWords(body, {moves: method === 'PATCH'}) ? await through(method, path, body, as, here) : await here()
 }
 
 /** Waits for every chat's writes so far to land (tests, and a server closing). */

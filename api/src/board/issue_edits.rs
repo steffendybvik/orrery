@@ -10,7 +10,7 @@
 use crate::board::issue_writes::IssueWrites;
 use crate::board::issues::{github_issue_of, github_repo, link_ref, Issues, GITHUB_OWN};
 use crate::changes;
-use crate::db::sql;
+use crate::db::{on_postgres, sql};
 use crate::error::{ApiError, Result};
 use crate::write::{js, stamp, Actor};
 use regex::Regex;
@@ -18,6 +18,10 @@ use serde_json::Value;
 use sqlx::Row;
 use std::collections::{HashMap, VecDeque};
 use std::sync::LazyLock;
+
+/// An alias kept, or pointed at the issue it names now (`UPSERT_ISSUE_ALIAS`).
+const UPSERT_ISSUE_ALIAS: &str =
+    "INSERT INTO issue_aliases (project, alias, issue) VALUES (?, ?, ?) ON CONFLICT (project, alias) DO UPDATE SET issue = excluded.issue";
 
 /// The fields this takes, in the order `ISSUE_FIELDS` has them, which is the order its problems are listed in.
 pub const WORDS: [&str; 19] = [
@@ -742,6 +746,164 @@ impl IssueWrites<'_> {
         let urgent = priority.as_deref() == Some("P0") && proposal.is_none() && !closed(status.as_deref().unwrap_or(&row.status));
         let was_urgent = row.priority.as_deref() == Some("P0") && row.proposal.is_none() && !closed(&row.status);
         Ok((urgent && !was_urgent && (actor.owner || actor.person.is_some())).then_some(issue))
+    }
+
+    /// Moves the issue, with its sub-issues and comments, to project `to` (`moveIssue`, ORR-1129): each takes the next
+    /// id there, its old id kept as an alias, and its activity, aliases, signals and dependency links go with it. It
+    /// lands under `parent` or in `milestone` there, or at the top in neither. It keeps its release only when both
+    /// projects take their releases from the same place. An agent moves one only when every issue in it is its
+    /// person's, and hands it on (`assignee`, the edit's) only as an edit may, both refused before anything moves.
+    /// Gives back its id in `to`.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn move_issue(
+        &mut self,
+        from: &str,
+        sent: &str,
+        to: &str,
+        parent: Option<&str>,
+        milestone: Option<&str>,
+        assignee: Option<Option<String>>,
+        actor: &Actor,
+    ) -> Result<String> {
+        let issue = self.issue_id(from, sent).await?;
+        self.issue_there(from, &issue).await?;
+        let rails = self.rails_for(actor).await?;
+        if let Some(rails) = &rails {
+            self.railed_assignee(rails.as_deref(), &issue, assignee).await?;
+        }
+        let there = Issues::new(&mut *self.conn).project(to).await?;
+        let parent = match parent.filter(|p| !p.is_empty()) {
+            Some(sent) => Some(self.issue_id(to, sent).await?),
+            None => None,
+        };
+        let milestone = match milestone.filter(|m| !m.is_empty()) {
+            Some(sent) => Some(Issues::new(&mut *self.conn).resolve(to, sent, true).await?),
+            None => None,
+        };
+        if let Some(parent) = &parent {
+            self.issue_there(to, parent).await?;
+        }
+        if parent.is_some() && milestone.is_some() {
+            return Err(ApiError::bad_request("A sub-issue is in its parent's milestone; leave out \"milestone\" or \"parent\""));
+        }
+        if let Some(id) = &milestone {
+            if !Issues::new(&mut *self.conn).exists("SELECT 1 FROM milestones WHERE project = ? AND id = ?", &[to, id]).await? {
+                return Err(ApiError::not_found(format!("No milestone \"{id}\" in {to}")));
+            }
+        }
+        let subtree = self.subtree(from, &issue).await?;
+        if let Some(rails) = &rails {
+            for id in &subtree {
+                let held = self.assignee_of(from, id).await?;
+                self.must_hold(rails.as_deref(), id, held.as_deref(), "move it").await?;
+            }
+        }
+        // Releases are the source project's, so an issue keeps its release only between projects sharing them.
+        let here = Issues::new(&mut *self.conn).project(from).await?;
+        let source = |project: &str, mode: &str, shared: &Option<String>| match mode {
+            "shared" => shared.clone(),
+            "own" => Some(project.to_string()),
+            _ => None,
+        };
+        let from_source = source(from, &here.release_mode, &here.releases_from);
+        let ships = if from_source.is_some() && from_source == source(to, &there.release_mode, &there.releases_from) { "ships_in" } else { "NULL" };
+        let marks = vec!["?"; subtree.len()].join(", ");
+        changes::begin(self.conn).await?;
+        let done: Result<String> = async {
+            // Rows move first and get their new ids and links after, so the foreign keys wait for the commit.
+            sqlx::query(if on_postgres() { "SET CONSTRAINTS ALL DEFERRED" } else { "PRAGMA defer_foreign_keys = ON" }).execute(&mut *self.conn).await?;
+            let mut names: Vec<(String, String)> = vec![];
+            for old in &subtree {
+                let next = self.next_issue_id(to).await?;
+                names.push((old.clone(), next));
+            }
+            let renamed = |old: &str| names.iter().find(|(o, _)| o == old).map(|(_, n)| n.clone());
+            let query = sql(&format!("SELECT id, parent FROM issues WHERE project = ? AND id IN ({marks})"));
+            let mut find = sqlx::query(&query).bind(from);
+            for id in &subtree {
+                find = find.bind(id);
+            }
+            let links: Vec<(String, Option<String>)> = find.fetch_all(&mut *self.conn).await?.iter().map(|r| (r.get("id"), r.get("parent"))).collect();
+            let query = sql(&format!("SELECT CAST(id AS BIGINT) AS id, issue FROM comments WHERE project = ? AND issue IN ({marks})"));
+            let mut find = sqlx::query(&query).bind(from);
+            for id in &subtree {
+                find = find.bind(id);
+            }
+            let comments: Vec<(i64, String)> = find.fetch_all(&mut *self.conn).await?.iter().map(|r| (r.get("id"), r.get("issue"))).collect();
+            let query = sql(&format!("SELECT alias, issue FROM issue_aliases WHERE project = ? AND issue IN ({marks})"));
+            let mut find = sqlx::query(&query).bind(from);
+            for id in &subtree {
+                find = find.bind(id);
+            }
+            let aliases: Vec<(String, String)> = find.fetch_all(&mut *self.conn).await?.iter().map(|r| (r.get("alias"), r.get("issue"))).collect();
+            let row = sqlx::query(&sql("SELECT CAST(max(position) AS DOUBLE PRECISION) AS n FROM issues WHERE project = ?"))
+                .bind(to)
+                .fetch_one(&mut *self.conn)
+                .await?;
+            let position = row.get::<Option<f64>, _>("n").unwrap_or(-1.0) + 1.0;
+            let query = sql(&format!(
+                "UPDATE issues SET project = ?, id = ?, parent = ?, milestone = ?, ships_in = {ships}, position = position + ? WHERE project = ? AND id = ?"
+            ));
+            for (id, up) in &links {
+                let (under, kept) = if *id == issue {
+                    (parent.clone(), if parent.is_none() { milestone.clone() } else { None })
+                } else {
+                    (up.as_deref().and_then(renamed), None)
+                };
+                sqlx::query(&query).bind(to).bind(renamed(id)).bind(under).bind(kept).bind(position).bind(from).bind(id).execute(&mut *self.conn).await?;
+            }
+            for (id, on) in &comments {
+                sqlx::query(&sql("UPDATE comments SET project = ?, issue = ? WHERE id = ?"))
+                    .bind(to)
+                    .bind(renamed(on))
+                    .bind(id)
+                    .execute(&mut *self.conn)
+                    .await?;
+            }
+            for (old, next) in &names {
+                sqlx::query(&sql("UPDATE issue_events SET project = ?, issue = ? WHERE project = ? AND issue = ?"))
+                    .bind(to)
+                    .bind(next)
+                    .bind(from)
+                    .bind(old)
+                    .execute(&mut *self.conn)
+                    .await?;
+            }
+            let moved = renamed(&issue).unwrap_or_default();
+            self.record_field(to, &moved, actor, "project", Some(from), Some(to)).await?;
+            let query = sql(&format!("DELETE FROM issue_aliases WHERE project = ? AND issue IN ({marks})"));
+            let mut drop = sqlx::query(&query).bind(from);
+            for id in &subtree {
+                drop = drop.bind(id);
+            }
+            drop.execute(&mut *self.conn).await?;
+            let kept = aliases.iter().map(|(alias, on)| (alias.clone(), renamed(on).unwrap_or_default())).chain(names.iter().cloned());
+            for (alias, on) in kept {
+                sqlx::query(&sql(UPSERT_ISSUE_ALIAS)).bind(to).bind(&alias).bind(&on).execute(&mut *self.conn).await?;
+            }
+            // What names an issue without a foreign key to it follows it (`issuesMoved`): its signals and its links.
+            for (old, next) in &names {
+                for query in [
+                    "UPDATE signals SET project = ?, issue = ? WHERE project = ? AND issue = ?",
+                    "UPDATE issue_links SET project = ?, issue = ? WHERE project = ? AND issue = ?",
+                    "UPDATE issue_links SET on_project = ?, on_issue = ? WHERE on_project = ? AND on_issue = ?",
+                ] {
+                    sqlx::query(&sql(query)).bind(to).bind(next).bind(from).bind(old).execute(&mut *self.conn).await?;
+                }
+            }
+            sqlx::query(&sql("UPDATE issues SET updated_at = ? WHERE project = ? AND id = ?"))
+                .bind(stamp())
+                .bind(to)
+                .bind(&moved)
+                .execute(&mut *self.conn)
+                .await?;
+            self.touch_project(from).await?;
+            self.touch_project(to).await?;
+            Ok(moved)
+        }
+        .await;
+        self.effects.changed = vec![from.to_string(), to.to_string()];
+        changes::finish(self.conn, self.outbox.as_mut(), &self.effects, done).await
     }
 
     /// An agent's assignee (`railedAssignee`): what it may hand on, back to the owner or letting go, with `claude` and

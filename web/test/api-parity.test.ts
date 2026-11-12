@@ -210,7 +210,7 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         const revisions = new Map<number, number>()
         return JSON.parse(JSON.stringify(outcome, (key, value: unknown) => {
             if (typeof value === 'string') {
-                return value.replaceAll(project, '<project>').replace(/\b(STO|API)([DPSXTKI]?)-(\d+)/g, 'KEY$2-$3').replace(/^\d{4}-\d{2}-\d{2}T[\d:.]+Z$/, '<time>').replace(/-[a-z2-7]{8}$/, '-<uid>')
+                return value.replaceAll(project, '<project>').replace(/\b(STO|API)([DPSXTKIM]?)-(\d+)/g, 'KEY$2-$3').replace(/^\d{4}-\d{2}-\d{2}T[\d:.]+Z$/, '<time>').replace(/-[a-z2-7]{8}$/, '-<uid>')
             }
             if (typeof value === 'number' && (key === 'id' || key === 'revision') && Number.isInteger(value)) {
                 if (!revisions.has(value)) revisions.set(value, revisions.size + 1)
@@ -2193,6 +2193,51 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         expect((await rows('through-api')).filter(row => row.startsWith('issue.depends '))).toHaveLength(3)
     })
 
+    it('moves an issue to another project alike, with its sub-issues, comments, aliases and links (ORR-1129)', async () => {
+        const start = (await store.db.get<{n: number | null}>('SELECT max(id) AS n FROM changes'))?.n ?? 0
+        const to = (p: string) => `${p}-to`
+        const key = (p: string) => p === 'through-store' ? 'STO' : 'API'
+        const ids: Record<string, Record<string, string>> = {}
+        for (const p of ['through-store', 'through-api']) {
+            await store.createProject({name: to(p), key: `${key(p)}M`})
+            await store.createMilestone(to(p), {title: 'Launch'})
+            const there = (await store.createIssue(to(p), {title: 'Fit the dial'}, AGENT)).id
+            const frame = (await store.createIssue(p, {title: 'Build the frame'}, AGENT)).id
+            const strut = (await store.createIssue(p, {title: 'Cut a strut', parent: frame}, AGENT)).id
+            await store.createComment(p, strut, {body: 'Oak, not pine.'}, AGENT)
+            await store.db.run('INSERT INTO issue_aliases (project, alias, issue) VALUES (?, ?, ?)', p, `${key(p)}-97`, frame)
+            const paint = (await store.createIssue(p, {title: 'Paint the frame', depends_on: [frame]}, AGENT)).id
+            const gear = (await store.createIssue(p, {title: 'Cut a gear'}, AGENT)).id
+            ids[p] = {there, frame, strut, paint, gear}
+        }
+        type Step = [string, (p: string) => Promise<Outcome>, () => Promise<Outcome>]
+        const move = (name: string, which: string, body: (p: string) => Record<string, unknown>): Step =>
+            [name, p => viaStore(() => store.updateIssue(p, ids[p]![which]!, body(p), OWNER)), () => viaApi('PATCH', `/issues/${ids['through-api']![which]}`, body('through-api'), OWNER)]
+        const read = (name: string, where: (p: string) => string, path: (p: string) => string): Step =>
+            [name, p => viaStore(() => store.issue(where(p), path(p))), () => viaApi('GET', `/issues/${path('through-api')}`, undefined, AGENT, where('through-api'))]
+        const steps: Step[] = [
+            move('under a parent and into a milestone at once', 'gear', p => ({project: to(p), parent: ids[p]!.there, milestone: '1'})),
+            move('to a project that isn\'t there', 'gear', () => ({project: 'nowhere'})),
+            move('with its sub-issue, a comment and a link, made P1 there', 'frame', p => ({project: to(p), priority: 'P1'})),
+            read('it, there', to, p => `${key(p)}M-2`),
+            read('its sub-issue, there', to, p => `${key(p)}M-3`),
+            read('it, by the id it had', to, p => ids[p]!.frame!),
+            read('it, by its old alias', to, p => `${key(p)}-97`),
+            read('what depends on it', p => p, p => ids[p]!.paint!),
+            ['its activity', p => viaStore(() => store.listActivity(to(p), `${key(p)}M-2`)), () => viaApi('GET', '/issues/APIM-2/activity', undefined, AGENT, to('through-api'))],
+            ['its sub-issue\'s comments', p => viaStore(() => store.listComments(to(p), `${key(p)}M-3`)), () => viaApi('GET', '/issues/APIM-3/comments', undefined, AGENT, to('through-api'))],
+            move('into a milestone there', 'gear', p => ({project: to(p), milestone: '1'})),
+            read('gone from where it was', p => p, p => ids[p]!.gear!),
+        ]
+        for (const [name, ts, rs] of steps) await both(name, ts, rs)
+        const rows = async (p: string) => (await store.db.all<{kind: string, payload: string | null}>('SELECT kind, payload FROM changes WHERE project IN (?, ?) AND id > ? ORDER BY id', p, to(p), start))
+            .map(r => `${r.kind} ${(r.payload ?? '').replaceAll(p, '<project>').replace(/\b(STO|API)(M?)-(\d+)/g, 'KEY$2-$3')}`).sort()
+        // The store says a project changed once per change it makes, the API once per project a request changes.
+        const distinct = async (p: string) => [...new Set(await rows(p))]
+        expect(await distinct('through-api')).toEqual(await distinct('through-store'))
+        expect((await rows('through-api')).filter(row => row.startsWith('issue.project '))).toHaveLength(2)
+    })
+
     it('changes many issues alike, each on its own, the refused ones saying why (ORR-927)', async () => {
         const start = (await store.db.get<{n: number | null}>('SELECT max(id) AS n FROM changes'))?.n ?? 0
         const before = (await store.db.get<{n: number | null}>('SELECT max(id) AS n FROM signals'))?.n ?? 0
@@ -3590,6 +3635,10 @@ describe('the router', () => {
         expect(onlyWords({epic: 'EPC-1', title: 'x', choices: []})).toBe(true)
         expect(onlyWords({title: 'x', status: 'todo', assignee: 'claude', plan: null})).toBe(true)
         for (const body of [{title: 'x', project: 'q'}, {project: 'q'}, {nope: 1}, {}, null, [], 'title']) expect(onlyWords(body), JSON.stringify(body)).toBe(false)
+        // An edit may move the issue to another project too (ORR-1129).
+        expect(onlyWords({project: 'q'}, {moves: true})).toBe(true)
+        expect(onlyWords({project: 'q', parent: 'Q-1', priority: 'P1'}, {moves: true})).toBe(true)
+        for (const body of [{project: 'q', nope: 1}, {}]) expect(onlyWords(body, {moves: true}), JSON.stringify(body)).toBe(false)
         // A session's change of status stays here, for its lock on the issue (`claimed`).
         for (const body of [{status: 'done'}, {plan: null, title: 'x'}]) expect(movesStatus(body), JSON.stringify(body)).toBe(true)
         for (const body of [{assignee: 'owner'}, {title: 'x'}, null, 'status']) expect(movesStatus(body), JSON.stringify(body)).toBe(false)
