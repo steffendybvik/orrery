@@ -33,6 +33,8 @@ pub(crate) struct Api<'a> {
     pub(crate) app: &'a Arc<App>,
     pub(crate) headers: &'a HeaderMap,
     pub(crate) projects: &'a [String],
+    /// Where each route's `orrery-*` headers are kept, for the `/mcp` reply (relay.rs).
+    pub(crate) relay: &'a super::relay::Relay,
 }
 
 fn enc(part: &str) -> String {
@@ -81,6 +83,7 @@ impl Api<'_> {
         let router = routes::all().route_layer(middleware::from_fn_with_state(self.app.clone(), access::rails::rails)).with_state(self.app.clone());
         let response = router.oneshot(request).await.map_err(|e| No(e.to_string()))?;
         let (parts, body) = response.into_parts();
+        self.relay.keep(&parts.headers);
         let bytes = axum::body::to_bytes(body, usize::MAX).await.map_err(|e| No(e.to_string()))?;
         Ok((parts.status, parts.headers, bytes))
     }
