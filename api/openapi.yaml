@@ -1359,6 +1359,38 @@ paths:
       description: The local app's alone (ORR-1096), once it's checked the owner asked. Nothing when there's none.
       responses:
         '204': {description: Gone}
+  /api/boards:
+    post:
+      x-served: false
+      summary: Makes a new board from a board's file, checked
+      description: >-
+        The local app's alone (ORR-1142): `POST /api/projects/upload` checks a board's file first, as it's untrusted,
+        bringing its rows up to this schema in a throwaway SQLite, and sends them here to be made a new board held by
+        `holder`. Every id numbered across the server is numbered again, and nothing in it speaks for anyone: its
+        comments are the file's, its schedules paused, its prompts, repo and claims left behind. An id or key already
+        taken is a 409.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [id, key, holder, tables]
+              properties:
+                id: {type: string}
+                key: {type: string}
+                name: {type: [string, 'null']}
+                holder: {type: string, description: The person who holds the board}
+                project: {type: [string, 'null'], description: The board's id in the file}
+                exported_at: {type: [string, 'null']}
+                statuses: {type: array, items: {type: object}}
+                people: {type: array, items: {type: object}}
+                uploads: {type: array, items: {type: object}}
+                tables: {type: object, description: 'Each table the file holds, its rows checked'}
+      responses:
+        '201': {description: 'The board, as a project with its board', content: {application/json: {schema: {$ref: '#/components/schemas/Project'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '409': {$ref: '#/components/responses/Conflict'}
   /api/database:
     get:
       x-served: false
@@ -1568,9 +1600,11 @@ paths:
         Anything in `after` that isn't a number reads as 0. With `issue` or `milestone`, `after` is left out; one there
         isn't has none. With `waiting` (ORR-1141), the owner's from the last day that no session has heard yet, oldest
         first and all of them: `pooled`, the owner's and members' for the one session orrery picks; `scheduled`, the
-        owner's messages and their scheduled focuses on an issue still open.
+        owner's messages and their scheduled focuses on an issue still open; `focus`, with `issue` (ORR-1131), the
+        owner's and members' focuses on that issue from the last ten minutes, so another isn't sent while one is on its
+        way.
       parameters:
-        - {name: waiting, in: query, schema: {type: string, enum: [pooled, scheduled]}}
+        - {name: waiting, in: query, schema: {type: string, enum: [pooled, scheduled, focus]}}
         - {name: after, in: query, schema: {type: string}}
         - {name: issue, in: query, schema: {type: string}}
         - {name: milestone, in: query, schema: {type: string}}
@@ -1588,6 +1622,16 @@ paths:
         '201': {description: 'The signal', content: {application/json: {schema: {type: object}}}}
         '400': {$ref: '#/components/responses/BadRequest'}
         '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/projects/{project}/signals/last:
+    parameters:
+      - {$ref: '#/components/parameters/project'}
+    get:
+      x-served: false
+      summary: 'The id of the project''s latest signal, 0 before its first (ORR-1133)'
+      description: 'Where the local app starts a session''s stream from (`lastSignal`), read over HTTP rather than from the database.'
+      responses:
+        '200': {description: 'Its id', content: {application/json: {schema: {type: object, properties: {id: {type: integer}}}}}}
         '404': {$ref: '#/components/responses/NotFound'}
   /api/projects/{project}/signals/retarget:
     parameters:

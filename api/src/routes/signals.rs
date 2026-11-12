@@ -19,6 +19,7 @@ use std::sync::Arc;
 pub(crate) fn routes() -> Router<Arc<App>> {
     Router::new()
         .route(&format!("{P}/signals"), get(list_signals).post(write_signal))
+        .route(&format!("{P}/signals/last"), get(last_signal))
         .route(&format!("{P}/signals/retarget"), post(retarget))
         .route(&format!("{P}/signals/{{signal}}/receipts"), post(receipt))
         .route("/api/signals/prune", post(prune))
@@ -71,15 +72,25 @@ async fn prune(State(app): Shared, headers: HeaderMap) -> Result<Response> {
     Ok(Json(json!({"pruned": Signals::new(&mut conn).prune().await?})).into_response())
 }
 
+/// `{id}`, the project's latest signal's id, 0 before its first: where the local app starts a session's stream from
+/// (`lastSignal`, ORR-1133).
+async fn last_signal(State(app): Shared, Path(project): Path<String>) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    Ok(Json(json!({"id": Signals::new(&mut conn).last(&project).await?})).into_response())
+}
+
 /// `?after=` the signals after that id, oldest first (anything not a number is 0, as `Number(…) || 0` reads it);
 /// `?issue=` or `?milestone=` the latest about that issue or milestone instead; `?waiting=pooled` or `scheduled` those
-/// from the last day no session has heard yet, for the one orrery picks or scheduled (ORR-1141).
+/// from the last day no session has heard yet, for the one orrery picks or scheduled (ORR-1141); `?waiting=focus&issue=`
+/// the owner's or a member's focus on that issue from the last ten minutes not heard yet (ORR-1131).
 async fn list_signals(State(app): Shared, Path(project): Path<String>, Query(query): Query<HashMap<String, String>>) -> Result<Response> {
     let text = |key: &str| query.get(key).map(String::as_str).filter(|v| !v.is_empty());
     let which = match (text("waiting"), text("issue"), text("milestone")) {
         (Some("pooled"), _, _) => Which::Pooled,
         (Some("scheduled"), _, _) => Which::Scheduled,
-        (Some(other), _, _) => return Err(ApiError::bad_request(format!("\"waiting\" is \"{other}\"; use pooled, scheduled"))),
+        (Some("focus"), Some(issue), _) => Which::Focus(issue),
+        (Some("focus"), None, _) => return Err(ApiError::bad_request("\"waiting\": \"focus\" needs an \"issue\"")),
+        (Some(other), _, _) => return Err(ApiError::bad_request(format!("\"waiting\" is \"{other}\"; use pooled, scheduled, focus"))),
         (None, Some(issue), _) => Which::Issue(issue),
         (None, None, Some(milestone)) => Which::Milestone(milestone),
         (None, None, None) => Which::After(after_of(query.get("after").map(String::as_str))),

@@ -11,7 +11,8 @@ import {known} from '#shared/known'
 import {refusedFor} from './permission'
 import {anotherPersons, sessionHeader} from './actor'
 import {scheduleAsk, scheduleDrift, scheduleRequest} from './schedule-requests'
-import {docNow, settingsNow, writeToApi} from './api-router'
+import {docNow, issueNow, milestoneNow, projectIdOf, readFromApi, releasesNow, settingsNow, writeToApi} from './api-router'
+import {ownerNow} from './roster'
 
 // The owner's chats: a Claude session started for one alone (launches.ts `startChat`), which the owner talks to on the
 // page instead of in a terminal. It answers questions about the project and makes issues and comments when asked;
@@ -160,17 +161,7 @@ let loading: Promise<void> | undefined
 export function chatsLoaded(): Promise<void> {
     return loading ??= (async () => {
         try {
-            const db = useDatabase()
-            const rows = await db.all<{project: string, chat: string}>('SELECT project, chat FROM chats')
-            const lines = await db.all<{chat: string, id: number | string, at: string, message: string}>('SELECT chat, id, at, message FROM chat_messages ORDER BY id')
-            const messages = new Map<string, ChatMessage[]>()
-            for (const line of lines) {
-                const said = {id: Number(line.id), at: line.at, ...JSON.parse(line.message) as Omit<ChatMessage, 'id' | 'at'>}
-                messages.set(line.chat, [...messages.get(line.chat) ?? [], said])
-            }
-            for (const row of rows) {
-                const chat = {...JSON.parse(row.chat) as Chat, project: row.project}
-                chat.messages = messages.get(chat.id) ?? []
+            for (const chat of await keptChats()) {
                 if (chats.has(chat.id) || over.has(chat.id)) continue
                 const lines = keptOf(chat.id)
                 for (const message of chat.messages) lines.set(message.id, JSON.stringify(message))
@@ -185,6 +176,34 @@ export function chatsLoaded(): Promise<void> {
             console.error('[orrery] reading the chats kept:', error)
         }
     })()
+}
+
+/** A message with its id and time first, as its row is read here, so what's kept of it compares as the same text. */
+function inOrder({id, at, ...rest}: ChatMessage): ChatMessage {
+    return {id, at, ...rest} as ChatMessage
+}
+
+/** The chats kept, each with its messages, oldest first: read from the API (ORR-1142), or the database with none set up. */
+async function keptChats(): Promise<Chat[]> {
+    const read = await readFromApi<Chat[]>('/api/chats')
+    if (read) return read.map(chat => ({...chat, messages: chat.messages.map(inOrder)}))
+    const db = useDatabase()
+    const rows = await db.all<{project: string, chat: string}>('SELECT project, chat FROM chats')
+    const lines = await db.all<{chat: string, id: number | string, at: string, message: string}>('SELECT chat, id, at, message FROM chat_messages ORDER BY id')
+    const messages = new Map<string, ChatMessage[]>()
+    for (const line of lines) {
+        const said = {id: Number(line.id), at: line.at, ...JSON.parse(line.message) as Omit<ChatMessage, 'id' | 'at'>}
+        messages.set(line.chat, [...messages.get(line.chat) ?? [], said])
+    }
+    return rows.map(row => ({...JSON.parse(row.chat) as Chat, project: row.project, messages: messages.get((JSON.parse(row.chat) as Chat).id) ?? []}))
+}
+
+/** A chat's messages as kept, oldest first: read from the API (ORR-1142), or the database with none set up. */
+async function keptMessages(id: string): Promise<ChatMessage[]> {
+    const read = await readFromApi<Chat>(`/api/chats/${encodeURIComponent(id)}`)
+    if (read) return read.messages.map(inOrder)
+    const rows = await useDatabase().all<{id: number | string, at: string, message: string}>('SELECT id, at, message FROM chat_messages WHERE chat = ? ORDER BY id', id)
+    return rows.map(row => ({id: Number(row.id), at: row.at, ...JSON.parse(row.message) as Omit<ChatMessage, 'id' | 'at'>}) as ChatMessage)
 }
 
 /** Ends each chat read back as running whose session no launcher has said still runs. */
@@ -265,11 +284,9 @@ async function add(chat: Chat, message: Omit<ChatMessage, 'id' | 'at'>): Promise
 export async function chatHeard(id: string) {
     const chat = chats.get(id) ?? over.get(id)
     if (!chat) return
-    const rows = await useDatabase().all<{id: number | string, at: string, message: string}>('SELECT id, at, message FROM chat_messages WHERE chat = ? ORDER BY id', id)
     const lines = keptOf(id)
     let news = false
-    for (const row of rows) {
-        const message = {id: Number(row.id), at: row.at, ...JSON.parse(row.message) as Omit<ChatMessage, 'id' | 'at'>} as ChatMessage
+    for (const message of await keptMessages(id)) {
         const now = JSON.stringify(message)
         const at = chat.messages.findIndex(m => m.id === message.id)
         if (at === -1) chat.messages.push(message)
@@ -431,12 +448,12 @@ async function projectFor(chat: Chat, body: Record<string, unknown>): Promise<st
     const {project} = body
     if (project === undefined || project === null || project === chat.project) return chat.project
     if (typeof project !== 'string' || !project.trim()) throw badRequest('Send "project" as a project\'s id, or leave it out for the chat\'s own')
-    return await useStore().projectId(project.trim())
+    return await projectIdOf(project.trim())
 }
 
 /** The owner, as their chat asks for them: who a schedule it asks for is checked as, and saved as. */
 async function owner(): Promise<Actor> {
-    return {name: (await useStore().ownerOf()).name, owner: true, via: 'chat'}
+    return {name: (await ownerNow()).name, owner: true, via: 'chat'}
 }
 
 /** The chat's session asking to make a schedule in its project, or change schedule `id` there (its `create_schedule` and
@@ -480,9 +497,9 @@ async function askMove(id: string, body: Record<string, unknown>): Promise<ChatM
     const store = useStore()
     const to = {
         ...status === undefined ? {} : {status: await store.resolveStatus(status as string)},
-        ...assignee === undefined ? {} : {assignee: !assignee?.trim() ? null : assignee.trim().toLowerCase() === 'owner' ? (await store.ownerOf()).name : assignee.trim()},
+        ...assignee === undefined ? {} : {assignee: !assignee?.trim() ? null : assignee.trim().toLowerCase() === 'owner' ? (await ownerNow()).name : assignee.trim()},
     }
-    const issues = await Promise.all([...new Set((ids as string[]).map(i => i.trim()))].map(i => store.issue(project, i)))
+    const issues = await Promise.all([...new Set((ids as string[]).map(i => i.trim()))].map(i => issueNow(project, i)))
     const waiting = issues.filter(i => undecided(i.proposal)).map(i => i.id)
     if (waiting.length) throw refusedFor('issues.edit', `${waiting.join(', ')} ${waiting.length === 1 ? 'is a proposal' : 'are proposals'} waiting on the owner: ${waiting.length === 1 ? 'its' : 'their'} status and assignee are theirs to decide, on ${waiting.length === 1 ? 'its' : 'their'} page`)
     const changes = issues.flatMap(i => [
@@ -536,7 +553,7 @@ async function driftOf(chat: Chat, request: ChatMoveRequest): Promise<NonNullabl
     for (const id of request.body.ids) {
         const was = request.was?.[id]
         if (!was || request.moved?.includes(id)) continue
-        const issue = await useStore().issue(project, id).catch(() => null)
+        const issue = await issueNow(project, id).catch(() => null)
         // Gone, or a proposal waiting on the owner now: Allow refuses it as it stands, with no warning needed.
         if (!issue || undecided(issue.proposal)) continue
         if (issue.column !== was.status) drifted.push({issue: id, field: 'status', from: was.status, to: issue.column})
@@ -601,7 +618,7 @@ async function askMilestone(id: string, body: Record<string, unknown>): Promise<
     const refused = Object.keys(fields).filter(key => !Object.hasOwn(CHAT_MILESTONE_FIELDS, key))
     if (refused.length) throw forbidden(`The owner's chat sets a milestone's ${Object.keys(CHAT_MILESTONE_FIELDS).join(', ')}, not its ${refused.join(', ')}`)
     if (target !== undefined && target !== null && typeof target !== 'string' && !Number.isInteger(target)) throw badRequest('Send "id" as the milestone to change, or leave it out to make one')
-    const current = target === undefined || target === null ? undefined : await useStore().milestone(project, String(target))
+    const current = target === undefined || target === null ? undefined : await milestoneNow(project, String(target))
     checkInput(fields, MILESTONE_FIELDS, !!current)
     const changes = (Object.entries(fields) as [ChatMilestoneField, unknown][]).map(([field, to]) =>
         current ? {field, from: current[field] ?? null, to} : {field, to})
@@ -698,7 +715,7 @@ async function askRelease(id: string, body: Record<string, unknown>): Promise<Ch
     if (version !== undefined && version !== null && typeof version !== 'string') throw badRequest('Send "version" as the version of the release to change, or leave it out to make one')
     const current = await useStore().checkRelease(project, fields, typeof version === 'string' ? version : undefined)
     const shown = (field: ChatReleaseField, value: unknown) => field === 'position' && typeof value === 'number' ? place(value) : value
-    const releases = current ? await useStore().listReleases(project) : []
+    const releases = current ? await releasesNow(project) : []
     const was = (field: ChatReleaseField) => field === 'position' ? releases.findIndex(r => r.version === current?.version) : current?.[field as keyof Release] ?? null
     const changes = (Object.entries(fields) as [ChatReleaseField, unknown][]).map(([field, to]) =>
         current ? {field, from: shown(field, was(field)), to: shown(field, to)} : {field, to: shown(field, to)})
@@ -745,17 +762,16 @@ export async function askSetting(id: string, body: unknown): Promise<ChatMessage
 /** What has changed on what a setting, milestone, release or schedule request would change since it was asked (ORR-645). What
  * has gone since has nothing to compare: Allow fails on it as its page would. */
 async function requestDrift(chat: Chat, asked: ChatMessage): Promise<ChatRequestDrift[]> {
-    const store = useStore()
     const drift = (label: string, was: unknown, now: unknown) => JSON.stringify(was) === JSON.stringify(now) ? [] : [{label, from: settingValue(was), to: settingValue(now)}]
-    if (asked.request) return drift(CHAT_SETTINGS[asked.request.setting], asked.request.from, (await settingsNow(store))[asked.request.setting] ?? null)
+    if (asked.request) return drift(CHAT_SETTINGS[asked.request.setting], asked.request.from, (await settingsNow())[asked.request.setting] ?? null)
     if (asked.schedule) return await scheduleDrift(asked.schedule.project ?? chat.project, asked.schedule)
     if (asked.milestone?.id !== undefined) {
-        const current = await store.milestone(asked.milestone.project ?? chat.project, asked.milestone.id).catch(() => null)
+        const current = await milestoneNow(asked.milestone.project ?? chat.project, asked.milestone.id).catch(() => null)
         return current ? asked.milestone.changes.flatMap(c => c.from === undefined ? [] : drift(CHAT_MILESTONE_FIELDS[c.field], c.from, current[c.field] ?? null)) : []
     }
     if (asked.release?.change) {
         const {version} = asked.release
-        const releases = await store.listReleases(asked.release.project ?? chat.project)
+        const releases = await releasesNow(asked.release.project ?? chat.project)
         const at = releases.findIndex(r => r.version === version)
         const current = releases[at]
         if (!current) return []
@@ -872,7 +888,7 @@ async function answerMove(chat: Chat, request: ChatMoveRequest, allow: boolean, 
         try {
             for (const id of ids) {
                 if (moved.includes(id)) continue
-                if (undecided((await useStore().issue(project, id)).proposal)) throw refusedFor('issues.edit', `${id} is a proposal waiting on you now: decide it on its page`)
+                if (undecided((await issueNow(project, id)).proposal)) throw refusedFor('issues.edit', `${id} is a proposal waiting on you now: decide it on its page`)
                 await through('PATCH', under(project, 'issues', id), to, as, () => useStore().updateIssue(project, id, to, as))
                 moved.push(id)
             }
@@ -1069,7 +1085,7 @@ async function askSession(id: string, body: Record<string, unknown>): Promise<Ch
     let request: ChatSessionRequest
     if (action === 'start') {
         const {action: _action, project: on, ...rest} = wanted
-        const project = on === undefined || on === null ? chat.project : await useStore().projectId(String(on))
+        const project = on === undefined || on === null ? chat.project : await projectIdOf(String(on))
         const start = startInput(rest)
         const context = await contextFor(project, start.presets, start.instructions)
         request = {action, project, start, ...context?.presets.length ? {presets: context.presets} : {}, state: 'asked'}
@@ -1098,7 +1114,7 @@ async function delegate(id: string, body: Record<string, unknown>): Promise<Chat
     const chat = chatOf(id)
     const issue = isObject(body.delegate) ? body.delegate.issue : undefined
     if (typeof issue !== 'string' || !issue.trim()) throw badRequest('Send {delegate: {issue}}, the issue to start a session on')
-    const found = await useStore().issue(chat.project, issue.trim())
+    const found = await issueNow(chat.project, issue.trim())
     if (found.proposal === 'pending') throw conflict(`${found.id} is a proposal waiting on the owner, so it isn't work yet`)
     if (found.kind === 'done' || found.kind === 'canceled') throw conflict(`${found.id} is ${found.status}, so there's no work to hand over`)
     const said = told.get(id)

@@ -37,4 +37,6 @@ export const sessionWork = {
     workedBy: (project: string, issue: string, session: string) => write(`${at(project)}/issues/${encodeURIComponent(issue)}/worked-by`, {session}),
     /** The owner's signals from the last day no session has heard: for the one orrery picks, or scheduled. */
     unheard: (project: string, waiting: 'pooled' | 'scheduled') => read<Signal[]>(`${at(project)}/signals?waiting=${waiting}`),
+    /** The owner's or a member's focuses on the issue from the last ten minutes no session has heard yet (ORR-1131). */
+    focusing: (project: string, issue: string) => read<Signal[]>(`${at(project)}/signals?waiting=focus&issue=${encodeURIComponent(issue)}`),
 }

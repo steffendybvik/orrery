@@ -29,11 +29,19 @@ pub(crate) enum Which<'a> {
     /// The owner's scheduled focuses (on an issue still open) and messages from the last day that no session has heard
     /// yet (`unheardScheduled`).
     Scheduled,
+    /// The owner's or a member's focus on the issue from the last ten minutes that no session has heard yet: it's on
+    /// its way, so another isn't sent (`focusOnItsWay`, ORR-515).
+    Focus(&'a str),
+}
+
+/// So long ago, as the signals' `created_at` has it.
+fn ago(duration: chrono::Duration) -> String {
+    (chrono::Utc::now() - duration).format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string()
 }
 
 /// A day ago, as the signals' `created_at` has it.
 fn a_day_ago() -> String {
-    (chrono::Utc::now() - chrono::Duration::days(1)).format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string()
+    ago(chrono::Duration::days(1))
 }
 
 pub(crate) struct Signals<'c> {
@@ -43,6 +51,14 @@ pub(crate) struct Signals<'c> {
 impl<'c> Signals<'c> {
     pub fn new(conn: &'c mut AnyConnection) -> Self {
         Signals { conn }
+    }
+
+    /// The id of the project's latest signal, 0 before its first, as `lastSignal` gives it: a 404 for a project there
+    /// isn't (ORR-1133).
+    pub(crate) async fn last(&mut self, project: &str) -> Result<i64> {
+        Issues::new(self.conn).project(project).await?;
+        let row = sqlx::query(&sql("SELECT CAST(MAX(id) AS BIGINT) AS id FROM signals WHERE project = ?")).bind(project).fetch_one(&mut *self.conn).await?;
+        Ok(row.get::<Option<i64>, _>("id").unwrap_or(0))
     }
 
     /// The project's signals, as `listSignals` gives them: a 404 for a project there isn't; an issue or milestone found
@@ -58,6 +74,18 @@ impl<'c> Signals<'c> {
                     .bind(limit)
                     .fetch_all(&mut *self.conn)
                     .await?
+            }
+            Which::Focus(sent) => {
+                let id = Issues::new(self.conn).resolve(project, sent, false).await?;
+                sqlx::query(&sql(&format!(
+                    "SELECT {COLUMNS} FROM signals WHERE project = ? AND issue = ? AND kind = 'focus' AND (owned = 1 OR person IS NOT NULL) \
+                     AND delivered_to = '[]' AND created_at >= ? ORDER BY id"
+                )))
+                .bind(project)
+                .bind(id)
+                .bind(ago(chrono::Duration::minutes(10)))
+                .fetch_all(&mut *self.conn)
+                .await?
             }
             Which::Issue(sent) | Which::Milestone(sent) => {
                 let milestone = matches!(which, Which::Milestone(_));
