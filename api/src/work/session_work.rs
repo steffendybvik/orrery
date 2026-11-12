@@ -177,4 +177,16 @@ impl<'c> SessionWork<'c> {
         .await?;
         Ok(())
     }
+
+    /// A session's new id (after a `/clear`) takes over the issues its old one worked, as `renameSession` does. How
+    /// many moved.
+    pub(crate) async fn rename(&mut self, project: &str, from: &str, to: &str) -> Result<u64> {
+        Ok(sqlx::query(&sql("UPDATE issue_sessions SET session = ? WHERE project = ? AND session = ?"))
+            .bind(to)
+            .bind(project)
+            .bind(from)
+            .execute(&mut *self.conn)
+            .await?
+            .rows_affected())
+    }
 }

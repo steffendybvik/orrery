@@ -19,6 +19,7 @@ use std::sync::Arc;
 pub(crate) fn routes() -> Router<Arc<App>> {
     Router::new()
         .route(&format!("{P}/issue-sessions"), get(working))
+        .route(&format!("{P}/issue-sessions/rename"), post(rename))
         .route(&format!("{P}/issues/{{issue}}/workers"), get(workers))
         .route(&format!("{P}/issues/{{issue}}/dependents"), get(dependents))
         .route(&format!("{P}/issues/{{issue}}/worked-by"), post(worked_by))
@@ -69,6 +70,18 @@ async fn worked_by(State(app): Shared, Path((project, issue)): Path<(String, Str
     let mut conn = app.pool.acquire().await?;
     SessionWork::new(&mut conn).worked_by(&project, &issue, session).await?;
     Ok(StatusCode::NO_CONTENT.into_response())
+}
+
+/// `{from, to}`, a session's old id and its new one (after a `/clear`): `{moved}`, how many issues it worked went to the
+/// new one. Its signals move with `…/signals/retarget`.
+async fn rename(State(app): Shared, Path(project): Path<String>, headers: HeaderMap, body: Bytes) -> Result<Response> {
+    local_app_only(&headers)?;
+    let body = body_of(&body);
+    let named = |key: &str| body.get(key).and_then(Value::as_str).filter(|s| !s.is_empty()).ok_or_else(|| ApiError::bad_request(format!("Send \"{key}\"")));
+    let (from, to) = (named("from")?, named("to")?);
+    let mut conn = app.pool.acquire().await?;
+    let moved = SessionWork::new(&mut conn).rename(&project, from, to).await?;
+    Ok(Json(json!({"moved": moved})).into_response())
 }
 
 #[cfg(test)]

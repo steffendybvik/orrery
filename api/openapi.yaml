@@ -1573,6 +1573,22 @@ paths:
       responses:
         '200': {description: 'The dependents', content: {application/json: {schema: {type: array, items: {type: object, properties: {project: {type: string}, id: {type: string}}}}}}}
         '403': {$ref: '#/components/responses/Forbidden'}
+  /api/projects/{project}/issue-sessions/rename:
+    parameters:
+      - {$ref: '#/components/parameters/project'}
+    post:
+      x-served: false
+      summary: 'A session''s new id takes over the issues its old one worked (ORR-1132)'
+      description: >-
+        Only the Nuxt server's own call (`Orrery-Came: server`), after a `/clear` gave the session a new id. Its signals
+        move with `…/signals/retarget`.
+      requestBody:
+        required: true
+        content: {application/json: {schema: {type: object, required: [from, to], properties: {from: {type: string}, to: {type: string}}}}}
+      responses:
+        '200': {description: 'How many moved', content: {application/json: {schema: {type: object, properties: {moved: {type: integer}}}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
   /api/projects/{project}/issues/{issue}/worked-by:
     parameters:
       - {$ref: '#/components/parameters/project'}
