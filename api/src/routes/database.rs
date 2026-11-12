@@ -19,7 +19,11 @@ use std::path::Path;
 use std::sync::Arc;
 
 pub(crate) fn routes() -> Router<Arc<App>> {
-    Router::new().route("/api/database", get(state)).route("/api/database/snapshot", post(snapshot)).route("/api/database/environment", put(environment))
+    Router::new()
+        .route("/api/database", get(state))
+        .route("/api/database/snapshot", post(snapshot))
+        .route("/api/database/compact", post(compact))
+        .route("/api/database/environment", put(environment))
 }
 
 /// `{fresh, size?}`: `fresh` when it's a new orrery's (no projects, no owner named yet), as the local app asks before
@@ -71,6 +75,35 @@ async fn snapshot(State(app): Shared, body: Bytes) -> Result<Response> {
     }
     sqlx::query("VACUUM INTO ?").bind(&to).execute(&app.pool).await?;
     Ok(StatusCode::NO_CONTENT.into_response())
+}
+
+/// Compacting is worth it from this much free: 32 MB, and a quarter of the file (`COMPACT_FROM` in housekeeping.ts).
+const COMPACT_FROM_BYTES: i64 = 32 * 1024 * 1024;
+const COMPACT_FROM_SHARE: f64 = 0.25;
+
+/// A SQLite pragma that answers with a number.
+async fn pragma(conn: &mut sqlx::AnyConnection, name: &str) -> Result<i64> {
+    Ok(sqlx::query(&format!("PRAGMA {name}")).fetch_one(conn).await?.try_get::<i64, _>(0)?)
+}
+
+/// `{always?}`: `{compacted}`, whether the SQLite file was compacted (`VACUUM`) and its `-wal` written through and cut
+/// back (ORR-1134). Only with that much free, as housekeeping asks after a clean-up; `always`, whatever is free, as the
+/// local app asks once it has compressed the images. A Postgres database keeps its own space: never.
+async fn compact(State(app): Shared, body: Bytes) -> Result<Response> {
+    if on_postgres() {
+        return Ok(Json(json!({"compacted": false})).into_response());
+    }
+    let always = body_of(&body).get("always").and_then(Value::as_bool).unwrap_or(false);
+    let mut conn = app.pool.acquire().await?;
+    if !always {
+        let (free, size, pages) = (pragma(&mut conn, "freelist_count").await?, pragma(&mut conn, "page_size").await?, pragma(&mut conn, "page_count").await?);
+        if free * size < COMPACT_FROM_BYTES || (free as f64) < COMPACT_FROM_SHARE * pages as f64 {
+            return Ok(Json(json!({"compacted": false})).into_response());
+        }
+    }
+    sqlx::query("VACUUM").execute(&mut *conn).await?;
+    sqlx::query("PRAGMA wal_checkpoint(TRUNCATE)").execute(&mut *conn).await?;
+    Ok(Json(json!({"compacted": true})).into_response())
 }
 
 #[cfg(test)]

@@ -79,3 +79,18 @@ async fn the_name_it_runs_under_is_kept_in_its_settings() {
     assert_eq!(api.put("/api/database/environment", json!({})).send().await.status, 400);
     assert_eq!(api.put("/api/database/environment", json!({"environment": ""})).send().await.status, 400);
 }
+
+#[tokio::test]
+async fn compacting_waits_for_enough_free_unless_asked_always() {
+    let api = TestApi::new().await;
+    let (project, _) = api.board().await;
+    let first = api.post("/api/database/compact", json!({})).send().await;
+    assert_eq!(first.status, 200, "{}", first.body);
+    // A new board has next to nothing free, so it's let be; and a Postgres database keeps its own space.
+    assert_eq!(first.body, json!({"compacted": false}));
+    let always = api.post("/api/database/compact", json!({"always": true})).send().await;
+    assert_eq!(always.status, 200, "{}", always.body);
+    assert_eq!(always.body, json!({"compacted": !on_postgres()}));
+    // The board is still there after.
+    assert_eq!(api.get(&format!("/api/projects/{project}")).send().await.status, 200);
+}
