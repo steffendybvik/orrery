@@ -1,10 +1,11 @@
 // Presets (ORR-949): what web/server/store/presets.ts does with them, on the same table, answering as
 // web/server/api/presets/ and `…/projects/{project}/presets` do. The presets orrery ships are read from the same
 // web/shared/presets.json the Nuxt server imports, so a default's `changed` is worked out from one source. Seeding them
-// as the server starts stays the Nuxt server's. Nothing they write wakes a session, so a write has no effects to tell.
+// as the server starts is here too (`seed`), sent by the Nuxt server once the API listens (ORR-1136). Nothing they write wakes a session, so a write has no effects to tell.
+use crate::changes;
 use crate::db::sql;
 use crate::error::{ApiError, Result};
-use crate::write::{js, stamp, Actor};
+use crate::write::{js, stamp, Actor, Effects};
 use regex::Regex;
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
@@ -20,6 +21,9 @@ struct Shipped {
     text: String,
     icon: String,
     color: String,
+    /// Texts it shipped before, which a saved one still having takes today's.
+    #[serde(default)]
+    was: Vec<String>,
 }
 
 static SHIPPED: LazyLock<Vec<Shipped>> =
@@ -294,6 +298,49 @@ impl<'c> Presets<'c> {
             restored.push(self.preset(row.get("id")).await?);
         }
         Ok(Value::Array(restored))
+    }
+
+    /// Adds the presets orrery ships that this orrery hasn't had yet (once `seedPresets` in the Nuxt store): all of them in a new one, a new one
+    /// after an upgrade. One the owner removed isn't added again, as `preset_defaults` remembers it was. A saved one whose
+    /// text is still one orrery shipped before (`was`) takes today's; one the owner changed keeps theirs. Says how many
+    /// it added.
+    pub async fn seed(&mut self) -> Result<usize> {
+        changes::begin(self.conn).await?;
+        let done = self.seed_within().await;
+        changes::finish(self.conn, None, &Effects::default(), done).await
+    }
+
+    async fn seed_within(&mut self) -> Result<usize> {
+        let rows = sqlx::query("SELECT key FROM preset_defaults").fetch_all(&mut *self.conn).await?;
+        let seeded: Vec<String> = rows.iter().map(|r| r.get("key")).collect();
+        let due: Vec<&Shipped> = SHIPPED.iter().filter(|d| !seeded.contains(&d.key)).collect();
+        for shipped in &due {
+            let now = stamp();
+            sqlx::query(&sql("INSERT INTO presets (project, name, text, icon, color, default_key, created_by, owned, created_at, updated_at) \
+                 VALUES (NULL, ?, ?, ?, ?, ?, 'orrery', 1, ?, ?)"))
+            .bind(&shipped.name)
+            .bind(&shipped.text)
+            .bind(&shipped.icon)
+            .bind(&shipped.color)
+            .bind(&shipped.key)
+            .bind(&now)
+            .bind(&now)
+            .execute(&mut *self.conn)
+            .await?;
+            sqlx::query(&sql("INSERT INTO preset_defaults (key, seeded_at) VALUES (?, ?)")).bind(&shipped.key).bind(&now).execute(&mut *self.conn).await?;
+        }
+        for shipped in SHIPPED.iter() {
+            for old in &shipped.was {
+                sqlx::query(&sql("UPDATE presets SET text = ?, updated_at = ? WHERE default_key = ? AND text = ?"))
+                    .bind(&shipped.text)
+                    .bind(stamp())
+                    .bind(&shipped.key)
+                    .bind(old)
+                    .execute(&mut *self.conn)
+                    .await?;
+            }
+        }
+        Ok(due.len())
     }
 }
 

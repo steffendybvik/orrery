@@ -96,12 +96,12 @@ async function readAgain(store: Store) {
     store.epicsChanged()
 }
 
-/** Follows the feed from `after` (the newest row when there's no cursor), a page at a time, until `stop`. `read` gets a
- * page; `saved` keeps the cursor. Pages come once a second, as the feed's own stream looks, or at once while there's
- * more. */
+/** Follows the feed from `after` (`newest` when there's no cursor, which the first page answers with the newest id), a
+ * page at a time, until `stop`. `read` gets a page, or null while there's no API to read; `saved` keeps the cursor.
+ * Pages come once a second, as the feed's own stream looks, or at once while there's more. */
 export async function followOutbox(store: Store, options: {
-    read: (after: number) => Promise<Page>
-    after: number
+    read: (after: number | 'newest') => Promise<Page | null>
+    after: number | 'newest'
     saved: (after: number) => void
     stopped: () => boolean
     every?: number
@@ -117,12 +117,14 @@ export async function followOutbox(store: Store, options: {
         try {
             const page = await options.read(after)
             failing = false
-            await store.relaying(async () => {
-                if (page.gap) await readAgain(store)
-                for (const change of page.changes) if (!store.wroteChange(change.id)) await apply(store, change, unknown)
-            })
-            full = page.changes.length > 0 && page.last > after
-            if (page.last !== after) options.saved(after = page.last)
+            if (page) {
+                await store.relaying(async () => {
+                    if (page.gap) await readAgain(store)
+                    for (const change of page.changes) if (!store.wroteChange(change.id)) await apply(store, change, unknown)
+                })
+                full = page.changes.length > 0 && after !== 'newest' && page.last > after
+                if (page.last !== after) options.saved(after = page.last)
+            }
         } catch (error) {
             if (!failing) console.warn("[orrery] can't read the Rust API's outbox, trying again:", (error as Error).message)
             failing = true
@@ -161,7 +163,7 @@ export function caughtUp(within = 2000): Promise<void> {
 }
 
 /** A page from the API at `url`, with its token and the mark of the database this server is on (`databaseMark`). */
-export async function readPage(api: {url: string, token: string}, database: string, after: number): Promise<Page> {
+export async function readPage(api: {url: string, token: string}, database: string, after: number | 'newest'): Promise<Page> {
     // This server's own work, so no login is checked (`OWN_WORK` in api-router.ts, which imports this file).
     const response = await fetch(`${api.url.replace(/\/+$/, '')}/api/changes?after=${after}`, {headers: {'Orrery-Api-Token': api.token, 'Orrery-Database': database, 'Orrery-Came': 'server'}})
     if (!response.ok) throw new Error(`the outbox answered ${response.status}`)

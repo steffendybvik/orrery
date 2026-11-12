@@ -106,6 +106,15 @@ async fn a_cursor_whose_row_isnt_kept_is_a_gap_carrying_on_from_the_newest() {
 }
 
 #[tokio::test]
+async fn after_newest_gives_no_rows_and_where_to_start() {
+    let api = TestApi::new().await;
+    assert_eq!(api.get("/api/changes?after=newest").send().await.body, json!({"changes": [], "last": 0}));
+    change(&api, "project.changed", Some("primes"), None, false, AT).await;
+    let second = change(&api, "project.changed", Some("primes"), None, false, AT).await;
+    assert_eq!(api.get("/api/changes?after=newest").send().await.body, json!({"changes": [], "last": second}));
+}
+
+#[tokio::test]
 async fn after_is_a_whole_number() {
     let api = TestApi::new().await;
     for after in ["abc", "-1", "1.5", "1e3"] {

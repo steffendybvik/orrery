@@ -32,7 +32,7 @@ beforeEach(async () => {
     vi.stubGlobal('setResponseStatus', (event: {status?: number}, status: number) => void (event.status = status))
     vi.stubGlobal('notFound', (message: string) => Object.assign(new Error(message), {statusCode: 404}))
     vi.resetModules()
-    vi.doMock('../server/utils/store', () => ({Store: fake('Store', {seedPresets: async () => void calls.push('seedPresets'), settings: async () => ({uid: 'x7k2m9qd'})})}))
+    vi.doMock('../server/utils/store', () => ({Store: fake('Store', {settings: async () => ({uid: 'x7k2m9qd'})})}))
     vi.doMock('../server/utils/secrets', () => ({Secrets: fake('Secrets', {scrubber: () => 'scrub', own: () => 'own', ownsFor: () => true})}))
     vi.doMock('../server/utils/pulls', () => ({GITHUB_SECRET: 'GITHUB_TOKEN', Pulls: fake('Pulls')}))
     vi.doMock('../server/utils/branches', () => ({Branches: fake('Branches')}))
@@ -114,12 +114,11 @@ describe("events.ts's helpers", () => {
             .toEqual({project: 'greenhouse', issue: 'GRE-1', release: undefined, context: 'context review', actor: 'steffen'})
     })
 
-    it('points the store and the event log at the database it moved to, and seeds it with the presets', async () => {
+    it('points the store and the event log at the database it moved to, leaving the presets to the API', async () => {
         const store = events.useStore() as unknown as {db: unknown}
         const log = events.useEventLog() as unknown as {db: unknown}
         events.rebindDatabase('new' as never)
         expect([store.db, log.db]).toEqual(['new', 'new'])
-        await vi.waitFor(() => expect(calls).toContain('seedPresets'))
     })
 
     it("passes on what happened, and what changed to the event log too, once the write commits", async () => {

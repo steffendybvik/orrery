@@ -493,10 +493,19 @@ export function urgentOf(header: string | null): {project: string, issue: string
 
 /** The API this server started itself (`plugins/api.ts`), once it's listening. */
 let started: {url: string, token: string} | null = null
+/** Who hears each time the API this server started begins listening: at boot, and again after a move (ORR-1035). */
+const whenStarted = new Set<() => void>()
 
 export function apiStarted(api: {url: string, token: string} | null) {
     started = api
     if (api) apiStarting(false)
+    if (api) for (const heard of [...whenStarted]) heard()
+}
+
+/** Calls `heard` each time the API this server starts begins listening; gives back what stops it. */
+export function onApiStarted(heard: () => void): () => void {
+    whenStarted.add(heard)
+    return () => void whenStarted.delete(heard)
 }
 
 /** Whether this server is starting the API now (at boot, or again after a move, ORR-1035), and who waits for it. */

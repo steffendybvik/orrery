@@ -280,7 +280,7 @@ paths:
     put:
       x-served: false
       summary: 'The feature counts the local app gathered in memory, sent once a minute: each added to its day, and those over a year old dropped (ORR-1089)'
-      description: 'Only the Nuxt server''s own call (`Orrery-Came: server`). A count that isn''t one refuses them all.'
+      description: 'Only the Nuxt server''s own call (`Orrery-Came: server`). A count that isn''t one refuses them all. While the owner has counting off (`count_use`), they''re dropped, not kept (ORR-1136).'
       requestBody:
         required: true
         content: {application/json: {schema: {type: object, required: [counts], properties: {counts: {type: array, items: {type: object, properties: {feature: {type: string}, day: {type: string}, count: {type: integer}}}}}}}}
@@ -1911,6 +1911,14 @@ paths:
       parameters: [{$ref: '#/components/parameters/actor'}]
       responses:
         '200': {description: The ones added back, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/Preset'}}}}}
+        '403': {$ref: '#/components/responses/Forbidden'}
+  /api/presets/seed:
+    post:
+      x-served: false
+      summary: 'Adds the presets orrery ships that this orrery hasn''t had yet, as the local app starts or moves to another database (ORR-1136)'
+      description: 'Only the Nuxt server''s own call (`Orrery-Came: server`). One the owner removed isn''t added again; a saved one still with a text orrery shipped before takes today''s.'
+      responses:
+        '200': {description: How many it added, content: {application/json: {schema: {type: object, properties: {added: {type: integer}}}}}}
         '403': {$ref: '#/components/responses/Forbidden'}
   /api/presets/{preset}:
     parameters: [{$ref: '#/components/parameters/preset'}]

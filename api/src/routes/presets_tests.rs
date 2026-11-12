@@ -233,3 +233,49 @@ async fn a_preset_orrery_doesnt_ship_cant_be_reset() {
     assert_eq!(reply.status, 409);
     assert_eq!(reply.body["message"], format!("Resetting preset {id}: Mine isn't one orrery ships, so it has no default"));
 }
+
+async fn seeded(api: &TestApi) -> i64 {
+    let reply = api.post("/api/presets/seed", json!({})).send().await;
+    assert_eq!(reply.status, 200, "{}", reply.body);
+    reply.body["added"].as_i64().unwrap()
+}
+
+#[tokio::test]
+async fn seeding_adds_those_orrery_ships_once_and_not_one_the_owner_removed() {
+    let api = TestApi::new().await;
+    assert_eq!(seeded(&api).await, 4);
+    assert_eq!(seeded(&api).await, 0, "each is seeded once");
+    let all = api.get("/api/presets").send().await.body;
+    assert_eq!(all.as_array().unwrap().len(), 4);
+    let review = shipped(&all, "review")["id"].as_i64().unwrap();
+    assert_eq!(api.delete(&format!("/api/presets/{review}")).send().await.status, 204);
+    assert_eq!(seeded(&api).await, 0);
+    assert_eq!(api.get("/api/presets").send().await.body.as_array().unwrap().len(), 3, "a removed one stays removed");
+    assert_eq!(api.count("SELECT COUNT(*) FROM preset_defaults").await, 4);
+}
+
+#[tokio::test]
+async fn seeding_brings_an_old_shipped_text_up_to_date_and_keeps_the_owners() {
+    let api = TestApi::new().await;
+    seeded(&api).await;
+    let shipped_json: Value = serde_json::from_str(include_str!("../../../web/shared/presets.json")).unwrap();
+    let release = shipped_json.as_array().unwrap().iter().find(|p| p["key"] == "release").unwrap();
+    let old = release["was"][0].as_str().unwrap();
+    let all = api.get("/api/presets").send().await.body;
+    let release_id = shipped(&all, "release")["id"].as_i64().unwrap();
+    let review_id = shipped(&all, "review")["id"].as_i64().unwrap();
+    api.run("UPDATE presets SET text = ? WHERE id = ?", &[old, &release_id.to_string()]).await;
+    assert_eq!(api.patch(&format!("/api/presets/{review_id}"), json!({"text": "Mine"})).send().await.status, 200);
+    seeded(&api).await;
+    let all = api.get("/api/presets").send().await.body;
+    assert_eq!(shipped(&all, "release")["text"], release["text"]);
+    assert_eq!(shipped(&all, "review")["text"], "Mine");
+}
+
+#[tokio::test]
+async fn only_the_local_app_seeds_them() {
+    let api = TestApi::new().await;
+    let reply = api.post("/api/presets/seed", json!({})).header("orrery-came", "loopback").send().await;
+    assert_eq!(reply.status, 403, "{}", reply.body);
+    assert_eq!(api.count("SELECT COUNT(*) FROM presets").await, 0);
+}

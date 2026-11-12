@@ -1,5 +1,6 @@
 // Presets: the context a session can be started with, the orrery's or a project's. Those orrery ships
-// (shared/presets.ts) are seeded once each, can be reset to what it ships, and restored once removed.
+// (shared/presets.ts) are seeded once each by the Rust API (`POST /api/presets/seed`, ORR-1136), can be reset to what
+// it ships, and restored once removed.
 import {DEFAULT_PRESETS, asShipped} from '#shared/presets'
 import type {Preset} from '#shared/roadmap'
 import {badRequest, checkInput, conflict, notFound} from '../utils/input'
@@ -20,24 +21,6 @@ export abstract class PresetStore extends ProjectStore {
         const row = Number.isInteger(id) ? await this.get<PresetRow>(`SELECT ${PRESET} FROM presets WHERE id = ?`, id) : undefined
         if (!row) throw notFound(`No preset ${id}`)
         return presetOf(row)
-    }
-
-    /** Adds the presets orrery ships that this orrery hasn't had yet, as it starts: all of them in a new one, a new
-     * one after an upgrade. One the owner removed isn't added again. A saved one whose text is still one orrery
-     * shipped before (`was`) takes today's; one the owner changed keeps theirs. Says how many it added. */
-    async seedPresets(): Promise<number> {
-        return await this.db.transaction(async () => {
-            const seeded = new Set((await this.all<{key: string}>('SELECT key FROM preset_defaults')).map(r => r.key))
-            const due = DEFAULT_PRESETS.filter(d => !seeded.has(d.key))
-            for (const d of due) {
-                await this.addDefault(d)
-                await this.run('INSERT INTO preset_defaults (key, seeded_at) VALUES (?, ?)', d.key, stamp())
-            }
-            for (const d of DEFAULT_PRESETS) {
-                for (const old of d.was ?? []) await this.run('UPDATE presets SET text = ?, updated_at = ? WHERE default_key = ? AND text = ?', d.text, stamp(), d.key, old)
-            }
-            return due.length
-        })
     }
 
     /** Puts a default preset back as orrery ships it: its name, text and badge. The owner's only. */

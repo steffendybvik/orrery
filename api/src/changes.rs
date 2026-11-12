@@ -169,9 +169,17 @@ pub fn cursor(after: Option<&str>) -> Result<i64> {
 }
 
 /// The rows after `after` (0, or none, for the oldest kept), oldest first, a page at a time: `{changes, last}`, `last`
-/// being the id to ask after next (`after` itself when there's nothing new).
+/// being the id to ask after next (`after` itself when there's nothing new). `after=newest` gives no rows and the newest
+/// id, where a reader with no cursor of its own starts (the Nuxt server's outbox follower, ORR-1136).
 pub async fn after(conn: &mut AnyConnection, after: Option<&str>) -> Result<Value> {
+    if after.map(str::trim) == Some("newest") {
+        return Ok(json!({"changes": [], "last": newest(conn).await?}));
+    }
     page(conn, cursor(after)?).await
+}
+
+async fn newest(conn: &mut AnyConnection) -> Result<i64> {
+    Ok(sqlx::query(&sql("SELECT CAST(COALESCE(MAX(id), 0) AS BIGINT) AS n FROM changes")).fetch_one(&mut *conn).await?.get("n"))
 }
 
 /// The page after `after`. A cursor whose row isn't kept (pruned, or from another database) answers `{changes: [],
@@ -180,8 +188,7 @@ async fn page(conn: &mut AnyConnection, after: i64) -> Result<Value> {
     if after > 0 {
         let kept: i64 = sqlx::query(&sql("SELECT CAST(COUNT(*) AS BIGINT) AS n FROM changes WHERE id = ?")).bind(after).fetch_one(&mut *conn).await?.get("n");
         if kept == 0 {
-            let newest: i64 = sqlx::query(&sql("SELECT CAST(COALESCE(MAX(id), 0) AS BIGINT) AS n FROM changes")).fetch_one(&mut *conn).await?.get("n");
-            return Ok(json!({"changes": [], "last": newest, "gap": true}));
+            return Ok(json!({"changes": [], "last": newest(conn).await?, "gap": true}));
         }
     }
     let rows = sqlx::query(&sql(

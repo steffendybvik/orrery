@@ -383,27 +383,27 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         expect(domainOf('POST', '/api/events/log/prune')).toBeUndefined()
     })
 
-    it('keeps, reads and forgets the feature counts as the routes here did (ORR-1089)', async () => {
-        // The store's side is utils/usage.ts reading the same table, with Nitro's database stubbed.
-        vi.stubGlobal('useDatabase', () => store.db)
-        vi.resetModules()
-        const usage = await import('../server/utils/usage')
+    it('keeps, reads and forgets the feature counts, while counting is on (ORR-1089, ORR-1136)', async () => {
+        // The routes here are gone, and this server reads no row for them, so this holds the API to what they answered.
         const day = (ago: number) => new Date(Date.now() - ago * 86_400_000).toISOString().slice(0, 10)
         const counts = [{feature: 'chat', day: day(1), count: 2}, {feature: 'chat', day: day(60), count: 3}, {feature: 'page:board', day: day(0), count: 5}, {feature: 'backup-now', day: day(400), count: 9}]
+        expect((await viaApi('PUT', '/api/usage', {counts}, OWNER)).status).toBe(204)
+        const chat = async () => ((await viaApi('GET', '/api/usage', undefined, OWNER)).body as {features: {feature: string, last: string | null, days30: number, days90: number}[]}).features.find(f => f.feature === 'chat')!
+        expect(await chat()).toMatchObject({last: null, days90: 0})
+        await store.updateSettings({count_use: true}, OWNER)
         expect((await viaApi('PUT', '/api/usage', {counts}, OWNER)).status).toBe(204)
         expect((await viaApi('PUT', '/api/usage', {counts: [{feature: 'chat', day: day(1), count: 1}]}, OWNER)).status).toBe(204)
         const read = await viaApi('GET', '/api/usage', undefined, OWNER)
         expect(read.status).toBe(200)
-        expect(read.body).toEqual({on: (await store.settings()).count_use, features: JSON.parse(JSON.stringify(await usage.featureUse()))})
-        expect((read.body as {features: {feature: string, days90: number}[]}).features.find(f => f.feature === 'chat')!.days90).toBe(6)
+        expect(read.body).toMatchObject({on: true})
+        expect(await chat()).toEqual({feature: 'chat', label: 'Starting a chat', last: day(1), days30: 3, days90: 6})
         expect(await viaApi('GET', '/api/usage', undefined, AGENT)).toMatchObject({status: 403, body: {message: 'How the features are used is the owner\'s to read'}})
         expect((await viaApi('PUT', '/api/usage', {counts: [{feature: 'Not One', day: day(0), count: 1}]}, OWNER)).status).toBe(400)
         expect((await viaApi('DELETE', '/api/usage', undefined, AGENT)).status).toBe(403)
         expect((await viaApi('DELETE', '/api/usage', undefined, OWNER)).status).toBe(204)
-        expect((await usage.featureUse()).every(f => f.last === null)).toBe(true)
+        expect(await chat()).toMatchObject({last: null, days90: 0})
         for (const method of ['GET', 'DELETE']) expect(domainOf(method, '/api/usage'), method).toBe('usage')
         for (const method of ['POST', 'PUT']) expect(domainOf(method, '/api/usage'), method).toBeUndefined()
-        vi.unstubAllGlobals()
     })
 
     it('gives the permissions table as the route here did (ORR-1086)', async () => {
@@ -3092,7 +3092,7 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         // back as it was between them. Ids are looked up by name at each step, and taken out of messages, as the two
         // sides' new ones differ on Postgres.
         type Step = [string, (project: string) => Promise<Outcome>, () => Promise<Outcome>]
-        await store.seedPresets()
+        await store.restorePresets(OWNER)
         const uid = (await store.settings()).uid
         const idOf = async (name: string) => (await store.presets('through-api')).concat(await store.presets('through-store')).find(p => p.name === name)?.id ?? 0
         const withoutIds = async (outcome: Promise<Outcome>) => {
