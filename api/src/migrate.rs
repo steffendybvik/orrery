@@ -413,12 +413,17 @@ mod tests {
         assert_eq!((migrated.from, migrated.to), (88, latest(Dialect::Sqlite)));
         let mut conn = AnyConnection::connect(&format!("sqlite://{path}")).await.unwrap();
         // Named Default, coloured as the orrery's tint, as old as its oldest project.
-        assert_eq!(rows(&mut conn, "SELECT id, name, color, created_at FROM workspaces").await, vec![some(&["default", "Default", "teal", "2026-03-01T00:00:00.000Z"])]);
+        assert_eq!(
+            rows(&mut conn, "SELECT id, name, color, created_at FROM workspaces").await,
+            vec![some(&["default", "Default", "teal", "2026-03-01T00:00:00.000Z"])]
+        );
         // The owner holds it; members stay on the boards they're on until access reads workspaces (step 3).
         assert_eq!(rows(&mut conn, "SELECT workspace, person, role FROM workspace_members").await, vec![some(&["default", "ziggy", "owner"])]);
         assert_eq!(rows(&mut conn, "SELECT id, workspace FROM projects ORDER BY id").await, vec![some(&["alpha", "default"]), some(&["beta", "default"])]);
         // A project made as today, naming no workspace, lands in the default one.
-        exec(&mut conn, "INSERT INTO projects (id, name, key, created_by, created_at, updated_at) VALUES ('gamma', 'Gamma', 'GAM', 'ziggy', 'x', 'x')").await.unwrap();
+        exec(&mut conn, "INSERT INTO projects (id, name, key, created_by, created_at, updated_at) VALUES ('gamma', 'Gamma', 'GAM', 'ziggy', 'x', 'x')")
+            .await
+            .unwrap();
         assert_eq!(rows(&mut conn, "SELECT workspace FROM projects WHERE id = 'gamma'").await, vec![some(&["default"])]);
     }
 
@@ -433,8 +438,14 @@ mod tests {
         assert_eq!(workspaces, vec![vec![Some("default".into()), Some("Default".into()), None]], "no tint, no colour");
         assert!(rows(&mut conn, "SELECT person FROM workspace_members").await.is_empty());
         // Projects reach it by their key; one naming a workspace that isn't there is refused.
-        exec(&mut conn, "INSERT INTO projects (id, name, key, created_by, created_at, updated_at) VALUES ('alpha', 'Alpha', 'ALP', 'x', 'x', 'x')").await.unwrap();
-        let stray = exec(&mut conn, "INSERT INTO projects (id, name, key, created_by, created_at, updated_at, workspace) VALUES ('beta', 'Beta', 'BET', 'x', 'x', 'x', 'nowhere')").await;
+        exec(&mut conn, "INSERT INTO projects (id, name, key, created_by, created_at, updated_at) VALUES ('alpha', 'Alpha', 'ALP', 'x', 'x', 'x')")
+            .await
+            .unwrap();
+        let stray = exec(
+            &mut conn,
+            "INSERT INTO projects (id, name, key, created_by, created_at, updated_at, workspace) VALUES ('beta', 'Beta', 'BET', 'x', 'x', 'x', 'nowhere')",
+        )
+        .await;
         assert!(stray.is_err(), "a project's workspace must be there");
     }
 
