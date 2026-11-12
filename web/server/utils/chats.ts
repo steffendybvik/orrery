@@ -11,7 +11,7 @@ import {known} from '#shared/known'
 import {refusedFor} from './permission'
 import {anotherPersons, sessionHeader} from './actor'
 import {scheduleAsk, scheduleDrift, scheduleRequest} from './schedule-requests'
-import {onlyWords, settingsNow, writeToApi} from './api-router'
+import {docNow, onlyWords, settingsNow, writeToApi} from './api-router'
 
 // The owner's chats: a Claude session started for one alone (launches.ts `startChat`), which the owner talks to on the
 // page instead of in a terminal. It answers questions about the project and makes issues and comments when asked;
@@ -636,7 +636,7 @@ async function askDoc(id: string, body: Record<string, unknown>): Promise<ChatMe
     const refused = Object.keys(fields).filter(key => !Object.hasOwn(CHAT_DOC_FIELDS, key))
     if (refused.length) throw forbidden(`The owner's chat sets a doc's ${Object.keys(CHAT_DOC_FIELDS).join(', ')}, not its ${refused.join(', ')}`)
     if (target !== undefined && target !== null && typeof target !== 'string') throw badRequest('Send "id" as the doc to change, or leave it out to make one')
-    const current = typeof target === 'string' ? await useStore().doc(project, target) : undefined
+    const current = typeof target === 'string' ? await docNow(project, target) : undefined
     const input = checkInput(fields, DOC_FIELDS, !!current)
     const title = input.title === undefined ? undefined : String(input.title).trim()
     if (title === '') throw badRequest('A doc needs a title')
@@ -973,7 +973,7 @@ async function answerDoc(chat: Chat, request: ChatDocRequest, allow: boolean, ac
 
 /** Refuses (409) a change to doc `id` that's no longer what the owner was shown (`was`); 404 when it's gone. */
 async function stillAsShown(project: string, id: string, was: {title: string, section: string | null, body: string}) {
-    const now = await useStore().doc(project, id)
+    const now = await docNow(project, id)
     if (now.title !== was.title || now.body !== was.body || (now.section ?? null) !== was.section) throw conflict(`Doc "${id}" has changed since then`)
 }
 

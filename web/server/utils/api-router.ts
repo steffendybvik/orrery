@@ -27,7 +27,7 @@ import {carriedInto} from './carried-over'
 import {forgetRoster} from './roster'
 import type {Input} from './input'
 import {revLabel} from './events'
-import type {IssueScope, Project, Settings} from '#shared/roadmap'
+import type {Doc, IssueScope, Project, Settings} from '#shared/roadmap'
 import type {Store} from './store'
 import {withoutClosed, withoutNotes} from '#shared/patch'
 
@@ -812,6 +812,11 @@ export async function projectIdOf(project: string): Promise<string> {
 /** This orrery's settings, read from the API, or from `store` with none set up (ORR-1133). */
 export async function settingsNow(store: Pick<Store, 'settings'> = useStore()): Promise<Settings> {
     return (await readFromApi<Settings>('/api/settings')) ?? await store.settings()
+}
+
+/** A project's doc, with its body, read from the API (a 404 when it isn't there), or the store with none set up (ORR-1133). */
+export async function docNow(project: string, id: string): Promise<Doc> {
+    return (await readFromApi<Doc>(`/api/projects/${encodeURIComponent(project)}/docs/${encodeURIComponent(id)}`)) ?? await useStore().doc(project, id)
 }
 
 /** This orrery's id (`settings.id`), read from the API, or the store with none set up (ORR-1139). */
