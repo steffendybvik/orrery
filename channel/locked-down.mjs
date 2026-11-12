@@ -13,9 +13,9 @@ import {NOT_FOR_CHAT, NOT_FOR_UNTRUSTED} from './tools.mjs'
  * settings (their allow lists among them), so the repo's hooks are passed back on their own. Its one MCP server is
  * orrery's channel, which the launcher hands it itself (ORR-1066): not the repo's .mcp.json, whose other servers would
  * give it tools beyond orrery's. */
-export function lockedDown(dir, server) {
+export function lockedDown(dir, server, beside) {
     return ['--restricted', '--tools', '', '--permission-mode', 'dontAsk', '--settings', JSON.stringify({hooks: hooksOf(dir)}),
-        '--strict-mcp-config', '--mcp-config', JSON.stringify(channelOnly(dir, server)),
+        '--strict-mcp-config', '--mcp-config', JSON.stringify(channelOnly(dir, server)), ...besideArgs(beside),
         '--allowedTools', `mcp__${server}`,
         '--disallowedTools', ...[...NOT_FOR_UNTRUSTED, 'more_tools'].map(tool => `mcp__${server}__${tool}`)]
 }
@@ -23,9 +23,16 @@ export function lockedDown(dir, server) {
 /** How the owner's chat session is started: with the Claude Code settings of the machine it runs on, as a terminal there
  * (ORR-750), so what they allow it may do, what they deny it may not, and what they'd ask about it asks. orrery holds it
  * only to its own rules: the channel but its tools that take up work (its GitHub reads among what it keeps, ORR-748). */
-export function chatOnly(dir, server) {
-    return ['--allowedTools', `mcp__${server}`,
+export function chatOnly(dir, server, beside) {
+    return [...besideArgs(beside), '--allowedTools', `mcp__${server}`,
         '--disallowedTools', ...NOT_FOR_CHAT.map(tool => `mcp__${server}__${tool}`)]
+}
+
+/** orrery's `/mcp` beside the channel (`beside`, from mcp-beside.mjs, ORR-1102): its entry, its tools allowed, as
+ * `/mcp` holds each kind of session to its own list itself; and the Claude session id it's for, when it's a new one. */
+export function besideArgs(beside) {
+    if (!beside) return []
+    return [...beside.fresh ? ['--session-id', beside.session] : [], '--mcp-config', JSON.stringify(beside.config), '--allowedTools', `mcp__${beside.name}`]
 }
 
 /** The MCP config an untrusted session loads: only the folder's `server`, orrery's channel, as its .mcp.json has it;

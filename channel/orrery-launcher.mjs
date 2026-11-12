@@ -47,8 +47,10 @@ import {commandsFor, homeFolder, homeProjects, setUpHome} from './home-folder.mj
 import {authHeaders, keyFor, keysFile} from './credentials.mjs'
 import {addToList, adoptable, configFile, inWsl, install, listChanges, listIn, readConfig, removeService, restartKeepsSessions, servedElsewhere, serviceProblem, uninstall, wslLocalhost} from './launcher-service.mjs'
 import {agentFor} from './agents.mjs'
+import {resumeArgs} from './locked-down.mjs'
 import {repoContext} from './repo-context.mjs'
 import {channelFor, channelsIn, projectsIn, servesEvery} from './repo-channels.mjs'
+import {besideFor, servesMcp} from './mcp-beside.mjs'
 import {follow} from './sse.mjs'
 import {openWatch} from './terminal.mjs'
 import {BOOTSTRAP, CODE, VERSION, codeOnDisk, launcherMove, olderThan, servedOtherCode, versionOnDisk} from './version.mjs'
@@ -538,8 +540,14 @@ function part(entry) {
         const startedOn = await orreryIdOf(url)
         const env = {ORRERY_URL: url, ORRERY_PROJECT: project, ORRERY_STARTED: launch.id, ...startedOn ? {ORRERY_STARTED_ON: startedOn} : {}, ORRERY_REPO_TOLD: 'yes', ORRERY_AFTER: String(launch.after), ...hears.length ? {ORRERY_HEAR: hears.join(',')} : {}, ...launch.untrusted ? {ORRERY_UNTRUSTED: 'yes'} : {}, ...launch.chat ? {ORRERY_CHAT: 'yes'} : {}, ...launch.global ? {ORRERY_GLOBAL: 'yes'} : {}, ...launch.person ? {ORRERY_PERSON: launch.person} : {}, ...keyFor(url) ? {ORRERY_KEY: keyFor(url)} : {}}
         const server = channelFor(folder, url, project)?.name ?? project
+        // orrery's `/mcp` beside the channel, when the orrery serves it and the agent can have it (ORR-1102): the channel
+        // then lists only its own tools. Otherwise the channel has every tool, as before.
+        const beside = agent.mcpBeside && await servesMcp(url, {headers: authHeaders(url)})
+            ? besideFor({url, server, launch, person: launch.person, auth: authHeaders(url), resume: resumeArgs(launch)[1]})
+            : undefined
+        if (beside) env.ORRERY_TOOLS = 'local'
         tmux('new-session', '-d', '-s', launch.tmux, '-c', folder, ...Object.entries(env).flatMap(([k, v]) => ['-e', `${k}=${v}`]),
-            ...agent.command({dir: folder, server, launch, mode, told: where}))
+            ...agent.command({dir: folder, server, launch, mode, told: where, beside}))
         tmux('set-option', '-t', launch.tmux, LAUNCHER, String(process.pid))
         running.set(launch.id, {tmux: launch.tmux, api, context: launch.context, ...launch.untrusted ? {untrusted: true} : {}, ...launch.chat ? {chat: true} : {}, ...launch.global ? {global: true} : {}, ...launch.model ? {model: launch.model} : {}, ...launch.effort ? {effort: launch.effort} : {}})
         if (launch.model) tmux('set-option', '-t', launch.tmux, MODEL, launch.model)
