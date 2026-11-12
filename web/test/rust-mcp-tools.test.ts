@@ -1,6 +1,7 @@
 // The Rust API's copy of the channel's tool lists (ORR-1098, api/mcp-tools.json): what `/mcp` lists to a work session,
 // the chat and an untrusted session (api/src/mcp/tools.rs), as channel/tools.mjs has them, and the chat's request
-// actions `request_fields` describes. The lists are still written
+// actions `request_fields` describes. Only what `/mcp` serves (`split: 'served'`): the channel keeps the rest
+// (`CHANNELS_OWN`, ORR-1102). The lists are still written
 // in channel/tools.mjs. Then, to port a change:
 //
 //   ORRERY_WRITE_MCP_TOOLS=1 pnpm --dir web exec vitest run --project unit test/rust-mcp-tools.test.ts
@@ -10,25 +11,26 @@
 import {existsSync, readFileSync, writeFileSync} from 'node:fs'
 import {fileURLToPath} from 'node:url'
 import {describe, expect, it} from 'vitest'
-import {CHAT_REQUESTS, ON_DEMAND, SCOPED, toolsFor} from '../../channel/tools.mjs'
+import {CHANNELS_REQUESTS, CHAT_REQUESTS, SCOPED, SERVED_ON_DEMAND, toolsFor} from '../../channel/tools.mjs'
 
 const FILE = fileURLToPath(new URL('../../api/mcp-tools.json', import.meta.url))
 const CHECKS = fileURLToPath(new URL('../../api/mcp-tools-checks.json', import.meta.url))
 const ONE = ['one']
-const groups = Object.keys(ON_DEMAND)
+const groups = Object.keys(SERVED_ON_DEMAND)
+const served = 'served'
 
 /** The lists for one project, before `tools_for` adds `project` for several: a work session's with every group loaded. */
 function expected(): string {
-    const work = toolsFor(ONE, {loaded: groups})
-    const moreTools = toolsFor(ONE).find(t => t.name === 'more_tools')
+    const work = toolsFor(ONE, {loaded: groups, split: served})
+    const moreTools = toolsFor(ONE, {split: served}).find(t => t.name === 'more_tools')
     return `${JSON.stringify({
         work,
-        chat: toolsFor(ONE, {chat: true}),
-        untrusted: toolsFor(ONE, {untrusted: true}),
+        chat: toolsFor(ONE, {chat: true, split: served}),
+        untrusted: toolsFor(ONE, {untrusted: true, split: served}),
         more_tools: moreTools,
-        on_demand: ON_DEMAND,
+        on_demand: SERVED_ON_DEMAND,
         scoped: SCOPED,
-        chat_requests: CHAT_REQUESTS,
+        chat_requests: CHAT_REQUESTS.filter(r => !CHANNELS_REQUESTS.includes(r.name)),
     }, null, 1)}\n`
 }
 
@@ -43,7 +45,7 @@ function checks(): string {
         {name: 'chat, two projects', projects: two, kind: 'chat', loaded: []},
         {name: 'untrusted, two projects', projects: two, kind: 'untrusted', loaded: []},
     ]
-    return `${JSON.stringify(cases.map(c => ({...c, tools: toolsFor(c.projects, {chat: c.kind === 'chat', untrusted: c.kind === 'untrusted', loaded: c.loaded})})), null, 1)}\n`
+    return `${JSON.stringify(cases.map(c => ({...c, tools: toolsFor(c.projects, {chat: c.kind === 'chat', untrusted: c.kind === 'untrusted', loaded: c.loaded, split: served})})), null, 1)}\n`
 }
 
 describe("the Rust API's copy of the channel's tool lists", () => {

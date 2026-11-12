@@ -117,6 +117,10 @@ project from the id (`HUB-12` is hub's); the others take `project`, and each `<c
 `ORRERY_HEAR` in a session's environment narrows that to the projects it names (`ORRERY_HEAR=hub claude …` hears only
 hub); a session orrery starts gets it from Start session, so one started for Hub hears Hub alone, and one started
 with no project ticked gets none, so where the channel lists `*` it hears every project.
+`ORRERY_TOOLS=local` runs the channel beside orrery's own MCP server at `/mcp` ([ORR-1102](/p/orrery/issues/ORR-1102)).
+The channel then lists only what needs this machine or isn't served at `/mcp` yet (`sessions`, `next`, `start_issue`,
+`finish_issue`, `link_folder`, `egress`, `branches`, the GitHub tools, and the chat's session requests), and it still
+pushes what the session hears. Without it, the channel has every tool, as an older install does. Nothing sets it yet.
 `ORRERY_ID` is the orrery's id (on its Connect page, or `GET /api/settings`): the channel refuses another orrery at
 `ORRERY_URL`, so a repo set up for one never writes to another after an address changes. A repo that works with two
 Orrerys has one server for each. An older setup, a server per project with `ORRERY_PROJECT`, works the same.
