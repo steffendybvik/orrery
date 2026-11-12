@@ -2238,6 +2238,20 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         expect((await rows('through-api')).filter(row => row.startsWith('issue.project '))).toHaveLength(2)
     })
 
+    it('reads and names the owner alike, refusing what it refuses (ORR-1036)', async () => {
+        // The database is shared, so the owner keeps their id here: naming them anew is rust/people_tests.rs's.
+        if (!(await store.ownerOf()).named) await store.nameOwner({name: 'Steffen'})
+        const steps: [string, () => Promise<unknown>, string, unknown, Actor, number?][] = [
+            ['read', () => store.ownerOf(), 'GET', undefined, AGENT],
+            ['named again, the same', () => store.nameOwner({name: ' Steffen '}, OWNER), 'PUT', {name: ' Steffen '}, OWNER],
+            ['by anyone but the owner', () => store.nameOwner({name: 'Mallory'}, AGENT), 'PUT', {name: 'Mallory'}, AGENT],
+            ['as claude', () => store.nameOwner({name: 'Claude'}, OWNER), 'PUT', {name: 'Claude'}, OWNER],
+            ['with no letter', () => store.nameOwner({name: '!!'}, OWNER), 'PUT', {name: '!!'}, OWNER],
+            ['with a field it doesn\'t take', () => store.nameOwner({name: 'Steffen', nope: 1}, OWNER), 'PUT', {name: 'Steffen', nope: 1}, OWNER],
+        ]
+        for (const [name, step, method, body, actor] of steps) await both(name, () => viaStore(step), () => viaApi(method, '/api/owner', body, actor))
+    })
+
     it('changes many issues alike, each on its own, the refused ones saying why (ORR-927)', async () => {
         const start = (await store.db.get<{n: number | null}>('SELECT max(id) AS n FROM changes'))?.n ?? 0
         const before = (await store.db.get<{n: number | null}>('SELECT max(id) AS n FROM signals'))?.n ?? 0
@@ -3618,7 +3632,7 @@ describe('the router', () => {
     })
 
     it('routes by a table with a line per domain, so taking one back is taking its line out (ORR-925)', () => {
-        expect(DOMAINS.map(({domain}) => domain)).toEqual(['docs', 'statuses', 'permissions', 'issues, reading', 'comments', 'an issue, deleted', 'an issue, made', 'an issue, its words', 'issues, changed at once', 'a proposal, decided', 'claims', 'activity', 'milestones', 'releases', 'releases, every project\'s', 'people', 'invites', 'board members', 'keys', 'logins', 'uploads, reading', 'an upload, kept', 'presets', 'secrets, reading', 'settings', 'a pull request, reading', "a pull request's risk", 'schedules, reading', 'a schedule, adopted', 'a schedule, deleted', 'a schedule, changed', 'a schedule, made', 'a schedule across projects, deleted', 'schedules, paused or activated', 'a schedule, asked for', 'a schedule, answered', 'signals, reading', 'projects, listed', 'a project, made', 'a project, changed', 'a project, read', 'a project, deleted', 'a project, exported', 'a project, imported', 'the event log, read', 'an event, resolved', 'usage', 'the bell', 'epics', 'milestone and epic comments'])
+        expect(DOMAINS.map(({domain}) => domain)).toEqual(['docs', 'statuses', 'permissions', 'issues, reading', 'comments', 'an issue, deleted', 'an issue, made', 'an issue, its words', 'issues, changed at once', 'a proposal, decided', 'claims', 'activity', 'milestones', 'releases', 'releases, every project\'s', 'people', 'invites', 'owner', 'board members', 'keys', 'logins', 'uploads, reading', 'an upload, kept', 'presets', 'secrets, reading', 'settings', 'a pull request, reading', "a pull request's risk", 'schedules, reading', 'a schedule, adopted', 'a schedule, deleted', 'a schedule, changed', 'a schedule, made', 'a schedule across projects, deleted', 'schedules, paused or activated', 'a schedule, asked for', 'a schedule, answered', 'signals, reading', 'projects, listed', 'a project, made', 'a project, changed', 'a project, read', 'a project, deleted', 'a project, exported', 'a project, imported', 'the event log, read', 'an event, resolved', 'usage', 'the bell', 'epics', 'milestone and epic comments'])
         expect(domainOf('PATCH', '/api/projects/p/docs/d')).toBe('docs')
         expect(domainOf('head', '/api/projects/p/doc-sections/')).toBe('docs')
         for (const method of ['POST', 'DELETE']) expect(domainOf(method, '/api/projects/p/issues/P-1/claim'), method).toBe('claims')
@@ -3771,7 +3785,7 @@ describe('the contract (api/openapi.yaml)', () => {
     const routes = () => [...new Set([...nuxtRoutes(), ...rustRoutes()])].sort().filter(route => servedByApi(methodOf(route), pathOf(route)))
 
     it('has every route the router sends to the API, and no other', () => {
-        expect(contract()).toHaveLength(118)
+        expect(contract()).toHaveLength(120)
         expect(contract()).toEqual(routes())
     })
 

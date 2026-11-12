@@ -41,6 +41,24 @@ pub struct Ways {
 /// What agents and orrery send or stand for (`RESERVED`): as a person's id, each would make them all that person.
 const RESERVED: [&str; 4] = ["owner", "agent", "claude", "orrery"];
 const INVITE_DAYS: i64 = 7;
+/// What the owner made, noted by its `created_by` and `owned`, which naming them moves to their new id (`nameOwner`).
+const OWNED_TABLES: [&str; 15] = [
+    "projects",
+    "milestones",
+    "issues",
+    "docs",
+    "doc_revisions",
+    "comments",
+    "signals",
+    "schedules",
+    "issue_events",
+    "secrets",
+    "uploads",
+    "releases",
+    "epics",
+    "presets",
+    "issue_links",
+];
 /// How long a login lasts (`LOGIN_DAYS`), and how often a key's or a login's use is noted (`USED_EVERY`, a minute).
 pub const LOGIN_DAYS: i64 = 30;
 const USED_EVERY: i64 = 60_000;
@@ -295,6 +313,108 @@ impl<'c> People<'c> {
             }
         };
         Ok(person_json(&self.person(&id).await?))
+    }
+
+    /// The owner (`GET /api/owner`, `ownerOf`): their id, which the page sends as `Orrery-Actor`, the name it shows,
+    /// and whether they've given it yet. Before they have, both are `owner`.
+    pub async fn owner(&mut self) -> Result<Value> {
+        let row = sqlx::query("SELECT id, name FROM people WHERE role = 'owner'").fetch_optional(&mut *self.conn).await?;
+        Ok(match row {
+            Some(row) => json!({"name": row.get::<String, _>("id"), "display": row.get::<String, _>("name"), "named": true}),
+            None => json!({"name": "owner", "display": "owner", "named": false}),
+        })
+    }
+
+    /// Names the owner (`PUT /api/owner` {name}, `nameOwner`): anyone may the first time (the page asks on first open),
+    /// then only the owner. `Sköll Fenrisson` makes the id `skoll_fenrisson`. What was theirs under the old id (what they
+    /// made, what's assigned to them, their decisions) moves to the new one, in one transaction with its outbox row.
+    pub async fn name_owner(&mut self, body: &Value, actor: &Actor) -> Result<Value> {
+        let before = self.owner().await?;
+        if before["named"] == true && !actor.owner {
+            return Err(ApiError::forbidden("Only the owner renames the owner; send Orrery-Actor: <owner>"));
+        }
+        let display = person_name(body)?;
+        let name = actor_id(&display);
+        if name.is_empty() {
+            return Err(ApiError::bad_request("The name needs a letter or a digit in it"));
+        }
+        if name == "agent" {
+            return Err(ApiError::bad_request("\"agent\" is what requests without Orrery-Actor are; pick another name"));
+        }
+        // Every agent sends this one, as the guide tells it to: as the owner's name it would make them all the owner.
+        if name == "claude" {
+            return Err(ApiError::bad_request("\"claude\" is what agents send as Orrery-Actor; pick another name"));
+        }
+        let old = before["name"].as_str().unwrap_or("owner").to_string();
+        if name != old
+            && sqlx::query(&sql("SELECT 1 AS one FROM people WHERE id = ? AND role <> 'owner'")).bind(&name).fetch_optional(&mut *self.conn).await?.is_some()
+        {
+            return Err(ApiError::conflict(format!("\"{name}\" is someone else on this orrery; pick another name")));
+        }
+        self.effects.settings = true;
+        if name != old {
+            for row in sqlx::query("SELECT id FROM projects").fetch_all(&mut *self.conn).await? {
+                self.effects.changed.push(row.get("id"));
+            }
+        }
+        changes::begin(self.conn).await?;
+        let done: Result<()> = async {
+            let now = stamp();
+            let renamed =
+                sqlx::query(&sql("UPDATE people SET id = ?, name = ? WHERE role = 'owner'")).bind(&name).bind(&display).execute(&mut *self.conn).await?;
+            if renamed.rows_affected() == 0 {
+                sqlx::query(&sql("INSERT INTO people (id, name, role, created_at) VALUES (?, ?, 'owner', ?)"))
+                    .bind(&name)
+                    .bind(&display)
+                    .bind(&now)
+                    .execute(&mut *self.conn)
+                    .await?;
+            }
+            // The first person owns the one workspace there is so far (ORR-1106); a rename carries along (ON UPDATE CASCADE).
+            sqlx::query(&sql("INSERT INTO workspace_members (workspace, person, role, created_at) SELECT 'default', ?, 'owner', ? \
+                 WHERE NOT EXISTS (SELECT 1 FROM workspace_members WHERE workspace = 'default' AND person = ?)"))
+            .bind(&name)
+            .bind(&now)
+            .bind(&name)
+            .execute(&mut *self.conn)
+            .await?;
+            sqlx::query(&sql("UPDATE project_members SET person = ? WHERE person = ?")).bind(&name).bind(&old).execute(&mut *self.conn).await?;
+            // Boards made before there was anyone to hold them are the owner's.
+            sqlx::query(&sql("INSERT INTO project_members (project, person, role, created_at) SELECT id, ?, 'owner', created_at FROM projects \
+                 WHERE NOT EXISTS (SELECT 1 FROM project_members WHERE project = projects.id AND role = 'owner') \
+                 ON CONFLICT (project, person) DO NOTHING"))
+            .bind(&name)
+            .execute(&mut *self.conn)
+            .await?;
+            if name == old {
+                return Ok(());
+            }
+            sqlx::query(&sql("UPDATE comments SET person = ? WHERE person = ?")).bind(&name).bind(&old).execute(&mut *self.conn).await?;
+            for table in OWNED_TABLES {
+                sqlx::query(&sql(&format!("UPDATE {table} SET created_by = ? WHERE owned = 1 AND lower(created_by) = ?")))
+                    .bind(&name)
+                    .bind(&old)
+                    .execute(&mut *self.conn)
+                    .await?;
+            }
+            for (table, column) in [
+                ("schedules_across", "created_by"),
+                ("issues", "assignee"),
+                ("issues", "decided_by"),
+                ("events", "resolved_by"),
+                ("schedule_requests", "answered_by"),
+            ] {
+                sqlx::query(&sql(&format!("UPDATE {table} SET {column} = ? WHERE lower({column}) = ?")))
+                    .bind(&name)
+                    .bind(&old)
+                    .execute(&mut *self.conn)
+                    .await?;
+            }
+            Ok(())
+        }
+        .await;
+        changes::finish(self.conn, self.outbox.as_mut(), &self.effects, done).await?;
+        self.owner().await
     }
 
     /// Renames a member (`PATCH /api/people/:person`): the owner's only. Only the name changes, as their id stays what

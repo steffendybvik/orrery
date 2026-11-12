@@ -892,6 +892,25 @@ paths:
         '403': {$ref: '#/components/responses/Forbidden'}
         '404': {$ref: '#/components/responses/NotFound'}
         '409': {$ref: '#/components/responses/Conflict'}
+  /api/owner:
+    get:
+      summary: The owner
+      description: Their id, which the page sends as `Orrery-Actor`, the name it shows for them, and whether they've given it yet (the page asks on first open). Before they have, both are `owner`.
+      responses:
+        '200': {description: The owner, content: {application/json: {schema: {$ref: '#/components/schemas/Owner'}}}}
+    put:
+      summary: Names the owner
+      description: |
+        `Sköll Fenrisson` makes the id `skoll_fenrisson`. Anyone may the first time; then only the owner (403). What was
+        theirs under the old id (what they made, what's assigned to them, their decisions) moves to the new one. `agent`
+        and `claude` are refused (400), and so is someone else's id (409).
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/PersonInput'}}}}
+      responses:
+        '200': {description: The owner, named, content: {application/json: {schema: {$ref: '#/components/schemas/Owner'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
   /api/people:
     get:
       summary: Everyone on this orrery
@@ -2131,6 +2150,13 @@ components:
         name: {type: string}
         role: {type: string, enum: [owner, member], description: '`owner` for the board''s holder'}
         created_at: {type: string, format: date-time}
+    Owner:
+      type: object
+      required: [name, display, named]
+      properties:
+        name: {type: string, description: Their id, which the page sends as `Orrery-Actor`}
+        display: {type: string, description: Their name as the page shows it}
+        named: {type: boolean, description: Whether they've given their name yet}
     Person:
       type: object
       required: [id, name, role, created_at]

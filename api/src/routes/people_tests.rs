@@ -719,3 +719,38 @@ async fn a_board_takes_only_someone_here_and_named_as_a_string() {
     assert_eq!(api.get("/api/projects/nowhere/members").send().await.status, 404);
     assert_eq!(api.delete("/api/projects/nowhere/members/ana").send().await.status, 404);
 }
+
+#[tokio::test]
+async fn the_owner_is_unnamed_until_they_give_their_name_which_anyone_may_the_first_time() {
+    let api = TestApi::new().await;
+    let unnamed = api.get("/api/owner").send().await;
+    assert_eq!(unnamed.body, json!({"name": "owner", "display": "owner", "named": false}));
+    let named = api.put("/api/owner", json!({"name": " Sköll Fenrisson "})).by_agent("someone").send().await;
+    assert_eq!(named.status, 200, "{}", named.body);
+    assert_eq!(named.body, json!({"name": "skoll_fenrisson", "display": "Sköll Fenrisson", "named": true}));
+    assert_eq!(api.get("/api/owner").send().await.body, named.body);
+    assert_eq!(api.count("SELECT count(*) AS n FROM workspace_members WHERE workspace = 'default' AND person = 'skoll_fenrisson' AND role = 'owner'").await, 1);
+    // Then only the owner renames them.
+    let refused = api.put("/api/owner", json!({"name": "Mallory"})).by_agent("someone").send().await;
+    assert_eq!(refused.status, 403, "{}", refused.body);
+}
+
+#[tokio::test]
+async fn naming_the_owner_moves_what_was_theirs_to_the_new_id_and_refuses_reserved_and_taken_names() {
+    let api = TestApi::new().await;
+    api.owner().await;
+    api.member("ada", "Ada").await;
+    let project = api.project("Primes").await;
+    let issue = api.issue(&project, json!({"title": "Sieve", "assignee": "steffen"})).await;
+    for (name, status) in [("Claude", 400), ("agent", 400), ("Ada", 409), ("!!", 400)] {
+        let reply = api.put("/api/owner", json!({"name": name})).header("orrery-actor-name", "steffen").send().await;
+        assert_eq!(reply.status, status, "{name}: {}", reply.body);
+    }
+    let renamed = api.put("/api/owner", json!({"name": "Stef"})).header("orrery-actor-name", "steffen").send().await;
+    assert_eq!(renamed.status, 200, "{}", renamed.body);
+    assert_eq!(renamed.body["name"], "stef");
+    assert_eq!(api.count(&format!("SELECT count(*) AS n FROM issues WHERE id = '{issue}' AND assignee = 'stef'")).await, 1);
+    assert_eq!(api.count("SELECT count(*) AS n FROM project_members WHERE person = 'stef' AND role = 'owner'").await, 1);
+    assert_eq!(api.count("SELECT count(*) AS n FROM people WHERE id = 'steffen'").await, 0);
+    assert!(api.outbox().await.iter().any(|c| c.line().contains("settings")), "the page hears the settings changed");
+}

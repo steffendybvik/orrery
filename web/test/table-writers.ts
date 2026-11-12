@@ -16,6 +16,8 @@ const BELL: Writer = {alone: 'the bell (store/owner.ts clearNotices, readNotices
 /** The tables written from a table name the code picks (`format!("… {} …", thread.table())`), by file under api/src. */
 export const DYNAMIC: Record<string, string[]> = {
     'board/threads.rs': ['milestone_comments', 'epic_comments'],
+    // Naming the owner moves what was theirs to their new id (ORR-1036).
+    'access/people.rs': ['projects', 'milestones', 'issues', 'docs', 'doc_revisions', 'comments', 'signals', 'schedules', 'issue_events', 'secrets', 'uploads', 'releases', 'epics', 'presets', 'issue_links', 'schedules_across', 'events', 'schedule_requests'],
 }
 
 export const WRITERS: Record<string, Writer> = {

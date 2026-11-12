@@ -15,6 +15,7 @@ use std::sync::Arc;
 
 pub(crate) fn routes() -> Router<Arc<App>> {
     Router::new()
+        .route("/api/owner", get(owner).put(name_owner))
         .route("/api/people", get(list_people).post(add_person))
         .route("/api/people/{person}", patch(rename_person).delete(remove_person))
         .route("/api/invites", post(invite))
@@ -48,6 +49,21 @@ async fn remove_member(State(app): Shared, Path((project, person)): Path<(String
     people.outbox = Some(Outbox::new(actor_of(&headers)));
     people.remove_member(&project, &person, &actor_of(&headers)).await?;
     Ok(reply(StatusCode::NO_CONTENT, None, std::mem::take(&mut people.effects)))
+}
+
+/// `GET /api/owner` → {name, display, named} (ORR-1036).
+async fn owner(State(app): Shared) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    Ok(Json(People::new(&mut conn).owner().await?).into_response())
+}
+
+/// `PUT /api/owner` {name} → the owner, named: anyone the first time, then only the owner (ORR-1036).
+async fn name_owner(State(app): Shared, headers: HeaderMap, body: Bytes) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    let mut people = People::new(&mut conn);
+    people.outbox = Some(Outbox::new(actor_of(&headers)));
+    let owner = people.name_owner(&body_of(&body), &actor_of(&headers)).await?;
+    Ok(reply(StatusCode::OK, Some(owner), std::mem::take(&mut people.effects)))
 }
 
 async fn list_people(State(app): Shared) -> Result<Response> {
