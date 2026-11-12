@@ -428,6 +428,45 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn step_90_puts_the_servers_rows_in_the_default_workspace_and_agent_keys_but_not_person_keys() {
+        let (path, mut conn) = sqlite_at(89).await;
+        exec(
+            &mut conn,
+            "INSERT INTO people (id, name, role, created_at) VALUES ('ziggy', 'Ziggy', 'owner', 'x');
+             INSERT INTO keys (id, person, kind, name, hash, created_at) VALUES ('k1', 'ziggy', 'agent', 'claude', 'h1', 'x'), ('k2', 'ziggy', 'person', 'phone', 'h2', 'x');
+             INSERT INTO epics (title, created_at, updated_at, created_by) VALUES ('Workspaces', 'x', 'x', 'ziggy');",
+        )
+        .await
+        .unwrap();
+        conn.close().await.unwrap();
+
+        migrate(&path, None).await.unwrap();
+        let mut conn = AnyConnection::connect(&format!("sqlite://{path}")).await.unwrap();
+        assert_eq!(rows(&mut conn, "SELECT id, workspace FROM keys ORDER BY id").await, vec![some(&["k1", "default"]), vec![Some("k2".into()), None]]);
+        assert_eq!(rows(&mut conn, "SELECT title, workspace FROM epics").await, vec![some(&["Workspaces", "default"])]);
+        // The statuses a new orrery seeds are in it too.
+        assert_eq!(rows(&mut conn, "SELECT DISTINCT workspace FROM statuses").await, vec![some(&["default"])]);
+        for table in [
+            "statuses",
+            "presets",
+            "preset_defaults",
+            "secrets",
+            "secret_uses",
+            "epics",
+            "events",
+            "chats",
+            "schedules_across",
+            "session_people",
+            "invites",
+            "uploads",
+            "feature_use",
+        ] {
+            let columns = rows(&mut conn, &format!("SELECT dflt_value FROM pragma_table_info('{table}') WHERE name = 'workspace' AND \"notnull\" = 1")).await;
+            assert_eq!(columns, vec![some(&["'default'"])], "{table}'s rows are in the default workspace");
+        }
+    }
+
+    #[tokio::test]
     async fn a_new_orrery_has_the_default_workspace_with_nobody_in_it_yet() {
         let (path, conn) = sqlite_at(0).await;
         conn.close().await.unwrap();
