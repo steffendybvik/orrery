@@ -126,6 +126,11 @@ export abstract class ProjectStore extends KeyStore {
     /** Whether orrery may start sessions for the project, and within what: the orrery's, as the owner lets it start
      * them for every project at once; none while they haven't. */
     async starts(project: string): Promise<Starts | undefined> {
+        // The project's own fields from the API when it's set up (ORR-1133): a 404 when it isn't there, and `starts`
+        // left out while the owner hasn't let orrery start sessions.
+        const {readFromApi} = await import('../utils/api-router')
+        const read = await readFromApi<{starts?: Starts}>(`/api/projects/${encodeURIComponent(project)}?notes=0&closed=0`)
+        if (read) return read.starts
         await this.projectRow(project)
         return await this.orreryStarts()
     }

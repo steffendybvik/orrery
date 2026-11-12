@@ -1623,6 +1623,16 @@ paths:
         '400': {$ref: '#/components/responses/BadRequest'}
         '403': {$ref: '#/components/responses/Forbidden'}
         '404': {$ref: '#/components/responses/NotFound'}
+  /api/projects/{project}/signals/last:
+    parameters:
+      - {$ref: '#/components/parameters/project'}
+    get:
+      x-served: false
+      summary: 'The id of the project''s latest signal, 0 before its first (ORR-1133)'
+      description: 'Where the local app starts a session''s stream from (`lastSignal`), read over HTTP rather than from the database.'
+      responses:
+        '200': {description: 'Its id', content: {application/json: {schema: {type: object, properties: {id: {type: integer}}}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
   /api/projects/{project}/signals/retarget:
     parameters:
       - {$ref: '#/components/parameters/project'}

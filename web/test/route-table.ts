@@ -129,6 +129,7 @@ export const NOT_ROUTED: Readonly<Record<string, Line>> = {
     'GET /api/projects/{project}/sessions/{session}/next': SESSIONS,
     'POST /api/projects/{project}/sessions/{session}/stop': SESSIONS,
     'GET /api/projects/{project}/signals/stream': SESSIONS,
+    'GET /api/projects/{project}/signals/last': {rustOnly: "the latest signal's id, where the local app starts a session's stream from (`lastSignal`, ORR-1133)"},
     'POST /api/projects/{project}/signals': SIGNAL,
     'POST /api/projects/{project}/signals/retarget': SIGNAL,
     'POST /api/projects/{project}/signals/{signal}/delivered': SESSIONS,
