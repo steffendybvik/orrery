@@ -22,6 +22,17 @@ pub(crate) fn routes() -> Router<Arc<App>> {
         .route("/api/chats/{chat}/setting-requests", post(ask_setting))
         .route("/api/chats/{chat}/schedule-requests", post(ask_schedule))
         .route("/api/chats/{chat}/release-requests", post(ask_release))
+        .route("/api/chats/{chat}/doc-requests", post(ask_doc))
+}
+
+/// `POST /api/chats/:chat/doc-requests` {doc, id?, project?, why?} → 201 the message asking (ORR-1100): the chat's
+/// `create_doc` and `update_doc`, kept as a request the owner allows or denies on the chat's page.
+async fn ask_doc(State(app): Shared, Path(chat): Path<String>, headers: HeaderMap, body: Bytes) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    let mut chats = Chats::new(&mut conn);
+    chats.outbox = Some(Outbox::new(actor_of(&headers)));
+    let asked = chats.ask_doc(&chat, &body_of(&body)).await?;
+    Ok(reply(StatusCode::CREATED, Some(asked), std::mem::take(&mut chats.effects)))
 }
 
 /// `POST /api/chats/:chat/release-requests` {release, version?, project?, why?} → 201 the message asking (ORR-1100): the

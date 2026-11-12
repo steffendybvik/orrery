@@ -345,7 +345,22 @@ impl<'c> Chats<'c> {
         }
     }
 
-    /// Keeps `request` in the chat as its `kind` (`schedule`, `release`), with `body`'s `why` for its words, and expires
+    /// The chat's session asking to make a doc, or change doc `id` (its `create_doc` and `update_doc`, `askDoc`): `{doc,
+    /// id?, project?, why?}`, `doc` its title, section and text, on the project it names or else the chat's own. Kept as
+    /// a request in the chat holding only what would change and the doc as it was, which saves nothing until the owner
+    /// allows it, and which the local app hears (ORR-1100). One it asked before for the same doc, still unanswered,
+    /// expires. A 404 when the chat isn't running.
+    pub async fn ask_doc(&mut self, chat: &str, body: &Value) -> Result<Value> {
+        let own = self.running(chat).await?;
+        let project = self.project_for(&own, body).await?;
+        let mut request = crate::board::docs::Docs::new(&mut *self.conn).chat_request(&project, body.get("doc"), body.get("id")).await?;
+        if project != own {
+            request["project"] = json!(project);
+        }
+        self.ask(chat, "doc", "id", request, body).await
+    }
+
+    /// Keeps `request` in the chat as its `kind` (`schedule`, `release`, `doc`), with `body`'s `why` for its words, and expires
     /// one of that kind asked before with the same `key`, still unanswered.
     async fn ask(&mut self, chat: &str, kind: &str, key: &str, request: Value, body: &Value) -> Result<Value> {
         let why = body.get("why").and_then(Value::as_str).map(str::trim).unwrap_or_default().to_string();

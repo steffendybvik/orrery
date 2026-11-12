@@ -470,3 +470,62 @@ async fn the_chat_asks_only_for_what_releases_take() {
     assert_eq!(ask(json!({"version": 1, "release": {"notes": "x"}})).await.status, 400);
     assert!(api.get("/api/chats/c1").send().await.body["messages"].as_array().unwrap().is_empty());
 }
+
+#[tokio::test]
+async fn the_chat_asks_to_make_a_doc_and_nothing_is_saved_until_allowed() {
+    let api = TestApi::new().await;
+    let project = api.project("Primes").await;
+    api.put("/api/chats/c1", chat("c1", &project, "2026-11-01T10:00:00.000Z")).send().await;
+    let asked = api.post("/api/chats/c1/doc-requests", json!({"doc": {"title": " Plan ", "section": " ", "body": "Sieve"}, "why": "You asked"})).send().await;
+    assert_eq!(asked.status, 201, "{}", asked.body);
+    assert_eq!(asked.body["text"], "You asked");
+    assert_eq!(asked.body["doc"], json!({"title": "Plan", "body": {"title": "Plan", "section": null, "body": "Sieve"}, "state": "asked"}));
+    assert_eq!(api.get("/api/chats/c1").send().await.body["messages"][0], asked.body);
+    assert_eq!(api.get(&format!("/api/projects/{project}/docs")).send().await.body, json!([]), "nothing is saved until the owner allows it");
+    let read = api.get("/api/changes").send().await.body;
+    assert!(read["changes"].as_array().unwrap().iter().any(|c| c["kind"] == "chat" && c["subject"] == "c1"), "{read}");
+}
+
+#[tokio::test]
+async fn the_chat_asks_to_change_a_doc_with_only_what_changes_and_as_it_was() {
+    let api = TestApi::new().await;
+    let project = api.project("Primes").await;
+    api.put("/api/chats/c1", chat("c1", &project, "2026-11-01T10:00:00.000Z")).send().await;
+    api.post(&format!("/api/projects/{project}/docs"), json!({"title": "Plan", "body": "Sieve", "section": "How"})).send().await;
+    let asked = api.post("/api/chats/c1/doc-requests", json!({"id": "plan", "doc": {"title": "Plan", "body": "Sieve faster"}})).send().await;
+    assert_eq!(asked.status, 201, "{}", asked.body);
+    assert_eq!(
+        asked.body["doc"],
+        json!({"id": "plan", "was": {"title": "Plan", "section": "How", "body": "Sieve"}, "title": "Plan", "body": {"body": "Sieve faster"}, "state": "asked"})
+    );
+    let same = api.post("/api/chats/c1/doc-requests", json!({"id": "plan", "doc": {"title": "Plan", "section": "How"}})).send().await;
+    assert_eq!(same.status, 409);
+    assert_eq!(same.body["message"], "Doc plan is like that already: nothing would change");
+    api.post("/api/chats/c1/doc-requests", json!({"doc": {"title": "Other"}})).send().await;
+    api.post("/api/chats/c1/doc-requests", json!({"id": "plan", "doc": {"section": null}})).send().await;
+    let messages = api.get("/api/chats/c1").send().await.body["messages"].clone();
+    let states: Vec<&str> = messages.as_array().unwrap().iter().map(|m| m["doc"]["state"].as_str().unwrap()).collect();
+    assert_eq!(states, ["expired", "asked", "asked"]);
+    assert_eq!(messages[2]["doc"]["body"], json!({"section": null}));
+}
+
+#[tokio::test]
+async fn the_chat_asks_only_for_a_docs_title_section_and_text_and_only_while_it_runs() {
+    let api = TestApi::new().await;
+    let project = api.project("Primes").await;
+    let other = api.project("Evens").await;
+    api.put("/api/chats/c1", chat("c1", &project, "2026-11-01T10:00:00.000Z")).send().await;
+    let kind = api.post("/api/chats/c1/doc-requests", json!({"doc": {"title": "X", "kind": "artifact"}})).send().await;
+    assert_eq!(kind.status, 403);
+    assert_eq!(kind.body["message"], "The owner's chat sets a doc's title, section, body, not its kind");
+    assert_eq!(api.post("/api/chats/c1/doc-requests", json!({"doc": {}})).send().await.status, 400);
+    assert_eq!(api.post("/api/chats/c1/doc-requests", json!({"doc": {"body": "No title"}})).send().await.status, 400);
+    assert_eq!(api.post("/api/chats/c1/doc-requests", json!({"id": 3, "doc": {"title": "X"}})).send().await.status, 400);
+    assert_eq!(api.post("/api/chats/c1/doc-requests", json!({"id": "nope", "doc": {"title": "X"}})).send().await.status, 404);
+    let there = api.post("/api/chats/c1/doc-requests", json!({"doc": {"title": "X"}, "project": other})).send().await;
+    assert_eq!(there.body["doc"]["project"], json!(other));
+    let mut over = chat("c1", &project, "2026-11-01T10:00:00.000Z");
+    over["ended_at"] = json!("2026-11-01T11:00:00.000Z");
+    api.put("/api/chats/c1", over).send().await;
+    assert_eq!(api.post("/api/chats/c1/doc-requests", json!({"doc": {"title": "X"}})).send().await.status, 404);
+}
