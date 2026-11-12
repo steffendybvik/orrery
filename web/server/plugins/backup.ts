@@ -12,7 +12,7 @@ export default defineNitroPlugin(nitro => {
     snapshotsBy(async to => !!await writeToApi('POST', '/api/database/snapshot', {to}, ORRERY_ACTOR, {always: true}))
     const backups = new BackupScheduler({
         target: backupTarget,
-        fresh: () => isFresh(useDatabase()),
+        fresh: databaseFresh,
         backUp: target => backUpTo(useDatabase(), target, backupKeep()),
         every: backupEvery,
         // Where the data is can change (a move from App settings), so how long to wait is worked out each time.
@@ -26,11 +26,10 @@ export default defineNitroPlugin(nitro => {
     /** Notes the name it runs under in the database, for its backups to carry, and says so loudly when it starts empty:
      * there are backups to restore, or, in Docker, its data may be in a volume with another name. */
     async function starting() {
-        const db = useDatabase()
-        // Its id too, made now if it hasn't been asked for yet.
-        await useStore().settings()
-        await noteEnvironment(db, String(useRuntimeConfig().public.environment || 'personal'))
-        if (!await isFresh(db)) return
+        // Its id too, made now if it hasn't been asked for yet: the API's settings make it as the store's do.
+        if (!await writeToApi('GET', '/api/settings', undefined, ORRERY_ACTOR, {always: true})) await useStore().settings()
+        await keepEnvironment(String(useRuntimeConfig().public.environment || 'personal'))
+        if (!await databaseFresh()) return
         const target = backupTarget()
         const found = target?.kind === 'folder' ? listSnapshots(target.dir) : []
         const latest = found[0]

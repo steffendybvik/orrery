@@ -1,4 +1,5 @@
 import {connectPieces, idsFor, lockedBrief} from '#shared/connect'
+import type {ProjectSummary} from '../../store/schema'
 
 // `GET /connect/<project>.md?session=` → the brief for a Claude session in that project's repo: how to
 // keep its roadmap here, and how to set the repo up (CLAUDE.md, the orrery channel, the hooks). For a
@@ -16,7 +17,7 @@ export default defineEventHandler(async event => {
         const asked = named ?? id
         return lockedBrief(connectPieces({origin: originOf(event), id: idsFor(asked).id, name: asked, key: '', isNew: !!named, session}).url)
     }
-    const project = (await useStore().listProjects()).find(p => p.id === id)
+    const project = ((await readFromApi<ProjectSummary[]>('/api/projects')) ?? await useStore().listProjects()).find(p => p.id === id)
     const name = project?.name ?? named ?? id
     const {brief} = connectPieces({
         origin: originOf(event),
@@ -26,7 +27,7 @@ export default defineEventHandler(async event => {
         isNew: !project,
         session,
         login: await authMode(event) !== 'off',
-        orrery: {id: (await useStore().settings()).id, environment: String(useRuntimeConfig().public.environment || 'personal')},
+        orrery: {id: await orreryId(), environment: String(useRuntimeConfig().public.environment || 'personal')},
     })
     return brief
 })

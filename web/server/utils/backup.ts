@@ -87,9 +87,12 @@ export function snapshotsBy(take: ((to: string) => Promise<boolean>) | null) {
     takenElsewhere = take
 }
 
-/** Writes the SQLite copy beside the latest in `dir`: the API's, when it takes it, so only it reads the database. */
-async function snapshotSqlite(database: SqliteDb, dir: string) {
-    const to = partial(dir)
+/** Writes the SQLite copy beside the latest in `dir`. */
+const snapshotSqlite = (database: SqliteDb, dir: string) => copySqliteTo(database, partial(dir))
+
+/** Writes a SQLite copy of `database` to `to`, a `.partial` file not there yet: the API's, when it takes it, so only it
+ * reads the database (a restore's copy of the database as it was too, ORR-1140). */
+export async function copySqliteTo(database: SqliteDb, to: string) {
     if (takenElsewhere && await takenElsewhere(to)) return
     await database.alone(raw => raw.prepare('VACUUM INTO ?').run(to))
 }
