@@ -1,6 +1,7 @@
 // `/mcp`, orrery's MCP tools over streamable HTTP (ORR-1098): the handlers and the routes they answer. What each JSON-RPC
 // message gets is mcp/mod.rs's; this is the HTTP around it.
 use crate::error::{ApiError, Result};
+use crate::mcp::relay::Relay;
 use crate::mcp::tools::Kind;
 use crate::mcp::{end_session, new_session, Call};
 use crate::request::{actor_of, header, who_of};
@@ -52,7 +53,8 @@ async fn post_mcp(State(app): Shared, headers: HeaderMap, body: Bytes) -> Result
     let initializes = messages.iter().any(|m| m["method"] == "initialize");
     // A new session's id on `initialize`, whatever it came with; else the one it came with.
     let session = if initializes { Some(new_session()) } else { header(&headers, SESSION).filter(|s| !s.is_empty()) };
-    let call = Call { app: &app, headers: &headers, kind: kind_of(&headers), session: session.as_deref() };
+    let relay = Relay::default();
+    let call = Call { app: &app, headers: &headers, kind: kind_of(&headers), session: session.as_deref(), relay: &relay };
     let mut conn = app.pool.acquire().await?;
     let mut answers = Vec::new();
     for message in &messages {
@@ -67,6 +69,8 @@ async fn post_mcp(State(app): Shared, headers: HeaderMap, body: Bytes) -> Result
     } else {
         Json(answers.remove(0)).into_response()
     };
+    // What its tools' routes set off, for the Nuxt router to pass on as for any route's reply.
+    relay.onto(response.headers_mut());
     if let Some(id) = session.filter(|_| initializes).and_then(|id| HeaderValue::from_str(&id).ok()) {
         response.headers_mut().insert(SESSION, id);
     }

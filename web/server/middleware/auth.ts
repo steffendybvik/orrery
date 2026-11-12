@@ -13,7 +13,8 @@ const WRITES = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
 
 export default defineEventHandler(async event => {
     const path = pathOf(event)
-    if (path !== '/api' && !path.startsWith('/api/')) return
+    // `/mcp` too: the Rust API's MCP tools (ORR-1102), each a route of its own inside it.
+    if (path !== '/api' && !path.startsWith('/api/') && path !== '/mcp') return
     const mode = await authMode(event)
     if (mode === 'off') return
     if (OPEN.has(path)) {

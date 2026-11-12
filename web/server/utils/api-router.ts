@@ -583,6 +583,11 @@ const NOT_RUNNING = 'isn\'t running (not started yet, stopped, or not set up)'
 export async function routeToApi(event: H3Event, config: {apiUrl?: unknown, apiToken?: unknown}): Promise<unknown> {
     // Answered here unless the API answers it, which says so instead (`forwardToApi`).
     if (pathOf(event).startsWith('/api/')) setResponseHeader(event, SERVED_BY, 'nuxt')
+    if (pathOf(event) === MCP) {
+        if (!apiTarget(config)) await apiListening()
+        const api = apiTarget(config)
+        return api ? forwardMcp(event, api) : cantReach(event, NOT_RUNNING, 'not-running')
+    }
     const found = lineOf(event.method, pathOf(event))
     if (!found) return undefined
     // A request that comes while the API is starting waits a few seconds for it, rather than failing.
@@ -590,6 +595,58 @@ export async function routeToApi(event: H3Event, config: {apiUrl?: unknown, apiT
     const api = apiTarget(config)
     if (!api) return cantReach(event, NOT_RUNNING, 'not-running')
     return forwardToApi(event, api)
+}
+
+/** What every request sent on to the API carries: the router's token, the database, who's asking and how it came. */
+function headersFor(event: H3Event, api: {url: string, token: string}, actor: Actor): Record<string, string> {
+    return {
+        'Content-Type': getRequestHeader(event, 'content-type') ?? 'application/json',
+        'Orrery-Api-Token': api.token,
+        'Orrery-Database': databaseMark(databaseSetting()),
+        ...actorHeaders(actor),
+        ...askerHeaders(event, actor),
+        ...whoHeaders(event.context.who as Who | undefined, getCookie(event, loginCookie(event)), bearer(event), {origin: getHeader(event, 'origin'), session: getHeader(event, 'orrery-session')}),
+        ...loginHeaders({provider: oidcOn(), off: toldOff(), on: toldOn()}, getRequestURL(event, {xForwardedHost: true, xForwardedProto: true}).origin),
+        ...cameHeaders({loopback: onLoopback(event), proxied: proxied(event), phone: viaPhone(event), https: getRequestURL(event, {xForwardedProto: true}).protocol === 'https:'}, getRequestHost(event)),
+    }
+}
+
+/** `/mcp`, orrery's MCP tools over streamable HTTP, which only the Rust API serves (ORR-1098, ORR-1102). */
+export const MCP = '/mcp'
+
+/** The MCP headers a client and the server pass each other, which the API needs and the client needs back. */
+const MCP_ASKED = ['accept', 'mcp-session-id', 'mcp-protocol-version'] as const
+const MCP_ANSWERED = ['content-type', 'mcp-session-id', 'allow'] as const
+
+/** Sends an `/mcp` request to the API as it came, JSON-RPC errors and all, with who's asking as for any route, and
+ * passes on what its tools' routes set off (`orrery-*`, gathered by the API's mcp/relay.rs) as `relayed` does for a
+ * route's reply: a comment carried to its session and the bell, an urgent push, the event log's lines. */
+export async function forwardMcp(event: H3Event, api: {url: string, token: string}): Promise<unknown> {
+    const actor = await actorOf(event)
+    const body = event.method === 'POST' ? await readRawBody(event, false) : undefined
+    const headers: Record<string, string> = headersFor(event, api, actor)
+    for (const name of MCP_ASKED) {
+        const value = getRequestHeader(event, name)
+        if (value) headers[name] = value
+    }
+    let response: Response
+    try {
+        response = await fetch(`${api.url.replace(/\/+$/, '')}${MCP}`, {method: event.method, headers, body: body ? new Uint8Array(body) : undefined, redirect: 'manual'})
+    } catch (error) {
+        return cantReach(event, `at ${api.url} can't be reached (${(error as Error).message})`)
+    }
+    if (response.status === 421) return cantReach(event, `at ${api.url} is on another database than this server`, 'other-database')
+    unreachable = ''
+    setResponseHeader(event, SERVED_BY, 'rust')
+    const text = await response.text()
+    if (response.ok) await relayed(response, actor, event.method)
+    setResponseStatus(event, response.status)
+    for (const name of MCP_ANSWERED) {
+        const value = response.headers.get(name)
+        if (value) setResponseHeader(event, name, value)
+    }
+    // A notification's 202 has no body: an empty one, so the status stands.
+    return text
 }
 
 /** Sends the request to the API and gives back its reply, or undefined for a request its line's check keeps for the
@@ -606,16 +663,7 @@ export async function forwardToApi(event: H3Event, api: {url: string, token: str
     const shaped = found?.line.reply?.[event.method.toUpperCase()]?.(event)
     const actor = await actorOf(event)
     const body = WRITES.has(event.method) ? await readRawBody(event, false) : undefined
-    const headers = {
-        'Content-Type': getRequestHeader(event, 'content-type') ?? 'application/json',
-        'Orrery-Api-Token': api.token,
-        'Orrery-Database': databaseMark(databaseSetting()),
-        ...actorHeaders(actor),
-        ...askerHeaders(event, actor),
-        ...whoHeaders(event.context.who as Who | undefined, getCookie(event, loginCookie(event)), bearer(event), {origin: getHeader(event, 'origin'), session: getHeader(event, 'orrery-session')}),
-        ...loginHeaders({provider: oidcOn(), off: toldOff(), on: toldOn()}, getRequestURL(event, {xForwardedHost: true, xForwardedProto: true}).origin),
-        ...cameHeaders({loopback: onLoopback(event), proxied: proxied(event), phone: viaPhone(event), https: getRequestURL(event, {xForwardedProto: true}).protocol === 'https:'}, getRequestHost(event)),
-    }
+    const headers = headersFor(event, api, actor)
     let response: Response
     try {
         response = await fetch(`${api.url.replace(/\/+$/, '')}${shaped?.path ?? event.path}`, {method: event.method, headers, body: body ? new Uint8Array(body) : undefined, redirect: 'manual'})

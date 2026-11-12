@@ -370,3 +370,19 @@ async fn rate_pull_reads_the_pr_as_the_channel_does_and_asks_its_route() {
     assert_eq!(said(&rate(json!("ada/primes#12")).send().await), refused);
     assert_eq!(said(&rate(json!("twelve")).send().await), "Give the PR as owner/name#number or its link, not \"twelve\"");
 }
+
+#[tokio::test]
+async fn what_a_tools_routes_set_off_comes_back_on_the_mcp_reply_for_the_router_to_pass_on() {
+    let api = TestApi::new().await;
+    api.project("alpha").await;
+    let made = tool(&api, "create_issue", json!({"title": "Down", "status": "todo", "priority": "P0"})).send().await;
+    let id = said(&made).trim_start_matches("Made ").split(' ').next().unwrap().to_string();
+    assert_eq!(made.said("orrery-urgent"), [format!("alpha {id}")], "the push to the sessions is the router's");
+    assert_eq!(made.header("orrery-changed"), Some("alpha"));
+    let asked = tool(&api, "comment", json!({"id": id, "body": "Which way?", "asks": "decision"})).send().await;
+    assert_eq!(asked.said("orrery-carry"), [format!("alpha {id} 1")], "passing it on to the session is the router's");
+    assert_eq!(asked.told(), [format!("comment.asks alpha {id} ~ decision")]);
+    let read = tool(&api, "issue", json!({"id": id})).send().await;
+    assert_eq!(read.header("orrery-carry"), None, "a read sets nothing off");
+    assert_eq!(read.header("orrery-changed"), None);
+}
