@@ -124,6 +124,7 @@ async fn only_the_local_app_asks_which_session_is_on_which_issue() {
         assert_eq!(door.get(&path).send().await.status, 403, "{path}");
     }
     assert_eq!(door.post(&format!("/api/projects/{project}/issues/{issue}/worked-by"), json!({"session": "a"})).send().await.status, 403);
+    assert_eq!(door.post(&format!("/api/projects/{project}/issue-sessions/rename"), json!({"from": "a", "to": "b"})).send().await.status, 403);
 }
 
 #[tokio::test]
@@ -174,4 +175,25 @@ async fn working_an_issue_ties_it_to_the_session_and_keeps_since_while_its_the_s
     assert_eq!(api.post(&format!("/api/projects/{project}/issues/NOPE-9/worked-by"), json!({"session": "sess-1"})).send().await.status, 204);
     assert_eq!(api.count("SELECT COUNT(*) FROM issue_sessions").await, 1);
     assert_eq!(api.post(&path, json!({})).send().await.status, 400);
+}
+
+#[tokio::test]
+async fn a_sessions_new_id_takes_over_the_issues_its_old_one_worked() {
+    let api = TestApi::new().await;
+    let (project, sieve) = api.board().await;
+    let wheel = api.issue(&project, json!({"title": "Wheel"})).await;
+    let other = api.issue(&project, json!({"title": "Other's"})).await;
+    worked(&api, &project, &sieve, "old-id").await;
+    worked(&api, &project, &wheel, "old-id").await;
+    worked(&api, &project, &other, "someone").await;
+    let path = format!("/api/projects/{project}/issue-sessions/rename");
+    let reply = api.post(&path, json!({"from": "old-id", "to": "new-id"})).send().await;
+    assert_eq!(reply.status, 200, "{}", reply.body);
+    assert_eq!(reply.body, json!({"moved": 2}));
+    assert_eq!(api.count("SELECT COUNT(*) FROM issue_sessions WHERE session = 'new-id'").await, 2);
+    assert_eq!(api.count("SELECT COUNT(*) FROM issue_sessions WHERE session = 'someone'").await, 1);
+    // Again, nothing is left under the old id; and both ids must be named.
+    assert_eq!(api.post(&path, json!({"from": "old-id", "to": "new-id"})).send().await.body, json!({"moved": 0}));
+    assert_eq!(api.post(&path, json!({"from": "old-id"})).send().await.status, 400);
+    assert_eq!(api.post(&path, json!({"from": "", "to": "x"})).send().await.status, 400);
 }

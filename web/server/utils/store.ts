@@ -56,7 +56,7 @@ export class Store extends ImportStore {
     /** A session's new id (after a `/clear`) takes over what its old one worked and was sent, so none of it
      * hangs on the server remembering the old id. */
     async renameSession(project: string, from: string, to: string) {
-        await this.run('UPDATE issue_sessions SET session = ? WHERE project = ? AND session = ?', to, project, from)
+        if (!await sessionWork.rename(project, from, to)) await this.run('UPDATE issue_sessions SET session = ? WHERE project = ? AND session = ?', to, project, from)
         await this.retargetSignals(project, from, to)
     }
 }

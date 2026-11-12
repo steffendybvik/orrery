@@ -51,6 +51,13 @@ describe('the sessions’ bookkeeping through the Rust API (ORR-1141)', () => {
         expect(await store.all('SELECT * FROM issue_sessions')).toEqual([])
     })
 
+    it('moves what a session worked to its new id through the API, and writes nothing here', async () => {
+        await store.run("INSERT INTO issue_sessions (project, issue, session, at, since) VALUES ('greenhouse', 'GRE-1', 'old', 'x', 'x')")
+        await store.renameSession('greenhouse', 'old', 'new')
+        expect(asked).toContain('POST /api/projects/greenhouse/issue-sessions/rename {"from":"old","to":"new"}')
+        expect(await store.all('SELECT session FROM issue_sessions')).toEqual([{session: 'old'}])
+    })
+
     it('reads what a session works on, and what waits for it, from the API', async () => {
         replies['/api/projects/greenhouse/issue-sessions?sessions=a,b'] = {issues: [{id: 'GRE-1', kind: 'started'}], waiting: false, waiting_for: false}
         expect((await store.workingOn('greenhouse', ['a', 'b'])).map(i => i.id)).toEqual(['GRE-1'])

@@ -35,6 +35,8 @@ export const sessionWork = {
     dependents: (project: string, issue: string) => read<{project: string, id: string}[]>(`${at(project)}/issues/${encodeURIComponent(issue)}/dependents`),
     /** Ties the issue to `session`, once this server checked no other session has it started and there to hear. */
     workedBy: (project: string, issue: string, session: string) => write(`${at(project)}/issues/${encodeURIComponent(issue)}/worked-by`, {session}),
+    /** A session's new id (after a `/clear`) takes over the issues its old one worked. */
+    rename: (project: string, from: string, to: string) => write(`${at(project)}/issue-sessions/rename`, {from, to}),
     /** The owner's signals from the last day no session has heard: for the one orrery picks, or scheduled. */
     unheard: (project: string, waiting: 'pooled' | 'scheduled') => read<Signal[]>(`${at(project)}/signals?waiting=${waiting}`),
 }
