@@ -112,7 +112,7 @@ const homeLaunchers = counter('home-launchers')
 const whose = new Map<string, string>()
 
 /** Whose the launch is: who started it (the owner, by name, for every launch in this release), or nobody said. */
-export function launchPerson(id: string): string | undefined {
+function launchPerson(id: string): string | undefined {
     return whose.get(id) ?? pending.get(id)?.person
 }
 

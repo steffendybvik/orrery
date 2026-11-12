@@ -12,13 +12,3 @@ export async function keyHolderOf(event: H3Event): Promise<{person: string, owne
     if (who || !actor.owner) throw refusedFor('keys.write', 'Only a person handles keys, never a session')
     return {person: actor.name.toLowerCase(), owner: true}
 }
-
-/** Whose logins the request may list and end (ORR-838): a browser's own person, and the owner everyone's. Anything else
- * goes through `authorize(event, 'logins.write')`, passed in, so with login off only the owner's page, by name. */
-export async function loginHolderOf(event: H3Event, authorized: () => Promise<{name: string, owner: boolean}>): Promise<{person: string, owner: boolean}> {
-    const who: Who | undefined = event.context.who
-    if (who?.via === 'browser') return {person: who.person, owner: who.owner}
-    const actor = await authorized()
-    if (who || !actor.owner) throw refusedFor('logins.write', 'Only a person ends a login, never a session')
-    return {person: actor.name.toLowerCase(), owner: true}
-}

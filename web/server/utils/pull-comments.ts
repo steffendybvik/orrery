@@ -57,7 +57,7 @@ export function pullComment({repo, kind, pull, review}: PullChange, handle?: str
 }
 
 /** What a merge did to the issue's release, in orrery's words: a sentence to go after the news. */
-export function landedComment(landed: LandedIn | null): string {
+function landedComment(landed: LandedIn | null): string {
     if (!landed) return ''
     if ('set' in landed) return ` That's the branch of release \`${landed.set}\`, so I've set this issue for it.`
     const set = landed.from ? `${landed.from}, above this issue, is set for \`${landed.kept}\`` : `This issue is set for \`${landed.kept}\``

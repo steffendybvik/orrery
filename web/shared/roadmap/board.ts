@@ -543,7 +543,7 @@ export function shortId(kind: IdKind, id: string, uid: string): string | null {
 }
 
 /** The number inside a milestone's or an epic's shown id, in any case: `MLS-14` → `14`; null for anything else. */
-export function shownNumber(kind: 'milestone' | 'epic', id: string): string | null {
+function shownNumber(kind: 'milestone' | 'epic', id: string): string | null {
     const prefix = FULL_PREFIX[kind]
     return startsWith(id, prefix) && /^\d+$/.test(id.slice(prefix.length)) ? id.slice(prefix.length) : null
 }

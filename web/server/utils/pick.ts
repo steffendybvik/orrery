@@ -13,7 +13,7 @@ import {freezeNote, isBlocked} from '#shared/roadmap'
 import type {IssueRecord} from '../store/schema'
 
 /** How many issues a session is handed at most. */
-export const PICK_FROM = 10
+const PICK_FROM = 10
 /** How long after the board changes the idle sessions are tried again, and how far apart. */
 export const RECHECK_AFTER = 5000
 export const PICK_APART = 5000
@@ -47,7 +47,7 @@ export async function handedTo(project: string, issue: {assignee?: string | null
  * oldest), without proposals not yet approved, ones assigned to someone (`forSessions`), ones waiting on the owner's
  * answer, ones blocked by an issue not done yet (ORR-601), sub-issues of one another session is on (ORR-613), and parents
  * (their sub-issues are the work). At most PICK_FROM. */
-export async function pickable(projects: string[], person?: string): Promise<(IssueRecord & {project: string})[]> {
+async function pickable(projects: string[], person?: string): Promise<(IssueRecord & {project: string})[]> {
     const store = useStore()
     const open: (IssueRecord & {project: string})[] = []
     for (const project of projects) {
@@ -69,7 +69,7 @@ export async function pickable(projects: string[], person?: string): Promise<(Is
 }
 
 /** The message a session is handed: what to do, then the list, a line each, with a frozen release's note. */
-export async function pickMessage(issues: (IssueRecord & {project: string})[]): Promise<string> {
+async function pickMessage(issues: (IssueRecord & {project: string})[]): Promise<string> {
     const store = useStore()
     const notes = new Map<string, string | null>()
     const lines: string[] = []
@@ -88,7 +88,7 @@ export async function pickMessage(issues: (IssueRecord & {project: string})[]): 
 /** Why the session isn't out of work, by the rules the push (`pickNext`) and the pull (`nextFor`, ORR-521) share: it's
  * a chat or an untrusted schedule's, it has an issue in progress that isn't parked (waiting on the owner, or in review:
  * ORR-1032) or something waiting on the owner, or a run with issues left. Nothing when it's out of work. */
-export async function stillBusy(project: string, id: string): Promise<string | null> {
+async function stillBusy(project: string, id: string): Promise<string | null> {
     if (chatSession(id)) return "The chat doesn't take up work: it files and delegates it."
     if (untrustedSession(id)) return "An untrusted schedule's session doesn't take up work: it raises proposals."
     const store = useStore()

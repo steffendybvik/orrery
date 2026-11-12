@@ -5,7 +5,7 @@ import {noticeKey} from '#shared/roadmap'
 export const isWaiting = (n: Notice) => !n.cleared && !!n.asks && !n.answered
 
 /** Not yet opened on the notifications page. A proposal has no read state: it waits until decided or cleared. */
-export const isUnread = (n: Notice) => !n.cleared && !n.proposal && !n.read
+const isUnread = (n: Notice) => !n.cleared && !n.proposal && !n.read
 
 /** One line on the notifications page: an issue's notices from one day, or (without `day`) those waiting on the owner,
  * newest first. */
@@ -107,7 +107,7 @@ export function latestMerged(notices: Notice[]): string | null {
 }
 
 /** Markdown as one plain line: links to their text, images and marks gone. */
-export function plainText(markdown: string): string {
+function plainText(markdown: string): string {
     return markdown
         .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
         .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
