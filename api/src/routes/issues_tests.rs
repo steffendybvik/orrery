@@ -459,6 +459,78 @@ async fn moving_an_issue_under_another_puts_it_in_its_parents_milestone_and_lift
     assert_eq!(reply.status, 404);
 }
 
+// Moving one to another project (ORR-1129).
+
+#[tokio::test]
+async fn an_issue_moves_to_another_project_with_its_sub_issues_comments_and_links() {
+    let api = TestApi::new().await;
+    let board = Board::new(&api).await;
+    let other = api.project("Composites").await;
+    api.issue(&other, json!({"title": "Factor"})).await;
+    let top = board.issue(json!({"title": "Sieve"})).await;
+    let child = board.issue(json!({"title": "Bitmap", "parent": top})).await;
+    let waiting = board.issue(json!({"title": "Wheel", "depends_on": [top]})).await;
+    let reply = api.post(&format!("{}/comments", board.at(&top)), json!({"body": "Halfway"})).send().await;
+    assert_eq!(reply.status, 201, "{}", reply.body);
+    let reply = api.patch(&board.at(&top), json!({"project": other, "priority": "P1"})).send().await;
+    assert_eq!(reply.status, 200, "{}", reply.body);
+    assert_eq!((&reply.body["id"], &reply.body["priority"]), (&json!("COM-2"), &json!("P1")), "the rest of the edit is made there");
+    assert_eq!(reply.header("orrery-changed"), Some("composites, primes"));
+    assert!(reply.told().contains(&"issue.project composites COM-2 primes composites".to_string()), "{:?}", reply.told());
+    let theirs = |id: &str| format!("/api/projects/{other}/issues/{id}");
+    let sub = api.get(&theirs("COM-3")).send().await;
+    assert_eq!((&sub.body["title"], &sub.body["parent"]), (&json!("Bitmap"), &json!("COM-2")));
+    let said = api.get(&format!("{}/comments", theirs("COM-2"))).send().await;
+    assert_eq!(said.body[0]["body"], json!("Halfway"));
+    // Its old ids are kept as aliases there, and what depended on it follows it.
+    let by_old = api.get(&theirs(&top)).send().await;
+    assert_eq!(by_old.body["id"], json!("COM-2"), "{}", by_old.body);
+    assert_eq!(api.get(&theirs(&child)).send().await.body["id"], json!("COM-3"));
+    assert_eq!(board.read(&waiting).await["depends_on"], json!(["composites/COM-2"]));
+    assert_eq!(api.get(&board.at(&top)).send().await.status, 404);
+}
+
+#[tokio::test]
+async fn a_moved_issue_goes_under_a_parent_or_into_a_milestone_there_but_not_both() {
+    let api = TestApi::new().await;
+    let board = Board::new(&api).await;
+    let other = api.project("Composites").await;
+    api.post(&format!("/api/projects/{other}/milestones"), json!({"title": "Launch"})).send().await;
+    let theirs = api.issue(&other, json!({"title": "Factor"})).await;
+    let a = board.issue(json!({"title": "Sieve"})).await;
+    let b = board.issue(json!({"title": "Wheel"})).await;
+    let reply = api.patch(&board.at(&a), json!({"project": other, "parent": theirs, "milestone": "1"})).send().await;
+    assert_eq!(reply.status, 400, "{}", reply.body);
+    let reply = api.patch(&board.at(&a), json!({"project": "nowhere"})).send().await;
+    assert_eq!(reply.status, 404);
+    let reply = api.patch(&board.at(&a), json!({"project": other, "parent": theirs})).send().await;
+    assert_eq!((reply.status.as_u16(), &reply.body["parent"], &reply.body["milestone"]), (200, &json!(theirs), &Value::Null), "{}", reply.body);
+    let reply = api.patch(&board.at(&b), json!({"project": other, "milestone": "1"})).send().await;
+    assert_eq!((&reply.body["parent"], &reply.body["milestone"]), (&Value::Null, &json!("1")), "{}", reply.body);
+    assert_eq!(reply.header("orrery-changed"), Some("composites, primes"), "both boards change");
+    // The same project is no move.
+    let c = board.issue(json!({"title": "Gap"})).await;
+    let reply = api.patch(&board.at(&c), json!({"project": board.project, "priority": "P2"})).send().await;
+    assert_eq!((&reply.body["id"], &reply.body["priority"]), (&json!(c), &json!("P2")));
+}
+
+#[tokio::test]
+async fn an_agent_moves_only_what_is_all_its_persons() {
+    let api = TestApi::new().await;
+    api.team().await;
+    let board = Board::new(&api).await;
+    let other = api.project("Composites").await;
+    let ana = board.assigned("Sieve", "ana").await;
+    board.issue(json!({"title": "Bitmap", "parent": ana, "assignee": "bo"})).await;
+    let reply = api.patch(&board.at(&ana), json!({"project": other})).agent_of("ana").send().await;
+    assert_eq!(reply.status, 409, "{}", reply.body);
+    assert!(message(&reply).starts_with("PRI-2 is assigned to bo"), "{}", reply.body);
+    assert_eq!(board.read(&ana).await["id"], json!(ana), "nothing moved");
+    let reply = api.patch(&board.at(&ana), json!({"project": other, "assignee": "bo"})).agent_of("ana").send().await;
+    assert_eq!(reply.status, 409);
+    assert_eq!(board.read(&ana).await["id"], json!(ana), "nothing moved");
+}
+
 #[tokio::test]
 async fn an_issue_cant_go_under_itself_or_its_own_sub_issue() {
     let api = TestApi::new().await;
