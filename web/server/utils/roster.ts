@@ -6,7 +6,12 @@
 // answers, as before.
 import type {BoardMember, Issue, Owner, Person, Project} from '#shared/roadmap'
 import {actorId} from '../store/schema'
-import {readFromApi} from './api-router'
+
+/** `readFromApi`, loaded on the first read: the router brings much with it (image handling among it) that a module
+ * reading who's on a board shouldn't load just by being imported. */
+async function readFromApi<T>(path: string): Promise<T | undefined> {
+    return await (await import('./api-router')).readFromApi<T>(path)
+}
 
 const FRESH_MS = 2000
 
