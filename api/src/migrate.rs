@@ -61,7 +61,12 @@ async fn exec(conn: &mut AnyConnection, sql: &str) -> Result<(), sqlx::Error> {
 }
 
 async fn sqlite(conn: &mut AnyConnection, path: &str) -> Result<Migrated, String> {
-    let latest = latest(Dialect::Sqlite);
+    sqlite_steps(conn, path, SQLITE).await
+}
+
+/// `sqlite`, with the steps to run given, so a test can give it one that fails.
+async fn sqlite_steps(conn: &mut AnyConnection, path: &str, steps: &[Step]) -> Result<Migrated, String> {
+    let latest = steps.len() as u32;
     let version: i64 = sqlx::query("PRAGMA user_version").fetch_one(&mut *conn).await.and_then(|r| r.try_get(0)).map_err(|e| e.to_string())?;
     let version = version as u32;
     if version > latest {
@@ -74,7 +79,7 @@ async fn sqlite(conn: &mut AnyConnection, path: &str) -> Result<Migrated, String
     }
     // Foreign keys are off while tables are rebuilt (SQLite can't turn them off inside a transaction).
     exec(conn, "PRAGMA busy_timeout = 5000; PRAGMA foreign_keys = OFF").await.map_err(|e| e.to_string())?;
-    for (i, step) in SQLITE.iter().enumerate().skip(version as usize) {
+    for (i, step) in steps.iter().enumerate().skip(version as usize) {
         let n = i as u32 + 1;
         exec(conn, "BEGIN IMMEDIATE").await.map_err(failed(n))?;
         let done = async {
@@ -157,7 +162,12 @@ async fn keep_a_copy(conn: &mut AnyConnection, path: &str, version: u32, latest:
 }
 
 async fn postgres(conn: &mut AnyConnection, schema: Option<&str>) -> Result<Migrated, String> {
-    let latest = latest(Dialect::Postgres);
+    postgres_steps(conn, schema, POSTGRES).await
+}
+
+/// `postgres`, with the steps after the baseline given, so a test can give it one that fails.
+async fn postgres_steps(conn: &mut AnyConnection, schema: Option<&str>, steps: &[Step]) -> Result<Migrated, String> {
+    let latest = POSTGRES_BASELINE + steps.len() as u32;
     if let Some(schema) = schema {
         let schema = schema.replace('"', "");
         exec(conn, &format!("CREATE SCHEMA IF NOT EXISTS \"{schema}\"; SET search_path TO \"{schema}\"")).await.map_err(|e| e.to_string())?;
@@ -182,7 +192,7 @@ async fn postgres(conn: &mut AnyConnection, schema: Option<&str>) -> Result<Migr
             exec(conn, &format!("INSERT INTO schema_version (version) VALUES ({POSTGRES_BASELINE})")).await.map_err(failed(POSTGRES_BASELINE))?;
             version = POSTGRES_BASELINE;
         }
-        for (i, step) in POSTGRES.iter().enumerate() {
+        for (i, step) in steps.iter().enumerate() {
             let n = POSTGRES_BASELINE + i as u32 + 1;
             if version >= n {
                 continue;
@@ -585,6 +595,80 @@ mod tests {
         conn.close().await.unwrap();
         let Err(refused) = migrate(&path, None).await else { panic!("it should be refused") };
         assert!(refused.ends_with("a migration left rows pointing at nothing"), "{refused}");
+    }
+
+    #[tokio::test]
+    async fn a_step_that_fails_is_rolled_back_and_named_and_the_ones_before_it_stay() {
+        let (path, mut conn) = sqlite_at(0).await;
+        let steps = [Step::Sql("CREATE TABLE kept (x)"), Step::Sql("CREATE TABLE lost (y); INSERT INTO nowhere VALUES (1)")];
+        let Err(refused) = sqlite_steps(&mut conn, &path, &steps).await else { panic!("it should fail") };
+        assert!(refused.starts_with("schema step 2 failed: ") && refused.contains("nowhere"), "{refused}");
+        conn.close().await.unwrap();
+        assert_eq!(step_of(&path).await, 1, "step 1 stays done");
+        let mut conn = AnyConnection::connect(&format!("sqlite://{path}")).await.unwrap();
+        assert_eq!(rows(&mut conn, "SELECT name FROM sqlite_master WHERE type = 'table'").await, vec![some(&["kept"])], "and step 2 left nothing");
+    }
+
+    #[tokio::test]
+    async fn a_code_step_that_refuses_or_is_not_written_here_fails_its_step() {
+        // Step 4 on a database that has boards to renumber is the Node app's to bring forward.
+        let (path, mut conn) = sqlite_at(0).await;
+        let steps = [Step::Sql("CREATE TABLE projects (id TEXT); INSERT INTO projects VALUES ('alpha')"), Step::Code(4)];
+        let Err(refused) = sqlite_steps(&mut conn, &path, &steps).await else { panic!("it should fail") };
+        assert!(refused.contains("open it with the Node app first"), "{refused}");
+        let version: i64 = sqlx::query("PRAGMA user_version").fetch_one(&mut conn).await.unwrap().try_get(0).unwrap();
+        assert_eq!(version, 1, "step 1 stays done");
+        // With no boards, step 4 has nothing to do.
+        exec(&mut conn, "DELETE FROM projects").await.unwrap();
+        assert_eq!(sqlite_steps(&mut conn, &path, &steps).await.map(|m| (m.from, m.to)).ok(), Some((1, 2)));
+        // A step that's code only in the Node app.
+        let (path, mut conn) = sqlite_at(0).await;
+        let Err(refused) = sqlite_steps(&mut conn, &path, &[Step::Code(999)]).await else { panic!("it should fail") };
+        assert!(refused.contains("schema step 999 is code in the Node app"), "{refused}");
+    }
+
+    /// A Postgres connection and a schema of its own to migrate, with `TEST_POSTGRES_URL` set (ORR-1057); none without.
+    async fn postgres_schema() -> Option<(String, String, AnyConnection)> {
+        let url = std::env::var("TEST_POSTGRES_URL").ok().filter(|u| !u.is_empty())?;
+        install_default_drivers();
+        let schema = format!("migrate_test_{}", crate::testing::random_id());
+        let conn = AnyConnection::connect(&url).await.unwrap();
+        Some((url, schema, conn))
+    }
+
+    async fn tables_in(conn: &mut AnyConnection, schema: &str) -> i64 {
+        sqlx::query("SELECT count(*) FROM information_schema.tables WHERE table_schema = $1")
+            .bind(schema.to_string())
+            .fetch_one(&mut *conn)
+            .await
+            .unwrap()
+            .try_get(0)
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn on_postgres_a_step_that_fails_rolls_back_the_whole_run_and_is_named() {
+        let Some((_, schema, mut conn)) = postgres_schema().await else { return };
+        let steps = [Step::Sql("CREATE TABLE kept (x integer)"), Step::Sql("CREATE TABLE lost (y integer); INSERT INTO nowhere VALUES (1)")];
+        let Err(refused) = postgres_steps(&mut conn, Some(&schema), &steps).await else { panic!("it should fail") };
+        let failed = POSTGRES_BASELINE + 2;
+        assert!(refused.starts_with(&format!("schema step {failed} failed: ")) && refused.contains("nowhere"), "{refused}");
+        // One transaction: the baseline and the step before go with it, so the next run starts from nothing again.
+        assert_eq!(tables_in(&mut conn, &schema).await, 0, "nothing left in {schema}");
+    }
+
+    #[tokio::test]
+    async fn on_postgres_one_at_the_latest_runs_nothing_and_one_from_a_newer_orrery_is_refused() {
+        let Some((url, schema, mut conn)) = postgres_schema().await else { return };
+        let latest = latest(Dialect::Postgres);
+        assert_eq!(migrate(&url, Some(&schema)).await.map(|m| (m.from, m.to)).ok(), Some((0, latest)));
+        assert_eq!(migrate(&url, Some(&schema)).await.map(|m| (m.from, m.to)).ok(), Some((latest, latest)), "nothing left to run");
+        exec(&mut conn, &format!("UPDATE \"{schema}\".schema_version SET version = {}", latest + 1)).await.unwrap();
+        let Err(refused) = migrate(&url, Some(&schema)).await else { panic!("it should be refused") };
+        assert!(refused.contains("written by a newer orrery") && refused.contains(&format!("schema step {}", latest + 1)), "{refused}");
+        let version: i64 =
+            sqlx::query(&format!("SELECT CAST(version AS bigint) FROM \"{schema}\".schema_version")).fetch_one(&mut conn).await.unwrap().try_get(0).unwrap();
+        assert_eq!(version, (latest + 1) as i64, "and left as it was");
     }
 
     #[test]
