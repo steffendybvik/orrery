@@ -239,7 +239,7 @@ describe.concurrent("a launcher's own loop", {timeout: 40_000}, () => {
         })
 
         it("gets orrery's /mcp beside its channel when the orrery serves it, and its channel only the channel's own (ORR-1102)", async context => {
-            const {orrery, repo, start, called, state} = await bench(context, {}, {mcp: true})
+            const {orrery, start, called, state} = await bench(context, {}, {mcp: true})
             await start()
             await vi.waitFor(() => expect(orrery.reported()).toHaveLength(1), WAIT)
             orrery.event('launch', launchOf(ID.a, {person: 'hati'}))
