@@ -13,6 +13,7 @@ import type {H3Event} from 'h3'
 import {createError, getCookie, getQuery, getRequestHeader, getRequestHost, getRequestURL, readRawBody, setResponseHeader, setResponseStatus} from 'h3'
 import type {Feature} from '#shared/usage'
 import type {Actor} from '../store/schema'
+import {ORRERY} from '../store/schema'
 import type {Who} from './auth'
 import {bearer, loginCookie, onLoopback, pathOf, toldOff, toldOn} from './auth'
 import {proxied} from './move'
@@ -761,6 +762,27 @@ function configHere(): {apiUrl?: unknown, apiToken?: unknown} {
     }
 }
 
+/** A read this server makes for itself (ORR-1139): `GET path` from the API, as orrery, so the Nuxt server reads the
+ * board over HTTP rather than from the database (ORR-1093). Undefined with no API set up (unit tests, a `nuxt dev`
+ * without its build), for the caller to read the store as before, until that goes too (ORR-1143). A refusal comes back
+ * as the API's status (a project or doc that isn't there is a 404), and one that's down fails (`cantReach`). */
+export async function readFromApi<T>(path: string, {config = configHere()} = {}): Promise<T | undefined> {
+    const read = await writeToApi('GET', path, undefined, ORRERY, {always: true, config})
+    return read?.reply as T | undefined
+}
+
+/** The project's id, read from the API (a 404 when it isn't there), or the store with none set up (ORR-1139). Only the
+ * project's own fields: none of its issues' notes or closed ones. */
+export async function projectIdOf(project: string): Promise<string> {
+    const read = await readFromApi<{id: string}>(`/api/projects/${encodeURIComponent(project)}?notes=0&closed=0`)
+    return read?.id ?? await useStore().projectId(project)
+}
+
+/** This orrery's id (`settings.id`), read from the API, or the store with none set up (ORR-1139). */
+export async function orreryId(): Promise<string> {
+    return ((await readFromApi<{id: string}>('/api/settings')) ?? await useStore().settings()).id
+}
+
 /** A write this server makes itself rather than for a request, such as the chat's Allow (ORR-1044): with the API there
  * and serving `method` on `path` (`DOMAINS`, or `always` for a route only this server calls, like the chat's row), it's
  * sent there as the page's request would be, as `actor`, so the API stays the one writer of its tables and its outbox
@@ -790,6 +812,7 @@ export async function writeToApi(method: string, path: string, body: unknown, ac
     const text = await response.text()
     const json = text ? JSON.parse(text) as Record<string, unknown> : null
     if (response.status >= 400) throw refusal(response.status, json)
-    await relayed(response, actor, method, {noteKeys})
+    // A read sets nothing off, so it needs nothing from the store here (ORR-1139).
+    if (method !== 'GET') await relayed(response, actor, method, {noteKeys})
     return {reply: json}
 }

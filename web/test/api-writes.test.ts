@@ -2,7 +2,7 @@ import {createServer} from 'node:http'
 import type {Server} from 'node:http'
 import type {AddressInfo} from 'node:net'
 import {afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi} from 'vitest'
-import {apiForgotten, apiStarted, apiStarting, writeToApi} from '../server/utils/api-router'
+import {apiForgotten, apiStarted, apiStarting, readFromApi, writeToApi} from '../server/utils/api-router'
 
 // The local app's own board writes, such as the chat's Allow (ORR-1044): with the Rust API in front they go to it as the
 // page's request would, so it stays the one writer of its tables; without it, they're left to the store here.
@@ -102,5 +102,27 @@ describe('a write of the local app\'s own', () => {
 
     it('fails when the API can\'t be reached, rather than writing here', async () => {
         await expect(writeToApi('PATCH', '/api/settings', {model: 'x'}, owner, {config: {apiUrl: 'http://127.0.0.1:1', apiToken: 't'.repeat(24)}})).rejects.toMatchObject({statusCode: 503})
+    })
+})
+
+describe('a read of the local app\'s own (ORR-1139)', () => {
+    it('with no API, is left to the store here', async () => {
+        expect(await readFromApi('/api/projects', {config: {}})).toBeUndefined()
+        expect(heard).toEqual([])
+    })
+
+    it('reads the board from the API, as orrery, the server\'s own call', async () => {
+        apiStarted({url, token: 't'.repeat(24)})
+        answer = {status: 200, body: [{id: 'p', name: 'P'}]}
+        expect(await readFromApi('/api/projects', {config: {}})).toEqual([{id: 'p', name: 'P'}])
+        expect(heard.map(h => `${h.method} ${h.url}`)).toEqual(['GET /api/projects'])
+        expect(heard[0]!.headers).toMatchObject({'orrery-actor-name': 'orrery', 'orrery-came': 'server'})
+        expect(changed).toEqual([])
+    })
+
+    it('fails as the route here would when what it names isn\'t there', async () => {
+        apiStarted({url, token: 't'.repeat(24)})
+        answer = {status: 404, body: {statusMessage: 'Not Found', message: 'No project "q"'}}
+        await expect(readFromApi('/api/projects/q', {config: {}})).rejects.toMatchObject({statusCode: 404, message: 'No project "q"'})
     })
 })
