@@ -431,6 +431,25 @@ async fn the_chat_asks_for_a_release_and_nothing_is_saved_until_allowed() {
     assert!(read["changes"].as_array().unwrap().iter().any(|c| c["kind"] == "chat" && c["subject"] == "c1"), "{read}");
 }
 
+/// `POST /api/chats/:chat/replies` as the chat `launch`'s own session sends it.
+fn reply_in(api: &TestApi, chat: &str, launch: &str, body: Value) -> crate::testing::Req {
+    api.post(&format!("/api/chats/{chat}/replies"), body).header("orrery-actor-kind", "chat").header("orrery-launch", launch)
+}
+
+#[tokio::test]
+async fn the_chats_session_answers_in_it_and_the_local_app_hears() {
+    let api = TestApi::new().await;
+    let project = api.project("Primes").await;
+    api.put("/api/chats/c1", chat("c1", &project, "2026-11-01T10:00:00.000Z")).send().await;
+    let said = reply_in(&api, "c1", "c1", json!({"text": "  Done: it's blue.\n"})).send().await;
+    assert_eq!(said.status, 201, "{}", said.body);
+    assert_eq!((&said.body["from"], &said.body["text"], &said.body["images"]), (&json!("claude"), &json!("Done: it's blue."), &json!([])));
+    assert!(said.body["id"].is_number() && said.body["at"].is_string());
+    assert_eq!(api.get("/api/chats/c1").send().await.body["messages"][0], said.body);
+    let read = api.get("/api/changes").send().await.body;
+    assert!(read["changes"].as_array().unwrap().iter().any(|c| c["kind"] == "chat" && c["subject"] == "c1"), "{read}");
+}
+
 #[tokio::test]
 async fn the_chat_asks_to_change_a_release_from_what_it_is_and_again_expires_the_ask() {
     let api = TestApi::new().await;
@@ -528,6 +547,26 @@ async fn the_chat_asks_only_for_a_docs_title_section_and_text_and_only_while_it_
     over["ended_at"] = json!("2026-11-01T11:00:00.000Z");
     api.put("/api/chats/c1", over).send().await;
     assert_eq!(api.post("/api/chats/c1/doc-requests", json!({"doc": {"title": "X"}})).send().await.status, 404);
+}
+
+#[tokio::test]
+async fn only_the_chats_own_session_answers_in_it_with_words_while_it_runs() {
+    let api = TestApi::new().await;
+    let project = api.project("Primes").await;
+    api.put("/api/chats/c1", chat("c1", &project, "2026-11-01T10:00:00.000Z")).send().await;
+    let other = reply_in(&api, "c1", "c2", json!({"text": "Hi"})).send().await;
+    assert_eq!((other.status.as_u16(), &other.body["message"]), (403, &json!("Only the chat's own session answers in it")));
+    assert_eq!(api.post("/api/chats/c1/replies", json!({"text": "Hi"})).header("orrery-launch", "c1").send().await.status, 403, "not a chat");
+    for blank in [json!({"text": "  "}), json!({}), json!({"text": 3})] {
+        let refused = reply_in(&api, "c1", "c1", blank).send().await;
+        assert_eq!((refused.status.as_u16(), &refused.body["message"]), (400, &json!("Send the answer as {\"text\": \"…\"}")));
+    }
+    assert_eq!(reply_in(&api, "nope", "nope", json!({"text": "Hi"})).send().await.status, 404);
+    let mut over = chat("c1", &project, "2026-11-01T10:00:00.000Z");
+    over["ended_at"] = json!("2026-11-01T11:00:00.000Z");
+    api.put("/api/chats/c1", over).send().await;
+    assert_eq!(reply_in(&api, "c1", "c1", json!({"text": "Hi"})).send().await.status, 404);
+    assert!(api.get("/api/chats/c1").send().await.body["messages"].as_array().unwrap().is_empty());
 }
 
 #[tokio::test]

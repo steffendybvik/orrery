@@ -213,6 +213,28 @@ impl<'c> Chats<'c> {
         message_of(&row)
     }
 
+    /// The chat's session answering (its `reply`, `reply` in web/server/utils/chats.ts): `{text}`, trimmed, added as its
+    /// message, which the local app hears (ORR-1101). A 404 when the chat isn't running.
+    pub async fn reply(&mut self, chat: &str, body: &Value) -> Result<Value> {
+        let words = body.get("text").and_then(Value::as_str).map(str::trim).unwrap_or_default().to_string();
+        if words.is_empty() {
+            return Err(ApiError::bad_request("Send the answer as {\"text\": \"…\"}"));
+        }
+        let running: Option<String> =
+            sqlx::query_scalar(&sql("SELECT id FROM chats WHERE id = ? AND ended_at IS NULL")).bind(chat).fetch_optional(&mut *self.conn).await?;
+        if running.is_none() {
+            return Err(ApiError::not_found(format!("No chat {chat}: it has ended")));
+        }
+        let mut message = serde_json::Map::new();
+        message.insert("from".into(), json!("claude"));
+        message.insert("text".into(), json!(words));
+        message.insert("images".into(), json!([]));
+        changes::begin(self.conn).await?;
+        let done = self.add_in(chat, message).await;
+        self.effects.chats.push(chat.to_string());
+        changes::finish(self.conn, self.outbox.as_mut(), &self.effects, done).await
+    }
+
     /// The chat's session asking to change one App setting (its `update_settings`, `askSetting`): `{setting, value,
     /// why?}`, checked as the settings would check it, kept as a request in the chat that saves nothing until the owner
     /// allows it, which the local app hears (ORR-1100). One it asked before for the same setting, still unanswered,
