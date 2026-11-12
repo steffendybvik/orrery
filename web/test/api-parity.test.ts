@@ -15,6 +15,7 @@ import sharp from 'sharp'
 import type {OrreryEvent} from '#shared/happenings'
 import type {Chat} from '#shared/roadmap'
 import {Store} from '../server/utils/store'
+import {isFresh} from '../server/utils/restore'
 import type {Actor, IssueFilter} from '../server/store/schema'
 import {ORRERY} from '../server/store/schema'
 import type {SignalFields} from '../server/store/signals'
@@ -1370,6 +1371,24 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         }
         expect(held(there)).toEqual(held(here))
         expect(domainOf('POST', '/api/database/snapshot')).toBeUndefined()
+    })
+
+    it('says the database\'s state and keeps the name it runs under alike (ORR-1140)', async () => {
+        const state = await viaApi('GET', '/api/database')
+        expect(state.status).toBe(200)
+        expect((state.body as {fresh: boolean}).fresh).toBe(await isFresh(store.db))
+        expect(typeof (state.body as {size?: number}).size).toBe(POSTGRES ? 'number' : 'undefined')
+        const was = await store.db.get<{value: string}>('SELECT value FROM settings WHERE key = \'environment\'')
+        try {
+            expect((await viaApi('PUT', '/api/database/environment', {environment: 'parity'})).status).toBe(204)
+            expect(await store.db.get('SELECT value FROM settings WHERE key = \'environment\'')).toEqual({value: '"parity"'})
+            expect((await viaApi('PUT', '/api/database/environment', {})).status).toBe(400)
+        } finally {
+            if (was) await store.db.run('UPDATE settings SET value = ? WHERE key = \'environment\'', was.value)
+            else await store.db.run('DELETE FROM settings WHERE key = \'environment\'')
+        }
+        expect(domainOf('GET', '/api/database')).toBeUndefined()
+        expect(domainOf('PUT', '/api/database/environment')).toBeUndefined()
     })
 
     it('keeps a sealed secret, its uses and its deletion alike (ORR-1096)', async () => {
