@@ -947,6 +947,37 @@ paths:
         '403': {$ref: '#/components/responses/Forbidden'}
         '404': {$ref: '#/components/responses/NotFound'}
         '409': {$ref: '#/components/responses/Conflict'}
+  /api/projects/{project}/members:
+    parameters: [{$ref: '#/components/parameters/project'}]
+    get:
+      summary: Who's on the board, its holder first, then in the order they joined
+      responses:
+        '200': {description: The members, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/BoardMember'}}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
+    post:
+      summary: Puts a person on the board, its holder's or the owner's to do
+      description: By their id or their name. Never an agent's (403, members.write); a removed person can't be put on (409). One already on it stays as they are.
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      requestBody: {required: true, content: {application/json: {schema: {type: object, required: [person], additionalProperties: false, properties: {person: {type: string, description: Who, by id or name}}}}}}
+      responses:
+        '201': {description: The member, content: {application/json: {schema: {$ref: '#/components/schemas/BoardMember'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+  /api/projects/{project}/members/{person}:
+    parameters:
+      - {$ref: '#/components/parameters/project'}
+      - {name: person, in: path, required: true, description: The person's id, schema: {type: string}}
+    delete:
+      summary: Takes a person off the board, as adding does
+      description: Its holder stays, as a board always has one (400).
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      responses:
+        '204': {description: Taken off}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
   /api/keys:
     get:
       summary: The asking person's keys, or everyone's for the owner
@@ -2092,6 +2123,14 @@ components:
       required: [name]
       properties:
         name: {type: string, maxLength: 60, description: Trimmed; not empty}
+    BoardMember:
+      type: object
+      required: [person, name, role, created_at]
+      properties:
+        person: {type: string, description: Their id}
+        name: {type: string}
+        role: {type: string, enum: [owner, member], description: '`owner` for the board''s holder'}
+        created_at: {type: string, format: date-time}
     Person:
       type: object
       required: [id, name, role, created_at]

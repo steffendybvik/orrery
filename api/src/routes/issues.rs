@@ -190,8 +190,41 @@ async fn patch_issue(State(app): Shared, Path((project, issue)): Path<(String, S
     let mut conn = app.pool.acquire().await?;
     let mut comments = IssueWrites::new(&mut conn);
     comments.outbox = Some(Outbox::new(actor_of(&headers)));
-    let urgent = comments.edit_words(&project, &issue, &body_of(&body), &actor_of(&headers)).await?;
-    let effects = std::mem::take(&mut comments.effects);
+    let actor = actor_of(&headers);
+    let mut edit = body_of(&body);
+    // Sent with `project`, it moves there first (ORR-1129), with its new parent or milestone, and the rest of the edit
+    // is made there.
+    let (mut project, mut issue) = (project, issue);
+    let mut moved_from: Vec<String> = vec![];
+    if let Some(fields) = edit.as_object_mut() {
+        if let Some(to) = fields.remove("project") {
+            let Some(to) = to.as_str().map(str::to_string) else {
+                return Err(ApiError::bad_request(format!("\"project\" should be a string, not {}", write::js(&to))));
+            };
+            if to != project {
+                let text = |value: Option<Value>| match value {
+                    None | Some(Value::Null) => Ok(None),
+                    Some(Value::String(sent)) => Ok(Some(sent)),
+                    Some(other) => Err(other),
+                };
+                let parent =
+                    text(fields.remove("parent")).map_err(|v| ApiError::bad_request(format!("\"parent\" should be a string, not {}", write::js(&v))))?;
+                let milestone =
+                    text(fields.remove("milestone")).map_err(|v| ApiError::bad_request(format!("\"milestone\" should be a string, not {}", write::js(&v))))?;
+                let assignee = fields.get("assignee").map(|a| a.as_str().map(str::to_string));
+                issue = comments.move_issue(&project, &issue, &to, parent.as_deref(), milestone.as_deref(), assignee, &actor).await?;
+                project = to;
+                moved_from = std::mem::take(&mut comments.effects.changed);
+            }
+        }
+    }
+    let urgent = comments.edit_words(&project, &issue, &edit, &actor).await?;
+    let mut effects = std::mem::take(&mut comments.effects);
+    for other in moved_from {
+        if !effects.changed.contains(&other) {
+            effects.changed.push(other);
+        }
+    }
     let value = Issues::new(&mut conn).issue(&project, &issue).await?;
     let mut response = reply(StatusCode::OK, Some(value), effects);
     // Made urgent open work: the Nuxt server pushes it to the sessions (`sayUrgent`), as only it reaches them.
