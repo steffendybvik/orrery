@@ -3,15 +3,16 @@
 // sessions are there to hear.
 use super::P;
 use crate::error::{ApiError, Result};
-use crate::request::came_of;
+use crate::request::{body_of, came_of};
 use crate::work::session_work::SessionWork;
 use crate::{App, Shared};
+use axum::body::Bytes;
 use axum::extract::{Path, Query, State};
-use axum::http::HeaderMap;
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
-use axum::routing::get;
+use axum::routing::{get, post};
 use axum::{Json, Router};
-use serde_json::json;
+use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -20,6 +21,7 @@ pub(crate) fn routes() -> Router<Arc<App>> {
         .route(&format!("{P}/issue-sessions"), get(working))
         .route(&format!("{P}/issues/{{issue}}/workers"), get(workers))
         .route(&format!("{P}/issues/{{issue}}/dependents"), get(dependents))
+        .route(&format!("{P}/issues/{{issue}}/worked-by"), post(worked_by))
 }
 
 fn local_app_only(headers: &HeaderMap) -> Result<()> {
@@ -56,6 +58,17 @@ async fn dependents(State(app): Shared, Path((project, issue)): Path<(String, St
     local_app_only(&headers)?;
     let mut conn = app.pool.acquire().await?;
     Ok(Json(SessionWork::new(&mut conn).dependents(&project, &issue).await?).into_response())
+}
+
+/// `{session}`: the session is working the issue now. The local app checked first that no other session has it
+/// started and there to hear, as only it knows who's listening.
+async fn worked_by(State(app): Shared, Path((project, issue)): Path<(String, String)>, headers: HeaderMap, body: Bytes) -> Result<Response> {
+    local_app_only(&headers)?;
+    let body = body_of(&body);
+    let session = body.get("session").and_then(Value::as_str).filter(|s| !s.is_empty()).ok_or_else(|| ApiError::bad_request("Send \"session\""))?;
+    let mut conn = app.pool.acquire().await?;
+    SessionWork::new(&mut conn).worked_by(&project, &issue, session).await?;
+    Ok(StatusCode::NO_CONTENT.into_response())
 }
 
 #[cfg(test)]

@@ -7,6 +7,7 @@ use crate::board::comments::{columns, comment_of};
 use crate::board::issues::Issues;
 use crate::db::sql;
 use crate::error::{ApiError, Result};
+use crate::write::stamp;
 use serde_json::{json, Map, Value};
 use sqlx::any::AnyRow;
 use sqlx::{AnyConnection, Row};
@@ -151,5 +152,29 @@ impl<'c> SessionWork<'c> {
             .fetch_all(&mut *self.conn)
             .await?;
         Ok(rows.iter().map(|r| json!({"project": r.get::<String, _>("project"), "id": r.get::<String, _>("issue")})).collect())
+    }
+
+    /// Notes that `session` is working the issue, as `workedBy` does once it's checked no other session has it started
+    /// and there to hear: `since` is kept while the same session works it again. An issue there isn't is let be.
+    pub(crate) async fn worked_by(&mut self, project: &str, issue: &str, session: &str) -> Result<()> {
+        let mut issues = Issues::new(self.conn);
+        issues.project(project).await?;
+        let issue = issues.resolve(project, issue, false).await?;
+        let now = stamp();
+        sqlx::query(&sql(
+            "INSERT INTO issue_sessions (project, issue, session, at, since) SELECT ?, ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM issues WHERE project = ? AND id = ?) \
+             ON CONFLICT (project, issue) DO UPDATE SET since = CASE WHEN issue_sessions.session = excluded.session THEN issue_sessions.since ELSE excluded.since END, \
+             session = excluded.session, at = excluded.at",
+        ))
+        .bind(project)
+        .bind(&issue)
+        .bind(session)
+        .bind(&now)
+        .bind(&now)
+        .bind(project)
+        .bind(&issue)
+        .execute(&mut *self.conn)
+        .await?;
+        Ok(())
     }
 }

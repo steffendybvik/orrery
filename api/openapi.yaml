@@ -1541,6 +1541,24 @@ paths:
       responses:
         '200': {description: 'The dependents', content: {application/json: {schema: {type: array, items: {type: object, properties: {project: {type: string}, id: {type: string}}}}}}}
         '403': {$ref: '#/components/responses/Forbidden'}
+  /api/projects/{project}/issues/{issue}/worked-by:
+    parameters:
+      - {$ref: '#/components/parameters/project'}
+      - {name: issue, in: path, required: true, schema: {type: string}}
+    post:
+      x-served: false
+      summary: 'The session is working the issue now (ORR-1141)'
+      description: >-
+        Only the Nuxt server's own call (`Orrery-Came: server`), once it checked that no other session has the issue
+        started and there to hear. When it took the issue is kept while the same session works it again; an issue there
+        isn't is let be.
+      requestBody:
+        required: true
+        content: {application/json: {schema: {type: object, required: [session], properties: {session: {type: string}}}}}
+      responses:
+        '204': {description: Kept}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
   /api/projects/{project}/signals:
     parameters:
       - {$ref: '#/components/parameters/project'}

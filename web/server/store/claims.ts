@@ -30,6 +30,7 @@ export abstract class ClaimStore extends EpicStore {
     async workedBy(project: string, issue: string, session: string, {claimed = false} = {}) {
         issue = await this.issueId(project, issue)
         if (!claimed && await this.takenFrom(project, issue, session).catch(() => null)) return
+        if (await sessionWork.workedBy(project, issue, session)) return
         const now = stamp()
         await this.run(`INSERT INTO issue_sessions (project, issue, session, at, since) SELECT ?, ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM issues WHERE project = ? AND id = ?)
             ON CONFLICT (project, issue) DO UPDATE SET since = CASE WHEN issue_sessions.session = excluded.session THEN issue_sessions.since ELSE excluded.since END,

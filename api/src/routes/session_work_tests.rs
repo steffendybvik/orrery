@@ -123,6 +123,7 @@ async fn only_the_local_app_asks_which_session_is_on_which_issue() {
     ] {
         assert_eq!(door.get(&path).send().await.status, 403, "{path}");
     }
+    assert_eq!(door.post(&format!("/api/projects/{project}/issues/{issue}/worked-by"), json!({"session": "a"})).send().await.status, 403);
 }
 
 #[tokio::test]
@@ -145,4 +146,32 @@ async fn unheard_signals_for_the_pool_or_scheduled_are_the_last_days() {
     api.run("UPDATE signals SET created_at = '2020-01-01T00:00:00.000Z' WHERE note = 'Anyone'", &[]).await;
     assert_eq!(notes(&api.get(&format!("/api/projects/{project}/signals?waiting=pooled")).send().await.body), ["focus"]);
     assert_eq!(api.get(&format!("/api/projects/{project}/signals?waiting=soon")).send().await.status, 400);
+}
+
+#[tokio::test]
+async fn working_an_issue_ties_it_to_the_session_and_keeps_since_while_its_the_same_one() {
+    let api = TestApi::new().await;
+    let (project, issue) = api.board().await;
+    let path = format!("/api/projects/{project}/issues/{issue}/worked-by");
+    let since = || async {
+        sqlx::query_scalar::<_, String>(&crate::db::sql("SELECT session || ' ' || since FROM issue_sessions WHERE project = ? AND issue = ?"))
+            .bind(&project)
+            .bind(&issue)
+            .fetch_one(&api.app.pool)
+            .await
+            .unwrap()
+    };
+    assert_eq!(api.post(&path, json!({"session": "sess-1"})).send().await.status, 204);
+    let first = since().await;
+    assert!(first.starts_with("sess-1 "), "{first}");
+    tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    api.post(&path, json!({"session": "sess-1"})).send().await;
+    assert_eq!(since().await, first, "the same session keeps when it took the issue");
+    api.post(&path, json!({"session": "sess-2"})).send().await;
+    let second = since().await;
+    assert!(second.starts_with("sess-2 ") && second != first.replace("sess-1", "sess-2"), "{second}");
+    // An issue there isn't is let be, and a session must be named.
+    assert_eq!(api.post(&format!("/api/projects/{project}/issues/NOPE-9/worked-by"), json!({"session": "sess-1"})).send().await.status, 204);
+    assert_eq!(api.count("SELECT COUNT(*) FROM issue_sessions").await, 1);
+    assert_eq!(api.post(&path, json!({})).send().await.status, 400);
 }

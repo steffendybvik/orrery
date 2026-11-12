@@ -9,6 +9,8 @@ vi.mock('../server/utils/api-router', () => ({
     // No reads from the API: the store answers them here.
     readFromApi: async () => undefined,
     writeToApi: async (method: string, path: string, body: unknown, actor: {name: string, owner: boolean}, opts: {always?: boolean} = {}) => {
+        // Which session works an issue is kept here, as the set-up needs it (ORR-1141's own tests cover its API call).
+        if (path.endsWith('/worked-by')) return undefined
         sent.push({method, path, body, actor, always: opts.always})
         return {reply: null}
     },
