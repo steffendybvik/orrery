@@ -268,12 +268,14 @@ impl<'c> People<'c> {
             };
             return Err(ApiError::conflict(format!("\"{id}\" {what}; pick another name")));
         }
-        sqlx::query(&sql("INSERT INTO people (id, name, role, created_at) VALUES (?, ?, 'member', ?)"))
-            .bind(&id)
-            .bind(&name)
-            .bind(stamp())
-            .execute(&mut *self.conn)
-            .await?;
+        sqlx::query(if crate::db::on_postgres() { "BEGIN" } else { "BEGIN IMMEDIATE" }).execute(&mut *self.conn).await?;
+        match self.make_member(&id, &name).await {
+            Ok(()) => sqlx::query("COMMIT").execute(&mut *self.conn).await?,
+            Err(error) => {
+                sqlx::query("ROLLBACK").execute(&mut *self.conn).await.ok();
+                return Err(error);
+            }
+        };
         Ok(person_json(&self.person(&id).await?))
     }
 
@@ -457,6 +459,23 @@ impl<'c> People<'c> {
                 Err(error)
             }
         }
+    }
+
+    /// A new member, and a member of the one workspace there is so far (ORR-1106), as everyone was made by step 091.
+    async fn make_member(&mut self, id: &str, name: &str) -> Result<()> {
+        let at = stamp();
+        sqlx::query(&sql("INSERT INTO people (id, name, role, created_at) VALUES (?, ?, 'member', ?)"))
+            .bind(id)
+            .bind(name)
+            .bind(&at)
+            .execute(&mut *self.conn)
+            .await?;
+        sqlx::query(&sql("INSERT INTO workspace_members (workspace, person, role, created_at) VALUES ('default', ?, 'member', ?)"))
+            .bind(id)
+            .bind(&at)
+            .execute(&mut *self.conn)
+            .await?;
+        Ok(())
     }
 
     async fn revoke(&mut self, id: &str, person: &str) -> Result<()> {

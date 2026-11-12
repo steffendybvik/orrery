@@ -63,4 +63,5 @@ export const WRITERS: Record<string, Writer> = {
     signals: {nuxt: "a signal, a receipt, a retarget and the prune (store/signals.ts writeSignal) only with no API in front; it picks the target and sends them to POST …/signals otherwise", issue: 'ORR-1093'},
     statuses: {nuxt: UPLOAD, issue: 'ORR-747'},
     uploads: {nuxt: `compressing the images kept before ORR-446 once, and clearing the ones nothing shows after 90 days (store/signals.ts), and ${UPLOAD}`, issue: 'ORR-747'},
+    workspace_members: {nuxt: 'naming the owner, who owns the default workspace (store/owner.ts nameOwner)', issue: 'ORR-928'},
 }
