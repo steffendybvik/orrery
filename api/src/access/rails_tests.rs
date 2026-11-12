@@ -167,3 +167,22 @@ async fn only_the_boards_holder_passes_its_check() {
     assert!(!check(&mut conn, "boardHolder", &params, None).await.unwrap());
     assert!(!check(&mut conn, "ownSession", &params, Some("steffen")).await.unwrap(), "the sessions are the local app's");
 }
+
+#[tokio::test]
+async fn an_untrusted_session_writes_only_to_the_project_it_was_started_for() {
+    // The router says which (`Orrery-Untrusted-Project`) once it knows the session (ORR-1069), as for /mcp's tools (ORR-1102).
+    let api = TestApi::new().await;
+    let own = api.project("Primes").await;
+    let other = api.project("Sieves").await;
+    let raise = |project: &str| {
+        kind(api.post(&format!("/api/projects/{project}/issues"), json!({"title": "From outside"})), "untrusted").header("orrery-untrusted-project", &own)
+    };
+    let there = raise(&other).send().await;
+    assert_eq!(there.status, 403, "{}", there.body);
+    assert!(there.body["message"].as_str().unwrap().ends_with(&format!("for {own}, so it only writes there")), "{}", there.body);
+    let here = raise(&own).send().await;
+    assert_eq!(here.status, 201, "{}", here.body);
+    // Before the router knows the session, its column alone holds it, as middleware/untrusted.ts does.
+    let unknown = kind(api.post(&format!("/api/projects/{other}/issues"), json!({"title": "From outside"})), "untrusted").send().await;
+    assert_eq!(unknown.status, 201, "{}", unknown.body);
+}

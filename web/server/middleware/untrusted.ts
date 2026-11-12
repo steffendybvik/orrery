@@ -3,14 +3,17 @@
 // not orrery knows its launch (it may have restarted since): raising proposals (its new issue is made one, labelled
 // `external`, by its route) and commenting on such proposals (the cell's `externalProposal`). Anything else it tries is
 // refused, so what it read can't steer it into changing the roadmap, the docs or a secret's use. Once orrery knows its
-// session, it's held to the project it was started for too (ORR-1069), whatever its channel would let it name.
+// session, it's held to the project it was started for too (ORR-1069), whatever its channel would let it name. Its calls
+// to orrery's own MCP server (`/mcp`, ORR-1102) are the Rust API's, whose rails hold each tool's route to both, the
+// project by `Orrery-Untrusted-Project` (`askerHeaders`), so `/mcp` itself isn't refused here.
 import {guard} from '../utils/guard'
+import {MCP} from '../utils/api-router'
 
 /** The project a write under `/api/projects/:project/…` is to, as the path names it. */
 const projectIn = (path: string) => /^\/api\/projects\/([^/?#]+)\//.exec(path)?.[1]
 
 export default defineEventHandler(async event => {
-    if (!untrustedWrite(event)) return
+    if (!untrustedWrite(event) || event.path.split('?')[0] === MCP) return
     await guard(event, 'untrusted', 'This session reads what others wrote (an untrusted schedule), so it only raises proposals (create_issue) and comments on them')
     if (event.method === 'GET' || event.method === 'HEAD') return
     const own = untrustedProject(sessionHeader(event))

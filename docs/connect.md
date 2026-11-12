@@ -121,9 +121,10 @@ with no project ticked gets none, so where the channel lists `*` it hears every 
 The channel then lists only what needs this machine or isn't served at `/mcp` yet (`sessions`, `next`, `start_issue`,
 `finish_issue`, `link_folder`, `egress`, `branches`, the GitHub tools, and the chat's session requests), and it still
 pushes what the session hears. Without it, the channel has every tool, as an older install does. The launcher sets it
-for a work session it starts on an orrery that answers MCP at `/mcp`, and gives the session an `http` entry for `/mcp`
+for a session it starts on an orrery that answers MCP at `/mcp`, and gives the session an `http` entry for `/mcp`
 beside the channel (`<server>-api`, its tools allowed), started on a Claude session id of its own so `/mcp` knows which
-session calls. The chat and untrusted sessions keep every tool in the channel for now, as do sessions you open yourself.
+session calls. The chat and untrusted sessions get it too, saying so to `/mcp` as their channel does, and held there as
+they are everywhere else. Sessions you open yourself keep every tool in the channel for now.
 `ORRERY_ID` is the orrery's id (on its Connect page, or `GET /api/settings`): the channel refuses another orrery at
 `ORRERY_URL`, so a repo set up for one never writes to another after an address changes. A repo that works with two
 Orrerys has one server for each. An older setup, a server per project with `ORRERY_PROJECT`, works the same.

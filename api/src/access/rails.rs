@@ -236,6 +236,20 @@ async fn board_check(conn: &mut AnyConnection, who: Option<&Who>, actor: &Actor,
     ))
 }
 
+/// An untrusted session's write to a project other than the one it was started for (ORR-1069), refused: the router says
+/// which it was (`Orrery-Untrusted-Project`) once it knows the session, as middleware/untrusted.ts holds it there. It's
+/// held here too for the tools at `/mcp` (ORR-1102), whose routes the router's middleware never sees.
+fn own_project(own: Option<&str>, path: &str) -> Result<()> {
+    let Some(own) = own else { return Ok(()) };
+    let Some(named) = path.strip_prefix("/api/projects/").and_then(|rest| rest.split_once('/')).map(|(project, _)| project) else { return Ok(()) };
+    let named = percent_encoding::percent_decode_str(named).decode_utf8_lossy();
+    // The router percent-encodes it (`askerHeaders`), as the path names it.
+    if named == percent_encoding::percent_decode_str(own).decode_utf8_lossy() {
+        return Ok(());
+    }
+    Err(ApiError::forbidden(format!("This session reads what others wrote (an untrusted schedule) for {own}, so it only writes there")))
+}
+
 /// Holds each write to its rails before its route runs; a route this API doesn't have is left to say so.
 pub(crate) async fn rails(State(app): Shared, request: Request, next: Next) -> Response {
     let method = request.method().clone();
@@ -244,11 +258,15 @@ pub(crate) async fn rails(State(app): Shared, request: Request, next: Next) -> R
     }
     let path = request.uri().path().to_string();
     let (actor, who) = (actor_of(request.headers()), who_of(request.headers()));
+    let own = crate::request::header(request.headers(), "orrery-untrusted-project").filter(|p| !p.is_empty());
     let held = async {
         let mut conn = app.pool.acquire().await?;
         match (actor.chat, actor.untrusted) {
             (true, _) => guard(&mut conn, Kind::Chat, method.as_str(), &path).await,
-            (_, true) => guard(&mut conn, Kind::Untrusted, method.as_str(), &path).await,
+            (_, true) => {
+                guard(&mut conn, Kind::Untrusted, method.as_str(), &path).await?;
+                own_project(own.as_deref(), &path)
+            }
             _ => board_check(&mut conn, who.as_ref(), &actor, method.as_str(), &path).await,
         }
     };
