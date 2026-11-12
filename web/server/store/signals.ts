@@ -380,6 +380,8 @@ export abstract class SignalStore extends IssueStore {
     /** Whether an owner's focus on the issue from the last ten minutes hasn't been heard yet (Focus on this, a P0's push):
      * it's on its way, so another isn't sent (ORR-515). */
     async focusOnItsWay(project: string, issue: string): Promise<boolean> {
+        const read = await sessionWork.focusing(project, issue)
+        if (read) return read.length > 0
         const since = new Date(Date.now() - 600_000).toISOString()
         return !!await this.get(`SELECT 1 FROM signals WHERE project = ? AND issue = ? AND kind = 'focus' AND (owned = 1 OR person IS NOT NULL)
             AND delivered_to = '[]' AND created_at >= ? LIMIT 1`, project, issue, since)
