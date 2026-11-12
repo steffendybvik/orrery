@@ -34,7 +34,15 @@ const parts = computed(() => ordered.value.flatMap(p => {
     // Open issues first, then the closed ones, each keeping the board's order.
     const rows = milestones.flatMap(milestone => milestone.tasks.map(issue => ({issue, milestone})))
     rows.sort((a, b) => Number(isClosed(a.issue.kind)) - Number(isClosed(b.issue.kind)))
-    return [{project, milestones, rows, issues: tasks.length, kinds}]
+    // Cards of rows (ORR-1146): a parent and its sub-issues get one of their own, so the sub-issues read as its
+    // children; the issues between parents share one.
+    const groups: (typeof rows)[] = []
+    for (const row of rows) {
+        const last = groups.at(-1)
+        if (row.issue.tasks.length || !last || last[0]?.issue.tasks.length) groups.push([row])
+        else last.push(row)
+    }
+    return [{project, milestones, rows, groups, issues: tasks.length, kinds}]
 }))
 
 const saving = ref(false)
@@ -259,9 +267,9 @@ useHead(() => ({title: epic.value ? `${epic.value.title} · Epics · orrery` : '
             <ProgressRing :kinds="part.kinds" :size="13" />
             <span class="font-mono normal-case">{{ part.kinds.done }}/{{ part.issues }}</span>
           </h2>
-          <div class="overflow-hidden rounded-xl border border-line dark:bg-panel">
+          <div v-for="group in part.groups" :key="group[0]?.issue.id" class="overflow-hidden rounded-xl border border-line dark:bg-panel" data-group>
             <IssueRow
-                v-for="{issue, milestone} in part.rows"
+                v-for="{issue, milestone} in group"
                 :key="issue.id"
                 :issue="issue"
                 :project="part.project.id"
