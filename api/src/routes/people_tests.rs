@@ -54,6 +54,13 @@ async fn adds_a_member_whose_id_is_their_name_in_snake_case() {
     );
     assert!(added.body["created_at"].is_string());
     assert_eq!(ids(&api.get("/api/people").send().await.body), ["steffen", "ada_lovelace"]);
+    // A member of the one workspace there is so far (ORR-1106).
+    let role: Option<String> = sqlx::query_scalar(&crate::db::sql("SELECT role FROM workspace_members WHERE workspace = 'default' AND person = ?"))
+        .bind("ada_lovelace")
+        .fetch_optional(&api.app.pool)
+        .await
+        .unwrap();
+    assert_eq!(role.as_deref(), Some("member"));
 }
 
 #[tokio::test]

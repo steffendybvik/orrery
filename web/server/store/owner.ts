@@ -52,6 +52,9 @@ export abstract class OwnerStore extends StatusStore {
             this.outbox('settings', {actor})
             const renamed = await this.run("UPDATE people SET id = ?, name = ? WHERE role = 'owner'", name, display)
             if (!Number(renamed.changes)) await this.run("INSERT INTO people (id, name, role, created_at) VALUES (?, ?, 'owner', ?)", name, display, stamp())
+            // The first person owns the one workspace there is so far (ORR-1106); a rename carries along (ON UPDATE CASCADE).
+            await this.run(`INSERT INTO workspace_members (workspace, person, role, created_at) SELECT 'default', ?, 'owner', ?
+                WHERE NOT EXISTS (SELECT 1 FROM workspace_members WHERE workspace = 'default' AND person = ?)`, name, stamp(), name)
             await this.run('UPDATE project_members SET person = ? WHERE person = ?', name, before.name)
             // Boards made before there was anyone to hold them are the owner's.
             await this.run(`INSERT INTO project_members (project, person, role, created_at) SELECT id, ?, 'owner', created_at FROM projects

@@ -31,7 +31,12 @@ export abstract class PeopleStore extends OwnerStore {
         if (RESERVED.includes(id)) throw badRequest(`"${id}" is what agents or orrery go by; pick another name`)
         const taken = await this.get<PersonRow>('SELECT * FROM people WHERE id = ?', id)
         if (taken) throw conflict(`"${id}" ${taken.removed_at ? 'was someone who has been removed' : `is ${taken.name}`}; pick another name`)
-        await this.run("INSERT INTO people (id, name, role, created_at) VALUES (?, ?, 'member', ?)", id, name, stamp())
+        await this.db.transaction(async () => {
+            const at = stamp()
+            await this.run("INSERT INTO people (id, name, role, created_at) VALUES (?, ?, 'member', ?)", id, name, at)
+            // A member of the one workspace there is so far (ORR-1106), as everyone was made by step 091.
+            await this.run("INSERT INTO workspace_members (workspace, person, role, created_at) VALUES ('default', ?, 'member', ?)", id, at)
+        })
         return await this.person(id)
     }
 

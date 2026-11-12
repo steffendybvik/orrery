@@ -417,8 +417,11 @@ mod tests {
             rows(&mut conn, "SELECT id, name, color, created_at FROM workspaces").await,
             vec![some(&["default", "Default", "teal", "2026-03-01T00:00:00.000Z"])]
         );
-        // The owner holds it; members stay on the boards they're on until access reads workspaces (step 3).
-        assert_eq!(rows(&mut conn, "SELECT workspace, person, role FROM workspace_members").await, vec![some(&["default", "ziggy", "owner"])]);
+        // The owner holds it, and (from step 91) the members are its members.
+        assert_eq!(
+            rows(&mut conn, "SELECT workspace, person, role FROM workspace_members ORDER BY role DESC").await,
+            vec![some(&["default", "ziggy", "owner"]), some(&["default", "ada", "member"])]
+        );
         assert_eq!(rows(&mut conn, "SELECT id, workspace FROM projects ORDER BY id").await, vec![some(&["alpha", "default"]), some(&["beta", "default"])]);
         // A project made as today, naming no workspace, lands in the default one.
         exec(&mut conn, "INSERT INTO projects (id, name, key, created_by, created_at, updated_at) VALUES ('gamma', 'Gamma', 'GAM', 'ziggy', 'x', 'x')")
@@ -464,6 +467,34 @@ mod tests {
             let columns = rows(&mut conn, &format!("SELECT dflt_value FROM pragma_table_info('{table}') WHERE name = 'workspace' AND \"notnull\" = 1")).await;
             assert_eq!(columns, vec![some(&["'default'"])], "{table}'s rows are in the default workspace");
         }
+    }
+
+    #[tokio::test]
+    async fn step_91_puts_everyone_here_in_the_default_workspace_but_the_removed() {
+        // As on a new orrery, the owner was named after step 89, so isn't in the workspace yet; Cy was removed.
+        let (path, mut conn) = sqlite_at(90).await;
+        exec(
+            &mut conn,
+            "INSERT INTO people (id, name, role, created_at) VALUES ('ziggy', 'Ziggy', 'owner', '2026-03-01T00:00:00.000Z'),
+                ('ada', 'Ada', 'member', '2026-02-01T00:00:00.000Z'), ('bo', 'Bo', 'member', '2026-04-01T00:00:00.000Z');
+             INSERT INTO people (id, name, role, created_at, removed_at) VALUES ('cy', 'Cy', 'member', '2026-05-01T00:00:00.000Z', '2026-06-01T00:00:00.000Z');",
+        )
+        .await
+        .unwrap();
+        conn.close().await.unwrap();
+
+        let migrated = migrate(&path, None).await.unwrap();
+        assert_eq!(migrated.from, 90);
+        let mut conn = AnyConnection::connect(&format!("sqlite://{path}")).await.unwrap();
+        assert_eq!(
+            rows(&mut conn, "SELECT person, role, created_at FROM workspace_members WHERE workspace = 'default' ORDER BY person").await,
+            vec![
+                some(&["ada", "member", "2026-02-01T00:00:00.000Z"]),
+                some(&["bo", "member", "2026-04-01T00:00:00.000Z"]),
+                some(&["ziggy", "owner", "2026-03-01T00:00:00.000Z"]),
+            ],
+            "the owner owns it, the members are its members, and someone removed isn't one"
+        );
     }
 
     #[tokio::test]
