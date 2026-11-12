@@ -106,9 +106,10 @@ async function add() {
       </form>
       <p v-if="saveFailed" class="text-xs text-rose-700 dark:text-rose-400">{{ saveFailed }}</p>
 
-      <ul v-if="epics.length" class="overflow-hidden rounded-xl border border-line dark:bg-panel" aria-label="Epics">
-        <li v-for="epic in epics" :key="epic.id" class="border-b border-line last:border-b-0">
-          <NuxtLink :to="epicPath(epic.id)" class="flex flex-col gap-1.5 px-3 py-2 hover:tint" @contextmenu="openMenu($event, epic)">
+      <!-- One card per epic, with a gap between them (ORR-1144). -->
+      <ul v-if="epics.length" class="flex flex-col gap-3" aria-label="Epics">
+        <li v-for="epic in epics" :key="epic.id" class="overflow-hidden rounded-xl border border-line dark:bg-panel">
+          <NuxtLink :to="epicPath(epic.id)" class="flex flex-col gap-1.5 px-3 py-2.5 hover:tint" @contextmenu="openMenu($event, epic)">
             <span class="flex flex-wrap items-center gap-x-3 gap-y-1">
               <span class="font-mono text-xs text-faint">{{ shownId('epic', epic.id) }}</span>
               <span class="min-w-0 truncate text-[13px] font-medium text-fg">{{ epic.title }}</span>
