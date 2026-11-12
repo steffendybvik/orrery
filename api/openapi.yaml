@@ -1429,6 +1429,23 @@ paths:
       responses:
         '204': {description: Kept}
         '400': {$ref: '#/components/responses/BadRequest'}
+  /api/database/compact:
+    post:
+      x-served: false
+      summary: Compacts the SQLite file when a lot of it is free
+      description: >-
+        The local app's alone (ORR-1134): `VACUUM`, then the `-wal` written through and cut back, when 32 MB and a
+        quarter of the file are free, as housekeeping asks after a clean-up; with `always`, whatever is free, as it asks
+        once it has compressed the images. A Postgres database keeps its own space, so it's never compacted.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                always: {type: boolean}
+      responses:
+        '200': {description: 'Whether it was compacted', content: {application/json: {schema: {type: object, properties: {compacted: {type: boolean}}}}}}
   /api/database/snapshot:
     post:
       x-served: false

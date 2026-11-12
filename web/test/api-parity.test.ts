@@ -1392,6 +1392,13 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         expect(domainOf('POST', '/api/database/snapshot')).toBeUndefined()
     })
 
+    it('compacts the database as housekeeping does it here (ORR-1134)', async () => {
+        const asked = await viaApi('POST', '/api/database/compact', {})
+        expect(asked).toMatchObject({status: 200, body: {compacted: false}})
+        expect(await viaApi('POST', '/api/database/compact', {always: true})).toMatchObject({status: 200, body: {compacted: !POSTGRES}})
+        expect(domainOf('POST', '/api/database/compact')).toBeUndefined()
+    })
+
     it('says alike whether the database is a new orrery\'s, and keeps the name it runs under alike (ORR-1140)', async () => {
         const state = await viaApi('GET', '/api/database')
         expect(state.status).toBe(200)
@@ -3932,7 +3939,7 @@ describe('the contract (api/openapi.yaml)', () => {
     })
 
     it('sends none of the routes written ahead of the Rust API to it', () => {
-        expect(contract(true)).toEqual(['DELETE /api/chats/{chat}', 'DELETE /api/secrets/{name}/sealed', 'GET /api/auth/oidc/callback', 'GET /api/auth/oidc/start', 'GET /api/auth/status', 'GET /api/chats', 'GET /api/chats/{chat}', 'GET /api/database', 'GET /api/projects/{project}/issue-sessions', 'GET /api/projects/{project}/issues/{issue}/dependents', 'GET /api/projects/{project}/issues/{issue}/workers', 'GET /api/projects/{project}/signals/last', 'POST /api/auth/link', 'POST /api/auth/login', 'POST /api/auth/logout', 'POST /api/boards', 'POST /api/chats/{chat}/doc-requests', 'POST /api/chats/{chat}/issue-requests', 'POST /api/chats/{chat}/lines', 'POST /api/chats/{chat}/move-requests', 'POST /api/chats/{chat}/release-requests', 'POST /api/chats/{chat}/replies', 'POST /api/chats/{chat}/schedule-requests', 'POST /api/chats/{chat}/setting-requests', 'POST /api/database/snapshot', 'POST /api/events/log/prune', 'POST /api/phone/link', 'POST /api/presets/seed', 'POST /api/projects/{project}/issue-sessions/rename', 'POST /api/projects/{project}/issues/{issue}/worked-by', 'POST /api/projects/{project}/signals', 'POST /api/projects/{project}/signals/retarget', 'POST /api/projects/{project}/signals/{signal}/receipts', 'POST /api/pulls/forget', 'POST /api/secrets/{name}/uses', 'POST /api/signals/prune', 'PUT /api/chats/{chat}', 'PUT /api/chats/{chat}/lines/{message}', 'PUT /api/database/environment', 'PUT /api/events/log/lines', 'PUT /api/pulls/{owner}/{name}', 'PUT /api/pulls/{owner}/{name}/error', 'PUT /api/pulls/{owner}/{name}/history', 'PUT /api/pulls/{owner}/{name}/{number}', 'PUT /api/secrets/{name}/sealed', 'PUT /api/usage'])
+        expect(contract(true)).toEqual(['DELETE /api/chats/{chat}', 'DELETE /api/secrets/{name}/sealed', 'GET /api/auth/oidc/callback', 'GET /api/auth/oidc/start', 'GET /api/auth/status', 'GET /api/chats', 'GET /api/chats/{chat}', 'GET /api/database', 'GET /api/projects/{project}/issue-sessions', 'GET /api/projects/{project}/issues/{issue}/dependents', 'GET /api/projects/{project}/issues/{issue}/workers', 'GET /api/projects/{project}/signals/last', 'POST /api/auth/link', 'POST /api/auth/login', 'POST /api/auth/logout', 'POST /api/boards', 'POST /api/chats/{chat}/doc-requests', 'POST /api/chats/{chat}/issue-requests', 'POST /api/chats/{chat}/lines', 'POST /api/chats/{chat}/move-requests', 'POST /api/chats/{chat}/release-requests', 'POST /api/chats/{chat}/replies', 'POST /api/chats/{chat}/schedule-requests', 'POST /api/chats/{chat}/setting-requests', 'POST /api/database/compact', 'POST /api/database/snapshot', 'POST /api/events/log/prune', 'POST /api/phone/link', 'POST /api/presets/seed', 'POST /api/projects/{project}/issue-sessions/rename', 'POST /api/projects/{project}/issues/{issue}/worked-by', 'POST /api/projects/{project}/signals', 'POST /api/projects/{project}/signals/retarget', 'POST /api/projects/{project}/signals/{signal}/receipts', 'POST /api/pulls/forget', 'POST /api/secrets/{name}/uses', 'POST /api/signals/prune', 'PUT /api/chats/{chat}', 'PUT /api/chats/{chat}/lines/{message}', 'PUT /api/database/environment', 'PUT /api/events/log/lines', 'PUT /api/pulls/{owner}/{name}', 'PUT /api/pulls/{owner}/{name}/error', 'PUT /api/pulls/{owner}/{name}/history', 'PUT /api/pulls/{owner}/{name}/{number}', 'PUT /api/secrets/{name}/sealed', 'PUT /api/usage'])
         expect(contract(true).filter(operation => routes().includes(operation))).toEqual([])
     })
 })
