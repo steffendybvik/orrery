@@ -151,11 +151,13 @@ describe("the owner's chat", () => {
         ])
     })
 
-    it('says the page the owner is on at the end of what its session hears, and keeps it out of the message', async () => {
+    it('says the page the owner is on at the end of what its session hears, and keeps only its path on the message (ORR-1100)', async () => {
         await chats.openChat('greenhouse')
         const said = await chats.say('c1c2c3c4c5c6', 'What runs here?', [], owner, {path: '/p/greenhouse/schedules', title: ' Schedules \n· Greenhouse '})
         expect(messages.at(-1)!.text).toBe('What runs here?\n\n(The owner is on /p/greenhouse/schedules: Schedules · Greenhouse.)')
-        expect(said).not.toHaveProperty('page')
+        // Its path is kept on the owner's row, for the Rust /mcp's `move_issues`: the words stay theirs alone.
+        expect(said).toMatchObject({text: 'What runs here?', page: '/p/greenhouse/schedules'})
+        expect(JSON.stringify(said)).not.toContain('Schedules')
         await chats.say('c1c2c3c4c5c6', 'And now?', [], owner, {path: '/sessions'})
         expect(messages.at(-1)!.text).toBe('And now?\n\n(The owner is on /sessions.)')
         for (const page of [{path: 'https://elsewhere.example'}, {path: '//elsewhere.example/x'}, {path: '/a b'}, {title: 'No path'}, '/p/greenhouse'])

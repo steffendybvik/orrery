@@ -619,3 +619,118 @@ async fn the_chat_offers_only_what_an_issue_takes_and_only_while_it_runs() {
     api.put("/api/chats/c1", over).send().await;
     assert_eq!(offer(json!({"issue": {"title": "X"}})).await.status, 404);
 }
+
+/// Project Primes with a chat on it, `c1`, the owner, and two issues, PRI-1 and PRI-2, in the backlog.
+async fn moving() -> (TestApi, String) {
+    let api = TestApi::new().await;
+    api.owner().await;
+    let project = api.project("Primes").await;
+    api.issue(&project, json!({"title": "Sieve"})).await;
+    api.issue(&project, json!({"title": "Wheel"})).await;
+    api.put("/api/chats/c1", chat("c1", &project, "2026-11-01T10:00:00.000Z")).send().await;
+    (api, project)
+}
+
+/// The owner's message in chat `c1`, as their own route keeps it: their words, and the page they wrote from.
+async fn owner_said(api: &TestApi, text: &str, page: Option<&str>) {
+    let mut line = said("owner", text);
+    if let Some(page) = page {
+        line["page"] = json!(page);
+    }
+    assert_eq!(api.post("/api/chats/c1/lines", line).send().await.status, 201);
+}
+
+async fn column_of(api: &TestApi, project: &str, issue: &str) -> (Value, Value) {
+    let read = api.get(&format!("/api/projects/{project}/issues/{issue}")).send().await.body;
+    (read["column"].clone(), read["assignee"].clone())
+}
+
+#[tokio::test]
+async fn issues_the_owner_named_in_their_last_message_move_at_once_as_theirs() {
+    let (api, project) = moving().await;
+    owner_said(&api, "Put pri-1 and PRI-2 in done, please", None).await;
+    let moved =
+        api.post("/api/chats/c1/move-requests", json!({"move": {"ids": ["PRI-1", "PRI-2", "PRI-1"], "status": "done", "assignee": "owner"}})).send().await;
+    assert_eq!(moved.status, 201, "{}", moved.body);
+    assert!(moved.body.get("move").is_none(), "nothing asked: {}", moved.body);
+    assert_eq!(moved.body["text"], "Put [PRI-1](/p/primes/issues/PRI-1), [PRI-2](/p/primes/issues/PRI-2) in done, assigned to steffen.");
+    for issue in ["PRI-1", "PRI-2"] {
+        assert_eq!(column_of(&api, &project, issue).await, (json!("done"), json!("steffen")), "{issue}");
+    }
+    assert!(moved.told().contains(&"issue.status primes PRI-1 backlog done".to_string()), "{:?}", moved.told());
+    assert_eq!(api.count("SELECT count(*) FROM events WHERE kind = 'chat.moved'").await, 1, "and the event log says so");
+}
+
+#[tokio::test]
+async fn issues_the_owner_didnt_name_are_asked_with_each_change_and_move_nothing() {
+    let (api, project) = moving().await;
+    owner_said(&api, "Tidy the board", None).await;
+    // The chat's own words naming them don't count: only the owner's last message does.
+    api.post("/api/chats/c1/lines", said("claude", "I'll move PRI-1 and PRI-2.")).send().await;
+    let asked = api.post("/api/chats/c1/move-requests", json!({"move": {"ids": ["PRI-1", "PRI-2"], "status": "todo"}, "why": " Ready "})).send().await;
+    assert_eq!(asked.status, 201, "{}", asked.body);
+    assert_eq!(asked.body["text"], "Ready");
+    assert_eq!(
+        asked.body["move"],
+        json!({
+            "changes": [
+                {"issue": "PRI-1", "title": "Sieve", "field": "status", "from": "backlog", "to": "todo"},
+                {"issue": "PRI-2", "title": "Wheel", "field": "status", "from": "backlog", "to": "todo"},
+            ],
+            "was": {"PRI-1": {"status": "backlog", "assignee": null}, "PRI-2": {"status": "backlog", "assignee": null}},
+            "body": {"ids": ["PRI-1", "PRI-2"], "status": "todo"},
+            "state": "asked",
+        })
+    );
+    assert_eq!(column_of(&api, &project, "PRI-1").await.0, json!("backlog"), "nothing moves until the owner allows it");
+    assert_eq!(api.count("SELECT count(*) FROM events WHERE kind = 'chat.asked'").await, 1);
+    // Asked again for one of them, the unanswered one expires.
+    api.post("/api/chats/c1/move-requests", json!({"move": {"ids": ["PRI-2"], "assignee": null, "status": "done"}})).send().await;
+    let messages = api.get("/api/chats/c1").send().await.body["messages"].clone();
+    let states: Vec<&str> = messages.as_array().unwrap().iter().filter_map(|m| m["move"]["state"].as_str()).collect();
+    assert_eq!(states, ["expired", "asked"]);
+}
+
+#[tokio::test]
+async fn the_issue_page_the_owner_wrote_from_names_it_but_no_other() {
+    let (api, project) = moving().await;
+    owner_said(&api, "Close this one", Some("/p/primes/issues/PRI-1")).await;
+    let both = api.post("/api/chats/c1/move-requests", json!({"move": {"ids": ["PRI-1", "PRI-2"], "status": "done"}})).send().await;
+    assert_eq!(both.body["move"]["state"], "asked", "PRI-2 isn't named: {}", both.body);
+    let one = api.post("/api/chats/c1/move-requests", json!({"move": {"ids": ["PRI-1"], "status": "done"}})).send().await;
+    assert_eq!(one.status, 201, "{}", one.body);
+    assert_eq!(column_of(&api, &project, "PRI-1").await.0, json!("done"));
+    let messages = api.get("/api/chats/c1").send().await.body["messages"].clone();
+    let states: Vec<&str> = messages.as_array().unwrap().iter().filter_map(|m| m["move"]["state"].as_str()).collect();
+    assert_eq!(states, ["expired"], "the ask for it is decided");
+    // A word that only holds the id isn't it: PRI-10 doesn't name PRI-1.
+    owner_said(&api, "And PRI-10", None).await;
+    let near = api.post("/api/chats/c1/move-requests", json!({"move": {"ids": ["PRI-2"], "status": "done"}})).send().await;
+    assert_eq!(near.body["move"]["state"], "asked");
+}
+
+#[tokio::test]
+async fn the_chat_moves_no_proposal_nothing_that_would_stay_and_only_while_it_runs() {
+    let (api, project) = moving().await;
+    let proposal = api.issue(&project, json!({"title": "Idea", "proposal": "pending"})).await;
+    owner_said(&api, &format!("Move PRI-1, PRI-2 and {proposal}"), None).await;
+    let ask = |body: Value| api.post("/api/chats/c1/move-requests", body).send();
+    let waiting = ask(json!({"move": {"ids": [proposal], "status": "done"}})).await;
+    assert_eq!(waiting.status, 403, "{}", waiting.body);
+    assert!(waiting.body["message"].as_str().unwrap().contains("is a proposal waiting on the owner"), "{}", waiting.body);
+    let same = ask(json!({"move": {"ids": ["PRI-1"], "status": "backlog"}})).await;
+    assert_eq!(same.status, 409);
+    assert_eq!(same.body["message"], "PRI-1 is like that already: nothing would change");
+    assert_eq!(ask(json!({"move": {"ids": ["PRI-1"]}})).await.status, 400, "a status or an assignee");
+    assert_eq!(ask(json!({"move": {"ids": [], "status": "done"}})).await.status, 400);
+    assert_eq!(ask(json!({"move": {"ids": ["PRI-1"], "status": "nowhere"}})).await.status, 400);
+    assert_eq!(ask(json!({"move": {"ids": ["PRI-1"], "assignee": 7}})).await.status, 400);
+    let many: Vec<String> = (1..=51).map(|n| format!("PRI-{n}")).collect();
+    assert_eq!(ask(json!({"move": {"ids": many, "status": "done"}})).await.status, 400);
+    assert_eq!(ask(json!({"move": {"ids": ["PRI-9"], "status": "done"}})).await.status, 404);
+    let mut over = chat("c1", &project, "2026-11-01T10:00:00.000Z");
+    over["ended_at"] = json!("2026-11-01T11:00:00.000Z");
+    api.put("/api/chats/c1", over).send().await;
+    assert_eq!(ask(json!({"move": {"ids": ["PRI-1"], "status": "done"}})).await.status, 404);
+    assert_eq!(column_of(&api, &project, "PRI-1").await.0, json!("backlog"));
+}

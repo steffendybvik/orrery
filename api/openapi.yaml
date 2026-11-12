@@ -1699,6 +1699,25 @@ paths:
         '400': {$ref: '#/components/responses/BadRequest'}
         '403': {description: A field that stays the owner's to set, content: {application/json: {schema: {type: object}}}}
         '404': {$ref: '#/components/responses/NotFound'}
+  /api/chats/{chat}/move-requests:
+    parameters: [{name: chat, in: path, required: true, description: The chat's id, schema: {type: string}}]
+    post:
+      x-served: false
+      summary: The chat moves issues to a status or assigns them, at once on the owner's word, else asking them
+      description: >-
+        The chat's `move_issues` (`askMove`, ORR-1100): a status's id or a kind, and an assignee's name, `owner`, or
+        null for nobody, on the project it names or else the chat's own, never a proposal waiting on the owner. When the
+        owner's last message in the chat names each issue that would change, or was sent from its page, they move at
+        once as the owner's, as their own move would (`Orrery-Urgent` for those it made urgent open work), and the chat
+        says so. Otherwise it's kept as a request showing each issue's from and to, which moves nothing until the owner
+        allows it on the chat's page; one asked before for any of the same issues, still unanswered, expires.
+      requestBody: {required: true, content: {application/json: {schema: {type: object, required: [move], properties: {move: {type: object, required: [ids], properties: {ids: {type: array, items: {type: string}}, status: {type: string}, assignee: {type: [string, 'null']}}}, project: {type: string}, why: {type: string}}}}}}
+      responses:
+        '201': {description: 'The message: the request (`move`), or the chat saying what it moved', content: {application/json: {schema: {type: object}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {description: A proposal waiting on the owner, content: {application/json: {schema: {type: object}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {description: Nothing would change, content: {application/json: {schema: {type: object}}}}
   /api/chats/{chat}/issue-requests:
     parameters: [{name: chat, in: path, required: true, description: The chat's id, schema: {type: string}}]
     post:

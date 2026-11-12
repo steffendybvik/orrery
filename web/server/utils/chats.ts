@@ -306,7 +306,7 @@ function elsewhere(path: string, project: string): string {
 }
 
 /** The owner writing in the chat, with the uploads they pasted (`images`, their ids) and the page they're on (`page`):
- * it goes to the chat's session alone, as a message from the owner, the page said at its end but not kept with it. A
+ * it goes to the chat's session alone, as a message from the owner, the page said at its end and kept as its `page`. A
  * run of messages held and sent together (`parts`, ORR-517) goes as one, joined by blank lines, and is kept as its parts. */
 export async function say(id: string, text: unknown, images: unknown, actor: {name: string, owner: boolean}, page?: unknown, parts?: unknown): Promise<ChatMessage> {
     await chatsLoaded()
@@ -325,7 +325,8 @@ export async function say(id: string, text: unknown, images: unknown, actor: {na
     ].filter(Boolean).join('\n\n')
     await useStore().messageSession(chat.project, launchTarget(id), note, actor)
     told.set(id, {words, ...on ? {page: on.path} : {}, started: new Set()})
-    return await add(chat, {from: 'owner', text: words, images: pasted, ...run && run.length > 1 ? {parts: run} : {}})
+    // The page goes on the owner's row too, so the Rust /mcp's `move_issues` sees what they were on (ORR-1100).
+    return await add(chat, {from: 'owner', text: words, images: pasted, ...run && run.length > 1 ? {parts: run} : {}, ...on ? {page: on.path} : {}})
 }
 
 /** How much of an ended chat's conversation a session started fresh for it is told, at most. */
