@@ -439,3 +439,28 @@ async fn what_a_tools_routes_set_off_comes_back_on_the_mcp_reply_for_the_router_
     assert_eq!(read.header("orrery-carry"), None, "a read sets nothing off");
     assert_eq!(read.header("orrery-changed"), None);
 }
+
+#[tokio::test]
+async fn the_chats_and_an_untrusted_sessions_tool_calls_are_held_by_the_rails() {
+    // The router lets their `/mcp` through (ORR-1102): each tool's route is held here as middleware/chat.ts and
+    // untrusted.ts hold the REST routes.
+    let api = TestApi::new().await;
+    let own = api.project("Primes").await;
+    let other = api.project("Sieves").await;
+    let id = api.issue(&own, json!({"title": "Sieve"})).await;
+    let call = |name: &str, args: Value| rpc(&api, "tools/call", json!({"name": name, "arguments": args}));
+
+    let untrusted = |req: Req| req.untrusted().header("orrery-untrusted-project", &own);
+    let comment = untrusted(call("comment", json!({"id": id, "body": "Hi"}))).send().await;
+    assert_eq!(comment.body["result"]["isError"], json!(true), "a comment on the owner's issue: {}", comment.body);
+    let elsewhere = untrusted(call("create_issue", json!({"project": other, "title": "From outside"}))).send().await;
+    assert!(said(&elsewhere).contains(&format!("for {own}, so it only writes there")), "{}", elsewhere.body);
+    let raised = untrusted(call("create_issue", json!({"project": own, "title": "From outside"}))).send().await;
+    assert_ne!(raised.body["result"]["isError"], json!(true), "{}", raised.body);
+
+    let chat = |req: Req| req.by_agent("claude").header("orrery-actor-asked", "1").header("orrery-actor-kind", "chat");
+    let made = chat(call("create_issue", json!({"project": own, "title": "Wheel"}))).send().await;
+    assert_ne!(made.body["result"]["isError"], json!(true), "{}", made.body);
+    let doc = chat(call("write_doc", json!({"project": own, "id": "notes", "title": "Notes", "body": "x"}))).send().await;
+    assert_ne!(doc.body["result"]["isError"], json!(true), "the chat writes docs: {}", doc.body);
+}

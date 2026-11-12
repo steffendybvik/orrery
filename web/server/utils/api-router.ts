@@ -373,7 +373,9 @@ export function actorHeaders(actor: Actor): Record<string, string> {
 
 /** What only this server knows of who's asking, for the API's rewrite of a new issue (ORR-1059): the status the owner
  * picked for the chat's issues (`Orrery-Chat-Issues`) and which chat it is (`Orrery-Launch`), or the session a write is noted as worked by, by the id it goes
- * by after a `/clear` (`Orrery-Worked-By`, percent-encoded). An untrusted session's is never the chat's. */
+ * by after a `/clear` (`Orrery-Worked-By`, percent-encoded). An untrusted session's is never the chat's; it says the
+ * project the session was started for (`Orrery-Untrusted-Project`), once this server knows it, for the API's rails to
+ * hold its writes to (ORR-1069), as middleware/untrusted.ts does here. */
 export function askerHeaders(event: H3Event, actor: Actor): Record<string, string> {
     if (actor.chat && !actor.untrusted) {
         // And which chat it is (`Orrery-Launch`, its launch's id), for the asks `/mcp` keeps in it (ORR-1100).
@@ -381,7 +383,8 @@ export function askerHeaders(event: H3Event, actor: Actor): Record<string, strin
         return {'Orrery-Chat-Issues': chatIssuesFor(launch), ...launch ? {'Orrery-Launch': encodeURIComponent(launch)} : {}}
     }
     const session = getHeader(event, 'orrery-session')?.trim()
-    return session ? {'Orrery-Worked-By': encodeURIComponent(currentId(session))} : {}
+    const own = actor.untrusted ? untrustedProject(session) : undefined
+    return {...session ? {'Orrery-Worked-By': encodeURIComponent(currentId(session))} : {}, ...own ? {'Orrery-Untrusted-Project': encodeURIComponent(own)} : {}}
 }
 
 /** What the auth middleware's credential said (`Who`), and the credential itself, hashed as the logins and keys tables

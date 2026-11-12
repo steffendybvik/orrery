@@ -28,12 +28,12 @@ export const claude = {
     claims: 'untrusted=no-bash&chat=yes&model=yes&resume=yes&global=yes',
 
     // What it's told as it starts (`told`, the repo it's in: ORR-1070) goes in its system prompt, so a `/clear` keeps it.
-    // A work session can have orrery's `/mcp` beside its channel (ORR-1102): `beside`, from mcp-beside.mjs.
+    // A session can have orrery's `/mcp` beside its channel (ORR-1102): `beside`, from mcp-beside.mjs.
     mcpBeside: true,
 
     command({dir, server, launch, mode, told, beside}) {
         return ['claude', '--dangerously-load-development-channels', `server:${server}`,
-            ...launch.untrusted ? lockedDown(dir, server) : launch.chat ? chatOnly(dir, server) : ['--permission-mode', mode, ...besideArgs(beside)],
+            ...launch.untrusted ? lockedDown(dir, server, beside) : launch.chat ? chatOnly(dir, server, beside) : ['--permission-mode', mode, ...besideArgs(beside)],
             ...modelArgs(launch), ...resumeArgs(launch), ...told ? ['--append-system-prompt', told] : []]
     },
 

@@ -255,10 +255,15 @@ describe.concurrent("a launcher's own loop", {timeout: 40_000}, () => {
             expect(config(work!)).toEqual({type: 'http', url: `${orrery.url}/mcp`, headers: {'Orrery-Actor': 'claude', 'Orrery-Session': session, 'Orrery-Person': 'hati'}})
             expect(claudeArgs(work!)).toEqual(expect.arrayContaining(['--allowedTools', 'mcp__greenhouse-api']))
             expect(envOf(work!)).toContain('ORRERY_TOOLS=local')
-            // Not yet the chat or an untrusted session: the server's guards for them refuse /mcp, so they keep every tool.
-            expect(claudeArgs(chat!).slice(2)).toEqual(chatOnly(repo, 'greenhouse'))
-            expect(claudeArgs(untrusted!).slice(2)).toEqual(lockedDown(repo, 'greenhouse'))
-            for (const call of [chat!, untrusted!]) expect(envOf(call)).not.toContain('ORRERY_TOOLS=local')
+            // The chat and an untrusted session too, saying so to /mcp as their channel does, whose rails hold them.
+            const id = (call: string[]) => call[call.indexOf('--session-id') + 1]!
+            expect(config(chat!).headers).toEqual({'Orrery-Actor': 'claude', 'Orrery-Session': id(chat!), 'Orrery-Chat': 'yes', 'Orrery-Launch': ID.b})
+            expect(claudeArgs(chat!)).toEqual(expect.arrayContaining(['--allowedTools', 'mcp__greenhouse-api']))
+            expect(config(untrusted!).headers).toEqual({'Orrery-Actor': 'claude', 'Orrery-Session': id(untrusted!), 'Orrery-Untrusted': 'yes'})
+            // Still its one --mcp-config, strict: the channel's entry (none in this repo) and /mcp's, nothing of the repo's.
+            expect(claudeArgs(untrusted!).filter(a => a === '--mcp-config')).toHaveLength(1)
+            expect(claudeArgs(untrusted!)).toEqual(expect.arrayContaining(['--strict-mcp-config', '--allowedTools', 'mcp__greenhouse', 'mcp__greenhouse-api']))
+            for (const call of [chat!, untrusted!]) expect(envOf(call)).toContain('ORRERY_TOOLS=local')
         })
 
         it("keeps every tool in its channel when the orrery doesn't serve /mcp", async context => {
