@@ -598,8 +598,8 @@ onBeforeUnmount(() => window.removeEventListener('message', heard))
       >
         <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M9 4v16" /></svg>
       </UiButton>
-      <div class="flex min-w-0 flex-1 flex-col">
-        <div class="flex min-w-0 items-center gap-1.5 text-[13px] font-medium text-fg">
+      <div class="flex min-w-0 flex-1 flex-col gap-1">
+        <div class="flex min-w-0 items-center gap-2 text-[13px] font-medium text-fg">
           <span>Chat</span>
           <template v-if="about">
             <span class="text-faint">·</span>
@@ -625,7 +625,7 @@ onBeforeUnmount(() => window.removeEventListener('message', heard))
           </template>
         </div>
         <!-- The line stays as it connects and works, so the header doesn't jump. -->
-        <span v-if="chat" class="flex min-h-4 min-w-0 items-center gap-1.5 text-xs text-faint">
+        <span v-if="chat" class="flex min-h-4 min-w-0 items-center gap-2 text-xs text-faint">
           <!-- Who's answering, once connected (ORR-811). The name gives way first on a narrow window, as in the sidebar. -->
           <template v-if="session">
             <span class="min-w-0 shrink-[100] truncate font-medium text-muted" :title="session.name" data-testid="chat-name">{{ nameBesideProject(session) }}</span>
