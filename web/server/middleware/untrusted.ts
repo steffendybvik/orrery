@@ -8,6 +8,7 @@
 // project by `Orrery-Untrusted-Project` (`askerHeaders`), so `/mcp` itself isn't refused here.
 import {guard} from '../utils/guard'
 import {MCP} from '../utils/api-router'
+import {projectNamed} from '../utils/roster'
 
 /** The project a write under `/api/projects/:project/…` is to, as the path names it. */
 const projectIn = (path: string) => /^\/api\/projects\/([^/?#]+)\//.exec(path)?.[1]
@@ -19,6 +20,6 @@ export default defineEventHandler(async event => {
     const own = untrustedProject(sessionHeader(event))
     const named = projectIn(event.path)
     if (!own || !named) return
-    const project = await useStore().projectId(decodeURIComponent(named)).catch(() => decodeURIComponent(named))
+    const project = await projectNamed(decodeURIComponent(named))
     if (project !== own) throw createError({statusCode: 403, statusMessage: 'Forbidden', message: `This session reads what others wrote (an untrusted schedule) for ${own}, so it only writes there`})
 })

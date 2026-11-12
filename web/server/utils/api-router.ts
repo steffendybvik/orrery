@@ -13,6 +13,7 @@ import type {H3Event} from 'h3'
 import {createError, getCookie, getQuery, getRequestHeader, getRequestHost, getRequestURL, readRawBody, setResponseHeader, setResponseStatus} from 'h3'
 import type {Feature} from '#shared/usage'
 import type {Actor} from '../store/schema'
+import {ORRERY} from '../store/schema'
 import type {Who} from './auth'
 import {bearer, loginCookie, onLoopback, pathOf, toldOff, toldOn} from './auth'
 import {proxied} from './move'
@@ -23,6 +24,7 @@ import {countOwnUse, dropGathered, flushUse, usageAllowed} from './usage'
 import {startsNone} from './starts-none'
 import {untrustedProject} from './sessions'
 import {carriedInto} from './carried-over'
+import {forgetRoster} from './roster'
 import type {Input} from './input'
 import {revLabel} from './events'
 import type {IssueScope, Project} from '#shared/roadmap'
@@ -749,6 +751,8 @@ function refusal(status: number, json: Record<string, unknown> | null) {
 /** Tells what a reply from the API says it set off, as the store would have: open pages read the project again, and the
  * event log, schedules and sessions hear it. `noteKeys` off: the caller notes a change of the settings itself. */
 async function relayed(response: Response, actor: Actor, method: string, {noteKeys = true} = {}) {
+    // The owner, the people and the boards' members the checks here keep a moment may have changed (ORR-1138).
+    if (WRITES.has(method)) forgetRoster()
     const store = useStore()
     // The API put what it set off in the outbox already, so the store's hooks don't again (ORR-929). While this server
     // follows the outbox, they hear it from there instead of from these headers (ORR-983).
@@ -786,6 +790,31 @@ function configHere(): {apiUrl?: unknown, apiToken?: unknown} {
     } catch {
         return {}
     }
+}
+
+/** A read this server makes for its own checks (the board's people, ORR-1138), from the API once one is set up, as the
+ * server itself (`ORRERY`): its reply, or undefined with no API set up at all (unit tests, a `nuxt dev` without its
+ * build), which leaves it to the store here. Down or unreachable once set up, it fails (`cantReach`), as a write does. */
+export async function readFromApi<T>(path: string, {config = configHere()} = {}): Promise<T | undefined> {
+    const asked = `GET ${path}`
+    if (!apiTarget(config)) await apiListening()
+    const api = apiTarget(config)
+    if (!api) return meant ? cantReach(asked, NOT_RUNNING, 'not-running') : undefined
+    let response: Response
+    try {
+        response = await fetch(`${api.url.replace(/\/+$/, '')}${path}`, {
+            headers: {'Orrery-Api-Token': api.token, 'Orrery-Database': databaseMark(databaseSetting()), ...OWN_WORK, ...actorHeaders(ORRERY)},
+            redirect: 'manual',
+        })
+    } catch (error) {
+        return cantReach(asked, `at ${api.url} can't be reached (${(error as Error).message})`)
+    }
+    if (response.status === 421) return cantReach(asked, `at ${api.url} is on another database than this server`, 'other-database')
+    unreachable = ''
+    const text = await response.text()
+    const json = text ? JSON.parse(text) as T : null
+    if (response.status >= 400) throw refusal(response.status, json as Record<string, unknown> | null)
+    return json as T
 }
 
 /** A write this server makes itself rather than for a request, such as the chat's Allow (ORR-1044): with the API there
