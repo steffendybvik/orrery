@@ -91,8 +91,9 @@ export const DOMAINS: readonly {domain: string, paths: RegExp, methods?: readonl
     // An image kept for Markdown, read (ORR-927), and kept, compressed in Rust as compress.ts does here (ORR-1058).
     {domain: 'uploads, reading', paths: /^uploads\/[^/]+$/, methods: ['GET']},
     {domain: 'an upload, kept', paths: /^uploads$/, methods: ['POST']},
-    // The orrery's presets and a project's own (ORR-949). Seeding the ones orrery ships, as this server starts, stays here.
-    {domain: 'presets', paths: /^(presets(\/[^/]+(\/reset)?)?|projects\/[^/]+\/presets)$/},
+    // The orrery's presets and a project's own (ORR-949). Seeding the ones orrery ships (`presets/seed`, ORR-1136) is
+    // this server's own call to the API as it starts, so it isn't sent on from outside.
+    {domain: 'presets', paths: /^(presets(\/(?!seed$)[^/]+(\/reset)?)?|projects\/[^/]+\/presets)$/},
     // The orrery's secrets, read: never a value (ORR-953). Setting and narrowing one seal its value with the key, which
     // stays with the local app, and every write is told to the event log, so they and egress stay here.
     {domain: 'secrets, reading', paths: /^secrets(\/[^/]+)?$/, methods: ['GET']},
