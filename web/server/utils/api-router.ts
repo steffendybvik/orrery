@@ -24,6 +24,7 @@ import {countOwnUse, dropGathered, flushUse, usageAllowed} from './usage'
 import {startsNone} from './starts-none'
 import {untrustedProject} from './sessions'
 import {carriedInto} from './carried-over'
+import {forgetRoster} from './roster'
 import type {Input} from './input'
 import {revLabel} from './events'
 import type {IssueScope, Project} from '#shared/roadmap'
@@ -750,6 +751,8 @@ function refusal(status: number, json: Record<string, unknown> | null) {
 /** Tells what a reply from the API says it set off, as the store would have: open pages read the project again, and the
  * event log, schedules and sessions hear it. `noteKeys` off: the caller notes a change of the settings itself. */
 async function relayed(response: Response, actor: Actor, method: string, {noteKeys = true} = {}) {
+    // The owner, the people and the boards' members the checks here keep a moment may have changed (ORR-1138).
+    if (WRITES.has(method)) forgetRoster()
     const store = useStore()
     // The API put what it set off in the outbox already, so the store's hooks don't again (ORR-929). While this server
     // follows the outbox, they hear it from there instead of from these headers (ORR-983).

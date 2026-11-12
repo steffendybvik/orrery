@@ -16,7 +16,7 @@ beforeEach(async () => {
     vi.stubGlobal('sessionHeader', (event: Event) => event.headers['orrery-session'])
     // orrery knows untrusted-1, started for greenhouse; untrusted-2 it doesn't know yet (it restarted).
     vi.stubGlobal('untrustedProject', (id: string | undefined) => id === 'untrusted-1' ? 'greenhouse' : undefined)
-    vi.stubGlobal('useStore', () => ({projectId: async (id: string) => id === 'GRE' ? 'greenhouse' : id}))
+    vi.stubGlobal('useStore', () => ({listProjects: async () => [{id: 'greenhouse', key: 'GRE'}, {id: 'pantry', key: 'PAN'}]}))
     vi.doMock('../server/utils/guard', () => ({guard: async () => {}}))
     vi.resetModules()
     handler = (await import('../server/middleware/untrusted')).default as unknown as typeof handler
