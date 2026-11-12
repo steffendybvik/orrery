@@ -141,8 +141,12 @@ async function bringUploads(db: Db, uploads: unknown, actor: Actor) {
     }
 }
 
-/** Brings the file in as a new board, and says its id. `holder` is the person who holds it: whoever is uploading it. */
-export async function uploadBoard(db: Db, file: unknown, as: {id?: string, key?: string, name?: string}, actor: Actor, holder: string): Promise<string> {
+/** A board's file, checked and brought up to this schema (`upToDate`), with the id and key it's to have here. */
+export type CheckedBoard = {file: Record<string, unknown>, tables: Tables, statusesInFile: Row[], id: string, key: string, name?: string}
+
+/** Checks a board's file without the database: what it is, its rows brought up to this schema in a throwaway SQLite,
+ * and the id and key it's to have. Refuses it (400) when any of that doesn't hold. */
+export function checkedBoard(file: unknown, as: {id?: string, key?: string, name?: string}): CheckedBoard {
     if (!isRow(file) || file.format !== 'orrery-board') throw badRequest('That isn\'t a board\'s file')
     if (file.format_version !== 1) throw badRequest(`That file's format (${String(file.format_version)}) is one this orrery can't read`)
     const statusesInFile = (Array.isArray(file.statuses) ? file.statuses : []).filter(isRow) as Row[]
@@ -153,7 +157,25 @@ export async function uploadBoard(db: Db, file: unknown, as: {id?: string, key?:
     const key = as.key ?? String(source.key)
     if (!SLUG.test(id)) throw badRequest(`"${id}" doesn't make a project's id`)
     if (!KEY.test(key) || FULL_ID_KEYS.includes(key)) throw badRequest(`"${key}" doesn't make a project's key`)
+    return {file, tables, statusesInFile, id, key, name: as.name}
+}
 
+/** What the Rust API takes to make the board (`POST /api/boards`, board_upload.rs): the checked rows, and what the file
+ * says of its statuses, people and images beside them. Its images' bytes travel as the file had them, in base64. */
+export function boardForApi({file, tables, statusesInFile, id, key, name}: CheckedBoard, holder: string): Record<string, unknown> {
+    return {id, key, name: name ?? null, holder, project: file.project ?? null, exported_at: typeof file.exported_at === 'string' ? file.exported_at : null,
+        statuses: statusesInFile, people: Array.isArray(file.people) ? file.people : [], uploads: Array.isArray(file.uploads) ? file.uploads : [], tables}
+}
+
+/** Brings the file in as a new board, and says its id. `holder` is the person who holds it: whoever is uploading it.
+ * The local app's own, with no API set up; with one, it's the API's (`boardForApi`). */
+export async function uploadBoard(db: Db, file: unknown, as: {id?: string, key?: string, name?: string}, actor: Actor, holder: string): Promise<string> {
+    return await writeBoard(db, checkedBoard(file, as), actor, holder)
+}
+
+async function writeBoard(db: Db, {file, tables, statusesInFile, id, key, name}: CheckedBoard, actor: Actor, holder: string): Promise<string> {
+    const [source] = tables.projects as [Row]
+    const as = {name}
     return await db.transaction(async () => {
         if (await db.get('SELECT 1 FROM projects WHERE id = ?', id)) throw conflict(`There is already a project "${id}": choose another id`)
         if (await db.get('SELECT 1 FROM projects WHERE key = ?', key)) throw conflict(`There is already a project with the key ${key}: choose another`)

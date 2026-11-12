@@ -1359,6 +1359,38 @@ paths:
       description: The local app's alone (ORR-1096), once it's checked the owner asked. Nothing when there's none.
       responses:
         '204': {description: Gone}
+  /api/boards:
+    post:
+      x-served: false
+      summary: Makes a new board from a board's file, checked
+      description: >-
+        The local app's alone (ORR-1142): `POST /api/projects/upload` checks a board's file first, as it's untrusted,
+        bringing its rows up to this schema in a throwaway SQLite, and sends them here to be made a new board held by
+        `holder`. Every id numbered across the server is numbered again, and nothing in it speaks for anyone: its
+        comments are the file's, its schedules paused, its prompts, repo and claims left behind. An id or key already
+        taken is a 409.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [id, key, holder, tables]
+              properties:
+                id: {type: string}
+                key: {type: string}
+                name: {type: [string, 'null']}
+                holder: {type: string, description: The person who holds the board}
+                project: {type: [string, 'null'], description: The board's id in the file}
+                exported_at: {type: [string, 'null']}
+                statuses: {type: array, items: {type: object}}
+                people: {type: array, items: {type: object}}
+                uploads: {type: array, items: {type: object}}
+                tables: {type: object, description: 'Each table the file holds, its rows checked'}
+      responses:
+        '201': {description: 'The board, as a project with its board', content: {application/json: {schema: {$ref: '#/components/schemas/Project'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '409': {$ref: '#/components/responses/Conflict'}
   /api/database:
     get:
       x-served: false

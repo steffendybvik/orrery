@@ -15,9 +15,15 @@ export default defineEventHandler(async event => {
     }
     const query = getQuery(event)
     const text = (name: string) => typeof query[name] === 'string' && query[name] ? query[name] as string : undefined
-    const store = useStore()
-    const id = await uploadBoard(useDatabase(), file, {id: text('id'), key: text('key'), name: text('name')}, actor, await personOf(event) ?? (await store.ownerOf()).name)
-    store.changed(id)
-    useEventLog().note({level: 'info', kind: 'board.uploaded', project: id, message: `${actor.name} uploaded a board's file as ${id}`, details: {by: actor.name}})
-    return created(event, await store.project(id))
+    // Checked here, without the database; written by the API, which says the board changed (ORR-1142). With no API set
+    // up, the store here writes it.
+    const checked = checkedBoard(file, {id: text('id'), key: text('key'), name: text('name')})
+    const holder = await personOf(event) ?? (await ownerNow()).name
+    const sent = await writeToApi('POST', '/api/boards', boardForApi(checked, holder), actor, {always: true})
+    if (!sent) {
+        await uploadBoard(useDatabase(), file, {id: checked.id, key: checked.key, name: checked.name}, actor, holder)
+        useStore().changed(checked.id)
+    }
+    useEventLog().note({level: 'info', kind: 'board.uploaded', project: checked.id, message: `${actor.name} uploaded a board's file as ${checked.id}`, details: {by: actor.name}})
+    return created(event, sent ? sent.reply : await useStore().project(checked.id))
 })

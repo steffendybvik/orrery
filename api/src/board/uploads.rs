@@ -65,7 +65,7 @@ fn check_input(body: &Value) -> Result<(String, Option<String>)> {
 }
 
 /// The image's type from its first bytes (`IMAGE_TYPES`): PNG, JPEG, GIF or WebP.
-fn type_of(bytes: &[u8]) -> Option<&'static str> {
+pub(crate) fn type_of(bytes: &[u8]) -> Option<&'static str> {
     if bytes.starts_with(&[0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]) {
         Some("image/png")
     } else if bytes.starts_with(&[0xff, 0xd8, 0xff]) {
@@ -80,7 +80,7 @@ fn type_of(bytes: &[u8]) -> Option<&'static str> {
 }
 
 /// The base64 as Node decodes it: whitespace skipped, and a last character too many dropped.
-fn decode(base64: &str) -> Vec<u8> {
+pub(crate) fn decode(base64: &str) -> Vec<u8> {
     let mut text: String = base64.chars().filter(|c| !c.is_whitespace() && *c != '=').collect();
     if text.len() % 4 == 1 {
         text.pop();
