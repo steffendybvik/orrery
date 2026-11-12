@@ -27,8 +27,8 @@ import {carriedInto} from './carried-over'
 import {forgetRoster} from './roster'
 import type {Input} from './input'
 import {revLabel} from './events'
-import type {Doc, IssueScope, Project, Settings} from '#shared/roadmap'
-import type {Store} from './store'
+import type {Doc, IssueScope, Project, Release, Settings} from '#shared/roadmap'
+import type {IssueDetail, Store} from './store'
 import {withoutClosed, withoutNotes} from '#shared/patch'
 
 /** The domains the Rust API serves, a line each (ORR-925): moving a domain there is adding its line once the parity test
@@ -798,6 +798,21 @@ export async function settingsNow(store: Pick<Store, 'settings'> = useStore()): 
 /** A project's doc, with its body, read from the API (a 404 when it isn't there), or the store with none set up (ORR-1133). */
 export async function docNow(project: string, id: string): Promise<Doc> {
     return (await readFromApi<Doc>(`/api/projects/${encodeURIComponent(project)}/docs/${encodeURIComponent(id)}`)) ?? await useStore().doc(project, id)
+}
+
+/** One issue, read from the API (a 404 when it isn't there), or the store with none set up (ORR-1142). */
+export async function issueNow(project: string, id: string): Promise<IssueDetail> {
+    return (await readFromApi<IssueDetail>(`/api/projects/${encodeURIComponent(project)}/issues/${encodeURIComponent(id)}`)) ?? await useStore().issue(project, id)
+}
+
+/** One milestone with its issues, read from the API (a 404 when it isn't there), or the store with none set up (ORR-1142). */
+export async function milestoneNow(project: string, id: string): Promise<Awaited<ReturnType<Store['milestone']>>> {
+    return (await readFromApi<Awaited<ReturnType<Store['milestone']>>>(`/api/projects/${encodeURIComponent(project)}/milestones/${encodeURIComponent(id)}`)) ?? await useStore().milestone(project, id)
+}
+
+/** A project's releases, read from the API, or the store with none set up (ORR-1142). */
+export async function releasesNow(project: string): Promise<Release[]> {
+    return (await readFromApi<Release[]>(`/api/projects/${encodeURIComponent(project)}/releases`)) ?? await useStore().listReleases(project)
 }
 
 /** This orrery's id (`settings.id`), read from the API, or the store with none set up (ORR-1139). */
