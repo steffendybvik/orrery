@@ -459,14 +459,12 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
             aria-hidden="true"
         />
       </div>
-      <!-- Floating, its heading is where it's dragged from. -->
+      <!-- Floating, its heading is where it's dragged from, anywhere on it but its buttons (ORR-1126). -->
       <div
           class="label flex items-center gap-1 px-2"
           :class="[!sessionsFolded && 'mb-1', floating && 'cursor-grab touch-none']"
           @pointerdown="float.down"
-          @pointermove="float.move"
-          @pointerup="float.up"
-          @pointercancel="float.up"
+          @click.capture="float.click"
       >
         <button
             type="button"
