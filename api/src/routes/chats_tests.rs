@@ -401,6 +401,76 @@ async fn the_chat_asks_only_for_what_schedules_take_and_only_while_it_runs() {
     assert!(api.get("/api/chats/c1").send().await.body["messages"].as_array().unwrap().is_empty());
 }
 
+/// A chat `c1` on a project with releases of its own, and release 1.0.0 there below 2.0.0: the project.
+async fn releasing(api: &TestApi) -> String {
+    let project = api.project("Primes").await;
+    api.patch(&format!("/api/projects/{project}"), json!({"release_mode": "own"})).send().await;
+    api.put("/api/chats/c1", chat("c1", &project, "2026-11-01T10:00:00.000Z")).send().await;
+    api.post(&format!("/api/projects/{project}/releases"), json!({"version": "1.0.0", "branch": "v1.0.0"})).send().await;
+    api.post(&format!("/api/projects/{project}/releases"), json!({"version": "2.0.0"})).send().await;
+    project
+}
+
+#[tokio::test]
+async fn the_chat_asks_for_a_release_and_nothing_is_saved_until_allowed() {
+    let api = TestApi::new().await;
+    let project = releasing(&api).await;
+    let fields = json!({"version": "3.0.0", "branch": "v3.0.0", "position": 1});
+    let asked = api.post("/api/chats/c1/release-requests", json!({"release": fields, "why": " Next "})).send().await;
+    assert_eq!(asked.status, 201, "{}", asked.body);
+    assert_eq!(asked.body["text"], "Next");
+    assert_eq!(
+        asked.body["release"],
+        json!({"version": "3.0.0", "change": false, "changes": [
+            {"field": "version", "to": "3.0.0"}, {"field": "branch", "to": "v3.0.0"}, {"field": "position", "to": "2nd from the top"}
+        ], "body": fields, "state": "asked"})
+    );
+    let releases = api.get(&format!("/api/projects/{project}/releases")).send().await.body;
+    assert_eq!(releases.as_array().map(Vec::len), Some(2), "nothing is saved until the owner allows it: {releases}");
+    let read = api.get("/api/changes").send().await.body;
+    assert!(read["changes"].as_array().unwrap().iter().any(|c| c["kind"] == "chat" && c["subject"] == "c1"), "{read}");
+}
+
+#[tokio::test]
+async fn the_chat_asks_to_change_a_release_from_what_it_is_and_again_expires_the_ask() {
+    let api = TestApi::new().await;
+    releasing(&api).await;
+    let first =
+        api.post("/api/chats/c1/release-requests", json!({"version": "1.0.0", "release": {"branch": "v1", "notes": "Soon", "position": 0}})).send().await;
+    assert_eq!(first.status, 201, "{}", first.body);
+    assert_eq!(first.body["release"]["change"], true);
+    assert_eq!(
+        first.body["release"]["changes"],
+        json!([
+            {"field": "branch", "from": "v1.0.0", "to": "v1"},
+            {"field": "notes", "from": null, "to": "Soon"},
+            {"field": "position", "from": "2nd from the top", "to": "the top"}
+        ])
+    );
+    api.post("/api/chats/c1/release-requests", json!({"version": "2.0.0", "release": {"notes": "Later"}})).send().await;
+    api.post("/api/chats/c1/release-requests", json!({"version": "1.0.0", "release": {"notes": "Sooner"}})).send().await;
+    let messages = api.get("/api/chats/c1").send().await.body["messages"].clone();
+    let states: Vec<&str> = messages.as_array().unwrap().iter().map(|m| m["release"]["state"].as_str().unwrap()).collect();
+    assert_eq!(states, ["expired", "asked", "asked"]);
+}
+
+#[tokio::test]
+async fn the_chat_asks_only_for_what_releases_take() {
+    let api = TestApi::new().await;
+    releasing(&api).await;
+    let ask = |body: Value| api.post("/api/chats/c1/release-requests", body).send();
+    let owned = ask(json!({"release": {"version": "4.0.0", "owned": true}})).await;
+    assert_eq!(owned.status, 403);
+    assert!(owned.body["message"].as_str().unwrap().starts_with("The owner's chat sets a release's"), "{}", owned.body);
+    assert_eq!(ask(json!({"release": {}})).await.status, 400);
+    assert_eq!(ask(json!({"release": {"version": "1.0.0"}})).await.status, 409, "one made already");
+    assert_eq!(ask(json!({"release": {"version": "bad version"}})).await.status, 400);
+    assert_eq!(ask(json!({"version": "9.9.9", "release": {"notes": "x"}})).await.status, 404);
+    assert_eq!(ask(json!({"version": "1.0.0", "release": {"version": "1.0.1"}})).await.status, 400, "its version can't change");
+    assert_eq!(ask(json!({"version": 1, "release": {"notes": "x"}})).await.status, 400);
+    assert!(api.get("/api/chats/c1").send().await.body["messages"].as_array().unwrap().is_empty());
+}
+
 #[tokio::test]
 async fn the_chat_asks_to_make_a_doc_and_nothing_is_saved_until_allowed() {
     let api = TestApi::new().await;

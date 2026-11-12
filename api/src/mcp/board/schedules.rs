@@ -2,7 +2,8 @@
 // line each. Making and changing one (`create_schedule`, `update_schedule`) are asks: a work session's on its issue
 // (`…/schedule-requests`, `askOnIssue`), and the chat's, through its `request`, in its chat (`/api/chats/:chat/
 // schedule-requests`). The chat's `update_settings`, `create_doc` and `update_doc` are asked in its chat too. Either chat ask is kept in the chat it
-// names (`Orrery-Launch`, as the channel sends it), which the local app hears and the owner answers.
+// names (`Orrery-Launch`, as the channel sends it), which the local app hears and the owner answers. So is the chat's
+// `create_release` and `update_release` (`/api/chats/:chat/release-requests`), kept beside them here.
 use super::{text, truthy, Api, Said};
 use axum::http::Method;
 use serde_json::{json, Value};
@@ -91,12 +92,7 @@ impl Api<'_> {
         let mut asked = fields.as_object().cloned().unwrap_or_default();
         let id = asked.shift_remove("id");
         let why = asked.shift_remove("why").filter(truthy);
-        let project = asked.shift_remove("project").filter(truthy);
-        if let Some(named) = project.as_ref().and_then(Value::as_str) {
-            if !self.projects.is_empty() && !self.projects.iter().any(|p| p == named) {
-                return Err(super::No(format!("This chat reaches {}, not {named}", self.projects.join(", "))));
-            }
-        }
+        let project = self.reached(asked.shift_remove("project").filter(truthy))?;
         let mut body = json!({ kind: asked });
         if change {
             body["id"] = id.unwrap_or(Value::Null);
@@ -111,6 +107,44 @@ impl Api<'_> {
         Ok(format!(
             "Asked: the owner sees the {} with Allow and Deny, and you'll hear which they pressed. Nothing is saved until they allow it.",
             if change { "change" } else { kind }
+        ))
+    }
+
+    /// The project a chat's ask names, refused when this server doesn't serve it, as the channel's `on` refuses it.
+    fn reached(&self, project: Option<Value>) -> std::result::Result<Option<Value>, super::No> {
+        if let Some(named) = project.as_ref().and_then(Value::as_str) {
+            if !self.projects.is_empty() && !self.projects.iter().any(|p| p == named) {
+                return Err(super::No(format!("This chat reaches {}, not {named}", self.projects.join(", "))));
+            }
+        }
+        Ok(project)
+    }
+
+    /// The chat's `create_release`, or `update_release` by `version` (`change`): `fields` as its `request` sends them,
+    /// the release's fields beside `project` and `why`. Asked in its chat (`/api/chats/:chat/release-requests`), on the
+    /// project it names, which saves nothing until the owner allows it. Making one names its version among its fields;
+    /// changing one names the release by it, and the version itself can't change.
+    pub(super) async fn ask_release_in_chat(&self, change: bool, fields: &Value) -> Said {
+        let tool = if change { "update_release" } else { "create_release" };
+        let chat = self.chat(tool)?;
+        let mut release = fields.as_object().cloned().unwrap_or_default();
+        let why = release.shift_remove("why").filter(truthy);
+        let project = self.reached(release.shift_remove("project").filter(truthy))?;
+        let mut body = json!({});
+        if change {
+            body["version"] = release.shift_remove("version").unwrap_or(Value::Null);
+        }
+        body["release"] = Value::Object(release);
+        if let Some(project) = project {
+            body["project"] = project;
+        }
+        if let Some(why) = why {
+            body["why"] = why;
+        }
+        self.call(Method::POST, &format!("/api/chats/{}/release-requests", super::enc(&chat)), Some(body)).await?;
+        Ok(format!(
+            "Asked: the owner sees the {} with Allow and Deny, and you'll hear which they pressed. Nothing is saved until they allow it.",
+            if change { "change" } else { "release" }
         ))
     }
 

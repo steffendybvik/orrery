@@ -27,7 +27,7 @@ const MACHINE: Line = {stays: "the machine's: its files, the event log, its own 
 
 const SNAPSHOT: Line = {rustOnly: 'the copy a backup takes of the database: the local app asks for it itself, then checks and keeps it (`snapshotsBy`, ORR-1097)'}
 const STORAGE: Line = {rustOnly: 'how the local app keeps its record of a chat and its messages, a GitHub poll, the feature counts it gathered or a line of the event log: it sends them here itself (`writeToApi`)'}
-const CHAT_ASK: Line = {rustOnly: "the chat asking to change a setting, a schedule or a doc, for the Rust /mcp's `update_settings`, `create_schedule`, `update_schedule`, `create_doc` and `update_doc` (ORR-1100): the chat's other asks stay at POST /api/chats/{chat}/requests until they move too"}
+const CHAT_ASK: Line = {rustOnly: "the chat asking to change a setting, a schedule, a release or a doc, for the Rust /mcp's `update_settings`, `create_schedule`, `update_schedule`, `create_release`, `update_release`, `create_doc` and `update_doc` (ORR-1100): the chat's other asks stay at POST /api/chats/{chat}/requests until they move too"}
 const SIGNAL: Line = {rustOnly: "a session's signal, written: the local app picks the session it goes to and tells it, then sends the row here itself (`writeSignal`, ORR-1090)"}
 const SAID: Line = {rustOnly: "orrery's own word on an issue (a pull request's news, a schedule's note): the local app sends it here itself (`writeToApi`, ORR-1094)"}
 const OUTBOX: Line = {rustOnly: "the outbox, which the local app follows to hear what the API's writes set off (ORR-929)"}
@@ -63,6 +63,7 @@ export const NOT_ROUTED: Readonly<Record<string, Line>> = {
     'POST /api/chats/{chat}/requests/{message}': CHAT,
     'POST /api/chats/{chat}/setting-requests': CHAT_ASK,
     'POST /api/chats/{chat}/schedule-requests': CHAT_ASK,
+    'POST /api/chats/{chat}/release-requests': CHAT_ASK,
     'POST /api/chats/{chat}/doc-requests': CHAT_ASK,
     'GET /api/connects': MACHINE,
     'POST /api/connects': MACHINE,
