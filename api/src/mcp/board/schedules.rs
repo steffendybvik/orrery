@@ -147,6 +147,8 @@ impl Api<'_> {
             "Asked: the owner sees the {} with Allow and Deny, and you'll hear which they pressed. Nothing is saved until they allow it.",
             if change { "change" } else { "release" }
         ))
+    }
+
     /// The chat's `reply`: its answer, in the chat `Orrery-Launch` names (ORR-1101), which the local app hears.
     pub(super) async fn reply(&self, args: &Value) -> Said {
         let chat = self.chat("reply")?;
