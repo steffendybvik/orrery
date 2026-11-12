@@ -3021,6 +3021,27 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         expect(domainOf('GET', '/api/projects/through-api/export')).toBe('a project, exported')
     })
 
+    it('reads and writes the sessions\' bookkeeping alike (ORR-1141)', async () => {
+        const ids: Record<string, {top: string, sub: string}> = {}
+        for (const project of ['through-store', 'through-api']) {
+            const {id: top} = await store.createIssue(project, {title: 'Frame the door', status: 'in-progress'}, OWNER)
+            const {id: sub} = await store.createIssue(project, {title: 'Hang it', parent: top}, OWNER)
+            await store.createIssue(project, {title: 'Paint it', depends_on: [top]}, OWNER)
+            ids[project] = {top, sub}
+        }
+        const [here, there] = [ids['through-store']!, ids['through-api']!]
+        await both('worked by a session', p => viaStore(async () => void await store.workedBy(p, ids[p]!.top, 'sess-1', {claimed: true})),
+            () => viaApi('POST', `/issues/${there.top}/worked-by`, {session: 'sess-1'}))
+        await both('what depends on it', p => viaStore(() => store.dependentsOf(p, ids[p]!.top)), () => viaApi('GET', `/issues/${there.top}/dependents`))
+        await both('a session\'s work', p => viaStore(async () => ({issues: await store.workingOn(p, ['sess-1']), waiting: await store.waiting(p, ['sess-1']), waiting_for: await store.waitingFor(p, ['sess-1'])})),
+            () => viaApi('GET', '/issue-sessions?sessions=sess-1'))
+        // The chain above an issue, nearest first, as the store walks it for a claim (`heldAbove`).
+        const chain = await viaApi('GET', `/issues/${there.sub}/workers`)
+        expect(chain.body).toEqual([{issue: there.sub, started: false, worker: null}, {issue: there.top, started: true, worker: 'sess-1'}])
+        expect(await store.get('SELECT session FROM issue_sessions WHERE project = ? AND issue = ?', 'through-store', here.top)).toEqual({session: 'sess-1'})
+        for (const route of ['/issue-sessions', `/issues/${there.top}/dependents`]) expect(domainOf('GET', `/api/projects/through-api${route}`)).toBeUndefined()
+    })
+
     it('imports a roadmap alike, with the project\'s ids and the file\'s as aliases (ORR-1006)', async () => {
         // On projects of their own, so replacing a roadmap leaves the others' issues be.
         const on = (p: string) => `${p}-import`
