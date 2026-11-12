@@ -15,6 +15,7 @@ pub(crate) struct Lists {
     more_tools: Value,
     on_demand: BTreeMap<String, Vec<String>>,
     scoped: Vec<String>,
+    chat_requests: Vec<Value>,
 }
 
 pub(crate) static LISTS: LazyLock<Lists> =
@@ -35,6 +36,24 @@ pub(crate) fn group(name: &str) -> Option<&'static [String]> {
 
 pub(crate) fn groups() -> Vec<&'static str> {
     LISTS.on_demand.keys().map(String::as_str).collect()
+}
+
+/// The chat's `request` actions (`CHAT_REQUESTS`), by name, as `request_fields` describes them.
+pub(crate) fn chat_request(action: &str) -> Option<&'static Value> {
+    LISTS.chat_requests.iter().find(|r| name_of(r) == action)
+}
+
+/// What the chat is told when it names an action there isn't, as the channel's `callTool` tells it.
+pub(crate) fn no_action(action: &Value) -> String {
+    let names: Vec<&str> = LISTS.chat_requests.iter().map(name_of).collect();
+    let named = action.as_str().map(str::to_string).unwrap_or_else(|| if action.is_null() { "undefined".into() } else { action.to_string() });
+    format!("No action \"{named}\": one of {}", names.join(", "))
+}
+
+/// `request_fields`: what an action does and the fields it takes, as the channel's `callTool` says it.
+pub(crate) fn request_fields(action: &Value) -> std::result::Result<String, String> {
+    let request = action.as_str().and_then(chat_request).ok_or_else(|| no_action(action))?;
+    Ok(format!("{}: {}\n\nfields: {}", name_of(request), request["description"].as_str().unwrap_or_default(), request["inputSchema"]))
 }
 
 fn name_of(tool: &Value) -> &str {

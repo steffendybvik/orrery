@@ -149,6 +149,32 @@ async fn a_tool_the_session_lacks_is_refused_and_one_not_moved_yet_says_so() {
 }
 
 #[tokio::test]
+async fn request_fields_says_what_a_chat_request_takes_as_the_channel_does() {
+    let api = TestApi::new().await;
+    let lists: Value = serde_json::from_str(include_str!("../../mcp-tools.json")).unwrap();
+    let actions = lists["chat_requests"].as_array().expect("the chat's request actions");
+    let call = |name: &str, args: Value| rpc(&api, "tools/call", json!({"name": name, "arguments": args})).header("orrery-actor-kind", "chat");
+    let doc = actions.iter().find(|a| a["name"] == "create_doc").expect("create_doc is a request");
+    let fields = call("request_fields", json!({"action": "create_doc"})).send().await;
+    assert!(fields.body["result"]["isError"].is_null(), "{}", fields.body);
+    let (head, schema) = said(&fields).split_once("\n\nfields: ").expect("its fields after a blank line");
+    assert_eq!(head, format!("create_doc: {}", doc["description"].as_str().unwrap()));
+    assert_eq!(serde_json::from_str::<Value>(schema).unwrap(), doc["inputSchema"]);
+    // An action there isn't, to either tool, names those there are, in the channel's order.
+    let names: Vec<&str> = actions.iter().map(|a| a["name"].as_str().unwrap()).collect();
+    let none = format!("No action \"nope\": one of {}", names.join(", "));
+    for name in ["request_fields", "request"] {
+        let refused = call(name, json!({"action": "nope"})).send().await;
+        assert_eq!((said(&refused), &refused.body["result"]["isError"]), (none.as_str(), &json!(true)), "{name}");
+    }
+    let unnamed = call("request_fields", json!({})).send().await;
+    assert!(said(&unnamed).starts_with("No action \"undefined\": one of "), "{}", unnamed.body);
+    // A work session has neither.
+    let work = rpc(&api, "tools/call", json!({"name": "request_fields", "arguments": {"action": "create_doc"}})).send().await;
+    assert_eq!(said(&work), "No tool \"request_fields\"");
+}
+
+#[tokio::test]
 async fn get_has_no_stream() {
     let api = TestApi::new().await;
     let reply = api.get("/mcp").send().await;

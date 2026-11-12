@@ -2012,5 +2012,669 @@
   "schedules",
   "sessions",
   "link_folder"
+ ],
+ "chat_requests": [
+  {
+   "name": "start_session",
+   "description": "Starts a Claude session, as Start session on the Sessions page does, under the project's limits: on this project unless you name another; focused on an issue, or working through statuses and a release, or neither; with preset ids (the presets tool) and the owner's own words.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "project": {
+      "type": "string"
+     },
+     "issue": {
+      "type": "string"
+     },
+     "statuses": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      },
+      "description": "Status ids or kinds to work through, e.g. [\"todo\"]"
+     },
+     "release": {
+      "type": "string",
+      "description": "A release version to work through"
+     },
+     "presets": {
+      "type": "array",
+      "items": {
+       "type": "number"
+      }
+     },
+     "instructions": {
+      "type": "string",
+      "description": "The owner's own words for the session"
+     }
+    }
+   }
+  },
+  {
+   "name": "stop_session",
+   "description": "Stops a session, by its name or id (the sessions tool lists them).",
+   "inputSchema": {
+    "type": "object",
+    "required": [
+     "name"
+    ],
+    "properties": {
+     "name": {
+      "type": "string"
+     }
+    }
+   }
+  },
+  {
+   "name": "extend_session",
+   "description": "Gives a session orrery started more time, by its name or id: 30 minutes unless you say.",
+   "inputSchema": {
+    "type": "object",
+    "required": [
+     "name"
+    ],
+    "properties": {
+     "name": {
+      "type": "string"
+     },
+     "minutes": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1440
+     }
+    }
+   }
+  },
+  {
+   "name": "message_sessions",
+   "description": "Sends a message to every listening session, as the owner's: idle ones only unless states says otherwise, so it interrupts no work.",
+   "inputSchema": {
+    "type": "object",
+    "required": [
+     "text"
+    ],
+    "properties": {
+     "text": {
+      "type": "string"
+     },
+     "projects": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      },
+      "description": "Only sessions on (or hearing) these projects"
+     },
+     "states": {
+      "type": "array",
+      "items": {
+       "type": "string",
+       "enum": [
+        "idle",
+        "working",
+        "waiting",
+        "starting"
+       ]
+      },
+      "description": "idle by default"
+     }
+    }
+   }
+  },
+  {
+   "name": "message_session",
+   "description": "Sends a message to one session, by its name or id (the sessions tool lists them), as the owner's.",
+   "inputSchema": {
+    "type": "object",
+    "required": [
+     "session",
+     "text"
+    ],
+    "properties": {
+     "session": {
+      "type": "string"
+     },
+     "text": {
+      "type": "string"
+     }
+    }
+   }
+  },
+  {
+   "name": "update_settings",
+   "description": "Changes one App setting. tracker is the address of a task on the team's tracker with {id} where its id goes; tint a colour name or #rrggbb; restrict_proposals and advanced true or false; handle their login. null clears one.",
+   "inputSchema": {
+    "type": "object",
+    "required": [
+     "setting",
+     "value"
+    ],
+    "properties": {
+     "setting": {
+      "type": "string",
+      "enum": [
+       "tracker",
+       "tint",
+       "restrict_proposals",
+       "handle",
+       "advanced"
+      ]
+     },
+     "value": {
+      "type": [
+       "string",
+       "boolean",
+       "null"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "name": "create_schedule",
+   "description": "Makes a schedule in this project, the owner's once allowed. Give a title and one of cron, at or on. The presets tool lists preset ids.",
+   "inputSchema": {
+    "type": "object",
+    "required": [
+     "title"
+    ],
+    "properties": {
+     "kind": {
+      "type": "string",
+      "enum": [
+       "issue",
+       "message",
+       "session",
+       "action"
+      ],
+      "description": "issue makes an issue each run (the default), message sends notes to a session, session starts one with presets and notes, action moves what its event is about to column"
+     },
+     "title": {
+      "type": "string"
+     },
+     "notes": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "description": "The issue's description, or the message"
+     },
+     "cron": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "description": "Five fields, minute hour day month weekday: \"0 9 * * 1-5\""
+     },
+     "at": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "description": "Once, at this ISO time"
+     },
+     "on": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "description": "An event instead of a clock: \"issue.status\", \"release.*\", \"*.failed\""
+     },
+     "on_filter": {
+      "type": [
+       "object",
+       "null"
+      ],
+      "description": "What the event must also say: {\"to\": \"in-review\"}, {\"by\": \"owner\"}, {\"level\": \"error\"}"
+     },
+     "timezone": {
+      "type": "string",
+      "description": "An IANA zone, e.g. Europe/Oslo; the server's when left out"
+     },
+     "presets": {
+      "type": "array",
+      "items": {
+       "type": "number"
+      },
+      "description": "Preset ids for a message or session schedule, before notes"
+     },
+     "column": {
+      "type": "string",
+      "description": "Where its issues start: an open status's id, or a kind (todo). An action schedule's: the status it moves them to"
+     },
+     "move_from": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      },
+      "description": "The statuses (ids or kinds) an action schedule moves issues out of; none, any open one"
+     },
+     "milestone": {
+      "type": [
+       "string",
+       "null"
+      ]
+     },
+     "priority": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "enum": [
+       "P0",
+       "P1",
+       "P2",
+       "P3",
+       null
+      ]
+     },
+     "labels": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     },
+     "ask": {
+      "type": "boolean",
+      "description": "An issue schedule also asks a session to work on its issue"
+     },
+     "skip_open": {
+      "type": "boolean",
+      "description": "Skip a run while the last run's issue is open (on by default)"
+     },
+     "only_if_changed": {
+      "type": "boolean",
+      "description": "A message schedule skips a run when nothing in the project changed since its last message"
+     },
+     "model": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "description": "What its work runs on: best, opus, sonnet, haiku, or a full id; null takes its kind's"
+     },
+     "effort": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "enum": [
+       "low",
+       "medium",
+       "high",
+       "xhigh",
+       "max",
+       null
+      ],
+      "description": "Its effort; null takes its kind's"
+     },
+     "enabled": {
+      "type": "boolean",
+      "description": "false pauses it"
+     },
+     "project": {
+      "type": "string",
+      "description": "Another project"
+     }
+    }
+   }
+  },
+  {
+   "name": "update_schedule",
+   "description": "Changes one of this project's schedules, by its id (the schedules tool lists them). Send only what changes; enabled false pauses it, true resumes it. Setting one of cron, at or on lets go of the others. Never deletes one: that's the owner's, on the Schedules page.",
+   "inputSchema": {
+    "type": "object",
+    "required": [
+     "id"
+    ],
+    "properties": {
+     "id": {
+      "type": "number"
+     },
+     "kind": {
+      "type": "string",
+      "enum": [
+       "issue",
+       "message",
+       "session",
+       "action"
+      ],
+      "description": "issue makes an issue each run (the default), message sends notes to a session, session starts one with presets and notes, action moves what its event is about to column"
+     },
+     "title": {
+      "type": "string"
+     },
+     "notes": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "description": "The issue's description, or the message"
+     },
+     "cron": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "description": "Five fields, minute hour day month weekday: \"0 9 * * 1-5\""
+     },
+     "at": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "description": "Once, at this ISO time"
+     },
+     "on": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "description": "An event instead of a clock: \"issue.status\", \"release.*\", \"*.failed\""
+     },
+     "on_filter": {
+      "type": [
+       "object",
+       "null"
+      ],
+      "description": "What the event must also say: {\"to\": \"in-review\"}, {\"by\": \"owner\"}, {\"level\": \"error\"}"
+     },
+     "timezone": {
+      "type": "string",
+      "description": "An IANA zone, e.g. Europe/Oslo; the server's when left out"
+     },
+     "presets": {
+      "type": "array",
+      "items": {
+       "type": "number"
+      },
+      "description": "Preset ids for a message or session schedule, before notes"
+     },
+     "column": {
+      "type": "string",
+      "description": "Where its issues start: an open status's id, or a kind (todo). An action schedule's: the status it moves them to"
+     },
+     "move_from": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      },
+      "description": "The statuses (ids or kinds) an action schedule moves issues out of; none, any open one"
+     },
+     "milestone": {
+      "type": [
+       "string",
+       "null"
+      ]
+     },
+     "priority": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "enum": [
+       "P0",
+       "P1",
+       "P2",
+       "P3",
+       null
+      ]
+     },
+     "labels": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     },
+     "ask": {
+      "type": "boolean",
+      "description": "An issue schedule also asks a session to work on its issue"
+     },
+     "skip_open": {
+      "type": "boolean",
+      "description": "Skip a run while the last run's issue is open (on by default)"
+     },
+     "only_if_changed": {
+      "type": "boolean",
+      "description": "A message schedule skips a run when nothing in the project changed since its last message"
+     },
+     "model": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "description": "What its work runs on: best, opus, sonnet, haiku, or a full id; null takes its kind's"
+     },
+     "effort": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "enum": [
+       "low",
+       "medium",
+       "high",
+       "xhigh",
+       "max",
+       null
+      ],
+      "description": "Its effort; null takes its kind's"
+     },
+     "enabled": {
+      "type": "boolean",
+      "description": "false pauses it"
+     },
+     "project": {
+      "type": "string",
+      "description": "Another project"
+     }
+    }
+   }
+  },
+  {
+   "name": "create_release",
+   "description": "Adds a release to this project. Give its version (1.0.0-rc.2) and, by convention, its branch v<version>.",
+   "inputSchema": {
+    "type": "object",
+    "required": [
+     "version"
+    ],
+    "properties": {
+     "version": {
+      "type": "string"
+     },
+     "branch": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "description": "The branch its work gathers on, by convention v<version>: v1.0.0-rc.2"
+     },
+     "notes": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "description": "What it's about, in Markdown"
+     },
+     "position": {
+      "type": "number",
+      "description": "Its place among the releases, 0 at the top (where a new one goes when left out)"
+     },
+     "frozen_on": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "description": "The day its features froze, YYYY-MM-DD; null thaws it"
+     },
+     "shipped_on": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "description": "The day it shipped, YYYY-MM-DD; null marks it not shipped yet"
+     },
+     "project": {
+      "type": "string",
+      "description": "Another project"
+     }
+    }
+   }
+  },
+  {
+   "name": "update_release",
+   "description": "Changes one of this project's releases, by its version (the releases tool lists them): send only what changes. Its version can't change, and removing one is the owner's, on the Releases page.",
+   "inputSchema": {
+    "type": "object",
+    "required": [
+     "version"
+    ],
+    "properties": {
+     "version": {
+      "type": "string"
+     },
+     "branch": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "description": "The branch its work gathers on, by convention v<version>: v1.0.0-rc.2"
+     },
+     "notes": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "description": "What it's about, in Markdown"
+     },
+     "position": {
+      "type": "number",
+      "description": "Its place among the releases, 0 at the top (where a new one goes when left out)"
+     },
+     "frozen_on": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "description": "The day its features froze, YYYY-MM-DD; null thaws it"
+     },
+     "shipped_on": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "description": "The day it shipped, YYYY-MM-DD; null marks it not shipped yet"
+     },
+     "project": {
+      "type": "string",
+      "description": "Another project"
+     }
+    }
+   }
+  },
+  {
+   "name": "offer_issue",
+   "description": "Offers an issue the owner didn't ask you to file: they see it marked as not filed, with File issue and Don't file, and you hear which they pressed. Nothing is filed until they press it. Use create_issue when they did ask.",
+   "inputSchema": {
+    "type": "object",
+    "required": [
+     "title"
+    ],
+    "properties": {
+     "title": {
+      "type": "string"
+     },
+     "notes": {
+      "type": "string",
+      "description": "The description, in Markdown"
+     },
+     "priority": {
+      "type": "string",
+      "enum": [
+       "P0",
+       "P1",
+       "P2",
+       "P3"
+      ]
+     },
+     "labels": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     },
+     "milestone": {
+      "type": "string"
+     },
+     "project": {
+      "type": "string",
+      "description": "Another project"
+     }
+    }
+   }
+  },
+  {
+   "name": "create_doc",
+   "description": "Makes a doc in this project: a decision and why, or how something works. Its id comes from its title. The owner sees the title, section and full text.",
+   "inputSchema": {
+    "type": "object",
+    "required": [
+     "title"
+    ],
+    "properties": {
+     "title": {
+      "type": "string"
+     },
+     "section": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "description": "The group it is listed under; null for none"
+     },
+     "body": {
+      "type": "string",
+      "description": "Markdown"
+     },
+     "project": {
+      "type": "string",
+      "description": "Another project"
+     }
+    }
+   }
+  },
+  {
+   "name": "update_doc",
+   "description": "Changes one of this project's docs, by its id (the docs tool lists them): send only what changes, with body the whole new text. The owner sees a diff. If the doc changes after you ask, their Allow is refused: read it again and ask again. Removing a doc, and renaming or deleting a section, are the owner's, on the page.",
+   "inputSchema": {
+    "type": "object",
+    "required": [
+     "id"
+    ],
+    "properties": {
+     "id": {
+      "type": "string"
+     },
+     "title": {
+      "type": "string"
+     },
+     "section": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "description": "The group it is listed under; null for none"
+     },
+     "body": {
+      "type": "string",
+      "description": "Markdown"
+     },
+     "project": {
+      "type": "string",
+      "description": "Another project"
+     }
+    }
+   }
+  }
  ]
 }
