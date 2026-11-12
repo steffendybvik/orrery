@@ -454,7 +454,7 @@ const MORE_TOOLS = moreTools(ON_DEMAND)
 /** What the channel keeps when the server's `/mcp` serves the rest (ORR-1102, `ORRERY_TOOLS=local`): what works on
  * this machine (the launcher's sessions and folders, `gh` in the session's folder, a secret opened with this machine's
  * key), and what `/mcp` doesn't serve yet (ORR-1100, ORR-1101). Each tool is listed by one of the two, never both. */
-export const CHANNELS_OWN = ['sessions', 'next', 'start_issue', 'finish_issue', 'link_folder', 'egress', 'github_issues', 'github_pulls', 'branches', 'delegate_issue', 'move_issues']
+export const CHANNELS_OWN = ['sessions', 'next', 'start_issue', 'finish_issue', 'link_folder', 'egress', 'github_issues', 'github_pulls', 'branches', 'delegate_issue']
 
 /** The chat's `request` actions the channel keeps, the same way: the launcher's sessions. */
 export const CHANNELS_REQUESTS = ['start_session', 'stop_session', 'extend_session', 'message_session', 'message_sessions']
