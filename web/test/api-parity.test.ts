@@ -1508,6 +1508,25 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         let missing: unknown
         try { chats.readChat('nope') } catch (error) { missing = (error as Error).message }
         expect(await viaApi('GET', '/api/chats/nope')).toMatchObject({status: 404, body: {message: missing}})
+        // Read back as orrery starts with the API there, not the database (ORR-1142): the same chats, their messages'
+        // fields in the same order, so what's kept of each compares as the same text when the chat is heard again.
+        vi.stubGlobal('useDatabase', () => { throw new Error('read from the database') })
+        vi.stubGlobal('databaseSetting', () => setting)
+        vi.resetModules()
+        const router = await import('../server/utils/api-router')
+        router.apiStarted({url, token: TOKEN})
+        try {
+            const overHttp = await import('../server/utils/chats')
+            await overHttp.chatsLoaded()
+            expect(JSON.stringify(overHttp.listChats())).toBe(JSON.stringify(chats.listChats()))
+            const emitted: unknown[] = []
+            vi.stubGlobal('projectEvents', {emit: (...args: unknown[]) => emitted.push(args)})
+            await overHttp.chatHeard('c0ffee000001')
+            expect(emitted, 'nothing new to hear').toEqual([])
+        } finally {
+            router.apiStarted(null)
+            vi.stubGlobal('useDatabase', () => store.db)
+        }
         // Keeping one, as the module does as it changes: through the store, and through the API, alike.
         const row = (id: string) => store.db.get<{project: string, started_at: string, ended_at: string | null, chat: string}>('SELECT project, started_at, ended_at, chat FROM chats WHERE id = ?', id)
         const said = (id: string, project: string) => ({...kept(id, project, '2026-11-05T13:00:00.000Z'), project, problem: 'A launcher too old', ended: true, ended_at: '2026-11-05T13:10:00.000Z',
