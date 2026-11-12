@@ -371,49 +371,19 @@ const placement = computed(() => {
     const [vertical, horizontal] = kept.corner.split('-') as ['top' | 'bottom', 'left' | 'right']
     return {top: 'auto', right: 'auto', bottom: 'auto', left: 'auto', [vertical]: `${kept.y}px`, [horizontal]: `${kept.x}px`}
 })
-/** How far the pointer goes before a press on the header is a drag. */
-const DRAG_FROM = 4
-const moving = ref(false)
-let pressed: {x: number, y: number, rect: DOMRect, pointer: number} | null = null
-function pressHeader(event: PointerEvent) {
-    if (!movable.value || event.button !== 0) return
-    // Its controls stay clicks: the buttons, the picker and anything else that takes a press.
-    if ((event.target as Element).closest('button, a, input, textarea, select, [role="button"], [role="combobox"], [role="listbox"], [role="option"]')) return
-    const rect = pane.value?.getBoundingClientRect()
-    if (rect) pressed = {x: event.clientX, y: event.clientY, rect, pointer: event.pointerId}
-}
-function dragHeader(event: PointerEvent) {
-    if (!pressed || event.pointerId !== pressed.pointer) return
-    // Let go where the page didn't hear it (outside the window): no button is held any more, so it's over.
-    if (!(event.buttons & 1)) return releaseHeader(event)
-    const dx = event.clientX - pressed.x
-    const dy = event.clientY - pressed.y
-    if (!moving.value) {
-        if (Math.hypot(dx, dy) < DRAG_FROM) return
-        moving.value = true
-        ;(event.currentTarget as HTMLElement).setPointerCapture(event.pointerId)
-    }
-    const {left, top, width, height} = pressed.rect
-    placed.value = inView(anchored(left + dx, top + dy, width, height, windowSize), width, height, windowSize)
-}
-function releaseHeader(event: PointerEvent) {
-    if (!pressed || event.pointerId !== pressed.pointer) return
-    pressed = null
-    if (!moving.value) return
-    moving.value = false
-    const header = event.currentTarget as HTMLElement
-    if (header.hasPointerCapture(event.pointerId)) header.releasePointerCapture(event.pointerId)
-}
+/** Dragged by its header (useDragHandle, as the sessions panel is). */
+const headerDrag = useDragHandle({
+    enabled: () => movable.value,
+    rect: () => pane.value?.getBoundingClientRect(),
+    to: ({left, top, width, height}, dx, dy) => {
+        placed.value = inView(anchored(left + dx, top + dy, width, height, windowSize), width, height, windowSize)
+    },
+})
 /** A double-click on the header's empty parts puts it back in its corner. */
 function homeHeader(event: MouseEvent) {
-    if (!movable.value || (event.target as Element).closest('button, a, input, textarea, select, [role="button"], [role="combobox"], [role="listbox"], [role="option"]')) return
+    if (!movable.value || isControl(event.target) || (event.target as Element).closest('a')) return
     placed.value = null
 }
-watch(moving, on => {
-    document.documentElement.classList.toggle('cursor-grabbing', on)
-    document.documentElement.classList.toggle('select-none', on)
-})
-onBeforeUnmount(() => document.documentElement.classList.remove('cursor-grabbing', 'select-none'))
 
 /** Pop out's window, while it's open: the corner button brings it to the front. */
 let popup: Window | null = null
@@ -584,10 +554,8 @@ onBeforeUnmount(() => window.removeEventListener('message', heard))
         :class="movable && 'cursor-grab touch-none'"
         :title="movable ? 'Drag to move the chat; double-click to put it back in the corner' : undefined"
         data-testid="chat-header"
-        @pointerdown="pressHeader"
-        @pointermove="dragHeader"
-        @pointerup="releaseHeader"
-        @pointercancel="releaseHeader"
+        @pointerdown="headerDrag.down"
+        @click.capture="headerDrag.click"
         @dblclick="homeHeader"
     >
       <UiButton
