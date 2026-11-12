@@ -8,6 +8,8 @@ import type {Actor} from './schema'
 import {stamp} from './schema'
 import {EpicStore} from './epics'
 import {doneIssues} from './reads'
+import type {Worker} from './session-work'
+import {sessionWork} from './session-work'
 
 /** How long a session's mark on an issue it's starting holds off another before its status lands. */
 const LOCK_LANDS = 5000
@@ -15,7 +17,8 @@ const LOCK_LANDS = 5000
 export abstract class ClaimStore extends EpicStore {
     /** The session that last worked the issue, while it's there to hear; null otherwise (one session orrery picks). */
     protected async listeningWorker(project: string, issue: string): Promise<string | null> {
-        const worker = (await this.get<{session: string}>('SELECT session FROM issue_sessions WHERE project = ? AND issue = ?', project, issue))?.session
+        const chain = await sessionWork.workers(project, issue)
+        const worker = chain ? chain[0]?.worker : (await this.get<{session: string}>('SELECT session FROM issue_sessions WHERE project = ? AND issue = ?', project, issue))?.session
         return worker && this.hears(project, worker) ? worker : null
     }
 
@@ -27,6 +30,7 @@ export abstract class ClaimStore extends EpicStore {
     async workedBy(project: string, issue: string, session: string, {claimed = false} = {}) {
         issue = await this.issueId(project, issue)
         if (!claimed && await this.takenFrom(project, issue, session).catch(() => null)) return
+        if (await sessionWork.workedBy(project, issue, session)) return
         const now = stamp()
         await this.run(`INSERT INTO issue_sessions (project, issue, session, at, since) SELECT ?, ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM issues WHERE project = ? AND id = ?)
             ON CONFLICT (project, issue) DO UPDATE SET since = CASE WHEN issue_sessions.session = excluded.session THEN issue_sessions.since ELSE excluded.since END,
@@ -171,6 +175,14 @@ export abstract class ClaimStore extends EpicStore {
     /** The issue above this one (its parent, or one further up) that another session than `session` has started and is
      * there to hear, with that session (ORR-611): a follow-up under it is that session's to start. Null when none is. */
     async heldAbove(project: string, issue: string, session?: string): Promise<{parent: string, holder: string} | null> {
+        const chain = await sessionWork.workers(project, issue)
+        if (chain) {
+            for (const above of chain.slice(1)) {
+                const holder = this.heardOther(project, above, session)
+                if (holder) return {parent: above.issue, holder}
+            }
+            return null
+        }
         for (let parent = (await this.issueRow(project, issue)).parent; parent; parent = (await this.issueRow(project, parent)).parent) {
             const holder = await this.takenFrom(project, parent, session)
             if (holder) return {parent, holder}
@@ -186,14 +198,21 @@ export abstract class ClaimStore extends EpicStore {
 
     /** The issues that depend on this one (ORR-601), in any project, oldest link first. */
     async dependentsOf(project: string, issue: string): Promise<{project: string, id: string}[]> {
-        return await this.all<{project: string, id: string}>('SELECT project, issue AS id FROM issue_links WHERE on_project = ? AND on_issue = ? ORDER BY created_at, project, issue', project, issue)
+        return await sessionWork.dependents(project, issue) ?? await this.all<{project: string, id: string}>('SELECT project, issue AS id FROM issue_links WHERE on_project = ? AND on_issue = ? ORDER BY created_at, project, issue', project, issue)
     }
 
     /** The other session on an issue: the one that has it started, while it's there to hear, if that isn't `session`. */
     async takenFrom(project: string, issue: string, session: string | undefined): Promise<string | null> {
+        const chain = await sessionWork.workers(project, issue)
+        if (chain) return chain[0] ? this.heardOther(project, chain[0], session) : null
         const {status} = await this.issueRow(project, issue)
         if ((await this.statuses()).find(s => s.id === status)?.kind !== 'started') return null
         const worker = await this.listeningWorker(project, issue)
         return worker && worker !== session ? worker : null
+    }
+
+    /** The session on a started issue of the chain, while it's there to hear, if that isn't `session`. */
+    private heardOther(project: string, {started, worker}: Worker, session: string | undefined): string | null {
+        return started && worker && worker !== session && this.hears(project, worker) ? worker : null
     }
 }

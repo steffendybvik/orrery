@@ -72,13 +72,17 @@ async fn prune(State(app): Shared, headers: HeaderMap) -> Result<Response> {
 }
 
 /// `?after=` the signals after that id, oldest first (anything not a number is 0, as `Number(…) || 0` reads it);
-/// `?issue=` or `?milestone=` the latest about that issue or milestone instead.
+/// `?issue=` or `?milestone=` the latest about that issue or milestone instead; `?waiting=pooled` or `scheduled` those
+/// from the last day no session has heard yet, for the one orrery picks or scheduled (ORR-1141).
 async fn list_signals(State(app): Shared, Path(project): Path<String>, Query(query): Query<HashMap<String, String>>) -> Result<Response> {
     let text = |key: &str| query.get(key).map(String::as_str).filter(|v| !v.is_empty());
-    let which = match (text("issue"), text("milestone")) {
-        (Some(issue), _) => Which::Issue(issue),
-        (None, Some(milestone)) => Which::Milestone(milestone),
-        (None, None) => Which::After(after_of(query.get("after").map(String::as_str))),
+    let which = match (text("waiting"), text("issue"), text("milestone")) {
+        (Some("pooled"), _, _) => Which::Pooled,
+        (Some("scheduled"), _, _) => Which::Scheduled,
+        (Some(other), _, _) => return Err(ApiError::bad_request(format!("\"waiting\" is \"{other}\"; use pooled, scheduled"))),
+        (None, Some(issue), _) => Which::Issue(issue),
+        (None, None, Some(milestone)) => Which::Milestone(milestone),
+        (None, None, None) => Which::After(after_of(query.get("after").map(String::as_str))),
     };
     let mut conn = app.pool.acquire().await?;
     Ok(Json(Signals::new(&mut conn).list(&project, which, LIMIT).await?).into_response())

@@ -9,6 +9,8 @@ import {testDb} from './db'
 const sent: {method: string, path: string, body: unknown, actor: unknown, always: unknown}[] = []
 let inFront = true
 vi.mock('../server/utils/api-router', () => ({
+    // No reads from the API: the store answers them here.
+    readFromApi: async () => undefined,
     writeToApi: async (method: string, path: string, body: unknown, actor: unknown, opts: {always?: boolean} = {}) => {
         if (!inFront) return undefined
         sent.push({method, path, body, actor, always: opts.always})
