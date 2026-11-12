@@ -44,6 +44,8 @@ let credential: typeof import('../server/utils/auth').credential
 
 /** A database with `greenhouse` on it, and the API started on the same file. */
 async function startOrrery(): Promise<Running> {
+    // Seeded with no API in front, as the store's reads ask it once one is set up (ORR-1133).
+    config = {}
     const setting = resolve(join(mkdtempSync(join(tmpdir(), 'orrery-doors-')), 'orrery.db'))
     const store = new Store(new SqliteDb(openDb(setting)), () => {})
     await store.createProject({name: 'greenhouse', key: 'GRE'})

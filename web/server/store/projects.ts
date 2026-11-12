@@ -26,6 +26,10 @@ export abstract class ProjectStore extends KeyStore {
     }
 
     async project(id: string): Promise<Project> {
+        // The whole board from the API when it's set up (ORR-1133), which reads it alike (a 404 when it isn't there).
+        const {readFromApi} = await import('../utils/api-router')
+        const read = await readFromApi<Project>(`/api/projects/${encodeURIComponent(id)}`)
+        if (read) return read
         return await this.projectOf(await this.projectRow(id))
     }
 
