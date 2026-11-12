@@ -149,6 +149,32 @@ async fn a_tool_the_session_lacks_is_refused_and_one_not_moved_yet_says_so() {
 }
 
 #[tokio::test]
+async fn request_fields_says_what_a_chat_request_takes_as_the_channel_does() {
+    let api = TestApi::new().await;
+    let lists: Value = serde_json::from_str(include_str!("../../mcp-tools.json")).unwrap();
+    let actions = lists["chat_requests"].as_array().expect("the chat's request actions");
+    let call = |name: &str, args: Value| rpc(&api, "tools/call", json!({"name": name, "arguments": args})).header("orrery-actor-kind", "chat");
+    let doc = actions.iter().find(|a| a["name"] == "create_doc").expect("create_doc is a request");
+    let fields = call("request_fields", json!({"action": "create_doc"})).send().await;
+    assert!(fields.body["result"]["isError"].is_null(), "{}", fields.body);
+    let (head, schema) = said(&fields).split_once("\n\nfields: ").expect("its fields after a blank line");
+    assert_eq!(head, format!("create_doc: {}", doc["description"].as_str().unwrap()));
+    assert_eq!(serde_json::from_str::<Value>(schema).unwrap(), doc["inputSchema"]);
+    // An action there isn't, to either tool, names those there are, in the channel's order.
+    let names: Vec<&str> = actions.iter().map(|a| a["name"].as_str().unwrap()).collect();
+    let none = format!("No action \"nope\": one of {}", names.join(", "));
+    for name in ["request_fields", "request"] {
+        let refused = call(name, json!({"action": "nope"})).send().await;
+        assert_eq!((said(&refused), &refused.body["result"]["isError"]), (none.as_str(), &json!(true)), "{name}");
+    }
+    let unnamed = call("request_fields", json!({})).send().await;
+    assert!(said(&unnamed).starts_with("No action \"undefined\": one of "), "{}", unnamed.body);
+    // A work session has neither.
+    let work = rpc(&api, "tools/call", json!({"name": "request_fields", "arguments": {"action": "create_doc"}})).send().await;
+    assert_eq!(said(&work), "No tool \"request_fields\"");
+}
+
+#[tokio::test]
 async fn get_has_no_stream() {
     let api = TestApi::new().await;
     let reply = api.get("/mcp").send().await;
@@ -369,4 +395,20 @@ async fn rate_pull_reads_the_pr_as_the_channel_does_and_asks_its_route() {
     assert!(refused.starts_with(&format!("orrery said no: orrery keeps no pull request #12 on ada/primes for {issue}")), "{refused}");
     assert_eq!(said(&rate(json!("ada/primes#12")).send().await), refused);
     assert_eq!(said(&rate(json!("twelve")).send().await), "Give the PR as owner/name#number or its link, not \"twelve\"");
+}
+
+#[tokio::test]
+async fn what_a_tools_routes_set_off_comes_back_on_the_mcp_reply_for_the_router_to_pass_on() {
+    let api = TestApi::new().await;
+    api.project("alpha").await;
+    let made = tool(&api, "create_issue", json!({"title": "Down", "status": "todo", "priority": "P0"})).send().await;
+    let id = said(&made).trim_start_matches("Made ").split(' ').next().unwrap().to_string();
+    assert_eq!(made.said("orrery-urgent"), [format!("alpha {id}")], "the push to the sessions is the router's");
+    assert_eq!(made.header("orrery-changed"), Some("alpha"));
+    let asked = tool(&api, "comment", json!({"id": id, "body": "Which way?", "asks": "decision"})).send().await;
+    assert_eq!(asked.said("orrery-carry"), [format!("alpha {id} 1")], "passing it on to the session is the router's");
+    assert_eq!(asked.told(), [format!("comment.asks alpha {id} ~ decision")]);
+    let read = tool(&api, "issue", json!({"id": id})).send().await;
+    assert_eq!(read.header("orrery-carry"), None, "a read sets nothing off");
+    assert_eq!(read.header("orrery-changed"), None);
 }

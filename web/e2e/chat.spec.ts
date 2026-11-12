@@ -1133,7 +1133,9 @@ test('pops out into a window of its own, which the corner button brings back, an
     const pane = page.getByRole('region', {name: 'Chat'})
     await pane.getByLabel('Message').fill('kept in this window')
     const opening = page.waitForEvent('popup')
-    await pane.getByRole('button', {name: 'Pop out: the chat in a window of its own'}).click()
+    // Pop out lives in the header's ⋮ menu (ORR-1127).
+    await pane.getByRole('button', {name: 'More for the chat'}).click()
+    await pane.getByRole('menuitem', {name: 'Break out as own window'}).click()
     const popup = await opening
     // The pane here closes; the window is the chat, on the same project, with no corner button, Larger or Close.
     await expect(pane).toHaveCount(0)

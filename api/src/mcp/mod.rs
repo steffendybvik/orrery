@@ -7,6 +7,7 @@
 // a session's tools are an agent's. The kind of session is the router's `Orrery-Actor-Kind`, as on the REST routes.
 pub(crate) mod board;
 pub(crate) mod guide;
+pub(crate) mod relay;
 pub(crate) mod tools;
 
 use crate::db::sql;
@@ -77,6 +78,8 @@ pub(crate) struct Call<'a> {
     pub(crate) kind: Kind,
     /// The `Mcp-Session-Id` it came with.
     pub(crate) session: Option<&'a str>,
+    /// What the routes its tools ran set off, for its reply (relay.rs).
+    pub(crate) relay: &'a relay::Relay,
 }
 
 fn error(id: &Value, code: i64, message: impl Into<String>) -> Value {
@@ -159,12 +162,18 @@ impl Call<'_> {
                     None => text(format!("orrery said no: group is {}", tools::groups().join(", ")), true),
                 }
             }
+            // The chat's request actions, read through one tool so they aren't all listed (ORR-624).
+            "request_fields" => match tools::request_fields(&args["action"]) {
+                Ok(fields) => text(fields, false),
+                Err(no) => text(no, true),
+            },
+            "request" if tools::chat_request(args["action"].as_str().unwrap_or_default()).is_none() => text(tools::no_action(&args["action"]), true),
             // Not text: the image as itself.
-            "image" => match (board::Api { app: self.app, headers: self.headers, projects: &projects }).image(args).await {
+            "image" => match (board::Api { app: self.app, headers: self.headers, projects: &projects, relay: self.relay }).image(args).await {
                 Ok(image) => image,
                 Err(board::No(why)) => text(format!("orrery said no: {why}"), true),
             },
-            _ => match (board::Api { app: self.app, headers: self.headers, projects: &projects }).run(name, args).await {
+            _ => match (board::Api { app: self.app, headers: self.headers, projects: &projects, relay: self.relay }).run(name, args).await {
                 Some(Ok(said)) => text(said, false),
                 Some(Err(board::No(why))) => text(format!("orrery said no: {why}"), true),
                 None => text(format!("{name} isn't served at /mcp yet: orrery's channel still has it"), true),

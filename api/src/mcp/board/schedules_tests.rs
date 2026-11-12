@@ -174,7 +174,7 @@ async fn the_chats_other_requests_stay_in_the_channel() {
     let api = TestApi::new().await;
     api.project("alpha").await;
     let reply = api
-        .post("/mcp", json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "request", "arguments": {"action": "move_issues", "fields": {"ids": ["ALPHA-1"], "status": "done"}}}}))
+        .post("/mcp", json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "request", "arguments": {"action": "start_session", "fields": {"action": "start"}}}}))
         .header("orrery-actor-kind", "chat")
         .header("orrery-launch", "c1")
         .send()

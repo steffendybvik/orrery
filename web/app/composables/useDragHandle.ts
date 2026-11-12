@@ -3,7 +3,7 @@
 // part of the grip: let go where it was pressed and it opens, dragged from and it doesn't. By mouse, pen or touch.
 
 /** What a press on stays a click: the controls. A link isn't one, and nor is a button marked as the grip. */
-const CONTROLS = 'button:not([data-grip]), input, textarea, select, [role="button"], [role="combobox"], [role="listbox"], [role="option"]'
+const CONTROLS = 'button:not([data-grip]), input, textarea, select, [role="button"], [role="combobox"], [role="listbox"], [role="option"], [role="menu"], [role="menuitem"]'
 /** How far the pointer goes before a press is a drag. */
 const DRAG_FROM = 4
 

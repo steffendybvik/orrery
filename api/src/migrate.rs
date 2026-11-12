@@ -102,12 +102,16 @@ async fn sqlite(conn: &mut AnyConnection, path: &str) -> Result<Migrated, String
 /// backup folder (`ORRERY_API_BACKUP_DIR`, the Nuxt server's backup setting), or beside the file, named by the version
 /// (`ORRERY_VERSION`) and the step it was at, so a later step under the same version gets one of its own (ORR-457).
 fn copy_path(path: &str, version: u32) -> std::path::PathBuf {
-    let dir = std::env::var("ORRERY_API_BACKUP_DIR")
-        .ok()
+    copy_path_with(path, version, std::env::var("ORRERY_API_BACKUP_DIR").ok(), std::env::var("ORRERY_VERSION").ok())
+}
+
+/// `copy_path`, with the backup folder and the version as the environment gave them.
+fn copy_path_with(path: &str, version: u32, backups: Option<String>, release: Option<String>) -> std::path::PathBuf {
+    let dir = backups
         .filter(|d| !d.is_empty())
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|| std::path::Path::new(path).parent().map(|p| p.to_path_buf()).unwrap_or_default());
-    let release = std::env::var("ORRERY_VERSION").ok().filter(|v| !v.is_empty()).unwrap_or_else(|| "upgrade".into());
+    let release = release.filter(|v| !v.is_empty()).unwrap_or_else(|| "upgrade".into());
     dir.join(format!("orrery-pre-{release}-step{version}.db"))
 }
 
@@ -428,6 +432,45 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn step_90_puts_the_servers_rows_in_the_default_workspace_and_agent_keys_but_not_person_keys() {
+        let (path, mut conn) = sqlite_at(89).await;
+        exec(
+            &mut conn,
+            "INSERT INTO people (id, name, role, created_at) VALUES ('ziggy', 'Ziggy', 'owner', 'x');
+             INSERT INTO keys (id, person, kind, name, hash, created_at) VALUES ('k1', 'ziggy', 'agent', 'claude', 'h1', 'x'), ('k2', 'ziggy', 'person', 'phone', 'h2', 'x');
+             INSERT INTO epics (title, created_at, updated_at, created_by) VALUES ('Workspaces', 'x', 'x', 'ziggy');",
+        )
+        .await
+        .unwrap();
+        conn.close().await.unwrap();
+
+        migrate(&path, None).await.unwrap();
+        let mut conn = AnyConnection::connect(&format!("sqlite://{path}")).await.unwrap();
+        assert_eq!(rows(&mut conn, "SELECT id, workspace FROM keys ORDER BY id").await, vec![some(&["k1", "default"]), vec![Some("k2".into()), None]]);
+        assert_eq!(rows(&mut conn, "SELECT title, workspace FROM epics").await, vec![some(&["Workspaces", "default"])]);
+        // The statuses a new orrery seeds are in it too.
+        assert_eq!(rows(&mut conn, "SELECT DISTINCT workspace FROM statuses").await, vec![some(&["default"])]);
+        for table in [
+            "statuses",
+            "presets",
+            "preset_defaults",
+            "secrets",
+            "secret_uses",
+            "epics",
+            "events",
+            "chats",
+            "schedules_across",
+            "session_people",
+            "invites",
+            "uploads",
+            "feature_use",
+        ] {
+            let columns = rows(&mut conn, &format!("SELECT dflt_value FROM pragma_table_info('{table}') WHERE name = 'workspace' AND \"notnull\" = 1")).await;
+            assert_eq!(columns, vec![some(&["'default'"])], "{table}'s rows are in the default workspace");
+        }
+    }
+
+    #[tokio::test]
     async fn a_new_orrery_has_the_default_workspace_with_nobody_in_it_yet() {
         let (path, conn) = sqlite_at(0).await;
         conn.close().await.unwrap();
@@ -447,6 +490,70 @@ mod tests {
         )
         .await;
         assert!(stray.is_err(), "a project's workspace must be there");
+    }
+
+    async fn step_of(path: &str) -> i64 {
+        let mut conn = AnyConnection::connect(&format!("sqlite://{path}?mode=ro")).await.unwrap();
+        let step = sqlx::query("PRAGMA user_version").fetch_one(&mut conn).await.unwrap().try_get(0).unwrap();
+        conn.close().await.ok();
+        step
+    }
+
+    #[tokio::test]
+    async fn a_database_from_a_newer_orrery_is_refused_and_left_as_it_was() {
+        let (path, mut conn) = sqlite_at(latest(Dialect::Sqlite)).await;
+        let newer = latest(Dialect::Sqlite) + 1;
+        exec(&mut conn, &format!("PRAGMA user_version = {newer}")).await.unwrap();
+        conn.close().await.unwrap();
+        let before = std::fs::read(&path).unwrap();
+        let Err(refused) = migrate(&path, None).await else { panic!("it should be refused") };
+        assert!(refused.contains("written by a newer orrery") && refused.contains(&format!("schema step {newer}")), "{refused}");
+        assert_eq!(std::fs::read(&path).unwrap(), before, "not a byte changed");
+        assert!(!copy_path(&path, newer).exists(), "and no copy taken, as nothing was upgraded");
+    }
+
+    #[tokio::test]
+    async fn an_upgrade_keeps_a_sound_copy_as_it_was_first_and_one_at_the_latest_takes_none() {
+        let (path, conn) = sqlite_at(88).await;
+        conn.close().await.unwrap();
+        migrate(&path, None).await.unwrap();
+        let copy = copy_path(&path, 88);
+        assert!(copy.exists(), "a copy at {}", copy.display());
+        assert!(!std::path::PathBuf::from(format!("{}.partial", copy.display())).exists(), "and nothing half-written left");
+        assert_eq!(step_of(&copy.to_string_lossy()).await, 88, "the copy is the database before its steps");
+        assert_eq!(step_of(&path).await, latest(Dialect::Sqlite) as i64);
+        // At the latest step already, nothing runs and nothing is copied.
+        migrate(&path, None).await.unwrap();
+        assert!(!copy_path(&path, latest(Dialect::Sqlite)).exists());
+    }
+
+    #[test]
+    fn the_copy_goes_in_the_backup_folder_or_beside_the_file_named_for_the_version_and_step() {
+        let path = "/data/orrery.db";
+        assert_eq!(copy_path_with(path, 7, None, None), std::path::PathBuf::from("/data/orrery-pre-upgrade-step7.db"));
+        assert_eq!(
+            copy_path_with(path, 7, Some(String::new()), Some(String::new())),
+            std::path::PathBuf::from("/data/orrery-pre-upgrade-step7.db"),
+            "empty is unset"
+        );
+        assert_eq!(
+            copy_path_with(path, 88, Some("/backups".into()), Some("1.0.0-rc.19".into())),
+            std::path::PathBuf::from("/backups/orrery-pre-1.0.0-rc.19-step88.db")
+        );
+    }
+
+    #[tokio::test]
+    async fn rows_pointing_at_nothing_are_refused_after_the_steps() {
+        let (path, mut conn) = sqlite_at(latest(Dialect::Sqlite)).await;
+        exec(
+            &mut conn,
+            "INSERT INTO projects (id, name, key, created_by, created_at, updated_at, workspace) VALUES ('beta', 'Beta', 'BET', 'x', 'x', 'x', 'nowhere')",
+        )
+        .await
+        .unwrap();
+        conn.close().await.unwrap();
+        let Err(refused) = migrate(&path, None).await else { panic!("it should be refused") };
+        assert!(refused.ends_with("a migration left rows pointing at nothing"), "{refused}");
     }
 
     #[test]
