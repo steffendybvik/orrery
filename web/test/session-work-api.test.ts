@@ -65,4 +65,13 @@ describe('the sessions’ bookkeeping through the Rust API (ORR-1141)', () => {
         replies['/api/projects/greenhouse/signals?waiting=pooled'] = [{id: 7, kind: 'message'}]
         expect(await store.pooledWaiting('greenhouse')).toEqual([{id: 7, kind: 'message'}])
     })
+
+    it("asks the API whether an owner's focus on an issue is on its way (ORR-1131)", async () => {
+        const path = '/api/projects/greenhouse/signals?waiting=focus&issue=GRE-1'
+        replies[path] = []
+        expect(await store.focusOnItsWay('greenhouse', 'GRE-1')).toBe(false)
+        replies[path] = [{id: 3, kind: 'focus'}]
+        expect(await store.focusOnItsWay('greenhouse', 'GRE-1')).toBe(true)
+        expect(asked).toContain(`GET ${path}`)
+    })
 })

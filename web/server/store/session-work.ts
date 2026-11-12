@@ -39,4 +39,6 @@ export const sessionWork = {
     rename: (project: string, from: string, to: string) => write(`${at(project)}/issue-sessions/rename`, {from, to}),
     /** The owner's signals from the last day no session has heard: for the one orrery picks, or scheduled. */
     unheard: (project: string, waiting: 'pooled' | 'scheduled') => read<Signal[]>(`${at(project)}/signals?waiting=${waiting}`),
+    /** The owner's or a member's focuses on the issue from the last ten minutes no session has heard yet (ORR-1131). */
+    focusing: (project: string, issue: string) => read<Signal[]>(`${at(project)}/signals?waiting=focus&issue=${encodeURIComponent(issue)}`),
 }

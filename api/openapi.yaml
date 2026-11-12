@@ -1616,9 +1616,11 @@ paths:
         Anything in `after` that isn't a number reads as 0. With `issue` or `milestone`, `after` is left out; one there
         isn't has none. With `waiting` (ORR-1141), the owner's from the last day that no session has heard yet, oldest
         first and all of them: `pooled`, the owner's and members' for the one session orrery picks; `scheduled`, the
-        owner's messages and their scheduled focuses on an issue still open.
+        owner's messages and their scheduled focuses on an issue still open; `focus`, with `issue` (ORR-1131), the
+        owner's and members' focuses on that issue from the last ten minutes, so another isn't sent while one is on its
+        way.
       parameters:
-        - {name: waiting, in: query, schema: {type: string, enum: [pooled, scheduled]}}
+        - {name: waiting, in: query, schema: {type: string, enum: [pooled, scheduled, focus]}}
         - {name: after, in: query, schema: {type: string}}
         - {name: issue, in: query, schema: {type: string}}
         - {name: milestone, in: query, schema: {type: string}}
