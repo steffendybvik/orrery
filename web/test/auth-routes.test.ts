@@ -78,7 +78,6 @@ beforeEach(async () => {
     vi.stubGlobal('authorize', authorize)
     vi.stubGlobal('memberAsking', memberAsking)
     vi.stubGlobal('refusedFor', (await import('../server/utils/permission')).refusedFor)
-    vi.stubGlobal('keyHolderOf', (await import('../server/utils/key-rights')).keyHolderOf)
     gate = (await import('../server/middleware/auth')).default as unknown as Route
     await store.nameOwner({name: 'Skoll'})
     await store.addPerson({name: 'Hati'})

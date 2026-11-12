@@ -142,8 +142,8 @@ fn refused_for_session(row: &str) -> ApiError {
     }
 }
 
-/// The person handling keys or logins, and whether they may for others (`keyHolderOf`, `loginHolderOf` in
-/// web/server/utils/key-rights.ts): a browser's person, each for themselves and the owner for everyone, and with auth off
+/// The person handling keys or logins, and whether they may for others (what Nuxt's `key-rights.ts` did before #1059):
+/// a browser's person, each for themselves and the owner for everyone, and with auth off
 /// the owner by name. Never a session, whatever key it has. The router has already refused the chat and an untrusted
 /// session (their middleware holds them to their columns), so what's left here is a session or the owner.
 pub fn holder_of(row: &str, who: Option<&Who>, actor: &Actor) -> Result<(String, bool)> {
