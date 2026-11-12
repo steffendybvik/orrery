@@ -89,11 +89,11 @@ async fn a_work_sessions_list_names_the_project_only_once_there_are_several() {
 async fn the_chat_and_an_untrusted_session_get_their_own_lists() {
     let api = TestApi::new().await;
     let chat = rpc(&api, "tools/list", json!({})).header("orrery-actor-kind", "chat").send().await;
-    assert!(names(&chat).contains(&"request".into()) && names(&chat).contains(&"github_pulls".into()));
+    assert!(names(&chat).contains(&"request".into()) && names(&chat).contains(&"reply".into()));
     assert!(!names(&chat).contains(&"start_issue".into()) && !names(&chat).contains(&"more_tools".into()));
     let untrusted = rpc(&api, "tools/list", json!({})).untrusted().send().await;
-    assert!(names(&untrusted).contains(&"github_issues".into()));
-    for refused in ["start_issue", "write_doc", "egress", "more_tools", "request"] {
+    assert!(names(&untrusted).contains(&"issue".into()));
+    for refused in ["start_issue", "write_doc", "egress", "more_tools", "request", "github_issues"] {
         assert!(!names(&untrusted).contains(&refused.to_string()), "untrusted has {refused}");
     }
 }
@@ -104,16 +104,16 @@ async fn more_tools_adds_a_group_to_that_session_alone() {
     let (mine, other) = (session(&api).await, session(&api).await);
     let call = |id: &str, name: &str, args: Value| rpc(&api, "tools/call", json!({"name": name, "arguments": args})).header("mcp-session-id", id);
     let added = call(&mine, "more_tools", json!({"group": "secrets"})).send().await;
-    assert_eq!(said(&added), "Added secrets, egress to your tools.");
+    assert_eq!(said(&added), "Added secrets to your tools.");
     let list = |id: &str| rpc(&api, "tools/list", json!({})).header("mcp-session-id", id);
-    assert!(names(&list(&mine).send().await).contains(&"egress".into()));
-    assert!(!names(&list(&other).send().await).contains(&"egress".into()));
+    assert!(names(&list(&mine).send().await).contains(&"secrets".into()));
+    assert!(!names(&list(&other).send().await).contains(&"secrets".into()));
     let wrong = call(&mine, "more_tools", json!({"group": "nope"})).send().await;
     assert_eq!(wrong.body["result"]["isError"], true);
     assert!(said(&wrong).starts_with("orrery said no: group is "));
     // Done with it, its groups are let go; a second goodbye finds nothing.
     assert_eq!(api.delete("/mcp").header("mcp-session-id", &mine).send().await.status, 204);
-    assert!(!names(&list(&mine).send().await).contains(&"egress".into()));
+    assert!(!names(&list(&mine).send().await).contains(&"secrets".into()));
     assert_eq!(api.delete("/mcp").header("mcp-session-id", &mine).send().await.status, 404);
     assert_eq!(api.delete("/mcp").send().await.status, 400);
 }
@@ -133,7 +133,7 @@ async fn guide_gives_its_contents_or_one_section() {
 }
 
 #[tokio::test]
-async fn a_tool_the_session_lacks_is_refused_and_one_not_moved_yet_says_so() {
+async fn a_tool_the_session_lacks_is_refused_and_the_channels_own_arent_here() {
     let api = TestApi::new().await;
     let call = |name: &str| rpc(&api, "tools/call", json!({"name": name, "arguments": {}}));
     let unknown = call("nope").send().await;
@@ -144,8 +144,35 @@ async fn a_tool_the_session_lacks_is_refused_and_one_not_moved_yet_says_so() {
     assert_eq!(said(&untrusted), "No tool \"start_issue\"");
     let chat_more = call("more_tools").header("orrery-actor-kind", "chat").send().await;
     assert_eq!(said(&chat_more), "No tool \"more_tools\"");
-    let later = call("start_issue").send().await;
-    assert!(said(&later).contains("isn't served at /mcp yet"), "{}", later.body);
+    // What the channel keeps (ORR-1102) isn't here: the session has it from its channel.
+    for own in ["start_issue", "egress", "link_folder", "sessions"] {
+        assert_eq!(said(&call(own).send().await), format!("No tool \"{own}\""));
+    }
+}
+
+#[tokio::test]
+async fn every_tool_listed_is_served_here() {
+    // Each tool is listed by the channel or by /mcp, never both (ORR-1102): what's listed here runs here, whatever it
+    // makes of no arguments.
+    let api = TestApi::new().await;
+    api.project("alpha").await;
+    let id = session(&api).await;
+    for group in ["schedules", "secrets", "debug", "review", "epics"] {
+        rpc(&api, "tools/call", json!({"name": "more_tools", "arguments": {"group": group}})).header("mcp-session-id", &id).send().await;
+    }
+    for kind in ["work", "chat", "untrusted"] {
+        let listed =
+            rpc(&api, "tools/list", json!({})).header("mcp-session-id", &id).header("orrery-actor-kind", kind).header("orrery-launch", "c1").send().await;
+        for name in names(&listed) {
+            let reply = rpc(&api, "tools/call", json!({"name": name, "arguments": {}}))
+                .header("mcp-session-id", &id)
+                .header("orrery-actor-kind", kind)
+                .header("orrery-launch", "c1")
+                .send()
+                .await;
+            assert!(!said(&reply).contains("isn't served at /mcp yet") && !said(&reply).starts_with("No tool"), "{kind}: {name}: {}", reply.body);
+        }
+    }
 }
 
 #[tokio::test]
