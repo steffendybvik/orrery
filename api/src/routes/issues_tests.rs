@@ -252,6 +252,23 @@ async fn a_new_issue_with_a_bad_body_lists_every_problem() {
 }
 
 #[tokio::test]
+async fn a_new_issue_may_name_its_own_project_but_no_other() {
+    let api = TestApi::new().await;
+    let board = Board::new(&api).await;
+    let reply = api.post(&board.issues(), json!({"title": "Sieve", "project": board.project})).send().await;
+    assert_eq!((reply.status.as_u16(), &reply.body["title"]), (201, &json!("Sieve")), "{}", reply.body);
+    let reply = api.post(&board.issues(), json!({"title": "Wheel", "project": "composites"})).send().await;
+    assert_eq!((reply.status.as_u16(), message(&reply)), (400, "Create the issue in its project: POST /api/projects/composites/issues"));
+    let reply = api.post(&board.issues(), json!({"title": "Wheel", "project": 3})).send().await;
+    assert_eq!((reply.status.as_u16(), message(&reply)), (400, "\"project\" should be a string, not 3"));
+    // An unknown field is told with every field an issue takes, as the store told it.
+    let reply = api.post(&board.issues(), json!({"title": "Wheel", "session": "s-1"})).send().await;
+    assert_eq!(reply.status, 400);
+    assert!(message(&reply).contains("choices, project, parent"), "{}", reply.body);
+    assert_eq!(api.get(&board.issues()).send().await.body.as_array().unwrap().len(), 1, "only the first was made");
+}
+
+#[tokio::test]
 async fn a_new_issue_goes_in_a_milestone_release_and_epic_there_are() {
     let api = TestApi::new().await;
     let board = Board::new(&api).await;
@@ -533,6 +550,22 @@ async fn an_issue_moves_to_another_project_with_its_sub_issues_comments_and_link
     assert_eq!(api.get(&theirs(&child)).send().await.body["id"], json!("COM-3"));
     assert_eq!(board.read(&waiting).await["depends_on"], json!(["composites/COM-2"]));
     assert_eq!(api.get(&board.at(&top)).send().await.status, 404);
+}
+
+#[tokio::test]
+async fn a_sessions_moved_issue_is_its_work_where_it_is_now() {
+    let api = TestApi::new().await;
+    let board = Board::new(&api).await;
+    let other = api.project("Composites").await;
+    let top = board.issue(json!({"title": "Sieve"})).await;
+    let reply = api.patch(&board.at(&top), json!({"project": other})).agent_of_nobody().header("orrery-worked-by", "s-1").send().await;
+    assert_eq!(reply.status, 200, "{}", reply.body);
+    let noted = format!("SELECT count(*) FROM issue_sessions WHERE project = '{other}' AND issue = 'COM-1' AND session = 's-1'");
+    assert_eq!(api.count(&noted).await, 1);
+    // Staying put, its address says which, so the router notes it.
+    let still = board.issue(json!({"title": "Wheel"})).await;
+    api.patch(&board.at(&still), json!({"title": "Wheel 2"})).agent_of_nobody().header("orrery-worked-by", "s-2").send().await;
+    assert_eq!(api.count("SELECT count(*) FROM issue_sessions WHERE session = 's-2'").await, 0);
 }
 
 #[tokio::test]

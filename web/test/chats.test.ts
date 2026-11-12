@@ -698,21 +698,15 @@ describe("the owner's chat", () => {
         expect(notes.map(n => n.kind)).toEqual(['chat.asked', 'chat.answered', 'chat.asked', 'chat.asked', 'chat.answered'])
     })
 
-    it('makes what its session asks for with nobody on it, in Todo whatever status it asks for', () => {
-        expect(chats.asChatIssue({title: 'Shelf labels', notes: 'From the chat', status: 'in-progress', assignee: 'claude', priority: 'P2', milestone: '3'}))
-            .toEqual({title: 'Shelf labels', notes: 'From the chat', priority: 'P2', milestone: '3', status: 'todo'})
-        for (const status of [undefined, 'backlog', 'done', 'canceled']) expect(chats.asChatIssue({title: 'Seed trays', status, plan: null})).toEqual({title: 'Seed trays', status: 'todo'})
-    })
-
     it('lands what it makes where the owner picked for that chat, whatever status its session asks for', async () => {
         const chat = await chats.openChat('greenhouse', 'backlog')
         expect(chat.issues).toBe('backlog')
-        expect(chats.asChatIssue({title: 'Seed trays', status: 'todo'}, chat.id)).toEqual({title: 'Seed trays', status: 'backlog'})
+        expect(chats.chatIssuesFor(chat.id)).toBe('backlog')
         expect(chats.landChatIssues(chat.id, 'todo')).toMatchObject({issues: 'todo'})
         expect(changes.at(-1)).toMatchObject({issues: 'todo'})
-        expect(chats.asChatIssue({title: 'Grow lights', status: 'backlog'}, chat.id)).toEqual({title: 'Grow lights', status: 'todo'})
+        expect(chats.chatIssuesFor(chat.id)).toBe('todo')
         // A chat it doesn't know (ended, or orrery restarted) lands in Todo.
-        expect(chats.asChatIssue({title: 'Jars', status: 'backlog'}, 'gone')).toEqual({title: 'Jars', status: 'todo'})
+        expect(chats.chatIssuesFor('gone')).toBe('todo')
     })
 
     it('reads where its issues land as todo or backlog, todo when not said', () => {
@@ -728,10 +722,6 @@ describe("the owner's chat", () => {
         for (const field of ['status', 'assignee', 'proposal', 'project', 'position', 'plan', 'choices'])
             expect(() => chats.asChatEdit({priority: 'P1', [field]: 'x'})).toThrow(expect.objectContaining({statusCode: 403}))
         expect(() => chats.asChatEdit('P0')).toThrow(expect.objectContaining({statusCode: 400}))
-    })
-
-    it('leaves a proposal one, for the owner to decide', () => {
-        expect(chats.asChatIssue({title: 'Grow lights', proposal: 'pending', status: 'todo', assignee: 'claude'})).toEqual({title: 'Grow lights', proposal: 'pending'})
     })
 })
 

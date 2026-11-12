@@ -35,6 +35,7 @@ import {PullPoll} from '../server/utils/pull-poll'
 import type {PolledRow} from '../server/utils/pull-poll'
 import {openDb} from '../server/utils/db'
 import {backUpTo, snapshotsBy} from '../server/utils/backup'
+import {isFresh, noteEnvironment} from '../server/utils/restore'
 import {DatabaseSync} from 'node:sqlite'
 import {PostgresDb} from '../server/utils/postgres'
 import {PHONE_LOGIN} from '#shared/phone'
@@ -1370,6 +1371,21 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         }
         expect(held(there)).toEqual(held(here))
         expect(domainOf('POST', '/api/database/snapshot')).toBeUndefined()
+    })
+
+    it('says alike whether the database is a new orrery\'s, and keeps the name it runs under alike (ORR-1140)', async () => {
+        const state = await viaApi('GET', '/api/database')
+        expect(state.status).toBe(200)
+        expect((state.body as {fresh: boolean}).fresh).toBe(await isFresh(store.db))
+        const kept = async () => (await store.db.get<{value: string}>('SELECT value FROM settings WHERE key = \'environment\''))?.value
+        const was = await kept()
+        await noteEnvironment(store.db, 'here')
+        const here = await kept()
+        expect((await viaApi('PUT', '/api/database/environment', {environment: 'here'})).status).toBe(204)
+        expect(await kept()).toBe(here)
+        if (was === undefined) await store.db.run('DELETE FROM settings WHERE key = \'environment\'')
+        else await store.db.run('UPDATE settings SET value = ? WHERE key = \'environment\'', was)
+        expect(domainOf('GET', '/api/database')).toBeUndefined()
     })
 
     it('keeps a sealed secret, its uses and its deletion alike (ORR-1096)', async () => {
