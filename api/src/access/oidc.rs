@@ -13,7 +13,7 @@ use jsonwebtoken::{decode, decode_header, DecodingKey, Validation};
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use url::Url;
@@ -92,13 +92,14 @@ async fn fetch_json<T: for<'de> Deserialize<'de>>(request: reqwest::RequestBuild
     response.json::<T>().await.map_err(|_| ApiError::provider("The OIDC provider's answer isn't what was expected"))
 }
 
-static FOUND: Mutex<Option<(String, Provider, Instant)>> = Mutex::new(None);
+/// Each issuer's discovery document and when it was read.
+static FOUND: Mutex<Option<HashMap<String, (Provider, Instant)>>> = Mutex::new(None);
 
 /// The provider's endpoints, from its discovery document, kept for an hour.
 async fn provider(settings: &Settings) -> Result<Provider> {
     let issuer = trimmed(&settings.issuer).to_owned();
-    if let Some((at, found, when)) = FOUND.lock().unwrap().as_ref() {
-        if *at == issuer && when.elapsed() < FOUND_FOR {
+    if let Some((found, when)) = FOUND.lock().unwrap().get_or_insert_with(HashMap::new).get(&issuer) {
+        if when.elapsed() < FOUND_FOR {
             return Ok(found.clone());
         }
     }
@@ -110,7 +111,7 @@ async fn provider(settings: &Settings) -> Result<Provider> {
     for url in [&document.authorization_endpoint, &document.token_endpoint, &document.jwks_uri] {
         secure(url)?;
     }
-    *FOUND.lock().unwrap() = Some((issuer, document.clone(), Instant::now()));
+    FOUND.lock().unwrap().get_or_insert_with(HashMap::new).insert(issuer, (document.clone(), Instant::now()));
     Ok(document)
 }
 
@@ -148,9 +149,13 @@ fn as_origin(value: &str) -> Option<String> {
     Some(url.origin().ascii_serialization())
 }
 
-/// Whether `origin` is one of the other sites' pages NUXT_ALLOWED_ORIGINS lists (`originAllowed`), compared exactly.
-fn origin_allowed(origin: &str) -> bool {
-    let setting = std::env::var("NUXT_ALLOWED_ORIGINS").unwrap_or_default();
+/// The other sites' pages NUXT_ALLOWED_ORIGINS lists, as it's set.
+fn allowed_origins() -> String {
+    std::env::var("NUXT_ALLOWED_ORIGINS").unwrap_or_default()
+}
+
+/// Whether `origin` is one of the other sites' pages `setting` lists (`originAllowed`), compared exactly.
+fn origin_allowed(setting: &str, origin: &str) -> bool {
     origin != "null" && !origin.is_empty() && setting.split(',').filter_map(as_origin).any(|o| o == origin)
 }
 
@@ -179,8 +184,12 @@ pub fn cleared_cookie() -> String {
 /// match. `back` is the page's own origin when it's hosted on another site, which the callback returns to (ORR-667):
 /// only a listed one.
 pub async fn start(headers: &HeaderMap, invite: Option<String>, back: Option<String>) -> Result<(String, String)> {
-    let settings = needs_settings()?;
-    let Provider { authorization_endpoint, .. } = provider(&settings).await?;
+    start_with(&needs_settings()?, &allowed_origins(), headers, invite, back).await
+}
+
+/// `start`, with the environment's settings already read, so tests needn't set them.
+async fn start_with(settings: &Settings, allowed: &str, headers: &HeaderMap, invite: Option<String>, back: Option<String>) -> Result<(String, String)> {
+    let Provider { authorization_endpoint, .. } = provider(settings).await?;
     let (state, nonce, verifier) = (random(), random(), random());
     let mut kept = Map::new();
     kept.insert("state".into(), json!(state));
@@ -189,7 +198,7 @@ pub async fn start(headers: &HeaderMap, invite: Option<String>, back: Option<Str
     if let Some(invite) = invite {
         kept.insert("invite".into(), json!(invite));
     }
-    if let Some(back) = back.filter(|b| origin_allowed(b)) {
+    if let Some(back) = back.filter(|b| origin_allowed(allowed, b)) {
         kept.insert("back".into(), json!(back));
     }
     let cookie = kept_cookie(&URL_SAFE_NO_PAD.encode(Value::Object(kept).to_string()), headers);
@@ -234,7 +243,18 @@ fn read_kept(kept: &str) -> Option<Map<String, Value>> {
 /// the listed origin its page is on when that's another site's. The cookie is cleared whatever comes of it, by the
 /// caller, as `deleteCookie` runs before anything is checked.
 pub async fn finish(headers: &HeaderMap, state: Option<String>, code: Option<String>, kept: Option<String>) -> Result<Finished> {
-    let settings = needs_settings()?;
+    finish_with(&needs_settings()?, &allowed_origins(), headers, state, code, kept).await
+}
+
+/// `finish`, with the environment's settings already read, so tests needn't set them.
+async fn finish_with(
+    settings: &Settings,
+    allowed: &str,
+    headers: &HeaderMap,
+    state: Option<String>,
+    code: Option<String>,
+    kept: Option<String>,
+) -> Result<Finished> {
     let Some(kept) = kept else { return Err(refused("This login has run out: start again")) };
     let asked = read_kept(&kept);
     let mismatch = || refused("This login doesn't match the one this browser started");
@@ -244,7 +264,7 @@ pub async fn finish(headers: &HeaderMap, state: Option<String>, code: Option<Str
         return Err(mismatch());
     }
     let text = |key: &str| asked.get(key).and_then(Value::as_str).map(str::to_owned);
-    let Provider { token_endpoint, jwks_uri, issuer, .. } = provider(&settings).await?;
+    let Provider { token_endpoint, jwks_uri, issuer, .. } = provider(settings).await?;
     let verifier = text("verifier").unwrap_or_else(|| "undefined".into());
     let back_to = redirect_uri(headers);
     let form = [
@@ -268,7 +288,7 @@ pub async fn finish(headers: &HeaderMap, state: Option<String>, code: Option<Str
     }
     let Some(subject) = subject else { return Err(doesnt_check_out()) };
     // `back` is checked again, as the list may have changed since the login started.
-    let back = text("back").filter(|b| origin_allowed(b));
+    let back = text("back").filter(|b| origin_allowed(allowed, b));
     Ok(Finished { issuer: trimmed(&issuer).to_owned(), subject, invite: text("invite").filter(|i| !i.is_empty()), back })
 }
 
@@ -293,6 +313,10 @@ fn verified(token: &str, keys: &JwkSet, issuer: &str, client_id: &str) -> Option
     validation.validate_nbf = true;
     decode::<Map<String, Value>>(token, &key, &validation).ok().map(|data| data.claims)
 }
+
+#[cfg(test)]
+#[path = "oidc_tests.rs"]
+mod provider_tests;
 
 #[cfg(test)]
 mod tests {
