@@ -7,10 +7,11 @@ use crate::work::chats::Chats;
 use crate::{App, Shared};
 use axum::body::Bytes;
 use axum::extract::{Path, State};
-use axum::http::{HeaderMap, StatusCode};
+use axum::http::{HeaderMap, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post, put};
 use axum::{Json, Router};
+use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
 use std::sync::Arc;
 
 pub(crate) fn routes() -> Router<Arc<App>> {
@@ -25,6 +26,29 @@ pub(crate) fn routes() -> Router<Arc<App>> {
         .route("/api/chats/{chat}/release-requests", post(ask_release))
         .route("/api/chats/{chat}/doc-requests", post(ask_doc))
         .route("/api/chats/{chat}/issue-requests", post(offer_issue))
+        .route("/api/chats/{chat}/move-requests", post(ask_move))
+}
+
+/// `POST /api/chats/:chat/move-requests` {move: {ids, status?, assignee?}, project?, why?} → 201 the message (ORR-1100):
+/// the chat's `move_issues`. Moved at once when the owner's last message names them or was sent from their page, the
+/// message then saying so, with `Orrery-Urgent` for those it made urgent open work; else kept as a request (`move`) the
+/// owner allows or denies on the chat's page.
+async fn ask_move(State(app): Shared, Path(chat): Path<String>, headers: HeaderMap, body: Bytes) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    let mut chats = Chats::new(&mut conn);
+    chats.outbox = Some(Outbox::new(actor_of(&headers)));
+    let moved = chats.ask_move(&chat, &body_of(&body)).await;
+    let mut effects = std::mem::take(&mut chats.effects);
+    let moved = moved?;
+    crate::work::chats::absorb(&mut effects, moved.set_off);
+    let mut response = reply(StatusCode::CREATED, Some(moved.message), effects);
+    if !moved.urgent.is_empty() {
+        let encode = |s: &str| utf8_percent_encode(s, NON_ALPHANUMERIC).to_string();
+        let project = moved.project;
+        let said = moved.urgent.iter().map(|id| format!("{} {}", encode(&project), encode(id))).collect::<Vec<_>>().join(", ");
+        response.headers_mut().insert("orrery-urgent", HeaderValue::from_str(&said).unwrap());
+    }
+    Ok(response)
 }
 
 /// `POST /api/chats/:chat/issue-requests` {issue, project?, why?} → 201 the message offering (ORR-1100): the chat's

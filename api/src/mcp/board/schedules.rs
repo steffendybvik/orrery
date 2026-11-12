@@ -4,7 +4,8 @@
 // schedule-requests`). The chat's `update_settings`, `create_doc` and `update_doc` are asked in its chat too. Either chat ask is kept in the chat it
 // names (`Orrery-Launch`, as the channel sends it), which the local app hears and the owner answers. So is the chat's
 // `create_release` and `update_release` (`/api/chats/:chat/release-requests`) and its `offer_issue`
-// (`…/issue-requests`), kept beside them here.
+// (`…/issue-requests`), kept beside them here, and its `move_issues` (`…/move-requests`), which moves them at once when
+// the owner's last message named them.
 // The chat's `reply` goes in that chat the same way (`/api/chats/:chat/replies`, ORR-1101).
 use super::{text, truthy, Api, Said};
 use axum::http::Method;
@@ -175,6 +176,42 @@ impl Api<'_> {
         self.call(Method::POST, &format!("/api/chats/{}/issue-requests", super::enc(&chat)), Some(body)).await?;
         Ok("Offered: the owner sees it as not filed, with File issue and Don't file, and you'll hear which they pressed. Nothing is filed until they press it."
             .into())
+    }
+
+    /// The chat's `move_issues` (ORR-1100): moved at once when the owner's last message names each or was sent from its
+    /// page, else asked in its chat (`/api/chats/:chat/move-requests`), on the project it names or the first issue's.
+    pub(super) async fn move_issues(&self, args: &Value) -> Said {
+        let chat = self.chat("move_issues")?;
+        let ids = args.get("ids").cloned().unwrap_or(Value::Null);
+        let mut asked = json!({"ids": ids});
+        for key in ["status", "assignee"] {
+            if let Some(value) = args.get(key) {
+                asked[key] = value.clone();
+            }
+        }
+        let mut body = json!({"move": asked});
+        let named = self.reached(args.get("project").filter(|p| truthy(p)).cloned())?;
+        let first = ids.as_array().and_then(|ids| ids.first()).and_then(Value::as_str);
+        let project = match (named, first) {
+            (Some(project), _) => Some(project),
+            // The first issue's project, by its key, when this chat reaches more than one: else the chat's own.
+            (None, Some(id)) if self.projects.len() > 1 => self.project_of_issue(&json!({"id": id})).await.ok().map(Value::String),
+            _ => None,
+        };
+        if let Some(project) = project {
+            body["project"] = project;
+        }
+        if let Some(why) = args.get("why").filter(|w| truthy(w)) {
+            body["why"] = why.clone();
+        }
+        let said = self.call(Method::POST, &format!("/api/chats/{}/move-requests", super::enc(&chat)), Some(body)).await?;
+        let Some(changes) = said["move"]["changes"].as_array() else { return Ok(format!("Done, as the owner asked: {}", text(&said["text"]))) };
+        let n = ids.as_array().map_or(0, Vec::len);
+        Ok(format!(
+            "Asked, as the owner didn't name {} in their last message: the owner sees {} with Allow and Deny, and you'll hear which they pressed. Nothing moves until they allow it.",
+            if n == 1 { "it" } else { "them all" },
+            if changes.len() == 1 { "the change".to_string() } else { format!("the {} changes", changes.len()) }
+        ))
     }
 
     /// The chat's `update_settings`: asked in its chat, which saves nothing until the owner allows it.

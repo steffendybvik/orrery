@@ -5,10 +5,14 @@
 // row, written here too (`keepChat`), for the local app to hand over once it's swapped in. A chat's messages are rows
 // of their own (`chat_messages`, ORR-1100), each added here, which gives it its id, and changed one at a time (a
 // request's answer, its drift), so the chat's requests can be asked and answered here too.
+use crate::board::issue_edits::resolve_status;
+use crate::board::issue_writes::IssueWrites;
+use crate::board::issues::Issues;
 use crate::changes::{self, Outbox};
 use crate::db::sql;
 use crate::error::{ApiError, Result};
-use crate::write::Effects;
+use crate::work::event_log::EventLog;
+use crate::write::{Actor, Effects};
 use serde_json::{json, Value};
 use sqlx::any::AnyRow;
 use sqlx::{AnyConnection, Row};
@@ -55,6 +59,58 @@ const CHAT_RELEASE_FIELDS: [&str; 6] = ["version", "branch", "notes", "position"
 
 /// What the chat's offer of an issue can say (`CHAT_ISSUE_FIELDS`).
 const CHAT_ISSUE_FIELDS: [&str; 5] = ["title", "notes", "priority", "labels", "milestone"];
+
+/// The most issues one move asks for (`MOVE_AT_MOST`).
+const MOVE_AT_MOST: usize = 50;
+
+/// What the chat's move set off (`ask_move`): its message in the chat (null when a move failed part-way), the effects of
+/// the issues it moved and the event log's line, each recorded in its own transaction, and the issues it made urgent
+/// open work, for the Nuxt server to push to the sessions.
+pub struct Moved {
+    pub message: Value,
+    pub project: String,
+    pub set_off: Effects,
+    pub urgent: Vec<String>,
+}
+
+/// A JSON value as text: a string as it is, anything else as JSON.
+fn text_of(value: &Value) -> String {
+    value.as_str().map(String::from).unwrap_or_else(|| if value.is_null() { String::new() } else { value.to_string() })
+}
+
+/// Whether the owner's message names one of `ids`, as a whole id in its words, or was sent from that issue's page
+/// (`saidIssue`).
+pub(crate) fn said_issue(words: &str, page: Option<&str>, ids: &[String]) -> bool {
+    ids.iter().any(|issue| {
+        let plain: String = issue.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '-').collect();
+        // JavaScript's `\w` is ASCII's.
+        let whole = regex::RegexBuilder::new(&format!(r"(^|[^0-9A-Za-z_-]){}($|[^0-9A-Za-z_-])", regex::escape(&plain))).case_insensitive(true).build();
+        whole.is_ok_and(|r| r.is_match(words)) || page.is_some_and(|p| p.to_lowercase().ends_with(&format!("/issues/{}", issue.to_lowercase())))
+    })
+}
+
+/// Where a move puts its issues, as a phrase (`moveTo`): "in done, assigned to claude".
+fn move_to(to: &serde_json::Map<String, Value>) -> String {
+    let status = to.get("status").map(|s| format!("in {}", text_of(s)));
+    let assignee = to.get("assignee").map(|a| if a.is_null() { "unassigned".to_string() } else { format!("assigned to {}", text_of(a)) });
+    [status, assignee].into_iter().flatten().collect::<Vec<_>>().join(", ")
+}
+
+/// Adds what `more` set off to `effects`, each project and chat once.
+pub(crate) fn absorb(effects: &mut Effects, more: Effects) {
+    for project in more.changed {
+        if !effects.changed.contains(&project) {
+            effects.changed.push(project);
+        }
+    }
+    for chat in more.chats {
+        if !effects.chats.contains(&chat) {
+            effects.chats.push(chat);
+        }
+    }
+    effects.told.extend(more.told);
+    effects.logged.extend(more.logged);
+}
 
 /// A place among the releases, as a chat's request shows it (`place`): "the top", "2nd from the top".
 fn place(index: f64) -> String {
@@ -386,6 +442,229 @@ impl<'c> Chats<'c> {
             request["project"] = json!(project);
         }
         self.ask(chat, "issue", "title", request, body).await
+    }
+
+    /// The chat's session moving issues to another status, or assigning them (its `move_issues`, `askMove`): `{move:
+    /// {ids, status?, assignee?}, project?, why?}`, a status's id or a kind, and an assignee's name, `owner`, or null for
+    /// nobody, on the project it names or else the chat's own. Never a proposal waiting on the owner. When the owner's
+    /// last message here names each issue that would change, or was sent from its page, they move at once as the
+    /// owner's (`moveNow`, ORR-1042): their word is the Allow, and only their own route writes that message, with the
+    /// page it was sent from. Otherwise it's kept as a request in the chat showing each issue's from → to, which moves
+    /// nothing until they allow it, and one asked before for any of the same issues, still unanswered, expires.
+    pub async fn ask_move(&mut self, chat: &str, body: &Value) -> Result<Moved> {
+        let own = self.running(chat).await?;
+        let project = self.project_for(&own, body).await?;
+        let asked = body.get("move").filter(|m| m.is_object()).cloned().unwrap_or(Value::Null);
+        let ids =
+            asked.get("ids").and_then(Value::as_array).filter(|ids| !ids.is_empty() && ids.iter().all(|i| i.as_str().is_some_and(|i| !i.trim().is_empty())));
+        let (status, assignee) = (asked.get("status"), asked.get("assignee"));
+        let Some(ids) = ids.filter(|_| status.is_some() || assignee.is_some()) else {
+            return Err(ApiError::bad_request(
+                "Send {move: {ids, status?, assignee?}}: the issues, and the status to move them to, who to assign them to (null for nobody), or both",
+            ));
+        };
+        if ids.len() > MOVE_AT_MOST {
+            return Err(ApiError::bad_request(format!("Ask to move at most {MOVE_AT_MOST} issues at once")));
+        }
+        let mut to = serde_json::Map::new();
+        match status {
+            None => {}
+            Some(Value::String(s)) => {
+                to.insert("status".into(), json!(resolve_status(&Issues::new(&mut *self.conn).statuses().await?, Some(s), None)?));
+            }
+            Some(_) => return Err(ApiError::bad_request("Send \"status\" as a status's id or a kind")),
+        }
+        match assignee {
+            None => {}
+            Some(Value::Null) => {
+                to.insert("assignee".into(), Value::Null);
+            }
+            Some(Value::String(name)) => {
+                let name = name.trim();
+                let who = if name.is_empty() {
+                    Value::Null
+                } else if name.eq_ignore_ascii_case("owner") {
+                    json!(IssueWrites::new(&mut *self.conn).owner_id().await?)
+                } else {
+                    json!(name)
+                };
+                to.insert("assignee".into(), who);
+            }
+            Some(_) => return Err(ApiError::bad_request("Send \"assignee\" as a name, \"owner\", or null for nobody")),
+        }
+        let mut sent: Vec<&str> = vec![];
+        for id in ids.iter().filter_map(Value::as_str).map(str::trim) {
+            if !sent.contains(&id) {
+                sent.push(id);
+            }
+        }
+        let mut issues = vec![];
+        for id in sent {
+            issues.push(Issues::new(&mut *self.conn).issue(&project, id).await?);
+        }
+        let waiting: Vec<String> = issues.iter().filter(|i| matches!(i["proposal"].as_str(), Some("pending" | "changes"))).map(|i| text_of(&i["id"])).collect();
+        if !waiting.is_empty() {
+            let (one, its) = if waiting.len() == 1 { ("is a proposal", "its") } else { ("are proposals", "their") };
+            return Err(ApiError::refused_for(
+                "issues.edit",
+                format!("{} {one} waiting on the owner: {its} status and assignee are theirs to decide, on {its} page", waiting.join(", ")),
+            ));
+        }
+        let mut changes = vec![];
+        for i in &issues {
+            let (id, title, column) = (text_of(&i["id"]), text_of(&i["title"]), text_of(&i["column"]));
+            if let Some(to) = to.get("status").filter(|to| to.as_str() != Some(column.as_str())) {
+                changes.push(json!({"issue": id, "title": title, "field": "status", "from": column, "to": to}));
+            }
+            let held = i.get("assignee").cloned().unwrap_or(Value::Null);
+            if let Some(to) = to.get("assignee").filter(|to| **to != held) {
+                changes.push(json!({"issue": id, "title": title, "field": "assignee", "from": held, "to": to}));
+            }
+        }
+        if changes.is_empty() {
+            let named = if issues.len() == 1 { format!("{} is", text_of(&issues[0]["id"])) } else { "They are".into() };
+            return Err(ApiError::conflict(format!("{named} like that already: nothing would change")));
+        }
+        let mut moving: Vec<String> = vec![];
+        for change in &changes {
+            let id = text_of(&change["issue"]);
+            if !moving.contains(&id) {
+                moving.push(id);
+            }
+        }
+        // The owner named each in their last message here, or is on its page: moved at once, as theirs.
+        let messages = self.messages(Some(chat)).await?.remove(chat).unwrap_or_default();
+        let named = messages.iter().rev().find(|m| m["from"] == "owner").is_some_and(|said| {
+            let (words, page) = (said["text"].as_str().unwrap_or_default(), said["page"].as_str());
+            issues.iter().filter(|i| moving.contains(&text_of(&i["id"]))).all(|i| {
+                let mut ids = vec![text_of(&i["id"])];
+                ids.extend(i["aliases"].as_array().into_iter().flatten().map(text_of));
+                said_issue(words, page, &ids)
+            })
+        });
+        if named {
+            return self.move_now(chat, &project, &moving, to).await;
+        }
+        let asking: Vec<String> = issues.iter().map(|i| text_of(&i["id"])).collect();
+        let was: serde_json::Map<String, Value> = issues
+            .iter()
+            .filter(|i| moving.contains(&text_of(&i["id"])))
+            .map(|i| (text_of(&i["id"]), json!({"status": i["column"], "assignee": i.get("assignee").cloned().unwrap_or(Value::Null)})))
+            .collect();
+        let mut asked_body = serde_json::Map::new();
+        asked_body.insert("ids".into(), json!(moving));
+        asked_body.extend(to.clone());
+        let mut request = json!({"changes": changes, "was": was, "body": asked_body, "state": "asked"});
+        if project != own {
+            request["project"] = json!(project);
+        }
+        let why = body.get("why").and_then(Value::as_str).map(str::trim).unwrap_or_default().to_string();
+        changes::begin(self.conn).await?;
+        let done = async {
+            self.expire_moves(chat, &asking).await?;
+            let mut said = json!({"from": "claude", "text": why, "images": []});
+            said["move"] = request;
+            let Value::Object(message) = said else { unreachable!("a JSON object") };
+            self.add_in(chat, message).await
+        }
+        .await;
+        self.effects.chats.push(chat.to_string());
+        let message = changes::finish(self.conn, self.outbox.as_mut(), &self.effects, done).await?;
+        let mut details = serde_json::Map::new();
+        details.insert("issues".into(), json!(moving));
+        details.extend(to.clone());
+        let line = format!("The chat asked to put {} {}", moving.join(", "), move_to(&to));
+        let set_off = self.note("chat.asked", &project, &line, details).await;
+        Ok(Moved { message, project, set_off, urgent: vec![] })
+    }
+
+    /// Issues the owner named in their last message moved or assigned at once, as theirs through their chat, as their
+    /// own move on the page would be (`moveNow`): the same guards hold, each issue its own write. Any request still
+    /// asking to move one expires, as it's been decided. One that fails stops the rest; those moved before it stay
+    /// moved, and the error says so.
+    async fn move_now(&mut self, chat: &str, project: &str, ids: &[String], to: serde_json::Map<String, Value>) -> Result<Moved> {
+        let owner = Actor { name: IssueWrites::new(&mut *self.conn).owner_id().await?, owner: true, ..Actor::default() };
+        let mut set_off = Effects::default();
+        let mut urgent = vec![];
+        let mut moved: Vec<String> = vec![];
+        let mut failed = None;
+        for issue in ids {
+            let mut writes = IssueWrites::new(&mut *self.conn);
+            writes.outbox = self.outbox.as_ref().map(|_| Outbox::new(owner.clone()));
+            let edited = writes.edit_words(project, issue, &Value::Object(to.clone()), &owner).await;
+            absorb(&mut set_off, std::mem::take(&mut writes.effects));
+            match edited {
+                Ok(made_urgent) => {
+                    urgent.extend(made_urgent);
+                    moved.push(issue.clone());
+                }
+                Err(mut error) => {
+                    if !moved.is_empty() {
+                        error.message = format!("{} ({} moved already)", error.message, moved.join(", "));
+                    }
+                    failed = Some(error);
+                    break;
+                }
+            }
+        }
+        if moved.is_empty() {
+            return Err(failed.unwrap_or_else(|| ApiError::internal("an issue to move")));
+        }
+        let place = move_to(&to);
+        let mut details = serde_json::Map::new();
+        details.insert("issues".into(), json!(moved));
+        details.extend(to);
+        let line = format!("The chat put {} {place}, as the owner asked", moved.join(", "));
+        absorb(&mut set_off, self.note("chat.moved", project, &line, details).await);
+        let links = moved.iter().map(|i| format!("[{i}](/p/{project}/issues/{i})")).collect::<Vec<_>>().join(", ");
+        let words = format!("Put {links} {place}.");
+        let whole = failed.is_none();
+        changes::begin(self.conn).await?;
+        let done = async {
+            self.expire_moves(chat, &moved).await?;
+            if !whole {
+                return Ok(Value::Null);
+            }
+            let said = json!({"from": "claude", "text": words, "images": []});
+            let Value::Object(message) = said else { unreachable!("a JSON object") };
+            self.add_in(chat, message).await
+        }
+        .await;
+        self.effects.chats.push(chat.to_string());
+        let message = changes::finish(self.conn, self.outbox.as_mut(), &self.effects, done).await?;
+        match failed {
+            Some(error) => Err(error),
+            None => Ok(Moved { message, project: project.to_string(), set_off, urgent }),
+        }
+    }
+
+    /// Expires each move request in the chat still asking to move one of `ids`.
+    async fn expire_moves(&mut self, chat: &str, ids: &[String]) -> Result<()> {
+        for mut asked in self.messages(Some(chat)).await?.remove(chat).unwrap_or_default() {
+            let asking = asked["move"]["body"]["ids"].as_array().is_some_and(|on| on.iter().any(|i| ids.iter().any(|id| i == id)));
+            if asked["move"]["state"] != "asked" || !asking {
+                continue;
+            }
+            asked["move"]["state"] = json!("expired");
+            let at = asked["id"].as_i64().unwrap_or_default();
+            let Value::Object(mut message) = asked else { continue };
+            message.shift_remove("id");
+            message.shift_remove("at");
+            self.change_in(chat, at, message).await?;
+        }
+        Ok(())
+    }
+
+    /// A line in the event log, as the local app's `useEventLog().note` writes one, and what it set off. One that can't
+    /// be written isn't the request's failure: what it notes has happened.
+    async fn note(&mut self, kind: &str, project: &str, message: &str, details: serde_json::Map<String, Value>) -> Effects {
+        let mut log = EventLog::new(&mut *self.conn);
+        log.outbox = self.outbox.as_ref().map(|_| Outbox::new(Actor::default()));
+        let line = json!({"level": "info", "kind": kind, "project": project, "message": message, "details": details});
+        match log.write(&line).await {
+            Ok(_) => log.effects(),
+            Err(_) => Effects::default(),
+        }
     }
 
     /// The project of chat `chat`, a 404 unless it's running.

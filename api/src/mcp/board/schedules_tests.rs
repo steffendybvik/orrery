@@ -315,3 +315,34 @@ async fn the_chats_offer_of_an_issue_is_kept_in_its_chat() {
     let elsewhere = request(&api, "offer_issue", json!({"title": "X", "project": "beta"})).await;
     assert_eq!(said(&elsewhere), "orrery said no: This chat reaches alpha, not beta");
 }
+
+/// The chat's `move_issues` with `args`, from the chat `c1`.
+async fn move_issues(api: &TestApi, args: Value) -> Reply {
+    api.post("/mcp", json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "move_issues", "arguments": args}}))
+        .header("orrery-actor-kind", "chat")
+        .header("orrery-launch", "c1")
+        .send()
+        .await
+}
+
+#[tokio::test]
+async fn the_chats_move_is_done_on_the_owners_word_and_asked_without_it() {
+    let api = TestApi::new().await;
+    let project = api.project("alpha").await;
+    let issue = api.issue(&project, json!({"title": "Sieve"})).await;
+    api.put("/api/chats/c1", json!({"id": "c1", "project": project, "started_at": "2026-11-01T10:00:00.000Z"})).send().await;
+    let asked = move_issues(&api, json!({"ids": [issue], "status": "todo", "why": "Ready"})).await;
+    assert_eq!(
+        said(&asked),
+        "Asked, as the owner didn't name it in their last message: the owner sees the change with Allow and Deny, and you'll hear which they pressed. Nothing moves until they allow it."
+    );
+    api.post("/api/chats/c1/lines", json!({"from": "owner", "text": format!("Start on {issue}"), "images": []})).send().await;
+    let done = move_issues(&api, json!({"ids": [issue], "status": "todo"})).await;
+    assert_eq!(said(&done), format!("Done, as the owner asked: Put [{issue}](/p/{project}/issues/{issue}) in todo."));
+    let read = api.get(&format!("/api/projects/{project}/issues/{issue}")).send().await.body;
+    assert_eq!(read["column"], "todo");
+    // What it set off comes back for the router to tell, as a route's reply would.
+    assert!(done.said("orrery-told").iter().any(|t| t.starts_with("issue.status ")), "{:?}", done.said("orrery-told"));
+    let elsewhere = move_issues(&api, json!({"ids": [issue], "status": "done", "project": "beta"})).await;
+    assert_eq!(said(&elsewhere), "orrery said no: This chat reaches alpha, not beta");
+}

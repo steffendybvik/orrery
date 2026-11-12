@@ -39,6 +39,9 @@ export interface ChatMessage {
     at: string
     /** The owner's run of messages sent together (ORR-517), each as they wrote it; `text` is them joined by blank lines. */
     parts?: string[]
+    /** The path of the page the owner wrote from, on their message: what the chat may act on at once by their word
+     * (`move_issues`, ORR-1100), as a message on that issue's page names it. Only their own route sets it. */
+    page?: string
     /** The session asking to change an App setting, which waits on the owner's Allow. */
     request?: ChatRequest
     /** The session asking to make or change a schedule, which waits on the owner's Allow too. */

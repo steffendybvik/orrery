@@ -513,6 +513,7 @@ impl Api<'_> {
             "resolve_event" => self.resolve_event(args).await,
             "secrets" => self.secrets().await,
             "reply" => self.reply(args).await,
+            "move_issues" => self.move_issues(args).await,
             _ => return None,
         })
     }
