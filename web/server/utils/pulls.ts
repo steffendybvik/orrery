@@ -12,7 +12,7 @@ import type {AllPulls, IssuePulls, OpenPull, PastPull, PullIssues, PullRequest, 
 import {PULL_NEEDS, RISK_LEVELS, githubRepo, highestRisk} from '#shared/roadmap'
 import {badRequest, checkInput, conflict, notFound} from './input'
 import type {Store} from './store'
-import {writeToApi} from './api-router'
+import {readFromApi, writeToApi} from './api-router'
 import {ORRERY} from '../store/schema'
 
 /** The secret orrery sends to api.github.com, when there's one that may go there. */
@@ -289,8 +289,12 @@ export class Pulls {
 
     /** The issue's open PRs on its project's repo. */
     private async openFor(project: string, ids: string[]): Promise<Omit<IssuePulls, 'done'>> {
-        const row = await this.store.db.get<{repo: string | null}>('SELECT repo FROM projects WHERE id = ?', project)
-        const repo = githubRepo(row?.repo)
+        // Its repo from the API, which keeps the project; the table here only with no API set up (ORR-1143).
+        const read = await readFromApi<{repo?: string}>(`/api/projects/${encodeURIComponent(project)}?notes=0&closed=0`).catch(error => {
+            if ((error as {statusCode?: number}).statusCode === 404) return {repo: undefined}
+            throw error
+        })
+        const repo = githubRepo(read ? read.repo : (await this.store.db.get<{repo: string | null}>('SELECT repo FROM projects WHERE id = ?', project))?.repo)
         if (!repo) return {repo: null, pulls: [], token: false, checked_at: null}
 
         const kept = await this.kept(repo)
