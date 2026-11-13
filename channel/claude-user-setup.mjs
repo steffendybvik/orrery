@@ -29,13 +29,13 @@ function check({url, orrery}) {
     if (!SHELL_SAFE.test(url ?? '')) throw new Error(`${url} can't go into a hook's command`)
 }
 
-/** The user-level server for the orrery at `url`: its name and the JSON `claude mcp add-json` takes. Beside its `/mcp`
- * (`mcp`, ORR-1102) it lists only its own tools (`ORRERY_TOOLS=local`), as a session the launcher starts there does. */
-export function userServer({url, orrery, commands, mcp = false}) {
+/** The user-level server for the orrery at `url`: its name and the JSON `claude mcp add-json` takes. It lists only its
+ * own tools, those that need this machine; the board's are its `/mcp`'s, beside it (ORR-1072). */
+export function userServer({url, orrery, commands}) {
     check({url, orrery})
     return {
         name: serverName(orrery.environment),
-        config: {type: 'stdio', ...commands.channel, env: {ORRERY_URL: url, ORRERY_ID: orrery.id, ORRERY_PROJECTS: '*', ORRERY_SCOPE: 'user', ...mcp ? {ORRERY_TOOLS: 'local'} : {}}},
+        config: {type: 'stdio', ...commands.channel, env: {ORRERY_URL: url, ORRERY_ID: orrery.id, ORRERY_PROJECTS: '*', ORRERY_SCOPE: 'user'}},
     }
 }
 
@@ -120,10 +120,10 @@ function writeJson(path, value) {
 }
 
 /** Sets the machine up for the orrery at `url`: the server through `claude mcp` (`run`: runs it, as separate words), and
- * its `/mcp` beside it when the orrery serves that (`mcp`), then the hooks and the default folder's trust. Safe to run
+ * its `/mcp` beside it (`mcp`, whenever the agent can have it: the board's tools are only there, ORR-1072), then the hooks and the default folder's trust. Safe to run
  * again. */
 export function setUpUser({url, orrery, commands, home: dir, run, mcp = false, files = claudeFiles()}) {
-    const servers = [userServer({url, orrery, commands, mcp}), ...mcp ? [userMcpServer({url, orrery, commands})] : []]
+    const servers = [userServer({url, orrery, commands}), ...mcp ? [userMcpServer({url, orrery, commands})] : []]
     for (const name of [serverName(orrery.environment), besideName(serverName(orrery.environment))]) {
         try {
             run(['mcp', 'remove', '--scope', 'user', name])

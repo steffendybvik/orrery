@@ -1,7 +1,7 @@
-// orrery's own MCP server at `/mcp`, beside the channel (ORR-1102): a session the launcher starts on an orrery that
-// serves it gets an `http` entry for it, and its channel lists only its own tools (`ORRERY_TOOLS=local`,
-// `CHANNELS_OWN` in tools.mjs), so each tool is listed once. On an orrery that doesn't serve `/mcp` (an older one, or
-// one with no Rust API running), the channel keeps every tool, as before.
+// orrery's own MCP server at `/mcp`, beside the channel (ORR-1102): a session the launcher starts gets an `http` entry
+// for it, and its channel lists only its own tools (`CHANNELS_OWN` in tools.mjs), so each tool is listed once. The
+// board's tools are only at `/mcp` (ORR-1072): on an orrery that doesn't serve it (no Rust API running), the channel
+// tells the session so (`servesMcp`, `NO_MCP` in instructions.mjs).
 import {randomUUID} from 'node:crypto'
 
 /** How long a probe of `/mcp` waits for an answer. */

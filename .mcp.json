@@ -4,6 +4,11 @@
       "command": "node",
       "args": ["channel/orrery-channel.mjs"],
       "env": {"ORRERY_URL": "${ORRERY_URL:-http://localhost:9000}", "ORRERY_PROJECT": "orrery", "ORRERY_PERSON": "${ORRERY_PERSON:-}"}
+    },
+    "orrery-api": {
+      "type": "http",
+      "url": "${ORRERY_URL:-http://localhost:9000}/mcp",
+      "headersHelper": "node channel/mcp-headers.mjs"
     }
   }
 }

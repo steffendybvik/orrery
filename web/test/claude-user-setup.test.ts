@@ -95,16 +95,15 @@ describe("the install line's user-level setup", () => {
         expect(readJson(where.state).projects[HOME].hasTrustDialogAccepted).toBe(false)
         expect(readJson(where.settings)).toEqual({theme: 'dark'})
 
-        // On an orrery serving `/mcp` (ORR-1102): it beside the channel, which lists only its own tools; both undone.
+        // For an agent that can have `/mcp` (ORR-1102): it beside the channel, where the board's tools are (ORR-1072); both undone.
         setUpUser({...at, home: HOME, run, mcp: true, files: where})
         const servers = readJson(where.state).mcpServers
         expect(Object.keys(servers)).toEqual(['orrery-personal', 'orrery-personal-api'])
-        expect(servers['orrery-personal'].env.ORRERY_TOOLS).toBe('local')
-        // Run again without it (the orrery stopped serving it), the `/mcp` entry goes and the channel has every tool.
+        expect(servers['orrery-personal'].env.ORRERY_TOOLS).toBeUndefined()
+        // Run again without it, the `/mcp` entry goes.
         setUpUser({...at, home: HOME, run, mcp: true, files: where})
         setUpUser({...at, home: HOME, run, files: where})
         expect(Object.keys(readJson(where.state).mcpServers)).toEqual(['orrery-personal'])
-        expect(readJson(where.state).mcpServers['orrery-personal'].env.ORRERY_TOOLS).toBeUndefined()
         setUpUser({...at, home: HOME, run, mcp: true, files: where})
         expect(undoUser({run, homeOf: (id: string) => `/Users/me/.orrery/${id}/home`, files: where})).toEqual(['orrery-personal'])
         expect(readJson(where.state).mcpServers).toEqual({})
