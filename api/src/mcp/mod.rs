@@ -8,61 +8,17 @@
 pub(crate) mod board;
 pub(crate) mod guide;
 pub(crate) mod relay;
+pub(crate) mod sessions;
 pub(crate) mod tools;
 
 use crate::db::sql;
 use crate::error::Result;
 use serde_json::{json, Value};
 use sqlx::{AnyConnection, Row};
-use std::sync::{LazyLock, Mutex};
 use tools::Kind;
 
 /// The protocol versions this server speaks, newest first: a client's is taken when it's one of them.
 pub(crate) const VERSIONS: [&str; 3] = ["2025-06-18", "2025-03-26", "2024-11-05"];
-
-/// How many MCP sessions' loaded groups are kept: past it, the oldest is let go and lists its groups behind `more_tools` again.
-const KEPT: usize = 10_000;
-
-/// The groups each MCP session (`Mcp-Session-Id`) has loaded with `more_tools`, in the order the sessions began.
-type Loaded = Vec<(String, Vec<String>)>;
-
-static LOADED: LazyLock<Mutex<Loaded>> = LazyLock::new(|| Mutex::new(Vec::new()));
-
-/// A new MCP session's id, given on `initialize`.
-pub(crate) fn new_session() -> String {
-    let mut bytes = [0u8; 16];
-    getrandom::getrandom(&mut bytes).expect("the system's randomness");
-    let id: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
-    let mut loaded = LOADED.lock().expect("the loaded groups");
-    if loaded.len() >= KEPT {
-        loaded.remove(0);
-    }
-    loaded.push((id.clone(), Vec::new()));
-    id
-}
-
-fn loaded_of(session: Option<&str>) -> Vec<String> {
-    let Some(session) = session else { return Vec::new() };
-    LOADED.lock().expect("the loaded groups").iter().find(|(id, _)| id == session).map(|(_, groups)| groups.clone()).unwrap_or_default()
-}
-
-fn load(session: Option<&str>, group: &str) {
-    let Some(session) = session else { return };
-    let mut loaded = LOADED.lock().expect("the loaded groups");
-    if let Some((_, groups)) = loaded.iter_mut().find(|(id, _)| id == session) {
-        if !groups.iter().any(|g| g == group) {
-            groups.push(group.to_string());
-        }
-    }
-}
-
-/// Lets an MCP session go (`DELETE /mcp`): whether it was one.
-pub(crate) fn end_session(session: &str) -> bool {
-    let mut loaded = LOADED.lock().expect("the loaded groups");
-    let before = loaded.len();
-    loaded.retain(|(id, _)| id != session);
-    loaded.len() < before
-}
 
 /// The projects on this orrery, as `GET /api/projects` orders them: a tool on one takes which when there are several.
 async fn projects(conn: &mut AnyConnection) -> Result<Vec<String>> {
@@ -126,7 +82,7 @@ impl Call<'_> {
             }
             "ping" => result(id, json!({})),
             "tools/list" => {
-                let tools = tools::tools_for(&projects(conn).await?, self.kind, &loaded_of(self.session));
+                let tools = tools::tools_for(&projects(conn).await?, self.kind, &self.app.mcp.loaded(self.session));
                 result(id, json!({"tools": tools}))
             }
             "tools/call" => {
@@ -156,7 +112,7 @@ impl Call<'_> {
                 let group = args["group"].as_str().unwrap_or_default();
                 match tools::group(group) {
                     Some(names) => {
-                        load(self.session, group);
+                        self.app.mcp.load(self.session, group);
                         text(format!("Added {} to your tools.", names.join(", ")), false)
                     }
                     None => text(format!("orrery said no: group is {}", tools::groups().join(", ")), true),

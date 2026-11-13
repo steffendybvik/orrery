@@ -3,7 +3,7 @@
 use crate::error::{ApiError, Result};
 use crate::mcp::relay::Relay;
 use crate::mcp::tools::Kind;
-use crate::mcp::{end_session, new_session, Call};
+use crate::mcp::Call;
 use crate::request::{actor_of, header, who_of};
 use crate::{App, Shared};
 use axum::body::Bytes;
@@ -52,7 +52,7 @@ async fn post_mcp(State(app): Shared, headers: HeaderMap, body: Bytes) -> Result
     };
     let initializes = messages.iter().any(|m| m["method"] == "initialize");
     // A new session's id on `initialize`, whatever it came with; else the one it came with.
-    let session = if initializes { Some(new_session()) } else { header(&headers, SESSION).filter(|s| !s.is_empty()) };
+    let session = if initializes { Some(app.mcp.begin()) } else { header(&headers, SESSION).filter(|s| !s.is_empty()) };
     let relay = Relay::default();
     let call = Call { app: &app, headers: &headers, kind: kind_of(&headers), session: session.as_deref(), relay: &relay };
     let mut conn = app.pool.acquire().await?;
@@ -84,12 +84,12 @@ async fn get_mcp(headers: HeaderMap) -> Result<Response> {
 }
 
 /// `DELETE /mcp`: the client is done with its session, so the groups it loaded are let go.
-async fn delete_mcp(headers: HeaderMap) -> Result<Response> {
+async fn delete_mcp(State(app): Shared, headers: HeaderMap) -> Result<Response> {
     agents_only(&headers)?;
     let Some(session) = header(&headers, SESSION).filter(|s| !s.is_empty()) else {
         return Err(ApiError::bad_request("Say which session: Mcp-Session-Id"));
     };
-    Ok(if end_session(&session) { StatusCode::NO_CONTENT } else { StatusCode::NOT_FOUND }.into_response())
+    Ok(if app.mcp.end(&session) { StatusCode::NO_CONTENT } else { StatusCode::NOT_FOUND }.into_response())
 }
 
 #[cfg(test)]

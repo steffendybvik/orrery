@@ -55,6 +55,8 @@ struct App {
     log: bool,
     /// The phone's one-time sign-in links (ORR-837), kept in memory as the Nuxt server keeps its own.
     phone: access::phone::Links,
+    /// The MCP sessions `/mcp` has begun, and the tool groups each loaded (ORR-1167).
+    mcp: mcp::sessions::Sessions,
 }
 
 type Shared = State<Arc<App>>;
@@ -147,6 +149,7 @@ async fn main() {
         database: database_hash(&named),
         log: std::env::var("ORRERY_API_LOG").is_ok_and(|v| v == "1"),
         phone: access::phone::Links::default(),
+        mcp: mcp::sessions::Sessions::default(),
     });
     let listener = tokio::net::TcpListener::bind(&listen).await.unwrap_or_else(|e| fail(format!("can't listen on {listen}: {e}")));
     let at = listener.local_addr().map(|a| a.to_string()).unwrap_or(listen);
