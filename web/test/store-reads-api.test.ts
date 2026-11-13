@@ -56,7 +56,7 @@ describe("the store's reads through the Rust API (ORR-1162)", () => {
         replies['/api/projects/greenhouse/milestones'] = [{id: '3'}]
         replies['/api/projects/greenhouse/issues/GRE-1/comments'] = [{id: 4, body: 'Done'}]
         expect(await store.listIssues('greenhouse')).toEqual([{id: 'GRE-7'}])
-        expect(await store.listIssues('greenhouse', {status: 'started', assignee: 'none', label: undefined})).toEqual([{id: 'GRE-8'}])
+        expect(await store.listIssues('greenhouse', {status: 'started', assignee: 'none', label: undefined, q: ''})).toEqual([{id: 'GRE-8'}])
         expect(await store.listMilestones('greenhouse')).toEqual([{id: '3'}])
         expect(await store.listComments('greenhouse', 'GRE-1')).toEqual([{id: 4, body: 'Done'}])
     })
