@@ -141,11 +141,12 @@ impl<'c> Notices<'c> {
     async fn bell_of(&mut self, person: Option<&str>) -> Result<Bell> {
         let owner = self.owner_id().await?;
         let id = person.map(str::to_string).unwrap_or_else(|| owner.clone());
-        let wanted = wanted_by(&id, id == owner);
+        // With one person, the bell is the owner's whoever asks.
         if !self.shared().await? {
             let bell = owners_bell();
-            return Ok(Bell { mine: format!("{} AND {wanted}", bell.mine), ..bell });
+            return Ok(Bell { mine: format!("{} AND {}", bell.mine, wanted_by(&owner, true)), ..bell });
         }
+        let wanted = wanted_by(&id, id == owner);
         let quoted = format!("'{}'", id.replace('\'', "''"));
         let assigned = format!("lower(i.assignee) = {quoted}");
         if id == owner {

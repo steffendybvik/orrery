@@ -248,8 +248,9 @@ export abstract class OwnerStore extends StatusStore {
     private async bellOf(person: string | undefined): Promise<Bell> {
         const owner = await this.ownerId()
         const id = person ?? owner
+        // With one person, the bell is the owner's whoever asks.
+        if (!await this.shared()) return {...OWNERS_BELL, mine: `${OWNERS_BELL.mine} AND ${wantedBy(owner, true)}`}
         const wanted = wantedBy(id, id === owner)
-        if (!await this.shared()) return {...OWNERS_BELL, mine: `${OWNERS_BELL.mine} AND ${wanted}`}
         const quoted = `'${id.replace(/'/g, "''")}'`
         const assigned = `lower(i.assignee) = ${quoted}`
         if (id === owner) return {...OWNERS_BELL, mine: `c.owned = 0 AND (c.person IS NULL OR c.person = ${quoted} OR ${assigned}) AND ${wanted}`}
