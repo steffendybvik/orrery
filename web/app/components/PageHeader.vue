@@ -8,7 +8,7 @@ const route = useRoute()
 </script>
 
 <template>
-  <header class="sticky top-0 z-20 flex min-h-12 shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-b border-line bg-canvas/85 px-3 py-2 backdrop-blur-xl sm:px-4">
+  <header class="sticky top-0 z-20 flex min-h-12 shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-b border-line bg-canvas px-3 py-2 sm:px-4">
     <UiButton variant="ghost" square class="-ml-1 md:hidden" aria-label="Open the sidebar" @click="sidebar = true">
       <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16" /></svg>
     </UiButton>
