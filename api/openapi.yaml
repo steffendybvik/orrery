@@ -1583,6 +1583,18 @@ paths:
           description: The session's work
           content: {application/json: {schema: {type: object, required: [issues, waiting, waiting_for], properties: {issues: {type: array, items: {type: object}}, waiting: {type: boolean}, waiting_for: {type: boolean}}}}}
         '403': {$ref: '#/components/responses/Forbidden'}
+  /api/projects/{project}/release-peers:
+    parameters:
+      - {$ref: '#/components/parameters/project'}
+    get:
+      x-served: false
+      summary: 'The projects sharing releases with this one (ORR-1174)'
+      description: >-
+        Only the Nuxt server's own call (`Orrery-Came: server`), which tells their open pages when this one changes: the
+        ids of the projects drawing on its releases, and of the one it draws on. None for a project there isn't.
+      responses:
+        '200': {description: 'The ids, A–Z', content: {application/json: {schema: {type: array, items: {type: string}}}}}
+        '403': {$ref: '#/components/responses/Forbidden'}
   /api/projects/{project}/issues/{issue}/workers:
     parameters:
       - {$ref: '#/components/parameters/project'}

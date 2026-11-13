@@ -8,7 +8,7 @@ use crate::board::{export, projects};
 use crate::changes::Outbox;
 use crate::error::{ApiError, Result};
 use crate::reply::reply;
-use crate::request::{actor_of, body_of, who_of};
+use crate::request::{actor_of, body_of, came_of, who_of};
 use crate::{App, Shared};
 use axum::body::{to_bytes, Bytes};
 use axum::extract::{Path, Query, Request, State};
@@ -25,6 +25,7 @@ pub(crate) fn routes() -> Router<Arc<App>> {
         .route("/api/projects", get(list_projects).post(create_project))
         .route(P, get(get_project).patch(patch_project).delete(delete_project))
         .route(&format!("{P}/export"), get(export_project))
+        .route(&format!("{P}/release-peers"), get(release_peers))
         .route(&format!("{P}/import"), post(import_project))
         .route("/api/boards", post(upload_board))
 }
@@ -148,3 +149,14 @@ async fn import_project(
 #[cfg(test)]
 #[path = "projects_tests.rs"]
 mod tests;
+
+/// `GET …/release-peers` → the ids of the projects sharing releases with this one: those drawing on it, and the one it
+/// draws on (ORR-1174). The local app's own call, which tells their open pages when this one changes, as a source counts
+/// the issues of those drawing on it and they show its releases. None for a project there isn't, as the store read it.
+async fn release_peers(State(app): Shared, Path(project): Path<String>, headers: HeaderMap) -> Result<Response> {
+    if !came_of(&headers).server {
+        return Err(ApiError::forbidden("Only the local app asks which projects share releases"));
+    }
+    let mut conn = app.pool.acquire().await?;
+    Ok(Json(Projects::new(&mut conn).release_peers(&project).await?).into_response())
+}
