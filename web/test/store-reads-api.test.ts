@@ -84,11 +84,17 @@ describe("the store's reads through the Rust API (ORR-1162)", () => {
         expect(await store.sessionWork('greenhouse', sessions)).toEqual(replies[path])
     })
 
+    it('lists the projects from the API, without building their boards here (ORR-1174)', async () => {
+        replies['/api/projects'] = [{id: 'greenhouse', name: 'Greenhouse', counts: {}}]
+        expect(await store.listProjects()).toEqual(replies['/api/projects'])
+    })
+
     it('reads them from the database here with no API', async () => {
         expect((await store.statuses()).map(s => s.id)).toContain('todo')
         expect(await store.ownerOf()).toMatchObject({named: false})
         expect(await store.isShared()).toBe(false)
         expect((await store.listIssues('greenhouse')).map(i => i.title)).toEqual(['Water the beds'])
+        expect((await store.listProjects()).map(p => p.id)).toEqual(['greenhouse'])
         expect(await store.listComments('greenhouse', 'GRE-1')).toEqual([])
         expect(asked).toEqual(expect.arrayContaining(['/api/statuses', '/api/owner', '/api/people', '/api/projects/greenhouse/issues']))
     })
