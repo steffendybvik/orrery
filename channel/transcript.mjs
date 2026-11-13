@@ -40,7 +40,7 @@ export function lastModel(path) {
 
 /** The latest assistant reply in a transcript: its model, and the tokens it was given (input, cache read and cache
  * written: the whole context), when its usage says. Nothing when there's none. */
-export function lastReply(path) {
+function lastReply(path) {
     let fd
     try {
         fd = openSync(path, 'r')

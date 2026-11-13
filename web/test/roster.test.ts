@@ -3,7 +3,7 @@ import type {Server} from 'node:http'
 import type {AddressInfo} from 'node:net'
 import {afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi} from 'vitest'
 import {apiForgotten, apiStarted} from '../server/utils/api-router'
-import {boardsOf, forgetRoster, holdsBoard, isPerson, isShared, issueNow, onBoard, ownerNow, personFor, projectNamed} from '../server/utils/roster'
+import {boardsOf, forgetRoster, holdsBoard, isPerson, isShared, issueIfAny, onBoard, ownerNow, personFor, projectNamed} from '../server/utils/roster'
 
 // The checks on every request read the owner, the people and a board's members from the Rust API once it's there
 // (ORR-1138), kept a moment, and never open the database for them; with no API, the store answers.
@@ -71,8 +71,8 @@ describe('the roster from the API', () => {
         expect(await boardsOf('hati', ['cellar', 'attic', 'nowhere'])).toEqual(['cellar', 'attic'])
         expect(await projectNamed('cel')).toBe('cellar')
         expect(await projectNamed('pantry')).toBe('pantry')
-        expect(await issueNow('cellar', 'CEL-1')).toEqual({proposal: 'pending', labels: ['external']})
-        expect(await issueNow('cellar', 'CEL-2')).toBeNull()
+        expect(await issueIfAny('cellar', 'CEL-1')).toEqual({proposal: 'pending', labels: ['external']})
+        expect(await issueIfAny('cellar', 'CEL-2')).toBeNull()
         for (const read of Object.values(store)) expect(read).not.toHaveBeenCalled()
     })
 

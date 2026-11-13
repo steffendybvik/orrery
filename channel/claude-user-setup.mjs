@@ -14,7 +14,7 @@ import {ASYNC_EVENTS, HOOK_EVENTS} from './claude-hooks.mjs'
 import {serverName} from './server-name.mjs'
 import {besideName} from './mcp-beside.mjs'
 
-export const SCOPE = 'ORRERY_SCOPE=user'
+const SCOPE = 'ORRERY_SCOPE=user'
 const ORRERY_ID = /^[A-Za-z0-9_-]{1,100}$/
 const SHELL_SAFE = /^[\w@%+=:,./~-]+$/
 
@@ -51,7 +51,7 @@ export function userMcpServer({url, orrery, commands}) {
 }
 
 /** The user-level hook command for the orrery at `url`. */
-export const userHook = ({url, orrery, commands}) => `${SCOPE} ORRERY_URL=${url} ORRERY_ID=${orrery.id} ${commands.hook}`
+const userHook = ({url, orrery, commands}) => `${SCOPE} ORRERY_URL=${url} ORRERY_ID=${orrery.id} ${commands.hook}`
 
 const ours = (command, id) => typeof command === 'string' && command.startsWith(`${SCOPE} `) && (id === undefined || command.includes(` ORRERY_ID=${id} `))
 
