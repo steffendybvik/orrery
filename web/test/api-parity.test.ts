@@ -1437,13 +1437,25 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         })))
         const at = '2026-11-10T10:00:00.000Z'
         const use = {method: 'GET', host: 'api.stripe.com', path: '/v1/me', project: 'through-api', issue: null, status: 200, error: null, created_by: 'orrery', created_at: at}
+        /** The sealed row the API hands this server back is the table's, column for column (ORR-1143). */
+        const columns = 'name, value, last4, hosts, projects, created_by, owned, created_at, updated_at'
+        const sealedRead = async () => {
+            const row = await store.db.get(`SELECT ${columns} FROM secrets WHERE name = ?`, name('through-api'))
+            const read = await viaApi('GET', `/api/secrets/${name('through-api')}/sealed`)
+            expect(read).toMatchObject({status: 200, body: row})
+            const all = await store.db.all(`SELECT ${columns} FROM secrets ORDER BY name`)
+            expect(await viaApi('GET', '/api/sealed-secrets')).toMatchObject({status: 200, body: all})
+        }
         const outcomes = [
             await step('set', p => secrets.set(name(p), {value: 'sk_live_abcdef123456', hosts: ['api.stripe.com', 'files.stripe.com']}, OWNER), 'PUT', '/sealed',
                 () => ({value: 'v1:sealed', last4: '3456', hosts: ['api.stripe.com', 'files.stripe.com'], projects: null, created_by: OWNER.name, owned: true, at})),
             await step('narrowed', p => secrets.narrow(name(p), {hosts: ['api.stripe.com'], projects: [p]}, OWNER), 'PUT', '/sealed',
                 () => ({value: 'v1:sealed', last4: '3456', hosts: ['api.stripe.com'], projects: ['through-api'], created_by: OWNER.name, owned: true, at})),
             await step('orrery\'s own use', p => secrets.own('https://api.stripe.com/v1/me', name(p), p), 'POST', '/uses', () => ({...use, keep: 20})),
-            await kept(),
+            await kept().then(async kept => {
+                await sealedRead()
+                return kept
+            }),
             await step('deleted', p => secrets.delete(name(p), OWNER), 'DELETE', '/sealed'),
             await kept(),
         ]
@@ -1451,6 +1463,9 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         expect(outcomes[3]!.body).toMatchObject({secret: [{last4: '3456', owned: 1}], uses: [{created_by: 'orrery', status: 200}]})
         expect(outcomes[5]!.body).toEqual({secret: [], uses: []})
         expect(domainOf('PUT', `/api/secrets/${name('through-api')}/sealed`)).toBeUndefined()
+        // A page can't ask for one sealed through the router: neither read is sent on (ORR-1143).
+        expect(domainOf('GET', `/api/secrets/${name('through-api')}/sealed`)).toBeUndefined()
+        expect(domainOf('GET', '/api/sealed-secrets')).toBeUndefined()
     })
 
     it('keeps a repo\'s poll, its failure, its history page and what it lets go of alike (ORR-952)', async () => {

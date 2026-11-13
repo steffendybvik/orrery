@@ -6,6 +6,10 @@
 // The value is encrypted with ORRERY_SECRET_KEY, its hosts and projects sealed in with it: there's no
 // account behind the owner's name, so where a secret may go can only be narrowed without it. Widening
 // takes the value again, which an agent doesn't have, and a row changed in the database won't open.
+//
+// With the Rust API in front, it keeps the rows, sealed (decision-rust-api-secrets-settings): they're read from there
+// too, the sealed ones only by this server, which holds the key (`GET /api/secrets/:name/sealed`, `/api/sealed-secrets`,
+// ORR-1143). The table here is read only with no API set up, and by the scrubber while the API can't be reached.
 import {createCipheriv, createDecipheriv, createHash, randomBytes} from 'node:crypto'
 import {createError} from 'h3'
 import type {Secret, SecretUse} from '#shared/roadmap'
@@ -112,8 +116,29 @@ export class Secrets {
         }
     }
 
+    /** A read from the Rust API as orrery, which holds the key: its reply, null for a 404, or undefined with no API set
+     * up, leaving it to the database here (ORR-1143). */
+    private async fromApi<T>(path: string): Promise<T | null | undefined> {
+        try {
+            const read = await writeToApi('GET', path, undefined, ORRERY_ACTOR, {always: true})
+            return read ? read.reply as T : undefined
+        } catch (error) {
+            if ((error as {statusCode?: number}).statusCode === 404) return null
+            throw error
+        }
+    }
+
+    /** The secret `name` as sealed, its value still ciphertext: from the API, which keeps it, or the table here. */
+    private async sealedRow(name: string): Promise<SecretRow | undefined> {
+        const sent = await this.fromApi<SecretRow>(`/api/secrets/${encodeURIComponent(name)}/sealed`)
+        if (sent !== undefined) return sent ?? undefined
+        return await this.db.get<SecretRow>('SELECT * FROM secrets WHERE name = ?', name)
+    }
+
     /** Every secret, by name, without its value. */
     async list(): Promise<Secret[]> {
+        const sent = await this.fromApi<Secret[]>('/api/secrets')
+        if (sent) return sent
         const rows = await this.db.all<SecretRow>('SELECT * FROM secrets ORDER BY name')
         const last = await this.db.all<UseRow>('SELECT * FROM secret_uses WHERE id IN (SELECT max(id) FROM secret_uses GROUP BY secret)')
         return rows.map(row => secretOf(row, last.find(u => u.secret === row.name)))
@@ -121,6 +146,9 @@ export class Secrets {
 
     /** A secret with its latest uses. */
     async get(name: string): Promise<Secret & {uses: SecretUse[]}> {
+        const sent = await this.fromApi<Secret & {uses: SecretUse[]}>(`/api/secrets/${encodeURIComponent(name)}`)
+        if (sent === null) throw notFound(`No secret ${name}`)
+        if (sent) return sent
         const row = await this.row(name)
         const uses = (await this.db.all<UseRow>('SELECT * FROM secret_uses WHERE secret = ? ORDER BY id DESC LIMIT ?', name, USES)).map(useOf)
         return {...secretOf(row, undefined), last_used: uses[0] ?? null, uses}
@@ -137,7 +165,7 @@ export class Secrets {
         if (!hosts.length) throw badRequest('"hosts" needs at least one host it may be sent to, e.g. api.stripe.com')
         const projects = await this.projectsOf(input.projects as string[] | null | undefined)
         const now = new Date().toISOString()
-        const before = await this.db.get<SecretRow>('SELECT * FROM secrets WHERE name = ?', name)
+        const before = await this.sealedRow(name)
         await this.keepSealed(name, {value: this.seal(name, value, hosts, projects), last4: value.slice(-4), hosts, projects, created_by: actor.name, owned: !!actor.owner, at: now})
         await this.changed()
         this.note({level: 'info', kind: 'secret.set', message: `${actor.name} ${before ? 'replaced' : 'set'} ${name}, for ${hosts.join(', ')}`,
@@ -193,7 +221,7 @@ export class Secrets {
 
         const secrets = new Map<string, {row: SecretRow, hosts: string[], value: string}>()
         for (const name of names) {
-            const row = await this.db.get<SecretRow>('SELECT * FROM secrets WHERE name = ?', name)
+            const row = await this.sealedRow(name)
             if (!row) throw notFound(`No secret ${name}; GET /api/secrets lists them`)
             const projects = row.projects ? JSON.parse(row.projects) as string[] : null
             if (projects && (!project || !projects.includes(project))) throw refusedFor('secrets.egress', `${name} is only for ${projects.join(', ')}; send the "project" it's for`)
@@ -295,7 +323,7 @@ export class Secrets {
     /** Why a secret `name` that's set wouldn't go to `url` for `project` (ORR-632): its hosts or projects leave them out,
      * or this orrery's key can't open it. Undefined when it would go, or there's none to send. */
     async ownProblem(url: string, name: string, project: string): Promise<string | undefined> {
-        const row = await this.db.get<SecretRow>('SELECT * FROM secrets WHERE name = ?', name)
+        const row = await this.sealedRow(name)
         const {host, protocol} = new URL(url)
         if (!row || protocol !== 'https:') return undefined
         const hosts = JSON.parse(row.hosts) as string[]
@@ -317,7 +345,7 @@ export class Secrets {
 
     /** The secret `name`'s value, when there's one that may go to `target`'s host and be used for `project`. */
     private async ownValue(target: URL, name: string, project: string): Promise<string | null> {
-        const row = await this.db.get<SecretRow>('SELECT * FROM secrets WHERE name = ?', name)
+        const row = await this.sealedRow(name)
         if (!row || target.protocol !== 'https:' || !(JSON.parse(row.hosts) as string[]).includes(target.host)
             || (row.projects && !(JSON.parse(row.projects) as string[]).includes(project))) return null
         try {
@@ -329,7 +357,7 @@ export class Secrets {
     }
 
     private async row(name: string): Promise<SecretRow> {
-        const row = await this.db.get<SecretRow>('SELECT * FROM secrets WHERE name = ?', name)
+        const row = await this.sealedRow(name)
         if (!row) throw notFound(`No secret ${name}`)
         return row
     }
@@ -368,7 +396,13 @@ export class Secrets {
     /** What takes every secret's value out of a text, for many texts at the cost of one. */
     async scrubber(): Promise<(text: string) => string> {
         const secrets = new Map<string, {value: string}>()
-        for (const row of await this.db.all<SecretRow>('SELECT * FROM secrets')) {
+        // While the API can't be reached, the table here: the event log scrubs the line that says so (`api.unreachable`).
+        const sent = await this.fromApi<SecretRow[]>('/api/sealed-secrets').catch(error => {
+            if ((error as {statusCode?: number}).statusCode !== 503) throw error
+            return undefined
+        })
+        const rows = sent ?? await this.db.all<SecretRow>('SELECT * FROM secrets')
+        for (const row of rows) {
             try {
                 secrets.set(row.name, {value: this.open(row)})
             } catch {
