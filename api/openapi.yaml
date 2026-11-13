@@ -1151,8 +1151,8 @@ paths:
         '400': {$ref: '#/components/responses/BadRequest'}
   /api/notices/changes:
     get:
-      summary: Status changes since a time on the issues in the asker's bell, oldest first
-      description: The latest 2000, if there are more (ORR-803).
+      summary: Moves into done since a time on the issues in the asker's bell, oldest first
+      description: The latest 2000, if there are more (ORR-803). Other status changes aren't news to them (ORR-1151).
       parameters:
         - {name: since, in: query, required: true, description: A time, schema: {type: string, format: date-time}}
       responses:

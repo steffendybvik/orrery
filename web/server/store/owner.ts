@@ -4,7 +4,7 @@ import {NOTICE_LISTS} from '#shared/roadmap'
 import type {Input} from '../utils/input'
 import {badRequest, checkInput, conflict, forbidden} from '../utils/input'
 import type {CommentRow, EventRow} from './schema'
-import {AGENT, OWNER_FIELDS, actorId, ANSWERED, SINCE, commentOf, eventOf, stamp} from './schema'
+import {AGENT, OWNER_FIELDS, actorId, ANSWERED, PERSONS_WORDS, SINCE, commentOf, eventOf, stamp} from './schema'
 import {StatusStore} from './statuses'
 
 /** A person's bell, as SQL on a comment `c` joined to its issue `i`: what's in it, what they have and haven't cleared, and
@@ -12,6 +12,21 @@ import {StatusStore} from './statuses'
 type Bell = {cleared: string, left: string, mine: string, read: string}
 /** On the comments' own flag, in the order of their index (ORR-441). */
 const OWNERS_BELL: Bell = {cleared: 'c.cleared = 1', left: 'c.cleared = 0', mine: 'c.owned = 0', read: 'c.was_read = 1'}
+
+/** Which of an agent's comments `c` on issue `i` are a notification for the person `id` (ORR-1151): those directed at
+ * them (it asks, it's on their issue, it answers their own comment, it names them as `@id`) and the last one on an issue
+ * that's done, which says it shipped. The rest (taking an issue, how it's going) stay on the issue. `owner` says whether
+ * `id` is the owner, whose words are on the comment's own flag. */
+export function wantedBy(id: string, owner: boolean): string {
+    const quoted = `'${id.toLowerCase().replace(/'/g, "''")}'`
+    const mention = `'%@${id.toLowerCase().replace(/'/g, "''").replace(/[!%_]/g, '!$&')}%' ESCAPE '!'`
+    const theirs = (o: string) => owner ? `${o}.owned = 1` : `(${o}.person = ${quoted} AND ${o}.by_agent = 0)`
+    return `(c.asks IS NOT NULL OR lower(i.assignee) = ${quoted} OR lower(c.body) LIKE ${mention}
+        OR EXISTS (SELECT 1 FROM comments o WHERE o.project = c.project AND o.issue = c.issue AND ${theirs('o')}
+            AND o.id = (SELECT max(p.id) FROM comments p WHERE p.project = c.project AND p.issue = c.issue AND p.id < c.id))
+        OR (EXISTS (SELECT 1 FROM statuses s WHERE s.id = i.status AND s.kind = 'done')
+            AND NOT EXISTS (SELECT 1 FROM comments l WHERE l.project = c.project AND l.issue = c.issue AND l.id > c.id AND NOT ${PERSONS_WORDS('l')})))`
+}
 
 export abstract class OwnerStore extends StatusStore {
     /** Whether more than one person is here (people.ts). */
@@ -143,14 +158,16 @@ export abstract class OwnerStore extends StatusStore {
             .map(row => ({...commentOf(row), project: row.project, title: row.title, ...row.gone ? {cleared: true} : {}, ...row.opened ? {read: true} : {}}))
     }
 
-    /** Status changes at or after `since`, oldest first, on the issues someone's bell has a comment on: what the
-     * notifications page says happened to them (ORR-803). The latest 2000, if there are more. */
+    /** Moves into done at or after `since`, oldest first, on the issues someone's bell has a comment on: what the
+     * notifications page says happened to them (ORR-803). Other status changes aren't news to them (ORR-1151). The
+     * latest 2000, if there are more. */
     async noticeChanges({since, person}: {since?: string, person?: string} = {}): Promise<NoticeChange[]> {
         if (!since || Number.isNaN(Date.parse(since))) throw badRequest('Send "since", a time')
         const {mine} = await this.bellOf(person)
         const rows = await this.all<EventRow>(`
             SELECT e.* FROM issue_events e
             WHERE e.field = 'status' AND e.created_at >= ?
+                AND EXISTS (SELECT 1 FROM statuses s WHERE s.id = e."after" AND s.kind = 'done')
                 AND EXISTS (SELECT 1 FROM comments c JOIN issues i ON i.project = c.project AND i.id = c.issue WHERE c.project = e.project AND c.issue = e.issue AND ${mine})
             ORDER BY e.created_at DESC, e.id DESC LIMIT 2000`, new Date(since).toISOString())
         return rows.reverse().map(row => {
@@ -226,20 +243,22 @@ export abstract class OwnerStore extends StatusStore {
 
     /** Whose bell it is, as what filters its comments (ORR-658). With one person, every agent's comment, as ever. With
      * more, an agent's question goes to its person: the owner keeps what's nobody's, their agents' and what's on their
-     * issues, and a member has their agents', and what others say on their issues. */
+     * issues, and a member has their agents', and what others say on their issues. Either way, only those that are
+     * news to them (`wantedBy`, ORR-1151). */
     private async bellOf(person: string | undefined): Promise<Bell> {
         const owner = await this.ownerId()
         const id = person ?? owner
-        if (!await this.shared()) return OWNERS_BELL
+        const wanted = wantedBy(id, id === owner)
+        if (!await this.shared()) return {...OWNERS_BELL, mine: `${OWNERS_BELL.mine} AND ${wanted}`}
         const quoted = `'${id.replace(/'/g, "''")}'`
         const assigned = `lower(i.assignee) = ${quoted}`
-        if (id === owner) return {...OWNERS_BELL, mine: `c.owned = 0 AND (c.person IS NULL OR c.person = ${quoted} OR ${assigned})`}
+        if (id === owner) return {...OWNERS_BELL, mine: `c.owned = 0 AND (c.person IS NULL OR c.person = ${quoted} OR ${assigned}) AND ${wanted}`}
         const cleared = `EXISTS (SELECT 1 FROM notice_clears n WHERE n.comment = c.id AND n.person = ${quoted})`
         return {
             cleared,
             read: `EXISTS (SELECT 1 FROM notice_reads n WHERE n.comment = c.id AND n.person = ${quoted})`,
             left: `NOT ${cleared}`,
-            mine: `((c.person = ${quoted} AND c.by_agent = 1) OR (${assigned} AND (c.person IS NULL OR c.person <> ${quoted} OR c.by_agent = 1)))`,
+            mine: `((c.person = ${quoted} AND c.by_agent = 1) OR (${assigned} AND (c.person IS NULL OR c.person <> ${quoted} OR c.by_agent = 1))) AND ${wanted}`,
         }
     }
 

@@ -34,6 +34,25 @@ fn owners_bell() -> Bell {
     Bell { cleared: "c.cleared = 1".into(), left: "c.cleared = 0".into(), mine: "c.owned = 0".into(), read: "c.was_read = 1".into() }
 }
 
+/// Which of an agent's comments `c` on issue `i` are a notification for the person `id` (`wantedBy`, ORR-1151): those
+/// directed at them (it asks, it's on their issue, it answers their own comment, it names them as `@id`) and the last one
+/// on an issue that's done, which says it shipped. The rest stay on the issue. `owner` says whether `id` is the owner,
+/// whose words are on the comment's own flag.
+fn wanted_by(id: &str, owner: bool) -> String {
+    let lower = id.to_lowercase().replace('\'', "''");
+    let quoted = format!("'{lower}'");
+    let mention = format!("'%@{}%' ESCAPE '!'", lower.replace('!', "!!").replace('%', "!%").replace('_', "!_"));
+    let theirs = |o: &str| if owner { format!("{o}.owned = 1") } else { format!("({o}.person = {quoted} AND {o}.by_agent = 0)") };
+    format!(
+        "(c.asks IS NOT NULL OR lower(i.assignee) = {quoted} OR lower(c.body) LIKE {mention}
+        OR EXISTS (SELECT 1 FROM comments o WHERE o.project = c.project AND o.issue = c.issue AND {}
+            AND o.id = (SELECT max(p.id) FROM comments p WHERE p.project = c.project AND p.issue = c.issue AND p.id < c.id))
+        OR (EXISTS (SELECT 1 FROM statuses s WHERE s.id = i.status AND s.kind = 'done')
+            AND NOT EXISTS (SELECT 1 FROM comments l WHERE l.project = c.project AND l.issue = c.issue AND l.id > c.id AND NOT (l.owned = 1 OR (l.person IS NOT NULL AND l.by_agent = 0)))))",
+        theirs("o")
+    )
+}
+
 /// What the notices' query asks for (`?list=&before=&limit=`), as the route reads it: `Number(x) || undefined`.
 #[derive(Default)]
 pub struct Asked {
@@ -117,23 +136,28 @@ impl<'c> Notices<'c> {
         IssueWrites::new(&mut *self.conn).person_asking(who, actor).await
     }
 
-    /// Whose bell it is, as what filters its comments (`bellOf`, ORR-658).
+    /// Whose bell it is, as what filters its comments (`bellOf`, ORR-658), only those that are news to them
+    /// (`wanted_by`, ORR-1151).
     async fn bell_of(&mut self, person: Option<&str>) -> Result<Bell> {
         let owner = self.owner_id().await?;
         let id = person.map(str::to_string).unwrap_or_else(|| owner.clone());
+        let wanted = wanted_by(&id, id == owner);
         if !self.shared().await? {
-            return Ok(owners_bell());
+            let bell = owners_bell();
+            return Ok(Bell { mine: format!("{} AND {wanted}", bell.mine), ..bell });
         }
         let quoted = format!("'{}'", id.replace('\'', "''"));
         let assigned = format!("lower(i.assignee) = {quoted}");
         if id == owner {
-            return Ok(Bell { mine: format!("c.owned = 0 AND (c.person IS NULL OR c.person = {quoted} OR {assigned})"), ..owners_bell() });
+            return Ok(Bell { mine: format!("c.owned = 0 AND (c.person IS NULL OR c.person = {quoted} OR {assigned}) AND {wanted}"), ..owners_bell() });
         }
         let cleared = format!("EXISTS (SELECT 1 FROM notice_clears n WHERE n.comment = c.id AND n.person = {quoted})");
         Ok(Bell {
             left: format!("NOT {cleared}"),
             read: format!("EXISTS (SELECT 1 FROM notice_reads n WHERE n.comment = c.id AND n.person = {quoted})"),
-            mine: format!("((c.person = {quoted} AND c.by_agent = 1) OR ({assigned} AND (c.person IS NULL OR c.person <> {quoted} OR c.by_agent = 1)))"),
+            mine: format!(
+                "((c.person = {quoted} AND c.by_agent = 1) OR ({assigned} AND (c.person IS NULL OR c.person <> {quoted} OR c.by_agent = 1))) AND {wanted}"
+            ),
             cleared,
         })
     }
@@ -264,14 +288,15 @@ impl<'c> Notices<'c> {
             .collect())
     }
 
-    /// Status changes at or after `since`, oldest first, on the issues someone's bell has a comment on (`noticeChanges`,
-    /// ORR-803). The latest 2000, if there are more.
+    /// Moves into done at or after `since`, oldest first, on the issues someone's bell has a comment on (`noticeChanges`,
+    /// ORR-803); other status changes aren't news to them (ORR-1151). The latest 2000, if there are more.
     pub async fn changes(&mut self, since: Option<&str>, person: Option<&str>) -> Result<Value> {
         let Some(since) = since.filter(|s| !s.is_empty()).and_then(time_of) else { return Err(ApiError::bad_request("Send \"since\", a time")) };
         let mine = self.bell_of(person).await?.mine;
         let query = format!(
             "SELECT CAST(e.id AS BIGINT) AS id, e.project, e.issue, e.\"before\", e.\"after\", e.created_by, e.session_name, e.created_at FROM issue_events e
              WHERE e.field = 'status' AND e.created_at >= ?
+                AND EXISTS (SELECT 1 FROM statuses s WHERE s.id = e.\"after\" AND s.kind = 'done')
                 AND EXISTS (SELECT 1 FROM comments c JOIN issues i ON i.project = c.project AND i.id = c.issue WHERE c.project = e.project AND c.issue = e.issue AND {mine})
              ORDER BY e.created_at DESC, e.id DESC LIMIT 2000"
         );

@@ -62,12 +62,24 @@ describe('useInbox', () => {
         const inbox = useInbox()
         pages.inbox = [notice(1, '2026-10-29T08:00:00.000Z')]
         await inbox.load('inbox')
-        inbox.arrived(notice(2, '2026-10-29T11:00:00.000Z'))
-        inbox.arrived(notice(3, '2026-10-29T11:01:00.000Z', {asks: 'decision'}))
+        bell = [notice(2, '2026-10-29T11:00:00.000Z')]
+        await inbox.arrived(notice(2, '2026-10-29T11:00:00.000Z'))
+        bell = [notice(3, '2026-10-29T11:01:00.000Z', {asks: 'decision'}), notice(2, '2026-10-29T11:00:00.000Z')]
+        await inbox.arrived(notice(3, '2026-10-29T11:01:00.000Z', {asks: 'decision'}))
         expect(inbox.notices.value.map(n => n.id)).toEqual([3, 2])
         expect(inbox.lists.value.inbox.items.map(n => n.id)).toEqual([2, 1])
         // Waiting isn't loaded, so it fills when it is.
         expect(inbox.lists.value.waiting.items).toEqual([])
+    })
+
+    it("leaves out one that arrives when the server's bell doesn't have it (ORR-1151)", async () => {
+        const inbox = useInbox()
+        pages.inbox = [notice(1, '2026-10-29T08:00:00.000Z')]
+        await inbox.load('inbox')
+        bell = [notice(1, '2026-10-29T08:00:00.000Z')]
+        await inbox.arrived(notice(2, '2026-10-29T11:00:00.000Z', {body: 'Taking it.'}))
+        expect(inbox.notices.value.map(n => n.id)).toEqual([1])
+        expect(inbox.lists.value.inbox.items.map(n => n.id)).toEqual([1])
     })
 
     it('loads a list a page at a time, the next from its oldest comment', async () => {
