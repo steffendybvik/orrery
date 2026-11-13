@@ -56,6 +56,16 @@ impl<'c> Signals<'c> {
         Signals { conn }
     }
 
+    /// The project's latest `limit` signals, newest first (`sessionWork`'s, ORR-1174).
+    pub(crate) async fn recent(&mut self, project: &str, limit: i64) -> Result<Vec<Value>> {
+        let rows = sqlx::query(&sql(&format!("SELECT {COLUMNS} FROM signals WHERE project = ? ORDER BY id DESC LIMIT ?")))
+            .bind(project)
+            .bind(limit)
+            .fetch_all(&mut *self.conn)
+            .await?;
+        Ok(rows.iter().map(signal_of).collect())
+    }
+
     /// The id of the project's latest signal, 0 before its first, as `lastSignal` gives it: a 404 for a project there
     /// isn't (ORR-1133).
     pub(crate) async fn last(&mut self, project: &str) -> Result<i64> {

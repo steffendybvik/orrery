@@ -325,6 +325,13 @@ export abstract class SignalStore extends IssueStore {
      * first, each with when it took it), and the last `signals` signals that went to it, by its id or, sent to every session, by its name.
      * `ids` are every id a session has gone by (it gets a new one on a `/clear`), its own when left out. */
     async sessionWork(project: string, sessions: {id: string, name: string, ids?: string[]}[], signals = 5): Promise<Record<string, SessionWork>> {
+        // From the API when it's set up (ORR-1174), which only this server can ask, as only it knows the sessions: the
+        // Sessions page asks for every project's, and reading them here was most of what this server still read.
+        if (signals === 5) {
+            const asked = JSON.stringify(sessions.map(({id, name, ids}) => ({id, name, ...ids ? {ids} : {}})))
+            const read = await this.fromApi<Record<string, SessionWork>>(`/api/projects/${encodeURIComponent(project)}/session-work?sessions=${encodeURIComponent(asked)}`)
+            if (read) return read
+        }
         await this.projectRow(project)
         const open = new Map((await this.listIssues(project)).filter(i => i.kind !== 'proposed' && !CLOSED.includes(i.kind as Kind)).map(i => [i.id, i]))
         const worked = await this.all<{issue: string, session: string, since: string | null}>('SELECT issue, session, since FROM issue_sessions WHERE project = ? ORDER BY at DESC', project)

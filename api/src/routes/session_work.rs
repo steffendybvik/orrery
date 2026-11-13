@@ -4,7 +4,7 @@
 use super::P;
 use crate::error::{ApiError, Result};
 use crate::request::{body_of, came_of};
-use crate::work::session_work::SessionWork;
+use crate::work::session_work::{Asked, SessionWork};
 use crate::{App, Shared};
 use axum::body::Bytes;
 use axum::extract::{Path, Query, State};
@@ -19,6 +19,7 @@ use std::sync::Arc;
 pub(crate) fn routes() -> Router<Arc<App>> {
     Router::new()
         .route(&format!("{P}/issue-sessions"), get(working))
+        .route(&format!("{P}/session-work"), get(session_work))
         .route(&format!("{P}/issue-sessions/rename"), post(rename))
         .route(&format!("{P}/issues/{{issue}}/workers"), get(workers))
         .route(&format!("{P}/issues/{{issue}}/dependents"), get(dependents))
@@ -31,6 +32,18 @@ fn local_app_only(headers: &HeaderMap) -> Result<()> {
     } else {
         Err(ApiError::forbidden("Only the local app asks which session is on which issue"))
     }
+}
+
+/// `?sessions=[{id, name, ids}]` (JSON): `{<session id>: {issues, signals}}`, what each of the project's sessions is on,
+/// for its Sessions page (ORR-1174). Which sessions are there is the local app's to say, as only it knows them.
+async fn session_work(State(app): Shared, Path(project): Path<String>, Query(query): Query<HashMap<String, String>>, headers: HeaderMap) -> Result<Response> {
+    local_app_only(&headers)?;
+    let sessions: Vec<Asked> = match query.get("sessions").filter(|s| !s.is_empty()) {
+        Some(text) => serde_json::from_str(text).map_err(|_| ApiError::bad_request("Send \"sessions\" as a JSON list of {id, name, ids}"))?,
+        None => Vec::new(),
+    };
+    let mut conn = app.pool.acquire().await?;
+    Ok(Json(SessionWork::new(&mut conn).work(&project, &sessions, 5).await?).into_response())
 }
 
 /// `?sessions=a,b`, a session's ids (its old ones after a `/clear` too): `{issues, waiting, waiting_for}`, the issues in
