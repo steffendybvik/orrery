@@ -100,6 +100,16 @@ describe("the store's reads through the Rust API (ORR-1162)", () => {
         expect(notices).toEqual([expect.objectContaining({id: 4, body: 'From the API', project: 'greenhouse', title: 'Only in the API'})])
     })
 
+    it('tells the projects sharing releases with one that changed, as the API names them (ORR-1174)', async () => {
+        const told: string[] = []
+        const telling = new Store(testDb(), project => told.push(project))
+        await telling.createProject({name: 'Greenhouse', key: 'GRE'})
+        told.length = 0
+        replies['/api/projects/greenhouse/release-peers'] = ['shed']
+        telling.changed('greenhouse')
+        await vi.waitFor(() => expect(told).toEqual(['greenhouse', 'shed']))
+    })
+
     it('reads them from the database here with no API', async () => {
         expect((await store.statuses()).map(s => s.id)).toContain('todo')
         expect(await store.ownerOf()).toMatchObject({named: false})

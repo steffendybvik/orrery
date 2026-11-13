@@ -135,8 +135,15 @@ export abstract class StoreBase {
     /** Tells open pages the project changed, and the projects sharing its releases. */
     private pushChanged(project: string) {
         this.onChange(project)
-        this.all<{id: string}>('SELECT id FROM projects WHERE releases_from = ? OR id = (SELECT releases_from FROM projects WHERE id = ?)', project, project)
-            .then(rows => rows.forEach(r => this.onChange(r.id)), () => {})
+        this.releasePeers(project).then(ids => ids.forEach(id => this.onChange(id)), () => {})
+    }
+
+    /** The projects sharing releases with `project`, from the API when it's set up (ORR-1174): each change the API
+     * relays asks it, and this was the most of what this server still read then. */
+    private async releasePeers(project: string): Promise<string[]> {
+        const read = await this.fromApi<string[]>(`/api/projects/${encodeURIComponent(project)}/release-peers`)
+        if (read) return read
+        return (await this.all<{id: string}>('SELECT id FROM projects WHERE releases_from = ? OR id = (SELECT releases_from FROM projects WHERE id = ?)', project, project)).map(r => r.id)
     }
 
     /** The project its releases are: its `releases_from`, its own, or none when it has no releases. */
