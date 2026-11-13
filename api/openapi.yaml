@@ -2043,6 +2043,25 @@ paths:
     parameters:
       - {name: owner, in: path, required: true, description: The GitHub repo's owner, schema: {type: string}}
       - {name: name, in: path, required: true, description: The GitHub repo's name, schema: {type: string}}
+    get:
+      x-served: false
+      summary: What the local app's poll reads of a repo before it polls it
+      description: >-
+        `repo` is whether it was last read with a token and the page of its closed PRs to read next, null before its first
+        poll. `pulls` is each PR kept, with what a poll tells its changes by, and `recorded` when each PR kept on an issue
+        last changed (ORR-1153).
+      responses:
+        '200':
+          description: The repo as kept
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [repo, pulls, recorded]
+                properties:
+                  repo: {type: [object, 'null'], properties: {token: {type: boolean}, history_page: {type: integer}}}
+                  pulls: {type: array, items: {type: object, description: 'A `pull_states` row''s number, state, review, review_id, checks, merged, closed and told'}}
+                  recorded: {type: array, items: {type: object, properties: {number: {type: integer}, updated_at: {type: string}}}}
     put:
       x-served: false
       summary: 'A repo''s poll: each PR as read, those it missed kept as closed, and the repo as polled'

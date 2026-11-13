@@ -15,7 +15,7 @@ import type {EventEntry} from './event-log'
 import type {KeptPull, ListedPull, Pulls} from './pulls'
 import {GITHUB_SECRET, issueIdsIn, PAGE, PAGES, pullState, repoPath} from './pulls'
 import type {Store} from './store'
-import {writeToApi} from './api-router'
+import {readFromApi, writeToApi} from './api-router'
 import {ORRERY} from '../store/schema'
 
 /** How often a repo is polled: with a token, and without one. */
@@ -32,6 +32,13 @@ const REFUSED_FOR = 60 * 60_000
 const DONE = 30
 /** How long a merged or closed PR, or a repo nobody points at any more, is kept. */
 const KEEP = 7 * 24 * 60 * 60_000
+
+/** What the poll reads of a repo before it polls it: `repo` null before its first poll (ORR-1153). */
+export interface KeptRepo {
+    repo: {token: boolean, history_page: number} | null
+    pulls: (Pick<KeptPull, 'number' | 'state' | 'review' | 'review_id' | 'checks'> & {merged: boolean, closed: boolean, told: string[]})[]
+    recorded: {number: number, updated_at: string}[]
+}
 
 export type PullChangeKind = 'conflicting' | 'behind' | 'checks_failed' | 'changes_requested' | 'merged' | 'closed' | 'ready' | 'approved'
 
@@ -157,7 +164,7 @@ function fromList(pull: ListedPull & {closed_at?: string | null}): Polled {
 const clock = (at: number) => new Date(at).toISOString().slice(11, 16)
 
 /** What changed from `was` (none: first seen) to `now`, in the order they're told. */
-export function changesOf(was: Pick<KeptPull, 'state' | 'checks' | 'review' | 'merged' | 'closed'> | undefined, now: Polled): PullChangeKind[] {
+export function changesOf(was: Pick<KeptRepo['pulls'][number], 'state' | 'checks' | 'review' | 'merged' | 'closed'> | undefined, now: Polled): PullChangeKind[] {
     if (now.merged) return was && !was.merged ? ['merged'] : []
     if (now.closed) return was && !was.closed ? ['closed'] : []
     const kinds: PullChangeKind[] = []
@@ -313,11 +320,12 @@ export class PullPoll {
         const at = new Date(this.now()).toISOString()
         // Only records: the repo's first poll, and its first with a token after polls without one, which couldn't tell a
         // PR's state, checks or reviews, so every PR already conflicting or failing would read as news (ORR-525).
-        const before = await this.store.db.get<{token: number}>('SELECT token FROM pull_repos WHERE repo = ?', repo)
+        const known = await this.keptOf(repo)
+        const before = known.repo
         const first = !before || (token && !before.token)
-        const kept = new Map((await this.store.db.all<KeptPull>('SELECT * FROM pull_states WHERE repo = ?', repo)).map(k => [k.number, k]))
+        const kept = new Map(known.pulls.map(k => [k.number, k]))
         // What's kept for good, by PR: one not changed since needn't be looked up and written again each minute.
-        const recorded = new Map((await this.store.db.all<{number: number, updated_at: string}>('SELECT number, updated_at FROM issue_pulls WHERE repo = ?', repo)).map(r => [r.number, r.updated_at]))
+        const recorded = new Map(known.recorded.map(r => [r.number, r.updated_at]))
         const changes: PullChange[] = []
         const rows: PolledRow[] = []
         const seen = new Set<number>()
@@ -329,7 +337,7 @@ export class PullPoll {
             if (recorded.get(pull.number) !== pull.updated_at) await this.pulls.remember(repo, projects, {...pull, names})
             // One merged or closed before orrery kept it is nothing to it.
             if (!was && (pull.merged || pull.closed)) continue
-            const told = was ? JSON.parse(was.told) as string[] : []
+            const told = was ? [...was.told] : []
             // Green again after failing (pending between, most often, while CI runs): the failures are counted afresh
             // from here (ORR-529).
             const passed = `${repo}#${pull.number} checks_passed ${pull.head_sha}`
@@ -376,7 +384,7 @@ export class PullPoll {
      * poll until it's done, so even a repo read without a token stays well inside GitHub's 60 an hour. Newly closed ones only
      * push the rest down a page, read twice, so none is missed. Not reading one now is no fault of the poll: it's tried next. */
     private async readHistory(repo: string, projects: string[], asker: string) {
-        const page = (await this.store.db.get<{history_page: number}>('SELECT history_page FROM pull_repos WHERE repo = ?', repo))?.history_page
+        const page = (await this.keptOf(repo)).repo?.history_page
         if (!page) return
         try {
             const {value} = await this.pulls.ask<ListedPull[]>(repo, asker, `/repos/${repo}/pulls?state=closed&sort=created&direction=desc&per_page=${PAGE}&page=${page}`)
@@ -421,6 +429,21 @@ export class PullPoll {
         for (const repo of await this.keepForgotten(repos, new Date(this.now() - KEEP).toISOString())) {
             this.last.delete(repo)
             this.pressed.delete(repo)
+        }
+    }
+
+    /** What's kept of a repo before it's polled: from the Rust API when it's in front (ORR-1153), as it's the one on
+     * the database then; otherwise read here. */
+    async keptOf(repo: string): Promise<KeptRepo> {
+        const read = await readFromApi<KeptRepo>(`/api/pulls/${repoPath(repo)}`)
+        if (read) return read
+        const row = await this.store.db.get<{token: number, history_page: number | null}>('SELECT token, history_page FROM pull_repos WHERE repo = ?', repo)
+        const pulls = await this.store.db.all<KeptPull>('SELECT * FROM pull_states WHERE repo = ? ORDER BY number', repo)
+        return {
+            repo: row ? {token: !!row.token, history_page: Number(row.history_page ?? 0)} : null,
+            pulls: pulls.map(p => ({number: Number(p.number), state: p.state, review: p.review, review_id: p.review_id, checks: p.checks,
+                merged: !!p.merged, closed: !!p.closed, told: JSON.parse(p.told) as string[]})),
+            recorded: await this.store.db.all<{number: number, updated_at: string}>('SELECT number, updated_at FROM issue_pulls WHERE repo = ? ORDER BY number', repo),
         }
     }
 

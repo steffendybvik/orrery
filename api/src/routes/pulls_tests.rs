@@ -423,3 +423,29 @@ async fn forgetting_lets_go_of_old_done_prs_and_repos_no_longer_polled() {
     assert_eq!(bad.status, 400);
     assert_eq!(bad.body["data"]["problems"], json!(["\"repos\" should be a list of strings, not \"ada/primes\"", "missing \"before\""]));
 }
+
+#[tokio::test]
+async fn a_repo_reads_back_as_the_poll_kept_it() {
+    let api = TestApi::new().await;
+    let none = api.get("/api/pulls/ada/primes").send().await;
+    assert_eq!(none.status, 200, "{}", none.body);
+    assert_eq!(none.body, json!({"repo": null, "pulls": [], "recorded": []}), "nothing before its first poll");
+    api.put("/api/pulls/ada/primes", poll("2026-11-05T10:00:00Z", false, vec![polled_pull(2, true, false), polled_pull(1, false, false)])).send().await;
+    api.put("/api/pulls/ada/primes/history", json!({"page": 3})).send().await;
+    let (project, issue) = api.board().await;
+    keep(&api, 1, kept(&[&project], &[&issue], "feat/sieve")).await;
+    let read = api.get("/api/pulls/ada/primes").send().await;
+    assert_eq!(read.status, 200, "{}", read.body);
+    assert_eq!(read.body["repo"], json!({"token": true, "history_page": 3}));
+    assert_eq!(
+        read.body["pulls"][0],
+        json!({"number": 1, "state": "open", "review": null, "review_id": null, "checks": "passing", "merged": false, "closed": false, "told": ["opened"]})
+    );
+    assert_eq!(read.body["pulls"][1]["merged"], json!(true));
+    let recorded = read.body["recorded"].as_array().unwrap();
+    assert_eq!(recorded.len(), 1);
+    assert_eq!(recorded[0]["number"], json!(1));
+    assert!(recorded[0]["updated_at"].is_string());
+    // Another repo's are its own.
+    assert_eq!(api.get("/api/pulls/ada/other").send().await.body, json!({"repo": null, "pulls": [], "recorded": []}));
+}

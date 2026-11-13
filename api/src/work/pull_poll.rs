@@ -369,6 +369,41 @@ impl<'c> PullPoll<'c> {
         self.finish(done).await?;
         Ok(json!({"gone": gone}))
     }
+
+    /// What the poll reads of a repo before it polls it (ORR-1153): `repo`, whether it was last read with a token and
+    /// the page of its closed PRs to read next, null before its first poll; `pulls`, each PR kept, with what a poll
+    /// tells its changes by; and `recorded`, when each PR kept on an issue last changed, so one that hasn't isn't
+    /// written again.
+    pub async fn kept(&mut self, repo: &str) -> Result<Value> {
+        let row = sqlx::query(&sql("SELECT CAST(token AS BIGINT) AS token, CAST(history_page AS BIGINT) AS history_page FROM pull_repos WHERE repo = ?"))
+            .bind(repo)
+            .fetch_optional(&mut *self.conn)
+            .await?;
+        let polled = row.map(|r| json!({"token": r.get::<i64, _>("token") != 0, "history_page": r.get::<Option<i64>, _>("history_page").unwrap_or(0)}));
+        let pulls = sqlx::query(&sql(
+            "SELECT CAST(number AS BIGINT) AS number, state, review, review_id, checks, CAST(merged AS BIGINT) AS merged, CAST(closed AS BIGINT) AS closed, told \
+             FROM pull_states WHERE repo = ? ORDER BY number",
+        ))
+        .bind(repo)
+        .fetch_all(&mut *self.conn)
+        .await?
+        .iter()
+        .map(|r| {
+            let told: Value = serde_json::from_str(&r.get::<String, _>("told")).unwrap_or_else(|_| json!([]));
+            json!({"number": r.get::<i64, _>("number"), "state": r.get::<String, _>("state"), "review": r.get::<Option<String>, _>("review"),
+                "review_id": r.get::<Option<String>, _>("review_id"), "checks": r.get::<Option<String>, _>("checks"),
+                "merged": r.get::<i64, _>("merged") != 0, "closed": r.get::<i64, _>("closed") != 0, "told": told})
+        })
+        .collect::<Vec<_>>();
+        let recorded = sqlx::query(&sql("SELECT CAST(number AS BIGINT) AS number, updated_at FROM issue_pulls WHERE repo = ? ORDER BY number"))
+            .bind(repo)
+            .fetch_all(&mut *self.conn)
+            .await?
+            .iter()
+            .map(|r| json!({"number": r.get::<i64, _>("number"), "updated_at": r.get::<String, _>("updated_at")}))
+            .collect::<Vec<_>>();
+        Ok(json!({"repo": polled, "pulls": pulls, "recorded": recorded}))
+    }
 }
 
 #[cfg(test)]
