@@ -184,6 +184,9 @@ export const DOMAINS: readonly {domain: string, paths: RegExp, methods?: readonl
     // A milestone's comments and an epic's (ORR-1004): words on its page, which ask nothing and wake no session. A write
     // says the milestone's project changed, or the epics did (`Orrery-Epics`).
     {domain: 'milestone and epic comments', paths: /^(projects\/[^/]+\/milestones|epics)\/[^/]+\/comments(\/[^/]+)?$/},
+    // Logging in with a person key and out (ORR-1137): the API sets the login's cookie, or clears it, and its `Set-Cookie`
+    // is passed back (`forwardToApi`). The cookie stays with this server: logging out sends the login hashed.
+    {domain: 'logging in', paths: /^auth\/(login|logout)$/, methods: ['POST']},
 ]
 
 /** What this server does to a reply from the API, as only it knows it, taken before the request goes on: the path to ask
@@ -654,7 +657,7 @@ const MCP_ANSWERED = ['content-type', 'mcp-session-id', 'allow'] as const
 /** Sends an `/mcp` request to the API as it came, JSON-RPC errors and all, with who's asking as for any route, and
  * passes on what its tools' routes set off (`orrery-*`, gathered by the API's mcp/relay.rs) as `relayed` does for a
  * route's reply: a comment carried to its session and the bell, an urgent push, the event log's lines. */
-export async function forwardMcp(event: H3Event, api: {url: string, token: string}): Promise<unknown> {
+async function forwardMcp(event: H3Event, api: {url: string, token: string}): Promise<unknown> {
     const actor = await actorOf(event)
     const body = event.method === 'POST' ? await readRawBody(event, false) : undefined
     const headers: Record<string, string> = headersFor(event, api, actor)
@@ -713,6 +716,8 @@ export async function forwardToApi(event: H3Event, api: {url: string, token: str
     const text = await response.text()
     const json = text ? JSON.parse(text) as Record<string, unknown> : null
     if (response.status >= 400) throw refusal(response.status, json)
+    // A login's cookie, set or cleared (ORR-1137): only the API's auth routes set one.
+    for (const cookie of response.headers.getSetCookie()) appendResponseHeader(event, 'Set-Cookie', cookie)
     await relayed(response, actor, event.method)
     const counted = countedOf(event.method, pathOf(event))
     if (counted) countOwnUse(event, counted)

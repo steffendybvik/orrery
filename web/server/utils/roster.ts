@@ -104,7 +104,7 @@ export async function projectNamed(named: string): Promise<string> {
 }
 
 /** An issue as it is now, or null when there's none. Not kept: each check reads it again. */
-export async function issueNow(project: string, issue: string): Promise<Pick<Issue, 'proposal' | 'labels'> | null> {
+export async function issueIfAny(project: string, issue: string): Promise<Pick<Issue, 'proposal' | 'labels'> | null> {
     try {
         return await readFromApi<Issue>(`/api/projects/${encodeURIComponent(project)}/issues/${encodeURIComponent(issue)}`) ?? await useStore().issue(project, issue)
     } catch {

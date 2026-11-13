@@ -41,9 +41,9 @@ const useCode = (code: unknown, asked: Asked = {}) => ask(() => import('../serve
 /** A person's browser, logged in with a person key, as the page is. */
 async function browser(person: string) {
     const {key} = await store.makeKey(person, {kind: 'person', name: 'browser'})
-    await ask(() => import('../server/api/auth/login.post'), '/api/auth/login', {body: {key}})
-    const {name, value} = cookies.at(-1)!
-    return {cookie: `${name}=${value}`}
+    // Logging in is the Rust API's (ORR-1137): the login it would make, made in the store.
+    const {secret} = await store.startLogin(person, key)
+    return {cookie: `orrery_login_9000=${secret}`}
 }
 
 beforeEach(async () => {

@@ -6,5 +6,8 @@ onlyBuiltDependencies:
   - esbuild
   - '@parcel/watcher'
 # Above what a dependency asks for, for a fix it hasn't taken up yet. node-forge: nuxt's dev server (listhen), GHSA-4487-j8r4-4g2f and others.
+# hono and @hono/node-server: the channel's MCP SDK, GHSA-3gg2-335m-rxc6 and others.
 overrides:
   node-forge: ^1.4.3
+  hono: ^4.13.16
+  '@hono/node-server': ^2.1.6

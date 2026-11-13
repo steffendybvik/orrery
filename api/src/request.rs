@@ -588,6 +588,21 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn behind_the_router_logging_out_goes_by_the_hashed_login_and_the_address_the_browser_asked_for() {
+        let api = two_people().await;
+        api.key("steffen", "person").await;
+        let login = api.login("ada").await;
+        assert_eq!(api.get("/api/statuses").header("orrery-login", &login).send().await.status, 200);
+        let out = api.post("/api/auth/logout", serde_json::json!({})).header("orrery-login", &login).header("orrery-host", "localhost%3A9123").send().await;
+        assert_eq!(out.status, 204, "{}", out.body);
+        assert_eq!(out.header("set-cookie"), Some("orrery_login_9123=; Max-Age=0; Path=/"));
+        assert_eq!(api.get("/api/statuses").header("orrery-login", &login).send().await.status, 401);
+        // Through a proxy on 443 the address has no port, and the cookie is plain `orrery_login`.
+        let plain = api.post("/api/auth/logout", serde_json::json!({})).header("orrery-host", "orrery.example").send().await;
+        assert_eq!(plain.header("set-cookie"), Some("orrery_login=; Max-Age=0; Path=/"));
+    }
+
+    #[tokio::test]
     async fn an_agent_key_cant_write_as_another_persons_session() {
         let api = two_people().await;
         api.key("steffen", "person").await;

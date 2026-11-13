@@ -12,7 +12,7 @@ import {claudeFiles, userServers} from './claude-user-setup.mjs'
 const SESSION_ID = /^[A-Za-z0-9_-]{1,100}$/
 
 /** Where the choice for Claude session `session` is kept, beside the launcher's list and the keys. */
-export const choiceFile = (session, env = process.env) =>
+const choiceFile = (session, env = process.env) =>
     join(env.XDG_CONFIG_HOME || join(homedir(), '.config'), 'orrery', 'apps', `${session}.json`)
 
 /** The orrery session `session` chose: `{id, url, environment?, project?}`, or none. */
