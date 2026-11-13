@@ -133,6 +133,14 @@ describe("the Claude adapter's report", () => {
         expect(claude.report({hook_event_name: 'PreToolUse', tool_name: 'mcp__x__write', tool_input: {body: 'secret'}}).tool).toEqual({name: 'mcp__x__write', detail: undefined})
     })
 
+    it("brings a question's questions and their options' labels, and no other tool's (ORR-1155)", () => {
+        const asked = claude.report({hook_event_name: 'PreToolUse', tool_name: 'AskUserQuestion', tool_input: {questions: [
+            {question: 'Which hinge?', header: 'Hinge', options: [{label: 'Brass', description: 'shiny'}, {label: 'Steel'}], multiSelect: false},
+        ]}})
+        expect(asked.tool).toEqual({name: 'AskUserQuestion', questions: [{question: 'Which hinge?', options: ['Brass', 'Steel']}]})
+        expect(claude.report({hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: {command: 'ls', questions: [{question: 'x'}]}}).tool.questions).toBeUndefined()
+    })
+
     it("keeps what Claude Code said of a cut-off turn to StopFailure, capped", () => {
         const long = 'x'.repeat(500)
         expect(claude.report({hook_event_name: 'StopFailure', error: 'rate_limit', last_assistant_message: long})).toMatchObject({error: 'rate_limit', error_text: 'x'.repeat(300)})

@@ -21,7 +21,7 @@ defineEmits<{focus: []}>()
     <span v-if="session.id === worker" class="rounded-full bg-accent-500/10 px-1.5 text-[11px] font-medium text-accent-700 ring-1 ring-accent-500/30 dark:text-accent-300">on this issue</span>
     <slot />
     <span class="whitespace-nowrap text-xs" :class="session.state === 'waiting' ? 'text-rose-700 dark:text-rose-400' : 'text-faint'">
-      {{ SESSION_STATE[session.state] }} · {{ ago(session.since) }}
+      {{ stateLabel(session) }} · {{ ago(session.since) }}
     </span>
     <button
         v-if="session.listening"

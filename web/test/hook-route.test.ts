@@ -77,6 +77,27 @@ describe("the hook's route", () => {
         expect(reported.map(r => r.tool)).toEqual([{name: 'Bash'}, undefined, undefined, undefined, undefined, undefined])
     })
 
+    it("keeps a question's questions and their options' labels, trimmed and capped (ORR-1155)", async () => {
+        const questions = [
+            {question: '  Which hinge? ', header: 'Hinge', options: [{label: 'Brass', description: 'shiny'}, {label: ''}, 'Steel', 7]},
+            {question: ''}, {options: []}, 'Why?',
+            ...Array.from({length: 5}, (_, i) => ({question: `q${i}`, options: Array.from({length: 9}, (_, j) => ({label: 'o'.repeat(200) + j}))})),
+        ]
+        await hook({project: 'greenhouse', event: 'PreToolUse', id: 'abc', tool: {name: 'AskUserQuestion', questions}})
+        const [{tool}] = reported as [{tool: {questions: {question: string, options: string[]}[]}}]
+        expect(tool.questions.map(q => q.question)).toEqual(['Which hinge?'])
+        expect(tool.questions[0]!.options).toEqual(['Brass', 'Steel'])
+        reported.length = 0
+        await hook({project: 'greenhouse', event: 'PreToolUse', id: 'abc', tool: {name: 'AskUserQuestion', questions: questions.slice(4)}})
+        const [{tool: many}] = reported as [{tool: {questions: {question: string, options: string[]}[]}}]
+        expect(many.questions).toHaveLength(4)
+        expect(many.questions[0]!.options).toHaveLength(6)
+        expect(many.questions[0]!.options[0]).toHaveLength(100)
+        reported.length = 0
+        await hook({project: 'greenhouse', event: 'PreToolUse', id: 'abc', tool: {name: 'AskUserQuestion', questions: 'Which?'}})
+        expect(reported[0]!.tool).toEqual({name: 'AskUserQuestion'})
+    })
+
     it("answers a SessionStart with the project's repo, or null, for the hook to tell the session (ORR-1070)", async () => {
         expect(await hook({project: 'greenhouse', event: 'SessionStart', id: 'abc'})).toMatchObject({id: 'abc', repo: 'https://github.com/hati/greenhouse'})
         expect(await hook({project: 'observatory', event: 'SessionStart', id: 'def'})).toMatchObject({id: 'def', repo: null})

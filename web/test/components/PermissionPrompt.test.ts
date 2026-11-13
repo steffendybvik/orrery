@@ -65,6 +65,26 @@ describe('PermissionPrompt', () => {
         expect(answered).toEqual(['allow', 'deny', 'watch'])
     })
 
+    it('shows a question as one, with its options, and opens its terminal to answer it (ORR-1155)', async () => {
+        const asking = {name: 'AskUserQuestion', questions: [{question: 'Brass or steel?', options: ['Brass', 'Steel']}]}
+        const wrapper = await mount({session: session({...started, asks: 'Claude needs your permission to use AskUserQuestion', asking} as Partial<Session>)})
+        expect(wrapper.attributes('aria-label')).toBe('shelf has a question')
+        expect(wrapper.text()).toContain('shelf has a question')
+        expect(wrapper.find('[data-question]').text()).toContain('Brass or steel?')
+        expect(wrapper.findAll('[data-question] li').map(li => li.text())).toEqual(['1. Brass', '2. Steel'])
+        expect(wrapper.text()).not.toContain('needs your permission')
+        expect(wrapper.text()).not.toContain('AskUserQuestion')
+        expect(wrapper.findAll('button').map(b => b.text()).filter(t => t)).toEqual(['Open to answer'])
+        await press(wrapper, 'Open to answer')
+        await expect.poll(() => answered).toEqual(['watch'])
+    })
+
+    it('says a question with no questions in its hook is one all the same', async () => {
+        const wrapper = await mount({session: session({asking: {name: 'AskUserQuestion'}} as Partial<Session>)})
+        expect(wrapper.text()).toContain('Claude is asking you something.')
+        expect(wrapper.find('[data-asking]').exists()).toBe(false)
+    })
+
     it('says why an answer was refused, and the buttons come back', async () => {
         const wrapper = await mount({session: session(started)})
         refusal = 'The prompt has gone'

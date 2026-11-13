@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type {Session, SessionWork} from '#shared/roadmap'
-import {cutOffLabel} from '#shared/roadmap'
+import {asksQuestion, cutOffLabel} from '#shared/roadmap'
 import {olderVersion} from '#shared/version'
 
 // One Claude session on the Sessions page. Its name, then one quiet line, wrapping as text does: what it's doing and since when, its time
@@ -92,9 +92,12 @@ const behind = computed(() => props.session.listening && olderVersion(props.sess
           </template>
         </div>
         <p class="min-w-0 text-xs text-faint *:mr-1.5">
-          <span class="whitespace-nowrap" :class="session.state === 'waiting' && 'text-rose-700 dark:text-rose-400'" :title="`Up since ${ago(session.started_at)}`">{{ SESSION_STATE[session.state] }} · {{ ago(session.since) }}</span>
+          <span class="whitespace-nowrap" :class="session.state === 'waiting' && 'text-rose-700 dark:text-rose-400'" :title="`Up since ${ago(session.started_at)}`">{{ stateLabel(session) }} · {{ ago(session.since) }}</span>
           <span v-if="session.cut_off" class="text-amber-800 dark:text-amber-400" data-testid="session-cut-off">· {{ cutOffLabel(session.cut_off) }}<template v-if="session.cut_off.text">: {{ session.cut_off.text }}</template></span>
-          <span v-if="session.state === 'waiting' && session.asking" class="inline-flex max-w-full min-w-0 items-baseline gap-1" :title="session.asking.detail">
+          <span v-if="asksQuestion(session) && session.asking?.questions?.length" class="min-w-0 max-w-80 truncate text-muted" :title="session.asking.questions.map(q => q.question).join('\n')" data-question>
+            · {{ session.asking.questions[0]!.question }}
+          </span>
+          <span v-else-if="session.state === 'waiting' && session.asking && !asksQuestion(session)" class="inline-flex max-w-full min-w-0 items-baseline gap-1" :title="session.asking.detail">
             · for <span class="text-muted">{{ toolLabel(session.asking.name) }}</span>
             <span v-if="session.asking.detail" class="max-w-80 truncate font-mono text-[11px] text-muted">{{ session.asking.detail }}</span>
           </span>

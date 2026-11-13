@@ -1,5 +1,5 @@
 import type {Milestone, Column, Comment, Issue, Kinds, Place, Project, Release, Session, SessionContext} from '#shared/roadmap'
-import {CLOSED, PRIORITIES, RISK_LEVELS, TINTS, linkRef, madeUpName, open, parseLinkRef, total} from '#shared/roadmap'
+import {CLOSED, PRIORITIES, asksQuestion, RISK_LEVELS, TINTS, linkRef, madeUpName, open, parseLinkRef, total} from '#shared/roadmap'
 import {serverName} from '#shared/connect'
 
 /** A tint's name as its colour; a `#rrggbb` as itself. */
@@ -13,8 +13,11 @@ export const isClosed = (kind: Place) => CLOSED.includes(kind as never)
  * decision (`waiting`), as the bell has it. */
 export const pendingProposal = (issue: Issue): {choices: number} | undefined => issue.proposal === 'pending' && issue.waiting === 'decision' ? {choices: issue.choices.length} : undefined
 
-/** A session's state as the page says it. `waiting` is only ever a permission prompt (a Notification hook), so it says so. */
+/** A session's state as the page says it. `waiting` is a permission prompt (a Notification hook), so it says so. */
 export const SESSION_STATE = {idle: 'idle', working: 'working', waiting: 'permission needed', starting: 'starting'}
+
+/** A session's state in words: one waiting at a question to the owner has a question, not a permission (ORR-1155). */
+export const stateLabel = (session: Pick<Session, 'state' | 'asking'>) => asksQuestion(session) ? 'has a question' : SESSION_STATE[session.state]
 
 /** The projects a session hears: its own and the others its channel serves (`also`). One that hears more than one
  * spans them, and is listed across projects; `all` when that's every project the orrery has. */
