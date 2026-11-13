@@ -15,6 +15,10 @@ import {refusedFor} from '../utils/permission'
 
 export abstract class ProjectStore extends KeyStore {
     async listProjects(): Promise<ProjectSummary[]> {
+        // From the API when it's set up (ORR-1174): the launchers' and signals' streams ask on each connect, and reading
+        // here built every project's board to answer.
+        const read = await this.fromApi<ProjectSummary[]>('/api/projects')
+        if (read) return read
         return Promise.all((await this.all<ProjectRow>('SELECT * FROM projects ORDER BY lower(name), name')).map(async row => {
             const {board, ...project} = await this.projectOf(row)
             return {...project, counts: board.counts, kinds: board.kinds, milestones: board.milestones.filter(c => c.id).length}
