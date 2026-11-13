@@ -4,7 +4,7 @@
 // is a choice someone reviewed, not drift. one-writer.test.ts reads the tables off the API's SQL and holds them to this.
 //
 // Not counted, as neither writes the other's open database: the migrations (the Node app runs them, and the Rust copy is
-// held to it by rust-migrations.test.ts), and a database move (utils/copy.ts), which writes a new file.
+// held to it by rust-migrations.test.ts), and a database move (utils/copy.ts, and the API's api/src/copy.rs), which writes a new file.
 
 export type Writer = {alone: string} | {nuxt: string, issue?: `ORR-${number}`}
 

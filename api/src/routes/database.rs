@@ -3,7 +3,8 @@
 // as those are files in its backup folder; only the copy reads the database, so only it is the API's. And what the
 // local app's backups and App settings → Database ask of the database itself (ORR-1140): whether it's a new orrery's,
 // how big a Postgres one is, and the name the orrery runs under, kept for its backups to carry.
-use crate::db::{on_postgres, sql};
+use crate::copy::{copy_into, CopyError};
+use crate::db::{is_postgres, on_postgres, sql};
 use crate::error::{ApiError, Result};
 use crate::request::body_of;
 use crate::{App, Shared};
@@ -23,6 +24,7 @@ pub(crate) fn routes() -> Router<Arc<App>> {
         .route("/api/database", get(state))
         .route("/api/database/snapshot", post(snapshot))
         .route("/api/database/compact", post(compact))
+        .route("/api/database/copy", post(copy))
         .route("/api/database/environment", put(environment))
 }
 
@@ -104,6 +106,35 @@ async fn compact(State(app): Shared, body: Bytes) -> Result<Response> {
     sqlx::query("VACUUM").execute(&mut *conn).await?;
     sqlx::query("PRAGMA wal_checkpoint(TRUNCATE)").execute(&mut *conn).await?;
     Ok(Json(json!({"compacted": true})).into_response())
+}
+
+/// `{to, replace?, mark?}`: `{copied}`, how many rows of each table went, once everything this database holds is copied
+/// into the one `to` names, a SQLite file's absolute path or a `postgres://` URL, brought up to the latest schema first
+/// (ORR-1134). As the local app's database move copies into an empty one: 409 when it has projects, unless `replace`,
+/// as a Postgres backup takes the place of the last. `mark` is kept in its settings as `backup_of`. Nothing of a copy
+/// that fails lands.
+async fn copy(State(app): Shared, body: Bytes) -> Result<Response> {
+    let body = body_of(&body);
+    let to = body.get("to").and_then(Value::as_str).filter(|to| !to.is_empty()).map(str::to_string);
+    let to = to.ok_or_else(|| ApiError::bad_request("to: the database to copy into, a SQLite file's path or a postgres:// URL"))?;
+    if !is_postgres(&to) && !Path::new(&to).is_absolute() {
+        return Err(ApiError::bad_request("to: a SQLite file's absolute path, or a postgres:// URL"));
+    }
+    let replace = body.get("replace").and_then(Value::as_bool).unwrap_or(false);
+    let mark = body.get("mark").and_then(Value::as_str).map(str::to_string);
+    // On a thread of its own: the migration's future isn't `Send` (rustc can't prove it for its borrowed steps), and a
+    // copy is long and rare.
+    let pool = app.pool.clone();
+    let runtime = tokio::runtime::Handle::current();
+    let done = tokio::task::spawn_blocking(move || runtime.block_on(copy_into(&pool, &to, replace, mark.as_deref()))).await;
+    match done.unwrap_or_else(|e| Err(CopyError::Failed(e.to_string()))) {
+        Ok(copied) => {
+            let copied: serde_json::Map<String, Value> = copied.into_iter().map(|(table, rows)| (table.to_string(), json!(rows))).collect();
+            Ok(Json(json!({"copied": copied})).into_response())
+        }
+        Err(CopyError::NotEmpty) => Err(ApiError::conflict("The target already has projects: copy into an empty orrery")),
+        Err(CopyError::Failed(why)) => Err(ApiError::conflict(format!("Couldn't copy into it: {why}"))),
+    }
 }
 
 #[cfg(test)]

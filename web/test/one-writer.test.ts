@@ -12,8 +12,9 @@ import {MIGRATIONS} from '../server/utils/migrations/sqlite'
 import {DYNAMIC, WRITERS} from './table-writers'
 
 const SRC = fileURLToPath(new URL('../../api/src', import.meta.url))
-/** The API's own code: not its tests, nor the migrations, which the Node app runs (rust-migrations.test.ts). */
-const NOT_SCANNED = /(_tests|\/testing|\/migrate|\/steps)\.rs$/
+/** The API's own code: not its tests, nor the migrations, which the Node app runs (rust-migrations.test.ts), nor the
+ * copy into another database (copy.rs), which writes that one, not the one open. */
+const NOT_SCANNED = /(_tests|\/testing|\/migrate|\/steps|\/copy)\.rs$/
 const WRITE = /\b(?:INSERT(?:\s+OR\s+[A-Z]+)?\s+INTO|UPDATE|DELETE\s+FROM)\s+"?([a-z_]+|\{[^}]*\})/g
 
 /** Each table the API's SQL writes, with the files that write it; a `{}` table is listed under its file in DYNAMIC. */

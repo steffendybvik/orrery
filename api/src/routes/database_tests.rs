@@ -94,3 +94,84 @@ async fn compacting_waits_for_enough_free_unless_asked_always() {
     // The board is still there after.
     assert_eq!(api.get(&format!("/api/projects/{project}")).send().await.status, 200);
 }
+
+/// What a SQLite copy holds, read straight from its file.
+async fn read_copy(path: &std::path::Path, query: &str) -> Vec<String> {
+    let mut copy = sqlx::AnyConnection::connect(&format!("sqlite://{}?mode=ro", path.to_string_lossy())).await.unwrap();
+    sqlx::query(query).fetch_all(&mut copy).await.unwrap().iter().map(|row| row.get::<String, _>(0)).collect()
+}
+
+#[tokio::test]
+async fn a_copy_takes_the_whole_board_into_a_new_database_ids_and_all() {
+    let api = TestApi::new().await;
+    let (project, issue) = api.board().await;
+    let to = folder().join("moved.db");
+    let reply = api.post("/api/database/copy", json!({"to": to.to_string_lossy()})).send().await;
+    assert_eq!(reply.status, 200, "{}", reply.body);
+    assert_eq!(reply.body["copied"]["projects"], 1);
+    assert_eq!(reply.body["copied"]["issues"], 1);
+    assert_eq!(read_copy(&to, "SELECT id FROM projects").await, std::slice::from_ref(&project));
+    assert_eq!(read_copy(&to, "SELECT id FROM issues").await, [issue]);
+    // The source's own statuses and settings, not the ones a new database starts with.
+    let uid = |rows: Vec<String>| rows.into_iter().next();
+    let source: String = sqlx::query(&crate::db::sql("SELECT value FROM settings WHERE key = 'uid'")).fetch_one(&api.app.pool).await.unwrap().get(0);
+    assert_eq!(uid(read_copy(&to, "SELECT value FROM settings WHERE key = 'uid'").await), Some(source));
+    let statuses = api.count("SELECT count(*) FROM statuses").await as usize;
+    assert_eq!(read_copy(&to, "SELECT id FROM statuses").await.len(), statuses);
+    // The board it came from is as it was.
+    assert_eq!(api.get(&format!("/api/projects/{project}")).send().await.status, 200);
+}
+
+#[tokio::test]
+async fn a_copy_goes_only_into_an_empty_orrery_unless_it_replaces_it_and_marks_a_backup() {
+    let api = TestApi::new().await;
+    api.board().await;
+    let to = folder().join("orrery.db");
+    let to = to.to_string_lossy().into_owned();
+    assert_eq!(api.post("/api/database/copy", json!({"to": to})).send().await.status, 200);
+    let again = api.post("/api/database/copy", json!({"to": to})).send().await;
+    assert_eq!(again.status, 409, "{}", again.body);
+    let replaced = api.post("/api/database/copy", json!({"to": to, "replace": true, "mark": "orrery-1"})).send().await;
+    assert_eq!(replaced.status, 200, "{}", replaced.body);
+    let path = std::path::Path::new(&to);
+    assert_eq!(read_copy(path, "SELECT id FROM projects").await.len(), 1);
+    assert_eq!(read_copy(path, "SELECT value FROM settings WHERE key = 'backup_of'").await, ["\"orrery-1\""]);
+}
+
+#[tokio::test]
+async fn a_copy_needs_a_database_to_go_to() {
+    let api = TestApi::new().await;
+    assert_eq!(api.post("/api/database/copy", json!({})).send().await.status, 400);
+    assert_eq!(api.post("/api/database/copy", json!({"to": ""})).send().await.status, 400);
+    assert_eq!(api.post("/api/database/copy", json!({"to": "relative/orrery.db"})).send().await.status, 400);
+}
+
+#[tokio::test]
+async fn a_copy_goes_into_postgres_too_cast_to_its_columns() {
+    // With a Postgres to test on: a schema of its own there, named in the address as an orrery's would be.
+    let Ok(url) = std::env::var("TEST_POSTGRES_URL") else { return };
+    if url.is_empty() {
+        return;
+    }
+    let api = TestApi::new().await;
+    let (project, issue) = api.board().await;
+    let schema = format!("copy_test_{}", crate::testing::random_id());
+    let mut admin = sqlx::AnyConnection::connect(&url).await.unwrap();
+    sqlx::query(&format!("CREATE SCHEMA \"{schema}\"")).execute(&mut admin).await.unwrap();
+    let to = format!("{url}{}options=-c%20search_path%3D{schema}", if url.contains('?') { '&' } else { '?' });
+    let reply = api.post("/api/database/copy", json!({"to": to, "mark": "orrery-1"})).send().await;
+    assert_eq!(reply.status, 200, "{}", reply.body);
+    let read = |query: String| {
+        let url = url.clone();
+        async move {
+            let mut conn = sqlx::AnyConnection::connect(&url).await.unwrap();
+            sqlx::query(&query).fetch_all(&mut conn).await.unwrap().iter().map(|row| row.get::<String, _>(0)).collect::<Vec<_>>()
+        }
+    };
+    assert_eq!(read(format!("SELECT id FROM \"{schema}\".projects")).await, [project]);
+    assert_eq!(read(format!("SELECT id FROM \"{schema}\".issues")).await, [issue]);
+    assert_eq!(read(format!("SELECT value FROM \"{schema}\".settings WHERE key = 'backup_of'")).await, ["\"orrery-1\""]);
+    // Its counters move on past the copied ids: the next comment there isn't refused for one it already has.
+    let next = read(format!("SELECT CAST(nextval(pg_get_serial_sequence('\"{schema}\".comments', 'id')) AS text)")).await;
+    assert!(next[0].parse::<i64>().unwrap() > api.count("SELECT coalesce(max(id), 0) FROM comments").await);
+}

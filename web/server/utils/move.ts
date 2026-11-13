@@ -11,7 +11,9 @@ import {getRequestHost} from 'h3'
 import pg from 'pg'
 import type {DatabaseCheck} from '#shared/roadmap'
 import {actorOf} from './actor'
+import {writeToApi} from './api-router'
 import {inDocker} from './backup-choice'
+import type {Db} from './database'
 import {SqliteDb} from './database'
 import {copyDatabase} from './copy'
 import {databaseSetting, hidePassword, movedFile, openMigrated, openPostgres, switchDatabase, useDatabase} from './db'
@@ -19,6 +21,7 @@ import {PostgresDb, isPostgres} from './postgres'
 import {badRequest, conflict, forbidden} from './input'
 import {ownerOnly} from './permission'
 import {viaPhone} from './phone-port'
+import {ORRERY} from '../store/schema'
 
 /** The names only this machine reaches orrery by: a move hands the data to wherever it's pointed. */
 const THIS_MACHINE = /^(localhost|.+\.localhost|127(\.\d{1,3}){3}|\[::1\])$/i
@@ -157,6 +160,14 @@ function reason(error: unknown): string {
     return message || code || 'no answer'
 }
 
+/** Copies everything into the empty database `setting` points to, already opened as `target`: the API does it when
+ * it's set up (`POST /api/database/copy`, ORR-1134), and this server only with none. */
+async function copyInto(setting: string, target: Db): Promise<Record<string, number>> {
+    const asked = await writeToApi('POST', '/api/database/copy', {to: setting}, ORRERY, {always: true})
+    if (asked) return (asked.reply as {copied: Record<string, number>}).copied
+    return copyDatabase(useDatabase(), target)
+}
+
 /** One move at a time. */
 let moving = false
 
@@ -177,7 +188,7 @@ export async function moveDatabase(setting: string, how: 'copy' | 'use', rebind:
         try {
             // Its schema laid down or brought up to date, as it would be on start.
             await target.get('SELECT 1')
-            if (how === 'copy') copied = await copyDatabase(useDatabase(), target)
+            if (how === 'copy') copied = await copyInto(setting, target)
             // Where it went is saved before anything writes to it: a save that fails (a full disk) leaves it all
             // on the one before, not the store on one and the rest on the other.
             await switchDatabase(setting, target, rebind)

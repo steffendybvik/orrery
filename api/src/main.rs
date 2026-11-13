@@ -22,6 +22,7 @@
 mod access;
 mod board;
 mod changes;
+mod copy;
 mod db;
 mod error;
 mod mcp;

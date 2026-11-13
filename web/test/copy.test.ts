@@ -1,3 +1,4 @@
+import {readFileSync} from 'node:fs'
 import {describe, expect, it} from 'vitest'
 import {COPIED_TABLES as TABLES, copyDatabase as copy} from '../server/utils/copy'
 import {SqliteDb} from '../server/utils/database'
@@ -72,5 +73,13 @@ describe('copying an orrery', () => {
     it('refuses a target that already has projects', async () => {
         const source = await filled()
         await expect(copy(source.db, source.db)).rejects.toThrow('already has projects')
+    })
+})
+
+describe('the Rust API\'s copy (ORR-1134)', () => {
+    it('copies the same tables in the same order', () => {
+        const source = readFileSync(new URL('../../api/src/copy.rs', import.meta.url), 'utf8')
+        const list = /pub const COPIED_TABLES: \[&str; \d+\] = \[([^\]]*)\]/.exec(source)?.[1] ?? ''
+        expect([...list.matchAll(/"([a-z_]+)"/g)].map(match => match[1])).toEqual([...TABLES])
     })
 })
