@@ -51,7 +51,8 @@ build context, and each sets `NUXT_API_BIN`, so the server starts it beside itse
 again on a new one after a move or a restore. One container, and one compose file, whatever the orrery. `play` builds
 the image each start, so a change in `api/` is in it.
 
-Without Docker: `pnpm install`, then `pnpm dev` on http://localhost:9000 (Node 24.22.1, pnpm 10.14.0).
+Without Docker: `pnpm install` and `cargo build` in `api/`, then `pnpm dev` on http://localhost:9000 (Node 24.22.1, pnpm
+10.14.0, Rust 1.80 or later). Without the API's build most routes answer 503 ([The Rust API](#the-rust-api)).
 
 ## The Rust API
 
