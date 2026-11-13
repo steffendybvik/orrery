@@ -327,7 +327,15 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         for (const [name, ts, rs] of steps) await both(name, ts, rs)
     })
 
-    it('sends reading the event log and resolving a line in it to the API, whose cargo tests cover them (ORR-1088, ORR-1143)', () => {
+    it('reads the event log and resolves a line in it through the API alone, as the router sends them (ORR-1088, ORR-1143)', async () => {
+        // The local app has no copy of either since ORR-1143; cargo's event_log_tests.rs has the filters and repeats.
+        await store.db.run('DELETE FROM events')
+        await store.db.run("INSERT INTO events (level, kind, message, count, first_seen, last_seen) VALUES ('error', 'server.error', 'Boom', 1, ?, ?)", '2026-11-11T09:00:00.000Z', '2026-11-11T09:00:00.000Z')
+        const read = await viaApi('GET', '/api/events/log?open=1', undefined, OWNER)
+        expect(read).toMatchObject({status: 200, body: [{level: 'error', kind: 'server.error', message: 'Boom', count: 1}]})
+        const [line] = read.body as unknown as {id: number}[]
+        expect(await viaApi('POST', `/api/events/log/${line!.id}/resolve`, {}, SESSION)).toMatchObject({status: 200, body: {id: line!.id, resolved_by: 'agent'}})
+        expect(await viaApi('GET', '/api/events/log?open=1', undefined, OWNER)).toMatchObject({status: 200, body: []})
         expect(domainOf('GET', '/api/events/log')).toBe('the event log, read')
         expect(domainOf('POST', '/api/events/log/4/resolve')).toBe('an event, resolved')
         expect(domainOf('POST', '/api/events/log')).toBeUndefined()
