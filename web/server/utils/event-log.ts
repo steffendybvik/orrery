@@ -8,12 +8,14 @@
 // With the Rust API in front, it's the table's one writer (ORR-1088): a line is made here (scrubbed, cut, Advanced
 // checked) and sent there (`PUT /api/events/log/lines`), which checks for a repeat, writes it, puts it in the outbox for
 // open pages' bells and prunes. Only while the API can't be reached is a line written here, marked `details.local`, so
-// the API's own outage (`api.unreachable`) and the errors around it are still kept.
+// the API's own outage (`api.unreachable`) and the errors around it are still kept. Reading the log and resolving a
+// line are the API's alone (`GET /api/events/log`, `POST /api/events/log/:event/resolve`), and Advanced is read from
+// its settings (ORR-1143).
 import type {OrreryEvent} from '#shared/happenings'
 import type {EventLevel, LoggedEvent} from '#shared/roadmap'
 import {ACTIVITY_FAMILIES, EVENT_LEVELS} from '#shared/roadmap'
 import type {Db} from './database'
-import {badRequest, notFound} from './input'
+import {badRequest} from './input'
 
 /** What's recorded: `details` is kept as JSON, each text in it cut to a few thousand characters. */
 export interface EventEntry {
@@ -24,21 +26,6 @@ export interface EventEntry {
     details?: Record<string, unknown>
     /** About what an untrusted schedule's session did (a write of its refused): no schedule hears it. */
     untrusted?: boolean
-}
-
-export interface EventFilter {
-    /** One level or several, comma-separated. */
-    level?: string
-    /** A kind, or what it starts with up to a dot: `session` is every `session.…`. */
-    kind?: string
-    project?: string
-    /** What a change to the roadmap was to: an issue's id, a release's version. */
-    subject?: string
-    /** Only those seen since this time. */
-    since?: string
-    /** Unresolved ones only. */
-    open?: boolean
-    limit?: number
 }
 
 /** A finished line, as it's sent to the API: its texts scrubbed and cut. `activity`: a change to the roadmap, always news. */
@@ -114,11 +101,16 @@ export class EventLog {
         this.known = null
     }
 
-    /** Whether the owner has Advanced on, so more than errors is recorded. */
+    /** Whether the owner has Advanced on, so more than errors is recorded: read from the API's settings, or the table
+     * here with no API set up or while it can't be reached (ORR-1143). */
     advanced(): Promise<boolean> {
         const known = this.read()
-        known.advanced ??= this.db.get<{value: string}>("SELECT value FROM settings WHERE key = 'advanced'")
-            .then(row => row ? JSON.parse(row.value) === true : true)
+        known.advanced ??= this.send('GET', '/api/settings').catch(error => {
+            if ((error as {statusCode?: number}).statusCode !== 503) throw error
+            return undefined
+        }).then(async sent => sent
+            ? (sent as {advanced?: unknown}).advanced !== false
+            : await this.db.get<{value: string}>("SELECT value FROM settings WHERE key = 'advanced'").then(row => row ? JSON.parse(row.value) === true : true))
         return this.kept(known.advanced)
     }
 
@@ -209,60 +201,6 @@ export class EventLog {
         const event = eventOf(row)
         this.onLogged(event, !again)
         return {event, fresh: !again}
-    }
-
-    /** Newest first (by when they were last seen). */
-    async list(filter: EventFilter = {}): Promise<LoggedEvent[]> {
-        const where: string[] = []
-        const params: string[] = []
-        if (filter.level) {
-            const levels = filter.level.split(',').map(l => l.trim()).filter(Boolean)
-            const wrong = levels.find(l => !EVENT_LEVELS.includes(l as EventLevel))
-            if (wrong) throw badRequest(`"level" has "${wrong}"; use ${EVENT_LEVELS.join(', ')}`)
-            if (levels.length) {
-                where.push(`level IN (${levels.map(() => '?').join(', ')})`)
-                params.push(...levels)
-            }
-        }
-        if (filter.kind) {
-            where.push("(kind = ? OR kind LIKE ? ESCAPE '\\')")
-            params.push(filter.kind, `${filter.kind.replace(/[\\%_]/g, '\\$&')}.%`)
-        }
-        if (filter.project) {
-            where.push('project = ?')
-            params.push(filter.project)
-        }
-        if (filter.subject) {
-            where.push('subject = ?')
-            params.push(filter.subject)
-        }
-        if (filter.since) {
-            const since = new Date(filter.since)
-            if (Number.isNaN(since.getTime())) throw badRequest(`"since" is "${filter.since}", not a time (e.g. 2026-10-27T09:00:00Z)`)
-            where.push('last_seen >= ?')
-            params.push(since.toISOString())
-        }
-        if (filter.open) where.push('resolved_at IS NULL')
-        const limit = Math.min(Math.max(1, Math.floor(filter.limit ?? 200)), 1000)
-        const rows = await this.db.all<EventRow>(`SELECT * FROM events ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
-            ORDER BY last_seen DESC, id DESC LIMIT ${limit}`, ...params)
-        return rows.map(eventOf)
-    }
-
-    /** Marks it dealt with, and its repeats not resolved yet: the next one like it is news again. `by` is who resolved
-     * it, kept when it isn't the owner (ORR-420): the bell still shows one an agent resolved until the owner looks. */
-    async resolve(id: number, by?: {name: string, owner: boolean}): Promise<LoggedEvent> {
-        const at = this.now().toISOString()
-        const who = by && !by.owner ? by.name : null
-        const row = await this.db.get<EventRow>(`UPDATE events SET resolved_by = CASE WHEN resolved_at IS NULL THEN ? ELSE resolved_by END,
-            resolved_at = coalesce(resolved_at, ?) WHERE id = ? RETURNING *`, who, at, id)
-        if (!row) throw notFound(`No event ${id}`)
-        const repeats = await this.db.all<EventRow>(`UPDATE events SET resolved_at = ?, resolved_by = ? WHERE resolved_at IS NULL AND level = ? AND kind = ?
-            AND coalesce(project, '') = ? AND message = ? RETURNING *`, at, who, row.level, row.kind, row.project ?? '', row.message)
-        for (const repeat of repeats) this.onLogged(eventOf(repeat), false)
-        const event = eventOf(row)
-        this.onLogged(event, false)
-        return event
     }
 
     /** Lets go of what's old: info after KEEP_INFO, the rest after KEEP_PROBLEMS, and the oldest past MAX_ACTIVITY
