@@ -171,6 +171,9 @@ export class Schedules {
 
     /** Every project's schedules, or one project's; soonest first, paused last. */
     async list(project?: string): Promise<Schedule[]> {
+        // From the API when it's set up (ORR-1174): each open page hears a project's schedules again when they change.
+        const read = await this.fromApi<Schedule[]>(project ? `/api/projects/${encodeURIComponent(project)}/schedules` : '/api/schedules')
+        if (read) return read
         if (project) await this.store.project(project)
         const rows = project
             ? (await this.db.all<ScheduleRow>('SELECT * FROM schedules WHERE project = ?', project))
@@ -189,7 +192,16 @@ export class Schedules {
     }
 
     async get(project: string, id: number): Promise<Schedule> {
+        const read = await this.fromApi<Schedule>(`/api/projects/${encodeURIComponent(project)}/schedules/${id}`)
+        if (read) return read
         return await this.scheduleOf(await this.row(project, id))
+    }
+
+    /** A read asked of the Rust API when it's set up (ORR-1174), which answers as the routes here once did: undefined
+     * with no API, leaving it to the database here. Imported when used, as the router reads the scheduler. */
+    private async fromApi<T>(path: string): Promise<T | undefined> {
+        const {readFromApi} = await import('./api-router')
+        return await readFromApi<T>(path)
     }
 
     async create(project: string, body: unknown, actor = AGENT, across: number | null = null): Promise<Schedule> {
