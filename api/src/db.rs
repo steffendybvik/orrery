@@ -40,26 +40,64 @@ pub fn on_postgres() -> bool {
     *POSTGRES.get().unwrap_or(&false)
 }
 
-/// SQL written with `?`, as the Nuxt server writes it for both; Postgres numbers them (`$1, $2, …`), leaving quoted
-/// text alone, as `numbered` in web/server/utils/postgres.ts does.
+/// SQL written with `?`, as the Nuxt server writes it for both; Postgres numbers them (`$1, $2, …`).
 pub fn sql(text: &str) -> String {
     if !on_postgres() {
         return text.to_string();
     }
-    let (mut n, mut quoted, mut out) = (0, false, String::with_capacity(text.len() + 8));
-    for c in text.chars() {
-        if c == '\'' {
-            quoted = !quoted
-        }
-        if c == '?' && !quoted {
-            n += 1;
-            out.push_str(&format!("${n}"))
-        } else {
-            out.push(c)
-        }
+    numbered(text)
+}
+
+/// Where `numbered` is in the SQL it reads.
+#[derive(PartialEq)]
+enum In {
+    Code,
+    Text,
+    Name,
+    LineComment,
+    BlockComment,
+}
+
+/// Each `?` numbered in turn, leaving alone a `?` in quoted text (`'…'`), a quoted name (`"…"`) or a comment (`--…`,
+/// `/*…*/`), where it's not a placeholder (ORR-1166). A doubled quote inside one (`'it''s'`) closes and reopens it,
+/// which leaves it inside.
+fn numbered(text: &str) -> String {
+    let (mut n, mut at, mut out) = (0, In::Code, String::with_capacity(text.len() + 8));
+    let mut chars = text.chars().peekable();
+    while let Some(c) = chars.next() {
+        let next = chars.peek().copied();
+        at = match (&at, c, next) {
+            (In::Code, '?', _) => {
+                n += 1;
+                out.push_str(&format!("${n}"));
+                continue;
+            }
+            (In::Code, '\'', _) => In::Text,
+            (In::Code, '"', _) => In::Name,
+            (In::Code, '-', Some('-')) => In::LineComment,
+            (In::Code, '/', Some('*')) => {
+                out.push(c);
+                out.push(chars.next().unwrap_or('*'));
+                at = In::BlockComment;
+                continue;
+            }
+            (In::Text, '\'', _) | (In::Name, '"', _) | (In::LineComment, '\n', _) => In::Code,
+            (In::BlockComment, '*', Some('/')) => {
+                out.push(c);
+                out.push(chars.next().unwrap_or('/'));
+                at = In::Code;
+                continue;
+            }
+            _ => at,
+        };
+        out.push(c)
     }
     out
 }
+
+#[cfg(test)]
+#[path = "db_tests.rs"]
+mod tests;
 
 pub fn is_postgres(setting: &str) -> bool {
     setting.starts_with("postgres://") || setting.starts_with("postgresql://")
