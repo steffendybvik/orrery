@@ -81,6 +81,7 @@ export const NOT_ROUTED: Readonly<Record<string, Line>> = {
     'PUT /api/database/environment': DATABASE,
     'POST /api/database/move': MACHINE,
     'POST /api/database/compact': {rustOnly: 'the SQLite file compacted after a clean-up or once the images are compressed: the local app asks for it itself (`writeToApi`, ORR-1134)'},
+    'POST /api/database/rows': {rustOnly: 'every row of the tables a move or a backup into (or of) Postgres copies, read in one transaction: the local app asks for it itself (`writeToApi`, ORR-1134)'},
     'POST /api/database/snapshot': SNAPSHOT,
     'POST /api/egress': SEALED,
     'POST /api/epics/{epic}/focus': FOCUS,
