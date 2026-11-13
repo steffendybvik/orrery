@@ -527,7 +527,7 @@ export function noReleases(project: string): string {
 }
 
 /** A doc's first paragraph as plain text (no headings, code, pictures or Markdown marks), cut to about 160 characters. */
-export function summaryOf(body: string): string {
+function summaryOf(body: string): string {
     let fenced = false
     const lines: string[] = []
     for (const line of body.split('\n')) {

@@ -654,7 +654,7 @@ const MCP_ANSWERED = ['content-type', 'mcp-session-id', 'allow'] as const
 /** Sends an `/mcp` request to the API as it came, JSON-RPC errors and all, with who's asking as for any route, and
  * passes on what its tools' routes set off (`orrery-*`, gathered by the API's mcp/relay.rs) as `relayed` does for a
  * route's reply: a comment carried to its session and the bell, an urgent push, the event log's lines. */
-export async function forwardMcp(event: H3Event, api: {url: string, token: string}): Promise<unknown> {
+async function forwardMcp(event: H3Event, api: {url: string, token: string}): Promise<unknown> {
     const actor = await actorOf(event)
     const body = event.method === 'POST' ? await readRawBody(event, false) : undefined
     const headers: Record<string, string> = headersFor(event, api, actor)
