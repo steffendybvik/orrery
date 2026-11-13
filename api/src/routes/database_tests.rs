@@ -94,3 +94,37 @@ async fn compacting_waits_for_enough_free_unless_asked_always() {
     // The board is still there after.
     assert_eq!(api.get(&format!("/api/projects/{project}")).send().await.status, 200);
 }
+
+#[tokio::test]
+async fn every_row_of_the_tables_asked_comes_back_as_it_is_stored() {
+    use base64::engine::general_purpose::STANDARD;
+    use base64::Engine;
+    let api = TestApi::new().await;
+    let (project, _) = api.board().await;
+    let gif = b"GIF89a\x01\x00\x01\x00\x00\x00\x00;";
+    let upload = api.post("/api/uploads", json!({"data": STANDARD.encode(gif)})).send().await;
+    assert_eq!(upload.status, 201, "{}", upload.body);
+    let reply = api.post("/api/database/rows", json!({"tables": ["projects", "uploads", "settings"]})).send().await;
+    assert_eq!(reply.status, 200, "{}", reply.body);
+    let tables = &reply.body["tables"];
+    assert_eq!(tables.as_object().unwrap().keys().collect::<Vec<_>>(), ["projects", "uploads", "settings"], "in the order asked");
+    let projects = tables["projects"].as_array().unwrap();
+    assert_eq!(projects.len(), 1);
+    assert_eq!(projects[0]["id"], project.as_str());
+    let uploads = tables["uploads"].as_array().unwrap();
+    assert_eq!(uploads.len(), 1);
+    assert_eq!(uploads[0]["id"], upload.body["id"]);
+    assert_eq!(uploads[0]["size"], json!(gif.len()), "an integer stays a number");
+    assert_eq!(uploads[0]["name"], json!(null), "no name stays null");
+    assert_eq!(uploads[0]["data"], json!({"$base64": STANDARD.encode(gif)}), "bytes come as base64");
+}
+
+#[tokio::test]
+async fn only_a_list_of_table_names_is_read() {
+    let api = TestApi::new().await;
+    assert_eq!(api.post("/api/database/rows", json!({})).send().await.status, 400);
+    assert_eq!(api.post("/api/database/rows", json!({"tables": []})).send().await.status, 400);
+    assert_eq!(api.post("/api/database/rows", json!({"tables": ["projects; DROP TABLE projects"]})).send().await.status, 400);
+    assert_eq!(api.post("/api/database/rows", json!({"tables": ["Projects"]})).send().await.status, 400);
+    assert_eq!(api.post("/api/database/rows", json!({"tables": [1]})).send().await.status, 400);
+}

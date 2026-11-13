@@ -13,8 +13,10 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post, put};
 use axum::{Json, Router};
+use base64::engine::general_purpose::STANDARD;
+use base64::Engine;
 use serde_json::{json, Value};
-use sqlx::Row;
+use sqlx::{Column, Row};
 use std::path::Path;
 use std::sync::Arc;
 
@@ -23,6 +25,7 @@ pub(crate) fn routes() -> Router<Arc<App>> {
         .route("/api/database", get(state))
         .route("/api/database/snapshot", post(snapshot))
         .route("/api/database/compact", post(compact))
+        .route("/api/database/rows", post(rows))
         .route("/api/database/environment", put(environment))
 }
 
@@ -104,6 +107,66 @@ async fn compact(State(app): Shared, body: Bytes) -> Result<Response> {
     sqlx::query("VACUUM").execute(&mut *conn).await?;
     sqlx::query("PRAGMA wal_checkpoint(TRUNCATE)").execute(&mut *conn).await?;
     Ok(Json(json!({"compacted": true})).into_response())
+}
+
+/// A table's name as the local app's copy lists them (`COPIED_TABLES` in copy.ts): lower case and `_` only, so it can
+/// go in the query as it is.
+fn table_name(name: &str) -> bool {
+    !name.is_empty() && name.bytes().all(|b| b.is_ascii_lowercase() || b == b'_')
+}
+
+/// One column's value as JSON: a number, text, null, or bytes as `{"$base64": …}` (an upload's image).
+fn value_of(row: &sqlx::any::AnyRow, i: usize) -> Value {
+    if let Ok(v) = row.try_get::<Option<i64>, _>(i) {
+        return json!(v);
+    }
+    if let Ok(v) = row.try_get::<Option<f64>, _>(i) {
+        return json!(v);
+    }
+    if let Ok(v) = row.try_get::<Option<String>, _>(i) {
+        return json!(v);
+    }
+    if let Ok(v) = row.try_get::<Option<bool>, _>(i) {
+        return json!(v);
+    }
+    match row.try_get::<Option<Vec<u8>>, _>(i) {
+        Ok(Some(bytes)) => json!({"$base64": STANDARD.encode(bytes)}),
+        _ => Value::Null,
+    }
+}
+
+/// `{tables}`: `{tables: {<table>: [row, …]}}`, every row of each table named, all read in one transaction (on Postgres
+/// one snapshot), so a write meanwhile can't leave a row pointing at one that isn't there (ORR-1134). The local app's
+/// copy of the whole orrery, as a move copies it into another database or a backup into Postgres: it writes the other
+/// database, and only this reads the one orrery runs on.
+async fn rows(State(app): Shared, body: Bytes) -> Result<Response> {
+    let asked = body_of(&body).get("tables").and_then(Value::as_array).cloned();
+    let asked = asked.filter(|tables| !tables.is_empty()).ok_or_else(|| ApiError::bad_request("tables: the tables to read, in order"))?;
+    let mut names = Vec::with_capacity(asked.len());
+    for table in &asked {
+        match table.as_str() {
+            Some(name) if table_name(name) => names.push(name.to_string()),
+            _ => return Err(ApiError::bad_request(format!("tables: {table} isn't a table's name"))),
+        }
+    }
+    let mut tx = app.pool.begin().await?;
+    if on_postgres() {
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ").execute(&mut *tx).await?;
+    }
+    let mut read = serde_json::Map::new();
+    for name in names {
+        let found = sqlx::query(&format!("SELECT * FROM {name}")).fetch_all(&mut *tx).await?;
+        let rows: Vec<Value> = found
+            .iter()
+            .map(|row| {
+                let columns = row.columns().iter().enumerate().map(|(i, column)| (column.name().to_string(), value_of(row, i)));
+                Value::Object(columns.collect())
+            })
+            .collect();
+        read.insert(name, Value::Array(rows));
+    }
+    tx.commit().await?;
+    Ok(Json(json!({"tables": read})).into_response())
 }
 
 #[cfg(test)]

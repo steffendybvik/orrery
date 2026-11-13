@@ -1446,6 +1446,26 @@ paths:
                 always: {type: boolean}
       responses:
         '200': {description: 'Whether it was compacted', content: {application/json: {schema: {type: object, properties: {compacted: {type: boolean}}}}}}
+  /api/database/rows:
+    post:
+      x-served: false
+      summary: Reads every row of the tables a copy takes
+      description: >-
+        The local app's alone (ORR-1134): every row of each table in `tables`, read in one transaction (on Postgres one
+        snapshot), for a move into another database or a backup into (or of) Postgres. The local app writes the other
+        database; only this reads the one orrery runs on. Bytes (an upload's image) come as `{$base64}`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [tables]
+              properties:
+                tables: {type: array, items: {type: string, pattern: '^[a-z_]+$'}}
+      responses:
+        '200': {description: 'The rows, by table, in the order asked', content: {application/json: {schema: {type: object, properties: {tables: {type: object, additionalProperties: {type: array, items: {type: object}}}}}}}}
+        '400': {description: 'No list of table names'}
   /api/database/snapshot:
     post:
       x-served: false
