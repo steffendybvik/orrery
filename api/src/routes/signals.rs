@@ -82,18 +82,20 @@ async fn last_signal(State(app): Shared, Path(project): Path<String>) -> Result<
 /// `?after=` the signals after that id, oldest first (anything not a number is 0, as `Number(…) || 0` reads it);
 /// `?issue=` or `?milestone=` the latest about that issue or milestone instead; `?waiting=pooled` or `scheduled` those
 /// from the last day no session has heard yet, for the one orrery picks or scheduled (ORR-1141); `?waiting=focus&issue=`
-/// the owner's or a member's focus on that issue from the last ten minutes not heard yet (ORR-1131).
+/// the owner's or a member's focus on that issue from the last ten minutes not heard yet (ORR-1131); `?focused=` the
+/// owner's focus on that issue from the last day, heard or not, and with `&target=` only one aimed at that session (ORR-1159).
 async fn list_signals(State(app): Shared, Path(project): Path<String>, Query(query): Query<HashMap<String, String>>) -> Result<Response> {
     let text = |key: &str| query.get(key).map(String::as_str).filter(|v| !v.is_empty());
-    let which = match (text("waiting"), text("issue"), text("milestone")) {
-        (Some("pooled"), _, _) => Which::Pooled,
-        (Some("scheduled"), _, _) => Which::Scheduled,
-        (Some("focus"), Some(issue), _) => Which::Focus(issue),
-        (Some("focus"), None, _) => return Err(ApiError::bad_request("\"waiting\": \"focus\" needs an \"issue\"")),
-        (Some(other), _, _) => return Err(ApiError::bad_request(format!("\"waiting\" is \"{other}\"; use pooled, scheduled, focus"))),
-        (None, Some(issue), _) => Which::Issue(issue),
-        (None, None, Some(milestone)) => Which::Milestone(milestone),
-        (None, None, None) => Which::After(after_of(query.get("after").map(String::as_str))),
+    let which = match (text("waiting"), text("issue"), text("milestone"), text("focused")) {
+        (None, _, _, Some(issue)) => Which::Focused(issue, text("target")),
+        (Some("pooled"), _, _, _) => Which::Pooled,
+        (Some("scheduled"), _, _, _) => Which::Scheduled,
+        (Some("focus"), Some(issue), _, _) => Which::Focus(issue),
+        (Some("focus"), None, _, _) => return Err(ApiError::bad_request("\"waiting\": \"focus\" needs an \"issue\"")),
+        (Some(other), _, _, _) => return Err(ApiError::bad_request(format!("\"waiting\" is \"{other}\"; use pooled, scheduled, focus"))),
+        (None, Some(issue), _, None) => Which::Issue(issue),
+        (None, None, Some(milestone), None) => Which::Milestone(milestone),
+        (None, None, None, None) => Which::After(after_of(query.get("after").map(String::as_str))),
     };
     let mut conn = app.pool.acquire().await?;
     Ok(Json(Signals::new(&mut conn).list(&project, which, LIMIT).await?).into_response())

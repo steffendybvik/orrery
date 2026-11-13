@@ -2,7 +2,7 @@
 // HTTP rather than from the database (ORR-1093). Each is undefined with no API set up (unit tests, a `nuxt dev` without
 // its build), for the store to read (or write) the database as before, until that goes too (ORR-1143). Whether a session is
 // there to hear stays this server's: the workers come back as they're stored.
-import type {Comment, Signal} from '#shared/roadmap'
+import type {Comment, IssueStatus, Signal} from '#shared/roadmap'
 import type {IssueRecord} from './schema'
 import {ORRERY} from './schema'
 
@@ -41,4 +41,11 @@ export const sessionWork = {
     unheard: (project: string, waiting: 'pooled' | 'scheduled') => read<Signal[]>(`${at(project)}/signals?waiting=${waiting}`),
     /** The owner's or a member's focuses on the issue from the last ten minutes no session has heard yet (ORR-1131). */
     focusing: (project: string, issue: string) => read<Signal[]>(`${at(project)}/signals?waiting=focus&issue=${encodeURIComponent(issue)}`),
+    /** The owner's focuses on the issue from the last day, heard or not, aimed at `session` when given (ORR-1159). */
+    focused: (project: string, issue: string, session?: string) =>
+        read<Signal[]>(`${at(project)}/signals?focused=${encodeURIComponent(issue)}${session ? `&target=${encodeURIComponent(session)}` : ''}`),
+    /** The issue as the claim needs it: its own id (for an alias or an old one), and what it waits on not done yet. */
+    blocking: (project: string, issue: string) => read<{id: string, blocked_by?: string[]}>(`${at(project)}/issues/${encodeURIComponent(issue)}`),
+    /** The orrery's statuses, each with its kind. */
+    statuses: () => read<IssueStatus[]>('/api/statuses'),
 }

@@ -194,3 +194,33 @@ fn after_reads_as_number_does() {
     assert_eq!(after_of(Some("inf")), 0.0);
     assert_eq!(after_of(Some("Infinity")), f64::INFINITY);
 }
+
+#[tokio::test]
+async fn focused_gives_the_owners_focus_from_the_last_day_heard_or_not() {
+    let api = TestApi::new().await;
+    let (project, issue) = api.board().await;
+    let now = chrono::Utc::now();
+    let at = |hours: i64| (now - chrono::Duration::hours(hours)).format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
+    let focus = |owned: &str, target: &str, delivered: &str, created: String| {
+        let (project, issue) = (project.clone(), issue.clone());
+        let api = &api;
+        let (owned, target, delivered) = (owned.to_string(), target.to_string(), delivered.to_string());
+        async move {
+            api.run(
+                "INSERT INTO signals (project, issue, kind, target, delivered_to, created_by, owned, created_at) VALUES (?, ?, 'focus', NULLIF(?, ''), ?, 'owner', CAST(? AS INTEGER), ?)",
+                &[&project, &issue, &target, &delivered, &owned, &created],
+            )
+            .await
+        }
+    };
+    let path = |query: &str| format!("/api/projects/{project}/signals?focused={issue}{query}");
+    assert_eq!(api.get(&path("")).send().await.body, json!([]), "none yet");
+    focus("0", "", "[]", at(1)).await;
+    focus("1", "", "[]", at(30)).await;
+    assert_eq!(api.get(&path("")).send().await.body, json!([]), "a member's, and the owner's from over a day ago, don't count");
+    focus("1", "sess-1", "[\"orrery · Saga\"]", at(2)).await;
+    assert_eq!(api.get(&path("")).send().await.body.as_array().unwrap().len(), 1, "heard or not");
+    assert_eq!(api.get(&path("&target=sess-1")).send().await.body.as_array().unwrap().len(), 1);
+    assert_eq!(api.get(&path("&target=sess-2")).send().await.body, json!([]), "aimed at another session");
+    assert_eq!(api.get(&format!("/api/projects/{project}/signals?focused=NOPE-9")).send().await.body, json!([]), "an issue there isn't has none");
+}
