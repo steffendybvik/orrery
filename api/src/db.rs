@@ -88,6 +88,16 @@ pub async fn open(setting: &str, schema: Option<String>) -> Result<AnyPool, Stri
                 Ok(())
             })
         })
+        // A write opens its transaction with `BEGIN` (changes::begin), which sqlx doesn't see. When its request is cut off
+        // between that and `COMMIT`, the future is dropped and the connection comes back here still inside it, holding
+        // SQLite's write lock (ORR-1164). So each one is rolled back on its way in. Outside a transaction that's a no-op:
+        // SQLite refuses it, and Postgres warns.
+        .after_release(|conn, _| {
+            Box::pin(async move {
+                conn.execute("ROLLBACK").await.ok();
+                Ok(true)
+            })
+        })
         .connect(&url)
         .await
         .map_err(|e| format!("can't open the database: {e}"))?;

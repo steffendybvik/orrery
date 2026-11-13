@@ -285,3 +285,7 @@ pub async fn prune(pool: &AnyPool) -> Result<u64> {
     let done = sqlx::query(&sql("DELETE FROM changes WHERE created_at < ? AND id < (SELECT MAX(id) FROM changes)")).bind(before).execute(&mut *conn).await?;
     Ok(done.rows_affected())
 }
+
+#[cfg(test)]
+#[path = "changes_tests.rs"]
+mod tests;
