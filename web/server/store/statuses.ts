@@ -25,6 +25,10 @@ export function resolveIn(statuses: Pick<IssueStatus, 'id' | 'kind'>[], status: 
 export abstract class StatusStore extends StoreBase {
     /** This orrery's own settings. */
     async settings(): Promise<Settings> {
+        // From the API when it's set up (ORR-1174), which answers as the route here once did, its id made there the first
+        // time: the outbox follower and every signal read them.
+        const read = await this.fromApi<Settings>('/api/settings')
+        if (read) return read
         let rows = await this.all<{key: string, value: string}>('SELECT key, value FROM settings')
         // Its id is made the first time it's asked for, and kept.
         if (!rows.some(r => r.key === 'id')) {
