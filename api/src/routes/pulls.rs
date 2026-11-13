@@ -19,7 +19,7 @@ use std::sync::Arc;
 pub(crate) fn routes() -> Router<Arc<App>> {
     Router::new()
         .route("/api/pulls/{owner}/{name}/{number}", get(get_pull).put(keep_pull))
-        .route("/api/pulls/{owner}/{name}", put(polled_repo))
+        .route("/api/pulls/{owner}/{name}", get(kept_repo).put(polled_repo))
         .route("/api/pulls/{owner}/{name}/error", put(polled_repo_failed))
         .route("/api/pulls/{owner}/{name}/history", put(polled_repo_history))
         .route("/api/pulls/forget", post(forget_pulls))
@@ -40,6 +40,12 @@ async fn polled_repo(State(app): Shared, Path((owner, name)): Path<(String, Stri
     poll.outbox = Some(Outbox::new(actor_of(&headers)));
     poll.polled(&format!("{owner}/{name}"), &body_of(&body)).await?;
     Ok(reply(StatusCode::NO_CONTENT, None, std::mem::take(&mut poll.effects)))
+}
+
+/// What the local app's poll reads of a repo before it polls it (ORR-1153): not routed, so only the local app asks.
+async fn kept_repo(State(app): Shared, Path((owner, name)): Path<(String, String)>) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    Ok(Json(PullPoll::new(&mut conn).kept(&format!("{owner}/{name}")).await?).into_response())
 }
 
 async fn polled_repo_failed(State(app): Shared, Path((owner, name)): Path<(String, String)>, headers: HeaderMap, body: Bytes) -> Result<Response> {

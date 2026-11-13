@@ -143,6 +143,7 @@ export const NOT_ROUTED: Readonly<Record<string, Line>> = {
     'GET /api/pulls/branches': GIT,
     'POST /api/pulls/forget': STORAGE,
     'POST /api/pulls/poll': GIT,
+    'GET /api/pulls/{owner}/{name}': {rustOnly: "what the local app's poll reads of a repo before it polls it (`keptOf`, ORR-1153)"},
     'PUT /api/pulls/{owner}/{name}': STORAGE,
     'PUT /api/pulls/{owner}/{name}/error': STORAGE,
     'PUT /api/pulls/{owner}/{name}/history': STORAGE,
