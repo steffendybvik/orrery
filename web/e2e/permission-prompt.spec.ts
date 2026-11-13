@@ -117,7 +117,9 @@ test('a question to the owner says so, with its options, and on a phone sits at 
     await expect(page.locator('#session-e2e-q')).not.toContainText('AskUserQuestion')
     // Docked at the foot of a phone's page, clear of its header.
     const box = (await popup.boundingBox())!
-    expect(box.y + box.height).toBeGreaterThan(844 - 40)
+    expect(box.y + box.height).toBeGreaterThan(844 - 100)
+    await expect(page.getByRole('button', {name: 'Agent'})).toBeVisible()
+    expect(box.y + box.height).toBeLessThanOrEqual((await page.getByRole('button', {name: 'Agent'}).boundingBox())!.y)
     await page.screenshot({path: test.info().outputPath('question-390.png')})
     channel.stop()
     await said({event: 'SessionEnd'})

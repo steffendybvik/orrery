@@ -2,7 +2,7 @@
 import type {Session} from '#shared/roadmap'
 
 // Every session at a permission prompt or a question, popped up at the top right of any page (ORR-489), and at the
-// foot of a phone's, so it doesn't cover the page's header and toolbar (ORR-1155), newest last, for the owner
+// foot of a phone's, above the Agent button, so it doesn't cover the page's header and toolbar (ORR-1155), newest last, for the owner
 // once they've named themselves. A session heard on several projects is shown once. One hidden (×) stays hidden until
 // it asks again (a new `since`); the sidebar still says permission needed.
 const {sessions} = useRoadmaps()
@@ -31,7 +31,7 @@ function hide(s: Session) {
 </script>
 
 <template>
-  <div v-if="named && asking.length" class="fixed inset-x-4 bottom-4 z-40 flex flex-col items-end gap-2 sm:inset-x-auto sm:top-4 sm:right-4 sm:bottom-auto">
+  <div v-if="named && asking.length" class="fixed inset-x-4 bottom-14 z-40 flex flex-col items-end gap-2 sm:inset-x-auto sm:top-4 sm:right-4 sm:bottom-auto">
     <PermissionPrompt v-for="s in asking" :key="key(s)" :session="s" @close="hide(s)" />
   </div>
 </template>
