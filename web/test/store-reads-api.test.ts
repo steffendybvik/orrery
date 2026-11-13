@@ -77,6 +77,13 @@ describe("the store's reads through the Rust API (ORR-1162)", () => {
         expect(await store.whoseWork('greenhouse', null)).toBeNull()
     })
 
+    it("reads each session's work from the API, naming the sessions only this server knows (ORR-1174)", async () => {
+        const sessions = [{id: 'a', name: 'Ada', ids: ['a', 'old']}, {id: 'b', name: 'Bo'}]
+        const path = `/api/projects/greenhouse/session-work?sessions=${encodeURIComponent(JSON.stringify(sessions))}`
+        replies[path] = {a: {issues: [], signals: []}, b: {issues: [], signals: []}}
+        expect(await store.sessionWork('greenhouse', sessions)).toEqual(replies[path])
+    })
+
     it('reads them from the database here with no API', async () => {
         expect((await store.statuses()).map(s => s.id)).toContain('todo')
         expect(await store.ownerOf()).toMatchObject({named: false})

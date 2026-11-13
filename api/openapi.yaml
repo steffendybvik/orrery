@@ -1583,6 +1583,28 @@ paths:
           description: The session's work
           content: {application/json: {schema: {type: object, required: [issues, waiting, waiting_for], properties: {issues: {type: array, items: {type: object}}, waiting: {type: boolean}, waiting_for: {type: boolean}}}}}
         '403': {$ref: '#/components/responses/Forbidden'}
+  /api/projects/{project}/session-work:
+    parameters:
+      - {$ref: '#/components/parameters/project'}
+    get:
+      x-served: false
+      summary: 'What each of the project''s sessions is on, for the Sessions page (ORR-1174)'
+      description: >-
+        Only the Nuxt server's own call (`Orrery-Came: server`), as only it knows which sessions are there. `sessions` is
+        a JSON list of `{id, name, ids}`: a session's id, the name it hears signals for every session by, and its ids
+        (its old ones after a `/clear` too; its id alone when left out). Each comes back by its id with `issues`, the
+        open ones it worked (not proposed, not closed), newest first, each with `id`, `title`, `column`, `kind`,
+        `priority` and `since`; and `signals`, the latest five of the project's last 200 sent to one of its ids or, sent
+        to every session, heard by its name.
+      parameters:
+        - {name: sessions, in: query, schema: {type: string}}
+      responses:
+        '200':
+          description: Each session's work
+          content: {application/json: {schema: {type: object, additionalProperties: {type: object, required: [issues, signals], properties: {issues: {type: array, items: {type: object}}, signals: {type: array, items: {type: object}}}}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
   /api/projects/{project}/issues/{issue}/workers:
     parameters:
       - {$ref: '#/components/parameters/project'}

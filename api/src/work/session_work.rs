@@ -16,6 +16,17 @@ use std::collections::{HashMap, HashSet};
 /// What a signal for every session names as its target (`EVERY` in web/server/store/signals.ts).
 const EVERY: &str = "*";
 
+/// A session `work` is asked about: its id, the name signals for every session are heard by, and all its ids (its old
+/// ones after a `/clear` too; its id alone when none are given).
+#[derive(serde::Deserialize)]
+pub(crate) struct Asked {
+    pub(crate) id: String,
+    #[serde(default)]
+    pub(crate) name: String,
+    #[serde(default)]
+    pub(crate) ids: Vec<String>,
+}
+
 pub(crate) struct SessionWork<'c> {
     conn: &'c mut AnyConnection,
 }
@@ -75,6 +86,61 @@ impl<'c> SessionWork<'c> {
             }
         }
         Ok(issues.into_iter().map(Value::Object).collect())
+    }
+
+    /// What each of `sessions` is on, as `sessionWork` gives it for the Sessions page (ORR-1174): `issues`, the open ones
+    /// (not proposed, not closed) it worked, the newest first, each with its id, title, column, kind and priority (and
+    /// `since`, when it started it); `signals`, the latest `count` of the project's last 200 that went to it, by one of
+    /// its ids or, for every session, heard by its name. A 404 for a project there isn't.
+    pub(crate) async fn work(&mut self, project: &str, sessions: &[Asked], count: usize) -> Result<Value> {
+        crate::board::issue_writes::IssueWrites::new(&mut *self.conn).project_uid(project).await?;
+        let listed = Issues::new(self.conn).list(project, &HashMap::new()).await?;
+        let open: HashMap<&str, &Map<String, Value>> = listed
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_object)
+            .filter(|i| !matches!(i.get("kind").and_then(Value::as_str), Some("proposed" | "done" | "canceled")))
+            .filter_map(|i| Some((i.get("id")?.as_str()?, i)))
+            .collect();
+        let worked = sqlx::query(&sql("SELECT issue, session, since FROM issue_sessions WHERE project = ? ORDER BY at DESC"))
+            .bind(project)
+            .fetch_all(&mut *self.conn)
+            .await?;
+        let recent = crate::work::signals::Signals::new(&mut *self.conn).recent(project, 200).await?;
+        let mut out = Map::new();
+        for session in sessions {
+            let ids: Vec<&str> = if session.ids.is_empty() { vec![session.id.as_str()] } else { session.ids.iter().map(String::as_str).collect() };
+            let issues: Vec<Value> = worked
+                .iter()
+                .filter(|w| ids.contains(&w.get::<String, _>("session").as_str()))
+                .filter_map(|w| {
+                    let found = open.get(w.get::<String, _>("issue").as_str())?;
+                    let mut issue = Map::new();
+                    for field in ["id", "title", "column", "kind", "priority"] {
+                        if let Some(value) = found.get(field) {
+                            issue.insert(field.into(), value.clone());
+                        }
+                    }
+                    if let Some(since) = w.get::<Option<String>, _>("since").filter(|s| !s.is_empty()) {
+                        issue.insert("since".into(), Value::from(since));
+                    }
+                    Some(Value::Object(issue))
+                })
+                .collect();
+            let signals: Vec<Value> = recent
+                .iter()
+                .filter(|s| {
+                    let target = s.get("target").and_then(Value::as_str);
+                    let heard = s.get("delivered_to").and_then(Value::as_array).is_some_and(|to| to.iter().any(|n| n.as_str() == Some(session.name.as_str())));
+                    ids.contains(&target.unwrap_or("")) || ((target.is_none() || target == Some(EVERY)) && heard)
+                })
+                .take(count)
+                .cloned()
+                .collect();
+            out.insert(session.id.clone(), json!({"issues": issues, "signals": signals}));
+        }
+        Ok(Value::Object(out))
     }
 
     /// Whether a signal of the owner's waits to reach one of `ids`: `any`, sent to it, every session or the one orrery
