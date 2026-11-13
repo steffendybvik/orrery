@@ -198,3 +198,36 @@ async fn keeps_a_use_and_with_keep_only_the_latest_by_who_made_them() {
     let read = api.get("/api/secrets/GITHUB_TOKEN").send().await.body;
     assert_eq!(read["last_used"]["error"], "timed out");
 }
+
+#[tokio::test]
+async fn the_local_app_reads_a_secret_as_sealed_to_open_it_with_its_key() {
+    let api = TestApi::new().await;
+    secret(&api, "STRIPE_KEY", r#"["api.stripe.com"]"#, Some(r#"["shop"]"#)).await;
+    secret(&api, "GITHUB_TOKEN", r#"["api.github.com"]"#, None).await;
+    let one = api.get("/api/secrets/STRIPE_KEY/sealed").send().await;
+    assert_eq!(one.status, 200, "{}", one.body);
+    assert_eq!(
+        one.body,
+        json!({"name": "STRIPE_KEY", "value": SEALED, "last4": "wxyz", "hosts": r#"["api.stripe.com"]"#, "projects": r#"["shop"]"#,
+            "created_by": "owner", "owned": 1, "created_at": "2026-11-01T00:00:00.000Z", "updated_at": "2026-11-02T00:00:00.000Z"})
+    );
+    let all = api.get("/api/sealed-secrets").send().await;
+    assert_eq!(all.status, 200, "{}", all.body);
+    let names: Vec<&str> = all.body.as_array().unwrap().iter().map(|s| s["name"].as_str().unwrap()).collect();
+    assert_eq!(names, ["GITHUB_TOKEN", "STRIPE_KEY"]);
+    assert_eq!(all.body[0]["projects"], json!(null));
+    let missing = api.get("/api/secrets/NOPE/sealed").send().await;
+    assert_eq!((missing.status.as_u16(), missing.body["message"].as_str()), (404, Some("No secret NOPE")));
+}
+
+#[tokio::test]
+async fn only_the_local_app_reads_a_secret_as_sealed() {
+    let api = TestApi::new().await;
+    secret(&api, "STRIPE_KEY", r#"["api.stripe.com"]"#, None).await;
+    for path in ["/api/secrets/STRIPE_KEY/sealed", "/api/sealed-secrets"] {
+        for refused in [api.get(path).header("orrery-came", "loopback").send().await, api.get(path).header("orrery-came", "server, loopback").send().await] {
+            assert_eq!(refused.status, 403, "{path}: {}", refused.body);
+            assert!(!refused.body.to_string().contains(SEALED), "{path}: {}", refused.body);
+        }
+    }
+}
