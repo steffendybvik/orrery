@@ -3,8 +3,9 @@ import type {Store as StoreType} from '../server/utils/store'
 import {failure, storeSetup} from './store-setup'
 import {exportBoard} from '../server/utils/board-export'
 
-// Logging in and out, who counts as a member asking in person, and bringing in a board's file (ORR-696). The key, login
-// and invite routes are the Rust API's now (ORR-1041), and their rules are tested there (people_tests.rs). Each request
+// Who counts as a member asking in person, and bringing in a board's file (ORR-696). The key, login and invite routes are
+// the Rust API's now (ORR-1041), and logging in and out too (ORR-1137): their rules are tested there (people_tests.rs,
+// api-parity.test.ts). Each request
 // goes through the real auth middleware and then the route, against a real store, on events standing in for requests.
 // Nitro's auto-imports are stood in for here.
 type Event = {path: string, method: string, headers: Record<string, string>, context: Record<string, unknown>, node: {req: unknown}, body?: unknown, params?: Record<string, string>, status?: number}
@@ -30,7 +31,6 @@ async function ask(load: () => Promise<{default: unknown}>, path: string, {metho
     const route = (await load()).default as Route
     return {data: await route(event), status: event.status ?? 200}
 }
-const logIn = (key: unknown) => ask(() => import('../server/api/auth/login.post'), '/api/auth/login', {method: 'POST', body: {key}})
 
 /** The login secret in a browser's cookie. */
 const loginOf = (headers: {cookie: string}) => headers.cookie.split('=')[1]!
@@ -38,8 +38,8 @@ const loginOf = (headers: {cookie: string}) => headers.cookie.split('=')[1]!
 /** A person's browser: logged in with a person key, as the page is, its writes saying they come from a page. */
 async function browser(person: string) {
     const {key} = await store.makeKey(person, {kind: 'person', name: 'browser'})
-    await logIn(key)
-    return {cookie: `orrery_login=${cookies.at(-1)!.value}`, ...ORIGIN}
+    const {secret} = await store.startLogin(person, key)
+    return {cookie: `orrery_login=${secret}`, ...ORIGIN}
 }
 
 beforeEach(async () => {
@@ -87,45 +87,10 @@ beforeEach(async () => {
 
 afterEach(() => vi.unstubAllGlobals())
 
-describe('POST /api/auth/login', () => {
-    it('swaps a person key for an http-only cookie', async () => {
-        const {key} = await store.makeKey('hati', {kind: 'person', name: 'browser'})
-        expect((await logIn(` ${key} `)).data).toEqual({person: 'hati'})
-        expect(cookies).toHaveLength(1)
-        expect(cookies[0]).toMatchObject({name: 'orrery_login', options: {httpOnly: true, sameSite: 'lax', path: '/'}})
-        expect((await store.loginHolder(cookies[0]!.value))?.person).toBe('hati')
-    })
-
-    it('refuses an agent key, a wrong key and no key at all', async () => {
-        const {key} = await store.makeKey('skoll', {kind: 'agent', name: 'desk'})
-        for (const tried of [key, 'orrery_person_wrong', '', 42, undefined]) {
-            expect((await failure(() => logIn(tried))).status).toBe(401)
-        }
-        expect(cookies).toEqual([])
-    })
-
-    it('refuses a revoked key', async () => {
-        const {key, id} = await store.makeKey('hati', {kind: 'person', name: 'browser'})
-        await store.revokeKey(id)
-        expect((await failure(() => logIn(key))).status).toBe(401)
-        expect(cookies).toEqual([])
-    })
-
-    it("refuses a removed person's key, and ends their login", async () => {
-        const {key} = await store.makeKey('hati', {kind: 'person', name: 'browser'})
+describe('a removed person', () => {
+    it('loses their login', async () => {
         const hati = await browser('hati')
         await store.removePerson('hati', {name: 'skoll', owner: true})
-        expect((await failure(() => logIn(key))).status).toBe(401)
-        expect(await store.loginHolder(loginOf(hati))).toBeUndefined()
-    })
-})
-
-describe('POST /api/auth/logout', () => {
-    it('ends the login on the server, so the same cookie no longer works', async () => {
-        const hati = await browser('hati')
-        expect(await store.loginHolder(loginOf(hati))).toMatchObject({person: 'hati'})
-        expect((await ask(() => import('../server/api/auth/logout.post'), '/api/auth/logout', {method: 'POST', headers: hati})).status).toBe(204)
-        expect(removed).toEqual(['orrery_login'])
         expect(await store.loginHolder(loginOf(hati))).toBeUndefined()
     })
 })

@@ -2,7 +2,7 @@
 use crate::access::people::People;
 use crate::access::{oidc, people, phone};
 use crate::error::{ApiError, Result};
-use crate::request::{auth_mode, body_of, came_of, header, local_host, owner_asking, ways_of, who_of};
+use crate::request::{auth_mode, body_of, came_of, header, local_host, login_of, owner_asking, ways_of, who_of};
 use crate::{App, Shared};
 use axum::body::Bytes;
 use axum::extract::{RawQuery, State};
@@ -26,9 +26,10 @@ pub(crate) fn routes() -> Router<Arc<App>> {
 }
 
 /// The login cookie's name for the address the browser used (`loginCookie`, ORR-956): with a port in `Host` it carries
-/// it, so two orrerys on localhost don't share one; without one (a proxy on 443) it's plain `orrery_login`.
+/// it, so two orrerys on localhost don't share one; without one (a proxy on 443) it's plain `orrery_login`. Behind the
+/// router, the address is the one the browser asked it for (`Orrery-Host`), not the API's own (ORR-1137).
 fn login_cookie(headers: &HeaderMap) -> String {
-    let host = header(headers, "host").unwrap_or_default();
+    let host = header(headers, "orrery-host").filter(|h| !h.is_empty()).or_else(|| header(headers, "host")).unwrap_or_default();
     match host.rsplit_once(':').filter(|(_, port)| !port.is_empty() && port.bytes().all(|b| b.is_ascii_digit())) {
         Some((_, port)) => format!("orrery_login_{port}"),
         None => "orrery_login".into(),
@@ -57,7 +58,7 @@ fn login_set_cookie(headers: &HeaderMap, secret: &str) -> String {
 }
 
 /// `POST /api/auth/login` {key} → {person}: swaps a person key for a login's cookie (web/server/api/auth/login.post.ts).
-/// Written ahead of the swap: the router keeps logging in for itself until the API is the front door.
+/// The router sends it here and passes its `Set-Cookie` back (ORR-1137).
 async fn log_in(State(app): Shared, headers: HeaderMap, body: Bytes) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
     let (person, secret) = People::new(&mut conn).log_in(&body_of(&body)).await?;
@@ -67,10 +68,14 @@ async fn log_in(State(app): Shared, headers: HeaderMap, body: Bytes) -> Result<R
     Ok(response)
 }
 
-/// `POST /api/auth/logout` → 204: ends this browser's login, on the server as well as its cookie (logout.post.ts).
+/// `POST /api/auth/logout` → 204: ends this browser's login, on the server as well as its cookie. Behind the router the
+/// cookie stays with it, which sends the login hashed (`Orrery-Login`, ORR-1137); asked directly, the cookie itself.
 async fn log_out(State(app): Shared, headers: HeaderMap) -> Result<Response> {
     let name = login_cookie(&headers);
-    if let Some(secret) = cookie_of(&headers, &name) {
+    if let Some(hashed) = login_of(&headers) {
+        let mut conn = app.pool.acquire().await?;
+        People::new(&mut conn).log_out_hashed(&hashed).await?;
+    } else if let Some(secret) = cookie_of(&headers, &name) {
         let mut conn = app.pool.acquire().await?;
         People::new(&mut conn).log_out(&secret).await?;
     }
