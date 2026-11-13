@@ -128,6 +128,11 @@ describe("the store's reads through the Rust API (ORR-1162)", () => {
         expect((await rows()).slice(before)).toContain('signal')
     })
 
+    it("reads this orrery's settings from the API (ORR-1174)", async () => {
+        replies['/api/settings'] = {id: 'orr_api', tint: 'teal', statuses: []}
+        expect(await store.settings()).toEqual(replies['/api/settings'])
+    })
+
     it('reads them from the database here with no API', async () => {
         expect((await store.statuses()).map(s => s.id)).toContain('todo')
         expect(await store.ownerOf()).toMatchObject({named: false})
@@ -135,6 +140,7 @@ describe("the store's reads through the Rust API (ORR-1162)", () => {
         expect((await store.listIssues('greenhouse')).map(i => i.title)).toEqual(['Water the beds'])
         expect((await store.listProjects()).map(p => p.id)).toEqual(['greenhouse'])
         expect(await store.listComments('greenhouse', 'GRE-1')).toEqual([])
+        expect((await store.settings()).id).toMatch(/^orr_/)
         expect(asked).toEqual(expect.arrayContaining(['/api/statuses', '/api/owner', '/api/people', '/api/projects/greenhouse/issues']))
     })
 })
