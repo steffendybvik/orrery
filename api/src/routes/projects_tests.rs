@@ -491,3 +491,31 @@ async fn the_projects_sharing_releases_are_those_drawing_on_it_and_its_source() 
     let door = TestApi::at_the_door().await;
     assert_eq!(door.get("/api/projects/x/release-peers").send().await.status, 403, "only the local app asks");
 }
+
+/// A project's row and an issue's, as they're stored, for the local app's store (ORR-1174): numbers as numbers, texts
+/// as they're kept (`instructions` and `muted` as JSON text), and nothing about the board.
+#[tokio::test]
+async fn the_local_app_reads_a_projects_and_an_issues_row_as_stored() {
+    let api = TestApi::new().await;
+    let (project, issue) = api.board().await;
+    let row = api.get(&format!("/api/projects/{project}/row")).send().await;
+    assert_eq!(row.status, 200, "{}", row.body);
+    assert_eq!(row.body["id"], project.as_str());
+    assert!(row.body["next_number"].is_i64(), "{}", row.body);
+    assert!(row.body["instructions"].is_string() && row.body["muted"].is_string(), "{}", row.body);
+    assert!(row.body.get("board").is_none());
+    let issue_row = api.get(&format!("/api/projects/{project}/issues/{issue}/row")).send().await;
+    assert_eq!(issue_row.status, 200, "{}", issue_row.body);
+    assert_eq!(issue_row.body["id"], issue.as_str());
+    assert!(issue_row.body["labels"].is_string(), "as JSON text: {}", issue_row.body);
+    assert!(issue_row.body["position"].is_number(), "{}", issue_row.body);
+    let missing = api.get("/api/projects/nowhere/row").send().await;
+    assert_eq!((missing.status.as_u16(), missing.body["message"].as_str()), (404, Some("No project \"nowhere\"")));
+    assert_eq!(api.get(&format!("/api/projects/nowhere/issues/{issue}/row")).send().await.status, 404);
+    let gone = api.get(&format!("/api/projects/{project}/issues/NOPE-1/row")).send().await;
+    assert_eq!((gone.status.as_u16(), gone.body["message"].as_str()), (404, Some(format!("No issue NOPE-1 in {project}").as_str())));
+    let door = TestApi::at_the_door().await;
+    let (other, theirs) = door.board().await;
+    assert_eq!(door.get(&format!("/api/projects/{other}/row")).send().await.status, 403);
+    assert_eq!(door.get(&format!("/api/projects/{other}/issues/{theirs}/row")).send().await.status, 403);
+}
