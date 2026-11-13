@@ -308,7 +308,7 @@ async function pick(tint: string | null) {
           <h2 class="text-[15px] font-semibold text-fg">{{ title.handle }}</h2>
           <p class="text-xs text-muted">
             Says whose board an issue is on, once colleagues have boards of their own: an issue's reference is
-            <span class="font-mono">{{ issueRef(handle.trim() || owner?.name || 'owner', 'DOC-132') }}</span>, for commit bodies and PR descriptions.
+            <span class="font-mono">{{ issueRef(handle.trim() || owner?.name || 'owner', 'ORR-1') }}</span>, for commit bodies and PR descriptions.
             Your GitHub login works well; left empty, it's your id.
           </p>
         </header>
