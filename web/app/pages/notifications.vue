@@ -154,7 +154,7 @@ const {width: listWidth, initial: initialListWidth} = usePaneWidth('orrery-notif
   </div>
   <div v-else-if="!shown.length" class="flex min-h-0 flex-1 flex-col items-center gap-2 overflow-y-auto px-4 py-24 text-center">
     <p class="text-sm text-muted">No notifications.</p>
-    <p class="text-xs text-faint">Agents' comments on issues land here and in the bell; their questions and proposals for you stay, marked in violet, until you answer or decide them on the issue, or clear them.</p>
+    <p class="text-xs text-faint">What agents say to you lands here and in the bell: their questions, what's on your issues, answers to you, mentions of you, and an issue shipping. Questions and proposals stay, marked in violet, until you answer or decide them on the issue, or clear them.</p>
   </div>
 
   <div v-else class="flex min-h-0 flex-1">

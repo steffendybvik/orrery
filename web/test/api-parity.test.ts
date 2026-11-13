@@ -3466,7 +3466,7 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
             await store.createComment(p, oil, {body: 'Yes'}, OWNER)
             await store.updateIssue(p, oil, {status: 'done'}, OWNER)
             await store.createIssue(p, {title: 'Add a gear', proposal: 'pending'}, SESSION)
-            await store.createComment(p, id, {body: 'Ada, the hinge is yours.'}, ADAS)
+            await store.createComment(p, id, {body: '@ada, the hinge is yours.'}, ADAS)
         }
         const latest = (await store.notices({list: 'inbox'}))
         const older = latest[2]!.id
@@ -3501,7 +3501,7 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         const told = (await store.notices({list: 'inbox'})).find(n => n.body === 'Done the frame.' && n.project === 'through-api')!.id
         const adas = (await store.notices({person: 'ada'})).map(n => n.id)
         // Ada's bell is her own: her agent's words, not the owner's questions.
-        expect((await viaApi('GET', '/api/notices', undefined, ADA)).body).toEqual(expect.arrayContaining([expect.objectContaining({body: 'Ada, the hinge is yours.'})]))
+        expect((await viaApi('GET', '/api/notices', undefined, ADA)).body).toEqual(expect.arrayContaining([expect.objectContaining({body: '@ada, the hinge is yours.'})]))
         expect((await viaApi('GET', '/api/notices', undefined, ADA)).body).not.toEqual(expect.arrayContaining([expect.objectContaining({body: 'Brass or steel?'})]))
         const gear = (await store.notices({list: 'waiting'})).find(n => n.title === 'Add a gear' && n.project === 'through-api')!
         type Step = [string, () => Promise<Outcome>, () => Promise<Outcome>]

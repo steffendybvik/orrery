@@ -201,9 +201,13 @@ export function useInbox() {
         changes.value = await apiFetch<NoticeChange[]>('/notices/changes', {query: {since}}).catch(() => changes.value)
     }
 
-    /** A notice from the events stream: into the bell, and the page's list it belongs to. */
-    function arrived(notice: Notice) {
-        notices.value = [notice, ...notices.value.filter(n => n.id !== notice.id)].slice(0, 50)
+    /** A notice from the events stream: into the bell, and the page's list it belongs to, when the server's bell has
+     * it. Only an agent's comment that's news to its reader is a notification there (ORR-1151). */
+    async function arrived(notice: Notice) {
+        const bell = await apiFetch<Notice[]>('/notices').catch(() => undefined)
+        if (!bell) return
+        notices.value = bell
+        if (!bell.some(n => !n.proposal && n.id === notice.id)) return
         const list = lists.value[isWaiting(notice) ? 'waiting' : 'inbox']
         if (list.loaded) list.items = [notice, ...list.items.filter(n => n.id !== notice.id)]
     }
