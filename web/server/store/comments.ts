@@ -48,6 +48,8 @@ export abstract class CommentStore extends SignalStore {
     }
 
     async comment(project: string, issue: string, id: number): Promise<Comment> {
+        const read = await this.fromApi<Comment>(`/api/projects/${encodeURIComponent(project)}/issues/${encodeURIComponent(issue)}/comments/${id}`)
+        if (read) return read
         issue = await this.issueId(project, issue)
         return (await this.withScheduleRequests([commentOf(await this.commentRow(project, issue, id))]))[0] as Comment
     }
@@ -122,7 +124,7 @@ export abstract class CommentStore extends SignalStore {
     async handOn(project: string, issue: string, id: number, {carry, notice, edited = false}: {carry: boolean, notice: boolean, edited?: boolean}, actor: Actor) {
         const comment = await this.comment(project, issue, id)
         if (carry) await this.carryComment(project, issue, edited ? `(Edited: this replaces their earlier comment.)\n\n${comment.body}` : comment.body, actor)
-        if (notice) this.noticed({...comment, project, title: (await this.issueRow(project, issue)).title})
+        if (notice) this.noticed({...comment, project, title: (await this.issueFacts(project, issue)).title})
     }
 
     /** Whose a comment is (ORR-658): the person's own words, or one of their agents', or nobody's (orrery itself, and an
@@ -235,7 +237,7 @@ export abstract class CommentStore extends SignalStore {
      * the sessions of whoever has the issue (ORR-656), and on what's nobody's, the owner's to their own and orrery's to no one. */
     protected async carryComment(project: string, issue: string, body: string, actor: Actor) {
         const member = actor.owner ? undefined : actor.person
-        const {assignee} = await this.issueRow(project, issue)
+        const {assignee} = await this.issueFacts(project, issue)
         const whose = member ?? await this.whoseWork(project, assignee)
         if (!member && whose === null && !actor.owner) return
         const person = whose === null ? await this.ownerId() : whose
