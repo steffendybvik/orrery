@@ -61,6 +61,22 @@ describe("the store's reads through the Rust API (ORR-1162)", () => {
         expect(await store.listComments('greenhouse', 'GRE-1')).toEqual([{id: 4, body: 'Done'}])
     })
 
+    it("says whose an issue's hand-outs are from the API's people and the board's members (ORR-1162)", async () => {
+        replies['/api/people'] = [
+            {id: 'ada', name: 'Ada', role: 'owner', created_at: 'x'},
+            {id: 'bo', name: 'Bo', role: 'member', created_at: 'x'},
+            {id: 'cy', name: 'Cy', role: 'member', created_at: 'x', removed_at: 'y'},
+        ]
+        replies['/api/owner'] = {name: 'ada', display: 'Ada', named: true}
+        replies['/api/projects/greenhouse/members'] = [{person: 'bo', name: 'Bo', role: 'owner', created_at: 'x'}]
+        expect(await store.whoseWork('greenhouse', 'bo')).toBe('bo')
+        expect(await store.whoseWork('greenhouse', 'claude')).toBe('ada')
+        expect(await store.whoseWork('greenhouse', 'cy')).toBeNull()
+        expect(await store.whoseWork('greenhouse', null)).toBe('bo')
+        replies['/api/projects/greenhouse/members'] = [{person: 'bo'}, {person: 'ada'}]
+        expect(await store.whoseWork('greenhouse', null)).toBeNull()
+    })
+
     it('reads them from the database here with no API', async () => {
         expect((await store.statuses()).map(s => s.id)).toContain('todo')
         expect(await store.ownerOf()).toMatchObject({named: false})

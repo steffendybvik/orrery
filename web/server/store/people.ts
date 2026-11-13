@@ -166,7 +166,8 @@ export abstract class PeopleStore extends OwnerStore {
         const holder = await this.holderOf(assignee)
         if (holder) return holder
         if (assignee && assignee.toLowerCase() !== 'claude') return null
-        const on = await this.all<{person: string}>('SELECT person FROM project_members WHERE project = ?', project)
+        const on = await this.fromApi<{person: string}[]>(`/api/projects/${encodeURIComponent(project)}/members`)
+            ?? await this.all<{person: string}>('SELECT person FROM project_members WHERE project = ?', project)
         return on.length === 1 ? on[0]?.person ?? null : null
     }
 
@@ -175,6 +176,8 @@ export abstract class PeopleStore extends OwnerStore {
         const id = assignee?.toLowerCase()
         if (!id) return null
         if (id === 'claude') return await this.ownerId()
+        const read = await this.fromApi<Person[]>('/api/people')
+        if (read) return read.some(p => p.id === id && !p.removed_at) ? id : null
         return await this.get('SELECT 1 FROM people WHERE id = ? AND removed_at IS NULL', id) ? id : null
     }
 
