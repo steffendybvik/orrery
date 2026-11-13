@@ -10,6 +10,18 @@ import {StoreBase} from './base'
 import {known} from '#shared/known'
 import {ownerOnly} from '../utils/permission'
 
+/** The status an issue gets from what was sent, among `statuses`: as `resolveStatus` gives it. */
+export function resolveIn(statuses: Pick<IssueStatus, 'id' | 'kind'>[], status: Input[string], plan?: Input[string]): string {
+    const first = (kind: Kind) => known(statuses.find(s => s.kind === kind), `a ${kind} status`).id
+    if (plan !== undefined && (status === undefined || status === 'todo')) return first(plan ? 'todo' : 'backlog')
+    if (status === undefined) return first('backlog')
+    const text = String(status)
+    if (statuses.some(s => s.id === text)) return text
+    if (KINDS.includes(text as Kind)) return first(text as Kind)
+    if (LEGACY_KINDS[text]) return first(LEGACY_KINDS[text])
+    throw badRequest(`"status" is "${text}", not one of ${statuses.map(s => s.id).join(', ')} (or a kind: ${KINDS.join(', ')})`)
+}
+
 export abstract class StatusStore extends StoreBase {
     /** This orrery's own settings. */
     async settings(): Promise<Settings> {
@@ -120,15 +132,7 @@ export abstract class StatusStore extends StoreBase {
     /** The status an issue gets from what was sent: a status's id, a kind (its first status), or the words
      * from before statuses (`doing`; `todo` with a `plan`). */
     async resolveStatus(status: Input[string], plan?: Input[string]): Promise<string> {
-        const statuses = await this.statuses()
-        const first = (kind: Kind) => known(statuses.find(s => s.kind === kind), `a ${kind} status`).id
-        if (plan !== undefined && (status === undefined || status === 'todo')) return first(plan ? 'todo' : 'backlog')
-        if (status === undefined) return first('backlog')
-        const text = String(status)
-        if (statuses.some(s => s.id === text)) return text
-        if (KINDS.includes(text as Kind)) return first(text as Kind)
-        if (LEGACY_KINDS[text]) return first(LEGACY_KINDS[text])
-        throw badRequest(`"status" is "${text}", not one of ${statuses.map(s => s.id).join(', ')} (or a kind: ${KINDS.join(', ')})`)
+        return resolveIn(await this.statuses(), status, plan)
     }
 
     /** What a status filter or focus means: the status ids it covers (an id, a kind, or an old word). */

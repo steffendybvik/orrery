@@ -10,6 +10,7 @@ import {EpicStore} from './epics'
 import {doneIssues} from './reads'
 import type {Worker} from './session-work'
 import {sessionWork} from './session-work'
+import {resolveIn} from './statuses'
 
 /** How long a session's mark on an issue it's starting holds off another before its status lands. */
 const LOCK_LANDS = 5000
@@ -132,13 +133,16 @@ export abstract class ClaimStore extends EpicStore {
      * and a reviewer's findings go to the session on it that way. Closing it (`status` a closed one) is any session's,
      * and one no session is on any more is free to take over. */
     async claim(project: string, issue: string, status: Input[string], session: string) {
-        issue = await this.issueId(project, issue)
+        // Read from the Rust API when it's in front (ORR-1159), as the one on the database then; otherwise here.
+        const read = status === undefined ? undefined : await sessionWork.blocking(project, issue)
+        issue = read?.id ?? await this.issueId(project, issue)
         if (status !== undefined) {
-            const to = await this.resolveStatus(status)
-            const kind = (await this.statuses()).find(s => s.id === to)?.kind
+            const statuses = await sessionWork.statuses()
+            const to = statuses ? resolveIn(statuses, status) : await this.resolveStatus(status)
+            const kind = (statuses ?? await this.statuses()).find(s => s.id === to)?.kind
             if (kind && CLOSED.includes(kind)) return
             if (kind === 'started') {
-                const blockers = await this.blockers(project, issue)
+                const blockers = read ? read.blocked_by ?? [] : await this.blockers(project, issue)
                 if (blockers.length && !await this.focusedOn(project, issue)) {
                     throw conflict(`${issue} is blocked by ${blockers.join(', ')}, which ${blockers.length === 1 ? "isn't" : "aren't"} done yet; pick another issue`)
                 }
@@ -167,6 +171,8 @@ export abstract class ClaimStore extends EpicStore {
     /** Whether the owner pointed a session (`session`, when given) at this issue in the last day: their explicit focus
      * starts it, blocked or not. */
     private async focusedOn(project: string, issue: string, session?: string): Promise<boolean> {
+        const read = await sessionWork.focused(project, issue, session)
+        if (read) return read.length > 0
         const since = new Date(Date.now() - 86_400_000).toISOString()
         return !!await this.get(`SELECT 1 FROM signals WHERE project = ? AND issue = ? AND kind = 'focus' AND owned = 1 AND created_at >= ?${session ? ' AND target = ?' : ''} LIMIT 1`,
             project, issue, since, ...session ? [session] : [])

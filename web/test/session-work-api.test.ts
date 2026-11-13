@@ -74,4 +74,20 @@ describe('the sessions’ bookkeeping through the Rust API (ORR-1141)', () => {
         expect(await store.focusOnItsWay('greenhouse', 'GRE-1')).toBe(true)
         expect(asked).toContain(`GET ${path}`)
     })
+
+    it("checks a session's start of an issue against the API's blockers, statuses and focus (ORR-1159)", async () => {
+        replies['/api/projects/greenhouse/issues/GRE-1'] = {id: 'GRE-1', blocked_by: ['GRE-7']}
+        replies['/api/statuses'] = [{id: 'todo', kind: 'todo'}, {id: 'doing', kind: 'started'}, {id: 'shipped', kind: 'done'}]
+        replies[workers] = [{issue: 'GRE-1', started: false, worker: null}]
+        const focused = '/api/projects/greenhouse/signals?focused=GRE-1'
+        replies[focused] = []
+        await expect(store.claim('greenhouse', 'GRE-1', 'started', 's')).rejects.toThrow('GRE-1 is blocked by GRE-7')
+        expect(asked).toContain(`GET ${focused}`)
+        replies[focused] = [{id: 1, kind: 'focus'}]
+        await expect(store.claim('greenhouse', 'GRE-1', 'doing', 's')).resolves.toBeUndefined()
+        replies[focused] = []
+        await expect(store.claim('greenhouse', 'GRE-1', 'shipped', 's')).resolves.toBeUndefined()
+        replies['/api/projects/greenhouse/issues/GRE-1'] = {id: 'GRE-1'}
+        await expect(store.claim('greenhouse', 'GRE-1', 'started', 's')).resolves.toBeUndefined()
+    })
 })

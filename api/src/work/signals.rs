@@ -32,6 +32,9 @@ pub(crate) enum Which<'a> {
     /// The owner's or a member's focus on the issue from the last ten minutes that no session has heard yet: it's on
     /// its way, so another isn't sent (`focusOnItsWay`, ORR-515).
     Focus(&'a str),
+    /// The owner's focus on the issue from the last day, heard or not, aimed at the session when one is given: their
+    /// explicit focus lets a session start it, blocked or held above (`focusedOn`, ORR-601, ORR-613).
+    Focused(&'a str, Option<&'a str>),
 }
 
 /// So long ago, as the signals' `created_at` has it.
@@ -86,6 +89,18 @@ impl<'c> Signals<'c> {
                 .bind(ago(chrono::Duration::minutes(10)))
                 .fetch_all(&mut *self.conn)
                 .await?
+            }
+            Which::Focused(sent, target) => {
+                let id = Issues::new(self.conn).resolve(project, sent, false).await?;
+                let aimed = if target.is_some() { " AND target = ?" } else { "" };
+                let query = sql(&format!(
+                    "SELECT {COLUMNS} FROM signals WHERE project = ? AND issue = ? AND kind = 'focus' AND owned = 1 AND created_at >= ?{aimed} ORDER BY id"
+                ));
+                let mut query = sqlx::query(&query).bind(project).bind(id).bind(a_day_ago());
+                if let Some(target) = target {
+                    query = query.bind(target);
+                }
+                query.fetch_all(&mut *self.conn).await?
             }
             Which::Issue(sent) | Which::Milestone(sent) => {
                 let milestone = matches!(which, Which::Milestone(_));
