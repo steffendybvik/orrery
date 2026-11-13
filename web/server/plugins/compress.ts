@@ -8,7 +8,7 @@ import {appendResponseHeader, getRequestHeader, getResponseHeader, setResponseHe
 // (`nitro.compressPublicAssets`).
 
 /** Smaller than this, gzip's header and the work cost more than they save. */
-export const MIN_BYTES = 1024
+const MIN_BYTES = 1024
 
 /** The body to send in place of `body`, gzipped, or undefined to leave it as it is. */
 export function compressed(event: H3Event, body: unknown): Buffer | undefined {

@@ -13,7 +13,7 @@ import {existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync} 
 import {homedir} from 'node:os'
 import {dirname, join, sep} from 'node:path'
 
-export const LABEL = 'orrery.launcher'
+const LABEL = 'orrery.launcher'
 export const configFile = () => join(process.env.XDG_CONFIG_HOME || join(homedir(), '.config'), 'orrery', 'launcher.json')
 
 /** Whether this is Linux inside WSL on Windows: WSL's own variables say so, or its kernel's name. */

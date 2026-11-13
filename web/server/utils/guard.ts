@@ -7,7 +7,7 @@ import {createError} from 'h3'
 import type {H3Event} from 'h3'
 import {PERMISSIONS} from '#shared/permissions'
 import type {Permission, PermissionCell} from '#shared/permissions'
-import {holdsBoard, issueNow} from './roster'
+import {holdsBoard, issueIfAny} from './roster'
 
 /** A row's route (`POST /api/projects/:project/issues`) as a request matches it: its method, and its path with each
  * `:name` one part, a trailing slash or a query allowed. */
@@ -47,7 +47,7 @@ export function matchRoute(route: string, method: string, path: string): Record<
 const LIMITS: Record<NonNullable<PermissionCell['check']>, (params: Record<string, string>, person?: string) => Promise<boolean>> = {
     /** A comment only on one of the proposals an untrusted session raised: pending, labelled `external`. */
     externalProposal: async ({project, issue}) => {
-        const found = project && issue ? await issueNow(decoded(project), decoded(issue)) : null
+        const found = project && issue ? await issueIfAny(decoded(project), decoded(issue)) : null
         return found?.proposal === 'pending' && found.labels.includes(EXTERNAL)
     },
     /** Only the person holding the board the route names (ORR-654). */
