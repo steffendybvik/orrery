@@ -9,7 +9,7 @@
 import type {AllBranches, IssueBranches, RepoBranch} from '#shared/roadmap'
 import {branchVerdict, SAFE_BRANCH} from '#shared/roadmap'
 import {conflict, notFound} from './input'
-import {GITHUB_SECRET, issueIdsIn, PAGE, PAGES} from './pulls'
+import {GITHUB_SECRET, issueIdsIn, keptRepo, PAGE, PAGES} from './pulls'
 import type {Pulls} from './pulls'
 import type {Store} from './store'
 
@@ -107,15 +107,15 @@ export class Branches {
     }
 
     private async fresh(repo: string, projects: string[], asker: string, token: boolean): Promise<RepoRead> {
-        const among = projects.map(() => '?').join(', ')
         // The branches of releases being prepared: the base is the newest.
-        const preparing = (await this.store.db.all<{branch: string}>(`SELECT branch FROM releases WHERE project IN (${among}) AND branch IS NOT NULL AND shipped_on IS NULL ORDER BY created_at DESC`, ...projects)).map(r => r.branch)
+        const preparing = await this.pulls.preparing(projects)
         const {read, base, more, main} = token ? await this.graph(repo, asker, preparing[0]) : await this.list(repo, asker)
         const held = new Set([...preparing, ...main ? [main] : []])
         const branches: RepoBranch[] = []
         for (const branch of read) {
-            const issue = await this.pulls.issueOf(projects, issueIdsIn({body: '', head: {ref: branch.name}}))
-            const kind = issue ? await this.kindOf(issue.project, issue.id) : undefined
+            const named = await this.pulls.named(projects, issueIdsIn({body: '', head: {ref: branch.name}}))
+            const issue = named && {project: named.project, id: named.id, title: named.title}
+            const kind = named?.kind ?? undefined
             const worked = !!issue && kind === 'started' && !!await this.store.takenFrom(issue.project, issue.id, undefined).catch(() => null)
             const {head_sha, ...shown} = branch
             const facts = {
@@ -127,12 +127,6 @@ export class Branches {
             branches.push({...shown, repo, ...issue ? {issue: {...issue, kind: kind ?? ''}} : {}, carry_on, ...branchVerdict({...facts, worked})})
         }
         return {repo, projects, base, token, branches, ...more ? {cut: read.length} : {}}
-    }
-
-    /** The kind of status the issue is in: started, done… */
-    private async kindOf(project: string, id: string) {
-        const row = await this.store.db.get<{status: string}>('SELECT status FROM issues WHERE project = ? AND id = ?', project, id)
-        return (await this.store.statuses()).find(s => s.id === row?.status)?.kind
     }
 
     private async graph(repo: string, asker: string, preparing: string | undefined) {
@@ -172,8 +166,7 @@ export class Branches {
     /** Without a token GitHub's list says only a name and a commit, so the PR is the latest orrery keeps of that branch. */
     private async list(repo: string, asker: string) {
         const {value, more} = await this.pulls.askPages<{name: string, commit: {sha: string}}>(repo, asker, `/repos/${repo}/branches?per_page=${PAGE}`)
-        const kept = await this.store.db.all<{branch: string, number: number, url: string, state: 'open' | 'merged' | 'closed'}>(
-            'SELECT DISTINCT branch, number, url, state FROM issue_pulls WHERE repo = ? ORDER BY number', repo)
+        const kept = (await keptRepo(this.store, repo)).recorded
         const read: Read[] = value.map(({name, commit}) => {
             const pull = kept.findLast(k => k.branch === name)
             return {name, sha: commit.sha, committed_at: null, ahead: null, ...pull ? {pull: {number: pull.number, url: pull.url, state: pull.state}} : {}}

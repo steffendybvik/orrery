@@ -9,11 +9,12 @@ use crate::work::pull_poll::PullPoll;
 use crate::work::pulls::{check_rating, pull_number, Pulls};
 use crate::{App, Shared};
 use axum::body::Bytes;
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post, put};
 use axum::{Json, Router};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 pub(crate) fn routes() -> Router<Arc<App>> {
@@ -23,6 +24,9 @@ pub(crate) fn routes() -> Router<Arc<App>> {
         .route("/api/pulls/{owner}/{name}/error", put(polled_repo_failed))
         .route("/api/pulls/{owner}/{name}/history", put(polled_repo_history))
         .route("/api/pulls/forget", post(forget_pulls))
+        .route("/api/pulls/repos", get(repos))
+        .route("/api/pulls/named", get(named))
+        .route(&format!("{P}/issues/{{issue}}/kept-pulls"), get(kept_on_issue))
         .route(&format!("{P}/issues/{{issue}}/pulls/{{owner}}/{{name}}/{{number}}/risk"), put(rate_pull))
 }
 
@@ -46,6 +50,25 @@ async fn polled_repo(State(app): Shared, Path((owner, name)): Path<(String, Stri
 async fn kept_repo(State(app): Shared, Path((owner, name)): Path<(String, String)>) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
     Ok(Json(PullPoll::new(&mut conn).kept(&format!("{owner}/{name}")).await?).into_response())
+}
+
+/// The projects' repos and the branches of releases being prepared (ORR-1153): not routed, so only the local app asks.
+async fn repos(State(app): Shared) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    Ok(Json(Pulls::new(&mut conn).repos().await?).into_response())
+}
+
+/// The first issue among `?projects=` that one of `?ids=` is, each list comma-separated (ORR-1153): not routed.
+async fn named(State(app): Shared, Query(query): Query<HashMap<String, String>>) -> Result<Response> {
+    let list = |key: &str| query.get(key).map(|v| v.split(',').filter(|s| !s.is_empty()).map(str::to_string).collect::<Vec<_>>()).unwrap_or_default();
+    let mut conn = app.pool.acquire().await?;
+    Ok(Json(Pulls::new(&mut conn).named(&list("projects"), &list("ids")).await?).into_response())
+}
+
+/// What's kept of an issue's pull requests, for the local app's issue page (ORR-1153): not routed.
+async fn kept_on_issue(State(app): Shared, Path((project, issue)): Path<(String, String)>) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    Ok(Json(Pulls::new(&mut conn).kept_on_issue(&project, &issue).await?).into_response())
 }
 
 async fn polled_repo_failed(State(app): Shared, Path((owner, name)): Path<(String, String)>, headers: HeaderMap, body: Bytes) -> Result<Response> {

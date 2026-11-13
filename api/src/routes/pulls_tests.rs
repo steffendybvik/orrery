@@ -436,16 +436,92 @@ async fn a_repo_reads_back_as_the_poll_kept_it() {
     keep(&api, 1, kept(&[&project], &[&issue], "feat/sieve")).await;
     let read = api.get("/api/pulls/ada/primes").send().await;
     assert_eq!(read.status, 200, "{}", read.body);
-    assert_eq!(read.body["repo"], json!({"token": true, "history_page": 3}));
-    assert_eq!(
-        read.body["pulls"][0],
-        json!({"number": 1, "state": "open", "review": null, "review_id": null, "checks": "passing", "merged": false, "closed": false, "told": ["opened"]})
-    );
+    assert_eq!(read.body["repo"], json!({"polled_at": "2026-11-05T10:00:00Z", "token": true, "error": null, "history_page": 3}));
+    let mut first = polled_pull(1, false, false);
+    first["seen_at"] = json!("2026-11-05T10:00:00Z");
+    assert_eq!(read.body["pulls"][0], first, "each PR as kept, its lists and flags as sent");
     assert_eq!(read.body["pulls"][1]["merged"], json!(true));
-    let recorded = read.body["recorded"].as_array().unwrap();
-    assert_eq!(recorded.len(), 1);
-    assert_eq!(recorded[0]["number"], json!(1));
-    assert!(recorded[0]["updated_at"].is_string());
+    assert_eq!(
+        read.body["recorded"],
+        json!([{"number": 1, "updated_at": "2026-11-02T10:00:00Z", "branch": "feat/sieve", "url": "https://github.com/ada/primes/pull/12", "state": "open"}])
+    );
     // Another repo's are its own.
     assert_eq!(api.get("/api/pulls/ada/other").send().await.body, json!({"repo": null, "pulls": [], "recorded": []}));
+}
+
+#[tokio::test]
+async fn the_projects_repos_read_back_oldest_first_with_the_releases_being_prepared() {
+    let api = TestApi::new().await;
+    let empty = api.get("/api/pulls/repos").send().await;
+    assert_eq!(empty.status, 200, "{}", empty.body);
+    assert_eq!(empty.body, json!({"projects": [], "preparing": []}));
+    let primes = api.project("Primes").await;
+    let gears = api.project("Gears").await;
+    for project in [&primes, &gears] {
+        let on = api.patch(&format!("/api/projects/{project}"), json!({"release_mode": "own"})).send().await;
+        assert_eq!(on.status, 200, "{}", on.body);
+    }
+    api.patch(&format!("/api/projects/{primes}"), json!({"repo": "https://github.com/ada/primes"})).send().await;
+    for (version, branch) in [("1.0.0", "v1-rc"), ("1.1.0", "v1.1-rc")] {
+        let made = api.post(&format!("/api/projects/{primes}/releases"), json!({"version": version, "branch": branch})).send().await;
+        assert_eq!(made.status, 201, "{}", made.body);
+    }
+    api.post(&format!("/api/projects/{gears}/releases"), json!({"version": "0.1.0"})).send().await;
+    let read = api.get("/api/pulls/repos").send().await;
+    assert_eq!(read.body["projects"], json!([{"id": primes, "repo": "https://github.com/ada/primes"}, {"id": gears, "repo": null}]));
+    let preparing = read.body["preparing"].as_array().unwrap();
+    assert_eq!(preparing.len(), 2, "a release with no branch isn't one: {preparing:?}");
+    assert!(preparing.iter().all(|r| r["project"] == json!(primes)));
+}
+
+#[tokio::test]
+async fn an_issue_is_named_by_its_id_or_an_old_one_with_its_statuss_kind() {
+    let api = TestApi::new().await;
+    let (project, issue) = api.board().await;
+    let named = |projects: &str, ids: &str| format!("/api/pulls/named?projects={projects}&ids={ids}");
+    let read = api.get(&named(&project, &format!("NOPE-1,{issue}"))).send().await;
+    assert_eq!(read.status, 200, "{}", read.body);
+    assert_eq!(read.body, json!({"issue": {"project": project, "id": issue, "title": "Sieve", "kind": "backlog"}}), "the first id that's an issue");
+    sqlx::query(&crate::db::sql("INSERT INTO issue_aliases (project, alias, issue) VALUES (?, 'OLD-7', ?)"))
+        .bind(&project)
+        .bind(&issue)
+        .execute(&api.app.pool)
+        .await
+        .unwrap();
+    assert_eq!(api.get(&named(&project, "OLD-7")).send().await.body["issue"]["id"], json!(issue));
+    assert_eq!(api.get(&named("elsewhere", &issue)).send().await.body, json!({"issue": null}), "only among the projects asked");
+    assert_eq!(api.get("/api/pulls/named").send().await.body, json!({"issue": null}));
+}
+
+#[tokio::test]
+async fn an_issues_kept_prs_read_back_with_its_old_ids_and_their_ratings() {
+    let api = TestApi::new().await;
+    let (project, issue) = api.board().await;
+    let path = format!("/api/projects/{project}/issues/{issue}/kept-pulls");
+    assert_eq!(api.get(&path).send().await.body, json!({"ids": [issue], "pulls": []}));
+    keep(&api, 12, kept(&[&project], &[&issue], "feat/sieve")).await;
+    let mut later = kept(&[&project], &[&issue], "feat/wheel");
+    later["updated_at"] = json!("2026-11-03T10:00:00Z");
+    later["merged"] = json!(true);
+    later["merged_at"] = json!("2026-11-03T10:00:00Z");
+    keep(&api, 13, later).await;
+    let rated = api.put(&risk_path(&project, &issue, "12"), json!({"level": "high", "why": "touches the sieve"})).send().await;
+    assert_eq!(rated.status, 200, "{}", rated.body);
+    sqlx::query(&crate::db::sql("INSERT INTO issue_aliases (project, alias, issue) VALUES (?, 'OLD-7', ?)"))
+        .bind(&project)
+        .bind(&issue)
+        .execute(&api.app.pool)
+        .await
+        .unwrap();
+    let read = api.get(&format!("/api/projects/{project}/issues/OLD-7/kept-pulls")).send().await;
+    assert_eq!(read.status, 200, "{}", read.body);
+    assert_eq!(read.body["ids"], json!([issue, "OLD-7"]), "by an old id too");
+    let pulls = read.body["pulls"].as_array().unwrap();
+    assert_eq!(pulls.iter().map(|p| p["number"].as_i64().unwrap()).collect::<Vec<_>>(), vec![13, 12], "the newest first");
+    assert_eq!(pulls[0]["state"], "merged");
+    assert_eq!(pulls[0]["risk"], Value::Null);
+    assert_eq!((&pulls[1]["risk"], &pulls[1]["risk_why"], &pulls[1]["risk_by"]), (&json!("high"), &json!("touches the sieve"), &json!("owner")));
+    assert_eq!(pulls[1]["repo"], "ada/primes");
+    let missing = api.get(&format!("/api/projects/{project}/issues/NOPE-9/kept-pulls")).send().await;
+    assert_eq!(missing.status, 404, "{}", missing.body);
 }
