@@ -39,6 +39,13 @@ Given `ORRERY_URL`, outside a repo, it also sets Claude Code up for that orrery 
   project from the id; the others take `project`, or, left out, the session's own: the one orrery started it for, else
   the one the launcher's list maps its folder (or a folder above it) to. A connected repo's own server of the same name
   takes precedence there.
+- **orrery's own `/mcp` beside it**, `orrery-<environment>-api`, when the orrery serves `/mcp` as the line runs: an
+  `http` entry, named as the launcher names it, and the channel then lists only its own tools (`ORRERY_TOOLS=local`).
+  Claude Code tells the entry nothing about the session it's in, so its `headersHelper` (`bootstrap.mjs headers`) finds
+  the `claude` that runs it and waits up to 5 seconds for the channel to write which session that is, to
+  `~/.orrery/sessions/<claude pid>`; `/mcp` then ties the session's writes to it, as it does a launcher's session. With
+  no channel to write it, `/mcp` still works, tied to no session. Run the line again after the orrery starts or stops
+  serving `/mcp`.
 - **orrery's hooks at user level**, in `~/.claude/settings.json`, beside your own. Claude Code runs them as well as a
   folder's own hooks, so the user-level one says nothing where the folder has orrery's hook already, or where no project
   is known for the session: none started it, and the launcher's list maps no project to its folder. So a `claude` in a
@@ -124,7 +131,7 @@ pushes what the session hears. Without it, the channel has every tool, as an old
 for a session it starts on an orrery that answers MCP at `/mcp`, and gives the session an `http` entry for `/mcp`
 beside the channel (`<server>-api`, its tools allowed), started on a Claude session id of its own so `/mcp` knows which
 session calls. The chat and untrusted sessions get it too, saying so to `/mcp` as their channel does, and held there as
-they are everywhere else. Sessions you open yourself keep every tool in the channel for now.
+they are everywhere else. Sessions you open yourself get it from the install line ([below](#set-up-the-machine-once)).
 `ORRERY_ID` is the orrery's id (on its Connect page, or `GET /api/settings`): the channel refuses another orrery at
 `ORRERY_URL`, so a repo set up for one never writes to another after an address changes. A repo that works with two
 Orrerys has one server for each. An older setup, a server per project with `ORRERY_PROJECT`, works the same.

@@ -3,7 +3,7 @@ import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {describe, expect, it} from 'vitest'
 // @ts-expect-error: plain JavaScript, no types
-import {setUpUser, standsDown, undoUser, userServer, withTrust, withUserHooks, withoutUserHooks} from '../../channel/claude-user-setup.mjs'
+import {setUpUser, standsDown, undoUser, userMcpServer, userServer, withTrust, withUserHooks, withoutUserHooks} from '../../channel/claude-user-setup.mjs'
 // @ts-expect-error: plain JavaScript, no types
 import {commandsFor} from '../../channel/home-folder.mjs'
 // @ts-expect-error: plain JavaScript, no types
@@ -94,6 +94,28 @@ describe("the install line's user-level setup", () => {
         expect(readJson(where.state).mcpServers).toEqual({})
         expect(readJson(where.state).projects[HOME].hasTrustDialogAccepted).toBe(false)
         expect(readJson(where.settings)).toEqual({theme: 'dark'})
+
+        // On an orrery serving `/mcp` (ORR-1102): it beside the channel, which lists only its own tools; both undone.
+        setUpUser({...at, home: HOME, run, mcp: true, files: where})
+        const servers = readJson(where.state).mcpServers
+        expect(Object.keys(servers)).toEqual(['orrery-personal', 'orrery-personal-api'])
+        expect(servers['orrery-personal'].env.ORRERY_TOOLS).toBe('local')
+        // Run again without it (the orrery stopped serving it), the `/mcp` entry goes and the channel has every tool.
+        setUpUser({...at, home: HOME, run, mcp: true, files: where})
+        setUpUser({...at, home: HOME, run, files: where})
+        expect(Object.keys(readJson(where.state).mcpServers)).toEqual(['orrery-personal'])
+        expect(readJson(where.state).mcpServers['orrery-personal'].env.ORRERY_TOOLS).toBeUndefined()
+        setUpUser({...at, home: HOME, run, mcp: true, files: where})
+        expect(undoUser({run, homeOf: (id: string) => `/Users/me/.orrery/${id}/home`, files: where})).toEqual(['orrery-personal'])
+        expect(readJson(where.state).mcpServers).toEqual({})
+    })
+
+    it("names orrery's /mcp as the launcher does, with a helper marked as the install's", () => {
+        expect(userMcpServer(at)).toEqual({
+            name: 'orrery-personal-api',
+            config: {type: 'http', url: `${URL}/mcp`, headersHelper: `ORRERY_SCOPE=user ORRERY_URL=${URL} ORRERY_ID=orr_abc123 node "/Users/me/.orrery/bootstrap.mjs" headers`},
+        })
+        expect(() => userMcpServer({...at, url: 'http://x; rm -rf ~'})).toThrow("can't go into a hook's command")
     })
 })
 

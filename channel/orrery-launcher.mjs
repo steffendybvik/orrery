@@ -49,7 +49,7 @@ import {addToList, adoptable, configFile, inWsl, install, listChanges, listIn, r
 import {agentFor} from './agents.mjs'
 import {repoContext} from './repo-context.mjs'
 import {channelFor, channelsIn, projectsIn, servesEvery} from './repo-channels.mjs'
-import {besideFor, servesMcp} from './mcp-beside.mjs'
+import {besideFor, besideName, servesMcp} from './mcp-beside.mjs'
 import {resumeArgs} from './locked-down.mjs'
 import {follow} from './sse.mjs'
 import {openWatch} from './terminal.mjs'
@@ -217,8 +217,10 @@ async function setUpMachine(url) {
     const commands = commandsFor({bootstrap: BOOTSTRAP, checkout: dirname(fileURLToPath(import.meta.url))})
     const home = homeFolder(orrery.id)
     setUpHome(home, {url, orrery, commands})
-    const {server, settings: file} = agent.setUp({url, orrery, commands, home})
-    console.log(`${agent.name} reaches ${url} from any folder now: ${server} is a user-level server, orrery's hooks are in ${file}, and ${home} is trusted for the sessions it starts there.`)
+    // Its `/mcp` beside the channel, when it serves that and the agent can have it (ORR-1102), as the sessions it starts get.
+    const mcp = !!agent.mcpBeside && await servesMcp(url, {headers: authHeaders(url)})
+    const {server, settings: file} = agent.setUp({url, orrery, commands, home, mcp})
+    console.log(`${agent.name} reaches ${url} from any folder now: ${server} is a user-level server${mcp ? `, with ${besideName(server)} beside it for orrery's /mcp` : ''}, orrery's hooks are in ${file}, and ${home} is trusted for the sessions it starts there.`)
 }
 
 const problem = tmuxProblem()
