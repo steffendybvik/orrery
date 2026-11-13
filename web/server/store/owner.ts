@@ -46,6 +46,8 @@ export abstract class OwnerStore extends StatusStore {
 
     /** The owner: their name as the page shows it, their `Orrery-Actor` id, and whether they've given it. */
     async ownerOf(): Promise<Owner> {
+        const read = await this.fromApi<Owner>('/api/owner')
+        if (read) return read
         const row = await this.get<{id: string, name: string}>("SELECT id, name FROM people WHERE role = 'owner'")
         return row ? {name: row.id, display: row.name, named: true} : {name: this.unnamed, display: this.unnamed, named: false}
     }

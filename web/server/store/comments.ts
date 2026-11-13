@@ -25,6 +25,8 @@ const scheduleRequestOf = (row: ScheduleRequestRow): ChatScheduleRequest => ({
 
 export abstract class CommentStore extends SignalStore {
     async listComments(project: string, issue: string): Promise<Comment[]> {
+        const read = await this.fromApi<Comment[]>(`/api/projects/${encodeURIComponent(project)}/issues/${encodeURIComponent(issue)}/comments`)
+        if (read) return read
         issue = await this.issueId(project, issue)
         await this.issueRow(project, issue)
         return await this.withScheduleRequests((await this.all<CommentRow>(`SELECT c.*, ${ANSWERED} FROM comments c WHERE project = ? AND issue = ? ORDER BY created_at, id`, project, issue)).map(commentOf))

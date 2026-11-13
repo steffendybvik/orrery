@@ -18,6 +18,9 @@ export abstract class IssueStore extends ClaimStore {
     protected abstract moveIssue(from: string, id: string, to: string, parent: Input[string], milestone: Input[string], actor: Actor): Promise<string>
 
     async listIssues(project: string, filter: IssueFilter = {}): Promise<IssueRecord[]> {
+        const query = new URLSearchParams(Object.entries(filter).filter(([, value]) => value !== undefined && value !== null && value !== '').map(([key, value]) => [key, String(value)])).toString()
+        const read = await this.fromApi<IssueRecord[]>(`/api/projects/${encodeURIComponent(project)}/issues${query ? `?${query}` : ''}`)
+        if (read) return read
         const records = issueRecords(project, await this.boardOf(project))
         if (filter.milestone && filter.milestone !== 'none') filter = {...filter, milestone: await this.milestoneId(project, filter.milestone)}
         if (filter.parent && filter.parent !== 'none') filter = {...filter, parent: await this.issueId(project, filter.parent)}

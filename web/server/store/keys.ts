@@ -176,7 +176,10 @@ export abstract class KeyStore extends PeopleStore {
     /** Whether `name` is a person here, by name or id, or stands for one (`owner`). */
     async isPerson(name: string): Promise<boolean> {
         const id = actorId(name)
-        return id === 'owner' || !!await this.get('SELECT 1 FROM people WHERE id = ?', id)
+        if (id === 'owner') return true
+        const read = await this.fromApi<{id: string}[]>('/api/people')
+        if (read) return read.some(p => p.id === id)
+        return !!await this.get('SELECT 1 FROM people WHERE id = ?', id)
     }
 
     private async needsPerson(id: string) {

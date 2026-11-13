@@ -18,6 +18,8 @@ const personOf = ({id, name, role, created_at, removed_at}: PersonRow): Person =
 export abstract class PeopleStore extends OwnerStore {
     /** Everyone, the owner first, then in the order they were added; those removed stay listed, with `removed_at`. */
     async people(): Promise<Person[]> {
+        const read = await this.fromApi<Person[]>('/api/people')
+        if (read) return read
         return (await this.all<PersonRow>("SELECT * FROM people ORDER BY role = 'owner' DESC, created_at, id")).map(personOf)
     }
 
@@ -151,6 +153,8 @@ export abstract class PeopleStore extends OwnerStore {
 
     /** Whether more than one person is here: only then do the rails between people hold. */
     protected async shared(): Promise<boolean> {
+        const read = await this.fromApi<Person[]>('/api/people')
+        if (read) return read.filter(p => !p.removed_at).length > 1
         return (await this.one<{n: number}>('SELECT count(*) AS n FROM people WHERE removed_at IS NULL')).n > 1
     }
 

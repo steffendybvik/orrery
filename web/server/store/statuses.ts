@@ -70,6 +70,8 @@ export abstract class StatusStore extends StoreBase {
 
     /** The issue statuses, in board order: by kind, then as arranged. */
     async statuses(): Promise<IssueStatus[]> {
+        const read = await this.fromApi<IssueStatus[]>('/api/statuses')
+        if (read) return read
         const rows = await this.all<IssueStatus>('SELECT id, name, kind, color, position FROM statuses ORDER BY position, id')
         return KINDS.flatMap(kind => rows.filter(r => r.kind === kind))
     }
