@@ -65,10 +65,10 @@ fn database_hash(setting: &str) -> String {
     Sha256::digest(setting.as_bytes()).iter().map(|b| format!("{b:02x}")).collect()
 }
 
+/// `GET /health`: that the API is up, for the local app that starts it and waits for it. It needs no token, so it says
+/// nothing else (ORR-1170).
 async fn health() -> Json<Value> {
-    Json(
-        json!({"ok": true, "domains": ["docs", "statuses", "issues, reading", "comments, reading", "activity", "claims", "an issue, deleted", "an issue, its words", "milestones", "releases", "people", "invites", "keys", "logins", "uploads, reading", "presets", "secrets, reading", "settings", "a pull request, reading", "a pull request's risk", "schedules, reading", "projects, listed", "a project, made", "a project, changed", "the bell", "epics", "milestone and epic comments"]}),
-    )
+    Json(json!({"ok": true}))
 }
 
 fn router(app: Arc<App>) -> Router {
