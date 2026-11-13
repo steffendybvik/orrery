@@ -8,7 +8,7 @@ import {join} from 'node:path'
 import {fileURLToPath} from 'node:url'
 import {describe, expect, it, vi} from 'vitest'
 // @ts-expect-error: plain JavaScript, no types
-import {chatOnly, lockedDown} from '../../channel/locked-down.mjs'
+import {besideArgs, chatOnly, lockedDown} from '../../channel/locked-down.mjs'
 import {endSignal, spawnCoverage} from './spawn-coverage'
 
 import {FAKE_TMUX} from './fake-tmux'
@@ -179,6 +179,9 @@ const launchOf = (id: string, more: Record<string, unknown> = {}): Launch => ({i
 const claudeArgs = (call: string[]) => call.slice(call.indexOf('claude') + 1, call.lastIndexOf('--append-system-prompt'))
 /** The repo it was told it's in, in its system prompt. */
 const toldRepo = (call: string[]) => call[call.lastIndexOf('--append-system-prompt') + 1]
+/** orrery's `/mcp` beside the session's channel, as the launcher gave it (ORR-1102): every session has it (ORR-1072). */
+const besideIn = (call: string[]) => ({name: 'greenhouse-api', session: call[call.indexOf('--session-id') + 1]!, fresh: true,
+    config: {mcpServers: {'greenhouse-api': JSON.parse(call[call.lastIndexOf('--mcp-config') + 1]!).mcpServers['greenhouse-api']}}})
 const envOf = (call: string[]) => call.flatMap((arg, at) => arg === '-e' ? [call[at + 1]!] : [])
 
 describe.concurrent("a launcher's own loop", {timeout: 40_000}, () => {
@@ -195,7 +198,7 @@ describe.concurrent("a launcher's own loop", {timeout: 40_000}, () => {
             expect(claim!.headers['orrery-launcher']).toBe('launcher-token')
             const [call] = called('new-session')
             expect(call!.slice(0, 6)).toEqual(['new-session', '-d', '-s', nameOf(ID.a), '-c', repo])
-            expect(claudeArgs(call!)).toEqual(['--dangerously-load-development-channels', 'server:greenhouse', '--permission-mode', 'auto'])
+            expect(claudeArgs(call!)).toEqual(['--dangerously-load-development-channels', 'server:greenhouse', '--permission-mode', 'auto', ...besideArgs(besideIn(call!))])
             expect(envOf(call!)).toEqual(expect.arrayContaining([`ORRERY_URL=${orrery.url}`, 'ORRERY_PROJECT=greenhouse', `ORRERY_STARTED=${ID.a}`, 'ORRERY_AFTER=5', 'ORRERY_HEAR=greenhouse,pantry', 'ORRERY_PERSON=hati']))
             expect(envOf(call!).some(pair => pair.startsWith('ORRERY_UNTRUSTED') || pair.startsWith('ORRERY_CHAT'))).toBe(false)
             expect(state()[nameOf(ID.a)]).toMatchObject({'@orrery_launcher': expect.stringMatching(/^\d+$/), '@orrery_context': '{"note":"start here"}'})
@@ -221,7 +224,7 @@ describe.concurrent("a launcher's own loop", {timeout: 40_000}, () => {
             await vi.waitFor(() => expect(state()[nameOf(ID.a)]?.['@orrery_untrusted']).toBe('yes'), WAIT)
             const [call] = called('new-session')
             const args = claudeArgs(call!)
-            expect(args.slice(2)).toEqual(lockedDown(repo, 'greenhouse'))
+            expect(args.slice(2)).toEqual(lockedDown(repo, 'greenhouse', besideIn(call!)))
             expect(args[args.indexOf('--tools') + 1]).toBe('')
             expect(args).not.toContain('auto')
             expect(envOf(call!)).toContain('ORRERY_UNTRUSTED=yes')
@@ -234,7 +237,7 @@ describe.concurrent("a launcher's own loop", {timeout: 40_000}, () => {
             orrery.event('launch', launchOf(ID.a, {chat: true}))
             await vi.waitFor(() => expect(state()[nameOf(ID.a)]?.['@orrery_chat']).toBe('yes'), WAIT)
             const [call] = called('new-session')
-            expect(claudeArgs(call!).slice(2)).toEqual(chatOnly(repo, 'greenhouse'))
+            expect(claudeArgs(call!).slice(2)).toEqual(chatOnly(repo, 'greenhouse', besideIn(call!)))
             expect(envOf(call!)).toContain('ORRERY_CHAT=yes')
         })
 
@@ -254,7 +257,7 @@ describe.concurrent("a launcher's own loop", {timeout: 40_000}, () => {
             expect(session).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-/)
             expect(config(work!)).toEqual({type: 'http', url: `${orrery.url}/mcp`, headers: {'Orrery-Actor': 'claude', 'Orrery-Session': session, 'Orrery-Person': 'hati'}})
             expect(claudeArgs(work!)).toEqual(expect.arrayContaining(['--allowedTools', 'mcp__greenhouse-api']))
-            expect(envOf(work!)).toContain('ORRERY_TOOLS=local')
+            expect(envOf(work!).join(' ')).not.toContain('ORRERY_TOOLS')
             // The chat and an untrusted session too, saying so to /mcp as their channel does, whose rails hold them.
             const id = (call: string[]) => call[call.indexOf('--session-id') + 1]!
             expect(config(chat!).headers).toEqual({'Orrery-Actor': 'claude', 'Orrery-Session': id(chat!), 'Orrery-Chat': 'yes', 'Orrery-Launch': ID.b})
@@ -263,19 +266,17 @@ describe.concurrent("a launcher's own loop", {timeout: 40_000}, () => {
             // Still its one --mcp-config, strict: the channel's entry (none in this repo) and /mcp's, nothing of the repo's.
             expect(claudeArgs(untrusted!).filter(a => a === '--mcp-config')).toHaveLength(1)
             expect(claudeArgs(untrusted!)).toEqual(expect.arrayContaining(['--strict-mcp-config', '--allowedTools', 'mcp__greenhouse', 'mcp__greenhouse-api']))
-            for (const call of [chat!, untrusted!]) expect(envOf(call)).toContain('ORRERY_TOOLS=local')
         })
 
-        it("keeps every tool in its channel when the orrery doesn't serve /mcp", async context => {
+        it("gets orrery's /mcp beside its channel even while the orrery doesn't serve it, as the board's tools are only there (ORR-1072)", async context => {
             const {orrery, start, called, state} = await bench(context)
             await start()
             await vi.waitFor(() => expect(orrery.reported()).toHaveLength(1), WAIT)
             orrery.event('launch', launchOf(ID.a))
             await vi.waitFor(() => expect(state()[nameOf(ID.a)]?.['@orrery_stops_at']).toBe('never'), WAIT)
             const [call] = called('new-session')
-            expect(call).not.toContain('--mcp-config')
-            expect(call).not.toContain('--session-id')
-            expect(envOf(call!)).not.toContain('ORRERY_TOOLS=local')
+            expect(JSON.parse(call![call!.indexOf('--mcp-config') + 1]!).mcpServers['greenhouse-api']).toMatchObject({type: 'http', url: `${orrery.url}/mcp`})
+            expect(call).toContain('--session-id')
         })
 
         it("that another launcher claimed starts nothing", async context => {

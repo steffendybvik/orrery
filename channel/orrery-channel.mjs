@@ -28,8 +28,8 @@ import {serverName} from './server-name.mjs'
 import {signalWords} from './signal-words.mjs'
 import {claudeWindow} from './session.mjs'
 import {writeSessionFile} from './session-file.mjs'
-import {sessionHeaders} from './mcp-beside.mjs'
-import {instructionsFor} from './instructions.mjs'
+import {servesMcp, sessionHeaders} from './mcp-beside.mjs'
+import {instructionsFor, NO_MCP} from './instructions.mjs'
 import {follow} from './sse.mjs'
 import {CHOOSE_APP, orreryTools, toolsFor} from './tools.mjs'
 import {BOOTSTRAP, VERSION, olderThan} from './version.mjs'
@@ -55,10 +55,6 @@ const untrusted = process.env.ORRERY_UNTRUSTED === 'yes'
 /** Started for the owner's chat (the launcher says, in ORRERY_CHAT): the launch, which is the chat's id. It answers in
  * the chat, and says so on all it sends. */
 const chat = process.env.ORRERY_CHAT === 'yes' ? process.env.ORRERY_STARTED : undefined
-/** Beside the server's `/mcp` (the launcher says, in ORRERY_TOOLS, ORR-1102): only the tools that need this machine or
- * that `/mcp` doesn't serve yet, while it still pushes what the session hears. Without it, every tool, as an older
- * install has them. */
-const local = process.env.ORRERY_TOOLS === 'local'
 /** Started as a global session (the launcher says, in ORRERY_GLOBAL, ORR-1079): it has no project of its own. */
 const globalSession = process.env.ORRERY_GLOBAL === 'yes' && !chat
 /** What a chat's tools reach (ORR-1063): every project its channel lists, not only the one it hears, so it can ask for
@@ -73,11 +69,15 @@ const startedFor = () => process.env.ORRERY_STARTED && (projects.includes(proces
 /** Why it won't serve this orrery (another than ORRERY_ID), once it knows. */
 let refused = ''
 
+/** Whether the orrery serves `/mcp` as this session starts (ORR-1072): the board's tools are there, never here, so a
+ * session without it is told so plainly rather than finding them missing. */
+const mcp = await servesMcp(base, {headers: authHeaders(base)})
+if (!mcp) log(NO_MCP(base))
 const serves = every ? 'every project on it' : projects.length === 1 ? `project "${projects[0]}"` : `projects ${projects.map(p => `"${p}"`).join(', ')}`
 const server = new Server({name: 'orrery', version: VERSION}, {
     capabilities: {experimental: {'claude/channel': {}}, tools: {listChanged: true}},
     instructions: instructionsFor({base, serves, chat: !!chat, untrusted, several: every || projects.length > 1, global: globalSession,
-        unlinked: !chat && !untrusted && !process.env.ORRERY_STARTED && !mapped}),
+        unlinked: !chat && !untrusted && !process.env.ORRERY_STARTED && !mapped, mcp}),
 })
 // Each call's answer, for the Context page's "so far" (ORR-549): sent plain, as `delivered` is, so the chat's and an
 // untrusted session's guards don't take it for one of their writes.
@@ -150,8 +150,8 @@ async function chooseApp({app, project}) {
     if (picked.url.replace(/\/+$/, '') === base) mapped = projectAt(process.cwd(), base)
     return `This session uses ${picked.name} (${picked.url}) with ${tools}, and this folder is linked to ${project}, so later sessions here report to it without asking.`
 }
-const callTool = orreryTools({root: `${base}/api`, projects: reached, home: own, session: window.id, person, auth: authHeaders(base), untrusted, chat, local, report: reportCall, load: loadTools, link})
-server.setRequestHandler(ListToolsRequestSchema, async () => ({tools: [...chosen().state === 'unchosen' ? [CHOOSE_APP] : [], ...toolsFor(reached, {chat: !!chat, untrusted, loaded: [...loaded], home: own(), ...local ? {split: 'local'} : {}})]}))
+const callTool = orreryTools({root: `${base}/api`, projects: reached, home: own, session: window.id, person, auth: authHeaders(base), untrusted, chat, local: true, report: reportCall, load: loadTools, link})
+server.setRequestHandler(ListToolsRequestSchema, async () => ({tools: [...chosen().state === 'unchosen' ? [CHOOSE_APP] : [], ...toolsFor(reached, {chat: !!chat, untrusted, loaded: [...loaded], home: own(), split: 'local'})]}))
 server.setRequestHandler(CallToolRequestSchema, async request => {
     const choice = chosen()
     if (request.params.name === 'choose_app') {

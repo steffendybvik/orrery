@@ -451,7 +451,7 @@ const moreTools = (groups, said = GROUPS_SAID) => ({
 
 const MORE_TOOLS = moreTools(ON_DEMAND)
 
-/** What the channel keeps when the server's `/mcp` serves the rest (ORR-1102, `ORRERY_TOOLS=local`): what works on
+/** What the channel keeps, as the server's `/mcp` serves the rest (ORR-1102, ORR-1072): what works on
  * this machine (the launcher's sessions and folders, `gh` in the session's folder, a secret opened with this machine's
  * key), and what `/mcp` doesn't serve yet (ORR-1100, ORR-1101). Each tool is listed by one of the two, never both. */
 export const CHANNELS_OWN = ['sessions', 'next', 'start_issue', 'finish_issue', 'link_folder', 'egress', 'github_issues', 'github_pulls', 'branches', 'delegate_issue']
@@ -545,7 +545,7 @@ export function toolsFor(projects, {chat = false, untrusted = false, loaded = []
     const groups = split === 'served' ? SERVED_ON_DEMAND : ON_DEMAND
     const later = Object.entries(groups).filter(([group]) => !loaded.includes(group)).flatMap(([, names]) => names)
     const gated = tools => chat || untrusted ? tools : [...tools.filter(t => !later.includes(t.name)), ...later.length ? [split === 'served' ? SERVED_MORE_TOOLS : MORE_TOOLS] : []]
-    // Split between the channel (`local`) and `/mcp` (`served`, its lists), or every tool here as before (ORR-1102).
+    // Split between the channel (`local`) and `/mcp` (`served`, its lists), or every tool, as the two together list them (ORR-1102).
     const tools = split === 'local'
         ? requestsOnly([...all.filter(t => CHANNELS_OWN.includes(t.name) || chat && t.name.startsWith('request')), ...untrusted ? [] : [BRANCHES]],
             CHANNELS_REQUESTS, 'start, stop or extend a session, or message sessions')

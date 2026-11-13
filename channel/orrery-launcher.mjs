@@ -217,10 +217,12 @@ async function setUpMachine(url) {
     const commands = commandsFor({bootstrap: BOOTSTRAP, checkout: dirname(fileURLToPath(import.meta.url))})
     const home = homeFolder(orrery.id)
     setUpHome(home, {url, orrery, commands})
-    // Its `/mcp` beside the channel, when it serves that and the agent can have it (ORR-1102), as the sessions it starts get.
-    const mcp = !!agent.mcpBeside && await servesMcp(url, {headers: authHeaders(url)})
+    // Its `/mcp` beside the channel, whenever the agent can have it (ORR-1102): the board's tools are only there (ORR-1072),
+    // so it goes in even while the orrery doesn't serve it, and the line says so.
+    const mcp = !!agent.mcpBeside
     const {server, settings: file} = agent.setUp({url, orrery, commands, home, mcp})
     console.log(`${agent.name} reaches ${url} from any folder now: ${server} is a user-level server${mcp ? `, with ${besideName(server)} beside it for orrery's /mcp` : ''}, orrery's hooks are in ${file}, and ${home} is trusted for the sessions it starts there.`)
+    if (mcp && !await servesMcp(url, {headers: authHeaders(url)})) console.log(`${url} doesn't serve /mcp yet, so sessions have none of the board's tools until its Rust API runs.`)
 }
 
 const problem = tmuxProblem()
@@ -542,13 +544,12 @@ function part(entry) {
         const startedOn = await orreryIdOf(url)
         const env = {ORRERY_URL: url, ORRERY_PROJECT: project, ORRERY_STARTED: launch.id, ...startedOn ? {ORRERY_STARTED_ON: startedOn} : {}, ORRERY_REPO_TOLD: 'yes', ORRERY_AFTER: String(launch.after), ...hears.length ? {ORRERY_HEAR: hears.join(',')} : {}, ...launch.untrusted ? {ORRERY_UNTRUSTED: 'yes'} : {}, ...launch.chat ? {ORRERY_CHAT: 'yes'} : {}, ...launch.global ? {ORRERY_GLOBAL: 'yes'} : {}, ...launch.person ? {ORRERY_PERSON: launch.person} : {}, ...keyFor(url) ? {ORRERY_KEY: keyFor(url)} : {}}
         const server = channelFor(folder, url, project)?.name ?? project
-        // orrery's `/mcp` beside the session's channel, when the orrery serves it and the agent can have it (ORR-1102):
-        // the channel then lists only its own tools. Otherwise the channel has every tool, as before. The chat and an
-        // untrusted session say so to `/mcp` as their channel does, and its rails hold them as the server's guards do.
-        const beside = agent.mcpBeside && await servesMcp(url, {headers: authHeaders(url)})
+        // orrery's `/mcp` beside the session's channel, whenever the agent can have it (ORR-1102): the board's tools are
+        // only there, the channel has those that need this machine (ORR-1072). The chat and an untrusted session say so
+        // to `/mcp` as their channel does, and its rails hold them as the server's guards do.
+        const beside = agent.mcpBeside
             ? besideFor({url, server, person: launch.person, auth: authHeaders(url), untrusted: !!launch.untrusted, ...launch.chat && !launch.untrusted ? {chat: launch.id} : {}, ...resumeArgs(launch).length ? {resume: launch.resume} : {}})
             : undefined
-        if (beside) env.ORRERY_TOOLS = 'local'
         tmux('new-session', '-d', '-s', launch.tmux, '-c', folder, ...Object.entries(env).flatMap(([k, v]) => ['-e', `${k}=${v}`]),
             ...agent.command({dir: folder, server, launch, mode, told: where, beside}))
         tmux('set-option', '-t', launch.tmux, LAUNCHER, String(process.pid))
