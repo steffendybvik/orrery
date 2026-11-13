@@ -1,7 +1,7 @@
 // What every part of the store stands on: the database, telling open pages of a change, reading rows and
 // records, the owner's protection, and writing.
 import {AsyncLocalStorage} from 'node:async_hooks'
-import type {ActivityField, Board, IssueStatus, Notice, Project, Settings, Signal, Starts} from '#shared/roadmap'
+import type {ActivityField, Board, Effort, Issue, IssueStatus, Notice, Project, Settings, Signal, Starts} from '#shared/roadmap'
 import {numberOf, shortId} from '#shared/roadmap'
 import type {Input} from '../utils/input'
 import {badRequest, notFound} from '../utils/input'
@@ -247,6 +247,16 @@ export abstract class StoreBase {
         const row = await this.get<MilestoneRow>('SELECT * FROM milestones WHERE project = ? AND id = ?', project, id)
         if (!row) throw notFound(`No milestone "${id}" in ${project}`)
         return row
+    }
+
+    /** What passing a comment on needs of an issue (ORR-1174): its title, assignee, labels, model and effort, from the API
+     * when it's set up, which reads the issue alike (a 404 when it isn't there), else from its row here. Each comment the
+     * API relays reads them. */
+    protected async issueFacts(project: string, id: string): Promise<{title: string, assignee: string | null, labels: string[], model: string | null, effort: Effort | null}> {
+        const read = await this.fromApi<Issue & {model?: string | null, effort?: Effort | null}>(`/api/projects/${encodeURIComponent(project)}/issues/${encodeURIComponent(id)}`)
+        if (read) return {title: read.title, assignee: read.assignee ?? null, labels: read.labels, model: read.model ?? null, effort: read.effort ?? null}
+        const row = await this.issueRow(project, id)
+        return {title: row.title, assignee: row.assignee, labels: JSON.parse(row.labels) as string[], model: row.model ?? null, effort: row.effort ?? null}
     }
 
     protected async issueRow(project: string, id: string): Promise<IssueRow> {

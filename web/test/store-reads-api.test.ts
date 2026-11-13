@@ -89,6 +89,17 @@ describe("the store's reads through the Rust API (ORR-1162)", () => {
         expect(await store.listProjects()).toEqual(replies['/api/projects'])
     })
 
+    it("reads a comment, and the issue it's on, from the API as it passes a relayed comment on (ORR-1174)", async () => {
+        const notices: unknown[] = []
+        const telling = new Store(testDb(), () => {}, () => {}, notice => notices.push(notice))
+        await telling.createProject({name: 'Greenhouse', key: 'GRE'})
+        replies['/api/projects/greenhouse/issues/GRE-9/comments/4'] = {id: 4, issue: 'GRE-9', body: 'From the API', created_by: 'claude'}
+        replies['/api/projects/greenhouse/issues/GRE-9'] = {id: 'GRE-9', title: 'Only in the API', labels: [], assignee: 'claude'}
+        expect(await telling.comment('greenhouse', 'GRE-9', 4)).toEqual(replies['/api/projects/greenhouse/issues/GRE-9/comments/4'])
+        await telling.handOn('greenhouse', 'GRE-9', 4, {carry: false, notice: true}, {name: 'claude', owner: false})
+        expect(notices).toEqual([expect.objectContaining({id: 4, body: 'From the API', project: 'greenhouse', title: 'Only in the API'})])
+    })
+
     it('reads them from the database here with no API', async () => {
         expect((await store.statuses()).map(s => s.id)).toContain('todo')
         expect(await store.ownerOf()).toMatchObject({named: false})
