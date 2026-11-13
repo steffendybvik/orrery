@@ -60,9 +60,10 @@ function actorOf(change: Change, payload: Record<string, unknown>): Actor {
     }
 }
 
-/** Tells the store's hooks what one row from elsewhere set off. A signal or a bell's notice is only ever this server's
- * own today (the router hands a comment on), so one from elsewhere is left, and said once. */
-async function apply(store: Store, change: Change, unknown: Set<string>) {
+/** Tells the store's hooks what one row from elsewhere set off. A signal or a bell's notice is the API's row for a write
+ * this server asked of it (ORR-1174), which it has passed on already (`signalled`, `handOn`), so it's left: delivering
+ * one another server asked for is ORR-983's. */
+async function apply(store: Store, change: Change) {
     const payload = (typeof change.payload === 'string' ? JSON.parse(change.payload) : change.payload ?? {}) as Record<string, unknown>
     if (change.kind === 'project.changed') {
         if (change.project) store.changed(change.project)
@@ -81,8 +82,7 @@ async function apply(store: Store, change: Change, unknown: Set<string>) {
         // A chat's messages the API added or changed (ORR-1100): this server runs the chat, so it reads them again.
         if (change.subject) await chatHeard(change.subject)
     } else if (change.kind === 'signal' || change.kind === 'notice') {
-        if (!unknown.has(change.kind)) console.warn(`[orrery] the outbox has a ${change.kind} this server didn't write, which it doesn't deliver yet (ORR-983)`)
-        unknown.add(change.kind)
+        // Passed on already, by the request that wrote it.
     } else if (change.project) {
         const text = (value: unknown) => typeof value === 'string' ? value : null
         store.told(change.kind, change.project, change.subject ?? '', actorOf(change, payload), {from: text(payload.from), to: text(payload.to)})
@@ -106,7 +106,6 @@ export async function followOutbox(store: Store, options: {
     stopped: () => boolean
     every?: number
 }) {
-    const unknown = new Set<string>()
     let after = options.after
     let failing = false
     // Those waiting on a page read after they asked (`caughtUp`), told once the feed has nothing more.
@@ -120,7 +119,7 @@ export async function followOutbox(store: Store, options: {
             if (page) {
                 await store.relaying(async () => {
                     if (page.gap) await readAgain(store)
-                    for (const change of page.changes) if (!store.wroteChange(change.id)) await apply(store, change, unknown)
+                    for (const change of page.changes) if (!store.wroteChange(change.id)) await apply(store, change)
                 })
                 full = page.changes.length > 0 && after !== 'newest' && page.last > after
                 if (page.last !== after) options.saved(after = page.last)

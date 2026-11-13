@@ -183,31 +183,40 @@ impl Signals<'_> {
             Some(_) => return Err(ApiError::bad_request("\"instructions\" is a list of texts")),
         };
         let owned = sent.get("owned").and_then(Value::as_bool).unwrap_or(false);
-        let row = sqlx::query(&sql(&format!(
-            "INSERT INTO signals (project, issue, milestone, status, release, epic, schedule, kind, note, preset, via, target, person, \
+        crate::changes::begin(self.conn).await?;
+        let done: Result<Value> = async {
+            let row = sqlx::query(&sql(&format!(
+                "INSERT INTO signals (project, issue, milestone, status, release, epic, schedule, kind, note, preset, via, target, person, \
              instructions, model, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING {COLUMNS}"
-        )))
-        .bind(project)
-        .bind(text("issue"))
-        .bind(text("milestone"))
-        .bind(text("status"))
-        .bind(text("release"))
-        .bind(number("epic")?)
-        .bind(number("schedule")?)
-        .bind(&kind)
-        .bind(text("note"))
-        .bind(text("preset"))
-        .bind(text("via"))
-        .bind(text("target"))
-        .bind(text("person"))
-        .bind(instructions)
-        .bind(text("model"))
-        .bind(created_by)
-        .bind(i32::from(owned))
-        .bind(stamp())
-        .fetch_one(&mut *self.conn)
-        .await?;
-        Ok(signal_of(&row))
+            )))
+            .bind(project)
+            .bind(text("issue"))
+            .bind(text("milestone"))
+            .bind(text("status"))
+            .bind(text("release"))
+            .bind(number("epic")?)
+            .bind(number("schedule")?)
+            .bind(&kind)
+            .bind(text("note"))
+            .bind(text("preset"))
+            .bind(text("via"))
+            .bind(text("target"))
+            .bind(text("person"))
+            .bind(instructions)
+            .bind(text("model"))
+            .bind(created_by)
+            .bind(i32::from(owned))
+            .bind(stamp())
+            .fetch_one(&mut *self.conn)
+            .await?;
+            let signal = signal_of(&row);
+            crate::changes::row(self.conn, "signal", project, &signal["id"].to_string(), None).await?;
+            Ok(signal)
+        }
+        .await;
+        let signal = crate::changes::finish(self.conn, None, &crate::write::Effects::default(), done).await?;
+        crate::changes::wake();
+        Ok(signal)
     }
 
     /// Notes that a session (`to`, its name) got the signal, as `delivered` does: two saying so at once both count, as
@@ -227,14 +236,24 @@ impl Signals<'_> {
                 names.push(to.to_string());
             }
             let now = Value::from(names.clone()).to_string();
-            let changed = sqlx::query(&sql("UPDATE signals SET delivered_to = ? WHERE id = ? AND delivered_to = ?"))
-                .bind(&now)
-                .bind(id)
-                .bind(&was)
-                .execute(&mut *self.conn)
-                .await?
-                .rows_affected();
+            crate::changes::begin(self.conn).await?;
+            let done: Result<u64> = async {
+                let changed = sqlx::query(&sql("UPDATE signals SET delivered_to = ? WHERE id = ? AND delivered_to = ?"))
+                    .bind(&now)
+                    .bind(id)
+                    .bind(&was)
+                    .execute(&mut *self.conn)
+                    .await?
+                    .rows_affected();
+                if changed > 0 {
+                    crate::changes::row(self.conn, "signal", project, &id.to_string(), None).await?;
+                }
+                Ok(changed)
+            }
+            .await;
+            let changed = crate::changes::finish(self.conn, None, &crate::write::Effects::default(), done).await?;
             if changed > 0 {
+                crate::changes::wake();
                 let mut signal = signal_of(&row);
                 signal["delivered_to"] = json!(names);
                 return Ok(signal);

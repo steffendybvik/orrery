@@ -269,6 +269,10 @@ impl IssueWrites<'_> {
                 }
             }
             self.touch_issue(project, &issue).await?;
+            // An agent's comment goes to the owner's bell (`notice`), which the local app pushes to open pages (ORR-1174).
+            if !actor.owner {
+                changes::row(self.conn, "notice", project, &id.to_string(), Some(serde_json::json!({"issue": issue}))).await?;
+            }
             Ok(id)
         }
         .await;
