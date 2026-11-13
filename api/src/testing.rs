@@ -371,6 +371,7 @@ mod tests {
         let api = TestApi::new().await;
         let reply = api.get("/health").without("orrery-api-token").send().await;
         assert_eq!(reply.status, 200);
+        assert_eq!(reply.body, json!({"ok": true}), "and says nothing but that it's up");
     }
 
     #[tokio::test]
