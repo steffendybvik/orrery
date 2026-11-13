@@ -6,10 +6,24 @@ import {SEGMENTS, segment} from '~/utils/segments'
 // stop for Tab, with ←→ moving the choice.
 defineProps<{options: {value: T, label: string, hint?: string}[]}>()
 const model = defineModel<T>({required: true})
+
+// On a narrow screen the row scrolls sideways (ORR-1157), so the chosen option is kept in view.
+const group = ref<{$el?: HTMLElement}>()
+// Only the row itself scrolls, not the page round it.
+function showChosen() {
+    const row = group.value?.$el
+    const chosen = row?.querySelector<HTMLElement>('[aria-checked="true"]')
+    if (!row || !chosen || row.scrollWidth <= row.clientWidth) return
+    const left = chosen.offsetLeft - row.offsetLeft
+    if (left < row.scrollLeft) row.scrollLeft = left
+    else if (left + chosen.offsetWidth > row.scrollLeft + row.clientWidth) row.scrollLeft = left + chosen.offsetWidth - row.clientWidth
+}
+onMounted(showChosen)
+watch(model, () => nextTick(showChosen))
 </script>
 
 <template>
-  <RadioGroup v-model="model" :class="SEGMENTS">
+  <RadioGroup ref="group" v-model="model" :class="SEGMENTS">
     <RadioGroupOption
         v-for="option in options"
         :key="option.value"
