@@ -58,6 +58,23 @@ impl Outbox {
     }
 }
 
+/// One outbox row for what `Effects` doesn't carry (ORR-1174): a signal written or heard (`signal`, its id the subject)
+/// and an agent's comment for the owner's bell (`notice`, the comment's id, its issue in the payload). Inside the write's
+/// own transaction, as the local app's store wrote them before: nobody's actor, as they're orrery's own.
+pub async fn row(conn: &mut AnyConnection, kind: &str, project: &str, subject: &str, payload: Option<Value>) -> Result<()> {
+    sqlx::query(&sql(
+        "INSERT INTO changes (kind, project, subject, actor, owner, session, untrusted, payload, created_at) VALUES (?, ?, ?, NULL, 0, NULL, 0, ?, ?)",
+    ))
+    .bind(kind)
+    .bind(project)
+    .bind(subject)
+    .bind(payload.map(|p| p.to_string()))
+    .bind(stamp())
+    .execute(&mut *conn)
+    .await?;
+    Ok(())
+}
+
 /// Starts a write's transaction.
 pub async fn begin(conn: &mut AnyConnection) -> Result<()> {
     sqlx::query(if crate::db::on_postgres() { "BEGIN" } else { "BEGIN IMMEDIATE" }).execute(&mut *conn).await?;

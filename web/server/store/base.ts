@@ -103,14 +103,15 @@ export abstract class StoreBase {
     }
 
     /** A signal for sessions, and its row in the outbox: its id, as the `signals` table holds the rest (ORR-929). */
-    protected signalled(signal: Signal) {
-        this.outbox('signal', {project: signal.project, subject: String(signal.id)})
+    protected signalled(signal: Signal, {inOutbox = false} = {}) {
+        // The API puts its own writes' row in the outbox, in their transaction (ORR-1174): only the store's own go in here.
+        if (!inOutbox) this.outbox('signal', {project: signal.project, subject: String(signal.id)})
         this.onSignal(signal)
     }
 
     /** An agent's comment for the owner's bell, and its row in the outbox: the comment's id, and its issue (ORR-929). */
-    protected noticed(notice: Notice) {
-        this.outbox('notice', {project: notice.project, subject: String(notice.id), payload: {issue: notice.issue}})
+    protected noticed(notice: Notice, {inOutbox = false} = {}) {
+        if (!inOutbox) this.outbox('notice', {project: notice.project, subject: String(notice.id), payload: {issue: notice.issue}})
         this.onNotice(notice)
     }
 

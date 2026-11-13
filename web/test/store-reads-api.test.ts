@@ -6,12 +6,13 @@ import {testDb} from './db'
 // none of them from the database; with no API they're read here, as before.
 const asked: string[] = []
 let replies: Record<string, unknown> = {}
+let writes: Record<string, unknown> = {}
 vi.mock('../server/utils/api-router', () => ({
     readFromApi: async (path: string) => {
         asked.push(path)
         return replies[path]
     },
-    writeToApi: async () => undefined,
+    writeToApi: async (_method: string, path: string) => path in writes ? {reply: writes[path]} : undefined,
 }))
 
 let store: Store
@@ -19,6 +20,7 @@ let store: Store
 beforeEach(async () => {
     asked.length = 0
     replies = {}
+    writes = {}
     store = new Store(testDb())
     await store.createProject({name: 'Greenhouse', key: 'GRE'})
     await store.createIssue('greenhouse', {title: 'Water the beds'})
@@ -108,6 +110,22 @@ describe("the store's reads through the Rust API (ORR-1162)", () => {
         replies['/api/projects/greenhouse/release-peers'] = ['shed']
         telling.changed('greenhouse')
         await vi.waitFor(() => expect(told).toEqual(['greenhouse', 'shed']))
+    })
+
+    it("leaves a signal and a relayed comment's notice to the API's outbox, and keeps its own without one (ORR-1174)", async () => {
+        const rows = async () => (await store.all<{kind: string}>('SELECT kind FROM changes')).map(r => r.kind)
+        const before = (await rows()).length
+        writes['/api/projects/greenhouse/signals'] = {id: 7, project: 'greenhouse', kind: 'message', delivered_to: []}
+        writes['/api/projects/greenhouse/signals/7/receipts'] = {id: 7, project: 'greenhouse', kind: 'message', delivered_to: ['Ada']}
+        await store.message('greenhouse', 1, 'Hi')
+        await store.delivered('greenhouse', 7, 'Ada')
+        replies['/api/projects/greenhouse/issues/GRE-1/comments/4'] = {id: 4, issue: 'GRE-1', body: 'Done', created_by: 'claude'}
+        await store.handOn('greenhouse', 'GRE-1', 4, {carry: false, notice: true}, {name: 'claude', owner: false})
+        expect((await rows()).slice(before).filter(kind => kind === 'signal' || kind === 'notice')).toEqual([])
+        // With no API, the store writes the signal and its row here.
+        delete writes['/api/projects/greenhouse/signals']
+        await store.message('greenhouse', 1, 'Hi again')
+        expect((await rows()).slice(before)).toContain('signal')
     })
 
     it('reads them from the database here with no API', async () => {

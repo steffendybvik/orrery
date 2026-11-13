@@ -51,8 +51,9 @@ export abstract class SignalStore extends IssueStore {
      * machine's. */
     protected async writeSignal(project: string, fields: SignalFields): Promise<Signal> {
         const sent = Object.fromEntries(Object.entries(fields).filter(([, value]) => value !== undefined && value !== null))
-        const signal = await this.signalsApi<Signal>('POST', `/api/projects/${encodeURIComponent(project)}/signals`, sent) ?? await this.writeSignalHere(project, fields)
-        this.signalled(signal)
+        const written = await this.signalsApi<Signal>('POST', `/api/projects/${encodeURIComponent(project)}/signals`, sent)
+        const signal = written ?? await this.writeSignalHere(project, fields)
+        this.signalled(signal, {inOutbox: !!written})
         return signal
     }
 
@@ -424,8 +425,9 @@ export abstract class SignalStore extends IssueStore {
     /** Notes that a session got the signal. Two sessions saying so at once both count: the list is only written
      * over if it's still the one read, else read again. */
     async delivered(project: string, id: number, to: string): Promise<Signal> {
-        const signal = await this.signalsApi<Signal>('POST', `/api/projects/${encodeURIComponent(project)}/signals/${id}/receipts`, {to}) ?? await this.deliveredHere(project, id, to)
-        this.signalled(signal)
+        const heard = await this.signalsApi<Signal>('POST', `/api/projects/${encodeURIComponent(project)}/signals/${id}/receipts`, {to})
+        const signal = heard ?? await this.deliveredHere(project, id, to)
+        this.signalled(signal, {inOutbox: !!heard})
         return signal
     }
 

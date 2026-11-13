@@ -1606,3 +1606,22 @@ async fn sessions_starting_an_issue_with_its_assignee_still_get_it_one_at_a_time
     assert_eq!(api.count(&format!("SELECT count(*) FROM issues WHERE id = '{id}' AND claimed_session = '{winner}'")).await, 1, "the winner holds it");
     assert_eq!(start("r5").await.status, 409, "and one after them is refused");
 }
+
+/// An agent's comment puts a `notice` row in the outbox for the owner's bell, in the comment's own transaction, its
+/// issue in the payload; the owner's own comment none (ORR-1174).
+#[tokio::test]
+async fn an_agents_comment_is_a_notice_in_the_outbox_and_the_owners_isnt() {
+    let api = TestApi::new().await;
+    let (project, issue) = api.board().await;
+    let path = format!("/api/projects/{project}/issues/{issue}/comments");
+    let mine = api.post(&path, json!({"body": "Mine"})).send().await;
+    assert_eq!(mine.status, 201, "{}", mine.body);
+    let theirs = api.post(&path, json!({"body": "Done"})).by_agent("claude").send().await;
+    assert_eq!(theirs.status, 201, "{}", theirs.body);
+    let notices: Vec<_> = api.outbox().await.into_iter().filter(|c| c.kind == "notice").collect();
+    assert_eq!(notices.len(), 1, "{notices:?}");
+    assert_eq!(notices[0].subject.as_deref(), Some(theirs.body["id"].to_string().as_str()));
+    assert_eq!(notices[0].project.as_deref(), Some(project.as_str()));
+    let payload: Value = serde_json::from_str(notices[0].payload.as_deref().unwrap()).unwrap();
+    assert_eq!(payload, json!({"issue": issue}));
+}

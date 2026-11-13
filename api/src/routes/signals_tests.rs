@@ -224,3 +224,24 @@ async fn focused_gives_the_owners_focus_from_the_last_day_heard_or_not() {
     assert_eq!(api.get(&path("&target=sess-2")).send().await.body, json!([]), "aimed at another session");
     assert_eq!(api.get(&format!("/api/projects/{project}/signals?focused=NOPE-9")).send().await.body, json!([]), "an issue there isn't has none");
 }
+
+/// A signal written, and one heard, each put a `signal` row in the outbox in their own transaction (ORR-1174), as the
+/// local app's store wrote them before: its id the subject, nobody's actor.
+#[tokio::test]
+async fn a_signal_written_or_heard_is_in_the_outbox() {
+    let api = TestApi::new().await;
+    let (project, _) = api.board().await;
+    let before = api.outbox().await.len();
+    let sent =
+        api.post(&format!("/api/projects/{project}/signals"), json!({"kind": "message", "note": "Hi", "created_by": "owner", "owned": true})).send().await;
+    assert_eq!(sent.status, 201, "{}", sent.body);
+    let id = sent.body["id"].as_i64().unwrap().to_string();
+    let heard = api.post(&format!("/api/projects/{project}/signals/{id}/receipts"), json!({"to": "Ada"})).send().await;
+    assert_eq!(heard.status, 200, "{}", heard.body);
+    let rows: Vec<(String, Option<String>, Option<String>)> =
+        api.outbox().await[before..].iter().map(|c| (c.kind.clone(), c.project.clone(), c.subject.clone())).collect();
+    let row = ("signal".to_string(), Some(project.clone()), Some(id));
+    assert_eq!(rows, [row.clone(), row]);
+    let actor: Option<String> = sqlx::query_scalar("SELECT actor FROM changes ORDER BY id DESC LIMIT 1").fetch_one(&api.app.pool).await.unwrap();
+    assert_eq!(actor, None, "orrery's own");
+}

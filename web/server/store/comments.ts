@@ -124,7 +124,7 @@ export abstract class CommentStore extends SignalStore {
     async handOn(project: string, issue: string, id: number, {carry, notice, edited = false}: {carry: boolean, notice: boolean, edited?: boolean}, actor: Actor) {
         const comment = await this.comment(project, issue, id)
         if (carry) await this.carryComment(project, issue, edited ? `(Edited: this replaces their earlier comment.)\n\n${comment.body}` : comment.body, actor)
-        if (notice) this.noticed({...comment, project, title: (await this.issueFacts(project, issue)).title})
+        if (notice) this.noticed({...comment, project, title: (await this.issueFacts(project, issue)).title}, {inOutbox: true})
     }
 
     /** Whose a comment is (ORR-658): the person's own words, or one of their agents', or nobody's (orrery itself, and an
