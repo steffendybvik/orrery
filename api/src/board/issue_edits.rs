@@ -741,7 +741,11 @@ impl IssueWrites<'_> {
                 columns.extend(["decided_by", "decided_at", "decision_note", "picks", "explore"].map(|c| format!("{c} = NULL")));
             }
             if ended {
-                columns.extend(["claimed_by", "claimed_at", "claimed_session"].map(|c| format!("{c} = NULL")));
+                // A session starting it keeps the lock this write took, though it changes the assignee too, as
+                // `start_issue` does (ORR-1175): only a person's claim ends with it.
+                let keeps_lock = self.session.is_some() && to_kind.as_deref() == Some("started");
+                let cleared: &[&str] = if keeps_lock { &["claimed_by"] } else { &["claimed_by", "claimed_at", "claimed_session"] };
+                columns.extend(cleared.iter().map(|c| format!("{c} = NULL")));
             }
             if words.choices.is_some() {
                 columns.push("choices = ?".into());
