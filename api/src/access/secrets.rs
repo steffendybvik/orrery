@@ -3,6 +3,7 @@
 // the key that opens it stays with the local app (decision-rust-api-secrets-settings). So setting, narrowing and
 // deleting one, and sending one out (egress), stay the Nuxt server's routes: it checks each, seals the value with the
 // key and tells the event log, then keeps the row through work/secrets.rs (ORR-1096). The router sends only these reads here.
+// The sealed rows, `value` and all, go only to the local app, which holds the key to open them (`sealed`, ORR-1143).
 use crate::db::sql;
 use crate::error::{ApiError, Result};
 use serde_json::{json, Map, Value};
@@ -13,6 +14,7 @@ use sqlx::{AnyConnection, Row};
 const USES: i64 = 20;
 
 const SECRET_COLUMNS: &str = "name, last4, hosts, projects, created_by, created_at, updated_at";
+const SEALED_COLUMNS: &str = "name, value, last4, hosts, projects, created_by, CAST(owned AS BIGINT) AS owned, created_at, updated_at";
 const USE_COLUMNS: &str =
     "CAST(id AS BIGINT) AS id, secret, method, host, path, project, issue, CAST(status AS BIGINT) AS status, error, created_by, created_at";
 
@@ -33,6 +35,21 @@ fn secret_of(row: &AnyRow, last: Value) -> Map<String, Value> {
     out.insert("updated_at".into(), json!(row.get::<String, _>("updated_at")));
     out.insert("last_used".into(), last);
     out
+}
+
+/// A secret's row as kept (`SecretRow`), its lists still text, for the local app to open.
+fn sealed_of(row: &AnyRow) -> Value {
+    json!({
+        "name": row.get::<String, _>("name"),
+        "value": row.get::<String, _>("value"),
+        "last4": row.get::<String, _>("last4"),
+        "hosts": row.get::<String, _>("hosts"),
+        "projects": row.get::<Option<String>, _>("projects"),
+        "created_by": row.get::<String, _>("created_by"),
+        "owned": row.get::<i64, _>("owned"),
+        "created_at": row.get::<String, _>("created_at"),
+        "updated_at": row.get::<String, _>("updated_at"),
+    })
 }
 
 /// A use of a secret as it's handed out (`useOf`).
@@ -96,5 +113,17 @@ impl<'c> Secrets<'c> {
         let mut out = secret_of(&row, uses.first().cloned().unwrap_or(Value::Null));
         out.insert("uses".into(), Value::Array(uses));
         Ok(Value::Object(out))
+    }
+    /// The secret as the local app sealed it, every column (`SecretRow`): its value is ciphertext only the local app's
+    /// key opens. None when there's no such secret.
+    pub async fn sealed(&mut self, name: &str) -> Result<Option<Value>> {
+        let row = sqlx::query(&sql(&format!("SELECT {SEALED_COLUMNS} FROM secrets WHERE name = ?"))).bind(name).fetch_optional(&mut *self.conn).await?;
+        Ok(row.as_ref().map(sealed_of))
+    }
+
+    /// Every secret as sealed, by name (`sealed` for each): for the local app's scrubber.
+    pub async fn all_sealed(&mut self) -> Result<Value> {
+        let rows = sqlx::query(&sql(&format!("SELECT {SEALED_COLUMNS} FROM secrets ORDER BY name"))).fetch_all(&mut *self.conn).await?;
+        Ok(Value::Array(rows.iter().map(sealed_of).collect()))
     }
 }

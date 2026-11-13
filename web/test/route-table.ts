@@ -19,6 +19,7 @@ const CHAT: Line = {stays: "the chat's sessions are the local app's; the API kee
 const LOGIN: Line = {stays: 'logging in and out is checked here (auth.ts); the API hears what that found'}
 const SEALED: Line = {stays: "sealed with the machine's key (decision-rust-api-secrets-settings)"}
 const SEALED_ROWS: Line = {rustOnly: 'how the local app keeps a secret it sealed, and its uses: it sends them here itself (`writeToApi`, ORR-1096)'}
+const SEALED_READS: Line = {rustOnly: 'how the local app reads a secret back as sealed, its value still ciphertext, to open with its key: only it may (`Orrery-Came: server`, ORR-1143)'}
 const GIT: Line = {stays: "reads the local git repo or asks GitHub, which is the local app's to do (ORR-952, ORR-927)"}
 const ARTIFACT: Line = {stays: "drawn with the page's own sanitising and its locked-down headers"}
 const SESSIONS: Line = {stays: "the sessions, the launcher and their signals are the machine's"}
@@ -150,6 +151,8 @@ export const NOT_ROUTED: Readonly<Record<string, Line>> = {
     'DELETE /api/secrets/{name}': SEALED,
     'PATCH /api/secrets/{name}': SEALED,
     'PUT /api/secrets/{name}': SEALED,
+    'GET /api/sealed-secrets': SEALED_READS,
+    'GET /api/secrets/{name}/sealed': SEALED_READS,
     'DELETE /api/secrets/{name}/sealed': SEALED_ROWS,
     'PUT /api/secrets/{name}/sealed': SEALED_ROWS,
     'POST /api/secrets/{name}/uses': SEALED_ROWS,
