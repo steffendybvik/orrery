@@ -316,3 +316,39 @@ fn uids_are_eight_base32_characters() {
     assert_eq!(uid_of("FFFFFFFFFF"), "77777777");
     assert_eq!(uid_of("0000000001"), "baaaaaaa");
 }
+
+/// What a SQLite file's schema is: each table's columns, as `pragma_table_info` gives them, and its indexes, by name.
+async fn schema_of(path: &str) -> (Vec<Vec<Option<String>>>, Vec<Vec<Option<String>>>) {
+    let mut conn = AnyConnection::connect(&format!("sqlite://{path}?mode=ro")).await.unwrap();
+    let columns = rows(
+        &mut conn,
+        "SELECT m.name, p.name, p.type, CAST(p.\"notnull\" AS TEXT), p.dflt_value, CAST(p.pk AS TEXT)
+         FROM sqlite_master m JOIN pragma_table_info(m.name) p
+         WHERE m.type = 'table' AND m.name NOT LIKE 'sqlite_%' ORDER BY m.name, p.name",
+    )
+    .await;
+    let indexes = rows(&mut conn, "SELECT tbl_name, name FROM sqlite_master WHERE type = 'index' AND name NOT LIKE 'sqlite_%' ORDER BY tbl_name, name").await;
+    conn.close().await.ok();
+    (columns, indexes)
+}
+
+/// An orrery left at any step comes up to the same schema a new one gets, and this API then serves it (ORR-1168).
+#[tokio::test]
+async fn an_orrery_left_at_an_older_step_comes_up_to_the_schema_a_new_one_has() {
+    let (fresh, conn) = sqlite_at(0).await;
+    conn.close().await.unwrap();
+    migrate(&fresh, None).await.unwrap();
+    let new = schema_of(&fresh).await;
+    assert!(new.0.len() > 100 && !new.1.is_empty(), "a schema to compare against");
+    let latest = latest(Dialect::Sqlite);
+    for step in [1, latest / 4, latest / 2, latest * 3 / 4, latest - 1] {
+        let (path, conn) = sqlite_at(step).await;
+        conn.close().await.unwrap();
+        let done = migrate(&path, None).await.unwrap_or_else(|e| panic!("from step {step}: {e}"));
+        assert_eq!((done.from, done.to), (step, latest), "from step {step}");
+        let upgraded = schema_of(&path).await;
+        assert_eq!(upgraded.0, new.0, "the columns, from step {step}");
+        assert_eq!(upgraded.1, new.1, "the indexes, from step {step}");
+        crate::db::open(&path, None).await.unwrap_or_else(|e| panic!("the API opens it, from step {step}: {e}"));
+    }
+}
