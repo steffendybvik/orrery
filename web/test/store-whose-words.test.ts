@@ -166,12 +166,13 @@ describe('the bell', () => {
 
     it('keeps what a member has read their own, and clears only those read (ORR-785)', async () => {
         const id = await add({assignee: 'hati'})
-        const read = await store.createComment('greenhouse', id, {body: 'Read'}, agentOf('hati'))
-        const unread = await store.createComment('greenhouse', id, {body: 'Unread'}, agentOf('hati'))
+        // Each names Hati, so it stays news to them once the issue is Skoll's (ORR-1151).
+        const read = await store.createComment('greenhouse', id, {body: 'Read @hati'}, agentOf('hati'))
+        const unread = await store.createComment('greenhouse', id, {body: 'Unread @hati'}, agentOf('hati'))
         const asked = await store.createComment('greenhouse', id, {body: 'Which?', asks: 'decision'}, agentOf('hati'))
         // Now on Skoll's issue, by Hati's agent, so both have them.
         await store.updateIssue('greenhouse', id, {assignee: 'skoll'}, owner)
-        const flags = async (person: string) => Object.fromEntries((await store.notices({person, list: 'inbox'})).map(n => [n.body, !!n.read]))
+        const flags = async (person: string) => Object.fromEntries((await store.notices({person, list: 'inbox'})).map(n => [n.body.replace(' @hati', ''), !!n.read]))
         expect(await store.readNotices({ids: [read.id, asked.id]}, 'hati')).toBe(2)
         expect(await flags('hati')).toEqual({Read: true, Unread: false})
         // The owner's are apart, in both directions.
@@ -180,7 +181,7 @@ describe('the bell', () => {
         expect((await flags('hati')).Unread).toBe(false)
         // A question still waiting stays when the read ones go.
         expect(await store.clearNotices({read: true}, 'hati')).toBe(1)
-        expect(await bell('hati', 'inbox')).toEqual(['Unread'])
+        expect(await bell('hati', 'inbox')).toEqual(['Unread @hati'])
         expect(await bell('hati', 'waiting')).toEqual(['Which?'])
         expect((await failure(() => store.readNotices({ids: ['x']}, 'hati'))).status).toBe(400)
     })
@@ -205,25 +206,26 @@ describe('the bell', () => {
         expect(await bell('skoll', 'waiting')).toEqual([])
     })
 
-    it('keeps what orrery says for the owner, and for whoever\'s issue it is', async () => {
+    it('keeps what orrery says for whoever\'s issue it is', async () => {
         const id = await add({assignee: 'hati'})
         await store.systemNote('greenhouse', id, 'Moved')
-        expect(await bell('skoll')).toEqual(['Moved'])
+        // Not directed at the owner, nor shipped (ORR-1151).
+        expect(await bell('skoll')).toEqual([])
         expect(await bell('hati')).toEqual(['Moved'])
         expect(await bell('manni')).toEqual([])
     })
 
     it('clears for one person only', async () => {
         const id = await add({assignee: 'hati'})
-        const {id: comment} = await store.createComment('greenhouse', id, {body: 'Noted'}, agentOf('hati'))
+        const {id: comment} = await store.createComment('greenhouse', id, {body: 'Noted @hati'}, agentOf('hati'))
         await store.updateIssue('greenhouse', id, {assignee: 'skoll'}, owner)
         // Now on Skoll's issue, by Hati's agent, so both have it.
-        expect(await bell('hati')).toEqual(['Noted'])
-        expect(await bell('skoll')).toEqual(['Noted'])
+        expect(await bell('hati')).toEqual(['Noted @hati'])
+        expect(await bell('skoll')).toEqual(['Noted @hati'])
         expect(await store.clearNotices({ids: [comment]}, 'hati')).toBe(1)
         expect(await bell('hati')).toEqual([])
-        expect(await bell('hati', 'cleared')).toEqual(['Noted'])
-        expect(await bell('skoll')).toEqual(['Noted'])
+        expect(await bell('hati', 'cleared')).toEqual(['Noted @hati'])
+        expect(await bell('skoll')).toEqual(['Noted @hati'])
         expect(await store.clearNotices({ids: [comment]})).toBe(1)
         expect(await bell('skoll')).toEqual([])
     })
@@ -257,7 +259,7 @@ describe('with one person', () => {
         const solo = new Store(testDb(), () => {}, signal => signals.push(signal))
         await solo.createProject({name: 'cellar', key: 'CEL'})
         await solo.nameOwner({name: 'Skoll'})
-        const {id} = await solo.createIssue('cellar', {title: 'Racks'}, owner)
+        const {id} = await solo.createIssue('cellar', {title: 'Racks', assignee: 'owner'}, owner)
         const comment = await solo.createComment('cellar', id, {body: 'Done'}, {name: 'claude', owner: false, asked: true})
         expect((await solo.notices()).map(n => n.body)).toEqual(['Done'])
         await solo.createComment('cellar', id, {body: 'Thanks'}, owner)

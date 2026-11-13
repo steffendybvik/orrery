@@ -19,6 +19,14 @@ async fn owner_says(api: &TestApi, project: &str, issue: &str, body: &str) -> i6
     reply.body["id"].as_i64().unwrap()
 }
 
+/// The board's issue, given to the owner, so what an agent says on it is directed at them (ORR-1151).
+async fn owners_board(api: &TestApi) -> (String, String) {
+    let (project, issue) = api.board().await;
+    let reply = api.patch(&format!("/api/projects/{project}/issues/{issue}"), json!({"assignee": "owner"})).send().await;
+    assert_eq!(reply.status, 200, "{}", reply.body);
+    (project, issue)
+}
+
 async fn bell(api: &TestApi, query: &str) -> Value {
     let reply = api.get(&format!("/api/notices{query}")).send().await;
     assert_eq!(reply.status, 200, "{}", reply.body);
@@ -46,7 +54,7 @@ async fn the_bell_is_empty_at_first() {
 #[tokio::test]
 async fn an_agents_comment_rings_the_bell_and_the_owners_own_doesnt() {
     let api = TestApi::new().await;
-    let (project, issue) = api.board().await;
+    let (project, issue) = owners_board(&api).await;
     let id = agent_says(&api, &project, &issue, "Done the sieve", None).await;
     owner_says(&api, &project, &issue, "Thanks").await;
     let notices = bell(&api, "").await;
@@ -63,8 +71,8 @@ async fn an_agents_comment_rings_the_bell_and_the_owners_own_doesnt() {
 #[tokio::test]
 async fn what_waits_on_the_owner_comes_first_until_they_answer() {
     let api = TestApi::new().await;
-    let (project, issue) = api.board().await;
-    let other = api.issue(&project, json!({"title": "Wheel"})).await;
+    let (project, issue) = owners_board(&api).await;
+    let other = api.issue(&project, json!({"title": "Wheel", "assignee": "owner"})).await;
     agent_says(&api, &project, &issue, "Which sieve?", Some("decision")).await;
     agent_says(&api, &project, &other, "Later news", None).await;
     assert_eq!(bodies(&bell(&api, "").await), ["Which sieve?", "Later news"]);
@@ -79,7 +87,7 @@ async fn what_waits_on_the_owner_comes_first_until_they_answer() {
 #[tokio::test]
 async fn the_bell_holds_the_latest_thirty() {
     let api = TestApi::new().await;
-    let (project, issue) = api.board().await;
+    let (project, issue) = owners_board(&api).await;
     for n in 0..32 {
         agent_says(&api, &project, &issue, &format!("note {n}"), None).await;
     }
@@ -91,7 +99,7 @@ async fn the_bell_holds_the_latest_thirty() {
 #[tokio::test]
 async fn the_inbox_is_paged_by_limit_and_before() {
     let api = TestApi::new().await;
-    let (project, issue) = api.board().await;
+    let (project, issue) = owners_board(&api).await;
     let mut ids = vec![];
     for n in 0..5 {
         ids.push(agent_says(&api, &project, &issue, &format!("note {n}"), None).await);
@@ -138,7 +146,7 @@ async fn an_agents_proposal_waits_on_the_owner_ahead_of_everything() {
 #[tokio::test]
 async fn clearing_by_id_takes_a_comment_out_of_the_bell_into_cleared() {
     let api = TestApi::new().await;
-    let (project, issue) = api.board().await;
+    let (project, issue) = owners_board(&api).await;
     let one = agent_says(&api, &project, &issue, "One", None).await;
     agent_says(&api, &project, &issue, "Two", None).await;
     let reply = api.post("/api/notices/clear", json!({"ids": [one, 99999]})).send().await;
@@ -196,7 +204,7 @@ async fn clearing_before_a_time_leaves_what_still_waits_on_the_owner() {
 #[tokio::test]
 async fn marking_read_shows_on_the_notice_and_clearing_read_takes_those() {
     let api = TestApi::new().await;
-    let (project, issue) = api.board().await;
+    let (project, issue) = owners_board(&api).await;
     let one = agent_says(&api, &project, &issue, "One", None).await;
     agent_says(&api, &project, &issue, "Two", None).await;
     let reply = api.post("/api/notices/read", json!({"ids": [one]})).send().await;
@@ -260,7 +268,7 @@ async fn the_chat_and_an_untrusted_session_cant_clear_the_bell_even_naming_the_o
 }
 
 #[tokio::test]
-async fn status_changes_on_the_issues_in_the_bell_are_listed_oldest_first() {
+async fn moves_into_done_on_the_issues_in_the_bell_are_listed_oldest_first() {
     let api = TestApi::new().await;
     let (project, issue) = api.board().await;
     let quiet = api.issue(&project, json!({"title": "Quiet"})).await;
@@ -273,14 +281,34 @@ async fn status_changes_on_the_issues_in_the_bell_are_listed_oldest_first() {
     let reply = api.get("/api/notices/changes?since=2000-01-01").send().await;
     assert_eq!(reply.status, 200, "{}", reply.body);
     let changes = reply.body.as_array().unwrap();
-    assert_eq!(changes.len(), 2, "only the issue the bell has a comment on: {}", reply.body);
-    assert_eq!((changes[0]["issue"].as_str(), changes[0]["after"].as_str()), (Some(issue.as_str()), Some("in-progress")));
-    assert_eq!(changes[1]["before"], "in-progress");
-    assert_eq!(changes[1]["after"], "done");
-    assert_eq!(changes[1]["project"], json!(project));
+    assert_eq!(changes.len(), 1, "only the move into done, on the issue the bell has a comment on (ORR-1151): {}", reply.body);
+    assert_eq!(changes[0]["issue"], json!(issue));
+    assert_eq!(changes[0]["before"], "in-progress");
+    assert_eq!(changes[0]["after"], "done");
+    assert_eq!(changes[0]["project"], json!(project));
     assert!(changes[0]["id"].is_i64() && changes[0]["created_at"].is_string());
     let later = api.get("/api/notices/changes?since=2999-01-01T00:00:00Z").send().await;
     assert_eq!(later.body, json!([]));
+}
+
+#[tokio::test]
+async fn only_what_shipped_and_what_is_directed_at_the_owner_rings_the_bell() {
+    let api = TestApi::new().await;
+    let (project, issue) = api.board().await;
+    agent_says(&api, &project, &issue, "Taking it", None).await;
+    agent_says(&api, &project, &issue, "Which one?", Some("decision")).await;
+    agent_says(&api, &project, &issue, "Over to @owner for a look", None).await;
+    owner_says(&api, &project, &issue, "The second").await;
+    agent_says(&api, &project, &issue, "Going with the second", None).await;
+    agent_says(&api, &project, &issue, "Still going", None).await;
+    let shipped = api.issue(&project, json!({"title": "Shipped"})).await;
+    agent_says(&api, &project, &shipped, "On it", None).await;
+    api.patch(&format!("/api/projects/{project}/issues/{shipped}"), json!({"status": "done"})).send().await;
+    agent_says(&api, &project, &shipped, "Shipped", None).await;
+    owner_says(&api, &project, &shipped, "Thanks").await;
+    let mut heard = bodies(&bell(&api, "").await).into_iter().map(str::to_string).collect::<Vec<_>>();
+    heard.sort();
+    assert_eq!(heard, ["Going with the second", "Over to @owner for a look", "Shipped", "Which one?"]);
 }
 
 #[tokio::test]
@@ -298,6 +326,12 @@ async fn a_members_bell_is_their_own_and_has_no_proposals() {
     let api = TestApi::new().await;
     two_people(&api).await;
     let (project, issue) = api.board().await;
+    sqlx::query(&crate::db::sql("UPDATE issues SET assignee = 'ana' WHERE project = ? AND id = ?"))
+        .bind(&project)
+        .bind(&issue)
+        .execute(&api.app.pool)
+        .await
+        .unwrap();
     let mine: i64 = sqlx::query_scalar(&format!(
         "INSERT INTO comments (project, issue, body, created_by, owned, person, by_agent, created_at, updated_at) VALUES ('{project}', '{issue}', 'For Ana', 'ana-agent', 0, 'ana', 1, '2026-11-01T00:00:00.000Z', '2026-11-01T00:00:00.000Z') RETURNING id"
     ))
