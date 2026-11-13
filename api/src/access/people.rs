@@ -803,7 +803,12 @@ impl<'c> People<'c> {
 
     /// Ends a browser's login by its cookie's secret (`endLogin`), on the server as well as its cookie.
     pub async fn log_out(&mut self, secret: &str) -> Result<()> {
-        sqlx::query(&sql("DELETE FROM logins WHERE id = ?")).bind(hash_of(secret)).execute(&mut *self.conn).await?;
+        self.log_out_hashed(&hash_of(secret)).await
+    }
+
+    /// Ends a login by its secret's hash, as the logins table keeps it and the router sends it (`Orrery-Login`).
+    pub async fn log_out_hashed(&mut self, hashed: &str) -> Result<()> {
+        sqlx::query(&sql("DELETE FROM logins WHERE id = ?")).bind(hashed).execute(&mut *self.conn).await?;
         Ok(())
     }
 
