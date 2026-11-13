@@ -120,6 +120,7 @@ async fn only_the_local_app_asks_which_session_is_on_which_issue() {
         format!("/api/projects/{project}/issue-sessions?sessions=a"),
         format!("/api/projects/{project}/issues/{issue}/workers"),
         format!("/api/projects/{project}/issues/{issue}/dependents"),
+        format!("/api/projects/{project}/session-work"),
     ] {
         assert_eq!(door.get(&path).send().await.status, 403, "{path}");
     }
@@ -224,4 +225,81 @@ async fn a_focus_is_on_its_way_while_its_unheard_and_from_the_last_ten_minutes()
     // An issue there isn't has none, and `focus` needs an issue.
     assert_eq!(api.get(&format!("/api/projects/{project}/signals?waiting=focus&issue=NOPE-9")).send().await.body, json!([]));
     assert_eq!(api.get(&format!("/api/projects/{project}/signals?waiting=focus")).send().await.status, 400);
+}
+
+/// `?sessions=` as the local app sends it: the JSON list, percent-encoded.
+fn work_path(project: &str, sessions: Value) -> String {
+    let text = sessions.to_string();
+    format!("/api/projects/{project}/session-work?sessions={}", percent_encoding::utf8_percent_encode(&text, percent_encoding::NON_ALPHANUMERIC))
+}
+
+#[tokio::test]
+async fn each_session_is_on_the_open_issues_it_worked_and_the_signals_that_went_to_it() {
+    let api = TestApi::new().await;
+    let (project, sieve) = api.board().await;
+    let wheel = api.issue(&project, json!({"title": "Wheel"})).await;
+    let shipped = api.issue(&project, json!({"title": "Shipped"})).await;
+    let idea = api.issue(&project, json!({"title": "Idea", "proposal": "pending"})).await;
+    let theirs = api.issue(&project, json!({"title": "Theirs"})).await;
+    for issue in [&sieve, &wheel, &shipped, &idea] {
+        worked(&api, &project, issue, "old-id").await;
+    }
+    worked(&api, &project, &theirs, "other").await;
+    start(&api, &project, &sieve).await;
+    let done = api.get("/api/statuses").send().await.body.as_array().unwrap().iter().find(|s| s["kind"] == "done").unwrap()["id"].clone();
+    api.patch(&format!("/api/projects/{project}/issues/{shipped}"), json!({"status": done})).send().await;
+    let send = |body: Value| api.post(&format!("/api/projects/{project}/signals"), body);
+    let mine = send(json!({"kind": "message", "note": "To me", "created_by": "owner", "owned": true, "target": "old-id"})).send().await.body["id"].clone();
+    let everyone = send(json!({"kind": "message", "note": "To all", "created_by": "owner", "owned": true})).send().await.body["id"].clone();
+    send(json!({"kind": "message", "note": "Unheard by me", "created_by": "owner", "owned": true})).send().await;
+    send(json!({"kind": "message", "note": "To them", "created_by": "owner", "owned": true, "target": "other"})).send().await;
+    let heard = api.post(&format!("/api/projects/{project}/signals/{everyone}/receipts"), json!({"to": "Ada"})).send().await;
+    assert_eq!(heard.status, 200, "{}", heard.body);
+
+    let reply =
+        api.get(&work_path(&project, json!([{"id": "new-id", "name": "Ada", "ids": ["new-id", "old-id"]}, {"id": "other", "name": "Bo"}]))).send().await;
+    assert_eq!(reply.status, 200, "{}", reply.body);
+    let ada = &reply.body["new-id"];
+    // Shipped is closed and Idea a proposal; Theirs is another session's.
+    let mut on: Vec<&str> = ada["issues"].as_array().unwrap().iter().map(|i| i["id"].as_str().unwrap()).collect();
+    on.sort();
+    let mut want = vec![sieve.as_str(), wheel.as_str()];
+    want.sort();
+    assert_eq!(on, want);
+    let first = &ada["issues"][0];
+    for field in ["id", "title", "column", "kind", "since"] {
+        assert!(first.get(field).is_some(), "{field} in {first}");
+    }
+    // Newest first: the one to it by an old id, and the one to everyone it heard by name.
+    let notes: Vec<&str> = ada["signals"].as_array().unwrap().iter().map(|s| s["note"].as_str().unwrap()).collect();
+    assert_eq!(notes, ["To all", "To me"]);
+    assert_eq!(ada["signals"][1]["id"], mine);
+    assert_eq!(reply.body["other"]["issues"][0]["id"], theirs.as_str(), "its own id, when it sends no ids");
+    assert_eq!(reply.body["other"]["signals"][0]["note"], "To them");
+}
+
+#[tokio::test]
+async fn a_session_hears_its_five_latest_signals() {
+    let api = TestApi::new().await;
+    let (project, _) = api.board().await;
+    for n in 0..7 {
+        api.post(
+            &format!("/api/projects/{project}/signals"),
+            json!({"kind": "message", "note": format!("{n}"), "created_by": "owner", "owned": true, "target": "s"}),
+        )
+        .send()
+        .await;
+    }
+    let reply = api.get(&work_path(&project, json!([{"id": "s", "name": "S"}]))).send().await;
+    let notes: Vec<&str> = reply.body["s"]["signals"].as_array().unwrap().iter().map(|s| s["note"].as_str().unwrap()).collect();
+    assert_eq!(notes, ["6", "5", "4", "3", "2"]);
+}
+
+#[tokio::test]
+async fn the_sessions_work_needs_a_project_there_is_and_sessions_as_a_list() {
+    let api = TestApi::new().await;
+    let (project, _) = api.board().await;
+    assert_eq!(api.get(&work_path("nowhere", json!([]))).send().await.status, 404);
+    assert_eq!(api.get(&format!("/api/projects/{project}/session-work?sessions=a,b")).send().await.status, 400);
+    assert_eq!(api.get(&format!("/api/projects/{project}/session-work")).send().await.body, json!({}));
 }

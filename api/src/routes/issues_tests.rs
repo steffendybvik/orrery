@@ -1587,3 +1587,22 @@ async fn only_orrery_itself_says_things_as_orrery() {
     let reply = api.post(&format!("/api/projects/{project}/issues/PRI-1/said"), json!({"body": "Merged."})).send().await;
     assert_eq!(reply.status, 403, "{}", reply.body);
 }
+
+/// As `start_issue` starts one, its status and assignee in one write (ORR-1175): the assignee changing with it doesn't
+/// end the lock the same write took, so of several starting it at once one gets it, and one after them is refused too.
+#[tokio::test]
+async fn sessions_starting_an_issue_with_its_assignee_still_get_it_one_at_a_time() {
+    let api = TestApi::new().await;
+    let board = Board::new(&api).await;
+    let id = board.issue(json!({"title": "Jars", "status": "todo"})).await;
+    let start = |session: &'static str| {
+        api.patch(&board.at(&id), json!({"status": "started", "assignee": "claude"})).by_agent("claude").header("orrery-worked-by", session).send()
+    };
+    let replies = futures_util::future::join_all(["r1", "r2", "r3", "r4"].map(start)).await;
+    let statuses: Vec<u16> = replies.iter().map(|r| r.status.as_u16()).collect();
+    assert_eq!(statuses.iter().filter(|s| **s == 200).count(), 1, "{statuses:?}");
+    assert_eq!(statuses.iter().filter(|s| **s == 409).count(), 3, "{statuses:?}");
+    let winner = ["r1", "r2", "r3", "r4"][statuses.iter().position(|s| *s == 200).unwrap()];
+    assert_eq!(api.count(&format!("SELECT count(*) FROM issues WHERE id = '{id}' AND claimed_session = '{winner}'")).await, 1, "the winner holds it");
+    assert_eq!(start("r5").await.status, 409, "and one after them is refused");
+}
