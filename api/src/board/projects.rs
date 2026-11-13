@@ -311,6 +311,17 @@ impl<'c> Projects<'c> {
     }
 
     /// Every project, by name, each with its counts (`listProjects`), or, `boards`, with its whole board (`listBoards`).
+    /// The ids of the projects sharing releases with `id`: those drawing on it, and the one it draws on (ORR-1174), as
+    /// the Nuxt store's `pushChanged` read them.
+    pub async fn release_peers(&mut self, id: &str) -> Result<Vec<String>> {
+        let rows = sqlx::query(&sql("SELECT id FROM projects WHERE releases_from = ? OR id = (SELECT releases_from FROM projects WHERE id = ?) ORDER BY id"))
+            .bind(id)
+            .bind(id)
+            .fetch_all(&mut *self.conn)
+            .await?;
+        Ok(rows.iter().map(|r| r.get::<String, _>("id")).collect())
+    }
+
     pub async fn list(&mut self, boards: bool) -> Result<Value> {
         let rows = sqlx::query(&sql(&format!("SELECT {PROJECT_COLUMNS} FROM projects ORDER BY lower(name), name"))).fetch_all(&mut *self.conn).await?;
         let starts = self.starts().await?;

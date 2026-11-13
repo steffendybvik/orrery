@@ -472,3 +472,22 @@ async fn every_board_is_listed_when_asked_trimmed_but_for_the_whole_ones() {
     assert_eq!(issue_ids(&kept[1]), [issue]);
     assert!(api.get("/api/projects").send().await.body[1].get("board").is_none());
 }
+
+/// The projects sharing releases with one, which the local app tells when it changes (ORR-1174): those drawing on a
+/// source, and the source of one drawing on it; none for a project on its own or one there isn't.
+#[tokio::test]
+async fn the_projects_sharing_releases_are_those_drawing_on_it_and_its_source() {
+    let api = TestApi::new().await;
+    make(&api, json!({"name": "Source", "release_mode": "own"})).await;
+    make(&api, json!({"name": "Alone"})).await;
+    for name in ["Drawing", "Also drawing"] {
+        make(&api, json!({"name": name, "releases_from": "source"})).await;
+    }
+    let peers = |project: &str| api.get(&format!("/api/projects/{project}/release-peers")).send();
+    assert_eq!(peers("source").await.body, json!(["also-drawing", "drawing"]));
+    assert_eq!(peers("drawing").await.body, json!(["source"]));
+    assert_eq!(peers("alone").await.body, json!([]));
+    assert_eq!(peers("nowhere").await.body, json!([]));
+    let door = TestApi::at_the_door().await;
+    assert_eq!(door.get("/api/projects/x/release-peers").send().await.status, 403, "only the local app asks");
+}
