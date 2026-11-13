@@ -27,6 +27,8 @@ import {appNamed, appsHere, askToChoose, choiceFor, choseOther, writeChoice} fro
 import {serverName} from './server-name.mjs'
 import {signalWords} from './signal-words.mjs'
 import {claudeWindow} from './session.mjs'
+import {writeSessionFile} from './session-file.mjs'
+import {sessionHeaders} from './mcp-beside.mjs'
 import {instructionsFor} from './instructions.mjs'
 import {follow} from './sse.mjs'
 import {CHOOSE_APP, orreryTools, toolsFor} from './tools.mjs'
@@ -84,6 +86,15 @@ const server = new Server({name: 'orrery', version: VERSION}, {
 const person = process.env.ORRERY_PERSON?.trim() || undefined
 // With auth on, its agent key decides who it is, and a person key here stops it starting (ORR-664).
 const personHeaders = {...person ? {'Orrery-Person': person} : {}, ...authHeaders(base)}
+// Who this session is, for the install line's `/mcp` entry (ORR-1102), whose helper can't tell: written for its
+// `claude` (session-file.mjs), as this channel says it on its own calls, and taken away as it exits.
+if (window.id && window.pid) {
+    try {
+        process.on('exit', writeSessionFile(window.pid, sessionHeaders({session: window.id, person, chat, untrusted})))
+    } catch (error) {
+        log(`couldn't write which session this is for /mcp: ${error.message}`)
+    }
+}
 const reportCall = (tool, text) => window.id && fetch(`${base}/api/sessions/${encodeURIComponent(window.id)}/calls`,
     {method: 'POST', headers: {'Content-Type': 'application/json', ...personHeaders}, body: JSON.stringify({tool, text})}).catch(() => {})
 // The groups of tools this session asked for with more_tools (ORR-625): listed from then on.

@@ -33,8 +33,15 @@ export const besideName = server => `${server}-api`
  * `person`, with the machine's `auth`; and, as the channel says them, the owner's chat (`chat`, its launch's id) or an
  * untrusted schedule's session (`untrusted`), which `/mcp`'s rails hold as the server's guards do. */
 export function besideFor({url, server, person, auth = {}, chat, untrusted = false, resume, id = resume ?? randomUUID()}) {
-    const headers = {'Orrery-Actor': 'claude', 'Orrery-Session': id, ...person ? {'Orrery-Person': person} : {}, ...auth,
-        ...untrusted ? {'Orrery-Untrusted': 'yes'} : {}, ...chat ? {'Orrery-Chat': 'yes', 'Orrery-Launch': chat} : {}}
+    const headers = {...sessionHeaders({session: id, person, chat, untrusted}), ...auth}
     const name = besideName(server)
     return {name, session: id, fresh: !resume, config: {mcpServers: {[name]: {type: 'http', url: `${url}/mcp`, headers}}}}
+}
+
+/** Who's calling `/mcp`, as a session's channel says it on its own calls: `claude`, its Claude session, for `person`, and
+ * the owner's chat (`chat`, its launch's id) or an untrusted schedule's session, which `/mcp`'s rails hold as the
+ * server's guards do. Not the machine's key, which each adds itself. */
+export function sessionHeaders({session, person, chat, untrusted = false}) {
+    return {'Orrery-Actor': 'claude', ...session ? {'Orrery-Session': session} : {}, ...person ? {'Orrery-Person': person} : {},
+        ...untrusted ? {'Orrery-Untrusted': 'yes'} : {}, ...chat ? {'Orrery-Chat': 'yes', 'Orrery-Launch': chat} : {}}
 }

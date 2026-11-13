@@ -1,8 +1,9 @@
 // Copies a whole orrery from one database to another, each SQLite or Postgres: `pnpm orrery:copy`, to move to
-// Postgres or back, and the backups, a SQLite snapshot or a Postgres database. Every table is read in one transaction,
-// so what's copied is one moment's, then written in order, ids kept, in one transaction; the target must be empty
-// (no projects yet), unless `replace` empties it in that same transaction (a backup taking the place of the last, which
-// stays whole if this one fails), and both are brought up to the latest schema first.
+// Postgres or back, and the backups, a SQLite snapshot or a Postgres database. Every table is read in one transaction
+// (by the Rust API, when it's in front), so what's copied is one moment's, then written in order, ids kept, in one
+// transaction; the target must be empty (no projects yet), unless `replace` empties it in that same transaction (a
+// backup taking the place of the last, which stays whole if this one fails), and both are brought up to the latest
+// schema first.
 import type {Db} from './database'
 import {one} from './database'
 
@@ -12,14 +13,35 @@ export const COPIED_TABLES = ['statuses', 'settings', 'people', 'workspaces', 'w
 /** The tables whose ids the database hands out, so Postgres's counters move on past the copied ones. */
 const NUMBERED = ['epics', 'comments', 'milestone_comments', 'epic_comments', 'issue_events', 'doc_revisions', 'schedules_across', 'schedules', 'schedule_runs', 'signals', 'secret_uses', 'presets', 'events', 'changes']
 
+/** Every row of each table copied, by table. */
+export type CopiedRows = Partial<Record<(typeof COPIED_TABLES)[number], Record<string, unknown>[]>>
+
+/** Who else reads the rows of the database orrery runs on: the Rust API, when it's in front (ORR-1134), set by
+ * plugins/backup.ts, so only it reads that database. Undefined leaves it to `source`. Every copy the Nuxt server
+ * makes (a move, a backup into Postgres or of a Postgres one) is of the database it runs on; `pnpm orrery:copy`, which
+ * copies others, never sets it. */
+let readElsewhere: (() => Promise<CopiedRows | undefined>) | null = null
+
+export function rowsReadBy(read: (() => Promise<CopiedRows | undefined>) | null) {
+    readElsewhere = read
+}
+
+/** The rows as `POST /api/database/rows` sends them: bytes (an upload's image) as `{$base64}`, back to bytes. */
+export function rowsFromApi(tables: Record<string, Record<string, unknown>[]>): CopiedRows {
+    const bytes = (value: unknown) => value && typeof value === 'object' && typeof (value as {$base64?: unknown}).$base64 === 'string'
+        ? Buffer.from((value as {$base64: string}).$base64, 'base64') : value
+    return Object.fromEntries(Object.entries(tables).map(([table, rows]) =>
+        [table, rows.map(row => Object.fromEntries(Object.entries(row).map(([column, value]) => [column, bytes(value)])))]))
+}
+
 /** `mark` is written into the target's settings as `backup_of`: the id of the orrery it's a backup of. */
 export async function copyDatabase(source: Db, target: Db, {replace = false, mark}: {replace?: boolean, mark?: string} = {}): Promise<Record<string, number>> {
     if (!replace && (await one<{n: number}>(target, 'SELECT count(*) AS n FROM projects')).n) throw new Error('The target already has projects: copy into an empty orrery')
     // Read first, all of it in one transaction (on Postgres one snapshot of it), so a write while it copies a
     // running orrery can't leave a row pointing at one that isn't there.
-    const rows = await source.transaction(async () => {
+    const rows = (readElsewhere && await readElsewhere()) ?? await source.transaction(async () => {
         if (source.dialect === 'postgres') await source.exec('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ')
-        const read: Partial<Record<(typeof COPIED_TABLES)[number], Record<string, unknown>[]>> = {}
+        const read: CopiedRows = {}
         for (const table of COPIED_TABLES) read[table] = await source.all<Record<string, unknown>>(`SELECT * FROM ${table}`)
         return read
     })

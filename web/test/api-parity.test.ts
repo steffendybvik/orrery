@@ -33,7 +33,9 @@ import {badRequest} from '../server/utils/input'
 import {Schedules} from '../server/utils/schedules'
 import {PullPoll} from '../server/utils/pull-poll'
 import type {PolledRow} from '../server/utils/pull-poll'
-import {openDb} from '../server/utils/db'
+import {emptyDb, openDb} from '../server/utils/db'
+import type {CopiedRows} from '../server/utils/copy'
+import {COPIED_TABLES, copyDatabase, rowsFromApi, rowsReadBy} from '../server/utils/copy'
 import {backUpTo, snapshotsBy} from '../server/utils/backup'
 import {isFresh, noteEnvironment} from '../server/utils/restore'
 import {boardForApi, checkedBoard, uploadBoard} from '../server/utils/board-upload'
@@ -325,32 +327,7 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         for (const [name, ts, rs] of steps) await both(name, ts, rs)
     })
 
-    it('reads the event log and resolves a line in it as the routes here did (ORR-1088)', async () => {
-        // The store's side is utils/event-log.ts on the same database: each read is asked of both and must match.
-        const log = new EventLog(store.db)
-        await store.db.run('DELETE FROM events')
-        const at = (minute: number) => `2026-11-11T09:0${minute}:00.000Z`
-        for (const [level, kind, project, message, minute] of [['error', 'server.error', null, 'Boom', 0], ['info', 'session.started', 'primes', 'Started', 1],
-            ['warn', 'session_x.odd', 'primes', 'Odd', 2], ['error', 'server.error', null, 'Boom', 3]] as const) {
-            await store.db.run('INSERT INTO events (level, kind, project, message, count, first_seen, last_seen) VALUES (?, ?, ?, ?, 1, ?, ?)', level, kind, project, message, at(minute), at(minute))
-        }
-        await store.db.run("INSERT INTO events (level, kind, project, subject, message, details, count, first_seen, last_seen) VALUES ('info', 'issue.status', 'primes', 'PRI-1', 'Moved', '{\"by\":\"claude\"}', 1, ?, ?)", at(4), at(4))
-        const reads: [string, Parameters<EventLog['list']>[0]][] = [['', {}], ['?level=error,warn', {level: 'error,warn'}], ['?kind=session', {kind: 'session'}],
-            ['?project=primes&subject=PRI-1', {project: 'primes', subject: 'PRI-1'}], ['?since=2026-11-11T09:01:30Z', {since: '2026-11-11T09:01:30Z'}],
-            ['?open=1&limit=2', {open: true, limit: 2}], ['?limit=0', {limit: undefined}]]
-        for (const [query, filter] of reads) {
-            const read = await viaApi('GET', `/api/events/log${query}`, undefined, OWNER)
-            expect(read.status, query).toBe(200)
-            expect(read.body, query).toEqual(JSON.parse(JSON.stringify(await log.list(filter))))
-        }
-        expect(await viaApi('GET', '/api/events/log?level=loud', undefined, OWNER)).toMatchObject({status: 400, body: {message: '"level" has "loud"; use error, warn, info'}})
-        const [first] = (await log.list({kind: 'server.error'})).reverse()
-        const resolved = await viaApi('POST', `/api/events/log/${first!.id}/resolve`, {}, SESSION)
-        expect(resolved.status).toBe(200)
-        expect(resolved.body).toEqual(JSON.parse(JSON.stringify((await log.list({kind: 'server.error'})).find(e => e.id === first!.id))))
-        expect(resolved.body).toMatchObject({resolved_by: 'agent'})
-        expect((await log.list({kind: 'server.error', open: true}))).toEqual([])
-        expect(await viaApi('POST', '/api/events/log/999999/resolve', {}, OWNER)).toMatchObject({status: 404, body: {message: 'No event 999999'}})
+    it('sends reading the event log and resolving a line in it to the API, whose cargo tests cover them (ORR-1088, ORR-1143)', () => {
         expect(domainOf('GET', '/api/events/log')).toBe('the event log, read')
         expect(domainOf('POST', '/api/events/log/4/resolve')).toBe('an event, resolved')
         expect(domainOf('POST', '/api/events/log')).toBeUndefined()
@@ -1397,6 +1374,30 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         expect(asked).toMatchObject({status: 200, body: {compacted: false}})
         expect(await viaApi('POST', '/api/database/compact', {always: true})).toMatchObject({status: 200, body: {compacted: !POSTGRES}})
         expect(domainOf('POST', '/api/database/compact')).toBeUndefined()
+    })
+
+    it('reads the rows a copy takes alike, the API reading them (ORR-1134)', async () => {
+        // An image, for its bytes.
+        expect((await viaApi('POST', '/api/uploads', {data: Buffer.from('GIF89a\x01\x00\x01\x00\x00\x00\x00;', 'latin1').toString('base64')})).status).toBe(201)
+        const copyInto = async (read: (() => Promise<CopiedRows | undefined>) | null) => {
+            const target = new SqliteDb(emptyDb(join(mkdtempSync(join(tmpdir(), 'orrery-copy-')), 'orrery.db')))
+            rowsReadBy(read)
+            try {
+                await copyDatabase(store.db, target)
+                return Object.fromEntries(await Promise.all(COPIED_TABLES.map(async t => [t, await target.all(`SELECT * FROM ${t} ORDER BY 1`)])))
+            } finally {
+                rowsReadBy(null)
+                target.raw.close()
+            }
+        }
+        const here = await copyInto(null)
+        const there = await copyInto(async () => {
+            const read = await viaApi('POST', '/api/database/rows', {tables: COPIED_TABLES})
+            expect(read.status).toBe(200)
+            return rowsFromApi((read.body as {tables: Record<string, Record<string, unknown>[]>}).tables)
+        })
+        expect(there).toEqual(here)
+        expect(domainOf('POST', '/api/database/rows')).toBeUndefined()
     })
 
     it('says alike whether the database is a new orrery\'s, and keeps the name it runs under alike (ORR-1140)', async () => {
@@ -3951,7 +3952,7 @@ describe('the contract (api/openapi.yaml)', () => {
     })
 
     it('sends none of the routes written ahead of the Rust API to it', () => {
-        expect(contract(true)).toEqual(['DELETE /api/chats/{chat}', 'DELETE /api/secrets/{name}/sealed', 'GET /api/auth/oidc/callback', 'GET /api/auth/oidc/start', 'GET /api/auth/status', 'GET /api/chats', 'GET /api/chats/{chat}', 'GET /api/database', 'GET /api/projects/{project}/issue-sessions', 'GET /api/projects/{project}/issues/{issue}/dependents', 'GET /api/projects/{project}/issues/{issue}/workers', 'GET /api/projects/{project}/signals/last', 'POST /api/auth/link', 'POST /api/boards', 'POST /api/chats/{chat}/doc-requests', 'POST /api/chats/{chat}/issue-requests', 'POST /api/chats/{chat}/lines', 'POST /api/chats/{chat}/move-requests', 'POST /api/chats/{chat}/release-requests', 'POST /api/chats/{chat}/replies', 'POST /api/chats/{chat}/schedule-requests', 'POST /api/chats/{chat}/setting-requests', 'POST /api/database/compact', 'POST /api/database/snapshot', 'POST /api/events/log/prune', 'POST /api/phone/link', 'POST /api/presets/seed', 'POST /api/projects/{project}/issue-sessions/rename', 'POST /api/projects/{project}/issues/{issue}/worked-by', 'POST /api/projects/{project}/signals', 'POST /api/projects/{project}/signals/retarget', 'POST /api/projects/{project}/signals/{signal}/receipts', 'POST /api/pulls/forget', 'POST /api/secrets/{name}/uses', 'POST /api/signals/prune', 'PUT /api/chats/{chat}', 'PUT /api/chats/{chat}/lines/{message}', 'PUT /api/database/environment', 'PUT /api/events/log/lines', 'PUT /api/pulls/{owner}/{name}', 'PUT /api/pulls/{owner}/{name}/error', 'PUT /api/pulls/{owner}/{name}/history', 'PUT /api/pulls/{owner}/{name}/{number}', 'PUT /api/secrets/{name}/sealed', 'PUT /api/usage'])
+        expect(contract(true)).toEqual(['DELETE /api/chats/{chat}', 'DELETE /api/secrets/{name}/sealed', 'GET /api/auth/oidc/callback', 'GET /api/auth/oidc/start', 'GET /api/auth/status', 'GET /api/chats', 'GET /api/chats/{chat}', 'GET /api/database', 'GET /api/projects/{project}/issue-sessions', 'GET /api/projects/{project}/issues/{issue}/dependents', 'GET /api/projects/{project}/issues/{issue}/workers', 'GET /api/projects/{project}/signals/last', 'POST /api/auth/link', 'POST /api/boards', 'POST /api/chats/{chat}/doc-requests', 'POST /api/chats/{chat}/issue-requests', 'POST /api/chats/{chat}/lines', 'POST /api/chats/{chat}/move-requests', 'POST /api/chats/{chat}/release-requests', 'POST /api/chats/{chat}/replies', 'POST /api/chats/{chat}/schedule-requests', 'POST /api/chats/{chat}/setting-requests', 'POST /api/database/compact', 'POST /api/database/rows', 'POST /api/database/snapshot', 'POST /api/events/log/prune', 'POST /api/phone/link', 'POST /api/presets/seed', 'POST /api/projects/{project}/issue-sessions/rename', 'POST /api/projects/{project}/issues/{issue}/worked-by', 'POST /api/projects/{project}/signals', 'POST /api/projects/{project}/signals/retarget', 'POST /api/projects/{project}/signals/{signal}/receipts', 'POST /api/pulls/forget', 'POST /api/secrets/{name}/uses', 'POST /api/signals/prune', 'PUT /api/chats/{chat}', 'PUT /api/chats/{chat}/lines/{message}', 'PUT /api/database/environment', 'PUT /api/events/log/lines', 'PUT /api/pulls/{owner}/{name}', 'PUT /api/pulls/{owner}/{name}/error', 'PUT /api/pulls/{owner}/{name}/history', 'PUT /api/pulls/{owner}/{name}/{number}', 'PUT /api/secrets/{name}/sealed', 'PUT /api/usage'])
         expect(contract(true).filter(operation => routes().includes(operation))).toEqual([])
     })
 })
