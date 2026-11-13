@@ -12,10 +12,10 @@
 import type {PullState} from '#shared/roadmap'
 import {PULL_NEEDS} from '#shared/roadmap'
 import type {EventEntry} from './event-log'
-import type {KeptPull, ListedPull, Pulls} from './pulls'
-import {GITHUB_SECRET, issueIdsIn, PAGE, PAGES, pullState, repoPath} from './pulls'
+import type {KeptRepo, ListedPull, Pulls} from './pulls'
+import {GITHUB_SECRET, issueIdsIn, keptRepo, PAGE, PAGES, pullState, repoPath} from './pulls'
 import type {Store} from './store'
-import {readFromApi, writeToApi} from './api-router'
+import {writeToApi} from './api-router'
 import {ORRERY} from '../store/schema'
 
 /** How often a repo is polled: with a token, and without one. */
@@ -32,13 +32,6 @@ const REFUSED_FOR = 60 * 60_000
 const DONE = 30
 /** How long a merged or closed PR, or a repo nobody points at any more, is kept. */
 const KEEP = 7 * 24 * 60 * 60_000
-
-/** What the poll reads of a repo before it polls it: `repo` null before its first poll (ORR-1153). */
-export interface KeptRepo {
-    repo: {token: boolean, history_page: number} | null
-    pulls: (Pick<KeptPull, 'number' | 'state' | 'review' | 'review_id' | 'checks'> & {merged: boolean, closed: boolean, told: string[]})[]
-    recorded: {number: number, updated_at: string}[]
-}
 
 export type PullChangeKind = 'conflicting' | 'behind' | 'checks_failed' | 'changes_requested' | 'merged' | 'closed' | 'ready' | 'approved'
 
@@ -435,16 +428,7 @@ export class PullPoll {
     /** What's kept of a repo before it's polled: from the Rust API when it's in front (ORR-1153), as it's the one on
      * the database then; otherwise read here. */
     async keptOf(repo: string): Promise<KeptRepo> {
-        const read = await readFromApi<KeptRepo>(`/api/pulls/${repoPath(repo)}`)
-        if (read) return read
-        const row = await this.store.db.get<{token: number, history_page: number | null}>('SELECT token, history_page FROM pull_repos WHERE repo = ?', repo)
-        const pulls = await this.store.db.all<KeptPull>('SELECT * FROM pull_states WHERE repo = ? ORDER BY number', repo)
-        return {
-            repo: row ? {token: !!row.token, history_page: Number(row.history_page ?? 0)} : null,
-            pulls: pulls.map(p => ({number: Number(p.number), state: p.state, review: p.review, review_id: p.review_id, checks: p.checks,
-                merged: !!p.merged, closed: !!p.closed, told: JSON.parse(p.told) as string[]})),
-            recorded: await this.store.db.all<{number: number, updated_at: string}>('SELECT number, updated_at FROM issue_pulls WHERE repo = ? ORDER BY number', repo),
-        }
+        return keptRepo(this.store, repo)
     }
 
     // The poll's writes, each one step (ORR-952): sent to the Rust API when it's in front, as it's the one writer of

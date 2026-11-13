@@ -1599,6 +1599,28 @@ paths:
           content: {application/json: {schema: {type: array, items: {type: object, required: [issue, started, worker], properties: {issue: {type: string}, started: {type: boolean}, worker: {type: string, nullable: true}}}}}}
         '403': {$ref: '#/components/responses/Forbidden'}
         '404': {$ref: '#/components/responses/NotFound'}
+  /api/projects/{project}/issues/{issue}/kept-pulls:
+    parameters:
+      - {$ref: '#/components/parameters/project'}
+      - {name: issue, in: path, required: true, schema: {type: string}}
+    get:
+      x-served: false
+      summary: What's kept of the issue's PRs, for the local app's issue page
+      description: >-
+        `ids` is the issue's id then those it had before; `pulls` each PR kept on it (`issue_pulls`) with its rating, the
+        newest first (ORR-1153).
+      responses:
+        '200':
+          description: The issue's kept PRs
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ids, pulls]
+                properties:
+                  ids: {type: array, items: {type: string}}
+                  pulls: {type: array, items: {type: object, description: 'An `issue_pulls` row''s repo, number, title, url, branch, base, author, state, merged_at, updated_at, risk, risk_why and risk_by'}}
+        '404': {$ref: '#/components/responses/NotFound'}
   /api/projects/{project}/issues/{issue}/dependents:
     parameters:
       - {$ref: '#/components/parameters/project'}
@@ -2045,11 +2067,11 @@ paths:
       - {name: name, in: path, required: true, description: The GitHub repo's name, schema: {type: string}}
     get:
       x-served: false
-      summary: What the local app's poll reads of a repo before it polls it
+      summary: What the local app reads of a repo it polls, for the poll, the PR list and the branches
       description: >-
-        `repo` is whether it was last read with a token and the page of its closed PRs to read next, null before its first
-        poll. `pulls` is each PR kept, with what a poll tells its changes by, and `recorded` when each PR kept on an issue
-        last changed (ORR-1153).
+        `repo` is when it was last polled, whether with a token, what went wrong then and the page of its closed PRs to
+        read next, null before its first poll. `pulls` is each PR the poll keeps, as kept, and `recorded` each PR kept on
+        an issue, when it last changed, its branch, link and state (ORR-1153).
       responses:
         '200':
           description: The repo as kept
@@ -2059,9 +2081,9 @@ paths:
                 type: object
                 required: [repo, pulls, recorded]
                 properties:
-                  repo: {type: [object, 'null'], properties: {token: {type: boolean}, history_page: {type: integer}}}
-                  pulls: {type: array, items: {type: object, description: 'A `pull_states` row''s number, state, review, review_id, checks, merged, closed and told'}}
-                  recorded: {type: array, items: {type: object, properties: {number: {type: integer}, updated_at: {type: string}}}}
+                  repo: {type: [object, 'null'], properties: {polled_at: {type: string}, token: {type: boolean}, error: {type: [string, 'null']}, history_page: {type: integer}}}
+                  pulls: {type: array, items: {type: object, description: 'A `pull_states` row but its repo, `names` and `told` as lists and its flags as booleans'}}
+                  recorded: {type: array, items: {type: object, properties: {number: {type: integer}, updated_at: {type: string}, branch: {type: string}, url: {type: string}, state: {type: string}}}}
     put:
       x-served: false
       summary: 'A repo''s poll: each PR as read, those it missed kept as closed, and the repo as polled'
@@ -2107,6 +2129,40 @@ paths:
       responses:
         '204': {description: Kept}
         '400': {$ref: '#/components/responses/BadRequest'}
+  /api/pulls/repos:
+    get:
+      x-served: false
+      summary: Each project's repo, oldest project first, and the branches of releases being prepared, the newest first
+      description: What the local app polls and reads branches by (ORR-1153).
+      responses:
+        '200':
+          description: The repos
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [projects, preparing]
+                properties:
+                  projects: {type: array, items: {type: object, properties: {id: {type: string}, repo: {type: [string, 'null']}}}}
+                  preparing: {type: array, items: {type: object, properties: {project: {type: string}, branch: {type: string}}}}
+  /api/pulls/named:
+    get:
+      x-served: false
+      summary: The first issue among `projects` that one of `ids` is, by its id or an old one, with its status's kind
+      description: What a PR or a branch naming it is shown on, for the local app (`issueOf`, ORR-1153). Null when none is.
+      parameters:
+        - {name: projects, in: query, description: Project ids, comma-separated, schema: {type: string}}
+        - {name: ids, in: query, description: Issue ids in the order to try, comma-separated, schema: {type: string}}
+      responses:
+        '200':
+          description: The issue, or null
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [issue]
+                properties:
+                  issue: {type: [object, 'null'], properties: {project: {type: string}, id: {type: string}, title: {type: string}, kind: {type: [string, 'null']}}}
   /api/pulls/forget:
     post:
       x-served: false

@@ -517,6 +517,68 @@ impl<'a> Pulls<'a> {
         open.extend(done);
         Ok(open)
     }
+
+    /// What's kept of the issue's pull requests, for the local app's issue page (`forIssue`, ORR-1153): `ids`, its id
+    /// then those it had before, and `pulls`, each kept on it (`issue_pulls`) with its rating, the newest first. A 404
+    /// when there's no such issue.
+    pub async fn kept_on_issue(&mut self, project: &str, issue: &str) -> Result<Value> {
+        let id = self.issue_id(project, issue).await?;
+        let aliases = sqlx::query(&sql("SELECT alias FROM issue_aliases WHERE project = ? AND issue = ?"))
+            .bind(project)
+            .bind(&id)
+            .fetch_all(&mut *self.conn)
+            .await?;
+        let mut ids = vec![id.clone()];
+        ids.extend(aliases.iter().map(|a| a.get::<String, _>("alias")));
+        let pulls = sqlx::query(&sql(
+            "SELECT repo, CAST(number AS BIGINT) AS number, title, url, branch, base, author, state, merged_at, updated_at, risk, risk_why, risk_by \
+             FROM issue_pulls WHERE project = ? AND issue = ? ORDER BY updated_at DESC, number DESC",
+        ))
+        .bind(project)
+        .bind(&id)
+        .fetch_all(&mut *self.conn)
+        .await?
+        .iter()
+        .map(|r| {
+            let text = |key: &str| json!(r.get::<String, _>(key));
+            let maybe = |key: &str| json!(r.get::<Option<String>, _>(key));
+            json!({"repo": text("repo"), "number": r.get::<i64, _>("number"), "title": text("title"), "url": text("url"), "branch": text("branch"),
+                "base": text("base"), "author": text("author"), "state": text("state"), "merged_at": maybe("merged_at"), "updated_at": text("updated_at"),
+                "risk": maybe("risk"), "risk_why": maybe("risk_why"), "risk_by": maybe("risk_by")})
+        })
+        .collect::<Vec<_>>();
+        Ok(json!({"ids": ids, "pulls": pulls}))
+    }
+
+    /// The first issue among `projects` that one of `ids` is, by its id or an old one, with its title and its status's
+    /// kind (`issueOf`, ORR-1153): what a PR or a branch naming it is shown on. Null when none is.
+    pub async fn named(&mut self, projects: &[String], ids: &[String]) -> Result<Value> {
+        let Some((project, id)) = self.issue_of(projects, ids).await? else { return Ok(json!({"issue": null})) };
+        let row = sqlx::query(&sql("SELECT i.title, s.kind FROM issues i LEFT JOIN statuses s ON s.id = i.status WHERE i.project = ? AND i.id = ?"))
+            .bind(&project)
+            .bind(&id)
+            .fetch_one(&mut *self.conn)
+            .await?;
+        Ok(json!({"issue": {"project": project, "id": id, "title": row.get::<String, _>("title"), "kind": row.get::<Option<String>, _>("kind")}}))
+    }
+
+    /// Each project's repo as written, oldest project first, and the branches of releases being prepared, the newest
+    /// first (`repos` and the branches' base, ORR-1153): what the local app polls and reads branches by.
+    pub async fn repos(&mut self) -> Result<Value> {
+        let projects = sqlx::query("SELECT id, repo FROM projects ORDER BY created_at, id")
+            .fetch_all(&mut *self.conn)
+            .await?
+            .iter()
+            .map(|r| json!({"id": r.get::<String, _>("id"), "repo": r.get::<Option<String>, _>("repo")}))
+            .collect::<Vec<_>>();
+        let preparing = sqlx::query("SELECT project, branch FROM releases WHERE branch IS NOT NULL AND shipped_on IS NULL ORDER BY created_at DESC")
+            .fetch_all(&mut *self.conn)
+            .await?
+            .iter()
+            .map(|r| json!({"project": r.get::<String, _>("project"), "branch": r.get::<String, _>("branch")}))
+            .collect::<Vec<_>>();
+        Ok(json!({"projects": projects, "preparing": preparing}))
+    }
 }
 
 /// How long the poll's read of a repo stands for the open pull requests (`POLL_STANDS`), in milliseconds.
