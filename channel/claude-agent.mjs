@@ -99,7 +99,7 @@ export const claude = {
             // Which issues it's about to write to: an owner's comment on one goes to this session.
             command: name === 'PreToolUse' && hook.tool_name === 'Bash' ? String(hook.tool_input?.command ?? '').slice(0, 4000) : undefined,
             // The tool it's about to use, or asks permission for, in a line: what the owner's prompt says it wants.
-            tool: hook.tool_name ? {name: String(hook.tool_name).slice(0, 200), detail: toolDetail(hook.tool_name, hook.tool_input)} : undefined,
+            tool: hook.tool_name ? {name: String(hook.tool_name).slice(0, 200), detail: toolDetail(hook.tool_name, hook.tool_input), questions: toolQuestions(hook.tool_name, hook.tool_input)} : undefined,
             // The model it runs on (ORR-871), and the effort level, when its hook says (ORR-894).
             model: modelOf(hook),
             effort: effortOf(hook),
@@ -128,6 +128,16 @@ export const claude = {
 }
 
 const claudeRun = args => execFileSync('claude', args, {stdio: ['ignore', 'ignore', 'pipe']})
+
+/** A question to the owner (`AskUserQuestion`, ORR-1155): its questions and their options' labels, for the page to
+ * show it as a question. The server checks and trims them (`questionsOf`). */
+function toolQuestions(name, input) {
+    if (name !== 'AskUserQuestion' || !Array.isArray(input?.questions)) return undefined
+    return input.questions.slice(0, 4).map(q => ({
+        question: String(q?.question ?? '').slice(0, 300),
+        options: Array.isArray(q?.options) ? q.options.slice(0, 6).map(o => String(o?.label ?? o ?? '').slice(0, 100)) : [],
+    }))
+}
 
 /** What a tool would do, short: the command, the file, the address or the search. Never a file's contents or
  * anything else from its input: an MCP tool's arguments can hold anything, so it goes by its name alone. */

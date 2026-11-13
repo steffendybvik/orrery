@@ -3,10 +3,10 @@
 // the hook's event name; a `StopFailure` (with its `error`) lets go of the issues the session has in progress. A
 // `SessionStart` after a `/clear`, a compaction or a resume (`source`) also brings `brief`: what the session was working
 // on, for the hook to hand the fresh context so the work carries on. A session orrery started (`started`, its launch)
-// with context gets that in the brief on every `SessionStart`, its first included. `tool` ({name, detail?}, on
+// with context gets that in the brief on every `SessionStart`, its first included. `tool` ({name, detail?, questions?}, on
 // `PreToolUse` and `PermissionRequest`) is what a permission prompt it waits at is for. Every `SessionStart` brings the
 // project's `repo` too (its address, or null), which the hook tells the session with the folder's own repo (ORR-1070).
-import {cutOffLabel, isEffort} from '#shared/roadmap'
+import {cutOffLabel, isEffort, questionsOf} from '#shared/roadmap'
 export default defineEventHandler(async event => {
     const body = await readBody(event).catch(() => null) as Record<string, unknown> | null
     if (!body || typeof body.project !== 'string' || typeof body.event !== 'string' || (!body.id && !body.pid)) {
@@ -35,6 +35,8 @@ export default defineEventHandler(async event => {
         window: Number.isSafeInteger(body.window) && (body.window as number) > 0 && (body.window as number) <= 10_000_000 ? body.window as number : undefined,
         tool: tool && typeof tool.name === 'string' && tool.name ? {
             name: tool.name.slice(0, 200), ...typeof tool.detail === 'string' && tool.detail ? {detail: tool.detail.slice(0, 300)} : {},
+            // A question to the owner brings its questions (ORR-1155); one from an untrusted session's says nothing.
+            ...!untrusted && questionsOf(tool.questions) ? {questions: questionsOf(tool.questions)} : {},
         } : undefined,
     })
     if (session && body.event === 'Stop') {

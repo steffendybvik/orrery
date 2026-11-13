@@ -135,10 +135,41 @@ export const withoutChannel = <T extends Pick<Session, 'listening' | 'started'>>
 export const cutOffLabel = ({error}: {error?: string}) => ({rate_limit: 'usage limit reached', billing_error: 'billing error'} as Record<string, string>)[error ?? ''] ?? 'cut off by an API error'
 
 /** A tool a session uses, as its hook says it: Claude Code's name for it (`Bash`, `Edit`, `mcp__orrery__comment`…),
- * and for some what it would do. */
+ * and for some what it would do. A question it asks the owner (`AskUserQuestion`) brings its questions, each with the
+ * labels of its options (ORR-1155). */
 export interface SessionTool {
     name: string
     detail?: string
+    questions?: SessionQuestion[]
+}
+
+/** One of the questions a session asks with `AskUserQuestion`, and its options' labels. */
+export interface SessionQuestion {
+    question: string
+    options: string[]
+}
+
+/** Claude Code's tool for asking the owner a question: waiting at it is a question, not a permission (ORR-1155). */
+export const QUESTION_TOOL = 'AskUserQuestion'
+
+/** Whether a session waits at a question to the owner rather than a permission prompt. */
+export const asksQuestion = (session: {state: string, asking?: SessionTool}) => session.state === 'waiting' && session.asking?.name === QUESTION_TOOL
+
+/** At most 4 questions of 300 characters, each with at most 6 options of 100 (what Claude Code allows, and some):
+ * whatever else a hook sends is dropped. */
+export function questionsOf(value: unknown): SessionQuestion[] | undefined {
+    if (!Array.isArray(value)) return undefined
+    const questions = value.slice(0, 4).flatMap(q => {
+        const question = q && typeof q === 'object' ? (q as Record<string, unknown>).question : undefined
+        if (typeof question !== 'string' || !question.trim()) return []
+        const options = (q as Record<string, unknown>).options
+        const labels = Array.isArray(options) ? options.slice(0, 6).flatMap(o => {
+            const label = typeof o === 'string' ? o : o && typeof o === 'object' ? (o as Record<string, unknown>).label : undefined
+            return typeof label === 'string' && label.trim() ? [label.trim().slice(0, 100)] : []
+        }) : []
+        return [{question: question.trim().slice(0, 300), options: labels}]
+    })
+    return questions.length ? questions : undefined
 }
 
 /** What a session is on, for its project's Sessions page: the open issues it worked last, newest first, each with
