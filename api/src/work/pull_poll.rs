@@ -405,16 +405,18 @@ impl<'c> PullPoll<'c> {
                 "updated_at": text("updated_at"), "seen_at": text("seen_at"), "told": list(r, "told")})
         })
         .collect::<Vec<_>>();
-        let recorded = sqlx::query(&sql("SELECT DISTINCT CAST(number AS BIGINT) AS number, updated_at, branch, url, state FROM issue_pulls WHERE repo = ? ORDER BY number, updated_at"))
-            .bind(repo)
-            .fetch_all(&mut *self.conn)
-            .await?
-            .iter()
-            .map(|r| {
-                json!({"number": r.get::<i64, _>("number"), "updated_at": r.get::<String, _>("updated_at"), "branch": r.get::<String, _>("branch"),
+        let recorded = sqlx::query(&sql(
+            "SELECT DISTINCT CAST(number AS BIGINT) AS number, updated_at, branch, url, state FROM issue_pulls WHERE repo = ? ORDER BY number, updated_at",
+        ))
+        .bind(repo)
+        .fetch_all(&mut *self.conn)
+        .await?
+        .iter()
+        .map(|r| {
+            json!({"number": r.get::<i64, _>("number"), "updated_at": r.get::<String, _>("updated_at"), "branch": r.get::<String, _>("branch"),
                     "url": r.get::<String, _>("url"), "state": r.get::<String, _>("state")})
-            })
-            .collect::<Vec<_>>();
+        })
+        .collect::<Vec<_>>();
         Ok(json!({"repo": polled, "pulls": pulls, "recorded": recorded}))
     }
 }

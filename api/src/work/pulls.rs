@@ -523,11 +523,8 @@ impl<'a> Pulls<'a> {
     /// when there's no such issue.
     pub async fn kept_on_issue(&mut self, project: &str, issue: &str) -> Result<Value> {
         let id = self.issue_id(project, issue).await?;
-        let aliases = sqlx::query(&sql("SELECT alias FROM issue_aliases WHERE project = ? AND issue = ?"))
-            .bind(project)
-            .bind(&id)
-            .fetch_all(&mut *self.conn)
-            .await?;
+        let aliases =
+            sqlx::query(&sql("SELECT alias FROM issue_aliases WHERE project = ? AND issue = ?")).bind(project).bind(&id).fetch_all(&mut *self.conn).await?;
         let mut ids = vec![id.clone()];
         ids.extend(aliases.iter().map(|a| a.get::<String, _>("alias")));
         let pulls = sqlx::query(&sql(
