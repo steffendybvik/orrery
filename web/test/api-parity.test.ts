@@ -325,32 +325,7 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         for (const [name, ts, rs] of steps) await both(name, ts, rs)
     })
 
-    it('reads the event log and resolves a line in it as the routes here did (ORR-1088)', async () => {
-        // The store's side is utils/event-log.ts on the same database: each read is asked of both and must match.
-        const log = new EventLog(store.db)
-        await store.db.run('DELETE FROM events')
-        const at = (minute: number) => `2026-11-11T09:0${minute}:00.000Z`
-        for (const [level, kind, project, message, minute] of [['error', 'server.error', null, 'Boom', 0], ['info', 'session.started', 'primes', 'Started', 1],
-            ['warn', 'session_x.odd', 'primes', 'Odd', 2], ['error', 'server.error', null, 'Boom', 3]] as const) {
-            await store.db.run('INSERT INTO events (level, kind, project, message, count, first_seen, last_seen) VALUES (?, ?, ?, ?, 1, ?, ?)', level, kind, project, message, at(minute), at(minute))
-        }
-        await store.db.run("INSERT INTO events (level, kind, project, subject, message, details, count, first_seen, last_seen) VALUES ('info', 'issue.status', 'primes', 'PRI-1', 'Moved', '{\"by\":\"claude\"}', 1, ?, ?)", at(4), at(4))
-        const reads: [string, Parameters<EventLog['list']>[0]][] = [['', {}], ['?level=error,warn', {level: 'error,warn'}], ['?kind=session', {kind: 'session'}],
-            ['?project=primes&subject=PRI-1', {project: 'primes', subject: 'PRI-1'}], ['?since=2026-11-11T09:01:30Z', {since: '2026-11-11T09:01:30Z'}],
-            ['?open=1&limit=2', {open: true, limit: 2}], ['?limit=0', {limit: undefined}]]
-        for (const [query, filter] of reads) {
-            const read = await viaApi('GET', `/api/events/log${query}`, undefined, OWNER)
-            expect(read.status, query).toBe(200)
-            expect(read.body, query).toEqual(JSON.parse(JSON.stringify(await log.list(filter))))
-        }
-        expect(await viaApi('GET', '/api/events/log?level=loud', undefined, OWNER)).toMatchObject({status: 400, body: {message: '"level" has "loud"; use error, warn, info'}})
-        const [first] = (await log.list({kind: 'server.error'})).reverse()
-        const resolved = await viaApi('POST', `/api/events/log/${first!.id}/resolve`, {}, SESSION)
-        expect(resolved.status).toBe(200)
-        expect(resolved.body).toEqual(JSON.parse(JSON.stringify((await log.list({kind: 'server.error'})).find(e => e.id === first!.id))))
-        expect(resolved.body).toMatchObject({resolved_by: 'agent'})
-        expect((await log.list({kind: 'server.error', open: true}))).toEqual([])
-        expect(await viaApi('POST', '/api/events/log/999999/resolve', {}, OWNER)).toMatchObject({status: 404, body: {message: 'No event 999999'}})
+    it('sends reading the event log and resolving a line in it to the API, whose cargo tests cover them (ORR-1088, ORR-1143)', () => {
         expect(domainOf('GET', '/api/events/log')).toBe('the event log, read')
         expect(domainOf('POST', '/api/events/log/4/resolve')).toBe('an event, resolved')
         expect(domainOf('POST', '/api/events/log')).toBeUndefined()
