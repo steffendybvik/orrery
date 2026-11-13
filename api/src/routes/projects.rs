@@ -26,6 +26,7 @@ pub(crate) fn routes() -> Router<Arc<App>> {
         .route(P, get(get_project).patch(patch_project).delete(delete_project))
         .route(&format!("{P}/export"), get(export_project))
         .route(&format!("{P}/release-peers"), get(release_peers))
+        .route(&format!("{P}/row"), get(project_row))
         .route(&format!("{P}/import"), post(import_project))
         .route("/api/boards", post(upload_board))
 }
@@ -159,4 +160,20 @@ async fn release_peers(State(app): Shared, Path(project): Path<String>, headers:
     }
     let mut conn = app.pool.acquire().await?;
     Ok(Json(Projects::new(&mut conn).release_peers(&project).await?).into_response())
+}
+
+/// `GET …/row` → the project's row as it's stored (ORR-1174), for the local app's store, whose helpers read it to check
+/// a project is there and for its prompts, instructions and release mode, without building its board. A 404 for a
+/// project there isn't, as the store says it.
+async fn project_row(State(app): Shared, Path(project): Path<String>, headers: HeaderMap) -> Result<Response> {
+    if !came_of(&headers).server {
+        return Err(ApiError::forbidden("Only the local app reads a project's row"));
+    }
+    let mut conn = app.pool.acquire().await?;
+    let row = sqlx::query(&crate::db::sql("SELECT * FROM projects WHERE id = ?"))
+        .bind(&project)
+        .fetch_optional(&mut *conn)
+        .await?
+        .ok_or_else(|| ApiError::not_found(format!("No project \"{project}\"")))?;
+    Ok(Json(crate::db::row_json(&row)).into_response())
 }

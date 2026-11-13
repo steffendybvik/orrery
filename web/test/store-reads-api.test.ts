@@ -110,6 +110,15 @@ describe("the store's reads through the Rust API (ORR-1162)", () => {
         await vi.waitFor(() => expect(told).toEqual(['greenhouse', 'shed']))
     })
 
+    it("reads a project's row and an issue's from the API for the store's helpers (ORR-1174)", async () => {
+        replies['/api/projects/shed/row'] = {id: 'shed', name: 'Shed', focus_prompt: 'Tidy the shed first.', milestone_prompt: null, instructions: '[]', muted: '[]'}
+        expect((await store.prompts('shed')).focus).toBe('Tidy the shed first.')
+        replies['/api/projects/shed/issues/SHE-1/row'] = {project: 'shed', id: 'SHE-1', title: 'Oil the hinges', labels: '["chore"]', assignee: null}
+        replies['/api/projects/shed/issues/SHE-1/workers'] = [{issue: 'SHE-1', started: false, worker: null}]
+        expect(await store.workerOf('shed', 'SHE-1')).toBeNull()
+        await expect(store.takenFrom('shed', 'SHE-1', 'me')).resolves.toBeNull()
+    })
+
     it('reads them from the database here with no API', async () => {
         expect((await store.statuses()).map(s => s.id)).toContain('todo')
         expect(await store.ownerOf()).toMatchObject({named: false})

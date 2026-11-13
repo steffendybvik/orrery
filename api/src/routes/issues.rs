@@ -26,6 +26,7 @@ pub(crate) fn routes() -> Router<Arc<App>> {
     Router::new()
         .route(&format!("{P}/issues"), get(list_issues).post(create_issue).patch(update_issues).delete(delete_issues))
         .route(&format!("{P}/issues/{{issue}}"), get(get_issue).patch(patch_issue).delete(delete_issue))
+        .route(&format!("{P}/issues/{{issue}}/row"), get(issue_row))
         .route(&format!("{P}/issues/{{issue}}/claim"), post(claim_issue).delete(release_issue))
         .route(&format!("{P}/issues/{{issue}}/decide"), post(decide_issue))
         .route(&format!("{P}/issues/decide"), post(decide_issues))
@@ -513,3 +514,23 @@ async fn get_comment(State(app): Shared, Path((project, issue, comment)): Path<(
 #[cfg(test)]
 #[path = "issues_tests.rs"]
 mod tests;
+
+/// `GET …/issues/:issue/row` → the issue's row as it's stored, by its id alone (no alias), for the local app's store
+/// (ORR-1174), whose helpers read it to check an issue is there and for its assignee, labels, claim and the rest. A 404
+/// for a project or an issue there isn't, as the store says each.
+async fn issue_row(State(app): Shared, Path((project, issue)): Path<(String, String)>, headers: HeaderMap) -> Result<Response> {
+    if !came_of(&headers).server {
+        return Err(ApiError::forbidden("Only the local app reads an issue's row"));
+    }
+    let mut conn = app.pool.acquire().await?;
+    if sqlx::query(&crate::db::sql("SELECT 1 FROM projects WHERE id = ?")).bind(&project).fetch_optional(&mut *conn).await?.is_none() {
+        return Err(ApiError::not_found(format!("No project \"{project}\"")));
+    }
+    let row = sqlx::query(&crate::db::sql("SELECT * FROM issues WHERE project = ? AND id = ?"))
+        .bind(&project)
+        .bind(&issue)
+        .fetch_optional(&mut *conn)
+        .await?
+        .ok_or_else(|| ApiError::not_found(format!("No issue {issue} in {project}")))?;
+    Ok(Json(crate::db::row_json(&row)).into_response())
+}
