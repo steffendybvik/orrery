@@ -61,7 +61,7 @@ impl TestApi {
         let pool = db::open(&setting, schema.clone()).await.expect("the API opens the database it migrated");
         // Each test's database is its own, so its hash is too: on Postgres the URL is shared, the schema isn't.
         let database = database_hash(&format!("{setting}#{}", schema.unwrap_or_default()));
-        let app = Arc::new(App { pool, token: TOKEN.into(), database, log: false, phone: access::phone::Links::default() });
+        let app = Arc::new(App { pool, token: TOKEN.into(), database, log: false, phone: access::phone::Links::default(), mcp: Default::default() });
         TestApi { router: router(app.clone()), app, came: "server" }
     }
 
