@@ -26,8 +26,8 @@ export function commandsFor({bootstrap, checkout}) {
     const path = bootstrap ?? checkout
     if (!PATH_SAFE.test(path ?? '')) throw new Error(`the launcher runs from ${path}, which can't go into a hook's command`)
     return bootstrap
-        ? {channel: {command: 'node', args: [bootstrap, 'channel']}, hook: `node "${bootstrap}" hook`}
-        : {channel: {command: 'node', args: [join(checkout, 'orrery-channel.mjs')]}, hook: `node "${join(checkout, 'orrery-hook.mjs')}"`}
+        ? {channel: {command: 'node', args: [bootstrap, 'channel']}, hook: `node "${bootstrap}" hook`, headers: `node "${bootstrap}" headers`}
+        : {channel: {command: 'node', args: [join(checkout, 'orrery-channel.mjs')]}, hook: `node "${join(checkout, 'orrery-hook.mjs')}"`, headers: `node "${join(checkout, 'mcp-headers.mjs')}"`}
 }
 
 export const HOME_CLAUDE_MD = `# orrery's default folder

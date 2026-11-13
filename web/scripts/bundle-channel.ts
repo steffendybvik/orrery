@@ -7,7 +7,7 @@ import {fileURLToPath} from 'node:url'
 import {build} from 'esbuild'
 
 const channel = fileURLToPath(new URL('../../channel', import.meta.url))
-const SCRIPTS = ['orrery-channel.mjs', 'orrery-hook.mjs', 'orrery-launcher.mjs']
+const SCRIPTS = ['orrery-channel.mjs', 'orrery-hook.mjs', 'orrery-launcher.mjs', 'mcp-headers.mjs']
 
 /** Writes them to `out`; `version` is what they report. */
 export async function bundleChannel(out: string, version: string) {

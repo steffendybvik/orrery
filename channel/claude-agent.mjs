@@ -118,8 +118,8 @@ export const claude = {
 
     // The install line's part (ORR-1067): orrery in Claude Code's user config, for every folder, and the default folder
     // trusted; `--uninstall` takes it out again.
-    setUp({url, orrery, commands, home}) {
-        return setUpUser({url, orrery, commands, home, run: claudeRun})
+    setUp({url, orrery, commands, home, mcp}) {
+        return setUpUser({url, orrery, commands, home, mcp, run: claudeRun})
     },
 
     undo({homeOf}) {
