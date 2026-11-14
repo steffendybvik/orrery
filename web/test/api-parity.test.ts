@@ -108,7 +108,8 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         }
         // Both projects first, which on Postgres also lays the schema down before the API looks at it.
         for (const name of ['through-store', 'through-api']) await store.createProject({name, key: name === 'through-store' ? 'STO' : 'API'})
-        api = spawn(BIN, [], {env: {...process.env, NUXT_API_TOKEN: TOKEN, NUXT_DATABASE: setting, ORRERY_API_LISTEN: '127.0.0.1:0', ...POSTGRES ? {ORRERY_API_SCHEMA: schema} : {}}})
+        // `orrery.example` stands for a name behind a proxy, listed as the owner would list it (ORR-1173).
+        api = spawn(BIN, [], {env: {...process.env, NUXT_API_TOKEN: TOKEN, NUXT_DATABASE: setting, ORRERY_API_LISTEN: '127.0.0.1:0', NUXT_ALLOWED_HOSTS: 'orrery.example', ...POSTGRES ? {ORRERY_API_SCHEMA: schema} : {}}})
         url = await new Promise<string>((done, fail) => {
             let said = ''
             api.stderr!.on('data', (chunk: Buffer) => {
@@ -1880,7 +1881,7 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         const owner = await store.ownerOf()
         const asOwner = {...actorHeaders(OWNER), ...await signedIn(owner.name), ...cameHeaders(none, '192.168.1.9:9000')}
         const ownersAgent = whoHeaders(undefined, undefined, (await store.makeKey(owner.name, {kind: 'agent', name: 'parity'})).key)
-        expect((await call('POST', '/api/phone/link', undefined, {...asOwner, ...cameHeaders({...none, phone: true}, 'x')})).status).toBe(403)
+        expect((await call('POST', '/api/phone/link', undefined, {...asOwner, ...cameHeaders({...none, phone: true}, 'orrery.example')})).status).toBe(403)
         expect((await call('POST', '/api/phone/link', undefined, {...actorHeaders(OWNER), ...await signedIn('ada')})).status).toBe(403)
         expect((await call('POST', '/api/phone/link', undefined, {...actorHeaders(OWNER), ...ownersAgent})).status).toBe(403)
         const fromSession = await call('POST', '/api/phone/link', undefined, {...actorHeaders(SESSION), ...await signedIn(owner.name)})
@@ -1896,7 +1897,7 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         expect(Date.parse(link.expires_at) - Date.now()).toBeGreaterThan(4 * 60_000)
 
         // Taking it: once, by the link or its code, with a login named as the phone's that the store knows.
-        const taken = await call('POST', '/api/auth/link', {token: link.token}, cameHeaders({...none, phone: true, https: true}, 'x'))
+        const taken = await call('POST', '/api/auth/link', {token: link.token}, cameHeaders({...none, phone: true, https: true}, 'orrery.example'))
         expect(taken.status).toBe(201)
         expect(await taken.json()).toEqual({person: owner.name})
         const cookie = taken.headers.get('set-cookie')!

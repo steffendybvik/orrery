@@ -4,7 +4,8 @@
 // came, a `closed` one turned away, and with it `on` the credential looked up here, so `Orrery-Who` is this API's own
 // finding and never the router's word. A write is then checked as the middleware checks it after that (ORR-1081): a
 // browser's has to say which page it's from (`Origin`), and one with an agent key can't write as a session that's
-// another person's (`holdSession`). Whether that `Origin` is ours stays with the router's browser guards (writes.ts).
+// another person's (`holdSession`). Before the login, the browser guards (access/browser.rs, ORR-1173): the host the
+// browser asked for is one this orrery goes by, a write's `Origin` is its own page's, and a write's body is JSON.
 use crate::access::people::{People, Ways, Who};
 use crate::error::{ApiError, Result};
 use crate::write::Actor;
@@ -221,6 +222,10 @@ pub(crate) async fn guard(State(app): Shared, mut request: Request, next: Next) 
     }
     // The Nuxt server's own work says who it's for in its own words. Anything else has its login checked here.
     if !came_of(request.headers()).server {
+        // The browser guards first, as a host this orrery doesn't go by is turned away whoever asks (ORR-1173).
+        if let Err(refused) = crate::access::browser::browser_checked(&app.allowed, request.headers(), request.method().as_str(), request.uri().path()) {
+            return refused.into_response();
+        }
         let open = OPEN.contains(&request.uri().path());
         let who = match checked(&app, request.headers(), open).await {
             Ok(who) => who,

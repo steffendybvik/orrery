@@ -330,6 +330,41 @@ async fn a_logged_in_browsers_write_has_to_say_which_page_its_from() {
 }
 
 #[tokio::test]
+async fn the_browser_guards_hold_at_the_apis_own_door() {
+    let api = two_people().await;
+    api.key("steffen", "person").await;
+    let login = api.login("steffen").await;
+    let docs = docs_of(&api).await;
+    let write = |origin: &str, host: &str| {
+        api.post(&docs, serde_json::json!({"title": "Plan"})).signed_in(&login).header("orrery-sent-origin", origin).header("orrery-host", host)
+    };
+    // A name this orrery doesn't go by is turned away, before any login: DNS rebinding.
+    let rebound = api.get(&docs).signed_in(&login).header("orrery-host", "rebind.attacker.example").send().await;
+    assert_eq!(rebound.status, 403, "{}", rebound.body);
+    assert_eq!(rebound.body["message"], "orrery doesn't answer to \"rebind.attacker.example\"; add it to NUXT_ALLOWED_HOSTS");
+    assert_eq!(api.get(&docs).header("orrery-host", "rebind.attacker.example").send().await.status, 403);
+    // Another site's page can't write, though the browser sends the login along by itself.
+    let planted = write("https%3A%2F%2Fattacker.example", "localhost%3A9000").send().await;
+    assert_eq!(planted.status, 403, "{}", planted.body);
+    assert_eq!(planted.body["message"], "orrery takes writes from its own page, not another site's");
+    assert_eq!(write("null", "localhost%3A9000").send().await.status, 403);
+    // Nor send a form's body, which needs no asking first (the router's fetch always says its length).
+    let form = api
+        .post(&docs, serde_json::json!({"title": "Plan"}))
+        .signed_in(&login)
+        .header("orrery-sent-origin", "http%3A%2F%2Flocalhost%3A9000")
+        .header("orrery-host", "localhost%3A9000")
+        .header("content-type", "application/x-www-form-urlencoded")
+        .header("content-length", "16")
+        .send()
+        .await;
+    assert_eq!(form.status, 415, "{}", form.body);
+    // Its own page writes, on this machine or the name behind a proxy that NUXT_ALLOWED_HOSTS lists.
+    assert_eq!(write("http%3A%2F%2Flocalhost%3A9000", "localhost%3A9000").send().await.status, 201);
+    assert_eq!(write("https%3A%2F%2Forrery.example", "orrery.example").send().await.status, 201);
+}
+
+#[tokio::test]
 async fn behind_the_router_logging_out_goes_by_the_hashed_login_and_the_address_the_browser_asked_for() {
     let api = two_people().await;
     api.key("steffen", "person").await;

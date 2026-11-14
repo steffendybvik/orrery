@@ -61,7 +61,9 @@ impl TestApi {
         let pool = db::open(&setting, schema.clone()).await.expect("the API opens the database it migrated");
         // Each test's database is its own, so its hash is too: on Postgres the URL is shared, the schema isn't.
         let database = database_hash(&format!("{setting}#{}", schema.unwrap_or_default()));
-        let app = Arc::new(App { pool, token: TOKEN.into(), database, log: false, phone: access::phone::Links::default(), mcp: Default::default() });
+        // `orrery.example` stands for a name behind a proxy, listed in NUXT_ALLOWED_HOSTS as it would be (ORR-1173).
+        let allowed = access::browser::Allowed { hosts: "orrery.example".into(), origins: String::new() };
+        let app = Arc::new(App { pool, token: TOKEN.into(), database, log: false, phone: access::phone::Links::default(), mcp: Default::default(), allowed });
         TestApi { router: router(app.clone()), app, came: "server" }
     }
 

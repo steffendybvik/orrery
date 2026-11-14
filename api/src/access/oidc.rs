@@ -154,7 +154,7 @@ fn random() -> String {
 }
 
 /// An origin as a browser sends it (`asOrigin`), or nothing when `value` isn't a plain http(s) one.
-fn as_origin(value: &str) -> Option<String> {
+pub(crate) fn as_origin(value: &str) -> Option<String> {
     let url = Url::parse(value.trim()).ok()?;
     if !matches!(url.scheme(), "http" | "https") || !url.username().is_empty() || url.password().is_some() {
         return None;
@@ -166,12 +166,12 @@ fn as_origin(value: &str) -> Option<String> {
 }
 
 /// The other sites' pages NUXT_ALLOWED_ORIGINS lists, as it's set.
-fn allowed_origins() -> String {
+pub(crate) fn allowed_origins() -> String {
     std::env::var("NUXT_ALLOWED_ORIGINS").unwrap_or_default()
 }
 
 /// Whether `origin` is one of the other sites' pages `setting` lists (`originAllowed`), compared exactly.
-fn origin_allowed(setting: &str, origin: &str) -> bool {
+pub(crate) fn origin_allowed(setting: &str, origin: &str) -> bool {
     origin != "null" && !origin.is_empty() && setting.split(',').filter_map(as_origin).any(|o| o == origin)
 }
 
