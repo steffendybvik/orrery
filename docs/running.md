@@ -373,7 +373,7 @@ database with them; plain `down` keeps them.
 
 ## Without Docker
 
-Node 24.22.1, pnpm 10.14.0 and Rust 1.80 or later: `pnpm install && pnpm build`, and `cargo build --release` in
+Node 24.22.1, pnpm 10.14.0 and Rust 1.88 or later: `pnpm install && pnpm build`, and `cargo build --release` in
 `api/`. Then, in `web/`,
 
 ```sh

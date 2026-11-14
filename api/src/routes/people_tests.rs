@@ -217,9 +217,8 @@ async fn renaming_refuses_the_owner_someone_removed_someone_unknown_and_a_bad_na
     assert_eq!(api.patch("/api/people/bo", json!({"name": "Bob"})).send().await.status, 409);
     assert_eq!(api.patch("/api/people/nobody", json!({"name": "N"})).send().await.status, 404);
     assert_eq!(api.patch("/api/people/ada", json!({"name": ""})).send().await.status, 400);
-    let names: Vec<String> =
-        sqlx::query("SELECT name FROM people ORDER BY created_at, id").fetch_all(&api.app.pool).await.unwrap().iter().map(|r| r.get("name")).collect();
-    assert_eq!(names, ["Steffen", "Ada", "Bo"]);
+    let names: Vec<String> = sqlx::query("SELECT name FROM people ORDER BY id").fetch_all(&api.app.pool).await.unwrap().iter().map(|r| r.get("name")).collect();
+    assert_eq!(names, ["Ada", "Bo", "Steffen"]);
 }
 
 #[tokio::test]
