@@ -4,9 +4,9 @@ use crate::board::issues::Issues;
 use crate::board::milestones::Milestones;
 use crate::board::plans::Plans;
 use crate::changes::Outbox;
-use crate::error::Result;
+use crate::error::{ApiError, Result};
 use crate::reply::reply;
-use crate::request::{actor_of, body_of};
+use crate::request::{actor_of, body_of, came_of};
 use crate::{App, Shared};
 use axum::body::Bytes;
 use axum::extract::{Path, State};
@@ -20,6 +20,18 @@ pub(crate) fn routes() -> Router<Arc<App>> {
     Router::new()
         .route(&format!("{P}/milestones"), get(list_milestones).post(create_milestone))
         .route(&format!("{P}/milestones/{{milestone}}"), get(get_milestone).patch(patch_milestone).delete(delete_milestone))
+        .route(&format!("{P}/milestones/{{milestone}}/id"), get(milestone_id))
+}
+
+/// `GET …/milestones/:milestone/id` → `{id}`: the milestone's id from its number as shown (`MLS-14`), a name it had
+/// before (an alias), or the full form of either, for the local app's store (`milestoneId`, ORR-1174). The one sent comes
+/// back when nothing matches; a 404 for a project there isn't.
+async fn milestone_id(State(app): Shared, Path((project, milestone)): Path<(String, String)>, headers: HeaderMap) -> Result<Response> {
+    if !came_of(&headers).server {
+        return Err(ApiError::forbidden("Only the local app resolves a milestone's id"));
+    }
+    let mut conn = app.pool.acquire().await?;
+    Ok(Json(serde_json::json!({"id": Issues::new(&mut conn).resolve(&project, &milestone, true).await?})).into_response())
 }
 
 async fn list_milestones(State(app): Shared, Path(project): Path<String>) -> Result<Response> {

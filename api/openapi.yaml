@@ -1564,6 +1564,34 @@ paths:
         '200': {description: 'The row', content: {application/json: {schema: {type: object}}}}
         '403': {$ref: '#/components/responses/Forbidden'}
         '404': {$ref: '#/components/responses/NotFound'}
+  /api/projects/{project}/issues/{issue}/id:
+    parameters:
+      - {$ref: '#/components/parameters/project'}
+      - {name: issue, in: path, required: true, schema: {type: string}}
+    get:
+      x-served: false
+      summary: 'The issue''s id, from an alias or its full form (ORR-1174)'
+      description: >-
+        Only the Nuxt server's own call (`Orrery-Came: server`), for its store's `issueId`: the issue's id from its id,
+        one it had before, or the full form of either. The one sent comes back when nothing matches.
+      responses:
+        '200': {description: 'The id', content: {application/json: {schema: {type: object, required: [id], properties: {id: {type: string}}}}}}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/projects/{project}/milestones/{milestone}/id:
+    parameters:
+      - {$ref: '#/components/parameters/project'}
+      - {name: milestone, in: path, required: true, schema: {type: string}}
+    get:
+      x-served: false
+      summary: 'The milestone''s id, from how it''s shown, an alias or its full form (ORR-1174)'
+      description: >-
+        Only the Nuxt server's own call (`Orrery-Came: server`), for its store's `milestoneId`: the milestone's number
+        from `MLS-14`, a name it had before, or the full form of either. The one sent comes back when nothing matches.
+      responses:
+        '200': {description: 'The id', content: {application/json: {schema: {type: object, required: [id], properties: {id: {type: string}}}}}}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
   /api/projects/{project}/release-peers:
     parameters:
       - {$ref: '#/components/parameters/project'}

@@ -173,6 +173,13 @@ describe("the store's reads through the Rust API (ORR-1162)", () => {
         await expect(store.takenFrom('shed', 'SHE-1', 'me')).resolves.toBeNull()
     })
 
+    it("resolves an issue's id from the API for the store's helpers (ORR-1174)", async () => {
+        replies['/api/projects/shed/issues/OLD-1/id'] = {id: 'SHE-1'}
+        replies['/api/projects/shed/issues/SHE-1/row'] = {project: 'shed', id: 'SHE-1', title: 'Oil the hinges', labels: '[]', assignee: null}
+        expect(await store.listActivity('shed', 'OLD-1')).toEqual([])
+        expect(asked).toEqual(expect.arrayContaining(['/api/projects/shed/issues/OLD-1/id', '/api/projects/shed/issues/SHE-1/row']))
+    })
+
     it('reads them from the database here with no API', async () => {
         expect((await store.statuses()).map(s => s.id)).toContain('todo')
         expect(await store.ownerOf()).toMatchObject({named: false})

@@ -1625,3 +1625,24 @@ async fn an_agents_comment_is_a_notice_in_the_outbox_and_the_owners_isnt() {
     let payload: Value = serde_json::from_str(notices[0].payload.as_deref().unwrap()).unwrap();
     assert_eq!(payload, json!({"issue": issue}));
 }
+
+/// An issue's id from an id it had before or its full form, as the local app's store resolves it (`issueId`, ORR-1174):
+/// the id sent back when nothing matches, a 404 for a project there isn't, and only the local app asks.
+#[tokio::test]
+async fn the_local_app_resolves_an_issues_id_from_an_alias_or_its_full_form() {
+    let api = TestApi::new().await;
+    let (project, issue) = api.board().await;
+    let id = |sent: &str| format!("/api/projects/{project}/issues/{sent}/id");
+    api.run("INSERT INTO issue_aliases (project, alias, issue) VALUES (?, 'OLD-7', ?)", &[&project, &issue]).await;
+    let uid = api.get(&format!("/api/projects/{project}/row")).send().await.body["uid"].as_str().unwrap().to_string();
+    for sent in [issue.clone(), "OLD-7".into(), format!("{issue}-{uid}"), format!("OLD-7-{uid}")] {
+        let reply = api.get(&id(&sent)).send().await;
+        assert_eq!((reply.status.as_u16(), &reply.body), (200, &json!({"id": issue})), "{sent}");
+    }
+    assert_eq!(api.get(&id("NOPE-1")).send().await.body, json!({"id": "NOPE-1"}));
+    let missing = api.get("/api/projects/nowhere/issues/X-1/id").send().await;
+    assert_eq!((missing.status.as_u16(), missing.body["message"].as_str()), (404, Some("No project \"nowhere\"")));
+    let door = TestApi::at_the_door().await;
+    let (other, theirs) = door.board().await;
+    assert_eq!(door.get(&format!("/api/projects/{other}/issues/{theirs}/id")).send().await.status, 403);
+}
