@@ -19,7 +19,6 @@ const relayed = new AsyncLocalStorage<true>()
 
 export abstract class StoreBase {
     constructor(
-        /** Changed only when the owner moves the database (`rebindDatabase`). */
         public db: Db,
         protected readonly onChange: (project: string) => void = () => {},
         protected readonly onSignal: (signal: Signal) => void = () => {},

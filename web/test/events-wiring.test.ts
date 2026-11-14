@@ -114,13 +114,6 @@ describe("events.ts's helpers", () => {
             .toEqual({project: 'greenhouse', issue: 'GRE-1', release: undefined, context: 'context review', actor: 'steffen'})
     })
 
-    it('points the store and the event log at the database it moved to, leaving the presets to the API', async () => {
-        const store = events.useStore() as unknown as {db: unknown}
-        const log = events.useEventLog() as unknown as {db: unknown}
-        events.rebindDatabase('new' as never)
-        expect([store.db, log.db]).toEqual(['new', 'new'])
-    })
-
     it("passes on what happened, and what changed to the event log too, once the write commits", async () => {
         const store = events.useStore() as unknown as {happened: (event: object) => void}
         const log = events.useEventLog() as unknown as {happened: (event: object) => void, activity: (...args: unknown[]) => Promise<void>}

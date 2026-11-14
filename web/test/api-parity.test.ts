@@ -33,11 +33,8 @@ import {badRequest} from '../server/utils/input'
 import {Schedules} from '../server/utils/schedules'
 import {PullPoll} from '../server/utils/pull-poll'
 import type {PolledRow} from '../server/utils/pull-poll'
-import {emptyDb, openDb} from '../server/utils/db'
-import type {CopiedRows} from '../server/utils/copy'
-import {COPIED_TABLES, copyDatabase, rowsFromApi, rowsReadBy} from '../server/utils/copy'
-import {backUpTo, snapshotsBy} from '../server/utils/backup'
-import {isFresh, noteEnvironment} from '../server/utils/restore'
+import {openDb} from '../server/utils/db'
+import {isFresh} from '../server/utils/database-state'
 import {boardForApi, checkedBoard, uploadBoard} from '../server/utils/board-upload'
 import {DatabaseSync} from 'node:sqlite'
 import {PostgresDb} from '../server/utils/postgres'
@@ -373,7 +370,7 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
     it('keeps, reads and forgets the feature counts, while counting is on (ORR-1089, ORR-1136)', async () => {
         // The routes here are gone, and this server reads no row for them, so this holds the API to what they answered.
         const day = (ago: number) => new Date(Date.now() - ago * 86_400_000).toISOString().slice(0, 10)
-        const counts = [{feature: 'chat', day: day(1), count: 2}, {feature: 'chat', day: day(60), count: 3}, {feature: 'page:board', day: day(0), count: 5}, {feature: 'backup-now', day: day(400), count: 9}]
+        const counts = [{feature: 'chat', day: day(1), count: 2}, {feature: 'chat', day: day(60), count: 3}, {feature: 'page:board', day: day(0), count: 5}, {feature: 'focus-issue', day: day(400), count: 9}]
         expect((await viaApi('PUT', '/api/usage', {counts}, OWNER)).status).toBe(204)
         const chat = async () => ((await viaApi('GET', '/api/usage', undefined, OWNER)).body as {features: {feature: string, last: string | null, days30: number, days90: number}[]}).features.find(f => f.feature === 'chat')!
         expect(await chat()).toMatchObject({last: null, days90: 0})
@@ -1348,35 +1345,6 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         expect(domainOf('PUT', `/api/pulls/ada/${on('through-api')}/5`)).toBeUndefined()
     })
 
-    it('backs the database up alike, the API taking the copy (ORR-1097)', async context => {
-        if (POSTGRES) {
-            // A Postgres database is still the local app's to snapshot.
-            expect((await viaApi('POST', '/api/database/snapshot', {to: join(tmpdir(), '.orrery.db.partial')})).status).toBe(409)
-            context.skip()
-        }
-        /** What a backup in `dir` holds: each table's rows counted. */
-        const held = (dir: string) => {
-            const copy = new DatabaseSync(join(dir, 'orrery.db'), {readOnly: true})
-            try {
-                const tables = (copy.prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name").all() as {name: string}[]).map(t => t.name)
-                return Object.fromEntries(tables.map(t => [t, (copy.prepare(`SELECT count(*) AS n FROM "${t}"`).get() as {n: number}).n]))
-            } finally {
-                copy.close()
-            }
-        }
-        const here = mkdtempSync(join(tmpdir(), 'orrery-backup-here-'))
-        await backUpTo(store.db, {kind: 'folder', dir: here})
-        const there = mkdtempSync(join(tmpdir(), 'orrery-backup-api-'))
-        snapshotsBy(async to => (await viaApi('POST', '/api/database/snapshot', {to})).status === 204)
-        try {
-            await backUpTo(store.db, {kind: 'folder', dir: there})
-        } finally {
-            snapshotsBy(null)
-        }
-        expect(held(there)).toEqual(held(here))
-        expect(domainOf('POST', '/api/database/snapshot')).toBeUndefined()
-    })
-
     it('compacts the database as housekeeping does it here (ORR-1134)', async () => {
         const asked = await viaApi('POST', '/api/database/compact', {})
         expect(asked).toMatchObject({status: 200, body: {compacted: false}})
@@ -1384,42 +1352,10 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         expect(domainOf('POST', '/api/database/compact')).toBeUndefined()
     })
 
-    it('reads the rows a copy takes alike, the API reading them (ORR-1134)', async () => {
-        // An image, for its bytes.
-        expect((await viaApi('POST', '/api/uploads', {data: Buffer.from('GIF89a\x01\x00\x01\x00\x00\x00\x00;', 'latin1').toString('base64')})).status).toBe(201)
-        const copyInto = async (read: (() => Promise<CopiedRows | undefined>) | null) => {
-            const target = new SqliteDb(emptyDb(join(mkdtempSync(join(tmpdir(), 'orrery-copy-')), 'orrery.db')))
-            rowsReadBy(read)
-            try {
-                await copyDatabase(store.db, target)
-                return Object.fromEntries(await Promise.all(COPIED_TABLES.map(async t => [t, await target.all(`SELECT * FROM ${t} ORDER BY 1`)])))
-            } finally {
-                rowsReadBy(null)
-                target.raw.close()
-            }
-        }
-        const here = await copyInto(null)
-        const there = await copyInto(async () => {
-            const read = await viaApi('POST', '/api/database/rows', {tables: COPIED_TABLES})
-            expect(read.status).toBe(200)
-            return rowsFromApi((read.body as {tables: Record<string, Record<string, unknown>[]>}).tables)
-        })
-        expect(there).toEqual(here)
-        expect(domainOf('POST', '/api/database/rows')).toBeUndefined()
-    })
-
-    it('says alike whether the database is a new orrery\'s, and keeps the name it runs under alike (ORR-1140)', async () => {
+    it('says alike whether the database is a new orrery\'s (ORR-1140)', async () => {
         const state = await viaApi('GET', '/api/database')
         expect(state.status).toBe(200)
         expect((state.body as {fresh: boolean}).fresh).toBe(await isFresh(store.db))
-        const kept = async () => (await store.db.get<{value: string}>('SELECT value FROM settings WHERE key = \'environment\''))?.value
-        const was = await kept()
-        await noteEnvironment(store.db, 'here')
-        const here = await kept()
-        expect((await viaApi('PUT', '/api/database/environment', {environment: 'here'})).status).toBe(204)
-        expect(await kept()).toBe(here)
-        if (was === undefined) await store.db.run('DELETE FROM settings WHERE key = \'environment\'')
-        else await store.db.run('UPDATE settings SET value = ? WHERE key = \'environment\'', was)
         expect(domainOf('GET', '/api/database')).toBeUndefined()
     })
 
@@ -4002,7 +3938,7 @@ describe('the contract (api/openapi.yaml)', () => {
     })
 
     it('sends none of the routes written ahead of the Rust API to it', () => {
-        expect(contract(true)).toEqual(['DELETE /api/chats/{chat}', 'DELETE /api/secrets/{name}/sealed', 'GET /api/auth/oidc/callback', 'GET /api/auth/oidc/start', 'GET /api/auth/status', 'GET /api/chats', 'GET /api/chats/{chat}', 'GET /api/database', 'GET /api/projects/{project}/issue-sessions', 'GET /api/projects/{project}/issues/{issue}/dependents', 'GET /api/projects/{project}/issues/{issue}/kept-pulls', 'GET /api/projects/{project}/issues/{issue}/workers', 'GET /api/projects/{project}/release-peers', 'GET /api/projects/{project}/session-work', 'GET /api/projects/{project}/signals/last', 'GET /api/pulls/named', 'GET /api/pulls/repos', 'GET /api/pulls/{owner}/{name}', 'POST /api/auth/link', 'POST /api/boards', 'POST /api/chats/{chat}/doc-requests', 'POST /api/chats/{chat}/issue-requests', 'POST /api/chats/{chat}/lines', 'POST /api/chats/{chat}/move-requests', 'POST /api/chats/{chat}/release-requests', 'POST /api/chats/{chat}/replies', 'POST /api/chats/{chat}/schedule-requests', 'POST /api/chats/{chat}/setting-requests', 'POST /api/database/compact', 'POST /api/database/rows', 'POST /api/database/snapshot', 'POST /api/events/log/prune', 'POST /api/phone/link', 'POST /api/presets/seed', 'POST /api/projects/{project}/issue-sessions/rename', 'POST /api/projects/{project}/issues/{issue}/worked-by', 'POST /api/projects/{project}/signals', 'POST /api/projects/{project}/signals/retarget', 'POST /api/projects/{project}/signals/{signal}/receipts', 'POST /api/pulls/forget', 'POST /api/secrets/{name}/uses', 'POST /api/signals/prune', 'PUT /api/chats/{chat}', 'PUT /api/chats/{chat}/lines/{message}', 'PUT /api/database/environment', 'PUT /api/events/log/lines', 'PUT /api/pulls/{owner}/{name}', 'PUT /api/pulls/{owner}/{name}/error', 'PUT /api/pulls/{owner}/{name}/history', 'PUT /api/pulls/{owner}/{name}/{number}', 'PUT /api/secrets/{name}/sealed', 'PUT /api/usage'])
+        expect(contract(true)).toEqual(['DELETE /api/chats/{chat}', 'DELETE /api/secrets/{name}/sealed', 'GET /api/auth/oidc/callback', 'GET /api/auth/oidc/start', 'GET /api/auth/status', 'GET /api/chats', 'GET /api/chats/{chat}', 'GET /api/database', 'GET /api/projects/{project}/issue-sessions', 'GET /api/projects/{project}/issues/{issue}/dependents', 'GET /api/projects/{project}/issues/{issue}/kept-pulls', 'GET /api/projects/{project}/issues/{issue}/workers', 'GET /api/projects/{project}/release-peers', 'GET /api/projects/{project}/session-work', 'GET /api/projects/{project}/signals/last', 'GET /api/pulls/named', 'GET /api/pulls/repos', 'GET /api/pulls/{owner}/{name}', 'POST /api/auth/link', 'POST /api/boards', 'POST /api/chats/{chat}/doc-requests', 'POST /api/chats/{chat}/issue-requests', 'POST /api/chats/{chat}/lines', 'POST /api/chats/{chat}/move-requests', 'POST /api/chats/{chat}/release-requests', 'POST /api/chats/{chat}/replies', 'POST /api/chats/{chat}/schedule-requests', 'POST /api/chats/{chat}/setting-requests', 'POST /api/database/compact', 'POST /api/events/log/prune', 'POST /api/phone/link', 'POST /api/presets/seed', 'POST /api/projects/{project}/issue-sessions/rename', 'POST /api/projects/{project}/issues/{issue}/worked-by', 'POST /api/projects/{project}/signals', 'POST /api/projects/{project}/signals/retarget', 'POST /api/projects/{project}/signals/{signal}/receipts', 'POST /api/pulls/forget', 'POST /api/secrets/{name}/uses', 'POST /api/signals/prune', 'PUT /api/chats/{chat}', 'PUT /api/chats/{chat}/lines/{message}', 'PUT /api/events/log/lines', 'PUT /api/pulls/{owner}/{name}', 'PUT /api/pulls/{owner}/{name}/error', 'PUT /api/pulls/{owner}/{name}/history', 'PUT /api/pulls/{owner}/{name}/{number}', 'PUT /api/secrets/{name}/sealed', 'PUT /api/usage'])
         expect(contract(true).filter(operation => routes().includes(operation))).toEqual([])
     })
 })

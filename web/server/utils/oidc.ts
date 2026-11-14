@@ -1,6 +1,6 @@
 // Logging in through any standard OIDC provider (ORR-664): the authorization code flow with PKCE, found through the
 // provider's discovery document, so no provider has code of its own here. The provider says who someone is; what they may
-// do stays in orrery's database. Its settings are in the environment, as `settings` goes to backups in plain text.
+// do stays in orrery's database. Its settings are in the environment, as `settings` goes into any copy of the database in plain text.
 import {createHash, randomBytes} from 'node:crypto'
 import type {H3Event} from 'h3'
 import {createRemoteJWKSet, jwtVerify} from 'jose'

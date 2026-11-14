@@ -363,11 +363,11 @@ describe("the phone's port (ORR-837)", () => {
         expect(await authMode(asking('/api/projects', {port: 9001}) as never)).toBe('closed')
     })
 
-    it("never counts as this machine, whatever Host it's sent, so nothing on it moves the database or sets the backups", async () => {
+    it("never counts as this machine, whatever Host it's sent", async () => {
         config = {...config, auth: '', phoneListen: '9001'}
         vi.stubGlobal('getRequestHost', () => 'localhost')
-        const {fromThisMachine} = await import('../server/utils/move')
-        expect(fromThisMachine(asking('/api/database/move', {method: 'POST', port: 9001}) as never)).toBe(false)
+        const {fromThisMachine} = await import('../server/utils/this-machine')
+        expect(fromThisMachine(asking('/api/projects', {method: 'POST', port: 9001}) as never)).toBe(false)
     })
 })
 
