@@ -142,6 +142,9 @@ Orrerys has one server for each. An older setup, a server per project with `ORRE
 `ORRERY_PERSON` says whose the session is, on an orrery with more than one person and login off (`ORRERY_AUTH=off`): your
 id from `GET /api/people`, set in your own environment. With login on, the agent key says whose it is, and this is ignored, with a warning in the event log if it disagrees. It's written as `${ORRERY_PERSON:-}` because this file is committed, and a name in it would
 make every clone that person. With one person, there's nothing to set.
+`ORRERY_WORKSPACE` names the workspace a session works in: the channel, the hook and `/mcp`'s headers send it as
+`Orrery-Workspace` on every call, so what it reads and writes of the workspace's own (epics, statuses, presets, secrets)
+is that one's. A session orrery starts gets its project's from the launcher; without it, a call acts in `default`, or your first workspace when you aren't in that.
 
 Channels are a Claude Code research preview, so a session only shows the channel's messages when it
 was started with it: `claude --dangerously-load-development-channels server:orrery-personal`. A terminal

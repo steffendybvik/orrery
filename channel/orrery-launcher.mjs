@@ -557,13 +557,13 @@ function part(entry) {
         // default folder is in none, and says so.
         const where = repoContext(folder, {project, repo: launch.global ? undefined : claim.repo})
         const startedOn = await orreryIdOf(url)
-        const env = {ORRERY_URL: url, ORRERY_PROJECT: project, ORRERY_STARTED: launch.id, ...startedOn ? {ORRERY_STARTED_ON: startedOn} : {}, ORRERY_REPO_TOLD: 'yes', ORRERY_AFTER: String(launch.after), ...hears.length ? {ORRERY_HEAR: hears.join(',')} : {}, ...launch.untrusted ? {ORRERY_UNTRUSTED: 'yes'} : {}, ...launch.chat ? {ORRERY_CHAT: 'yes'} : {}, ...launch.global ? {ORRERY_GLOBAL: 'yes'} : {}, ...launch.person ? {ORRERY_PERSON: launch.person} : {}, ...keyFor(url) ? {ORRERY_KEY: keyFor(url)} : {}}
+        const env = {ORRERY_URL: url, ORRERY_PROJECT: project, ORRERY_STARTED: launch.id, ...startedOn ? {ORRERY_STARTED_ON: startedOn} : {}, ORRERY_REPO_TOLD: 'yes', ORRERY_AFTER: String(launch.after), ...hears.length ? {ORRERY_HEAR: hears.join(',')} : {}, ...launch.untrusted ? {ORRERY_UNTRUSTED: 'yes'} : {}, ...launch.chat ? {ORRERY_CHAT: 'yes'} : {}, ...launch.global ? {ORRERY_GLOBAL: 'yes'} : {}, ...launch.person ? {ORRERY_PERSON: launch.person} : {}, ...claim.workspace ? {ORRERY_WORKSPACE: claim.workspace} : {}, ...keyFor(url) ? {ORRERY_KEY: keyFor(url)} : {}}
         const server = channelFor(folder, url, project)?.name ?? project
         // orrery's `/mcp` beside the session's channel, whenever the agent can have it (ORR-1102): the board's tools are
         // only there, the channel has those that need this machine (ORR-1072). The chat and an untrusted session say so
         // to `/mcp` as their channel does, and its rails hold them as the server's guards do.
         const beside = agent.mcpBeside
-            ? besideFor({url, server, person: launch.person, auth: authHeaders(url), untrusted: !!launch.untrusted, ...launch.chat && !launch.untrusted ? {chat: launch.id} : {}, ...resumeArgs(launch).length ? {resume: launch.resume} : {}})
+            ? besideFor({url, server, person: launch.person, auth: authHeaders(url, {env: {...process.env, ORRERY_WORKSPACE: claim.workspace ?? ''}}), untrusted: !!launch.untrusted, ...launch.chat && !launch.untrusted ? {chat: launch.id} : {}, ...resumeArgs(launch).length ? {resume: launch.resume} : {}})
             : undefined
         tmux('new-session', '-d', '-s', launch.tmux, '-c', folder, ...Object.entries(env).flatMap(([k, v]) => ['-e', `${k}=${v}`]),
             ...agent.command({dir: folder, server, launch, mode, told: where, beside}))

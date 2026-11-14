@@ -69,7 +69,7 @@ async function standInOrrery(version: string, {older = false, mcp = false} = {})
             if (url.pathname === '/mcp' && mcp) return void res.writeHead(200, {'Content-Type': 'application/json'}).end(JSON.stringify({jsonrpc: '2.0', id: 0, result: {protocolVersion: '2025-06-18'}}))
             if (url.pathname.endsWith('/report')) return void res.writeHead(200, {'Content-Type': 'application/json'}).end(JSON.stringify({claimed: true}))
             const claim = /\/launches\/([^/]+)\/claim$/.exec(url.pathname)
-            if (claim) return void res.writeHead(200, {'Content-Type': 'application/json'}).end(JSON.stringify(refused.has(claim[1]!) ? {claimed: false} : {claimed: true, repo: 'https://github.com/hati/greenhouse'}))
+            if (claim) return void res.writeHead(200, {'Content-Type': 'application/json'}).end(JSON.stringify(refused.has(claim[1]!) ? {claimed: false} : {claimed: true, repo: 'https://github.com/hati/greenhouse', workspace: 'acme'}))
             res.writeHead(200, {'Content-Type': 'application/json'}).end('{}')
         })
     })
@@ -199,7 +199,7 @@ describe.concurrent("a launcher's own loop", {timeout: 40_000}, () => {
             const [call] = called('new-session')
             expect(call!.slice(0, 6)).toEqual(['new-session', '-d', '-s', nameOf(ID.a), '-c', repo])
             expect(claudeArgs(call!)).toEqual(['--dangerously-load-development-channels', 'server:greenhouse', '--permission-mode', 'auto', ...besideArgs(besideIn(call!))])
-            expect(envOf(call!)).toEqual(expect.arrayContaining([`ORRERY_URL=${orrery.url}`, 'ORRERY_PROJECT=greenhouse', `ORRERY_STARTED=${ID.a}`, 'ORRERY_AFTER=5', 'ORRERY_HEAR=greenhouse,pantry', 'ORRERY_PERSON=hati']))
+            expect(envOf(call!)).toEqual(expect.arrayContaining([`ORRERY_URL=${orrery.url}`, 'ORRERY_PROJECT=greenhouse', `ORRERY_STARTED=${ID.a}`, 'ORRERY_AFTER=5', 'ORRERY_HEAR=greenhouse,pantry', 'ORRERY_PERSON=hati', 'ORRERY_WORKSPACE=acme']))
             expect(envOf(call!).some(pair => pair.startsWith('ORRERY_UNTRUSTED') || pair.startsWith('ORRERY_CHAT'))).toBe(false)
             expect(state()[nameOf(ID.a)]).toMatchObject({'@orrery_launcher': expect.stringMatching(/^\d+$/), '@orrery_context': '{"note":"start here"}'})
         })
@@ -255,14 +255,14 @@ describe.concurrent("a launcher's own loop", {timeout: 40_000}, () => {
             const config = (call: string[]) => JSON.parse(call[call.indexOf('--mcp-config') + 1]!).mcpServers['greenhouse-api']
             const session = work![work!.indexOf('--session-id') + 1]!
             expect(session).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-/)
-            expect(config(work!)).toEqual({type: 'http', url: `${orrery.url}/mcp`, headers: {'Orrery-Actor': 'claude', 'Orrery-Session': session, 'Orrery-Person': 'hati'}})
+            expect(config(work!)).toEqual({type: 'http', url: `${orrery.url}/mcp`, headers: {'Orrery-Actor': 'claude', 'Orrery-Session': session, 'Orrery-Person': 'hati', 'Orrery-Workspace': 'acme'}})
             expect(claudeArgs(work!)).toEqual(expect.arrayContaining(['--allowedTools', 'mcp__greenhouse-api']))
             expect(envOf(work!).join(' ')).not.toContain('ORRERY_TOOLS')
             // The chat and an untrusted session too, saying so to /mcp as their channel does, whose rails hold them.
             const id = (call: string[]) => call[call.indexOf('--session-id') + 1]!
-            expect(config(chat!).headers).toEqual({'Orrery-Actor': 'claude', 'Orrery-Session': id(chat!), 'Orrery-Chat': 'yes', 'Orrery-Launch': ID.b})
+            expect(config(chat!).headers).toEqual({'Orrery-Actor': 'claude', 'Orrery-Session': id(chat!), 'Orrery-Chat': 'yes', 'Orrery-Launch': ID.b, 'Orrery-Workspace': 'acme'})
             expect(claudeArgs(chat!)).toEqual(expect.arrayContaining(['--allowedTools', 'mcp__greenhouse-api']))
-            expect(config(untrusted!).headers).toEqual({'Orrery-Actor': 'claude', 'Orrery-Session': id(untrusted!), 'Orrery-Untrusted': 'yes'})
+            expect(config(untrusted!).headers).toEqual({'Orrery-Actor': 'claude', 'Orrery-Session': id(untrusted!), 'Orrery-Untrusted': 'yes', 'Orrery-Workspace': 'acme'})
             // Still its one --mcp-config, strict: the channel's entry (none in this repo) and /mcp's, nothing of the repo's.
             expect(claudeArgs(untrusted!).filter(a => a === '--mcp-config')).toHaveLength(1)
             expect(claudeArgs(untrusted!)).toEqual(expect.arrayContaining(['--strict-mcp-config', '--allowedTools', 'mcp__greenhouse', 'mcp__greenhouse-api']))

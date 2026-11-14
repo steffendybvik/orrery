@@ -42,6 +42,12 @@ export abstract class ProjectStore extends KeyStore {
         return (await this.projectRow(id)).id
     }
 
+    /** The workspace the project is in (ORR-1109), or a 404 when there's none: `default` for a row from before
+     * workspaces. */
+    async projectWorkspace(id: string): Promise<string> {
+        return (await this.projectRow(id)).workspace || 'default'
+    }
+
     /** Makes a project, held by `holder` (the owner when it doesn't say), who can then say who else is on it. */
     async createProject(body: unknown, actor = AGENT, holder?: string): Promise<Project> {
         const input = checkInput(body, PROJECT_FIELDS)

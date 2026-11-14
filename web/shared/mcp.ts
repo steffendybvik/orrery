@@ -47,6 +47,7 @@ export const MCP_ENV: McpEnv[] = [
     {name: 'ORRERY_PROJECT', description: 'One project, from an older setup. It works the same.'},
     {name: 'ORRERY_HEAR', description: 'Narrows what one session hears to the projects it names.'},
     {name: 'ORRERY_PERSON', description: 'Whose the session is, on an orrery with more than one person and login off.'},
+    {name: 'ORRERY_WORKSPACE', description: "The workspace the session works in, sent on each of its calls. A session orrery starts gets its project's."},
     {name: 'ORRERY_KEY', description: 'An agent key, on an orrery that asks for a login.'},
 ]
 
