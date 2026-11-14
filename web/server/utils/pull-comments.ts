@@ -27,6 +27,10 @@ import {settingsNow, writeToApi} from './api-router'
 
 /** The changes that are only an event: nobody needs to act. */
 const QUIET: PullChangeKind[] = ['ready', 'approved']
+/** The changes that need work on the PR: with no session on the issue, one waits for the next (ORR-1184). */
+const NEEDS_WORK: PullChangeKind[] = ['conflicting', 'checks_failed', 'changes_requested']
+/** The changes after which nobody need act on the PR: a focus still waiting for it is dropped. */
+const ENDED: PullChangeKind[] = ['merged', 'closed']
 /** How many times a PR's checks may fail with the session told, before orrery asks the owner instead. */
 const LOOP_LIMIT = 3
 /** Who orrery's own comments are by. */
@@ -54,6 +58,12 @@ export function pullComment({repo, kind, pull, review}: PullChange, handle?: str
         }
         default: return null
     }
+}
+
+/** The focus a PR that needs work becomes when no session is on its issue (ORR-1184): orrery's news, and a word that
+ * the PR may have moved on since, so the session reads it as it stands first. */
+export function pullFocusNote({repo, pull}: PullChange, body: string): string {
+    return `${body}\n\nThe session that had this issue has gone, so it's yours now. Read the PR as it stands first (\`gh pr view ${pull.number} -R ${repo}\`): it may have moved on since this was said.`
 }
 
 /** What a merge did to the issue's release, in orrery's words: a sentence to go after the news. */
@@ -187,6 +197,8 @@ export async function commentOnPull(store: Store, change: PullChange): Promise<v
         const body = pullComment(change, (await settingsNow(store)).handle)
         if (!body) return
         await store.systemComment(change.project, change.issue, body + landedComment(landed), `pr.${change.kind}`)
+        if (NEEDS_WORK.includes(change.kind)) await store.pullFocus(change.project, change.issue, pullFocusNote(change, body))
+        if (ENDED.includes(change.kind)) await store.dropPullFocus(change.project, change.issue)
         if (change.kind === 'merged') {
             await closeMerged(store, change).catch(error => console.error(`[orrery] closing ${change.issue} on ${change.repo}#${change.pull.number}'s merge:`, error))
             await askToReview(store, change)

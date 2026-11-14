@@ -1,5 +1,5 @@
 // Comments on an issue, and its activity.
-import type {ChatScheduleRequest, Comment, IssueEvent} from '#shared/roadmap'
+import type {ChatScheduleRequest, Comment, IssueEvent, Signal} from '#shared/roadmap'
 import {CLOSED} from '#shared/roadmap'
 import {checkInput, notFound} from '../utils/input'
 import type {Actor, CommentRow, EventRow} from './schema'
@@ -253,6 +253,33 @@ export abstract class CommentStore extends SignalStore {
         const target = person && worker && (member ? held !== member : held && held !== person) ? null : worker
         if (member && !target && await this.holderOf(assignee) !== member) return
         await this.writeSignal(project, {issue, kind: 'comment', note: body, target, person: person ?? null, model: await this.modelNeeded(project, issue), created_by: actor.name, owned: !member})
+    }
+
+    /** A pull request that needs work on an issue no session is listening on (ORR-1184): one focus from orrery, aimed at no
+     * session, which the next session free for it takes (pool.ts) and which makes the issue that session's. It folds with
+     * any earlier one on the issue (`foldKey`), so the session hears the latest only: one current focus, not a queue of
+     * notices. It starts no session (`considerLaunch`, ORR-1178), and it's dropped if the PR merges or closes before anyone
+     * takes it (`dropPullFocus`). Nothing when a session is on the issue (it heard the comment), the issue is closed, or
+     * it's nobody's. `note` is orrery's own words, safe to read as the owner's. */
+    async pullFocus(project: string, issue: string, note: string): Promise<Signal | null> {
+        issue = await this.issueId(project, issue)
+        const row = await this.issueRow(project, issue)
+        const kind = (await this.statuses()).find(s => s.id === row.status)?.kind
+        if (kind && CLOSED.includes(kind)) return null
+        if (await this.listeningWorker(project, issue)) return null
+        const whose = await this.whoseWork(project, row.assignee)
+        if (whose === null) return null
+        return await this.writeSignal(project, {issue, kind: 'focus', note, target: null, person: whose ?? null,
+            model: await this.modelNeeded(project, issue), created_by: ORRERY.name, owned: true})
+    }
+
+    /** orrery's focus on a PR that needed work (`pullFocus`), dropped once nobody need act: the PR merged or closed.
+     * Each counts as heard, by `orrery`, so no session takes it. */
+    async dropPullFocus(project: string, issue: string): Promise<number> {
+        issue = await this.issueId(project, issue)
+        const waiting = (await this.pooledWaiting(project)).filter(s => s.kind === 'focus' && s.created_by === ORRERY.name && s.issue === issue)
+        for (const signal of waiting) await this.delivered(project, signal.id, ORRERY.name)
+        return waiting.length
     }
 
     /** The owner's comments are theirs: an agent can't reword them. */
