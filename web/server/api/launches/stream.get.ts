@@ -30,9 +30,14 @@ export default defineEventHandler(async event => {
     }
     const store = useStore()
     const known = new Set((await store.listProjects()).map(p => p.id))
-    // A launcher on a member's agent key hears only its own person's launches (ORR-963), and only on their boards.
+    // A launcher on a member's agent key hears only its own person's launches (ORR-963). With login on, every launcher
+    // serves only the projects its key sees (ORR-1109): those in the workspaces its person is in, all of them for a machine
+    // connected from its install line, or its one workspace's for a key held to one, the owner's too.
     const member = launcherMember(event)
-    const on = new Set(member ? await store.boardsOf(member, [...entries.keys()].filter(p => known.has(p))) : [...entries.keys()].filter(p => known.has(p)))
+    const sees = await authMode(event) === 'off' ? undefined : await readAsAsker<{id: string}[]>(event, '/api/projects')
+    const listed = sees ? new Set(sees.map(p => p.id)) : undefined
+    const wanted = [...entries.keys()].filter(p => known.has(p) && (!listed || listed.has(p)))
+    const on = new Set(member && !listed ? await store.boardsOf(member, wanted) : wanted)
     const starts = new Map(await Promise.all([...on].map(async p => [p, await store.starts(p)] as const)))
 
     const stream = createEventStream(event)

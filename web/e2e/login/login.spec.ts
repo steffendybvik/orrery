@@ -238,3 +238,33 @@ test('a machine connects from the install line, by the Connect page or the line\
     await page.goto('/settings?tab=you#keys')
     for (const name of ["Ada's MacBook", 'Rig']) await expect(keyRow(page, name)).toHaveCount(1)
 })
+
+// One launcher for every workspace (ORR-1109): a machine connected from its install line serves the projects in each of
+// its person's workspaces, and a key held to one workspace hears only that one's, whatever it asks to serve.
+test('a machine\'s launcher hears every workspace its person is in, and a one-workspace key only its own', async ({page, baseURL}) => {
+    await signedIn(page)
+    const asPage = (path: string, body: unknown, workspace?: string) => page.evaluate(async ([path, body, workspace]) => {
+        const response = await fetch(path, {method: 'POST', headers: {'Content-Type': 'application/json', ...workspace ? {'Orrery-Workspace': workspace} : {}}, body: JSON.stringify(body)})
+        return response.json()
+    }, [path, body, workspace] as const)
+    const lab = await asPage('/api/workspaces', {name: 'Lab'}) as {id: string}
+    await asPage('/api/projects', {name: 'Rockets'}, lab.id)
+    const {code} = await asPage('/api/machines/code', {}) as {code: string}
+    const machineKey = (await (await fetch(`${baseURL}/api/machines/connect`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({name: 'Rig', code})})).json() as {key: string}).key
+    const homeKey = (await asPage('/api/keys', {kind: 'agent', name: 'Home only', workspace: 'default'}) as {key: string}).key
+
+    /** What a launcher on `key` is told it serves of `projects`, from its stream's first event. */
+    async function serves(key: string, projects: string[]) {
+        const stop = new AbortController()
+        const serve = encodeURIComponent(JSON.stringify(projects.map(project => ({project, home: true}))))
+        const response = await fetch(`${baseURL}/api/launches/stream?serve=${serve}&version=9.9.9`, {headers: {authorization: `Bearer ${key}`}, signal: stop.signal})
+        const reader = response.body!.getReader()
+        let text = ''
+        while (!/event: ready\ndata: .*\n/.test(text)) text += new TextDecoder().decode((await reader.read()).value)
+        stop.abort()
+        const ready = JSON.parse(/event: ready\ndata: (.*)\n/.exec(text)![1]!) as {projects: Record<string, unknown>, unknown: string[]}
+        return {served: Object.keys(ready.projects).sort(), unknown: ready.unknown}
+    }
+    expect(await serves(machineKey, ['greenhouse', 'rockets'])).toEqual({served: ['greenhouse', 'rockets'], unknown: []})
+    expect(await serves(homeKey, ['greenhouse', 'rockets'])).toEqual({served: ['greenhouse'], unknown: ['rockets']})
+})
