@@ -246,7 +246,7 @@ impl IssueWrites<'_> {
         if has.is_some() && !replace {
             return Err(ApiError::conflict(format!("{project} already has milestones or issues; import with ?replace=true to replace them")));
         }
-        let statuses = Issues::new(&mut *self.conn).statuses().await?;
+        let statuses = Issues::new(&mut *self.conn).statuses(project).await?;
         let now = stamp();
         changes::begin(self.conn).await?;
         let done: Result<()> = async {

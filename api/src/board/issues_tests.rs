@@ -63,7 +63,7 @@ async fn one_issue_reads_as_the_whole_board_has_it() {
 
     let mut conn = api.app.pool.acquire().await.unwrap();
     let mut read = Issues::new(&mut conn);
-    let statuses = read.statuses().await.unwrap();
+    let statuses = read.statuses(&project).await.unwrap();
     let board = read.board(&project, &statuses).await.unwrap();
     for id in [&top, &sub, &deep, &blocked, &proposal, &under, &asked] {
         let alone = read.subtree(&project, id, &statuses).await.unwrap();
@@ -127,7 +127,7 @@ async fn the_list_reads_as_the_whole_board_has_it() {
     let (project, milestone) = mixed(&api).await;
     let mut conn = api.app.pool.acquire().await.unwrap();
     let mut read = Issues::new(&mut conn);
-    let statuses = read.statuses().await.unwrap();
+    let statuses = read.statuses(&project).await.unwrap();
 
     let whole: HashMap<String, Map<String, Value>> =
         read.board(&project, &statuses).await.unwrap().records(&project).into_iter().map(|r| (id_or_title(&r).0, r)).collect();
@@ -226,7 +226,7 @@ async fn issues_built_together_read_as_the_whole_board_has_them() {
     let (project, _) = mixed(&api).await;
     let mut conn = api.app.pool.acquire().await.unwrap();
     let mut read = Issues::new(&mut conn);
-    let statuses = read.statuses().await.unwrap();
+    let statuses = read.statuses(&project).await.unwrap();
     let board = read.board(&project, &statuses).await.unwrap();
     let ids: Vec<String> = board.records(&project).iter().map(|r| id_or_title(r).0).collect();
     for chosen in [ids.clone(), ids.iter().rev().step_by(2).cloned().collect(), ids[1..3].to_vec()] {

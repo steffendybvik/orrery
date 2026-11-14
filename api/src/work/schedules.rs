@@ -417,13 +417,13 @@ impl<'c> Schedules<'c> {
         ]);
         // A status an action schedule moved issues to may be closed, which is no place for another kind's issues to start.
         if let Some(column) = sent("column").and_then(Value::as_str) {
-            set.push(("place", json!(self.place(column, &kind).await?)));
+            set.push(("place", json!(self.place(project, column, &kind).await?)));
         } else if kind != was {
             let place: String = row.get("place");
-            set.push(("place", json!(self.place(&place, &kind).await?)));
+            set.push(("place", json!(self.place(project, &place, &kind).await?)));
         }
         if let Some(from) = sent("move_from") {
-            set.push(("move_from", json!(self.move_from(from).await?)));
+            set.push(("move_from", json!(self.move_from(project, from).await?)));
         }
         if let Some(milestone) = sent("milestone") {
             let id = match milestone.as_str().filter(|m| !m.is_empty()) {
@@ -501,8 +501,8 @@ impl<'c> Schedules<'c> {
             return Err(ApiError::bad_request("An action schedule moves issues to a status: send it in \"column\""));
         }
         let on_filter = given("on_filter").filter(|f| when.on.is_some() && *f != "{}").map(String::from);
-        let move_from = self.move_from(input.get("move_from").unwrap_or(&Value::Null)).await?;
-        let place = self.place(given("column").unwrap_or("todo"), &kind).await?;
+        let move_from = self.move_from(project, input.get("move_from").unwrap_or(&Value::Null)).await?;
+        let place = self.place(project, given("column").unwrap_or("todo"), &kind).await?;
         let labels = input.get("labels").filter(|l| !l.is_null()).cloned().unwrap_or_else(|| json!([])).to_string();
         let next = if enabled { next_run(&when, chrono::Utc::now()) } else { None };
         let title = input.get("title").and_then(Value::as_str).unwrap_or_default().trim().to_string();
@@ -815,10 +815,10 @@ impl<'c> Schedules<'c> {
 
     /// The status a schedule's issues start in (`place`), from an id or a kind; an action schedule's may be closed, as
     /// it's where it moves them.
-    async fn place(&mut self, column: &str, kind: &str) -> Result<String> {
-        let statuses = Issues::new(&mut *self.conn).statuses().await?;
+    async fn place(&mut self, project: &str, column: &str, kind: &str) -> Result<String> {
+        let statuses = Issues::new(&mut *self.conn).statuses(project).await?;
         let id = resolve_status(&statuses, Some(column), None)?;
-        let status = self.status(&id).await?;
+        let status = self.status(project, &id).await?;
         if kind != "action" && ["done", "canceled"].contains(&status["kind"].as_str().unwrap_or_default()) {
             return Err(ApiError::bad_request(format!("A schedule's issues start open, not in {}", status["name"].as_str().unwrap_or_default())));
         }
@@ -826,19 +826,25 @@ impl<'c> Schedules<'c> {
     }
 
     /// `move_from` as it's stored: statuses' ids or kinds, each once.
-    async fn move_from(&mut self, from: &Value) -> Result<String> {
+    async fn move_from(&mut self, project: &str, from: &Value) -> Result<String> {
         let from: Vec<String> = from.as_array().into_iter().flatten().filter_map(|s| s.as_str().map(String::from)).collect();
         for status in &from {
             if !STATUS_KINDS.contains(&status.as_str()) {
-                self.status(status).await?;
+                self.status(project, status).await?;
             }
         }
         Ok(json!(from).to_string())
     }
 
-    /// A status as the API gives it (`status`), or a 404.
-    async fn status(&mut self, id: &str) -> Result<Value> {
-        let statuses = Statuses::new(&mut *self.conn).list().await?;
+    /// A status of `project`'s workspace as the API gives it (`status`), or a 404.
+    async fn status(&mut self, project: &str, id: &str) -> Result<Value> {
+        let workspace = sqlx::query(&sql("SELECT workspace FROM projects WHERE id = ?"))
+            .bind(project)
+            .fetch_optional(&mut *self.conn)
+            .await?
+            .map(|r| r.get::<String, _>("workspace"))
+            .unwrap_or_else(|| "default".into());
+        let statuses = Statuses::of(&mut *self.conn, workspace).list().await?;
         statuses.as_array().into_iter().flatten().find(|s| s["id"] == id).cloned().ok_or_else(|| ApiError::not_found(format!("No status \"{id}\"")))
     }
 

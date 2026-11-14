@@ -190,7 +190,7 @@ impl<'c> Epics<'c> {
         let ids: Vec<i64> = rows.iter().map(|r| r.get("id")).collect();
         let projects = self.projects_in(None).await?;
         let mut issues = Issues::new(&mut *self.conn);
-        let statuses = issues.statuses().await?;
+        let statuses = issues.statuses_of(self.workspace.clone()).await?;
         let mut boards = Vec::new();
         for project in &projects {
             boards.push(issues.board(project, &statuses).await?);
@@ -232,7 +232,7 @@ impl<'c> Epics<'c> {
         for project in self.projects_in(Some(id)).await? {
             let mut issues = Issues::new(&mut *self.conn);
             let name = issues.project(&project).await?.name;
-            let statuses = issues.statuses().await?;
+            let statuses = issues.statuses_of(self.workspace.clone()).await?;
             let board = issues.board(&project, &statuses).await?;
             fn walk(out: &mut Vec<Value>, issues: &[Node], id: i64) {
                 for issue in issues {

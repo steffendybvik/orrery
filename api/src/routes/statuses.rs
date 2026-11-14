@@ -1,4 +1,5 @@
 // Issue statuses: the handlers and the routes they answer (ORR-1048).
+use crate::access::seen::Seen;
 use crate::board::statuses::Statuses;
 use crate::changes::Outbox;
 use crate::error::Result;
@@ -19,25 +20,28 @@ pub(crate) fn routes() -> Router<Arc<App>> {
 }
 
 /// Runs `work` with the statuses on a connection of the pool's, as `with_docs` does with the docs.
+/// The workspace's statuses, the one the request acts in (ORR-1107).
 macro_rules! with_statuses {
-    ($app:expr, |$statuses:ident| $work:expr) => {{
+    ($app:expr, $headers:expr, read |$statuses:ident| $work:expr) => {{
         let mut conn = $app.pool.acquire().await?;
-        let mut $statuses = Statuses::new(&mut *conn);
+        let workspace = Seen::workspace(&mut conn, &$headers).await?;
+        let mut $statuses = Statuses::of(&mut *conn, workspace);
         let value = $work;
         (value, std::mem::take(&mut $statuses.effects))
     }};
     // A write: what it sets off goes into the outbox inside its transaction (ORR-929).
     ($app:expr, $headers:expr, |$statuses:ident| $work:expr) => {{
         let mut conn = $app.pool.acquire().await?;
-        let mut $statuses = Statuses::new(&mut *conn);
+        let workspace = Seen::workspace(&mut conn, &$headers).await?;
+        let mut $statuses = Statuses::of(&mut *conn, workspace);
         $statuses.outbox = Some(Outbox::new(actor_of(&$headers)));
         let value = $work;
         (value, std::mem::take(&mut $statuses.effects))
     }};
 }
 
-async fn list_statuses(State(app): Shared) -> Result<Response> {
-    let (value, _) = with_statuses!(app, |statuses| statuses.list().await?);
+async fn list_statuses(State(app): Shared, headers: HeaderMap) -> Result<Response> {
+    let (value, _) = with_statuses!(app, headers, read | statuses | statuses.list().await?);
     Ok(Json(value).into_response())
 }
 

@@ -296,11 +296,13 @@ pub struct Settings<'c> {
     pub effects: Effects,
     /// Set for a write: what it sets off goes into the outbox in its transaction (ORR-929).
     pub outbox: Option<Outbox>,
+    /// The workspace the settings are read for (ORR-1107): its statuses come with them.
+    pub workspace: String,
 }
 
 impl<'c> Settings<'c> {
     pub fn new(conn: &'c mut AnyConnection) -> Self {
-        Settings { conn, effects: Effects::default(), outbox: None }
+        Settings { conn, effects: Effects::default(), outbox: None, workspace: "default".into() }
     }
 
     async fn rows(&mut self) -> Result<Vec<(String, Value)>> {
@@ -326,7 +328,7 @@ impl<'c> Settings<'c> {
         let ids = |key: &str| -> Vec<String> { value(key).and_then(|v| serde_json::from_value(v).ok()).unwrap_or_default() };
         let hidden = ids("hidden");
         let starred: Vec<String> = ids("starred").into_iter().filter(|id| !hidden.contains(id)).collect();
-        let statuses = Statuses::new(&mut *self.conn).list().await?;
+        let statuses = Statuses::of(&mut *self.conn, self.workspace.clone()).list().await?;
         Ok(json!({
             "id": value("id").unwrap_or(Value::Null),
             "tint": or("tint", Value::Null),
