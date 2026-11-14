@@ -3076,6 +3076,8 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         const asked = [{id: 'sess-1', name: 'Ada'}, {id: 'sess-2', name: 'Bo', ids: ['sess-2', 'gone']}]
         await both("each session's work", p => viaStore(() => store.sessionWork(p, asked)),
             () => viaApi('GET', `/session-work?sessions=${encodeURIComponent(JSON.stringify(asked))}`))
+        // The owner's comments still waiting for an answer, for the signal feed (ORR-1161): none asked here.
+        expect(await viaApi('GET', '/comments/unanswered')).toMatchObject({status: 200, body: []})
         // The chain above an issue, nearest first, as the store walks it for a claim (`heldAbove`).
         const chain = await viaApi('GET', `/issues/${there.sub}/workers`)
         expect(chain.body).toEqual([{issue: there.sub, started: false, worker: null}, {issue: there.top, started: true, worker: 'sess-1'}])
