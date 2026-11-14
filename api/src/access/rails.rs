@@ -7,7 +7,8 @@
 //
 // The table is web/shared/permissions.ts, copied whole to api/permissions.json by web/test/rust-permissions.test.ts,
 // which `GET /api/permissions` answers with (routes/permissions.rs, ORR-1086); the rails read its rows. Reads
-// go through: a board's reads are each route's (`needsBoard`), as they are on Nuxt.
+// go through: a board's reads are each route's (`needsBoard`), as they are on Nuxt, save that a read or write of a project
+// in a workspace the asker isn't a member of is answered 404 (`workspace_check`, ORR-1106).
 use crate::access::people::Who;
 use crate::board::issue_writes::IssueWrites;
 use crate::db::sql;
@@ -250,17 +251,74 @@ fn own_project(own: Option<&str>, path: &str) -> Result<()> {
     Err(ApiError::forbidden(format!("This session reads what others wrote (an untrusted schedule) for {own}, so it only writes there")))
 }
 
-/// Holds each write to its rails before its route runs; a route this API doesn't have is left to say so.
+/// The project a path names (`/api/projects/:project/…`), decoded.
+fn project_named(path: &str) -> Option<String> {
+    let rest = path.strip_prefix("/api/projects/")?;
+    let named = rest.split('/').next().filter(|p| !p.is_empty())?;
+    Some(percent_decode_str(named).decode_utf8_lossy().into_owned())
+}
+
+/// A read or write of a project in a workspace the asker isn't a member of, answered as if the project weren't here
+/// (ORR-1106, decision 6 of decision-workspaces): the owner too, who sees only the workspaces they're in. Who's asking is
+/// the credential's person, the owner's own (their chat's too), or the person a session names; a request naming nobody
+/// who's here, as with login off, sees only `default`. An untrusted session reaches the project it was started for. The
+/// Nuxt server's own work (`Orrery-Came: server`) isn't a request, so nothing holds it here.
+async fn workspace_check(conn: &mut AnyConnection, who: Option<&Who>, actor: &Actor, own: Option<&str>, path: &str) -> Result<()> {
+    let Some(project) = project_named(path) else { return Ok(()) };
+    let row = sqlx::query(&sql("SELECT workspace FROM projects WHERE id = ?")).bind(&project).fetch_optional(&mut *conn).await?;
+    // A project that isn't here is the route's to say so.
+    let Some(workspace) = row.map(|r| r.get::<String, _>("workspace")) else { return Ok(()) };
+    if actor.untrusted && own.is_some_and(|own| percent_decode_str(own).decode_utf8_lossy() == project) {
+        return Ok(());
+    }
+    let mut issues = IssueWrites::new(conn);
+    let person = match (who, &actor.person) {
+        (Some(who), _) => Some(who.person.clone()),
+        (None, Some(person)) => Some(person.clone()),
+        (None, None) if actor.owner || actor.chat => Some(issues.owner_id().await?),
+        (None, None) => issues.person_asking(None, actor).await?,
+    };
+    let member = match person {
+        Some(person) if is_person(conn, &person).await? => sqlx::query(&sql("SELECT 1 FROM workspace_members WHERE workspace = ? AND person = ?"))
+            .bind(&workspace)
+            .bind(&person)
+            .fetch_optional(&mut *conn)
+            .await?
+            .is_some(),
+        _ => workspace == "default",
+    };
+    if member {
+        return Ok(());
+    }
+    Err(ApiError::not_found(format!("No project {project}")))
+}
+
+/// Whether `id` is someone here, not removed.
+async fn is_person(conn: &mut AnyConnection, id: &str) -> Result<bool> {
+    let row = sqlx::query(&sql("SELECT 1 FROM people WHERE id = ? AND removed_at IS NULL")).bind(id).fetch_optional(&mut *conn).await?;
+    Ok(row.is_some())
+}
+
+/// Holds each request to its project's workspace, and each write to its rails, before its route runs; a route this API
+/// doesn't have is left to say so.
 pub(crate) async fn rails(State(app): Shared, request: Request, next: Next) -> Response {
     let method = request.method().clone();
-    if [Method::GET, Method::HEAD, Method::OPTIONS].contains(&method) || !request.uri().path().starts_with("/api/") {
+    if !request.uri().path().starts_with("/api/") {
         return next.run(request).await;
     }
     let path = request.uri().path().to_string();
     let (actor, who) = (actor_of(request.headers()), who_of(request.headers()));
     let own = crate::request::header(request.headers(), "orrery-untrusted-project").filter(|p| !p.is_empty());
+    let server = crate::request::came_of(request.headers()).server;
+    let read = [Method::GET, Method::HEAD, Method::OPTIONS].contains(&method);
     let held = async {
         let mut conn = app.pool.acquire().await?;
+        if !server && method != Method::OPTIONS {
+            workspace_check(&mut conn, who.as_ref(), &actor, own.as_deref(), &path).await?;
+        }
+        if read {
+            return Ok(());
+        }
         match (actor.chat, actor.untrusted) {
             (true, _) => guard(&mut conn, Kind::Chat, method.as_str(), &path).await,
             (_, true) => {

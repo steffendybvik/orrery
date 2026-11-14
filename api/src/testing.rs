@@ -157,17 +157,25 @@ impl TestApi {
     /// The owner, `steffen` named Steffen, as `PUT /api/owner` would leave them.
     pub(crate) async fn owner(&self) {
         self.run("INSERT INTO people (id, name, role, created_at) VALUES ('steffen', 'Steffen', 'owner', ?)", &[&stamp()]).await;
+        self.in_default("steffen", "owner").await;
+    }
+
+    /// Into the `default` workspace, as naming the owner and adding a person put them (ORR-1106).
+    async fn in_default(&self, person: &str, role: &str) {
+        self.run("INSERT INTO workspace_members (workspace, person, role, created_at) VALUES ('default', ?, ?, ?)", &[person, role, STAMP]).await;
     }
 
     /// A member, put straight in the table (no way-in check).
     pub(crate) async fn member(&self, id: &str, name: &str) {
         self.run("INSERT INTO people (id, name, role, created_at) VALUES (?, ?, 'member', ?)", &[id, name, &stamp()]).await;
+        self.in_default(id, "member").await;
     }
 
     /// The owner, `steffen`, and two members, `ana` and `bo`: with more than one person the rails hold.
     pub(crate) async fn team(&self) {
         for (id, role) in [("steffen", "owner"), ("ana", "member"), ("bo", "member")] {
             self.run("INSERT INTO people (id, name, role, created_at) VALUES (?, ?, ?, ?)", &[id, id, role, STAMP]).await;
+            self.in_default(id, role).await;
         }
     }
 
