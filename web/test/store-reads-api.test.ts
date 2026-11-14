@@ -86,6 +86,16 @@ describe("the store's reads through the Rust API (ORR-1162)", () => {
         expect(await store.sessionWork('greenhouse', sessions)).toEqual(replies[path])
     })
 
+    it("hands a session the owner's unanswered comments as the API reads them (ORR-1161)", async () => {
+        // None is in this database, so what's carried is the API's.
+        replies['/api/projects/greenhouse/comments/unanswered'] = [{issue: 'GRE-1', body: 'Still waiting', created_by: 'owner', owned: true, assignee: null}]
+        expect(await store.carryUnanswered('greenhouse', 'sess-1')).toBe(1)
+        expect(await store.listSignals('greenhouse')).toEqual([expect.objectContaining({kind: 'comment', issue: 'GRE-1', note: 'Still waiting', target: 'sess-1'})])
+        // A member's session asks for their own words too.
+        expect(await store.carryUnanswered('greenhouse', 'sess-2', 'bo')).toBe(0)
+        expect(asked).toContain('/api/projects/greenhouse/comments/unanswered?person=bo')
+    })
+
     it('lists the projects from the API, without building their boards here (ORR-1174)', async () => {
         replies['/api/projects'] = [{id: 'greenhouse', name: 'Greenhouse', counts: {}}]
         expect(await store.listProjects()).toEqual(replies['/api/projects'])
