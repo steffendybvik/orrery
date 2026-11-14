@@ -16,8 +16,9 @@ const {open: newIssue} = useNewIssue()
 const demo = useDemoProject()
 const router = useRouter()
 const open = ref(true)
-// The install line (ORR-1067), on the first open: the launcher, and orrery in Claude Code's user config for every
-// folder, so a session reaches it before any repo is connected. Gone once a launcher connects.
+// The install line (ORR-1067): the launcher, and orrery in Claude Code's user config for every folder, so a session
+// reaches it before any repo is connected. Under "For working with agents", after what the browser can do, as it's a
+// terminal's (ORR-1180). Gone once a launcher connects.
 const {launchers} = useRoadmaps()
 const machineReady = computed(() => Object.values(launchers.value).some(count => count > 0))
 const machineLine = launcherInstall(serverOrigin())
@@ -108,23 +109,26 @@ async function tryDemo() {
     <div class="h-1 overflow-hidden rounded-full bg-well" role="progressbar" :aria-valuenow="done" :aria-valuemax="steps.length" aria-label="Steps done">
       <div class="h-full rounded-full bg-accent-fill transition-all" :style="{width: `${(done / steps.length) * 100}%`}" />
     </div>
-    <div class="flex flex-col gap-2 text-[13px] text-muted" data-step="agent">
-      <span class="font-medium text-fg">Which AI agent do you run?</span>
-      <AgentPicker />
-    </div>
-    <OtherAgent v-if="otherAgent" />
-    <div v-else-if="!machineReady" class="flex flex-col gap-2 rounded-xl bg-panel p-4 text-[13px] leading-relaxed text-muted ring-1 ring-line" data-step="machine">
-      <span class="font-medium text-fg">Set up this machine once</span>
-      <span>
-        Run this in a terminal, from any folder. It installs the launcher, so orrery can start sessions, and adds orrery to
-        Claude Code for every folder, so a <span class="font-mono">claude</span> anywhere reaches it, repo or not. Safe to run again;
-        <span class="font-mono">--uninstall</span> in place of <span class="font-mono">--install</span> takes it all out. Needs tmux 3.2 or newer.
-      </span>
-      <CopyBlock title="Anywhere on your machine, run" :text="machineLine" />
-    </div>
     <ol class="flex flex-col gap-4 text-[13px] leading-relaxed text-muted">
       <template v-for="(step, i) in steps" :key="step.key">
-      <li v-if="i === WITHOUT_CLAUDE" class="px-4 pt-2 text-[11px] font-medium uppercase tracking-wide text-faint">For working with agents</li>
+      <template v-if="i === WITHOUT_CLAUDE">
+        <li class="px-4 pt-2 text-[11px] font-medium uppercase tracking-wide text-faint">For working with agents</li>
+        <!-- What the browser can't do comes after what it can (ORR-1180): the agent, then this machine's one line. -->
+        <li class="flex flex-col gap-2 px-4 text-[13px] text-muted" data-step="agent">
+          <span class="font-medium text-fg">Which AI agent do you run?</span>
+          <AgentPicker />
+        </li>
+        <li v-if="otherAgent"><OtherAgent /></li>
+        <li v-else-if="!machineReady && !planning" class="flex flex-col gap-2 rounded-xl bg-panel p-4 text-[13px] leading-relaxed text-muted ring-1 ring-line" data-step="machine">
+          <span class="font-medium text-fg">Set up this machine once</span>
+          <span>
+            Run this in a terminal, from any folder. It installs the launcher, so orrery can start sessions, and adds orrery to
+            Claude Code for every folder, so a <span class="font-mono">claude</span> anywhere reaches it, repo or not. Safe to run again;
+            <span class="font-mono">--uninstall</span> in place of <span class="font-mono">--install</span> takes it all out. Needs tmux 3.2 or newer.
+          </span>
+          <CopyBlock title="Anywhere on your machine, run" :text="machineLine" />
+        </li>
+      </template>
       <li class="flex gap-3 rounded-xl" :class="i === current && !step.done && !(planning && i >= WITHOUT_CLAUDE) ? 'bg-panel p-4 ring-1 ring-line' : ['px-4', planning && i >= WITHOUT_CLAUDE && !step.done && 'opacity-60']">
         <StepMark :done="step.done" :n="i + 1" />
         <div class="flex min-w-0 flex-1 flex-col gap-2">

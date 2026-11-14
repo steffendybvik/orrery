@@ -55,7 +55,7 @@ All optional, in a `.env` beside `docker-compose.yml` (see `.env.example`):
 | `ORRERY_HOST` | who can reach the sessions' address: anything but loopback asks for a login, once [claimed](#claiming-it-and-logging-in). A phone has a port of its own: see [Reach it from your phone](#reach-it-from-your-phone) | `127.0.0.1` |
 | `ORRERY_AUTH` | `on` always asks for a login; `off` never, on loopback only, for trying people out; unset, see [Logging in](#claiming-it-and-logging-in) | unset |
 | `ORRERY_OIDC_ISSUER`, `ORRERY_OIDC_CLIENT_ID`, `ORRERY_OIDC_CLIENT_SECRET` | any standard OIDC provider to log in through | unset |
-| `ORRERY_SIGN_UP` | `open`: anyone the login provider lets in may sign in, and gets a person and a workspace of their own, seeing nobody else's until they're invited in. Unset, someone new needs an invite | unset |
+| `ORRERY_SIGN_UP` | Unset (or `open`): anyone the login provider lets in may sign in, and gets a person and a workspace of their own, seeing nobody else's until they're invited in. `invite`: someone new needs an invite | unset |
 | `ORRERY_DATA` | a folder for the database, `orrery.db` (with its `-wal` and `-shm` files beside it); on Linux it must be writable by uid 1000, the image's `node` user. Not a synced folder: syncing a live SQLite file corrupts it | the `orrery-data` volume |
 | `ORRERY_PHONE_PORT` | the phone's own port, which always asks for a login (see [Reach it from your phone](#reach-it-from-your-phone)) | `1` before `ORRERY_PORT`: `19000` |
 | `ORRERY_PHONE_HOST` | who can reach the phone's port: `127.0.0.1` keeps it to this machine | `0.0.0.0` |
@@ -194,7 +194,7 @@ no provider, give them a person key (`POST /api/keys` with `kind: "person"`, `na
 
 **With more than one person,** an issue's page shows who holds it, for how long and which session is on it, with **Claim**, **Let go** and, for the owner, **Take over**, each in its activity, and a list and a board show the holder. A person's agents only take up what's assigned to them, and their comments, focuses and Todo moves reach only their own sessions. **Work unassigned on a board with more than one person isn't handed to anyone** until someone takes it. The bell and My issues are each person's own. With `ORRERY_AUTH=off`, the sidebar's **Acting as** picks who this browser is, remembered here: it's a name, not a login, and anyone who can reach orrery can say they're anyone.
 
-**A login provider** is any standard OIDC one: set the three `ORRERY_OIDC_…` settings, with `<orrery>/api/auth/oidc/callback` as its redirect address. orrery sends its client secret as HTTP Basic (`client_secret_basic`), or in the request's body for a provider whose discovery offers only `client_secret_post`. Its address has to be https unless it's on this machine. orrery asks it for `openid profile`, so allow both scopes for its client. **On a new orrery, the first person to sign in becomes its owner**, named as the provider names them, with no claim step, and the login page then shows only the provider's button. Everyone after that needs an invite from the owner, so sign in yourself before you share the address. With `ORRERY_SIGN_UP=open`, they don't: whoever the provider lets in gets a workspace of their own, so open it only with a provider that has an allowlist of its own. An invite brings its person into the workspace it names (`default` unless it says).
+**A login provider** is any standard OIDC one: set the three `ORRERY_OIDC_…` settings, with `<orrery>/api/auth/oidc/callback` as its redirect address. orrery sends its client secret as HTTP Basic (`client_secret_basic`), or in the request's body for a provider whose discovery offers only `client_secret_post`. Its address has to be https unless it's on this machine. orrery asks it for `openid profile`, so allow both scopes for its client. **On a new orrery, the first person to sign in becomes its owner**, named as the provider names them, with no claim step, and the login page then shows only the provider's button. Everyone after that who the provider lets in gets a person and a workspace of their own, and sees nobody else's until they're invited in, so who may sign in is the provider's call: use one with an allowlist of its own (or `ORRERY_SIGN_UP=invite`) unless anyone with an account there is welcome. With `ORRERY_SIGN_UP=invite`, someone new needs an invite from the owner instead. An invite brings its person into the workspace it names (`default` unless it says).
 
 **If the provider's address changes,** move the logins, and nobody needs a new invite:
 
@@ -278,7 +278,9 @@ project's `orrery-data` volume, `<project>_orrery-data`. The project is `COMPOSE
 or the folder's name (`orrery`) without one. So a new project name is a new, empty database, and two
 env files with the same one (or both without one) share a container and a database: give every
 server its own. `docker compose --env-file .env.work down -v` deletes that server's volumes, its
-database with them; plain `down` keeps them.
+database with them; plain `down` keeps them. When an empty orrery in Docker is reached with a key or login from before, it
+says so in the event log (`database.empty`), as that's the sign its data is in another volume; a new
+install says nothing.
 
 ## Without Docker
 
