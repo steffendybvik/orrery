@@ -599,7 +599,7 @@ impl IssueWrites<'_> {
         .filter_map(|(field, sent)| sent.then_some(field))
         .collect();
         if !moves.is_empty() && !actor.owner && matches!(row.proposal.as_deref(), Some("pending" | "changes")) {
-            let settings = crate::work::settings::Settings::new(&mut *self.conn).get().await?;
+            let settings = crate::work::settings::Settings::for_project(&mut *self.conn, project).await?.get().await?;
             if settings["restrict_proposals"].as_bool().unwrap_or(true) {
                 let (named, verb) = match moves.as_slice() {
                     [one] => (one.to_string(), "isn't"),

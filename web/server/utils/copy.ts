@@ -6,7 +6,7 @@ import type {Db} from './database'
 import {one} from './database'
 
 /** In an order every foreign key is satisfied in, the statuses first (issues point at them). */
-export const COPIED_TABLES = ['statuses', 'settings', 'people', 'workspaces', 'workspace_members', 'keys', 'logins', 'identities', 'invites', 'projects', 'project_members', 'releases', 'milestones', 'epics', 'issues', 'comments', 'milestone_comments', 'epic_comments', 'notice_clears', 'notice_reads', 'schedule_requests', 'issue_events', 'issue_sessions', 'issue_pulls', 'session_people',
+export const COPIED_TABLES = ['statuses', 'settings', 'people', 'workspaces', 'workspace_members', 'workspace_settings', 'keys', 'logins', 'identities', 'invites', 'projects', 'project_members', 'releases', 'milestones', 'epics', 'issues', 'comments', 'milestone_comments', 'epic_comments', 'notice_clears', 'notice_reads', 'schedule_requests', 'issue_events', 'issue_sessions', 'issue_pulls', 'session_people',
     'issue_aliases', 'issue_links', 'milestone_aliases', 'docs', 'doc_sections', 'doc_revisions', 'schedules_across', 'schedules', 'schedule_runs', 'schedule_held', 'signals', 'secrets', 'secret_uses', 'uploads', 'presets', 'preset_defaults', 'events', 'changes', 'proposal_clears', 'pull_states', 'pull_repos', 'chats', 'chat_messages', 'feature_use'] as const
 /** The tables whose ids the database hands out, so Postgres's counters move on past the copied ones. */
 const NUMBERED = ['epics', 'comments', 'milestone_comments', 'epic_comments', 'issue_events', 'doc_revisions', 'schedules_across', 'schedules', 'schedule_runs', 'signals', 'secret_uses', 'presets', 'events', 'changes']
@@ -31,6 +31,7 @@ export async function copyDatabase(source: Db, target: Db): Promise<Record<strin
         // ships seeded; the source's replace them.
         await target.run('DELETE FROM statuses')
         await target.run('DELETE FROM settings')
+        await target.run('DELETE FROM workspace_settings')
         await target.run('DELETE FROM workspace_members')
         await target.run('DELETE FROM workspaces')
         await target.run('DELETE FROM people')
