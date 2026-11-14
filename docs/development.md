@@ -52,7 +52,7 @@ again on a new one after a move or a restore. One container, and one compose fil
 the image each start, so a change in `api/` is in it.
 
 Without Docker: `pnpm install` and `cargo build` in `api/`, then `pnpm dev` on http://localhost:9000 (Node 24.22.1, pnpm
-10.14.0, Rust 1.80 or later). Without the API's build most routes answer 503 ([The Rust API](#the-rust-api)).
+10.14.0, Rust 1.88 or later). Without the API's build most routes answer 503 ([The Rust API](#the-rust-api)).
 
 ## The Rust API
 
@@ -117,7 +117,7 @@ to it directly it has to check the login itself ([ORR-928](/p/orrery/issues/ORR-
 Nuxt applies before forwarding (the board's permissions, the chat's and untrusted rails, the browser guards). Until then
 the way in stays through Nuxt (`zz-api.ts`).
 
-Running it: the Nuxt server needs it, as the board's data is the API's alone. `cargo build` in `api/` (Rust 1.80 or
+Running it: the Nuxt server needs it, as the board's data is the API's alone. `cargo build` in `api/` (Rust 1.88 or
 later) once, and `pnpm dev` (`nuxt dev`) starts `api/target/debug/orrery-api` beside itself on its own database with a
 fresh token, and stops it with itself; build again after a change in `api/`. `NUXT_API_BIN` names another binary (the
 image sets it to its own copy). Or run one yourself and point at it: `NUXT_API_TOKEN` (16 characters or more) and

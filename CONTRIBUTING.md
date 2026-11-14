@@ -11,7 +11,7 @@ first and say what you'd change and why; it saves you building something that wo
 .playground/play   # nuxt dev on http://localhost:9001, with a demo of its own
 ```
 
-or, without Docker, `cargo build` in `api/` (Rust 1.80 or later), then `pnpm install` and `pnpm dev` (Node 24.22.1,
+or, without Docker, `cargo build` in `api/` (Rust 1.88 or later), then `pnpm install` and `pnpm dev` (Node 24.22.1,
 pnpm 10.14.0). The Nuxt server needs the Rust API, which serves the board's data: `pnpm dev` starts
 `api/target/debug/orrery-api` beside itself, so build it again after a change in `api/`.
 
