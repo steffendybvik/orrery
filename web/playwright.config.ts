@@ -7,6 +7,7 @@ import {defineConfig, devices} from '@playwright/test'
 import {e2ePort} from './e2e-port'
 import type {Group} from './e2e-shards'
 import {shardSetting, shards} from './e2e-shards'
+import {apiBuild, serverTimeout} from './e2e-api'
 
 const port = e2ePort(3100)
 const postgres = process.env.E2E_POSTGRES_URL
@@ -76,13 +77,13 @@ export default defineConfig({
             : [{name: process.env.E2E_BROWSER || 'chromium', testIgnore: ['first-run.spec.ts', 'perf/**', 'login/**', 'readme/**', 'restart/**'], dependencies: ['first-run'], use: chrome}],
     ],
     webServer: {
-        command: `rm -f node_modules/.cache/nuxt/dev-server.json && ${postgres ? 'jiti scripts/e2e-postgres.ts' : 'rm -f .data/e2e.db .data/e2e.db-*'} && nuxt dev --port ${port}`,
+        command: `rm -f node_modules/.cache/nuxt/dev-server.json && ${postgres ? 'jiti scripts/e2e-postgres.ts' : 'rm -f .data/e2e.db .data/e2e.db-*'} && ${apiBuild}nuxt dev --port ${port}`,
         // Postgres has no folder beside it to keep the secrets' key in, so it's given one, as its owner would.
         env: {NUXT_DATABASE: postgres || '.data/e2e.db', NUXT_UPDATE_CHECK: 'false', ORRERY_AUTH: 'off', ...postgres ? {NUXT_SECRET_KEY: 'e2e-postgres-secret-key'} : {}},
         url: `http://localhost:${port}/api/settings`,
         reuseExistingServer: false,
         // V8 writes its coverage as a process exits, so a run that collects it has to let the server stop by itself (ORR-745).
         ...process.env.NODE_V8_COVERAGE ? {gracefulShutdown: {signal: 'SIGTERM' as const, timeout: 15_000}} : {},
-        timeout: 180_000,
+        timeout: serverTimeout(180_000),
     },
 })
