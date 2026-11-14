@@ -586,6 +586,16 @@ export function apiTarget(config: {apiUrl?: unknown, apiToken?: unknown}): {url:
     return config.apiUrl && config.apiToken ? {url: String(config.apiUrl), token: String(config.apiToken)} : null
 }
 
+/** Whether the API at `url` answers its own `/health` within `within` ms, for `/healthz` (ORR-1188). */
+export async function apiAnswers(url: string, within = 2000): Promise<boolean> {
+    try {
+        const reply = await fetch(`${url}/health`, {signal: AbortSignal.timeout(within)})
+        return reply.ok
+    } catch {
+        return false
+    }
+}
+
 /** Why the API last couldn't answer, said once, not on every request, until it answers again. */
 let unreachable = ''
 
