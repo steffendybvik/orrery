@@ -56,6 +56,8 @@ struct App {
     phone: access::phone::Links,
     /// The MCP sessions `/mcp` has begun, and the tool groups each loaded (ORR-1167).
     mcp: mcp::sessions::Sessions,
+    /// The host names and other sites' pages the browser guards let in besides this machine's own (ORR-1173).
+    allowed: access::browser::Allowed,
 }
 
 type Shared = State<Arc<App>>;
@@ -149,6 +151,7 @@ async fn main() {
         log: std::env::var("ORRERY_API_LOG").is_ok_and(|v| v == "1"),
         phone: access::phone::Links::default(),
         mcp: mcp::sessions::Sessions::default(),
+        allowed: access::browser::Allowed::from_env(),
     });
     let listener = tokio::net::TcpListener::bind(&listen).await.unwrap_or_else(|e| fail(format!("can't listen on {listen}: {e}")));
     let at = listener.local_addr().map(|a| a.to_string()).unwrap_or(listen);

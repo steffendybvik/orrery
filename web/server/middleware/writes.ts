@@ -15,6 +15,9 @@
 //   just by being opened, so they're guarded like a write; and since a picture (`<img>`, an agent's
 //   Markdown image) sends no Origin, a browser opening one has to be orrery's own page, as an EventSource.
 //   The channel, the launcher and curl send no Sec-Fetch headers.
+//
+// The Rust API checks the host, a write's `Origin` and its body's type again for itself (api/src/access/browser.rs,
+// ORR-1173), from the `Orrery-Host` and `Orrery-Sent-Origin` the router sends it: keep the two in step.
 import {originAllowed} from '../utils/origins'
 
 const WRITES = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
