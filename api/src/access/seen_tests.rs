@@ -215,3 +215,103 @@ async fn a_new_agent_key_is_for_one_of_its_persons_workspaces() {
     let listed = api.signed(api.get("/api/keys"), "bo").await.send().await;
     assert!(listed.body.as_array().unwrap().iter().any(|k| k["workspace"] == "acme"), "{}", listed.body);
 }
+
+// Every route of a project, read from the routes' own source so a new one is held too: someone outside its workspace
+// gets the workspace's 404 on each, read or write (ORR-1106, ORR-1052).
+
+/// `(method, path)` for each route under `/api/projects/{project}` in src/routes.
+fn project_routes() -> Vec<(String, String)> {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/routes");
+    let mut routes = Vec::new();
+    for entry in std::fs::read_dir(dir).unwrap() {
+        let path = entry.unwrap().path();
+        let name = path.file_name().unwrap().to_string_lossy().to_string();
+        if !name.ends_with(".rs") || name.ends_with("_tests.rs") {
+            continue;
+        }
+        for line in std::fs::read_to_string(&path).unwrap().lines() {
+            let Some(at) = line.find(".route(") else { continue };
+            let rest = &line[at + ".route(".len()..];
+            // `.route(P, …)` is the project itself; else the path is the first string, `{P}/…` in a `format!`.
+            let (route, methods) = if let Some(methods) = rest.strip_prefix("P,") {
+                ("/api/projects/{project}".to_string(), methods)
+            } else {
+                let Some(open) = rest.find('"') else { continue };
+                let Some(len) = rest[open + 1..].find('"') else { continue };
+                let said = &rest[open + 1..open + 1 + len];
+                (said.replace("{P}", "/api/projects/{project}").replace("{{", "{").replace("}}", "}"), &rest[open + 1 + len..])
+            };
+            if !route.starts_with("/api/projects/{project}") {
+                continue;
+            }
+            for method in ["get", "post", "put", "patch", "delete"] {
+                if methods.contains(&format!("{method}(")) {
+                    routes.push((method.to_uppercase(), route.clone()));
+                }
+            }
+        }
+    }
+    routes.sort();
+    routes
+}
+
+/// `route` with `project` for `{project}` and a made-up value for each other part.
+fn filled(route: &str, project: &str) -> String {
+    route
+        .split('/')
+        .map(|part| match part {
+            "{project}" => project.to_string(),
+            p if p.starts_with('{') => "1".to_string(),
+            p => p.to_string(),
+        })
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
+#[test]
+fn the_routes_of_a_project_are_all_found() {
+    let routes = project_routes();
+    assert!(routes.len() > 80, "{}", routes.len());
+    for expected in [("GET", "/api/projects/{project}"), ("POST", "/api/projects/{project}/issues"), ("DELETE", "/api/projects/{project}/docs/{doc}")] {
+        assert!(routes.iter().any(|(m, r)| (m.as_str(), r.as_str()) == expected), "{expected:?} in {routes:?}");
+    }
+}
+
+#[tokio::test]
+async fn no_route_of_a_project_reads_or_writes_across_workspaces() {
+    let api = TestApi::new().await;
+    let (_, rockets) = two_workspaces(&api).await;
+    let login = api.login("ana").await;
+    let held = format!("No project {rockets}");
+    let mut leaks = Vec::new();
+    for (method, route) in project_routes() {
+        let path = filled(&route, &rockets);
+        let req = api
+            .request(method.parse().unwrap(), &path)
+            .json(json!({}))
+            .header("orrery-came", "loopback")
+            .header("orrery-login-ways", "on")
+            .header("orrery-sent-origin", "http://localhost")
+            .signed_in(&login);
+        let reply = req.send().await;
+        if reply.status != 404 || reply.body["message"] != held {
+            leaks.push(format!("{method} {route}: {} {}", reply.status, reply.body));
+        }
+    }
+    assert!(leaks.is_empty(), "reached across workspaces:\n{}", leaks.join("\n"));
+    // The same asks by a member of Rockets' workspace aren't held, so the 404s above are the workspace's.
+    let bos = api.signed(api.get(&format!("/api/projects/{rockets}/issues")), "bo").await.send().await;
+    assert_eq!(bos.status, 200, "{}", bos.body);
+}
+
+#[tokio::test]
+async fn an_mcp_tool_reaches_only_the_askers_workspaces() {
+    let api = TestApi::new().await;
+    let (_, rockets) = two_workspaces(&api).await;
+    let issue = api.issue(&rockets, json!({"title": "Fuel"})).await;
+    let body = json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "issue", "arguments": {"id": issue}}});
+    let anas = with_agent_key(&api, api.post("/mcp", body.clone()), "ana", Some("default")).await.send().await;
+    assert_eq!(anas.body["result"]["isError"], true, "{}", anas.body);
+    let bos = with_agent_key(&api, api.post("/mcp", body), "bo", Some("acme")).await.send().await;
+    assert_ne!(bos.body["result"]["isError"], true, "{}", bos.body);
+}
