@@ -1,25 +1,41 @@
 import {expect, test} from './test'
 import {OWNER, projectApi} from './support'
 
-// A fresh orrery opened for the first time: the owner names themselves, makes a project from the page, and My issues
+// A fresh orrery opened for the first time: the owner goes through the welcome, makes a project from the page, and My issues
 // (home, with `/now` sent there), Getting started and Connect show what they should. The other spec files run after
 // this one (the `first-run` project in playwright.config.ts), so they find the owner named Ada Lovelace.
 test.describe.configure({mode: 'serial'})
 
 const api = projectApi('greenhouse')
 
-test('asks the owner\'s name on first open, and nothing about the database', async ({page, request}) => {
+test('walks the owner through the welcome on first open, and asks nothing about the database', async ({page, request}) => {
     await page.goto('/')
     // Which database it runs on is set only as it starts (ORR-1187), so it never asks where to keep the data.
     await expect(page.getByRole('dialog', {name: 'Where to keep its data'})).toHaveCount(0)
-    const dialog = page.getByRole('dialog', {name: 'Your name'})
+    // The welcome (ORR-1194), a step a screen: the name, connecting an agent, and a first project. Naming the workspace
+    // is its owner's step, so with login off, as here, where nobody is a member, it isn't one (WelcomeDialog.test.ts).
+    const dialog = page.getByRole('dialog', {name: 'Welcome'})
+    await expect(dialog.getByText('Step 1 of 3')).toBeVisible()
     await dialog.getByLabel('Your name').fill('Ada Lovelace')
     // Not a developer: Advanced goes off, and the pages for looking into problems leave the sidebar.
     await expect(dialog.getByRole('radio', {name: /Yes/})).toBeChecked()
     await dialog.getByRole('radio', {name: /No/}).check()
-    await dialog.getByRole('button').last().click()
-    await expect(dialog).toBeHidden()
+    await dialog.getByRole('button', {name: 'Continue'}).click()
     expect(await (await request.get('/api/owner')).json()).toMatchObject({name: 'ada_lovelace', named: true})
+    // The agent's install line, waiting for this computer until it connects, and skippable.
+    await expect(dialog.getByText('Step 2 of 3')).toBeVisible()
+    await expect(dialog.getByText(/launcher --install/)).toBeVisible()
+    await expect(dialog.getByText('Waiting for this computer')).toBeVisible()
+    await dialog.getByRole('button', {name: 'Continue without it'}).click()
+    // A first project or the demo; left for now, as the next test makes one from the page.
+    await expect(dialog.getByText('Step 3 of 3')).toBeVisible()
+    await expect(dialog.getByRole('button', {name: 'Try a demo project instead'})).toBeVisible()
+    await dialog.getByRole('button', {name: 'Skip for now'}).click()
+    await expect(dialog).toBeHidden()
+    // Once done it doesn't come back.
+    await page.reload()
+    await expect(page.getByRole('heading', {name: 'Getting started'})).toBeVisible()
+    await expect(dialog).toHaveCount(0)
     await expect.poll(async () => (await (await request.get('/api/settings')).json()).advanced).toBe(false)
     await expect(page.getByRole('link', {name: 'Events'})).toBeHidden()
     // The other spec files expect Advanced on, as it starts.
@@ -50,12 +66,19 @@ test('asks the owner\'s name on first open, and nothing about the database', asy
     await expect(page.locator('[data-other-agent]')).toBeHidden()
 })
 
-test('makes a project', async ({page}) => {
+test('picks the welcome up in another browser, and makes a project from it', async ({page, request}) => {
+    // Skipped in one browser, it's left in that one only: here it picks up again, at the steps not done. Named, the
+    // owner now owns the workspace, so naming it is one of them, offered as Personal.
     await page.goto('/')
-    await page.getByRole('button', {name: 'New project'}).first().click()
-    const dialog = page.getByRole('dialog', {name: 'New project'})
-    await dialog.getByLabel('Name').fill('Greenhouse')
-    await dialog.getByRole('button', {name: /Create project/}).click()
+    const dialog = page.getByRole('dialog', {name: 'Welcome'})
+    await expect(dialog.getByRole('heading', {name: 'Name your workspace'})).toBeVisible()
+    await expect(dialog.getByLabel('Workspace name')).toHaveValue('Personal')
+    await dialog.getByRole('button', {name: 'Skip', exact: true}).click()
+    expect((await (await request.get('/api/workspaces')).json())[0].name).toBe('Default')
+    await dialog.getByRole('button', {name: 'Continue without it'}).click()
+    await dialog.getByLabel('Project name').fill('Greenhouse')
+    await dialog.getByRole('button', {name: 'Make it'}).click()
+    await expect(dialog).toBeHidden()
     await expect(page).toHaveURL(/\/p\/greenhouse/)
     await expect(page.getByRole('heading', {name: 'Greenhouse'})).toBeVisible()
 })

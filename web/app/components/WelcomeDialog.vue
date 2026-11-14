@@ -6,7 +6,8 @@ import {TINTS} from '#shared/roadmap'
 // first skippable, for someone who isn't a developer. Their name (only while the orrery's owner has none, as the first
 // open asks it: required, as before), their workspace's name and colour (when it's theirs), connecting this computer's
 // agent (the install line, ticked once a launcher connects), and their first project, or the demo. It opens on an
-// orrery's first open and for someone whose workspace has no project yet, until they finish or skip it in this browser.
+// orrery's first open and for someone whose workspace has no project yet, until they finish or skip it in this browser,
+// and never in a workspace they've just made from the switcher.
 const {named, rename} = useOwner()
 const {settings, save: saveSettings} = useAppSettings()
 const {projects, ready, launchers} = useRoadmaps()
@@ -14,8 +15,8 @@ const {current: workspace, load: loadWorkspaces} = useWorkspaces()
 const demo = useDemoProject()
 onMounted(() => loadWorkspaces())
 
-/** Kept per orrery in this browser: once finished or skipped, it doesn't come back. */
-const doneKey = computed(() => `orrery-welcome:${settings.value.id || 'here'}:${workspace.value?.id ?? 'default'}`)
+/** Kept per workspace in this browser: once finished or skipped, it doesn't come back. */
+const doneKey = computed(() => welcomeKey(workspace.value?.id ?? 'default'))
 const finished = ref(false)
 onMounted(() => {
     finished.value = localStorage.getItem(doneKey.value) === 'done'
@@ -37,9 +38,11 @@ const step = computed(() => steps.value.find(s => !answered.value.has(s)))
 const at = computed(() => Math.max(0, steps.value.indexOf(step.value ?? 'project')))
 const open = computed(() => !named.value || (ready.value && !finished.value && !projects.value.length && !!step.value))
 
-function next() {
-    if (!step.value) return
-    answered.value = new Set([...answered.value, step.value])
+/** Answers `which` (the step on screen when it was sent): saving the name drops it from `steps` before this runs, so
+ *  the step on screen by then is already the next one. */
+function next(which = step.value) {
+    if (!which) return
+    answered.value = new Set([...answered.value, which])
     if (!step.value) finish()
 }
 function finish() {
@@ -62,7 +65,7 @@ async function saveName() {
     try {
         await rename(display.value.trim())
         if (!developer.value && settings.value.advanced) await saveSettings({advanced: false})
-        next()
+        next('name')
     } catch (error) {
         failed.value = errorMessage(error)
     } finally {
@@ -87,7 +90,7 @@ async function saveWorkspace() {
         const changed = await apiFetch<Workspace>(`/workspaces/${encodeURIComponent(workspace.value.id)}`, {method: 'PATCH', body: {name: spaceName.value.trim(), color: spaceColor.value}})
         Object.assign(workspace.value, changed)
         if (spaceColor.value !== settings.value.tint) await saveSettings({tint: spaceColor.value})
-        next()
+        next('workspace')
     } catch (error) {
         failed.value = errorMessage(error)
     } finally {
@@ -210,7 +213,7 @@ function submit() {
 
     <div class="flex items-center gap-2 border-t border-line pt-3">
       <span v-if="failed" class="text-xs text-rose-700 dark:text-rose-400">{{ failed }}</span>
-      <UiButton v-if="step !== 'name' && !(step === 'agent' && connected)" variant="ghost" size="md" class="ml-auto" @click="step === 'project' ? finish() : next()">
+      <UiButton v-if="step !== 'name' && !(step === 'agent' && connected)" variant="ghost" size="md" class="ml-auto" @click="step === 'project' ? finish() : next(step)">
         {{ step === 'project' ? 'Skip for now' : 'Skip' }}
       </UiButton>
       <UiButton

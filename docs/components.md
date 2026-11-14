@@ -262,7 +262,7 @@ Already one component each; use them rather than drawing the same thing again.
 The layout (`layouts/default.vue`) mounts the dialogs any page can open, each as `Lazy…` behind `openedOnce`: it
 loads the first time it opens, in its own milestone, and then stays. A dialog is opened through the state its composable
 shares (`useNewIssue`, `useNewMilestone`, `useNewDoc`, `useStartSession`, `useMessageSessions`, `useSchedules`, and `useState('new-project')`),
-so any page or ⌘K can open it without holding it. `OwnerDialog` is mounted from the start; a dialog that belongs to
+so any page or ⌘K can open it without holding it. `WelcomeDialog` (the first-run walk-through: name, workspace, agent, first project) is mounted from the start; a dialog that belongs to
 one page (`PresetDialog`) stays on that page. A new one goes in the same way, built on `UiDialog`. ⌘K's palette, the menus and the bulk bar are
 mounted from the start, as they listen for keys or show on a right-click.
 
