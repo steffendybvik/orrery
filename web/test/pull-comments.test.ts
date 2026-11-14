@@ -22,6 +22,8 @@ beforeEach(async () => {
     store.happened = event => void events.push(event)
     await store.createProject({name: 'shop', key: 'SHO', repo: 'https://github.com/you/shop'}, me)
     await store.createIssue('shop', {title: 'Pay with cards', status: 'in-progress'}, me)
+    // Its session, there to hear: with none, the news reaches nobody (ORR-1178).
+    await store.workedBy('shop', 'SHO-1', 'pay-session')
     signals = []
     events = []
 })
@@ -57,9 +59,20 @@ describe("a pull request's news on its issue", () => {
         const [comment] = await store.listComments('shop', 'SHO-1')
         expect(comment).toMatchObject({created_by: 'orrery', protected: false})
         expect(comment!.body).toContain('conflicts with `v1.0.0-rc.11`')
-        expect(signals).toMatchObject([{kind: 'comment', issue: 'SHO-1', created_by: 'orrery', protected: true}])
+        expect(signals).toMatchObject([{kind: 'comment', issue: 'SHO-1', created_by: 'orrery', protected: true, target: 'pay-session'}])
         expect(events.map(e => e.type)).toEqual(['comment.added', 'pr.conflicting'])
         expect(events[1]).toMatchObject({project: 'shop', subject: 'SHO-1', by: {name: 'orrery', owner: false}})
+    })
+
+    it('with no session on the issue, is a comment and an event, never a signal left in the pool (ORR-1178)', async () => {
+        await store.createIssue('shop', {title: 'Refunds', status: 'in-progress'}, me)
+        signals = []
+        events = []
+        await commentOnPull(store, {...change('conflicting'), issue: 'SHO-2'})
+        expect((await store.listComments('shop', 'SHO-2')).map(c => c.created_by)).toEqual(['orrery'])
+        expect(events.map(e => e.type)).toEqual(['comment.added', 'pr.conflicting'])
+        expect(signals).toEqual([])
+        expect(await store.pooledWaiting('shop')).toEqual([])
     })
 
     it('comments on a closed issue but wakes no session for it', async () => {

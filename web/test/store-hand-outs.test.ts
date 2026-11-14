@@ -81,11 +81,20 @@ describe('what goes out', () => {
 
     it('as a pull request\'s news goes to the assignee\'s, and on what\'s nobody\'s, to no one', async () => {
         const hatis = await add({assignee: 'hati'})
+        await store.workedBy('greenhouse', hatis, 'hati-a')
         await store.systemComment('greenhouse', hatis, 'It merged', 'pr.merged')
         expect(last()).toMatchObject({kind: 'comment', person: 'hati', protected: true})
         const before = signals.length
         await store.systemComment('greenhouse', await add(), 'It merged', 'pr.merged')
         expect(signals).toHaveLength(before)
+    })
+
+    it('as a pull request\'s news goes to no one when no session is on the issue, rather than the pool (ORR-1178)', async () => {
+        const before = signals.length
+        await store.systemComment('greenhouse', await add({assignee: 'hati'}), 'It merged', 'pr.merged')
+        await store.systemComment('greenhouse', await add({assignee: 'claude'}), 'It conflicts', 'pr.conflicting')
+        expect(signals).toHaveLength(before)
+        expect(await store.pooledWaiting('greenhouse')).toEqual([])
     })
 
     it('as the owner\'s comment goes to the assignee\'s, and on what\'s nobody\'s, to their own', async () => {

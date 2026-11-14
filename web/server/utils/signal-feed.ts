@@ -1,6 +1,7 @@
 import type {Signal, StartedSession} from '#shared/roadmap'
 import type {EventEntry} from './event-log'
 import {signalPayload} from './signal-payload'
+import {foldRepeats} from './signals'
 
 // One project's signals for a session, as its stream sends them: the owner's, for every session, for one orrery picks
 // (pool.ts) or for this one; what it missed, and what it should hear as it connects. A session's channel follows its
@@ -85,12 +86,17 @@ export async function openFeed(project: string, who: Listener, from: number | un
     }
 
     // This session going idle takes up what was sent to one session while every one was busy, as the stream sends it
-    // (`onIdle`).
+    // (`onIdle`): folded, so a focus sent twice goes once (ORR-1178). orrery's own word on an issue isn't pooled any more,
+    // so any left from before is passed over: it's news for a session that has gone.
     let sendIdle: (signal: Signal) => unknown = () => {}
     const idle = async (id: string) => {
         if (!attended || !heard || currentId(id) !== attended.id) return
         try {
-            for (const signal of await store.pooledWaiting(project)) sendIdle(signal)
+            const {kept, repeats} = foldRepeats((await store.pooledWaiting(project)).filter(s => s.created_by !== 'orrery'))
+            for (const signal of kept) sendIdle(signal)
+            const stale = repeats.filter(wanted)
+            const me = stale.length ? sessionName(attended.id) ?? who.name ?? 'a session' : ''
+            for (const signal of stale) await store.delivered(project, signal.id, me)
         } catch (error) {
             console.error(`[orrery] ${project}'s waiting signals:`, error)
         }
