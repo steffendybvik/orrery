@@ -34,6 +34,11 @@ const FIELDS: [&str; 15] = [
     "starred",
     "hidden",
 ];
+/// What's the workspace's own (ORR-1107, decision-workspaces), kept per workspace in `workspace_settings` (step 093):
+/// the rest is the person's, the machine's or the server's, in `settings`.
+pub(crate) const WORKSPACE_KEYS: [&str; 9] =
+    ["tint", "focus_prompt", "milestone_prompt", "instructions", "tracker", "starts", "restrict_proposals", "advanced", "work_kinds"];
+
 /// `TERMINALS` in web/shared/roadmap/settings.ts.
 const TERMINALS: [&str; 4] = ["terminal", "iterm", "warp", "ghostty"];
 /// `AGENT_CHOICES` in web/shared/roadmap/settings.ts: the AI agents someone can say they run (ORR-1075).
@@ -305,9 +310,31 @@ impl<'c> Settings<'c> {
         Settings { conn, effects: Effects::default(), outbox: None, workspace: "default".into() }
     }
 
+    /// The settings of `project`'s workspace.
+    pub async fn for_project(conn: &'c mut AnyConnection, project: &str) -> Result<Self> {
+        let workspace = sqlx::query(&sql("SELECT workspace FROM projects WHERE id = ?"))
+            .bind(project)
+            .fetch_optional(&mut *conn)
+            .await?
+            .map(|r| r.get::<String, _>("workspace"))
+            .unwrap_or_else(|| "default".into());
+        Ok(Settings { workspace, ..Settings::new(conn) })
+    }
+
+    /// The server's, the person's and the machine's from `settings`, and this workspace's own from
+    /// `workspace_settings`: a workspace that hasn't set one has the default.
     async fn rows(&mut self) -> Result<Vec<(String, Value)>> {
-        let rows = sqlx::query("SELECT key, value FROM settings").fetch_all(&mut *self.conn).await?;
-        Ok(rows.iter().map(|r| (r.get::<String, _>("key"), serde_json::from_str(&r.get::<String, _>("value")).unwrap_or(Value::Null))).collect())
+        let parse = |r: &sqlx::any::AnyRow| (r.get::<String, _>("key"), serde_json::from_str(&r.get::<String, _>("value")).unwrap_or(Value::Null));
+        let mut rows: Vec<(String, Value)> = sqlx::query("SELECT key, value FROM settings")
+            .fetch_all(&mut *self.conn)
+            .await?
+            .iter()
+            .map(parse)
+            .filter(|(key, _)| !WORKSPACE_KEYS.contains(&key.as_str()))
+            .collect();
+        let own = sqlx::query(&sql("SELECT key, value FROM workspace_settings WHERE workspace = ?")).bind(&self.workspace).fetch_all(&mut *self.conn).await?;
+        rows.extend(own.iter().map(parse));
+        Ok(rows)
     }
 
     /// This orrery's own settings, as `settings()` gives them: its id is made the first time it's asked for, and kept.
@@ -358,15 +385,26 @@ impl<'c> Settings<'c> {
         changes::begin(self.conn).await?;
         let done: Result<()> = async {
             for (key, value) in &input {
-                sqlx::query(&sql("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value"))
+                if WORKSPACE_KEYS.contains(&key.as_str()) {
+                    sqlx::query(&sql(
+                        "INSERT INTO workspace_settings (workspace, key, value) VALUES (?, ?, ?) ON CONFLICT (workspace, key) DO UPDATE SET value = excluded.value",
+                    ))
+                    .bind(&self.workspace)
                     .bind(key)
                     .bind(js(value))
                     .execute(&mut *self.conn)
                     .await?;
+                } else {
+                    sqlx::query(&sql("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value"))
+                        .bind(key)
+                        .bind(js(value))
+                        .execute(&mut *self.conn)
+                        .await?;
+                }
             }
             self.effects.settings = true;
             if input.contains_key("starts") {
-                let rows = sqlx::query("SELECT id FROM projects").fetch_all(&mut *self.conn).await?;
+                let rows = sqlx::query(&sql("SELECT id FROM projects WHERE workspace = ?")).bind(&self.workspace).fetch_all(&mut *self.conn).await?;
                 self.effects.changed = rows.iter().map(|r| r.get::<String, _>("id")).collect();
             }
             Ok(())

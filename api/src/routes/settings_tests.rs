@@ -312,3 +312,26 @@ async fn work_kinds_that_dont_hold_together_are_refused() {
         assert!(said[0].contains(why), "{why}: {said:?}");
     }
 }
+
+/// The workspace's settings are its own (ORR-1107): a prompt or colour set in one isn't another's, while the person's
+/// and the machine's (handle, terminal) are the same in each.
+#[tokio::test]
+async fn a_workspaces_settings_are_its_own() {
+    let api = TestApi::new().await;
+    api.team().await;
+    let rockets = api.acme(&["steffen"]).await;
+    let set = api
+        .patch("/api/settings", serde_json::json!({"focus_prompt": "Count down first.", "tint": "teal", "handle": "steff"}))
+        .header("orrery-workspace", "acme")
+        .send()
+        .await;
+    assert_eq!(set.status, 200, "{}", set.body);
+    assert_eq!((set.body["focus_prompt"].as_str(), set.body["tint"].as_str()), (Some("Count down first."), Some("teal")));
+    let default = api.get("/api/settings").send().await.body;
+    assert_eq!((default["focus_prompt"].clone(), default["tint"].clone()), (serde_json::Value::Null, serde_json::Value::Null), "{default}");
+    assert_eq!(default["handle"], "steff", "the handle is the person's, in every workspace");
+    let for_rockets = api.get(&format!("/api/settings?project={rockets}")).send().await.body;
+    assert_eq!(for_rockets["focus_prompt"], "Count down first.", "the local app reads a project's sessions' settings by the project");
+    let ana = api.signed(api.get("/api/settings").header("orrery-workspace", "acme"), "ana").await.send().await;
+    assert_eq!((ana.status.as_u16(), ana.body["focus_prompt"].clone()), (200, serde_json::Value::Null), "ana isn't in Acme, so she gets default's");
+}
