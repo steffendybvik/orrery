@@ -44,7 +44,9 @@ impl Seen {
             (None, None) => issues.person_asking(None, actor).await?,
         };
         let here = match &person {
-            Some(person) => sqlx::query(&sql("SELECT 1 FROM people WHERE id = ? AND removed_at IS NULL")).bind(person).fetch_optional(&mut *conn).await?.is_some(),
+            Some(person) => {
+                sqlx::query(&sql("SELECT 1 FROM people WHERE id = ? AND removed_at IS NULL")).bind(person).fetch_optional(&mut *conn).await?.is_some()
+            }
             None => false,
         };
         let workspaces = match person.filter(|_| here) {
