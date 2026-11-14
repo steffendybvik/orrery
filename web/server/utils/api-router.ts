@@ -185,6 +185,9 @@ export const DOMAINS: readonly {domain: string, paths: RegExp, methods?: readonl
     // A milestone's comments and an epic's (ORR-1004): words on its page, which ask nothing and wake no session. A write
     // says the milestone's project changed, or the epics did (`Orrery-Epics`).
     {domain: 'milestone and epic comments', paths: /^(projects\/[^/]+\/milestones|epics)\/[^/]+\/comments(\/[^/]+)?$/},
+    // The workspaces (ORR-1108): the ones the asker is in, making one (they own it), and its owners renaming or
+    // recolouring it. Which one a page is in is its address's, sent as `Orrery-Workspace`, never kept here.
+    {domain: 'workspaces', paths: /^workspaces(\/[^/]+)?$/, methods: ['GET', 'POST', 'PATCH']},
     // Logging in with a person key and out (ORR-1137): the API sets the login's cookie, or clears it, and its `Set-Cookie`
     // is passed back (`forwardToApi`). The cookie stays with this server: logging out sends the login hashed.
     {domain: 'logging in', paths: /^auth\/(login|logout)$/, methods: ['POST']},

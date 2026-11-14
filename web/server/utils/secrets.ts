@@ -23,6 +23,8 @@ import {writeToApi} from './api-router'
 import {ORRERY as ORRERY_ACTOR} from '../store/schema'
 
 interface SecretRow { name: string, value: string, last4: string, hosts: string, projects: string | null, created_by: string, owned: number, created_at: string, updated_at: string }
+/** Whose secret a call is about: a project's, or a workspace's (ORR-1107). */
+interface Where { project?: string, workspace?: string }
 interface UseRow { id: number, secret: string, method: string, host: string, path: string, project: string | null, issue: string | null, status: number | null, error: string | null, created_by: string, created_at: string }
 
 const SECRET_NAME = /^[A-Z][A-Z0-9_]{0,63}$/
@@ -88,6 +90,21 @@ export class Secrets {
         return this.store.db
     }
 
+    /** The query naming whose secret a call is about (ORR-1107): a project's (egress, orrery's own requests), or a
+     * workspace's (a page's), else `default`'s. Each workspace has its own secrets. */
+    private static where({project, workspace}: Where = {}): string {
+        if (project) return `?project=${encodeURIComponent(project)}`
+        if (workspace) return `?workspace=${encodeURIComponent(workspace)}`
+        return ''
+    }
+
+    /** The workspace a call is about, for the database here when no API is in front: as `where` says it. */
+    private async workspaceOf({project, workspace}: Where = {}): Promise<string> {
+        if (workspace) return workspace
+        if (project) return (await this.db.get<{workspace: string}>('SELECT workspace FROM projects WHERE id = ?', project))?.workspace ?? 'default'
+        return 'default'
+    }
+
     // The writes, each one step (ORR-1096): sent to the Rust API when it's in front, as it's the one writer of `secrets`
     // and `secret_uses` then, already sealed, as the key stays here (decision-rust-api-secrets-settings); otherwise
     // straight into the database here.
@@ -98,18 +115,18 @@ export class Secrets {
     }
 
     /** The secret `name` as sealed here: new, or replacing the value, hosts and projects of the one kept. */
-    private async keepSealed(name: string, row: {value: string, last4: string, hosts: string[], projects: string[] | null, created_by: string, owned: boolean, at: string}) {
-        if (await this.toApi('PUT', `/api/secrets/${encodeURIComponent(name)}/sealed`, row)) return
-        await this.db.run(`INSERT INTO secrets (name, value, last4, hosts, projects, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT (name) DO UPDATE SET value = excluded.value, last4 = excluded.last4, hosts = excluded.hosts, projects = excluded.projects, updated_at = excluded.updated_at`,
-        name, row.value, row.last4, JSON.stringify(row.hosts), row.projects && JSON.stringify(row.projects), row.created_by, Number(row.owned), row.at, row.at)
+    private async keepSealed(name: string, row: {value: string, last4: string, hosts: string[], projects: string[] | null, created_by: string, owned: boolean, at: string}, where: Where = {}) {
+        if (await this.toApi('PUT', `/api/secrets/${encodeURIComponent(name)}/sealed${Secrets.where(where)}`, row)) return
+        await this.db.run(`INSERT INTO secrets (name, value, last4, hosts, projects, created_by, owned, created_at, updated_at, workspace) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (workspace, name) DO UPDATE SET value = excluded.value, last4 = excluded.last4, hosts = excluded.hosts, projects = excluded.projects, updated_at = excluded.updated_at`,
+        name, row.value, row.last4, JSON.stringify(row.hosts), row.projects && JSON.stringify(row.projects), row.created_by, Number(row.owned), row.at, row.at, await this.workspaceOf(where))
     }
 
     /** A use of the secret `name`; with `keep`, only that many of its uses by `created_by` stay, the latest. */
     private async keepUse(name: string, use: {method: string, host: string, path: string, project: string | null, issue: string | null, status: number | null, error: string | null, created_by: string, created_at: string}, keep?: number) {
-        if (await this.toApi('POST', `/api/secrets/${encodeURIComponent(name)}/uses`, keep === undefined ? use : {...use, keep})) return
-        await this.db.run('INSERT INTO secret_uses (secret, method, host, path, project, issue, status, error, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-            name, use.method, use.host, use.path, use.project, use.issue, use.status, use.error, use.created_by, use.created_at)
+        if (await this.toApi('POST', `/api/secrets/${encodeURIComponent(name)}/uses${Secrets.where({project: use.project ?? undefined})}`, keep === undefined ? use : {...use, keep})) return
+        await this.db.run('INSERT INTO secret_uses (secret, method, host, path, project, issue, status, error, created_by, created_at, workspace) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            name, use.method, use.host, use.path, use.project, use.issue, use.status, use.error, use.created_by, use.created_at, await this.workspaceOf({project: use.project ?? undefined}))
         if (keep !== undefined) {
             await this.db.run(`DELETE FROM secret_uses WHERE secret = ? AND created_by = ? AND id NOT IN
                 (SELECT id FROM (SELECT id FROM secret_uses WHERE secret = ? AND created_by = ? ORDER BY id DESC LIMIT ${keep}) AS latest)`, name, use.created_by, name, use.created_by)
@@ -129,15 +146,15 @@ export class Secrets {
     }
 
     /** The secret `name` as sealed, its value still ciphertext: from the API, which keeps it, or the table here. */
-    private async sealedRow(name: string): Promise<SecretRow | undefined> {
-        const sent = await this.fromApi<SecretRow>(`/api/secrets/${encodeURIComponent(name)}/sealed`)
+    private async sealedRow(name: string, where: Where = {}): Promise<SecretRow | undefined> {
+        const sent = await this.fromApi<SecretRow>(`/api/secrets/${encodeURIComponent(name)}/sealed${Secrets.where(where)}`)
         if (sent !== undefined) return sent ?? undefined
-        return await this.db.get<SecretRow>('SELECT * FROM secrets WHERE name = ?', name)
+        return await this.db.get<SecretRow>('SELECT * FROM secrets WHERE name = ? AND workspace = ?', name, await this.workspaceOf(where))
     }
 
     /** Every secret, by name, without its value. */
-    async list(): Promise<Secret[]> {
-        const sent = await this.fromApi<Secret[]>('/api/secrets')
+    async list(workspace?: string): Promise<Secret[]> {
+        const sent = await this.fromApi<Secret[]>(`/api/secrets${Secrets.where({workspace})}`)
         if (sent) return sent
         const rows = await this.db.all<SecretRow>('SELECT * FROM secrets ORDER BY name')
         const last = await this.db.all<UseRow>('SELECT * FROM secret_uses WHERE id IN (SELECT max(id) FROM secret_uses GROUP BY secret)')
@@ -145,8 +162,8 @@ export class Secrets {
     }
 
     /** A secret with its latest uses. */
-    async get(name: string): Promise<Secret & {uses: SecretUse[]}> {
-        const sent = await this.fromApi<Secret & {uses: SecretUse[]}>(`/api/secrets/${encodeURIComponent(name)}`)
+    async get(name: string, workspace?: string): Promise<Secret & {uses: SecretUse[]}> {
+        const sent = await this.fromApi<Secret & {uses: SecretUse[]}>(`/api/secrets/${encodeURIComponent(name)}${Secrets.where({workspace})}`)
         if (sent === null) throw notFound(`No secret ${name}`)
         if (sent) return sent
         const row = await this.row(name)
@@ -155,7 +172,7 @@ export class Secrets {
     }
 
     /** Sets a secret, new or replacing the one with this name: `{value, hosts, projects?}`. */
-    async set(name: string, body: unknown, actor = AGENT): Promise<{secret: Secret, created: boolean}> {
+    async set(name: string, body: unknown, actor = AGENT, workspace?: string): Promise<{secret: Secret, created: boolean}> {
         ownerOnly(actor, 'secrets.write')
         if (!SECRET_NAME.test(name)) throw badRequest(`"${name}" isn't a secret's name; use capitals, digits and _, e.g. STRIPE_KEY`)
         const input = checkInput(body, SECRET_FIELDS)
@@ -165,18 +182,18 @@ export class Secrets {
         if (!hosts.length) throw badRequest('"hosts" needs at least one host it may be sent to, e.g. api.stripe.com')
         const projects = await this.projectsOf(input.projects as string[] | null | undefined)
         const now = new Date().toISOString()
-        const before = await this.sealedRow(name)
-        await this.keepSealed(name, {value: this.seal(name, value, hosts, projects), last4: value.slice(-4), hosts, projects, created_by: actor.name, owned: !!actor.owner, at: now})
+        const before = await this.sealedRow(name, {workspace})
+        await this.keepSealed(name, {value: this.seal(name, value, hosts, projects), last4: value.slice(-4), hosts, projects, created_by: actor.name, owned: !!actor.owner, at: now}, {workspace})
         await this.changed()
         this.note({level: 'info', kind: 'secret.set', message: `${actor.name} ${before ? 'replaced' : 'set'} ${name}, for ${hosts.join(', ')}`,
             details: {by: actor.name, secret: name, hosts, ...projects ? {projects} : {}, created: !before}})
-        return {secret: (await this.get(name)), created: !before}
+        return {secret: (await this.get(name, workspace)), created: !before}
     }
 
     /** Narrows where a secret may go, `{hosts?, projects?}`, without its value; widening takes `set`. */
-    async narrow(name: string, body: unknown, actor = AGENT): Promise<Secret> {
+    async narrow(name: string, body: unknown, actor = AGENT, workspace?: string): Promise<Secret> {
         ownerOnly(actor, 'secrets.write')
-        const row = await this.row(name)
+        const row = await this.row(name, {workspace})
         const input = checkInput(body, NARROW_FIELDS, true)
         const was = {hosts: JSON.parse(row.hosts) as string[], projects: row.projects ? JSON.parse(row.projects) as string[] : null}
         const hosts = input.hosts === undefined ? was.hosts : hostsOf(input.hosts as string[])
@@ -186,19 +203,20 @@ export class Secrets {
         const wider = hosts.some(h => !was.hosts.includes(h)) || (wasIn !== null && (projects === null || projects.some(p => !wasIn.includes(p))))
         if (wider) throw forbidden(`Letting ${name} go somewhere new takes its value again: PUT /api/secrets/${name} with {value, hosts, projects}`)
         const value = this.open(row)
-        await this.keepSealed(name, {value: this.seal(name, value, hosts, projects), last4: row.last4, hosts, projects, created_by: row.created_by, owned: !!row.owned, at: new Date().toISOString()})
+        await this.keepSealed(name, {value: this.seal(name, value, hosts, projects), last4: row.last4, hosts, projects, created_by: row.created_by, owned: !!row.owned, at: new Date().toISOString()}, {workspace})
         await this.changed()
         this.note({level: 'info', kind: 'secret.narrowed', message: `${actor.name} narrowed ${name} to ${hosts.join(', ')}`,
             details: {by: actor.name, secret: name, hosts, ...projects ? {projects} : {}}})
-        return await this.get(name)
+        return await this.get(name, workspace)
     }
 
-    async delete(name: string, actor = AGENT) {
+    async delete(name: string, actor = AGENT, workspace?: string) {
         ownerOnly(actor, 'secrets.write')
-        await this.row(name)
-        if (!await this.toApi('DELETE', `/api/secrets/${encodeURIComponent(name)}/sealed`)) {
-            await this.db.run('DELETE FROM secrets WHERE name = ?', name)
-            await this.db.run('DELETE FROM secret_uses WHERE secret = ?', name)
+        await this.row(name, {workspace})
+        if (!await this.toApi('DELETE', `/api/secrets/${encodeURIComponent(name)}/sealed${Secrets.where({workspace})}`)) {
+            const at = await this.workspaceOf({workspace})
+            await this.db.run('DELETE FROM secrets WHERE name = ? AND workspace = ?', name, at)
+            await this.db.run('DELETE FROM secret_uses WHERE secret = ? AND workspace = ?', name, at)
         }
         await this.changed()
         this.note({level: 'info', kind: 'secret.deleted', message: `${actor.name} deleted ${name}`, details: {by: actor.name, secret: name}})
@@ -221,7 +239,7 @@ export class Secrets {
 
         const secrets = new Map<string, {row: SecretRow, hosts: string[], value: string}>()
         for (const name of names) {
-            const row = await this.sealedRow(name)
+            const row = await this.sealedRow(name, {project})
             if (!row) throw notFound(`No secret ${name}; GET /api/secrets lists them`)
             const projects = row.projects ? JSON.parse(row.projects) as string[] : null
             if (projects && (!project || !projects.includes(project))) throw refusedFor('secrets.egress', `${name} is only for ${projects.join(', ')}; send the "project" it's for`)
@@ -323,7 +341,7 @@ export class Secrets {
     /** Why a secret `name` that's set wouldn't go to `url` for `project` (ORR-632): its hosts or projects leave them out,
      * or this orrery's key can't open it. Undefined when it would go, or there's none to send. */
     async ownProblem(url: string, name: string, project: string): Promise<string | undefined> {
-        const row = await this.sealedRow(name)
+        const row = await this.sealedRow(name, {project})
         const {host, protocol} = new URL(url)
         if (!row || protocol !== 'https:') return undefined
         const hosts = JSON.parse(row.hosts) as string[]
@@ -345,7 +363,7 @@ export class Secrets {
 
     /** The secret `name`'s value, when there's one that may go to `target`'s host and be used for `project`. */
     private async ownValue(target: URL, name: string, project: string): Promise<string | null> {
-        const row = await this.sealedRow(name)
+        const row = await this.sealedRow(name, {project})
         if (!row || target.protocol !== 'https:' || !(JSON.parse(row.hosts) as string[]).includes(target.host)
             || (row.projects && !(JSON.parse(row.projects) as string[]).includes(project))) return null
         try {
@@ -356,8 +374,8 @@ export class Secrets {
         }
     }
 
-    private async row(name: string): Promise<SecretRow> {
-        const row = await this.sealedRow(name)
+    private async row(name: string, where: Where = {}): Promise<SecretRow> {
+        const row = await this.sealedRow(name, where)
         if (!row) throw notFound(`No secret ${name}`)
         return row
     }
