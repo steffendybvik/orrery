@@ -377,12 +377,16 @@ Node 24.22.1, pnpm 10.14.0 and Rust 1.88 or later: `pnpm install && pnpm build`,
 `api/`. Then, in `web/`,
 
 ```sh
-NUXT_DATABASE=/path/to/orrery.db NUXT_API_BIN=../api/target/release/orrery-api PORT=9000 node .output/server/index.mjs
+HOST=127.0.0.1 NUXT_DATABASE=/path/to/orrery.db NUXT_API_BIN=../api/target/release/orrery-api PORT=9000 node .output/server/index.mjs
 ```
 
 `NUXT_API_BIN` is the Rust API, which serves the board's data: the server starts it beside itself, on the same
 database, and stops it with itself. Without it, the board doesn't load (its requests answer 503). The Docker image
 has it built in.
+
+`HOST=127.0.0.1` keeps it to this machine, so it opens straight to the board. Without it the server listens on every
+address, and so asks for a login: until you [claim it](#claiming-it-and-logging-in) (`pnpm orrery:claim`, with the same
+`NUXT_DATABASE`), every request answers 503 with "Nobody can log in to this orrery yet".
 
 The database file is made if it isn't there (by default the repo's `.data/orrery.db`, wherever the server starts). A
 relative `NUXT_DATABASE` is taken from the folder the server starts in, so give it an absolute one. It can also be a
