@@ -16,6 +16,8 @@ export interface KeyRecord {
     person: string
     kind: KeyKind
     name: string
+    /** An agent key's workspace, the only one it reaches (ORR-1106); a person key has none. */
+    workspace?: string
     created_at: string
     last_used_at?: string
     revoked_at?: string

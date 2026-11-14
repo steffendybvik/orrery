@@ -16,15 +16,15 @@ export interface Holder {
     key?: string
 }
 
-type KeyRow = {id: string, person: string, kind: KeyKind, name: string, created_at: string, last_used_at: string | null, revoked_at: string | null}
+type KeyRow = {id: string, person: string, kind: KeyKind, name: string, workspace: string | null, created_at: string, last_used_at: string | null, revoked_at: string | null}
 type LoginRow = {id: string, person: string, name: string | null, created_at: string | null, last_used_at: string | null, expires_at: string}
 /** How much of a login's hash names it in the list: enough to tell them apart, nothing a cookie could be made from. */
 const LOGIN_REF = 16
 const loginOf = ({id, person, name, created_at, last_used_at, expires_at}: LoginRow): LoginRecord =>
     ({id: id.slice(0, LOGIN_REF), person, ...name ? {name} : {}, ...created_at ? {created_at} : {}, ...last_used_at ? {last_used_at} : {}, expires_at})
 
-const keyOf = ({id, person, kind, name, created_at, last_used_at, revoked_at}: KeyRow): KeyRecord =>
-    ({id, person, kind, name, created_at, ...last_used_at ? {last_used_at} : {}, ...revoked_at ? {revoked_at} : {}})
+const keyOf = ({id, person, kind, name, workspace, created_at, last_used_at, revoked_at}: KeyRow): KeyRecord =>
+    ({id, person, kind, name, ...workspace ? {workspace} : {}, created_at, ...last_used_at ? {last_used_at} : {}, ...revoked_at ? {revoked_at} : {}})
 
 const hashOf = (secret: string) => createHash('sha256').update(secret).digest('hex')
 const token = () => randomBytes(32).toString('base64url')
@@ -45,17 +45,26 @@ export abstract class KeyStore extends PeopleStore {
 
     /** Makes a key for `person`: this is the only time its secret is seen. The prefix says its kind, so the channel can
      * refuse a person key before sending it anywhere. */
-    async makeKey(person: string, body: {kind?: unknown, name?: unknown}): Promise<KeyRecord & {key: string}> {
+    async makeKey(person: string, body: {kind?: unknown, name?: unknown, workspace?: unknown}): Promise<KeyRecord & {key: string}> {
         const {kind, name} = body ?? {}
         if (kind !== 'agent' && kind !== 'person') throw badRequest('"kind" is "agent", for a machine\'s sessions, or "person", to sign in to the page')
         const label = String(name ?? '').trim().slice(0, 60)
         if (!label) throw badRequest('"name" says what the key is for, such as the machine it\'s on')
         await this.needsPerson(person)
+        const workspace = kind === 'agent' ? await this.agentsWorkspace(person, body?.workspace) : null
         const key = `orrery_${kind}_${token()}`
         const id = randomBytes(6).toString('hex')
         const created = stamp()
-        await this.run('INSERT INTO keys (id, person, kind, name, hash, created_at) VALUES (?, ?, ?, ?, ?, ?)', id, person, kind, label, hashOf(key), created)
-        return {id, person, kind, name: label, created_at: created, key}
+        await this.run('INSERT INTO keys (id, person, kind, name, workspace, hash, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)', id, person, kind, label, workspace, hashOf(key), created)
+        return {id, person, kind, name: label, ...workspace ? {workspace} : {}, created_at: created, key}
+    }
+
+    /** The workspace an agent key reaches (ORR-1106): the one named, or `default`, and one its person is a member of. */
+    private async agentsWorkspace(person: string, named: unknown): Promise<string> {
+        if (named != null && (typeof named !== 'string' || !named.trim())) throw badRequest('"workspace" is the id of the workspace the agent key reaches')
+        const workspace = typeof named === 'string' ? named.trim() : 'default'
+        if (!await this.get('SELECT 1 FROM workspace_members WHERE workspace = ? AND person = ?', workspace, person)) throw notFound(`${person} isn't in a workspace "${workspace}"`)
+        return workspace
     }
 
     /** Revokes a key, at once, with the logins it started (ORR-786), and its person's logins from before orrery kept

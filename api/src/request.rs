@@ -49,7 +49,8 @@ pub(crate) fn who_of(headers: &HeaderMap) -> Option<Who> {
         _ => return None,
     };
     let person = header(headers, "orrery-who-person").filter(|p| !p.is_empty())?;
-    Some(Who { person, owner: header(headers, "orrery-who-owner").as_deref() == Some("1"), browser })
+    let workspace = header(headers, "orrery-who-workspace").filter(|w| !w.is_empty());
+    Some(Who { person, owner: header(headers, "orrery-who-owner").as_deref() == Some("1"), browser, workspace })
 }
 
 /// What the router's settings say about getting in: `Orrery-Login-Ways: provider, off`, either or both.
@@ -122,7 +123,7 @@ fn key_of(headers: &HeaderMap) -> Option<String> {
 /// one-time link among them, which can't hold data.
 const OPEN: [&str; 6] = ["/api/auth/status", "/api/auth/login", "/api/auth/logout", "/api/auth/link", "/api/auth/oidc/start", "/api/auth/oidc/callback"];
 
-const WHO: [&str; 3] = ["orrery-who", "orrery-who-person", "orrery-who-owner"];
+const WHO: [&str; 4] = ["orrery-who", "orrery-who-person", "orrery-who-owner", "orrery-who-workspace"];
 
 /// Who the request is, checked here as the auth middleware checks it: `Ok(None)` with no login asked for, `Ok(Some)`
 /// with the credential found, and the refusal otherwise. `open` is a login route, which goes on with no credential.
@@ -187,6 +188,7 @@ fn say_who(headers: &mut HeaderMap, who: Option<&Who>) {
         ("orrery-who", if who.browser { "browser" } else { "agent" }.to_string()),
         ("orrery-who-person", person),
         ("orrery-who-owner", if who.owner { "1" } else { "0" }.into()),
+        ("orrery-who-workspace", who.workspace.clone().unwrap_or_default()),
     ] {
         if let Ok(value) = axum::http::HeaderValue::from_str(&value) {
             headers.insert(name, value);
