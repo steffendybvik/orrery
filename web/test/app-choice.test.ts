@@ -6,7 +6,7 @@ import {join} from 'node:path'
 import {fileURLToPath} from 'node:url'
 import {afterEach, describe, expect, it} from 'vitest'
 // @ts-expect-error: plain JavaScript, no types
-import {appNamed, appsHere, askToChoose, choiceFor, choseOther, readChoice, writeChoice} from '../../channel/app-choice.mjs'
+import {appNamed, appsHere, askToChoose, choiceFor, choseOther, readChoice, tellChose, writeChoice} from '../../channel/app-choice.mjs'
 
 // A `claude` opened by hand in a folder no orrery knows, with two orrerys set up on the machine (ORR-1080): its first
 // orrery call asks which, `choose_app` records it, the other orrery refuses, and the hook reports to the chosen one only.
@@ -117,5 +117,38 @@ describe("the user-level hooks after a choice", () => {
         await both()
         expect(personal.reports).toEqual([])
         expect(work.reports).toEqual([expect.objectContaining({project: 'hub', event: 'UserPromptSubmit', id: SESSION})])
+    })
+})
+
+describe("telling the other orrerys' /mcp of a choice (ORR-1147)", () => {
+    let server: Server | undefined
+    afterEach(() => new Promise<void>(resolve => server ? server.close(() => resolve()) : resolve()))
+
+    it('sends the choice as a notification, tied to the Claude session, with the key it is given', async () => {
+        const got: {url?: string, headers: Record<string, unknown>, body: unknown}[] = []
+        server = createServer((req, res) => {
+            let body = ''
+            req.on('data', chunk => body += chunk)
+            req.on('end', () => {
+                got.push({url: req.url, headers: req.headers, body: JSON.parse(body)})
+                res.writeHead(202).end()
+            })
+        })
+        await new Promise<void>(resolve => server!.listen(0, '127.0.0.1', resolve))
+        const port = (server.address() as {port: number}).port
+        const told = await tellChose(`http://127.0.0.1:${port}/`, SESSION, {id: WORK.id, url: WORK.url, environment: 'work'}, {headers: {Authorization: 'Bearer k'}})
+        expect(told).toBe(true)
+        expect(got).toHaveLength(1)
+        expect(got[0]!.url).toBe('/mcp')
+        expect(got[0]!.headers['orrery-session']).toBe(SESSION)
+        expect(got[0]!.headers.authorization).toBe('Bearer k')
+        expect(got[0]!.body).toEqual({jsonrpc: '2.0', method: 'notifications/orrery/chose', params: {id: WORK.id, url: WORK.url, environment: 'work'}})
+    })
+
+    it("doesn't throw when the orrery can't be reached, and sends nothing without a session", async () => {
+        expect(await tellChose('http://127.0.0.1:1', SESSION, {id: WORK.id, url: WORK.url})).toBe(false)
+        let sent = false
+        expect(await tellChose('http://127.0.0.1:1', undefined, {id: WORK.id}, {fetcher: () => { sent = true }})).toBe(false)
+        expect(sent).toBe(false)
     })
 })

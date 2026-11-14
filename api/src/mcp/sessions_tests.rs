@@ -56,3 +56,25 @@ fn a_session_ended_early_doesnt_count_toward_the_cap() {
     sessions.begin_within(2);
     assert_eq!(sessions.loaded(Some(&first)), ["docs"], "still room for it");
 }
+
+#[test]
+fn a_claude_session_that_chose_another_orrery_keeps_its_first_choice() {
+    let sessions = Sessions::default();
+    assert!(sessions.other_choice(Some("c1")).is_none());
+    assert!(sessions.other_choice(None).is_none());
+    sessions.chose_other("c1", serde_json::json!({"id": "work"}));
+    sessions.chose_other("c1", serde_json::json!({"id": "personal"}));
+    assert_eq!(sessions.other_choice(Some("c1")).unwrap()["id"], "work", "a session chooses once");
+    assert!(sessions.other_choice(Some("c2")).is_none());
+}
+
+#[test]
+fn past_the_cap_the_oldest_choice_goes_first() {
+    let sessions = Sessions::default();
+    for claude in ["c1", "c2", "c3"] {
+        sessions.chose_other_within(claude, serde_json::json!({"id": "work"}), 2);
+    }
+    assert!(sessions.other_choice(Some("c1")).is_none(), "the oldest went");
+    assert!(sessions.other_choice(Some("c2")).is_some());
+    assert!(sessions.other_choice(Some("c3")).is_some());
+}

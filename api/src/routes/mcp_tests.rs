@@ -466,3 +466,26 @@ async fn the_chats_and_an_untrusted_sessions_tool_calls_are_held_by_the_rails() 
     let doc = chat(call("write_doc", json!({"project": own, "id": "notes", "title": "Notes", "body": "x"}))).send().await;
     assert_ne!(doc.body["result"]["isError"], json!(true), "the chat writes docs: {}", doc.body);
 }
+
+#[tokio::test]
+async fn a_claude_session_that_chose_another_orrery_is_refused_its_tools() {
+    let api = TestApi::new().await;
+    let id = session(&api).await;
+    let guide = |claude: &str| rpc(&api, "tools/call", json!({"name": "guide"})).header("mcp-session-id", &id).header("orrery-session", claude);
+    assert!(guide("c%201").send().await.body["result"]["isError"].is_null(), "before it chose, its tools work");
+    let chose =
+        json!({"jsonrpc": "2.0", "method": "notifications/orrery/chose", "params": {"id": "work-id", "url": "http://localhost:9020", "environment": "work"}});
+    let told = api.post("/mcp", chose.clone()).header("orrery-session", "c%201").send().await;
+    assert_eq!(told.status, 202, "a notification, so no answer");
+    let refused = guide("c%201").send().await;
+    assert_eq!(refused.body["result"]["isError"], true);
+    assert_eq!(
+        said(&refused),
+        "This session chose work (http://localhost:9020) as its orrery, so this one won't be read or written from it. Use that orrery's tools instead."
+    );
+    assert!(guide("c2").send().await.body["result"]["isError"].is_null(), "another Claude session's tools still work");
+    // Without a session to keep it for, or an orrery named, nothing is kept.
+    api.post("/mcp", chose).send().await;
+    api.post("/mcp", json!({"jsonrpc": "2.0", "method": "notifications/orrery/chose", "params": {}})).header("orrery-session", "c3").send().await;
+    assert!(guide("c3").send().await.body["result"]["isError"].is_null());
+}

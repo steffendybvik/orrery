@@ -63,7 +63,9 @@ Given `ORRERY_URL`, outside a repo, it also sets Claude Code up for that orrery 
   Claude asks you, and `choose_app` records your answer for that Claude session in `~/.config/orrery/apps/<session>.json`,
   which every orrery's server and hook reads. With a project, the folder is linked to it too (unless it's served from
   another folder), so later sessions there aren't asked. From then on that session's calls and reports go to the chosen
-  orrery only, and the other's tools refuse, saying which it chose. With no project it uses the chosen orrery's tools,
+  orrery only, and the other's tools refuse, saying which it chose. Its `/mcp` tools (`orrery-<env>-api`) too: `choose_app`
+  tells the other orrery's `/mcp`, which keeps that in memory, so after it restarts the session's `/mcp` tools there work
+  again until the session's channel starts again (ORR-1147). With no project it uses the chosen orrery's tools,
   naming a project per call, and isn't listed as a session, as orrery keeps a session under a project. With one orrery
   set up, nothing is asked.
 - **The default folder** (`~/.orrery/<orrery id>/home`) set up and trusted in `~/.claude.json`, so the launcher can start
