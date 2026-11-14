@@ -10,11 +10,11 @@ const greenhouse: ConnectTarget = {origin: 'http://localhost:9000', id: 'greenho
 describe('connecting a repo', () => {
     it('registers one channel for the orrery, pinned to its id, serving the project', () => {
         const {mcpJson, server, launch, brief} = connectPieces({...greenhouse, orrery: {id: 'orr_7f3a9c', environment: 'Work'}})
-        expect(server).toBe('orrery-work')
-        expect(JSON.parse(mcpJson)).toEqual({mcpServers: {'orrery-work': {
+        expect(server).toBe('orrery')
+        expect(JSON.parse(mcpJson)).toEqual({mcpServers: {'orrery': {
             command: 'node', args: ['${HOME}/.orrery/bootstrap.mjs', 'channel'], env: {ORRERY_URL: 'http://localhost:9000', ORRERY_ID: 'orr_7f3a9c', ORRERY_PROJECTS: 'greenhouse', ORRERY_PERSON: '${ORRERY_PERSON:-}'},
         }}})
-        expect(launch).toBe('claude --dangerously-load-development-channels server:orrery-work')
+        expect(launch).toBe('claude --dangerously-load-development-channels server:orrery')
         expect(brief).toContain("add `greenhouse` to that entry's `ORRERY_PROJECTS`")
     })
 

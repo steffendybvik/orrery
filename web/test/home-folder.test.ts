@@ -24,9 +24,9 @@ describe('the default folder', () => {
     it("has the channel for every project, and orrery's hooks with no project fixed", () => {
         const dir = mkdtempSync(join(tmpdir(), 'orrery-home-'))
         const {server, created, written} = setUpHome(dir, {url: URL, orrery: ORRERY, commands: commandsFor(BOOTSTRAP)})
-        expect([server, created, written]).toEqual(['orrery-personal', true, ['.mcp.json', '.claude/settings.json', 'CLAUDE.md']])
+        expect([server, created, written]).toEqual(['orrery', true, ['.mcp.json', '.claude/settings.json', 'CLAUDE.md']])
         // What the launcher reads from a repo it reads from here the same way.
-        expect(channelsIn(dir).map((c: {name: string}) => c.name)).toEqual(['orrery-personal'])
+        expect(channelsIn(dir).map((c: {name: string}) => c.name)).toEqual(['orrery'])
         expect(channelFor(dir, URL, 'reading-list').env).toEqual({ORRERY_URL: URL, ORRERY_ID: 'orr_abc123', ORRERY_PROJECTS: '*', ORRERY_PERSON: '${ORRERY_PERSON:-}'})
         expect(servesEvery(dir, URL, 'reading-list')).toBe(true)
         const settings = JSON.parse(readFileSync(join(dir, '.claude', 'settings.json'), 'utf8'))
@@ -51,7 +51,7 @@ describe('the default folder', () => {
 
     it("runs a checkout's channel and hook when no bootstrap runs the launcher", () => {
         const {files} = homeFiles({url: URL, orrery: ORRERY, commands: commandsFor({checkout: '/code/orrery/channel'})})
-        expect(JSON.parse(files['.mcp.json']).mcpServers['orrery-personal'].args).toEqual(['/code/orrery/channel/orrery-channel.mjs'])
+        expect(JSON.parse(files['.mcp.json']).mcpServers['orrery'].args).toEqual(['/code/orrery/channel/orrery-channel.mjs'])
         expect(JSON.parse(files['.claude/settings.json']).hooks.Stop[0].hooks[0].command).toContain('node "/code/orrery/channel/orrery-hook.mjs"')
     })
 

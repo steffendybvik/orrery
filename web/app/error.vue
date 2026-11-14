@@ -8,9 +8,6 @@ const route = useRoute()
 watch(() => route.fullPath, () => clearError())
 const missing = computed(() => props.error.statusCode === 404)
 useHead(() => ({title: missing.value ? 'Not found · orrery' : 'Something went wrong · orrery'}))
-// It shows in place of app.vue, so it starts the title with which orrery this is itself, as app.vue does.
-const {environment} = useRuntimeConfig().public
-if (environment) useHead({titleTemplate: title => `${environment} · ${title ?? 'orrery'}`})
 </script>
 
 <template>

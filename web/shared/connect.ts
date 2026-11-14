@@ -174,8 +174,9 @@ function shellQuote(text: string): string {
     return `'${text.replace(/'/g, `'\\''`)}'`
 }
 
-/** The channel's server name for an orrery, as Connect writes it in .mcp.json: `orrery-<environment>` (`Work` →
- * `orrery-work`). channel/server-name.mjs is the same for the channel. */
-export function serverName(environment: string): string {
-    return `orrery-${slugify(environment) || 'orrery'}`
+/** The channel's server name for an orrery, as Connect writes it in .mcp.json: always `orrery` (ORR-1193), now that
+ * one orrery holds several workspaces; `environment` is ignored. channel/server-name.mjs is the same for the channel,
+ * and takes `orrery-<host>` there when a repo already has another orrery's `orrery`. */
+export function serverName(_environment?: string): string {
+    return 'orrery'
 }

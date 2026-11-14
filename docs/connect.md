@@ -34,12 +34,12 @@ mkdir -p ~/.orrery && curl -fsS http://localhost:9000/channel/bootstrap.mjs -o ~
 It puts the bootstrap in place and installs the launcher service ([step 4](#4-optionally-let-orrery-start-sessions)).
 Given `ORRERY_URL`, outside a repo, it also sets Claude Code up for that orrery in every folder, through the Claude adapter:
 
-- **A user-level server**, `orrery-<environment>` (`claude mcp add-json --scope user`), the channel serving every
+- **A user-level server**, `orrery` (`claude mcp add-json --scope user`; `orrery-<host>` when another orrery on this machine already has that name), the channel serving every
   project (`ORRERY_PROJECTS=*`). A `claude` in any folder gets orrery's tools, repo or not. A tool on an issue finds its
   project from the id; the others take `project`, or, left out, the session's own: the one orrery started it for, else
   the one the launcher's list maps its folder (or a folder above it) to. A connected repo's own server of the same name
   takes precedence there.
-- **orrery's own `/mcp` beside it**, `orrery-<environment>-api`, where the board's tools are (issues, comments, docs,
+- **orrery's own `/mcp` beside it**, `orrery-api`, where the board's tools are (issues, comments, docs,
   …; [ORR-1072](/p/orrery/issues/ORR-1072)): an `http` entry, named as the launcher names it. The channel lists only its
   own tools. On an orrery that doesn't serve `/mcp` yet (its Rust API not running), the line says so, and so does the
   channel to each session, which has none of the board's tools until it does.
@@ -101,13 +101,12 @@ mkdir -p ~/.orrery && curl -fsS http://localhost:9000/channel/bootstrap.mjs -o ~
 
 A repo running a checkout's scripts (`/path/to/orrery/channel/orrery-channel.mjs`) keeps working; change its `args` and hooks to these to switch.
 
-In the repo's `.mcp.json`, one server for this orrery, named after it (`orrery-<environment>`: `orrery-personal`,
-`orrery-work`), so the owner's signals reach its sessions:
+In the repo's `.mcp.json`, one server for this orrery, named `orrery` (`orrery-<host>` when the repo's `.mcp.json` already has another orrery's `orrery`; a setup from before ORR-1193 keeps its `orrery-personal` or `orrery-work`), so the owner's signals reach its sessions:
 
 ```json
 {
   "mcpServers": {
-    "orrery-personal": {
+    "orrery": {
       "command": "node",
       "args": ["${HOME}/.orrery/bootstrap.mjs", "channel"],
       "env": {
@@ -147,11 +146,11 @@ make every clone that person. With one person, there's nothing to set.
 is that one's. A session orrery starts gets its project's from the launcher; without it, a call acts in `default`, or your first workspace when you aren't in that.
 
 Channels are a Claude Code research preview, so a session only shows the channel's messages when it
-was started with it: `claude --dangerously-load-development-channels server:orrery-personal`. A terminal
+was started with it: `claude --dangerously-load-development-channels server:orrery`. A terminal
 alias saves typing that, in `~/.zshrc`:
 
 ```sh
-alias shop="cd ~/code/shop && claude --dangerously-load-development-channels server:orrery-personal"
+alias shop="cd ~/code/shop && claude --dangerously-load-development-channels server:orrery"
 ```
 
 Then `source ~/.zshrc` and start the session with `shop`.
