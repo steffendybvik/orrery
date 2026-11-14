@@ -1,4 +1,5 @@
 // The bell: the handlers and the routes they answer (ORR-1048).
+use crate::access::seen::Seen;
 use crate::error::{ApiError, Result};
 use crate::request::{actor_of, body_of, came_of, owner_asking, who_of};
 use crate::work::notices::{Asked, Notices};
@@ -26,14 +27,18 @@ async fn list_notices(State(app): Shared, headers: HeaderMap, Query(query): Quer
     let mut conn = app.pool.acquire().await?;
     let mut notices = Notices::new(&mut conn);
     let person = notices.person_of(who_of(&headers).as_ref(), &actor_of(&headers)).await?;
-    Ok(Json(notices.notices(&Asked::of(&query), person.as_deref()).await?).into_response())
+    let mut value = notices.notices(&Asked::of(&query), person.as_deref()).await?;
+    Seen::of(&mut conn, &headers).await?.keep(&mut conn, &mut value, "project").await?;
+    Ok(Json(value).into_response())
 }
 
 async fn notice_changes(State(app): Shared, headers: HeaderMap, Query(query): Query<HashMap<String, String>>) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
     let mut notices = Notices::new(&mut conn);
     let person = notices.person_of(who_of(&headers).as_ref(), &actor_of(&headers)).await?;
-    Ok(Json(notices.changes(query.get("since").map(String::as_str), person.as_deref()).await?).into_response())
+    let mut value = notices.changes(query.get("since").map(String::as_str), person.as_deref()).await?;
+    Seen::of(&mut conn, &headers).await?.keep(&mut conn, &mut value, "project").await?;
+    Ok(Json(value).into_response())
 }
 
 /// Who clears the bell or marks it read (`notices.clear`): a member their own, else only the owner, as the routes'

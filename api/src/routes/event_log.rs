@@ -1,6 +1,7 @@
 // The event log: the handlers and the routes they answer (ORR-1088). A page's error report (`POST /api/events/log`)
 // stays the Nuxt server's, as it counts each sender in memory and scrubs secrets' values out; the line it makes of it,
 // and each of its own, comes here (`PUT /api/events/log/lines`), as does its call to let old ones go.
+use crate::access::seen::Seen;
 use crate::error::{ApiError, Result};
 use crate::reply::reply;
 use crate::request::{actor_of, body_of, came_of};
@@ -26,7 +27,7 @@ pub(crate) fn routes() -> Router<Arc<App>> {
 }
 
 /// `?level=&kind=&project=&subject=&since=&open=1&limit=`: newest first, up to `limit` (200, 1000 at most).
-async fn list_events(State(app): Shared, Query(query): Query<HashMap<String, String>>) -> Result<Response> {
+async fn list_events(State(app): Shared, headers: HeaderMap, Query(query): Query<HashMap<String, String>>) -> Result<Response> {
     let text = |key: &str| query.get(key).map(String::as_str);
     let filter = Filter {
         level: text("level"),
@@ -39,7 +40,9 @@ async fn list_events(State(app): Shared, Query(query): Query<HashMap<String, Str
         limit: text("limit").map(|l| if l.trim().is_empty() { 0.0 } else { l.trim().parse::<f64>().unwrap_or(f64::NAN) }),
     };
     let mut conn = app.pool.acquire().await?;
-    Ok(Json(EventLog::new(&mut conn).list(&filter).await?).into_response())
+    let mut value = EventLog::new(&mut conn).list(&filter).await?;
+    Seen::of(&mut conn, &headers).await?.keep(&mut conn, &mut value, "project").await?;
+    Ok(Json(value).into_response())
 }
 
 /// Only the local app's own call (`Orrery-Came: server`): it made the line, scrubbed of secrets' values.

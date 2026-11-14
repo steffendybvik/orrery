@@ -165,6 +165,23 @@ impl TestApi {
         self.run("INSERT INTO workspace_members (workspace, person, role, created_at) VALUES ('default', ?, ?, ?)", &[person, role, STAMP]).await;
     }
 
+    /// A second workspace, Acme, with project Rockets in it and `members` in it: the project's id (ORR-1106).
+    pub(crate) async fn acme(&self, members: &[&str]) -> String {
+        self.run("INSERT INTO workspaces (id, name, created_at) VALUES ('acme', 'Acme', ?)", &[STAMP]).await;
+        let project = self.project("Rockets").await;
+        self.run("UPDATE projects SET workspace = 'acme' WHERE id = ?", &[&project]).await;
+        for member in members {
+            self.run("INSERT INTO workspace_members (workspace, person, role, created_at) VALUES ('acme', ?, 'member', ?)", &[member, STAMP]).await;
+        }
+        project
+    }
+
+    /// As a browser signed in as `person` asks, through the router with login on: the API finds who it is from the login.
+    pub(crate) async fn signed(&self, req: Req, person: &str) -> Req {
+        let login = self.login(person).await;
+        req.header("orrery-came", "loopback").header("orrery-login-ways", "on").signed_in(&login)
+    }
+
     /// A member, put straight in the table (no way-in check).
     pub(crate) async fn member(&self, id: &str, name: &str) {
         self.run("INSERT INTO people (id, name, role, created_at) VALUES (?, ?, 'member', ?)", &[id, name, &stamp()]).await;
@@ -229,6 +246,12 @@ impl Change {
     pub(crate) fn payload(&self) -> Value {
         serde_json::from_str(self.payload.as_deref().expect("a payload")).unwrap()
     }
+}
+
+/// As a request from outside comes through the router, over loopback with ORRERY_AUTH=off, rather than the Nuxt
+/// server's own work: it names nobody but what its actor headers say.
+pub(crate) fn from_outside(req: Req) -> Req {
+    req.header("orrery-came", "loopback").header("orrery-login-ways", "off")
 }
 
 /// The `id` of each entry in a list a route gave back.

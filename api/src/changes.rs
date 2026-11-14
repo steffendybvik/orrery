@@ -4,6 +4,7 @@
 // never lost. The Nuxt server's own writes add theirs next. The same path streams them as server-sent events (`stream`),
 // woken by `wake()` once a write has committed, and rows older than a week are pruned. Nothing reads them yet: the
 // reply headers still carry what changed.
+use crate::access::seen::Seen;
 use crate::db::sql;
 use crate::error::{ApiError, Result};
 use crate::write::{stamp, Actor, Effects, Told};
@@ -259,26 +260,30 @@ const KEEP_DAYS: i64 = 7;
 /// The rows after `after` as server-sent events, oldest first, then live: each row an event with its id, so a reader
 /// that reconnects with `Last-Event-ID` carries on from it. A gap is a `gap` event with `{last}`, the newest id, which
 /// the stream carries on from.
-pub fn stream(pool: AnyPool, after: i64) -> impl Stream<Item = std::result::Result<Event, Infallible>> {
-    stream::unfold((pool, after, VecDeque::<Value>::new()), |(pool, mut last, mut queue)| async move {
+/// Only the rows of projects `seen` are sent, worked out again on each look so a project made since is seen (ORR-1106).
+pub fn stream(pool: AnyPool, after: i64, seen: Seen) -> impl Stream<Item = std::result::Result<Event, Infallible>> {
+    stream::unfold((pool, after, VecDeque::<Value>::new(), seen), |(pool, mut last, mut queue, seen)| async move {
         loop {
             if let Some(change) = queue.pop_front() {
                 let event = Event::default().id(change["id"].to_string()).data(change.to_string());
-                return Some((Ok(event), (pool, last, queue)));
+                return Some((Ok(event), (pool, last, queue, seen)));
             }
             // Listening before looking, so a wake between the two isn't missed.
             let woken = WAKE.notified();
             tokio::pin!(woken);
             woken.as_mut().enable();
             let read = match pool.acquire().await {
-                Ok(mut conn) => page(&mut conn, last).await,
+                Ok(mut conn) => match page(&mut conn, last).await {
+                    Ok(mut read) => seen.keep(&mut conn, &mut read["changes"], "project").await.map(|()| read),
+                    Err(e) => Err(e),
+                },
                 Err(e) => Err(e.into()),
             };
             match read {
                 Ok(read) if read["gap"] == Value::Bool(true) => {
                     last = read["last"].as_i64().unwrap_or(0);
                     let event = Event::default().event("gap").data(json!({"last": last}).to_string());
-                    return Some((Ok(event), (pool, last, queue)));
+                    return Some((Ok(event), (pool, last, queue, seen)));
                 }
                 Ok(mut read) => {
                     last = read["last"].as_i64().unwrap_or(last);
