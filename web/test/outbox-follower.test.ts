@@ -197,4 +197,10 @@ describe("the follower's cursor", () => {
         expect(readCursor(file, database)).toBe(42)
         expect(readCursor(file, join(dir, 'moved.db'))).toBeUndefined()
     })
+
+    it("is kept in Docker's data volume on Postgres, as the image starts in / where .data can't be made (ORR-1182)", () => {
+        const url = 'postgres://orrery:pw@postgres:5432/orrery'
+        expect(cursorFile(url, true)).toBe('/data/outbox-cursor.json')
+        expect(cursorFile(url, false)).toBe(join(process.cwd(), '.data/outbox-cursor.json'))
+    })
 })
