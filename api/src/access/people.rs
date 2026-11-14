@@ -746,7 +746,7 @@ impl<'c> People<'c> {
     /// With `invite`, an account orrery doesn't know yet attaches to the invited person, using the invite up, in one step
     /// so it can't be used twice. An account a removed person had moves to the invited person (ORR-787); one that
     /// belongs to someone here never does.
-    pub async fn identity(&mut self, issuer: &str, subject: &str, invite: Option<&str>) -> Result<Option<String>> {
+    pub async fn identity(&mut self, issuer: &str, subject: &str, invite: Option<&str>, name: Option<&str>) -> Result<Option<String>> {
         let known = sqlx::query(&sql(
             "SELECT i.person FROM identities i JOIN people p ON p.id = i.person WHERE i.issuer = ? AND i.subject = ? AND p.removed_at IS NULL",
         ))
@@ -757,7 +757,7 @@ impl<'c> People<'c> {
         if let Some(row) = known {
             return Ok(Some(row.get("person")));
         }
-        let Some(invite) = invite else { return Ok(None) };
+        let Some(invite) = invite else { return self.first_owner(issuer, subject, name).await };
         sqlx::query(if crate::db::on_postgres() { "BEGIN" } else { "BEGIN IMMEDIATE" }).execute(&mut *self.conn).await?;
         let done = self.attach(issuer, subject, invite).await;
         match done {
@@ -770,6 +770,31 @@ impl<'c> People<'c> {
                 Err(error)
             }
         }
+    }
+
+    /// On an orrery nobody is on yet, the first account to sign in through the provider becomes its owner (ORR-1185),
+    /// named as the provider says (`Owner` when it says nothing usable), so a new orrery needs no claim step
+    /// (`firstOwner` in web/server/store/keys.ts). The account attaches only to an owner with none yet, so of two first
+    /// sign-ins at once only one gets in.
+    async fn first_owner(&mut self, issuer: &str, subject: &str, name: Option<&str>) -> Result<Option<String>> {
+        if sqlx::query("SELECT 1 AS one FROM people").fetch_optional(&mut *self.conn).await?.is_some() {
+            return Ok(None);
+        }
+        let said: String = name.unwrap_or_default().trim().chars().take(60).collect();
+        let id = actor_id(&said);
+        let display = if id.is_empty() || ["owner", "agent", "claude", "orrery"].contains(&id.as_str()) { "Owner".to_owned() } else { said };
+        self.name_owner(&serde_json::json!({"name": display}), &Actor { name: "orrery".into(), ..Actor::default() }).await?;
+        let owner = actor_id(&display);
+        let attached =
+            sqlx::query(&sql("INSERT INTO identities (issuer, subject, person) SELECT ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM identities WHERE person = ?) \
+             ON CONFLICT (issuer, subject) DO NOTHING"))
+            .bind(issuer)
+            .bind(subject)
+            .bind(&owner)
+            .bind(&owner)
+            .execute(&mut *self.conn)
+            .await?;
+        Ok((attached.rows_affected() > 0).then_some(owner))
     }
 
     async fn attach(&mut self, issuer: &str, subject: &str, invite: &str) -> Result<String> {

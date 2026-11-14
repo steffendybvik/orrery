@@ -23,3 +23,38 @@ fn reads_a_field_as_javascript_would() {
     assert_eq!(js_string(Some(&json!(null))), "");
     assert_eq!(js_string(Some(&json!({"a": 1}))), "[object Object]");
 }
+
+// The first person to sign in through the provider on an orrery nobody is on yet becomes its owner (ORR-1185).
+#[tokio::test]
+async fn the_first_account_in_owns_an_empty_orrery_and_the_next_needs_an_invite() {
+    let api = crate::testing::TestApi::new().await;
+    let mut conn = api.app.pool.acquire().await.unwrap();
+    let mut people = People::new(&mut conn);
+    assert_eq!(people.identity("https://id.example", "sub-1", None, Some("Ada Lovelace")).await.unwrap().as_deref(), Some("ada_lovelace"));
+    assert_eq!(people.owner().await.unwrap()["display"], "Ada Lovelace");
+    assert_eq!(people.identity("https://id.example", "sub-1", None, None).await.unwrap().as_deref(), Some("ada_lovelace"));
+    assert_eq!(people.identity("https://id.example", "sub-2", None, Some("Bo")).await.unwrap(), None);
+    let member: Option<String> = sqlx::query("SELECT role FROM workspace_members WHERE workspace = 'default' AND person = 'ada_lovelace'")
+        .fetch_optional(&mut *people.conn)
+        .await
+        .unwrap()
+        .map(|r| r.get("role"));
+    assert_eq!(member.as_deref(), Some("owner"));
+}
+
+#[tokio::test]
+async fn the_first_owner_is_owner_when_the_provider_gives_no_usable_name() {
+    let api = crate::testing::TestApi::new().await;
+    let mut conn = api.app.pool.acquire().await.unwrap();
+    let mut people = People::new(&mut conn);
+    assert_eq!(people.identity("https://id.example", "sub-1", None, Some("claude")).await.unwrap().as_deref(), Some("owner"));
+    assert_eq!(people.owner().await.unwrap()["display"], "Owner");
+}
+
+#[tokio::test]
+async fn an_orrery_someone_is_on_lets_no_stranger_in() {
+    let api = crate::testing::TestApi::new().await;
+    api.owner().await;
+    let mut conn = api.app.pool.acquire().await.unwrap();
+    assert_eq!(People::new(&mut conn).identity("https://id.example", "sub-1", None, Some("Mallory")).await.unwrap(), None);
+}

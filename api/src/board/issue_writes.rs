@@ -278,7 +278,8 @@ impl<'c> IssueWrites<'c> {
             .iter()
             .map(|r| (r.get("project"), r.get("issue")))
             .collect();
-        let orrery = Actor { name: "orrery".into(), owner: false, session: None, person: None, named: None, asked: false, untrusted: false, chat: false };
+        let orrery =
+            Actor { name: "orrery".into(), owner: false, session: None, person: None, named: None, asked: false, untrusted: false, chat: false, cause: None };
         for (on, dependent) in dependents {
             if on == project && going.contains(&dependent) {
                 continue;

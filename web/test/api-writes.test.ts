@@ -3,6 +3,7 @@ import type {Server} from 'node:http'
 import type {AddressInfo} from 'node:net'
 import {afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi} from 'vitest'
 import {apiForgotten, apiStarted, apiStarting, readFromApi, writeToApi} from '../server/utils/api-router'
+import {scheduleRunning} from '../server/utils/schedules'
 
 // The local app's own board writes, such as the chat's Allow (ORR-1044): with the Rust API in front they go to it as the
 // page's request would, so it stays the one writer of its tables; without it, they're left to the store here.
@@ -77,6 +78,13 @@ describe('a write of the local app\'s own', () => {
         expect(heard[0]).toMatchObject({method: 'PATCH', url: '/api/projects/p/issues/P-1', body: '{"status":"done"}'})
         expect(heard[0]!.headers).toMatchObject({'orrery-api-token': 't'.repeat(24), 'orrery-actor-name': 'steffen', 'orrery-actor-owner': '1', 'orrery-actor-kind': 'owner'})
         expect(changed).toEqual(['p'])
+    })
+
+    it("names the schedule whose run makes it, and nothing outside one (ORR-1183)", async () => {
+        apiStarted({url, token: 't'.repeat(24)})
+        await scheduleRunning.run(7, () => writeToApi('PATCH', '/api/projects/p/issues/P-1', {status: 'done'}, owner, {config: {}}))
+        await writeToApi('PATCH', '/api/projects/p/issues/P-1', {status: 'done'}, owner, {config: {}})
+        expect(heard.map(h => h.headers['orrery-cause'])).toEqual(['7', undefined])
     })
 
     it('stays here for a route the API doesn\'t serve, unless it\'s one only this server calls (`always`)', async () => {

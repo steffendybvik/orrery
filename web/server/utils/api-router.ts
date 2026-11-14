@@ -27,6 +27,7 @@ import {carriedInto} from './carried-over'
 import {forgetRoster} from './roster'
 import type {Input} from './input'
 import {revLabel} from './events'
+import {scheduleRunning} from './schedules'
 import type {Doc, IssueScope, Project, Release, Settings} from '#shared/roadmap'
 import type {IssueDetail, Store} from './store'
 import {withoutClosed, withoutNotes} from '#shared/patch'
@@ -387,6 +388,13 @@ export function databaseMark(setting: string): string {
  * and its kind as `kindOf` has it, as the chat and an untrusted session may name the owner (ORR-952). For the rails
  * between people (ORR-927), the member acting themselves (`person`), who it says it works for (`named`), and whether it
  * came from a request (`asked`). */
+/** The schedule whose run makes this write (ORR-1183): the API keeps it on its outbox rows, so the follower hears them as
+ * that run's and they set no schedule off. */
+export function causeHeaders(): Record<string, string> {
+    const cause = scheduleRunning.getStore()
+    return cause === undefined ? {} : {'Orrery-Cause': String(cause)}
+}
+
 export function actorHeaders(actor: Actor): Record<string, string> {
     return {
         'Orrery-Actor-Name': encodeURIComponent(actor.name),
@@ -737,7 +745,7 @@ function refusal(status: number, json: Record<string, unknown> | null) {
 
 /** Tells what a reply from the API says it set off, as the store would have: open pages read the project again, and the
  * event log, schedules and sessions hear it. `noteKeys` off: the caller notes a change of the settings itself. */
-async function relayed(response: Response, actor: Actor, method: string, {noteKeys = true} = {}) {
+async function relayed(response: Response, actor: Actor, method: string, {noteKeys = true, urgent = true} = {}) {
     // The owner, the people and the boards' members the checks here keep a moment may have changed (ORR-1138).
     if (WRITES.has(method)) forgetRoster()
     const store = useStore()
@@ -765,7 +773,8 @@ async function relayed(response: Response, actor: Actor, method: string, {noteKe
     })
     // Outside `relaying`: the signal and the bell's notice are this server's own, with their own rows in the outbox.
     for (const handoff of handoffsOf(response.headers)) await handOn(store, handoff, actor)
-    for (const urgent of urgentOf(response.headers.get('orrery-urgent'))) await store.sayUrgent(urgent.project, urgent.issue, actor)
+    // `urgent` off: the caller asks the sessions itself, as a schedule's run does (ORR-1176).
+    if (urgent) for (const made of urgentOf(response.headers.get('orrery-urgent'))) await store.sayUrgent(made.project, made.issue, actor)
     // What it set off is told before the reply, as the page that asked reads the board next (ORR-1029).
     if (!relayHeaders && WRITES.has(method)) await caughtUp()
 }
@@ -832,7 +841,7 @@ export async function orreryId(): Promise<string> {
  * server with no API set up at all (unit tests, a `nuxt dev` without its build). Once one is set up, it's the only
  * writer: down or unreachable, the write fails (`cantReach`). `noteKeys` off: the caller notes a settings change in the
  * event log itself. */
-export async function writeToApi(method: string, path: string, body: unknown, actor: Actor, {always = false, noteKeys = true, config = configHere()} = {}): Promise<{reply: unknown} | undefined> {
+export async function writeToApi(method: string, path: string, body: unknown, actor: Actor, {always = false, noteKeys = true, urgent = true, config = configHere()} = {}): Promise<{reply: unknown} | undefined> {
     if (!always && !servedByApi(method, path)) return undefined
     const asked = `${method} ${path}`
     if (!apiTarget(config)) await apiListening()
@@ -842,7 +851,7 @@ export async function writeToApi(method: string, path: string, body: unknown, ac
     try {
         response = await fetch(`${api.url.replace(/\/+$/, '')}${path}`, {
             method,
-            headers: {'Content-Type': 'application/json', 'Orrery-Api-Token': api.token, 'Orrery-Database': databaseMark(databaseSetting()), ...OWN_WORK, ...actorHeaders(actor)},
+            headers: {'Content-Type': 'application/json', 'Orrery-Api-Token': api.token, 'Orrery-Database': databaseMark(databaseSetting()), ...OWN_WORK, ...actorHeaders(actor), ...causeHeaders()},
             body: body === undefined ? undefined : JSON.stringify(body),
             redirect: 'manual',
         })
@@ -855,6 +864,6 @@ export async function writeToApi(method: string, path: string, body: unknown, ac
     const json = text ? JSON.parse(text) as Record<string, unknown> : null
     if (response.status >= 400) throw refusal(response.status, json)
     // A read sets nothing off, so it needs nothing from the store here (ORR-1139).
-    if (method !== 'GET') await relayed(response, actor, method, {noteKeys})
+    if (method !== 'GET') await relayed(response, actor, method, {noteKeys, urgent})
     return {reply: json}
 }

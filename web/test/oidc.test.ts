@@ -12,7 +12,7 @@ import {failure, storeSetup} from './store-setup'
 const CLIENT = 'orrery-client'
 const SECRET = 'client-secret'
 const ORRERY = 'http://orrery.test'
-type Claims = {iss?: string, aud?: string, sub?: string, nonce?: string}
+type Claims = {iss?: string, aud?: string, sub?: string, nonce?: string, name?: string, preferred_username?: string}
 type Event = {path: string, query: Record<string, string>, cookies: Record<string, string>, set: Record<string, {value: string, options: Record<string, unknown>}>, gone: string[]}
 
 type Token = {claims?: Claims, key?: CryptoKey, none?: boolean}
@@ -37,7 +37,7 @@ async function standInProvider() {
         auths.push(req.headers.authorization)
         if (issued.token?.none) return json({access_token: 'only-this'})
         const claims = {iss: url, aud: CLIENT, sub: 'account-1', nonce: issued.nonce, ...issued.token?.claims}
-        const signing = new SignJWT({nonce: claims.nonce}).setProtectedHeader({alg: 'RS256', kid: 'one'}).setIssuedAt().setExpirationTime('5m').setIssuer(claims.iss).setAudience(claims.aud)
+        const signing = new SignJWT({nonce: claims.nonce, ...claims.name ? {name: claims.name} : {}, ...claims.preferred_username ? {preferred_username: claims.preferred_username} : {}}).setProtectedHeader({alg: 'RS256', kid: 'one'}).setIssuedAt().setExpirationTime('5m').setIssuer(claims.iss).setAudience(claims.aud)
         if (claims.sub) signing.setSubject(claims.sub)
         json({id_token: await signing.sign(issued.token?.key ?? privateKey)})
     })
@@ -121,7 +121,7 @@ describe('starting a login', () => {
         const {url, cookie} = await started()
         expect(`${url.origin}${url.pathname}`).toBe(`${provider.url}/authorize`)
         const asked = Object.fromEntries(url.searchParams)
-        expect(asked).toMatchObject({response_type: 'code', scope: 'openid', client_id: CLIENT, redirect_uri: `${ORRERY}/api/auth/oidc/callback`, code_challenge_method: 'S256'})
+        expect(asked).toMatchObject({response_type: 'code', scope: 'openid profile', client_id: CLIENT, redirect_uri: `${ORRERY}/api/auth/oidc/callback`, code_challenge_method: 'S256'})
         const {verifier, state, nonce} = JSON.parse(Buffer.from(cookie.value, 'base64url').toString())
         expect(asked.code_challenge).toBe(createHash('sha256').update(verifier).digest('base64url'))
         expect([asked.state, asked.nonce]).toEqual([state, nonce])
@@ -260,6 +260,29 @@ describe('the routes', () => {
         const {status} = await failure(() => login())
         expect(status).toBe(403)
         expect(await store.identity(provider.url, 'account-1')).toBeUndefined()
+    })
+
+    it('make the first account in the owner of an orrery nobody is on yet, and refuse the next without an invite', async () => {
+        ;({store} = await storeSetup())
+        provider.issued.token = {claims: {name: 'Ada Lovelace'}}
+        const {event, answer} = await login()
+        expect(answer).toEqual({redirect: '/'})
+        expect((await store.loginHolder(event.set.orrery_login!.value))?.person).toBe('ada_lovelace')
+        expect(await store.ownerOf()).toMatchObject({name: 'ada_lovelace', display: 'Ada Lovelace', named: true})
+        provider.issued.token = {claims: {sub: 'account-2', name: 'Bo'}}
+        expect((await failure(() => login())).status).toBe(403)
+        expect(await store.ownerOf()).toMatchObject({name: 'ada_lovelace'})
+    })
+
+    it("name the first owner from preferred_username, or Owner when the provider gives nothing usable", async () => {
+        ;({store} = await storeSetup())
+        provider.issued.token = {claims: {preferred_username: 'skadi'}}
+        await login()
+        expect((await store.ownerOf()).name).toBe('skadi')
+        ;({store} = await storeSetup())
+        provider.issued.token = {claims: {name: 'claude'}}
+        await login()
+        expect(await store.ownerOf()).toMatchObject({name: 'owner', display: 'Owner', named: true})
     })
 
     it('attach an invited account to its person, using the invite up, and log them in', async () => {

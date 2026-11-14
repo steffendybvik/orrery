@@ -1,5 +1,5 @@
 // The sidebar's sessions list popped out as a panel floating over the page (ORR-901): dragged by its heading (anywhere
-// on it, ORR-1126) or its grip's arrows to anywhere, and kept by the corner it's nearest to, with how far from that
+// on it, ORR-1126) to anywhere, and kept by the corner it's nearest to, with how far from that
 // corner, so a window made smaller keeps it in sight. Remembered in this browser; back in the sidebar, it's forgotten.
 // Only on a wide screen: on a narrow one the sidebar is a drawer, and a panel floating over the page would cover it.
 export type Corner = 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'
@@ -102,19 +102,8 @@ export function useSessionsFloat(panel: Ref<HTMLElement | undefined>) {
         },
     })
 
-    /** The grip's arrows move it, Shift by more. */
-    function key(event: KeyboardEvent) {
-        const step = event.shiftKey ? 64 : 16
-        const by = ({ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step]} as Record<string, [number, number]>)[event.key]
-        const rect = panel.value?.getBoundingClientRect()
-        if (!by || !rect) return
-        event.preventDefault()
-        const [dx, dy] = by
-        at.value = inView(anchored(rect.left + dx, rect.top + dy, rect.width, rect.height, view), rect.width, rect.height, view)
-    }
-
     return {
-        at, floating, top, style, maxHeight, moving, down, click, key,
+        at, floating, top, style, maxHeight, moving, down, click,
         popOut: () => { at.value = {...POPPED} },
         dock: () => { at.value = null },
     }

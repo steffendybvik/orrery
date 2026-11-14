@@ -642,3 +642,134 @@ async fn changing_one_across_projects_changes_its_copies_which_alone_only_pause(
     let missing = api.patch("/api/schedules/across/9999", json!({"title": "x"})).send().await;
     assert_eq!((missing.status.as_u16(), missing.body["message"].as_str()), (404, Some("No schedule across projects 9999")));
 }
+
+// A schedule's runs, written for the local app's clock (ORR-1176).
+
+#[tokio::test]
+async fn the_clock_takes_a_run_once_and_a_second_claim_gets_none() {
+    let api = TestApi::new().await;
+    let project = api.project("Primes").await;
+    let id = schedule(&api, &project, "Weekly", Some("2026-11-02T08:00:00.000Z"), &[]).await;
+    let path = format!("/api/projects/{project}/schedules/{id}/claim");
+    let claim = json!({"from": "2026-11-02T08:00:00.000Z", "to": "2026-11-09T08:00:00.000Z", "enabled": true});
+    let first = api.post(&path, claim.clone()).send().await;
+    assert_eq!(first.status, 200);
+    assert_eq!(first.body, json!({"claimed": true}));
+    // Another server read the same next run: it's moved on, so it takes nothing.
+    assert_eq!(api.post(&path, claim).send().await.body, json!({"claimed": false}));
+    let s = api.get(&format!("/api/projects/{project}/schedules/{id}")).send().await.body;
+    assert_eq!(s["next_run"], json!("2026-11-09T08:00:00.000Z"));
+    assert_eq!(s["enabled"], json!(true));
+}
+
+#[tokio::test]
+async fn a_one_off_claimed_is_switched_off() {
+    let api = TestApi::new().await;
+    let project = api.project("Primes").await;
+    let id = schedule(&api, &project, "Once", Some("2026-11-02T08:00:00.000Z"), &[("at", "'2026-11-02T08:00:00.000Z'")]).await;
+    let claimed = api
+        .post(&format!("/api/projects/{project}/schedules/{id}/claim"), json!({"from": "2026-11-02T08:00:00.000Z", "to": null, "enabled": false}))
+        .send()
+        .await;
+    assert_eq!(claimed.body, json!({"claimed": true}));
+    let s = api.get(&format!("/api/projects/{project}/schedules/{id}")).send().await.body;
+    assert_eq!((s["next_run"].clone(), s["enabled"].clone()), (Value::Null, json!(false)));
+}
+
+#[tokio::test]
+async fn an_issue_run_is_recorded_and_its_issue_marked_as_the_schedules() {
+    let api = TestApi::new().await;
+    let project = api.project("Primes").await;
+    let id = schedule(&api, &project, "Weekly", None, &[]).await;
+    let issue = api.issue(&project, json!({"title": "Weekly · Mon"})).await;
+    let reply = api
+        .post(
+            &format!("/api/projects/{project}/schedules/{id}/runs"),
+            json!({"at": "2026-11-02T08:00:00.000Z", "outcome": "made", "issue": issue, "note": "with 1 sub-issue"}),
+        )
+        .send()
+        .await;
+    assert_eq!(reply.status, 201, "{}", reply.body);
+    assert_eq!(reply.body, json!({"at": "2026-11-02T08:00:00.000Z", "outcome": "made", "issue": issue, "note": "with 1 sub-issue"}));
+    assert_eq!(api.count(&format!("SELECT CAST(schedule AS BIGINT) FROM issues WHERE id = '{issue}'")).await, id);
+    let s = api.get(&format!("/api/projects/{project}/schedules/{id}")).send().await.body;
+    assert_eq!(s["runs"][0]["outcome"], json!("made"));
+    let kinds: Vec<String> = api.outbox().await.iter().map(|c| c.line()).collect();
+    assert!(kinds.contains(&format!("schedules {project}")), "{kinds:?}");
+}
+
+#[tokio::test]
+async fn an_action_run_that_moved_an_issue_leaves_it_unmarked() {
+    let api = TestApi::new().await;
+    let project = api.project("Primes").await;
+    let id = schedule(&api, &project, "Close merged", None, &[("kind", "'action'"), ("on_event", "'pr.merged'")]).await;
+    let issue = api.issue(&project, json!({"title": "Sieve"})).await;
+    let reply = api
+        .post(
+            &format!("/api/projects/{project}/schedules/{id}/runs"),
+            json!({"at": "2026-11-02T08:00:00.000Z", "outcome": "made", "issue": issue, "subject": issue}),
+        )
+        .send()
+        .await;
+    assert_eq!(reply.status, 201, "{}", reply.body);
+    assert_eq!(api.count(&format!("SELECT COUNT(*) FROM issues WHERE id = '{issue}' AND schedule IS NULL")).await, 1);
+}
+
+#[tokio::test]
+async fn a_run_is_refused_an_outcome_it_cant_have_and_a_schedule_that_isnt_there() {
+    let api = TestApi::new().await;
+    let project = api.project("Primes").await;
+    let id = schedule(&api, &project, "Weekly", None, &[]).await;
+    let path = format!("/api/projects/{project}/schedules/{id}/runs");
+    assert_eq!(api.post(&path, json!({"at": "2026-11-02T08:00:00.000Z", "outcome": "won"})).send().await.status, 400);
+    assert_eq!(api.post(&path, json!({"outcome": "made"})).send().await.status, 400);
+    assert_eq!(
+        api.post(&format!("/api/projects/{project}/schedules/999/runs"), json!({"at": "2026-11-02T08:00:00.000Z", "outcome": "made"})).send().await.status,
+        404
+    );
+}
+
+#[tokio::test]
+async fn only_the_local_apps_clock_writes_a_run() {
+    let api = TestApi::new().await;
+    let project = api.project("Primes").await;
+    let id = schedule(&api, &project, "Weekly", Some("2026-11-02T08:00:00.000Z"), &[]).await;
+    let outside = |req: crate::testing::Req| req.header("orrery-came", "loopback");
+    let claim =
+        outside(api.post(&format!("/api/projects/{project}/schedules/{id}/claim"), json!({"from": "2026-11-02T08:00:00.000Z", "to": null, "enabled": true})));
+    assert_eq!(claim.send().await.status, 403);
+    let run = outside(api.post(&format!("/api/projects/{project}/schedules/{id}/runs"), json!({"at": "2026-11-02T08:00:00.000Z", "outcome": "made"})));
+    assert_eq!(run.send().await.status, 403);
+    assert_eq!(outside(api.put(&format!("/api/schedules/{id}/held/ORR-1"), json!({"event": "{}", "at": "2026-11-02T08:00:00.000Z"}))).send().await.status, 403);
+    assert_eq!(outside(api.delete(&format!("/api/schedules/{id}/held"))).send().await.status, 403);
+    assert_eq!(api.count("SELECT COUNT(*) FROM schedule_runs").await, 0);
+}
+
+#[tokio::test]
+async fn a_held_event_is_kept_once_per_subject_and_taken_once() {
+    let api = TestApi::new().await;
+    let project = api.project("Primes").await;
+    let id = schedule(&api, &project, "On move", None, &[("on_event", "'issue.status'")]).await;
+    let held = format!("/api/schedules/{id}/held/PRI-1");
+    assert_eq!(api.put(&held, json!({"event": "{\"type\":\"issue.status\",\"to\":\"todo\"}", "at": "2026-11-02T08:00:00.000Z"})).send().await.status, 204);
+    // A newer event for it takes the older one's place.
+    assert_eq!(api.put(&held, json!({"event": "{\"type\":\"issue.status\",\"to\":\"done\"}", "at": "2026-11-02T08:00:30.000Z"})).send().await.status, 204);
+    assert_eq!(api.count("SELECT COUNT(*) FROM schedule_held WHERE event LIKE '%done%'").await, 1);
+    assert_eq!(api.count("SELECT COUNT(*) FROM schedule_held").await, 1);
+    assert_eq!(api.delete(&held).send().await.body, json!({"taken": true}));
+    // Another server got there first.
+    assert_eq!(api.delete(&held).send().await.body, json!({"taken": false}));
+    assert_eq!(api.put("/api/schedules/999/held/PRI-1", json!({"event": "{}", "at": "2026-11-02T08:00:00.000Z"})).send().await.status, 404);
+}
+
+#[tokio::test]
+async fn a_schedule_switched_off_drops_what_it_held() {
+    let api = TestApi::new().await;
+    let project = api.project("Primes").await;
+    let id = schedule(&api, &project, "On move", None, &[("on_event", "'issue.status'")]).await;
+    for subject in ["PRI-1", "PRI-2"] {
+        api.put(&format!("/api/schedules/{id}/held/{subject}"), json!({"event": "{}", "at": "2026-11-02T08:00:00.000Z"})).send().await;
+    }
+    assert_eq!(api.delete(&format!("/api/schedules/{id}/held")).send().await.status, 204);
+    assert_eq!(api.count("SELECT COUNT(*) FROM schedule_held").await, 0);
+}

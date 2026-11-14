@@ -64,7 +64,7 @@ export async function startOidc(event: H3Event, invite?: string, back?: string):
         {httpOnly: true, sameSite: 'lax', path: COOKIE_PATH, maxAge: 600, secure: overHttps(event)})
     const url = new URL(authorization_endpoint)
     url.search = new URLSearchParams({
-        response_type: 'code', scope: 'openid', client_id: settings().clientId, redirect_uri: redirectUri(event), state, nonce,
+        response_type: 'code', scope: 'openid profile', client_id: settings().clientId, redirect_uri: redirectUri(event), state, nonce,
         code_challenge: createHash('sha256').update(verifier).digest('base64url'), code_challenge_method: 'S256',
     }).toString()
     return url.toString()
@@ -82,9 +82,9 @@ function readKept(kept: string): {state: string, nonce: string, verifier: string
 }
 
 /** The way back: checks it answers this browser's own request, swaps the code for an ID token, verifies that against the
- * provider's keys, and says who the provider vouches for, which invite this browser came with, and the listed origin
+ * provider's keys, and says who the provider vouches for (and the name it gives), which invite this browser came with, and the listed origin
  * its page is on when that's another site's. */
-export async function finishOidc(event: H3Event): Promise<{issuer: string, subject: string, invite?: string, back?: string}> {
+export async function finishOidc(event: H3Event): Promise<{issuer: string, subject: string, name?: string, invite?: string, back?: string}> {
     const {state, code} = getQuery(event)
     const kept = getCookie(event, COOKIE)
     deleteCookie(event, COOKIE, {path: COOKIE_PATH})
@@ -107,5 +107,7 @@ export async function finishOidc(event: H3Event): Promise<{issuer: string, subje
     // With no trailing slash, as the setting's read, so a login is found the same way whichever the provider writes.
     // `back` is checked again, as the list may have changed since the login started.
     const back = asked.back && originAllowed(asked.back) ? asked.back : undefined
-    return {issuer: issuer.replace(/\/+$/, ''), subject: payload.sub, ...asked.invite ? {invite: asked.invite} : {}, ...back ? {back} : {}}
+    // The name it gives, for the first person in becoming the owner (ORR-1185).
+    const name = [payload.name, payload.preferred_username].find((said): said is string => typeof said === 'string' && !!said.trim())
+    return {issuer: issuer.replace(/\/+$/, ''), subject: payload.sub, ...name ? {name} : {}, ...asked.invite ? {invite: asked.invite} : {}, ...back ? {back} : {}}
 }
