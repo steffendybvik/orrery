@@ -92,8 +92,11 @@ async fn a_schedule_across_projects_shows_only_the_askers_projects() {
         .unwrap();
         for project in on {
             api.run(
-                "INSERT INTO schedules (project, title, timezone, cron, across, created_by, created_at, updated_at) VALUES (?, 'Tidy', 'Europe/Oslo', '0 9 * * 1', ?, 'owner', ?, ?)",
-                &[project, &id.to_string(), "2026-11-01T00:00:00.000Z", "2026-11-01T00:00:00.000Z"],
+                // The id written in, not bound: a bound one is text, which Postgres won't put in an integer column.
+                &format!(
+                    "INSERT INTO schedules (project, title, timezone, cron, across, created_by, created_at, updated_at) VALUES (?, 'Tidy', 'Europe/Oslo', '0 9 * * 1', {id}, 'owner', ?, ?)"
+                ),
+                &[project, "2026-11-01T00:00:00.000Z", "2026-11-01T00:00:00.000Z"],
             )
             .await;
         }
