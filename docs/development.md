@@ -139,8 +139,9 @@ and CI's `api` job builds one first. It also holds `openapi.yaml` to the routes 
 `web/test/one-writer.test.ts` reads every table the API writes off its SQL and holds them to `web/test/table-writers.ts`,
 where each says it's the API's alone once routed, or what the Nuxt server still writes there and the issue that ends
 it: a table the API starts writing needs its line there. The browser suite
-runs through the API, as its `nuxt dev` starts the debug build (or `NUXT_API_BIN`), so `cargo build` in `api/` before
-`pnpm test:e2e`; CI hands its jobs the `api` job's binary. What the suite found the first time it ran through the API
+runs through the API, as its `nuxt dev` starts the debug build (or `NUXT_API_BIN`): unless `NUXT_API_BIN` or
+`NUXT_API_URL` is set, the suite's server runs `cargo build` in `api/` first (`web/e2e-api.ts`), so a fresh checkout
+needs nothing before `pnpm test:e2e` but Rust; CI hands its jobs the `api` job's binary. What the suite found the first time it ran through the API
 alone is in [Rust API swap](/p/orrery/docs/rust-api-swap).
 
 A change to a route the API serves is a change in the API (`api/src/routes/`, `api/src/board/`…) and the contract. Its

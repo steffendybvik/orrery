@@ -4,6 +4,7 @@
 // up to 0.11% of an image's pixels, so this allows about twice that.
 import {defineConfig, devices} from '@playwright/test'
 import {e2ePort} from './e2e-port'
+import {apiBuild, serverTimeout} from './e2e-api'
 
 const port = e2ePort(3800)
 
@@ -23,10 +24,10 @@ export default defineConfig({
         colorScheme: 'light',
     },
     webServer: {
-        command: `rm -f node_modules/.cache/nuxt/dev-server.json .data/readme.db .data/readme.db-* && nuxt dev --port ${port}`,
+        command: `rm -f node_modules/.cache/nuxt/dev-server.json .data/readme.db .data/readme.db-* && ${apiBuild}nuxt dev --port ${port}`,
         env: {NUXT_DATABASE: '.data/readme.db', NUXT_UPDATE_CHECK: 'false', ORRERY_AUTH: 'off'},
         url: `http://localhost:${port}/api/settings`,
         reuseExistingServer: false,
-        timeout: 180_000,
+        timeout: serverTimeout(180_000),
     },
 })
