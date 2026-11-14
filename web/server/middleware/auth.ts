@@ -24,7 +24,7 @@ export default defineEventHandler(async event => {
     if (mode === 'closed') throw createError({statusCode: 503, statusMessage: 'Service Unavailable', message: 'ORRERY_AUTH=off only works while orrery listens on loopback, and this one is reachable from other machines: unset it'})
     const who = await credential(event)
     if (!who) {
-        if (!viaPhone(event) && !await canGetIn()) throw createError({statusCode: 503, statusMessage: 'Service Unavailable', message: 'Nobody can log in to this orrery yet: claim it from its page on its own machine (App settings → You), or run `docker compose exec orrery node /app/server/claim.mjs` there'})
+        if (!viaPhone(event) && !await canGetIn()) throw createError({statusCode: 503, statusMessage: 'Service Unavailable', message: 'Nobody can log in to this orrery yet: claim it from its page on its own machine (App settings → You), or run `pnpm orrery:claim` there (in Docker, `docker compose exec orrery node /app/server/claim.mjs`)'})
         throw createError({statusCode: 401, statusMessage: 'Unauthorized', message: 'This orrery asks for a credential: log in on its page, or give a session an agent key (ORRERY_KEY)'})
     }
     // A cookie goes along by itself, so a write on one has to say it comes from a page, which writes.ts then checks is ours.
