@@ -23,6 +23,13 @@ export abstract class ClaimStore extends EpicStore {
         return worker && this.hears(project, worker) ? worker : null
     }
 
+    /** The session that last worked the issue, there to hear or not; none when no session has. */
+    async lastWorker(project: string, issue: string): Promise<string | null> {
+        const chain = await sessionWork.workers(project, issue)
+        if (chain) return chain[0]?.worker ?? null
+        return (await this.get<{session: string}>('SELECT session FROM issue_sessions WHERE project = ? AND issue = ?', project, issue))?.session ?? null
+    }
+
     /** Notes that `session` is working the issue (it wrote to it, or was asked to focus on it): the owner's
      * comments on it go to that session from now on. `since` is when it took the issue, kept while the same session
      * works it again. An issue that isn't there (any more) is let be, and so is one another session has started and is

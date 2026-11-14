@@ -2,7 +2,7 @@ import {beforeEach, describe, expect, it, vi} from 'vitest'
 import type {OrreryEvent} from '#shared/happenings'
 import type {Signal} from '#shared/roadmap'
 import type {PullChange} from '../server/utils/pull-poll'
-import {commentOnPull, criticalFiles, pullComment} from '../server/utils/pull-comments'
+import {ACT_WITHIN, askIfUnattended, commentOnPull, criticalFiles, pullComment} from '../server/utils/pull-comments'
 import {Pulls} from '../server/utils/pulls'
 import {Store} from '../server/utils/store'
 import {testDb} from './db'
@@ -119,6 +119,37 @@ describe("a pull request's news on its issue", () => {
         it('is no focus when a session is on the issue: it heard the comment', async () => {
             await commentOnPull(store, change('conflicting'))
             expect(signals.map(s => s.kind)).toEqual(['comment'])
+        })
+    })
+
+    describe('left alone (ORR-1184)', () => {
+        const still = {project: 'shop', issue: 'SHO-1', repo: 'you/shop', number: 12, updated_at: '2020-01-01T00:00:00Z', needs: ['conflicting', 'checks_failed'] as ('conflicting' | 'checks_failed')[]}
+        const later = () => Date.now() + ACT_WITHIN + 1000
+
+        it('asks the owner once when nothing has happened since the notice for an hour', async () => {
+            await commentOnPull(store, change('conflicting'))
+            expect(await askIfUnattended(store, still)).toBe(false)
+            events = []
+            expect(await askIfUnattended(store, still, later())).toBe(true)
+            const ask = (await store.listComments('shop', 'SHO-1')).find(c => c.asks)
+            expect(ask).toMatchObject({created_by: 'orrery', asks: 'feedback'})
+            expect(ask!.body).toMatch(/^\[#12\]\(https:\/\/github\.com\/you\/shop\/pull\/12\) still needs its conflicts resolved and its checks fixed/)
+            expect(events.map(e => e.type)).toContain('pr.unattended')
+            expect(await askIfUnattended(store, still, later())).toBe(false)
+        })
+
+        it('asks nothing once someone has commented, or the PR moved on GitHub, since', async () => {
+            await commentOnPull(store, change('conflicting'))
+            expect(await askIfUnattended(store, {...still, updated_at: new Date(Date.now() + 1000).toISOString()}, later())).toBe(false)
+            await store.createComment('shop', 'SHO-1', {body: 'Merging the base in now.'}, {name: 'claude', owner: false})
+            expect(await askIfUnattended(store, still, later())).toBe(false)
+        })
+
+        it('asks nothing with no notice, or on a closed issue', async () => {
+            expect(await askIfUnattended(store, still, later())).toBe(false)
+            await commentOnPull(store, change('conflicting'))
+            await store.updateIssue('shop', 'SHO-1', {status: 'done'}, me)
+            expect(await askIfUnattended(store, still, later())).toBe(false)
         })
     })
 
