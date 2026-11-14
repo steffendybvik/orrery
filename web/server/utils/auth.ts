@@ -2,8 +2,8 @@
 // `event.context.who` (`actorOf`, `personOf`), so if a provider or a key's grants give rights later, only this changes.
 import type {H3Event} from 'h3'
 import {actorId} from '../store/schema'
-import {inDocker} from './backup-choice'
-import {LOOPBACK, proxied} from './move'
+import {inDocker} from './host-paths'
+import {LOOPBACK, proxied} from './this-machine'
 import {oidcOn} from './oidc'
 import {viaPhone} from './phone-port'
 

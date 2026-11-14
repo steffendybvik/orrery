@@ -17,8 +17,9 @@ test('splits App settings into tabs by what they reach, and a link opens the rig
     await expect(page.getByRole('heading', {name: 'Your name'})).toHaveCount(0)
 
     await page.goto('/settings#tint')
-    for (const name of ['Background tint', 'Secrets', 'Database']) await expect(page.getByRole('heading', {name})).toBeVisible()
-    await expect(page.getByRole('heading', {name: 'Watching sessions'})).toHaveCount(0)
+    for (const name of ['Background tint', 'Secrets']) await expect(page.getByRole('heading', {name})).toBeVisible()
+    // The database is set only as orrery starts (ORR-1187): App settings has no section for it.
+    for (const name of ['Database', 'Watching sessions']) await expect(page.getByRole('heading', {name})).toHaveCount(0)
 
     await page.goto('/sessions#watch')
     await expect(page.getByRole('heading', {name: 'Watching sessions'})).toBeVisible()

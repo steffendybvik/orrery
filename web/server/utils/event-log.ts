@@ -1,5 +1,5 @@
 // The event log (ORR-322): what orrery did and what went wrong, kept in its own `events` table and never sent off
-// the machine. Errors are recorded always; warnings, what orrery did (sessions, launchers, schedules, backups,
+// the machine. Errors are recorded always; warnings, what orrery did (sessions, launchers, schedules,
 // migrations) and the changes to the roadmap (ORR-378: issues, comments, milestones, docs, releases) only while the owner
 // has Advanced on in App settings, as most never look. Each is a row of its own, as the owner reads it line by line
 // (ORR-378); a repeat of an error that isn't resolved is no news, to the bell or the schedules, and resolving one
@@ -76,7 +76,6 @@ const ACTIVITY = `(${ACTIVITY_FAMILIES.map(family => `kind LIKE '${family}.%'`).
 export class EventLog {
     /** `scrub` takes secrets' values out of what's kept; `onLogged` hears each event written, `fresh` when it's a row of its own. */
     constructor(
-        /** Changed only when the owner moves the database (`rebindDatabase`). */
         public db: Db,
         /** What takes secrets' values out of a text, made once and kept until `forget`. */
         private readonly scrubber: () => Promise<(text: string) => string> = async () => text => text,
@@ -88,12 +87,12 @@ export class EventLog {
 
     private written = 0
 
-    /** Hears each kind as it happens, for the schedules that run on it (`backup.failed`, `session.started`): every
+    /** Hears each kind as it happens, for the schedules that run on it (`schedule.failed`, `session.started`): every
      * time when it isn't kept, and only a new one when it is (a repeat of an open error isn't news). The server sets it. */
     happened: (event: OrreryEvent) => void = () => {}
 
     /** Advanced and the scrubber, as last read: each event would otherwise read the setting and open every secret,
-     * and some come often (`backup.made`). The server forgets them when the settings or secrets change. */
+     * and some come often (`session.started`). The server forgets them when the settings or secrets change. */
     private known: {db: Db, advanced?: Promise<boolean>, scrub?: Promise<(text: string) => string>} | null = null
 
     /** Reads Advanced and the secrets again on the next event. */

@@ -1,4 +1,4 @@
-// The database: its schema and backups, and importing a roadmap. The store, against a fresh database with the project
+// The database: its schema, and importing a roadmap. The store, against a fresh database with the project
 // `greenhouse` (store-setup.ts).
 import {mkdtempSync, readFileSync, readdirSync} from 'node:fs'
 import {tmpdir} from 'node:os'
@@ -7,7 +7,6 @@ import {DatabaseSync} from 'node:sqlite'
 import pg from 'pg'
 import {beforeEach, describe, expect, it} from 'vitest'
 import {total} from '#shared/roadmap'
-import {backUp, backupPostgres, lastBackup} from '../server/utils/backup'
 import {openDb} from '../server/utils/db'
 import {MIGRATIONS} from '../server/utils/migrations/sqlite'
 import {SqliteDb} from '../server/utils/database'
@@ -151,36 +150,14 @@ describe('the database', () => {
         expect((await store.settings()).uid).toMatch(/^[a-z2-7]{8}$/)
     })
 
-    it('copies itself before an upgrade takes steps, and only then', async () => {
+    it('upgrades in place, leaving no copy of itself beside it', async () => {
         const dir = mkdtempSync(join(tmpdir(), 'orrery-'))
         const path = join(dir, 'orrery.db')
-        const snapshot = join(dir, 'backup', 'orrery-pre-1.0.0.db')
-        const taken = join(dir, 'backup', 'orrery-pre-1.0.0-step40.db')
-        // A new file has nothing to keep.
-        openDb(path, 40, snapshot).close()
-        expect(readdirSync(dir)).not.toContain('backup')
         const old = openDb(path, 40)
         old.prepare("INSERT INTO projects (id, name, key, created_by, created_at, updated_at) VALUES ('greenhouse', 'greenhouse', 'GRE', 'agent', 'x', 'x')").run()
         old.close()
-
-        openDb(path, undefined, snapshot).close()
-        const copy = new DatabaseSync(taken)
-        expect((copy.prepare('PRAGMA user_version').get() as {user_version: number}).user_version).toBe(40)
-        expect(copy.prepare('SELECT id FROM projects').all().map(row => row.id)).toEqual(['greenhouse'])
-        copy.close()
-        // Up to date, it takes no copy.
-        openDb(path, undefined, join(dir, 'backup', 'orrery-pre-1.0.1.db')).close()
-        expect(readdirSync(join(dir, 'backup'))).toEqual(['orrery-pre-1.0.0-step40.db'])
-    })
-
-    it('takes a fresh copy for each step an upgrade starts from, under the same version (ORR-457)', () => {
-        const dir = mkdtempSync(join(tmpdir(), 'orrery-'))
-        const path = join(dir, 'orrery.db')
-        const snapshot = join(dir, 'backup', 'orrery-pre-1.0.0-rc.10.db')
-        openDb(path, 39).close()
-        openDb(path, 40, snapshot).close()
-        openDb(path, undefined, snapshot).close()
-        expect(readdirSync(join(dir, 'backup')).sort()).toEqual(['orrery-pre-1.0.0-rc.10-step39.db', 'orrery-pre-1.0.0-rc.10-step40.db'])
+        openDb(path).close()
+        expect(readdirSync(dir).filter(name => !name.startsWith('orrery.db'))).toEqual([])
     })
 
     it('refuses a database from a newer orrery and leaves it as it is', async () => {
@@ -208,38 +185,6 @@ describe('the database', () => {
         await cleanup.connect()
         await cleanup.query(`DROP SCHEMA "${schema}" CASCADE`)
         await cleanup.end()
-    })
-
-    // On Postgres as a SQLite snapshot, so a new SQLite orrery starts from it either way.
-    it('is backed up to a folder and restored from it', async () => {
-        const dir = mkdtempSync(join(tmpdir(), 'orrery-'))
-        const cloud = join(dir, 'cloud')
-        const {id} = await store.createIssue('greenhouse', {title: 'saved'})
-        expect(lastBackup(cloud)).toBeUndefined()
-        // Two at once: the second waits for the first rather than writing over it.
-        await Promise.all([backUp(store.db, cloud), backUp(store.db, cloud)])
-        expect(lastBackup(cloud)).toMatch(/^\d{4}-\d{2}-\d{2}T/)
-        // One file each, the latest and today's, with nothing left beside them.
-        expect(readdirSync(cloud).sort()).toEqual(['orrery.db', `orrery-${new Date().toISOString().slice(0, 10)}.db`].sort())
-
-        expect((await new Store(new SqliteDb(openDb(join(cloud, 'orrery.db')))).issue('greenhouse', id)).title).toBe('saved')
-    })
-
-    it("is copied whole into a SQLite snapshot, as a Postgres one is, whatever it's on", async () => {
-        const dir = join(mkdtempSync(join(tmpdir(), 'orrery-')), 'cloud')
-        const {id} = await store.createIssue('greenhouse', {title: 'snapped'})
-        await backupPostgres(store.db, dir)
-        expect(readdirSync(dir)).toContain('orrery.db')
-        expect(readdirSync(dir).filter(name => name.includes('partial') || name.endsWith('-wal'))).toEqual([])
-        expect((await new Store(new SqliteDb(openDb(join(dir, 'orrery.db')))).issue('greenhouse', id)).title).toBe('snapped')
-
-        // Each from the schema laid down once, up to date, with nothing of the last one left in it.
-        await store.updateIssue('greenhouse', id, {title: 'snapped again'})
-        await backupPostgres(store.db, dir)
-        const again = new DatabaseSync(join(dir, 'orrery.db'))
-        const version = (raw: DatabaseSync) => (raw.prepare('PRAGMA user_version').get() as {user_version: number}).user_version
-        expect(version(again)).toBe(version(openDb(':memory:')))
-        expect(again.prepare('SELECT title FROM issues').all().map(row => row.title)).toEqual(['snapped again'])
     })
 })
 describe('import', () => {

@@ -23,10 +23,10 @@ async fn a_new_orrery_lists_every_feature_unused_and_counting_off() {
     assert_eq!(reply.body["on"], false);
     assert_eq!(reply.body.get("allowed"), None, "the router adds it");
     let features = reply.body["features"].as_array().unwrap();
-    assert_eq!(features.len(), 13);
+    assert_eq!(features.len(), 12);
     assert_eq!(feature(&reply.body, "chat"), &json!({"feature": "chat", "label": "Starting a chat", "last": null, "days30": 0, "days90": 0}));
     // Never used, so A–Z by label.
-    assert_eq!(features[0]["label"], "Back up now");
+    assert_eq!(features[0]["label"], "Focus on this");
 }
 
 #[tokio::test]
@@ -37,14 +37,14 @@ async fn counts_add_up_by_day_coldest_first_and_a_year_on_theyre_gone() {
         {"feature": "chat", "day": day(1), "count": 2},
         {"feature": "chat", "day": day(60), "count": 3},
         {"feature": "page:board", "day": day(0), "count": 5},
-        {"feature": "backup-now", "day": day(400), "count": 9},
+        {"feature": "focus-issue", "day": day(400), "count": 9},
     ]});
     assert_eq!(api.put("/api/usage", sent).send().await.status, 204);
     assert_eq!(api.put("/api/usage", json!({"counts": [{"feature": "chat", "day": day(1), "count": 1}]})).send().await.status, 204);
     let reply = api.get("/api/usage").send().await.body;
     assert_eq!(feature(&reply, "chat"), &json!({"feature": "chat", "label": "Starting a chat", "last": day(1), "days30": 3, "days90": 6}));
     assert_eq!(feature(&reply, "page:board"), &json!({"feature": "page:board", "label": "board", "last": day(0), "days30": 5, "days90": 5}));
-    assert_eq!(feature(&reply, "backup-now")["last"], Value::Null);
+    assert_eq!(feature(&reply, "focus-issue")["last"], Value::Null);
     let names: Vec<&str> = reply["features"].as_array().unwrap().iter().map(|f| f["feature"].as_str().unwrap()).collect();
     assert_eq!(names[names.len() - 2..], ["page:board", "chat"]);
 }

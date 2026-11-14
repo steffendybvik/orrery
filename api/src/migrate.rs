@@ -71,11 +71,8 @@ async fn sqlite_steps(conn: &mut AnyConnection, path: &str, steps: &[Step]) -> R
     let version = version as u32;
     if version > latest {
         return Err(format!(
-            "{path} was written by a newer orrery (schema step {version}; this one knows up to {latest}). Run that version again, or restore the copy taken before it upgraded (orrery-pre-<version>-step<n>.db, in the backup folder or beside the database)."
+            "{path} was written by a newer orrery (schema step {version}; this one knows up to {latest}). Run that version again, or restore the copy of the database you took before it upgraded."
         ));
-    }
-    if version > 0 && version < latest {
-        keep_a_copy(conn, path, version, latest).await?;
     }
     // Foreign keys are off while tables are rebuilt (SQLite can't turn them off inside a transaction).
     exec(conn, "PRAGMA busy_timeout = 5000; PRAGMA foreign_keys = OFF").await.map_err(|e| e.to_string())?;
@@ -103,64 +100,6 @@ async fn sqlite_steps(conn: &mut AnyConnection, path: &str, steps: &[Step]) -> R
     Ok(Migrated { from: version, to: latest })
 }
 
-/// Where the copy of a SQLite file goes before an upgrade, as `beforeUpgrade` in web/server/utils/db.ts puts it: in the
-/// backup folder (`ORRERY_API_BACKUP_DIR`, the Nuxt server's backup setting), or beside the file, named by the version
-/// (`ORRERY_VERSION`) and the step it was at, so a later step under the same version gets one of its own (ORR-457).
-fn copy_path(path: &str, version: u32) -> std::path::PathBuf {
-    copy_path_with(path, version, std::env::var("ORRERY_API_BACKUP_DIR").ok(), std::env::var("ORRERY_VERSION").ok())
-}
-
-/// `copy_path`, with the backup folder and the version as the environment gave them.
-fn copy_path_with(path: &str, version: u32, backups: Option<String>, release: Option<String>) -> std::path::PathBuf {
-    let dir = backups
-        .filter(|d| !d.is_empty())
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(|| std::path::Path::new(path).parent().map(|p| p.to_path_buf()).unwrap_or_default());
-    let release = release.filter(|v| !v.is_empty()).unwrap_or_else(|| "upgrade".into());
-    dir.join(format!("orrery-pre-{release}-step{version}.db"))
-}
-
-/// Copies the file as it is before its steps run, as the Node app's `migrate` does (ORR-448): written beside the name and
-/// checked before it takes it, so a copy cut short never passes for one, and one already there (an earlier try at this
-/// same upgrade) stays. Without a copy, it doesn't upgrade.
-async fn keep_a_copy(conn: &mut AnyConnection, path: &str, version: u32, latest: u32) -> Result<(), String> {
-    let copy = copy_path(path, version);
-    if copy.exists() {
-        return Ok(());
-    }
-    let partial = std::path::PathBuf::from(format!("{}.partial", copy.display()));
-    let made = async {
-        if let Some(dir) = copy.parent().filter(|d| !d.as_os_str().is_empty()) {
-            std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-        }
-        if partial.exists() {
-            std::fs::remove_file(&partial).map_err(|e| e.to_string())?;
-        }
-        sqlx::query("VACUUM INTO ?").bind(partial.to_string_lossy().into_owned()).execute(&mut *conn).await.map_err(|e| e.to_string())?;
-        let mut check = AnyConnection::connect(&format!("sqlite://{}?mode=ro", partial.display())).await.map_err(|e| e.to_string())?;
-        let found: Vec<String> = sqlx::query("PRAGMA quick_check")
-            .fetch_all(&mut check)
-            .await
-            .map_err(|e| e.to_string())?
-            .iter()
-            .map(|r| r.try_get::<String, _>(0).unwrap_or_default())
-            .collect();
-        check.close().await.ok();
-        if found != ["ok"] {
-            return Err(format!("the copy isn't sound ({})", found.join("; ")));
-        }
-        std::fs::rename(&partial, &copy).map_err(|e| e.to_string())
-    }
-    .await;
-    made.map_err(|e| {
-        std::fs::remove_file(&partial).ok();
-        format!(
-            "orrery won't upgrade {path} (schema step {version} to {latest}) without a copy of it as it is, and couldn't make one at {}: {e}. Free some space or fix the folder, then start it again.",
-            copy.display()
-        )
-    })
-}
-
 async fn postgres(conn: &mut AnyConnection, schema: Option<&str>) -> Result<Migrated, String> {
     postgres_steps(conn, schema, POSTGRES).await
 }
@@ -184,7 +123,7 @@ async fn postgres_steps(conn: &mut AnyConnection, schema: Option<&str>, steps: &
         let mut version = found.unwrap_or(0);
         if version > latest {
             return Err(format!(
-                "This Postgres database was written by a newer orrery (schema step {version}; this one knows up to {latest}). Run that version again, or restore a backup from before it upgraded."
+                "This Postgres database was written by a newer orrery (schema step {version}; this one knows up to {latest}). Run that version again, or restore the copy of the database you took before it upgraded."
             ));
         }
         if found.is_none() {

@@ -8,7 +8,7 @@ import {dirname, resolve} from 'node:path'
 import type {Actor, Store} from './store'
 import {projectEvents} from './events'
 import {scheduleRunning} from './schedules'
-import {inDocker} from './backup-choice'
+import {inDocker} from './host-paths'
 
 /** A row of the outbox, as the feed gives it. */
 export interface Change {

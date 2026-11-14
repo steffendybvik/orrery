@@ -18,7 +18,6 @@
 // and exits. The Nuxt server runs it before it opens a database, whenever it has this binary (server/utils/api-migrate.ts).
 //   ORRERY_API_STEPS   the step the caller's own migrations end at: a build that ends anywhere else migrates nothing and
 //                      exits 3, so a mismatched pair never takes a database somewhere the other can't follow
-//   ORRERY_API_BACKUP_DIR, ORRERY_VERSION  where the copy before an upgrade goes, and the version it's named by
 mod access;
 mod board;
 mod changes;
