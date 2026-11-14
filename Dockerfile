@@ -9,6 +9,7 @@ WORKDIR /src/api
 # It builds in the presets orrery ships (src/presets.rs), so that file comes with it.
 COPY web/shared/presets.json /src/web/shared/presets.json
 COPY docs/using.md /src/docs/using.md
+COPY web/package.json /src/web/package.json
 COPY api/ ./
 RUN --mount=type=cache,target=/usr/local/cargo/registry --mount=type=cache,target=/src/api/target \
     cargo build --release --locked && cp target/release/orrery-api /orrery-api
