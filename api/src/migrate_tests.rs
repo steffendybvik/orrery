@@ -153,6 +153,29 @@ async fn step_91_puts_everyone_here_in_the_default_workspace_but_the_removed() {
 }
 
 #[tokio::test]
+async fn step_94_puts_an_owner_in_no_workspace_in_default_and_nobody_else() {
+    // Ziggy was claimed after step 91, so is in no workspace; Ada signed up into her own; Bo is in none and no owner.
+    let (path, mut conn) = sqlite_at(93).await;
+    exec(
+        &mut conn,
+        "INSERT INTO people (id, name, role, created_at) VALUES ('ziggy', 'Ziggy', 'owner', '2026-03-01T00:00:00.000Z'),
+            ('ada', 'Ada', 'member', '2026-02-01T00:00:00.000Z'), ('bo', 'Bo', 'member', '2026-04-01T00:00:00.000Z');
+         INSERT INTO workspaces (id, name, created_at) VALUES ('adas', 'Ada', '2026-02-01T00:00:00.000Z');
+         INSERT INTO workspace_members (workspace, person, role, created_at) VALUES ('adas', 'ada', 'owner', '2026-02-01T00:00:00.000Z');",
+    )
+    .await
+    .unwrap();
+    conn.close().await.unwrap();
+
+    assert_eq!(migrate(&path, None).await.unwrap().from, 93);
+    let mut conn = AnyConnection::connect(&format!("sqlite://{path}")).await.unwrap();
+    assert_eq!(
+        rows(&mut conn, "SELECT workspace, person, role FROM workspace_members ORDER BY person").await,
+        vec![some(&["adas", "ada", "owner"]), some(&["default", "ziggy", "owner"])],
+    );
+}
+
+#[tokio::test]
 async fn a_new_orrery_has_the_default_workspace_with_nobody_in_it_yet() {
     let (path, conn) = sqlite_at(0).await;
     conn.close().await.unwrap();

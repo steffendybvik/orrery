@@ -57,7 +57,7 @@ function routes(dir = 'server/api', at = '/api'): {method: string, path: string}
         return [{method: method.toUpperCase(), path: name === 'index' ? at : `${at}/${name}`}]
     })
 }
-const OPEN = ['/api/auth/status', '/api/auth/login', '/api/auth/logout', '/api/auth/link', '/api/auth/oidc/start', '/api/auth/oidc/callback']
+const OPEN = ['/api/auth/status', '/api/auth/login', '/api/auth/logout', '/api/auth/link', '/api/auth/oidc/start', '/api/auth/oidc/callback', '/api/machines/connect', '/api/machines/claim']
 
 describe('with auth on', () => {
     let agent: string

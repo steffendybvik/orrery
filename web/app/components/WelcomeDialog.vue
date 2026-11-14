@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import {launcherInstall} from '#shared/connect'
 import {TINTS} from '#shared/roadmap'
 
 // The welcome (ORR-1194): someone new is walked through four short steps before the board, one a screen, each but the
@@ -99,7 +98,7 @@ async function saveWorkspace() {
 }
 
 // Step 3: the line that connects this computer's agent; it ticks once a launcher is connected.
-const machineLine = launcherInstall(serverOrigin())
+const machineLine = useMachineLine()
 const connected = computed(() => Object.values(launchers.value).some(count => count > 0))
 
 // Step 4: a first project, or the demo, and then its board.

@@ -216,6 +216,31 @@ async fn a_new_agent_key_is_for_one_of_its_persons_workspaces() {
     assert!(listed.body.as_array().unwrap().iter().any(|k| k["workspace"] == "acme"), "{}", listed.body);
 }
 
+#[tokio::test]
+async fn a_machines_agent_key_reaches_every_workspace_its_person_is_in() {
+    use sha2::Digest;
+    // Connected from its install line (ORR-1192): no workspace kept, so it reaches all of bo's, as bo's login does.
+    let api = TestApi::new().await;
+    let (primes, rockets) = two_workspaces(&api).await;
+    let made = api
+        .signed(
+            api.post("/api/keys", json!({"kind": "agent", "name": "Laptop", "all_workspaces": true})).header("orrery-sent-origin", "http://localhost"),
+            "bo",
+        )
+        .await
+        .send()
+        .await;
+    assert_eq!((made.status.as_u16(), made.body.get("workspace")), (201, None), "{}", made.body);
+    // The router sends the key on hashed (`Orrery-Key`), as the keys table keeps it.
+    let key: String = sha2::Sha256::digest(made.body["key"].as_str().unwrap().as_bytes()).iter().map(|b| format!("{b:02x}")).collect();
+    for project in [&primes, &rockets] {
+        let read =
+            api.get(&format!("/api/projects/{project}/issues")).header("orrery-came", "loopback").header("orrery-login-ways", "on").header("orrery-key", &key);
+        let reply = read.send().await;
+        assert_eq!(reply.status, 200, "{project}: {}", reply.body);
+    }
+}
+
 // Every route of a project, read from the routes' own source so a new one is held too: someone outside its workspace
 // gets the workspace's 404 on each, read or write (ORR-1106, ORR-1052).
 

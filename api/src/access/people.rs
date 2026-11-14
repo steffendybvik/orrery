@@ -577,8 +577,11 @@ impl<'c> People<'c> {
             return Err(ApiError::bad_request("\"name\" says what the key is for, such as the machine it's on"));
         }
         self.needs_person(&whose).await?;
+        // A machine connected from its install line (ORR-1192) reaches every workspace its person is in, as their login
+        // does, so joining one later needs no reconnecting: `all_workspaces`, no workspace kept.
+        let everywhere = kind == "agent" && body.get("all_workspaces").and_then(Value::as_bool) == Some(true);
         let workspace = match kind.as_str() {
-            "agent" => Some(self.agents_workspace(body, &whose).await?),
+            "agent" if !everywhere => Some(self.agents_workspace(body, &whose).await?),
             _ => None,
         };
         let key = format!("orrery_{kind}_{}", URL_SAFE_NO_PAD.encode(random(32)));

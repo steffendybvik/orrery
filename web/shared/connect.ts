@@ -41,8 +41,10 @@ export interface ConnectPieces {
 
 /** Puts the bootstrap on this machine: it stays the same across versions, and runs what the orrery at `origin` serves. */
 const bootstrapInstall = (origin: string) => `mkdir -p ~/.orrery && curl -fsS ${origin}/channel/bootstrap.mjs -o ~/.orrery/bootstrap.mjs`
-/** Puts the bootstrap on this machine, and the launcher service with it. */
-export const launcherInstall = (origin: string) => `${bootstrapInstall(origin)} && ORRERY_URL=${origin} node ~/.orrery/bootstrap.mjs launcher --install`
+/** Puts the bootstrap on this machine, and the launcher service with it. `code`: a one-time code from the signed-in
+ *  page (ORR-1192), which the launcher swaps for the machine's key, so pasting the line connects it. */
+export const launcherInstall = (origin: string, code?: string) =>
+    `${bootstrapInstall(origin)} && ORRERY_URL=${origin}${code ? ` ORRERY_CODE=${code}` : ''} node ~/.orrery/bootstrap.mjs launcher --install`
 /** An agent with no launcher adapter (ORR-1075): the bootstrap put in place once, then orrery's channel run as a plain
  * MCP server over stdio, serving every project, for the agent's own MCP config. orrery can't start it or send it work,
  * but it has orrery's tools. */

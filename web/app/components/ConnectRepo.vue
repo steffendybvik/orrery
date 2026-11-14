@@ -2,11 +2,10 @@
 // Connect a repo with a click (ORR-708): a launcher opens its machine's folder picker, the owner ticks the projects the
 // folder holds here, and the launcher writes the files and opens Claude there. orrery never names the folder, so there's
 // nothing to type here: it's chosen on the machine. With no launcher that can, the install line stands in for the button.
-import {launcherInstall} from '#shared/connect'
 import type {ConnectRequest} from '#shared/connects'
 
 const {ordered} = useProjectOrder()
-const install = launcherInstall(serverOrigin())
+const install = useMachineLine()
 const pickers = ref<number>()
 const request = ref<ConnectRequest>()
 const ticked = ref<string[]>([])

@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import {launcherInstall} from '#shared/connect'
 // Getting started: the steps from a new orrery to a Claude session working from it, each ticked from what the
 // orrery knows (useGettingStarted), with what to do for the one you're on. As a page it's the first run (in place
 // of "No projects yet", and at /getting-started); `card` is its fold-away form at the top of My issues. Opening it on a
@@ -21,7 +20,7 @@ const open = ref(true)
 // terminal's (ORR-1180). Gone once a launcher connects.
 const {launchers} = useRoadmaps()
 const machineReady = computed(() => Object.values(launchers.value).some(count => count > 0))
-const machineLine = launcherInstall(serverOrigin())
+const machineLine = useMachineLine()
 // The AI agent you run (ORR-1075), picked here or in App settings: the install line and the session's start line are
 // Claude Code's, so another agent is shown what works without an adapter.
 const {settings} = useAppSettings()

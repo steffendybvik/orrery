@@ -13,6 +13,9 @@ export type Line = {issue: `ORR-${number}`, gap: string} | {stays: string} | {ru
 const ORR_950: Line = {issue: 'ORR-950', gap: 'running a schedule now'}
 const ORR_1006: Line = {issue: 'ORR-1006', gap: 'uploading a project'}
 const ORR_1038: Line = {issue: 'ORR-1038', gap: 'the front door: served ahead, routed once how the request came in reaches the API'}
+// Connecting a machine (ORR-1192) keeps its codes and requests in this server's memory, as the phone's links are; the key
+// itself is the API's to make.
+const ORR_1192: Line = {issue: 'ORR-1192', gap: 'connecting a machine: its one-time codes and requests are kept in memory here, with the front door'}
 
 const FOCUS: Line = {stays: "a focus signals the sessions, which are the machine's (ORR-1004, ORR-927)"}
 const CHAT: Line = {stays: "the chat's sessions are the local app's; the API keeps their rows, through PUT /api/chats/{chat}"}
@@ -88,6 +91,11 @@ export const NOT_ROUTED: Readonly<Record<string, Line>> = {
     'GET /api/mcp': MACHINE,
     'GET /api/phone': MACHINE,
     'POST /api/phone/link': ORR_1038,
+    'POST /api/machines/code': ORR_1192,
+    'POST /api/machines/connect': ORR_1192,
+    'POST /api/machines/claim': ORR_1192,
+    'GET /api/machines/requests/{request}': ORR_1192,
+    'POST /api/machines/requests/{request}/approve': ORR_1192,
     'POST /api/presets/seed': {rustOnly: 'the presets orrery ships, seeded by the local app itself each time the API it started begins listening (ORR-1136)'},
     'POST /api/projects/upload': ORR_1006,
     'GET /api/projects/{project}/context': SESSIONS,

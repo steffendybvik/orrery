@@ -45,6 +45,7 @@ import {fileURLToPath} from 'node:url'
 import {connector, pickerFor} from './connect-repo.mjs'
 import {commandsFor, homeFolder, homeProjects, setUpHome} from './home-folder.mjs'
 import {authHeaders, keyFor, keysFile} from './credentials.mjs'
+import {connectIfAsked} from './connect-machine.mjs'
 import {addToList, adoptable, configFile, inWsl, install, listChanges, listIn, readConfig, removeService, restartKeepsSessions, servedElsewhere, serviceProblem, uninstall, wslLocalhost} from './launcher-service.mjs'
 import {agentFor} from './agents.mjs'
 import {repoContext} from './repo-context.mjs'
@@ -146,6 +147,11 @@ if (args.includes('--install') || args.includes('--uninstall')) {
         const inRepo = channelsIn(process.cwd()).length || process.env.ORRERY_PROJECT
         const split = args.includes('--install') && inRepo ? onOrrery(here(), lineUrl) : {on: here(), elsewhere: []}
         if (split.elsewhere.length) console.log(otherOrrerys(split.elsewhere, lineUrl))
+        // An orrery with login on that this machine has no key for, or one it no longer takes, connects it here and now
+        // (ORR-1192), before anything is installed, so the service and the agent's user config start out with the key.
+        const connectLine = async () => {
+            if (lineUrl && args.includes('--install')) await connectIfAsked(lineUrl)
+        }
         // Not in a repo whose .mcp.json registers the channel, or in one with no project on the orrery the line names:
         // the service alone, with no project of its own to add.
         if (!inRepo || (lineUrl && args.includes('--install') && !split.on.length)) {
@@ -157,6 +163,7 @@ if (args.includes('--install') || args.includes('--uninstall')) {
                 process.exit(0)
             }
             needsTmuxAndAgent()
+            await connectLine()
             const {config, logs, restarted} = install([], {script, pickUp, orrery: lineUrl, agent: named})
             console.log(`The launcher service is installed and starts at login. It serves ${config.projects.length ? config.projects.map(p => p.project).join(', ') : 'no project yet'}; the list is ${configFile()}.${restarted ? '' : ' It was running already, so its sessions go on.'}`)
             console.log(pickUp
@@ -177,7 +184,10 @@ if (args.includes('--install') || args.includes('--uninstall')) {
         if (!entries.length) {
             // A channel serving `*` names no project, and the folder's name is no project's (ORR-1068).
             if (!here().length) console.log("This repo's channel names no project, so there's nothing to serve from here: run this with ORRERY_PROJECT=<project> set.")
-            if (lineUrl && args.includes('--install')) await setUpMachine(lineUrl)
+            if (lineUrl && args.includes('--install')) {
+                await connectLine()
+                await setUpMachine(lineUrl)
+            }
             process.exit(0)
         }
         // All of the repo's projects at once. The running service follows the list; it restarts (stopping the sessions
@@ -189,13 +199,17 @@ if (args.includes('--install') || args.includes('--uninstall')) {
             process.exit(0)
         }
         needsTmuxAndAgent()
+        await connectLine()
         for (const entry of entries) {
             // Without the channel its sessions couldn't hear orrery, and its address and project may be guesses
             // (localhost:9000, an ORRERY_PROJECT typed by hand): connecting the repo comes first (ORR-604).
             if (!channelFor(entry.dir, entry.url, entry.project)) throw new Error(`no .mcp.json here registers orrery's channel, so nothing was installed: connect this repo first, from orrery's Connect an agent page (or have a Claude session here read ${entry.url}/connect/${entry.project}.md), then run this again`)
         }
         for (const entry of entries) {
-            const found = await fetch(`${entry.url}/api/projects/${encodeURIComponent(entry.project)}/launches`, {headers: authHeaders(entry.url)}).then(r => r.status).catch(() => 0)
+            const launches = () => fetch(`${entry.url}/api/projects/${encodeURIComponent(entry.project)}/launches`, {headers: authHeaders(entry.url)}).then(r => r.status).catch(() => 0)
+            let found = await launches()
+            // A repo's own orrery asking for a key connects the machine to it too.
+            if (found === 401 && await connectIfAsked(entry.url)) found = await launches()
             if ([401, 403, 503].includes(found)) throw new Error(`${entry.url} asks for a credential: make an agent key on its page, and set ORRERY_KEY (or add it to ${keysFile()})`)
             if (found === 404) throw new Error(`${entry.url} has no project ${entry.project}: set ORRERY_PROJECT (and ORRERY_URL) to the one to serve`)
             if (!found) log(`can't reach ${entry.url} now; the launcher keeps trying once it's installed${inWsl() && wslLocalhost(entry.url) ? `. ${WSL_LOCALHOST}` : ''}`)

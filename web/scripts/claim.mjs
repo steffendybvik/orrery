@@ -103,6 +103,10 @@ async function main() {
         await db.run("INSERT INTO people (id, name, role, created_at) VALUES (?, ?, 'owner', ?)", id, given, now)
         owner = {id, name: given}
     }
+    // The owner owns the one workspace there is so far (ORR-1106), as naming them on the page makes them: without it, with
+    // login on, they'd reach no workspace and make no project (ORR-1192).
+    await db.run(`INSERT INTO workspace_members (workspace, person, role, created_at) SELECT 'default', ?, 'owner', ?
+        WHERE NOT EXISTS (SELECT 1 FROM workspace_members WHERE person = ?)`, owner.id, now, owner.id)
     const key = `orrery_person_${randomBytes(32).toString('base64url')}`
     await db.run("INSERT INTO keys (id, person, kind, name, hash, created_at) VALUES (?, ?, 'person', 'orrery:claim', ?, ?)",
         randomBytes(6).toString('hex'), owner.id, createHash('sha256').update(key).digest('hex'), now)
