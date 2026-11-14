@@ -165,3 +165,37 @@ async fn deleting_an_epic_says_each_project_in_it_changed() {
     assert_eq!(changed, expected);
     assert_eq!(gone.told().len(), 2);
 }
+
+/// An epic is its workspace's (ORR-1107): made in the one `Orrery-Workspace` names, listed and read only there, and a
+/// 404 to someone who isn't in it, or asking from another.
+#[tokio::test]
+async fn an_epic_is_its_workspaces_alone() {
+    let api = TestApi::new().await;
+    api.team().await;
+    api.acme(&["bo"]).await;
+    let as_bo = |req: crate::testing::Req| {
+        let api = &api;
+        async move { api.signed(req.header("orrery-sent-origin", "http://localhost"), "bo").await.send().await }
+    };
+    let made = as_bo(api.post("/api/epics", json!({"title": "Launch"})).header("orrery-workspace", "acme")).await;
+    assert_eq!(made.status, 201, "{}", made.body);
+    let id = made.body["id"].as_i64().unwrap();
+    let workspace: String = sqlx::query("SELECT workspace FROM epics WHERE id = $1").bind(id).fetch_one(&api.app.pool).await.unwrap().get("workspace");
+    assert_eq!(workspace, "acme");
+    let theirs = as_bo(api.post("/api/epics", json!({"title": "Tidy"}))).await;
+    assert_eq!(theirs.status, 201, "with none named, it's default's: {}", theirs.body);
+
+    assert_eq!(ids(&as_bo(api.get("/api/epics").header("orrery-workspace", "acme")).await.body), vec![id]);
+    assert_eq!(ids(&as_bo(api.get("/api/epics")).await.body), vec![theirs.body["id"].as_i64().unwrap()]);
+    assert_eq!(as_bo(api.get(&format!("/api/epics/{id}")).header("orrery-workspace", "acme")).await.status, 200);
+    assert_eq!(as_bo(api.get(&format!("/api/epics/{id}"))).await.status, 404, "asked from default, Acme's epic isn't there");
+
+    let ana = api.signed(api.get("/api/epics").header("orrery-workspace", "acme"), "ana").await.send().await;
+    assert_eq!(ana.status, 404, "ana isn't in Acme: {}", ana.body);
+    let ana = api.signed(api.get(&format!("/api/epics/{id}")), "ana").await.send().await;
+    assert_eq!(ana.status, 404, "{}", ana.body);
+    let ana = api.signed(api.get(&format!("/api/epics/{id}/comments")), "ana").await.send().await;
+    assert_eq!(ana.status, 404, "{}", ana.body);
+    let ana = api.signed(api.delete(&format!("/api/epics/{id}")).header("orrery-sent-origin", "http://localhost"), "ana").await.send().await;
+    assert_eq!(ana.status, 404, "{}", ana.body);
+}

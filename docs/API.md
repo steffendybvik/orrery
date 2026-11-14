@@ -127,6 +127,8 @@ With more than one person, every write is checked against the permissions table'
 
 Every board is in a workspace, and reads and writes alike are held to the workspaces you're a member of: a project in any other answers 404, as if it weren't there, and the lists across projects (`GET /projects`, `/releases`, `/schedules`, `/schedules/across`, `/events/log`, `/changes` and its stream, `/notices` and `/notices/changes`) leave its rows out. The owner sees only the workspaces they're in, and a request naming nobody here, as with login off, only `default`. An untrusted session also reaches the project it was started for. Within a workspace a member reads every board; writing still follows each board's members. Today everything is in `default` and everyone is a member of it.
 
+What's the workspace's own rather than a project's (epics so far; statuses, presets, secrets, the event log and settings to follow, ORR-1107) is read and written in one workspace: the one a request names in `Orrery-Workspace`, else `default` when it's yours, else your first. Naming one you aren't in is a 404, as is another workspace's epic asked for by its number.
+
 With more than one person, an agent works only what's assigned to its person (ORR-655). This holds at the store, so every route that writes an issue is held the same way:
 
 - **Starting, editing, closing, moving or deleting** an issue that isn't its person's is a 409 naming who has it, or saying nobody does. An assignee who isn't a person counts as nobody, and `claude` as the owner. An agent's own proposal stays its to edit and put up again, though it waits on the owner. Comments stay open to all.

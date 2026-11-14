@@ -662,7 +662,17 @@ function headersFor(event: H3Event, api: {url: string, token: string}, actor: Ac
         ...whoHeaders(event.context.who as Who | undefined, getCookie(event, loginCookie(event)), bearer(event), {origin: getHeader(event, 'origin'), session: getHeader(event, 'orrery-session')}),
         ...loginHeaders({provider: oidcOn(), off: toldOff(), on: toldOn()}, getRequestURL(event, {xForwardedHost: true, xForwardedProto: true}).origin),
         ...cameHeaders({loopback: onLoopback(event), proxied: proxied(event), phone: viaPhone(event), https: getRequestURL(event, {xForwardedProto: true}).protocol === 'https:'}, getRequestHost(event)),
+        // The workspace a page or session acts in, for the workspace's own rows (ORR-1107); the API checks it's one the
+        // asker is in.
+        ...workspaceHeader(getHeader(event, 'orrery-workspace')),
     }
+}
+
+/** `Orrery-Workspace` as it came, when it came: the API answers 404 for one that isn't the asker's, so it's only held
+ * to a header's printable ASCII here. */
+export function workspaceHeader(sent: string | undefined): Record<string, string> {
+    const workspace = sent?.trim()
+    return workspace && /^[\x21-\x7e]{1,64}$/.test(workspace) ? {'Orrery-Workspace': workspace} : {}
 }
 
 /** `/mcp`, orrery's MCP tools over streamable HTTP, which only the Rust API serves (ORR-1098, ORR-1102). */

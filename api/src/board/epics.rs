@@ -132,11 +132,18 @@ pub struct Epics<'c> {
     pub effects: Effects,
     /// Set for a write: what it sets off goes into the outbox in its transaction (ORR-929).
     pub outbox: Option<Outbox>,
+    /// The workspace whose epics these are (ORR-1107): another's are as if they weren't here.
+    pub workspace: String,
 }
 
 impl<'c> Epics<'c> {
     pub fn new(conn: &'c mut AnyConnection) -> Self {
-        Epics { conn, effects: Effects::default(), outbox: None }
+        Epics { conn, effects: Effects::default(), outbox: None, workspace: "default".into() }
+    }
+
+    /// The epics of `workspace`.
+    pub fn of(conn: &'c mut AnyConnection, workspace: String) -> Self {
+        Epics { workspace, ..Epics::new(conn) }
     }
 
     async fn uid(&mut self) -> Result<String> {
@@ -154,8 +161,9 @@ impl<'c> Epics<'c> {
     }
 
     async fn row(&mut self, id: i64) -> Result<AnyRow> {
-        sqlx::query(&sql(&format!("SELECT {COLUMNS} FROM epics WHERE id = ?")))
+        sqlx::query(&sql(&format!("SELECT {COLUMNS} FROM epics WHERE id = ? AND workspace = ?")))
             .bind(id)
+            .bind(&self.workspace)
             .fetch_optional(&mut *self.conn)
             .await?
             .ok_or_else(|| ApiError::not_found(format!("No epic {id}: GET /api/epics lists them")))
@@ -175,7 +183,10 @@ impl<'c> Epics<'c> {
     /// Every epic, in the order they're arranged in, a new one on top, each with its progress and each project's part
     /// (`epics`).
     pub async fn list(&mut self) -> Result<Value> {
-        let rows = sqlx::query(&format!("SELECT {COLUMNS} FROM epics ORDER BY position, id DESC")).fetch_all(&mut *self.conn).await?;
+        let rows = sqlx::query(&sql(&format!("SELECT {COLUMNS} FROM epics WHERE workspace = ? ORDER BY position, id DESC")))
+            .bind(&self.workspace)
+            .fetch_all(&mut *self.conn)
+            .await?;
         let ids: Vec<i64> = rows.iter().map(|r| r.get("id")).collect();
         let projects = self.projects_in(None).await?;
         let mut issues = Issues::new(&mut *self.conn);
@@ -252,7 +263,10 @@ impl<'c> Epics<'c> {
     /// Puts the epic at `index` among them (0 the top, past the end the bottom), numbering them all again from 0
     /// (`placeEpic`).
     async fn place(&mut self, id: i64, index: f64) -> Result<()> {
-        let rows = sqlx::query("SELECT CAST(id AS BIGINT) AS id FROM epics ORDER BY position, id DESC").fetch_all(&mut *self.conn).await?;
+        let rows = sqlx::query(&sql("SELECT CAST(id AS BIGINT) AS id FROM epics WHERE workspace = ? ORDER BY position, id DESC"))
+            .bind(&self.workspace)
+            .fetch_all(&mut *self.conn)
+            .await?;
         let mut order: Vec<i64> = rows.iter().map(|r| r.get::<i64, _>("id")).filter(|e| *e != id).collect();
         let at = (index.trunc().max(0.0) as usize).min(order.len());
         order.insert(at, id);
@@ -270,9 +284,13 @@ impl<'c> Epics<'c> {
         let now = stamp();
         changes::begin(self.conn).await?;
         let done: Result<i64> = async {
-            let top: Option<i64> = sqlx::query("SELECT CAST(min(position) AS BIGINT) AS n FROM epics").fetch_one(&mut *self.conn).await?.get("n");
+            let top: Option<i64> = sqlx::query(&sql("SELECT CAST(min(position) AS BIGINT) AS n FROM epics WHERE workspace = ?"))
+                .bind(&self.workspace)
+                .fetch_one(&mut *self.conn)
+                .await?
+                .get("n");
             let row = sqlx::query(&sql(
-                "INSERT INTO epics (title, notes, position, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING CAST(id AS BIGINT) AS id",
+                "INSERT INTO epics (title, notes, position, created_by, owned, created_at, updated_at, workspace) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING CAST(id AS BIGINT) AS id",
             ))
             .bind(&title)
             .bind(notes)
@@ -281,6 +299,7 @@ impl<'c> Epics<'c> {
             .bind(i32::from(actor.owner))
             .bind(&now)
             .bind(&now)
+            .bind(&self.workspace)
             .fetch_one(&mut *self.conn)
             .await?;
             let id: i64 = row.get("id");

@@ -1,5 +1,6 @@
 // Comments on a milestone or an epic: the handlers and the routes they answer (ORR-1048).
 use super::P;
+use crate::access::seen::Seen;
 use crate::board::comments::comment_id;
 use crate::board::epics::Epics;
 use crate::board::threads::{Thread, Threads};
@@ -30,8 +31,10 @@ async fn milestone_thread(threads: &mut Threads<'_>, project: &str, milestone: &
     threads.milestone(project, milestone).await
 }
 
-async fn epic_thread(threads: &mut Threads<'_>, epic: &str) -> Result<Thread> {
-    Ok(Thread::Epic(Epics::new(&mut *threads.conn).epic_id(epic).await?))
+/// An epic of the workspace the request acts in (ORR-1107): another's is a 404.
+async fn epic_thread(threads: &mut Threads<'_>, epic: &str, headers: &HeaderMap) -> Result<Thread> {
+    let workspace = Seen::workspace(&mut *threads.conn, headers).await?;
+    Ok(Thread::Epic(Epics::of(&mut *threads.conn, workspace).epic_id(epic).await?))
 }
 
 async fn list_milestone_comments(State(app): Shared, Path((project, milestone)): Path<(String, String)>) -> Result<Response> {
@@ -41,10 +44,10 @@ async fn list_milestone_comments(State(app): Shared, Path((project, milestone)):
     Ok(Json(threads.list(&thread).await?).into_response())
 }
 
-async fn list_epic_comments(State(app): Shared, Path(epic): Path<String>) -> Result<Response> {
+async fn list_epic_comments(State(app): Shared, Path(epic): Path<String>, headers: HeaderMap) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
     let mut threads = Threads::new(&mut conn);
-    let thread = epic_thread(&mut threads, &epic).await?;
+    let thread = epic_thread(&mut threads, &epic, &headers).await?;
     Ok(Json(threads.list(&thread).await?).into_response())
 }
 
@@ -80,7 +83,7 @@ async fn create_milestone_comment(State(app): Shared, Path((project, milestone))
 async fn create_epic_comment(State(app): Shared, Path(epic): Path<String>, headers: HeaderMap, body: Bytes) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
     let mut threads = Threads::new(&mut conn);
-    let thread = epic_thread(&mut threads, &epic).await?;
+    let thread = epic_thread(&mut threads, &epic, &headers).await?;
     add_to_thread(threads, thread, &headers, &body).await
 }
 
@@ -100,7 +103,7 @@ async fn patch_milestone_comment(
 async fn patch_epic_comment(State(app): Shared, Path((epic, comment)): Path<(String, String)>, headers: HeaderMap, body: Bytes) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
     let mut threads = Threads::new(&mut conn);
-    let thread = epic_thread(&mut threads, &epic).await?;
+    let thread = epic_thread(&mut threads, &epic, &headers).await?;
     let id = comment_id(&comment)?;
     edit_in_thread(threads, thread, id, &headers, &body).await
 }
@@ -120,7 +123,7 @@ async fn delete_milestone_comment(
 async fn delete_epic_comment(State(app): Shared, Path((epic, comment)): Path<(String, String)>, headers: HeaderMap) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
     let mut threads = Threads::new(&mut conn);
-    let thread = epic_thread(&mut threads, &epic).await?;
+    let thread = epic_thread(&mut threads, &epic, &headers).await?;
     let id = comment_id(&comment)?;
     remove_from_thread(threads, thread, id, &headers).await
 }
