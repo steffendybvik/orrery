@@ -25,6 +25,7 @@ async function standInProvider() {
     const jwk = {...await exportJWK(publicKey), kid: 'one', alg: 'RS256', use: 'sig'}
     const issued: Issued = {nonce: ''}
     const posts: URLSearchParams[] = []
+    const auths: (string | undefined)[] = []
     let discovery: Record<string, unknown> = {}
     const server = createServer(async (req, res) => {
         const json = (body: unknown) => res.writeHead(200, {'Content-Type': 'application/json'}).end(JSON.stringify(body))
@@ -33,6 +34,7 @@ async function standInProvider() {
         let body = ''
         for await (const chunk of req) body += chunk
         posts.push(new URLSearchParams(body))
+        auths.push(req.headers.authorization)
         if (issued.token?.none) return json({access_token: 'only-this'})
         const claims = {iss: url, aud: CLIENT, sub: 'account-1', nonce: issued.nonce, ...issued.token?.claims}
         const signing = new SignJWT({nonce: claims.nonce}).setProtectedHeader({alg: 'RS256', kid: 'one'}).setIssuedAt().setExpirationTime('5m').setIssuer(claims.iss).setAudience(claims.aud)
@@ -42,7 +44,7 @@ async function standInProvider() {
     await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
     const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
     return {
-        url, issued, posts,
+        url, issued, posts, auths,
         discover: (document: Record<string, unknown>) => discovery = document,
         close: () => {
             server.closeAllConnections()
@@ -137,14 +139,30 @@ describe('starting a login', () => {
 })
 
 describe('the way back', () => {
-    it('says who the provider vouches for, sending the secret and the verifier for the code', async () => {
+    it('says who the provider vouches for, sending the secret as HTTP Basic and the verifier for the code', async () => {
         const {state, cookie} = await started()
         const event = request({state, code: 'a-code'}, {orrery_oidc: cookie.value})
         expect(await finishOidc(event as never)).toEqual({issuer: provider.url, subject: 'account-1'})
         const {verifier} = JSON.parse(Buffer.from(cookie.value, 'base64url').toString())
-        expect(Object.fromEntries(provider.posts[0]!)).toEqual({grant_type: 'authorization_code', code: 'a-code', redirect_uri: `${ORRERY}/api/auth/oidc/callback`, client_id: CLIENT, client_secret: SECRET, code_verifier: verifier})
+        expect(Object.fromEntries(provider.posts[0]!)).toEqual({grant_type: 'authorization_code', code: 'a-code', redirect_uri: `${ORRERY}/api/auth/oidc/callback`, client_id: CLIENT, code_verifier: verifier})
+        expect(provider.auths[0]).toBe(`Basic ${Buffer.from(`${CLIENT}:${SECRET}`).toString('base64')}`)
         // Good once: the cookie goes, whatever comes of it.
         expect(event.gone).toEqual(['orrery_oidc'])
+    })
+
+    it('sends the secret in the body only to a provider that names client_secret_post and not Basic (ORR-1181)', async () => {
+        provider.discover({token_endpoint_auth_methods_supported: ['client_secret_post']})
+        const {state, cookie} = await started()
+        await finishOidc(request({state, code: 'a-code'}, {orrery_oidc: cookie.value}) as never)
+        expect(provider.posts[0]!.get('client_secret')).toBe(SECRET)
+        expect(provider.auths[0]).toBeUndefined()
+    })
+
+    it('form-encodes the id and secret before Basic, as RFC 6749 asks (ORR-1181)', async () => {
+        const {clientAuth} = await import('../server/utils/oidc')
+        const {headers, form} = clientAuth(['client_secret_basic', 'client_secret_post'], 'my app', 'a:b/c+d')
+        expect(Buffer.from(headers.Authorization!.slice(6), 'base64').toString()).toBe('my+app:a%3Ab%2Fc%2Bd')
+        expect(form).toEqual({client_id: 'my app'})
     })
 
     it('carries the invite through its cookie', async () => {

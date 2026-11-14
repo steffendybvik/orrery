@@ -7,6 +7,7 @@ import {existsSync, mkdirSync, readFileSync, writeFileSync} from 'node:fs'
 import {dirname, resolve} from 'node:path'
 import type {Actor, Store} from './store'
 import {projectEvents} from './events'
+import {inDocker} from './backup-choice'
 
 /** A row of the outbox, as the feed gives it. */
 export interface Change {
@@ -28,9 +29,11 @@ export interface Page {
     gap?: boolean
 }
 
-/** Where the follower keeps its cursor: beside a SQLite file, or in `.data` on Postgres, with the database it's for. */
-export function cursorFile(database: string): string {
-    return /^postgres(ql)?:\/\//.test(database) ? resolve('.data/outbox-cursor.json') : `${resolve(database)}.outbox-cursor.json`
+/** Where the follower keeps its cursor, with the database it's for: beside a SQLite file; on Postgres, in Docker's data
+ * volume, as `orrery.key` is (ORR-1182: the image starts in `/`, where `.data` can't be made), else in `.data`. */
+export function cursorFile(database: string, docker = inDocker()): string {
+    if (!/^postgres(ql)?:\/\//.test(database)) return `${resolve(database)}.outbox-cursor.json`
+    return docker ? '/data/outbox-cursor.json' : resolve('.data/outbox-cursor.json')
 }
 
 /** The cursor saved for `database`; none when there's none, or it's for another one (the owner moved it). */

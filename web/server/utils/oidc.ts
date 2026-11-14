@@ -12,6 +12,16 @@ interface Provider {
     token_endpoint: string
     jwks_uri: string
     issuer: string
+    token_endpoint_auth_methods_supported?: string[]
+}
+
+/** How the client's secret goes to the token endpoint (ORR-1181): HTTP Basic, which every provider must take (RFC 6749
+ * §2.3.1) and which discovery means when it names none, with the id and secret form-encoded first; in the body only for a
+ * provider that names `client_secret_post` and not Basic. */
+export function clientAuth(methods: string[] | undefined, clientId: string, clientSecret: string): {headers: Record<string, string>, form: Record<string, string>} {
+    if (methods?.includes('client_secret_post') && !methods.includes('client_secret_basic')) return {headers: {}, form: {client_id: clientId, client_secret: clientSecret}}
+    const encode = (value: string) => new URLSearchParams({v: value}).toString().slice(2)
+    return {headers: {Authorization: `Basic ${Buffer.from(`${encode(clientId)}:${encode(clientSecret)}`).toString('base64')}`}, form: {client_id: clientId}}
 }
 
 const COOKIE = 'orrery_oidc'
@@ -81,12 +91,13 @@ export async function finishOidc(event: H3Event): Promise<{issuer: string, subje
     if (!kept) throw refused('This login has run out: start again')
     const asked = readKept(kept)
     if (!asked || typeof state !== 'string' || state !== asked.state || typeof code !== 'string') throw refused("This login doesn't match the one this browser started")
-    const {token_endpoint, jwks_uri, issuer} = await provider()
+    const {token_endpoint, jwks_uri, issuer, token_endpoint_auth_methods_supported: methods} = await provider()
     const {clientId, clientSecret} = settings()
+    const auth = clientAuth(methods, clientId, clientSecret)
     const {id_token} = await $fetch<{id_token?: string}>(token_endpoint, {
         method: 'POST',
-        headers: {'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json'},
-        body: new URLSearchParams({grant_type: 'authorization_code', code, redirect_uri: redirectUri(event), client_id: clientId, client_secret: clientSecret, code_verifier: asked.verifier}).toString(),
+        headers: {'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json', ...auth.headers},
+        body: new URLSearchParams({grant_type: 'authorization_code', code, redirect_uri: redirectUri(event), ...auth.form, code_verifier: asked.verifier}).toString(),
     })
     if (!id_token) throw refused('The provider gave no ID token')
     const {payload} = await jwtVerify(id_token, createRemoteJWKSet(new URL(jwks_uri)), {issuer, audience: clientId}).catch(() => {

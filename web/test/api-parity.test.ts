@@ -1989,6 +1989,7 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         let sign: {claims?: Record<string, string>, key?: CryptoKey, none?: boolean} = {}
         let nonce = ''
         const posts: URLSearchParams[] = []
+        const auths: (string | undefined)[] = []
         const provider = createServer(async (req, res) => {
             const json = (body: unknown) => res.writeHead(200, {'Content-Type': 'application/json'}).end(JSON.stringify(body))
             if (req.url === '/.well-known/openid-configuration') return json({issuer: issuer, authorization_endpoint: `${issuer}/authorize?prompt=login`, token_endpoint: `${issuer}/token`, jwks_uri: `${issuer}/jwks`})
@@ -1996,6 +1997,7 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
             let body = ''
             for await (const chunk of req) body += chunk
             posts.push(new URLSearchParams(body))
+            auths.push(req.headers.authorization)
             if (sign.none) return json({access_token: 'only-this'})
             const claims = {iss: issuer, aud: 'orrery-client', sub: 'account-1', nonce, ...sign.claims}
             const token = new SignJWT({nonce: claims.nonce}).setProtectedHeader({alg: 'RS256', kid: 'one'}).setIssuedAt().setExpirationTime('5m').setIssuer(claims.iss).setAudience(claims.aud)
@@ -2063,7 +2065,10 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
             await failed(await back(to.searchParams.get('state')!, cookie), 403, "This account isn't on this orrery: ask its owner for an invite")
             // The code is swapped with the verifier whose challenge was sent.
             const swap = posts.at(-1)!
-            expect(Object.fromEntries(swap)).toMatchObject({grant_type: 'authorization_code', code: 'the-code', client_id: 'orrery-client', client_secret: 'client-secret', redirect_uri: `http://127.0.0.1:${port}/api/auth/oidc/callback`})
+            expect(Object.fromEntries(swap)).toMatchObject({grant_type: 'authorization_code', code: 'the-code', client_id: 'orrery-client', redirect_uri: `http://127.0.0.1:${port}/api/auth/oidc/callback`})
+            // The secret goes as HTTP Basic, not in the body (ORR-1181).
+            expect(swap.has('client_secret')).toBe(false)
+            expect(auths.at(-1)).toBe(`Basic ${Buffer.from('orrery-client:client-secret').toString('base64')}`)
             expect(createHash('sha256').update(swap.get('code_verifier')!).digest('base64url')).toBe(to.searchParams.get('code_challenge'))
 
             // A way back this browser didn't start, or with no cookie, or a token that doesn't check out, is refused.
