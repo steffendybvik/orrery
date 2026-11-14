@@ -92,11 +92,13 @@ pub struct SecretWrites<'c> {
     conn: &'c mut AnyConnection,
     pub effects: Effects,
     pub outbox: Option<Outbox>,
+    /// The workspace whose secrets these are (ORR-1107).
+    pub workspace: String,
 }
 
 impl<'c> SecretWrites<'c> {
     pub fn new(conn: &'c mut AnyConnection) -> Self {
-        SecretWrites { conn, effects: Effects::default(), outbox: None }
+        SecretWrites { conn, effects: Effects::default(), outbox: None, workspace: "default".into() }
     }
 
     /// Keeps the secret `name` as the local app sealed it (`set`, `narrow`): `{value, last4, hosts, projects,
@@ -120,8 +122,8 @@ impl<'c> SecretWrites<'c> {
         fields.done()?;
         changes::begin(self.conn).await?;
         let done = sqlx::query(&sql(
-            "INSERT INTO secrets (name, value, last4, hosts, projects, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-             ON CONFLICT (name) DO UPDATE SET value = excluded.value, last4 = excluded.last4, hosts = excluded.hosts, projects = excluded.projects, updated_at = excluded.updated_at",
+            "INSERT INTO secrets (name, value, last4, hosts, projects, created_by, owned, created_at, updated_at, workspace) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             ON CONFLICT (workspace, name) DO UPDATE SET value = excluded.value, last4 = excluded.last4, hosts = excluded.hosts, projects = excluded.projects, updated_at = excluded.updated_at",
         ))
         .bind(name)
         .bind(value)
@@ -132,6 +134,7 @@ impl<'c> SecretWrites<'c> {
         .bind(i64::from(owned))
         .bind(&at)
         .bind(&at)
+        .bind(&self.workspace)
         .execute(&mut *self.conn)
         .await
         .map(|_| ())
@@ -143,8 +146,8 @@ impl<'c> SecretWrites<'c> {
     pub async fn forget(&mut self, name: &str) -> Result<()> {
         changes::begin(self.conn).await?;
         let done: Result<()> = async {
-            for statement in ["DELETE FROM secrets WHERE name = ?", "DELETE FROM secret_uses WHERE secret = ?"] {
-                sqlx::query(&sql(statement)).bind(name).execute(&mut *self.conn).await?;
+            for statement in ["DELETE FROM secrets WHERE name = ? AND workspace = ?", "DELETE FROM secret_uses WHERE secret = ? AND workspace = ?"] {
+                sqlx::query(&sql(statement)).bind(name).bind(&self.workspace).execute(&mut *self.conn).await?;
             }
             Ok(())
         }
@@ -171,7 +174,7 @@ impl<'c> SecretWrites<'c> {
         changes::begin(self.conn).await?;
         let done: Result<()> = async {
             sqlx::query(&sql(
-                "INSERT INTO secret_uses (secret, method, host, path, project, issue, status, error, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO secret_uses (secret, method, host, path, project, issue, status, error, created_by, created_at, workspace) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             ))
             .bind(name)
             .bind(method)
@@ -183,17 +186,20 @@ impl<'c> SecretWrites<'c> {
             .bind(error)
             .bind(&created_by)
             .bind(created_at)
+            .bind(&self.workspace)
             .execute(&mut *self.conn)
             .await?;
             if let Some(keep) = keep {
                 sqlx::query(&sql(&format!(
-                    "DELETE FROM secret_uses WHERE secret = ? AND created_by = ? AND id NOT IN
-                     (SELECT id FROM (SELECT id FROM secret_uses WHERE secret = ? AND created_by = ? ORDER BY id DESC LIMIT {keep}) AS latest)"
+                    "DELETE FROM secret_uses WHERE secret = ? AND created_by = ? AND workspace = ? AND id NOT IN
+                     (SELECT id FROM (SELECT id FROM secret_uses WHERE secret = ? AND created_by = ? AND workspace = ? ORDER BY id DESC LIMIT {keep}) AS latest)"
                 )))
                 .bind(name)
                 .bind(&created_by)
+                .bind(&self.workspace)
                 .bind(name)
                 .bind(&created_by)
+                .bind(&self.workspace)
                 .execute(&mut *self.conn)
                 .await?;
             }
