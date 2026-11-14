@@ -1,0 +1,32 @@
+# One-off (ORR-1179): an rc.19 image for amd64, pushed as :1.0.0-rc.19-test, to try on a server before the release.
+# Runs only on a push to this branch, which is deleted afterwards; nothing here is merged.
+name: Test image
+
+on:
+  push:
+    branches: [chore/rc19-test-image]
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          target: prod
+          platforms: linux/amd64
+          push: true
+          tags: ghcr.io/${{ github.repository_owner }}/orrery:1.0.0-rc.19-test
+          cache-from: type=gha,scope=image-amd64
