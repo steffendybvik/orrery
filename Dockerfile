@@ -50,6 +50,6 @@ USER node
 ENV HOST=0.0.0.0 PORT=9000 ORRERY_IMAGE=1 NODE_ENV=production NUXT_DATABASE=/data/orrery.db NUXT_API_BIN=/usr/local/bin/orrery-api
 VOLUME /data
 EXPOSE 9000
-HEALTHCHECK --interval=10s --timeout=3s --retries=5 \
+HEALTHCHECK --interval=10s --timeout=3s --start-period=30s --retries=5 \
     CMD node -e "fetch('http://127.0.0.1:9000/healthz').then(r => process.exit(r.ok ? 0 : 1), () => process.exit(1))"
 CMD ["node", "/app/server/index.mjs"]

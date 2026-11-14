@@ -89,7 +89,7 @@ person, with a label that's a person's name counting as `agent`. A session stays
 | `DELETE /keys/:key` | 204: revokes it at once, with the logins it started (and its person's from before 1.0.0-rc.17, which don't record their key). Your own, or anyone's for the owner; a 404 for any other. Only a person, never a session (403) |
 | `POST /invites` | `{person}` → 201 `{url, expires_at}`: the owner's only, a link good once and for a week, whose first login attaches that account to the person. 409 with no login provider |
 
-`GET /healthz`, outside `/api`, answers `{ok: true}` with no credential, for a container's health check.
+`GET /healthz`, outside `/api`, answers `{ok: true}` with no credential, for a container's health check, while the Rust API answers too, and 503 with `{ok: false}` when it doesn't, as every board request fails then.
 
 ## Who can delete what
 
