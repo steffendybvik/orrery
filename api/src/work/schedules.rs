@@ -50,6 +50,9 @@ pub struct Schedules<'c> {
     /// A change that comes from the schedule across projects a schedule is made from, which may change more of it than
     /// pausing it (`asAcross`).
     as_across: bool,
+    /// The workspace whose schedules across projects these are (ORR-1107): one for every project is for every project
+    /// of it alone.
+    pub workspace: String,
 }
 
 /// What a write needs of a schedule's row: whether it's the owner's, the schedule across projects it's made from, and
@@ -212,7 +215,12 @@ fn across_refused(actor: &Actor) -> ApiError {
 
 impl<'c> Schedules<'c> {
     pub fn new(conn: &'c mut AnyConnection) -> Self {
-        Schedules { conn, effects: Effects::default(), outbox: None, dry: false, across: None, as_across: false }
+        Schedules { conn, effects: Effects::default(), outbox: None, dry: false, across: None, as_across: false, workspace: "default".into() }
+    }
+
+    /// The same, for the schedules across projects of `workspace` (ORR-1107).
+    pub fn within(self, workspace: String) -> Self {
+        Schedules { workspace, ..self }
     }
 
     /// The schedule's row as a write needs it (`row`), or a 404.
@@ -557,7 +565,8 @@ impl<'c> Schedules<'c> {
         let (projects, skip, fields) = across_input(body)?;
         let projects = projects.ok_or_else(|| ApiError::bad_request("Send \"projects\": \"*\" for all of them, or a list of ids"))?;
         let skip = skip.unwrap_or_default();
-        let targets = self.across_targets(&projects, &skip, false).await?;
+        let workspace = self.workspace.clone();
+        let targets = self.across_targets(&workspace, &projects, &skip, false).await?;
         if targets.is_empty() {
             return Err(ApiError::bad_request("That leaves no project for it to run on"));
         }
@@ -569,7 +578,7 @@ impl<'c> Schedules<'c> {
         changes::begin(self.conn).await?;
         let done: Result<i64> = async {
             let row = sqlx::query(&sql(
-                "INSERT INTO schedules_across (projects, skip, body, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?) RETURNING CAST(id AS BIGINT) AS id",
+                "INSERT INTO schedules_across (projects, skip, body, created_by, created_at, updated_at, workspace) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING CAST(id AS BIGINT) AS id",
             ))
             .bind(projects_text(&projects))
             .bind(json!(skip).to_string())
@@ -577,6 +586,7 @@ impl<'c> Schedules<'c> {
             .bind(&actor.name)
             .bind(&now)
             .bind(&now)
+            .bind(&workspace)
             .fetch_one(&mut *self.conn)
             .await?;
             Ok(row.get("id"))
@@ -595,8 +605,9 @@ impl<'c> Schedules<'c> {
         }
         let missing = || ApiError::not_found(format!("No schedule across projects {}", sent.parse::<i64>().map_or("NaN".into(), |n| n.to_string())));
         let id = sent.parse::<i64>().map_err(|_| missing())?;
-        let row = sqlx::query(&sql("SELECT projects, skip, body FROM schedules_across WHERE id = ?"))
+        let row = sqlx::query(&sql("SELECT projects, skip, body FROM schedules_across WHERE id = ? AND workspace = ?"))
             .bind(id)
+            .bind(&self.workspace)
             .fetch_optional(&mut *self.conn)
             .await?
             .ok_or_else(missing)?;
@@ -616,7 +627,8 @@ impl<'c> Schedules<'c> {
         let stored: String = row.get("projects");
         let projects = projects.unwrap_or_else(|| if stored == "*" { Projects::Every } else { Projects::Named(string_list(&parsed(&stored))) });
         let skip = skip.unwrap_or_else(|| string_list(&parsed(&row.get::<String, _>("skip"))));
-        let targets = self.across_targets(&projects, &skip, false).await?;
+        let workspace = self.workspace.clone();
+        let targets = self.across_targets(&workspace, &projects, &skip, false).await?;
         let copies = self.copies(id).await?;
         let fields = Value::Object(fields);
         let merged = Value::Object(merged);
@@ -656,12 +668,15 @@ impl<'c> Schedules<'c> {
     /// project added since, and removes those no longer named. Goes on past one that can't be made (a preset gone), to
     /// try again next time.
     async fn settle_across(&mut self, uid: &str) -> Result<()> {
-        let rows = sqlx::query("SELECT CAST(id AS BIGINT) AS id, projects, skip, body, created_by FROM schedules_across").fetch_all(&mut *self.conn).await?;
+        let rows = sqlx::query("SELECT CAST(id AS BIGINT) AS id, projects, skip, body, created_by, workspace FROM schedules_across")
+            .fetch_all(&mut *self.conn)
+            .await?;
         for row in &rows {
             let id: i64 = row.get("id");
             let stored: String = row.get("projects");
             let projects = if stored == "*" { Projects::Every } else { Projects::Named(string_list(&parsed(&stored))) };
-            let targets = self.across_targets(&projects, &string_list(&parsed(&row.get::<String, _>("skip"))), true).await?;
+            let workspace: String = row.get("workspace");
+            let targets = self.across_targets(&workspace, &projects, &string_list(&parsed(&row.get::<String, _>("skip"))), true).await?;
             let copies = self.copies(id).await?;
             for (copy, project) in copies.iter().filter(|(_, p)| !targets.contains(p)) {
                 if !self.effects.schedules.contains(project) {
@@ -685,10 +700,16 @@ impl<'c> Schedules<'c> {
         Ok(())
     }
 
-    /// The projects named, what opted out left out (`acrossTargets`); one named that's gone is refused, or with `lenient`
-    /// passed over.
-    async fn across_targets(&mut self, projects: &Projects, skip: &[String], lenient: bool) -> Result<Vec<String>> {
-        let every: Vec<String> = sqlx::query("SELECT id FROM projects ORDER BY id").fetch_all(&mut *self.conn).await?.iter().map(|r| r.get("id")).collect();
+    /// The projects named, what opted out left out (`acrossTargets`), all in `workspace` (ORR-1107); one named that's
+    /// gone, or in another workspace, is refused, or with `lenient` passed over.
+    async fn across_targets(&mut self, workspace: &str, projects: &Projects, skip: &[String], lenient: bool) -> Result<Vec<String>> {
+        let every: Vec<String> = sqlx::query(&sql("SELECT id FROM projects WHERE workspace = ? ORDER BY id"))
+            .bind(workspace)
+            .fetch_all(&mut *self.conn)
+            .await?
+            .iter()
+            .map(|r| r.get("id"))
+            .collect();
         Ok(match projects {
             Projects::Every => every.into_iter().filter(|id| !skip.contains(id)).collect(),
             Projects::Named(named) => {
@@ -729,7 +750,13 @@ impl<'c> Schedules<'c> {
         }
         let missing = || ApiError::not_found(format!("No schedule across projects {}", sent.parse::<i64>().map_or("NaN".into(), |n| n.to_string())));
         let id = sent.parse::<i64>().map_err(|_| missing())?;
-        if sqlx::query(&sql("SELECT 1 FROM schedules_across WHERE id = ?")).bind(id).fetch_optional(&mut *self.conn).await?.is_none() {
+        if sqlx::query(&sql("SELECT 1 FROM schedules_across WHERE id = ? AND workspace = ?"))
+            .bind(id)
+            .bind(&self.workspace)
+            .fetch_optional(&mut *self.conn)
+            .await?
+            .is_none()
+        {
             return Err(missing());
         }
         let copies: Vec<(i64, String)> = sqlx::query(&sql("SELECT CAST(id AS BIGINT) AS id, project FROM schedules WHERE across = ? ORDER BY id"))
@@ -996,9 +1023,12 @@ impl<'c> Schedules<'c> {
 
     /// Every schedule across projects, oldest first (`listAcross`), each with the projects it's made on.
     pub async fn across(&mut self) -> Result<Value> {
-        let rows = sqlx::query("SELECT CAST(id AS BIGINT) AS id, projects, skip, body, created_by, created_at, updated_at FROM schedules_across ORDER BY id")
-            .fetch_all(&mut *self.conn)
-            .await?;
+        let rows = sqlx::query(&sql(
+            "SELECT CAST(id AS BIGINT) AS id, projects, skip, body, created_by, created_at, updated_at FROM schedules_across WHERE workspace = ? ORDER BY id",
+        ))
+        .bind(&self.workspace)
+        .fetch_all(&mut *self.conn)
+        .await?;
         let mut out = Vec::new();
         for row in &rows {
             let id: i64 = row.get("id");

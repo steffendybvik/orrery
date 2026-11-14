@@ -280,3 +280,28 @@ async fn only_the_local_app_seeds_them() {
     assert_eq!(reply.status, 403, "{}", reply.body);
     assert_eq!(api.count("SELECT COUNT(*) FROM presets").await, 0);
 }
+
+/// A preset is its workspace's (ORR-1107): the workspace's own are listed in it alone, a project's own goes with its
+/// project's workspace, and another workspace's is a 404.
+#[tokio::test]
+async fn a_preset_is_its_workspaces() {
+    let api = TestApi::new().await;
+    api.team().await;
+    let primes = api.project("Primes").await;
+    let rockets = api.acme(&["steffen"]).await;
+    let ours = make(&api, "/api/presets", json!({"name": "Careful", "text": "Go slowly."})).await;
+    let theirs = api.post("/api/presets", json!({"name": "Launch", "text": "Count down."})).header("orrery-workspace", "acme").send().await;
+    assert_eq!(theirs.status, 201, "{}", theirs.body);
+    make(&api, &format!("/api/projects/{rockets}/presets"), json!({"name": "Fuel", "text": "Check it."})).await;
+
+    assert_eq!(names(&api.get("/api/presets").send().await.body), ["Careful"]);
+    assert_eq!(names(&api.get("/api/presets").header("orrery-workspace", "acme").send().await.body), ["Launch"]);
+    assert_eq!(names(&api.get(&format!("/api/projects/{primes}/presets")).send().await.body), ["Careful"]);
+    assert_eq!(names(&api.get(&format!("/api/projects/{rockets}/presets")).send().await.body), ["Launch", "Fuel"]);
+
+    let id = theirs.body["id"].as_i64().unwrap();
+    assert_eq!(api.delete(&format!("/api/presets/{id}")).send().await.status, 404, "from default, Acme's isn't there");
+    assert_eq!(api.delete(&format!("/api/presets/{id}")).header("orrery-workspace", "acme").send().await.status, 204);
+    let ours = ours["id"].as_i64().unwrap();
+    assert_eq!(api.patch(&format!("/api/presets/{ours}"), json!({"name": "Slow"})).header("orrery-workspace", "acme").send().await.status, 404);
+}

@@ -135,11 +135,19 @@ pub(crate) struct EventLog<'c> {
     effects: Effects,
     /// Set for a resolve: each line it changed goes into the outbox in its transaction (ORR-929).
     pub outbox: Option<Outbox>,
+    /// The workspace whose lines these are (ORR-1107): a line naming a project is its project's workspace's, one
+    /// naming none this one's. Listing and resolving keep to it.
+    pub workspace: String,
 }
 
 impl<'c> EventLog<'c> {
     pub fn new(conn: &'c mut AnyConnection) -> Self {
-        EventLog { conn, effects: Effects::default(), outbox: None }
+        EventLog { conn, effects: Effects::default(), outbox: None, workspace: "default".into() }
+    }
+
+    /// The lines of `workspace`.
+    pub fn of(conn: &'c mut AnyConnection, workspace: String) -> Self {
+        EventLog { workspace, ..EventLog::new(conn) }
     }
 
     /// What the last resolve set off, for its reply.
@@ -190,10 +198,12 @@ impl<'c> EventLog<'c> {
         details: Option<String>,
         activity: bool,
     ) -> Result<Value> {
+        let workspace = self.workspace_of(project).await?;
         let again = !activity
             && sqlx::query(&sql(
-                "SELECT id FROM events WHERE level = ? AND kind = ? AND coalesce(project, '') = ? AND message = ? AND resolved_at IS NULL LIMIT 1",
+                "SELECT id FROM events WHERE workspace = ? AND level = ? AND kind = ? AND coalesce(project, '') = ? AND message = ? AND resolved_at IS NULL LIMIT 1",
             ))
+            .bind(&workspace)
             .bind(level)
             .bind(kind)
             .bind(project.unwrap_or_default())
@@ -203,7 +213,7 @@ impl<'c> EventLog<'c> {
             .is_some();
         let at = stamp();
         let row = sqlx::query(&sql(&format!(
-            "INSERT INTO events (level, kind, project, subject, message, details, count, first_seen, last_seen) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?) \
+            "INSERT INTO events (level, kind, project, subject, message, details, count, first_seen, last_seen, workspace) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?) \
              RETURNING {COLUMNS}"
         )))
         .bind(level)
@@ -214,6 +224,7 @@ impl<'c> EventLog<'c> {
         .bind(details)
         .bind(&at)
         .bind(&at)
+        .bind(&workspace)
         .fetch_one(&mut *self.conn)
         .await?;
         let event = event_of(&row);
@@ -223,6 +234,13 @@ impl<'c> EventLog<'c> {
         }
         self.effects.logged.push(told);
         Ok(json!({"event": event, "fresh": !again}))
+    }
+
+    /// The workspace a line about `project` is in: the project's, or this log's for one naming none (or one gone).
+    async fn workspace_of(&mut self, project: Option<&str>) -> Result<String> {
+        let Some(project) = project else { return Ok(self.workspace.clone()) };
+        let row = sqlx::query(&sql("SELECT workspace FROM projects WHERE id = ?")).bind(project).fetch_optional(&mut *self.conn).await?;
+        Ok(row.map(|r| r.get::<String, _>("workspace")).unwrap_or_else(|| self.workspace.clone()))
     }
 
     /// Lets go of what's old: info after KEEP_INFO days, the rest after KEEP_PROBLEMS, and the oldest past MAX_ACTIVITY
@@ -253,8 +271,8 @@ impl<'c> EventLog<'c> {
 
     /// The lines that match, newest first (by when they were last seen).
     pub(crate) async fn list(&mut self, filter: &Filter<'_>) -> Result<Value> {
-        let mut wheres: Vec<String> = vec![];
-        let mut binds: Vec<String> = vec![];
+        let mut wheres: Vec<String> = vec!["workspace = ?".into()];
+        let mut binds: Vec<String> = vec![self.workspace.clone()];
         if let Some(level) = filter.level.filter(|l| !l.is_empty()) {
             let levels: Vec<&str> = level.split(',').map(str::trim).filter(|l| !l.is_empty()).collect();
             if let Some(wrong) = levels.iter().find(|l| !LEVELS.contains(l)) {
@@ -285,7 +303,7 @@ impl<'c> EventLog<'c> {
         if filter.open {
             wheres.push("resolved_at IS NULL".into());
         }
-        let wheres = if wheres.is_empty() { String::new() } else { format!("WHERE {}", wheres.join(" AND ")) };
+        let wheres = format!("WHERE {}", wheres.join(" AND "));
         let statement = sql(&format!("SELECT {COLUMNS} FROM events {wheres} ORDER BY last_seen DESC, id DESC LIMIT {}", limit_of(filter.limit)));
         let mut query = sqlx::query(&statement);
         for bind in &binds {
@@ -308,11 +326,12 @@ impl<'c> EventLog<'c> {
         let who = (!by.owner).then(|| by.name.clone());
         let row = sqlx::query(&sql(&format!(
             "UPDATE events SET resolved_by = CASE WHEN resolved_at IS NULL THEN ? ELSE resolved_by END, resolved_at = coalesce(resolved_at, ?) \
-             WHERE id = ? RETURNING {COLUMNS}"
+             WHERE id = ? AND workspace = ? RETURNING {COLUMNS}"
         )))
         .bind(who.clone())
         .bind(&at)
         .bind(id)
+        .bind(&self.workspace)
         .fetch_optional(&mut *self.conn)
         .await?
         .ok_or_else(|| ApiError::not_found(format!("No event {id}")))?;
@@ -321,7 +340,7 @@ impl<'c> EventLog<'c> {
             (row.get("level"), row.get("kind"), row.get("project"), row.get("message"));
         let repeats = sqlx::query(&sql(&format!(
             "UPDATE events SET resolved_at = ?, resolved_by = ? WHERE resolved_at IS NULL AND level = ? AND kind = ? \
-             AND coalesce(project, '') = ? AND message = ? RETURNING {COLUMNS}"
+             AND coalesce(project, '') = ? AND message = ? AND workspace = ? RETURNING {COLUMNS}"
         )))
         .bind(&at)
         .bind(who)
@@ -329,6 +348,7 @@ impl<'c> EventLog<'c> {
         .bind(&kind)
         .bind(project.unwrap_or_default())
         .bind(&message)
+        .bind(&self.workspace)
         .fetch_all(&mut *self.conn)
         .await?;
         // In the order the store hears them: the repeats, then the line itself.

@@ -211,7 +211,8 @@ async fn delete_schedule(State(app): Shared, Path((project, schedule)): Path<(St
 /// A schedule across projects shows only the projects seen, and none it's made on none of (ORR-1106).
 async fn schedules_across(State(app): Shared, headers: HeaderMap) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
-    let mut value = Schedules::new(&mut conn).across().await?;
+    let workspace = Seen::workspace(&mut conn, &headers).await?;
+    let mut value = Schedules::new(&mut conn).within(workspace).across().await?;
     let hidden = Seen::of(&mut conn, &headers).await?.hidden(&mut conn).await?;
     if !hidden.is_empty() {
         if let Value::Array(across) = &mut value {
@@ -237,7 +238,8 @@ async fn create_across(State(app): Shared, headers: HeaderMap, body: Bytes) -> R
     let mut conn = app.pool.acquire().await?;
     let uid = Presets::new(&mut conn).uid().await?;
     let actor = actor_of(&headers);
-    let mut schedules = Schedules::new(&mut conn);
+    let workspace = Seen::workspace(&mut conn, &headers).await?;
+    let mut schedules = Schedules::new(&mut conn).within(workspace);
     schedules.outbox = Some(Outbox::new(actor.clone()));
     let made = schedules.create_across(&body_of(&body), &uid, &actor).await?;
     Ok(reply(StatusCode::CREATED, Some(made), std::mem::take(&mut schedules.effects)))
@@ -249,7 +251,8 @@ async fn update_across(State(app): Shared, Path(across): Path<String>, headers: 
     let mut conn = app.pool.acquire().await?;
     let uid = Presets::new(&mut conn).uid().await?;
     let actor = actor_of(&headers);
-    let mut schedules = Schedules::new(&mut conn);
+    let workspace = Seen::workspace(&mut conn, &headers).await?;
+    let mut schedules = Schedules::new(&mut conn).within(workspace);
     schedules.outbox = Some(Outbox::new(actor.clone()));
     let changed = schedules.update_across(&across, &body_of(&body), &uid, &actor).await?;
     Ok(reply(StatusCode::OK, Some(changed), std::mem::take(&mut schedules.effects)))
@@ -258,7 +261,8 @@ async fn update_across(State(app): Shared, Path(across): Path<String>, headers: 
 async fn delete_across(State(app): Shared, Path(across): Path<String>, headers: HeaderMap) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
     let actor = actor_of(&headers);
-    let mut schedules = Schedules::new(&mut conn);
+    let workspace = Seen::workspace(&mut conn, &headers).await?;
+    let mut schedules = Schedules::new(&mut conn).within(workspace);
     schedules.outbox = Some(Outbox::new(actor.clone()));
     schedules.delete_across(&across, &actor).await?;
     Ok(reply(StatusCode::NO_CONTENT, None, std::mem::take(&mut schedules.effects)))

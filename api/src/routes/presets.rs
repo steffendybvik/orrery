@@ -1,5 +1,6 @@
 // Session presets: the handlers and the routes they answer (ORR-1048).
 use super::P;
+use crate::access::seen::Seen;
 use crate::error::{ApiError, Result};
 use crate::reply::reply;
 use crate::request::{actor_of, body_of, came_of};
@@ -25,9 +26,10 @@ pub(crate) fn routes() -> Router<Arc<App>> {
         .route(&format!("{P}/presets"), get(list_project_presets).post(create_project_preset))
 }
 
-async fn list_presets(State(app): Shared) -> Result<Response> {
+async fn list_presets(State(app): Shared, headers: HeaderMap) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
-    Ok(Json(Presets::new(&mut conn).list(None).await?).into_response())
+    let workspace = Seen::workspace(&mut conn, &headers).await?;
+    Ok(Json(Presets::of(&mut conn, workspace).list(None).await?).into_response())
 }
 
 async fn list_project_presets(State(app): Shared, Path(project): Path<String>) -> Result<Response> {
@@ -37,7 +39,8 @@ async fn list_project_presets(State(app): Shared, Path(project): Path<String>) -
 
 async fn create_preset(State(app): Shared, headers: HeaderMap, body: Bytes) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
-    let preset = Presets::new(&mut conn).create(None, &body_of(&body), &actor_of(&headers)).await?;
+    let workspace = Seen::workspace(&mut conn, &headers).await?;
+    let preset = Presets::of(&mut conn, workspace).create(None, &body_of(&body), &actor_of(&headers)).await?;
     Ok(reply(StatusCode::CREATED, Some(preset), Effects::default()))
 }
 
@@ -55,14 +58,16 @@ async fn preset_named(presets: &mut Presets<'_>, sent: &str) -> Result<i64> {
 
 async fn patch_preset(State(app): Shared, Path(preset): Path<String>, headers: HeaderMap, body: Bytes) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
-    let mut presets = Presets::new(&mut conn);
+    let workspace = Seen::workspace(&mut conn, &headers).await?;
+    let mut presets = Presets::of(&mut conn, workspace);
     let id = preset_named(&mut presets, &preset).await?;
     Ok(Json(presets.update(id, &body_of(&body), &actor_of(&headers)).await?).into_response())
 }
 
 async fn delete_preset(State(app): Shared, Path(preset): Path<String>, headers: HeaderMap) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
-    let mut presets = Presets::new(&mut conn);
+    let workspace = Seen::workspace(&mut conn, &headers).await?;
+    let mut presets = Presets::of(&mut conn, workspace);
     let id = preset_named(&mut presets, &preset).await?;
     presets.delete(id, &actor_of(&headers)).await?;
     Ok(reply(StatusCode::NO_CONTENT, None, Effects::default()))
@@ -70,14 +75,16 @@ async fn delete_preset(State(app): Shared, Path(preset): Path<String>, headers: 
 
 async fn reset_preset(State(app): Shared, Path(preset): Path<String>, headers: HeaderMap) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
-    let mut presets = Presets::new(&mut conn);
+    let workspace = Seen::workspace(&mut conn, &headers).await?;
+    let mut presets = Presets::of(&mut conn, workspace);
     let id = preset_named(&mut presets, &preset).await?;
     Ok(Json(presets.reset(id, &actor_of(&headers)).await?).into_response())
 }
 
 async fn restore_presets(State(app): Shared, headers: HeaderMap) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
-    Ok(Json(Presets::new(&mut conn).restore(&actor_of(&headers)).await?).into_response())
+    let workspace = Seen::workspace(&mut conn, &headers).await?;
+    Ok(Json(Presets::of(&mut conn, workspace).restore(&actor_of(&headers)).await?).into_response())
 }
 
 /// `POST /api/presets/seed` → `{added}`: the presets orrery ships that this orrery hasn't had yet, added as the Nuxt
