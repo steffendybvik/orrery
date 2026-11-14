@@ -14,9 +14,7 @@ use sqlx::Row;
 use std::sync::Arc;
 
 pub(crate) fn routes() -> Router<Arc<App>> {
-    Router::new()
-        .route("/api/database", get(state))
-        .route("/api/database/compact", post(compact))
+    Router::new().route("/api/database", get(state)).route("/api/database/compact", post(compact))
 }
 
 /// `{fresh, size?}`: `fresh` when it's a new orrery's (no projects, no owner named yet), as the local app asks as it
