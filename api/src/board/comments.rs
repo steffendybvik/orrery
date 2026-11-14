@@ -15,7 +15,7 @@ use sqlx::Row;
 use std::collections::HashMap;
 
 /// Who orrery's own comments are by (`ORRERY` in web/server/store/schema.ts).
-const ORRERY: &str = "orrery";
+pub(crate) const ORRERY: &str = "orrery";
 
 /// What a person's own words on comment `o` are: the owner's, or a member's (`PERSONS_WORDS`, ORR-658).
 const SINCE: &str = "EXISTS (SELECT 1 FROM comments o WHERE o.project = c.project AND o.issue = c.issue AND (o.owned = 1 OR (o.person IS NOT NULL AND o.by_agent = 0)) AND o.id > c.id)";
