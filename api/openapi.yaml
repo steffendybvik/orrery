@@ -931,6 +931,35 @@ paths:
         '400': {$ref: '#/components/responses/BadRequest'}
         '403': {$ref: '#/components/responses/Forbidden'}
         '409': {$ref: '#/components/responses/Conflict'}
+  /api/workspaces:
+    get:
+      summary: The workspaces you're in
+      description: |
+        `default` first, then by name, each with your role there (ORR-1108). The installation's owner sees only the ones
+        they're a member of; with login off and nobody named, only `default`. A page says which one it's in with
+        `Orrery-Workspace`, from its address.
+      responses:
+        '200': {description: The workspaces, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/Workspace'}}}}}
+    post:
+      summary: Makes a workspace, and you its owner
+      description: Anyone here can make one. Its id comes from the name, with `-2`, `-3`… when that's taken. Nobody signed in can't (403).
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/WorkspaceInput'}}}}
+      responses:
+        '201': {description: The workspace, content: {application/json: {schema: {$ref: '#/components/schemas/Workspace'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+  /api/workspaces/{workspace}:
+    parameters:
+      - {name: workspace, in: path, required: true, description: The workspace's id, schema: {type: string}}
+    patch:
+      summary: Renames or recolours a workspace, its owners' only
+      description: What isn't sent stays; `color` null takes the colour off. A member is refused (403); one you aren't in is a 404.
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/WorkspaceInput'}}}}
+      responses:
+        '200': {description: The workspace, content: {application/json: {schema: {$ref: '#/components/schemas/Workspace'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
   /api/people/{person}:
     parameters:
       - {name: person, in: path, required: true, description: The person's id, schema: {type: string}}
@@ -2551,6 +2580,19 @@ components:
         name: {type: string, description: Their id, which the page sends as `Orrery-Actor`}
         display: {type: string, description: Their name as the page shows it}
         named: {type: boolean, description: Whether they've given their name yet}
+    Workspace:
+      type: object
+      required: [id, name, color, role]
+      properties:
+        id: {type: string, description: From its name; never changes}
+        name: {type: string}
+        color: {type: [string, 'null'], description: 'One of slate, blue, teal, green, amber, rose, violet, or a #rrggbb'}
+        role: {type: [string, 'null'], enum: [owner, member, null], description: Yours there; null for the server's own work}
+    WorkspaceInput:
+      type: object
+      properties:
+        name: {type: string, minLength: 1, maxLength: 60}
+        color: {type: [string, 'null']}
     Person:
       type: object
       required: [id, name, role, created_at]

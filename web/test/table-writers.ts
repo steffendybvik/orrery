@@ -70,4 +70,5 @@ export const WRITERS: Record<string, Writer> = {
     statuses: {nuxt: UPLOAD, issue: 'ORR-747'},
     uploads: {nuxt: `compressing the images kept before ORR-446 once, and clearing the ones nothing shows after 90 days (store/signals.ts), and ${UPLOAD}`, issue: 'ORR-747'},
     workspace_members: {nuxt: 'naming the owner, who owns the default workspace (store/owner.ts nameOwner)', issue: 'ORR-928'},
+    workspaces: {alone: 'made and changed through /api/workspaces, routed (ORR-1108)'},
 }

@@ -377,6 +377,15 @@ export const PERMISSIONS: Permission[] = [
         member: ownerAlone,
     },
     {
+        id: 'workspaces.write', area: 'This orrery', action: 'Make a workspace, or rename or recolour one',
+        why: 'Anyone here can make a workspace and owns it; only its owners change it (decision-workspaces).',
+        routes: ['POST /api/workspaces', 'PATCH /api/workspaces/:workspace'],
+        session: refused,
+        chat: refused,
+        untrusted: refused,
+        member: {level: 'free', note: 'Changing only the ones they own'},
+    },
+    {
         id: 'keys.write', area: 'This orrery', action: 'Make or revoke a key',
         why: 'A key can’t make or widen a key, so an agent can never become its person. A person handles their own, and the owner issues them to others.',
         routes: ['POST /api/keys', 'DELETE /api/keys/:key'],

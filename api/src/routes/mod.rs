@@ -30,6 +30,7 @@ pub(crate) mod statuses;
 pub(crate) mod threads;
 pub(crate) mod uploads;
 pub(crate) mod usage;
+pub(crate) mod workspaces;
 
 /// A project's routes start here.
 pub(crate) const P: &str = "/api/projects/{project}";
@@ -46,6 +47,7 @@ pub(crate) fn all() -> Router<Arc<App>> {
         .merge(statuses::routes())
         .merge(settings::routes())
         .merge(people::routes())
+        .merge(workspaces::routes())
         .merge(auth::routes())
         .merge(permissions::routes())
         .merge(presets::routes())
