@@ -123,7 +123,7 @@ const here = computed<Entry[]>(() => {
         entries.push({key: 'issue:new', group: 'Issue', label: `New issue in ${p.name}`, hint: 'c', aliases: MAKES, run: () => useNewIssue().open(p.id, route.name === 'p-project-roadmap-milestone' && route.params.milestone !== 'none' ? String(route.params.milestone) : undefined)})
         entries.push({key: 'milestone:new', group: 'Milestone', label: `New milestone in ${p.name}`, aliases: MAKES, run: () => useNewMilestone().open(p.id)})
         entries.push({key: 'doc:new', group: 'Doc', label: `New doc in ${p.name}`, aliases: MAKES, run: () => useNewDoc().open(p.id)})
-        for (const section of sectionsOf(p, route.path).filter(s => !s.active)) {
+        for (const section of sectionsOf(p, pagePath(route.path)).filter(s => !s.active)) {
             entries.push({key: `here:${section.id}`, group: 'Go to', label: `${p.name} ${section.label.toLowerCase()}`, run: () => router.push(section.to)})
         }
     }

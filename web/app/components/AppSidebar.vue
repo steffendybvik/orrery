@@ -179,6 +179,9 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
     nextTick(() => (event.target as HTMLElement).focus())
 }
 
+
+const {current: workspaceHere} = useWorkspaces()
+const workspaceEdge = computed(() => workspaceColor(workspaceHere.value?.color))
 </script>
 
 <template>
@@ -187,6 +190,8 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
       class="fixed inset-0 z-50 flex w-full shrink-0 flex-col bg-panel transition-transform duration-200 max-md:[&_nav_a]:py-2.5 max-md:[&_nav_a]:text-[15px] md:static md:z-auto md:w-64 md:translate-x-0 md:border-r md:border-line"
       :class="open ? 'translate-x-0' : '-translate-x-full'"
   >
+    <!-- The workspace's colour along the top (ORR-1108), so which one a tab is in shows at a glance. -->
+    <div v-if="workspaceEdge" class="h-0.5 shrink-0" :style="{background: workspaceEdge}" data-testid="workspace-edge" />
     <div class="flex h-12 items-center gap-2 px-3">
       <NuxtLink to="/mine" class="flex min-w-0 flex-1 items-center gap-2">
         <div class="grid size-7 shrink-0 place-items-center rounded-lg bg-gradient-to-br from-tile-from to-tile-to shadow-lg shadow-accent-600/30">
@@ -208,6 +213,8 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
       </UiButton>
     </div>
 
+    <WorkspaceSwitcher />
+
     <div class="px-2 pb-2">
       <button type="button" class="flex h-8 w-full items-center gap-2 rounded-lg bg-well px-2.5 text-[13px] text-faint ring-1 ring-line transition-colors hover:text-muted" @click="palette = true">
         <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
@@ -220,7 +227,7 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
       <NuxtLink
           to="/mine"
           class="flex items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] transition-colors"
-          :class="route.path === '/mine' ? 'bg-active font-medium text-fg' : 'text-muted hover:bg-hover hover:text-fg'"
+          :class="pagePath(route.path) === '/mine' ? 'bg-active font-medium text-fg' : 'text-muted hover:bg-hover hover:text-fg'"
       >
         <svg class="size-4 text-faint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4" /><path d="M4 21a8 8 0 0 1 16 0" /></svg>
         <span class="flex-1">My issues</span>
@@ -231,7 +238,7 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
       <NuxtLink
           to="/connect"
           class="flex items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] transition-colors"
-          :class="route.path === '/connect' ? 'bg-active font-medium text-fg' : 'text-muted hover:bg-hover hover:text-fg'"
+          :class="pagePath(route.path) === '/connect' ? 'bg-active font-medium text-fg' : 'text-muted hover:bg-hover hover:text-fg'"
       >
         <svg class="size-4 text-faint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 7H7a5 5 0 0 0 0 10h2M15 7h2a5 5 0 0 1 0 10h-2M8 12h8" /></svg>
         <span class="flex-1">Connect an agent</span>
@@ -241,7 +248,7 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
       <NuxtLink
           to="/sessions"
           class="flex items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] transition-colors"
-          :class="route.path === '/sessions' ? 'bg-active font-medium text-fg' : 'text-muted hover:bg-hover hover:text-fg'"
+          :class="pagePath(route.path) === '/sessions' ? 'bg-active font-medium text-fg' : 'text-muted hover:bg-hover hover:text-fg'"
       >
         <SectionIcon section="sessions" class="size-4 text-faint" />
         <span class="flex-1">Sessions</span>
@@ -251,7 +258,7 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
       <NuxtLink
           to="/schedules"
           class="flex items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] transition-colors"
-          :class="route.path === '/schedules' ? 'bg-active font-medium text-fg' : 'text-muted hover:bg-hover hover:text-fg'"
+          :class="pagePath(route.path) === '/schedules' ? 'bg-active font-medium text-fg' : 'text-muted hover:bg-hover hover:text-fg'"
       >
         <SectionIcon section="schedules" class="size-4 text-faint" />
         <span class="flex-1">Schedules</span>
@@ -262,7 +269,7 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
         <NuxtLink
             to="/events"
             class="flex items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] transition-colors"
-            :class="route.path === '/events' ? 'bg-active font-medium text-fg' : 'text-muted hover:bg-hover hover:text-fg'"
+            :class="pagePath(route.path) === '/events' ? 'bg-active font-medium text-fg' : 'text-muted hover:bg-hover hover:text-fg'"
         >
           <svg class="size-4 text-faint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h16M4 12h10M4 18h7" /><circle cx="18" cy="16" r="3" /></svg>
           <span class="flex-1">Events</span>
@@ -272,7 +279,7 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
         <NuxtLink
             to="/context"
             class="flex items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] transition-colors"
-            :class="route.path === '/context' ? 'bg-active font-medium text-fg' : 'text-muted hover:bg-hover hover:text-fg'"
+            :class="pagePath(route.path) === '/context' ? 'bg-active font-medium text-fg' : 'text-muted hover:bg-hover hover:text-fg'"
         >
           <svg class="size-4 text-faint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19V5M9 19v-8M14 19V9M19 19v-4" /></svg>
           <span class="flex-1">Context</span>
@@ -281,7 +288,7 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
         <NuxtLink
             to="/pulls"
             class="flex items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] transition-colors"
-            :class="route.path === '/pulls' ? 'bg-active font-medium text-fg' : 'text-muted hover:bg-hover hover:text-fg'"
+            :class="pagePath(route.path) === '/pulls' ? 'bg-active font-medium text-fg' : 'text-muted hover:bg-hover hover:text-fg'"
         >
           <svg class="size-4 text-faint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="6" r="2.5" /><circle cx="6" cy="18" r="2.5" /><circle cx="18" cy="18" r="2.5" /><path d="M6 8.5v7M18 15.5V9a3 3 0 0 0-3-3h-4m2-2-2 2 2 2" /></svg>
           <span class="flex-1">Pull requests</span>
@@ -294,7 +301,7 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
       <div class="label mt-4 mb-1 flex items-center gap-1 px-2">
         <!-- The heading is the Projects page's link (ORR-967), with Epics and Releases, which gather work across them, under it.
              It keeps the label's size in the phone drawer, which makes its other links bigger to tap. -->
-        <NuxtLink to="/projects" class="flex-1 hover:text-fg max-md:!py-0 max-md:!text-[length:inherit]" :class="route.path === '/projects' && 'text-fg'">Projects</NuxtLink>
+        <NuxtLink to="/projects" class="flex-1 hover:text-fg max-md:!py-0 max-md:!text-[length:inherit]" :class="pagePath(route.path) === '/projects' && 'text-fg'">Projects</NuxtLink>
         <span v-if="projects.length" class="font-mono normal-case tabular-nums">{{ projects.length }}</span>
         <button
             v-if="projects.length"
@@ -313,7 +320,7 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
       <NuxtLink
           to="/epics"
           class="flex items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] transition-colors"
-          :class="route.path.startsWith('/epics') ? 'bg-active font-medium text-fg' : 'text-muted hover:bg-hover hover:text-fg'"
+          :class="pagePath(route.path).startsWith('/epics') ? 'bg-active font-medium text-fg' : 'text-muted hover:bg-hover hover:text-fg'"
       >
         <SectionIcon section="epics" class="size-4 text-faint" />
         <span class="flex-1">Epics</span>
@@ -321,7 +328,7 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
       <NuxtLink
           to="/releases"
           class="flex items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] transition-colors"
-          :class="route.path === '/releases' ? 'bg-active font-medium text-fg' : 'text-muted hover:bg-hover hover:text-fg'"
+          :class="pagePath(route.path) === '/releases' ? 'bg-active font-medium text-fg' : 'text-muted hover:bg-hover hover:text-fg'"
       >
         <SectionIcon section="releases" class="size-4 text-faint" />
         <span class="flex-1">Releases</span>
@@ -376,7 +383,7 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
         </div>
         <div v-if="isOpen(project.id)" class="mb-2 flex flex-col gap-0.5">
           <NuxtLink
-              v-for="section in sectionsOf(project, route.path)"
+              v-for="section in sectionsOf(project, pagePath(route.path))"
               :key="section.id"
               :to="section.to"
               class="ml-5 flex items-center gap-2 rounded-lg px-2 py-1 text-[13px] transition-colors"

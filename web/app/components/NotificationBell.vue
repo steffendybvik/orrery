@@ -17,7 +17,7 @@ const label = computed(() => {
   <NuxtLink
       to="/notifications"
       class="relative grid size-7 shrink-0 place-items-center rounded-md transition-colors hover:bg-hover hover:text-fg"
-      :class="route.path === '/notifications' ? 'bg-active text-fg' : 'text-muted'"
+      :class="pagePath(route.path) === '/notifications' ? 'bg-active text-fg' : 'text-muted'"
       :aria-label="label"
       :title="errors ? `${errors} new kind${errors === 1 ? '' : 's'} of error` : waiting.length ? `${waiting.length} waiting on you` : unread ? `${unread} new` : 'Comments from agents'"
   >

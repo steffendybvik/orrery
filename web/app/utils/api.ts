@@ -60,6 +60,12 @@ export function workspaceIn(pathname: string): string | undefined {
     }
 }
 
+/** The page's own path, without the `/w/<workspace>` it's under (ORR-1108): what a link or a highlight compares. */
+export function pagePath(pathname: string): string {
+    const rest = pathname.replace(/^\/w\/[^/?#]+/, '')
+    return pathname === rest ? pathname : rest || '/'
+}
+
 /** `Orrery-Workspace` for this tab's address, for the API's workspace-wide rows (epics, statuses, presets…). */
 function workspaceHeader(): Record<string, string> {
     const workspace = import.meta.client ? workspaceIn(location.pathname) : undefined

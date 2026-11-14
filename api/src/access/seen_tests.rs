@@ -315,3 +315,18 @@ async fn an_mcp_tool_reaches_only_the_askers_workspaces() {
     let bos = with_agent_key(&api, api.post("/mcp", body), "bo", Some("acme")).await.send().await;
     assert_ne!(bos.body["result"]["isError"], true, "{}", bos.body);
 }
+
+/// A page names its address's workspace, and the projects list holds that one alone (ORR-1108); naming one the asker
+/// isn't in changes nothing they'd see.
+#[tokio::test]
+async fn the_projects_list_holds_the_workspace_a_page_names() {
+    let api = TestApi::new().await;
+    let (primes, rockets) = two_workspaces(&api).await;
+    let listed = |workspace: &'static str, person: &'static str| {
+        let api = &api;
+        async move { ids(&api.signed(api.get("/api/projects").header("orrery-workspace", workspace), person).await.send().await.body) }
+    };
+    assert_eq!(listed("acme", "bo").await, std::slice::from_ref(&rockets));
+    assert_eq!(listed("default", "bo").await, std::slice::from_ref(&primes));
+    assert_eq!(listed("acme", "ana").await, std::slice::from_ref(&primes), "ana isn't in Acme: she sees her own");
+}

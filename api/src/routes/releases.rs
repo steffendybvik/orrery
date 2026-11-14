@@ -66,7 +66,7 @@ async fn get_release(State(app): Shared, Path((project, release)): Path<(String,
 async fn all_releases(State(app): Shared, headers: HeaderMap) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
     let mut value = Plans::new(&mut Issues::new(&mut conn)).all_releases().await?;
-    Seen::of(&mut conn, &headers).await?.keep(&mut conn, &mut value, "project").await?;
+    Seen::listed(&mut conn, &headers).await?.keep(&mut conn, &mut value, "project").await?;
     Ok(Json(value).into_response())
 }
 

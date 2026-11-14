@@ -63,7 +63,7 @@ async fn list_projects(State(app): Shared, headers: HeaderMap, Query(query): Que
     let mut conn = app.pool.acquire().await?;
     let boards = query.get("expand").is_some_and(|e| e == "board");
     let mut value = Projects::new(&mut conn).list(boards).await?;
-    Seen::of(&mut conn, &headers).await?.keep(&mut conn, &mut value, "id").await?;
+    Seen::listed(&mut conn, &headers).await?.keep(&mut conn, &mut value, "id").await?;
     if boards {
         let dropped = |key: &str| query.get(key).is_some_and(|v| v == "0");
         let whole: Vec<&str> = query.get("whole").map(|w| w.split(',').collect()).unwrap_or_default();
