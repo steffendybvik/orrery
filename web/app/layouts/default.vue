@@ -58,7 +58,7 @@ const skipToContent = () => main.value?.focus()
     <LazyMessageSessionsDialog v-if="messageAllDialog" :open="messagingAll" @close="messagingAll = false" />
     <LazyMessageSessionDialog v-if="messageOneDialog" />
     <ScheduleMenu />
-    <OwnerDialog />
+    <WelcomeDialog />
     <PermissionPrompts />
     <ImageView />
     <BulkBar />

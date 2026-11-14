@@ -13,6 +13,11 @@ export function inWorkspace(workspace: string, path: string): string {
     return `/w/${encodeURIComponent(workspace)}${path === '/' ? '' : path}`
 }
 
+/** Where this browser keeps that the welcome (ORR-1194) is done or skipped in `workspace`. */
+export function welcomeKey(workspace: string): string {
+    return `orrery-welcome:${workspace}`
+}
+
 // The workspaces you're in, and the one this tab is in (ORR-1108): the tab's address says which (`/w/<workspace>/…`,
 // else `default`, or your first when you aren't in `default`), never anything kept between tabs.
 export function useWorkspaces() {
@@ -39,6 +44,8 @@ export function useWorkspaces() {
     async function make(name: string, color?: string | null) {
         const made = await apiFetch<Workspace>('/workspaces', {method: 'POST', body: {name, ...color ? {color} : {}}})
         list.value = [...list.value, made]
+        // Whoever makes one has just named it and picked its colour: the welcome is for someone new, so not here.
+        localStorage.setItem(welcomeKey(made.id), 'done')
         go(made.id)
         return made
     }
