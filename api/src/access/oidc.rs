@@ -54,6 +54,22 @@ struct Provider {
     token_endpoint: String,
     jwks_uri: String,
     issuer: String,
+    #[serde(default)]
+    token_endpoint_auth_methods_supported: Option<Vec<String>>,
+}
+
+/// How the client's secret goes to the token endpoint (ORR-1181, `clientAuth` in oidc.ts): HTTP Basic, which every
+/// provider must take (RFC 6749 §2.3.1) and which discovery means when it names none, with the id and secret
+/// form-encoded first; in the body only for a provider that names `client_secret_post` and not Basic. The header to
+/// send, if any, and whether the secret goes in the body.
+pub(crate) fn client_auth(methods: Option<&[String]>, client_id: &str, client_secret: &str) -> (Option<String>, bool) {
+    let names = |method: &str| methods.is_some_and(|m| m.iter().any(|x| x == method));
+    if names("client_secret_post") && !names("client_secret_basic") {
+        return (None, true);
+    }
+    let encode = |value: &str| url::form_urlencoded::byte_serialize(value.as_bytes()).collect::<String>();
+    let pair = format!("{}:{}", encode(client_id), encode(client_secret));
+    (Some(format!("Basic {}", base64::engine::general_purpose::STANDARD.encode(pair))), false)
 }
 
 fn trimmed(url: &str) -> &str {
@@ -264,18 +280,21 @@ async fn finish_with(
         return Err(mismatch());
     }
     let text = |key: &str| asked.get(key).and_then(Value::as_str).map(str::to_owned);
-    let Provider { token_endpoint, jwks_uri, issuer, .. } = provider(settings).await?;
+    let Provider { token_endpoint, jwks_uri, issuer, token_endpoint_auth_methods_supported: methods, .. } = provider(settings).await?;
+    let (basic, in_body) = client_auth(methods.as_deref(), &settings.client_id, &settings.client_secret);
     let verifier = text("verifier").unwrap_or_else(|| "undefined".into());
     let back_to = redirect_uri(headers);
-    let form = [
-        ("grant_type", "authorization_code"),
-        ("code", code.as_str()),
-        ("redirect_uri", back_to.as_str()),
-        ("client_id", settings.client_id.as_str()),
-        ("client_secret", settings.client_secret.as_str()),
-        ("code_verifier", verifier.as_str()),
-    ];
-    let answer: Value = fetch_json(client()?.post(&token_endpoint).form(&form)).await?;
+    let mut form =
+        vec![("grant_type", "authorization_code"), ("code", code.as_str()), ("redirect_uri", back_to.as_str()), ("client_id", settings.client_id.as_str())];
+    if in_body {
+        form.push(("client_secret", settings.client_secret.as_str()));
+    }
+    form.push(("code_verifier", verifier.as_str()));
+    let mut request = client()?.post(&token_endpoint).form(&form);
+    if let Some(basic) = basic {
+        request = request.header("Authorization", basic);
+    }
+    let answer: Value = fetch_json(request).await?;
     let Some(id_token) = answer.get("id_token").and_then(Value::as_str).filter(|t| !t.is_empty()) else {
         return Err(refused("The provider gave no ID token"));
     };

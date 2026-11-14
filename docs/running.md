@@ -276,7 +276,7 @@ no provider, give them a person key (`POST /api/keys` with `kind: "person"`, `na
 
 **With more than one person,** an issue's page shows who holds it, for how long and which session is on it, with **Claim**, **Let go** and, for the owner, **Take over**, each in its activity, and a list and a board show the holder. A person's agents only take up what's assigned to them, and their comments, focuses and Todo moves reach only their own sessions. **Work unassigned on a board with more than one person isn't handed to anyone** until someone takes it. The bell and My issues are each person's own. With `ORRERY_AUTH=off`, the sidebar's **Acting as** picks who this browser is, remembered here: it's a name, not a login, and anyone who can reach orrery can say they're anyone.
 
-**A login provider** is any standard OIDC one: set the three `ORRERY_OIDC_…` settings, with `<orrery>/api/auth/oidc/callback` as its redirect address. Its address has to be https unless it's on this machine. Your own account attaches the way anyone's does: claim it, sign in with the key, and invite yourself.
+**A login provider** is any standard OIDC one: set the three `ORRERY_OIDC_…` settings, with `<orrery>/api/auth/oidc/callback` as its redirect address. orrery sends its client secret as HTTP Basic (`client_secret_basic`), or in the request's body for a provider whose discovery offers only `client_secret_post`. Its address has to be https unless it's on this machine. Your own account attaches the way anyone's does: claim it, sign in with the key, and invite yourself.
 
 **If the provider's address changes,** move the logins, and nobody needs a new invite:
 
