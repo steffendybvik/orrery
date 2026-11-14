@@ -110,7 +110,11 @@ async fn the_event_log_holds_only_the_askers_workspaces() {
     let (primes, rockets) = two_workspaces(&api).await;
     let at = "2026-11-14T00:00:00.000Z";
     for project in [&primes, &rockets] {
-        api.run("INSERT INTO events (level, kind, project, message, count, first_seen, last_seen) VALUES ('info', 'note', ?, 'Moved', 1, ?, ?)", &[project, at, at]).await;
+        api.run(
+            "INSERT INTO events (level, kind, project, message, count, first_seen, last_seen) VALUES ('info', 'note', ?, 'Moved', 1, ?, ?)",
+            &[project, at, at],
+        )
+        .await;
     }
     api.run("INSERT INTO events (level, kind, message, count, first_seen, last_seen) VALUES ('info', 'note', 'Started', 1, ?, ?)", &[at, at]).await;
     let mut anas = projects_of(&as_person(&api, "/api/events/log", "ana").await);
@@ -143,7 +147,10 @@ async fn the_bell_holds_only_the_askers_workspaces() {
     let owners = from_outside(api.get("/api/notices").header("orrery-actor-owner", "1").header("orrery-actor-name", "steffen")).send().await;
     assert_eq!(owners.status, 200, "{}", owners.body);
     assert_eq!(projects_of(&owners.body), std::slice::from_ref(&primes));
-    let changes = from_outside(api.get("/api/notices/changes?since=2026-01-01T00:00:00.000Z").header("orrery-actor-owner", "1").header("orrery-actor-name", "steffen")).send().await;
+    let changes =
+        from_outside(api.get("/api/notices/changes?since=2026-01-01T00:00:00.000Z").header("orrery-actor-owner", "1").header("orrery-actor-name", "steffen"))
+            .send()
+            .await;
     assert_eq!(changes.status, 200, "{}", changes.body);
     assert!(!projects_of(&changes.body).contains(&rockets), "{}", changes.body);
 }
