@@ -71,19 +71,32 @@ fn use_of(row: &AnyRow) -> Value {
 
 pub struct Secrets<'c> {
     conn: &'c mut AnyConnection,
+    /// The workspace whose secrets these are (ORR-1107): each has its own, by name.
+    workspace: String,
 }
 
 impl<'c> Secrets<'c> {
     pub fn new(conn: &'c mut AnyConnection) -> Self {
-        Secrets { conn }
+        Secrets { conn, workspace: "default".into() }
+    }
+
+    /// The secrets of `workspace`.
+    pub fn of(conn: &'c mut AnyConnection, workspace: String) -> Self {
+        Secrets { conn, workspace }
     }
 
     /// Every secret by name, each with its latest use (`list`).
     pub async fn list(&mut self) -> Result<Value> {
-        let rows = sqlx::query(&sql(&format!("SELECT {SECRET_COLUMNS} FROM secrets ORDER BY name"))).fetch_all(&mut *self.conn).await?;
-        let last = sqlx::query(&sql(&format!("SELECT {USE_COLUMNS} FROM secret_uses WHERE id IN (SELECT max(id) FROM secret_uses GROUP BY secret)")))
+        let rows = sqlx::query(&sql(&format!("SELECT {SECRET_COLUMNS} FROM secrets WHERE workspace = ? ORDER BY name")))
+            .bind(&self.workspace)
             .fetch_all(&mut *self.conn)
             .await?;
+        let last = sqlx::query(&sql(&format!(
+            "SELECT {USE_COLUMNS} FROM secret_uses WHERE id IN (SELECT max(id) FROM secret_uses WHERE workspace = ? GROUP BY secret)"
+        )))
+        .bind(&self.workspace)
+        .fetch_all(&mut *self.conn)
+        .await?;
         Ok(Value::Array(
             rows.iter()
                 .map(|row| {
@@ -97,13 +110,15 @@ impl<'c> Secrets<'c> {
 
     /// One secret with its latest uses, newest first (`get`).
     pub async fn secret(&mut self, name: &str) -> Result<Value> {
-        let row = sqlx::query(&sql(&format!("SELECT {SECRET_COLUMNS} FROM secrets WHERE name = ?")))
+        let row = sqlx::query(&sql(&format!("SELECT {SECRET_COLUMNS} FROM secrets WHERE name = ? AND workspace = ?")))
             .bind(name)
+            .bind(&self.workspace)
             .fetch_optional(&mut *self.conn)
             .await?
             .ok_or_else(|| ApiError::not_found(format!("No secret {name}")))?;
-        let uses: Vec<Value> = sqlx::query(&sql(&format!("SELECT {USE_COLUMNS} FROM secret_uses WHERE secret = ? ORDER BY id DESC LIMIT ?")))
+        let uses: Vec<Value> = sqlx::query(&sql(&format!("SELECT {USE_COLUMNS} FROM secret_uses WHERE secret = ? AND workspace = ? ORDER BY id DESC LIMIT ?")))
             .bind(name)
+            .bind(&self.workspace)
             .bind(USES)
             .fetch_all(&mut *self.conn)
             .await?
@@ -117,11 +132,16 @@ impl<'c> Secrets<'c> {
     /// The secret as the local app sealed it, every column (`SecretRow`): its value is ciphertext only the local app's
     /// key opens. None when there's no such secret.
     pub async fn sealed(&mut self, name: &str) -> Result<Option<Value>> {
-        let row = sqlx::query(&sql(&format!("SELECT {SEALED_COLUMNS} FROM secrets WHERE name = ?"))).bind(name).fetch_optional(&mut *self.conn).await?;
+        let row = sqlx::query(&sql(&format!("SELECT {SEALED_COLUMNS} FROM secrets WHERE name = ? AND workspace = ?")))
+            .bind(name)
+            .bind(&self.workspace)
+            .fetch_optional(&mut *self.conn)
+            .await?;
         Ok(row.as_ref().map(sealed_of))
     }
 
-    /// Every secret as sealed, by name (`sealed` for each): for the local app's scrubber.
+    /// Every secret as sealed, by name (`sealed` for each), in every workspace: for the local app's scrubber, which
+    /// takes any secret's value out of what it logs.
     pub async fn all_sealed(&mut self) -> Result<Value> {
         let rows = sqlx::query(&sql(&format!("SELECT {SEALED_COLUMNS} FROM secrets ORDER BY name"))).fetch_all(&mut *self.conn).await?;
         Ok(Value::Array(rows.iter().map(sealed_of).collect()))

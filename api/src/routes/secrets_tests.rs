@@ -231,3 +231,37 @@ async fn only_the_local_app_reads_a_secret_as_sealed() {
         }
     }
 }
+
+/// A secret is its workspace's (ORR-1107): two can each have one of the same name. The local app keeps, reads and
+/// forgets one by the project it's for, or the workspace it names; a page or session lists and reads its own.
+#[tokio::test]
+async fn each_workspace_keeps_its_own_secrets() {
+    let api = TestApi::new().await;
+    api.team().await;
+    let primes = api.project("Primes").await;
+    let rockets = api.acme(&["steffen"]).await;
+    let keep = |path: String, hosts: &'static str| {
+        let api = &api;
+        async move { api.put(&path, sealed(SEALED, json!([hosts]), json!(null), "2026-11-10T10:00:00.000Z")).send().await.status }
+    };
+    assert_eq!(keep("/api/secrets/STRIPE_KEY/sealed".into(), "api.stripe.com").await, 204);
+    assert_eq!(keep(format!("/api/secrets/STRIPE_KEY/sealed?project={rockets}"), "rockets.example").await, 204);
+
+    let hosts = |reply: &crate::testing::Reply| reply.body["hosts"].clone();
+    let ours = api.get(&format!("/api/secrets/STRIPE_KEY/sealed?project={primes}")).send().await;
+    assert_eq!(hosts(&ours), json!("[\"api.stripe.com\"]"), "{}", ours.body);
+    let theirs = api.get("/api/secrets/STRIPE_KEY/sealed").header("orrery-workspace", "acme").send().await;
+    assert_eq!(hosts(&theirs), json!("[\"rockets.example\"]"), "{}", theirs.body);
+    assert_eq!(api.get("/api/sealed-secrets").send().await.body.as_array().unwrap().len(), 2, "the scrubber has every one");
+
+    let listed = api.get("/api/secrets").header("orrery-workspace", "acme").send().await;
+    assert_eq!(listed.body.as_array().unwrap().iter().map(|s| s["hosts"].clone()).collect::<Vec<_>>(), [json!(["rockets.example"])]);
+    let ana = api.signed(api.get("/api/secrets/STRIPE_KEY").header("orrery-workspace", "acme"), "ana").await.send().await;
+    assert_eq!(ana.status, 404, "ana isn't in Acme: {}", ana.body);
+
+    assert_eq!(api.delete(&format!("/api/secrets/STRIPE_KEY/sealed?project={rockets}")).send().await.status, 204);
+    assert_eq!(api.get("/api/secrets/STRIPE_KEY").send().await.status, 200, "default's is still there");
+    let put = api.put("/api/secrets/STRIPE_KEY/sealed", sealed(SEALED, json!(["evil.example"]), json!(null), "2026-11-10T10:00:00.000Z"));
+    let refused = api.signed(put.header("orrery-sent-origin", "http://localhost"), "steffen").await.send().await;
+    assert_eq!(refused.status, 403, "only the local app keeps a sealed secret: {}", refused.body);
+}

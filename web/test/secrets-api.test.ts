@@ -71,7 +71,7 @@ describe("secrets' writes through the Rust API (ORR-1096)", () => {
         inFront = true
         await secrets.egress({url: 'https://api.stripe.com/v1/charges?key={{secret:STRIPE_KEY}}', project: 'shop'}, {name: 'claude', owner: false})
         await secrets.own('https://api.stripe.com/v1/me', 'STRIPE_KEY', 'shop')
-        expect(sent.map(s => `${s.method} ${s.path}`)).toEqual(['POST /api/secrets/STRIPE_KEY/uses', 'POST /api/secrets/STRIPE_KEY/uses'])
+        expect(sent.map(s => `${s.method} ${s.path}`)).toEqual(['POST /api/secrets/STRIPE_KEY/uses?project=shop', 'POST /api/secrets/STRIPE_KEY/uses?project=shop'])
         expect(sent[0]!.body).toMatchObject({method: 'GET', host: 'api.stripe.com', path: '/v1/charges', project: 'shop', issue: null, status: 200, error: null, created_by: 'claude'})
         expect(sent[0]!.body).not.toHaveProperty('keep')
         expect(sent[1]!.body).toMatchObject({created_by: 'orrery', keep: expect.any(Number)})
@@ -85,7 +85,8 @@ describe("secrets' writes through the Rust API (ORR-1096)", () => {
         expect(await secrets.ownsFor('https://api.stripe.com/v1/me', 'STRIPE_KEY', 'shop')).toBe(true)
         expect(await secrets.ownsFor('https://api.stripe.com/v1/me', 'NONE_SUCH', 'shop')).toBe(false)
         expect(await secrets.scrub(`paid with ${VALUE}`)).toBe('paid with {{secret:STRIPE_KEY}}')
-        expect(read).toEqual(['/api/secrets/STRIPE_KEY/sealed', '/api/secrets/NONE_SUCH/sealed', '/api/sealed-secrets'])
+        // Each read names the project it's for, whose workspace's secret it is (ORR-1107).
+        expect(read).toEqual(['/api/secrets/STRIPE_KEY/sealed?project=shop', '/api/secrets/NONE_SUCH/sealed?project=shop', '/api/sealed-secrets'])
         await expect(secrets.egress({url: 'https://api.stripe.com/x?k={{secret:NONE_SUCH}}', project: 'shop'})).rejects.toMatchObject({statusCode: 404})
         // While it can't be reached, egress fails, but the scrubber still opens what's kept here, for the event log's line.
         down = true
