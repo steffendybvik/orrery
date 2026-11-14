@@ -308,13 +308,12 @@ async fn the_sessions_work_needs_a_project_there_is_and_sessions_as_a_list() {
 /// A comment on `issue`, as the store writes one: `who` by, `owned` the owner's, `person` a member's (not an agent's).
 async fn said(api: &TestApi, project: &str, issue: &str, body: &str, who: &str, owned: bool, person: Option<&str>) {
     let now = stamp();
-    let owned = if owned { "1" } else { "0" };
-    let person = person.unwrap_or("");
-    api.run(
-        "INSERT INTO comments (project, issue, body, created_by, owned, person, by_agent, created_at, updated_at) VALUES (?, ?, ?, ?, ?, NULLIF(?, ''), 0, ?, ?)",
-        &[project, issue, body, who, owned, person, &now, &now],
-    )
-    .await;
+    // `owned` goes in the text, as Postgres takes no text for an integer column.
+    let text = format!(
+        "INSERT INTO comments (project, issue, body, created_by, owned, person, by_agent, created_at, updated_at) VALUES (?, ?, ?, ?, {}, NULLIF(?, ''), 0, ?, ?)",
+        u8::from(owned)
+    );
+    api.run(&text, &[project, issue, body, who, person.unwrap_or(""), &now, &now]).await;
     tokio::time::sleep(std::time::Duration::from_millis(2)).await;
 }
 
