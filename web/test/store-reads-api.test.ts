@@ -173,6 +173,16 @@ describe("the store's reads through the Rust API (ORR-1162)", () => {
         await expect(store.takenFrom('shed', 'SHE-1', 'me')).resolves.toBeNull()
     })
 
+    it("checks the milestone and release a focus names through the API (ORR-1174)", async () => {
+        replies['/api/projects/greenhouse/milestones/MLS-3/id'] = {id: '3'}
+        replies['/api/projects/greenhouse/milestones/3/row'] = {project: 'greenhouse', id: '3', title: 'Spring'}
+        replies['/api/projects/greenhouse/releases/2.0.0/row'] = {project: 'greenhouse', version: '2.0.0', branch: 'v2.0.0'}
+        writes['/api/projects/greenhouse/signals'] = {id: 8, project: 'greenhouse', kind: 'focus', milestone: '3', release: '2.0.0', delivered_to: []}
+        await store.focusMilestone('greenhouse', 'MLS-3', {release: '2.0.0'}, {name: 'owner', owner: true})
+        expect(asked).toEqual(expect.arrayContaining(['/api/projects/greenhouse/milestones/3/row', '/api/projects/greenhouse/releases/2.0.0/row']))
+        expect(await store.all('SELECT id FROM milestones')).toEqual([])
+    })
+
     it("resolves an issue's id from the API for the store's helpers (ORR-1174)", async () => {
         replies['/api/projects/shed/issues/OLD-1/id'] = {id: 'SHE-1'}
         replies['/api/projects/shed/issues/SHE-1/row'] = {project: 'shed', id: 'SHE-1', title: 'Oil the hinges', labels: '[]', assignee: null}

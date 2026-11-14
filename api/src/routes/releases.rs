@@ -4,9 +4,9 @@ use crate::board::issues::Issues;
 use crate::board::plans::Plans;
 use crate::board::releases::Releases;
 use crate::changes::Outbox;
-use crate::error::Result;
+use crate::error::{ApiError, Result};
 use crate::reply::reply;
-use crate::request::{actor_of, body_of};
+use crate::request::{actor_of, body_of, came_of};
 use crate::{App, Shared};
 use axum::body::Bytes;
 use axum::extract::{Path, State};
@@ -20,6 +20,7 @@ pub(crate) fn routes() -> Router<Arc<App>> {
     Router::new()
         .route(&format!("{P}/releases"), get(list_releases).post(create_release))
         .route(&format!("{P}/releases/{{release}}"), get(get_release).patch(patch_release).delete(delete_release))
+        .route(&format!("{P}/releases/{{release}}/row"), get(release_row))
         .route("/api/releases", get(all_releases))
 }
 
@@ -64,6 +65,23 @@ async fn get_release(State(app): Shared, Path((project, release)): Path<(String,
 async fn all_releases(State(app): Shared) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
     Ok(Json(Plans::new(&mut Issues::new(&mut conn)).all_releases().await?).into_response())
+}
+
+/// `GET …/releases/:release/row` → the release's row as it's stored, in the project's source when it takes its
+/// releases from another, for the local app's store (`releaseRow`, ORR-1174), which checks a release a focus names.
+/// A 400 for a project with no releases and a 404 for a release there isn't, as the store says each.
+async fn release_row(State(app): Shared, Path((project, release)): Path<(String, String)>, headers: HeaderMap) -> Result<Response> {
+    if !came_of(&headers).server {
+        return Err(ApiError::forbidden("Only the local app reads a release's row"));
+    }
+    let mut conn = app.pool.acquire().await?;
+    let mut issues = Issues::new(&mut conn);
+    let row = issues.project(&project).await?;
+    issues.release_there(&project, &row, &release).await?;
+    let source = if row.release_mode == "shared" { row.releases_from.clone().unwrap_or_default() } else { project.clone() };
+    let row =
+        sqlx::query(&crate::db::sql("SELECT * FROM releases WHERE project = ? AND version = ?")).bind(&source).bind(&release).fetch_one(&mut *conn).await?;
+    Ok(Json(crate::db::row_json(&row)).into_response())
 }
 
 #[cfg(test)]

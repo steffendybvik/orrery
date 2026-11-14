@@ -21,6 +21,24 @@ pub(crate) fn routes() -> Router<Arc<App>> {
         .route(&format!("{P}/milestones"), get(list_milestones).post(create_milestone))
         .route(&format!("{P}/milestones/{{milestone}}"), get(get_milestone).patch(patch_milestone).delete(delete_milestone))
         .route(&format!("{P}/milestones/{{milestone}}/id"), get(milestone_id))
+        .route(&format!("{P}/milestones/{{milestone}}/row"), get(milestone_row))
+}
+
+/// `GET …/milestones/:milestone/row` → the milestone's row as it's stored, by its id alone, for the local app's store
+/// (`milestoneRow`, ORR-1174), which checks a milestone a focus names. A 404 for a project or a milestone there isn't.
+async fn milestone_row(State(app): Shared, Path((project, milestone)): Path<(String, String)>, headers: HeaderMap) -> Result<Response> {
+    if !came_of(&headers).server {
+        return Err(ApiError::forbidden("Only the local app reads a milestone's row"));
+    }
+    let mut conn = app.pool.acquire().await?;
+    Issues::new(&mut conn).project(&project).await?;
+    let row = sqlx::query(&crate::db::sql("SELECT * FROM milestones WHERE project = ? AND id = ?"))
+        .bind(&project)
+        .bind(&milestone)
+        .fetch_optional(&mut *conn)
+        .await?
+        .ok_or_else(|| ApiError::not_found(format!("No milestone \"{milestone}\" in {project}")))?;
+    Ok(Json(crate::db::row_json(&row)).into_response())
 }
 
 /// `GET …/milestones/:milestone/id` → `{id}`: the milestone's id from its number as shown (`MLS-14`), a name it had

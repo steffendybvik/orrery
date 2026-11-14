@@ -163,3 +163,20 @@ async fn the_local_app_resolves_a_milestones_id_from_how_its_shown_or_an_alias()
     let theirs = door.project("Primes").await;
     assert_eq!(door.get(&format!("/api/projects/{theirs}/milestones/1/id")).send().await.status, 403);
 }
+
+/// A milestone's row as it's stored, by its id alone, for the local app's store (`milestoneRow`, ORR-1174).
+#[tokio::test]
+async fn the_local_app_reads_a_milestones_row_as_stored() {
+    let api = TestApi::new().await;
+    let project = api.project("Primes").await;
+    let number = milestone(&api, &project, json!({"title": "Sieve"})).await["id"].as_str().unwrap().to_string();
+    let row = api.get(&format!("/api/projects/{project}/milestones/{number}/row")).send().await;
+    assert_eq!(row.status, 200, "{}", row.body);
+    assert_eq!((row.body["id"].as_str(), row.body["title"].as_str()), (Some(number.as_str()), Some("Sieve")));
+    let gone = api.get(&format!("/api/projects/{project}/milestones/99/row")).send().await;
+    assert_eq!((gone.status.as_u16(), gone.body["message"].as_str()), (404, Some(format!("No milestone \"99\" in {project}").as_str())));
+    assert_eq!(api.get("/api/projects/nowhere/milestones/1/row").send().await.status, 404);
+    let door = TestApi::at_the_door().await;
+    let theirs = door.project("Primes").await;
+    assert_eq!(door.get(&format!("/api/projects/{theirs}/milestones/1/row")).send().await.status, 403);
+}
