@@ -7,6 +7,7 @@ use crate::board::issue_writes::IssueWrites;
 use crate::board::projects::Projects;
 use crate::board::{export, projects};
 use crate::changes::Outbox;
+use crate::db::sql;
 use crate::error::{ApiError, Result};
 use crate::reply::reply;
 use crate::request::{actor_of, body_of, came_of, who_of};
@@ -43,6 +44,7 @@ const BOARD_BODY_LIMIT: usize = 320 * 1024 * 1024;
 async fn upload_board(State(app): Shared, request: Request) -> Result<Response> {
     let too_large = || ApiError::too_large(format!("A board's file is {} MB at most", BOARD_BODY_LIMIT / 1024 / 1024));
     let actor = actor_of(request.headers());
+    let headers = request.headers().clone();
     let body = to_bytes(request.into_body(), BOARD_BODY_LIMIT).await.map_err(|_| too_large())?;
     let body = body_of(&body);
     let text = |key: &str| body.get(key).and_then(Value::as_str);
@@ -50,7 +52,17 @@ async fn upload_board(State(app): Shared, request: Request) -> Result<Response> 
         return Err(ApiError::bad_request("id, key and holder: the board's id and key, and who holds it"));
     };
     let mut conn = app.pool.acquire().await?;
-    let upload = Upload { id, key, name: text("name"), holder, body: &body };
+    let workspace = Seen::workspace(&mut conn, &headers).await?;
+    // The local app makes the board for whoever uploaded it: it goes only into a workspace they're in (ORR-1195).
+    let theirs = sqlx::query(&sql("SELECT 1 FROM workspace_members WHERE workspace = ? AND person = ?"))
+        .bind(&workspace)
+        .bind(holder)
+        .fetch_optional(&mut *conn)
+        .await?;
+    if theirs.is_none() {
+        return Err(ApiError::not_found(format!("No workspace {workspace}")));
+    }
+    let upload = Upload { id, key, name: text("name"), holder, body: &body, workspace: &workspace };
     let effects = board_upload::upload_board(&mut conn, &upload, &actor).await?;
     let value = Projects::new(&mut conn).project(id).await?;
     Ok(reply(StatusCode::CREATED, Some(value), effects))
@@ -88,7 +100,9 @@ async fn get_project(State(app): Shared, Path(project): Path<String>, Query(quer
 
 async fn create_project(State(app): Shared, headers: HeaderMap, body: Bytes) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
+    let workspace = Seen::workspace(&mut conn, &headers).await?;
     let mut projects = Projects::new(&mut conn);
+    projects.workspace = workspace;
     projects.outbox = Some(Outbox::new(actor_of(&headers)));
     let id = projects.create(&body_of(&body), who_of(&headers).as_ref(), &actor_of(&headers)).await?;
     let effects = std::mem::take(&mut projects.effects);

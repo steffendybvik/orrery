@@ -20,7 +20,8 @@ export default defineEventHandler(async event => {
     // up, the store here writes it.
     const checked = checkedBoard(file, {id: text('id'), key: text('key'), name: text('name')})
     const holder = await personOf(event) ?? (await ownerNow()).name
-    const sent = await writeToApi('POST', '/api/boards', boardForApi(checked, holder), actor, {always: true})
+    // Into the workspace the page is in (ORR-1195).
+    const sent = await writeToApi('POST', '/api/boards', boardForApi(checked, holder), actor, {always: true, workspace: getHeader(event, 'orrery-workspace')})
     if (!sent) {
         await uploadBoard(useDatabase(), file, {id: checked.id, key: checked.key, name: checked.name}, actor, holder)
         useStore().changed(checked.id)
