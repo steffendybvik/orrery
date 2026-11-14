@@ -3,7 +3,7 @@
 use crate::access::people::Who;
 use crate::board::issue_writes::IssueWrites;
 use crate::db::sql;
-use crate::error::Result;
+use crate::error::{ApiError, Result};
 use crate::request::{actor_of, came_of, header, who_of};
 use crate::write::Actor;
 use axum::http::HeaderMap;
@@ -65,6 +65,31 @@ impl Seen {
             workspaces.retain(|w| w == only);
         }
         Ok(Seen::Only { workspaces, own })
+    }
+
+    /// The workspace a request for the workspace's own rows (epics, statuses, presets, secrets, events, chats) acts in
+    /// (ORR-1107): the one it names in `Orrery-Workspace`, else `default` when it's seen, else the first one seen. Naming
+    /// one it doesn't see is a 404, as if it weren't here; seeing none at all is one too. The Nuxt server's own work acts
+    /// in the one named, or `default`.
+    pub(crate) async fn workspace(conn: &mut AnyConnection, headers: &HeaderMap) -> Result<String> {
+        let named = header(headers, "orrery-workspace").map(|w| w.trim().to_string()).filter(|w| !w.is_empty());
+        Seen::of(conn, headers).await?.pick(named.as_deref())
+    }
+
+    /// The workspace `named` (or the one to act in, with none named) among those seen; see `workspace`.
+    pub(crate) fn pick(&self, named: Option<&str>) -> Result<String> {
+        match (self, named) {
+            (Seen::All, Some(named)) => Ok(named.to_string()),
+            (Seen::All, None) => Ok("default".to_string()),
+            (Seen::Only { workspaces, .. }, Some(named)) if workspaces.iter().any(|w| w == named) => Ok(named.to_string()),
+            (Seen::Only { .. }, Some(named)) => Err(ApiError::not_found(format!("No workspace {named}"))),
+            (Seen::Only { workspaces, .. }, None) => workspaces
+                .iter()
+                .find(|w| *w == "default")
+                .or_else(|| workspaces.first())
+                .cloned()
+                .ok_or_else(|| ApiError::not_found("You aren't in any workspace here")),
+        }
     }
 
     /// Whether a project in `workspace`, with id `project`, is seen.

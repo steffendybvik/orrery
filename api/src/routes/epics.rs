@@ -1,4 +1,5 @@
 // Epics: the handlers and the routes they answer (ORR-1048).
+use crate::access::seen::Seen;
 use crate::board::epics::Epics;
 use crate::changes::Outbox;
 use crate::error::Result;
@@ -18,21 +19,24 @@ pub(crate) fn routes() -> Router<Arc<App>> {
 }
 
 /// The epics (ORR-1004): every one, one with its issues, and making, changing and deleting one.
-async fn list_epics(State(app): Shared) -> Result<Response> {
+async fn list_epics(State(app): Shared, headers: HeaderMap) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
-    Ok(Json(Epics::new(&mut conn).list().await?).into_response())
+    let workspace = Seen::workspace(&mut conn, &headers).await?;
+    Ok(Json(Epics::of(&mut conn, workspace).list().await?).into_response())
 }
 
-async fn get_epic(State(app): Shared, Path(epic): Path<String>) -> Result<Response> {
+async fn get_epic(State(app): Shared, Path(epic): Path<String>, headers: HeaderMap) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
-    let mut epics = Epics::new(&mut conn);
+    let workspace = Seen::workspace(&mut conn, &headers).await?;
+    let mut epics = Epics::of(&mut conn, workspace);
     let id = epics.epic_id(&epic).await?;
     Ok(Json(epics.epic(id).await?).into_response())
 }
 
 async fn create_epic(State(app): Shared, headers: HeaderMap, body: Bytes) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
-    let mut epics = Epics::new(&mut conn);
+    let workspace = Seen::workspace(&mut conn, &headers).await?;
+    let mut epics = Epics::of(&mut conn, workspace);
     epics.outbox = Some(Outbox::new(actor_of(&headers)));
     let id = epics.create(&body_of(&body), &actor_of(&headers)).await?;
     let effects = std::mem::take(&mut epics.effects);
@@ -42,7 +46,8 @@ async fn create_epic(State(app): Shared, headers: HeaderMap, body: Bytes) -> Res
 
 async fn patch_epic(State(app): Shared, Path(epic): Path<String>, headers: HeaderMap, body: Bytes) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
-    let mut epics = Epics::new(&mut conn);
+    let workspace = Seen::workspace(&mut conn, &headers).await?;
+    let mut epics = Epics::of(&mut conn, workspace);
     let id = epics.epic_id(&epic).await?;
     epics.outbox = Some(Outbox::new(actor_of(&headers)));
     epics.update(id, &body_of(&body)).await?;
@@ -53,7 +58,8 @@ async fn patch_epic(State(app): Shared, Path(epic): Path<String>, headers: Heade
 
 async fn delete_epic(State(app): Shared, Path(epic): Path<String>, headers: HeaderMap) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
-    let mut epics = Epics::new(&mut conn);
+    let workspace = Seen::workspace(&mut conn, &headers).await?;
+    let mut epics = Epics::of(&mut conn, workspace);
     let id = epics.epic_id(&epic).await?;
     epics.outbox = Some(Outbox::new(actor_of(&headers)));
     epics.delete(id, &actor_of(&headers)).await?;
