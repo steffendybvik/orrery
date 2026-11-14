@@ -1,5 +1,6 @@
 import type {Project, Signal} from '#shared/roadmap'
 import type {ProjectPatch} from '#shared/patch'
+import type {Who} from '../utils/auth'
 
 // `GET /api/events` → server-sent events: `project` (a project read again, as JSON) when its
 // roadmap changes (with `?patch=1`, `patch` instead: what changed in it, see shared/patch.ts, ORR-440), `removed` (its id) when it goes, and `listeners` ({project, count}) when a session
@@ -10,22 +11,33 @@ import type {ProjectPatch} from '#shared/patch'
 // deleted, and `chat` (the chat) when one of the owner's chats changes or ends, so open
 // pages update without a reload.
 export default defineEventHandler(async event => {
+    // A member who isn't the owner hears only the boards they can see, and none of what's the owner's own (the bell,
+    // chats, secrets, the event log, the settings): ORR-1195. Which boards is asked of the API as them, again each minute.
+    let seen = new Set<string>()
+    const {member, sees, ownersToo} = streamHearing(event.context.who as Who | undefined, () => seen)
+    const look = async () => {
+        const projects = await readAsAsker<{id: string}[]>(event, '/api/projects')
+        seen = new Set((projects ?? []).map(p => p.id))
+    }
+    if (member) await look()
+    const looking = member ? setInterval(look, 60_000) : undefined
+    const owners = (send: (data: unknown) => void) => (data: unknown) => ownersToo && send(data)
     const stream = createEventStream(event)
     const patches = !!getQuery(event).patch
-    const onProject = (project: Project) => stream.push({event: 'project', data: JSON.stringify(project)})
-    const onPatch = (patch: ProjectPatch) => stream.push({event: 'patch', data: JSON.stringify(patch)})
-    const onRemoved = (id: string) => stream.push({event: 'removed', data: id})
-    const onListeners = (project: string) => stream.push({event: 'listeners', data: JSON.stringify({project, count: listening(project)})})
-    const onLaunchers = (project: string) => stream.push({event: 'launchers', data: JSON.stringify({project, count: launchersOf(project)})})
-    const onSessions = (project: string) => stream.push({event: 'sessions', data: JSON.stringify({project, sessions: listSessions(project)})})
-    const onSignal = (signal: Signal) => stream.push({event: 'signal', data: JSON.stringify(signal)})
-    const onNotice = (notice: unknown) => stream.push({event: 'notice', data: JSON.stringify(notice)})
-    const onSettings = (settings: unknown) => stream.push({event: 'settings', data: JSON.stringify(settings)})
-    const onSecrets = (secrets: unknown) => stream.push({event: 'secrets', data: JSON.stringify(secrets)})
-    const onLogged = (logged: unknown) => stream.push({event: 'logged', data: JSON.stringify(logged)})
-    const onChat = (chat: unknown) => stream.push({event: 'chat', data: JSON.stringify(chat)})
+    const onProject = (project: Project) => sees(project.id) && stream.push({event: 'project', data: JSON.stringify(project)})
+    const onPatch = (patch: ProjectPatch) => sees(patch.id) && stream.push({event: 'patch', data: JSON.stringify(patch)})
+    const onRemoved = (id: string) => sees(id) && stream.push({event: 'removed', data: id})
+    const onListeners = (project: string) => sees(project) && stream.push({event: 'listeners', data: JSON.stringify({project, count: listening(project)})})
+    const onLaunchers = (project: string) => sees(project) && stream.push({event: 'launchers', data: JSON.stringify({project, count: launchersOf(project)})})
+    const onSessions = (project: string) => sees(project) && stream.push({event: 'sessions', data: JSON.stringify({project, sessions: listSessions(project)})})
+    const onSignal = (signal: Signal) => sees(signal.project) && stream.push({event: 'signal', data: JSON.stringify(signal)})
+    const onNotice = owners((notice: unknown) => stream.push({event: 'notice', data: JSON.stringify(notice)}))
+    const onSettings = owners((settings: unknown) => stream.push({event: 'settings', data: JSON.stringify(settings)}))
+    const onSecrets = owners((secrets: unknown) => stream.push({event: 'secrets', data: JSON.stringify(secrets)}))
+    const onLogged = owners((logged: unknown) => stream.push({event: 'logged', data: JSON.stringify(logged)}))
+    const onChat = owners((chat: unknown) => stream.push({event: 'chat', data: JSON.stringify(chat)}))
     const onEpics = () => stream.push({event: 'epics', data: ''})
-    const onSchedules = (project: string) => useScheduler().list(project)
+    const onSchedules = (project: string) => sees(project) && useScheduler().list(project)
         .then(schedules => stream.push({event: 'schedules', data: JSON.stringify({project, schedules})}), () => {})
     if (patches) projectEvents.on('patch', onPatch)
     else projectEvents.on('project', onProject)
@@ -51,6 +63,7 @@ export default defineEventHandler(async event => {
 
     stream.onClosed(async () => {
         clearInterval(ping)
+        if (looking) clearInterval(looking)
         projectEvents.off('project', onProject)
         projectEvents.off('patch', onPatch)
         projectEvents.off('removed', onRemoved)
