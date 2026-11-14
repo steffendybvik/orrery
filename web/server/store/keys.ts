@@ -34,6 +34,9 @@ const days = (n: number) => new Date(Date.now() + n * 86_400_000).toISOString()
 /** A key's last use is only for the list, so it's written at most this often. */
 const USED_EVERY = 60_000
 
+/** What `GET /api/auth/ways-in` says: whether the owner has a person key, and whether login stays on. */
+type WaysIn = {owner_has_key: boolean, stays_on: boolean}
+
 export abstract class KeyStore extends PeopleStore {
     /** The keys of `person`, or everyone's, the newest first; a revoked one stays listed. Never the key itself. */
     async keys(person?: string): Promise<KeyRecord[]> {
@@ -129,6 +132,9 @@ export abstract class KeyStore extends PeopleStore {
 
     /** Whether anyone could get in by a key: the owner has a live person key. */
     async ownerHasKey(): Promise<boolean> {
+        // Asked of the API when it's set up (ORR-1158), as the auth middleware asks it on the requests it holds.
+        const read = await this.fromApi<WaysIn>('/api/auth/ways-in')
+        if (read) return read.owner_has_key
         return !!await this.get("SELECT 1 FROM keys k JOIN people p ON p.id = k.person WHERE p.role = 'owner' AND k.kind = 'person' AND k.revoked_at IS NULL")
     }
 
@@ -185,6 +191,9 @@ export abstract class KeyStore extends PeopleStore {
     /** Whether auth stays on with no setting asking for it: a second person is here, or was. The first time a second
      * person is seen it's written down, so removing them doesn't open the orrery again. */
     async authStaysOn(): Promise<boolean> {
+        // The API writes it down itself when it's set up (ORR-1158).
+        const read = await this.fromApi<WaysIn>('/api/auth/ways-in')
+        if (read) return read.stays_on
         if (await this.get("SELECT 1 FROM settings WHERE key = 'auth_on'")) return true
         const here = await this.get<{n: number}>('SELECT count(*) AS n FROM people WHERE removed_at IS NULL')
         if (Number(here?.n) < 2) return false
