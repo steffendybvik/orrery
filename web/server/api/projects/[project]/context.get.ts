@@ -11,7 +11,8 @@ export default defineEventHandler(async event => {
     const base = getRequestURL(event).origin
     if (session) {
         const view = sessionContextView(String(session), base)
-        if (!view) throw notFound(`No session ${session}`)
+        // Only a session on this project, so the project's check holds for it too (ORR-1195).
+        if (!view || sessionNow(String(session))?.project !== (await projectIdOf(project))) throw notFound(`No session ${session}`)
         return view
     }
     const asked = String(kind ?? 'work') as ContextKind

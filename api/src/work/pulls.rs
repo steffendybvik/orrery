@@ -364,8 +364,8 @@ impl<'a> Pulls<'a> {
     }
 
     /// PR `number` on `repo` with every issue it's kept on (`forPull`, ORR-880), riskiest first; in full for the owner.
-    pub async fn for_pull(&mut self, repo: &str, number: i64, owner: bool) -> Result<Value> {
-        let rows = sqlx::query(&sql(
+    pub async fn for_pull(&mut self, repo: &str, number: i64, owner: bool, hidden: &std::collections::HashSet<String>) -> Result<Value> {
+        let mut rows = sqlx::query(&sql(
             "SELECT CAST(p.number AS BIGINT) AS number, p.title, p.url, p.branch, p.base, p.author, p.state, p.merged_at, p.updated_at, p.project, pr.name AS project_name, p.issue, i.title AS issue_title, i.status
              FROM issue_pulls p JOIN issues i ON i.project = p.project AND i.id = p.issue JOIN projects pr ON pr.id = p.project
              WHERE lower(p.repo) = lower(?) AND p.number = ? ORDER BY p.updated_at DESC",
@@ -374,6 +374,8 @@ impl<'a> Pulls<'a> {
         .bind(number)
         .fetch_all(&mut *self.conn)
         .await?;
+        // The issues in projects the asker can't see aren't theirs to read (ORR-1195).
+        rows.retain(|r| !hidden.contains(&r.get::<String, _>("project")));
         let Some(newest) = rows.first() else {
             return Err(ApiError::not_found(format!(
                 "orrery keeps no pull request #{number} on {repo}: it names no issue and is no release's, or it hasn't been polled"

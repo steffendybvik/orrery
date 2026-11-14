@@ -66,9 +66,24 @@ async fn name_owner(State(app): Shared, headers: HeaderMap, body: Bytes) -> Resu
     Ok(reply(StatusCode::OK, Some(owner), std::mem::take(&mut people.effects)))
 }
 
-async fn list_people(State(app): Shared) -> Result<Response> {
+/// Everyone, to the owner; to anyone else, the people who share a workspace with them (ORR-1195).
+async fn list_people(State(app): Shared, headers: HeaderMap) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
-    Ok(Json(People::new(&mut conn).people().await?).into_response())
+    let mut people = People::new(&mut conn).people().await?;
+    let who = who_of(&headers);
+    if let Some(who) = who.filter(|w| !w.owner) {
+        let rows = sqlx::query(&crate::db::sql(
+            "SELECT DISTINCT o.person FROM workspace_members o JOIN workspace_members m ON m.workspace = o.workspace WHERE m.person = ?",
+        ))
+        .bind(&who.person)
+        .fetch_all(&mut *conn)
+        .await?;
+        let shared: std::collections::HashSet<String> = rows.iter().map(|r| sqlx::Row::get::<String, _>(r, "person")).collect();
+        if let serde_json::Value::Array(list) = &mut people {
+            list.retain(|p| p["id"].as_str().is_some_and(|id| shared.contains(id) || id == who.person));
+        }
+    }
+    Ok(Json(people).into_response())
 }
 
 async fn add_person(State(app): Shared, headers: HeaderMap, body: Bytes) -> Result<Response> {

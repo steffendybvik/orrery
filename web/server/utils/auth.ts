@@ -76,7 +76,7 @@ export function noteOtherPerson(event: H3Event, who: Who) {
 /** A session is the person's whose agent key it first reported with, and a write naming it with another's is refused
  * (ORR-705). `session` is the id a request names, by `Orrery-Session` or in a hook's report. */
 export async function holdSession(event: H3Event, session: string | undefined) {
-    const who = event.context.who as Who | undefined
+    const who = event.context?.who as Who | undefined
     if (who?.via !== 'agent' || !session) return
     const holder = await useStore().fixSessionPerson(session, who.person)
     if (holder !== who.person) throw conflict(`This session is ${holder}'s, and this is ${who.person}'s agent key, so it can't write as that session`)

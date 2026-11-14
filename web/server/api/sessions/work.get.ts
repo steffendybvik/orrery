@@ -3,7 +3,9 @@
 // `GET /api/projects/:project/sessions/work` has it; one that isn't there is left out.
 export default defineEventHandler(async event => {
     const named = String(getQuery(event).projects ?? '').split(',').map(p => p.trim()).filter(Boolean)
-    const projects = named.length ? named : [...new Set(listSessions().map(s => s.project))]
+    const sees = await memberSees(event)
+    // A member who isn't the owner gets the projects they can see alone (ORR-1195).
+    const projects = (named.length ? named : [...new Set(listSessions().map(s => s.project))]).filter(p => !sees || sees.has(p))
     const store = useStore()
     const work = await Promise.all(projects.map(async project => {
         const own = listSessions(project).map(s => ({...s, ids: sessionIds(s.id)}))

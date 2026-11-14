@@ -771,3 +771,17 @@ async fn an_invite_lands_its_person_in_its_workspace() {
     let nowhere = api.post("/api/invites", json!({"person": "ada", "workspace": "elsewhere"})).header("orrery-login-ways", "provider").send().await;
     assert_eq!(nowhere.status, 404, "{}", nowhere.body);
 }
+
+/// A member sees the people who share a workspace with them, and the owner everyone (ORR-1195).
+#[tokio::test]
+async fn a_member_sees_the_people_they_share_a_workspace_with() {
+    let api = TestApi::new().await;
+    api.team().await;
+    api.acme(&["bo"]).await;
+    sqlx::query("DELETE FROM workspace_members WHERE workspace = 'default' AND person = 'bo'").execute(&api.app.pool).await.unwrap();
+    let ids = |list: &Value| list.as_array().unwrap().iter().map(|p| p["id"].as_str().unwrap().to_string()).collect::<Vec<_>>();
+    let bo = api.signed(api.get("/api/people"), "bo").await.send().await;
+    assert_eq!(ids(&bo.body), ["bo"], "{}", bo.body);
+    let owner = api.signed(api.get("/api/people"), "steffen").await.send().await;
+    assert_eq!(ids(&owner.body).len(), 3, "{}", owner.body);
+}

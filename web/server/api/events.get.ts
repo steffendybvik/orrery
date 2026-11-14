@@ -14,7 +14,7 @@ export default defineEventHandler(async event => {
     // A member who isn't the owner hears only the boards they can see, and none of what's the owner's own (the bell,
     // chats, secrets, the event log, the settings): ORR-1195. Which boards is asked of the API as them, again each minute.
     let seen = new Set<string>()
-    const {member, sees, ownersToo} = streamHearing(event.context.who as Who | undefined, () => seen)
+    const {member, sees, ownersToo} = streamHearing(event.context?.who as Who | undefined, () => seen)
     const look = async () => {
         const projects = await readAsAsker<{id: string}[]>(event, '/api/projects')
         seen = new Set((projects ?? []).map(p => p.id))

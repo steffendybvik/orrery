@@ -1,6 +1,7 @@
 // Pull requests as orrery keeps them, the GitHub poll's writes, and a pull's risk: the handlers and the routes they
 // answer (ORR-1048).
 use super::P;
+use crate::access::seen::Seen;
 use crate::changes::Outbox;
 use crate::error::Result;
 use crate::reply::reply;
@@ -33,7 +34,8 @@ pub(crate) fn routes() -> Router<Arc<App>> {
 async fn get_pull(State(app): Shared, Path((owner, name, number)): Path<(String, String, String)>, headers: HeaderMap) -> Result<Response> {
     let number = pull_number(&number)?;
     let mut conn = app.pool.acquire().await?;
-    Ok(Json(Pulls::new(&mut conn).for_pull(&format!("{owner}/{name}"), number, owner_asking(&headers)).await?).into_response())
+    let hidden = Seen::of(&mut conn, &headers).await?.hidden(&mut conn).await?;
+    Ok(Json(Pulls::new(&mut conn).for_pull(&format!("{owner}/{name}"), number, owner_asking(&headers), &hidden).await?).into_response())
 }
 
 /// A repo's GitHub poll, its failure, its history page and letting go of what's done (ORR-952): the local app's poll,
