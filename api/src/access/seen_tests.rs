@@ -154,3 +154,61 @@ async fn the_bell_holds_only_the_askers_workspaces() {
     assert_eq!(changes.status, 200, "{}", changes.body);
     assert!(!projects_of(&changes.body).contains(&rockets), "{}", changes.body);
 }
+
+// An agent key belongs to a person in one workspace, so a session's key reaches only that workspace (ORR-1106).
+
+/// `req` with `person`'s agent key for `workspace` (none for a key from before workspaces), through the router with
+/// login on.
+async fn with_agent_key(api: &TestApi, req: crate::testing::Req, person: &str, workspace: Option<&str>) -> crate::testing::Req {
+    let key = api.key(person, "agent").await;
+    if let Some(workspace) = workspace {
+        api.run("UPDATE keys SET workspace = ? WHERE hash = ?", &[workspace, &key]).await;
+    }
+    req.header("orrery-came", "loopback").header("orrery-login-ways", "on").header("orrery-key", &key)
+}
+
+#[tokio::test]
+async fn an_agent_key_reaches_only_its_own_workspace() {
+    let api = TestApi::new().await;
+    let (primes, rockets) = two_workspaces(&api).await;
+    let read = |project: &String| api.get(&format!("/api/projects/{project}/issues"));
+    let home = with_agent_key(&api, read(&primes), "bo", Some("default")).await.send().await;
+    assert_eq!(home.status, 200, "{}", home.body);
+    // bo is in Acme, but this key is for `default`.
+    let away = with_agent_key(&api, read(&rockets), "bo", Some("default")).await.send().await;
+    assert_eq!(away.status, 404, "{}", away.body);
+    let acmes = with_agent_key(&api, read(&rockets), "bo", Some("acme")).await.send().await;
+    assert_eq!(acmes.status, 200, "{}", acmes.body);
+    let listed = with_agent_key(&api, api.get("/api/projects"), "bo", Some("acme")).await.send().await;
+    assert_eq!(ids(&listed.body), std::slice::from_ref(&rockets));
+    let wrote = with_agent_key(&api, api.post(&format!("/api/projects/{primes}/issues"), json!({"title": "Sieve"})), "bo", Some("acme")).await.send().await;
+    assert_eq!(wrote.status, 404, "{}", wrote.body);
+}
+
+#[tokio::test]
+async fn an_agent_key_from_before_workspaces_reaches_its_persons() {
+    let api = TestApi::new().await;
+    let (_, rockets) = two_workspaces(&api).await;
+    let reply = with_agent_key(&api, api.get(&format!("/api/projects/{rockets}/issues")), "bo", None).await.send().await;
+    assert_eq!(reply.status, 200, "{}", reply.body);
+}
+
+#[tokio::test]
+async fn a_new_agent_key_is_for_one_of_its_persons_workspaces() {
+    let api = TestApi::new().await;
+    two_workspaces(&api).await;
+    let make = |body: Value, person: &'static str| {
+        let api = &api;
+        async move { api.signed(api.post("/api/keys", body).header("orrery-sent-origin", "http://localhost"), person).await.send().await }
+    };
+    let made = make(json!({"kind": "agent", "name": "Laptop"}), "bo").await;
+    assert_eq!((made.status.as_u16(), made.body["workspace"].as_str()), (201, Some("default")), "{}", made.body);
+    let acmes = make(json!({"kind": "agent", "name": "Rig", "workspace": "acme"}), "bo").await;
+    assert_eq!((acmes.status.as_u16(), acmes.body["workspace"].as_str()), (201, Some("acme")), "{}", acmes.body);
+    let outside = make(json!({"kind": "agent", "name": "Rig", "workspace": "acme"}), "ana").await;
+    assert_eq!(outside.status, 404, "{}", outside.body);
+    let person = make(json!({"kind": "person", "name": "Phone"}), "bo").await;
+    assert_eq!((person.status.as_u16(), person.body.get("workspace")), (201, None), "a person key is above every workspace: {}", person.body);
+    let listed = api.signed(api.get("/api/keys"), "bo").await.send().await;
+    assert!(listed.body.as_array().unwrap().iter().any(|k| k["workspace"] == "acme"), "{}", listed.body);
+}
