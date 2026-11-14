@@ -28,7 +28,7 @@ const readJson = (path: string) => JSON.parse(readFileSync(path, 'utf8'))
 describe("the install line's user-level setup", () => {
     it('adds one server per orrery, serving every project, marked as the install\'s', () => {
         expect(userServer(at)).toEqual({
-            name: 'orrery-personal',
+            name: 'orrery',
             config: {type: 'stdio', command: 'node', args: ['/Users/me/.orrery/bootstrap.mjs', 'channel'], env: {ORRERY_URL: URL, ORRERY_ID: 'orr_abc123', ORRERY_PROJECTS: '*', ORRERY_SCOPE: 'user'}},
         })
         expect(() => userServer({...at, orrery: {id: '$(rm -rf ~)'}})).toThrow("won't write")
@@ -82,15 +82,15 @@ describe("the install line's user-level setup", () => {
             }
             writeFileSync(where.state, JSON.stringify(state))
         }
-        expect(setUpUser({...at, home: HOME, run, files: where})).toEqual({server: 'orrery-personal', settings: where.settings})
+        expect(setUpUser({...at, home: HOME, run, files: where})).toEqual({server: 'orrery', settings: where.settings})
         setUpUser({...at, home: HOME, run, files: where})
         expect(ran.filter(args => args[1] === 'add-json')).toHaveLength(2)
-        expect(Object.keys(readJson(where.state).mcpServers)).toEqual(['orrery-personal'])
+        expect(Object.keys(readJson(where.state).mcpServers)).toEqual(['orrery'])
         expect(readJson(where.state).projects[HOME].hasTrustDialogAccepted).toBe(true)
         expect(readJson(where.settings).theme).toBe('dark')
         expect(readJson(where.settings).hooks.SessionStart).toHaveLength(1)
 
-        expect(undoUser({run, homeOf: (id: string) => `/Users/me/.orrery/${id}/home`, files: where})).toEqual(['orrery-personal'])
+        expect(undoUser({run, homeOf: (id: string) => `/Users/me/.orrery/${id}/home`, files: where})).toEqual(['orrery'])
         expect(readJson(where.state).mcpServers).toEqual({})
         expect(readJson(where.state).projects[HOME].hasTrustDialogAccepted).toBe(false)
         expect(readJson(where.settings)).toEqual({theme: 'dark'})
@@ -98,20 +98,20 @@ describe("the install line's user-level setup", () => {
         // For an agent that can have `/mcp` (ORR-1102): it beside the channel, where the board's tools are (ORR-1072); both undone.
         setUpUser({...at, home: HOME, run, mcp: true, files: where})
         const servers = readJson(where.state).mcpServers
-        expect(Object.keys(servers)).toEqual(['orrery-personal', 'orrery-personal-api'])
-        expect(servers['orrery-personal'].env.ORRERY_TOOLS).toBeUndefined()
+        expect(Object.keys(servers)).toEqual(['orrery', 'orrery-api'])
+        expect(servers['orrery'].env.ORRERY_TOOLS).toBeUndefined()
         // Run again without it, the `/mcp` entry goes.
         setUpUser({...at, home: HOME, run, mcp: true, files: where})
         setUpUser({...at, home: HOME, run, files: where})
-        expect(Object.keys(readJson(where.state).mcpServers)).toEqual(['orrery-personal'])
+        expect(Object.keys(readJson(where.state).mcpServers)).toEqual(['orrery'])
         setUpUser({...at, home: HOME, run, mcp: true, files: where})
-        expect(undoUser({run, homeOf: (id: string) => `/Users/me/.orrery/${id}/home`, files: where})).toEqual(['orrery-personal'])
+        expect(undoUser({run, homeOf: (id: string) => `/Users/me/.orrery/${id}/home`, files: where})).toEqual(['orrery'])
         expect(readJson(where.state).mcpServers).toEqual({})
     })
 
     it("names orrery's /mcp as the launcher does, with a helper marked as the install's", () => {
         expect(userMcpServer(at)).toEqual({
-            name: 'orrery-personal-api',
+            name: 'orrery-api',
             config: {type: 'http', url: `${URL}/mcp`, headersHelper: `ORRERY_SCOPE=user ORRERY_URL=${URL} ORRERY_ID=orr_abc123 node "/Users/me/.orrery/bootstrap.mjs" headers`},
         })
         expect(() => userMcpServer({...at, url: 'http://x; rm -rf ~'})).toThrow("can't go into a hook's command")
@@ -147,5 +147,30 @@ describe('the user-level hook', () => {
         // The project the launcher's list maps the folder to (ORR-1068) is one known.
         expect(standsDown({env: {ORRERY_SCOPE: 'user'}, dir: folder(), project: 'reading-list'})).toBe(false)
         expect(standsDown({env: {ORRERY_SCOPE: 'user'}, dir: folder('node /code/orrery/channel/orrery-hook.mjs'), project: 'reading-list'})).toBe(true)
+    })
+
+    // ORR-1193: always `orrery`, unless another orrery or another tool has that name; another's entry is never replaced,
+    // and this one's from before (`orrery-personal`) is renamed.
+    it('names it orrery, moves its old name over, and leaves another orrery alone', () => {
+        const where = files()
+        mkdirSync(join(where.settings, '..'), {recursive: true})
+        const other = {type: 'stdio', command: 'node', args: [], env: {ORRERY_URL: 'http://localhost:9010', ORRERY_ID: 'orr_other1', ORRERY_PROJECTS: '*', ORRERY_SCOPE: 'user'}}
+        const before = {type: 'stdio', command: 'node', args: [], env: {ORRERY_URL: at.url, ORRERY_ID: at.orrery.id, ORRERY_PROJECTS: '*', ORRERY_SCOPE: 'user'}}
+        writeFileSync(where.state, JSON.stringify({mcpServers: {'orrery': other, 'orrery-personal': before}}))
+        const run = (args: string[]) => {
+            const state = readJson(where.state)
+            if (args[1] === 'add-json') state.mcpServers = {...state.mcpServers, [args[4]!]: JSON.parse(args[5]!)}
+            if (args[1] === 'remove') {
+                if (!state.mcpServers?.[args[4]!]) throw new Error('no such server')
+                delete state.mcpServers[args[4]!]
+            }
+            writeFileSync(where.state, JSON.stringify(state))
+        }
+        const {server} = setUpUser({...at, home: HOME, run, files: where})
+        expect(server).toBe('orrery-localhost')
+        const servers = readJson(where.state).mcpServers
+        expect(servers.orrery.env.ORRERY_ID).toBe('orr_other1')
+        expect(servers['orrery-personal']).toBeUndefined()
+        expect(servers[server].env.ORRERY_ID).toBe(at.orrery.id)
     })
 })

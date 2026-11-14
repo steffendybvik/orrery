@@ -30,7 +30,7 @@ const scheduleCount = computed(() => Object.values(schedulesByProject.value).fla
 const preparingCount = computed(() => projects.value.filter(p => p.release_mode === 'own').flatMap(p => p.releases).filter(r => !r.shipped_on).length)
 const open = useState('sidebar-open', () => false)
 const palette = useState('palette-open', () => false)
-const {environment, version} = useRuntimeConfig().public
+const {version} = useRuntimeConfig().public
 // The dev server runs whatever is checked out, so its version says so.
 const dev = import.meta.dev
 const newProject = useState('new-project', () => false)
@@ -198,7 +198,6 @@ const workspaceEdge = computed(() => workspaceColor(workspaceHere.value?.color))
           <OrreryMark class="size-4 text-white" />
         </div>
         <span class="text-sm font-semibold tracking-tight">orrery</span>
-        <span v-if="environment" class="rounded-md bg-sky-500/15 px-1.5 py-px text-[11px] font-semibold text-sky-700 ring-1 ring-sky-500/30 dark:text-sky-300" :title="`This is the ${environment} orrery: its own database, apart from any other`">{{ environment }}</span>
       </NuxtLink>
       <span class="flex items-center gap-1.5 text-[11px] text-faint" :title="LIVE[live].title">
         <UiSpinner v-if="live === 'connecting' || live === 'reconnecting'" />
