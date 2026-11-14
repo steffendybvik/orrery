@@ -1557,6 +1557,25 @@ paths:
         '400': {$ref: '#/components/responses/BadRequest'}
         '403': {$ref: '#/components/responses/Forbidden'}
         '404': {$ref: '#/components/responses/NotFound'}
+  /api/projects/{project}/comments/unanswered:
+    parameters:
+      - {$ref: '#/components/parameters/project'}
+    get:
+      x-served: false
+      summary: 'The owner''s comments no agent has answered and no session has had, for a session to catch up on (ORR-1161)'
+      description: >-
+        Only the Nuxt server's own call (`Orrery-Came: server`), which picks who each goes to, as only it knows the
+        sessions. The owner's comments in the project from the signals kept (30 days), oldest first and ten at most, that
+        no agent answered after (orrery's own word answers nothing) and that no session heard, nor wait in the pool from
+        the last day. With `person`, a member whose session asks, their own words on issues assigned to them count too.
+        Each has `issue`, `body`, `created_by`, `owned` and `assignee`, the issue's.
+      parameters:
+        - {name: person, in: query, schema: {type: string}}
+      responses:
+        '200':
+          description: The comments
+          content: {application/json: {schema: {type: array, items: {type: object, required: [issue, body, created_by, owned, assignee], properties: {issue: {type: string}, body: {type: string}, created_by: {type: string}, owned: {type: boolean}, assignee: {type: string, nullable: true}}}}}}
+        '403': {$ref: '#/components/responses/Forbidden'}
   /api/projects/{project}/issues/{issue}/workers:
     parameters:
       - {$ref: '#/components/parameters/project'}

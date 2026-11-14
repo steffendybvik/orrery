@@ -24,6 +24,17 @@ pub(crate) fn routes() -> Router<Arc<App>> {
         .route(&format!("{P}/issues/{{issue}}/workers"), get(workers))
         .route(&format!("{P}/issues/{{issue}}/dependents"), get(dependents))
         .route(&format!("{P}/issues/{{issue}}/worked-by"), post(worked_by))
+        .route(&format!("{P}/comments/unanswered"), get(unanswered))
+}
+
+/// `?person=`, a member whose session just connected: `[{issue, body, created_by, owned, assignee}]`, the owner's (and
+/// that member's) comments no agent has answered and no session has had, for the local app to hand the session to catch
+/// up on (`carryUnanswered`, ORR-1161). Who each goes to is the local app's to pick, as only it knows the sessions.
+async fn unanswered(State(app): Shared, Path(project): Path<String>, Query(query): Query<HashMap<String, String>>, headers: HeaderMap) -> Result<Response> {
+    local_app_only(&headers)?;
+    let person = query.get("person").map(String::as_str).filter(|p| !p.is_empty());
+    let mut conn = app.pool.acquire().await?;
+    Ok(Json(SessionWork::new(&mut conn).unanswered(&project, person).await?).into_response())
 }
 
 fn local_app_only(headers: &HeaderMap) -> Result<()> {
