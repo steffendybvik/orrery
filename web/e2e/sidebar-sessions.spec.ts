@@ -100,11 +100,9 @@ test('pops the sessions out to float anywhere, remembers where, and puts them ba
         expect(Math.abs(kept.y + kept.height - (box.y + box.height))).toBeLessThan(2)
         await expect(heading).toBeVisible()
 
-        // Its grip's arrows move it; Esc folds it.
-        const grip = panel.getByTestId('sessions-float-grip')
-        await grip.focus()
-        await page.keyboard.press('ArrowRight')
-        await expect.poll(async () => (await panel.boundingBox())!.x).toBeCloseTo(kept.x + 16, 0)
+        // Its heading is the handle, with no grip button beside it (ORR-1177); Esc folds it.
+        await expect(panel.getByRole('button', {name: 'Move the sessions panel'})).toHaveCount(0)
+        await panel.getByRole('button', {name: 'Fold the sessions away'}).focus()
         await page.keyboard.press('Escape')
         await expect(panel.getByRole('link', {name: /Grain store/})).toBeHidden()
         await panel.getByRole('button', {name: 'Show the sessions'}).click()
