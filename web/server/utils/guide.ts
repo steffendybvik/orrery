@@ -3,6 +3,7 @@
 // docs/using.md, which the channel's `guide` tool hands a session asked about orrery).
 import type {H3Event} from 'h3'
 import {total} from '#shared/roadmap'
+import {projectsListedTo} from './member-sees'
 import {mayRead} from './auth'
 import {readFromApi} from './api-router'
 import type {ProjectSummary} from '../store/schema'
@@ -24,7 +25,7 @@ export function originOf(event: H3Event): string {
 export async function overview(event: H3Event): Promise<string> {
     const origin = originOf(event)
     const listed = await mayRead(event)
-    const projects = listed ? (await readFromApi<ProjectSummary[]>('/api/projects')) ?? await useStore().listProjects() : []
+    const projects = listed ? await projectsListedTo(event, async () => (await readFromApi<ProjectSummary[]>('/api/projects')) ?? await useStore().listProjects()) : []
     return `# orrery
 
 > A local roadmap board for your projects and the agent sessions working on them. Each app's roadmap (milestones of work, issues with

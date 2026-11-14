@@ -1,4 +1,5 @@
-// `POST /api/events/log` {message, stack?, page?, build?, kind?} → 201 the event, or 204 when it isn't kept: an
+// `POST /api/events/log` {message, stack?, page?, build?, kind?} → 201 the event, or 204 when it isn't kept (always for a
+// signed-in member who isn't the owner, ORR-1195): an
 // error in the page (Vue's error handler, `window.onerror`, a promise nobody caught), which the page sends itself.
 // `kind` is `page.error` unless it says another under `page.`. Anyone can send one, so it's kept as a report
 // (`details.reported`), and at most PER_KIND a minute of a kind and ALL a minute in all are taken from each sender (a
@@ -13,6 +14,10 @@ let minute = 0
 const counts = new Map<string, number>()
 
 export default defineEventHandler(async event => {
+    // A signed-in member who isn't the owner: their page's errors aren't kept in the owner's log, which the owner's
+    // agents are told to read, so nothing they write lands in front of those agents (ORR-1195).
+    const who = event.context?.who as Who | undefined
+    if (who && !who.owner) return deleted(event)
     const body = ((await readBody(event).catch(() => null)) ?? {}) as Record<string, unknown>
     if (typeof body.message !== 'string' || !body.message.trim()) throw badRequest('Send {message}: what went wrong in the page')
     const kind = typeof body.kind === 'string' && body.kind ? body.kind : 'page.error'
