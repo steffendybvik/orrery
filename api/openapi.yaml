@@ -1121,6 +1121,22 @@ paths:
           description: How this orrery's people can get in
           content: {application/json: {schema: {type: object, required: [owner_has_key, stays_on], properties: {owner_has_key: {type: boolean}, stays_on: {type: boolean}}}}}
         '403': {$ref: '#/components/responses/Forbidden'}
+  /api/auth/identity:
+    post:
+      x-served: false
+      summary: 'Who an account the login provider vouched for is, signing someone new up (ORR-1180)'
+      description: >-
+        Only the Nuxt server's own call (`Orrery-Came: server`), which finishes an OIDC sign-in itself and asks here.
+        `{issuer, subject, invite?, name?}`: a known account is its person; with `invite`, it attaches to the invited
+        person (409 when the invite is used or has run out); on an orrery nobody is on yet, it becomes the owner; else,
+        unless ORRERY_SIGN_UP=invite, a person and a workspace of their own. `person` is null when it may not get in.
+      responses:
+        '200':
+          description: The person the account is
+          content: {application/json: {schema: {type: object, required: [person], properties: {person: {type: [string, 'null']}}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
   /api/auth/link:
     post:
       x-served: false

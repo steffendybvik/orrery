@@ -23,6 +23,7 @@ pub(crate) fn routes() -> Router<Arc<App>> {
         .route("/api/phone/link", post(phone_link))
         .route("/api/auth/oidc/start", get(oidc_start))
         .route("/api/auth/oidc/callback", get(oidc_callback))
+        .route("/api/auth/identity", post(identity))
         .route("/api/auth/ways-in", get(ways_in))
 }
 
@@ -217,8 +218,8 @@ async fn oidc_start(headers: HeaderMap, RawQuery(raw): RawQuery) -> Result<Respo
 
 /// `GET /api/auth/oidc/callback` → a redirect to the board, logged in (to its page on another site when it started
 /// there, ORR-667): where the provider sends the browser back (callback.get.ts). On an orrery nobody is on yet, the first
-/// account in becomes its owner (ORR-1185); after that, an account orrery doesn't know needs an invite, so nobody gets in
-/// only by having an account with the provider. The kept cookie is cleared either way.
+/// account in becomes its owner (ORR-1185); after that, someone new gets a workspace of their own, unless
+/// `ORRERY_SIGN_UP=invite` asks for an invite (ORR-1180). The kept cookie is cleared either way.
 async fn oidc_callback(State(app): Shared, headers: HeaderMap, RawQuery(raw): RawQuery) -> Result<Response> {
     if !oidc::on() {
         return Err(ApiError::not_found("This orrery has no login provider"));
@@ -251,6 +252,24 @@ async fn oidc_callback(State(app): Shared, headers: HeaderMap, RawQuery(raw): Ra
         response.headers_mut().append(axum::http::header::SET_COOKIE, cookie);
     }
     Ok(response)
+}
+
+/// `POST /api/auth/identity` `{issuer, subject, invite?, name?}` → `{person}` (null when the account may not get in):
+/// who an account the login provider vouched for is (`People::identity`), for the Nuxt server, which finishes the OIDC
+/// sign-in itself and asks here so sign-up (ORR-1180) and invites answer as they do on the API's own callback. Only the
+/// local app's own call (`Orrery-Came: server`), as it says who someone is with no login to check.
+async fn identity(State(app): Shared, headers: HeaderMap, body: Bytes) -> Result<Response> {
+    if !came_of(&headers).server {
+        return Err(ApiError::forbidden("Only the local app says who a sign-in is"));
+    }
+    let body = body_of(&body);
+    let text = |key: &str| body.get(key).and_then(Value::as_str).map(str::trim).filter(|v| !v.is_empty());
+    let (Some(issuer), Some(subject)) = (text("issuer"), text("subject")) else {
+        return Err(ApiError::bad_request("An issuer and a subject"));
+    };
+    let mut conn = app.pool.acquire().await?;
+    let person = People::new(&mut conn).identity(issuer, subject, text("invite"), text("name")).await?;
+    Ok(Json(json!({"person": person})).into_response())
 }
 
 #[cfg(test)]

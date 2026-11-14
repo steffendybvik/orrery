@@ -102,6 +102,7 @@ export const NOT_ROUTED: Readonly<Record<string, Line>> = {
     'GET /api/projects/{project}/docs/{doc}/artifact': ARTIFACT,
     'GET /api/projects/{project}/issue-sessions': SESSION_WORK,
     'GET /api/projects/{project}/session-work': SESSION_WORK,
+    'POST /api/auth/identity': {rustOnly: "who an account the login provider vouched for is, signing someone new up, as the local app's OIDC callback asks it (ORR-1180)"},
     'GET /api/auth/ways-in': {rustOnly: "whether the owner has a person key and whether login stays on, as the local app's auth middleware asks them (`ownerHasKey`, `authStaysOn`, ORR-1158)"},
     'GET /api/projects/{project}/comments/unanswered': SESSION_WORK,
     'GET /api/projects/{project}/row': {rustOnly: "a project's row as it's stored, for the local app's store helpers (ORR-1174)"},

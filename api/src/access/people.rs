@@ -1095,8 +1095,14 @@ impl<'c> People<'c> {
 #[path = "people_tests.rs"]
 mod tests;
 
-/// Whether someone new may sign in through the login provider and get a workspace of their own (ORR-1180):
-/// `ORRERY_SIGN_UP=open`. Off, as before, an account gets in only by an invite, or as the first one on a new orrery.
+/// Whether someone new may sign in through the login provider and get a workspace of their own (ORR-1180): yes unless
+/// `ORRERY_SIGN_UP=invite`, so a hosted orrery is for anyone the provider lets in, with no claim or owner to set up.
+/// With `invite`, an account gets in only by an invite, or as the first one on a new orrery.
 pub(crate) fn sign_up_open() -> bool {
-    std::env::var("ORRERY_SIGN_UP").is_ok_and(|v| v.trim() == "open")
+    sign_up_open_for(std::env::var("ORRERY_SIGN_UP").ok().as_deref())
+}
+
+/// `sign_up_open` for a value of `ORRERY_SIGN_UP`.
+pub(crate) fn sign_up_open_for(value: Option<&str>) -> bool {
+    !value.is_some_and(|v| v.trim().eq_ignore_ascii_case("invite"))
 }
