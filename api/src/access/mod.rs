@@ -7,3 +7,4 @@ pub(crate) mod rails;
 pub(crate) mod rewrites;
 pub(crate) mod secrets;
 pub(crate) mod seen;
+pub(crate) mod workspaces;

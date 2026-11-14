@@ -129,6 +129,12 @@ Every board is in a workspace, and reads and writes alike are held to the worksp
 
 What's the workspace's own rather than a project's (epics, presets, secrets, the event log and schedules across projects so far; statuses and settings to follow, ORR-1107) is read and written in one workspace: the one a request names in `Orrery-Workspace`, else `default` when it's yours, else your first. Naming one you aren't in is a 404, as is another workspace's epic, preset, line or schedule across projects asked for by its number. Each workspace has its own secrets, by name: egress and orrery's own requests use the secret of the workspace of the project they're for. A line in the log naming a project is its project's workspace's, a project's own preset too, and a schedule for every project is for every project of its workspace.
 
+| | |
+|---|---|
+| `GET /workspaces` | the ones you're in, `default` first then by name: `[{id, name, color, role}]`, `role` yours there (`owner` or `member`) |
+| `POST /workspaces` | `{name, color?}` → 201 a workspace, you its owner: anyone here can make one. Its id comes from the name, with `-2`, `-3`… when that's taken. `name` is 1 to 60 characters and `color` a tint (`slate`, `blue`, `teal`, `green`, `amber`, `rose`, `violet`) or a `#rrggbb` (400). Nobody signed in can't (403), and sessions and the chat are refused |
+| `PATCH /workspaces/:workspace` | `{name?, color?}` → the workspace: its owners' to change. `color` null takes it off. A member gets 403, and one you aren't in 404 |
+
 With more than one person, an agent works only what's assigned to its person (ORR-655). This holds at the store, so every route that writes an issue is held the same way:
 
 - **Starting, editing, closing, moving or deleting** an issue that isn't its person's is a 409 naming who has it, or saying nobody does. An assignee who isn't a person counts as nobody, and `claude` as the owner. An agent's own proposal stays its to edit and put up again, though it waits on the owner. Comments stay open to all.

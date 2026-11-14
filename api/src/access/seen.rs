@@ -37,20 +37,7 @@ impl Seen {
     /// `own`, the project it was started for.
     pub(crate) async fn asking(conn: &mut AnyConnection, who: Option<&Who>, actor: &Actor, own: Option<&str>) -> Result<Seen> {
         let own = own.filter(|_| actor.untrusted).map(|own| percent_decode_str(own).decode_utf8_lossy().into_owned());
-        let mut issues = IssueWrites::new(conn);
-        let person = match (who, &actor.person) {
-            (Some(who), _) => Some(who.person.clone()),
-            (None, Some(person)) => Some(person.clone()),
-            (None, None) if actor.owner || actor.chat => Some(issues.owner_id().await?),
-            (None, None) => issues.person_asking(None, actor).await?,
-        };
-        let here = match &person {
-            Some(person) => {
-                sqlx::query(&sql("SELECT 1 FROM people WHERE id = ? AND removed_at IS NULL")).bind(person).fetch_optional(&mut *conn).await?.is_some()
-            }
-            None => false,
-        };
-        let mut workspaces: Vec<String> = match person.filter(|_| here) {
+        let mut workspaces: Vec<String> = match Seen::person(conn, who, actor).await? {
             Some(person) => sqlx::query(&sql("SELECT workspace FROM workspace_members WHERE person = ? ORDER BY workspace"))
                 .bind(&person)
                 .fetch_all(&mut *conn)
@@ -65,6 +52,21 @@ impl Seen {
             workspaces.retain(|w| w == only);
         }
         Ok(Seen::Only { workspaces, own })
+    }
+
+    /// The person asking, if they're here: the credential's, the owner's own (their chat's too), or the one a session
+    /// names. Nobody, as with login off, is `None`.
+    pub(crate) async fn person(conn: &mut AnyConnection, who: Option<&Who>, actor: &Actor) -> Result<Option<String>> {
+        let mut issues = IssueWrites::new(conn);
+        let person = match (who, &actor.person) {
+            (Some(who), _) => Some(who.person.clone()),
+            (None, Some(person)) => Some(person.clone()),
+            (None, None) if actor.owner || actor.chat => Some(issues.owner_id().await?),
+            (None, None) => issues.person_asking(None, actor).await?,
+        };
+        let Some(person) = person else { return Ok(None) };
+        let here = sqlx::query(&sql("SELECT 1 FROM people WHERE id = ? AND removed_at IS NULL")).bind(&person).fetch_optional(&mut *conn).await?.is_some();
+        Ok(here.then_some(person))
     }
 
     /// The workspace a request for the workspace's own rows (epics, statuses, presets, secrets, events, chats) acts in
