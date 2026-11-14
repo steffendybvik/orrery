@@ -43,7 +43,7 @@ export const ROUTES = (w: Walked): Route[] => [
     {path: '/getting-started', heading: 'Getting started', palette: 'Getting started'},
     {path: '/settings', heading: 'Your name', palette: 'App settings'},
     {path: '/settings?tab=issues', heading: 'Team tracker'},
-    {path: '/settings?tab=orrery', heading: 'Background tint'},
+    {path: '/settings?tab=workspace', heading: 'Issue statuses'},
     {path: '/settings?tab=advanced', heading: 'Pull requests'},
     {path: `/p/${w.id}`, heading: w.name, sidebar: 'Issues', palette: w.name},
     {path: `/p/${w.id}?view=board`, heading: w.name, sidebar: 'Issues'},
