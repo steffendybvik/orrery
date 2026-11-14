@@ -8,17 +8,10 @@ test.describe.configure({mode: 'serial'})
 
 const api = projectApi('greenhouse')
 
-test('asks where to keep the data, then the owner\'s name, on first open', async ({page, request}) => {
+test('asks the owner\'s name on first open, and nothing about the database', async ({page, request}) => {
     await page.goto('/')
-    // On SQLite it asks where to keep the data first; on Postgres (set as it starts) it doesn't.
-    const where = page.getByRole('dialog', {name: 'Where to keep its data'})
-    if (!process.env.E2E_POSTGRES_URL) {
-        await where.getByRole('button', {name: /Postgres/}).click()
-        await expect(where.getByLabel('Postgres URL')).toBeVisible()
-        await where.getByRole('button', {name: 'Back'}).click()
-        await where.getByRole('button', {name: /On this machine/}).click()
-    }
-    await expect(where).toBeHidden()
+    // Which database it runs on is set only as it starts (ORR-1187), so it never asks where to keep the data.
+    await expect(page.getByRole('dialog', {name: 'Where to keep its data'})).toHaveCount(0)
     const dialog = page.getByRole('dialog', {name: 'Your name'})
     await dialog.getByLabel('Your name').fill('Ada Lovelace')
     // Not a developer: Advanced goes off, and the pages for looking into problems leave the sidebar.
@@ -35,6 +28,26 @@ test('asks where to keep the data, then the owner\'s name, on first open', async
     await expect(page.getByRole('heading', {name: 'Getting started'})).toBeVisible()
     await expect(page.getByRole('progressbar', {name: 'Steps done'})).toHaveAttribute('aria-valuenow', '1')
     await expect(page.getByRole('button', {name: 'Try it with a demo project'})).toBeVisible()
+    // And the one line that sets the machine up, from any folder, while no launcher is connected (ORR-1067).
+    const machine = page.locator('[data-step="machine"]')
+    await expect(machine.getByText('Set up this machine once')).toBeVisible()
+    await expect(machine.getByText(/launcher --install/)).toBeVisible()
+    // It asks which AI agent you run, Claude Code unless you pick another (ORR-1075): another gets the route with no
+    // adapter in place of the install line, and Connect an agent follows; Claude Code is put back for the specs after.
+    const picker = page.locator('[data-step="agent"]')
+    await expect(picker.getByRole('radio', {name: 'Claude Code'})).toBeChecked()
+    await picker.getByRole('radio', {name: 'Another agent'}).click()
+    await expect(page.locator('[data-other-agent]').getByText(/bootstrap\.mjs channel/)).toBeVisible()
+    await expect(machine).toBeHidden()
+    await expect.poll(async () => (await (await request.get('/api/settings')).json()).agent).toBe('other')
+    await page.goto('/connect')
+    await expect(page.locator('[data-other-agent]')).toBeVisible()
+    await expect(page.getByRole('heading', {name: 'Connect a repo'})).toBeHidden()
+    await page.goto('/settings#agent')
+    await page.locator('#agent').getByRole('radio', {name: 'Claude Code'}).click()
+    await expect.poll(async () => (await (await request.get('/api/settings')).json()).agent).toBe('claude')
+    await page.goto('/connect')
+    await expect(page.locator('[data-other-agent]')).toBeHidden()
 })
 
 test('makes a project', async ({page}) => {

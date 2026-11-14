@@ -56,7 +56,7 @@ const lists = computed(() => [
           <span v-if="list.hint" class="basis-full text-[11px] text-faint sm:basis-auto">{{ list.hint }}</span>
         </h2>
         <section v-for="group in list.groups" :key="group.project.id">
-          <NuxtLink :to="`/p/${group.project.id}`" class="sticky top-0 z-10 flex h-9 items-center gap-2.5 border-y border-line bg-panel/90 px-3 backdrop-blur hover:tint">
+          <NuxtLink :to="`/p/${group.project.id}`" class="sticky top-0 z-20 flex h-9 items-center gap-2.5 border-y border-line bg-panel px-3 hover:tint">
             <ProgressRing :kinds="group.project.board.kinds" bare :size="14" />
             <h3 class="text-[13px] font-medium">{{ group.project.name }}</h3>
             <span class="font-mono text-[11px] text-faint">{{ group.issues.length }}</span>

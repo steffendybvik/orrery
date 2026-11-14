@@ -120,7 +120,7 @@ describe("the owner's comments", () => {
 })
 describe('the bell', () => {
     it("clears agents' comments by id or up to a time, leaving them on their issues", async () => {
-        const {id} = await store.createIssue('greenhouse', {title: 'A'})
+        const {id} = await store.createIssue('greenhouse', {title: 'A', assignee: 'owner'})
         const agent = {name: 'claude', owner: false}
         const first = await store.createComment('greenhouse', id, {body: 'one'}, agent)
         await store.createComment('greenhouse', id, {body: 'two'}, agent)
@@ -136,7 +136,7 @@ describe('the bell', () => {
     })
 
     it('keeps what the owner has read on the comment, apart from seen, and clears only those read (ORR-785)', async () => {
-        const {id} = await store.createIssue('greenhouse', {title: 'A'})
+        const {id} = await store.createIssue('greenhouse', {title: 'A', assignee: 'owner'})
         const agent = {name: 'claude', owner: false}
         const read = await store.createComment('greenhouse', id, {body: 'read'}, agent)
         const unread = await store.createComment('greenhouse', id, {body: 'unread'}, agent)
@@ -146,6 +146,29 @@ describe('the bell', () => {
         expect((await store.notices({list: 'inbox'})).map(n => [n.id, !!n.read]).sort()).toEqual([[read.id, true], [unread.id, false]].sort())
         expect(await store.clearNotices({read: true})).toBe(1)
         expect((await store.notices({list: 'inbox'})).map(n => n.id)).toEqual([unread.id])
+    })
+
+    it('keeps only what shipped and what is directed at the owner (ORR-1151)', async () => {
+        const agent = {name: 'claude', owner: false}
+        const me = {name: 'skoll', owner: true}
+        const quiet = (await store.createIssue('greenhouse', {title: 'Quiet', status: 'todo'})).id
+        await store.createComment('greenhouse', quiet, {body: 'Taking it'}, agent)
+        await store.createComment('greenhouse', quiet, {body: 'Halfway'}, agent)
+        await store.createComment('greenhouse', quiet, {body: 'Which one?', asks: 'decision'}, agent)
+        await store.nameOwner({name: 'Skoll_F'})
+        await store.createComment('greenhouse', quiet, {body: 'Over to @Skoll_F for a look'}, agent)
+        await store.createComment('greenhouse', quiet, {body: 'The second'}, me)
+        await store.createComment('greenhouse', quiet, {body: 'Going with the second'}, agent)
+        await store.createComment('greenhouse', quiet, {body: 'Still going'}, agent)
+        const shipped = (await store.createIssue('greenhouse', {title: 'Shipped', status: 'todo'})).id
+        await store.createComment('greenhouse', shipped, {body: 'On it'}, agent)
+        await store.updateIssue('greenhouse', shipped, {status: 'done'}, agent)
+        await store.createComment('greenhouse', shipped, {body: 'Shipped'}, agent)
+        await store.createComment('greenhouse', shipped, {body: 'Thanks'}, me)
+        const mine = (await store.createIssue('greenhouse', {title: 'Mine', assignee: 'owner'})).id
+        await store.createComment('greenhouse', mine, {body: 'For you'}, agent)
+        expect((await store.notices()).map(n => n.body).sort())
+            .toEqual(['Going with the second', 'Over to @Skoll_F for a look', 'Which one?', 'Shipped', 'For you'].sort())
     })
 
     it('leaves a question waiting when clearing the read ones', async () => {
@@ -277,7 +300,7 @@ describe("an owner's comment", () => {
 describe('notice changes (ORR-803)', () => {
     const agent: Actor = {name: 'claude', owner: false, agent: true} as Actor
 
-    it("lists status changes since a time, oldest first, only on issues in the bell", async () => {
+    it("lists moves into done since a time, oldest first, only on issues in the bell", async () => {
         const told = (await store.createIssue('greenhouse', {title: 'Told', status: 'todo'})).id
         const quiet = (await store.createIssue('greenhouse', {title: 'Quiet', status: 'todo'})).id
         await store.createComment('greenhouse', told, {body: 'On it'}, agent)
@@ -285,7 +308,8 @@ describe('notice changes (ORR-803)', () => {
         await store.updateIssue('greenhouse', told, {status: 'done'}, agent)
         await store.updateIssue('greenhouse', quiet, {status: 'done'}, agent)
         const changes = await store.noticeChanges({since: '2000-01-01T00:00:00.000Z'})
-        expect(changes.map(c => [c.issue, c.before, c.after])).toEqual([[told, 'todo', 'in-progress'], [told, 'in-progress', 'done']])
+        // Only the move into done is news (ORR-1151).
+        expect(changes.map(c => [c.issue, c.before, c.after])).toEqual([[told, 'in-progress', 'done']])
         expect(changes[0]).toMatchObject({project: 'greenhouse', created_by: 'claude'})
         expect(await store.noticeChanges({since: '2999-01-01T00:00:00.000Z'})).toEqual([])
     })

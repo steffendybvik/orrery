@@ -29,7 +29,7 @@ async function filled() {
     await store.focus('greenhouse', child.id, {session: 'window-a'}, owner)
     await store.updateSettings({tint: 'teal'}, owner)
     await secretsOf(store).set('STRIPE_KEY', {value: 'sk_live_abcdef123456', hosts: ['api.stripe.com']}, owner)
-    await secretsOf(store).egress({url: 'https://api.stripe.com/v1/charges', headers: {Authorization: 'Bearer {{secret:STRIPE_KEY}}'}})
+    await secretsOf(store).egress({project: 'greenhouse', url: 'https://api.stripe.com/v1/charges', headers: {Authorization: 'Bearer {{secret:STRIPE_KEY}}'}})
     await store.createUpload({data: PNG, name: 'shelf.png'}, owner)
     return store
 }

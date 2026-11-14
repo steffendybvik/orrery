@@ -1,7 +1,7 @@
 // What every part of the store stands on: the database, telling open pages of a change, reading rows and
 // records, the owner's protection, and writing.
 import {AsyncLocalStorage} from 'node:async_hooks'
-import type {ActivityField, Board, IssueStatus, Notice, Project, Settings, Signal, Starts} from '#shared/roadmap'
+import type {ActivityField, Board, Effort, Issue, IssueStatus, Notice, Project, Settings, Signal, Starts} from '#shared/roadmap'
 import {numberOf, shortId} from '#shared/roadmap'
 import type {Input} from '../utils/input'
 import {badRequest, notFound} from '../utils/input'
@@ -19,7 +19,6 @@ const relayed = new AsyncLocalStorage<true>()
 
 export abstract class StoreBase {
     constructor(
-        /** Changed only when the owner moves the database (`rebindDatabase`). */
         public db: Db,
         protected readonly onChange: (project: string) => void = () => {},
         protected readonly onSignal: (signal: Signal) => void = () => {},
@@ -44,6 +43,14 @@ export abstract class StoreBase {
     /** The schedule whose run the code running now is part of, if any; the server sets it. */
     cause: () => string | undefined = () => undefined
 
+    /** A read asked of the Rust API when it's set up (ORR-1162): its reply, or undefined with no API, which leaves the
+     * read to the database here. It answers alike (a 404 where the store would throw one). Imported when used, as the
+     * router reads the store. */
+    protected async fromApi<T>(path: string): Promise<T | undefined> {
+        const {readFromApi} = await import('../utils/api-router')
+        return await readFromApi<T>(path)
+    }
+
     /** Tells what a write the Rust API made set off (`work`, the router's hooks), without a second row in the outbox. */
     async relaying<T>(work: () => Promise<T>): Promise<T> {
         return await relayed.run(true, work)
@@ -67,9 +74,10 @@ export abstract class StoreBase {
     /** The outbox rows this server wrote, kept only while it follows the feed (ORR-983): its own hooks heard those. */
     private own: Set<number> | null = null
 
-    /** From now on, keeps the ids of the outbox rows this server writes, for the follower to skip (ORR-983). */
+    /** From now on, keeps the ids of the outbox rows this server writes, for the follower to skip (ORR-983), starting
+     * afresh: the ids kept from a database before a move mean other rows on this one (ORR-1035). */
     keepOwnChanges() {
-        this.own ??= new Set()
+        this.own = new Set()
     }
 
     /** Whether this server wrote the outbox row `id`, forgetting it: each is read once. */
@@ -94,14 +102,15 @@ export abstract class StoreBase {
     }
 
     /** A signal for sessions, and its row in the outbox: its id, as the `signals` table holds the rest (ORR-929). */
-    protected signalled(signal: Signal) {
-        this.outbox('signal', {project: signal.project, subject: String(signal.id)})
+    protected signalled(signal: Signal, {inOutbox = false} = {}) {
+        // The API puts its own writes' row in the outbox, in their transaction (ORR-1174): only the store's own go in here.
+        if (!inOutbox) this.outbox('signal', {project: signal.project, subject: String(signal.id)})
         this.onSignal(signal)
     }
 
     /** An agent's comment for the owner's bell, and its row in the outbox: the comment's id, and its issue (ORR-929). */
-    protected noticed(notice: Notice) {
-        this.outbox('notice', {project: notice.project, subject: String(notice.id), payload: {issue: notice.issue}})
+    protected noticed(notice: Notice, {inOutbox = false} = {}) {
+        if (!inOutbox) this.outbox('notice', {project: notice.project, subject: String(notice.id), payload: {issue: notice.issue}})
         this.onNotice(notice)
     }
 
@@ -126,8 +135,15 @@ export abstract class StoreBase {
     /** Tells open pages the project changed, and the projects sharing its releases. */
     private pushChanged(project: string) {
         this.onChange(project)
-        this.all<{id: string}>('SELECT id FROM projects WHERE releases_from = ? OR id = (SELECT releases_from FROM projects WHERE id = ?)', project, project)
-            .then(rows => rows.forEach(r => this.onChange(r.id)), () => {})
+        this.releasePeers(project).then(ids => ids.forEach(id => this.onChange(id)), () => {})
+    }
+
+    /** The projects sharing releases with `project`, from the API when it's set up (ORR-1174): each change the API
+     * relays asks it, and this was the most of what this server still read then. */
+    private async releasePeers(project: string): Promise<string[]> {
+        const read = await this.fromApi<string[]>(`/api/projects/${encodeURIComponent(project)}/release-peers`)
+        if (read) return read
+        return (await this.all<{id: string}>('SELECT id FROM projects WHERE releases_from = ? OR id = (SELECT releases_from FROM projects WHERE id = ?)', project, project)).map(r => r.id)
     }
 
     /** The project its releases are: its `releases_from`, its own, or none when it has no releases. */
@@ -190,6 +206,9 @@ export abstract class StoreBase {
 
     /** The issue's id, from its id, an id it had before (an alias), or the full form of either on this board. */
     protected async issueId(project: string, id: string): Promise<string> {
+        // From the API when it's set up (ORR-1174), which resolves it alike.
+        const read = await this.fromApi<{id: string}>(`/api/projects/${encodeURIComponent(project)}/issues/${encodeURIComponent(id)}/id`)
+        if (read) return read.id
         if (await this.get('SELECT 1 FROM issues WHERE project = ? AND id = ?', project, id)) return id
         const alias = (await this.get<{issue: string}>('SELECT issue FROM issue_aliases WHERE project = ? AND alias = ?', project, id))?.issue
         if (alias) return alias
@@ -199,6 +218,8 @@ export abstract class StoreBase {
 
     /** The milestone's id, from its number, a name it had before (an alias), or the full form of either on this board. */
     protected async milestoneId(project: string, id: string): Promise<string> {
+        const read = await this.fromApi<{id: string}>(`/api/projects/${encodeURIComponent(project)}/milestones/${encodeURIComponent(id)}/id`)
+        if (read) return read.id
         if (await this.get('SELECT 1 FROM milestones WHERE project = ? AND id = ?', project, id)) return id
         const alias = (await this.get<{milestone: string}>('SELECT milestone FROM milestone_aliases WHERE project = ? AND alias = ?', project, id))?.milestone
         if (alias) return alias
@@ -228,19 +249,37 @@ export abstract class StoreBase {
     }
 
     protected async projectRow(id: string): Promise<ProjectRow> {
+        // As it's stored, from the API when it's set up (ORR-1174), which says alike when there's none: every store
+        // method checks its project here first.
+        const read = await this.fromApi<ProjectRow>(`/api/projects/${encodeURIComponent(id)}/row`)
+        if (read) return read
         const row = await this.get<ProjectRow>('SELECT * FROM projects WHERE id = ?', id)
         if (!row) throw notFound(`No project "${id}"`)
         return row
     }
 
     protected async milestoneRow(project: string, id: string): Promise<MilestoneRow> {
+        const read = await this.fromApi<MilestoneRow>(`/api/projects/${encodeURIComponent(project)}/milestones/${encodeURIComponent(id)}/row`)
+        if (read) return read
         await this.projectRow(project)
         const row = await this.get<MilestoneRow>('SELECT * FROM milestones WHERE project = ? AND id = ?', project, id)
         if (!row) throw notFound(`No milestone "${id}" in ${project}`)
         return row
     }
 
+    /** What passing a comment on needs of an issue (ORR-1174): its title, assignee, labels, model and effort, from the API
+     * when it's set up, which reads the issue alike (a 404 when it isn't there), else from its row here. Each comment the
+     * API relays reads them. */
+    protected async issueFacts(project: string, id: string): Promise<{title: string, assignee: string | null, labels: string[], model: string | null, effort: Effort | null}> {
+        const read = await this.fromApi<Issue & {model?: string | null, effort?: Effort | null}>(`/api/projects/${encodeURIComponent(project)}/issues/${encodeURIComponent(id)}`)
+        if (read) return {title: read.title, assignee: read.assignee ?? null, labels: read.labels, model: read.model ?? null, effort: read.effort ?? null}
+        const row = await this.issueRow(project, id)
+        return {title: row.title, assignee: row.assignee, labels: JSON.parse(row.labels) as string[], model: row.model ?? null, effort: row.effort ?? null}
+    }
+
     protected async issueRow(project: string, id: string): Promise<IssueRow> {
+        const read = await this.fromApi<IssueRow>(`/api/projects/${encodeURIComponent(project)}/issues/${encodeURIComponent(id)}/row`)
+        if (read) return read
         await this.projectRow(project)
         const row = await this.get<IssueRow>('SELECT * FROM issues WHERE project = ? AND id = ?', project, id)
         if (!row) throw notFound(`No issue ${id} in ${project}`)
@@ -256,6 +295,9 @@ export abstract class StoreBase {
 
     /** The release by its version, in the project's source when it takes its releases from another. */
     protected async releaseRow(project: string, version: string): Promise<ReleaseRow> {
+        // From the API when it's set up (ORR-1174), which looks in the source alike and says the same when it isn't there.
+        const read = await this.fromApi<ReleaseRow>(`/api/projects/${encodeURIComponent(project)}/releases/${encodeURIComponent(version)}/row`)
+        if (read) return read
         const source = await this.releaseSource(project)
         if (!source) throw badRequest(noReleases(project))
         const row = await this.get<ReleaseRow>('SELECT * FROM releases WHERE project = ? AND version = ?', source, version)

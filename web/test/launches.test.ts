@@ -209,6 +209,12 @@ describe('starting a session', () => {
         expect(sent).toEqual([])
     })
 
+    it("isn't for orrery's own focus on a PR that needs work, which waits for the next session (ORR-1184)", async () => {
+        launches.addLauncher('greenhouse')
+        expect(await launches.considerLaunch(signal(1, {created_by: 'orrery'}))).toBeNull()
+        expect(sent).toEqual([])
+    })
+
     it('starts one session for signals that come together', async () => {
         launches.addLauncher('greenhouse')
         const both = await Promise.all([launches.considerLaunch(signal(1)), launches.considerLaunch(signal(2))])
@@ -222,6 +228,22 @@ describe('starting a session', () => {
         const launch = (await launches.considerLaunch(signal(1)))!
         expect([launches.claim('greenhouse', launch.id, first), launches.claim('greenhouse', launch.id, second), launches.claim('mesa', launch.id, first)]).toEqual([true, false, false])
         expect(launches.claim('greenhouse', 'nope', first)).toBe(false)
+    })
+
+    it("gives one in the project's repo its sessions before one in a default folder (ORR-1066)", async () => {
+        const home = launches.addLauncher('greenhouse', undefined, false, '', {}, true)
+        const repo = launches.addLauncher('greenhouse', '/code/greenhouse')
+        // A default folder isn't one of the project's repos.
+        expect(launches.launchState('greenhouse').folders).toEqual(['/code/greenhouse'])
+        const first = (await launches.considerLaunch(signal(1)))!
+        expect(launches.claim('greenhouse', first.id, home.token)).toBe(false)
+        expect(launches.claim('greenhouse', first.id, repo.token)).toBe(true)
+        // With no launcher in its repo, the default folder's takes it.
+        repo()
+        launches.launched(first.id)
+        const second = (await launches.considerLaunch(signal(2)))!
+        expect(launches.claim('greenhouse', second.id, home.token)).toBe(true)
+        home()
     })
 
     it("gives a member's launcher none of the owner's launches, to hear, claim or tell about (ORR-963)", async () => {
@@ -803,15 +825,6 @@ describe("an untrusted schedule's run", () => {
         expect(await launches.stopDue(now)).toEqual(['locked'])
     })
 
-    it('makes what its session raises a proposal labelled external, and nothing more', async () => {
-        const {asProposal} = await import('../server/utils/untrusted')
-        expect(asProposal({title: 'Crash on save', notes: 'From #12', labels: ['bug'], priority: 'P0', status: 'in-progress', assignee: 'claude', parent: 'GRE-1', milestone: '2', release: '1.0.0'}))
-            .toEqual({title: 'Crash on save', notes: 'From #12', proposal: 'pending', labels: ['external']})
-        expect(asProposal({title: 'x', labels: ['external']}).labels).toEqual(['external'])
-        expect(asProposal({title: 'x', github_issues: [12]})).toMatchObject({github_issues: [12], labels: ['external']})
-        expect(asProposal(null)).toMatchObject({proposal: 'pending', labels: ['external']})
-    })
-
     it("stays untrusted when a launcher reports it after orrery restarted", () => {
         launches.reportRunning('greenhouse', [{id: 'a1b2c3d4e5f6', tmux: 'orrery-greenhouse-a1b2c3d4e5f6', untrusted: true}])
         expect(launches.launched('a1b2c3d4e5f6')).toMatchObject({untrusted: true})
@@ -988,6 +1001,34 @@ describe('a session started on a model (ORR-868)', () => {
         expect(() => launches.startInput({model: 'gpt'})).toThrow('Send {model}')
         expect(() => launches.startInput({model: 'haiku --dangerously-skip-permissions'})).toThrow('Send {model}')
         expect(() => launches.startInput({effort: 'huge'})).toThrow('Send {effort}')
+    })
+})
+
+describe('a global session (ORR-1079)', () => {
+    it('is asked for with {global}, and not with {hears}, as it hears every project', async () => {
+        vi.stubGlobal('badRequest', (message: string) => Object.assign(new Error(message), {statusCode: 400}))
+        expect(launches.startInput({global: true})).toMatchObject({global: true})
+        expect(launches.startInput({global: false})).not.toHaveProperty('global')
+        expect(() => launches.startInput({global: 'yes'})).toThrow('Send {global}')
+        launches.addLauncher('greenhouse')
+        expect(await launches.startLaunch('greenhouse', {global: true})).toMatchObject({project: 'greenhouse', global: true})
+        await expect(launches.startLaunch('greenhouse', {global: true, hears: ['greenhouse']})).rejects.toThrow('a global session hears every project')
+    })
+
+    it('goes only to a launcher that says it starts one, and says so once it has', async () => {
+        const {token} = launches.addLauncher('greenhouse')
+        const launch = await launches.startLaunch('greenhouse', {global: true})
+        // A launcher from before global sessions would start it in the project's repo, as the project's.
+        expect(launches.claim('greenhouse', launch.id, token, true, true, true, true)).toBe(false)
+        expect(noted).toEqual([expect.objectContaining({level: 'warn', kind: 'launcher.outdated', message: expect.stringMatching(/start a global session.*Restart the launcher/)})])
+        expect(launches.claim('greenhouse', launch.id, token, true, true, true, true, true)).toBe(true)
+        expect(launches.launched(launch.id)).toMatchObject({launch: launch.id, global: true})
+    })
+
+    it('is known as global again after orrery restarts, from its launcher\'s report', () => {
+        const running = {id: 'b1b2b3b4b5b6', tmux: 'orrery-greenhouse-b1b2b3b4b5b6', global: true}
+        launches.reportRunning('greenhouse', [running])
+        expect(launches.launched(running.id)).toEqual({launch: running.id, tmux: running.tmux, global: true})
     })
 })
 

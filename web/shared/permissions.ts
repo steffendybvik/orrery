@@ -2,7 +2,8 @@
 // /api/permissions` gives it to agents so they ask rather than try and be refused, and the server enforces it (ORR-512):
 // the owner-only routes ask `authorize()` for their row, and the chat's and an untrusted session's guards are built from
 // their columns (`guard()`). test/permissions.test.ts holds the rest of each row (the store's checks) to the code, so the
-// table can't drift from it. A change to a rule changes its row here too.
+// table can't drift from it. A change to a rule changes its row here too. The Rust API holds writes to a copy of it,
+// api/permissions.json (ORR-1059): test/rust-permissions.test.ts fails until it's written again.
 
 /** How far a kind of session gets with something: `free` does it; `limited` does it within the row's note; `asks`
  * asks the owner, and it's done only on their Allow or Send; `owned` is saved but runs only once the owner makes it
@@ -261,7 +262,7 @@ export const PERMISSIONS: Permission[] = [
     {
         id: 'chats.reply', area: 'Sessions', action: 'Answer in a chat, and ask the owner there',
         why: 'A chat is between the owner and its own session.',
-        routes: ['POST /api/chats/:chat/replies', 'POST /api/chats/:chat/requests'],
+        routes: ['POST /api/chats/:chat/replies', 'POST /api/chats/:chat/requests', 'POST /api/chats/:chat/setting-requests', 'POST /api/chats/:chat/schedule-requests', 'POST /api/chats/:chat/release-requests', 'POST /api/chats/:chat/doc-requests', 'POST /api/chats/:chat/issue-requests', 'POST /api/chats/:chat/move-requests'],
         session: refused,
         chat: {level: 'limited', note: 'Only in its own chat'},
         untrusted: refused,
@@ -376,6 +377,15 @@ export const PERMISSIONS: Permission[] = [
         member: ownerAlone,
     },
     {
+        id: 'workspaces.write', area: 'This orrery', action: 'Make a workspace, or rename or recolour one',
+        why: 'Anyone here can make a workspace and owns it; only its owners change it (decision-workspaces).',
+        routes: ['POST /api/workspaces', 'PATCH /api/workspaces/:workspace'],
+        session: refused,
+        chat: refused,
+        untrusted: refused,
+        member: {level: 'free', note: 'Changing only the ones they own'},
+    },
+    {
         id: 'keys.write', area: 'This orrery', action: 'Make or revoke a key',
         why: 'A key can’t make or widen a key, so an agent can never become its person. A person handles their own, and the owner issues them to others.',
         routes: ['POST /api/keys', 'DELETE /api/keys/:key'],
@@ -436,15 +446,6 @@ export const PERMISSIONS: Permission[] = [
         routes: ['POST /api/egress'],
         session: {level: 'limited', note: 'Only to the hosts and projects the secret allows'},
         chat: {level: 'limited', note: 'Only to the hosts and projects the secret allows'},
-        untrusted: refused,
-        member: ownerAlone,
-    },
-    {
-        id: 'database.write', area: 'This orrery', action: 'Back up, restore or move the database',
-        why: 'It decides where all of orrery’s data is.',
-        routes: ['POST /api/backups', 'PUT /api/backups', 'POST /api/backups/restore', 'POST /api/database/move', 'POST /api/database/check'],
-        session: {level: 'owner', note: 'And only from this machine'},
-        chat: refused,
         untrusted: refused,
         member: ownerAlone,
     },

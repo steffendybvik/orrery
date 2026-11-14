@@ -29,13 +29,14 @@ import type {OnFilter, OrreryEvent} from '#shared/happenings'
 import {EVENT_PATTERN, matchesType} from '#shared/happenings'
 import type {Effort, Issue, Preset, Priority, Schedule, ScheduleAcross, ScheduleRun} from '#shared/roadmap'
 import {canActivate, CLOSED, EFFORTS, EVENT_LEVELS, KINDS, PRIORITIES} from '#shared/roadmap'
-import {MODEL} from '../store/schema'
+import {MODEL, ORRERY} from '../store/schema'
 import type {Db} from './database'
 import {one} from './database'
 import type {Field, Input} from './input'
 import {badRequest, checkInput, conflict, notFound} from './input'
 import type {Actor, Store} from './store'
 import {AGENT} from './store'
+import {writeToApi} from './api-router'
 import {ownerOnly, refusedFor} from './permission'
 import {startsNone} from './starts-none'
 import {splitChecklist} from './schedule-checklist'
@@ -170,6 +171,9 @@ export class Schedules {
 
     /** Every project's schedules, or one project's; soonest first, paused last. */
     async list(project?: string): Promise<Schedule[]> {
+        // From the API when it's set up (ORR-1174): each open page hears a project's schedules again when they change.
+        const read = await this.fromApi<Schedule[]>(project ? `/api/projects/${encodeURIComponent(project)}/schedules` : '/api/schedules')
+        if (read) return read
         if (project) await this.store.project(project)
         const rows = project
             ? (await this.db.all<ScheduleRow>('SELECT * FROM schedules WHERE project = ?', project))
@@ -180,8 +184,31 @@ export class Schedules {
             .sort((a, b) => (due(a) < due(b) ? -1 : due(a) > due(b) ? 1 : 0) || a.title.localeCompare(b.title))
     }
 
+    /** A change to `project`'s schedules made elsewhere (the Rust API, ORR-950): the event listeners are read again, and
+     * it's told as a write here tells it. */
+    changedElsewhere(project: string) {
+        this.listeners = null
+        this.onChange(project)
+    }
+
     async get(project: string, id: number): Promise<Schedule> {
+        const read = await this.fromApi<Schedule>(`/api/projects/${encodeURIComponent(project)}/schedules/${id}`)
+        if (read) return read
         return await this.scheduleOf(await this.row(project, id))
+    }
+
+    /** A read asked of the Rust API when it's set up (ORR-1174), which answers as the routes here once did: undefined
+     * with no API, leaving it to the database here. Imported when used, as the router reads the scheduler. */
+    private async fromApi<T>(path: string): Promise<T | undefined> {
+        const {readFromApi} = await import('./api-router')
+        return await readFromApi<T>(path)
+    }
+
+    /** A run's write asked of the Rust API, the one writer of the board when it's set up (ORR-1176): undefined with no
+     * API, leaving it to the database here. Sent as orrery, as it's the clock's own work. */
+    private async toApi<T>(method: string, path: string, body?: unknown): Promise<T | undefined> {
+        const sent = await writeToApi(method, path, body, ORRERY, {always: true})
+        return sent ? sent.reply as T : undefined
     }
 
     async create(project: string, body: unknown, actor = AGENT, across: number | null = null): Promise<Schedule> {
@@ -477,7 +504,7 @@ export class Schedules {
             const row = await this.db.get<ScheduleRow>('SELECT * FROM schedules WHERE id = ?', schedule)
             // Switched off, what it held back goes: switched on again, it starts from what happens then.
             if (!row?.enabled || !row.on_event) {
-                await this.db.run('DELETE FROM schedule_held WHERE schedule = ?', schedule)
+                if (await this.toApi('DELETE', `/api/schedules/${schedule}/held`) === undefined) await this.db.run('DELETE FROM schedule_held WHERE schedule = ?', schedule)
                 done.add(schedule)
                 continue
             }
@@ -486,7 +513,7 @@ export class Schedules {
                 continue
             }
             // Claimed by taking it out: if another server got there first, nothing changes here.
-            if (!(await this.db.run('DELETE FROM schedule_held WHERE schedule = ? AND subject = ?', schedule, subject)).changes) continue
+            if (!await this.takeHeld(schedule, subject)) continue
             const event = await this.stillFits(row, JSON.parse(sent) as OrreryEvent)
             if (!event || await this.ranFor(schedule, subject)) continue
             done.add(schedule)
@@ -494,6 +521,13 @@ export class Schedules {
             ran++
         }
         return ran
+    }
+
+    /** Takes a held event out to run it: false when another server got there first. */
+    private async takeHeld(schedule: number, subject: string): Promise<boolean> {
+        const taken = await this.toApi<{taken: boolean}>('DELETE', `/api/schedules/${schedule}/held/${encodeURIComponent(subject)}`)
+        if (taken) return taken.taken
+        return !!(await this.db.run('DELETE FROM schedule_held WHERE schedule = ? AND subject = ?', schedule, subject)).changes
     }
 
     /** The held event as it stands now, when it still does what the schedule asks: an issue's status is read again, so
@@ -536,6 +570,9 @@ export class Schedules {
      * another call, took it first. */
     private async claimNext(row: ScheduleRow, from: Date): Promise<boolean> {
         const next = row.at ? null : nextRun(row, from)
+        const path = `/api/projects/${encodeURIComponent(row.project)}/schedules/${row.id}/claim`
+        const claimed = await this.toApi<{claimed: boolean}>('POST', path, {from: row.next_run, to: next, enabled: !row.at})
+        if (claimed) return claimed.claimed
         return !!(await this.db.run('UPDATE schedules SET next_run = ?, enabled = ? WHERE id = ? AND next_run = ?', next, row.at ? 0 : 1, row.id, row.next_run)).changes
     }
 
@@ -581,7 +618,8 @@ export class Schedules {
             if (await this.inCooldown(row.id, now)) {
                 // Its turn comes once the minute is up (`catchUp`); with no subject, it counts as the run just made.
                 if (event.subject) {
-                    await this.db.run(`INSERT INTO schedule_held (schedule, subject, event, at) VALUES (?, ?, ?, ?)
+                    const held = await this.toApi('PUT', `/api/schedules/${row.id}/held/${encodeURIComponent(event.subject)}`, {event: JSON.stringify(event), at: now.toISOString()})
+                    if (held === undefined) await this.db.run(`INSERT INTO schedule_held (schedule, subject, event, at) VALUES (?, ?, ?, ?)
                         ON CONFLICT (schedule, subject) DO UPDATE SET event = excluded.event`, row.id, event.subject, JSON.stringify(event), now.toISOString())
                 }
                 continue
@@ -626,8 +664,13 @@ export class Schedules {
     private async runIt(row: ScheduleRow, now: Date, manual: boolean, event?: OrreryEvent, aside?: string): Promise<ScheduleRun> {
         const record = async (outcome: ScheduleRun['outcome'], issue: string | null, said: string | null): Promise<ScheduleRun> => {
             const note = [said, aside].filter(Boolean).join('; ') || null
-            await this.db.run('INSERT INTO schedule_runs (schedule, at, outcome, issue, note, subject) VALUES (?, ?, ?, ?, ?, ?)',
-                row.id, now.toISOString(), outcome, issue, note, event?.subject ?? null)
+            // The API marks an issue schedule's issue as its in the same write (ORR-1176); here, `runIssue` did.
+            const path = `/api/projects/${encodeURIComponent(row.project)}/schedules/${row.id}/runs`
+            const kept = await this.toApi('POST', path, {at: now.toISOString(), outcome, issue, note, subject: event?.subject ?? null})
+            if (kept === undefined) {
+                await this.db.run('INSERT INTO schedule_runs (schedule, at, outcome, issue, note, subject) VALUES (?, ?, ?, ?, ?, ?)',
+                    row.id, now.toISOString(), outcome, issue, note, event?.subject ?? null)
+            }
             this.onChange(row.project)
             const run = {at: now.toISOString(), outcome, issue: issue ?? undefined, note: note ?? undefined, ...event?.subject ? {subject: event.subject} : {}}
             // What came of it is told outside the run, so other schedules hear it (an alert on `*.failed`); not when
@@ -704,8 +747,17 @@ export class Schedules {
             if (open) return await record('skipped', null, `${open} from the last run isn't done yet`)
         }
         const {notes: words, items} = splitChecklist(wordsOf(run))
+        // Through the Rust API when it's in front, as it's the one writer of `issues` then (ORR-1176); its urgent push is
+        // left to this run, which asks the sessions itself.
+        const issues = `/api/projects/${encodeURIComponent(row.project)}/issues`
+        let viaApi = false
+        const make = async (body: Record<string, unknown>): Promise<Issue> => {
+            const sent = await writeToApi('POST', issues, body, actor, {always: true, urgent: false})
+            viaApi = !!sent
+            return sent ? sent.reply as Issue : await this.store.createIssue(row.project, body, actor, {urgent: false})
+        }
         try {
-            const issue = await this.store.createIssue(row.project, {
+            const issue = await make({
                 title: `${row.title} · ${event ? event.subject ?? event.type : day(now, row.timezone)}`,
                 ...words ? {notes: words} : {},
                 ...row.milestone ? {milestone: row.milestone} : {},
@@ -713,18 +765,22 @@ export class Schedules {
                 ...row.labels !== '[]' ? {labels: JSON.parse(row.labels) as string[]} : {},
                 ...modelOf(row),
                 status: row.place,
-            }, actor, {urgent: false})
+            })
             try {
                 for (const item of items) {
-                    await this.store.createIssue(row.project, {...item, parent: issue.id, ...row.priority ? {priority: row.priority} : {}, status: row.place}, actor, {urgent: false})
+                    await make({...item, parent: issue.id, ...row.priority ? {priority: row.priority} : {}, status: row.place})
                 }
             } catch (error) {
-                await this.store.deleteIssue(row.project, issue.id, actor)
+                const gone = await writeToApi('DELETE', `${issues}/${encodeURIComponent(issue.id)}`, undefined, actor, {always: true})
+                if (!gone) await this.store.deleteIssue(row.project, issue.id, actor)
                 throw error
             }
             if (!row.ask) await this.store.sayUrgent(row.project, issue.id, actor)
-            await this.db.run('UPDATE issues SET schedule = ? WHERE project = ? AND id = ?', row.id, row.project, issue.id)
-            this.store.changed(row.project)
+            // With the API, the run's record marks it (ORR-1176).
+            if (!viaApi) {
+                await this.db.run('UPDATE issues SET schedule = ? WHERE project = ? AND id = ?', row.id, row.project, issue.id)
+                this.store.changed(row.project)
+            }
             let note: string | null = items.length ? `with ${items.length === 1 ? '1 sub-issue' : `${items.length} sub-issues`}` : null
             if (row.ask) {
                 await this.store.focus(row.project, issue.id, {note: `Scheduled: ${row.title}${row.priority === 'P0' ? ". It's urgent (P0)." : ''}`}, actor)
@@ -758,7 +814,9 @@ export class Schedules {
                 continue
             }
             try {
-                await this.store.updateIssue(row.project, issue.id, {status: to.id}, actor)
+                // Through the Rust API when it's in front, as it's the one writer of `issues` then (ORR-1094).
+                const path = `/api/projects/${encodeURIComponent(row.project)}/issues/${encodeURIComponent(issue.id)}`
+                if (!await writeToApi('PATCH', path, {status: to.id}, actor, {always: true})) await this.store.updateIssue(row.project, issue.id, {status: to.id}, actor)
                 await this.store.systemNote(row.project, issue.id, [
                     `Moved from ${statuses.get(issue.column) ?? issue.column} to ${to.name} by the schedule "${row.title}". ${about ?? ''}`.trim(),
                     row.notes,

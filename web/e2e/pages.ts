@@ -64,6 +64,7 @@ export const REDIRECTS = (w: Walked) => [
     {from: '/now', to: /\/mine$/},
     {from: '/urgent', to: /\/mine$/},
     {from: `/p/${w.id}/schedules`, to: new RegExp(`/schedules\\?project=${w.id}$`)},
+    {from: `/p/${w.id}/issues`, to: new RegExp(`/p/${w.id}$`)},
 ]
 
 export const heading = (page: Page, name: string) => page.getByRole('heading', {name, exact: true}).first()

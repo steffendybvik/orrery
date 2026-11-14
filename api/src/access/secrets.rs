@@ -1,0 +1,149 @@
+// The orrery's secrets, reading them (ORR-953): what `list` and `get` in web/server/utils/secrets.ts do, on the same
+// tables, answering as `GET /api/secrets` and `GET /api/secrets/{name}` do. Neither reads `value`: it's ciphertext, and
+// the key that opens it stays with the local app (decision-rust-api-secrets-settings). So setting, narrowing and
+// deleting one, and sending one out (egress), stay the Nuxt server's routes: it checks each, seals the value with the
+// key and tells the event log, then keeps the row through work/secrets.rs (ORR-1096). The router sends only these reads here.
+// The sealed rows, `value` and all, go only to the local app, which holds the key to open them (`sealed`, ORR-1143).
+use crate::db::sql;
+use crate::error::{ApiError, Result};
+use serde_json::{json, Map, Value};
+use sqlx::any::AnyRow;
+use sqlx::{AnyConnection, Row};
+
+/// How many uses a secret shows (`USES`).
+const USES: i64 = 20;
+
+const SECRET_COLUMNS: &str = "name, last4, hosts, projects, created_by, created_at, updated_at";
+const SEALED_COLUMNS: &str = "name, value, last4, hosts, projects, created_by, CAST(owned AS BIGINT) AS owned, created_at, updated_at";
+const USE_COLUMNS: &str =
+    "CAST(id AS BIGINT) AS id, secret, method, host, path, project, issue, CAST(status AS BIGINT) AS status, error, created_by, created_at";
+
+/// A JSON list kept as text, or null when there's none (`JSON.parse(row.projects)`).
+fn parsed(text: Option<String>) -> Value {
+    text.and_then(|t| serde_json::from_str(&t).ok()).unwrap_or(Value::Null)
+}
+
+/// A secret as it's handed out (`secretOf`): never its value.
+fn secret_of(row: &AnyRow, last: Value) -> Map<String, Value> {
+    let mut out = Map::new();
+    out.insert("name".into(), json!(row.get::<String, _>("name")));
+    out.insert("last4".into(), json!(row.get::<String, _>("last4")));
+    out.insert("hosts".into(), parsed(Some(row.get::<String, _>("hosts"))));
+    out.insert("projects".into(), parsed(row.get::<Option<String>, _>("projects")));
+    out.insert("created_by".into(), json!(row.get::<String, _>("created_by")));
+    out.insert("created_at".into(), json!(row.get::<String, _>("created_at")));
+    out.insert("updated_at".into(), json!(row.get::<String, _>("updated_at")));
+    out.insert("last_used".into(), last);
+    out
+}
+
+/// A secret's row as kept (`SecretRow`), its lists still text, for the local app to open.
+fn sealed_of(row: &AnyRow) -> Value {
+    json!({
+        "name": row.get::<String, _>("name"),
+        "value": row.get::<String, _>("value"),
+        "last4": row.get::<String, _>("last4"),
+        "hosts": row.get::<String, _>("hosts"),
+        "projects": row.get::<Option<String>, _>("projects"),
+        "created_by": row.get::<String, _>("created_by"),
+        "owned": row.get::<i64, _>("owned"),
+        "created_at": row.get::<String, _>("created_at"),
+        "updated_at": row.get::<String, _>("updated_at"),
+    })
+}
+
+/// A use of a secret as it's handed out (`useOf`).
+fn use_of(row: &AnyRow) -> Value {
+    json!({
+        "id": row.get::<i64, _>("id"),
+        "secret": row.get::<String, _>("secret"),
+        "method": row.get::<String, _>("method"),
+        "host": row.get::<String, _>("host"),
+        "path": row.get::<String, _>("path"),
+        "project": row.get::<Option<String>, _>("project"),
+        "issue": row.get::<Option<String>, _>("issue"),
+        "status": row.get::<Option<i64>, _>("status"),
+        "error": row.get::<Option<String>, _>("error"),
+        "created_by": row.get::<String, _>("created_by"),
+        "created_at": row.get::<String, _>("created_at"),
+    })
+}
+
+pub struct Secrets<'c> {
+    conn: &'c mut AnyConnection,
+    /// The workspace whose secrets these are (ORR-1107): each has its own, by name.
+    workspace: String,
+}
+
+impl<'c> Secrets<'c> {
+    pub fn new(conn: &'c mut AnyConnection) -> Self {
+        Secrets { conn, workspace: "default".into() }
+    }
+
+    /// The secrets of `workspace`.
+    pub fn of(conn: &'c mut AnyConnection, workspace: String) -> Self {
+        Secrets { conn, workspace }
+    }
+
+    /// Every secret by name, each with its latest use (`list`).
+    pub async fn list(&mut self) -> Result<Value> {
+        let rows = sqlx::query(&sql(&format!("SELECT {SECRET_COLUMNS} FROM secrets WHERE workspace = ? ORDER BY name")))
+            .bind(&self.workspace)
+            .fetch_all(&mut *self.conn)
+            .await?;
+        let last = sqlx::query(&sql(&format!(
+            "SELECT {USE_COLUMNS} FROM secret_uses WHERE id IN (SELECT max(id) FROM secret_uses WHERE workspace = ? GROUP BY secret)"
+        )))
+        .bind(&self.workspace)
+        .fetch_all(&mut *self.conn)
+        .await?;
+        Ok(Value::Array(
+            rows.iter()
+                .map(|row| {
+                    let name = row.get::<String, _>("name");
+                    let used = last.iter().find(|u| u.get::<String, _>("secret") == name).map(use_of).unwrap_or(Value::Null);
+                    Value::Object(secret_of(row, used))
+                })
+                .collect(),
+        ))
+    }
+
+    /// One secret with its latest uses, newest first (`get`).
+    pub async fn secret(&mut self, name: &str) -> Result<Value> {
+        let row = sqlx::query(&sql(&format!("SELECT {SECRET_COLUMNS} FROM secrets WHERE name = ? AND workspace = ?")))
+            .bind(name)
+            .bind(&self.workspace)
+            .fetch_optional(&mut *self.conn)
+            .await?
+            .ok_or_else(|| ApiError::not_found(format!("No secret {name}")))?;
+        let uses: Vec<Value> = sqlx::query(&sql(&format!("SELECT {USE_COLUMNS} FROM secret_uses WHERE secret = ? AND workspace = ? ORDER BY id DESC LIMIT ?")))
+            .bind(name)
+            .bind(&self.workspace)
+            .bind(USES)
+            .fetch_all(&mut *self.conn)
+            .await?
+            .iter()
+            .map(use_of)
+            .collect();
+        let mut out = secret_of(&row, uses.first().cloned().unwrap_or(Value::Null));
+        out.insert("uses".into(), Value::Array(uses));
+        Ok(Value::Object(out))
+    }
+    /// The secret as the local app sealed it, every column (`SecretRow`): its value is ciphertext only the local app's
+    /// key opens. None when there's no such secret.
+    pub async fn sealed(&mut self, name: &str) -> Result<Option<Value>> {
+        let row = sqlx::query(&sql(&format!("SELECT {SEALED_COLUMNS} FROM secrets WHERE name = ? AND workspace = ?")))
+            .bind(name)
+            .bind(&self.workspace)
+            .fetch_optional(&mut *self.conn)
+            .await?;
+        Ok(row.as_ref().map(sealed_of))
+    }
+
+    /// Every secret as sealed, by name (`sealed` for each), in every workspace: for the local app's scrubber, which
+    /// takes any secret's value out of what it logs.
+    pub async fn all_sealed(&mut self) -> Result<Value> {
+        let rows = sqlx::query(&sql(&format!("SELECT {SEALED_COLUMNS} FROM secrets ORDER BY name"))).fetch_all(&mut *self.conn).await?;
+        Ok(Value::Array(rows.iter().map(sealed_of).collect()))
+    }
+}

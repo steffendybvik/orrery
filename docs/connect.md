@@ -11,6 +11,70 @@ Linux it needs a desktop with `zenity` or `kdialog`. In WSL, or with neither, us
 project on the same page, and hand the Claude session in that repo the line it gives you, which has it write the same
 files. What follows is the same by hand.
 
+## Your AI agent
+
+Getting started asks which AI agent you run, and App settings (You → Your AI agent) keeps the answer (ORR-1075):
+**Claude Code**, the default, or **Another agent**. With Claude Code, Getting started and Connect an agent show what
+follows here. With another agent, there's no launcher adapter for it yet, so they show the route that works without
+one instead: `/llms-full.txt` for the REST API, and orrery's channel as a plain MCP server over stdio
+(`ORRERY_URL=… ORRERY_PROJECTS='*' node ~/.orrery/bootstrap.mjs channel`). orrery can't start that agent's sessions
+or send them work.
+
+The launcher keeps the agent its sessions run in its own list, per machine: `launcher --install --agent=<name>` sets
+it, and Claude Code's (`claude`) is the default and the only adapter so far ([agent adapters](/p/orrery/docs/agent-adapters)).
+
+## Set up the machine once
+
+Getting started shows one line on the first open, to run in a terminal from any folder (ORR-1067):
+
+```bash
+mkdir -p ~/.orrery && curl -fsS http://localhost:9000/channel/bootstrap.mjs -o ~/.orrery/bootstrap.mjs && ORRERY_URL=http://localhost:9000 node ~/.orrery/bootstrap.mjs launcher --install
+```
+
+It puts the bootstrap in place and installs the launcher service ([step 4](#4-optionally-let-orrery-start-sessions)).
+Given `ORRERY_URL`, outside a repo, it also sets Claude Code up for that orrery in every folder, through the Claude adapter:
+
+- **A user-level server**, `orrery-<environment>` (`claude mcp add-json --scope user`), the channel serving every
+  project (`ORRERY_PROJECTS=*`). A `claude` in any folder gets orrery's tools, repo or not. A tool on an issue finds its
+  project from the id; the others take `project`, or, left out, the session's own: the one orrery started it for, else
+  the one the launcher's list maps its folder (or a folder above it) to. A connected repo's own server of the same name
+  takes precedence there.
+- **orrery's own `/mcp` beside it**, `orrery-<environment>-api`, where the board's tools are (issues, comments, docs,
+  …; [ORR-1072](/p/orrery/issues/ORR-1072)): an `http` entry, named as the launcher names it. The channel lists only its
+  own tools. On an orrery that doesn't serve `/mcp` yet (its Rust API not running), the line says so, and so does the
+  channel to each session, which has none of the board's tools until it does.
+  Claude Code tells the entry nothing about the session it's in, so its `headersHelper` (`bootstrap.mjs headers`) finds
+  the `claude` that runs it and waits up to 5 seconds for the channel to write which session that is, to
+  `~/.orrery/sessions/<claude pid>`; `/mcp` then ties the session's writes to it, as it does a launcher's session. With
+  no channel to write it, `/mcp` still works, tied to no session.
+- **orrery's hooks at user level**, in `~/.claude/settings.json`, beside your own. Claude Code runs them as well as a
+  folder's own hooks, so the user-level one says nothing where the folder has orrery's hook already, or where no project
+  is known for the session: none started it, and the launcher's list maps no project to its folder. So a `claude` in a
+  folder no orrery knows isn't listed as a session. The folder's name is never taken for a project's. A session the
+  launcher starts is told which orrery started it (`ORRERY_STARTED_ON`), and every other orrery's user-level hook stays
+  silent for it, so with personal and work set up on one machine it's reported to one only.
+- **Linking a folder from a session** (`link_folder`, behind `more_tools folder`): in a folder linked to no project, the
+  session is told so, and links it when you ask, putting it on the launcher's list as Connect a repo does. Sessions there
+  then report to that project and default to it, and orrery can start sessions there. A project served from another
+  folder moves only when you say so (`move`). Only a working session has it, not the chat or an untrusted run.
+- **Choosing the app, with several orrerys set up** (`choose_app`, ORR-1080): a `claude` you open by hand in a folder
+  linked to no project, with personal and work both set up, is asked which orrery it's for on its first orrery call, not
+  before: one that never calls an orrery tool is left alone. The tool doesn't run; it names the orrerys on the machine,
+  Claude asks you, and `choose_app` records your answer for that Claude session in `~/.config/orrery/apps/<session>.json`,
+  which every orrery's server and hook reads. With a project, the folder is linked to it too (unless it's served from
+  another folder), so later sessions there aren't asked. From then on that session's calls and reports go to the chosen
+  orrery only, and the other's tools refuse, saying which it chose. Its `/mcp` tools (`orrery-<env>-api`) too: `choose_app`
+  tells the other orrery's `/mcp`, which keeps that in memory, so after it restarts the session's `/mcp` tools there work
+  again until the session's channel starts again (ORR-1147). With no project it uses the chosen orrery's tools,
+  naming a project per call, and isn't listed as a session, as orrery keeps a session under a project. With one orrery
+  set up, nothing is asked.
+- **The default folder** (`~/.orrery/<orrery id>/home`) set up and trusted in `~/.claude.json`, so the launcher can start
+  sessions there for projects with no repo without asking you to run `claude` there first.
+
+Each piece is marked `ORRERY_SCOPE=user`. Running the line again changes nothing. With `--uninstall` in place of
+`--install`, outside a repo, it removes the service and takes out the servers, the hooks and the trust it added, leaving
+the rest of your config alone.
+
 The channel and hooks run on macOS and Linux, and on Windows inside WSL: the hook commands set their
 variables the POSIX shell way (`ORRERY_PROJECT=shop node …`), and the channel finds its Claude window
 with `ps`. orrery itself runs anywhere Docker does.
@@ -63,12 +127,24 @@ project from the id (`HUB-12` is hub's); the others take `project`, and each `<c
 `ORRERY_HEAR` in a session's environment narrows that to the projects it names (`ORRERY_HEAR=hub claude …` hears only
 hub); a session orrery starts gets it from Start session, so one started for Hub hears Hub alone, and one started
 with no project ticked gets none, so where the channel lists `*` it hears every project.
+The channel runs beside orrery's own MCP server at `/mcp` ([ORR-1102](/p/orrery/issues/ORR-1102)), the Rust API, which
+serves the board's tools ([ORR-1072](/p/orrery/issues/ORR-1072)). The channel lists only what needs this machine or
+isn't served at `/mcp` yet (`sessions`, `next`, `start_issue`, `finish_issue`, `link_folder`, `egress`, `branches`, the
+GitHub tools, and the chat's session requests), and pushes what the session hears. On an orrery that doesn't answer MCP
+at `/mcp` as the session starts, the channel says so in its instructions and its log. The launcher gives each session it
+starts an `http` entry for `/mcp` beside the channel (`<server>-api`, its tools allowed), started on a Claude session id
+of its own so `/mcp` knows which session calls. This repo's own `.mcp.json` has one too, `orrery-api`, for working on
+orrery. The chat and untrusted sessions get it too, saying so to `/mcp` as their channel does, and held there as
+they are everywhere else. Sessions you open yourself get it from the install line ([below](#set-up-the-machine-once)).
 `ORRERY_ID` is the orrery's id (on its Connect page, or `GET /api/settings`): the channel refuses another orrery at
 `ORRERY_URL`, so a repo set up for one never writes to another after an address changes. A repo that works with two
 Orrerys has one server for each. An older setup, a server per project with `ORRERY_PROJECT`, works the same.
 `ORRERY_PERSON` says whose the session is, on an orrery with more than one person and login off (`ORRERY_AUTH=off`): your
 id from `GET /api/people`, set in your own environment. With login on, the agent key says whose it is, and this is ignored, with a warning in the event log if it disagrees. It's written as `${ORRERY_PERSON:-}` because this file is committed, and a name in it would
 make every clone that person. With one person, there's nothing to set.
+`ORRERY_WORKSPACE` names the workspace a session works in: the channel, the hook and `/mcp`'s headers send it as
+`Orrery-Workspace` on every call, so what it reads and writes of the workspace's own (epics, statuses, presets, secrets)
+is that one's. A session orrery starts gets its project's from the launcher; without it, a call acts in `default`, or your first workspace when you aren't in that.
 
 Channels are a Claude Code research preview, so a session only shows the channel's messages when it
 was started with it: `claude --dangerously-load-development-channels server:orrery-personal`. A terminal
@@ -144,6 +220,11 @@ With the hooks, a session can clear its context without losing its place: after 
 Claude Code compacts it) the channel stays connected, and `SessionStart` hands the fresh context the
 issues it had in progress and their latest comment, so it carries on with them.
 
+Every `SessionStart` also tells the session which repo it's in: the repo's path, its `origin`, the branch it's on and
+the default branch, all read on your machine, and the project's repo as orrery has it, with a warning when that isn't
+the folder's `origin`. A folder outside any git repo is told there's no repo, so Claude doesn't go looking for one. A
+session orrery starts gets the same in its system prompt instead, so a `/clear` keeps it.
+
 ## 4. Optionally, let orrery start sessions
 
 orrery can start a session itself when you send the project work and nobody is listening, when you
@@ -161,6 +242,9 @@ It runs in the background from then on (launchd on macOS, systemd on Linux; on W
 every project installed this way; run `--install` again in another repo to add its projects, and
 `--uninstall` to take them off. Run outside a repo whose `.mcp.json` registers the channel, `--install` installs the
 service with no project yet, and `--uninstall` removes the service, keeping its projects on the list for the next `--install`.
+With `ORRERY_URL` on the line (as Connect's install line has), `--install` sets the machine up for that orrery wherever
+it's run, and adds only the repo's projects whose channels point at it. Those pointing at another orrery are left off, and
+the line names them and where they point (ORR-1191): connect the repo again from the new orrery to move them.
 `--install` also turns on **pick-up** (`--no-pick-up` leaves it off): from then on, a Claude session you open in a repo
 whose `.mcp.json` registers the channel puts that repo's projects on the list, by the same rules as `--install` there, and
 the session is told once. Only the channel, running in that folder on your machine, does this; orrery itself never

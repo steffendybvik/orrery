@@ -1,14 +1,19 @@
 // SQLite's schema, as numbered steps (`PRAGMA user_version`): db.ts runs those a file hasn't had yet as it opens it.
-// Postgres's steps, after its baseline, are beside it in postgres.ts; a new step goes in both, and
-// test/schema-parity.test.ts holds the two to the same schema.
+// Postgres's steps, after its baseline, are beside it in postgres.ts, and test/schema-parity.test.ts holds the two to
+// the same schema.
+//
+// These steps are frozen (ORR-931): the Rust API owns the migrations, and a new step is a SQL file in
+// api/migrations/sqlite (and api/migrations/postgres), never one here. This server reads those through from-api.ts,
+// which test/rust-migrations.test.ts writes, for when it migrates without the binary (the tests, a bare `nuxt dev`).
 import type {DatabaseSync} from 'node:sqlite'
 import {renumberSync} from '../renumber'
 import {ownerPerson} from '../owner-person'
 import {randomUid} from '../uid'
+import {SQLITE_FROM_API} from './from-api'
 
-// Each step brings the schema up one version (`PRAGMA user_version`); add steps, never edit them.
+// Each step brings the schema up one version (`PRAGMA user_version`); never edit them, nor add one here.
 // A step is SQL, or a function for what SQL can't say.
-export const MIGRATIONS: (string | ((db: DatabaseSync) => void))[] = [`
+export const SQLITE_FROZEN: (string | ((db: DatabaseSync) => void))[] = [`
     CREATE TABLE projects (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
@@ -1135,3 +1140,6 @@ export const MIGRATIONS: (string | ((db: DatabaseSync) => void))[] = [`
     -- release narrows a milestone's. No key to the epic: deleting one leaves its old signals pointing at nothing.
     ALTER TABLE signals ADD COLUMN epic INTEGER;
 `]
+
+/** Every step: the frozen ones, then the Rust API's after them (ORR-931). */
+export const MIGRATIONS: (string | ((db: DatabaseSync) => void))[] = [...SQLITE_FROZEN, ...SQLITE_FROM_API]

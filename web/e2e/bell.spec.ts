@@ -1,7 +1,8 @@
 import {expect, test} from './test'
 import {OWNER, makeProject, projectApi} from './support'
 
-// An agent's question waits in the bell until the owner answers it.
+// An agent's question waits in the bell until the owner answers it. The issues are the owner's, so what agents say on them
+// is directed at them and rings the bell (ORR-1151).
 
 const api = projectApi('porch')
 
@@ -10,7 +11,7 @@ test.beforeAll(async ({request}) => {
 })
 
 test("an agent's question waits in the bell until the owner answers it", async ({page, request}) => {
-    const issue = await api(request, 'post', '/issues', {title: 'Pick a hinge', status: 'todo'})
+    const issue = await api(request, 'post', '/issues', {title: 'Pick a hinge', status: 'todo', assignee: 'owner'})
     await api(request, 'post', `/issues/${issue.id}/comments`, {body: 'Oak or pine for the hinges?', asks: 'decision'})
     await page.goto('/mine')
     const bell = page.getByRole('link', {name: /waiting on you/})
@@ -36,11 +37,11 @@ test("clearing an agent's proposal takes it out of the bell and leaves it pendin
 })
 
 test('Notifications is a list and a reading pane: a line says what happened and opens beside it, read only then (ORR-785, ORR-803)', async ({page, request}) => {
-    const issue = await api(request, 'post', '/issues', {title: 'Sand the rail', status: 'todo'})
-    const other = await api(request, 'post', '/issues', {title: 'Oil the rail', status: 'todo'})
+    const issue = await api(request, 'post', '/issues', {title: 'Sand the rail', status: 'todo', assignee: 'owner'})
+    const other = await api(request, 'post', '/issues', {title: 'Oil the rail', status: 'todo', assignee: 'owner'})
     for (const body of ['First coat is on.', 'Second coat is on.']) await api(request, 'post', `/issues/${issue.id}/comments`, {body})
     await api(request, 'post', `/issues/${other.id}/comments`, {body: 'Oiled, see [the tin](https://example.com/tin).'})
-    await api(request, 'patch', `/issues/${issue.id}`, {status: 'in-progress'})
+    await api(request, 'patch', `/issues/${issue.id}`, {status: 'done'})
 
     // With the pane closed, so nothing is read before a line is chosen.
     await page.addInitScript(() => localStorage.setItem('orrery-notifications-pane', 'closed'))
@@ -53,7 +54,7 @@ test('Notifications is a list and a reading pane: a line says what happened and 
     const toggle = sand.getByRole('button', {name: `${issue.id}: Sand the rail`})
     // One line for the two comments, saying what happened; with no change, its comment's first line, without Markdown.
     await expect(sand).toContainText('Todo')
-    await expect(sand).toContainText('In progress')
+    await expect(sand).toContainText('Done')
     await expect(oil).toContainText('Oiled, see the tin.')
     const state = (row: typeof sand) => row.locator('[data-state]').getAttribute('data-state')
     expect(await state(sand)).toBe('unread')
@@ -69,7 +70,7 @@ test('Notifications is a list and a reading pane: a line says what happened and 
     await expect(toggle).toBeVisible()
     await expect(pane.getByText('First coat is on.')).toBeVisible()
     await expect(pane.getByText('Second coat is on.')).toBeVisible()
-    await expect(pane.getByRole('listitem').filter({hasText: 'Todo'})).toContainText('In progress')
+    await expect(pane.getByRole('listitem').filter({hasText: 'Todo'})).toContainText('Done')
     await expect(pane.getByRole('link', {name: `Open ${issue.id}`})).toBeVisible()
     await expect.poll(() => state(sand)).toBe('read')
     expect(await state(oil)).toBe('unread')
@@ -86,7 +87,7 @@ test('Notifications is a list and a reading pane: a line says what happened and 
 })
 
 test('Notifications leads with what waits on you, each line showing its question (ORR-803)', async ({page, request}) => {
-    const issue = await api(request, 'post', '/issues', {title: 'Stain the door', status: 'todo'})
+    const issue = await api(request, 'post', '/issues', {title: 'Stain the door', status: 'todo', assignee: 'owner'})
     await api(request, 'post', `/issues/${issue.id}/comments`, {body: '**Where it stands:** primed.\n\n**Walnut or oak?**', asks: 'decision'})
     await page.goto('/notifications')
     const waiting = page.getByRole('region', {name: 'Waiting on you'})
@@ -97,7 +98,7 @@ test('Notifications leads with what waits on you, each line showing its question
 
 test('A wide window opens with the first line beside the list; closing it gives the list the page, remembered until a line is chosen (ORR-805, ORR-990)', async ({page, request}) => {
     await page.setViewportSize({width: 1280, height: 800})
-    const issue = await api(request, 'post', '/issues', {title: 'Plane the shelf', status: 'todo'})
+    const issue = await api(request, 'post', '/issues', {title: 'Plane the shelf', status: 'todo', assignee: 'owner'})
     await api(request, 'post', `/issues/${issue.id}/comments`, {body: 'Planed.'})
     await page.goto('/notifications')
     const toggle = page.getByRole('button', {name: `${issue.id}: Plane the shelf`})
@@ -131,8 +132,8 @@ test('A wide window opens with the first line beside the list; closing it gives 
 })
 
 test('A line with several comments clears by itself, and only it goes (ORR-805)', async ({page, request}) => {
-    const issue = await api(request, 'post', '/issues', {title: 'Glue the leg', status: 'todo'})
-    const other = await api(request, 'post', '/issues', {title: 'Clamp the leg', status: 'todo'})
+    const issue = await api(request, 'post', '/issues', {title: 'Glue the leg', status: 'todo', assignee: 'owner'})
+    const other = await api(request, 'post', '/issues', {title: 'Clamp the leg', status: 'todo', assignee: 'owner'})
     for (const body of ['Glued.', 'Set.']) await api(request, 'post', `/issues/${issue.id}/comments`, {body})
     await api(request, 'post', `/issues/${other.id}/comments`, {body: 'Clamped.'})
     await page.goto('/notifications')
@@ -145,7 +146,7 @@ test('A line with several comments clears by itself, and only it goes (ORR-805)'
 
 test('On a narrow window a chosen line takes the list\'s place, and Back returns to it (ORR-803)', async ({page, request}) => {
     await page.setViewportSize({width: 390, height: 844})
-    const issue = await api(request, 'post', '/issues', {title: 'Hang the gate', status: 'todo'})
+    const issue = await api(request, 'post', '/issues', {title: 'Hang the gate', status: 'todo', assignee: 'owner'})
     await api(request, 'post', `/issues/${issue.id}/comments`, {body: 'Hung.'})
     await page.goto('/notifications')
     const toggle = page.getByRole('button', {name: `${issue.id}: Hang the gate`})
@@ -159,7 +160,7 @@ test('On a narrow window a chosen line takes the list\'s place, and Back returns
 
 test('dragging the border between the list and the open line resizes the list, remembered until a double-click (ORR-820)', async ({page, request}) => {
     await page.setViewportSize({width: 1400, height: 900})
-    const issue = await api(request, 'post', '/issues', {title: 'Plane the door', status: 'todo'})
+    const issue = await api(request, 'post', '/issues', {title: 'Plane the door', status: 'todo', assignee: 'owner'})
     await api(request, 'post', `/issues/${issue.id}/comments`, {body: 'Planed a millimetre off.'})
     await page.goto('/notifications')
     await expect(page.getByRole('button', {name: `${issue.id}: Plane the door`}).first()).toBeVisible()
@@ -194,8 +195,8 @@ test('dragging the border between the list and the open line resizes the list, r
 test('A project picker keeps Notifications to one project, through a reload, and Clear read to what it shows (ORR-822)', async ({page, request}) => {
     if (!(await request.get('/api/projects/shed')).ok()) await makeProject(request, {name: 'Shed', key: 'SHD'})
     const shed = projectApi('shed')
-    const porch = await api(request, 'post', '/issues', {title: 'Sweep the porch', status: 'todo'})
-    const roof = await shed(request, 'post', '/issues', {title: 'Felt the roof', status: 'todo'})
+    const porch = await api(request, 'post', '/issues', {title: 'Sweep the porch', status: 'todo', assignee: 'owner'})
+    const roof = await shed(request, 'post', '/issues', {title: 'Felt the roof', status: 'todo', assignee: 'owner'})
     await api(request, 'post', `/issues/${porch.id}/comments`, {body: 'Swept.'})
     await shed(request, 'post', `/issues/${roof.id}/comments`, {body: 'Felted.'})
     await page.setViewportSize({width: 1400, height: 900})

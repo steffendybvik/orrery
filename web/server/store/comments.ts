@@ -1,11 +1,12 @@
 // Comments on an issue, and its activity.
-import type {ChatScheduleRequest, Comment, IssueEvent} from '#shared/roadmap'
+import type {ChatScheduleRequest, Comment, IssueEvent, Signal} from '#shared/roadmap'
 import {CLOSED} from '#shared/roadmap'
 import {checkInput, notFound} from '../utils/input'
-import type {Actor, CommentRow, EventRow, SignalRow} from './schema'
-import {AGENT, COMMENT_FIELDS, ANSWERED, OPEN_ASK, PERSONS_WORDS, commentOf, eventOf, signalOf, nullable, stamp, ORRERY} from './schema'
+import type {Actor, CommentRow, EventRow} from './schema'
+import {AGENT, COMMENT_FIELDS, ANSWERED, OPEN_ASK, PERSONS_WORDS, commentOf, eventOf, nullable, stamp, ORRERY} from './schema'
 import {refusedFor} from '../utils/permission'
 import {KEEP_SIGNALS, SignalStore} from './signals'
+import {sessionWork, type Unanswered} from './session-work'
 
 /** orrery itself, speaking on an issue. */
 export {ORRERY}
@@ -25,6 +26,8 @@ const scheduleRequestOf = (row: ScheduleRequestRow): ChatScheduleRequest => ({
 
 export abstract class CommentStore extends SignalStore {
     async listComments(project: string, issue: string): Promise<Comment[]> {
+        const read = await this.fromApi<Comment[]>(`/api/projects/${encodeURIComponent(project)}/issues/${encodeURIComponent(issue)}/comments`)
+        if (read) return read
         issue = await this.issueId(project, issue)
         await this.issueRow(project, issue)
         return await this.withScheduleRequests((await this.all<CommentRow>(`SELECT c.*, ${ANSWERED} FROM comments c WHERE project = ? AND issue = ? ORDER BY created_at, id`, project, issue)).map(commentOf))
@@ -46,6 +49,8 @@ export abstract class CommentStore extends SignalStore {
     }
 
     async comment(project: string, issue: string, id: number): Promise<Comment> {
+        const read = await this.fromApi<Comment>(`/api/projects/${encodeURIComponent(project)}/issues/${encodeURIComponent(issue)}/comments/${id}`)
+        if (read) return read
         issue = await this.issueId(project, issue)
         return (await this.withScheduleRequests([commentOf(await this.commentRow(project, issue, id))]))[0] as Comment
     }
@@ -120,7 +125,7 @@ export abstract class CommentStore extends SignalStore {
     async handOn(project: string, issue: string, id: number, {carry, notice, edited = false}: {carry: boolean, notice: boolean, edited?: boolean}, actor: Actor) {
         const comment = await this.comment(project, issue, id)
         if (carry) await this.carryComment(project, issue, edited ? `(Edited: this replaces their earlier comment.)\n\n${comment.body}` : comment.body, actor)
-        if (notice) this.noticed({...comment, project, title: (await this.issueRow(project, issue)).title})
+        if (notice) this.noticed({...comment, project, title: (await this.issueFacts(project, issue)).title}, {inOutbox: true})
     }
 
     /** Whose a comment is (ORR-658): the person's own words, or one of their agents', or nobody's (orrery itself, and an
@@ -132,10 +137,20 @@ export abstract class CommentStore extends SignalStore {
         return {person: person ?? null, by_agent: 1}
     }
 
+    /** orrery's own word sent to the Rust API when it's in front, as it's the one writer of `comments` then (ORR-1094):
+     * `said` for a comment of orrery's own (waking the session on the issue with `wakes`), `comments` for its ask. What
+     * it sets off comes back as a request's would (the carry to the session, the bell). None leaves it to the store
+     * here: no API in front. Imported when used, as the router reads the store. */
+    private async saidThroughApi(project: string, issue: string, to: 'said' | 'comments', body: Record<string, unknown>): Promise<Comment | undefined> {
+        const {writeToApi} = await import('../utils/api-router')
+        const sent = await writeToApi('POST', `/api/projects/${encodeURIComponent(project)}/issues/${encodeURIComponent(issue)}/${to}`, body, ORRERY, {always: true})
+        return sent?.reply as Comment | undefined
+    }
+
     /** orrery asking the owner on an issue (`asks: feedback`, ORR-508, or a `decision`): to the bell, as an agent's ask,
      * and assigned to them; not to a session. `type` is what happened, for the schedules. */
     async systemAsk(project: string, issue: string, body: string, type: string, asks: 'feedback' | 'decision' = 'feedback'): Promise<Comment> {
-        const comment = await this.createComment(project, issue, {body, asks}, ORRERY)
+        const comment = await this.saidThroughApi(project, issue, 'comments', {body, asks}) ?? await this.createComment(project, issue, {body, asks}, ORRERY)
         this.tell(type, project, await this.issueId(project, issue), ORRERY)
         return comment
     }
@@ -147,11 +162,16 @@ export abstract class CommentStore extends SignalStore {
     }
 
     /** orrery's own word on an issue (a pull request's news, ORR-507), as `orrery`: a comment, which reaches the session on
-     * the issue as the owner's do, or the project as work does when nobody's on it; not once the issue is closed, where
+     * the issue as the owner's do, and nobody when no session is on it (ORR-1178); not once the issue is closed, where
      * there's no work left to wake anyone for. `type` is what happened, for the schedules (`pr.merged`). Its words are
      * orrery's own, never another's, so they're safe for a session to read as the owner's. */
     async systemComment(project: string, issue: string, body: string, type: string): Promise<Comment> {
         issue = await this.issueId(project, issue)
+        const sent = await this.saidThroughApi(project, issue, 'said', {body, wakes: true})
+        if (sent) {
+            this.tell(type, project, issue, ORRERY)
+            return sent
+        }
         const row = await this.issueRow(project, issue)
         const now = stamp()
         const id = await this.db.transaction(async () => {
@@ -171,6 +191,8 @@ export abstract class CommentStore extends SignalStore {
     /** orrery's own word on an issue that wakes nobody, as `orrery`: why an action schedule moved it (ORR-636), which was
      * done so that no session need be. */
     async systemNote(project: string, issue: string, body: string): Promise<Comment> {
+        const sent = await this.saidThroughApi(project, issue, 'said', {body})
+        if (sent) return sent
         const now = stamp()
         const id = await this.db.transaction(async () => {
             const {id} = await this.one<{id: number}>('INSERT INTO comments (project, issue, body, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, 0, ?, ?) RETURNING id',
@@ -189,7 +211,8 @@ export abstract class CommentStore extends SignalStore {
      * is a member (`person`) gets their own words too, on what's theirs. A comment older than the signals kept (KEEP_SIGNALS)
      * isn't carried: the signal that says it was heard may be gone (ORR-778). */
     async carryUnanswered(project: string, session: string, person?: string): Promise<number> {
-        const waiting = await this.all<{issue: string, body: string, created_by: string, owned: number, assignee: string | null}>(`
+        // Read through the API when it's set up (ORR-1161); who each goes to stays here, as only this server knows the sessions.
+        const waiting = await sessionWork.unanswered(project, person) ?? await this.all<Omit<Unanswered, 'owned'> & {owned: number}>(`
             SELECT c.issue, c.body, c.created_by, c.owned, (SELECT i.assignee FROM issues i WHERE i.project = c.project AND i.id = c.issue) AS assignee FROM comments c
             WHERE c.project = ? AND c.created_at >= ? AND (c.owned = 1 OR (c.person = ? AND c.by_agent = 0
                 AND EXISTS (SELECT 1 FROM issues i WHERE i.project = c.project AND i.id = c.issue AND lower(i.assignee) = c.person)))
@@ -204,9 +227,7 @@ export abstract class CommentStore extends SignalStore {
             const to = whose === null ? await this.ownerId() : whose
             if (to && to !== person) continue
             carried++
-            const row = await this.one<SignalRow>('INSERT INTO signals (project, issue, kind, note, target, person, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *',
-                project, comment.issue, 'comment', comment.body, session, to ?? null, comment.created_by, comment.owned, stamp())
-            this.signalled(signalOf(row))
+            await this.writeSignal(project, {issue: comment.issue, kind: 'comment', note: comment.body, target: session, person: to ?? null, created_by: comment.created_by, owned: !!comment.owned})
         }
         return carried
     }
@@ -215,20 +236,50 @@ export abstract class CommentStore extends SignalStore {
      * or that one isn't there to hear it, to one session orrery picks (pool.ts), which becomes the issue's (ORR-513).
      * A member's goes only to their own sessions (ORR-658): the one on the issue if it's theirs, else one of theirs if
      * the issue is, and on someone else's issue to nobody, as it's only there to be read. The owner's and orrery's go to
-     * the sessions of whoever has the issue (ORR-656), and on what's nobody's, the owner's to their own and orrery's to no one. */
+     * the sessions of whoever has the issue (ORR-656), and on what's nobody's, the owner's to their own and orrery's to no one.
+     * orrery's never goes to the pool: only to the session on the issue (ORR-1178). */
     protected async carryComment(project: string, issue: string, body: string, actor: Actor) {
         const member = actor.owner ? undefined : actor.person
-        const {assignee} = await this.issueRow(project, issue)
+        const {assignee} = await this.issueFacts(project, issue)
         const whose = member ?? await this.whoseWork(project, assignee)
         if (!member && whose === null && !actor.owner) return
         const person = whose === null ? await this.ownerId() : whose
         const worker = await this.listeningWorker(project, issue)
+        // orrery's own word (a pull request's news) is for the session on the issue alone. With none listening it stays a
+        // comment, in the inbox, and an event: pooled, it waited for whichever session went idle next, which then took a
+        // day's stale notices on issues long finished (ORR-1178).
+        if (actor.name === ORRERY.name && !actor.owner && !worker) return
         const held = worker && this.sessionPerson(worker)
         const target = person && worker && (member ? held !== member : held && held !== person) ? null : worker
         if (member && !target && await this.holderOf(assignee) !== member) return
-        const row = await this.one<SignalRow>('INSERT INTO signals (project, issue, kind, note, target, person, model, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *',
-            project, issue, 'comment', body, target, person ?? null, await this.modelNeeded(project, issue), actor.name, member ? 0 : 1, stamp())
-        this.signalled(signalOf(row))
+        await this.writeSignal(project, {issue, kind: 'comment', note: body, target, person: person ?? null, model: await this.modelNeeded(project, issue), created_by: actor.name, owned: !member})
+    }
+
+    /** A pull request that needs work on an issue no session is listening on (ORR-1184): one focus from orrery, aimed at no
+     * session, which the next session free for it takes (pool.ts) and which makes the issue that session's. It folds with
+     * any earlier one on the issue (`foldKey`), so the session hears the latest only: one current focus, not a queue of
+     * notices. It starts no session (`considerLaunch`, ORR-1178), and it's dropped if the PR merges or closes before anyone
+     * takes it (`dropPullFocus`). Nothing when a session is on the issue (it heard the comment), the issue is closed, or
+     * it's nobody's. `note` is orrery's own words, safe to read as the owner's. */
+    async pullFocus(project: string, issue: string, note: string): Promise<Signal | null> {
+        issue = await this.issueId(project, issue)
+        const row = await this.issueRow(project, issue)
+        const kind = (await this.statuses()).find(s => s.id === row.status)?.kind
+        if (kind && CLOSED.includes(kind)) return null
+        if (await this.listeningWorker(project, issue)) return null
+        const whose = await this.whoseWork(project, row.assignee)
+        if (whose === null) return null
+        return await this.writeSignal(project, {issue, kind: 'focus', note, target: null, person: whose ?? null,
+            model: await this.modelNeeded(project, issue), created_by: ORRERY.name, owned: true})
+    }
+
+    /** orrery's focus on a PR that needed work (`pullFocus`), dropped once nobody need act: the PR merged or closed.
+     * Each counts as heard, by `orrery`, so no session takes it. */
+    async dropPullFocus(project: string, issue: string): Promise<number> {
+        issue = await this.issueId(project, issue)
+        const waiting = (await this.pooledWaiting(project)).filter(s => s.kind === 'focus' && s.created_by === ORRERY.name && s.issue === issue)
+        for (const signal of waiting) await this.delivered(project, signal.id, ORRERY.name)
+        return waiting.length
     }
 
     /** The owner's comments are theirs: an agent can't reword them. */

@@ -6,15 +6,15 @@
 //   claude --dangerously-load-development-channels server:orrery-<environment>
 // with this server registered under that name in the repo's .mcp.json, one entry per orrery (an older setup
 // named it after its project, which works the same). ORRERY_PROJECTS lists the projects it serves (`hub,css,pos`),
-// or `*` for every project on the orrery as it starts; ORRERY_PROJECT names one, as older setups do; the folder's
-// name by default. ORRERY_HEAR narrows that to the ones named (the launcher sets it for a session started for some of
-// the repo's projects); one it doesn't serve is let go. ORRERY_URL is where orrery runs (http://localhost:9000 by default), and ORRERY_ID the orrery
+// or `*` for every project on the orrery as it starts; ORRERY_PROJECT names one, as older setups do;
+// with neither, every project, a call taking the session's own (ORR-1068). ORRERY_HEAR narrows that to the ones named
+// (the launcher sets it for a session started for some of the repo's projects); one it doesn't serve is let go. ORRERY_URL is where orrery runs (http://localhost:9000 by default), and ORRERY_ID the orrery
 // it must be (its id, on its Connect page): another one at that address is refused, so a repo set up for one
 // orrery never writes to another. Opened in a repo by hand, it puts the repo on the launcher's list when the launcher's
 // pick-up is on (ORR-599). Only stderr is for logs: stdout is the MCP connection.
 import {readdirSync, readFileSync, statSync} from 'node:fs'
 import {homedir} from 'node:os'
-import {basename, join} from 'node:path'
+import {join} from 'node:path'
 import {fileURLToPath} from 'node:url'
 import {Server} from '@modelcontextprotocol/sdk/server/index.js'
 import {StdioServerTransport} from '@modelcontextprotocol/sdk/server/stdio.js'
@@ -22,16 +22,22 @@ import {CallToolRequestSchema, ListToolsRequestSchema} from '@modelcontextprotoc
 import {authHeaders} from './credentials.mjs'
 import {pickedUpMessage, pickUpRepo} from './pick-up.mjs'
 import {narrowed} from './repo-channels.mjs'
+import {addToList, projectAt, readConfig} from './launcher-service.mjs'
+import {appNamed, appsHere, askToChoose, choiceFor, choseOther, tellChose, writeChoice} from './app-choice.mjs'
 import {serverName} from './server-name.mjs'
 import {signalWords} from './signal-words.mjs'
 import {claudeWindow} from './session.mjs'
-import {instructionsFor} from './instructions.mjs'
+import {writeSessionFile} from './session-file.mjs'
+import {servesMcp, sessionHeaders} from './mcp-beside.mjs'
+import {instructionsFor, NO_MCP} from './instructions.mjs'
 import {follow} from './sse.mjs'
-import {orreryTools, toolsFor} from './tools.mjs'
+import {CHOOSE_APP, orreryTools, toolsFor} from './tools.mjs'
 import {BOOTSTRAP, VERSION, olderThan} from './version.mjs'
 
 const base = (process.env.ORRERY_URL ?? 'http://localhost:9000').replace(/\/+$/, '')
-const listed = (process.env.ORRERY_PROJECTS || process.env.ORRERY_PROJECT || basename(process.cwd())).split(',').map(p => p.trim()).filter(Boolean)
+// With neither, every project (ORR-1068): the folder's name is no project's, so a call names its own, or takes the
+// session's (`own`).
+const listed = (process.env.ORRERY_PROJECTS || process.env.ORRERY_PROJECT || '*').split(',').map(p => p.trim()).filter(Boolean)
 /** The projects it serves, as ORRERY_HEAR narrows them: for `*`, those named (`null`, every project on the orrery,
  * known once it's reached). */
 const hearing = narrowed(listed, process.env.ORRERY_HEAR)
@@ -49,17 +55,29 @@ const untrusted = process.env.ORRERY_UNTRUSTED === 'yes'
 /** Started for the owner's chat (the launcher says, in ORRERY_CHAT): the launch, which is the chat's id. It answers in
  * the chat, and says so on all it sends. */
 const chat = process.env.ORRERY_CHAT === 'yes' ? process.env.ORRERY_STARTED : undefined
+/** Started as a global session (the launcher says, in ORRERY_GLOBAL, ORR-1079): it has no project of its own. */
+const globalSession = process.env.ORRERY_GLOBAL === 'yes' && !chat
+/** What a chat's tools reach (ORR-1063): every project its channel lists, not only the one it hears, so it can ask for
+ * a schedule or a doc on another, its own when it names none. Filled in once the orrery is reached, for `*`. */
+const reached = chat && !every ? (listed.includes('*') ? [] : [...new Set(listed)]) : projects
 const who = new URLSearchParams(Object.entries({session: window.id, pid: window.pid, name: window.name, stops: window.pid && 'yes', untrusted: untrusted && 'yes', chat: chat && 'yes', version: VERSION})
     .filter(([, v]) => v).map(([k, v]) => [k, String(v)]))
+/** The project the launcher's list maps this folder to, for a session orrery didn't start (ORR-1068); `link_folder` sets it. */
+let mapped = process.env.ORRERY_STARTED ? undefined : projectAt(process.cwd(), base)
 /** The project orrery started the session for (the launcher says, in ORRERY_PROJECT), whose stream says so. */
 const startedFor = () => process.env.ORRERY_STARTED && (projects.includes(process.env.ORRERY_PROJECT) ? process.env.ORRERY_PROJECT : projects[0])
 /** Why it won't serve this orrery (another than ORRERY_ID), once it knows. */
 let refused = ''
 
+/** Whether the orrery serves `/mcp` as this session starts (ORR-1072): the board's tools are there, never here, so a
+ * session without it is told so plainly rather than finding them missing. */
+const mcp = await servesMcp(base, {headers: authHeaders(base)})
+if (!mcp) log(NO_MCP(base))
 const serves = every ? 'every project on it' : projects.length === 1 ? `project "${projects[0]}"` : `projects ${projects.map(p => `"${p}"`).join(', ')}`
 const server = new Server({name: 'orrery', version: VERSION}, {
     capabilities: {experimental: {'claude/channel': {}}, tools: {listChanged: true}},
-    instructions: instructionsFor({base, serves, chat: !!chat, untrusted, several: every || projects.length > 1}),
+    instructions: instructionsFor({base, serves, chat: !!chat, untrusted, several: every || projects.length > 1, global: globalSession,
+        unlinked: !chat && !untrusted && !process.env.ORRERY_STARTED && !mapped, mcp}),
 })
 // Each call's answer, for the Context page's "so far" (ORR-549): sent plain, as `delivered` is, so the chat's and an
 // untrusted session's guards don't take it for one of their writes.
@@ -68,6 +86,15 @@ const server = new Server({name: 'orrery', version: VERSION}, {
 const person = process.env.ORRERY_PERSON?.trim() || undefined
 // With auth on, its agent key decides who it is, and a person key here stops it starting (ORR-664).
 const personHeaders = {...person ? {'Orrery-Person': person} : {}, ...authHeaders(base)}
+// Who this session is, for the install line's `/mcp` entry (ORR-1102), whose helper can't tell: written for its
+// `claude` (session-file.mjs), as this channel says it on its own calls, and taken away as it exits.
+if (window.id && window.pid) {
+    try {
+        process.on('exit', writeSessionFile(window.pid, sessionHeaders({session: window.id, person, chat, untrusted})))
+    } catch (error) {
+        log(`couldn't write which session this is for /mcp: ${error.message}`)
+    }
+}
 const reportCall = (tool, text) => window.id && fetch(`${base}/api/sessions/${encodeURIComponent(window.id)}/calls`,
     {method: 'POST', headers: {'Content-Type': 'application/json', ...personHeaders}, body: JSON.stringify({tool, text})}).catch(() => {})
 // The groups of tools this session asked for with more_tools (ORR-625): listed from then on.
@@ -76,9 +103,73 @@ const loadTools = async group => {
     loaded.add(group)
     await server.notification({method: 'notifications/tools/list_changed'}).catch(() => {})
 }
-const callTool = orreryTools({root: `${base}/api`, projects, session: window.id, person, auth: authHeaders(base), untrusted, chat, report: reportCall, load: loadTools})
-server.setRequestHandler(ListToolsRequestSchema, async () => ({tools: toolsFor(projects, {chat: !!chat, untrusted, loaded: [...loaded]})}))
+/** The project a call that names none is on (ORR-1068), when it serves several: a chat's own; a session orrery started,
+ * the one it was started for; else the one the launcher's list maps this folder to. None when it serves none of
+ * those, and the call says which. Read at each call, as `*` knows its projects only once the orrery is reached. */
+const own = () => {
+    if (globalSession) return undefined
+    const project = process.env.ORRERY_STARTED ? startedFor() : mapped ?? chosen().project
+    return project && reached.includes(project) ? project : undefined
+}
+/** Which orrery this session chose, in a folder linked to none with several set up here (ORR-1080): read at each call,
+ * as another orrery's server may have recorded it. */
+const chosen = () => choiceFor({session: window.id, linked: !!mapped})
+/** Links this session's folder to `project` on this orrery (`link_folder`, ORR-1071): puts it on the launcher's list, as
+ * Connect a repo does, so its sessions report there and default to it, and the launcher serves it from here. A project
+ * served from another folder stays there unless `move`, as linking here moves its sessions here. */
+function link(project, {move, url = base}) {
+    const dir = process.cwd()
+    const elsewhere = servedElsewhere(project, url)
+    if (elsewhere && !move) throw new Error(`${project} is served from ${elsewhere.dir}, and linking it here moves the sessions orrery starts for it here: ask the user, and call again with move: true if they want that`)
+    addToList([{url, project, dir}], dir)
+    mapped = projectAt(dir, base)
+    return `Linked ${dir} to ${project}${elsewhere ? ` (it was served from ${elsewhere.dir})` : ''}. Sessions here report to it${mapped ? ' and default to it' : ''}, and orrery can start sessions here.${mapped ? '' : ' This folder serves other projects too, so calls here still name theirs.'}`
+}
+/** The list entry serving `project` of the orrery at `url` from a folder other than this one, if any. */
+const servedElsewhere = (project, url) => readConfig().projects.find(entry => entry.url?.replace(/\/+$/, '') === url.replace(/\/+$/, '') && entry.project === project && entry.dir !== process.cwd())
+/** `choose_app` (ORR-1080): records which orrery this session uses, and with a project links the folder to it, unless
+ * that project is served from another folder, which only `link_folder`'s move takes it from. */
+async function chooseApp({app, project}) {
+    const apps = appsHere()
+    const picked = appNamed(apps, app)
+    if (!picked) throw new Error(`app is one of: ${apps.map(a => a.name).join(', ')}`)
+    if (project) {
+        const there = await fetch(`${picked.url}/api/projects`, {headers: authHeaders(picked.url)}).then(r => r.ok ? r.json() : Promise.reject(new Error(`${r.status} ${r.statusText}`)))
+            .catch(error => {
+                throw new Error(`${picked.name} (${picked.url}) can't be reached to check its projects (${error.message}); try again once it's running`)
+            })
+        if (!there.some(p => p.id === project)) throw new Error(`${picked.name} has no project ${project}: it has ${there.map(p => p.id).join(', ') || 'none'}`)
+    }
+    const choice = {id: picked.id, url: picked.url, environment: picked.name.replace(/^orrery-/, '')}
+    writeChoice(window.id, {...choice, project})
+    // The other orrerys' `/mcp` can't read the choice, so they're told (ORR-1147).
+    for (const other of apps.filter(a => a.id !== picked.id)) tellChose(other.url, window.id, choice, {headers: authHeaders(other.url)})
+    await server.notification({method: 'notifications/tools/list_changed'}).catch(() => {})
+    const tools = picked.id === process.env.ORRERY_ID ? 'these tools' : `${picked.name}'s tools`
+    if (!project) return `This session uses ${picked.name} (${picked.url}), with no project of its own: name the project each call is for, with ${tools}. Other orrerys' tools refuse it from now on.`
+    const elsewhere = servedElsewhere(project, picked.url)
+    if (elsewhere) return `This session uses ${picked.name} (${picked.url}) and defaults to ${project}, with ${tools}. ${project} is served from ${elsewhere.dir}, so this folder isn't linked to it: link_folder with move: true does that, if the user wants it.`
+    addToList([{url: picked.url, project, dir: process.cwd()}], process.cwd())
+    if (picked.url.replace(/\/+$/, '') === base) mapped = projectAt(process.cwd(), base)
+    return `This session uses ${picked.name} (${picked.url}) with ${tools}, and this folder is linked to ${project}, so later sessions here report to it without asking.`
+}
+// A session that chose another orrery before this channel started (a resumed one): its
+// `/mcp` here is told, as `choose_app` told it then (ORR-1147).
+if (chosen().state === 'other') tellChose(base, window.id, chosen().choice, {headers: authHeaders(base)})
+const callTool = orreryTools({root: `${base}/api`, projects: reached, home: own, session: window.id, person, auth: authHeaders(base), untrusted, chat, local: true, report: reportCall, load: loadTools, link})
+server.setRequestHandler(ListToolsRequestSchema, async () => ({tools: [...chosen().state === 'unchosen' ? [CHOOSE_APP] : [], ...toolsFor(reached, {chat: !!chat, untrusted, loaded: [...loaded], home: own(), split: 'local'})]}))
 server.setRequestHandler(CallToolRequestSchema, async request => {
+    const choice = chosen()
+    if (request.params.name === 'choose_app') {
+        if (choice.state !== 'unchosen') return {isError: true, content: [{type: 'text', text: choice.state === 'free' ? 'Nothing to choose: this session already knows its orrery.' : `This session has chosen its orrery already. ${choice.state === 'other' ? choseOther(choice.choice) : ''}`.trim()}]}
+        try {
+            return {content: [{type: 'text', text: await chooseApp(request.params.arguments ?? {})}]}
+        } catch (error) {
+            return {isError: true, content: [{type: 'text', text: error.message}]}
+        }
+    }
+    if (choice.state === 'unchosen') return {isError: true, content: [{type: 'text', text: askToChoose(choice.apps)}]}
+    if (choice.state === 'other') return {isError: true, content: [{type: 'text', text: choseOther(choice.choice)}]}
     const why = refused || (!projects.length && `orrery (${base}) hasn't been reached yet, so the projects it serves aren't known; try again shortly`)
     if (why) return {isError: true, content: [{type: 'text', text: why}]}
     // One use of the tool, for App settings' Usage (ORR-881): orrery counts it only while the owner has counting on.
@@ -145,9 +236,12 @@ async function reach() {
                 refused = `The orrery at ${base} is ${settings.id} (${settings.environment ?? 'no environment'}), not ${process.env.ORRERY_ID}, the one this repo is set up for (ORRERY_ID): it won't be read or written. Point ORRERY_URL at the right one.`
                 return
             }
-            if (every) {
+            // A chat on `*` that hears one project still reaches them all.
+            const reachesAll = reached !== projects && listed.includes('*')
+            if (every || reachesAll) {
                 const all = await fetch(`${base}/api/projects`, {headers: personHeaders}).then(r => r.json())
-                projects.push(...all.map(p => p.id))
+                if (every) projects.push(...all.map(p => p.id))
+                if (reachesAll) reached.push(...all.map(p => p.id))
                 await server.notification({method: 'notifications/tools/list_changed'}).catch(() => {})
             }
             return

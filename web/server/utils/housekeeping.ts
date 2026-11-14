@@ -5,6 +5,8 @@ import type {EventLog} from './event-log'
 import {SqliteDb} from './database'
 import type {Db} from './database'
 import type {Store} from './store'
+import {ORRERY} from '../store/schema'
+import {writeToApi} from './api-router'
 
 const SWEEP_EVERY = 86_400_000
 /** Worth rewriting the file for: this much free, and this share of it. Free pages get reused anyway. */
@@ -12,8 +14,12 @@ const COMPACT_FROM = {bytes: 32 * 1024 * 1024, share: 0.25}
 
 let swept = 0
 
-/** Compacts a SQLite file with a lot free, and writes the `-wal` that filled through. Says whether it did. */
-async function compact(db: Db): Promise<boolean> {
+/** Compacts a SQLite file with a lot free, and writes the `-wal` that filled through. Says whether it did. The API
+ * does it when it's set up (ORR-1134); `db` only with none. */
+async function compact(db?: Db): Promise<boolean> {
+    const asked = await writeToApi('POST', '/api/database/compact', {}, ORRERY, {always: true})
+    if (asked) return (asked.reply as {compacted: boolean}).compacted
+    db ??= useDatabase()
     if (!(db instanceof SqliteDb)) return false
     return await db.alone(raw => {
         const pragma = (name: string) => Number(Object.values(raw.prepare(`PRAGMA ${name}`).get() as object)[0])
@@ -24,7 +30,7 @@ async function compact(db: Db): Promise<boolean> {
     })
 }
 
-export async function houseKeep(store: Store = useStore(), db: Db = useDatabase(), log: Pick<EventLog, 'note'> = useEventLog(), now = Date.now()) {
+export async function houseKeep(store: Store = useStore(), db?: Db, log: Pick<EventLog, 'note'> = useEventLog(), now = Date.now()) {
     const signals = await store.pruneSignals(now)
     let found = {uploads: 0, bytes: 0}
     if (now - swept >= SWEEP_EVERY) {

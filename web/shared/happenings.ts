@@ -1,6 +1,6 @@
 // What happens in an orrery, as a schedule hears it (ORR-341). Nothing here is a list kept by hand: an issue's
 // change is `issue.<field>` for whichever field changed (`issue.status`, `issue.release`, and any field added later),
-// each kind the event log records is one as it's named (`backup.failed`, `session.started`), and releases, comments,
+// each kind the event log records is one as it's named (`schedule.failed`, `session.started`), and releases, comments,
 // milestones and docs say `<thing>.<what>` as they're written. A schedule's `on` is a pattern over the type, `*` standing
 // for any part (`release.*`, `*.failed`), and `on_filter` what the event must also say.
 import type {EventLevel} from './roadmap'
@@ -35,7 +35,7 @@ export interface OnFilter {
 /** A type as a pattern takes it: lowercase dotted names, `*` for any part of one. */
 export const EVENT_PATTERN = /^(\*|[a-z][a-z0-9_-]*)(\.(\*|[a-z][a-z0-9_-]*))*$/
 
-/** Whether `type` is one `pattern` stands for: `release.*` takes `release.frozen`, `*.failed` takes `backup.failed`. */
+/** Whether `type` is one `pattern` stands for: `release.*` takes `release.frozen`, `*.failed` takes `schedule.failed`. */
 export function matchesType(pattern: string, type: string): boolean {
     const parts = pattern.split('.').map(part => part === '*' ? '[^.]+' : part.replace(/[-]/g, '\\-'))
     // A trailing `*` takes the rest, however many parts: `issue.*`, `*`.
@@ -44,7 +44,8 @@ export function matchesType(pattern: string, type: string): boolean {
 }
 
 /** The ones most schedules want, first in the picker; any other type, or a pattern, can be typed in. */
-export const COMMON_EVENTS: {type: string, label: string, family: string, filter?: 'status' | 'value' | 'level'}[] = [
+/** `actor: false` for an entry orrery notes itself, which says nobody did it, so `by` can't filter it. */
+export const COMMON_EVENTS: {type: string, label: string, family: string, filter?: 'status' | 'value' | 'level', actor?: false}[] = [
     {type: 'issue.status', label: 'An issue moves to a status', family: 'Issues', filter: 'status'},
     {type: 'issue.created', label: 'An issue is made', family: 'Issues'},
     {type: 'issue.labels', label: 'An issue\'s labels change', family: 'Issues', filter: 'value'},
@@ -64,12 +65,12 @@ export const COMMON_EVENTS: {type: string, label: string, family: string, filter
     {type: 'pr.closed', label: "An issue's pull request is closed unmerged", family: 'Pull requests'},
     {type: 'pr.checks_failed', label: "An issue's pull request fails its checks", family: 'Pull requests'},
     {type: 'pr.changes_requested', label: "An issue's pull request is asked for changes", family: 'Pull requests'},
+    {type: 'pr.unattended', label: "An issue's pull request needs work nobody has done", family: 'Pull requests'},
     {type: 'pr.ready', label: "An issue's pull request can merge again", family: 'Pull requests'},
     {type: 'pr.approved', label: "An issue's pull request is approved", family: 'Pull requests'},
     {type: 'session.started', label: 'A session is started', family: 'Sessions'},
     {type: 'session.stopped', label: 'A session stops', family: 'Sessions'},
-    {type: 'launcher.gone', label: 'A launcher goes away', family: 'Sessions'},
-    {type: '*.error', label: 'A new error (server or page)', family: 'orrery', filter: 'level'},
-    {type: '*.failed', label: 'Something fails (a backup, a schedule)', family: 'orrery'},
-    {type: 'backup.made', label: 'A backup is made', family: 'orrery'},
+    {type: 'launcher.gone', label: 'A launcher goes away', family: 'Sessions', actor: false},
+    {type: '*.error', label: 'A new error (server or page)', family: 'orrery', filter: 'level', actor: false},
+    {type: '*.failed', label: 'Something fails (a schedule)', family: 'orrery', actor: false},
 ]

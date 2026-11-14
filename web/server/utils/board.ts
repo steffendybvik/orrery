@@ -9,6 +9,7 @@ import {createError} from 'h3'
 import type {H3Event} from 'h3'
 import {PERMISSIONS} from '#shared/permissions'
 import {needsPerson, personOf} from './actor'
+import {boardsOf, isShared, onBoard, ownerNow} from './roster'
 import {lets, matchRoute} from './guard'
 import {notFound} from './input'
 import {refusedFor} from './permission'
@@ -20,10 +21,9 @@ export async function checkBoards(event: H3Event) {
     if (READS.has(event.method)) return
     const path = event.path.replace(/\/{2,}/g, '/')
     if (!path.startsWith('/api/') || untrustedWrite(event) || chatWrite(event)) return
-    const store = useStore()
-    if (!await store.isShared()) return
+    if (!await isShared()) return
     const person = await personOf(event)
-    if (person === (await store.ownerOf()).name) return
+    if (person === (await ownerNow()).name) return
     const matches = PERMISSIONS.flatMap(row => row.routes.flatMap(route => {
         const params = matchRoute(route, event.method, path)
         return params ? [{row, route, params}] : []
@@ -45,7 +45,7 @@ export async function checkBoards(event: H3Event) {
 export async function needsBoard(event: H3Event, project: string) {
     if (untrustedWrite(event) || chatWrite(event)) return
     const person = await personOf(event)
-    if (person && !await useStore().onBoard(project, person)) throw notFound(`No project ${project}`)
+    if (person && !await onBoard(project, person)) throw notFound(`No project ${project}`)
 }
 
 /** Those of `projects` a session may hear: its person's boards, and none for a session naming nobody, which is told how
@@ -54,5 +54,5 @@ export async function boardsHeard(event: H3Event, projects: string[]): Promise<s
     if (untrustedWrite(event)) return projects
     await needsPerson(event)
     const person = await personOf(event)
-    return person ? await useStore().boardsOf(person, projects) : projects
+    return person ? await boardsOf(person, projects) : projects
 }

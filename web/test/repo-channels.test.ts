@@ -1,9 +1,9 @@
 import {mkdtempSync, writeFileSync} from 'node:fs'
 import {tmpdir} from 'node:os'
-import {basename, join} from 'node:path'
+import {join} from 'node:path'
 import {describe, expect, it} from 'vitest'
 // @ts-expect-error: the launcher is plain JavaScript, run by node on the host
-import {channelFor, channelsIn, narrowed, projectsIn, servesEvery} from '../../channel/repo-channels.mjs'
+import {channelFor, channelsIn, narrowed, onOrrery, projectsIn, servesEvery} from '../../channel/repo-channels.mjs'
 
 const channel = (env: Record<string, string>) => ({command: 'node', args: ['/code/orrery/channel/orrery-channel.mjs'], env})
 
@@ -58,12 +58,12 @@ describe("a repo's channels", () => {
         expect(projectsIn(dir, {project: 'cellar', url: PERSONAL})).toEqual([{url: PERSONAL, project: 'cellar', dir}])
     })
 
-    it("fall back to the folder's name, and to ORRERY_URL where a channel's address isn't plain", () => {
+    it("name no project where no channel does, not the folder's name (ORR-1068), and take ORRERY_URL where a channel's address isn't plain", () => {
         const every = repo({orrery: channel({ORRERY_URL: '${ORRERY_URL:-http://localhost:9000}', ORRERY_PROJECTS: '*'})})
-        expect(projectsIn(every)).toEqual([{url: 'http://localhost:9000', project: basename(every), dir: every}])
+        expect(projectsIn(every)).toEqual([])
         expect(projectsIn(every, {project: 'shop', url: PERSONAL})).toEqual([{url: PERSONAL, project: 'shop', dir: every}])
         const none = mkdtempSync(join(tmpdir(), 'orrery-none-'))
-        expect(projectsIn(none, {url: PERSONAL})).toEqual([{url: PERSONAL, project: basename(none), dir: none}])
+        expect(projectsIn(none, {url: PERSONAL})).toEqual([])
     })
 
     it("load the channel that serves a session's project on its orrery, not the first", () => {
@@ -79,6 +79,22 @@ describe("a repo's channels", () => {
         expect(channelFor(every, WORK, 'shop').name).toBe('orrery-work')
         expect(channelFor(mono(), WORK, 'nobody').name).toBe('orrery-greenhouse')
         expect(channelFor(mkdtempSync(join(tmpdir(), 'orrery-none-')), WORK, 'pantry')).toBeUndefined()
+    })
+})
+
+describe('the orrery an install line names (ORR-1191)', () => {
+    it("adds only the repo's projects on it, and names the rest, whose channels point elsewhere", () => {
+        const {on, elsewhere} = onOrrery(projectsIn(mono(), {url: 'https://orrery.example.com'}), 'https://orrery.example.com/')
+        expect(on).toEqual([])
+        expect(elsewhere.map((e: {project: string}) => e.project)).toEqual(['greenhouse', 'pantry', 'shelves', 'jars', 'orrery'])
+        const personal = onOrrery(projectsIn(mono()), `${PERSONAL}/`)
+        expect(personal.on.map((e: {project: string}) => e.project)).toEqual(['orrery'])
+        expect(personal.elsewhere.map((e: {url: string}) => e.url)).toEqual([WORK, WORK, WORK, WORK])
+    })
+
+    it('adds every project when the line names none', () => {
+        const entries = projectsIn(mono())
+        expect(onOrrery(entries, undefined)).toEqual({on: entries, elsewhere: []})
     })
 })
 

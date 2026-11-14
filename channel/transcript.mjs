@@ -40,7 +40,7 @@ export function lastModel(path) {
 
 /** The latest assistant reply in a transcript: its model, and the tokens it was given (input, cache read and cache
  * written: the whole context), when its usage says. Nothing when there's none. */
-export function lastReply(path) {
+function lastReply(path) {
     let fd
     try {
         fd = openSync(path, 'r')
@@ -67,6 +67,22 @@ export function lastReply(path) {
         if (fd !== undefined) closeSync(fd)
     }
     return undefined
+}
+
+/** A model's context window in tokens (ORR-968, ORR-993), as Claude Code's own table of models has it: 1M for a `[1m]`
+ * id and for the models whose window is 1M as they are (every Claude 5 model, and Opus 4.7 on), whose ids don't say so;
+ * 200k for the older ones. A model it can't tell (none said yet, or an id it can't read) is on Claude Code's default,
+ * which is 1M. More than 200k in use is 1M whatever the model. */
+export function contextWindow(model, tokens) {
+    if (tokens > 200_000 || /\[1m\]/i.test(model ?? '')) return 1_000_000
+    // Claude 3's ids put the version first (`claude-3-5-sonnet`): all 200k.
+    if (/claude-\d/i.test(model ?? '')) return 200_000
+    const match = /claude-([a-z]+)-(\d+)(?:-(\d{1,2}))?(?!\d)/i.exec(model ?? '')
+    if (!match) return 1_000_000
+    const [, family, major, minor] = match
+    const version = Number(major) + Number(minor ?? 0) / 100
+    if (version >= 5) return 1_000_000
+    return family.toLowerCase() === 'opus' && version >= 4.07 ? 1_000_000 : 200_000
 }
 
 function tokensOf(usage) {

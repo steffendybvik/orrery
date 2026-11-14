@@ -1,6 +1,7 @@
 // `POST /api/epics/:epic/focus` {note?, session?, start?, status?, instructions?} → {signals, listeners} (ORR-987): asks the
 // sessions to work through the epic's open issues, a focus for each project it has open issues in, to one session there
-// orrery picks (`session: "*"`: every one listening on it). Each lists only that project's part, as a milestone's focus
+// orrery picks (`session: "*"`: every one listening on it; a session's id: that session, in each of those projects
+// it hears, ORR-958). Each lists only that project's part, as a milestone's focus
 // does. `listeners` says how many sessions were listening on each, by project. `start: true`, from the owner, starts a
 // session for a project nobody's listening on, even when work alone doesn't start one (`starts.on_signal` off).
 export default defineEventHandler(async event => {

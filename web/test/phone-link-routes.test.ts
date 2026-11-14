@@ -41,9 +41,9 @@ const useCode = (code: unknown, asked: Asked = {}) => ask(() => import('../serve
 /** A person's browser, logged in with a person key, as the page is. */
 async function browser(person: string) {
     const {key} = await store.makeKey(person, {kind: 'person', name: 'browser'})
-    await ask(() => import('../server/api/auth/login.post'), '/api/auth/login', {body: {key}})
-    const {name, value} = cookies.at(-1)!
-    return {cookie: `${name}=${value}`}
+    // Logging in is the Rust API's (ORR-1137): the login it would make, made in the store.
+    const {secret} = await store.startLogin(person, key)
+    return {cookie: `orrery_login_9000=${secret}`}
 }
 
 beforeEach(async () => {
@@ -80,7 +80,6 @@ beforeEach(async () => {
     vi.stubGlobal('authorize', authorize)
     vi.stubGlobal('memberAsking', memberAsking)
     vi.stubGlobal('refusedFor', (await import('../server/utils/permission')).refusedFor)
-    vi.stubGlobal('keyHolderOf', (await import('../server/utils/key-rights')).keyHolderOf)
     vi.stubGlobal('viaPhone', (await import('../server/utils/phone-port')).viaPhone)
     const links = await import('../server/utils/phone-sign-in')
     vi.stubGlobal('makeSignInLink', links.makeSignInLink)
@@ -236,19 +235,8 @@ describe("over the phone's port, nothing is this machine (ORR-837)", () => {
     })
 
     it('even with Host: localhost and a loopback connection', async () => {
-        const {fromThisMachine} = await import('../server/utils/move')
+        const {fromThisMachine} = await import('../server/utils/this-machine')
         expect(fromThisMachine(request('/', {phone: true}) as never)).toBe(false)
         expect(fromThisMachine(request('/', {}) as never)).toBe(true)
-    })
-
-    it("so the owner's phone can't move the database or set the backups", async () => {
-        const phone = await browser('skoll')
-        const {mayMove} = await import('../server/utils/move')
-        const {maySetBackups} = await import('../server/utils/backup-choice')
-        for (const may of [mayMove, maySetBackups]) {
-            const event = request('/', {headers: phone, phone: true})
-            await gate(event)
-            expect((await failure(() => may(event as never))).status).toBe(403)
-        }
     })
 })

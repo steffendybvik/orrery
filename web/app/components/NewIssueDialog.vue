@@ -83,7 +83,7 @@ async function create() {
 </script>
 
 <template>
-  <UiDialog :open="target && project" label="New issue" width="2xl" class="relative" v-on="drop" @close="close" @submit="create">
+  <UiDialog :open="target && project" name="new-issue" label="New issue" width="2xl" class="relative" v-on="drop" @close="close" @submit="create">
     <ImageDropOverlay v-if="over" />
     <template v-if="project">
       <div class="flex items-center gap-2 text-xs text-faint">

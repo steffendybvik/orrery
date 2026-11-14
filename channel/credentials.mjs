@@ -33,8 +33,10 @@ export function keyFor(url, {env = process.env, file = keysFile(env)} = {}) {
     return key || undefined
 }
 
-/** What goes on every request to the orrery at `url`. */
+/** What goes on every request to the orrery at `url`: the key, and the workspace a session is in (`ORRERY_WORKSPACE`,
+ * which the launcher sets from the launch, ORR-1109), so what it reads and writes of the workspace's own is that one's. */
 export function authHeaders(url, options) {
     const key = keyFor(url, options)
-    return key ? {Authorization: `Bearer ${key}`} : {}
+    const workspace = (options?.env ?? process.env).ORRERY_WORKSPACE?.trim()
+    return {...key ? {Authorization: `Bearer ${key}`} : {}, ...workspace ? {'Orrery-Workspace': workspace} : {}}
 }

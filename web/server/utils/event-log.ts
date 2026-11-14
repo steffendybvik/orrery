@@ -1,15 +1,21 @@
 // The event log (ORR-322): what orrery did and what went wrong, kept in its own `events` table and never sent off
-// the machine. Errors are recorded always; warnings, what orrery did (sessions, launchers, schedules, backups,
+// the machine. Errors are recorded always; warnings, what orrery did (sessions, launchers, schedules,
 // migrations) and the changes to the roadmap (ORR-378: issues, comments, milestones, docs, releases) only while the owner
 // has Advanced on in App settings, as most never look. Each is a row of its own, as the owner reads it line by line
 // (ORR-378); a repeat of an error that isn't resolved is no news, to the bell or the schedules, and resolving one
 // resolves its repeats. Old rows go: info after a week, the rest after a month, and past MAX_ROWS (MAX_ACTIVITY for
 // the roadmap's, so a busy day can't push errors out) the oldest, so a loop can't fill the database.
+// With the Rust API in front, it's the table's one writer (ORR-1088): a line is made here (scrubbed, cut, Advanced
+// checked) and sent there (`PUT /api/events/log/lines`), which checks for a repeat, writes it, puts it in the outbox for
+// open pages' bells and prunes. Only while the API can't be reached is a line written here, marked `details.local`, so
+// the API's own outage (`api.unreachable`) and the errors around it are still kept. Reading the log and resolving a
+// line are the API's alone (`GET /api/events/log`, `POST /api/events/log/:event/resolve`), and Advanced is read from
+// its settings (ORR-1143).
 import type {OrreryEvent} from '#shared/happenings'
 import type {EventLevel, LoggedEvent} from '#shared/roadmap'
 import {ACTIVITY_FAMILIES, EVENT_LEVELS} from '#shared/roadmap'
 import type {Db} from './database'
-import {badRequest, notFound} from './input'
+import {badRequest} from './input'
 
 /** What's recorded: `details` is kept as JSON, each text in it cut to a few thousand characters. */
 export interface EventEntry {
@@ -22,20 +28,20 @@ export interface EventEntry {
     untrusted?: boolean
 }
 
-export interface EventFilter {
-    /** One level or several, comma-separated. */
-    level?: string
-    /** A kind, or what it starts with up to a dot: `session` is every `session.…`. */
-    kind?: string
+/** A finished line, as it's sent to the API: its texts scrubbed and cut. `activity`: a change to the roadmap, always news. */
+interface Line {
+    level: EventLevel
+    kind: string
     project?: string
-    /** What a change to the roadmap was to: an issue's id, a release's version. */
     subject?: string
-    /** Only those seen since this time. */
-    since?: string
-    /** Unresolved ones only. */
-    open?: boolean
-    limit?: number
+    message: string
+    details?: Record<string, unknown>
+    activity?: true
 }
+
+/** Sends a write to the Rust API (`writeToApi`): its reply, or undefined with no API set up; throws a 503 while it can't
+ * be reached. */
+export type SendToApi = (method: string, path: string, body?: unknown) => Promise<unknown>
 
 interface EventRow {
     id: number
@@ -70,22 +76,23 @@ const ACTIVITY = `(${ACTIVITY_FAMILIES.map(family => `kind LIKE '${family}.%'`).
 export class EventLog {
     /** `scrub` takes secrets' values out of what's kept; `onLogged` hears each event written, `fresh` when it's a row of its own. */
     constructor(
-        /** Changed only when the owner moves the database (`rebindDatabase`). */
         public db: Db,
         /** What takes secrets' values out of a text, made once and kept until `forget`. */
         private readonly scrubber: () => Promise<(text: string) => string> = async () => text => text,
         private readonly onLogged: (event: LoggedEvent, fresh: boolean) => void = () => {},
         private readonly now: () => Date = () => new Date(),
+        /** The Rust API, the table's one writer when it's there; none in the tests that don't say. */
+        private readonly send: SendToApi = async () => undefined,
     ) {}
 
     private written = 0
 
-    /** Hears each kind as it happens, for the schedules that run on it (`backup.failed`, `session.started`): every
+    /** Hears each kind as it happens, for the schedules that run on it (`schedule.failed`, `session.started`): every
      * time when it isn't kept, and only a new one when it is (a repeat of an open error isn't news). The server sets it. */
     happened: (event: OrreryEvent) => void = () => {}
 
     /** Advanced and the scrubber, as last read: each event would otherwise read the setting and open every secret,
-     * and some come often (`backup.made`). The server forgets them when the settings or secrets change. */
+     * and some come often (`session.started`). The server forgets them when the settings or secrets change. */
     private known: {db: Db, advanced?: Promise<boolean>, scrub?: Promise<(text: string) => string>} | null = null
 
     /** Reads Advanced and the secrets again on the next event. */
@@ -93,11 +100,16 @@ export class EventLog {
         this.known = null
     }
 
-    /** Whether the owner has Advanced on, so more than errors is recorded. */
+    /** Whether the owner has Advanced on, so more than errors is recorded: read from the API's settings, or the table
+     * here with no API set up or while it can't be reached (ORR-1143). */
     advanced(): Promise<boolean> {
         const known = this.read()
-        known.advanced ??= this.db.get<{value: string}>("SELECT value FROM settings WHERE key = 'advanced'")
-            .then(row => row ? JSON.parse(row.value) === true : true)
+        known.advanced ??= this.send('GET', '/api/settings').catch(error => {
+            if ((error as {statusCode?: number}).statusCode !== 503) throw error
+            return undefined
+        }).then(async sent => sent
+            ? (sent as {advanced?: unknown}).advanced !== false
+            : await this.db.get<{value: string}>("SELECT value FROM settings WHERE key = 'advanced'").then(row => row ? JSON.parse(row.value) === true : true))
         return this.kept(known.advanced)
     }
 
@@ -131,21 +143,13 @@ export class EventLog {
         }
         const scrub = await this.scrub()
         const message = cut(redact(scrub(entry.message.trim() || entry.kind)), MESSAGE)
-        const details = entry.details ? JSON.stringify(clean(entry.details, scrub)) : null
+        const details = entry.details ? clean(entry.details, scrub) as Record<string, unknown> : undefined
         const project = entry.project || null
-        const at = this.now().toISOString()
-        // A repeat of one not resolved yet (same level, kind, project and message) is a line too, but no news.
-        const again = !!await this.db.get(`SELECT id FROM events WHERE level = ? AND kind = ? AND coalesce(project, '') = ? AND message = ?
-            AND resolved_at IS NULL LIMIT 1`, entry.level, entry.kind, project ?? '', message)
-        const row = await this.db.get<EventRow>(`INSERT INTO events (level, kind, project, message, details, count, first_seen, last_seen)
-            VALUES (?, ?, ?, ?, ?, 1, ?, ?) RETURNING *`, entry.level, entry.kind, project, message, details, at, at)
-        if (!row) return null
-        if (++this.written % PRUNE_EVERY === 0) await this.prune()
-        const event = eventOf(row)
-        this.onLogged(event, !again)
+        const written = await this.keep({level: entry.level, kind: entry.kind, ...project ? {project} : {}, message, ...details ? {details} : {}})
+        const {event, fresh} = written
         // Its message isn't passed on: an error's can hold what a page or another site sent. Its row is, to read.
         // What orrery did is passed on each time: each is news.
-        if (!again || entry.level === 'info') this.happened({type: entry.kind, level: entry.level, subject: `event ${row.id}`, ...project ? {project} : {}, ...entry.untrusted ? {untrusted: true} : {}})
+        if (fresh || entry.level === 'info') this.happened({type: entry.kind, level: entry.level, subject: `event ${event.id}`, ...project ? {project} : {}, ...entry.untrusted ? {untrusted: true} : {}})
         return event
     }
 
@@ -167,74 +171,53 @@ export class EventLog {
             ...event.untrusted ? {untrusted: true} : {},
             ...cause === undefined ? {} : {schedule: cause},
         }, scrub) as Record<string, unknown>
+        return (await this.keep({level: 'info', kind: event.type, ...event.project ? {project: event.project} : {}, ...event.subject ? {subject: event.subject} : {},
+            message, ...Object.keys(details).length ? {details} : {}, activity: true})).event
+    }
+
+    /** Writes a finished line: sent to the API, its one writer, which puts it in the outbox for open pages' bells.
+     * Here only with no API set up, or while it can't be reached, marked `details.local` (ORR-1088): the API's own
+     * outage is logged through here too, and a line that can't be kept there isn't lost. `fresh` unless it repeats one
+     * not resolved yet (same level, kind, project and message), as a change to the roadmap never does. */
+    private async keep(line: Line): Promise<{event: LoggedEvent, fresh: boolean}> {
+        let local = false
+        try {
+            const sent = await this.send('PUT', '/api/events/log/lines', line) as {event: LoggedEvent, fresh: boolean} | undefined
+            if (sent) return sent
+        } catch (error) {
+            if ((error as {statusCode?: number}).statusCode !== 503) throw error
+            local = true
+        }
+        const details = local ? {...line.details, local: true} : line.details
         const at = this.now().toISOString()
+        const again = !line.activity && !!await this.db.get(`SELECT id FROM events WHERE level = ? AND kind = ? AND coalesce(project, '') = ? AND message = ?
+            AND resolved_at IS NULL LIMIT 1`, line.level, line.kind, line.project ?? '', line.message)
         const row = await this.db.get<EventRow>(`INSERT INTO events (level, kind, project, subject, message, details, count, first_seen, last_seen)
-            VALUES ('info', ?, ?, ?, ?, ?, 1, ?, ?) RETURNING *`, event.type, event.project ?? null, event.subject ?? null, message,
-            Object.keys(details).length ? JSON.stringify(details) : null, at, at)
-        if (!row) return null
-        if (++this.written % PRUNE_EVERY === 0) await this.prune()
-        const logged = eventOf(row)
-        this.onLogged(logged, true)
-        return logged
-    }
-
-    /** Newest first (by when they were last seen). */
-    async list(filter: EventFilter = {}): Promise<LoggedEvent[]> {
-        const where: string[] = []
-        const params: string[] = []
-        if (filter.level) {
-            const levels = filter.level.split(',').map(l => l.trim()).filter(Boolean)
-            const wrong = levels.find(l => !EVENT_LEVELS.includes(l as EventLevel))
-            if (wrong) throw badRequest(`"level" has "${wrong}"; use ${EVENT_LEVELS.join(', ')}`)
-            if (levels.length) {
-                where.push(`level IN (${levels.map(() => '?').join(', ')})`)
-                params.push(...levels)
-            }
-        }
-        if (filter.kind) {
-            where.push("(kind = ? OR kind LIKE ? ESCAPE '\\')")
-            params.push(filter.kind, `${filter.kind.replace(/[\\%_]/g, '\\$&')}.%`)
-        }
-        if (filter.project) {
-            where.push('project = ?')
-            params.push(filter.project)
-        }
-        if (filter.subject) {
-            where.push('subject = ?')
-            params.push(filter.subject)
-        }
-        if (filter.since) {
-            const since = new Date(filter.since)
-            if (Number.isNaN(since.getTime())) throw badRequest(`"since" is "${filter.since}", not a time (e.g. 2026-10-27T09:00:00Z)`)
-            where.push('last_seen >= ?')
-            params.push(since.toISOString())
-        }
-        if (filter.open) where.push('resolved_at IS NULL')
-        const limit = Math.min(Math.max(1, Math.floor(filter.limit ?? 200)), 1000)
-        const rows = await this.db.all<EventRow>(`SELECT * FROM events ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
-            ORDER BY last_seen DESC, id DESC LIMIT ${limit}`, ...params)
-        return rows.map(eventOf)
-    }
-
-    /** Marks it dealt with, and its repeats not resolved yet: the next one like it is news again. `by` is who resolved
-     * it, kept when it isn't the owner (ORR-420): the bell still shows one an agent resolved until the owner looks. */
-    async resolve(id: number, by?: {name: string, owner: boolean}): Promise<LoggedEvent> {
-        const at = this.now().toISOString()
-        const who = by && !by.owner ? by.name : null
-        const row = await this.db.get<EventRow>(`UPDATE events SET resolved_by = CASE WHEN resolved_at IS NULL THEN ? ELSE resolved_by END,
-            resolved_at = coalesce(resolved_at, ?) WHERE id = ? RETURNING *`, who, at, id)
-        if (!row) throw notFound(`No event ${id}`)
-        const repeats = await this.db.all<EventRow>(`UPDATE events SET resolved_at = ?, resolved_by = ? WHERE resolved_at IS NULL AND level = ? AND kind = ?
-            AND coalesce(project, '') = ? AND message = ? RETURNING *`, at, who, row.level, row.kind, row.project ?? '', row.message)
-        for (const repeat of repeats) this.onLogged(eventOf(repeat), false)
+            VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?) RETURNING *`, line.level, line.kind, line.project ?? null, line.subject ?? null, line.message,
+            details ? JSON.stringify(details) : null, at, at)
+        if (!row) throw new Error(`The event log kept no row for ${line.kind}`)
+        if (++this.written % PRUNE_EVERY === 0) await this.pruneHere()
         const event = eventOf(row)
-        this.onLogged(event, false)
-        return event
+        this.onLogged(event, !again)
+        return {event, fresh: !again}
     }
 
     /** Lets go of what's old: info after KEEP_INFO, the rest after KEEP_PROBLEMS, and the oldest past MAX_ACTIVITY
-     * changes to the roadmap and past MAX_ROWS of the rest, so many changes can't push an error out. */
+     * changes to the roadmap and past MAX_ROWS of the rest, so many changes can't push an error out. The API's to do
+     * when it's there (ORR-1088); while it can't be reached, nothing goes until the next time. */
     async prune(): Promise<number> {
+        try {
+            const sent = await this.send('POST', '/api/events/log/prune') as {pruned: number} | undefined
+            if (sent) return sent.pruned
+        } catch (error) {
+            if ((error as {statusCode?: number}).statusCode === 503) return 0
+            throw error
+        }
+        return this.pruneHere()
+    }
+
+    /** `prune`, on the table here. */
+    private async pruneHere(): Promise<number> {
         const now = this.now().getTime()
         const info = await this.db.run("DELETE FROM events WHERE level = 'info' AND last_seen < ?", new Date(now - KEEP_INFO).toISOString())
         const rest = await this.db.run("DELETE FROM events WHERE level <> 'info' AND last_seen < ?", new Date(now - KEEP_PROBLEMS).toISOString())

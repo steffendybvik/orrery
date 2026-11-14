@@ -1,7 +1,8 @@
 # Tests, typecheck and the production image, on every push and pull request; also the gate a release
 # tag has to pass before `release.yml` publishes anything. The e2e flows and the performance run, on SQLite and on Postgres,
 # run on a pull request into `main` that isn't a draft, on a release tag, and by hand (Run workflow); any other pull request runs the unit tests alone.
-# The flows also run on Safari's engine and Firefox then, on SQLite.
+# The flows also run on Safari's engine and Firefox then, on SQLite. Every job runs with the Rust API in front, as it's
+# no longer opt-in (ORR-1091).
 name: CI
 
 on:
@@ -44,9 +45,9 @@ jobs:
       - if: ${{ github.base_ref == 'main' && !github.event.pull_request.draft }}
         run: node web/scripts/changelog-section.mjs "$(jq -r .version web/package.json)" > /dev/null
       - run: pnpm install --frozen-lockfile
-      # Every test on SQLite, then every unit test again on Postgres: the store's, the schema parity and upgrades, the
-      # moves and backups into it. Each keeps its coverage, and the two are counted together, so code only the Postgres
-      # run reaches (backing up into Postgres, moving to it) counts as tested (ORR-585).
+      # Every test on SQLite, then every unit test again on Postgres: the store's, the schema parity and upgrades, and
+      # copies into it. Each keeps its coverage, and the two are counted together, so code only the Postgres run reaches
+      # counts as tested (ORR-585).
       # The channel, launcher and hook that tests spawn count too: Vitest can't see into those processes (ORR-745).
       - run: pnpm --dir web exec vitest run --coverage --reporter=default --reporter=blob --outputFile.blob=.vitest-reports/sqlite.json --reporter=json --outputFile.json=vitest-results.json
         env:
@@ -54,37 +55,18 @@ jobs:
       - run: pnpm --dir web exec vitest run --project unit --coverage --reporter=default --reporter=blob --outputFile.blob=.vitest-reports/postgres.json
         env:
           TEST_POSTGRES_URL: postgres://orrery:orrery@localhost:5432/orrery
-      - run: pnpm --dir web exec vitest --merge-reports=.vitest-reports --coverage --reporter=dot
       - run: node web/scripts/coverage-lines.mjs --v8 .v8-spawned --out web/spawned-lines.json
         continue-on-error: true
-      # The total, then each area on its own, so one no test runs (the routes, say) shows rather than hiding in the total (ORR-584).
-      - name: Coverage summary
-        run: |
-          node >> "$GITHUB_STEP_SUMMARY" <<'EOF'
-          const summary = require('./web/coverage/coverage-summary.json')
-          const AREAS = [['server/api', /\/web\/server\/api\//], ['server/middleware', /\/web\/server\/middleware\//], ['server/utils', /\/web\/server\/utils\//],
-            ['server/store', /\/web\/server\/store\//], ['shared', /\/web\/shared\//], ['app', /\/web\/app\//], ['channel', /\/channel\/[^/]+\.mjs$/]]
-          const files = Object.entries(summary).filter(([file]) => file !== 'total').map(([file, f]) => ({...f, area: AREAS.find(([, path]) => path.test(file))?.[0]}))
-          const pct = ([covered, total]) => total ? `${(100 * covered / total).toFixed(1)}%` : '–'
-          const rows = AREAS.map(([area]) => {
-            const ours = files.filter(f => f.area === area)
-            const sum = k => ours.reduce(([c, t], f) => [c + f[k].covered, t + f[k].total], [0, 0])
-            return `| ${area} | ${ours.length} | ${ours.filter(f => f.lines.total && !f.lines.covered).length} | ${pct(sum('lines'))} | ${pct(sum('branches'))} |`
-          })
-          const {total} = summary
-          console.log(['### Coverage', '', `Lines ${total.lines.pct}%, branches ${total.branches.pct}%, functions ${total.functions.pct}%.`, '',
-            '| Area | Files | Run by no test | Lines | Branches |', '|---|---|---|---|---|', ...rows].join('\n'))
-          EOF
-      # What `pnpm test:report` reads at ship time (Releasing, ORR-678), with the e2e job's.
+      # Counted with the api job's in the coverage job below.
       - uses: actions/upload-artifact@v7
         with:
-          name: test-results-unit
+          name: unit-reports-check
           path: |
+            web/.vitest-reports/
             web/vitest-results.json
-            web/coverage/coverage-summary.json
-            web/coverage/coverage-final.json
             web/spawned-lines.json
-          retention-days: 30
+          include-hidden-files: true
+          retention-days: 1
       - run: pnpm typecheck
       - run: pnpm lint
 
@@ -114,14 +96,96 @@ jobs:
         working-directory: api
       - run: cargo clippy --locked -- -D warnings
         working-directory: api
-      - run: cargo test --locked
+      # Its own tests, with their coverage (ORR-1053): on SQLite, then again on Postgres, each in a schema of its own
+      # (ORR-1057), so the Postgres side of db.rs and migrate.rs counts too (ORR-1128). The floor is what the two cover of
+      # the code itself, the test files left out and without the parity tests below, and it only goes up (95.25% on
+      # 12 Nov 2026). Raise it as tests are added: the same three commands in api/ say where it stands.
+      - run: rustup component add llvm-tools-preview
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-llvm-cov
+      - run: cargo llvm-cov --locked --no-report
+        working-directory: api
+      - run: cargo llvm-cov --locked --no-report
+        working-directory: api
+        env:
+          TEST_POSTGRES_URL: postgres://orrery:orrery@localhost:5432/orrery
+      - run: cargo llvm-cov report --summary-only --ignore-filename-regex '(testing|_tests)\.rs$' --fail-under-lines 95
         working-directory: api
       - run: cargo build --locked
         working-directory: api
-      - run: pnpm --dir web exec vitest run --project unit test/api-parity.test.ts test/rust-migrations.test.ts
-      - run: pnpm --dir web exec vitest run --project unit test/api-parity.test.ts test/rust-migrations.test.ts
+      # The binary the browser suites and the perf run start the server with, when they run.
+      - uses: actions/upload-artifact@v7
+        if: ${{ startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'main' && !github.event.pull_request.draft) }}
+        with:
+          name: orrery-api
+          path: api/target/debug/orrery-api
+          retention-days: 1
+      # And a door's refusals, the router's middleware against the API's guard (ORR-1113), on SQLite alone: the doors
+      # are the same whatever the database.
+      # Each with its coverage, which the coverage job counts with the check job's: the router's relay of what a Rust
+      # write sets off runs only here (ORR-1123).
+      - run: pnpm --dir web exec vitest run --project unit --coverage --reporter=default --reporter=blob --outputFile.blob=.vitest-reports/api-sqlite.json test/api-parity.test.ts test/rust-migrations.test.ts test/door-refusals.test.ts
+      - run: pnpm --dir web exec vitest run --project unit --coverage --reporter=default --reporter=blob --outputFile.blob=.vitest-reports/api-postgres.json test/api-parity.test.ts test/rust-migrations.test.ts
         env:
           TEST_POSTGRES_URL: postgres://orrery:orrery@localhost:5432/orrery
+      - uses: actions/upload-artifact@v7
+        with:
+          name: unit-reports-api
+          path: web/.vitest-reports/
+          include-hidden-files: true
+          retention-days: 1
+
+  # The unit coverage: the check job's runs and the api job's, which are the only ones with the binary, counted together.
+  coverage:
+    needs: [check, api]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - uses: actions/download-artifact@v8
+        with:
+          name: unit-reports-check
+          path: web
+      - uses: actions/download-artifact@v8
+        with:
+          name: unit-reports-api
+          path: web/.vitest-reports
+      - run: ls web/.vitest-reports
+      - run: pnpm --dir web exec vitest --merge-reports=.vitest-reports --coverage --reporter=dot
+      # The total, then each area on its own, so one no test runs (the routes, say) shows rather than hiding in the total (ORR-584).
+      - name: Coverage summary
+        run: |
+          node >> "$GITHUB_STEP_SUMMARY" <<'EOF'
+          const summary = require('./web/coverage/coverage-summary.json')
+          const AREAS = [['server/api', /\/web\/server\/api\//], ['server/middleware', /\/web\/server\/middleware\//], ['server/utils', /\/web\/server\/utils\//],
+            ['server/store', /\/web\/server\/store\//], ['shared', /\/web\/shared\//], ['app', /\/web\/app\//], ['channel', /\/channel\/[^/]+\.mjs$/]]
+          const files = Object.entries(summary).filter(([file]) => file !== 'total').map(([file, f]) => ({...f, area: AREAS.find(([, path]) => path.test(file))?.[0]}))
+          const pct = ([covered, total]) => total ? `${(100 * covered / total).toFixed(1)}%` : '–'
+          const rows = AREAS.map(([area]) => {
+            const ours = files.filter(f => f.area === area)
+            const sum = k => ours.reduce(([c, t], f) => [c + f[k].covered, t + f[k].total], [0, 0])
+            return `| ${area} | ${ours.length} | ${ours.filter(f => f.lines.total && !f.lines.covered).length} | ${pct(sum('lines'))} | ${pct(sum('branches'))} |`
+          })
+          const {total} = summary
+          console.log(['### Coverage', '', `Lines ${total.lines.pct}%, branches ${total.branches.pct}%, functions ${total.functions.pct}%.`, '',
+            '| Area | Files | Run by no test | Lines | Branches |', '|---|---|---|---|---|', ...rows].join('\n'))
+          EOF
+      # What `pnpm test:report` reads at ship time (Releasing, ORR-678), with the e2e job's.
+      - uses: actions/upload-artifact@v7
+        with:
+          name: test-results-unit
+          path: |
+            web/vitest-results.json
+            web/coverage/coverage-summary.json
+            web/coverage/coverage-final.json
+            web/spawned-lines.json
+          retention-days: 30
 
   # The main flows in a real browser, against `nuxt dev` with a fresh database: on a pull request into `main`
   # that isn't a draft, each push to it included, as they take too long for every pull request (ORR-749); on a
@@ -144,7 +208,8 @@ jobs:
   # three shards side by side, each its own server and database with a share of the specs (web/e2e-shards.ts, ORR-920):
   # whole, a suite took 15 to 25 minutes, and a flaky one run again took a release past 40.
   e2e:
-    needs: playwright
+    # The Rust API serves the board's data, its Nuxt routes gone (ORR-1041), so the server starts the api job's binary.
+    needs: [playwright, api]
     runs-on: ubuntu-latest
     # A shard takes under ten minutes; this leaves room for Firefox and WebKit with retries (ORR-912).
     timeout-minutes: 25
@@ -179,6 +244,7 @@ jobs:
       E2E_POSTGRES_URL: ${{ matrix.database == 'postgres' && 'postgres://orrery:orrery@postgres:5432/orrery_e2e' || '' }}
       E2E_BROWSER: ${{ matrix.browser }}
       E2E_SHARD: ${{ matrix.shard }}/3
+      NUXT_API_BIN: ${{ github.workspace }}/.api/orrery-api
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
@@ -187,6 +253,12 @@ jobs:
           node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - uses: actions/download-artifact@v8
+        with:
+          name: orrery-api
+          path: .api
+      # An artifact doesn't keep the file's mode.
+      - run: chmod +x .api/orrery-api
       # What the server behind the suite reached counts as covered (ORR-745), and what the page ran (ORR-784).
       - run: pnpm test:e2e
         env:
@@ -265,7 +337,7 @@ jobs:
   # How fast the pages are on a big orrery (web/e2e/perf), run when the e2e flows are. A page over its budget fails
   # it. The report (each page's time, its API calls and their sizes) is kept every run, passed or not.
   perf:
-    needs: playwright
+    needs: [playwright, api]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
@@ -285,6 +357,7 @@ jobs:
         options: --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
     env:
       E2E_POSTGRES_URL: ${{ matrix.database == 'postgres' && 'postgres://orrery:orrery@postgres:5432/orrery_e2e' || '' }}
+      NUXT_API_BIN: ${{ github.workspace }}/.api/orrery-api
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
@@ -293,6 +366,12 @@ jobs:
           node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - uses: actions/download-artifact@v8
+        with:
+          name: orrery-api
+          path: .api
+      # An artifact doesn't keep the file's mode.
+      - run: chmod +x .api/orrery-api
       - run: pnpm test:e2e:perf
       - run: cat perf-report/report.md >> "$GITHUB_STEP_SUMMARY" || true
         if: always()

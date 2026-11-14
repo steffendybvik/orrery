@@ -7,11 +7,17 @@ throws it away. For Postgres instead, add `COMPOSE_PROFILES=postgres` and
 `ORRERY_DATABASE=postgres://orrery:orrery@postgres:5432/orrery` to `compose.env`: its data goes in the project's
 `orrery-pg` volume, which `reset` throws away too.
 
+It runs on the Rust API, which serves the board's data (ORR-1041): the dev image builds it from this checkout, and
+the server starts it beside itself on the same database. `play` builds the image each start, so a change in `api/` is
+in it. With the API down, the board's requests fail with a 503 that says why, in the log too. The API publishes no
+port, and the Nuxt server's is `127.0.0.1` only. A database move from App settings starts the API again on the new
+file.
+
 ```sh
-.playground/play          # start it; an empty database gets the demo
+.playground/play          # start it (building the image, so a change in api/ is in it); an empty database gets the demo
 .playground/play reset    # throw the database away and start over with a fresh demo
 .playground/play down     # stop it, keeping the database
-.playground/play logs     # follow the server
+.playground/play logs     # follow the server, the Rust API inside it included
 ```
 
 The demo (`seed.mjs`, through the API) is the owner **Skoll**, the wolf who chases the sun, and his brother **Hate**, who chases the moon
@@ -28,5 +34,5 @@ The seed skips a database that has projects, so `.playground/play reset` is how 
 after the ones already there: `web/e2e/readme` opens `PRM-3` and `how-the-sieve-works` by id.
 
 After a `pnpm-lock.yaml` change, `docker compose --env-file .playground/compose.env restart orrery`. After a
-Dockerfile change, `docker compose --env-file .playground/compose.env up -d --build`. The settings are in
+Dockerfile change, `.playground/play` again, as it builds. The settings are in
 `compose.env`; `ORRERY_PORT` there moves it.

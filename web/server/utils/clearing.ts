@@ -12,6 +12,7 @@
 import type {Signal} from '#shared/roadmap'
 import {CARRY_FROM, CLOSED, byPriority, isBlocked, modelFor, sameScope} from '#shared/roadmap'
 import {heavyEnough} from './pool'
+import {writeToApi} from './api-router'
 
 /** How long a session stays idle before it's cleared: a signal its channel has just handed Claude Code starts
  * another turn in that time, and then it isn't cleared. */
@@ -159,7 +160,13 @@ export function considerClear(project: string, id: string) {
             const store = useStore()
             // Gone idle on the issue it carried another's context into: cleared, then sent back to it (ORR-968).
             if (await clearCarried(now, id, notDue)) return
-            if (await store.busy(now.project, ids)) return notDue()
+            if (await store.busy(now.project, ids)) {
+                notDue()
+                // Its issues in progress are all parked (waiting on the owner, or in review): it keeps them, uncleared, and
+                // is out of work, so it picks now rather than at the board's next change (ORR-1032).
+                if (!await store.engaged(now.project, ids)) await pickNext(now.project, id)
+                return
+            }
             // Its next piece of work is related to the one it just did (a sibling of it): it keeps its context and is
             // sent on to it instead (ORR-903). Once it won't take it, the next idle clears it as before.
             if (await sendOn(now, id)) return notDue()
@@ -297,10 +304,12 @@ async function handBack(project: string, ids: string[], name: string, what: stri
     }
     const actor = {name: 'claude', owner: false}
     for (const issue of issues) {
-        await store.updateIssue(project, issue.id, shared ? {status: 'todo'} : {status: 'todo', assignee: null}, actor)
-        await store.createComment(project, issue.id, {
-            body: `The session working on this (${name}) ${what}, so it's back in Todo with nobody on it. Focus a session on it to pick it up again.`,
-        }, actor)
+        const change = shared ? {status: 'todo'} : {status: 'todo', assignee: null}
+        const comment = {body: `The session working on this (${name}) ${what}, so it's back in Todo with nobody on it. Focus a session on it to pick it up again.`}
+        // Through the Rust API when it's in front, as it's the one writer of `issues` and `comments` then (ORR-1094).
+        const path = `/api/projects/${encodeURIComponent(project)}/issues/${encodeURIComponent(issue.id)}`
+        if (!await writeToApi('PATCH', path, change, actor, {always: true})) await store.updateIssue(project, issue.id, change, actor)
+        if (!await writeToApi('POST', `${path}/comments`, comment, actor, {always: true})) await store.createComment(project, issue.id, comment, actor)
     }
     return issues.map(i => i.id)
 }
@@ -309,6 +318,25 @@ async function handBack(project: string, ids: string[], name: string, what: stri
 export async function letGo(project: string, id: string, error?: string): Promise<string[]> {
     const why = error ? CUT_OFF[error] ?? `an API error (${error})` : 'an API error'
     return handBack(project, sessionIds(id), sessionNow(id)?.name ?? id, `had its turn cut off by ${why}`)
+}
+
+/** What orrery restarting dropped (ORR-1184): the wait for a session that seemed to have ended is kept in memory
+ * (`handBackSoon`), so a restart lost it and the session stayed on its issues. Run once a while after orrery starts
+ * (`plugins/hand-back.ts`), long enough for live sessions to reconnect: each issue in progress, untouched since orrery
+ * started (`since`), whose last session isn't listening and hasn't been heard from since goes back, as an ended one's
+ * does. One touched since was worked on or talked about after the restart, so it's no wait that was lost. Says which. */
+export async function handBackUnseen(since: string): Promise<string[]> {
+    const store = useStore()
+    const handed: string[] = []
+    for (const {id: project} of await store.listProjects()) {
+        for (const issue of await store.listIssues(project)) {
+            if (issue.kind !== 'started' || issue.updated_at >= since) continue
+            const worker = await store.lastWorker(project, issue.id)
+            if (!worker || store.hears(project, worker) || sessionNow(worker)) continue
+            handed.push(...await handBack(project, [worker], worker.slice(0, 8), 'was gone when orrery came back from a restart'))
+        }
+    }
+    return handed
 }
 
 /** The session has ended, by every id it went by, and didn't come back in time (`handBackSoon`): what it had in progress

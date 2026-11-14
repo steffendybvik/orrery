@@ -57,7 +57,7 @@ const field = 'h-8 field'
 </script>
 
 <template>
-  <UiDialog :open="shown" label="New project" @close="shown = false" @submit="create">
+  <UiDialog :open="shown" name="new-project" label="New project" @close="shown = false" @submit="create">
     <div class="flex items-center gap-2 text-xs text-faint">
       <span>New project</span>
       <KeyHint class="ml-auto">esc</KeyHint>

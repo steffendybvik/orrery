@@ -1,7 +1,8 @@
-// The schema's migrations, ported from web/server/utils/migrations (ORR-931): `orrery-api migrate` brings a database to
-// the latest step, as the Node app does as it opens one. Nothing runs this yet. The Node app owns the migrations until the
-// last domain has moved here, and a new step is still written there first. web/test/rust-migrations.test.ts copies each
-// SQL step into api/migrations and the list into steps.rs, and fails until a step that's code there has an arm here.
+// The schema's migrations (ORR-931): `orrery-api migrate` brings a database to the latest step. The Nuxt server runs it
+// before it opens a database whenever it has this binary, and only falls back to its own copy of the steps without one
+// (tests, a bare `nuxt dev`) or with a build whose steps end elsewhere. A new step is a SQL file in api/migrations;
+// web/test/rust-migrations.test.ts lists them in steps.rs, and in the Nuxt server's from-api.ts. Its own steps, ported
+// from there, are frozen, and the code steps among them have their arms here.
 //
 // The steps are the same ones, counted the same way: SQLite's in `PRAGMA user_version`, Postgres's in `schema_version`
 // from its baseline. So a database either one migrated carries on with the other, with no reset.
@@ -30,6 +31,14 @@ pub struct Migrated {
     pub to: u32,
 }
 
+/// The step a database is at once this build has migrated it.
+pub fn latest(dialect: Dialect) -> u32 {
+    match dialect {
+        Dialect::Sqlite => SQLITE.len() as u32,
+        Dialect::Postgres => POSTGRES_BASELINE + POSTGRES.len() as u32,
+    }
+}
+
 /// Brings `setting`'s database (a SQLite file's path, made if it isn't there, or a `postgres://` URL) up to the latest
 /// step. `schema`, on Postgres, is the one to work in, made if it isn't there, as the Node app does.
 pub async fn migrate(setting: &str, schema: Option<&str>) -> Result<Migrated, String> {
@@ -52,20 +61,22 @@ async fn exec(conn: &mut AnyConnection, sql: &str) -> Result<(), sqlx::Error> {
 }
 
 async fn sqlite(conn: &mut AnyConnection, path: &str) -> Result<Migrated, String> {
-    let latest = SQLITE.len() as u32;
+    sqlite_steps(conn, path, SQLITE).await
+}
+
+/// `sqlite`, with the steps to run given, so a test can give it one that fails.
+async fn sqlite_steps(conn: &mut AnyConnection, path: &str, steps: &[Step]) -> Result<Migrated, String> {
+    let latest = steps.len() as u32;
     let version: i64 = sqlx::query("PRAGMA user_version").fetch_one(&mut *conn).await.and_then(|r| r.try_get(0)).map_err(|e| e.to_string())?;
     let version = version as u32;
     if version > latest {
         return Err(format!(
-            "{path} was written by a newer orrery (schema step {version}; this one knows up to {latest}). Run that version again, or restore the copy taken before it upgraded (orrery-pre-<version>-step<n>.db, in the backup folder or beside the database)."
+            "{path} was written by a newer orrery (schema step {version}; this one knows up to {latest}). Run that version again, or restore the copy of the database you took before it upgraded."
         ));
-    }
-    if version > 0 && version < latest {
-        keep_a_copy(conn, path, version, latest).await?;
     }
     // Foreign keys are off while tables are rebuilt (SQLite can't turn them off inside a transaction).
     exec(conn, "PRAGMA busy_timeout = 5000; PRAGMA foreign_keys = OFF").await.map_err(|e| e.to_string())?;
-    for (i, step) in SQLITE.iter().enumerate().skip(version as usize) {
+    for (i, step) in steps.iter().enumerate().skip(version as usize) {
         let n = i as u32 + 1;
         exec(conn, "BEGIN IMMEDIATE").await.map_err(failed(n))?;
         let done = async {
@@ -89,62 +100,13 @@ async fn sqlite(conn: &mut AnyConnection, path: &str) -> Result<Migrated, String
     Ok(Migrated { from: version, to: latest })
 }
 
-/// Where the copy of a SQLite file goes before an upgrade, as `beforeUpgrade` in web/server/utils/db.ts puts it: in the
-/// backup folder (`ORRERY_API_BACKUP_DIR`, the Nuxt server's backup setting), or beside the file, named by the version
-/// (`ORRERY_VERSION`) and the step it was at, so a later step under the same version gets one of its own (ORR-457).
-fn copy_path(path: &str, version: u32) -> std::path::PathBuf {
-    let dir = std::env::var("ORRERY_API_BACKUP_DIR")
-        .ok()
-        .filter(|d| !d.is_empty())
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(|| std::path::Path::new(path).parent().map(|p| p.to_path_buf()).unwrap_or_default());
-    let release = std::env::var("ORRERY_VERSION").ok().filter(|v| !v.is_empty()).unwrap_or_else(|| "upgrade".into());
-    dir.join(format!("orrery-pre-{release}-step{version}.db"))
-}
-
-/// Copies the file as it is before its steps run, as the Node app's `migrate` does (ORR-448): written beside the name and
-/// checked before it takes it, so a copy cut short never passes for one, and one already there (an earlier try at this
-/// same upgrade) stays. Without a copy, it doesn't upgrade.
-async fn keep_a_copy(conn: &mut AnyConnection, path: &str, version: u32, latest: u32) -> Result<(), String> {
-    let copy = copy_path(path, version);
-    if copy.exists() {
-        return Ok(());
-    }
-    let partial = std::path::PathBuf::from(format!("{}.partial", copy.display()));
-    let made = async {
-        if let Some(dir) = copy.parent().filter(|d| !d.as_os_str().is_empty()) {
-            std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-        }
-        if partial.exists() {
-            std::fs::remove_file(&partial).map_err(|e| e.to_string())?;
-        }
-        sqlx::query("VACUUM INTO ?").bind(partial.to_string_lossy().into_owned()).execute(&mut *conn).await.map_err(|e| e.to_string())?;
-        let mut check = AnyConnection::connect(&format!("sqlite://{}?mode=ro", partial.display())).await.map_err(|e| e.to_string())?;
-        let found: Vec<String> = sqlx::query("PRAGMA quick_check")
-            .fetch_all(&mut check)
-            .await
-            .map_err(|e| e.to_string())?
-            .iter()
-            .map(|r| r.try_get::<String, _>(0).unwrap_or_default())
-            .collect();
-        check.close().await.ok();
-        if found != ["ok"] {
-            return Err(format!("the copy isn't sound ({})", found.join("; ")));
-        }
-        std::fs::rename(&partial, &copy).map_err(|e| e.to_string())
-    }
-    .await;
-    made.map_err(|e| {
-        std::fs::remove_file(&partial).ok();
-        format!(
-            "orrery won't upgrade {path} (schema step {version} to {latest}) without a copy of it as it is, and couldn't make one at {}: {e}. Free some space or fix the folder, then start it again.",
-            copy.display()
-        )
-    })
-}
-
 async fn postgres(conn: &mut AnyConnection, schema: Option<&str>) -> Result<Migrated, String> {
-    let latest = POSTGRES_BASELINE + POSTGRES.len() as u32;
+    postgres_steps(conn, schema, POSTGRES).await
+}
+
+/// `postgres`, with the steps after the baseline given, so a test can give it one that fails.
+async fn postgres_steps(conn: &mut AnyConnection, schema: Option<&str>, steps: &[Step]) -> Result<Migrated, String> {
+    let latest = POSTGRES_BASELINE + steps.len() as u32;
     if let Some(schema) = schema {
         let schema = schema.replace('"', "");
         exec(conn, &format!("CREATE SCHEMA IF NOT EXISTS \"{schema}\"; SET search_path TO \"{schema}\"")).await.map_err(|e| e.to_string())?;
@@ -161,7 +123,7 @@ async fn postgres(conn: &mut AnyConnection, schema: Option<&str>) -> Result<Migr
         let mut version = found.unwrap_or(0);
         if version > latest {
             return Err(format!(
-                "This Postgres database was written by a newer orrery (schema step {version}; this one knows up to {latest}). Run that version again, or restore a backup from before it upgraded."
+                "This Postgres database was written by a newer orrery (schema step {version}; this one knows up to {latest}). Run that version again, or restore the copy of the database you took before it upgraded."
             ));
         }
         if found.is_none() {
@@ -169,7 +131,7 @@ async fn postgres(conn: &mut AnyConnection, schema: Option<&str>) -> Result<Migr
             exec(conn, &format!("INSERT INTO schema_version (version) VALUES ({POSTGRES_BASELINE})")).await.map_err(failed(POSTGRES_BASELINE))?;
             version = POSTGRES_BASELINE;
         }
-        for (i, step) in POSTGRES.iter().enumerate() {
+        for (i, step) in steps.iter().enumerate() {
             let n = POSTGRES_BASELINE + i as u32 + 1;
             if version >= n {
                 continue;
@@ -333,28 +295,5 @@ pub(crate) fn uid_of(hex: &str) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn names_become_ids_as_the_node_app_makes_them() {
-        assert_eq!(actor_id("Steffen Dybvik"), "steffen_dybvik");
-        assert_eq!(actor_id("  Åse  Ødegård! "), "ase_degard");
-        assert_eq!(actor_id("Ziggy"), "ziggy");
-        assert_eq!(actor_id("!!!"), "");
-        assert_eq!(owner_person("\"Ziggy\""), Ok(Some(("ziggy".into(), "Ziggy".into()))));
-        assert_eq!(owner_person("\"…\""), Ok(None));
-        // As `String(JSON.parse(value))`: not JSON fails the step, and what isn't a string is named as JavaScript names it.
-        assert!(owner_person("Ziggy").is_err());
-        assert_eq!(owner_person("[\"Ada\",\"Lovelace\"]"), Ok(Some(("ada_lovelace".into(), "Ada,Lovelace".into()))));
-        assert_eq!(owner_person("{\"a\":1}"), Ok(Some(("object_object".into(), "[object Object]".into()))));
-        assert_eq!(owner_person("12"), Ok(Some(("12".into(), "12".into()))));
-    }
-
-    #[test]
-    fn uids_are_eight_base32_characters() {
-        assert_eq!(uid_of("0000000000"), "aaaaaaaa");
-        assert_eq!(uid_of("FFFFFFFFFF"), "77777777");
-        assert_eq!(uid_of("0000000001"), "baaaaaaa");
-    }
-}
+#[path = "migrate_tests.rs"]
+mod tests;

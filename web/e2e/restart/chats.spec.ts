@@ -20,7 +20,7 @@ let server: ChildProcess | undefined
 async function start() {
     server = spawn('node', ['.output/server/index.mjs'], {
         cwd: WEB, stdio: 'inherit',
-        env: {...process.env, NUXT_DATABASE: DATABASE, NUXT_BACKUP_DIR: '', NUXT_UPDATE_CHECK: 'false', ORRERY_AUTH: 'off', PORT: String(port), NITRO_HOST: '127.0.0.1'},
+        env: {...process.env, NUXT_DATABASE: DATABASE, NUXT_UPDATE_CHECK: 'false', ORRERY_AUTH: 'off', PORT: String(port), NITRO_HOST: '127.0.0.1'},
     })
     await expect.poll(() => fetch(`${base}/api/settings`).then(r => r.ok, () => false), {timeout: 60_000}).toBe(true)
 }
@@ -37,7 +37,7 @@ type Listed = {id: string, project: string, ended?: boolean, messages: {text: st
 const listed = async () => (await (await api('/api/chats')).json()) as Listed[]
 
 test.beforeAll(() => {
-    for (const end of ['', '-wal', '-shm', '.backups.json']) rmSync(`${WEB}/${DATABASE}${end}`, {force: true})
+    for (const end of ['', '-wal', '-shm']) rmSync(`${WEB}/${DATABASE}${end}`, {force: true})
 })
 
 test.afterAll(stop)

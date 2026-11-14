@@ -69,7 +69,8 @@ describe('with auth on', () => {
 
     it('every route refuses a request with no credential, reads included', async () => {
         const all = routes()
-        expect(all.length).toBeGreaterThan(100)
+        // A floor that catches the scan finding nothing, not a count: it falls as routes move to the Rust API (ORR-1036).
+        expect(all.length).toBeGreaterThan(50)
         for (const {method, path} of all) {
             if (OPEN.includes(path)) continue
             expect((await failure(() => gate(asking(path, {method})))).status, `${method} ${path}`).toBe(401)
@@ -362,11 +363,11 @@ describe("the phone's port (ORR-837)", () => {
         expect(await authMode(asking('/api/projects', {port: 9001}) as never)).toBe('closed')
     })
 
-    it("never counts as this machine, whatever Host it's sent, so nothing on it moves the database or sets the backups", async () => {
+    it("never counts as this machine, whatever Host it's sent", async () => {
         config = {...config, auth: '', phoneListen: '9001'}
         vi.stubGlobal('getRequestHost', () => 'localhost')
-        const {fromThisMachine} = await import('../server/utils/move')
-        expect(fromThisMachine(asking('/api/database/move', {method: 'POST', port: 9001}) as never)).toBe(false)
+        const {fromThisMachine} = await import('../server/utils/this-machine')
+        expect(fromThisMachine(asking('/api/projects', {method: 'POST', port: 9001}) as never)).toBe(false)
     })
 })
 

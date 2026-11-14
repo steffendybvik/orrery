@@ -18,6 +18,8 @@ const personOf = ({id, name, role, created_at, removed_at}: PersonRow): Person =
 export abstract class PeopleStore extends OwnerStore {
     /** Everyone, the owner first, then in the order they were added; those removed stay listed, with `removed_at`. */
     async people(): Promise<Person[]> {
+        const read = await this.fromApi<Person[]>('/api/people')
+        if (read) return read
         return (await this.all<PersonRow>("SELECT * FROM people ORDER BY role = 'owner' DESC, created_at, id")).map(personOf)
     }
 
@@ -31,7 +33,12 @@ export abstract class PeopleStore extends OwnerStore {
         if (RESERVED.includes(id)) throw badRequest(`"${id}" is what agents or orrery go by; pick another name`)
         const taken = await this.get<PersonRow>('SELECT * FROM people WHERE id = ?', id)
         if (taken) throw conflict(`"${id}" ${taken.removed_at ? 'was someone who has been removed' : `is ${taken.name}`}; pick another name`)
-        await this.run("INSERT INTO people (id, name, role, created_at) VALUES (?, ?, 'member', ?)", id, name, stamp())
+        await this.db.transaction(async () => {
+            const at = stamp()
+            await this.run("INSERT INTO people (id, name, role, created_at) VALUES (?, ?, 'member', ?)", id, name, at)
+            // A member of the one workspace there is so far (ORR-1106), as everyone was made by step 091.
+            await this.run("INSERT INTO workspace_members (workspace, person, role, created_at) VALUES ('default', ?, 'member', ?)", id, at)
+        })
         return await this.person(id)
     }
 
@@ -146,6 +153,8 @@ export abstract class PeopleStore extends OwnerStore {
 
     /** Whether more than one person is here: only then do the rails between people hold. */
     protected async shared(): Promise<boolean> {
+        const read = await this.fromApi<Person[]>('/api/people')
+        if (read) return read.filter(p => !p.removed_at).length > 1
         return (await this.one<{n: number}>('SELECT count(*) AS n FROM people WHERE removed_at IS NULL')).n > 1
     }
 
@@ -157,7 +166,8 @@ export abstract class PeopleStore extends OwnerStore {
         const holder = await this.holderOf(assignee)
         if (holder) return holder
         if (assignee && assignee.toLowerCase() !== 'claude') return null
-        const on = await this.all<{person: string}>('SELECT person FROM project_members WHERE project = ?', project)
+        const on = await this.fromApi<{person: string}[]>(`/api/projects/${encodeURIComponent(project)}/members`)
+            ?? await this.all<{person: string}>('SELECT person FROM project_members WHERE project = ?', project)
         return on.length === 1 ? on[0]?.person ?? null : null
     }
 
@@ -166,6 +176,8 @@ export abstract class PeopleStore extends OwnerStore {
         const id = assignee?.toLowerCase()
         if (!id) return null
         if (id === 'claude') return await this.ownerId()
+        const read = await this.fromApi<Person[]>('/api/people')
+        if (read) return read.some(p => p.id === id && !p.removed_at) ? id : null
         return await this.get('SELECT 1 FROM people WHERE id = ? AND removed_at IS NULL', id) ? id : null
     }
 

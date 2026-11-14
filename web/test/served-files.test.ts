@@ -36,6 +36,9 @@ beforeEach(async () => {
     vi.stubGlobal('defineEventHandler', (handler: unknown) => handler)
     vi.stubGlobal('useRuntimeConfig', () => config)
     vi.stubGlobal('useStore', () => store)
+    // No API in these, so the server's own reads fall back to the store (ORR-1139).
+    vi.stubGlobal('readFromApi', async () => undefined)
+    vi.stubGlobal('orreryId', async () => (await store.settings()).id)
     vi.stubGlobal('useStorage', () => ({getItem: async () => '# The API reference'}))
     vi.stubGlobal('getHeader', (event: Event, name: string) => event.headers[name])
     vi.stubGlobal('getCookie', (event: Event, name: string) => new RegExp(`${name}=([^;]+)`).exec(event.headers.cookie ?? '')?.[1])

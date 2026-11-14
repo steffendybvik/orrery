@@ -20,6 +20,7 @@
     "test:e2e:perf": "pnpm --dir web test:e2e:perf",
     "test:e2e:login": "pnpm --dir web test:e2e:login",
     "soak": "pnpm --dir web soak",
+    "api-bench": "pnpm --dir web api-bench",
     "orrery:claim": "pnpm --dir web orrery:claim",
     "orrery:copy": "pnpm --dir web orrery:copy",
     "worktrees": "node web/scripts/worktrees.mjs"

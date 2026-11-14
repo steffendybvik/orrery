@@ -1,6 +1,6 @@
 // The store's records and rows, the fields each write takes, and turning rows into records.
 import type {ActivityField, Asks, Board, Milestone, Comment, Counts, Decision, Doc, DocKind, DocRevision, DocRevisionSummary, Issue, IssueEvent, Kind, Kinds, Priority, Project, Proposal, Release, ReleaseMode, Signal, Effort} from '#shared/roadmap'
-import {ASKS, DECISIONS, DOC_KINDS, EFFORTS, KINDS, PRIORITIES, RELEASE_MODES, TERMINALS, TINTS, emptyKinds, isEffort, isModel} from '#shared/roadmap'
+import {AGENT_CHOICES, ASKS, DECISIONS, DOC_KINDS, EFFORTS, KINDS, PRIORITIES, RELEASE_MODES, TERMINALS, TINTS, emptyKinds, isEffort, isModel} from '#shared/roadmap'
 import type {Field, Input} from '../utils/input'
 import {badRequest, isObject} from '../utils/input'
 import {parseChoices} from '../utils/choices'
@@ -123,7 +123,7 @@ interface Made { created_by: string, owned: number, created_at: string, updated_
 export interface ProjectRow extends Made {
     id: string, name: string, key: string, uid: string, description: string | null, icon: string | null, icon_color: string | null, next_number: number, next_milestone: number,
     focus_prompt: string | null, milestone_prompt: string | null, instructions: string, muted: string, starts: string | null, repo: string | null,
-    release_mode: ReleaseMode, releases_from: string | null, doc_section_order: string
+    release_mode: ReleaseMode, releases_from: string | null, doc_section_order: string, workspace?: string
 }
 export interface MilestoneRow extends Made { project: string, id: string, title: string, summary: string | null, priority: Priority | null, position: number }
 export interface IssueRow extends Made {
@@ -362,12 +362,12 @@ export const SETTINGS_FIELDS: Record<string, Field> = {
     starts: {type: 'json', nullable: true, parse: parseStarts},
     /** The terminal app Watch opens; null is Terminal. */
     terminal: {type: 'string', nullable: true, values: Object.keys(TERMINALS)},
+    /** The AI agent the owner runs (ORR-1075); null is Claude Code. */
+    agent: {type: 'string', nullable: true, values: Object.keys(AGENT_CHOICES)},
     /** Keeps agents off a proposal while it waits on the owner; false lets them. */
     restrict_proposals: {type: 'boolean'},
     /** Shows the Events page and error notices in the bell, and records what orrery did as well as its errors. */
     advanced: {type: 'boolean'},
-    /** A listening session out of work is handed the issues it may start, to pick one (ORR-452); false, it waits. */
-    pick_next: {type: 'boolean'},
     /** The kinds of work and the model each starts a session on (ORR-868), highest-ranked first; null is orrery's own. */
     work_kinds: {type: 'json', nullable: true, parse: parseWorkKinds},
     /** Counts the owner's own use of orrery's features, for App settings' Usage (ORR-881); off by default. */
@@ -412,6 +412,8 @@ export const UPLOAD_FIELDS: Record<string, Field> = {
 
 /** How big an image can be, in bytes. */
 export const UPLOAD_LIMIT = 10 * 1024 * 1024
+/** A body that holds the largest image, a third bigger as base64, with room for its name. */
+export const UPLOAD_BODY_LIMIT = Math.ceil(UPLOAD_LIMIT * 4 / 3) + 64 * 1024
 
 /** The images orrery takes, told by their first bytes rather than what the sender says (no SVG: it can run script). */
 export const IMAGE_TYPES: [string, (bytes: Buffer) => boolean][] = [
@@ -525,7 +527,7 @@ export function noReleases(project: string): string {
 }
 
 /** A doc's first paragraph as plain text (no headings, code, pictures or Markdown marks), cut to about 160 characters. */
-export function summaryOf(body: string): string {
+function summaryOf(body: string): string {
     let fenced = false
     const lines: string[] = []
     for (const line of body.split('\n')) {
@@ -556,7 +558,12 @@ export function matchOf(body: string, words: string[]): string {
     if (!Number.isFinite(at)) return ''
     let start = Math.max(0, at - 60)
     let end = Math.min(body.length, at + 100)
-    if (start > 0) start = body.indexOf(' ', start) + 1 || start
+    // Up to a space, but only one before the match: one past it (a long URL, a table row) would cut the match off
+    // (ORR-1111).
+    if (start > 0) {
+        const space = body.indexOf(' ', start)
+        if (space >= 0 && space < at) start = space + 1
+    }
     if (end < body.length) end = body.lastIndexOf(' ', end) > at ? body.lastIndexOf(' ', end) : end
     return `${start > 0 ? '…' : ''}${body.slice(start, end).replace(/\s+/g, ' ').trim()}${end < body.length ? '…' : ''}`
 }

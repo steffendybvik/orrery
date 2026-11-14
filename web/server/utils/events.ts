@@ -3,7 +3,7 @@
 // asks the sessions on a project to focus on an issue, `schedules` (the project) when its schedules
 // change or run, `secrets` (the list, no values) when they change or one is used, `logged` ({event, fresh}) when the
 // event log records or resolves one, and `happened` ({event, cause}) for what the schedules can run on (ORR-341), `cause`
-// the schedule whose run did it. `/api/events` and the signal streams pass them on.
+// the schedule whose run did it, and `database` once the owner has moved the database (`rebindDatabase`). `/api/events` and the signal streams pass them on.
 import {Branches} from './branches'
 import {EventEmitter} from 'node:events'
 import type {H3Event} from 'h3'
@@ -11,8 +11,9 @@ import type {OrreryEvent} from '#shared/happenings'
 import type {LoggedEvent, Project} from '#shared/roadmap'
 import {numberOf, shortId} from '#shared/roadmap'
 import {diffProject, withoutNotes} from '#shared/patch'
-import type {Db} from './database'
 import {EventLog} from './event-log'
+import {settingsNow, writeToApi} from './api-router'
+import {ORRERY} from '../store/schema'
 import {GITHUB_SECRET, Pulls} from './pulls'
 import {commentOnPull} from './pull-comments'
 import {PullPoll} from './pull-poll'
@@ -20,7 +21,7 @@ import {Schedules, scheduleRunning} from './schedules'
 import {Secrets} from './secrets'
 import {UpdateCheck} from './update-check'
 import {secretKey, secretKeyFile} from './secret-key'
-import {inDocker} from './backup-choice'
+import {inDocker} from './host-paths'
 import {Store} from './store'
 
 export const projectEvents = new EventEmitter()
@@ -99,7 +100,7 @@ let secrets: Secrets | null = null
 let key: string | undefined
 
 /** The secrets, sealed with ORRERY_SECRET_KEY (NUXT_SECRET_KEY) or the key orrery made for them; `secrets` (the list)
- * goes out when they change, and `secret-used` when one is used, which changes nothing a backup or the event log keeps
+ * goes out when they change, and `secret-used` when one is used, which changes nothing the database or the event log keeps
  * (ORR-526). */
 export function useSecrets(): Secrets {
     secrets ??= new Secrets(useStore(), () => {
@@ -137,7 +138,7 @@ export function usePullPoll(): PullPoll {
             change => {
                 projectEvents.emit('pull-change', change)
                 void commentOnPull(useStore(), change)
-            }, entry => useEventLog().note(entry))
+            }, entry => useEventLog().note(entry), Date.now, still => void askIfUnattended(useStore(), still))
         // A token set again is tried at the next poll, not an hour after GitHub turned the last one down.
         projectEvents.on('secrets', () => void made.secretsChanged())
         pullPoll = made
@@ -150,8 +151,10 @@ let log: EventLog | null = null
 /** The event log, secrets' values scrubbed out of what it keeps. */
 export function useEventLog(): EventLog {
     if (!log) {
+        // With the Rust API in front, it writes each line (ORR-1088), and its outbox tells open pages' bells.
         const made = new EventLog(useDatabase(), () => useSecrets().scrubber(),
-            (event: LoggedEvent, fresh: boolean) => projectEvents.emit('logged', {event, fresh}))
+            (event: LoggedEvent, fresh: boolean) => projectEvents.emit('logged', {event, fresh}), undefined,
+            async (method, path, body) => (await writeToApi(method, path, body, ORRERY, {always: true}))?.reply)
         // Advanced and the secrets are read once, and again after either changes.
         projectEvents.on('settings', () => made.forget())
         projectEvents.on('secrets', () => made.forget())
@@ -159,14 +162,6 @@ export function useEventLog(): EventLog {
     }
     log.happened = happened
     return log
-}
-
-/** Points what holds the database at the one the owner moved to (server/utils/move.ts); the secrets and schedules
- * reach it through the store. It gets the presets orrery ships that it hasn't had yet, as a start would give it. */
-export function rebindDatabase(db: Db) {
-    if (store) store.db = db
-    if (log) log.db = db
-    store?.seedPresets().catch(error => console.error('[orrery] adding the presets orrery ships:', error))
 }
 
 /** Passes it on once what did it is done (the write's transaction has committed, and nothing when it rolls back),
@@ -253,7 +248,7 @@ export function commentId(event: H3Event): number {
 /** A preset's or schedule's number from the URL, or from its full form on this server (ORR-674): `pst-12-x7k2m9qd`. */
 async function serverId(event: H3Event, kind: 'preset' | 'schedule'): Promise<number> {
     const sent = param(event, kind)
-    const id = Number(shortId(kind, sent, (await useStore().settings()).uid) ?? sent)
+    const id = Number(shortId(kind, sent, (await settingsNow(useStore())).uid) ?? sent)
     if (!Number.isInteger(id)) throw notFound(`No ${kind} ${sent}`)
     return id
 }
@@ -264,7 +259,7 @@ export const presetId = (event: H3Event) => serverId(event, 'preset')
 export async function epicId(event: H3Event): Promise<number> {
     const sent = param(event, 'epic')
     // What isn't an epic's id is none, rather than `Number(null)`'s epic 0.
-    const number = sent ? numberOf('epic', sent, (await useStore().settings()).uid) : null
+    const number = sent ? numberOf('epic', sent, (await settingsNow(useStore())).uid) : null
     const id = Number(number)
     if (number === null || !Number.isInteger(id)) throw notFound(`No epic ${sent}: GET /api/epics lists them`)
     return id

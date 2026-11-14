@@ -33,19 +33,21 @@ const install = launcherInstall(serverOrigin())
 // each project it hears that has sessions of its own as a line saying so (`via`).
 const known = (project: string) => (sessions.value[project] ?? []).filter(s => s.project === project)
 const own = (project: string) => known(project).filter(listable)
-const spanning = computed(() => ordered.value.flatMap(p => own(p.id).filter(s => heardBy(s, projects.value).spans)))
+// A global session (ORR-1079), with no project of its own, is listed on top under Global, and not among them.
+const globals = computed(() => ordered.value.flatMap(p => own(p.id).filter(s => s.started?.global)))
+const spanning = computed(() => ordered.value.flatMap(p => own(p.id).filter(s => !s.started?.global && heardBy(s, projects.value).spans)))
 // Each project with sessions of its own.
 const groups = computed(() => ordered.value
     .map(project => ({
         project,
-        sessions: own(project.id).filter(s => !heardBy(s, projects.value).spans),
+        sessions: own(project.id).filter(s => !s.started?.global && !heardBy(s, projects.value).spans),
         via: spanning.value.filter(s => heardBy(s, projects.value).ids.includes(project.id)),
     }))
     .filter(g => g.sessions.length))
 // With none, the toolbar says nothing and offers no Message sessions: the empty state below says it once (ORR-555).
-const count = computed(() => spanning.value.length + groups.value.reduce((n, g) => n + g.sessions.length, 0))
+const count = computed(() => globals.value.length + spanning.value.length + groups.value.reduce((n, g) => n + g.sessions.length, 0))
 // Every session the page lists, once each, for Close all (ORR-970).
-const listed = computed(() => [...spanning.value, ...groups.value.flatMap(g => g.sessions)])
+const listed = computed(() => [...globals.value, ...spanning.value, ...groups.value.flatMap(g => g.sessions)])
 // What takes the place of a session with no channel: a line per project, on what to do about it (ORR-716).
 const unheard = computed(() => ordered.value.map(project => ({project, sessions: withoutChannel(known(project.id))})).filter(u => u.sessions.length))
 
@@ -64,6 +66,7 @@ const headings = computed<Heading[]>(() => tab.value === 'permissions'
     ? permissionAreas().map(area => ({id: areaId(area), text: area, level: 2 as const}))
     : tab.value === 'sessions'
     ? [
+        ...globals.value.length ? [{id: 'sessions-global', text: 'Global', level: 2 as const}] : [],
         ...spanning.value.length ? [{id: 'sessions-across', text: 'Across projects', level: 2 as const}] : [],
         ...groups.value.map(g => ({id: `sessions-${g.project.id}`, text: g.project.name, level: 2 as const})),
     ]
@@ -136,7 +139,6 @@ watch(() => [route.hash, count.value] as const, ([hash]) => show(hash), {immedia
         <CopyBlock title="Install the launcher once: run" :text="install" hint="Anywhere, it installs the launcher; in a project's repo, it adds that project too. From then on a Claude session opened in a repo adds it (--no-pick-up turns that off), and --uninstall in a repo takes it off and keeps it off. Adding a repo leaves the running sessions alone." />
         <SessionStarts />
         <LauncherReposLine />
-        <PickNextSetting />
         <WorkKindsSetting />
         <StartingSessionsGuide />
       </section>
@@ -202,6 +204,23 @@ watch(() => [route.hash, count.value] as const, ([hash]) => show(hash), {immedia
         or run <span class="font-mono">claude</span> in a <NuxtLink to="/connect" class="text-accent-700 underline underline-offset-2 dark:text-accent-400">connected</NuxtLink> repo.
         orrery can start them for you too, set up under <button type="button" class="text-accent-700 underline underline-offset-2 dark:text-accent-400" @click="tab = 'setup'">Setup</button>.
       </p>
+      <section v-if="globals.length" id="sessions-global" class="flex scroll-mt-14 flex-col gap-3">
+        <header class="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <h2 class="text-[15px] font-semibold">Global</h2>
+          <span class="font-mono text-[11px] text-faint">{{ globals.length }}</span>
+        </header>
+        <ul class="flex flex-col gap-3">
+          <SessionCard
+              v-for="session in globals"
+              :key="session.id"
+              :session="session"
+              :project="session.project"
+              :work="work[session.project]?.[session.id]"
+              :lit="lit === session.id"
+              spans
+          />
+        </ul>
+      </section>
       <section v-if="spanning.length" id="sessions-across" class="flex scroll-mt-14 flex-col gap-3">
         <header class="flex flex-wrap items-center gap-x-3 gap-y-2">
           <h2 class="text-[15px] font-semibold">Across projects</h2>

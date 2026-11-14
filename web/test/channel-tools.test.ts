@@ -1,12 +1,12 @@
 import {describe, expect, it} from 'vitest'
 // @ts-expect-error: the channel is plain JavaScript, run by node from other repos
-import {ASK_TOOLS, CHAT_READS, CHAT_REQUESTS, NOT_FOR_CHAT, TOOLS, orreryTools, toolsFor} from '../../channel/tools.mjs'
+import {ASK_TOOLS, CHANNELS_OWN, CHANNELS_REQUESTS, CHAT_READS, CHAT_REQUESTS, NOT_FOR_CHAT, ON_DEMAND, SERVED_ON_DEMAND, TOOLS, orreryTools, toolsFor} from '../../channel/tools.mjs'
 
 type Call = {method: string, url: string, headers: Record<string, string>, body?: unknown}
 
 /** The tools against a pretend orrery: `answers` by `METHOD path` (`raw` for a body that isn't JSON), every call kept;
- * the chat's (`chat`, its launch) for the tools only it has. */
-function harness(answers: Record<string, {status?: number, body?: unknown, raw?: string}>, {chat}: {chat?: string} = {}) {
+ * the chat's (`chat`, its launch) for the tools only it has; `local` beside `/mcp` (ORR-1102). */
+function harness(answers: Record<string, {status?: number, body?: unknown, raw?: string}>, {chat, local}: {chat?: string, local?: boolean} = {}) {
     const calls: Call[] = []
     const fetch = async (url: string, init: {method: string, headers: Record<string, string>, body?: string}) => {
         const path = url.replace('http://o/api/projects/greenhouse', '').replace('http://o/api', '')
@@ -15,7 +15,7 @@ function harness(answers: Record<string, {status?: number, body?: unknown, raw?:
         const status = answer.status ?? 200
         return {ok: status < 400, status, statusText: '', text: async () => answer.raw ?? JSON.stringify(answer.body)}
     }
-    const call = orreryTools({api: 'http://o/api/projects/greenhouse', session: 'abc', chat, fetch}) as (name: string, args?: object) => Promise<{isError?: boolean, content: {text: string}[]}>
+    const call = orreryTools({api: 'http://o/api/projects/greenhouse', session: 'abc', chat, local, fetch}) as (name: string, args?: object) => Promise<{isError?: boolean, content: {text: string}[]}>
     return {calls, call: async (name: string, args?: object) => {
         const result = await call(name, args)
         return {error: !!result.isError, text: result.content[0]!.text}
@@ -44,8 +44,21 @@ describe('whose a session is', () => {
 })
 
 describe("the channel's tools", () => {
+    it('next asks orrery for this session\'s next issue, and answers with what it said (ORR-521)', async () => {
+        const {calls, call} = harness({'GET /sessions/abc/next': {body: {issues: [{id: 'GRE-2'}], text: "You're out of work…\n\n- GRE-2 (greenhouse) [Todo] Pots"}}})
+        expect(await call('next')).toEqual({error: false, text: "You're out of work…\n\n- GRE-2 (greenhouse) [Todo] Pots"})
+        expect(calls).toMatchObject([{method: 'GET', url: '/sessions/abc/next'}])
+    })
+
+    it('leaves next out of the chat\'s tools and an untrusted session\'s (ORR-521)', () => {
+        const names = (options: object) => (toolsFor(['greenhouse'], options) as {name: string}[]).map(t => t.name)
+        expect(names({})).toContain('next')
+        expect(names({chat: true})).not.toContain('next')
+        expect(names({untrusted: true})).not.toContain('next')
+    })
+
     it('each have a name, a description and an object schema', () => {
-        expect(TOOLS.map((t: {name: string}) => t.name)).toEqual(['issues', 'issue', 'create_issue', 'update_issue', 'start_issue', 'finish_issue', 'rate_pull', 'comment', 'milestones', 'releases', 'epics', 'create_epic', 'update_epic', 'comment_epic', 'docs', 'doc', 'write_doc', 'presets', 'preset', 'schedules', 'sessions', 'secrets', 'egress', 'events', 'guide', 'resolve_event'])
+        expect(TOOLS.map((t: {name: string}) => t.name)).toEqual(['issues', 'issue', 'create_issue', 'update_issue', 'start_issue', 'next', 'finish_issue', 'rate_pull', 'comment', 'milestones', 'releases', 'epics', 'create_epic', 'update_epic', 'comment_epic', 'docs', 'doc', 'write_doc', 'presets', 'preset', 'schedules', 'sessions', 'link_folder', 'secrets', 'egress', 'events', 'guide', 'resolve_event'])
         for (const tool of TOOLS) expect(tool).toMatchObject({description: expect.any(String), inputSchema: {type: 'object'}})
     })
 
@@ -275,7 +288,7 @@ describe("the channel's tools", () => {
         expect(toolsFor(['greenhouse']).map((t: {name: string}) => t.name)).not.toContain('update_settings')
     })
 
-    it("in the owner's chat, ask them to move or assign issues, moving nothing itself", async () => {
+    it("in the owner's chat, ask them to move or assign issues they didn't name, moving nothing itself", async () => {
         const calls: {url: string, method: string, body?: unknown}[] = []
         const fetch = async (url: string, init: {method: string, body?: string}) => {
             calls.push({url, method: init.method, body: init.body ? JSON.parse(init.body) : undefined})
@@ -285,6 +298,12 @@ describe("the channel's tools", () => {
         expect((await call('move_issues', {ids: ['GRE-1', 'GRE-2'], status: 'done', assignee: null})).content[0]!.text).toMatch(/the 2 changes with Allow and Deny.*Nothing moves until they allow it/)
         expect(calls).toEqual([{url: 'http://o/api/chats/c1c2c3c4c5c6/requests', method: 'POST', body: {move: {ids: ['GRE-1', 'GRE-2'], status: 'done', assignee: null}}}])
         expect(toolsFor(['greenhouse']).map((t: {name: string}) => t.name)).not.toContain('move_issues')
+    })
+
+    it("in the owner's chat, say what moved when the owner named the issues (ORR-1042)", async () => {
+        const fetch = async () => ({ok: true, status: 201, statusText: '', text: async () => JSON.stringify({id: 9, text: 'Put GRE-1 in done.'})})
+        const call = orreryTools({api: 'http://o/api/projects/greenhouse', session: 'c', chat: 'c1c2c3c4c5c6', fetch}) as (name: string, args?: object) => Promise<{content: {text: string}[]}>
+        expect((await call('move_issues', {ids: ['GRE-1'], status: 'done'})).content[0]!.text).toBe('Done, as the owner asked: Put GRE-1 in done.')
     })
 
     it("in the owner's chat, ask them to make or change a schedule in the chat", async () => {
@@ -691,7 +710,7 @@ describe("the channel's tools", () => {
 describe('one channel serving several projects', () => {
     /** The tools on greenhouse (GRE) and pantry (PAN) at a pretend orrery: `answers` by `METHOD path` under /api; the
      * chat's (`chat`, its launch) for the tools only it has. */
-    function several(answers: Record<string, unknown>, chat?: string) {
+    function several(answers: Record<string, unknown>, chat?: string, home?: string | (() => string | undefined)) {
         const calls: Call[] = []
         const fetch = async (url: string, init: {method: string, headers: Record<string, string>, body?: string}) => {
             const path = url.replace('http://o/api', '')
@@ -699,7 +718,7 @@ describe('one channel serving several projects', () => {
             const body = answers[`${init.method} ${path.split('?')[0]}`]
             return {ok: body !== undefined, status: body === undefined ? 404 : 200, statusText: '', text: async () => JSON.stringify(body ?? {message: `No ${path}`})}
         }
-        const call = orreryTools({root: 'http://o/api', projects: ['greenhouse', 'pantry'], session: 'abc', chat, fetch}) as (name: string, args?: object) => Promise<{isError?: boolean, content: {text: string}[]}>
+        const call = orreryTools({root: 'http://o/api', projects: ['greenhouse', 'pantry'], session: 'abc', chat, home, fetch}) as (name: string, args?: object) => Promise<{isError?: boolean, content: {text: string}[]}>
         return {calls, call: async (name: string, args?: object) => {
             const result = await call(name, args)
             return {error: !!result.isError, text: result.content[0]!.text}
@@ -723,6 +742,21 @@ describe('one channel serving several projects', () => {
         expect((await call('docs', {project: 'garden'})).text).toBe('orrery said no: This server serves greenhouse, pantry, not garden')
     })
 
+    it("take the session's own project for a call that names none (ORR-1068), read at each call", async () => {
+        const own: {project?: string} = {}
+        const {call, calls} = several({'GET /projects/pantry/docs': [{id: 'jars', title: 'Jars'}], 'GET /projects/greenhouse/docs': []}, undefined, () => own.project)
+        // Not known yet (a `*` channel before its orrery answers, or a folder the launcher's list doesn't map): it asks.
+        expect((await call('docs')).text).toBe('orrery said no: Say which project: greenhouse, pantry')
+        own.project = 'pantry'
+        expect((await call('docs')).text).toBe('jars: Jars')
+        await call('docs', {project: 'greenhouse'})
+        expect(calls.map(c => c.url)).toEqual(['/projects/pantry/docs', '/projects/greenhouse/docs'])
+        // With one, the project isn't required, and the schema says which is taken.
+        const docs = (toolsFor(['greenhouse', 'pantry'], {home: 'pantry'}) as {name: string, inputSchema: {required?: string[], properties: Record<string, {description?: string}>}}[]).find(t => t.name === 'docs')!
+        expect(docs.inputSchema.required ?? []).not.toContain('project')
+        expect(docs.inputSchema.properties.project!.description).toContain('pantry when left out')
+    })
+
     it("read a preset from the project said, not another's", async () => {
         const {call, calls} = several({'GET /projects/pantry/presets': [{id: 5, project: 'pantry', name: 'Jars', text: 'Seal them.'}]}, 'c1c2c3c4c5c6')
         expect((await call('preset', {project: 'pantry', id: 5})).text).toContain('Seal them.')
@@ -737,11 +771,46 @@ describe('one channel serving several projects', () => {
         expect(docs.inputSchema.required).toEqual(['project'])
         expect(docs.inputSchema.properties.project!.enum).toEqual(['greenhouse', 'pantry'])
         expect(tools.find(t => t.name === 'issue')!.inputSchema.properties).not.toHaveProperty('project')
-        expect(toolsFor(['greenhouse'], {loaded: ['schedules', 'secrets', 'debug', 'review', 'epics']})).toEqual([...TOOLS.filter((t: {name: string}) => !CHAT_READS.includes(t.name)), ...ASK_TOOLS])
+        expect(toolsFor(['greenhouse'], {loaded: ['schedules', 'secrets', 'debug', 'review', 'epics', 'folder']})).toEqual([...TOOLS.filter((t: {name: string}) => !CHAT_READS.includes(t.name)), ...ASK_TOOLS])
     })
 })
 
 // A work session's rarer tools wait behind more_tools (ORR-625); an untrusted run goes without what orrery refuses it.
+describe("linking a session's folder (ORR-1071)", () => {
+    const answer = async (tools: (name: string, args?: object) => Promise<{isError?: boolean, content: {text: string}[]}>, name: string, args?: object) => {
+        const result = await tools(name, args)
+        return {error: !!result.isError, text: result.content[0]!.text}
+    }
+    const fetch = async () => ({ok: true, status: 200, statusText: '', text: async () => '[]'})
+
+    it('links the folder to the project named, through the channel on the machine, and passes move on', async () => {
+        const linked: [string, {move: boolean}][] = []
+        const link = (project: string, how: {move: boolean}) => {
+            linked.push([project, how])
+            return `Linked /code/pantry to ${project}.`
+        }
+        const tools = orreryTools({root: 'http://o/api', projects: ['greenhouse', 'pantry'], session: 'abc', fetch, link}) as never
+        expect(await answer(tools, 'link_folder', {project: 'pantry'})).toEqual({error: false, text: 'Linked /code/pantry to pantry.'})
+        await answer(tools, 'link_folder', {project: 'greenhouse', move: true})
+        expect(linked).toEqual([['pantry', {move: false}], ['greenhouse', {move: true}]])
+        // A project it doesn't serve is refused before anything is written.
+        expect((await answer(tools, 'link_folder', {project: 'garden'})).text).toBe('orrery said no: This server serves greenhouse, pantry, not garden')
+        expect(linked).toHaveLength(2)
+    })
+
+    it("isn't the chat's or an untrusted run's, and says so where the channel can't link", async () => {
+        const link = () => 'linked'
+        for (const kind of [{chat: 'c1c2c3c4c5c6'}, {untrusted: true}]) {
+            const tools = orreryTools({api: 'http://o/api/projects/greenhouse', session: 'abc', fetch, link, ...kind}) as never
+            expect(await answer(tools, 'link_folder')).toEqual({error: true, text: 'No tool "link_folder"'})
+        }
+        const tools = orreryTools({api: 'http://o/api/projects/greenhouse', session: 'abc', fetch}) as never
+        expect((await answer(tools, 'link_folder')).text).toContain("this session can't link its folder")
+        expect(toolsFor(['greenhouse'], {chat: true}).map((t: {name: string}) => t.name)).not.toContain('link_folder')
+        expect(toolsFor(['greenhouse'], {untrusted: true}).map((t: {name: string}) => t.name)).not.toContain('link_folder')
+    })
+})
+
 describe('tools loaded on demand', () => {
     const tools = (options: object = {}) => (toolsFor(['greenhouse'], options) as {name: string}[]).map(t => t.name)
 
@@ -757,7 +826,7 @@ describe('tools loaded on demand', () => {
         expect(await call('more_tools', {group: 'everything'})).toMatchObject({isError: true})
         // Not listed yet, it still answers when called by its name.
         expect(await call('secrets')).not.toMatchObject({isError: true})
-        expect(tools({loaded: ['schedules', 'secrets', 'debug', 'review', 'epics']})).not.toContain('more_tools')
+        expect(tools({loaded: ['schedules', 'secrets', 'debug', 'review', 'epics', 'folder']})).not.toContain('more_tools')
     })
 
     it("isn't the chat's or an untrusted run's, and an untrusted run can't call what it isn't given", async () => {
@@ -768,5 +837,65 @@ describe('tools loaded on demand', () => {
         for (const name of ['more_tools', 'update_issue', 'finish_issue', 'write_doc', 'egress', 'events']) {
             expect(await untrusted(name, {id: 'GRE-1'}), name).toMatchObject({isError: true, content: [{text: `No tool "${name}"`}]})
         }
+    })
+})
+
+describe("beside the server's /mcp, only the channel's own (ORR-1102)", () => {
+    type Tool = {name: string, description: string, inputSchema: {properties: {action?: {enum: string[]}}}}
+    const listed = (options: object) => toolsFor(['greenhouse'], options) as Tool[]
+    const names = (options: object) => listed(options).map(t => t.name)
+    const kinds = [{}, {chat: true}, {untrusted: true}]
+    const every = Object.keys(ON_DEMAND)
+
+    it('lists each tool on one side or the other, never both, and loses none', () => {
+        for (const kind of kinds) {
+            const local = names({...kind, split: 'local'})
+            const served = names({...kind, split: 'served', loaded: every})
+            expect(local.filter(name => served.includes(name) && !name.startsWith('request')), JSON.stringify(kind)).toEqual([])
+            const before = names({...kind, loaded: every})
+            expect(before.filter(name => !local.includes(name) && !served.includes(name)), JSON.stringify(kind)).toEqual([])
+            expect(local.every(name => CHANNELS_OWN.includes(name) || name.startsWith('request')), JSON.stringify(kind)).toBe(true)
+        }
+        expect(names({split: 'local'})).toEqual(['start_issue', 'next', 'finish_issue', 'sessions', 'link_folder', 'egress', 'branches'])
+        expect(names({untrusted: true, split: 'local'})).not.toContain('branches')
+    })
+
+    it("lists the channel's tools directly, and /mcp's groups without what it doesn't serve", () => {
+        expect(names({split: 'local'})).not.toContain('more_tools')
+        const {folder: _folder, ...rest} = ON_DEMAND as Record<string, string[]>
+        expect(SERVED_ON_DEMAND).toEqual({...rest, secrets: ['secrets']})
+        expect(SERVED_ON_DEMAND).not.toHaveProperty('folder')
+        const more = listed({split: 'served'}).find(t => t.name === 'more_tools')!
+        expect(more.description).not.toContain('folder')
+        expect(more.description).toContain('secrets (the keys egress can use, by name)')
+    })
+
+    it("splits the chat's requests between them", () => {
+        const actions = (split: string) => listed({chat: true, split}).find(t => t.name === 'request')!.inputSchema.properties.action!.enum
+        expect(actions('local')).toEqual(CHANNELS_REQUESTS)
+        expect([...actions('local'), ...actions('served')].sort()).toEqual(CHAT_REQUESTS.map((r: {name: string}) => r.name).sort())
+        expect(listed({chat: true, split: 'local'}).find(t => t.name === 'request')!.description).toContain('start, stop or extend a session')
+    })
+
+    it("refuses a tool or request /mcp has, and runs the channel's own", async () => {
+        const {call} = harness({'GET /sessions': {body: []}, 'GET /sessions/work': {body: {}}}, {local: true})
+        for (const name of ['issue', 'comment', 'more_tools', 'guide']) expect(await call(name, {id: 'GRE-1'})).toEqual({error: true, text: `No tool "${name}"`})
+        expect((await call('sessions')).error).toBe(false)
+        const chat = harness({}, {chat: 'c1', local: true})
+        expect(await chat.call('request', {action: 'create_doc', fields: {}})).toMatchObject({error: true, text: expect.stringContaining("No action \"create_doc\" here")})
+        expect((await chat.call('request_fields', {action: 'start_session'})).text).toMatch(/^start_session: /)
+    })
+
+    it("gives an issue's branches and pull requests, which /mcp's issue leaves out, only beside /mcp", async () => {
+        const branch = {name: 'feat/gre-1', other_session: false}
+        const answers = {
+            'GET /issues/GRE-1/branches': {body: {repo: 'o/r', base: 'v1', branches: [branch]}},
+            'GET /issues/GRE-1/pulls': {body: {pulls: [{number: 4, state: 'open', base: 'v1', url: 'u', author: 'someone', title: 'not passed on'}], done: []}},
+        }
+        const {call} = harness(answers, {local: true})
+        expect(JSON.parse((await call('branches', {id: 'GRE-1'})).text)).toEqual({
+            branches: [branch], branches_base: 'v1', pull_requests: [{number: 4, state: 'open', base: 'v1', url: 'u', author: 'someone'}],
+        })
+        expect(await harness(answers).call('branches', {id: 'GRE-1'})).toEqual({error: true, text: 'No tool "branches"'})
     })
 })

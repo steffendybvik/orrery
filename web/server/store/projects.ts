@@ -15,6 +15,10 @@ import {refusedFor} from '../utils/permission'
 
 export abstract class ProjectStore extends KeyStore {
     async listProjects(): Promise<ProjectSummary[]> {
+        // From the API when it's set up (ORR-1174): the launchers' and signals' streams ask on each connect, and reading
+        // here built every project's board to answer.
+        const read = await this.fromApi<ProjectSummary[]>('/api/projects')
+        if (read) return read
         return Promise.all((await this.all<ProjectRow>('SELECT * FROM projects ORDER BY lower(name), name')).map(async row => {
             const {board, ...project} = await this.projectOf(row)
             return {...project, counts: board.counts, kinds: board.kinds, milestones: board.milestones.filter(c => c.id).length}
@@ -26,12 +30,22 @@ export abstract class ProjectStore extends KeyStore {
     }
 
     async project(id: string): Promise<Project> {
+        // The whole board from the API when it's set up (ORR-1133), which reads it alike (a 404 when it isn't there).
+        const {readFromApi} = await import('../utils/api-router')
+        const read = await readFromApi<Project>(`/api/projects/${encodeURIComponent(id)}`)
+        if (read) return read
         return await this.projectOf(await this.projectRow(id))
     }
 
     /** The project's id, or a 404 when there's none, without building its board. */
     async projectId(id: string): Promise<string> {
         return (await this.projectRow(id)).id
+    }
+
+    /** The workspace the project is in (ORR-1109), or a 404 when there's none: `default` for a row from before
+     * workspaces. */
+    async projectWorkspace(id: string): Promise<string> {
+        return (await this.projectRow(id)).workspace || 'default'
     }
 
     /** Makes a project, held by `holder` (the owner when it doesn't say), who can then say who else is on it. */
@@ -126,6 +140,11 @@ export abstract class ProjectStore extends KeyStore {
     /** Whether orrery may start sessions for the project, and within what: the orrery's, as the owner lets it start
      * them for every project at once; none while they haven't. */
     async starts(project: string): Promise<Starts | undefined> {
+        // The project's own fields from the API when it's set up (ORR-1133): a 404 when it isn't there, and `starts`
+        // left out while the owner hasn't let orrery start sessions.
+        const {readFromApi} = await import('../utils/api-router')
+        const read = await readFromApi<{starts?: Starts}>(`/api/projects/${encodeURIComponent(project)}?notes=0&closed=0`)
+        if (read) return read.starts
         await this.projectRow(project)
         return await this.orreryStarts()
     }

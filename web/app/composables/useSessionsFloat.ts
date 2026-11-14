@@ -1,7 +1,7 @@
-// The sidebar's sessions list popped out as a panel floating over the page (ORR-901): dragged by its heading (or its
-// grip and the arrows) to anywhere, and kept by the corner it's nearest to, with how far from that corner, so a
-// window made smaller keeps it in sight. Remembered in this browser; back in the sidebar, it's forgotten. Only on a
-// wide screen: on a narrow one the sidebar is a drawer, and a panel floating over the page would cover it.
+// The sidebar's sessions list popped out as a panel floating over the page (ORR-901): dragged by its heading (anywhere
+// on it, ORR-1126) to anywhere, and kept by the corner it's nearest to, with how far from that
+// corner, so a window made smaller keeps it in sight. Remembered in this browser; back in the sidebar, it's forgotten.
+// Only on a wide screen: on a narrow one the sidebar is a drawer, and a panel floating over the page would cover it.
 export type Corner = 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'
 export interface FloatAt {
     corner: Corner
@@ -13,9 +13,9 @@ const KEY = 'orrery-sessions-float'
 /** How close to the window's edge it may go. */
 const EDGE = 8
 /** Where it lands when popped out: the top right, under the page's header. */
-export const POPPED = {corner: 'top-right', x: 16, y: 64} as const satisfies FloatAt
+const POPPED = {corner: 'top-right', x: 16, y: 64} as const satisfies FloatAt
 /** How wide it is floating: the sidebar's width. */
-export const FLOAT_WIDTH = 256
+const FLOAT_WIDTH = 256
 
 const CORNERS: Corner[] = ['top-left', 'top-right', 'bottom-left', 'bottom-right']
 
@@ -93,49 +93,17 @@ export function useSessionsFloat(panel: Ref<HTMLElement | undefined>) {
     /** The most it can be tall floating: the window, less where it starts. */
     const maxHeight = () => Math.max(64, window.innerHeight - (at.value?.y ?? 0) - EDGE * 2)
 
-    const moving = ref(false)
-    let fromX = 0
-    let fromY = 0
-    let fromRect: DOMRect | undefined
-    function down(event: PointerEvent) {
-        if (!floating.value || event.button !== 0 || (event.target as HTMLElement).closest('a, button:not([data-grip])')) return
-        event.preventDefault()
-        ;(event.currentTarget as HTMLElement).setPointerCapture(event.pointerId)
-        fromX = event.clientX
-        fromY = event.clientY
-        fromRect = panel.value?.getBoundingClientRect()
-        moving.value = true
-    }
-    function move(event: PointerEvent) {
-        if (!moving.value || !fromRect) return
-        const left = fromRect.left + event.clientX - fromX
-        const top = fromRect.top + event.clientY - fromY
-        at.value = inView(anchored(left, top, fromRect.width, fromRect.height, view), fromRect.width, fromRect.height, view)
-    }
-    function up(event: PointerEvent) {
-        if (!moving.value) return
-        moving.value = false
-        ;(event.currentTarget as HTMLElement).releasePointerCapture(event.pointerId)
-    }
-    watch(moving, on => {
-        document.documentElement.classList.toggle('cursor-grabbing', on)
-        document.documentElement.classList.toggle('select-none', on)
+    // Dragged from anywhere on its heading, the Sessions link included, as the chat is by its header (ORR-1126).
+    const {moving, down, click} = useDragHandle({
+        enabled: () => floating.value,
+        rect: () => panel.value?.getBoundingClientRect(),
+        to: ({left, top, width, height}, dx, dy) => {
+            at.value = inView(anchored(left + dx, top + dy, width, height, view), width, height, view)
+        },
     })
-    onBeforeUnmount(() => document.documentElement.classList.remove('cursor-grabbing', 'select-none'))
-
-    /** The grip's arrows move it, Shift by more. */
-    function key(event: KeyboardEvent) {
-        const step = event.shiftKey ? 64 : 16
-        const by = ({ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step]} as Record<string, [number, number]>)[event.key]
-        const rect = panel.value?.getBoundingClientRect()
-        if (!by || !rect) return
-        event.preventDefault()
-        const [dx, dy] = by
-        at.value = inView(anchored(rect.left + dx, rect.top + dy, rect.width, rect.height, view), rect.width, rect.height, view)
-    }
 
     return {
-        at, floating, top, style, maxHeight, moving, down, move, up, key,
+        at, floating, top, style, maxHeight, moving, down, click,
         popOut: () => { at.value = {...POPPED} },
         dock: () => { at.value = null },
     }

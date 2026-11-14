@@ -1,4 +1,5 @@
-// Written by web/test/rust-migrations.test.ts from web/server/utils/migrations (ORR-931): don't edit it, run that.
+// Written by web/test/rust-migrations.test.ts from api/migrations and the frozen steps of web/server/utils/migrations
+// (ORR-931): don't edit it, run that.
 use crate::migrate::Step;
 
 /// SQLite's steps, each bringing `PRAGMA user_version` up one.
@@ -91,6 +92,12 @@ pub const SQLITE: &[Step] = &[
     Step::Sql(include_str!("../migrations/sqlite/085.sql")),
     Step::Sql(include_str!("../migrations/sqlite/086.sql")),
     Step::Sql(include_str!("../migrations/sqlite/087.sql")),
+    Step::Sql(include_str!("../migrations/sqlite/088.sql")),
+    Step::Sql(include_str!("../migrations/sqlite/089.sql")),
+    Step::Sql(include_str!("../migrations/sqlite/090.sql")),
+    Step::Sql(include_str!("../migrations/sqlite/091.sql")),
+    Step::Sql(include_str!("../migrations/sqlite/092.sql")),
+    Step::Sql(include_str!("../migrations/sqlite/093.sql")),
 ];
 
 /// SQLite's step Postgres's baseline matches.
@@ -166,4 +173,10 @@ pub const POSTGRES: &[Step] = &[
     Step::Sql(include_str!("../migrations/postgres/085.sql")),
     Step::Sql(include_str!("../migrations/postgres/086.sql")),
     Step::Sql(include_str!("../migrations/postgres/087.sql")),
+    Step::Sql(include_str!("../migrations/postgres/088.sql")),
+    Step::Sql(include_str!("../migrations/postgres/089.sql")),
+    Step::Sql(include_str!("../migrations/postgres/090.sql")),
+    Step::Sql(include_str!("../migrations/postgres/091.sql")),
+    Step::Sql(include_str!("../migrations/postgres/092.sql")),
+    Step::Sql(include_str!("../migrations/postgres/093.sql")),
 ];

@@ -7,28 +7,32 @@ import {chatOnly, lockedDown, modelArgs, resumeArgs} from '../../channel/locked-
 // @ts-expect-error: the channel is plain JavaScript, run by node on the host
 import {NOT_FOR_CHAT} from '../../channel/tools.mjs'
 
+const channel = {command: 'node', args: ['/home/me/.orrery/bootstrap.mjs', 'channel'], env: {ORRERY_PROJECTS: 'shop'}}
 const hooks = {Stop: [{hooks: [{type: 'command', command: 'node channel/orrery-hook.mjs'}]}]}
 
 describe("an untrusted schedule's session", () => {
-    it('gets none of Claude Code\'s own tools, no Bash among them, and the channel but egress and secrets, refusing the rest, with only the repo\'s hooks and servers', () => {
+    it('gets none of Claude Code\'s own tools, no Bash among them, and the channel but egress and secrets, refusing the rest, with only the repo\'s hooks and orrery\'s channel', () => {
         const dir = mkdtempSync(join(tmpdir(), 'orrery-repo-'))
         mkdirSync(join(dir, '.claude'))
         writeFileSync(join(dir, '.claude', 'settings.json'), JSON.stringify({hooks, permissions: {allow: ['Bash(curl:*)']}}))
+        writeFileSync(join(dir, '.mcp.json'), JSON.stringify({mcpServers: {'orrery-shop': channel, shell: {command: 'shell-mcp'}}}))
         const args: string[] = lockedDown(dir, 'orrery-shop')
         expect(args).toEqual(expect.arrayContaining(['--restricted', '--strict-mcp-config']))
         expect(args.slice(args.indexOf('--tools'), args.indexOf('--tools') + 2)).toEqual(['--tools', ''])
         expect(args.slice(args.indexOf('--permission-mode'), args.indexOf('--permission-mode') + 2)).toEqual(['--permission-mode', 'dontAsk'])
-        expect(args[args.indexOf('--mcp-config') + 1]).toBe(join(dir, '.mcp.json'))
+        // Only orrery's channel, which the launcher hands it, not the repo's other servers (ORR-1066).
+        expect(JSON.parse(args[args.indexOf('--mcp-config') + 1]!)).toEqual({mcpServers: {'orrery-shop': channel}})
         // The repo's hooks, and nothing else from its settings: not its allow list.
         expect(JSON.parse(args[args.indexOf('--settings') + 1]!)).toEqual({hooks})
         const allowed = args.slice(args.indexOf('--allowedTools') + 1, args.indexOf('--disallowedTools'))
         expect(allowed).toEqual(['mcp__orrery-shop'])
-        expect(args.slice(args.indexOf('--disallowedTools') + 1)).toEqual(['epics', 'create_epic', 'update_epic', 'comment_epic', 'update_issue', 'start_issue', 'finish_issue', 'rate_pull', 'write_doc', 'secrets', 'egress', 'events', 'resolve_event', 'more_tools'].map(t => `mcp__orrery-shop__${t}`))
+        expect(args.slice(args.indexOf('--disallowedTools') + 1)).toEqual(['link_folder', 'epics', 'create_epic', 'update_epic', 'comment_epic', 'update_issue', 'start_issue', 'next', 'finish_issue', 'rate_pull', 'write_doc', 'secrets', 'egress', 'events', 'resolve_event', 'more_tools'].map(t => `mcp__orrery-shop__${t}`))
     })
 
-    it('starts with no hooks in a repo that has none', () => {
+    it('starts with no hooks and no servers in a repo that has none', () => {
         const args: string[] = lockedDown(mkdtempSync(join(tmpdir(), 'orrery-repo-')), 'orrery')
         expect(JSON.parse(args[args.indexOf('--settings') + 1]!)).toEqual({hooks: {}})
+        expect(JSON.parse(args[args.indexOf('--mcp-config') + 1]!)).toEqual({mcpServers: {}})
     })
 })
 
@@ -70,5 +74,44 @@ describe('a chat taken up again (ORR-884)', () => {
         expect(resumeArgs({chat: true})).toEqual([])
         expect(resumeArgs({chat: true, resume: '--dangerously-skip-permissions'})).toEqual([])
         expect(resumeArgs({chat: true, resume: `${id}; rm -rf ~`})).toEqual([])
+    })
+})
+
+describe("orrery's /mcp beside a work session's channel (ORR-1102)", async () => {
+    // @ts-expect-error: the launcher is plain JavaScript, run by node on the host
+    const {besideFor, servesMcp} = await import('../../channel/mcp-beside.mjs')
+    // @ts-expect-error: the launcher is plain JavaScript, run by node on the host
+    const {claude} = await import('../../channel/claude-agent.mjs')
+
+    it('is an http entry saying who calls, its tools allowed, on a Claude session id of its own', () => {
+        const beside = besideFor({url: 'http://o', server: 'orrery-shop', person: 'hati', auth: {Authorization: 'Bearer k'}, id: '11111111-2222-4333-8444-555555555555'})
+        const args: string[] = claude.command({dir: '/repo', server: 'orrery-shop', mode: 'auto', launch: {}, beside})
+        expect(JSON.parse(args[args.indexOf('--mcp-config') + 1]!)).toEqual({mcpServers: {'orrery-shop-api': {type: 'http', url: 'http://o/mcp',
+            headers: {'Orrery-Actor': 'claude', 'Orrery-Session': '11111111-2222-4333-8444-555555555555', 'Orrery-Person': 'hati', Authorization: 'Bearer k'}}}})
+        expect(args).toEqual(expect.arrayContaining(['--session-id', '11111111-2222-4333-8444-555555555555', '--allowedTools', 'mcp__orrery-shop-api']))
+        expect(claude.command({dir: '/repo', server: 'orrery-shop', mode: 'auto', launch: {}})).not.toContain('--mcp-config')
+        expect(besideFor({url: 'http://o', server: 's'}).session).not.toBe(besideFor({url: 'http://o', server: 's'}).session)
+    })
+
+    it("says it's the chat or an untrusted session, and keeps a resumed chat's own session id", () => {
+        const chat = besideFor({url: 'http://o', server: 's', chat: 'launch-1', resume: '11111111-2222-4333-8444-555555555555'})
+        expect(chat.config.mcpServers['s-api'].headers).toEqual({'Orrery-Actor': 'claude', 'Orrery-Session': '11111111-2222-4333-8444-555555555555', 'Orrery-Chat': 'yes', 'Orrery-Launch': 'launch-1'})
+        // Taken up again with --resume, it isn't given a new id as well.
+        const args: string[] = claude.command({dir: '/repo', server: 's', mode: 'auto', launch: {chat: true}, beside: chat})
+        expect(args).not.toContain('--session-id')
+        expect(args).toEqual(expect.arrayContaining(['--allowedTools', 'mcp__s-api']))
+        const untrusted = besideFor({url: 'http://o', server: 's', untrusted: true, id: '11111111-2222-4333-8444-666666666666'})
+        expect(untrusted.config.mcpServers['s-api'].headers['Orrery-Untrusted']).toBe('yes')
+        const locked: string[] = claude.command({dir: '/repo', server: 's', mode: 'auto', launch: {untrusted: true}, beside: untrusted})
+        expect(JSON.parse(locked[locked.indexOf('--mcp-config') + 1]!).mcpServers).toEqual(untrusted.config.mcpServers)
+        expect(locked).toEqual(expect.arrayContaining(['--session-id', '11111111-2222-4333-8444-666666666666', 'mcp__s', 'mcp__s-api']))
+    })
+
+    it('is used only when the orrery answers MCP there', async () => {
+        const answering = (status: number, body: unknown) => async () => ({ok: status < 400, status, json: async () => body})
+        expect(await servesMcp('http://o', {fetch: answering(200, {jsonrpc: '2.0', id: 0, result: {protocolVersion: '2025-06-18'}})})).toBe(true)
+        expect(await servesMcp('http://o', {fetch: answering(200, {})})).toBe(false)
+        expect(await servesMcp('http://o', {fetch: answering(503, {message: 'not running'})})).toBe(false)
+        expect(await servesMcp('http://o', {fetch: async () => { throw new Error('refused') }})).toBe(false)
     })
 })

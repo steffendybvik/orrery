@@ -11,11 +11,16 @@ import {SEGMENTS, segment} from '~/utils/segments'
 // or `@` typed first picks Commands, Issues or Projects. ↑↓ choose, ↵ runs, ⌫ in an empty input goes back to All, Esc closes.
 // It's a Headless UI Dialog (UiDialog); the list keeps its own keys, as Headless UI's Combobox can't switch a
 // tab on ⇥ or open "N more" in place, but says the same to a screen reader (the row the input points at).
-// Closed issues of projects the page has without them (ORR-447) are asked of orrery as you type.
-interface Entry { key: string, group: string, label: string, detail?: string, hint?: string, also?: string, id?: string, run: () => unknown }
+// Closed issues of projects the page has without them (ORR-447) are asked of orrery as you type. The commands that make or
+// start something are found by the words people reach for too (`create`, `new`, `start`, …), listed once under their own title (ORR-1031).
+interface Entry { key: string, group: string, label: string, detail?: string, hint?: string, also?: string, aliases?: string[], id?: string, run: () => unknown }
 type SectionKey = 'top' | 'used' | 'here' | 'jump' | 'go' | 'projects' | 'issues' | 'milestones' | 'docs' | 'commands'
 interface Section { key: SectionKey, title: string, entries: Entry[], hidden: number }
 type Row = {kind: 'entry', key: string, entry: Entry, section: SectionKey} | {kind: 'more', key: string, section: SectionKey, n: number}
+
+/** The words that find a command that makes something, and one that starts something (ORR-1031). */
+const MAKES = ['create', 'new', 'add', 'make']
+const STARTS = ['start', 'run', 'begin', 'new']
 
 /** How many of each a search shows before "N more". */
 const CAPS: Partial<Record<SectionKey, number>> = {projects: 3, issues: 6, milestones: 3, docs: 3, commands: 5}
@@ -115,9 +120,9 @@ const here = computed<Entry[]>(() => {
         )
     }
     if (p) {
-        entries.push({key: 'issue:new', group: 'Issue', label: `New issue in ${p.name}`, hint: 'c', run: () => useNewIssue().open(p.id, route.name === 'p-project-roadmap-milestone' && route.params.milestone !== 'none' ? String(route.params.milestone) : undefined)})
-        entries.push({key: 'milestone:new', group: 'Milestone', label: `New milestone in ${p.name}`, run: () => useNewMilestone().open(p.id)})
-        entries.push({key: 'doc:new', group: 'Doc', label: `New doc in ${p.name}`, run: () => useNewDoc().open(p.id)})
+        entries.push({key: 'issue:new', group: 'Issue', label: `New issue in ${p.name}`, hint: 'c', aliases: MAKES, run: () => useNewIssue().open(p.id, route.name === 'p-project-roadmap-milestone' && route.params.milestone !== 'none' ? String(route.params.milestone) : undefined)})
+        entries.push({key: 'milestone:new', group: 'Milestone', label: `New milestone in ${p.name}`, aliases: MAKES, run: () => useNewMilestone().open(p.id)})
+        entries.push({key: 'doc:new', group: 'Doc', label: `New doc in ${p.name}`, aliases: MAKES, run: () => useNewDoc().open(p.id)})
         for (const section of sectionsOf(p, route.path).filter(s => !s.active)) {
             entries.push({key: `here:${section.id}`, group: 'Go to', label: `${p.name} ${section.label.toLowerCase()}`, run: () => router.push(section.to)})
         }
@@ -144,11 +149,11 @@ const everywhere = computed<Entry[]>(() => [
         router.push('/getting-started')
     }},
     {key: 'phone', group: 'Phone', label: 'Open on your phone', detail: 'its QR code', run: () => phoneOpen.value = true},
-    ...(projects.value.some(p => p.starts) ? [{key: 'session:start', group: 'Session', label: 'Start session', detail: project.value?.name, run: () => useStartSession().open(project.value?.id ?? null)}] : []),
+    ...(projects.value.some(p => p.starts) ? [{key: 'session:start', group: 'Session', label: 'Start session', detail: project.value?.name, aliases: STARTS, run: () => useStartSession().open(project.value?.id ?? null)}] : []),
     ...(listening.value.length ? [{key: 'session:message-all', group: 'Session', label: 'Message sessions', detail: 'every one listening', also: 'message all sessions', run: () => messageAll.value = true}] : []),
     ...listening.value.map(s => ({key: `session:message:${s.id}`, group: 'Session', label: `Message ${s.name}`, detail: 'only it hears', run: () => messageOne.value = s})),
-    {key: 'chat', group: 'Chat', label: chatAbout.value ? `Chat about ${chatAbout.value.name}` : 'Chat', detail: 'answers and makes issues', run: () => useChat().show(project.value?.id)},
-    {key: 'project:new', group: 'Project', label: 'New project', run: () => useState('new-project').value = true},
+    {key: 'chat', group: 'Chat', label: chatAbout.value ? `Chat about ${chatAbout.value.name}` : 'Chat', detail: 'answers and makes issues', hint: '⌘J', aliases: MAKES, run: () => useChat().show(project.value?.id)},
+    {key: 'project:new', group: 'Project', label: 'New project', aliases: MAKES, run: () => useState('new-project').value = true},
     ...(filtering.value ? [{key: 'filter:clear', group: 'Filter', label: 'Reset the filters to the open issues', run: clear}] : []),
     ...[...PRIORITIES, 'none'].map(p => ({
         key: `filter:priority:${p}`, group: 'Filter',
@@ -211,14 +216,14 @@ const counted = (key: string) => !key.startsWith('session:message:') && [...here
 const expanded = ref<SectionKey[]>([])
 
 /** How well an entry matches: 0 its id (or an id it had), 1 its title starts with the query, 2 a word in it
- * does, 3 it's in there somewhere; null when a word of the query isn't. */
+ * or one of its aliases does, 3 it's in there somewhere; null when a word of the query isn't. */
 function rank(entry: Entry, text: string, words: string[]): number | null {
-    const haystack = `${entry.id ?? ''} ${entry.group} ${entry.label} ${entry.detail ?? ''} ${entry.also ?? ''}`.toLowerCase()
+    const haystack = `${entry.id ?? ''} ${entry.group} ${entry.label} ${entry.detail ?? ''} ${entry.also ?? ''} ${entry.aliases?.join(' ') ?? ''}`.toLowerCase()
     if (!words.every(w => haystack.includes(w))) return null
     const label = entry.label.toLowerCase()
     if (entry.id && [entry.id, ...(entry.also?.split(' ') ?? [])].some(id => id.toLowerCase() === text)) return 0
     if (label.startsWith(text)) return 1
-    if (label.split(/[\s:/·-]+/).some(w => w.startsWith(words[0] ?? ''))) return 2
+    if ([...label.split(/[\s:/·-]+/), ...entry.aliases ?? []].some(w => w.startsWith(words[0] ?? ''))) return 2
     return 3
 }
 
@@ -349,7 +354,7 @@ function onKey(event: KeyboardEvent) {
 </script>
 
 <template>
-  <UiDialog :open="openPalette" label="Commands" width="xl" flush class="h-[64vh] overflow-hidden" @close="openPalette = false">
+  <UiDialog :open="openPalette" name="commands" label="Commands" width="xl" flush class="h-[64vh] overflow-hidden" @close="openPalette = false">
     <div class="flex items-center gap-2 border-b border-line px-4">
       <svg class="size-4 text-faint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
       <input
@@ -428,7 +433,7 @@ function onKey(event: KeyboardEvent) {
       <span class="ml-auto">{{ results.length }} {{ results.length === 1 ? 'result' : 'results' }}</span>
     </div>
   </UiDialog>
-  <UiDialog :open="phoneOpen" label="Open on your phone" width="md" @close="phoneOpen = false">
+  <UiDialog :open="phoneOpen" name="phone-code" label="Open on your phone" width="md" @close="phoneOpen = false">
     <div class="flex items-center gap-2 pb-3 text-xs text-faint">
       <span class="text-[13px] font-medium text-fg">Open on your phone</span>
       <KeyHint class="ml-auto">esc</KeyHint>

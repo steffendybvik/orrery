@@ -4,13 +4,15 @@ import type {Chat, ChatRequestDrift, SessionContext, ChatMilestoneField, ChatMil
 import {CHAT_MILESTONE_FIELDS, CHAT_DOC_FIELDS, CHAT_ISSUES, CHAT_RELEASE_FIELDS, CHAT_SETTINGS, SESSION_STATES, scheduleValue, settingValue} from '#shared/roadmap'
 import type {OrreryEvent} from '#shared/happenings'
 import type {Actor} from '../store/schema'
-import {MILESTONE_FIELDS, DOC_FIELDS, ISSUE_FIELDS, SETTINGS_FIELDS} from '../store/schema'
+import {MILESTONE_FIELDS, DOC_FIELDS, ISSUE_FIELDS, ORRERY, SETTINGS_FIELDS} from '../store/schema'
 import {sectionOf} from '../store/docs'
 import {checkInput, isObject} from './input'
 import {known} from '#shared/known'
 import {refusedFor} from './permission'
 import {anotherPersons, sessionHeader} from './actor'
 import {scheduleAsk, scheduleDrift, scheduleRequest} from './schedule-requests'
+import {docNow, issueNow, milestoneNow, projectIdOf, readFromApi, releasesNow, settingsNow, writeToApi} from './api-router'
+import {ownerNow} from './roster'
 
 // The owner's chats: a Claude session started for one alone (launches.ts `startChat`), which the owner talks to on the
 // page instead of in a terminal. It answers questions about the project and makes issues and comments when asked;
@@ -20,7 +22,9 @@ import {scheduleAsk, scheduleDrift, scheduleRequest} from './schedule-requests'
 // with no cap (ORR-870): the pane lists it with the running ones, and writing in it starts its session again, on the
 // Claude session it ran as (`reopen`, ORR-884). One that ended before anything was said goes. Each
 // is kept in the database too, as it changes (the `chats` table, ORR-877), so a restart or rebuild loses none: as orrery
-// starts, a running one waits for its launcher to say its session still runs, and ends, to read, when none does.
+// starts, a running one waits for its launcher to say its session still runs, and ends, to read, when none does. Its
+// messages are rows of their own (`chat_messages`, ORR-1100), each added through the API, which gives it its id, and
+// changed one at a time, so the chat's requests can be asked and answered there too.
 
 /** What the chat's session on `project` is told it is, with every message. */
 export const chatBrief = (project: string) => `This session is the owner's chat in orrery, on ${project}. Its tools and their asking
@@ -32,7 +36,6 @@ aren't ${project}, and what you file still goes in ${project} unless they name t
 const chats = new Map<string, Chat>()
 /** The chats that have ended, kept to read (ORR-870). Nothing writes to them. */
 const over = new Map<string, Chat>()
-let next = 1
 
 function changed(chat: Chat) {
     projectEvents.emit('chat', chat)
@@ -40,24 +43,103 @@ function changed(chat: Chat) {
 }
 
 /** Each chat's last write to the database, so its writes land in the order they were made. */
-const saving = new Map<string, Promise<void>>()
+const saving = new Map<string, Promise<unknown>>()
 
-/** Keeps the chat in the database as it is now (`gone`: drops it), after its writes before. Why its launcher couldn't
- * start it isn't kept: that's said again, if it still holds, once orrery is up again. */
-function save(chat: Chat, gone = false) {
-    const write = () => keepChat(useDatabase(), chat, gone)
-    const done = (saving.get(chat.id) ?? Promise.resolve()).then(write).catch(error => console.error(`[orrery] keeping chat ${chat.id}:`, error))
-    saving.set(chat.id, done)
-    void done.then(() => { if (saving.get(chat.id) === done) saving.delete(chat.id) })
+/** Runs `write` after the chat's writes before it, and gives back what it gives. */
+function inTurn<T>(id: string, write: () => Promise<T>): Promise<T> {
+    const done = (saving.get(id) ?? Promise.resolve()).catch(() => undefined).then(write)
+    saving.set(id, done)
+    void done.catch(() => undefined).then(() => { if (saving.get(id) === done) saving.delete(id) })
+    return done
 }
 
-/** The chat's row as it is now, or none (`gone`): its one write, as the Rust API takes it from the local app once it's
- * swapped in (ORR-951). Why its launcher couldn't start it isn't kept. */
+/** Each chat's messages as last kept, by id, as JSON: what `save` compares them with, to keep those that changed. */
+const kept = new Map<string, Map<number, string>>()
+
+function keptOf(id: string): Map<number, string> {
+    let lines = kept.get(id)
+    if (!lines) kept.set(id, lines = new Map())
+    return lines
+}
+
+/** Keeps the chat in the database as it is now (`gone`: drops it), after its writes before: its row, then each message
+ * that has changed since it was last kept (a request answered or expired, its drift). Why its launcher couldn't start
+ * it isn't kept: that's said again, if it still holds, once orrery is up again. */
+function save(chat: Chat, gone = false) {
+    void inTurn(chat.id, async () => {
+        await keepChatThrough(chat, gone)
+        if (gone) return void kept.delete(chat.id)
+        const lines = keptOf(chat.id)
+        for (const message of chat.messages) {
+            const was = lines.get(message.id)
+            const now = JSON.stringify(message)
+            if (was === undefined || was === now) continue
+            await keepLineThrough(chat.id, message)
+            lines.set(message.id, now)
+        }
+    }).catch(error => console.error(`[orrery] keeping chat ${chat.id}:`, error))
+}
+
+/** The chat's row as it is now, or none (`gone`, its messages with it): its one write, as the Rust API takes it from the
+ * local app once it's swapped in (ORR-951). Why its launcher couldn't start it isn't kept, nor its messages, which are
+ * rows of their own (`addLine`, `keepLine`). */
 export async function keepChat(db: Db, chat: Chat, gone = false) {
-    if (gone) return void await db.run('DELETE FROM chats WHERE id = ?', chat.id)
-    const {problem: _problem, ...kept} = chat
+    if (gone) {
+        await db.run('DELETE FROM chat_messages WHERE chat = ?', chat.id)
+        return void await db.run('DELETE FROM chats WHERE id = ?', chat.id)
+    }
+    const {problem: _problem, messages: _messages, ...row} = chat
     await db.run('INSERT INTO chats (id, project, started_at, ended_at, chat) VALUES (?, ?, ?, ?, ?) ON CONFLICT (id) DO UPDATE SET ended_at = excluded.ended_at, chat = excluded.chat',
-        chat.id, chat.project, chat.started_at, chat.ended_at ?? null, JSON.stringify(kept))
+        chat.id, chat.project, chat.started_at, chat.ended_at ?? null, JSON.stringify(row))
+}
+
+/** A message added to the chat's rows, given its id (the next after every chat's) and its time, as the Rust API's
+ * `POST /api/chats/:chat/lines` does. */
+export async function addLine(db: Db, chat: string, message: Omit<ChatMessage, 'id' | 'at'>): Promise<ChatMessage> {
+    const {id: _id, at: _at, ...body} = message as ChatMessage
+    return await db.transaction(async () => {
+        const last = await db.get<{n: number | string}>('SELECT COALESCE(MAX(id), 0) AS n FROM chat_messages')
+        const said = {id: Number(last?.n ?? 0) + 1, at: new Date().toISOString(), ...body}
+        await db.run('INSERT INTO chat_messages (chat, id, at, message) VALUES (?, ?, ?, ?)', chat, said.id, said.at, JSON.stringify(body))
+        return said
+    })
+}
+
+/** The chat's message as it is now, its id and time as they were, as `PUT /api/chats/:chat/lines/:id` keeps it. */
+export async function keepLine(db: Db, chat: string, message: ChatMessage) {
+    const {id, at: _at, ...body} = message
+    await db.run('UPDATE chat_messages SET message = ? WHERE chat = ? AND id = ?', JSON.stringify(body), chat, id)
+}
+
+/** The chat's row kept through the Rust API when it's in front (`PUT`/`DELETE /api/chats/:chat`, ORR-951), as it's the
+ * one writer of the `chats` table then (ORR-1044); otherwise straight into the database here (`keepChat`). */
+async function keepChatThrough(chat: Chat, gone: boolean) {
+    const {problem: _problem, messages: _messages, ...row} = chat
+    const sent = await writeToApi(gone ? 'DELETE' : 'PUT', `/api/chats/${encodeURIComponent(chat.id)}`, gone ? undefined : row, ORRERY, {always: true})
+    if (!sent) await keepChat(useDatabase(), chat, gone)
+}
+
+/** A message added through the Rust API when it's in front (`POST /api/chats/:chat/lines`), which gives it its id. */
+async function addLineThrough(chat: string, message: Omit<ChatMessage, 'id' | 'at'>): Promise<ChatMessage> {
+    const sent = await writeToApi('POST', `/api/chats/${encodeURIComponent(chat)}/lines`, message, ORRERY, {always: true})
+    return sent ? sent.reply as ChatMessage : await addLine(useDatabase(), chat, message)
+}
+
+/** A message changed through the Rust API when it's in front (`PUT /api/chats/:chat/lines/:id`). */
+async function keepLineThrough(chat: string, message: ChatMessage) {
+    const sent = await writeToApi('PUT', `/api/chats/${encodeURIComponent(chat)}/lines/${message.id}`, message, ORRERY, {always: true})
+    if (!sent) await keepLine(useDatabase(), chat, message)
+}
+
+/** The path of `parts` under the chat's project, each percent-encoded. */
+const under = (project: string, ...parts: string[]) => `/api/projects/${[project, ...parts].map(encodeURIComponent).join('/')}`
+
+/** A board write the owner allowed through their chat: sent to the Rust API as the page's request would be, when it's in
+ * front and serves it (`writeToApi`), so it's the one writer of its tables and its outbox hears it (ORR-1044); otherwise
+ * `here`, the store's own write. `noteKeys` off: the settings change is noted here already. */
+async function through<T>(method: string, path: string, body: unknown, as: Actor, here: () => Promise<T>, opts: {noteKeys?: boolean} = {}): Promise<T> {
+    const sent = await writeToApi(method, path, body, as, opts)
+    return sent ? sent.reply as T : await here()
 }
 
 /** Waits for every chat's writes so far to land (tests, and a server closing). */
@@ -67,7 +149,7 @@ export async function chatsSaved() {
 
 /** How long a chat that was running when orrery stopped waits, as it starts again, for its launcher to say its
  * session still runs; after that it has ended. */
-export const RESTORED_FOR = 3 * 60_000
+const RESTORED_FOR = 3 * 60_000
 /** The chats read back as running that no launcher has said still run yet, and those that ended for that: a launcher
  * that says so later brings one back. */
 const unconfirmed = new Set<string>()
@@ -79,22 +161,49 @@ let loading: Promise<void> | undefined
 export function chatsLoaded(): Promise<void> {
     return loading ??= (async () => {
         try {
-            const rows = await useDatabase().all<{project: string, chat: string}>('SELECT project, chat FROM chats')
-            for (const row of rows) {
-                const chat = {...JSON.parse(row.chat) as Chat, project: row.project}
+            for (const chat of await keptChats()) {
                 if (chats.has(chat.id) || over.has(chat.id)) continue
+                const lines = keptOf(chat.id)
+                for (const message of chat.messages) lines.set(message.id, JSON.stringify(message))
                 if (chat.ended) over.set(chat.id, chat)
                 else {
                     chats.set(chat.id, chat)
                     unconfirmed.add(chat.id)
                 }
-                for (const message of chat.messages) next = Math.max(next, message.id + 1)
             }
             if (unconfirmed.size) setTimeout(endUnconfirmed, RESTORED_FOR).unref?.()
         } catch (error) {
             console.error('[orrery] reading the chats kept:', error)
         }
     })()
+}
+
+/** A message with its id and time first, as its row is read here, so what's kept of it compares as the same text. */
+function inOrder({id, at, ...rest}: ChatMessage): ChatMessage {
+    return {id, at, ...rest} as ChatMessage
+}
+
+/** The chats kept, each with its messages, oldest first: read from the API (ORR-1142), or the database with none set up. */
+async function keptChats(): Promise<Chat[]> {
+    const read = await readFromApi<Chat[]>('/api/chats')
+    if (read) return read.map(chat => ({...chat, messages: chat.messages.map(inOrder)}))
+    const db = useDatabase()
+    const rows = await db.all<{project: string, chat: string}>('SELECT project, chat FROM chats')
+    const lines = await db.all<{chat: string, id: number | string, at: string, message: string}>('SELECT chat, id, at, message FROM chat_messages ORDER BY id')
+    const messages = new Map<string, ChatMessage[]>()
+    for (const line of lines) {
+        const said = {id: Number(line.id), at: line.at, ...JSON.parse(line.message) as Omit<ChatMessage, 'id' | 'at'>}
+        messages.set(line.chat, [...messages.get(line.chat) ?? [], said])
+    }
+    return rows.map(row => ({...JSON.parse(row.chat) as Chat, project: row.project, messages: messages.get((JSON.parse(row.chat) as Chat).id) ?? []}))
+}
+
+/** A chat's messages as kept, oldest first: read from the API (ORR-1142), or the database with none set up. */
+async function keptMessages(id: string): Promise<ChatMessage[]> {
+    const read = await readFromApi<Chat>(`/api/chats/${encodeURIComponent(id)}`)
+    if (read) return read.messages.map(inOrder)
+    const rows = await useDatabase().all<{id: number | string, at: string, message: string}>('SELECT id, at, message FROM chat_messages WHERE chat = ? ORDER BY id', id)
+    return rows.map(row => ({id: Number(row.id), at: row.at, ...JSON.parse(row.message) as Omit<ChatMessage, 'id' | 'at'>}) as ChatMessage)
 }
 
 /** Ends each chat read back as running whose session no launcher has said still runs. */
@@ -154,11 +263,41 @@ export function chatOf(id: string): Chat {
     return chat
 }
 
-function add(chat: Chat, message: Omit<ChatMessage, 'id' | 'at'>): ChatMessage {
-    const said = {id: next++, at: new Date().toISOString(), ...message}
-    chat.messages.push(said)
+/** Adds a message to the chat, after its writes before: the API gives it its id. The page hears the chat with it, and
+ * what else changed on it (a request it expires) is kept after. */
+async function add(chat: Chat, message: Omit<ChatMessage, 'id' | 'at'>): Promise<ChatMessage> {
+    const said = await inTurn(chat.id, async () => {
+        const said = await addLineThrough(chat.id, message)
+        keptOf(chat.id).set(said.id, JSON.stringify(said))
+        return said
+    })
+    // The outbox may have brought it in already (`chatHeard`).
+    if (!chat.messages.some(m => m.id === said.id)) chat.messages.push(said)
     changed(chat)
     return said
+}
+
+/** The outbox says chat `id`'s messages changed elsewhere (ORR-1100): the Rust API added one, or changed one (a request
+ * its `/mcp` asked, an answer). Its messages are read again from their rows. One that's new here comes in; one that's
+ * here comes in only when its row isn't what this server last kept of it, so a change made here and still being kept
+ * isn't lost to the row from before it. A chat this server doesn't hold is left. */
+export async function chatHeard(id: string) {
+    const chat = chats.get(id) ?? over.get(id)
+    if (!chat) return
+    const lines = keptOf(id)
+    let news = false
+    for (const message of await keptMessages(id)) {
+        const now = JSON.stringify(message)
+        const at = chat.messages.findIndex(m => m.id === message.id)
+        if (at === -1) chat.messages.push(message)
+        else if (lines.get(message.id) !== now) chat.messages[at] = message
+        else continue
+        lines.set(message.id, now)
+        news = true
+    }
+    if (!news) return
+    chat.messages.sort((a, b) => a.id - b.id)
+    projectEvents.emit('chat', chat)
 }
 
 /** The page the owner is on as they write (`{path, title?}`), if it's one: a path on this orrery, and its tab's title. */
@@ -178,7 +317,7 @@ function elsewhere(path: string, project: string): string {
 }
 
 /** The owner writing in the chat, with the uploads they pasted (`images`, their ids) and the page they're on (`page`):
- * it goes to the chat's session alone, as a message from the owner, the page said at its end but not kept with it. A
+ * it goes to the chat's session alone, as a message from the owner, the page said at its end and kept as its `page`. A
  * run of messages held and sent together (`parts`, ORR-517) goes as one, joined by blank lines, and is kept as its parts. */
 export async function say(id: string, text: unknown, images: unknown, actor: {name: string, owner: boolean}, page?: unknown, parts?: unknown): Promise<ChatMessage> {
     await chatsLoaded()
@@ -197,7 +336,8 @@ export async function say(id: string, text: unknown, images: unknown, actor: {na
     ].filter(Boolean).join('\n\n')
     await useStore().messageSession(chat.project, launchTarget(id), note, actor)
     told.set(id, {words, ...on ? {page: on.path} : {}, started: new Set()})
-    return add(chat, {from: 'owner', text: words, images: pasted, ...run && run.length > 1 ? {parts: run} : {}})
+    // The page goes on the owner's row too, so the Rust /mcp's `move_issues` sees what they were on (ORR-1100).
+    return await add(chat, {from: 'owner', text: words, images: pasted, ...run && run.length > 1 ? {parts: run} : {}, ...on ? {page: on.path} : {}})
 }
 
 /** How much of an ended chat's conversation a session started fresh for it is told, at most. */
@@ -297,14 +437,23 @@ export async function askSend(id: string, body: Record<string, unknown>): Promis
         if (!to.length) throw conflict(`No ${wanted?.join(' or ') ?? 'idle'} session is listening${on?.length ? ` on ${on.join(', ')}` : ''}, so there's nobody to send it to`)
         request = {text: words, ...on?.length ? {projects: on} : {}, ...wanted ? {states: wanted as SessionState[]} : {}, to: to.map(s => s.name), state: 'asked'}
     }
-    const said = add(chat, {from: 'claude', text: typeof why === 'string' ? why.trim() : '', images: [], send: request})
+    const said = await add(chat, {from: 'claude', text: typeof why === 'string' ? why.trim() : '', images: [], send: request})
     useEventLog().note({level: 'info', kind: 'chat.asked', project: chat.project, message: `The chat asked to message ${request.to.join(', ')}`, details: {to: request.to}})
     return said
 }
 
+/** The project a chat's request is on: the one it names (`project`), so a chat can ask for a schedule, doc or release
+ * on another project than its own (ORR-1063), else the chat's own. Its Allow still saves it as the owner's, there. */
+async function projectFor(chat: Chat, body: Record<string, unknown>): Promise<string> {
+    const {project} = body
+    if (project === undefined || project === null || project === chat.project) return chat.project
+    if (typeof project !== 'string' || !project.trim()) throw badRequest('Send "project" as a project\'s id, or leave it out for the chat\'s own')
+    return await projectIdOf(project.trim())
+}
+
 /** The owner, as their chat asks for them: who a schedule it asks for is checked as, and saved as. */
 async function owner(): Promise<Actor> {
-    return {name: (await useStore().ownerOf()).name, owner: true, via: 'chat'}
+    return {name: (await ownerNow()).name, owner: true, via: 'chat'}
 }
 
 /** The chat's session asking to make a schedule in its project, or change schedule `id` there (its `create_schedule` and
@@ -313,11 +462,13 @@ async function owner(): Promise<Actor> {
  * until they allow it. One it asked before for the same schedule, still unanswered, expires. */
 async function askSchedule(id: string, body: Record<string, unknown>): Promise<ChatMessage> {
     const chat = chatOf(id)
+    const project = await projectFor(chat, body)
     const {schedule: fields, id: target, why} = body as {schedule?: unknown, id?: unknown, why?: unknown}
-    const request = await scheduleRequest(chat.project, fields, target, await owner(), "The owner's chat")
+    const request = await scheduleRequest(project, fields, target, await owner(), "The owner's chat")
     for (const m of chat.messages) if (request.id !== undefined && m.schedule?.state === 'asked' && m.schedule.id === request.id) m.schedule.state = 'expired'
-    const said = add(chat, {from: 'claude', text: typeof why === 'string' ? why.trim() : '', images: [], schedule: request})
-    useEventLog().note({level: 'info', kind: 'chat.asked', project: chat.project, message: `The chat asked to ${scheduleAsk(request)}`, details: {schedule: request.id ?? null, fields: Object.keys(request.body)}})
+    if (project !== chat.project) request.project = project
+    const said = await add(chat, {from: 'claude', text: typeof why === 'string' ? why.trim() : '', images: [], schedule: request})
+    useEventLog().note({level: 'info', kind: 'chat.asked', project, message: `The chat asked to ${scheduleAsk(request)}`, details: {schedule: request.id ?? null, fields: Object.keys(request.body)}})
     return said
 }
 
@@ -327,13 +478,15 @@ const MOVE_AT_MOST = 50
 /** A proposal waiting on the owner (or on changes) isn't work yet: its status and assignee are theirs to decide. */
 const undecided = (proposal: unknown) => proposal === 'pending' || proposal === 'changes'
 
-/** The chat's session asking to move issues in its project to another status, or assign them (its `move_issues` tool):
+/** The chat's session moving issues in its project to another status, or assigning them (its `move_issues` tool):
  * `move` is `{ids, status?, assignee?}`, a status's id or a kind, and `owner`, an agent's name or null for the assignee.
- * A request in the chat showing each issue's from → to, checked as the owner's move would be, which moves nothing until
- * they allow it. Never a proposal waiting on the owner. One it asked before for any of the same issues, still unanswered,
- * expires. */
+ * Those the owner named in their last message here (or whose page they're on) move at once, as theirs (`moveNow`,
+ * ORR-1042): the owner's word is the Allow. Otherwise it's a request in the chat showing each issue's from → to, checked
+ * as the owner's move would be, which moves nothing until they allow it, so nothing the chat read moves an issue. Never a
+ * proposal waiting on the owner. One it asked before for any of the same issues, still unanswered, expires. */
 async function askMove(id: string, body: Record<string, unknown>): Promise<ChatMessage> {
     const chat = chatOf(id)
+    const project = await projectFor(chat, body)
     const {move, why} = body as {move?: unknown, why?: unknown}
     const {ids, status, assignee} = (isObject(move) ? move : {}) as {ids?: unknown, status?: unknown, assignee?: unknown}
     if (!Array.isArray(ids) || !ids.length || ids.some(i => typeof i !== 'string' || !i.trim()) || (status === undefined && assignee === undefined)) {
@@ -344,9 +497,9 @@ async function askMove(id: string, body: Record<string, unknown>): Promise<ChatM
     const store = useStore()
     const to = {
         ...status === undefined ? {} : {status: await store.resolveStatus(status as string)},
-        ...assignee === undefined ? {} : {assignee: !assignee?.trim() ? null : assignee.trim().toLowerCase() === 'owner' ? (await store.ownerOf()).name : assignee.trim()},
+        ...assignee === undefined ? {} : {assignee: !assignee?.trim() ? null : assignee.trim().toLowerCase() === 'owner' ? (await ownerNow()).name : assignee.trim()},
     }
-    const issues = await Promise.all([...new Set((ids as string[]).map(i => i.trim()))].map(i => store.issue(chat.project, i)))
+    const issues = await Promise.all([...new Set((ids as string[]).map(i => i.trim()))].map(i => issueNow(project, i)))
     const waiting = issues.filter(i => undecided(i.proposal)).map(i => i.id)
     if (waiting.length) throw refusedFor('issues.edit', `${waiting.join(', ')} ${waiting.length === 1 ? 'is a proposal' : 'are proposals'} waiting on the owner: ${waiting.length === 1 ? 'its' : 'their'} status and assignee are theirs to decide, on ${waiting.length === 1 ? 'its' : 'their'} page`)
     const changes = issues.flatMap(i => [
@@ -354,23 +507,53 @@ async function askMove(id: string, body: Record<string, unknown>): Promise<ChatM
         ...to.assignee !== undefined && to.assignee !== (i.assignee ?? null) ? [{issue: i.id, title: i.title, field: 'assignee' as const, from: i.assignee ?? null, to: to.assignee}] : [],
     ])
     if (!changes.length) throw conflict(`${issues.length === 1 ? `${issues.map(i => i.id).join('')} is` : 'They are'} like that already: nothing would change`)
+    const moving = [...new Set(changes.map(c => c.issue))]
+    // The owner named each in their last message here, or is on its page: moved at once, as theirs (ORR-1042).
+    const words = told.get(id)
+    if (words && issues.filter(i => moving.includes(i.id)).every(i => saidIssue(words, [i.id, ...i.aliases ?? []]))) return await moveNow(chat, project, moving, to)
     const asking = issues.map(i => i.id)
     for (const m of chat.messages) if (m.move?.state === 'asked' && m.move.body.ids.some(i => asking.includes(i))) m.move.state = 'expired'
-    const moving = [...new Set(changes.map(c => c.issue))]
     const was = Object.fromEntries(issues.filter(i => moving.includes(i.id)).map(i => [i.id, {status: i.column, assignee: i.assignee ?? null}]))
     const request: ChatMoveRequest = {changes, was, body: {ids: moving, ...to}, state: 'asked'}
-    const said = add(chat, {from: 'claude', text: typeof why === 'string' ? why.trim() : '', images: [], move: request})
-    useEventLog().note({level: 'info', kind: 'chat.asked', project: chat.project, message: `The chat asked to ${moveAsk(request)}`, details: {issues: request.body.ids, ...to}})
+    if (project !== chat.project) request.project = project
+    const said = await add(chat, {from: 'claude', text: typeof why === 'string' ? why.trim() : '', images: [], move: request})
+    useEventLog().note({level: 'info', kind: 'chat.asked', project, message: `The chat asked to ${moveAsk(request)}`, details: {issues: request.body.ids, ...to}})
     return said
+}
+
+/** Issues the owner named in their last message in the chat moved or assigned at once, as theirs through their chat,
+ * as their own move on the page would be: the same guards hold (a released or held issue, a proposal waiting on them),
+ * and a move into Todo hands it to an idle session as theirs does. Any request still asking to move one expires, as
+ * it's been decided. One that fails stops the rest; those moved before it stay moved, and the error says so. */
+async function moveNow(chat: Chat, project: string, ids: string[], to: Omit<ChatMoveRequest['body'], 'ids'>): Promise<ChatMessage> {
+    const as = await owner()
+    const moved: string[] = []
+    try {
+        for (const issue of ids) {
+            await through('PATCH', under(project, 'issues', issue), to, as, () => useStore().updateIssue(project, issue, to, as))
+            moved.push(issue)
+        }
+    } catch (error) {
+        if (moved.length) Object.assign(error as object, {message: `${(error as Error).message} (${moved.join(', ')} moved already)`})
+        throw error
+    } finally {
+        if (moved.length) {
+            for (const m of chat.messages) if (m.move?.state === 'asked' && m.move.body.ids.some(i => moved.includes(i))) m.move.state = 'expired'
+            useEventLog().note({level: 'info', kind: 'chat.moved', project, message: `The chat put ${moved.join(', ')} ${moveTo({body: {ids: moved, ...to}})}, as the owner asked`, details: {issues: moved, ...to}})
+        }
+    }
+    const links = moved.map(i => `[${i}](/p/${project}/issues/${i})`).join(', ')
+    return await add(chat, {from: 'claude', text: `Put ${links} ${moveTo({body: {ids: moved, ...to}})}.`, images: []})
 }
 
 /** What has changed on a move request's issues since it was asked (ORR-644), leaving out those it moved already. */
 async function driftOf(chat: Chat, request: ChatMoveRequest): Promise<NonNullable<ChatMoveRequest['drifted']>> {
+    const project = request.project ?? chat.project
     const drifted: NonNullable<ChatMoveRequest['drifted']> = []
     for (const id of request.body.ids) {
         const was = request.was?.[id]
         if (!was || request.moved?.includes(id)) continue
-        const issue = await useStore().issue(chat.project, id).catch(() => null)
+        const issue = await issueNow(project, id).catch(() => null)
         // Gone, or a proposal waiting on the owner now: Allow refuses it as it stands, with no warning needed.
         if (!issue || undecided(issue.proposal)) continue
         if (issue.column !== was.status) drifted.push({issue: id, field: 'status', from: was.status, to: issue.column})
@@ -397,9 +580,8 @@ function noteDrift(chat: Chat, request: ChatMoveRequest, drifted: NonNullable<Ch
 export function heardForMoves({event}: {event: OrreryEvent}) {
     if (event.type !== 'issue.status' && event.type !== 'issue.assignee') return
     for (const chat of chats.values()) {
-        if (chat.project !== event.project) continue
         for (const {id, move} of chat.messages) {
-            if (move?.state !== 'asked' || !move.body.ids.includes(event.subject as string)) continue
+            if (move?.state !== 'asked' || (move.project ?? chat.project) !== event.project || !move.body.ids.includes(event.subject as string)) continue
             const open = () => move.state === 'asked' && !answering.has(`${chat.id}:${id}`)
             if (!open()) continue
             void driftOf(chat, move).then(drifted => {
@@ -416,7 +598,7 @@ const driftSaid = (drifted: ChatMoveRequest['drifted'] = []) => drifted.map(d =>
     : `${d.issue} was assigned to ${d.from ?? 'nobody'} when you asked and is assigned to ${d.to ?? 'nobody'} now.`).join(' ')
 
 /** Where a move request puts its issues, as a phrase: "in done, assigned to claude". */
-const moveTo = ({body: {status, assignee}}: ChatMoveRequest) => [
+const moveTo = ({body: {status, assignee}}: Pick<ChatMoveRequest, 'body'>) => [
     status !== undefined ? `in ${status}` : '',
     assignee === undefined ? '' : assignee === null ? 'unassigned' : `assigned to ${assignee}`,
 ].filter(Boolean).join(', ')
@@ -430,19 +612,21 @@ const moveAsk = (request: ChatMoveRequest) => `put ${request.body.ids.join(', ')
  * unanswered, expires. */
 async function askMilestone(id: string, body: Record<string, unknown>): Promise<ChatMessage> {
     const chat = chatOf(id)
+    const project = await projectFor(chat, body)
     const {milestone: fields, id: target, why} = body as {milestone?: unknown, id?: unknown, why?: unknown}
     if (!isObject(fields) || !Object.keys(fields).length) throw badRequest(`Send {milestone: {…}, id?}: the fields to set, any of ${Object.keys(CHAT_MILESTONE_FIELDS).join(', ')}, and the milestone's id to change one`)
     const refused = Object.keys(fields).filter(key => !Object.hasOwn(CHAT_MILESTONE_FIELDS, key))
     if (refused.length) throw forbidden(`The owner's chat sets a milestone's ${Object.keys(CHAT_MILESTONE_FIELDS).join(', ')}, not its ${refused.join(', ')}`)
     if (target !== undefined && target !== null && typeof target !== 'string' && !Number.isInteger(target)) throw badRequest('Send "id" as the milestone to change, or leave it out to make one')
-    const current = target === undefined || target === null ? undefined : await useStore().milestone(chat.project, String(target))
+    const current = target === undefined || target === null ? undefined : await milestoneNow(project, String(target))
     checkInput(fields, MILESTONE_FIELDS, !!current)
     const changes = (Object.entries(fields) as [ChatMilestoneField, unknown][]).map(([field, to]) =>
         current ? {field, from: current[field] ?? null, to} : {field, to})
     for (const m of chat.messages) if (current && m.milestone?.state === 'asked' && m.milestone.id === current.id) m.milestone.state = 'expired'
     const request: ChatMilestoneRequest = {...current ? {id: current.id} : {}, title: String(fields.title ?? current?.title ?? ''), changes, body: fields, state: 'asked'}
-    const said = add(chat, {from: 'claude', text: typeof why === 'string' ? why.trim() : '', images: [], milestone: request})
-    useEventLog().note({level: 'info', kind: 'chat.asked', project: chat.project, message: `The chat asked to ${milestoneAsk(request)}`, details: {milestone: request.id ?? null, fields: Object.keys(fields)}})
+    if (project !== chat.project) request.project = project
+    const said = await add(chat, {from: 'claude', text: typeof why === 'string' ? why.trim() : '', images: [], milestone: request})
+    useEventLog().note({level: 'info', kind: 'chat.asked', project, message: `The chat asked to ${milestoneAsk(request)}`, details: {milestone: request.id ?? null, fields: Object.keys(fields)}})
     return said
 }
 
@@ -457,12 +641,13 @@ const milestoneAsk = (request: ChatMilestoneRequest) => request.id === undefined
  * this, and docs are what later sessions read (ORR-661). One it asked before for the same doc, still unanswered, expires. */
 async function askDoc(id: string, body: Record<string, unknown>): Promise<ChatMessage> {
     const chat = chatOf(id)
+    const project = await projectFor(chat, body)
     const {doc: fields, id: target, why} = body as {doc?: unknown, id?: unknown, why?: unknown}
     if (!isObject(fields) || !Object.keys(fields).length) throw badRequest(`Send {doc: {…}, id?}: the fields to set, any of ${Object.keys(CHAT_DOC_FIELDS).join(', ')}, and the doc's id to change one`)
     const refused = Object.keys(fields).filter(key => !Object.hasOwn(CHAT_DOC_FIELDS, key))
     if (refused.length) throw forbidden(`The owner's chat sets a doc's ${Object.keys(CHAT_DOC_FIELDS).join(', ')}, not its ${refused.join(', ')}`)
     if (target !== undefined && target !== null && typeof target !== 'string') throw badRequest('Send "id" as the doc to change, or leave it out to make one')
-    const current = typeof target === 'string' ? await useStore().doc(chat.project, target) : undefined
+    const current = typeof target === 'string' ? await docNow(project, target) : undefined
     const input = checkInput(fields, DOC_FIELDS, !!current)
     const title = input.title === undefined ? undefined : String(input.title).trim()
     if (title === '') throw badRequest('A doc needs a title')
@@ -475,8 +660,9 @@ async function askDoc(id: string, body: Record<string, unknown>): Promise<ChatMe
     if (was && !Object.keys(wanted).length) throw conflict(`Doc ${target} is like that already: nothing would change`)
     for (const m of chat.messages) if (current && m.doc?.state === 'asked' && m.doc.id === current.id) m.doc.state = 'expired'
     const request: ChatDocRequest = {...current ? {id: current.id, was} : {}, title: title ?? current?.title ?? '', body: wanted, state: 'asked'}
-    const said = add(chat, {from: 'claude', text: typeof why === 'string' ? why.trim() : '', images: [], doc: request})
-    useEventLog().note({level: 'info', kind: 'chat.asked', project: chat.project, message: `The chat asked to ${docAsk(request)}`, details: {doc: request.id ?? null, fields: Object.keys(wanted)}})
+    if (project !== chat.project) request.project = project
+    const said = await add(chat, {from: 'claude', text: typeof why === 'string' ? why.trim() : '', images: [], doc: request})
+    useEventLog().note({level: 'info', kind: 'chat.asked', project, message: `The chat asked to ${docAsk(request)}`, details: {doc: request.id ?? null, fields: Object.keys(wanted)}})
     return said
 }
 
@@ -488,6 +674,7 @@ const CHAT_ISSUE_FIELDS = ['title', 'notes', 'priority', 'labels', 'milestone']
  * Nothing is filed until the owner presses File issue. One it offered before under the same title, still unanswered, expires. */
 async function askIssue(id: string, body: Record<string, unknown>): Promise<ChatMessage> {
     const chat = chatOf(id)
+    const project = await projectFor(chat, body)
     const {issue: fields, why} = body as {issue?: unknown, why?: unknown}
     if (!isObject(fields)) throw badRequest(`Send {issue: {…}}: its ${CHAT_ISSUE_FIELDS.join(', ')}`)
     const refused = Object.keys(fields).filter(key => !CHAT_ISSUE_FIELDS.includes(key))
@@ -503,8 +690,9 @@ async function askIssue(id: string, body: Record<string, unknown>): Promise<Chat
         ...Array.isArray(input.labels) && input.labels.length ? {labels: input.labels as string[]} : {},
         ...typeof input.milestone === 'string' ? {milestone: input.milestone} : {},
     }
-    const said = add(chat, {from: 'claude', text: typeof why === 'string' ? why.trim() : '', images: [], issue: request})
-    useEventLog().note({level: 'info', kind: 'chat.asked', project: chat.project, message: `The chat offered to file "${title}"`, details: {fields: Object.keys(fields)}})
+    if (project !== chat.project) request.project = project
+    const said = await add(chat, {from: 'claude', text: typeof why === 'string' ? why.trim() : '', images: [], issue: request})
+    useEventLog().note({level: 'info', kind: 'chat.asked', project, message: `The chat offered to file "${title}"`, details: {fields: Object.keys(fields)}})
     return said
 }
 
@@ -519,22 +707,24 @@ const docAsk = (request: ChatDocRequest) => request.was
  * the same release, still unanswered, expires. */
 async function askRelease(id: string, body: Record<string, unknown>): Promise<ChatMessage> {
     const chat = chatOf(id)
+    const project = await projectFor(chat, body)
     const {release: fields, version, why} = body as {release?: unknown, version?: unknown, why?: unknown}
     if (!isObject(fields) || !Object.keys(fields).length) throw badRequest(`Send {release: {…}, version?}: the fields to set, any of ${Object.keys(CHAT_RELEASE_FIELDS).join(', ')}, and the version of the release to change one`)
     const refused = Object.keys(fields).filter(key => !Object.hasOwn(CHAT_RELEASE_FIELDS, key))
     if (refused.length) throw forbidden(`The owner's chat sets a release's ${Object.keys(CHAT_RELEASE_FIELDS).join(', ')}, not its ${refused.join(', ')}`)
     if (version !== undefined && version !== null && typeof version !== 'string') throw badRequest('Send "version" as the version of the release to change, or leave it out to make one')
-    const current = await useStore().checkRelease(chat.project, fields, typeof version === 'string' ? version : undefined)
+    const current = await useStore().checkRelease(project, fields, typeof version === 'string' ? version : undefined)
     const shown = (field: ChatReleaseField, value: unknown) => field === 'position' && typeof value === 'number' ? place(value) : value
-    const releases = current ? await useStore().listReleases(chat.project) : []
+    const releases = current ? await releasesNow(project) : []
     const was = (field: ChatReleaseField) => field === 'position' ? releases.findIndex(r => r.version === current?.version) : current?.[field as keyof Release] ?? null
     const changes = (Object.entries(fields) as [ChatReleaseField, unknown][]).map(([field, to]) =>
         current ? {field, from: shown(field, was(field)), to: shown(field, to)} : {field, to: shown(field, to)})
     const named = current?.version ?? String(fields.version)
     for (const m of chat.messages) if (m.release?.state === 'asked' && m.release.version === named) m.release.state = 'expired'
     const request: ChatReleaseRequest = {version: named, change: !!current, changes, body: fields, state: 'asked'}
-    const said = add(chat, {from: 'claude', text: typeof why === 'string' ? why.trim() : '', images: [], release: request})
-    useEventLog().note({level: 'info', kind: 'chat.asked', project: chat.project, message: `The chat asked to ${releaseAsk(request)}`, details: {release: named, fields: Object.keys(fields)}})
+    if (project !== chat.project) request.project = project
+    const said = await add(chat, {from: 'claude', text: typeof why === 'string' ? why.trim() : '', images: [], release: request})
+    useEventLog().note({level: 'info', kind: 'chat.asked', project, message: `The chat asked to ${releaseAsk(request)}`, details: {release: named, fields: Object.keys(fields)}})
     return said
 }
 
@@ -562,9 +752,9 @@ export async function askSetting(id: string, body: unknown): Promise<ChatMessage
     if (value === undefined) throw badRequest('Send the value to set as "value" (null for none)')
     const to = checkInput({[setting]: value}, {[setting]: known(SETTINGS_FIELDS[setting], 'the setting')}, true)[setting]
     const normal = setting === 'handle' && typeof to === 'string' ? to.toLowerCase() : to
-    const from = (await useStore().settings())[setting as ChatSetting] ?? null
+    const from = (await settingsNow())[setting as ChatSetting] ?? null
     for (const m of chat.messages) if (m.request?.state === 'asked' && m.request.setting === setting) m.request.state = 'expired'
-    const said = add(chat, {from: 'claude', text: typeof why === 'string' ? why.trim() : '', images: [], request: {setting: setting as ChatSetting, from, to: normal, state: 'asked'}})
+    const said = await add(chat, {from: 'claude', text: typeof why === 'string' ? why.trim() : '', images: [], request: {setting: setting as ChatSetting, from, to: normal, state: 'asked'}})
     useEventLog().note({level: 'info', kind: 'chat.asked', project: chat.project, message: `The chat asked to set ${CHAT_SETTINGS[setting as ChatSetting]} to ${settingValue(normal)}`, details: {setting, from, to: normal}})
     return said
 }
@@ -572,17 +762,16 @@ export async function askSetting(id: string, body: unknown): Promise<ChatMessage
 /** What has changed on what a setting, milestone, release or schedule request would change since it was asked (ORR-645). What
  * has gone since has nothing to compare: Allow fails on it as its page would. */
 async function requestDrift(chat: Chat, asked: ChatMessage): Promise<ChatRequestDrift[]> {
-    const store = useStore()
     const drift = (label: string, was: unknown, now: unknown) => JSON.stringify(was) === JSON.stringify(now) ? [] : [{label, from: settingValue(was), to: settingValue(now)}]
-    if (asked.request) return drift(CHAT_SETTINGS[asked.request.setting], asked.request.from, (await store.settings())[asked.request.setting] ?? null)
-    if (asked.schedule) return await scheduleDrift(chat.project, asked.schedule)
+    if (asked.request) return drift(CHAT_SETTINGS[asked.request.setting], asked.request.from, (await settingsNow())[asked.request.setting] ?? null)
+    if (asked.schedule) return await scheduleDrift(asked.schedule.project ?? chat.project, asked.schedule)
     if (asked.milestone?.id !== undefined) {
-        const current = await store.milestone(chat.project, asked.milestone.id).catch(() => null)
+        const current = await milestoneNow(asked.milestone.project ?? chat.project, asked.milestone.id).catch(() => null)
         return current ? asked.milestone.changes.flatMap(c => c.from === undefined ? [] : drift(CHAT_MILESTONE_FIELDS[c.field], c.from, current[c.field] ?? null)) : []
     }
     if (asked.release?.change) {
         const {version} = asked.release
-        const releases = await store.listReleases(chat.project)
+        const releases = await releasesNow(asked.release.project ?? chat.project)
         const at = releases.findIndex(r => r.version === version)
         const current = releases[at]
         if (!current) return []
@@ -644,17 +833,18 @@ export async function answer(id: string, message: number, allow: boolean, actor:
 /** The owner allowing or denying the chat's request for a schedule: allowed, it's made or changed as theirs, through
  * their chat. A request that no longer holds (its preset deleted since) fails as Schedules would, still asked. */
 async function answerSchedule(chat: Chat, request: ChatScheduleRequest, allow: boolean, actor: Actor) {
+    const project = request.project ?? chat.project
     let made: Schedule | undefined
     if (allow) {
         const as: Actor = {...actor, via: 'chat'}
         made = request.id === undefined
-            ? await useScheduler().create(chat.project, request.body, as)
-            : await useScheduler().update(chat.project, request.id, request.body, as)
+            ? await useScheduler().create(project, request.body, as)
+            : await useScheduler().update(project, request.id, request.body, as)
     }
     request.state = allow ? 'allowed' : 'denied'
     if (made) request.id = made.id
     changed(chat)
-    useEventLog().note({level: 'info', kind: 'chat.answered', project: chat.project, message: `${actor.name} ${request.state} the chat's request to ${scheduleAsk(request)}`,
+    useEventLog().note({level: 'info', kind: 'chat.answered', project, message: `${actor.name} ${request.state} the chat's request to ${scheduleAsk(request)}`,
         details: {schedule: request.id ?? null, fields: Object.keys(request.body), allowed: allow}})
     await useStore().messageSession(chat.project, launchTarget(chat.id), made
         ? `(I allowed your request: schedule ${made.id} ("${made.title}") is saved${made.enabled ? '' : ', paused'}.)`
@@ -664,14 +854,15 @@ async function answerSchedule(chat: Chat, request: ChatScheduleRequest, allow: b
 /** The owner allowing or denying the chat's request for a release: allowed, it's made or changed as theirs, through
  * their chat. A request that no longer holds (the release made or removed since) fails as Releases would, still asked. */
 async function answerRelease(chat: Chat, request: ChatReleaseRequest, allow: boolean, actor: Actor) {
+    const project = request.project ?? chat.project
     if (allow) {
         const as: Actor = {...actor, via: 'chat'}
-        if (request.change) await useStore().updateRelease(chat.project, request.version, request.body, as)
-        else await useStore().createRelease(chat.project, request.body, as)
+        if (request.change) await through('PATCH', under(project, 'releases', request.version), request.body, as, () => useStore().updateRelease(project, request.version, request.body, as))
+        else await through('POST', under(project, 'releases'), request.body, as, () => useStore().createRelease(project, request.body, as))
     }
     request.state = allow ? 'allowed' : 'denied'
     changed(chat)
-    useEventLog().note({level: 'info', kind: 'chat.answered', project: chat.project, message: `${actor.name} ${request.state} the chat's request to ${releaseAsk(request)}`,
+    useEventLog().note({level: 'info', kind: 'chat.answered', project, message: `${actor.name} ${request.state} the chat's request to ${releaseAsk(request)}`,
         details: {release: request.version, fields: Object.keys(request.body), allowed: allow}})
     await useStore().messageSession(chat.project, launchTarget(chat.id), allow
         ? `(I allowed your request: release ${request.version} is ${request.change ? 'changed' : 'added'}.)`
@@ -685,6 +876,7 @@ async function answerRelease(chat: Chat, request: ChatReleaseRequest, allow: boo
  * nothing until the owner has seen that and allowed it `anyway`: one that has changed further shows, and waits again.
  * Either way the session hears what had changed. */
 async function answerMove(chat: Chat, request: ChatMoveRequest, allow: boolean, actor: Actor, anyway: boolean) {
+    const project = request.project ?? chat.project
     const drifted = await driftOf(chat, request)
     const unseen = drifted.some(d => !request.drifted?.some(b => sameDrift(b, d)))
     noteDrift(chat, request, drifted)
@@ -696,8 +888,8 @@ async function answerMove(chat: Chat, request: ChatMoveRequest, allow: boolean, 
         try {
             for (const id of ids) {
                 if (moved.includes(id)) continue
-                if (undecided((await useStore().issue(chat.project, id)).proposal)) throw refusedFor('issues.edit', `${id} is a proposal waiting on you now: decide it on its page`)
-                await useStore().updateIssue(chat.project, id, to, as)
+                if (undecided((await issueNow(project, id)).proposal)) throw refusedFor('issues.edit', `${id} is a proposal waiting on you now: decide it on its page`)
+                await through('PATCH', under(project, 'issues', id), to, as, () => useStore().updateIssue(project, id, to, as))
                 moved.push(id)
             }
         } catch (error) {
@@ -712,7 +904,7 @@ async function answerMove(chat: Chat, request: ChatMoveRequest, allow: boolean, 
     }
     request.state = allow ? 'allowed' : 'denied'
     changed(chat)
-    useEventLog().note({level: 'info', kind: 'chat.answered', project: chat.project, message: `${actor.name} ${request.state} the chat's request to ${moveAsk(request)}`,
+    useEventLog().note({level: 'info', kind: 'chat.answered', project, message: `${actor.name} ${request.state} the chat's request to ${moveAsk(request)}`,
         details: {issues: request.body.ids, allowed: allow}})
     const since = driftSaid(request.drifted)
     await useStore().messageSession(chat.project, launchTarget(chat.id), allow
@@ -723,16 +915,21 @@ async function answerMove(chat: Chat, request: ChatMoveRequest, allow: boolean, 
 /** The owner allowing or denying the chat's request for a milestone: allowed, it's made or changed as theirs, through their
  * chat. A milestone removed since fails as its page would, still asked. */
 async function answerMilestone(chat: Chat, request: ChatMilestoneRequest, allow: boolean, actor: Actor) {
+    const project = request.project ?? chat.project
     let made: {id: string, title: string} | undefined
+    // What it asked, before a milestone it made gets its id: "make", not "change" (ORR-1044).
+    const asked = milestoneAsk(request)
     if (allow) {
-        made = request.id === undefined
-            ? await useStore().createMilestone(chat.project, request.body, {...actor, via: 'chat'})
-            : await useStore().updateMilestone(chat.project, request.id, request.body, {...actor, via: 'chat'})
+        const as: Actor = {...actor, via: 'chat'}
+        const {id: target} = request
+        made = target === undefined
+            ? await through('POST', under(project, 'milestones'), request.body, as, () => useStore().createMilestone(project, request.body, as))
+            : await through('PATCH', under(project, 'milestones', target), request.body, as, () => useStore().updateMilestone(project, target, request.body, as))
     }
     request.state = allow ? 'allowed' : 'denied'
     if (made) request.id = made.id
     changed(chat)
-    useEventLog().note({level: 'info', kind: 'chat.answered', project: chat.project, message: `${actor.name} ${request.state} the chat's request to ${milestoneAsk(request)}`,
+    useEventLog().note({level: 'info', kind: 'chat.answered', project, message: `${actor.name} ${request.state} the chat's request to ${asked}`,
         details: {milestone: request.id ?? null, fields: Object.keys(request.body), allowed: allow}})
     await useStore().messageSession(chat.project, launchTarget(chat.id), made
         ? `(I allowed your request: milestone ${made.id} ("${made.title}") is saved.)`
@@ -744,20 +941,28 @@ async function answerMilestone(chat: Chat, request: ChatMilestoneRequest, allow:
  * "allow anyway" here, since what they'd approve is a diff against text that's gone. The session hears it, to read the
  * doc and ask again. */
 async function answerDoc(chat: Chat, request: ChatDocRequest, allow: boolean, actor: Actor) {
+    const project = request.project ?? chat.project
     let made: {id: string, title: string} | undefined
     if (allow) {
         const as: Actor = {...actor, via: 'chat'}
         try {
-            made = request.was
-                ? await useStore().updateDoc(chat.project, known(request.id, 'the doc a change is to'), request.body, as, request.was)
-                : await useStore().createDoc(chat.project, request.body, as)
+            const {was} = request
+            if (was) {
+                const target = known(request.id, 'the doc a change is to')
+                // The Rust API's PATCH has no "as it was" to check against, so it's checked here first; the store's
+                // own write checks it again in its transaction.
+                await stillAsShown(project, target, was)
+                made = await through('PATCH', under(project, 'docs', target), request.body, as, () => useStore().updateDoc(project, target, request.body, as, was))
+            } else {
+                made = await through('POST', under(project, 'docs'), request.body, as, () => useStore().createDoc(project, request.body, as))
+            }
         } catch (error) {
             const {statusCode} = error as {statusCode?: number}
             if (!request.was || (statusCode !== 409 && statusCode !== 404)) throw error
             request.state = 'expired'
             request.stale = true
             changed(chat)
-            useEventLog().note({level: 'info', kind: 'chat.answered', project: chat.project, message: `${actor.name} allowed the chat's request to ${docAsk(request)}, refused: the doc changed after it asked`,
+            useEventLog().note({level: 'info', kind: 'chat.answered', project, message: `${actor.name} allowed the chat's request to ${docAsk(request)}, refused: the doc changed after it asked`,
                 details: {doc: request.id ?? null, fields: Object.keys(request.body), allowed: false, stale: true}})
             await useStore().messageSession(chat.project, launchTarget(chat.id), `(I pressed Allow, but doc ${request.id} changed after you asked, so nothing was saved. Read it again and ask again if it's still wanted.)`, actor)
             throw conflict(`Doc ${request.id} changed after the chat asked, so nothing was saved: ask the chat again`)
@@ -769,22 +974,31 @@ async function answerDoc(chat: Chat, request: ChatDocRequest, allow: boolean, ac
         request.title = made.title
     }
     changed(chat)
-    useEventLog().note({level: 'info', kind: 'chat.answered', project: chat.project, message: `${actor.name} ${request.state} the chat's request to ${docAsk(request)}`,
+    useEventLog().note({level: 'info', kind: 'chat.answered', project, message: `${actor.name} ${request.state} the chat's request to ${docAsk(request)}`,
         details: {doc: request.id ?? null, fields: Object.keys(request.body), allowed: allow}})
     await useStore().messageSession(chat.project, launchTarget(chat.id), made
         ? `(I allowed your request: doc ${made.id} ("${made.title}") is saved.)`
         : `(I denied your request to ${docAsk(request)}: nothing changed.)`, actor)
 }
 
+/** Refuses (409) a change to doc `id` that's no longer what the owner was shown (`was`); 404 when it's gone. */
+async function stillAsShown(project: string, id: string, was: {title: string, section: string | null, body: string}) {
+    const now = await docNow(project, id)
+    if (now.title !== was.title || now.body !== was.body || (now.section ?? null) !== was.section) throw conflict(`Doc "${id}" has changed since then`)
+}
+
 /** The owner's File issue or Don't file on the issue the chat offered: filed, it's theirs, through their chat, where they
  * have the chat's issues land. An offer that no longer holds (its milestone removed since) fails as making it would, still asked. */
 async function answerIssue(chat: Chat, request: ChatIssueRequest, allow: boolean, actor: Actor) {
-    const {id: _, state: __, ...fields} = request
-    const made = allow ? await useStore().createIssue(chat.project, {...fields, status: chat.issues}, {...actor, via: 'chat'}) : undefined
+    const project = request.project ?? chat.project
+    const {id: _, state: __, project: ___, ...fields} = request
+    const as: Actor = {...actor, via: 'chat'}
+    const body = {...fields, status: chat.issues}
+    const made = allow ? await through('POST', under(project, 'issues'), body, as, () => useStore().createIssue(project, body, as)) : undefined
     request.state = allow ? 'allowed' : 'denied'
     if (made) request.id = made.id
     changed(chat)
-    useEventLog().note({level: 'info', kind: 'chat.answered', project: chat.project, message: made ? `${actor.name} filed the issue the chat offered: ${made.id}` : `${actor.name} didn't file the issue the chat offered: "${request.title}"`,
+    useEventLog().note({level: 'info', kind: 'chat.answered', project, message: made ? `${actor.name} filed the issue the chat offered: ${made.id}` : `${actor.name} didn't file the issue the chat offered: "${request.title}"`,
         details: {issue: request.id ?? null, allowed: allow}})
     await useStore().messageSession(chat.project, launchTarget(chat.id), made
         ? `(I pressed File issue: it's ${made.id}, "${made.title}".)`
@@ -833,7 +1047,8 @@ async function answerSend(chat: Chat, request: ChatSendRequest, allow: boolean, 
 async function answerSetting(chat: Chat, request: NonNullable<ChatMessage['request']>, allow: boolean, actor: Actor) {
     const label = CHAT_SETTINGS[request.setting]
     if (allow) {
-        await useStore().updateSettings({[request.setting]: request.to}, actor)
+        const body = {[request.setting]: request.to}
+        await through('PATCH', '/api/settings', body, actor, () => useStore().updateSettings(body, actor), {noteKeys: false})
         useEventLog().note({level: 'info', kind: 'settings.changed', message: `${actor.name} changed the settings through their chat: ${request.setting}`,
             details: {by: actor.name, keys: [request.setting], via: 'chat', from: request.from, to: request.to}})
     }
@@ -870,7 +1085,7 @@ async function askSession(id: string, body: Record<string, unknown>): Promise<Ch
     let request: ChatSessionRequest
     if (action === 'start') {
         const {action: _action, project: on, ...rest} = wanted
-        const project = on === undefined || on === null ? chat.project : await useStore().projectId(String(on))
+        const project = on === undefined || on === null ? chat.project : await projectIdOf(String(on))
         const start = startInput(rest)
         const context = await contextFor(project, start.presets, start.instructions)
         request = {action, project, start, ...context?.presets.length ? {presets: context.presets} : {}, state: 'asked'}
@@ -886,7 +1101,7 @@ async function askSession(id: string, body: Record<string, unknown>): Promise<Ch
         for (const m of chat.messages) if (m.session?.state === 'asked' && m.session.session === session.id) m.session.state = 'expired'
         request = {action, project: session.project, session: session.id, name: session.name, ...action === 'extend' ? {minutes: Number(more)} : {}, state: 'asked'}
     }
-    const said = add(chat, {from: 'claude', text: typeof why === 'string' ? why.trim() : '', images: [], session: request})
+    const said = await add(chat, {from: 'claude', text: typeof why === 'string' ? why.trim() : '', images: [], session: request})
     useEventLog().note({level: 'info', kind: 'chat.asked', project: chat.project, message: `The chat asked to ${sessionAsk(request)}`, details: {action, project: request.project, ...request.name ? {session: request.name} : {}}})
     return said
 }
@@ -899,7 +1114,7 @@ async function delegate(id: string, body: Record<string, unknown>): Promise<Chat
     const chat = chatOf(id)
     const issue = isObject(body.delegate) ? body.delegate.issue : undefined
     if (typeof issue !== 'string' || !issue.trim()) throw badRequest('Send {delegate: {issue}}, the issue to start a session on')
-    const found = await useStore().issue(chat.project, issue.trim())
+    const found = await issueNow(chat.project, issue.trim())
     if (found.proposal === 'pending') throw conflict(`${found.id} is a proposal waiting on the owner, so it isn't work yet`)
     if (found.kind === 'done' || found.kind === 'canceled') throw conflict(`${found.id} is ${found.status}, so there's no work to hand over`)
     const said = told.get(id)
@@ -908,7 +1123,7 @@ async function delegate(id: string, body: Record<string, unknown>): Promise<Chat
     const launch = await startLaunch(chat.project, {issue: found.id, actor: await owner()})
     said.started.add(found.id)
     useEventLog().note({level: 'info', kind: 'chat.delegated', project: chat.project, message: `The chat started a session on ${found.id}`, details: {issue: found.id, launch: launch.id}})
-    return add(chat, {from: 'claude', text: `Started a session on [${found.id}](/p/${chat.project}/issues/${found.id}).`, images: []})
+    return await add(chat, {from: 'claude', text: `Started a session on [${found.id}](/p/${chat.project}/issues/${found.id}).`, images: []})
 }
 
 /** The owner's last message in each chat, and the page it was sent from, here rather than on the chat as the page has no
@@ -973,21 +1188,21 @@ export function landChatIssues(id: string, issues: ChatIssues): Chat {
 }
 
 /** The chat's session answering (its `reply` tool). */
-export function reply(id: string, text: unknown): ChatMessage {
+export async function reply(id: string, text: unknown): Promise<ChatMessage> {
     const chat = chatOf(id)
     const words = typeof text === 'string' ? text.trim() : ''
     if (!words) throw badRequest('Send the answer as {"text": "…"}')
-    return add(chat, {from: 'claude', text: words, images: []})
+    return await add(chat, {from: 'claude', text: words, images: []})
 }
 
 /** The owner clearing the chat's context (`/clear`): its launcher types `/clear` into the session, which keeps running
  * with a fresh context. It hears its brief again, as the launch's context, on the SessionStart after, so it stays the
  * chat. The chat marks the cut, and keeps what was said above it to read. */
-export function clearChat(id: string): ChatMessage {
+export async function clearChat(id: string): Promise<ChatMessage> {
     const chat = chatOf(id)
     projectEvents.emit('launches', {type: 'clear', project: chat.project, id: chat.id})
     useEventLog().note({level: 'info', kind: 'chat.cleared', project: chat.project, message: "The owner cleared their chat's context"})
-    return add(chat, {from: 'owner', text: '', images: [], cleared: true})
+    return await add(chat, {from: 'owner', text: '', images: [], cleared: true})
 }
 
 /** The owner ending the chat: its session is stopped, and the chat goes. */
@@ -1058,24 +1273,21 @@ export function messaged(actor: Actor, project: string, session: string) {
     useEventLog().note({level: 'info', kind: 'session.messaged', project, message: `${actor.name}${actor.via ? ` (via ${actor.via})` : ''} messaged ${session}`})
 }
 
-/** An issue as the chat `chat` (its `Orrery-Launch`) asks to make it: on the roadmap as asked, but with nobody on it
- * and in the first status of the kind the owner picked for the chat (Todo, or Backlog), whatever status it asks for,
- * since a chat doesn't take work up or finish it. A proposal stays one, for the owner to decide as before. */
-export function asChatIssue(body: unknown, chat?: string): unknown {
-    if (!body || typeof body !== 'object' || Array.isArray(body)) return body
-    const {status: _status, plan: _plan, assignee: _assignee, ...rest} = body as Record<string, unknown>
-    return rest.proposal === 'pending' ? rest : {...rest, status: (chat && chats.get(chat)?.issues) || 'todo'}
+/** The status the owner picked for what the chat `chat` (its `Orrery-Launch`) makes: Todo unless it's Backlog. The API
+ * lands its issues there, with nobody on them (`as_chat_issue`). */
+export function chatIssuesFor(chat?: string): ChatIssues {
+    return (chat && chats.get(chat)?.issues) || 'todo'
 }
 
 /** What the chat may change on an issue when the owner asks: what it says and where it sits, never its state of work. */
 const CHAT_EDITS = ['title', 'notes', 'priority', 'labels', 'external', 'github_issues', 'milestone', 'epic', 'release', 'parent', 'depends_on']
 
 /** An edit to an issue from the chat, as it asks for it: refused (403) when it would change anything but `CHAT_EDITS`,
- * so a chat never moves or assigns an issue on its own (only through a request the owner allows, `askMove`), puts up a
+ * so a chat moves or assigns an issue only through `askMove`, on the owner's word or their Allow, puts up a
  * proposal or moves an issue to another project. */
 export function asChatEdit(body: unknown): Record<string, unknown> {
     if (!isObject(body)) throw badRequest(`Send what to change: any of ${CHAT_EDITS.join(', ')}`)
     const refused = Object.keys(body).filter(key => !CHAT_EDITS.includes(key))
-    if (refused.length) throw refusedFor('issues.edit', `The owner's chat changes an issue's ${CHAT_EDITS.join(', ')}, not its ${refused.join(', ')}: to move or assign one, it asks the owner (move_issues)`)
+    if (refused.length) throw refusedFor('issues.edit', `The owner's chat changes an issue's ${CHAT_EDITS.join(', ')}, not its ${refused.join(', ')}: to move or assign one, use move_issues`)
     return body
 }

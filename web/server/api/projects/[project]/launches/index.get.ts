@@ -6,7 +6,7 @@ import {launcherMinimum} from '#shared/version'
 
 export default defineEventHandler(async event => {
     const project = param(event, 'project')
-    const store = useStore()
-    await store.starts(project)
-    return {...launchState(project), minimum: launcherMinimum((await store.people()).length)}
+    await projectIdOf(project)
+    const people = (await readFromApi<unknown[]>('/api/people')) ?? await useStore().people()
+    return {...launchState(project), minimum: launcherMinimum(people.length)}
 })

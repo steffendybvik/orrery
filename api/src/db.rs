@@ -1,8 +1,10 @@
-// The database: the same SQLite file or Postgres the Nuxt server opens, already migrated by it. Serving, this API runs
-// no migrations (web/server/utils/migrations stay the schema's source until the last domain has moved; `orrery-api
-// migrate`, migrate.rs, is their port, which nothing runs yet), and refuses to start on one that lacks what it reads.
+// The database: the same SQLite file or Postgres the Nuxt server opens, already migrated by `orrery-api migrate`
+// (migrate.rs), which the Nuxt server runs before it opens it (ORR-931). Serving, this API runs no migrations, and
+// refuses to start on one that lacks what it reads.
+use serde_json::Value;
+use sqlx::any::AnyRow;
 use sqlx::any::{install_default_drivers, AnyPoolOptions};
-use sqlx::{AnyPool, Executor};
+use sqlx::{AnyPool, Column, Executor, Row};
 use std::sync::OnceLock;
 
 /// What the docs domain, the statuses, the issue, comment and activity reads and the people, keys and logins, the secrets, the settings and a pull request's read take, each a query that fails on a schema without it. Checked by the columns rather than a
@@ -40,26 +42,64 @@ pub fn on_postgres() -> bool {
     *POSTGRES.get().unwrap_or(&false)
 }
 
-/// SQL written with `?`, as the Nuxt server writes it for both; Postgres numbers them (`$1, $2, …`), leaving quoted
-/// text alone, as `numbered` in web/server/utils/postgres.ts does.
+/// SQL written with `?`, as the Nuxt server writes it for both; Postgres numbers them (`$1, $2, …`).
 pub fn sql(text: &str) -> String {
     if !on_postgres() {
         return text.to_string();
     }
-    let (mut n, mut quoted, mut out) = (0, false, String::with_capacity(text.len() + 8));
-    for c in text.chars() {
-        if c == '\'' {
-            quoted = !quoted
-        }
-        if c == '?' && !quoted {
-            n += 1;
-            out.push_str(&format!("${n}"))
-        } else {
-            out.push(c)
-        }
+    numbered(text)
+}
+
+/// Where `numbered` is in the SQL it reads.
+#[derive(PartialEq)]
+enum In {
+    Code,
+    Text,
+    Name,
+    LineComment,
+    BlockComment,
+}
+
+/// Each `?` numbered in turn, leaving alone a `?` in quoted text (`'…'`), a quoted name (`"…"`) or a comment (`--…`,
+/// `/*…*/`), where it's not a placeholder (ORR-1166). A doubled quote inside one (`'it''s'`) closes and reopens it,
+/// which leaves it inside.
+fn numbered(text: &str) -> String {
+    let (mut n, mut at, mut out) = (0, In::Code, String::with_capacity(text.len() + 8));
+    let mut chars = text.chars().peekable();
+    while let Some(c) = chars.next() {
+        let next = chars.peek().copied();
+        at = match (&at, c, next) {
+            (In::Code, '?', _) => {
+                n += 1;
+                out.push_str(&format!("${n}"));
+                continue;
+            }
+            (In::Code, '\'', _) => In::Text,
+            (In::Code, '"', _) => In::Name,
+            (In::Code, '-', Some('-')) => In::LineComment,
+            (In::Code, '/', Some('*')) => {
+                out.push(c);
+                out.push(chars.next().unwrap_or('*'));
+                at = In::BlockComment;
+                continue;
+            }
+            (In::Text, '\'', _) | (In::Name, '"', _) | (In::LineComment, '\n', _) => In::Code,
+            (In::BlockComment, '*', Some('/')) => {
+                out.push(c);
+                out.push(chars.next().unwrap_or('/'));
+                at = In::Code;
+                continue;
+            }
+            _ => at,
+        };
+        out.push(c)
     }
     out
 }
+
+#[cfg(test)]
+#[path = "db_tests.rs"]
+mod tests;
 
 pub fn is_postgres(setting: &str) -> bool {
     setting.starts_with("postgres://") || setting.starts_with("postgresql://")
@@ -88,6 +128,16 @@ pub async fn open(setting: &str, schema: Option<String>) -> Result<AnyPool, Stri
                 Ok(())
             })
         })
+        // A write opens its transaction with `BEGIN` (changes::begin), which sqlx doesn't see. When its request is cut off
+        // between that and `COMMIT`, the future is dropped and the connection comes back here still inside it, holding
+        // SQLite's write lock (ORR-1164). So each one is rolled back on its way in. Outside a transaction that's a no-op:
+        // SQLite refuses it, and Postgres warns.
+        .after_release(|conn, _| {
+            Box::pin(async move {
+                conn.execute("ROLLBACK").await.ok();
+                Ok(true)
+            })
+        })
         .connect(&url)
         .await
         .map_err(|e| format!("can't open the database: {e}"))?;
@@ -98,4 +148,28 @@ pub async fn open(setting: &str, schema: Option<String>) -> Result<AnyPool, Stri
             .map_err(|e| format!("the database's schema is older than this API ({e}): start the Nuxt server on it first, which migrates it"))?;
     }
     Ok(pool)
+}
+
+/// A row as it's stored, each column by its name (ORR-1174): a whole number, a number, a text or null, as the Nuxt
+/// store's `SELECT *` reads it, for its row helpers.
+pub fn row_json(row: &AnyRow) -> Value {
+    let mut out = serde_json::Map::new();
+    for column in row.columns() {
+        let at = column.ordinal();
+        let value = if let Ok(v) = row.try_get::<Option<i64>, _>(at) {
+            v.map(Value::from)
+        } else if let Ok(v) = row.try_get::<Option<i32>, _>(at) {
+            v.map(Value::from)
+        } else if let Ok(v) = row.try_get::<Option<f64>, _>(at) {
+            v.map(Value::from)
+        } else if let Ok(v) = row.try_get::<Option<String>, _>(at) {
+            v.map(Value::from)
+        } else if let Ok(v) = row.try_get::<Option<bool>, _>(at) {
+            v.map(|b| Value::from(i64::from(b)))
+        } else {
+            None
+        };
+        out.insert(column.name().to_string(), value.unwrap_or(Value::Null));
+    }
+    Value::Object(out)
 }

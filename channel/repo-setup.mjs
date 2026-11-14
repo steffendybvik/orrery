@@ -8,8 +8,9 @@ import {dirname, join} from 'node:path'
 import {channelsIn, served} from './repo-channels.mjs'
 import {serverName} from './server-name.mjs'
 
-const HOOK_EVENTS = ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PermissionRequest', 'Stop', 'StopFailure', 'Notification', 'SessionEnd']
-const ASYNC_EVENTS = ['PreToolUse', 'PermissionRequest']
+import {ASYNC_EVENTS, HOOK_EVENTS} from './claude-hooks.mjs'
+
+export {ASYNC_EVENTS, HOOK_EVENTS}
 const PROJECT_ID = /^[a-z0-9][a-z0-9_-]{0,99}$/
 const PROJECT_KEY = /^[A-Z][A-Z0-9]{0,19}$/
 const ORRERY_ID = /^[A-Za-z0-9_-]{1,100}$/

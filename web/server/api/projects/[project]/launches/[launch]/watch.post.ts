@@ -6,6 +6,6 @@ import {countOwnUse} from '../../../../../utils/usage'
 export default defineEventHandler(async event => {
     countOwnUse(event, 'watch-session')
     if (!await memberAsking(event)) await authorize(event, 'sessions.watch')
-    const {terminal} = await useStore().settings()
+    const {terminal} = await settingsNow()
     return watchLaunch(param(event, 'project'), param(event, 'launch'), terminal)
 })

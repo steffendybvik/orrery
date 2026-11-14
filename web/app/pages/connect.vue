@@ -17,6 +17,10 @@ const newName = ref('')
 const sessionName = ref('')
 const project = computed(() => ordered.value.find(p => p.id === picked.value))
 const pieces = useConnect(project, {name: newName, session: sessionName})
+// The AI agent the owner runs (ORR-1075), from App settings: the repo button, the launcher and the pieces by hand are
+// Claude Code's, so another agent is shown what works without an adapter.
+const {settings} = useAppSettings()
+const otherAgent = computed(() => settings.value.agent === 'other')
 const tabs = [{value: 'connect' as const, label: 'Connect'}, {value: 'mcp' as const, label: 'MCP server'}]
 const tab = computed<'connect' | 'mcp'>({
     get: () => route.query.tab === 'mcp' ? 'mcp' : 'connect',
@@ -47,9 +51,18 @@ const tab = computed<'connect' | 'mcp'>({
         </p>
       </header>
 
-      <ConnectRepo />
+      <p class="text-[13px] text-muted" data-agent>
+        For {{ otherAgent ? 'another agent' : 'Claude Code' }}:
+        <NuxtLink to="/settings#agent" class="text-accent-700 underline underline-offset-2 dark:text-accent-400">change your AI agent</NuxtLink>
+        in App settings.
+      </p>
 
-      <LauncherRepos />
+      <OtherAgent v-if="otherAgent" />
+      <template v-else>
+        <ConnectRepo />
+
+        <LauncherRepos />
+      </template>
 
       <div class="flex flex-col gap-1">
         <h3 class="text-[15px] font-semibold">Or give an agent the line</h3>
@@ -108,7 +121,7 @@ const tab = computed<'connect' | 'mcp'>({
         <a :href="pieces.url" target="_blank" class="absolute top-4 right-5 font-mono text-[11px] leading-[19.5px] text-faint hover:text-fg">{{ pieces.url.replace(origin, '') }}</a>
       </div>
 
-      <details class="group rounded-2xl bg-well/50 ring-1 ring-line">
+      <details v-if="!otherAgent" class="group rounded-2xl bg-well/50 ring-1 ring-line">
         <summary class="flex list-none items-center gap-2 px-5 py-4 text-[13px] font-medium text-fg">
           <svg class="size-3 text-faint transition-transform group-open:rotate-90" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6" /></svg>
           Set it up by hand

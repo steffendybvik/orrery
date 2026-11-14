@@ -18,6 +18,9 @@ export abstract class IssueStore extends ClaimStore {
     protected abstract moveIssue(from: string, id: string, to: string, parent: Input[string], milestone: Input[string], actor: Actor): Promise<string>
 
     async listIssues(project: string, filter: IssueFilter = {}): Promise<IssueRecord[]> {
+        const query = new URLSearchParams(Object.entries(filter).filter(([, value]) => value !== undefined && value !== null && value !== '').map(([key, value]) => [key, String(value)])).toString()
+        const read = await this.fromApi<IssueRecord[]>(`/api/projects/${encodeURIComponent(project)}/issues${query ? `?${query}` : ''}`)
+        if (read) return read
         const records = issueRecords(project, await this.boardOf(project))
         if (filter.milestone && filter.milestone !== 'none') filter = {...filter, milestone: await this.milestoneId(project, filter.milestone)}
         if (filter.parent && filter.parent !== 'none') filter = {...filter, parent: await this.issueId(project, filter.parent)}
@@ -63,6 +66,11 @@ export abstract class IssueStore extends ClaimStore {
     }
 
     async issue(project: string, id: string): Promise<IssueDetail> {
+        // Asked of the API when it's set up (ORR-1133), which reads it alike (a 404 when it isn't there), so the local
+        // app and every write here that answers with the issue read none of it from the database.
+        const {readFromApi} = await import('../utils/api-router')
+        const read = await readFromApi<IssueDetail>(`/api/projects/${encodeURIComponent(project)}/issues/${encodeURIComponent(id)}`)
+        if (read) return read
         id = await this.issueId(project, id)
         const found = findIssue(await this.boardOf(project), id)
         if (!found) throw notFound(`No issue ${id} in ${project}`)

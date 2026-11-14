@@ -5,7 +5,7 @@ import {createHash, randomBytes} from 'node:crypto'
 import type {KeyKind, KeyRecord, LoginRecord} from '#shared/roadmap'
 import {badRequest, conflict, notFound} from '../utils/input'
 import {PeopleStore} from './people'
-import {actorId, stamp} from './schema'
+import {actorId, AGENT, stamp} from './schema'
 
 /** A credential once checked: the person behind it, and the kind of key if it was one. */
 export interface Holder {
@@ -16,15 +16,15 @@ export interface Holder {
     key?: string
 }
 
-type KeyRow = {id: string, person: string, kind: KeyKind, name: string, created_at: string, last_used_at: string | null, revoked_at: string | null}
+type KeyRow = {id: string, person: string, kind: KeyKind, name: string, workspace: string | null, created_at: string, last_used_at: string | null, revoked_at: string | null}
 type LoginRow = {id: string, person: string, name: string | null, created_at: string | null, last_used_at: string | null, expires_at: string}
 /** How much of a login's hash names it in the list: enough to tell them apart, nothing a cookie could be made from. */
 const LOGIN_REF = 16
 const loginOf = ({id, person, name, created_at, last_used_at, expires_at}: LoginRow): LoginRecord =>
     ({id: id.slice(0, LOGIN_REF), person, ...name ? {name} : {}, ...created_at ? {created_at} : {}, ...last_used_at ? {last_used_at} : {}, expires_at})
 
-const keyOf = ({id, person, kind, name, created_at, last_used_at, revoked_at}: KeyRow): KeyRecord =>
-    ({id, person, kind, name, created_at, ...last_used_at ? {last_used_at} : {}, ...revoked_at ? {revoked_at} : {}})
+const keyOf = ({id, person, kind, name, workspace, created_at, last_used_at, revoked_at}: KeyRow): KeyRecord =>
+    ({id, person, kind, name, ...workspace ? {workspace} : {}, created_at, ...last_used_at ? {last_used_at} : {}, ...revoked_at ? {revoked_at} : {}})
 
 const hashOf = (secret: string) => createHash('sha256').update(secret).digest('hex')
 const token = () => randomBytes(32).toString('base64url')
@@ -34,6 +34,9 @@ const days = (n: number) => new Date(Date.now() + n * 86_400_000).toISOString()
 /** A key's last use is only for the list, so it's written at most this often. */
 const USED_EVERY = 60_000
 
+/** What `GET /api/auth/ways-in` says: whether the owner has a person key, and whether login stays on. */
+type WaysIn = {owner_has_key: boolean, stays_on: boolean}
+
 export abstract class KeyStore extends PeopleStore {
     /** The keys of `person`, or everyone's, the newest first; a revoked one stays listed. Never the key itself. */
     async keys(person?: string): Promise<KeyRecord[]> {
@@ -42,17 +45,26 @@ export abstract class KeyStore extends PeopleStore {
 
     /** Makes a key for `person`: this is the only time its secret is seen. The prefix says its kind, so the channel can
      * refuse a person key before sending it anywhere. */
-    async makeKey(person: string, body: {kind?: unknown, name?: unknown}): Promise<KeyRecord & {key: string}> {
+    async makeKey(person: string, body: {kind?: unknown, name?: unknown, workspace?: unknown}): Promise<KeyRecord & {key: string}> {
         const {kind, name} = body ?? {}
         if (kind !== 'agent' && kind !== 'person') throw badRequest('"kind" is "agent", for a machine\'s sessions, or "person", to sign in to the page')
         const label = String(name ?? '').trim().slice(0, 60)
         if (!label) throw badRequest('"name" says what the key is for, such as the machine it\'s on')
         await this.needsPerson(person)
+        const workspace = kind === 'agent' ? await this.agentsWorkspace(person, body?.workspace) : null
         const key = `orrery_${kind}_${token()}`
         const id = randomBytes(6).toString('hex')
         const created = stamp()
-        await this.run('INSERT INTO keys (id, person, kind, name, hash, created_at) VALUES (?, ?, ?, ?, ?, ?)', id, person, kind, label, hashOf(key), created)
-        return {id, person, kind, name: label, created_at: created, key}
+        await this.run('INSERT INTO keys (id, person, kind, name, workspace, hash, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)', id, person, kind, label, workspace, hashOf(key), created)
+        return {id, person, kind, name: label, ...workspace ? {workspace} : {}, created_at: created, key}
+    }
+
+    /** The workspace an agent key reaches (ORR-1106): the one named, or `default`, and one its person is a member of. */
+    private async agentsWorkspace(person: string, named: unknown): Promise<string> {
+        if (named != null && (typeof named !== 'string' || !named.trim())) throw badRequest('"workspace" is the id of the workspace the agent key reaches')
+        const workspace = typeof named === 'string' ? named.trim() : 'default'
+        if (!await this.get('SELECT 1 FROM workspace_members WHERE workspace = ? AND person = ?', workspace, person)) throw notFound(`${person} isn't in a workspace "${workspace}"`)
+        return workspace
     }
 
     /** Revokes a key, at once, with the logins it started (ORR-786), and its person's logins from before orrery kept
@@ -129,6 +141,9 @@ export abstract class KeyStore extends PeopleStore {
 
     /** Whether anyone could get in by a key: the owner has a live person key. */
     async ownerHasKey(): Promise<boolean> {
+        // Asked of the API when it's set up (ORR-1158), as the auth middleware asks it on the requests it holds.
+        const read = await this.fromApi<WaysIn>('/api/auth/ways-in')
+        if (read) return read.owner_has_key
         return !!await this.get("SELECT 1 FROM keys k JOIN people p ON p.id = k.person WHERE p.role = 'owner' AND k.kind = 'person' AND k.revoked_at IS NULL")
     }
 
@@ -144,11 +159,11 @@ export abstract class KeyStore extends PeopleStore {
     /** The person an account is, by its issuer and subject and never its email. With `invite`, an account orrery doesn't
      * know yet attaches to the invited person, using the invite up, in one step so it can't be used twice. An account a
      * removed person had moves to the invited person (ORR-787); one that belongs to someone here never does. */
-    async identity(issuer: string, subject: string, invite?: string): Promise<string | undefined> {
+    async identity(issuer: string, subject: string, invite?: string, name?: string): Promise<string | undefined> {
         const known = await this.get<{person: string}>(
             'SELECT i.person FROM identities i JOIN people p ON p.id = i.person WHERE i.issuer = ? AND i.subject = ? AND p.removed_at IS NULL', issuer, subject)
         if (known) return known.person
-        if (!invite) return undefined
+        if (!invite) return await this.firstOwner(issuer, subject, name)
         return await this.db.transaction(async () => {
             const used = await this.run('UPDATE invites SET used_at = ? WHERE id = ? AND used_at IS NULL AND expires_at > ?', stamp(), hashOf(invite), stamp())
             if (!Number(used.changes)) throw conflict('That invite has been used or has run out: ask for a new one')
@@ -163,9 +178,31 @@ export abstract class KeyStore extends PeopleStore {
         })
     }
 
+    /** On an orrery with nobody here yet, the first account to sign in through the provider becomes its owner (ORR-1185),
+     * named as the provider says (`Owner` when it says nothing usable), so a new orrery needs no claim step. Once anyone
+     * is here, an account orrery doesn't know needs an invite. In one transaction, and the account attaches only to an
+     * owner with none yet, so two first sign-ins at once can't both get in. */
+    private async firstOwner(issuer: string, subject: string, name?: string): Promise<string | undefined> {
+        return await this.db.transaction(async () => {
+            if (await this.get('SELECT 1 FROM people')) return undefined
+            const said = (name ?? '').trim().slice(0, 60)
+            const id = actorId(said)
+            const display = id && !['owner', AGENT.name, 'claude', 'orrery'].includes(id) ? said : 'Owner'
+            await this.nameOwner({name: display})
+            const owner = actorId(display)
+            const attached = await this.run(
+                'INSERT INTO identities (issuer, subject, person) SELECT ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM identities WHERE person = ?) ON CONFLICT (issuer, subject) DO NOTHING',
+                issuer, subject, owner, owner)
+            return Number(attached.changes) ? owner : undefined
+        })
+    }
+
     /** Whether auth stays on with no setting asking for it: a second person is here, or was. The first time a second
      * person is seen it's written down, so removing them doesn't open the orrery again. */
     async authStaysOn(): Promise<boolean> {
+        // The API writes it down itself when it's set up (ORR-1158).
+        const read = await this.fromApi<WaysIn>('/api/auth/ways-in')
+        if (read) return read.stays_on
         if (await this.get("SELECT 1 FROM settings WHERE key = 'auth_on'")) return true
         const here = await this.get<{n: number}>('SELECT count(*) AS n FROM people WHERE removed_at IS NULL')
         if (Number(here?.n) < 2) return false
@@ -176,7 +213,10 @@ export abstract class KeyStore extends PeopleStore {
     /** Whether `name` is a person here, by name or id, or stands for one (`owner`). */
     async isPerson(name: string): Promise<boolean> {
         const id = actorId(name)
-        return id === 'owner' || !!await this.get('SELECT 1 FROM people WHERE id = ?', id)
+        if (id === 'owner') return true
+        const read = await this.fromApi<{id: string}[]>('/api/people')
+        if (read) return read.some(p => p.id === id)
+        return !!await this.get('SELECT 1 FROM people WHERE id = ?', id)
     }
 
     private async needsPerson(id: string) {

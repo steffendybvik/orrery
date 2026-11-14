@@ -1,6 +1,6 @@
 // A project's releases, and the projects sharing them.
 import type {Issue, ProjectReleases, Release} from '#shared/roadmap'
-import {badRequest, checkInput, conflict} from '../utils/input'
+import {badRequest, checkInput, conflict, notFound} from '../utils/input'
 import type {IssueRow, ProjectRow, ReleaseDetail, ReleaseRow} from './schema'
 import {AGENT, ORRERY, RELEASE_FIELDS, releaseOf, tallyReleases, noReleases, nullable, stamp} from './schema'
 import {DocStore} from './docs'
@@ -79,6 +79,11 @@ export abstract class ReleaseStore extends DocStore {
             if (up.ships_in === release.version) return null
             return {left: release.version, kept: up.ships_in, ...up.id === id ? {} : {from: up.id}}
         }
+        // Through the Rust API when it's in front, as it's the one writer of `issues` then (ORR-1094). Imported when
+        // used, as the router reads the store.
+        const {writeToApi} = await import('../utils/api-router')
+        const path = `/api/projects/${encodeURIComponent(project)}/issues/${encodeURIComponent(id)}`
+        if (await writeToApi('PATCH', path, {release: release.version}, ORRERY, {always: true})) return {set: release.version}
         await this.db.transaction(async () => {
             await this.record(project, id, ORRERY, [['release', null, release.version]])
             await this.update('issues', 'project = ? AND id = ?', [project, id], {ships_in: release.version})
@@ -150,13 +155,17 @@ export abstract class ReleaseStore extends DocStore {
     async checkRelease(project: string, body: unknown, version?: string): Promise<Release | undefined> {
         await this.ownReleases(project, version === undefined ? 'make them' : 'change them')
         const input = checkInput(body, RELEASE_FIELDS, version !== undefined)
+        // The project's releases from the API when it's set up (ORR-1160), so the chat's check reads no table here.
+        const releases = await this.fromApi<Release[]>(`/api/projects/${encodeURIComponent(project)}/releases`) ?? await this.listReleases(project)
         if (version === undefined) {
-            if (await this.get('SELECT 1 FROM releases WHERE project = ? AND version = ?', project, String(input.version))) throw conflict(`There is already a release ${String(input.version)} in ${project}`)
+            if (releases.some(r => r.version === String(input.version))) throw conflict(`There is already a release ${String(input.version)} in ${project}`)
             return undefined
         }
-        await this.releaseRow(project, version)
+        const found = releases.find(r => r.version === version)
+        // ownReleases has held it to a project making its own releases, so they're its.
+        if (!found) throw notFound(`No release ${version} in ${project}; make it with POST /api/projects/${project}/releases`)
         if (input.version !== undefined && input.version !== version) throw badRequest("A release's version can't change: make one with the new version and move its issues to it")
-        return (await this.listReleases(project)).find(r => r.version === version)
+        return found
     }
 
     /** Puts the release at `index` among the project's releases (0 the top, past the end the bottom), numbering

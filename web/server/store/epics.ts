@@ -39,6 +39,8 @@ export abstract class EpicStore extends ReleaseStore {
 
     /** Every epic, in the order they're arranged in, a new one on top, each with its progress and each project's part. */
     async epics(): Promise<Epic[]> {
+        const read = await this.fromApi<Epic[]>('/api/epics')
+        if (read) return read
         const rows = await this.all<EpicRow>('SELECT * FROM epics ORDER BY position, id DESC')
         const ids = rows.map(r => r.id)
         const statuses = await this.statuses()

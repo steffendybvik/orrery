@@ -4,29 +4,45 @@
 // builds it first.
 import type {ChildProcess} from 'node:child_process'
 import {createHash} from 'node:crypto'
+import {EventEmitter} from 'node:events'
 import {spawn} from 'node:child_process'
 import {existsSync, mkdtempSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import {join, resolve} from 'node:path'
 import {fileURLToPath} from 'node:url'
 import {afterAll, beforeAll, describe, expect, it, vi} from 'vitest'
+import sharp from 'sharp'
 import type {OrreryEvent} from '#shared/happenings'
+import type {Chat} from '#shared/roadmap'
 import {Store} from '../server/utils/store'
 import type {Actor, IssueFilter} from '../server/store/schema'
+import {ORRERY} from '../server/store/schema'
+import type {SignalFields} from '../server/store/signals'
 import {SqliteDb} from '../server/utils/database'
 import {Secrets} from '../server/utils/secrets'
 import {Pulls, pullForSession} from '../server/utils/pulls'
 import {known} from '../shared/known'
 import {numberOf} from '../shared/roadmap'
+import {PERMISSION_LEVELS, PERMISSIONS, SESSION_KINDS} from '../shared/permissions'
+import {withoutClosed, withoutNotes} from '../shared/patch'
+import {exportBoard} from '../server/utils/board-export'
+import {revLabel} from '../server/utils/events'
+import type {H3Event} from 'h3'
+import {RoadmapError, checkRoadmap} from '../server/utils/roadmap'
+import {badRequest} from '../server/utils/input'
 import {Schedules} from '../server/utils/schedules'
 import {PullPoll} from '../server/utils/pull-poll'
 import type {PolledRow} from '../server/utils/pull-poll'
 import {openDb} from '../server/utils/db'
+import {isFresh} from '../server/utils/database-state'
+import {boardForApi, checkedBoard, uploadBoard} from '../server/utils/board-upload'
 import {PostgresDb} from '../server/utils/postgres'
-import {actorHeaders, changedOf, countedOf, databaseMark, domainOf, DOMAINS, handedOn, loginHeaders, onlyWords, passedThrough, servedByApi, toldOf, urgentOf, whoHeaders} from '../server/utils/api-router'
+import {PHONE_LOGIN} from '#shared/phone'
+import {actorHeaders, apiStarted, cameHeaders, changedOf, countedOf, databaseMark, domainOf, DOMAINS, handedOn, handoffsOf, handOn, loginHeaders, withRev, boardsWithRev, movesStatus, onlyWords, passedThrough, servedByApi, toldOf, urgentOf, whoHeaders, writeToApi, OWN_WORK} from '../server/utils/api-router'
 import {permission, refused} from '../server/utils/permission'
 import {followOutbox, readPage} from '../server/utils/outbox-follower'
-import {contract, methodOf, nuxtRoutes, pathOf} from './routes'
+import {EventLog} from '../server/utils/event-log'
+import {contract, methodOf, nuxtRoutes, pathOf, rustRoutes} from './routes'
 
 const BIN = process.env.ORRERY_API_BIN || fileURLToPath(new URL('../../api/target/debug/orrery-api', import.meta.url))
 const TOKEN = 'parity-token-0123456789'
@@ -50,6 +66,26 @@ const events: OrreryEvent[] = []
 let settingsTold = 0
 const inFlight = new Set<Promise<unknown>>()
 
+/** Every request this file sends the API, as `METHOD /api/path`, for the check that each route it serves is driven here
+ * at least once (ORR-1010). */
+const reached = new Set<string>()
+const realFetch = globalThis.fetch
+globalThis.fetch = (input: string | URL | Request, init?: RequestInit) => {
+    const target = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+    if (url && target.startsWith(url)) reached.add(`${(init?.method ?? (input instanceof Request ? input.method : 'GET')).toUpperCase()} ${new URL(target).pathname}`)
+    return realFetch(input, init)
+}
+
+/** The routes of the contract, those written ahead of the router too, that no request here reached. */
+function unreached(): string[] {
+    const asked = [...reached]
+    return [...contract(), ...contract(true)].filter(route => {
+        const [method, path] = [methodOf(route), route.slice(route.indexOf(' ') + 1)]
+        const pattern = new RegExp(`^${method} ${path.replace(/[.*+?^$()|[\]\\]/g, '\\$&').replace(/\{\w+\}/g, '[^/]+')}/?$`)
+        return !asked.some(request => pattern.test(request))
+    })
+}
+
 describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, and reads issues and comments, as the store does', () => {
     beforeAll(async () => {
         schema = `test_api_${Date.now().toString(36)}`
@@ -72,7 +108,8 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         }
         // Both projects first, which on Postgres also lays the schema down before the API looks at it.
         for (const name of ['through-store', 'through-api']) await store.createProject({name, key: name === 'through-store' ? 'STO' : 'API'})
-        api = spawn(BIN, [], {env: {...process.env, NUXT_API_TOKEN: TOKEN, NUXT_DATABASE: setting, ORRERY_API_LISTEN: '127.0.0.1:0', ...POSTGRES ? {ORRERY_API_SCHEMA: schema} : {}}})
+        // `orrery.example` stands for a name behind a proxy, listed as the owner would list it (ORR-1173).
+        api = spawn(BIN, [], {env: {...process.env, NUXT_API_TOKEN: TOKEN, NUXT_DATABASE: setting, ORRERY_API_LISTEN: '127.0.0.1:0', NUXT_ALLOWED_HOSTS: 'orrery.example', ...POSTGRES ? {ORRERY_API_SCHEMA: schema} : {}}})
         url = await new Promise<string>((done, fail) => {
             let said = ''
             api.stderr!.on('data', (chunk: Buffer) => {
@@ -121,6 +158,15 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         } while (changes.length !== heard)
     }
 
+    /** Adds a person and puts them on both projects' boards, as the Rust API's rails want of a member's write, the way
+     * the Nuxt server's board check does before a request reaches the store (ORR-1059). */
+    async function hire(name: string) {
+        const {id} = await store.addPerson({name})
+        for (const p of ['through-store', 'through-api']) {
+            await store.db.run("INSERT INTO project_members (project, person, role, created_at) VALUES (?, ?, 'member', ?) ON CONFLICT (project, person) DO NOTHING", p, id, new Date().toISOString())
+        }
+    }
+
     /** A step through the store, as its route would answer it. */
     async function viaStore(step: () => Promise<unknown>, status = 200): Promise<Outcome> {
         await settle()
@@ -145,7 +191,7 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         // A path of the orrery's own (`/api/statuses`) as it is; else one of the project's.
         const response = await fetch(path.startsWith('/api/') ? `${url}${path}` : `${url}/api/projects/${project}${path}`, {
             method,
-            headers: {'Content-Type': 'application/json', 'Orrery-Api-Token': TOKEN, 'Orrery-Database': databaseMark(setting), ...actorHeaders(actor), ...extra},
+            headers: {'Content-Type': 'application/json', 'Orrery-Api-Token': TOKEN, 'Orrery-Database': databaseMark(setting), ...OWN_WORK, ...actorHeaders(actor), ...extra},
             ...body === undefined ? {} : {body: JSON.stringify(body)},
         })
         const text = await response.text()
@@ -153,10 +199,8 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         const changed = response.headers.get('orrery-changed')
         const told = toldOf(response.headers.get('orrery-told')).map(t => `${t.type} ${t.subject}`)
         if (response.status >= 400) return {status: response.status, body: {message: json!.message, ...json!.data === undefined ? {} : {data: json!.data}}, changed: [], told: [], settings: false}
-        const handoff = handedOn(response.headers)
-        if (handoff) await store.handOn(handoff.project, handoff.issue, handoff.comment, handoff, actor)
-        const urgent = urgentOf(response.headers.get('orrery-urgent'))
-        if (urgent) await store.sayUrgent(urgent.project, urgent.issue, actor)
+        for (const handoff of handoffsOf(response.headers)) await handOn(store, handoff, actor)
+        for (const urgent of urgentOf(response.headers.get('orrery-urgent'))) await store.sayUrgent(urgent.project, urgent.issue, actor)
         return {status: response.status, body: json, changed: await sharing(changedOf(changed)), told, settings: response.headers.get('orrery-settings') === '1'}
     }
 
@@ -167,7 +211,7 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         const revisions = new Map<number, number>()
         return JSON.parse(JSON.stringify(outcome, (key, value: unknown) => {
             if (typeof value === 'string') {
-                return value.replaceAll(project, '<project>').replace(/\b(STO|API)([DPSXTK]?)-(\d+)/g, 'KEY$2-$3').replace(/^\d{4}-\d{2}-\d{2}T[\d:.]+Z$/, '<time>').replace(/-[a-z2-7]{8}$/, '-<uid>')
+                return value.replaceAll(project, '<project>').replace(/\b(STO|API)([DPSXTKIM]?)-(\d+)/g, 'KEY$2-$3').replace(/^\d{4}-\d{2}-\d{2}T[\d:.]+Z$/, '<time>').replace(/-[a-z2-7]{8}$/, '-<uid>')
             }
             if (typeof value === 'number' && (key === 'id' || key === 'revision') && Number.isInteger(value)) {
                 if (!revisions.has(value)) revisions.set(value, revisions.size + 1)
@@ -184,9 +228,27 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         return b
     }
 
+    /** The steps the rails refuse at the door, with the status they answer (ORR-1059): the API holds a write to the
+     * permissions table as the middleware here does before the store sees it (board.ts, chat.ts, untrusted.ts), so its
+     * words are the middleware's, not the store's. The store's side still runs, to keep both sides alike. */
+    const DOOR = new Map<string, number>([
+        ['Hal\'s, let go by a nameless agent', 409],
+        ['nobody\'s, by a nameless agent', 409],
+        ['Hal\'s, by a nameless agent', 409],
+        ['by an untrusted session', 403],
+        ['Fit the hinge #41 {"level":"high","why":"The chat naming the owner"}', 403],
+        ['read by the chat', 403],
+    ])
+
+    /** The API's outcome for a step the rails refuse at the door: its status, and nothing changed. */
+    function atTheDoor(name: string, outcome: Outcome) {
+        expect({status: outcome.status, changed: outcome.changed, told: outcome.told}, name).toEqual({status: DOOR.get(name), changed: [], told: []})
+    }
+
     async function both(name: string, ts: (project: string) => Promise<Outcome>, rs: () => Promise<Outcome>) {
         const [a, b] = [await ts('through-store'), await rs()]
-        expect(same(b, 'through-api'), name).toEqual(same(a, 'through-store'))
+        if (DOOR.has(name)) atTheDoor(name, b)
+        else expect(same(b, 'through-api'), name).toEqual(same(a, 'through-store'))
         return b
     }
 
@@ -260,6 +322,89 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
             ['the docs at the end', p => viaStore(() => store.listDocs(p)), () => viaApi('GET', '/docs')],
         ]
         for (const [name, ts, rs] of steps) await both(name, ts, rs)
+    })
+
+    it('reads the event log and resolves a line in it through the API alone, as the router sends them (ORR-1088, ORR-1143)', async () => {
+        // The local app has no copy of either since ORR-1143; cargo's event_log_tests.rs has the filters and repeats.
+        await store.db.run('DELETE FROM events')
+        await store.db.run("INSERT INTO events (level, kind, message, count, first_seen, last_seen) VALUES ('error', 'server.error', 'Boom', 1, ?, ?)", '2026-11-11T09:00:00.000Z', '2026-11-11T09:00:00.000Z')
+        const read = await viaApi('GET', '/api/events/log?open=1', undefined, OWNER)
+        expect(read).toMatchObject({status: 200, body: [{level: 'error', kind: 'server.error', message: 'Boom', count: 1}]})
+        const [line] = read.body as unknown as {id: number}[]
+        expect(await viaApi('POST', `/api/events/log/${line!.id}/resolve`, {}, SESSION)).toMatchObject({status: 200, body: {id: line!.id, resolved_by: 'agent'}})
+        expect(await viaApi('GET', '/api/events/log?open=1', undefined, OWNER)).toMatchObject({status: 200, body: []})
+        expect(domainOf('GET', '/api/events/log')).toBe('the event log, read')
+        expect(domainOf('POST', '/api/events/log/4/resolve')).toBe('an event, resolved')
+        expect(domainOf('POST', '/api/events/log')).toBeUndefined()
+    })
+
+    it('writes a line the local app made and prunes old ones as the log here did (ORR-1088)', async () => {
+        // The store's side is utils/event-log.ts with no API to send to, writing the same table itself.
+        const here: {event: unknown, fresh: boolean}[] = []
+        const log = new EventLog(store.db, async () => text => text, (event, fresh) => here.push({event, fresh}))
+        await store.db.run('DELETE FROM events')
+        const shape = (event: unknown) => {
+            const {id: _id, first_seen: _first, last_seen: _last, ...rest} = event as Record<string, unknown>
+            return rest
+        }
+        const line = {level: 'error', kind: 'page.error', project: 'primes', message: 'Boom', details: {route: 'GET /x'}} as const
+        for (const time of [1, 2]) {
+            const written = await viaApi('PUT', '/api/events/log/lines', line, ORRERY)
+            expect(written.status, `time ${time}`).toBe(201)
+            await log.record(line)
+            const [last] = here.slice(-1)
+            expect(shape((written.body as {event: unknown}).event), `time ${time}`).toEqual(shape(JSON.parse(JSON.stringify(last!.event))))
+            expect((written.body as {fresh: boolean}).fresh, `time ${time}`).toBe(time === 1)
+        }
+        const change = {type: 'issue.status', project: 'primes', subject: 'PRI-1', by: {name: 'claude', owner: false}, from: 'todo', to: 'done'}
+        await log.activity(change)
+        const kept = JSON.parse(JSON.stringify(here.at(-1)!.event)) as Record<string, unknown>
+        const sent = await viaApi('PUT', '/api/events/log/lines', {level: 'info', kind: kept.kind, project: kept.project, subject: kept.subject, message: kept.message, details: kept.details, activity: true}, ORRERY)
+        expect(shape((sent.body as {event: unknown}).event)).toEqual(shape(kept))
+        expect(await viaApi('PUT', '/api/events/log/lines', {...line, level: 'loud'}, ORRERY)).toMatchObject({status: 400, body: {message: '"level" is "loud"; use error, warn, info'}})
+        expect((await viaApi('POST', '/api/events/log/prune', {}, ORRERY)).body).toEqual({pruned: 0})
+        expect(domainOf('PUT', '/api/events/log/lines')).toBeUndefined()
+        expect(domainOf('POST', '/api/events/log/prune')).toBeUndefined()
+    })
+
+    it('keeps, reads and forgets the feature counts, while counting is on (ORR-1089, ORR-1136)', async () => {
+        // The routes here are gone, and this server reads no row for them, so this holds the API to what they answered.
+        const day = (ago: number) => new Date(Date.now() - ago * 86_400_000).toISOString().slice(0, 10)
+        const counts = [{feature: 'chat', day: day(1), count: 2}, {feature: 'chat', day: day(60), count: 3}, {feature: 'page:board', day: day(0), count: 5}, {feature: 'focus-issue', day: day(400), count: 9}]
+        expect((await viaApi('PUT', '/api/usage', {counts}, OWNER)).status).toBe(204)
+        const chat = async () => ((await viaApi('GET', '/api/usage', undefined, OWNER)).body as {features: {feature: string, last: string | null, days30: number, days90: number}[]}).features.find(f => f.feature === 'chat')!
+        expect(await chat()).toMatchObject({last: null, days90: 0})
+        await store.updateSettings({count_use: true}, OWNER)
+        expect((await viaApi('PUT', '/api/usage', {counts}, OWNER)).status).toBe(204)
+        expect((await viaApi('PUT', '/api/usage', {counts: [{feature: 'chat', day: day(1), count: 1}]}, OWNER)).status).toBe(204)
+        const read = await viaApi('GET', '/api/usage', undefined, OWNER)
+        expect(read.status).toBe(200)
+        expect(read.body).toMatchObject({on: true})
+        expect(await chat()).toEqual({feature: 'chat', label: 'Starting a chat', last: day(1), days30: 3, days90: 6})
+        expect(await viaApi('GET', '/api/usage', undefined, AGENT)).toMatchObject({status: 403, body: {message: 'How the features are used is the owner\'s to read'}})
+        expect((await viaApi('PUT', '/api/usage', {counts: [{feature: 'Not One', day: day(0), count: 1}]}, OWNER)).status).toBe(400)
+        expect((await viaApi('DELETE', '/api/usage', undefined, AGENT)).status).toBe(403)
+        expect((await viaApi('DELETE', '/api/usage', undefined, OWNER)).status).toBe(204)
+        expect(await chat()).toMatchObject({last: null, days90: 0})
+        for (const method of ['GET', 'DELETE']) expect(domainOf(method, '/api/usage'), method).toBe('usage')
+        for (const method of ['POST', 'PUT']) expect(domainOf(method, '/api/usage'), method).toBeUndefined()
+    })
+
+    it("seeds the presets orrery ships, once, on the local app's own call (ORR-1136)", async () => {
+        // This server calls it as the API it started begins listening (plugins/presets.ts), never sending one on from outside.
+        const first = await viaApi('POST', '/api/presets/seed', {}, ORRERY)
+        expect(first.status).toBe(200)
+        expect(typeof (first.body as {added: number}).added).toBe('number')
+        expect(await viaApi('POST', '/api/presets/seed', {}, ORRERY)).toMatchObject({status: 200, body: {added: 0}})
+        expect(domainOf('POST', '/api/presets/seed')).toBeUndefined()
+    })
+
+    it('gives the permissions table as the route here did (ORR-1086)', async () => {
+        const reply = await viaApi('GET', '/api/permissions', undefined, SESSION)
+        expect(reply.status).toBe(200)
+        expect(reply.body).toEqual({levels: PERMISSION_LEVELS, kinds: SESSION_KINDS, permissions: PERMISSIONS})
+        expect(domainOf('GET', '/api/permissions')).toBe('permissions')
+        expect(domainOf('POST', '/api/permissions')).toBeUndefined()
     })
 
     it('lists, adds, changes, refuses and removes statuses alike (ORR-926)', async () => {
@@ -438,6 +583,75 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         expect((await viaApi('GET', `/issues/${ids['through-api']}/comments/1.5`)).status).toBe(404)
     })
 
+    it('reads a project\'s signals alike (ORR-1087)', async () => {
+        const ids: Record<string, string> = {}
+        for (const p of ['through-store', 'through-api']) {
+            const {id} = await store.createIssue(p, {title: 'Signal it'}, OWNER)
+            ids[p] = id
+            const add = (sql: string, ...binds: unknown[]) => store.db.run(sql, ...binds)
+            await add("INSERT INTO signals (project, issue, kind, created_by, owned, created_at) VALUES (?, ?, 'focus', 'owner', 1, '2026-11-10T10:00:00.000Z')", p, id)
+            await add("INSERT INTO signals (project, kind, note, via, target, delivered_to, instructions, model, created_by, owned, created_at) VALUES (?, 'message', 'Look', 'chat', 's1', '[\"orrery · Frøy\"]', '[\"Be brief\"]', 'opus', 'owner', 1, '2026-11-10T10:01:00.000Z')", p)
+            await add("INSERT INTO signals (project, issue, kind, note, created_by, owned, created_at) VALUES (?, ?, 'comment', 'Done?', 'owner', 1, '2026-11-10T10:02:00.000Z')", p, id)
+            await store.db.run('INSERT INTO issue_aliases (project, alias, issue) VALUES (?, ?, ?)', p, `${p === 'through-store' ? 'STO' : 'API'}-92`, id)
+        }
+        const first = async (p: string) => (await store.listSignals(p))[0]!.id
+        await both('every signal', p => viaStore(() => store.listSignals(p)), () => viaApi('GET', '/signals'))
+        await both('after the first', async p => viaStore(async () => store.listSignals(p, await first(p))), async () => viaApi('GET', `/signals?after=${await first('through-api')}`))
+        await both('after something not a number', p => viaStore(() => store.listSignals(p, Number('soon') || 0)), () => viaApi('GET', '/signals?after=soon'))
+        await both('about an issue', p => viaStore(() => store.listSignals(p, 0, 50, {issue: ids[p]})), () => viaApi('GET', `/signals?issue=${ids['through-api']}`))
+        await both('about an issue, by an id it had before', p => viaStore(() => store.listSignals(p, 0, 50, {issue: p === 'through-store' ? 'STO-92' : 'API-92'})), () => viaApi('GET', '/signals?issue=API-92'))
+        await both('about an issue that isn\'t there', p => viaStore(() => store.listSignals(p, 0, 50, {issue: 'X-404'})), () => viaApi('GET', '/signals?issue=X-404'))
+        await both('about a milestone', p => viaStore(() => store.listSignals(p, 0, 50, {milestone: '1'})), () => viaApi('GET', '/signals?milestone=1'))
+        await both('a project that isn\'t there', () => viaStore(() => store.listSignals('nowhere')), () => viaApi('GET', '/signals', undefined, AGENT, 'nowhere'))
+        // The latest signal's id, where the local app starts a session's stream from (ORR-1133).
+        expect((await viaApi('GET', '/signals/last')).body).toEqual({id: await store.lastSignal('through-api')})
+        await both('the last signal of a project that isn\'t there', () => viaStore(() => store.lastSignal('nowhere')), () => viaApi('GET', '/signals/last', undefined, AGENT, 'nowhere'))
+        expect(domainOf('GET', '/api/projects/p/signals')).toBe('signals, reading')
+        for (const [method, path] of [['GET', '/api/projects/p/signals/stream'], ['POST', '/api/projects/p/signals/3/delivered']])
+            expect(domainOf(method!, path!), `${method} ${path}`).toBeUndefined()
+        // Taken out again, as later steps read every signal on these projects as one about an issue.
+        await store.db.run("DELETE FROM signals WHERE project IN ('through-store', 'through-api')")
+    })
+
+    it('moves a session\'s issues to its new id alike (ORR-1132)', async () => {
+        const ids: Record<string, string> = {}
+        for (const p of ['through-store', 'through-api']) {
+            ids[p] = (await store.createIssue(p, {title: 'Rename me'}, OWNER)).id
+            await store.db.run("INSERT INTO issue_sessions (project, issue, session, at, since) VALUES (?, ?, 'old-id', '2026-11-12T10:00:00.000Z', '2026-11-12T10:00:00.000Z')", p, ids[p])
+        }
+        // The store's own write with no API in front, and the API's route.
+        await store.renameSession('through-store', 'old-id', 'new-id')
+        expect((await viaApi('POST', '/issue-sessions/rename', {from: 'old-id', to: 'new-id'})).body).toEqual({moved: 1})
+        for (const p of ['through-store', 'through-api'])
+            expect(await store.get('SELECT session FROM issue_sessions WHERE project = ? AND issue = ?', p, ids[p]), p).toEqual({session: 'new-id'})
+        expect((await viaApi('POST', '/issue-sessions/rename', {from: 'old-id'})).status).toBe(400)
+        expect(domainOf('POST', '/api/projects/through-api/issue-sessions/rename')).toBeUndefined()
+    })
+
+    it('writes, marks, moves and prunes signals alike (ORR-1090)', async () => {
+        // The store's side is its own write with no API in front (`writeSignal`), the target picked as the API's caller does.
+        const write = (p: string, fields: SignalFields) => (store as unknown as {writeSignal: (p: string, f: SignalFields) => Promise<unknown>}).writeSignal(p, fields)
+        const ids: Record<string, string> = {}
+        for (const p of ['through-store', 'through-api']) ids[p] = (await store.createIssue(p, {title: 'Signal it'}, OWNER)).id
+        const focus = (p: string): SignalFields => ({issue: ids[p], kind: 'focus', note: 'Go', target: 's-old', person: 'steffen', instructions: ['Be brief'], model: 'opus', created_by: 'steffen', owned: true})
+        await both('a focus on an issue', p => viaStore(() => write(p, focus(p)), 201), () => viaApi('POST', '/signals', focus('through-api'), ORRERY))
+        const milestone: SignalFields = {milestone: 'all', status: 'todo,in-progress', epic: 3, kind: 'focus', created_by: 'claude', owned: false}
+        await both('a focus on every milestone', p => viaStore(() => write(p, milestone), 201), () => viaApi('POST', '/signals', milestone, ORRERY))
+        const message: SignalFields = {kind: 'message', note: 'Look', preset: 'Review', via: 'chat', target: 's-old', created_by: 'steffen', owned: true}
+        await both('a message', p => viaStore(() => write(p, message), 201), () => viaApi('POST', '/signals', message, ORRERY))
+        const first = async (p: string) => (await store.listSignals(p))[0]!.id
+        await both('heard', async p => viaStore(async () => store.delivered(p, await first(p), 'orrery · Frøy')), async () => viaApi('POST', `/signals/${await first('through-api')}/receipts`, {to: 'orrery · Frøy'}, ORRERY))
+        await both('heard by another', async p => viaStore(async () => store.delivered(p, await first(p), 'orrery · Siv')), async () => viaApi('POST', `/signals/${await first('through-api')}/receipts`, {to: 'orrery · Siv'}, ORRERY))
+        await both('heard, a signal that isn\'t there', p => viaStore(() => store.delivered(p, 99999, 'orrery · Siv')), () => viaApi('POST', '/signals/99999/receipts', {to: 'orrery · Siv'}, ORRERY))
+        await store.renameSession('through-store', 's-old', 's-new')
+        expect((await viaApi('POST', '/signals/retarget', {from: 's-old', to: 's-new'}, ORRERY)).body).toEqual({moved: 2})
+        await both('every signal, after a new session id', p => viaStore(() => store.listSignals(p)), () => viaApi('GET', '/signals'))
+        expect((await viaApi('POST', '/api/signals/prune', {}, ORRERY)).body).toEqual({pruned: 0})
+        for (const [method, path] of [['POST', '/api/projects/p/signals'], ['POST', '/api/projects/p/signals/retarget'], ['POST', '/api/projects/p/signals/3/receipts'], ['POST', '/api/signals/prune']])
+            expect(domainOf(method!, path!), `${method} ${path}`).toBeUndefined()
+        await store.db.run("DELETE FROM signals WHERE project IN ('through-store', 'through-api')")
+    })
+
     it('reads an issue\'s activity alike (ORR-927)', async () => {
         const ids: Record<string, string> = {}
         for (const p of ['through-store', 'through-api']) {
@@ -587,7 +801,46 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         expect(await viaApi('GET', '/api/projects')).toEqual(await viaStore(() => store.listProjects()))
         expect(domainOf('GET', '/api/projects')).toBe('projects, listed')
         expect(domainOf('POST', '/api/projects')).toBe('a project, made')
-        expect(domainOf('GET', '/api/projects/through-api')).toBeUndefined()
+        // One project with its board (ORR-1006), whole and trimmed as the page's reads ask, without the events stream's
+        // `rev`, which only the Nuxt server has.
+        const board = await store.project('through-api')
+        expect((await viaApi('GET', '/api/projects/through-api')).body).toEqual(JSON.parse(JSON.stringify(board)))
+        for (const query of ['notes=0', 'closed=0', 'notes=0&closed=0']) {
+            const lighter = query.includes('notes') ? withoutNotes(board) : board
+            const trimmed = query.includes('closed') ? withoutClosed(lighter) : lighter
+            expect((await viaApi('GET', `/api/projects/through-api?${query}`)).body, query).toEqual(JSON.parse(JSON.stringify(trimmed)))
+        }
+        expect((await viaApi('GET', '/api/projects/nowhere')).status).toBe(404)
+        // Routed (`withRev`): the API is asked for the whole board, and the reply labelled with the `rev` and trimmed here,
+        // as the route here does it.
+        expect(domainOf('GET', '/api/projects/through-api')).toBe('a project, read')
+        for (const query of ['', 'notes=0', 'closed=0', 'notes=0&closed=0', 'closed=0&notes=0']) {
+            const shaped = withRev({path: `/api/projects/through-api${query ? `?${query}` : ''}`} as H3Event)
+            expect(shaped.path, query).toBe(`/api/projects/through-api${query.includes('notes') ? '?notes=0' : ''}`)
+            const labelled = revLabel()(board)
+            const lighter = query.includes('notes') ? withoutNotes(labelled) : labelled
+            const here = query.includes('closed') ? withoutClosed(lighter) : lighter
+            expect(shaped.reply((await viaApi('GET', shaped.path!)).body), query).toEqual(JSON.parse(JSON.stringify(here)))
+            expect(here).toHaveProperty('rev')
+        }
+        // Every project's board (`?expand=board`, `boardsWithRev`): asked whole, labelled and trimmed here, but for `&whole=`.
+        const boards = await store.listBoards()
+        for (const query of ['', '&notes=0', '&closed=0', '&notes=0&closed=0&whole=through-api', '&closed=0&whole=through-api,through-store']) {
+            const shaped = boardsWithRev({path: `/api/projects?expand=board${query}`} as H3Event)!
+            expect(shaped.path, query).toBe(`/api/projects?expand=board${query.includes('notes') ? '&notes=0' : ''}`)
+            const whole = new Set(/whole=([^&]*)/.exec(query)?.[1]?.split(',') ?? [])
+            const label = revLabel()
+            const here = boards.map(label).map(board => {
+                const lighter = query.includes('notes') ? withoutNotes(board) : board
+                return query.includes('closed') && !whole.has(board.id) ? withoutClosed(lighter) : lighter
+            })
+            expect(shaped.reply((await viaApi('GET', shaped.path!)).body), query).toEqual(JSON.parse(JSON.stringify(here)))
+            // Asked of the API directly, it trims as the route here does, without the `rev`.
+            const direct = (await viaApi('GET', `/api/projects?expand=board${query}`)).body
+            expect(direct, query).toEqual(JSON.parse(JSON.stringify(here.map(({rev: _rev, ...board}) => board))))
+        }
+        expect(boardsWithRev({path: '/api/projects'} as H3Event)).toBeUndefined()
+        expect(boardsWithRev({path: '/api/projects?expand=counts'} as H3Event)).toBeUndefined()
         const listed = (await viaApi('GET', '/api/projects')).body as {id: string, milestones: number, docs: unknown[], starts?: unknown}[]
         expect(listed.find(p => p.id === 'through-api')).toMatchObject({milestones: 4, docs: expect.arrayContaining([expect.objectContaining({title: 'Joinery', section: 'Shop'})]), starts: {max: 2}})
         await store.db.run("DELETE FROM settings WHERE key = 'starts'")
@@ -666,7 +919,41 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         expect(outcomes[23]).toMatchObject({status: 200, body: {release_mode: 'own'}, changed: ['through-api-bench', 'through-api-src']})
         expect((outcomes[23]!.body as {board: {milestones: {tasks: {release?: string}[]}[]}}).board.milestones[0]!.tasks[0]).not.toHaveProperty('release')
         expect(domainOf('PATCH', '/api/projects/p')).toBe('a project, changed')
-        for (const method of ['GET', 'DELETE']) expect(domainOf(method, '/api/projects/p'), method).toBeUndefined()
+        expect(domainOf('GET', '/api/projects/p')).toBe('a project, read')
+    })
+
+    it('deletes a project alike, with everything in it, refusing what the store refuses (ORR-1006)', async () => {
+        const schedules = new Schedules(store)
+        const on = (p: string) => `${p}-gone`
+        for (const p of ['through-store', 'through-api']) {
+            const key = p === 'through-store' ? 'STG' : 'APG'
+            await store.createProject({name: on(p), key, release_mode: 'own'}, OWNER)
+            await store.createProject({name: `${p}-drawn`, key: `${key}D`, releases_from: on(p)})
+            const issue = await store.createIssue(on(p), {title: 'Sieve'})
+            await store.createComment(on(p), issue.id, {body: 'Begun.'})
+            await store.createMilestone(on(p), {title: 'First'})
+            await store.createDoc(on(p), {title: 'How', body: 'x'})
+            await schedules.create(on(p), {title: 'Water', cron: '0 9 * * *', timezone: 'UTC'}, OWNER)
+        }
+        const step = (name: string, actor: Actor, of: (p: string) => string = on): [string, (p: string) => Promise<Outcome>, () => Promise<Outcome>] =>
+            [name, p => viaStore(() => store.deleteProject(of(p), actor)), () => viaApi('DELETE', '', undefined, actor, of('through-api'))]
+        const steps = [
+            step('one that isn\'t there', OWNER, () => 'nowhere'),
+            step('by an agent, the owner\'s', AGENT),
+            step('drawn on', OWNER),
+            step('the one drawing on it', OWNER, p => `${p}-drawn`),
+            step('deleted', OWNER),
+        ]
+        const outcomes: Outcome[] = []
+        for (const [name, ts, rs] of steps) outcomes.push(await both(name, ts, rs))
+        expect(outcomes.map(o => o.status)).toEqual([404, 403, 409, 204, 204])
+        expect(outcomes[4]).toMatchObject({changed: ['through-api-gone']})
+        for (const p of ['through-store', 'through-api']) {
+            for (const table of ['projects WHERE id', 'issues WHERE project', 'comments WHERE project', 'milestones WHERE project', 'docs WHERE project', 'schedules WHERE project']) {
+                expect((await store.db.get<{n: number}>(`SELECT count(*) AS n FROM ${table} = ?`, on(p)))?.n, `${p}: ${table}`).toBe(0)
+            }
+        }
+        expect(domainOf('DELETE', '/api/projects/p')).toBe('a project, deleted')
     })
 
     it('makes a project alike, its id and key from its name, refusing what the store refuses (ORR-1002)', async () => {
@@ -862,9 +1149,153 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         const firstPaused = all.findIndex(s => !s.next_run)
         expect(firstPaused).toBeGreaterThan(0)
         expect(all.slice(firstPaused).every(s => !s.next_run)).toBe(true)
+        // Of the writes (ORR-950): adopting an agent's schedule, refused to an agent and on a stale read, and deleting one.
+        const api = (at: number) => `/schedules/${ids['through-api']![at]}`
+        // A refusal names the schedule by its number, which differs between the two projects, so it's compared with the
+        // store's number put in the API's place.
+        // The store's step goes in as a function: viaStore settles first, and a promise made before then would reject
+        // with nothing yet waiting on it.
+        const refusedAlike = async (name: string, store: () => Promise<unknown>, api: Promise<Outcome>) => {
+            const [kept, sent] = [await viaStore(store), await api]
+            const swap = (text: unknown) => String(text).replace(new RegExp(`(schedule) ${ids['through-store']![2]}\\b`, 'i'), `$1 ${ids['through-api']![2]}`)
+            expect({status: sent.status, message: (sent.body as {message?: string}).message}, name).toEqual({status: kept.status, message: swap((kept.body as {message?: string}).message)})
+        }
+        await refusedAlike('adopting, as an agent', () => schedules.adopt(on('through-store'), ids['through-store']![2]!, AGENT), viaApi('POST', `${api(2)}/adopt`, undefined, AGENT, 'through-api-timed'))
+        await refusedAlike('adopting what changed since', () => schedules.adopt(on('through-store'), ids['through-store']![2]!, OWNER, '2000-01-01T00:00:00.000Z'), viaApi('POST', `${api(2)}/adopt`, {seen: '2000-01-01T00:00:00.000Z'}, OWNER, 'through-api-timed'))
+        // The route checks `seen` before the store is asked, so there's only the API's answer to look at.
+        expect(await viaApi('POST', `${api(2)}/adopt`, {seen: 5}, OWNER, 'through-api-timed')).toMatchObject({status: 400, body: {message: '"seen" is the updated_at you read the schedule at'}})
+        await both('adopting', p => viaStore(() => schedules.adopt(on(p), ids[p]![2]!, OWNER)), () => viaApi('POST', `${api(2)}/adopt`, undefined, OWNER, 'through-api-timed'))
+        await both('adopting one already yours', p => viaStore(() => schedules.adopt(on(p), ids[p]![2]!, OWNER)), () => viaApi('POST', `${api(2)}/adopt`, undefined, OWNER, 'through-api-timed'))
+        await both('deleting one', p => viaStore(() => schedules.delete(on(p), ids[p]![3]!, OWNER), 204), () => viaApi('DELETE', api(3), undefined, OWNER, 'through-api-timed'))
+        await both('deleting one that isn\'t there', p => viaStore(() => schedules.delete(on(p), 9999, OWNER), 204), () => viaApi('DELETE', '/schedules/9999', undefined, OWNER, 'through-api-timed'))
+        await both('the list after', p => viaStore(() => schedules.list(on(p))), () => viaApi('GET', '/schedules', undefined, AGENT, 'through-api-timed'))
+        expect(domainOf('POST', '/api/projects/p/schedules/3/adopt')).toBe('a schedule, adopted')
+        // Pausing and activating all of a project's at once (ORR-1082): an agent refused, then the owner; the one-off stays paused.
+        await refusedAlike('pausing all, as an agent', () => schedules.setAllEnabled(on('through-store'), false, AGENT), viaApi('POST', '/schedules/enabled', {enabled: false}, AGENT, 'through-api-timed'))
+        expect(await viaApi('POST', '/schedules/enabled', {enabled: 'yes'}, OWNER, 'through-api-timed')).toMatchObject({status: 400, body: {message: 'Send {"enabled": true} or {"enabled": false}'}})
+        await both('pausing all', p => viaStore(() => schedules.setAllEnabled(on(p), false, OWNER)), () => viaApi('POST', '/schedules/enabled', {enabled: false}, OWNER, 'through-api-timed'))
+        await both('pausing all again', p => viaStore(() => schedules.setAllEnabled(on(p), false, OWNER)), () => viaApi('POST', '/schedules/enabled', {enabled: false}, OWNER, 'through-api-timed'))
+        const activated = await both('activating all', p => viaStore(() => schedules.setAllEnabled(on(p), true, OWNER)), () => viaApi('POST', '/schedules/enabled', {enabled: true}, OWNER, 'through-api-timed'))
+        // The times are left out of the comparison, so the next runs are compared here: the same cron, the same next run.
+        const nextRuns = async (p: string) => (await schedules.list(on(p))).map(s => [s.title, s.next_run ?? null])
+        expect(await nextRuns('through-api')).toEqual(await nextRuns('through-store'))
+        expect((activated.body as {changed: {title: string}[]}).changed.map(s => s.title)).toEqual(['Water', 'air', 'Triage', 'Weekly look', 'Daily'])
+        // Changing one (ORR-1082): the owner's refused to an agent, changes that don't check out, then the owner's changes.
+        const change = (name: string, at: number, body: object, actor = OWNER) =>
+            both(name, p => viaStore(() => schedules.update(on(p), ids[p]![at]!, body, actor)), () => viaApi('PATCH', api(at), body, actor, 'through-api-timed'))
+        await refusedAlike('changing the owner\'s, as an agent', () => schedules.update(on('through-store'), ids['through-store']![2]!, {title: 'Mine now'}, AGENT), viaApi('PATCH', api(2), {title: 'Mine now'}, AGENT, 'through-api-timed'))
+        await change('a cron that doesn\'t parse', 0, {cron: 'nope'})
+        await change('two problems', 0, {title: 3, nope: true})
+        await change('a message with no words', 0, {kind: 'message', notes: null})
+        await change('an action with no column', 0, {kind: 'action', on: 'issue.status'})
+        await change('a closed status to start in', 0, {column: 'done'})
+        await change('moving from a status that isn\'t there', 0, {move_from: ['nope']})
+        await change('a preset that isn\'t there', 4, {presets: [9999]})
+        await change('renaming it and changing when', 0, {title: '  Water more ', cron: '0 6 * * *', timezone: 'UTC', labels: ['garden', 'garden', 'beds'], priority: null, milestone: null, move_from: ['todo']})
+        await change('making it an event\'s', 1, {on: 'issue.created', on_filter: {by: 'owner', to: ''}, enabled: true})
+        await change('pausing one', 0, {enabled: false})
+        await change('an action, with its column', 1, {kind: 'action', column: 'done'})
+        await both('changing one that isn\'t there', p => viaStore(() => schedules.update(on(p), 9999, {title: 'x'}, OWNER)), () => viaApi('PATCH', '/schedules/9999', {title: 'x'}, OWNER, 'through-api-timed'))
+        expect(await nextRuns('through-api')).toEqual(await nextRuns('through-store'))
+        // Making one (ORR-1082): what doesn't check out, then an agent's and the owner's.
+        const make = (name: string, body: object, actor = OWNER) =>
+            both(name, p => viaStore(() => schedules.create(on(p), body, actor), 201), () => viaApi('POST', '/schedules', body, actor, 'through-api-timed'))
+        await make('making one with no title', {cron: '0 9 * * *'})
+        await make('making one with no time', {title: 'When?'})
+        await make('making one with two times', {title: 'Both', cron: '0 9 * * *', on: 'issue.created'})
+        await make('making one for a time gone by', {title: 'Late', at: '2000-01-01T00:00:00Z'})
+        await make('making a session schedule, as an agent', {kind: 'session', title: 'Work', cron: '0 9 * * *'}, AGENT)
+        await make('making an action with no column', {kind: 'action', title: 'Move', on: 'issue.created'})
+        await make('making a message with no words', {kind: 'message', title: 'Quiet', cron: '0 9 * * *'})
+        await make('making one in a milestone that isn\'t there', {title: 'M', cron: '0 9 * * *', milestone: 'nope'})
+        await make('making one with a preset that isn\'t there', {kind: 'message', title: 'P', notes: 'Hi.', cron: '0 9 * * *', presets: [9999]})
+        await make('making one that starts closed', {title: 'Shut', cron: '0 9 * * *', column: 'done'})
+        await make('making an agent\'s', {title: '  Sweep ', cron: '30 6 * * 1-5', timezone: 'UTC', labels: ['beds', 'beds', 'paths'], move_from: ['todo'], priority: 'P1', model: 'sonnet', effort: 'high'}, AGENT)
+        await make('making a paused message on an event', {kind: 'message', title: 'Hear', notes: 'Look.', on: 'issue.status', on_filter: {to: 'done', from: ''}, enabled: false, untrusted: true})
+        await make('making an action', {kind: 'action', title: 'Close', on: 'issue.status', column: 'done', skip_open: false, ask: true})
+        await make('making one once', {title: 'Later', at: '2099-06-01T09:00:00Z', only_if_changed: true})
+        await both('making one in a project that isn\'t there', () => viaStore(() => schedules.create('nowhere', {title: 'x', cron: '0 9 * * *'}, OWNER), 201), () => viaApi('POST', '/schedules', {title: 'x', cron: '0 9 * * *'}, OWNER, 'nowhere'))
+        expect(await nextRuns('through-api')).toEqual(await nextRuns('through-store'))
+        expect(domainOf('POST', '/api/projects/p/schedules')).toBe('a schedule, made')
+        // A working session asking for one on its issue (ORR-1100): the comment asking, with the request beside it. The
+        // store's side is handed the request the route works out (`scheduleRequest`), as that needs the scheduler's globals.
+        const asking: Record<string, string> = {}
+        for (const p of ['through-store', 'through-api']) asking[p] = (await store.createIssue(on(p), {title: 'Ask for it'}, OWNER)).id
+        const nudge = {title: 'Nudge', kind: 'message', notes: 'Look.', cron: '0 9 * * 1'}
+        const words = 'You asked.\n\nAsks to make the schedule "Nudge". Nothing is saved until you press Allow.'
+        const request = {title: 'Nudge', changes: Object.entries(nudge).map(([field, to]) => ({field, to})), body: nudge, state: 'asked'} as never
+        for (const time of ['first', 'again']) {
+            await both(`asking for a schedule, ${time}`, p => viaStore(() => store.askForSchedule(on(p), asking[p]!, words, request, AGENT), 201),
+                () => viaApi('POST', `/issues/${asking['through-api']}/schedule-requests`, {schedule: nudge, why: 'You asked.'}, AGENT, 'through-api-timed'))
+        }
+        await both('the comments asking, the first expired', p => viaStore(() => store.listComments(on(p), asking[p]!)), () => viaApi('GET', `/issues/${asking['through-api']}/comments`, undefined, AGENT, 'through-api-timed'))
+        // The owner's Deny of the second ask, and Allow of a third, through each side: the store's by its own steps, as
+        // the route's needs the scheduler's globals (`answerScheduleRequest`).
+        const latest = async (p: string) => (await store.listComments(on(p), asking[p]!)).at(-1)!.id
+        const answerHere = async (p: string, allow: boolean, words: string) => {
+            const id = await latest(p)
+            const made = allow ? await schedules.create(on(p), nudge, OWNER) : undefined
+            await store.answerScheduleRequest(on(p), id, allow ? 'allowed' : 'denied', made?.id, OWNER)
+            await store.createComment(on(p), asking[p]!, {body: words.replace('<id>', String(made?.id))}, OWNER)
+            return (await store.listComments(on(p), asking[p]!)).find(c => c.id === id)
+        }
+        const answerThere = async (allow: boolean) => viaApi('POST', `/issues/${asking['through-api']}/schedule-requests/${await latest('through-api')}`, {allow}, OWNER, 'through-api-timed')
+        await both('denying it', p => viaStore(() => answerHere(p, false, 'Denied: don\'t make the schedule "Nudge". Nothing changed.')), () => answerThere(false))
+        for (const p of ['through-store', 'through-api']) await store.askForSchedule(on(p), asking[p]!, words, request, AGENT)
+        await both('allowing it', p => viaStore(() => answerHere(p, true, 'Allowed: schedule <id> ("Nudge") is saved as mine.')), () => answerThere(true))
+        // The schedule's number is numbered across both projects, so it's left out of the words.
+        const numberless = <T,>(value: T): T => JSON.parse(JSON.stringify(value).replace(/schedule \d+/g, 'schedule N')) as T
+        await both('the comments after', p => viaStore(async () => numberless(await store.listComments(on(p), asking[p]!))),
+            async () => numberless(await viaApi('GET', `/issues/${asking['through-api']}/comments`, undefined, AGENT, 'through-api-timed')))
+        expect(domainOf('POST', '/api/projects/p/issues/P-1/schedule-requests')).toBe('a schedule, asked for')
+        expect(domainOf('POST', '/api/projects/p/issues/P-1/schedule-requests/3')).toBe('a schedule, answered')
+        // Deleting one across projects (ORR-1082): refused to an agent, then the owner's, with the schedules made from it.
+        // The orrery's own list holds both projects' copies, so it's read whole.
+        const [weekly] = (await schedules.listAcross()).filter(a => a.title === 'Weekly look')
+        expect(weekly?.on_projects).toEqual([on('through-api'), on('through-store')])
+        const deleteAcross = (actor: Actor) => viaApi('DELETE', `/api/schedules/across/${weekly!.id}`, undefined, actor)
+        const agentRefused = await viaStore(() => schedules.deleteAcross(weekly!.id, AGENT), 204)
+        expect(await deleteAcross(AGENT)).toMatchObject({status: 403, body: {message: (agentRefused.body as {message: string}).message}})
+        expect(await deleteAcross(OWNER)).toMatchObject({status: 204})
+        expect((await schedules.listAcross()).map(a => a.title)).not.toContain('Weekly look')
+        expect((await schedules.list()).map(s => s.title)).not.toContain('Weekly look')
+        const gone = await viaStore(() => schedules.deleteAcross(weekly!.id, OWNER), 204)
+        expect(await deleteAcross(OWNER)).toMatchObject({status: 404, body: {message: (gone.body as {message: string}).message}})
+        expect(domainOf('DELETE', '/api/schedules/across/2')).toBe('a schedule across projects, deleted')
+        expect(domainOf('PATCH', '/api/projects/p/schedules/3')).toBe('a schedule, changed')
+        expect(domainOf('POST', '/api/projects/p/schedules/enabled')).toBe('schedules, paused or activated')
+        expect(domainOf('DELETE', '/api/projects/p/schedules/3')).toBe('a schedule, deleted')
         expect(domainOf('GET', '/api/schedules/across')).toBe('schedules, reading')
-        for (const [method, path] of [['POST', '/api/schedules'], ['PATCH', '/api/projects/p/schedules/3'], ['POST', '/api/projects/p/schedules/3/run'], ['POST', '/api/projects/p/schedules/enabled'], ['DELETE', '/api/schedules/across/2']])
-            expect(domainOf(method!, path!), `${method} ${path}`).toBeUndefined()
+        expect(domainOf('POST', '/api/projects/p/schedules/3/run')).toBeUndefined()
+        // Making and changing one across projects (ORR-1036): each side's names only its own project, as one across every
+        // project would be made on the other side's too. What doesn't check out first, then the owner's.
+        const across = (name: string, body: (p: string) => object, actor = OWNER) =>
+            both(name, p => viaStore(() => schedules.createAcross(body(p), actor), 201), () => viaApi('POST', '/api/schedules', body('through-api'), actor))
+        await across('across, as an agent', p => ({projects: [on(p)], title: 'Tidy', cron: '0 9 * * *'}), AGENT)
+        await across('across, with no projects', () => ({title: 'Tidy', cron: '0 9 * * *'}))
+        await across('across, projects not a list', () => ({projects: 'some', title: 'Tidy', cron: '0 9 * * *'}))
+        await across('across, skip not a list', p => ({projects: [on(p)], skip: 'x', title: 'Tidy', cron: '0 9 * * *'}))
+        await across('across, in a milestone', p => ({projects: [on(p)], milestone: '1', title: 'Tidy', cron: '0 9 * * *'}))
+        await across('across, once', p => ({projects: [on(p)], title: 'Tidy', at: '2099-06-01T09:00:00Z'}))
+        await across('across, untrusted', p => ({projects: [on(p)], kind: 'message', notes: 'Hi.', untrusted: true, title: 'Tidy', cron: '0 9 * * *'}))
+        await across('across, a project that isn\'t there', () => ({projects: ['nowhere'], title: 'Tidy', cron: '0 9 * * *'}))
+        await across('across, with a cron that doesn\'t parse', p => ({projects: [on(p)], title: 'Tidy', cron: 'nope'}))
+        await across('across, made', p => ({projects: [on(p)], title: ' Tidy ', cron: '0 9 * * 1', timezone: 'UTC', labels: ['beds']}))
+        const tidy = async (p: string) => (await schedules.listAcross()).filter(a => a.on_projects.includes(on(p))).at(-1)!.id
+        const changeAcross = (name: string, body: object, actor = OWNER) =>
+            both(name, p => viaStore(async () => schedules.updateAcross(await tidy(p), body, actor)), async () => viaApi('PATCH', `/api/schedules/across/${await tidy('through-api')}`, body, actor))
+        await changeAcross('across, changed by an agent', {title: 'Mine'}, AGENT)
+        await changeAcross('across, changed to once', {at: '2099-06-01T09:00:00Z'})
+        await changeAcross('across, changed to a bad cron', {cron: 'nope'})
+        await changeAcross('across, renamed and on an event', {title: 'Tidy up', on: 'issue.created'})
+        await changeAcross('across, paused', {enabled: false})
+        await both('across, one that isn\'t there', () => viaStore(() => schedules.updateAcross(9999, {title: 'x'}, OWNER)), () => viaApi('PATCH', '/api/schedules/across/9999', {title: 'x'}, OWNER))
+        // Their schedule across projects is numbered across both sides, so only that they have one is compared.
+        const copiesOf = (list: {across?: number}[]) => list.filter(s => s.across).map(s => ({...s, across: true}))
+        await both('the schedules made from it', p => viaStore(async () => copiesOf(await schedules.list(on(p)))), () => viaApi('GET', '/schedules', undefined, OWNER, 'through-api-timed').then(o => ({...o, body: copiesOf(o.body as {across?: number}[])})))
+        for (const p of ['through-store', 'through-api']) await schedules.deleteAcross(await tidy(p), OWNER)
+        expect(domainOf('POST', '/api/schedules')).toBe('a schedule across projects, made')
+        expect(domainOf('PATCH', '/api/schedules/across/2')).toBe('a schedule across projects, changed')
     })
 
     it('keeps a pull request on the issues it names alike, as the poll does (ORR-952)', async () => {
@@ -914,6 +1345,65 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         expect(domainOf('PUT', `/api/pulls/ada/${on('through-api')}/5`)).toBeUndefined()
     })
 
+    it('compacts the database as housekeeping does it here (ORR-1134)', async () => {
+        const asked = await viaApi('POST', '/api/database/compact', {})
+        expect(asked).toMatchObject({status: 200, body: {compacted: false}})
+        expect(await viaApi('POST', '/api/database/compact', {always: true})).toMatchObject({status: 200, body: {compacted: !POSTGRES}})
+        expect(domainOf('POST', '/api/database/compact')).toBeUndefined()
+    })
+
+    it('says alike whether the database is a new orrery\'s (ORR-1140)', async () => {
+        const state = await viaApi('GET', '/api/database')
+        expect(state.status).toBe(200)
+        expect((state.body as {fresh: boolean}).fresh).toBe(await isFresh(store.db))
+        expect(domainOf('GET', '/api/database')).toBeUndefined()
+    })
+
+    it('keeps a sealed secret, its uses and its deletion alike (ORR-1096)', async () => {
+        const secrets = new Secrets(store, () => 'a long random test key', () => {}, (async () => new Response('{}', {status: 200})) as typeof fetch)
+        const name = (p: string) => p === 'through-store' ? 'STORE_KEY' : 'API_KEY'
+        const step = (label: string, ts: (p: string) => Promise<unknown>, method: string, path: string, body?: (p: string) => unknown) => both(label,
+            p => viaStore(async () => { await ts(p) }), () => viaApi(method, `/api/secrets/${name('through-api')}${path}`, body?.('through-api')))
+        const kept = () => both('what\'s kept', p => viaStore(async () => ({
+            secret: await store.db.all('SELECT last4, hosts, projects, created_by, owned FROM secrets WHERE name = ?', name(p)),
+            uses: await store.db.all('SELECT method, host, path, project, issue, status, error, created_by FROM secret_uses WHERE secret = ? ORDER BY id', name(p)),
+        })), () => viaStore(async () => ({
+            secret: await store.db.all('SELECT last4, hosts, projects, created_by, owned FROM secrets WHERE name = ?', name('through-api')),
+            uses: await store.db.all('SELECT method, host, path, project, issue, status, error, created_by FROM secret_uses WHERE secret = ? ORDER BY id', name('through-api')),
+        })))
+        const at = '2026-11-10T10:00:00.000Z'
+        const use = {method: 'GET', host: 'api.stripe.com', path: '/v1/me', project: 'through-api', issue: null, status: 200, error: null, created_by: 'orrery', created_at: at}
+        /** The sealed row the API hands this server back is the table's, column for column (ORR-1143). */
+        const columns = 'name, value, last4, hosts, projects, created_by, owned, created_at, updated_at'
+        const sealedRead = async () => {
+            const row = await store.db.get(`SELECT ${columns} FROM secrets WHERE name = ?`, name('through-api'))
+            const read = await viaApi('GET', `/api/secrets/${name('through-api')}/sealed`)
+            expect(read).toMatchObject({status: 200, body: row})
+            const all = await store.db.all(`SELECT ${columns} FROM secrets ORDER BY name`)
+            expect(await viaApi('GET', '/api/sealed-secrets')).toMatchObject({status: 200, body: all})
+        }
+        const outcomes = [
+            await step('set', p => secrets.set(name(p), {value: 'sk_live_abcdef123456', hosts: ['api.stripe.com', 'files.stripe.com']}, OWNER), 'PUT', '/sealed',
+                () => ({value: 'v1:sealed', last4: '3456', hosts: ['api.stripe.com', 'files.stripe.com'], projects: null, created_by: OWNER.name, owned: true, at})),
+            await step('narrowed', p => secrets.narrow(name(p), {hosts: ['api.stripe.com'], projects: [p]}, OWNER), 'PUT', '/sealed',
+                () => ({value: 'v1:sealed', last4: '3456', hosts: ['api.stripe.com'], projects: ['through-api'], created_by: OWNER.name, owned: true, at})),
+            await step('orrery\'s own use', p => secrets.own('https://api.stripe.com/v1/me', name(p), p), 'POST', '/uses', () => ({...use, keep: 20})),
+            await kept().then(async kept => {
+                await sealedRead()
+                return kept
+            }),
+            await step('deleted', p => secrets.delete(name(p), OWNER), 'DELETE', '/sealed'),
+            await kept(),
+        ]
+        expect(outcomes[0]).toMatchObject({status: 204})
+        expect(outcomes[3]!.body).toMatchObject({secret: [{last4: '3456', owned: 1}], uses: [{created_by: 'orrery', status: 200}]})
+        expect(outcomes[5]!.body).toEqual({secret: [], uses: []})
+        expect(domainOf('PUT', `/api/secrets/${name('through-api')}/sealed`)).toBeUndefined()
+        // A page can't ask for one sealed through the router: neither read is sent on (ORR-1143).
+        expect(domainOf('GET', `/api/secrets/${name('through-api')}/sealed`)).toBeUndefined()
+        expect(domainOf('GET', '/api/sealed-secrets')).toBeUndefined()
+    })
+
     it('keeps a repo\'s poll, its failure, its history page and what it lets go of alike (ORR-952)', async () => {
         const pulls = new Pulls(store, async () => { throw new Error('no GitHub here') })
         const poll = new PullPoll(store, pulls, async () => false, () => {}, () => {})
@@ -951,6 +1441,24 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
             await step('a failure', p => poll.keepFailed(repo(p), 'GitHub said no'), '/api/pulls/<repo>/error', () => ({error: 'GitHub said no'})),
             await kept(),
         )
+        // What the poll reads back before its next one (ORR-1153): the API's read against the store's.
+        const read = await both('what the poll reads', p => viaStore(() => poll.keptOf(repo(p))), () => viaApi('GET', `/api/pulls/${repo('through-api')}`))
+        expect(read.body).toMatchObject({repo: {token: true, history_page: 3}, recorded: [expect.objectContaining({number: 2})]})
+        expect((read.body as {pulls: {number: number, closed: boolean, told: string[]}[]}).pulls.map(p => [p.number, p.closed, p.told.length])).toEqual([[1, false, 1], [2, true, 0], [3, false, 0]])
+        expect(await both('a repo never polled', () => viaStore(() => poll.keptOf('ada/never-polled')), () => viaApi('GET', '/api/pulls/ada/never-polled'))).toMatchObject({body: {repo: null, pulls: [], recorded: []}})
+        // What an issue's page, the PR list and the branches read of what's kept (ORR-1153): the API's against the store's.
+        const onPull2 = async (p: string) => (await store.db.get<{issue: string}>('SELECT issue FROM issue_pulls WHERE project = ? AND repo = ? AND number = 2', p, repo(p)))?.issue ?? ''
+        await store.db.run("UPDATE issue_pulls SET risk = 'high', risk_why = 'touches the gears', risk_by = 'owner' WHERE number = 2 AND repo LIKE 'ada/through-%-polled'")
+        const onIssue = await both('an issue\'s kept PRs', p => viaStore(async () => pulls.keptOn(p, await onPull2(p))),
+            async () => viaApi('GET', `/api/projects/through-api/issues/${await onPull2('through-api')}/kept-pulls`))
+        expect(onIssue.body).toMatchObject({ids: [expect.any(String)], pulls: [{number: 2, risk: 'high', risk_why: 'touches the gears', risk_by: 'owner'}]})
+        expect(await both('no such issue', p => viaStore(() => pulls.keptOn(p, 'NOPE-9')), () => viaApi('GET', '/api/projects/through-api/issues/NOPE-9/kept-pulls'))).toMatchObject({status: 404})
+        const named = await both('an issue a branch names', p => viaStore(async () => ({issue: await pulls.named([p], ['NOPE-1', await onPull2(p)]) ?? null})),
+            async () => viaApi('GET', `/api/pulls/named?projects=through-api&ids=NOPE-1,${await onPull2('through-api')}`))
+        expect(named.body).toMatchObject({issue: {title: expect.stringContaining('On pull 2'), kind: expect.any(String)}})
+        expect(await both('none named', p => viaStore(async () => ({issue: await pulls.named([p], ['NOPE-1']) ?? null})), () => viaApi('GET', '/api/pulls/named?projects=through-api&ids=NOPE-1'))).toMatchObject({body: {issue: null}})
+        const repos = await alike0('the projects\' repos', () => viaStore(() => pulls.projectRepos()), () => viaApi('GET', '/api/pulls/repos'))
+        expect(repos.body).toMatchObject({projects: expect.arrayContaining([expect.objectContaining({id: 'through-api'})]), preparing: expect.any(Array)})
         // Letting go works across every repo, so each side has a repo of its own to lose.
         const all = async () => (await store.db.all<{repo: string}>('SELECT repo FROM pull_repos')).map(r => r.repo)
         for (const p of ['through-store', 'through-api']) {
@@ -984,7 +1492,10 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
             kept('c0ffee000003', 'through-api', '2026-11-05T11:00:00.000Z', {issues: 'backlog'}),
         ]
         for (const [chat, project] of rows.map((c, i) => [c, ['through-store', 'through-api', 'through-api'][i]!] as const)) {
-            await store.db.run('INSERT INTO chats (id, project, started_at, ended_at, chat) VALUES (?, ?, ?, ?, ?)', chat.id, project, chat.started_at, (chat as {ended_at?: string}).ended_at ?? null, JSON.stringify(chat))
+            const {messages, ...row} = chat
+            await store.db.run('INSERT INTO chats (id, project, started_at, ended_at, chat) VALUES (?, ?, ?, ?, ?)', chat.id, project, chat.started_at, (chat as {ended_at?: string}).ended_at ?? null, JSON.stringify(row))
+            // Its messages are rows of their own (ORR-1100).
+            for (const {id, at, ...message} of messages) await store.db.run('INSERT INTO chat_messages (chat, id, at, message) VALUES (?, ?, ?, ?)', chat.id, id, at, JSON.stringify(message))
         }
         // The store's side is the chats module reading them back as orrery starts, with Nitro's globals stubbed.
         vi.stubGlobal('useDatabase', () => store.db)
@@ -1000,6 +1511,25 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         let missing: unknown
         try { chats.readChat('nope') } catch (error) { missing = (error as Error).message }
         expect(await viaApi('GET', '/api/chats/nope')).toMatchObject({status: 404, body: {message: missing}})
+        // Read back as orrery starts with the API there, not the database (ORR-1142): the same chats, their messages'
+        // fields in the same order, so what's kept of each compares as the same text when the chat is heard again.
+        vi.stubGlobal('useDatabase', () => { throw new Error('read from the database') })
+        vi.stubGlobal('databaseSetting', () => setting)
+        vi.resetModules()
+        const router = await import('../server/utils/api-router')
+        router.apiStarted({url, token: TOKEN})
+        try {
+            const overHttp = await import('../server/utils/chats')
+            await overHttp.chatsLoaded()
+            expect(JSON.stringify(overHttp.listChats())).toBe(JSON.stringify(chats.listChats()))
+            const emitted: unknown[] = []
+            vi.stubGlobal('projectEvents', {emit: (...args: unknown[]) => emitted.push(args)})
+            await overHttp.chatHeard('c0ffee000001')
+            expect(emitted, 'nothing new to hear').toEqual([])
+        } finally {
+            router.apiStarted(null)
+            vi.stubGlobal('useDatabase', () => store.db)
+        }
         // Keeping one, as the module does as it changes: through the store, and through the API, alike.
         const row = (id: string) => store.db.get<{project: string, started_at: string, ended_at: string | null, chat: string}>('SELECT project, started_at, ended_at, chat FROM chats WHERE id = ?', id)
         const said = (id: string, project: string) => ({...kept(id, project, '2026-11-05T13:00:00.000Z'), project, problem: 'A launcher too old', ended: true, ended_at: '2026-11-05T13:10:00.000Z',
@@ -1016,12 +1546,186 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         expect([(await row('c0ffee000010'))!.project, (await row('c0ffee000011'))!.project]).toEqual(['through-store', 'through-api'])
         expect((await row('c0ffee000011'))!.started_at).toBe('2026-11-05T13:00:00.000Z')
         expect(await viaApi('PUT', '/api/chats/c0ffee000011', {id: 'another', project: 1})).toMatchObject({status: 400})
+        expect(JSON.parse((await row('c0ffee000011'))!.chat)).not.toHaveProperty('messages')
+        // Its messages, added and changed one at a time (ORR-1100): given the next id after every chat's, alike.
+        const lines = (id: string) => store.db.all<{id: number, message: string}>('SELECT id, message FROM chat_messages WHERE chat = ? ORDER BY id', id)
+        const asked = {from: 'claude', text: 'May I?', images: [], request: {setting: 'tint', from: null, to: 'blue', state: 'asked'}}
+        const byStoreLine = await chats.addLine(store.db, 'c0ffee000010', asked as never)
+        const byApiLine = await viaApi('POST', '/api/chats/c0ffee000011/lines', {...asked, id: 1, at: 'then'})
+        expect(byApiLine).toMatchObject({status: 201, changed: [], told: []})
+        expect(byApiLine.body).toEqual({...byStoreLine, id: byStoreLine.id + 1, at: expect.any(String)})
+        const answered = {...asked, request: {...asked.request, state: 'allowed'}}
+        await chats.keepLine(store.db, 'c0ffee000010', {...answered, id: byStoreLine.id, at: byStoreLine.at} as never)
+        const changedByApi = await viaApi('PUT', `/api/chats/c0ffee000011/lines/${byStoreLine.id + 1}`, answered)
+        expect(changedByApi).toMatchObject({status: 200, body: {id: byStoreLine.id + 1, request: {state: 'allowed'}}})
+        expect((await lines('c0ffee000011')).map(l => l.message)).toEqual((await lines('c0ffee000010')).map(l => l.message))
+        expect(await viaApi('POST', '/api/chats/nope/lines', asked)).toMatchObject({status: 404})
+        expect(await viaApi('PUT', '/api/chats/c0ffee000011/lines/999', asked)).toMatchObject({status: 404})
+        expect(await viaApi('POST', '/api/chats/c0ffee000011/lines', {from: 'someone'})).toMatchObject({status: 400})
+        // The chat asking to change a setting (ORR-1100), for the Rust /mcp's `update_settings`: kept as a request in a
+        // running chat, as `askSetting` keeps it, and refused in one that has ended.
+        const asking = await viaApi('POST', '/api/chats/c0ffee000003/setting-requests', {setting: 'tint', value: 'blue', why: 'Brighter.'})
+        expect(asking).toMatchObject({status: 201, body: {from: 'claude', text: 'Brighter.', images: [], request: {setting: 'tint', from: null, to: 'blue', state: 'asked'}}})
+        expect(await viaApi('POST', '/api/chats/c0ffee000011/setting-requests', {setting: 'tint', value: 'blue'})).toMatchObject({status: 404})
+        // And a schedule (ORR-1100), for its `create_schedule`: kept as `askSchedule` keeps it, saving nothing.
+        const scheduling = await viaApi('POST', '/api/chats/c0ffee000003/schedule-requests', {schedule: {title: 'Nudge', kind: 'message', notes: 'Hi', cron: '0 9 * * 1'}, why: 'You asked.'})
+        expect(scheduling).toMatchObject({status: 201, body: {from: 'claude', text: 'You asked.', images: [], schedule: {title: 'Nudge', state: 'asked', body: {title: 'Nudge', kind: 'message', notes: 'Hi', cron: '0 9 * * 1'}}}})
+        expect(await viaApi('POST', '/api/chats/c0ffee000011/schedule-requests', {schedule: {title: 'Nudge', cron: '0 9 * * 1'}})).toMatchObject({status: 404})
+        // And a release (ORR-1100), for its `create_release`: kept as `askRelease` keeps it, saving nothing.
+        await viaApi('PATCH', '/api/projects/through-api', {release_mode: 'own'})
+        const releasing = await viaApi('POST', '/api/chats/c0ffee000003/release-requests', {release: {version: '7.7.7', branch: 'v7.7.7'}, why: 'Next.'})
+        expect(releasing).toMatchObject({status: 201, body: {from: 'claude', text: 'Next.', release: {version: '7.7.7', change: false, state: 'asked',
+            changes: [{field: 'version', to: '7.7.7'}, {field: 'branch', to: 'v7.7.7'}], body: {version: '7.7.7', branch: 'v7.7.7'}}}})
+        expect((await viaApi('GET', '/api/projects/through-api/releases')).body).not.toContainEqual(expect.objectContaining({version: '7.7.7'}))
+        // And an issue it offers (ORR-1100), for its `offer_issue`: kept as `askIssue` keeps it, filing nothing.
+        const offering = await viaApi('POST', '/api/chats/c0ffee000003/issue-requests', {issue: {title: ' Odd sums ', priority: 'P2', labels: ['bug']}, why: 'Spotted.'})
+        expect(offering).toMatchObject({status: 201, body: {from: 'claude', text: 'Spotted.', issue: {title: 'Odd sums', state: 'asked', priority: 'P2', labels: ['bug']}}})
+        expect(await viaApi('POST', '/api/chats/c0ffee000011/issue-requests', {issue: {title: 'X'}})).toMatchObject({status: 404})
+        // And a move (ORR-1100), for its `move_issues`: the owner's last words here don't name it, so it's asked as
+        // `askMove` asks it, moving nothing.
+        // On a project of its own, so the other tests' issues keep their numbers.
+        await store.createProject({name: 'through-api-moves', key: 'MOV'})
+        const moving = (await store.createIssue('through-api-moves', {title: 'Odd moves'}, OWNER)).id
+        const move = await viaApi('POST', '/api/chats/c0ffee000003/move-requests', {move: {ids: [moving], status: 'todo'}, project: 'through-api-moves', why: 'Ready.'})
+        expect(move).toMatchObject({status: 201, body: {from: 'claude', text: 'Ready.', move: {state: 'asked', project: 'through-api-moves', body: {ids: [moving], status: 'todo'},
+            changes: [{issue: moving, title: 'Odd moves', field: 'status', from: 'backlog', to: 'todo'}], was: {[moving]: {status: 'backlog', assignee: null}}}}})
+        expect((await viaApi('GET', `/api/projects/through-api-moves/issues/${moving}`)).body).toMatchObject({column: 'backlog'})
+        expect(await viaApi('POST', '/api/chats/c0ffee000011/release-requests', {release: {version: '1.0.0'}})).toMatchObject({status: 404})
+        // The chat's session answering (ORR-1101), for the Rust /mcp's `reply`: kept as `reply` keeps it, only from the
+        // chat's own session, and refused in one that has ended.
+        const own = {'Orrery-Actor-Kind': 'chat', 'Orrery-Launch': 'c0ffee000003'}
+        const answering = await viaApi('POST', '/api/chats/c0ffee000003/replies', {text: ' It is blue. '}, AGENT, 'through-api', own)
+        expect(answering).toMatchObject({status: 201, body: {from: 'claude', text: 'It is blue.', images: []}})
+        expect(await viaApi('POST', '/api/chats/c0ffee000003/replies', {text: 'Hi'}, AGENT, 'through-api', {...own, 'Orrery-Launch': 'c0ffee000011'})).toMatchObject({status: 403})
+        expect(await viaApi('POST', '/api/chats/c0ffee000011/replies', {text: 'Hi'}, AGENT, 'through-api', {...own, 'Orrery-Launch': 'c0ffee000011'})).toMatchObject({status: 404})
+        // And a doc (ORR-1100), for its `create_doc`: kept as `askDoc` keeps it, holding only what it would set.
+        const documenting = await viaApi('POST', '/api/chats/c0ffee000003/doc-requests', {doc: {title: 'Plan', body: 'Sieve'}, why: 'You asked.'})
+        expect(documenting).toMatchObject({status: 201, body: {from: 'claude', text: 'You asked.', images: [], doc: {title: 'Plan', body: {title: 'Plan', body: 'Sieve'}, state: 'asked'}}})
+        expect(await viaApi('POST', '/api/chats/c0ffee000011/doc-requests', {doc: {title: 'Plan'}})).toMatchObject({status: 404})
         await chats.keepChat(store.db, said('c0ffee000010', 'through-store') as never, true)
         expect(await viaApi('DELETE', '/api/chats/c0ffee000011')).toMatchObject({status: 204})
         expect([await row('c0ffee000010'), await row('c0ffee000011')]).toEqual([undefined, undefined])
+        expect([await lines('c0ffee000010'), await lines('c0ffee000011')]).toEqual([[], []])
         vi.unstubAllGlobals()
         expect(domainOf('GET', '/api/chats')).toBeUndefined()
         expect(domainOf('PUT', '/api/chats/c0ffee000011')).toBeUndefined()
+    })
+
+    it('takes the local app\'s own writes, the chat\'s row and its Allow, as the page\'s requests (ORR-1044)', async () => {
+        vi.stubGlobal('useStore', () => store)
+        vi.stubGlobal('databaseSetting', () => setting)
+        apiStarted({url, token: TOKEN})
+        try {
+            const chat = {id: 'c0ffee000020', project: 'through-api', started_at: '2026-11-07T06:00:00.000Z', issues: 'todo', messages: []}
+            expect(await writeToApi('PUT', `/api/chats/${chat.id}`, chat, {name: 'orrery', owner: false}, {always: true, config: {}})).toEqual({reply: null})
+            expect((await store.db.get<{project: string}>('SELECT project FROM chats WHERE id = ?', chat.id))?.project).toBe('through-api')
+            expect(await writeToApi('DELETE', `/api/chats/${chat.id}`, undefined, {name: 'orrery', owner: false}, {always: true, config: {}})).toEqual({reply: null})
+            expect(await store.db.get('SELECT id FROM chats WHERE id = ?', chat.id)).toBeUndefined()
+            // The owner's Allow on a doc the chat asked for, as theirs through the chat.
+            const made = await writeToApi('POST', '/api/projects/through-api/docs', {title: 'Asked by the chat', body: 'Kept.'}, {...OWNER, via: 'chat'}, {config: {}})
+            expect(made?.reply).toMatchObject({id: 'asked-by-the-chat', title: 'Asked by the chat'})
+            expect((await store.doc('through-api', 'asked-by-the-chat')).body).toBe('Kept.')
+            await expect(writeToApi('PATCH', '/api/projects/through-api/docs/nope', {body: 'x'}, OWNER, {config: {}})).rejects.toMatchObject({statusCode: 404})
+            await viaApi('DELETE', '/docs/asked-by-the-chat', undefined, OWNER)
+        } finally {
+            apiStarted(null)
+            vi.unstubAllGlobals()
+        }
+    })
+
+    it('runs the owner\'s chat end to end alike, with the store and with the Rust API in front (ORR-1044)', async () => {
+        // The chat module with Nitro's globals stubbed: its launches and the messages to its session are caught here, the
+        // board is the real store, and the chat's row goes to the database or through the API as the app sends it.
+        let launches = 0
+        const heard: {shown: Chat[], sent: string[], noted: string[]} = {shown: [], sent: [], noted: []}
+        const page = new EventEmitter()
+        page.on('chat', (chat: Chat) => heard.shown.push(structuredClone(chat)))
+        vi.stubGlobal('projectEvents', page)
+        vi.stubGlobal('startChat', async () => ({id: `c0ffee0001${String(++launches).padStart(2, '0')}`}))
+        vi.stubGlobal('launchTarget', (id: string) => `launch-${id}`)
+        vi.stubGlobal('endLaunch', () => {})
+        vi.stubGlobal('sessionOfLaunch', () => ({id: 'claude-session', model: 'opus'}))
+        vi.stubGlobal('launchKnown', () => true)
+        vi.stubGlobal('useStore', () => store)
+        vi.stubGlobal('useDatabase', () => store.db)
+        vi.stubGlobal('databaseSetting', () => setting)
+        vi.stubGlobal('useEventLog', () => ({note: (e: {kind: string, message: string}) => heard.noted.push(`${e.kind}: ${e.message}`)}))
+        const input = await import('../server/utils/input')
+        vi.stubGlobal('notFound', input.notFound)
+        vi.stubGlobal('badRequest', input.badRequest)
+        vi.stubGlobal('conflict', input.conflict)
+        vi.stubGlobal('forbidden', input.forbidden)
+        const messageSession = store.messageSession
+        store.messageSession = (async (_project: string, target: string, text: string) => void heard.sent.push(`${target}: ${text}`)) as never
+        vi.resetModules()
+        // The router the fresh chats module uses, to put the API in front of it or not.
+        const router = await import('../server/utils/api-router')
+        const chats = await import('../server/utils/chats')
+
+        /** The flow on `project`: started, written in, answered, its requests allowed and denied, cleared, ended and
+         * deleted, as the page and the chat's session drive it. What the page heard, the session was told and the event
+         * log noted, the row as kept, and the board it made. */
+        async function flow(project: string): Promise<Outcome & {heard: typeof heard, row: unknown, board: unknown}> {
+            const at = {shown: heard.shown.length, sent: heard.sent.length, noted: heard.noted.length, told: events.length, changed: changes.length}
+            const chat = await chats.openChat(project)
+            await chats.say(chat.id, 'Offer an issue for the hinge, and write down how joints work.', [], OWNER, {path: `/p/${project}`})
+            await chats.reply(chat.id, 'On it.')
+            const decide = async (body: unknown, allow: boolean) => (await chats.answer(chat.id, (await chats.ask(chat.id, body)).id, allow, OWNER))
+            const filed = (await decide({issue: {title: 'Fit the hinge', priority: 'P2', notes: 'It squeaks.'}, why: 'You asked.'}, true)).issue!.id!
+            await decide({doc: {title: 'How joints work', body: 'A hinge turns.', section: 'How it works'}}, true)
+            await decide({doc: {body: 'A hinge turns, and squeaks.'}, id: 'how-joints-work'}, true)
+            await decide({milestone: {title: 'Hinges'}}, false)
+            await decide({milestone: {title: 'Joints', summary: 'All of them.'}}, true)
+            await decide({move: {ids: [filed], status: 'in-progress'}, why: 'Started.'}, true)
+            await decide({move: {ids: [filed], assignee: 'owner'}}, false)
+            chats.landChatIssues(chat.id, 'backlog')
+            await chats.clearChat(chat.id)
+            await decide({issue: {title: 'Oil the hinge'}}, true)
+            await decide({issue: {title: 'Paint it'}}, false)
+            chats.endChat(chat.id)
+            await chats.chatsSaved()
+            const row = await store.db.get<{project: string, ended: number, chat: string}>('SELECT project, ended_at IS NOT NULL AS ended, chat FROM chats WHERE id = ?', chat.id)
+            const board = {
+                issues: (await store.listIssues(project)).map(i => ({id: i.id, title: i.title, status: i.column, priority: i.priority ?? null, created_by: i.created_by})),
+                docs: (await store.listDocs(project)).map(d => ({id: d.id, title: d.title, section: d.section ?? null})),
+                joints: (await store.doc(project, 'how-joints-work')).body,
+                milestones: (await store.listMilestones(project)).map(m => ({title: m.title, summary: m.summary ?? null})),
+            }
+            chats.deleteChat(chat.id, OWNER)
+            await chats.chatsSaved()
+            expect(await store.db.get('SELECT id FROM chats WHERE id = ?', chat.id), `${project}: deleted`).toBeUndefined()
+            await quiet()
+            return {
+                status: 200, body: null, settings: false, changed: await sharing(changes.slice(at.changed)), told: events.slice(at.told).map(e => `${e.type} ${e.subject}`),
+                heard: {shown: heard.shown.slice(at.shown), sent: heard.sent.slice(at.sent), noted: heard.noted.slice(at.noted)},
+                row: row && {...row, ended: !!row.ended, chat: JSON.parse(row.chat)}, board,
+            }
+        }
+
+        // A project each of its own, as what the steps above made differs between the two.
+        for (const [name, key] of [['chat-through-store', 'CHS'], ['chat-through-api', 'CHA']] as const) await store.createProject({name, key})
+        try {
+            const byStore = await flow('chat-through-store')
+            router.apiStarted({url, token: TOKEN})
+            const before = new Set(reached)
+            const byApi = await flow('chat-through-api')
+            // The chat's own row and Allow's writes went to the API.
+            const asked = [...reached].filter(r => !before.has(r) || /chats|docs|milestones/.test(r))
+            for (const route of ['PUT /api/chats/c0ffee000102', 'POST /api/chats/c0ffee000102/lines', 'DELETE /api/chats/c0ffee000102', 'POST /api/projects/chat-through-api/docs', 'PATCH /api/projects/chat-through-api/docs/how-joints-work', 'POST /api/projects/chat-through-api/milestones']) {
+                expect(asked, route).toContain(route)
+            }
+            // The two chats' ids differ by their launch, and the issues' keys by their project, keys of `was` too.
+            const alike = (outcome: Outcome, project: string) => same(JSON.parse(JSON.stringify(outcome).replaceAll(/c0ffee0001\d\d/g, '<chat>').replaceAll(/\bCH[SA]-(\d+)\b/g, 'KEY-$1')) as Outcome, project)
+            expect(alike(byApi, 'chat-through-api')).toEqual(alike(byStore, 'chat-through-store'))
+            expect(byStore.heard.shown.at(-1)).toMatchObject({deleted: true, ended: true})
+            expect(byStore.row).toMatchObject({ended: true, project: 'chat-through-store'})
+            expect(byApi.heard.noted).toContain('chat.answered: steffen allowed the chat\'s request to make the milestone "Joints"')
+            expect(byApi.board).toMatchObject({joints: 'A hinge turns, and squeaks.', issues: [{title: 'Fit the hinge', status: 'in-progress'}, {title: 'Oil the hinge', status: 'backlog'}]})
+        } finally {
+            router.apiStarted(null)
+            store.messageSession = messageSession
+            vi.unstubAllGlobals()
+        }
     })
 
     it('lists people, and makes, lists and revokes keys and ends logins alike (ORR-928)', async () => {
@@ -1121,11 +1825,107 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         expect(out.headers.get('set-cookie')).toBe(`orrery_login_${port}=; Max-Age=0; Path=/`)
         expect(await store.loginHolder(secret)).toBeUndefined()
         expect((await call('/api/auth/logout')).status).toBe(204)
+        // Behind the router (ORR-1137): the cookie is named for the address the browser asked it for (`Orrery-Host`), and
+        // logging out goes by the login hashed (`Orrery-Login`), as the cookie stays with the router.
+        const routed = await call('/api/auth/login', {key: person.key}, {...cameHeaders({loopback: true, proxied: false, phone: false, https: false}, 'localhost:9123')})
+        const routedCookie = routed.headers.get('set-cookie')!
+        expect(routedCookie).toMatch(/^orrery_login_9123=/)
+        const routedSecret = /=([^;]+)/.exec(routedCookie)![1]!
+        const hashed = whoHeaders(undefined, routedSecret)['Orrery-Login']!
+        const routedOut = await call('/api/auth/logout', undefined, {...cameHeaders({loopback: true, proxied: false, phone: false, https: false}, 'localhost:9123'), 'Orrery-Login': hashed})
+        expect(routedOut.headers.get('set-cookie')).toBe('orrery_login_9123=; Max-Age=0; Path=/')
+        expect(await store.loginHolder(routedSecret)).toBeUndefined()
         await store.revokeKey(person.id)
         expect(await store.logins('lin')).toEqual([])
         expect((await call('/api/auth/login', {key: person.key})).status).toBe(401)
-        // Neither is the router's to send yet: the Nuxt server logs in for itself until the swap.
-        for (const path of ['/api/auth/login', '/api/auth/logout']) expect(servedByApi('POST', path), path).toBe(false)
+        // Both are the router's to send.
+        for (const path of ['/api/auth/login', '/api/auth/logout']) expect(servedByApi('POST', path), path).toBe(true)
+    })
+
+    it('lists, makes and changes workspaces, which only the API serves (ORR-1108)', async () => {
+        // There's no store side: the workspaces are the API's alone, and this drives each route once.
+        const made = await viaApi('POST', '/api/workspaces', {name: 'Parity Works', color: 'teal'}, OWNER)
+        expect(made).toMatchObject({status: 201, body: {id: 'parity-works', name: 'Parity Works', color: 'teal', role: 'owner'}})
+        const listed = await viaApi('GET', '/api/workspaces', undefined, OWNER)
+        expect((listed.body as {id: string}[]).map(w => w.id)).toContain('parity-works')
+        expect(await viaApi('PATCH', '/api/workspaces/parity-works', {name: 'Parity'}, OWNER)).toMatchObject({status: 200, body: {name: 'Parity', color: 'teal'}})
+        expect(await viaApi('PATCH', '/api/workspaces/nowhere', {name: 'X'}, OWNER)).toMatchObject({status: 404})
+        expect(servedByApi('GET', '/api/workspaces')).toBe(true)
+    })
+
+    it('says the login status, and makes and takes a phone\'s sign-in link, as the Nuxt server does (ORR-928)', async () => {
+        const call = (method: string, path: string, body?: unknown, extra: Record<string, string> = {}) => fetch(`${url}${path}`, {
+            method,
+            headers: {'Content-Type': 'application/json', 'Orrery-Api-Token': TOKEN, 'Orrery-Database': databaseMark(setting), ...extra},
+            ...body === undefined ? {} : {body: JSON.stringify(body)},
+        })
+        const status = async (came: Parameters<typeof cameHeaders>[0], host = 'localhost:9000', ways: {provider: boolean, off: boolean, on?: boolean} = {provider: false, off: false}, extra: Record<string, string> = {}) =>
+            (await call('GET', '/api/auth/status', undefined, {...cameHeaders(came, host), ...loginHeaders(ways, 'http://x'), ...extra})).json() as Promise<Record<string, unknown>>
+        if (!(await store.ownerOf()).named) await store.nameOwner({name: 'Steffen'})
+        const none = {loopback: false, proxied: false, phone: false, https: false}
+        const loopback = {...none, loopback: true}
+        const stays = await store.authStaysOn()
+        const canGetIn = await store.ownerHasKey()
+        // On loopback it's off unless auth stays on; anywhere else, through a proxy or on the phone's port it asks.
+        expect(await status(loopback)).toEqual({mode: stays ? 'on' : 'off', can_get_in: canGetIn, oidc: false, warn_http: false, phone: false})
+        // How the owner can get in, as the auth middleware asks it (ORR-1158): the local app's own call alone.
+        expect(await (await call('GET', '/api/auth/ways-in', undefined, OWN_WORK)).json()).toEqual({owner_has_key: canGetIn, stays_on: stays})
+        expect((await status(none, '192.168.1.9:9000')).mode).toBe('on')
+        expect((await status(none, '192.168.1.9:9000')).warn_http).toBe(true)
+        expect((await status({...none, https: true}, 'orrery.example')).warn_http).toBe(false)
+        expect((await status({...loopback, proxied: true})).mode).toBe('on')
+        expect((await status(loopback, 'localhost:9000', {provider: false, off: false, on: true})).mode).toBe('on')
+        expect(await status({...loopback, phone: true})).toMatchObject({mode: 'on', phone: true})
+        // ORRERY_AUTH=off lets only loopback in, and the phone's port never.
+        expect((await status(loopback, 'localhost:9000', {provider: false, off: true})).mode).toBe('off')
+        expect((await status(none, '192.168.1.9:9000', {provider: false, off: true})).mode).toBe('closed')
+        expect((await status({...none, phone: true}, '192.168.1.9:9000', {provider: false, off: true})).mode).toBe('closed')
+        expect(await status(loopback, 'localhost:9000', {provider: true, off: false})).toMatchObject({oidc: true, can_get_in: true})
+        // Who's asking is what the API finds of the credential: a real login, not the router's word (ORR-1038).
+        await store.addPerson({name: 'Ada'}).catch(() => undefined)
+        // A page's fetch says which page it's from, which the router passes on and the guard asks of a write (ORR-1081).
+        const signedIn = async (person: string, origin = 'http://192.168.1.9:9000') => whoHeaders(undefined, (await store.startLogin(person)).secret, undefined, {origin})
+        expect(await status(none, '192.168.1.9:9000', undefined, await signedIn('ada'))).toMatchObject({person: 'ada', via: 'browser'})
+        expect(await status(none, '192.168.1.9:9000', undefined, whoHeaders({person: 'ada', owner: false, via: 'browser'}, undefined))).not.toHaveProperty('person')
+
+        // Making a link: only the owner's own page, never over the phone's port or from a session.
+        const owner = await store.ownerOf()
+        const asOwner = {...actorHeaders(OWNER), ...await signedIn(owner.name), ...cameHeaders(none, '192.168.1.9:9000')}
+        const ownersAgent = whoHeaders(undefined, undefined, (await store.makeKey(owner.name, {kind: 'agent', name: 'parity'})).key)
+        expect((await call('POST', '/api/phone/link', undefined, {...asOwner, ...cameHeaders({...none, phone: true}, 'orrery.example')})).status).toBe(403)
+        expect((await call('POST', '/api/phone/link', undefined, {...actorHeaders(OWNER), ...await signedIn('ada')})).status).toBe(403)
+        expect((await call('POST', '/api/phone/link', undefined, {...actorHeaders(OWNER), ...ownersAgent})).status).toBe(403)
+        const fromSession = await call('POST', '/api/phone/link', undefined, {...actorHeaders(SESSION), ...await signedIn(owner.name)})
+        expect(fromSession.status).toBe(403)
+        expect(await fromSession.json()).toMatchObject({data: {permission: 'phone.link'}})
+        const bare = await call('POST', '/api/phone/link', undefined, {...actorHeaders(OWNER), ...await signedIn(owner.name, ''), ...cameHeaders(none, '192.168.1.9:9000')})
+        expect([bare.status, await bare.json()]).toMatchObject([403, {message: "A logged-in write comes from orrery's own page"}])
+        const made = await call('POST', '/api/phone/link', undefined, asOwner)
+        expect(made.status).toBe(201)
+        const link = await made.json() as {token: string, code: string, expires_at: string}
+        expect(link.token).toMatch(/^[\w-]{32}$/)
+        expect(link.code).toMatch(/^[A-HJKMNP-Z2-9]{6}$/)
+        expect(Date.parse(link.expires_at) - Date.now()).toBeGreaterThan(4 * 60_000)
+
+        // Taking it: once, by the link or its code, with a login named as the phone's that the store knows.
+        const taken = await call('POST', '/api/auth/link', {token: link.token}, cameHeaders({...none, phone: true, https: true}, 'orrery.example'))
+        expect(taken.status).toBe(201)
+        expect(await taken.json()).toEqual({person: owner.name})
+        const cookie = taken.headers.get('set-cookie')!
+        expect(cookie).toMatch(/; HttpOnly; Secure; SameSite=Lax$/)
+        const secret = /=([^;]+)/.exec(cookie)![1]!
+        expect(await store.loginHolder(secret)).toEqual({person: owner.name, owner: true})
+        expect(await store.logins(owner.name, secret)).toContainEqual(expect.objectContaining({current: true, name: PHONE_LOGIN}))
+        const again = await call('POST', '/api/auth/link', {token: link.token})
+        expect(again.status).toBe(401)
+        expect(await again.json()).toMatchObject({message: 'This sign-in link has been used or has run out: show the QR code in App settings again'})
+        expect((await call('POST', '/api/auth/link', {code: link.code})).status).toBe(401)
+        const second = await (await call('POST', '/api/phone/link', undefined, asOwner)).json() as {token: string, code: string}
+        const typed = await call('POST', '/api/auth/link', {code: `${second.code.slice(0, 3).toLowerCase()} ${second.code.slice(3)}`})
+        expect(typed.status).toBe(201)
+        expect((await call('POST', '/api/auth/link', {token: second.token})).status).toBe(401)
+        // None of the three is the router's to send yet: the Nuxt server keeps them until the swap.
+        for (const [method, path] of [['GET', '/api/auth/status'], ['POST', '/api/auth/link'], ['POST', '/api/phone/link']] as const) expect(servedByApi(method, path), path).toBe(false)
     })
 
     it('logs in through a provider as the Nuxt server does, with an invite the store made (ORR-928)', async () => {
@@ -1138,6 +1938,7 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         let sign: {claims?: Record<string, string>, key?: CryptoKey, none?: boolean} = {}
         let nonce = ''
         const posts: URLSearchParams[] = []
+        const auths: (string | undefined)[] = []
         const provider = createServer(async (req, res) => {
             const json = (body: unknown) => res.writeHead(200, {'Content-Type': 'application/json'}).end(JSON.stringify(body))
             if (req.url === '/.well-known/openid-configuration') return json({issuer: issuer, authorization_endpoint: `${issuer}/authorize?prompt=login`, token_endpoint: `${issuer}/token`, jwks_uri: `${issuer}/jwks`})
@@ -1145,6 +1946,7 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
             let body = ''
             for await (const chunk of req) body += chunk
             posts.push(new URLSearchParams(body))
+            auths.push(req.headers.authorization)
             if (sign.none) return json({access_token: 'only-this'})
             const claims = {iss: issuer, aud: 'orrery-client', sub: 'account-1', nonce, ...sign.claims}
             const token = new SignJWT({nonce: claims.nonce}).setProtectedHeader({alg: 'RS256', kid: 'one'}).setIssuedAt().setExpirationTime('5m').setIssuer(claims.iss).setAudience(claims.aud)
@@ -1197,7 +1999,7 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
             const {response, to, cookie} = await started('?invite=&back=https://elsewhere.example')
             expect(`${to.origin}${to.pathname}`).toBe(`${issuer}/authorize`)
             expect(Object.fromEntries(to.searchParams)).toEqual({
-                response_type: 'code', scope: 'openid', client_id: 'orrery-client', redirect_uri: `http://127.0.0.1:${port}/api/auth/oidc/callback`,
+                response_type: 'code', scope: 'openid profile', client_id: 'orrery-client', redirect_uri: `http://127.0.0.1:${port}/api/auth/oidc/callback`,
                 state: expect.stringMatching(/^[\w-]{43}$/), nonce: expect.stringMatching(/^[\w-]{43}$/), code_challenge: expect.stringMatching(/^[\w-]{43}$/), code_challenge_method: 'S256',
             })
             expect(response.headers.get('set-cookie')).toMatch(/^orrery_oidc=[\w-]+; Max-Age=600; Path=\/api\/auth\/oidc; HttpOnly; SameSite=Lax$/)
@@ -1212,7 +2014,10 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
             await failed(await back(to.searchParams.get('state')!, cookie), 403, "This account isn't on this orrery: ask its owner for an invite")
             // The code is swapped with the verifier whose challenge was sent.
             const swap = posts.at(-1)!
-            expect(Object.fromEntries(swap)).toMatchObject({grant_type: 'authorization_code', code: 'the-code', client_id: 'orrery-client', client_secret: 'client-secret', redirect_uri: `http://127.0.0.1:${port}/api/auth/oidc/callback`})
+            expect(Object.fromEntries(swap)).toMatchObject({grant_type: 'authorization_code', code: 'the-code', client_id: 'orrery-client', redirect_uri: `http://127.0.0.1:${port}/api/auth/oidc/callback`})
+            // The secret goes as HTTP Basic, not in the body (ORR-1181).
+            expect(swap.has('client_secret')).toBe(false)
+            expect(auths.at(-1)).toBe(`Basic ${Buffer.from('orrery-client:client-secret').toString('base64')}`)
             expect(createHash('sha256').update(swap.get('code_verifier')!).digest('base64url')).toBe(to.searchParams.get('code_challenge'))
 
             // A way back this browser didn't start, or with no cookie, or a token that doesn't check out, is refused.
@@ -1330,14 +2135,35 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         await expect(store.identity('https://id.example', 'sub-2', secret)).rejects.toMatchObject({statusCode: 409})
     })
 
+    it('lists, adds and takes off a board\'s members alike, its holder staying (ORR-1036)', async () => {
+        const on = async (project: string) => (await store.members(project)).map(m => m.person)
+        const was = {'through-store': await on('through-store'), 'through-api': await on('through-api')}
+        await both('the members', p => viaStore(() => store.members(p)), () => viaApi('GET', '/members'))
+        await both('Ada added by her id', p => viaStore(() => store.addMember(p, {person: 'ada'}, OWNER), 201), () => viaApi('POST', '/members', {person: 'ada'}, OWNER))
+        await both('Ada again, by her name', p => viaStore(() => store.addMember(p, {person: 'Ada'}, OWNER), 201), () => viaApi('POST', '/members', {person: 'Ada'}, OWNER))
+        await both('nobody', p => viaStore(() => store.addMember(p, {person: 'nobody'}, OWNER), 201), () => viaApi('POST', '/members', {person: 'nobody'}, OWNER))
+        await both('not a person', p => viaStore(() => store.addMember(p, {who: 4, person: null}, OWNER), 201), () => viaApi('POST', '/members', {who: 4, person: null}, OWNER))
+        // The boards here were made before anyone held them: the owner holds both for these steps.
+        const holder = 'steffen'
+        for (const p of ['through-store', 'through-api']) await store.db.run("INSERT INTO project_members (project, person, role, created_at) VALUES (?, ?, 'owner', ?) ON CONFLICT (project, person) DO UPDATE SET role = 'owner'", p, holder, new Date().toISOString())
+        await both('its holder taken off', p => viaStore(() => store.removeMember(p, holder, OWNER)), () => viaApi('DELETE', `/members/${holder}`, undefined, OWNER))
+        await both('Ada taken off', p => viaStore(() => store.removeMember(p, 'ada', OWNER)), () => viaApi('DELETE', '/members/ada', undefined, OWNER))
+        await both('the members after', p => viaStore(() => store.members(p)), () => viaApi('GET', '/members'))
+        await both('no such board', () => viaStore(() => store.members('nowhere')), () => viaApi('GET', '/api/projects/nowhere/members'))
+        // A session never says who's on a board: the rails refuse it at the door.
+        expect(await viaApi('POST', '/members', {person: 'ada'}, SESSION)).toMatchObject({status: 403, body: {data: {permission: 'members.write'}}})
+        for (const p of ['through-store', 'through-api'] as const) {
+            await store.db.run("DELETE FROM project_members WHERE project = ? AND person = ?", p, holder)
+            for (const person of was[p]) await store.db.run("INSERT INTO project_members (project, person, role, created_at) VALUES (?, ?, 'member', ?) ON CONFLICT (project, person) DO NOTHING", p, person, new Date().toISOString())
+        }
+        expect(domainOf('DELETE', '/api/projects/p/members/ada')).toBe('board members')
+    })
+
     it('gives a new project to whoever asks alike, as the route here works it out (ORR-1002)', async () => {
         // The store is handed who holds it (`personOf`, by the route); the API works it out from the headers.
         const cases: [string, Actor, string | undefined, Record<string, string>?][] = [
             ['the owner', OWNER, 'steffen'],
             ['a session naming its person', {name: 'agent', owner: false, named: 'Ada', asked: true}, 'ada'],
-            ['a session naming nobody', {...AGENT, asked: true}, undefined],
-            ['the owner\'s chat', {name: 'steffen', owner: false, chat: true}, 'steffen'],
-            ['an untrusted session', {name: 'agent', owner: false, untrusted: true, asked: true}, undefined],
             ['an agent with its person\'s key', {name: 'agent', owner: false, named: 'bob', asked: true}, 'bob', whoHeaders({person: 'bob', owner: false, via: 'agent'}, undefined)],
         ]
         const members = async (project: string) => store.db.all('SELECT person, role FROM project_members WHERE project = ? ORDER BY person', project)
@@ -1348,8 +2174,17 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
             expect(await members(`through-api-held-${i}`), name).toEqual(await members(`through-store-held-${i}`))
         }
         expect(await members('through-api-held-1')).toEqual([{person: 'ada', role: 'owner'}])
-        expect(await members('through-api-held-2')).toEqual([{person: 'steffen', role: 'owner'}])
-        expect(await members('through-api-held-5')).toEqual([{person: 'bob', role: 'owner'}])
+        expect(await members('through-api-held-2')).toEqual([{person: 'bob', role: 'owner'}])
+        // With more than one person here, the rails refuse the rest at the door, as the middleware here does (ORR-1059).
+        const refused: [string, Actor, number][] = [
+            ['a session naming nobody', {...AGENT, asked: true}, 409],
+            ['the owner\'s chat', {name: 'steffen', owner: false, chat: true}, 403],
+            ['an untrusted session', {name: 'agent', owner: false, untrusted: true, asked: true}, 403],
+        ]
+        for (const [name, actor, status] of refused) {
+            expect((await viaApi('POST', '/api/projects', {name: 'Refused', id: 'through-api-refused'}, actor, '')).status, name).toBe(status)
+        }
+        expect(await store.db.get("SELECT 1 FROM projects WHERE id = 'through-api-refused'")).toBeUndefined()
     })
 
     it('takes an issue up and lets it go alike, with the rails between people, and tells each (ORR-927)', async () => {
@@ -1378,7 +2213,7 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
             activity('claude'),
         ] as Step[]) await both(name, ts, rs)
         // Two people: an agent takes up only its person's, and lets go only of its person's claim.
-        if (!(await store.people()).some(person => person.id === 'hal')) await store.addPerson({name: 'Hal'})
+        if (!(await store.people()).some(person => person.id === 'hal')) await hire('Hal')
         const HALS: Actor = {name: 'agent', owner: false, session: 'orrery · Hal', asked: true, named: 'hal'}
         const HAL: Actor = {name: 'hal', owner: false, person: 'hal', asked: true}
         const NAMELESS: Actor = {name: 'agent', owner: false, session: 'orrery · Zed', asked: true, named: 'zed'}
@@ -1400,6 +2235,7 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         // Hal gone without a trace, so a later step can hire them afresh.
         await store.db.run("UPDATE issues SET assignee = NULL WHERE assignee = 'hal'")
         await store.db.run("DELETE FROM people WHERE id = 'hal'")
+        await store.db.run("DELETE FROM project_members WHERE person = 'hal'")
         await quiet()
         // The same rows in the outbox, each claim and new assignee told: the store's own land a step later, so sorted.
         const rows = async (p: string) => (await store.db.all<{kind: string, payload: string | null}>('SELECT kind, payload FROM changes WHERE project = ? AND id > ? ORDER BY id', p, start))
@@ -1443,10 +2279,11 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         ]
         for (const [name, ts, rs] of steps) await both(name, ts, rs)
         // Two people: an agent deletes only its person's.
-        await store.addPerson({name: 'Hal'})
+        await hire('Hal')
         const HALS: Actor = {name: 'agent', owner: false, session: 'orrery · Hal', asked: true, named: 'hal'}
         await both('the owner\'s, by Hal\'s agent', p => viaStore(() => store.deleteIssue(p, ids[p]!.hals!, HALS)), () => viaApi('DELETE', `/issues/${ids['through-api']!.hals}`, undefined, HALS))
         await store.db.run("DELETE FROM people WHERE id = 'hal'")
+        await store.db.run("DELETE FROM project_members WHERE person = 'hal'")
         await quiet()
         await both('the board after', p => viaStore(async () => (await store.listIssues(p)).map(i => i.title).sort()), async () => {
             const outcome = await viaApi('GET', '/issues')
@@ -1458,6 +2295,150 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         expect((await rows('through-api')).filter(row => row.startsWith('issue.deleted ')).length).toBe(2)
         // Made waiting on the frame and its strut, then freed of each.
         expect((await rows('through-api')).filter(row => row.startsWith('issue.depends '))).toHaveLength(3)
+    })
+
+    it('moves an issue to another project alike, with its sub-issues, comments, aliases and links (ORR-1129)', async () => {
+        const start = (await store.db.get<{n: number | null}>('SELECT max(id) AS n FROM changes'))?.n ?? 0
+        const to = (p: string) => `${p}-to`
+        const key = (p: string) => p === 'through-store' ? 'STO' : 'API'
+        const ids: Record<string, Record<string, string>> = {}
+        for (const p of ['through-store', 'through-api']) {
+            await store.createProject({name: to(p), key: `${key(p)}M`})
+            await store.createMilestone(to(p), {title: 'Launch'})
+            const there = (await store.createIssue(to(p), {title: 'Fit the dial'}, AGENT)).id
+            const frame = (await store.createIssue(p, {title: 'Build the frame'}, AGENT)).id
+            const strut = (await store.createIssue(p, {title: 'Cut a strut', parent: frame}, AGENT)).id
+            await store.createComment(p, strut, {body: 'Oak, not pine.'}, AGENT)
+            await store.db.run('INSERT INTO issue_aliases (project, alias, issue) VALUES (?, ?, ?)', p, `${key(p)}-97`, frame)
+            const paint = (await store.createIssue(p, {title: 'Paint the frame', depends_on: [frame]}, AGENT)).id
+            const gear = (await store.createIssue(p, {title: 'Cut a gear'}, AGENT)).id
+            ids[p] = {there, frame, strut, paint, gear}
+        }
+        type Step = [string, (p: string) => Promise<Outcome>, () => Promise<Outcome>]
+        const move = (name: string, which: string, body: (p: string) => Record<string, unknown>): Step =>
+            [name, p => viaStore(() => store.updateIssue(p, ids[p]![which]!, body(p), OWNER)), () => viaApi('PATCH', `/issues/${ids['through-api']![which]}`, body('through-api'), OWNER)]
+        const read = (name: string, where: (p: string) => string, path: (p: string) => string): Step =>
+            [name, p => viaStore(() => store.issue(where(p), path(p))), () => viaApi('GET', `/issues/${path('through-api')}`, undefined, AGENT, where('through-api'))]
+        const steps: Step[] = [
+            move('under a parent and into a milestone at once', 'gear', p => ({project: to(p), parent: ids[p]!.there, milestone: '1'})),
+            move('to a project that isn\'t there', 'gear', () => ({project: 'nowhere'})),
+            move('with its sub-issue, a comment and a link, made P1 there', 'frame', p => ({project: to(p), priority: 'P1'})),
+            read('it, there', to, p => `${key(p)}M-2`),
+            read('its sub-issue, there', to, p => `${key(p)}M-3`),
+            read('it, by the id it had', to, p => ids[p]!.frame!),
+            read('it, by its old alias', to, p => `${key(p)}-97`),
+            read('what depends on it', p => p, p => ids[p]!.paint!),
+            ['its activity', p => viaStore(() => store.listActivity(to(p), `${key(p)}M-2`)), () => viaApi('GET', '/issues/APIM-2/activity', undefined, AGENT, to('through-api'))],
+            ['its sub-issue\'s comments', p => viaStore(() => store.listComments(to(p), `${key(p)}M-3`)), () => viaApi('GET', '/issues/APIM-3/comments', undefined, AGENT, to('through-api'))],
+            move('into a milestone there', 'gear', p => ({project: to(p), milestone: '1'})),
+            read('gone from where it was', p => p, p => ids[p]!.gear!),
+        ]
+        for (const [name, ts, rs] of steps) await both(name, ts, rs)
+        const rows = async (p: string) => (await store.db.all<{kind: string, payload: string | null}>('SELECT kind, payload FROM changes WHERE project IN (?, ?) AND id > ? ORDER BY id', p, to(p), start))
+            .map(r => `${r.kind} ${(r.payload ?? '').replaceAll(p, '<project>').replace(/\b(STO|API)(M?)-(\d+)/g, 'KEY$2-$3')}`).sort()
+        // The store says a project changed once per change it makes, the API once per project a request changes.
+        const distinct = async (p: string) => [...new Set(await rows(p))]
+        expect(await distinct('through-api')).toEqual(await distinct('through-store'))
+        expect((await rows('through-api')).filter(row => row.startsWith('issue.project '))).toHaveLength(2)
+    })
+
+    it('reads and names the owner alike, refusing what it refuses (ORR-1036)', async () => {
+        // The database is shared, so the owner keeps their id here: naming them anew is rust/people_tests.rs's.
+        if (!(await store.ownerOf()).named) await store.nameOwner({name: 'Steffen'})
+        const steps: [string, () => Promise<unknown>, string, unknown, Actor, number?][] = [
+            ['read', () => store.ownerOf(), 'GET', undefined, AGENT],
+            ['named again, the same', () => store.nameOwner({name: ' Steffen '}, OWNER), 'PUT', {name: ' Steffen '}, OWNER],
+            ['by anyone but the owner', () => store.nameOwner({name: 'Mallory'}, AGENT), 'PUT', {name: 'Mallory'}, AGENT],
+            ['as claude', () => store.nameOwner({name: 'Claude'}, OWNER), 'PUT', {name: 'Claude'}, OWNER],
+            ['with no letter', () => store.nameOwner({name: '!!'}, OWNER), 'PUT', {name: '!!'}, OWNER],
+            ['with a field it doesn\'t take', () => store.nameOwner({name: 'Steffen', nope: 1}, OWNER), 'PUT', {name: 'Steffen', nope: 1}, OWNER],
+        ]
+        for (const [name, step, method, body, actor] of steps) await both(name, () => viaStore(step), () => viaApi(method, '/api/owner', body, actor))
+    })
+
+    it('changes many issues alike, each on its own, the refused ones saying why (ORR-927)', async () => {
+        const start = (await store.db.get<{n: number | null}>('SELECT max(id) AS n FROM changes'))?.n ?? 0
+        const before = (await store.db.get<{n: number | null}>('SELECT max(id) AS n FROM signals'))?.n ?? 0
+        const key = (p: string) => p === 'through-store' ? 'STO' : 'API'
+        const ids: Record<string, Record<string, string>> = {}
+        for (const p of ['through-store', 'through-api']) {
+            const saw = (await store.createIssue(p, {title: 'Sharpen the saw', labels: ['old', 'tools']}, AGENT)).id
+            const plane = (await store.createIssue(p, {title: 'Plane the boards', labels: ['wood']}, AGENT)).id
+            await store.db.run('INSERT INTO issue_aliases (project, alias, issue) VALUES (?, ?, ?)', p, `${key(p)}-97`, plane)
+            const idea = (await store.createIssue(p, {title: 'A dovetail jig', proposal: 'pending'}, AGENT)).id
+            const owners = (await store.createIssue(p, {title: 'Choose the wood'}, OWNER)).id
+            ids[p] = {saw, plane, idea, owners}
+        }
+        type Step = [string, (p: string) => Promise<Outcome>, () => Promise<Outcome>]
+        const change = (name: string, body: (p: string) => unknown, actor: Actor = AGENT): Step =>
+            [name, p => viaStore(() => store.updateIssues(p, body(p), actor)), () => viaApi('PATCH', '/issues', body('through-api'), actor)]
+        const steps: Step[] = [
+            change('no ids', () => ({set: {priority: 'P2'}})),
+            change('an empty list', () => ({ids: [], set: {priority: 'P2'}})),
+            change('fields many can\'t take', p => ({ids: [ids[p]!.saw], set: {title: 'Saw', notes: 'Sharp', priority: 'P2'}})),
+            change('a "set" that\'s words', p => ({ids: [ids[p]!.saw], set: 'ab'})),
+            change('labels to add that aren\'t a list', p => ({ids: [ids[p]!.saw], labels: {add: 'glue'}})),
+            change('labels to take off that are null', p => ({ids: [ids[p]!.saw], labels: {remove: null}})),
+            change('a status, a priority and labels, by an id it had, sent twice, the owner\'s, a proposal and one that isn\'t there',
+                p => ({ids: [ids[p]!.saw, `${key(p)}-97`, ids[p]!.saw, ids[p]!.owners, ids[p]!.idea, 'X-404'], set: {status: 'in-progress', priority: 'P1'}, labels: {add: ['wood', 'shop'], remove: ['old']}})),
+            change('a status that isn\'t one', p => ({ids: [ids[p]!.saw], set: {status: 'somewhere'}})),
+            change('urgent and the owner\'s, by the owner', p => ({ids: [ids[p]!.owners, ids[p]!.plane], set: {priority: 'P0', assignee: 'owner'}}), OWNER),
+            change('only labels, by the owner', p => ({ids: [ids[p]!.owners], labels: {add: ['wood']}}), OWNER),
+            ['in a project that isn\'t there', () => viaStore(() => store.updateIssues('nowhere', {ids: ['X-1'], set: {priority: 'P1'}}, AGENT)), () => viaApi('PATCH', '/issues', {ids: ['X-1'], set: {priority: 'P1'}}, AGENT, 'nowhere')],
+        ]
+        for (const [name, ts, rs] of steps) await both(name, ts, rs)
+        await quiet()
+        await both('the board after', p => viaStore(async () => (await store.listIssues(p)).map(i => `${i.title} ${i.status} ${i.priority} ${i.assignee} ${i.labels.join(',')}`).sort()), async () => {
+            const outcome = await viaApi('GET', '/issues')
+            return {...outcome, body: (outcome.body as {title: string, status: string, priority: string, assignee: string, labels: string[]}[]).map(i => `${i.title} ${i.status} ${i.priority} ${i.assignee} ${i.labels.join(',')}`).sort()}
+        })
+        const rows = async (p: string) => (await store.db.all<{kind: string, payload: string | null}>('SELECT kind, payload FROM changes WHERE project = ? AND id > ? ORDER BY id', p, start))
+            .map(r => `${r.kind} ${(r.payload ?? '').replace(/\b(STO|API)-(\d+)/g, 'KEY-$2')}`).sort()
+        expect(await rows('through-api')).toEqual(await rows('through-store'))
+        // The two the owner made urgent are pushed to the sessions, each once, on both.
+        const focus = async (p: string) => (await store.db.all<{issue: string}>(`SELECT issue FROM signals WHERE project = ? AND id > ? AND kind = 'focus' ORDER BY issue`, p, before))
+            .map(r => r.issue.replace(/^(STO|API)-/, 'KEY-'))
+        expect(await focus('through-api')).toEqual(await focus('through-store'))
+        expect(await focus('through-api')).toHaveLength(2)
+    })
+
+    it('deletes many issues alike, each on its own, the refused ones saying why (ORR-927)', async () => {
+        const start = (await store.db.get<{n: number | null}>('SELECT max(id) AS n FROM changes'))?.n ?? 0
+        const key = (p: string) => p === 'through-store' ? 'STO' : 'API'
+        const ids: Record<string, Record<string, string>> = {}
+        for (const p of ['through-store', 'through-api']) {
+            const case_ = (await store.createIssue(p, {title: 'Build the case'}, AGENT)).id
+            const hinge = (await store.createIssue(p, {title: 'Fit the hinge', parent: case_}, AGENT)).id
+            const lid = (await store.createIssue(p, {title: 'Carve the lid'}, AGENT)).id
+            await store.db.run('INSERT INTO issue_aliases (project, alias, issue) VALUES (?, ?, ?)', p, `${key(p)}-98`, lid)
+            const varnish = (await store.createIssue(p, {title: 'Varnish it', depends_on: [case_]}, AGENT)).id
+            const owners = (await store.createIssue(p, {title: 'Choose the wood'}, OWNER)).id
+            const last = (await store.createIssue(p, {title: 'Ship it'}, AGENT)).id
+            ids[p] = {case: case_, hinge, lid, varnish, owners, last}
+        }
+        type Step = [string, (p: string) => Promise<Outcome>, () => Promise<Outcome>]
+        const drop = (name: string, body: (p: string) => unknown, actor: Actor = AGENT): Step =>
+            [name, p => viaStore(() => store.deleteIssues(p, body(p), actor)), () => viaApi('DELETE', '/issues', body('through-api'), actor)]
+        const steps: Step[] = [
+            drop('no ids', () => ({})),
+            drop('ids that aren\'t a list of ids', () => ({ids: ['X-1', 2]})),
+            drop('an empty list', () => ({ids: []})),
+            drop('a parent, its sub-issue after it, one by an id it had before, the owner\'s, one sent twice and one that isn\'t there',
+                p => ({ids: [ids[p]!.case, ids[p]!.hinge, `${key(p)}-98`, ids[p]!.owners, ids[p]!.case, 'X-404']})),
+            drop('the owner\'s, by the owner', p => ({ids: [ids[p]!.owners]}), OWNER),
+            ['what waited on it, its activity', p => viaStore(() => store.listActivity(p, ids[p]!.varnish!)), () => viaApi('GET', `/issues/${ids['through-api']!.varnish}/activity`)],
+            ['in a project that isn\'t there', () => viaStore(() => store.deleteIssues('nowhere', {ids: ['X-1']}, AGENT)), () => viaApi('DELETE', '/issues', {ids: ['X-1']}, AGENT, 'nowhere')],
+        ]
+        for (const [name, ts, rs] of steps) await both(name, ts, rs)
+        await quiet()
+        await both('the board after', p => viaStore(async () => (await store.listIssues(p)).map(i => i.title).sort()), async () => {
+            const outcome = await viaApi('GET', '/issues')
+            return {...outcome, body: (outcome.body as {title: string}[]).map(i => i.title).sort()}
+        })
+        const rows = async (p: string) => (await store.db.all<{kind: string, payload: string | null}>('SELECT kind, payload FROM changes WHERE project = ? AND id > ? ORDER BY id', p, start))
+            .map(r => `${r.kind} ${(r.payload ?? '').replace(/\b(STO|API)-(\d+)/g, 'KEY-$2')}`).sort()
+        expect(await rows('through-api')).toEqual(await rows('through-store'))
+        expect((await rows('through-api')).filter(row => row.startsWith('issue.deleted '))).toHaveLength(3)
     })
 
     it('changes an issue\'s own words alike, with the rails between people, noting and telling each (ORR-927)', async () => {
@@ -1484,7 +2465,7 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
             activity('gear'),
         ] as Step[]) await both(name, ts, rs)
         // Two people: an agent changes only its person's, or its own proposal.
-        await store.addPerson({name: 'Hal'})
+        await hire('Hal')
         const HALS: Actor = {name: 'agent', owner: false, session: 'orrery · Hal', asked: true, named: 'hal'}
         const NAMELESS: Actor = {name: 'agent', owner: false, session: 'orrery · Zed', asked: true, named: 'zed'}
         for (const p of ['through-store', 'through-api']) {
@@ -1504,6 +2485,7 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         ] as Step[]) await both(name, ts, rs)
         await store.db.run("UPDATE issues SET assignee = NULL WHERE assignee = 'hal'")
         await store.db.run("DELETE FROM people WHERE id = 'hal'")
+        await store.db.run("DELETE FROM project_members WHERE person = 'hal'")
         await quiet()
         const rows = async (p: string) => (await store.db.all<{kind: string, payload: string | null}>('SELECT kind, payload FROM changes WHERE project = ? AND id > ? ORDER BY id', p, start))
             .map(r => `${r.kind} ${(r.payload ?? '').replace(/\b(STO|API)-(\d+)/g, 'KEY-$2')}`).sort()
@@ -1512,6 +2494,7 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
     })
 
     it('changes an issue\'s priority alike, and pushes one made urgent to the sessions as the store does (ORR-927)', async () => {
+        const before = (await store.db.get<{n: number | null}>('SELECT max(id) AS n FROM signals'))?.n ?? 0
         const ids: Record<string, Record<string, string>> = {}
         for (const p of ['through-store', 'through-api']) {
             const make = async (title: string, more: Record<string, unknown> = {}) => (await store.createIssue(p, {title, ...more}, OWNER)).id
@@ -1520,7 +2503,7 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         type Step = [string, (p: string) => Promise<Outcome>, () => Promise<Outcome>]
         const edit = (name: string, which: string, body: unknown, actor: Actor = OWNER): Step =>
             [name, p => viaStore(() => store.updateIssue(p, ids[p]![which]!, body, actor)), () => viaApi('PATCH', `/issues/${ids['through-api']![which]}`, body, actor)]
-        const signals = async (p: string) => (await store.db.all<{issue: string, kind: string, note: string | null}>('SELECT issue, kind, note FROM signals WHERE project = ? ORDER BY id', p))
+        const signals = async (p: string) => (await store.db.all<{issue: string, kind: string, note: string | null}>('SELECT issue, kind, note FROM signals WHERE project = ? AND id > ? ORDER BY id', p, before))
             .map(r => `${r.kind} ${r.issue.replace(/^(STO|API)-/, 'KEY-')} ${r.note ?? ''}`)
         for (const [name, ts, rs] of [
             edit('made P1', 'spring', {priority: 'P1'}),
@@ -1708,6 +2691,262 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         expect((await signals('through-api')).filter(s => mine.has(s.split(' ')[1]!))).toEqual([`focus ${hot} It was just made urgent (P0).`])
     })
 
+    it('decides proposals alike: approved with picks or into Todo, changes asked for down an option, rejected, and refused (ORR-927)', async () => {
+        const start = (await store.db.get<{n: number | null}>('SELECT max(id) AS n FROM changes'))?.n ?? 0
+        const before = (await store.db.get<{n: number | null}>('SELECT max(id) AS n FROM signals'))?.n ?? 0
+        const choices = [
+            {key: 'store', question: 'Which store?', options: [{key: 'A', title: 'SQLite'}, {key: 'B', title: 'Postgres'}], recommended: ['A']},
+            {key: 'pool', question: 'How big a pool?', pick: 'any', options: [{key: 'small', title: 'Small'}, {key: 'large', title: 'Large'}], recommended: ['small'], from: {choice: 'store', option: 'B'}},
+        ]
+        const ids: Record<string, Record<string, string>> = {}
+        for (const p of ['through-store', 'through-api']) {
+            const make = async (title: string, more: Record<string, unknown> = {}, actor: Actor = AGENT) => (await store.createIssue(p, {title, ...more}, actor)).id
+            ids[p] = {
+                plain: await make('Oil the gears', {}, OWNER),
+                idea: await make('A second dial?', {proposal: 'pending'}),
+                hot: await make('Stop the drift', {proposal: 'pending', priority: 'P0'}),
+                picked: await make('Where to keep the hours', {proposal: 'pending', choices}),
+                guessed: await make('Where to keep the minutes', {proposal: 'pending', choices}),
+                explored: await make('Where to keep the seconds', {proposal: 'pending', choices}),
+                started: await make('Polish the case', {proposal: 'pending'}),
+                nope: await make('A cuckoo', {proposal: 'pending'}),
+            }
+            await store.db.run("UPDATE issues SET status = 'in-progress' WHERE project = ? AND id = ?", p, ids[p]!.started)
+        }
+        type Step = [string, (p: string) => Promise<Outcome>, () => Promise<Outcome>]
+        const decide = (name: string, which: string, body: unknown, actor: Actor = OWNER): Step =>
+            [name, p => viaStore(() => store.decide(p, ids[p]![which]!, body, actor)), () => viaApi('POST', `/issues/${ids['through-api']![which]}/decide`, body, actor)]
+        const read = (which: string): Step => [`${which}, read`, p => viaStore(() => store.issue(p, ids[p]![which]!)), () => viaApi('GET', `/issues/${ids['through-api']![which]}`)]
+        const activity = (which: string): Step =>
+            [`${which}'s activity`, p => viaStore(() => store.listActivity(p, ids[p]![which]!)), () => viaApi('GET', `/issues/${ids['through-api']![which]}/activity`)]
+        const comments = (which: string): Step =>
+            [`${which}'s comments`, p => viaStore(() => store.listComments(p, ids[p]![which]!)), () => viaApi('GET', `/issues/${ids['through-api']![which]}/comments`)]
+        for (const [name, ts, rs] of [
+            decide('by an agent', 'idea', {decision: 'approved'}, AGENT),
+            decide('by an untrusted session', 'idea', {decision: 'approved'}, {name: 'stranger', owner: false, untrusted: true}),
+            decide('not a proposal', 'plain', {decision: 'approved'}),
+            decide('no body', 'idea', undefined),
+            decide('no decision', 'idea', {}),
+            decide('one that isn\'t', 'idea', {decision: 'maybe'}),
+            decide('several problems', 'idea', {decision: 3, note: 4, picks: 'A', explore: {choice: 1}, extra: true}),
+            decide('picks that aren\'t lists', 'picked', {decision: 'approved', picks: {store: 'A'}}),
+            decide('picks with a rejection', 'picked', {decision: 'rejected', picks: {store: ['A']}}),
+            decide('picks where there are no choices', 'idea', {decision: 'approved', picks: {store: ['A']}}),
+            decide('explore with an approval', 'explored', {decision: 'approved', explore: {choice: 'store', option: 'A'}}),
+            decide('a choice that isn\'t there', 'picked', {decision: 'approved', picks: {size: ['A']}}),
+            decide('an option that isn\'t there', 'picked', {decision: 'approved', picks: {store: ['C']}}),
+            decide('two for a pick one', 'picked', {decision: 'approved', picks: {store: ['A', 'B']}}),
+            decide('down an option that isn\'t there', 'explored', {decision: 'changes', explore: {choice: 'store', option: 'C'}}),
+            decide('approved with picks and a note', 'picked', {decision: 'approved', picks: {store: ['B'], pool: ['large', 'small', 'large']}, note: '  Go.  '}),
+            decide('approved on its recommendations', 'guessed', {decision: 'approved', note: ' '}),
+            decide('approved, into Todo', 'idea', {decision: 'approved'}),
+            decide('approved again', 'idea', {decision: 'approved'}),
+            decide('an urgent one approved', 'hot', {decision: 'approved'}),
+            decide('one already started approved', 'started', {decision: 'approved'}),
+            decide('changes down an option', 'explored', {decision: 'changes', explore: {choice: 'store', option: 'B'}, note: 'Price it.'}),
+            decide('changes again', 'explored', {decision: 'changes'}),
+            decide('rejected', 'nope', {decision: 'rejected', note: 'Too loud.'}),
+            ...['picked', 'guessed', 'idea', 'hot', 'started', 'explored', 'nope'].flatMap(which => [read(which), activity(which), comments(which)]),
+        ] as Step[]) await both(name, ts, rs)
+        await quiet()
+        const rows = async (p: string) => (await store.db.all<{kind: string, payload: string | null}>('SELECT kind, payload FROM changes WHERE project = ? AND id > ? ORDER BY id', p, start))
+            .map(r => `${r.kind} ${(r.payload ?? '').replace(/\b(STO|API)-(\d+)/g, 'KEY-$2')}`).sort()
+        expect(await rows('through-api')).toEqual(await rows('through-store'))
+        const signals = async (p: string) => (await store.db.all<{issue: string, kind: string, note: string | null}>('SELECT issue, kind, note FROM signals WHERE project = ? AND id > ? ORDER BY id', p, before))
+            .map(r => `${r.kind} ${r.issue.replace(/^(STO|API)-/, 'KEY-')} ${r.note ?? ''}`)
+        expect(await signals('through-api')).toEqual(await signals('through-store'))
+        // An urgent one approved is pushed as the store pushes it, its guards and all: on a board with more than one person,
+        // one given back to an agent that's nobody's stays put (ORR-656), so how many depends on the tests before.
+    })
+
+    it('decides many proposals alike, each on its own, refusing a guess at picks (ORR-927)', async () => {
+        const start = (await store.db.get<{n: number | null}>('SELECT max(id) AS n FROM changes'))?.n ?? 0
+        const before = (await store.db.get<{n: number | null}>('SELECT max(id) AS n FROM signals'))?.n ?? 0
+        const key = (p: string) => p === 'through-store' ? 'STO' : 'API'
+        const options = [{key: 'A', title: 'Brass'}, {key: 'B', title: 'Steel'}]
+        const ids: Record<string, Record<string, string>> = {}
+        for (const p of ['through-store', 'through-api']) {
+            const make = async (title: string, more: Record<string, unknown> = {}, actor: Actor = AGENT) => (await store.createIssue(p, {title, ...more}, actor)).id
+            ids[p] = {
+                one: await make('A brass bezel', {proposal: 'pending'}),
+                two: await make('A steel crown', {proposal: 'pending', priority: 'P0'}),
+                sure: await make('Which metal?', {proposal: 'pending', choices: [{key: 'metal', question: 'Which metal?', options, recommended: ['A']}]}),
+                unsure: await make('Which finish?', {proposal: 'pending', choices: [{key: 'finish', question: 'Which finish?', options}]}),
+                plain: await make('Wind it', {}, OWNER),
+                later: await make('A moon dial', {proposal: 'pending'}),
+            }
+            await store.db.run('INSERT INTO issue_aliases (project, alias, issue) VALUES (?, ?, ?)', p, `${key(p)}-93`, ids[p]!.one)
+        }
+        type Step = [string, (p: string) => Promise<Outcome>, () => Promise<Outcome>]
+        const decide = (name: string, body: (p: string) => unknown, actor: Actor = OWNER): Step =>
+            [name, p => viaStore(() => store.decideIssues(p, body(p), actor)), () => viaApi('POST', '/issues/decide', body('through-api'), actor)]
+        const steps: Step[] = [
+            decide('no ids', () => ({decision: 'approved'})),
+            decide('an empty list', () => ({ids: [], decision: 'approved'})),
+            decide('with picks', p => ({ids: [ids[p]!.sure], decision: 'approved', picks: {metal: ['B']}})),
+            decide('with explore and no ids', () => ({decision: 'changes', explore: {choice: 'metal', option: 'A'}})),
+            decide('by an agent', p => ({ids: [ids[p]!.one], decision: 'approved'}), AGENT),
+            decide('no decision', p => ({ids: [ids[p]!.one]})),
+            decide('approved: by an id it had, twice, an urgent one, one with picks, one without, one not a proposal and one not there',
+                p => ({ids: [`${key(p)}-93`, ids[p]!.two, `${key(p)}-93`, ids[p]!.sure, ids[p]!.unsure, ids[p]!.plain, 'X-404'], decision: 'approved', note: 'All good.'})),
+            decide('changes asked for, where there are no picks to guess', p => ({ids: [ids[p]!.unsure], decision: 'changes'})),
+            decide('rejected', p => ({ids: [ids[p]!.later], decision: 'rejected', note: 'Not now.'})),
+            ['in a project that isn\'t there', () => viaStore(() => store.decideIssues('nowhere', {ids: ['X-1'], decision: 'approved'}, OWNER)), () => viaApi('POST', '/issues/decide', {ids: ['X-1'], decision: 'approved'}, OWNER, 'nowhere')],
+        ]
+        for (const [name, ts, rs] of steps) await both(name, ts, rs)
+        await quiet()
+        await both('the board after', p => viaStore(async () => (await store.listIssues(p)).map(i => `${i.title} ${i.status} ${i.assignee} ${i.proposal ?? ''}`).sort()), async () => {
+            const outcome = await viaApi('GET', '/issues')
+            return {...outcome, body: (outcome.body as {title: string, status: string, assignee: string, proposal?: string}[]).map(i => `${i.title} ${i.status} ${i.assignee} ${i.proposal ?? ''}`).sort()}
+        })
+        for (const which of ['one', 'two', 'sure', 'unsure', 'later']) {
+            await both(`${which}'s comments`, p => viaStore(() => store.listComments(p, ids[p]![which]!)), () => viaApi('GET', `/issues/${ids['through-api']![which]}/comments`))
+        }
+        const rows = async (p: string) => (await store.db.all<{kind: string, payload: string | null}>('SELECT kind, payload FROM changes WHERE project = ? AND id > ? ORDER BY id', p, start))
+            .map(r => `${r.kind} ${(r.payload ?? '').replace(/\b(STO|API)-(\d+)/g, 'KEY-$2')}`).sort()
+        expect(await rows('through-api')).toEqual(await rows('through-store'))
+        const signals = async (p: string) => (await store.db.all<{issue: string, kind: string, note: string | null}>('SELECT issue, kind, note FROM signals WHERE project = ? AND id > ? ORDER BY id', p, before))
+            .map(r => `${r.kind} ${r.issue.replace(/^(STO|API)-/, 'KEY-')} ${r.note ?? ''}`)
+        expect(await signals('through-api')).toEqual(await signals('through-store'))
+    })
+
+    it('changes an issue\'s status and assignee alike, ending a claim, with the rails between people, and pushes a P0 opened again (ORR-927)', async () => {
+        const start = (await store.db.get<{n: number | null}>('SELECT max(id) AS n FROM changes'))?.n ?? 0
+        const ids: Record<string, Record<string, string>> = {}
+        const claimed = async (p: string, id: string) => store.db.run("UPDATE issues SET claimed_by = 'steffen', claimed_at = ? WHERE project = ? AND id = ?", new Date().toISOString(), p, id)
+        for (const p of ['through-store', 'through-api']) {
+            const make = async (title: string, more: Record<string, unknown> = {}, actor: Actor = OWNER) => (await store.createIssue(p, {title, ...more}, actor)).id
+            ids[p] = {
+                gear: await make('Cut the gear'),
+                held: await make('Set the hands', {assignee: 'claude'}),
+                kept: await make('Oil the hinge', {assignee: 'claude'}),
+                hot: await make('Stop the drift', {priority: 'P0', status: 'done'}),
+                idea: await make('A second dial?', {proposal: 'pending'}, AGENT),
+            }
+            await claimed(p, ids[p]!.held!)
+            await claimed(p, ids[p]!.kept!)
+        }
+        type Step = [string, (p: string) => Promise<Outcome>, () => Promise<Outcome>]
+        const edit = (name: string, which: string, body: unknown, actor: Actor = OWNER): Step =>
+            [name, p => viaStore(() => store.updateIssue(p, ids[p]![which]!, body, actor)), () => viaApi('PATCH', `/issues/${ids['through-api']![which]}`, body, actor)]
+        const read = (which: string): Step => [`${which}, read`, p => viaStore(() => store.issue(p, ids[p]![which]!)), () => viaApi('GET', `/issues/${ids['through-api']![which]}`)]
+        const activity = (which: string): Step =>
+            [`${which}'s activity`, p => viaStore(() => store.listActivity(p, ids[p]![which]!)), () => viaApi('GET', `/issues/${ids['through-api']![which]}/activity`)]
+        const signals = async (p: string) => (await store.db.all<{issue: string, kind: string, note: string | null}>('SELECT issue, kind, note FROM signals WHERE project = ? ORDER BY id', p))
+            .map(r => `${r.kind} ${r.issue.replace(/^(STO|API)-/, 'KEY-')} ${r.note ?? ''}`)
+        for (const [name, ts, rs] of [
+            edit('started by its kind', 'gear', {status: 'started'}),
+            edit('to a status by its id, with a title', 'gear', {status: 'in-review', title: 'Cut the brass gear'}),
+            edit('by an old word', 'gear', {status: 'doing'}),
+            edit('the same status again', 'gear', {status: 'doing'}),
+            edit('a plan', 'gear', {plan: 'now'}),
+            edit('no plan, with todo', 'gear', {status: 'todo', plan: null}),
+            edit('a status there isn\'t', 'gear', {status: 'soon'}),
+            edit('a null status and a bad plan', 'gear', {status: null, plan: 'soon'}),
+            edit('a status that isn\'t a string', 'gear', {status: 3}),
+            edit('given to the owner', 'gear', {assignee: ' Owner '}),
+            edit('given to claude', 'gear', {assignee: 'claude'}),
+            edit('given to nobody, by a blank', 'gear', {assignee: '  '}),
+            edit('given to claude again, by an agent', 'gear', {assignee: 'claude'}, AGENT),
+            edit('let go of with null', 'gear', {assignee: null}),
+            edit('a held one closed, by an agent', 'held', {status: 'done'}, AGENT),
+            read('held'),
+            edit('a held one reassigned', 'kept', {assignee: 'steffen'}),
+            read('kept'),
+            edit('a closed P0 opened again', 'hot', {status: 'todo'}),
+            edit('a waiting proposal started, by an agent', 'idea', {status: 'started'}, AGENT),
+            edit('a waiting proposal moved and given, by an agent', 'idea', {plan: null, assignee: 'claude', release: '3.0.0'}, AGENT),
+            edit('a waiting proposal put up again with an assignee, by an agent', 'idea', {proposal: 'pending', assignee: 'claude'}, AGENT),
+            edit('a waiting proposal started, by the owner', 'idea', {status: 'started'}),
+            activity('gear'),
+            activity('held'),
+            activity('hot'),
+        ] as Step[]) await both(name, ts, rs)
+        // Two people: an agent starts, closes and hands on only its person's, and gives one only back to the owner.
+        await hire('Hal')
+        const HALS: Actor = {name: 'agent', owner: false, session: 'orrery · Hal', asked: true, named: 'hal'}
+        for (const p of ['through-store', 'through-api']) {
+            ids[p] = {...ids[p], hals: (await store.createIssue(p, {title: 'Count the teeth', assignee: 'hal'}, OWNER)).id, mine: (await store.createIssue(p, {title: 'Wind it'}, OWNER)).id}
+        }
+        for (const [name, ts, rs] of [
+            edit('Hal\'s, started by Hal\'s agent', 'hals', {status: 'started'}, HALS),
+            read('hals'),
+            edit('Hal\'s, given to claude by Hal\'s agent', 'hals', {assignee: 'claude'}, HALS),
+            edit('Hal\'s, given to someone else by Hal\'s agent', 'hals', {assignee: 'zed'}, HALS),
+            edit('Hal\'s, given back to the owner by Hal\'s agent', 'hals', {assignee: 'owner', status: 'todo'}, HALS),
+            read('hals'),
+            edit('the owner\'s, started by Hal\'s agent', 'mine', {status: 'started'}, HALS),
+            activity('hals'),
+        ] as Step[]) await both(name, ts, rs)
+        await store.db.run("UPDATE issues SET assignee = NULL WHERE assignee = 'hal'")
+        await store.db.run("UPDATE issues SET claimed_by = NULL WHERE claimed_by = 'hal'")
+        await store.db.run("DELETE FROM people WHERE id = 'hal'")
+        await store.db.run("DELETE FROM project_members WHERE person = 'hal'")
+        await quiet()
+        expect(await signals('through-api')).toEqual(await signals('through-store'))
+        // The P0 opened again by the owner is pushed, and nothing else this made.
+        const hot = ids['through-api']!.hot!.replace(/^API-/, 'KEY-')
+        const mine = new Set(Object.values(ids['through-api']!).map(id => id.replace(/^API-/, 'KEY-')))
+        expect((await signals('through-api')).filter(s => mine.has(s.split(' ')[1]!) && s.startsWith('focus '))).toEqual([`focus ${hot} It was just made urgent (P0).`])
+        const rows = async (p: string) => (await store.db.all<{kind: string, payload: string | null}>('SELECT kind, payload FROM changes WHERE project = ? AND id > ? ORDER BY id', p, start))
+            .map(r => `${r.kind} ${(r.payload ?? '').replace(/\b(STO|API)-(\d+)/g, 'KEY-$2')}`).sort()
+        expect(await rows('through-api')).toEqual(await rows('through-store'))
+        expect((await rows('through-api')).filter(row => row.startsWith('issue.status ')).length).toBeGreaterThan(4)
+    })
+
+    it('makes an issue alike, with the rails between people, noting and telling it, and pushes a P0 (ORR-927)', async () => {
+        const start = (await store.db.get<{n: number | null}>('SELECT max(id) AS n FROM changes'))?.n ?? 0
+        const parents: Record<string, string> = {}
+        for (const p of ['through-store', 'through-api']) parents[p] = (await store.createIssue(p, {title: 'The case'}, OWNER)).id
+        type Step = [string, (p: string) => Promise<Outcome>, () => Promise<Outcome>]
+        const make = (name: string, body: (p: string) => unknown, actor: Actor = OWNER): Step =>
+            [name, p => viaStore(() => store.createIssue(p, body(p), actor), 201), () => viaApi('POST', '/issues', body('through-api'), actor)]
+        const plain = (body: unknown) => () => body
+        for (const [name, ts, rs] of [
+            make('with a title alone', plain({title: '  Cut the gear  '})),
+            make('with its words', plain({title: 'Set the hands', priority: 'P2', labels: ['b', ' a', 'b'], external: [' ask ', ''], notes: 'Gently', model: 'opus', effort: 'high', position: 7})),
+            make('in a status by its kind, given to the owner', plain({title: 'Oil the hinge', status: 'started', assignee: ' owner '})),
+            make('by an old word and a plan', plain({title: 'Wind it', status: 'todo', plan: 'next'})),
+            make('under a parent', p => ({title: 'Count the teeth', parent: parents[p]})),
+            make('under a parent and in a milestone', p => ({title: 'Both', parent: parents[p], milestone: '1'})),
+            make('under a parent it depends on', p => ({title: 'Loop', parent: parents[p], depends_on: [parents[p]]})),
+            make('depending on one', p => ({title: 'After the case', depends_on: [parents[p]]})),
+            make('under a parent there isn\'t', plain({title: 'Lost', parent: 'KEY-999'})),
+            make('in a milestone there isn\'t', plain({title: 'Lost', milestone: '999'})),
+            make('in an epic there isn\'t', plain({title: 'Lost', epic: 999})),
+            make('in a release, with none', plain({title: 'Lost', release: '9.9.9'})),
+            make('a P0', plain({title: 'Stop the drift', priority: 'P0'})),
+            make('a P0, closed', plain({title: 'Stopped', priority: 'P0', status: 'done'})),
+            make('a proposal, by an agent', plain({title: 'A second dial?', proposal: 'pending', assignee: 'claude', priority: 'P0'}), AGENT),
+            make('with no title', plain({priority: 'P1'})),
+            make('with a blank title and bad words', plain({title: ' ', status: 3, effort: 'huge'})),
+            make('with a status there isn\'t', plain({title: 'Soon', status: 'soon'})),
+            make('that isn\'t an object', plain([])),
+        ] as Step[]) await both(name, ts, rs)
+        // Two people: an agent files one under its person's issue, and one at the top only nobody's, in Todo or Backlog.
+        await hire('Hal')
+        const HALS: Actor = {name: 'agent', owner: false, session: 'orrery · Hal', asked: true, named: 'hal'}
+        for (const p of ['through-store', 'through-api']) await store.updateIssue(p, parents[p]!, {assignee: 'hal'}, OWNER)
+        for (const [name, ts, rs] of [
+            make('under Hal\'s, started, by Hal\'s agent', p => ({title: 'Follow up', parent: parents[p], status: 'started'}), HALS),
+            make('at the top, by Hal\'s agent', plain({title: 'An idea'}), HALS),
+            make('at the top, started, by Hal\'s agent', plain({title: 'Taken', status: 'started'}), HALS),
+            make('at the top, given to someone, by Hal\'s agent', plain({title: 'Given', assignee: 'zed'}), HALS),
+            make('at the top, given to claude, by Hal\'s agent', plain({title: 'Given', assignee: 'claude'}), HALS),
+            make('at the top, given to the owner, by Hal\'s agent', plain({title: 'Given back', assignee: 'owner'}), HALS),
+        ] as Step[]) await both(name, ts, rs)
+        await store.db.run("UPDATE issues SET assignee = NULL WHERE assignee = 'hal'")
+        await store.db.run("UPDATE issues SET claimed_by = NULL WHERE claimed_by = 'hal'")
+        await store.db.run("UPDATE issues SET created_person = NULL WHERE created_person = 'hal'")
+        await store.db.run("DELETE FROM people WHERE id = 'hal'")
+        await store.db.run("DELETE FROM project_members WHERE person = 'hal'")
+        await quiet()
+        const rows = async (p: string) => (await store.db.all<{kind: string, payload: string | null}>('SELECT kind, payload FROM changes WHERE project = ? AND id > ? ORDER BY id', p, start))
+            .map(r => `${r.kind} ${(r.payload ?? '').replace(/\b(STO|API)-(\d+)/g, 'KEY-$2')}`).sort()
+        expect(await rows('through-api')).toEqual(await rows('through-store'))
+        expect((await rows('through-api')).filter(row => row.startsWith('issue.created ')).length).toBeGreaterThan(8)
+    })
+
     it('removes a person alike: their open issues unassigned and told, their seats the owner\'s, their keys and logins ended (ORR-928)', async () => {
         /** A member with work on `p`: a seat on its board, an open issue and a done one, a key and a login. */
         const hire = async (p: string) => {
@@ -1762,7 +3001,7 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=='
         const {id} = await store.createUpload({data: PNG, name: 'dot.png'}, OWNER)
         const kept = await store.upload(id)
-        const response = await fetch(`${url}/api/uploads/${id}`, {headers: {'Orrery-Api-Token': TOKEN, 'Orrery-Database': databaseMark(setting), ...actorHeaders(AGENT)}})
+        const response = await fetch(`${url}/api/uploads/${id}`, {headers: {'Orrery-Api-Token': TOKEN, 'Orrery-Database': databaseMark(setting), ...OWN_WORK, ...actorHeaders(AGENT)}})
         const passed = await passedThrough(response)
         expect(passed?.body.equals(kept.data)).toBe(true)
         // As web/server/api/uploads/[upload].get.ts sets them.
@@ -1773,7 +3012,183 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         await both('one that isn\'t there', () => viaStore(() => store.upload('0'.repeat(24))), () => viaApi('GET', `/api/uploads/${'0'.repeat(24)}`))
         await both('not an image\'s id', () => viaStore(() => store.upload('../x')), () => viaApi('GET', '/api/uploads/..%2Fx'))
         // A failure is JSON, thrown again by the router rather than passed through.
-        expect(await passedThrough(await fetch(`${url}/api/uploads/nope`, {headers: {'Orrery-Api-Token': TOKEN, 'Orrery-Database': databaseMark(setting)}}))).toBeUndefined()
+        expect(await passedThrough(await fetch(`${url}/api/uploads/nope`, {headers: {'Orrery-Api-Token': TOKEN, 'Orrery-Database': databaseMark(setting), ...OWN_WORK}}))).toBeUndefined()
+    })
+
+    it('keeps an uploaded image alike, compressed as sharp does it (ORR-1058)', async () => {
+        // Noise, so it's past the size kept as it came and WebP makes it smaller on both sides.
+        const pixels = Buffer.alloc(300 * 200 * 3)
+        let seed = 0x9e3779b9
+        for (let i = 0; i < pixels.length; i++) pixels[i] = (seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) >>> 24
+        const png = await sharp(pixels, {raw: {width: 300, height: 200, channels: 3}}).png().toBuffer()
+        const kept = async (outcome: Promise<Outcome>) => {
+            const out = await outcome
+            if (out.status >= 400) return out
+            const body = out.body as {id: string, type: string, size: number, url: string, markdown: string}
+            const row = await store.upload(body.id)
+            // The bytes are each library's own: the same type, both smaller, and the row as the reply says.
+            expect(row.data.length).toBe(body.size)
+            expect(body.size).toBeLessThan(png.length)
+            return {...out, body: {...body, id: '<id>', size: '<smaller>', url: body.url.replace(body.id, '<id>'), markdown: body.markdown.replace(body.id, '<id>')}}
+        }
+        const body = {data: `data:image/png;base64,${png.toString('base64')}`, name: 'lid [before].png'}
+        const made = await both('a PNG', () => kept(viaStore(() => store.createUpload(body, OWNER), 201)), () => kept(viaApi('POST', '/api/uploads', body, OWNER)))
+        expect(made.body).toMatchObject({type: 'image/webp', markdown: '![lid before](/api/uploads/<id>)'})
+        // A GIF is kept as it came, so its size is too.
+        const gif = 'R0lGODlhAQABAAAAACw='
+        const kept0 = async (outcome: Promise<Outcome>) => {
+            const out = await outcome
+            const body = out.body as {id: string, url: string, markdown: string}
+            return {...out, body: {...body, id: '<id>', url: body.url.replace(body.id, '<id>'), markdown: body.markdown.replace(body.id, '<id>')}}
+        }
+        const asCame = await both('a GIF, as it came', () => kept0(viaStore(() => store.createUpload({data: gif}, AGENT), 201)), () => kept0(viaApi('POST', '/api/uploads', {data: gif})))
+        expect(asCame.body).toMatchObject({type: 'image/gif', size: 14, markdown: '![image](/api/uploads/<id>)'})
+        for (const [name, refused] of [
+            ['no data', {}], ['data null', {data: null}], ['not base64', {data: 'not base64!'}], ['empty', {data: '=='}],
+            ['not an image', {data: Buffer.from('plain text').toString('base64')}], ['an unknown field', {data: gif, size: 1}],
+        ] as const) {
+            await both(name, () => viaStore(() => store.createUpload(refused, OWNER)), () => viaApi('POST', '/api/uploads', refused, OWNER))
+        }
+    })
+
+    it('exports a board alike, as one file named for the project and the day (ORR-1006)', async () => {
+        // An image its text shows goes in the file, in base64, so the board takes one in an issue and a comment.
+        const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=='
+        const {id: image} = await store.createUpload({data: PNG, name: 'export.png'}, OWNER)
+        // On both projects, so their issues keep the same numbers for the steps after.
+        for (const project of ['through-store', 'through-api']) {
+            const {id: issue} = await store.createIssue(project, {title: 'Varnish the lid', notes: `![lid](/api/uploads/${image})`, assignee: 'owner'}, OWNER)
+            await store.createComment(project, issue, {body: `Before: ![lid](/api/uploads/${image})`}, OWNER)
+        }
+        const response = await fetch(`${url}/api/projects/through-api/export`, {headers: {'Orrery-Api-Token': TOKEN, 'Orrery-Database': databaseMark(setting), ...OWN_WORK, ...actorHeaders(AGENT)}})
+        const file = await response.json() as {exported_at: string, uploads: {id: string, data: string}[]}
+        const kept = await exportBoard(store.db, 'through-api')
+        expect(file.exported_at).toMatch(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/)
+        expect({...file, exported_at: ''}).toEqual(JSON.parse(JSON.stringify({...kept, exported_at: ''})))
+        expect(file.uploads.map(upload => [upload.id, upload.data])).toEqual([[image, Buffer.from((await store.upload(image)).data).toString('base64')]])
+        // As web/server/api/projects/[project]/export.get.ts names it, and the router passes it on.
+        expect(response.headers.get('content-disposition')).toBe(`attachment; filename="through-api-${file.exported_at.slice(0, 10)}.orrery.json"`)
+        await both('no such project', () => viaStore(() => store.project('nowhere')), () => viaApi('GET', '/api/projects/nowhere/export'))
+        expect(domainOf('GET', '/api/projects/through-api/export')).toBe('a project, exported')
+    })
+
+    it('reads and writes the sessions\' bookkeeping alike (ORR-1141)', async () => {
+        const ids: Record<string, {top: string, sub: string}> = {}
+        for (const project of ['through-store', 'through-api']) {
+            const {id: top} = await store.createIssue(project, {title: 'Frame the door', status: 'in-progress'}, OWNER)
+            const {id: sub} = await store.createIssue(project, {title: 'Hang it', parent: top}, OWNER)
+            await store.createIssue(project, {title: 'Paint it', depends_on: [top]}, OWNER)
+            ids[project] = {top, sub}
+        }
+        const [here, there] = [ids['through-store']!, ids['through-api']!]
+        await both('worked by a session', p => viaStore(async () => void await store.workedBy(p, ids[p]!.top, 'sess-1', {claimed: true})),
+            () => viaApi('POST', `/issues/${there.top}/worked-by`, {session: 'sess-1'}))
+        await both('what depends on it', p => viaStore(() => store.dependentsOf(p, ids[p]!.top)), () => viaApi('GET', `/issues/${there.top}/dependents`))
+        await both('a session\'s work', p => viaStore(async () => ({issues: await store.workingOn(p, ['sess-1']), waiting: await store.waiting(p, ['sess-1']), waiting_for: await store.waitingFor(p, ['sess-1'])})),
+            () => viaApi('GET', '/issue-sessions?sessions=sess-1'))
+        // A project's row and an issue's, as the store's helpers read them (ORR-1174): the API gives the very row the
+        // database holds, as `SELECT *` here reads it.
+        expect((await viaApi('GET', '/row')).body).toEqual(await store.get('SELECT * FROM projects WHERE id = ?', 'through-api'))
+        expect((await viaApi('GET', `/issues/${there.top}/row`)).body).toEqual(await store.get('SELECT * FROM issues WHERE project = ? AND id = ?', 'through-api', there.top))
+        // An issue's id and a milestone's from how they're sent, as the store's `issueId` and `milestoneId` resolve them.
+        const {uid} = (await store.get<{uid: string}>('SELECT uid FROM projects WHERE id = ?', 'through-api'))!
+        expect((await viaApi('GET', `/issues/${there.top}-${uid}/id`)).body).toEqual({id: there.top})
+        expect((await viaApi('GET', '/issues/NOPE-1/id')).body).toEqual({id: 'NOPE-1'})
+        expect((await viaApi('GET', '/milestones/MLS-7/id')).body).toEqual({id: '7'})
+        // A milestone's row and a release's, as `milestoneRow` and `releaseRow` read them: the row the database holds, and
+        // the store's words when there's none.
+        await store.createMilestone('through-store', {title: 'Doors'}, OWNER)
+        const {id: milestone} = await store.createMilestone('through-api', {title: 'Doors'}, OWNER)
+        expect((await viaApi('GET', `/milestones/${milestone}/row`)).body).toEqual(await store.get('SELECT * FROM milestones WHERE project = ? AND id = ?', 'through-api', milestone))
+        expect((await viaApi('GET', '/milestones/99/row')).body).toMatchObject({message: 'No milestone "99" in through-api'})
+        const {version} = (await store.get<{version: string}>("SELECT version FROM releases WHERE project = 'through-api' LIMIT 1"))!
+        expect((await viaApi('GET', `/releases/${version}/row`)).body).toEqual(await store.get('SELECT * FROM releases WHERE project = ? AND version = ?', 'through-api', version))
+        expect((await viaApi('GET', '/releases/9.9.9/row')).body).toMatchObject({message: 'No release 9.9.9 in through-api; make it with POST /api/projects/through-api/releases'})
+        // What each session is on, for the Sessions page (ORR-1174): the one that worked it, and one that worked nothing.
+        const asked = [{id: 'sess-1', name: 'Ada'}, {id: 'sess-2', name: 'Bo', ids: ['sess-2', 'gone']}]
+        await both("each session's work", p => viaStore(() => store.sessionWork(p, asked)),
+            () => viaApi('GET', `/session-work?sessions=${encodeURIComponent(JSON.stringify(asked))}`))
+        // The owner's comments still waiting for an answer, for the signal feed (ORR-1161): none asked here.
+        expect(await viaApi('GET', '/comments/unanswered')).toMatchObject({status: 200, body: []})
+        // The chain above an issue, nearest first, as the store walks it for a claim (`heldAbove`).
+        const chain = await viaApi('GET', `/issues/${there.sub}/workers`)
+        expect(chain.body).toEqual([{issue: there.sub, started: false, worker: null}, {issue: there.top, started: true, worker: 'sess-1'}])
+        expect(await store.get('SELECT session FROM issue_sessions WHERE project = ? AND issue = ?', 'through-store', here.top)).toEqual({session: 'sess-1'})
+        // The owner's comment nobody answered or heard, for a session to catch up on (ORR-1161).
+        const now = new Date().toISOString()
+        await store.db.run("INSERT INTO comments (project, issue, body, created_by, owned, created_at, updated_at) VALUES ('through-api', ?, 'Still waiting', 'owner', 1, ?, ?)", there.top, now, now)
+        expect((await viaApi('GET', '/comments/unanswered')).body).toContainEqual(expect.objectContaining({issue: there.top, body: 'Still waiting', created_by: 'owner', owned: true}))
+        for (const route of ['/issue-sessions', `/issues/${there.top}/dependents`]) expect(domainOf('GET', `/api/projects/through-api${route}`)).toBeUndefined()
+    })
+
+    it('brings a board\'s file in alike, the local app checking it and the API writing it (ORR-1142)', async () => {
+        const file = JSON.parse(JSON.stringify(await exportBoard(store.db, 'through-api'))) as Record<string, unknown>
+        const holder = OWNER.name
+        await uploadBoard(store.db, file, {id: 'upload-store', key: 'UPS'}, OWNER, holder)
+        const made = await viaApi('POST', '/api/boards', boardForApi(checkedBoard(file, {id: 'upload-api', key: 'UPA'}), holder), OWNER)
+        expect(made.status).toBe(201)
+        expect(made.changed).toEqual(['upload-api'])
+        expect((made.body as {id: string}).id).toBe('upload-api')
+        /** A board as its export has it, with what's bound to differ taken out: its id, key and uid, the times it was
+         * made, and the ids numbered across the orrery (its comments', schedules', presets' and revisions'). */
+        const board = async (project: string) => {
+            const {tables} = await exportBoard(store.db, project) as {tables: Record<string, Record<string, unknown>[]>}
+            const numbered = new Set(['id', 'comment', 'schedule', 'doc_mark', 'presets'])
+            return JSON.parse(JSON.stringify(tables, (key, value: unknown) => {
+                if (numbered.has(key) && (typeof value === 'number' || key === 'presets')) return '<n>'
+                if (key === 'uid' || key === 'key') return '<k>'
+                if (typeof value === 'string') return value.replaceAll(project, '<project>').replace(/^\d{4}-\d{2}-\d{2}T[\d:.]+Z$/, '<time>')
+                return value
+            }), (_key, value: unknown) => Array.isArray(value) ? [...value].sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))) : value)
+        }
+        expect(await board('upload-api')).toEqual(await board('upload-store'))
+        // Refused alike: a taken id, and a taken key.
+        const again = await viaApi('POST', '/api/boards', boardForApi(checkedBoard(file, {id: 'upload-store', key: 'UPZ'}), holder), OWNER)
+        expect(again).toMatchObject({status: 409, body: {message: 'There is already a project "upload-store": choose another id'}})
+        await expect(uploadBoard(store.db, file, {id: 'upload-other', key: 'UPA'}, OWNER, holder)).rejects.toMatchObject({statusCode: 409})
+        expect((await viaApi('POST', '/api/boards', boardForApi(checkedBoard(file, {id: 'upload-other', key: 'UPS'}), holder), OWNER)).status).toBe(409)
+        for (const project of ['upload-store', 'upload-api']) await store.deleteProject(project, OWNER)
+        expect(domainOf('POST', '/api/boards')).toBeUndefined()
+    })
+
+    it('imports a roadmap alike, with the project\'s ids and the file\'s as aliases (ORR-1006)', async () => {
+        // On projects of their own, so replacing a roadmap leaves the others' issues be.
+        const on = (p: string) => `${p}-import`
+        for (const p of ['through-store', 'through-api']) await store.createProject({name: on(p), key: p === 'through-store' ? 'STOI' : 'APII'})
+        // As web/server/api/projects/[project]/import.post.ts checks the file first.
+        const imported = (p: string, file: unknown, replace = false, actor: Actor = AGENT) => viaStore(async () => {
+            let roadmap
+            try {
+                roadmap = checkRoadmap(file)
+            } catch (error) {
+                if (error instanceof RoadmapError) throw badRequest(error.message, error.details)
+                throw error
+            }
+            return await store.importRoadmap(on(p), roadmap, replace, actor)
+        })
+        // The two projects' own key and uid differ, as they're two projects; what's on their boards doesn't.
+        const unkeyed = async (outcome: Promise<Outcome>) => {
+            const {body, ...rest} = await outcome
+            return {...rest, body: body && typeof body === 'object' && 'uid' in body ? {...body, key: '<key>', uid: '<uid>'} : body}
+        }
+        const roadmap = {milestones: [
+            {id: 'first', title: 'First', summary: 'The start', tasks: [
+                {id: 'a', title: 'Plan', status: 'done', labels: ['x'], tasks: [{id: 'a1', title: 'Sketch', status: 'doing'}]},
+                {id: 'b', title: 'Build', status: 'todo', plan: 'now', priority: 'P1', notes: 'Soon'},
+            ]},
+            {id: 'second', title: 'Second', tasks: [{id: 'c', title: 'Ship'}]},
+        ]}
+        const path = `/api/projects/${on('through-api')}/import`
+        await both('a roadmap', p => unkeyed(imported(p, roadmap, false, OWNER)), () => unkeyed(viaApi('POST', path, roadmap, OWNER)))
+        await both('again, without replace', p => imported(p, roadmap), () => viaApi('POST', path, roadmap))
+        await both('replacing what the owner made, as an agent', p => imported(p, roadmap, true), () => viaApi('POST', `${path}?replace=true`, roadmap))
+        await both('replacing it, as the owner', p => unkeyed(imported(p, {milestones: [{id: 'm', title: 'Only', tasks: [{id: 'b', title: 'Again'}]}]}, true, OWNER)),
+            () => unkeyed(viaApi('POST', `${path}?replace=true`, {milestones: [{id: 'm', title: 'Only', tasks: [{id: 'b', title: 'Again'}]}]}, OWNER)))
+        const bad = {milestones: [{id: 'm', title: 'M', tasks: [{id: 't', title: 'T', status: 'maybe', colour: 'red'}, {id: 't', title: 3}]}, {title: 'No id'}, 'x'], extra: 1}
+        await both('a file with problems', p => imported(p, bad), () => viaApi('POST', path, bad))
+        await both('not a roadmap', p => imported(p, [1]), () => viaApi('POST', path, [1]))
+        await both('no such project', () => viaStore(() => store.importRoadmap('nowhere', {comment: '', milestones: []})), () => viaApi('POST', '/api/projects/nowhere/import', {milestones: []}))
+        expect(domainOf('POST', path)).toBe('a project, imported')
     })
 
     it('reads the secrets alike, and never a value (ORR-953)', async () => {
@@ -1782,8 +3197,8 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         await secrets.set('STRIPE_KEY', {value: 'sk_live_0123456789', hosts: ['api.stripe.com']}, OWNER)
         await secrets.set('DEPLOY_TOKEN', {value: 'deploy-0123456789', hosts: ['deploy.lan:8443', 'https://ci.example/x'], projects: ['through-api']}, OWNER)
         await alike0('never used', () => viaStore(() => secrets.list()), () => viaApi('GET', '/api/secrets'))
-        await secrets.egress({url: 'https://api.stripe.com/v1/charges?key={{secret:STRIPE_KEY}}', method: 'POST', body: {a: 1}, issue: 'API-1'}, AGENT)
-        await secrets.egress({url: 'https://api.stripe.com/v1/refunds', headers: {Authorization: 'Bearer {{secret:STRIPE_KEY}}'}}, SESSION)
+        await secrets.egress({url: 'https://api.stripe.com/v1/charges?key={{secret:STRIPE_KEY}}', method: 'POST', body: {a: 1}, project: 'through-api', issue: 'API-1'}, AGENT)
+        await secrets.egress({project: 'through-api', url: 'https://api.stripe.com/v1/refunds', headers: {Authorization: 'Bearer {{secret:STRIPE_KEY}}'}}, SESSION)
         await secrets.own('https://deploy.lan:8443/hook', 'DEPLOY_TOKEN', 'through-api')
         await alike0('used', () => viaStore(() => secrets.list()), () => viaApi('GET', '/api/secrets'))
         await alike0('one, with its uses', () => viaStore(() => secrets.get('STRIPE_KEY')), () => viaApi('GET', '/api/secrets/STRIPE_KEY'))
@@ -1860,7 +3275,7 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         expect(outcomes[2]).toMatchObject({status: 409})
         expect(outcomes[3]).toMatchObject({status: 409})
         expect(outcomes[4]).toMatchObject({status: 200, body: {risk: {by: 'owner'}}})
-        expect(outcomes[5]).toMatchObject({status: 409})
+        expect(outcomes[5], 'the chat, refused at the door').toMatchObject({status: 403})
         expect(outcomes[6]).toMatchObject({status: 200, body: {risk: null}})
         for (const at of [7, 8, 9, 10]) expect(outcomes[at], String(at)).toMatchObject({status: 400})
         for (const at of [11, 12, 13]) expect(outcomes[at], String(at)).toMatchObject({status: 404})
@@ -1887,12 +3302,12 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
             read,
             step('changed by a session', {tint: 'blue'}, SESSION),
             step('a tint, prompts and a handle', {tint: '#AABBCC', focus_prompt: '  Work on {id}  ', milestone_prompt: '   ', handle: 'Steffen.D'}),
-            step('the machine\'s own', {terminal: 'ghostty', advanced: false, restrict_proposals: false, pick_next: true, count_use: true}),
+            step('the machine\'s own', {terminal: 'ghostty', agent: 'other', advanced: false, restrict_proposals: false, count_use: true}),
             step('instructions, a tracker and the sidebar', {instructions: [{id: 'a1', text: ' Be brief ', on: false}, {id: 'b2', text: 'Test first'}], tracker: 'https://t.example/i/{id}', starred: [' api ', 'web', 'api', 'gone'], hidden: ['gone']}),
             step('starts', {starts: {limit: 3, min: 1, minutes: 60, idle_minutes: 30, on_signal: false}}),
             step('work kinds', {work_kinds: [{id: 'bug', name: ' Bug ', labels: ['Bug', 'bug', 'defect'], model: 'claude-opus-5-5', effort: 'high'}, {id: 'other', name: 'Other', labels: [], model: 'best'}]}),
             read,
-            step('everything wrong at once', {bogus: 1, tint: 'pink', terminal: 'xterm', handle: '-x', tracker: 'https://t.example/i', advanced: 'yes', pick_next: null, starred: [''], instructions: [{text: ' '}], focus_prompt: 5}),
+            step('everything wrong at once', {bogus: 1, tint: 'pink', terminal: 'xterm', agent: 'codex', handle: '-x', tracker: 'https://t.example/i', advanced: 'yes', count_use: null, starred: [''], instructions: [{text: ' '}], focus_prompt: 5}),
             step('starts out of range', {starts: {limit: 30}}),
             step('starts with more', {starts: {limit: 2, min: 3, extra: true}}),
             step('work kinds, none', {work_kinds: []}),
@@ -1900,7 +3315,7 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
             step('work kinds, a bad model', {work_kinds: [{id: 'a', name: 'A', labels: [], model: 'gpt'}]}),
             step('work kinds, an id twice', {work_kinds: [{id: 'a', name: 'A', labels: [], model: 'best'}, {id: 'a', name: 'B', labels: [], model: 'best'}]}),
             step('no body', undefined),
-            step('back to the defaults', {tint: null, focus_prompt: null, handle: null, tracker: null, starts: null, terminal: null, work_kinds: null, starred: null, hidden: null, instructions: null}),
+            step('back to the defaults', {tint: null, focus_prompt: null, handle: null, tracker: null, starts: null, terminal: null, agent: null, work_kinds: null, starred: null, hidden: null, instructions: null}),
             read,
         ]
         await store.settings()
@@ -1928,7 +3343,7 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
     it('says which settings a change sent, for the event log (ORR-954)', async () => {
         const response = await fetch(`${url}/api/settings`, {
             method: 'PATCH',
-            headers: {'Content-Type': 'application/json', 'Orrery-Api-Token': TOKEN, 'Orrery-Database': databaseMark(setting), ...actorHeaders(OWNER)},
+            headers: {'Content-Type': 'application/json', 'Orrery-Api-Token': TOKEN, 'Orrery-Database': databaseMark(setting), ...OWN_WORK, ...actorHeaders(OWNER)},
             body: JSON.stringify({tint: null, advanced: true}),
         })
         expect(response.status).toBe(200)
@@ -1943,7 +3358,7 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         // back as it was between them. Ids are looked up by name at each step, and taken out of messages, as the two
         // sides' new ones differ on Postgres.
         type Step = [string, (project: string) => Promise<Outcome>, () => Promise<Outcome>]
-        await store.seedPresets()
+        await store.restorePresets(OWNER)
         const uid = (await store.settings()).uid
         const idOf = async (name: string) => (await store.presets('through-api')).concat(await store.presets('through-store')).find(p => p.name === name)?.id ?? 0
         const withoutIds = async (outcome: Promise<Outcome>) => {
@@ -2033,7 +3448,7 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
             await store.createComment(p, oil, {body: 'Yes'}, OWNER)
             await store.updateIssue(p, oil, {status: 'done'}, OWNER)
             await store.createIssue(p, {title: 'Add a gear', proposal: 'pending'}, SESSION)
-            await store.createComment(p, id, {body: 'Ada, the hinge is yours.'}, ADAS)
+            await store.createComment(p, id, {body: '@ada, the hinge is yours.'}, ADAS)
         }
         const latest = (await store.notices({list: 'inbox'}))
         const older = latest[2]!.id
@@ -2068,7 +3483,7 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         const told = (await store.notices({list: 'inbox'})).find(n => n.body === 'Done the frame.' && n.project === 'through-api')!.id
         const adas = (await store.notices({person: 'ada'})).map(n => n.id)
         // Ada's bell is her own: her agent's words, not the owner's questions.
-        expect((await viaApi('GET', '/api/notices', undefined, ADA)).body).toEqual(expect.arrayContaining([expect.objectContaining({body: 'Ada, the hinge is yours.'})]))
+        expect((await viaApi('GET', '/api/notices', undefined, ADA)).body).toEqual(expect.arrayContaining([expect.objectContaining({body: '@ada, the hinge is yours.'})]))
         expect((await viaApi('GET', '/api/notices', undefined, ADA)).body).not.toEqual(expect.arrayContaining([expect.objectContaining({body: 'Brass or steel?'})]))
         const gear = (await store.notices({list: 'waiting'})).find(n => n.title === 'Add a gear' && n.project === 'through-api')!
         type Step = [string, () => Promise<Outcome>, () => Promise<Outcome>]
@@ -2128,10 +3543,64 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         }
         const viaTs = await run(([, ts]) => ts())
         const viaRs = await run(([, , rs]) => rs())
-        steps.forEach(([name], i) => expect(viaRs[i], name).toEqual(viaTs[i]))
+        steps.forEach(([name], i) => DOOR.has(name) ? atTheDoor(name, viaRs[i]!) : expect(viaRs[i], name).toEqual(viaTs[i]))
         expect(viaRs[0]!.body).toEqual({read: 2})
         expect(viaRs[8]).toMatchObject({status: 403})
         expect((viaRs[10]!.body as {cleared: number}).cleared).toBe(2)
+    })
+
+    it('comments on a milestone and on an epic alike, the owner\'s words theirs (ORR-1004)', async () => {
+        const milestones: Record<string, string> = {}
+        const epics: Record<string, number> = {}
+        for (const p of ['through-store', 'through-api']) {
+            milestones[p] = (await store.createMilestone(p, {title: 'Oil the joints'})).id
+            epics[p] = (await store.createEpic({title: `Comments through ${p}`})).id
+        }
+        // What a thread's step gave, either side: its comments' ids in order, and the epic's number, aren't compared.
+        const alike = (outcome: Outcome, p: string) => JSON.parse(JSON.stringify(same(outcome, p), (key, value: unknown) => key === 'epic' ? '<epic>' : typeof value === 'string' ? value.replace(/comment \d+/g, 'comment <n>').replace(/epic \d+/g, 'epic <n>') : value)) as unknown
+        const ids: Record<string, number[]> = {'through-store': [], 'through-api': []}
+        const kept = (p: string, outcome: Outcome) => {
+            const id = (outcome.body as {id?: number} | null)?.id
+            if (outcome.status === 201 && id) ids[p]!.push(id)
+            return outcome
+        }
+        for (const kind of ['milestone', 'epic'] as const) {
+            ids['through-store'] = []
+            ids['through-api'] = []
+            const path = (p: string) => kind === 'milestone' ? `/api/projects/${p}/milestones/${milestones[p]}/comments` : `/api/epics/${epics[p]}/comments`
+            const store_ = {
+                list: (p: string) => kind === 'milestone' ? store.listMilestoneComments(p, milestones[p]!) : store.listEpicComments(epics[p]!),
+                add: (p: string, body: unknown, actor: Actor) => kind === 'milestone' ? store.createMilestoneComment(p, milestones[p]!, body, actor) : store.createEpicComment(epics[p]!, body, actor),
+                edit: (p: string, id: number, body: unknown, actor: Actor) => kind === 'milestone' ? store.updateMilestoneComment(p, milestones[p]!, id, body, actor) : store.updateEpicComment(epics[p]!, id, body, actor),
+                remove: (p: string, id: number, actor: Actor) => kind === 'milestone' ? store.deleteMilestoneComment(p, milestones[p]!, id, actor) : store.deleteEpicComment(epics[p]!, id, actor),
+            }
+            const step = async (name: string, ts: (p: string) => Promise<Outcome>, rs: (p: string) => Promise<Outcome>) => {
+                const [a, b] = [kept('through-store', await ts('through-store')), kept('through-api', await rs('through-api'))]
+                expect(alike(b, 'through-api'), `${kind}: ${name}`).toEqual(alike(a, 'through-store'))
+                return b
+            }
+            const nth = (p: string, n: number) => ids[p]![n]!
+            await step('none yet', p => viaStore(() => store_.list(p)), p => viaApi('GET', path(p)))
+            const first = await step('a session\'s', p => viaStore(() => store_.add(p, {body: 'Oiled the hinge'}, SESSION), 201), p => viaApi('POST', path(p), {body: 'Oiled the hinge'}, SESSION))
+            await step('the owner\'s', p => viaStore(() => store_.add(p, {body: 'Good'}, OWNER), 201), p => viaApi('POST', path(p), {body: 'Good'}, OWNER))
+            await step('a blank one', p => viaStore(() => store_.add(p, {body: ' '}, SESSION)), p => viaApi('POST', path(p), {body: ' '}, SESSION))
+            await step('no words, and asking', p => viaStore(() => store_.add(p, {asks: 'decision'}, SESSION)), p => viaApi('POST', path(p), {asks: 'decision'}, SESSION))
+            await step('no body', p => viaStore(() => store_.add(p, undefined, SESSION)), p => viaApi('POST', path(p), undefined, SESSION))
+            await step('the thread', p => viaStore(() => store_.list(p)), p => viaApi('GET', path(p)))
+            await step('edited by its session', p => viaStore(() => store_.edit(p, nth(p, 0), {body: 'Oiled twice'}, SESSION)), p => viaApi('PATCH', `${path(p)}/${nth(p, 0)}`, {body: 'Oiled twice'}, SESSION))
+            await step('the owner\'s, edited by a session', p => viaStore(() => store_.edit(p, nth(p, 1), {body: 'Bad'}, SESSION)), p => viaApi('PATCH', `${path(p)}/${nth(p, 1)}`, {body: 'Bad'}, SESSION))
+            await step('edited with nothing', p => viaStore(() => store_.edit(p, nth(p, 1), {}, OWNER)), p => viaApi('PATCH', `${path(p)}/${nth(p, 1)}`, {}, OWNER))
+            await step('one that isn\'t there', p => viaStore(() => store_.edit(p, 99_999_999, {body: 'X'}, OWNER)), p => viaApi('PATCH', `${path(p)}/99999999`, {body: 'X'}, OWNER))
+            await step('the owner\'s, deleted by a session', p => viaStore(() => store_.remove(p, nth(p, 1), SESSION)), p => viaApi('DELETE', `${path(p)}/${nth(p, 1)}`, undefined, SESSION))
+            await step('a session\'s, deleted', p => viaStore(() => store_.remove(p, nth(p, 0), SESSION)), p => viaApi('DELETE', `${path(p)}/${nth(p, 0)}`, undefined, SESSION))
+            await step('the thread after', p => viaStore(() => store_.list(p)), p => viaApi('GET', path(p)))
+            expect(first.status).toBe(201)
+            expect(first.changed, kind).toEqual(kind === 'milestone' ? await sharing(['through-api']) : [])
+        }
+        // What isn't there, on each kind's own path.
+        const missing = (name: string, ts: () => Promise<unknown>, rs: string) => alike0(name, () => viaStore(ts), () => viaApi('GET', rs))
+        await missing('a milestone that isn\'t there', () => store.listMilestoneComments('through-api', '99999'), '/api/projects/through-api/milestones/99999/comments')
+        await missing('an epic that isn\'t there', () => store.listEpicComments(99_999), '/api/epics/99999/comments')
     })
 
     it('lists, reads, makes, changes, moves and deletes epics alike, telling what each did (ORR-1004)', async () => {
@@ -2266,7 +3735,7 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
     })
 
     it('streams the outbox as server-sent events, live, and says when a cursor has gone (ORR-929)', async () => {
-        const headers = {'Orrery-Api-Token': TOKEN, 'Orrery-Database': databaseMark(setting), ...actorHeaders(SESSION)}
+        const headers = {'Orrery-Api-Token': TOKEN, 'Orrery-Database': databaseMark(setting), ...OWN_WORK, ...actorHeaders(SESSION)}
         // The newest id, so the stream opens after every row there is.
         const last = await newestChange()
         const stop = new AbortController()
@@ -2317,7 +3786,14 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         expect(await ask({})).toBe(401)
         expect(await ask({'Orrery-Api-Token': `${TOKEN}x`, 'Orrery-Database': databaseMark(setting)})).toBe(401)
         expect(await ask({'Orrery-Api-Token': TOKEN, 'Orrery-Database': databaseMark('/elsewhere.db')})).toBe(421)
-        expect(await ask({'Orrery-Api-Token': TOKEN, 'Orrery-Database': databaseMark(setting)})).toBe(200)
+        expect(await ask({'Orrery-Api-Token': TOKEN, 'Orrery-Database': databaseMark(setting), ...OWN_WORK})).toBe(200)
+        // From outside, with people here, it checks a login itself (ORR-1038), whatever the router says of who it is.
+        const outside = {'Orrery-Api-Token': TOKEN, 'Orrery-Database': databaseMark(setting), ...cameHeaders({loopback: true, proxied: false, phone: false, https: false}, 'localhost')}
+        expect([401, 503]).toContain(await ask({...outside, ...whoHeaders({person: 'steffen', owner: true, via: 'browser'}, undefined)}))
+        await store.addPerson({name: 'Gate'}).catch(() => undefined)
+        expect(await ask({...outside, ...whoHeaders(undefined, (await store.startLogin('gate')).secret)})).toBe(200)
+        expect(await ask({...outside, ...whoHeaders(undefined, undefined, (await store.makeKey('gate', {kind: 'agent', name: 'gate'})).key)})).toBe(200)
+        expect([401, 503]).toContain(await ask({...outside, ...whoHeaders(undefined, undefined, (await store.makeKey('gate', {kind: 'person', name: 'gate'})).key)}))
     })
 })
 
@@ -2333,13 +3809,13 @@ describe('the router', () => {
     it('sends the docs domain and the statuses to the API, and keeps an artifact\'s page and everything else here', () => {
         for (const path of ['/api/projects/p/docs', '/api/projects/p/docs/', '/api/projects/p/docs/d', '/api/projects/p/docs/d/revisions', '/api/projects/p/docs/d/revisions/3',
             '/api/projects/p/docs/d/revisions/3/restore', '/api/projects/p/deleted-docs', '/api/projects/p/doc-sections', '/api/projects/p/doc-sections/how it works']) expect(servedByApi('GET', path), path).toBe(true)
-        for (const path of ['/api/projects/p/docs/d/artifact', '/api/projects/p', '/api/projects/p/docs/d/revisions/3/other', '/api/docs']) expect(servedByApi('GET', path), path).toBe(false)
+        for (const path of ['/api/projects/p/docs/d/artifact', '/api/projects/p/docs/d/revisions/3/other', '/api/docs']) expect(servedByApi('GET', path), path).toBe(false)
         for (const path of ['/api/statuses', '/api/statuses/', '/api/statuses/in-review']) expect(servedByApi('GET', path), path).toBe(true)
         for (const path of ['/api/statuses/x/y', '/api/projects/p/statuses', '/api/machine']) expect(servedByApi('GET', path), path).toBe(false)
     })
 
     it('routes by a table with a line per domain, so taking one back is taking its line out (ORR-925)', () => {
-        expect(DOMAINS.map(({domain}) => domain)).toEqual(['docs', 'statuses', 'issues, reading', 'comments', 'an issue, deleted', 'an issue, its words', 'claims', 'activity', 'milestones', 'releases', 'releases, every project\'s', 'people', 'invites', 'keys', 'logins', 'uploads, reading', 'presets', 'secrets, reading', 'settings', 'a pull request, reading', "a pull request's risk", 'schedules, reading', 'projects, listed', 'a project, made', 'a project, changed', 'the bell', 'epics'])
+        expect(DOMAINS.map(({domain}) => domain)).toEqual(['docs', 'statuses', 'permissions', 'issues, reading', 'comments', 'an issue, deleted', 'an issue, made', 'an issue, its words', 'issues, changed at once', 'a proposal, decided', 'claims', 'activity', 'milestones', 'releases', 'releases, every project\'s', 'people', 'invites', 'owner', 'board members', 'keys', 'logins', 'uploads, reading', 'an upload, kept', 'presets', 'secrets, reading', 'settings', 'a pull request, reading', "a pull request's risk", 'schedules, reading', 'a schedule, adopted', 'a schedule, deleted', 'a schedule, changed', 'a schedule, made', 'a schedule across projects, deleted', 'a schedule across projects, made', 'a schedule across projects, changed', 'schedules, paused or activated', 'a schedule, asked for', 'a schedule, answered', 'signals, reading', 'projects, listed', 'a project, made', 'a project, changed', 'a project, read', 'a project, deleted', 'a project, exported', 'a project, imported', 'the event log, read', 'an event, resolved', 'usage', 'the bell', 'epics', 'milestone and epic comments', 'workspaces', 'logging in'])
         expect(domainOf('PATCH', '/api/projects/p/docs/d')).toBe('docs')
         expect(domainOf('head', '/api/projects/p/doc-sections/')).toBe('docs')
         for (const method of ['POST', 'DELETE']) expect(domainOf(method, '/api/projects/p/issues/P-1/claim'), method).toBe('claims')
@@ -2348,13 +3824,22 @@ describe('the router', () => {
         expect(domainOf('POST', '/api/projects/p/issues/P-1')).toBeUndefined()
         // An issue's edit goes on only with nothing but its words: the rest of it stays here for now.
         expect(onlyWords({title: 'x', priority: 'P0', notes: null, labels: [], depends_on: ['P-2'], position: 2})).toBe(true)
-        expect(urgentOf('my%20project P-1')).toEqual({project: 'my project', issue: 'P-1'})
-        for (const header of [null, '', 'p', 'p P-1 x']) expect(urgentOf(header), String(header)).toBeUndefined()
+        expect(urgentOf('my%20project P-1')).toEqual([{project: 'my project', issue: 'P-1'}])
+        expect(urgentOf('p P-1, p%2Cq P-2')).toEqual([{project: 'p', issue: 'P-1'}, {project: 'p,q', issue: 'P-2'}])
+        for (const header of [null, '', 'p', 'p P-1 x']) expect(urgentOf(header), String(header)).toEqual([])
         expect(onlyWords({parent: null, milestone: '3', release: '1.0.0'})).toBe(true)
         expect(onlyWords({proposal: 'pending', notes: 'Still wanted?'})).toBe(true)
         expect(onlyWords({epic: 'EPC-1', title: 'x', choices: []})).toBe(true)
-        for (const body of [{title: 'x', status: 'todo'}, {assignee: 'claude'}, {choices: [], plan: null}, {project: 'q'}, {}, null, [], 'title']) expect(onlyWords(body), JSON.stringify(body)).toBe(false)
-        expect(domainOf('DELETE', '/api/projects/p/issues')).toBeUndefined()
+        expect(onlyWords({title: 'x', status: 'todo', assignee: 'claude', plan: null})).toBe(true)
+        for (const body of [{title: 'x', project: 'q'}, {project: 'q'}, {nope: 1}, {}, null, [], 'title']) expect(onlyWords(body), JSON.stringify(body)).toBe(false)
+        // An edit may move the issue to another project too (ORR-1129).
+        expect(onlyWords({project: 'q'}, {moves: true})).toBe(true)
+        expect(onlyWords({project: 'q', parent: 'Q-1', priority: 'P1'}, {moves: true})).toBe(true)
+        for (const body of [{project: 'q', nope: 1}, {}]) expect(onlyWords(body, {moves: true}), JSON.stringify(body)).toBe(false)
+        // A session's change of status stays here, for its lock on the issue (`claimed`).
+        for (const body of [{status: 'done'}, {plan: null, title: 'x'}]) expect(movesStatus(body), JSON.stringify(body)).toBe(true)
+        for (const body of [{assignee: 'owner'}, {title: 'x'}, null, 'status']) expect(movesStatus(body), JSON.stringify(body)).toBe(false)
+        expect(domainOf('DELETE', '/api/projects/p/issues')).toBe('an issue, deleted')
         for (const path of ['/api/projects/p/issues/P-1/activity/x', '/api/', '/docs', '/api/projects/p/docs/d/artifact']) expect(domainOf('GET', path), path).toBeUndefined()
     })
 
@@ -2367,8 +3852,10 @@ describe('the router', () => {
         for (const path of ['/api/projects/p/issues/P-1/comments/3/x', '/api/projects/p/issues/P-1/schedule-requests/3', '/api/projects/p/issues/P-1/branches']) expect(domainOf('GET', path), path).toBeUndefined()
         expect(domainOf('GET', '/api/projects/p/issues')).toBe('issues, reading')
         expect(domainOf('GET', '/api/projects/p/issues/P-1')).toBe('issues, reading')
-        for (const method of ['POST', 'PATCH', 'DELETE']) expect(domainOf(method, '/api/projects/p/issues'), method).toBeUndefined()
-        expect(domainOf('POST', '/api/projects/p/issues/decide')).toBeUndefined()
+        expect(domainOf('POST', '/api/projects/p/issues')).toBe('an issue, made')
+        expect(domainOf('PATCH', '/api/projects/p/issues')).toBe('issues, changed at once')
+        expect(domainOf('POST', '/api/projects/p/issues/decide')).toBe('a proposal, decided')
+        expect(domainOf('POST', '/api/projects/p/issues/P-1/decide')).toBe('a proposal, decided')
         expect(domainOf('GET', '/api/projects/p/issues/P-1/activity')).toBe('activity')
         expect(domainOf('POST', '/api/projects/p/issues/P-1/activity')).toBeUndefined()
     })
@@ -2404,14 +3891,17 @@ describe('the router', () => {
         expect(domainOf('POST', '/api/invites')).toBe('invites')
         for (const [method, path] of [['GET', '/api/keys'], ['POST', '/api/keys'], ['DELETE', '/api/keys/abc']]) expect(domainOf(method!, path!), path).toBe('keys')
         for (const [method, path] of [['GET', '/api/logins'], ['DELETE', '/api/logins'], ['DELETE', '/api/logins/0123456789abcdef']]) expect(domainOf(method!, path!), path).toBe('logins')
-        for (const path of ['/api/auth/login', '/api/auth/logout', '/api/auth/status', '/api/auth/oidc/start', '/api/owner']) expect(domainOf('POST', path), path).toBeUndefined()
+        for (const path of ['/api/auth/login', '/api/auth/logout']) expect(domainOf('POST', path), path).toBe('logging in')
+        for (const path of ['/api/auth/status', '/api/auth/oidc/start', '/api/owner']) expect(domainOf('POST', path), path).toBeUndefined()
+        expect(domainOf('GET', '/api/auth/login')).toBeUndefined()
         expect(loginHeaders({provider: true, off: true}, 'https://orrery.example')).toEqual({'Orrery-Login-Ways': 'provider, off', 'Orrery-Origin': 'https%3A%2F%2Forrery.example'})
         expect(loginHeaders({provider: false, off: false}, 'http://localhost:9000')).toEqual({'Orrery-Origin': 'http%3A%2F%2Flocalhost%3A9000'})
     })
 
-    it('sends an uploaded image\'s read there, and keeps uploading one here (ORR-927)', () => {
+    it('sends an uploaded image\'s read there, and keeping one (ORR-927, ORR-1058)', () => {
         expect(domainOf('GET', '/api/uploads/0123456789abcdef01234567')).toBe('uploads, reading')
-        expect(domainOf('POST', '/api/uploads')).toBeUndefined()
+        expect(domainOf('POST', '/api/uploads')).toBe('an upload, kept')
+        expect(domainOf('POST', '/api/uploads/0123456789abcdef01234567')).toBeUndefined()
         for (const path of ['/api/uploads', '/api/uploads/x/y']) expect(domainOf('GET', path), path).toBeUndefined()
     })
 
@@ -2454,26 +3944,38 @@ describe('the router', () => {
         ])
         expect(toldOf('issue.assignee orrery ORR%2D1 claude %7E')[0]).toMatchObject({from: 'claude', to: '~'})
         const said = (headers: Record<string, string>) => handedOn(new Headers(headers))
-        expect(said({'Orrery-Carry': 'shop%20front ORR%2D1 12', 'Orrery-Notice': 'shop%20front ORR%2D1 12'})).toEqual({project: 'shop front', issue: 'ORR-1', comment: 12, carry: true, notice: true, edited: false})
+        expect(said({'Orrery-Carry': 'shop%20front ORR%2D1 12', 'Orrery-Notice': 'shop%20front ORR%2D1 12'})).toEqual({project: 'shop front', issue: 'ORR-1', comment: 12, carry: true, notice: true, edited: false, quiet: false})
         expect(said({'Orrery-Notice': 'orrery ORR%2D1 12'})).toMatchObject({carry: false, notice: true})
         expect(said({})).toBeUndefined()
         expect(said({'Orrery-Carry': 'orrery ORR%2D1 12 edited'})).toMatchObject({carry: true, notice: false, edited: true})
+        expect(said({'Orrery-Carry': 'orrery ORR%2D1 12 quiet'})).toMatchObject({carry: true, edited: false, quiet: true})
+        expect(handoffsOf(new Headers({'Orrery-Carry': 'p P%2D1 3, p P-2 4 quiet', 'Orrery-Notice': 'p P-2 4 quiet'}))).toEqual([
+            {project: 'p', issue: 'P-1', comment: 3, carry: true, notice: false, edited: false, quiet: false},
+            {project: 'p', issue: 'P-2', comment: 4, carry: true, notice: true, edited: false, quiet: true},
+        ])
         expect(changedOf('orrery, shop%20front')).toEqual(['orrery', 'shop front'])
         expect(changedOf(null)).toEqual([])
+    })
+
+    // Last, once every step above has run: each route the API serves was driven by one of them (ORR-1010), so a route
+    // moved without a step here fails. Skipped when they didn't run (no binary, or a filter left them out).
+    it('drives every route of the contract at least once, those written ahead too', context => {
+        if (!reached.size) context.skip()
+        expect(unreached()).toEqual([])
     })
 })
 
 describe('the contract (api/openapi.yaml)', () => {
-    /** The Nuxt server's routes the router sends on. */
-    const routes = () => nuxtRoutes().filter(route => servedByApi(methodOf(route), pathOf(route)))
+    /** The routes the router sends on, the Nuxt server's few that keep some requests here included (ORR-1041). */
+    const routes = () => [...new Set([...nuxtRoutes(), ...rustRoutes()])].sort().filter(route => servedByApi(methodOf(route), pathOf(route)))
 
     it('has every route the router sends to the API, and no other', () => {
-        expect(contract()).toHaveLength(83)
+        expect(contract()).toHaveLength(127)
         expect(contract()).toEqual(routes())
     })
 
     it('sends none of the routes written ahead of the Rust API to it', () => {
-        expect(contract(true)).toEqual(['DELETE /api/chats/{chat}', 'GET /api/auth/oidc/callback', 'GET /api/auth/oidc/start', 'GET /api/chats', 'GET /api/chats/{chat}', 'POST /api/auth/login', 'POST /api/auth/logout', 'POST /api/pulls/forget', 'PUT /api/chats/{chat}', 'PUT /api/pulls/{owner}/{name}', 'PUT /api/pulls/{owner}/{name}/error', 'PUT /api/pulls/{owner}/{name}/history', 'PUT /api/pulls/{owner}/{name}/{number}'])
+        expect(contract(true)).toEqual(['DELETE /api/chats/{chat}', 'DELETE /api/secrets/{name}/sealed', 'GET /api/auth/oidc/callback', 'GET /api/auth/oidc/start', 'GET /api/auth/status', 'GET /api/auth/ways-in', 'GET /api/chats', 'GET /api/chats/{chat}', 'GET /api/database', 'GET /api/projects/{project}/comments/unanswered', 'GET /api/projects/{project}/issue-sessions', 'GET /api/projects/{project}/issues/{issue}/dependents', 'GET /api/projects/{project}/issues/{issue}/id', 'GET /api/projects/{project}/issues/{issue}/kept-pulls', 'GET /api/projects/{project}/issues/{issue}/row', 'GET /api/projects/{project}/issues/{issue}/workers', 'GET /api/projects/{project}/milestones/{milestone}/id', 'GET /api/projects/{project}/milestones/{milestone}/row', 'GET /api/projects/{project}/release-peers', 'GET /api/projects/{project}/releases/{release}/row', 'GET /api/projects/{project}/row', 'GET /api/projects/{project}/session-work', 'GET /api/projects/{project}/signals/last', 'GET /api/pulls/named', 'GET /api/pulls/repos', 'GET /api/pulls/{owner}/{name}', 'POST /api/auth/link', 'POST /api/boards', 'POST /api/chats/{chat}/doc-requests', 'POST /api/chats/{chat}/issue-requests', 'POST /api/chats/{chat}/lines', 'POST /api/chats/{chat}/move-requests', 'POST /api/chats/{chat}/release-requests', 'POST /api/chats/{chat}/replies', 'POST /api/chats/{chat}/schedule-requests', 'POST /api/chats/{chat}/setting-requests', 'POST /api/database/compact', 'POST /api/events/log/prune', 'POST /api/phone/link', 'POST /api/presets/seed', 'POST /api/projects/{project}/issue-sessions/rename', 'POST /api/projects/{project}/issues/{issue}/worked-by', 'POST /api/projects/{project}/signals', 'POST /api/projects/{project}/signals/retarget', 'POST /api/projects/{project}/signals/{signal}/receipts', 'POST /api/pulls/forget', 'POST /api/secrets/{name}/uses', 'POST /api/signals/prune', 'PUT /api/chats/{chat}', 'PUT /api/chats/{chat}/lines/{message}', 'PUT /api/events/log/lines', 'PUT /api/pulls/{owner}/{name}', 'PUT /api/pulls/{owner}/{name}/error', 'PUT /api/pulls/{owner}/{name}/history', 'PUT /api/pulls/{owner}/{name}/{number}', 'PUT /api/secrets/{name}/sealed', 'PUT /api/usage'])
         expect(contract(true).filter(operation => routes().includes(operation))).toEqual([])
     })
 })

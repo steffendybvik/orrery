@@ -158,6 +158,10 @@ export interface Issue {
 }
 
 /** Whether an issue waits on another that isn't done yet (ORR-601): nothing hands it out until it's free. */
+/** An issue in progress that's done with for now (ORR-1032): waiting on the owner's answer, or in review. It stays its
+ * session's, but doesn't keep the session from being handed more (`engaged` in the store). */
+export const parked = (issue: {status?: string, waiting?: string | null}) => !!issue.waiting || issue.status === 'in-review'
+
 export const isBlocked = (issue: {blocked_by?: string[]}) => !!issue.blocked_by?.length
 
 /** How an issue names another it's linked to (ORR-601): its id in the same project, `project/ID` in another. */
@@ -539,7 +543,7 @@ export function shortId(kind: IdKind, id: string, uid: string): string | null {
 }
 
 /** The number inside a milestone's or an epic's shown id, in any case: `MLS-14` → `14`; null for anything else. */
-export function shownNumber(kind: 'milestone' | 'epic', id: string): string | null {
+function shownNumber(kind: 'milestone' | 'epic', id: string): string | null {
     const prefix = FULL_PREFIX[kind]
     return startsWith(id, prefix) && /^\d+$/.test(id.slice(prefix.length)) ? id.slice(prefix.length) : null
 }

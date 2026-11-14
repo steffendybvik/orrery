@@ -6,7 +6,7 @@
 web/          the Nuxt app: app/ (the page), server/ (the API and the store), shared/ (both),
               public/, test/ (unit), e2e/ (browser), scripts/ (copy.ts, claim.mjs, worktrees.mjs), its package.json
 channel/      the channel, hooks and launcher Claude sessions run, which orrery serves to their machines
-api/          the Rust API (ORR-922), beside the Nuxt server: the domains moved so far, listed in openapi.yaml, its contract
+api/          the Rust API (ORR-922), behind the Nuxt server: the board's data, listed in openapi.yaml, its contract
 docs/         these docs; docs/API.md is also served to agents (/api/guide, /llms-full.txt)
 ```
 
@@ -16,7 +16,7 @@ Inside `web/`:
 app/pages/              one file per page; app/layouts/default.vue holds the sidebar and the dialogs
 app/components/         the page's pieces, ui/ the kit (see UI components below)
 app/composables/, utils/  shared state and behaviour, auto-imported
-server/api/             the routes, one file per method and path (/api/…)
+server/api/             the routes the Rust API doesn't serve, one file per method and path (/api/…)
 server/store/           the store, a file per domain (issues, milestones, comments, signals, releases, docs, presets…),
                         each class extending the one before; server/utils/store.ts is the last, `Store`, which the routes use
 server/utils/           the rest of the server: the database and its migrations, sessions and launches, schedules, secrets
@@ -46,7 +46,12 @@ in `.playground/compose.env` add a service of the playground's own (its data in 
 It's this machine's only. The container has its own `node_modules` and `.nuxt` (volumes), and installs
 packages as it starts.
 
-Without Docker: `pnpm install`, then `pnpm dev` on http://localhost:9000 (Node 24.22.1, pnpm 10.14.0).
+The Rust API runs inside each image (ORR-1041): the dev image builds it from the checkout, the prod image from its
+build context, and each sets `NUXT_API_BIN`, so the server starts it beside itself on the same database. One container, and
+one compose file, whatever the orrery. `play` builds the image each start, so a change in `api/` is in it.
+
+Without Docker: `pnpm install` and `cargo build` in `api/`, then `pnpm dev` on http://localhost:9000 (Node 24.22.1, pnpm
+10.14.0, Rust 1.88 or later). Without the API's build most routes answer 503 ([The Rust API](#the-rust-api)).
 
 ## The Rust API
 
@@ -55,16 +60,16 @@ the database goes there; what touches the machine (sessions, tmux, the launcher,
 **docs** domain (a project's docs, their sections and revisions), the orrery's **statuses** (`/api/statuses`,
 ORR-926), **milestones and releases** (ORR-926: a project's, one of each, and `/api/releases`; made, changed, frozen,
 shipped and deleted too, ORR-974), **reading
-issues and their comments**, and **making, editing and deleting a comment**, **claiming an issue and letting it go, changing its own words, priority and where it sits (title, priority, notes, labels, links, parent, milestone, release, what it depends on, whether it's a proposal, model, effort, place) and deleting one** (ORR-927: the list with its filters, one issue, its comments) and **people, invites, keys
+issues and their comments**, and **making, editing and deleting a comment**, **claiming an issue and letting it go, changing its own words, status, priority, assignee and where it sits (title, status, priority, assignee, notes, labels, links, parent, milestone, release, epic, what it depends on, whether it's a proposal and its choices, model, effort, place; a session's change of status stays on Nuxt, which holds its lock) changing many at once (their status, priority, assignee, milestone, release, epic and labels), the owner's decision on a proposal, or on many at once (a rejection told to its session but starting no work), and deleting one, or many at once** (ORR-927: the list with its filters, one issue, its comments) and **people, invites, keys
 and logins** (ORR-928, removing a person included; logging in and out aside) **reading the secrets** (ORR-953, never a value) and **reading the schedules** (ORR-930: a project's, one with its runs, every project's and those across projects), **reading one pull request, and rating its risk** (ORR-952,
-`/api/pulls/:owner/:name/:number`), **listing the projects** with their counts (ORR-997, `GET /api/projects`; `?expand=board` and one project's board stay in Nuxt, as their `rev` is the events stream's) and **changing a project** (ORR-923, `PATCH /api/projects/:project`, its prompts the owner's), **making one** (ORR-1002, `POST /api/projects`, held by whoever asks; deleting one stays in Nuxt) **the bell** (ORR-1005, `/api/notices`: reading it, its status changes, clearing it and marking it read, each person's their own) and **the epics** (ORR-1004, `/api/epics`: listing, reading, making, changing and deleting one; an epic's comments and its focus stay in Nuxt): the routes in
-`api/openapi.yaml`. An artifact's page (`…/docs/:doc/artifact`), a milestone's focus, and writing an issue (its claim, its own words and deleting one aside) stays in Nuxt, and so do setting, narrowing and deleting a secret and egress.
+`/api/pulls/:owner/:name/:number`), **listing the projects** with their counts and boards (ORR-997, ORR-1006, `GET /api/projects`), **reading one with its board** (each labelled in Nuxt with the events stream's `rev`), **deleting, exporting and importing one** (ORR-1006) and **changing a project** (ORR-923, `PATCH /api/projects/:project`, its prompts the owner's), **making one** (ORR-1002, `POST /api/projects`, held by whoever asks), **uploading an image** (ORR-1058), **the presets** (ORR-949), **the settings** (ORR-954), adopting and deleting a schedule (ORR-950) **the bell** (ORR-1005, `/api/notices`: reading it, its status changes, clearing it and marking it read, each person's their own) and **the epics** (ORR-1004, `/api/epics`: listing, reading, making, changing and deleting one, and its comments and a milestone's; an epic's focus stays in Nuxt): the routes in
+`api/openapi.yaml`. An artifact's page (`…/docs/:doc/artifact`), a milestone's focus, and writing an issue (its claim, its own words, changing many at once, deciding proposals and deleting issues aside) stays in Nuxt, and so do setting, narrowing and deleting a secret and egress.
 
 How it fits together:
 
-- **One database, one writer per table.** The API opens the database the Nuxt server is on and runs no migrations: those
-  stay in `web/server/utils/migrations`, and it refuses to start on a schema without the columns it reads, so start the
-  Nuxt server on a new database first. Their port is ready for when the last domain has moved (ORR-931): see
+- **One database, one writer per table.** The API opens the database the Nuxt server is on. Serving, it runs no
+  migrations, and it refuses to start on a schema without the columns it reads, so start the Nuxt server on a new
+  database first: the Nuxt server runs `orrery-api migrate` before it opens one (ORR-931), see
   [Migrations in Rust](#migrations-in-rust). While it serves docs, the docs routes write through it alone. What still writes
   docs in Nuxt, not through a route (the chat's doc requests, a board's upload or copy, deleting a project), works on
   the same rows.
@@ -86,8 +91,17 @@ How it fits together:
   (`handOn` in `store/comments.ts`), each with its own outbox row. An edit's carry ends `edited`, as its words replace
   ones the session may have read. A line can also name a check this server runs before forwarding (`first`): a
   comment's edit checks the session's claim on the issue (`claimFor`), as only this server knows the sessions.
-- **Falling back.** When the API is down, not started yet, or on another database (the owner moved it in App settings),
-  the request goes on to the Nuxt routes, which still answer it.
+- **No falling back (ORR-1041).** The Nuxt routes for what the router sends on are gone, so when the API is down, not
+  started yet, or on another database (the owner moved it in App settings), the request fails with a 503 that says
+  why, logged once to the server's log and the event log (`api.unreachable`) while it lasts. The one exception is a
+  line marked `here`: making an issue and editing one, whose `first` check keeps a session's, the chat's and an
+  untrusted session's requests (and an edit's status change by a session) for the Nuxt route, which still exists for
+  them. With the API down, the rest of their requests fail as any other's do. A test in `rust-api-coverage.test.ts`
+  fails when a Nuxt route comes back for what's routed without `here`.
+- **No swap flag.** The API isn't opt-in any more ([ORR-1091](/p/orrery/issues/ORR-1091) removed `NUXT_API_ONLY`).
+  The local app's own writes (`writeToApi`: the chat's rows, its Allow, the poll's and the scheduler's) go to the API
+  too, and fail with it down once this server has started one. Only a server with no API set up at all (unit tests)
+  leaves them to the store.
 
 **The page's side (ORR-943).** The page reaches the API through `web/app/utils/api.ts` alone, so where it sends a path is one
 setting: `NUXT_PUBLIC_API_BASES`, a JSON object of path prefix to base (`{"/projects/atlas/docs": "https://api.example.com/api"}`).
@@ -102,30 +116,49 @@ to it directly it has to check the login itself ([ORR-928](/p/orrery/issues/ORR-
 Nuxt applies before forwarding (the board's permissions, the chat's and untrusted rails, the browser guards). Until then
 the way in stays through Nuxt (`zz-api.ts`).
 
-Running it: `cargo build` in `api/` (Rust 1.80 or later), then start the Nuxt server with
-`NUXT_API_BIN=../api/target/debug/orrery-api`, which starts it beside itself on its own database with a fresh token,
-and stops it with itself. Or run one yourself and point at it: `NUXT_API_TOKEN` (16 characters or more) and
+Running it: the Nuxt server needs it, as the board's data is the API's alone. `cargo build` in `api/` (Rust 1.88 or
+later) once, and `pnpm dev` (`nuxt dev`) starts `api/target/debug/orrery-api` beside itself on its own database with a
+fresh token, and stops it with itself; build again after a change in `api/`. `NUXT_API_BIN` names another binary (the
+image sets it to its own copy). Or run one yourself and point at it: `NUXT_API_TOKEN` (16 characters or more) and
 `NUXT_DATABASE` for both, `ORRERY_API_LISTEN` for the API (`127.0.0.1:9100` by default), `NUXT_API_URL` for Nuxt.
-`ORRERY_API_LOG=1` has the API say each request it answers. Without any of these, Nuxt answers every route as before.
+`ORRERY_API_LOG=1` has the API say each request it answers. With none
+of these and no build, the server says so as it starts, and the API's routes answer 503.
 
-Its checks: `cargo fmt --check`, `cargo clippy -- -D warnings` and `cargo test` in `api/`. `web/test/api-parity.test.ts`
+Which server answered: every reply to an `/api/` request carries `X-Served-By: rust` or `X-Served-By: nuxt` (the
+browser's network tab shows it). A request the API serves that it didn't answer logs one line, `[orrery api-route]
+served=nuxt reason=… domain=… method=… path=…`, or `served=none` when it failed instead; `reason` is `not-running`,
+`unreachable`, `other-database`, or `kept-here` with the `check` that kept a session's or the chat's request here. The
+playground runs the API with `ORRERY_API_LOG=1`, so `play logs | grep 'api-route'` and the API's own lines sit side by side.
+
+Its checks: `cargo fmt --check`, `cargo clippy -- -D warnings` and `cargo test` in `api/`; with `TEST_POSTGRES_URL` set,
+`cargo test` runs on that Postgres instead, each test in a schema of its own, and CI runs it both ways. SQL in a test
+goes through `db::sql`, as the API's own does, so its `?` are numbered for Postgres. `web/test/api-parity.test.ts`
 runs the same steps through the store and through the API on one database (SQLite, or Postgres with
 `TEST_POSTGRES_URL`) and compares the replies, failures and what each said changed; it skips without a built binary,
-and CI's `api` job builds one first. It also holds `openapi.yaml` to the routes the router sends on. No browser spec runs
-through the API yet: they all start Nuxt without `NUXT_API_BIN`.
+and CI's `api` job builds one first. It also holds `openapi.yaml` to the routes the router sends on.
+`web/test/one-writer.test.ts` reads every table the API writes off its SQL and holds them to `web/test/table-writers.ts`,
+where each says it's the API's alone once routed, or what the Nuxt server still writes there and the issue that ends
+it: a table the API starts writing needs its line there. The browser suite
+runs through the API, as its `nuxt dev` starts the debug build (or `NUXT_API_BIN`), so `cargo build` in `api/` before
+`pnpm test:e2e`; CI hands its jobs the `api` job's binary. What the suite found the first time it ran through the API
+alone is in [Rust API swap](/p/orrery/docs/rust-api-swap).
 
-A change to a docs, statuses or issue-reading route is now a change in three places: the store
-(`web/server/store/docs.ts`, `statuses.ts`, `issues.ts`), the API (`api/src/docs.rs`, `statuses.rs`, `issues.rs`) and the
-contract, with the parity test saying when they differ. That includes how the board is built: a field `readBoard` or
+A change to a route the API serves is a change in the API (`api/src/routes/`, `api/src/board/`…) and the contract. Its
+Nuxt route is gone, but the store's code for it stays while the parity test holds the API to it and the local app still
+writes through it with no request (the chat's Allow, the scheduler, sessions finishing work); change it too, with the
+parity test saying when they differ. That includes how the board is built: a field `readBoard` or
 `buildBoard` adds to an issue, or a change to how its column rolls up, goes into `issues.rs` too. The statuses are the orrery's, not a project's, so their parity steps run on each side in turn, with the table
 put back between.
 
 People, invites, keys and logins (ORR-928, `api/src/people.rs`) are the same: a change to `web/server/store/people.ts`'s
 `people`, `addPerson` or `renamePerson`, or to `keys.ts`, goes into `people.rs` too. Removing a person stays in the Nuxt
 server, as it unassigns their issues (ORR-929). What only the Nuxt server's settings say (a login provider,
-ORRERY_AUTH=off, the address for an invite's link) goes along as `Orrery-Login-Ways` and `Orrery-Origin`. Checking a key or a login cookie on each request stays in the Nuxt
-server (`web/server/utils/auth.ts`), which sends the API what it found (`Orrery-Who`) and the asking browser's login only
-hashed, so the API never sees a secret it didn't make. Who may handle people, keys and logins (`authorize`, `key-rights.ts`) is checked on
+ORRERY_AUTH=off, the address for an invite's link) goes along as `Orrery-Login-Ways` and `Orrery-Origin`. Both servers check
+the credential on each request (ORR-1038): the Nuxt server (`web/server/utils/auth.ts`) first, then the API's guard
+(`api/src/request.rs`), which looks up the login and the bearer itself, from `Orrery-Login` and `Orrery-Key`, sent only
+hashed so the API never sees a secret it didn't make, and goes by what it finds rather than the router's `Orrery-Who`.
+It turns away a `closed` request too. A call the Nuxt server makes for its own work (`writeToApi`, the outbox's
+follower) says `Orrery-Came: server` (`OWN_WORK`) and has no login checked, as does each step of the parity test. Who may handle people, keys and logins (`authorize`, `key-rights.ts`) is checked on
 both sides, the credential having the last word over the actor, so the parity test compares the refusals with the permissions table's own words.
 
 The secrets (ORR-953, `api/src/secrets.rs`) are read there and written here. A secret's value is sealed with the key
@@ -148,8 +181,10 @@ same path streams them as server-sent events, oldest first, then live, each with
 committed), and they look every second anyway, for writes from another process. A cursor whose row isn't kept answers
 `gap: true` (a `gap` event on the stream) with the newest id: the reader has missed rows, so it reads the board again.
 Rows older than a week are pruned hourly, keeping the newest. So far the rows go in just after the write, on its
-connection, rather than in its transaction, and only the API's writes add them. Nothing reads them yet: the reply headers
-still carry what changed to the Nuxt server.
+connection, rather than in its transaction. While the API runs, the Nuxt server follows them (ORR-983,
+`web/server/utils/outbox-follower.ts`, once a second) instead of the reply headers, and a write it forwards waits for
+the follower to read the outbox (`caughtUp`, 2 seconds at most) before it replies, so the page that made it never acts
+on a board without it (ORR-1029).
 
 The Nuxt server's own writes keep their rows too (`outbox()` in `web/server/store/base.ts`), the relayed ones aside. Beside
 what the API keeps, they keep a `signal` row for each signal sessions are sent (its id; the `signals` table holds the
@@ -221,34 +256,43 @@ milliseconds, and a page over its budget fails the run. `web/perf-report/report.
 step's time, the API calls behind it and their sizes, and the slowest routes. CI runs it on both databases with the
 e2e flows and keeps the report as an artifact. `PERF_NO_BUILD=1` reuses the last build when you're trying it again.
 
-`pnpm soak`, after `pnpm build`, runs the built app on a fresh `web/.data/soak.db` and works it faster than real use: sessions listening, their streams and the page's live feed dropping and coming back, hooks, comments, edits and a backup every five minutes. `web/soak-report/` keeps its memory, open files and the project list's time every 15 seconds, and `summary.json` the totals. It fails on a request that errors or when open files keep growing, and memory is for reading. `SOAK_MINUTES` (30), `SOAK_SESSIONS` (8) and `SOAK_PORT` (3360) change it. A short run catches a fast leak, and says nothing of what only shows after days.
+`pnpm soak`, after `pnpm build`, runs the built app on a fresh `web/.data/soak.db` and works it faster than real use: sessions listening, their streams and the page's live feed dropping and coming back, hooks, comments and edits. `web/soak-report/` keeps its memory, open files and the project list's time every 15 seconds, and `summary.json` the totals. It fails on a request that errors or when open files keep growing, and memory is for reading. `SOAK_MINUTES` (30), `SOAK_SESSIONS` (8) and `SOAK_PORT` (3360) change it. A short run catches a fast leak, and says nothing of what only shows after days.
 
-The database's migrations are numbered steps in `web/server/utils/migrations/sqlite.ts`, with Postgres's after its baseline
-beside them in `web/server/utils/migrations/postgres.ts`: add a step to both, never edit one. `test/schema-parity.test.ts` checks that both end
+The database's migrations are the Rust API's numbered steps (see [Migrations in Rust](#migrations-in-rust)): a SQL file
+each in `api/migrations/sqlite` and in `api/migrations/postgres`, after Postgres's baseline. Add a step to both, never
+edit one. `test/schema-parity.test.ts` checks that both end
 on the same step with the same tables, columns, indexes and checks, and that a step changing data does the same on
 each; a step that changes data gets an upgrade test there. Before a SQLite file takes steps it's copied to
 `orrery-pre-<version>-step<n>.db`, and a database past the newest step the code knows (from a newer orrery) isn't opened.
 
 ### Migrations in Rust
 
-The Rust API has the same steps (ORR-931): each SQL step as a numbered file in `api/migrations/sqlite` and
-`api/migrations/postgres` (Postgres's baseline as `023-baseline.sql`), listed in `api/src/steps.rs`, and the steps that are
-code here written again in `api/src/migrate.rs`. `orrery-api migrate` brings `NUXT_DATABASE` up to the newest step, counted
-as the Node app counts them, so a database either one migrated carries on with the other. Nothing runs it yet: the Node
-app migrates until the last domain has moved. Like Node, it copies a SQLite file before upgrading it, and won't upgrade
-without the copy: `orrery-pre-<ORRERY_VERSION>-step<n>.db` in `ORRERY_API_BACKUP_DIR`, or beside the file. An owner
+The Rust API owns the migrations (ORR-931): each SQL step as a numbered file in `api/migrations/sqlite` and
+`api/migrations/postgres` (Postgres's baseline as `023-baseline.sql`), listed in `api/src/steps.rs`, and the Node app's
+old code steps written again in `api/src/migrate.rs`. `orrery-api migrate` brings `NUXT_DATABASE` up to the newest step, counted
+as the Node app counts them, so a database either one migrated carries on with the other. The Nuxt server runs it
+before it opens a database (`server/utils/api-migrate.ts`), so the steps that run are these: on start, on SQLite and
+Postgres. It passes `ORRERY_API_STEPS`, its own newest step, and a build whose
+steps end elsewhere (a stale `cargo build`) exits 3 having done nothing; the Nuxt server then says so and runs its own
+steps, as it does with no binary at all (the unit tests, `nuxt dev` before `cargo build`). It prints `{"from":n,"to":m}`,
+which the event log's `migration.ran` takes. It takes no copy before upgrading: backing the database up first is
+whoever runs orrery's to do (ORR-1187). An owner
 setting that isn't JSON stops the step that moves the owner to `people`. It leaves a database from before step 4 (when
 issues were renumbered per board) to the Node app.
 
-A new step is still written in `web/server/utils/migrations` first, then ported with
+The Node app's own steps, in `web/server/utils/migrations/sqlite.ts` and `postgres.ts`, are frozen at step 87, where
+it handed over: a test fails on one added there. A new step is a SQL file in both `api/migrations/sqlite` and
+`api/migrations/postgres`, numbered on from the last (`088.sql`, …), and never code, as the Node app couldn't run it.
+Then
 
 ```sh
 ORRERY_WRITE_MIGRATIONS=1 pnpm --dir web exec vitest run --project unit test/rust-migrations.test.ts
 ```
 
-which writes the files. A step that's code needs its arm in `migrate.rs` by hand. `test/rust-migrations.test.ts` fails
-until both are done, and with the binary built it checks that `orrery-api migrate` makes the database Node makes: from
-empty, and carrying on from a step Node stopped at, on SQLite and (with `TEST_POSTGRES_URL`) on Postgres.
+writes `api/src/steps.rs` and `web/server/utils/migrations/from-api.ts`, which the Node app reads the new steps through
+when it migrates without the binary. `test/rust-migrations.test.ts` fails until they match the files, and with the
+binary built it checks that `orrery-api migrate` makes the database Node makes: from empty, and carrying on from a step
+Node stopped at, on SQLite and (with `TEST_POSTGRES_URL`) on Postgres.
 
 ## Benchmarking the browser suite
 

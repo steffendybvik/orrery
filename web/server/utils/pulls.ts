@@ -12,6 +12,8 @@ import type {AllPulls, IssuePulls, OpenPull, PastPull, PullIssues, PullRequest, 
 import {PULL_NEEDS, RISK_LEVELS, githubRepo, highestRisk} from '#shared/roadmap'
 import {badRequest, checkInput, conflict, notFound} from './input'
 import type {Store} from './store'
+import {readFromApi, writeToApi} from './api-router'
+import {ORRERY} from '../store/schema'
 
 /** The secret orrery sends to api.github.com, when there's one that may go there. */
 export const GITHUB_SECRET = 'GITHUB_TOKEN'
@@ -56,6 +58,44 @@ export interface KeptPull {
     updated_at: string
     seen_at: string
     told: string
+}
+
+/** A PR the poll keeps, as the API reads it back: its lists parsed, its flags true or false (ORR-1153). */
+export type KeptRow = Omit<KeptPull, 'repo' | 'names' | 'told' | 'draft' | 'merged' | 'closed'> & {names: string[], told: string[], draft: boolean, merged: boolean, closed: boolean}
+
+/** What's kept of a repo the poll reads (`GET /api/pulls/:owner/:name`): `repo` null before its first poll, and each PR
+ * kept on an issue in `recorded` (ORR-1153). */
+export interface KeptRepo {
+    repo: {polled_at: string, token: boolean, error: string | null, history_page: number} | null
+    pulls: KeptRow[]
+    recorded: {number: number, updated_at: string, branch: string, url: string, state: 'open' | 'merged' | 'closed'}[]
+}
+
+/** An issue a PR or a branch names, with its status's kind (ORR-1153). */
+export type NamedIssue = NonNullable<OpenPull['issue']> & {kind: string | null}
+
+/** Each project's repo as written, oldest first, and the branches of releases being prepared, the newest first. */
+export interface ProjectRepos {
+    projects: {id: string, repo: string | null}[]
+    preparing: {project: string, branch: string}[]
+}
+
+/** What's kept of a repo: from the Rust API when it's in front (ORR-1153), as it's the one on the database then;
+ * otherwise read here. */
+export async function keptRepo(store: Store, repo: string): Promise<KeptRepo> {
+    const read = await readFromApi<KeptRepo>(`/api/pulls/${repoPath(repo)}`)
+    if (read) return read
+    const row = await store.db.get<{polled_at: string, token: number, error: string | null, history_page: number | null}>(
+        'SELECT polled_at, token, error, history_page FROM pull_repos WHERE repo = ?', repo)
+    const pulls = await store.db.all<KeptPull>('SELECT * FROM pull_states WHERE repo = ? ORDER BY number', repo)
+    const recorded = await store.db.all<KeptRepo['recorded'][number]>(
+        'SELECT DISTINCT number, updated_at, branch, url, state FROM issue_pulls WHERE repo = ? ORDER BY number, updated_at', repo)
+    return {
+        repo: row ? {polled_at: row.polled_at, token: !!Number(row.token), error: row.error ?? null, history_page: Number(row.history_page ?? 0)} : null,
+        pulls: pulls.map(({repo: _repo, ...pull}) => ({...pull, number: Number(pull.number), names: JSON.parse(pull.names) as string[], told: JSON.parse(pull.told) as string[],
+            draft: !!Number(pull.draft), merged: !!Number(pull.merged), closed: !!Number(pull.closed)})),
+        recorded: recorded.map(r => ({...r, number: Number(r.number)})),
+    }
 }
 
 /** What's kept of a PR for good (`issue_pulls`), with the issue ids it names. */
@@ -163,10 +203,13 @@ export class Pulls {
     /** The issue's open PRs on its project's repo, and those it keeps from before (ORR-795). */
     async forIssue(project: string, issue: string): Promise<IssuePulls> {
         project = await this.store.projectId(project)
-        const ids = await this.ids(project, issue)
+        const {ids, pulls: kept} = await this.keptOn(project, issue)
         const open = await this.openFor(project, ids)
-        const done = await this.past(project, ids[0] ?? issue, open.repo)
-        const risks = await this.risks(project, ids[0] ?? issue)
+        // What's kept but those open on its project's repo now, as GitHub is the word on those.
+        const done = kept.filter(row => row.state !== 'open' || row.repo !== open.repo).map(({risk: _risk, risk_why: _why, risk_by: _by, ...row}) => row)
+        // The risk of each that's rated (ORR-879), by `repo#number`, the repo in lower case.
+        const risks = new Map<string, PullRisk>()
+        for (const r of kept) if (r.risk) risks.set(`${r.repo.toLowerCase()}#${r.number}`, {level: r.risk, why: r.risk_why ?? '', by: r.risk_by === 'owner' ? 'owner' : 'session'})
         const rated = <T extends {number: number}>(pull: T, repo: string | null): T => {
             const risk = risks.get(`${repo?.toLowerCase()}#${pull.number}`)
             return risk ? {...pull, risk} : pull
@@ -174,11 +217,16 @@ export class Pulls {
         return {...open, pulls: open.pulls.map(pull => rated(pull, open.repo)), done: done.map(({repo, ...pull}) => rated(pull, repo))}
     }
 
-    /** The risk of each of the issue's PRs that's rated (ORR-879), by `repo#number`, the repo in lower case. */
-    private async risks(project: string, issue: string): Promise<Map<string, PullRisk>> {
-        const rows = await this.store.db.all<{repo: string, number: number, risk: RiskLevel, risk_why: string | null, risk_by: string | null}>(
-            'SELECT repo, number, risk, risk_why, risk_by FROM issue_pulls WHERE project = ? AND issue = ? AND risk IS NOT NULL', project, issue)
-        return new Map(rows.map(r => [`${r.repo.toLowerCase()}#${r.number}`, {level: r.risk, why: r.risk_why ?? '', by: r.risk_by === 'owner' ? 'owner' : 'session'}]))
+    /** The issue's id and those it had before, and what's kept of its PRs with their ratings, the newest first: from the
+     * API when it's in front (ORR-1153); a 404 when there's no such issue. */
+    async keptOn(project: string, issue: string): Promise<{ids: string[], pulls: (PastPull & {repo: string, risk: RiskLevel | null, risk_why: string | null, risk_by: string | null})[]}> {
+        const read = await readFromApi<Awaited<ReturnType<Pulls['keptOn']>>>(`/api/projects/${encodeURIComponent(project)}/issues/${encodeURIComponent(issue)}/kept-pulls`)
+        if (read) return read
+        const ids = await this.ids(project, issue)
+        const pulls = await this.store.db.all<PastPull & {repo: string, risk: RiskLevel | null, risk_why: string | null, risk_by: string | null}>(
+            `SELECT repo, number, title, url, branch, base, author, state, merged_at, updated_at, risk, risk_why, risk_by
+             FROM issue_pulls WHERE project = ? AND issue = ? ORDER BY updated_at DESC, number DESC`, project, ids[0] ?? issue)
+        return {ids, pulls: pulls.map(p => ({...p, number: Number(p.number)}))}
     }
 
     /** The risk route's rating (`PUT …/pulls/:owner/:name/:number/risk`): `number` as sent (`788` or `#788`), the body
@@ -242,17 +290,15 @@ export class Pulls {
         return {repo, pull: {number: n, title, url, branch, base, author, state, merged_at, updated_at}, issues}
     }
 
-    /** What's kept of the issue's PRs but those open on `repo`, its project's now, as GitHub is the word on those. */
-    private async past(project: string, issue: string, repo: string | null): Promise<(PastPull & {repo: string})[]> {
-        const rows = await this.store.db.all<PastPull & {repo: string}>('SELECT repo, number, title, url, branch, base, author, state, merged_at, updated_at FROM issue_pulls WHERE project = ? AND issue = ? ORDER BY updated_at DESC, number DESC', project, issue)
-        return rows.filter(row => row.state !== 'open' || row.repo !== repo)
-    }
-
     /** Keeps the PR on each issue it names, for good, and off any it no longer names (ORR-795). A PR naming several is on
      * each, as an issue's page has always shown it; one naming none has no row. A release PR, from a release's branch, is
      * on every issue in that release too (ORR-913): its body names none, and its branch is the release's. Only kept: what
      * a PR does next (merged, failing) still goes to the issue it names, so a release PR's news goes to none. */
     async remember(repo: string, projects: string[], pull: RememberedPull) {
+        // Through the Rust API when it's in front, as it's the one writer of `issue_pulls` then (ORR-1095).
+        const {title, url, branch, base, author, merged, closed, merged_at, created_at, updated_at, names} = pull
+        const body = {projects, names, title, url, branch, base, author, merged, closed, merged_at, created_at, updated_at}
+        if (await writeToApi('PUT', `/api/pulls/${repoPath(repo)}/${pull.number}`, body, ORRERY, {always: true})) return
         const issues = new Map<string, {project: string, id: string}>()
         for (const name of pull.names) {
             const issue = await this.issueOf(projects, [name])
@@ -283,14 +329,18 @@ export class Pulls {
 
     /** The issue's open PRs on its project's repo. */
     private async openFor(project: string, ids: string[]): Promise<Omit<IssuePulls, 'done'>> {
-        const row = await this.store.db.get<{repo: string | null}>('SELECT repo FROM projects WHERE id = ?', project)
-        const repo = githubRepo(row?.repo)
+        // Its repo from the API, which keeps the project; the table here only with no API set up (ORR-1143).
+        const read = await readFromApi<{repo?: string}>(`/api/projects/${encodeURIComponent(project)}?notes=0&closed=0`).catch(error => {
+            if ((error as {statusCode?: number}).statusCode === 404) return {repo: undefined}
+            throw error
+        })
+        const repo = githubRepo(read ? read.repo : (await this.store.db.get<{repo: string | null}>('SELECT repo FROM projects WHERE id = ?', project))?.repo)
         if (!repo) return {repo: null, pulls: [], token: false, checked_at: null}
 
         const kept = await this.kept(repo)
         if (kept) {
             const wanted = ids.map(id => id.toUpperCase())
-            const pulls = kept.pulls.filter(pull => (JSON.parse(pull.names) as string[]).some(id => wanted.includes(id))).map(pull => keptShown(pull))
+            const pulls = kept.pulls.filter(pull => pull.names.some(id => wanted.includes(id))).map(pull => keptShown(pull))
             return {repo, pulls, ...kept.error ? {error: kept.error} : {}, token: true, checked_at: kept.checked_at}
         }
         const list = await this.read(this.lists, repo, () => this.list(repo, project))
@@ -318,7 +368,7 @@ export class Pulls {
             const kept = await this.kept(repo, true)
             if (kept) {
                 for (const pull of kept.pulls) {
-                    const issue = await this.issueOf(projects, JSON.parse(pull.names) as string[])
+                    const issue = await this.issueOf(projects, pull.names)
                     // Read without a token, the state kept is the last one a token told: maybe long gone.
                     const shown = kept.token ? keptShown(pull) : {...keptShown(pull), state: pull.draft ? 'draft' as const : 'checking' as const}
                     pulls.push({...shown, repo, ...issue ? {issue} : {}})
@@ -384,7 +434,7 @@ export class Pulls {
 
     /** The projects' GitHub repos, each with the projects on it, oldest first. */
     async repos(): Promise<Map<string, string[]>> {
-        const rows = await this.store.db.all<{id: string, repo: string | null}>('SELECT id, repo FROM projects ORDER BY created_at, id')
+        const rows = (await this.projectRepos()).projects
         const byRepo = new Map<string, string[]>()
         for (const row of rows) {
             const repo = githubRepo(row.repo)
@@ -393,24 +443,50 @@ export class Pulls {
         return byRepo
     }
 
+    /** Each project's repo and the branches of releases being prepared: from the API when it's in front (ORR-1153). */
+    async projectRepos(): Promise<ProjectRepos> {
+        const read = await readFromApi<ProjectRepos>('/api/pulls/repos')
+        if (read) return read
+        return {
+            projects: await this.store.db.all<ProjectRepos['projects'][number]>('SELECT id, repo FROM projects ORDER BY created_at, id'),
+            preparing: await this.store.db.all<ProjectRepos['preparing'][number]>('SELECT project, branch FROM releases WHERE branch IS NOT NULL AND shipped_on IS NULL ORDER BY created_at DESC'),
+        }
+    }
+
+    /** The branches of the projects' releases being prepared, the newest first. */
+    async preparing(projects: string[]): Promise<string[]> {
+        return (await this.projectRepos()).preparing.filter(r => projects.includes(r.project)).map(r => r.branch)
+    }
+
     /** The repo's open PRs as the poll keeps them, while it read them with a token in the last few minutes (or without
      * one, `listOnly`, for a reader that shows only the list then); else none, and GitHub is asked. */
-    private async kept(repo: string, listOnly = false): Promise<{pulls: KeptPull[], checked_at: string, token: boolean, error?: string} | null> {
-        const polled = await this.store.db.get<{polled_at: string, token: number, error: string | null}>('SELECT polled_at, token, error FROM pull_repos WHERE repo = ?', repo)
+    private async kept(repo: string, listOnly = false): Promise<{pulls: KeptRow[], checked_at: string, token: boolean, error?: string} | null> {
+        const {repo: polled, pulls} = await keptRepo(this.store, repo)
         if (!polled || (!polled.token && !listOnly) || this.now() - Date.parse(polled.polled_at) > POLL_STANDS) return null
-        const pulls = await this.store.db.all<KeptPull>('SELECT * FROM pull_states WHERE repo = ? AND merged = 0 AND closed = 0 ORDER BY number', repo)
-        return {pulls, checked_at: polled.polled_at, token: !!polled.token, ...polled.error ? {error: polled.error} : {}}
+        return {pulls: pulls.filter(p => !p.merged && !p.closed), checked_at: polled.polled_at, token: polled.token, ...polled.error ? {error: polled.error} : {}}
     }
 
     /** The first of the ids that's an issue (or one it had before) in one of the projects. */
     async issueOf(projects: string[], ids: string[]): Promise<OpenPull['issue']> {
+        const found = await this.named(projects, ids)
+        return found ? {project: found.project, id: found.id, title: found.title} : undefined
+    }
+
+    /** `issueOf`'s issue with its status's kind: from the API when it's in front (ORR-1153), else read here. */
+    async named(projects: string[], ids: string[]): Promise<NamedIssue | undefined> {
+        if (!projects.length || !ids.length) return undefined
+        const read = await readFromApi<{issue: NamedIssue | null}>(`/api/pulls/named?${new URLSearchParams({projects: projects.join(','), ids: ids.join(',')})}`)
+        if (read) return read.issue ?? undefined
         const among = projects.map(() => '?').join(', ')
         for (const id of ids) {
-            const found = await this.store.db.get<{project: string, id: string, title: string}>(
-                `SELECT project, id, title FROM issues WHERE project IN (${among}) AND id = ?`, ...projects, id)
-                ?? await this.store.db.get<{project: string, id: string, title: string}>(
-                    `SELECT i.project, i.id, i.title FROM issue_aliases a JOIN issues i ON i.project = a.project AND i.id = a.issue WHERE a.project IN (${among}) AND a.alias = ?`, ...projects, id)
-            if (found) return found
+            const found = await this.store.db.get<{project: string, id: string, title: string, status: string}>(
+                `SELECT project, id, title, status FROM issues WHERE project IN (${among}) AND id = ?`, ...projects, id)
+                ?? await this.store.db.get<{project: string, id: string, title: string, status: string}>(
+                    `SELECT i.project, i.id, i.title, i.status FROM issue_aliases a JOIN issues i ON i.project = a.project AND i.id = a.issue WHERE a.project IN (${among}) AND a.alias = ?`, ...projects, id)
+            if (found) {
+                const kind = (await this.store.statuses()).find(s => s.id === found.status)?.kind ?? null
+                return {project: found.project, id: found.id, title: found.title, kind}
+            }
         }
         return undefined
     }
@@ -560,7 +636,7 @@ export class Pulls {
 }
 
 /** A PR the poll keeps, as the pages show it. */
-function keptShown(pull: KeptPull): PullRequest {
+function keptShown(pull: KeptRow): PullRequest {
     return {
         number: pull.number,
         title: pull.title,
@@ -626,4 +702,9 @@ export function pullsPage(all: AllPulls, query: {page?: unknown, limit?: unknown
     const limit = Math.min(counted(query.limit, PULLS_PAGE), PULLS_PAGE_MOST)
     const page = Math.min(counted(query.page, 1), Math.max(1, Math.ceil(found.length / limit)))
     return {...all, ...searched, pulls: found.slice((page - 1) * limit, page * limit), page, limit}
+}
+
+/** `owner/name` as a path, each part percent-encoded. */
+export function repoPath(repo: string): string {
+    return repo.split('/').map(encodeURIComponent).join('/')
 }

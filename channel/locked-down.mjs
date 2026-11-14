@@ -10,21 +10,39 @@ import {NOT_FOR_CHAT, NOT_FOR_UNTRUSTED} from './tools.mjs'
  * `github_issues`, and has no Bash, nor any other of Claude Code's own tools, so it can't point gh at another host and
  * send what it read there (ORR-415). It has the channel's tools but `NOT_FOR_UNTRUSTED` (tools.mjs) and `more_tools`; everything else is
  * refused, not asked (`dontAsk`, as nobody is there to answer). `--restricted` leaves out the user's and the repo's
- * settings (their allow lists among them), so the repo's hooks are passed back on their own, and only the repo's MCP
- * servers load. */
-export function lockedDown(dir, server) {
+ * settings (their allow lists among them), so the repo's hooks are passed back on their own. Its one MCP server is
+ * orrery's channel, which the launcher hands it itself (ORR-1066): not the repo's .mcp.json, whose other servers would
+ * give it tools beyond orrery's. With orrery's `/mcp` beside it (`beside`, ORR-1102), that too: `/mcp` lists it only
+ * the untrusted session's tools, and its rails hold their writes as the server's guard does. */
+export function lockedDown(dir, server, beside) {
+    const servers = {...channelOnly(dir, server).mcpServers, ...beside?.config.mcpServers}
     return ['--restricted', '--tools', '', '--permission-mode', 'dontAsk', '--settings', JSON.stringify({hooks: hooksOf(dir)}),
-        '--strict-mcp-config', '--mcp-config', join(dir, '.mcp.json'),
-        '--allowedTools', `mcp__${server}`,
+        ...beside?.fresh ? ['--session-id', beside.session] : [],
+        '--strict-mcp-config', '--mcp-config', JSON.stringify({mcpServers: servers}),
+        '--allowedTools', `mcp__${server}`, ...beside ? [`mcp__${beside.name}`] : [],
         '--disallowedTools', ...[...NOT_FOR_UNTRUSTED, 'more_tools'].map(tool => `mcp__${server}__${tool}`)]
 }
 
 /** How the owner's chat session is started: with the Claude Code settings of the machine it runs on, as a terminal there
  * (ORR-750), so what they allow it may do, what they deny it may not, and what they'd ask about it asks. orrery holds it
  * only to its own rules: the channel but its tools that take up work (its GitHub reads among what it keeps, ORR-748). */
-export function chatOnly(dir, server) {
+export function chatOnly(dir, server, beside) {
     return ['--allowedTools', `mcp__${server}`,
-        '--disallowedTools', ...NOT_FOR_CHAT.map(tool => `mcp__${server}__${tool}`)]
+        '--disallowedTools', ...NOT_FOR_CHAT.map(tool => `mcp__${server}__${tool}`), ...besideArgs(beside)]
+}
+
+/** orrery's `/mcp` beside a session's channel (`beside`, from mcp-beside.mjs, ORR-1102): its entry, its tools
+ * allowed (`/mcp` lists the chat only the chat's), and the Claude session id it's for, when it's a new one. */
+export function besideArgs(beside) {
+    if (!beside) return []
+    return [...beside.fresh ? ['--session-id', beside.session] : [], '--mcp-config', JSON.stringify(beside.config), '--allowedTools', `mcp__${beside.name}`]
+}
+
+/** The MCP config an untrusted session loads: only the folder's `server`, orrery's channel, as its .mcp.json has it;
+ * no server at all when it has none by that name. */
+function channelOnly(dir, server) {
+    const entry = settingsIn(join(dir, '.mcp.json')).mcpServers?.[server]
+    return {mcpServers: entry ? {[server]: entry} : {}}
 }
 
 /** The repo's hooks, passed back on their own, as `--restricted` leaves out its settings: `settings.json`'s and

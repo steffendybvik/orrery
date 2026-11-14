@@ -81,13 +81,15 @@ test('pops the sessions out to float anywhere, remembers where, and puts them ba
         expect(box.y).toBeLessThan(100)
         await expect(panel.getByRole('link', {name: /Grain store/})).toBeVisible()
 
-        // Dragged by its heading to the bottom left, it stays there over a reload.
+        // Dragged by its heading to the bottom left, it stays there over a reload. The Sessions link fills most of
+        // the heading, and is as good a grip as the rest (ORR-1126): dragged from, it doesn't open.
         const heading = panel.getByRole('link', {name: 'Sessions'})
-        const from = (await panel.getByTestId('sessions-float-grip').boundingBox())!
+        const from = (await heading.boundingBox())!
         await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2)
         await page.mouse.down()
         await page.mouse.move(400, 700, {steps: 6})
         await page.mouse.up()
+        await expect(page).toHaveURL(/\/p\/grain-store$/)
         box = (await panel.boundingBox())!
         expect(box.x).toBeLessThan(640)
         expect(box.y + box.height).toBeGreaterThan(400)
@@ -98,11 +100,9 @@ test('pops the sessions out to float anywhere, remembers where, and puts them ba
         expect(Math.abs(kept.y + kept.height - (box.y + box.height))).toBeLessThan(2)
         await expect(heading).toBeVisible()
 
-        // Its grip's arrows move it; Esc folds it.
-        const grip = panel.getByTestId('sessions-float-grip')
-        await grip.focus()
-        await page.keyboard.press('ArrowRight')
-        await expect.poll(async () => (await panel.boundingBox())!.x).toBeCloseTo(kept.x + 16, 0)
+        // Its heading is the handle, with no grip button beside it (ORR-1177); Esc folds it.
+        await expect(panel.getByRole('button', {name: 'Move the sessions panel'})).toHaveCount(0)
+        await panel.getByRole('button', {name: 'Fold the sessions away'}).focus()
         await page.keyboard.press('Escape')
         await expect(panel.getByRole('link', {name: /Grain store/})).toBeHidden()
         await panel.getByRole('button', {name: 'Show the sessions'}).click()
@@ -111,6 +111,10 @@ test('pops the sessions out to float anywhere, remembers where, and puts them ba
         await page.setViewportSize({width: 390, height: 800})
         await expect(page.getByRole('region', {name: 'Sessions'})).toHaveCount(0)
         await page.setViewportSize({width: 1280, height: 800})
+
+        // A click on its Sessions link, not a drag, still opens the Sessions page.
+        await page.getByRole('region', {name: 'Sessions'}).getByRole('link', {name: 'Sessions'}).click()
+        await expect(page).toHaveURL(/\/sessions$/)
 
         // Back in the sidebar, and still there after a reload.
         await page.getByRole('region', {name: 'Sessions'}).getByRole('button', {name: 'Back to the sidebar'}).click()

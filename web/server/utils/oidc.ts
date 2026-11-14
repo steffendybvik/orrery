@@ -1,6 +1,6 @@
 // Logging in through any standard OIDC provider (ORR-664): the authorization code flow with PKCE, found through the
 // provider's discovery document, so no provider has code of its own here. The provider says who someone is; what they may
-// do stays in orrery's database. Its settings are in the environment, as `settings` goes to backups in plain text.
+// do stays in orrery's database. Its settings are in the environment, as `settings` goes into any copy of the database in plain text.
 import {createHash, randomBytes} from 'node:crypto'
 import type {H3Event} from 'h3'
 import {createRemoteJWKSet, jwtVerify} from 'jose'
@@ -12,6 +12,16 @@ interface Provider {
     token_endpoint: string
     jwks_uri: string
     issuer: string
+    token_endpoint_auth_methods_supported?: string[]
+}
+
+/** How the client's secret goes to the token endpoint (ORR-1181): HTTP Basic, which every provider must take (RFC 6749
+ * §2.3.1) and which discovery means when it names none, with the id and secret form-encoded first; in the body only for a
+ * provider that names `client_secret_post` and not Basic. */
+export function clientAuth(methods: string[] | undefined, clientId: string, clientSecret: string): {headers: Record<string, string>, form: Record<string, string>} {
+    if (methods?.includes('client_secret_post') && !methods.includes('client_secret_basic')) return {headers: {}, form: {client_id: clientId, client_secret: clientSecret}}
+    const encode = (value: string) => new URLSearchParams({v: value}).toString().slice(2)
+    return {headers: {Authorization: `Basic ${Buffer.from(`${encode(clientId)}:${encode(clientSecret)}`).toString('base64')}`}, form: {client_id: clientId}}
 }
 
 const COOKIE = 'orrery_oidc'
@@ -54,7 +64,7 @@ export async function startOidc(event: H3Event, invite?: string, back?: string):
         {httpOnly: true, sameSite: 'lax', path: COOKIE_PATH, maxAge: 600, secure: overHttps(event)})
     const url = new URL(authorization_endpoint)
     url.search = new URLSearchParams({
-        response_type: 'code', scope: 'openid', client_id: settings().clientId, redirect_uri: redirectUri(event), state, nonce,
+        response_type: 'code', scope: 'openid profile', client_id: settings().clientId, redirect_uri: redirectUri(event), state, nonce,
         code_challenge: createHash('sha256').update(verifier).digest('base64url'), code_challenge_method: 'S256',
     }).toString()
     return url.toString()
@@ -72,21 +82,22 @@ function readKept(kept: string): {state: string, nonce: string, verifier: string
 }
 
 /** The way back: checks it answers this browser's own request, swaps the code for an ID token, verifies that against the
- * provider's keys, and says who the provider vouches for, which invite this browser came with, and the listed origin
+ * provider's keys, and says who the provider vouches for (and the name it gives), which invite this browser came with, and the listed origin
  * its page is on when that's another site's. */
-export async function finishOidc(event: H3Event): Promise<{issuer: string, subject: string, invite?: string, back?: string}> {
+export async function finishOidc(event: H3Event): Promise<{issuer: string, subject: string, name?: string, invite?: string, back?: string}> {
     const {state, code} = getQuery(event)
     const kept = getCookie(event, COOKIE)
     deleteCookie(event, COOKIE, {path: COOKIE_PATH})
     if (!kept) throw refused('This login has run out: start again')
     const asked = readKept(kept)
     if (!asked || typeof state !== 'string' || state !== asked.state || typeof code !== 'string') throw refused("This login doesn't match the one this browser started")
-    const {token_endpoint, jwks_uri, issuer} = await provider()
+    const {token_endpoint, jwks_uri, issuer, token_endpoint_auth_methods_supported: methods} = await provider()
     const {clientId, clientSecret} = settings()
+    const auth = clientAuth(methods, clientId, clientSecret)
     const {id_token} = await $fetch<{id_token?: string}>(token_endpoint, {
         method: 'POST',
-        headers: {'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json'},
-        body: new URLSearchParams({grant_type: 'authorization_code', code, redirect_uri: redirectUri(event), client_id: clientId, client_secret: clientSecret, code_verifier: asked.verifier}).toString(),
+        headers: {'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json', ...auth.headers},
+        body: new URLSearchParams({grant_type: 'authorization_code', code, redirect_uri: redirectUri(event), ...auth.form, code_verifier: asked.verifier}).toString(),
     })
     if (!id_token) throw refused('The provider gave no ID token')
     const {payload} = await jwtVerify(id_token, createRemoteJWKSet(new URL(jwks_uri)), {issuer, audience: clientId}).catch(() => {
@@ -96,5 +107,7 @@ export async function finishOidc(event: H3Event): Promise<{issuer: string, subje
     // With no trailing slash, as the setting's read, so a login is found the same way whichever the provider writes.
     // `back` is checked again, as the list may have changed since the login started.
     const back = asked.back && originAllowed(asked.back) ? asked.back : undefined
-    return {issuer: issuer.replace(/\/+$/, ''), subject: payload.sub, ...asked.invite ? {invite: asked.invite} : {}, ...back ? {back} : {}}
+    // The name it gives, for the first person in becoming the owner (ORR-1185).
+    const name = [payload.name, payload.preferred_username].find((said): said is string => typeof said === 'string' && !!said.trim())
+    return {issuer: issuer.replace(/\/+$/, ''), subject: payload.sub, ...name ? {name} : {}, ...asked.invite ? {invite: asked.invite} : {}, ...back ? {back} : {}}
 }

@@ -11,7 +11,7 @@ import type {Chat, ChatIssues, ChatMessage} from '#shared/roadmap'
 // only what couldn't go says so (Not sent, Retry). ⌘/Ctrl-Enter or Send sends at once, and Esc in an empty box takes the
 // last one back. A slash command goes at once, after what's held. The chat ending, or closing the pane before one has
 // started, puts what's held back in the box, so nothing starts a chat on its own after it (ORR-523). An image pasted or
-// dropped anywhere on the pane goes with the message. The pane is open or closed: closing it (× or Esc) only hides it,
+// dropped anywhere on the pane goes with the message. The pane is open or closed (⌘J toggles it, ORR-1030): closing it (× or Esc) only hides it,
 // with the chat still running (ORR-878, ORR-883), and the corner button brings it back as it was. Whether the chat is
 // live isn't shown, only a session that can't start. Only a row's × in the list ends a chat. The pane can be made large; a phone's fills the screen either way, as it has no Larger button. Beside
 // Send, the owner picks where the issues it makes land, Todo or Backlog; the server holds the chat to it. A setting the
@@ -371,49 +371,19 @@ const placement = computed(() => {
     const [vertical, horizontal] = kept.corner.split('-') as ['top' | 'bottom', 'left' | 'right']
     return {top: 'auto', right: 'auto', bottom: 'auto', left: 'auto', [vertical]: `${kept.y}px`, [horizontal]: `${kept.x}px`}
 })
-/** How far the pointer goes before a press on the header is a drag. */
-const DRAG_FROM = 4
-const moving = ref(false)
-let pressed: {x: number, y: number, rect: DOMRect, pointer: number} | null = null
-function pressHeader(event: PointerEvent) {
-    if (!movable.value || event.button !== 0) return
-    // Its controls stay clicks: the buttons, the picker and anything else that takes a press.
-    if ((event.target as Element).closest('button, a, input, textarea, select, [role="button"], [role="combobox"], [role="listbox"], [role="option"]')) return
-    const rect = pane.value?.getBoundingClientRect()
-    if (rect) pressed = {x: event.clientX, y: event.clientY, rect, pointer: event.pointerId}
-}
-function dragHeader(event: PointerEvent) {
-    if (!pressed || event.pointerId !== pressed.pointer) return
-    // Let go where the page didn't hear it (outside the window): no button is held any more, so it's over.
-    if (!(event.buttons & 1)) return releaseHeader(event)
-    const dx = event.clientX - pressed.x
-    const dy = event.clientY - pressed.y
-    if (!moving.value) {
-        if (Math.hypot(dx, dy) < DRAG_FROM) return
-        moving.value = true
-        ;(event.currentTarget as HTMLElement).setPointerCapture(event.pointerId)
-    }
-    const {left, top, width, height} = pressed.rect
-    placed.value = inView(anchored(left + dx, top + dy, width, height, windowSize), width, height, windowSize)
-}
-function releaseHeader(event: PointerEvent) {
-    if (!pressed || event.pointerId !== pressed.pointer) return
-    pressed = null
-    if (!moving.value) return
-    moving.value = false
-    const header = event.currentTarget as HTMLElement
-    if (header.hasPointerCapture(event.pointerId)) header.releasePointerCapture(event.pointerId)
-}
+/** Dragged by its header (useDragHandle, as the sessions panel is). */
+const headerDrag = useDragHandle({
+    enabled: () => movable.value,
+    rect: () => pane.value?.getBoundingClientRect(),
+    to: ({left, top, width, height}, dx, dy) => {
+        placed.value = inView(anchored(left + dx, top + dy, width, height, windowSize), width, height, windowSize)
+    },
+})
 /** A double-click on the header's empty parts puts it back in its corner. */
 function homeHeader(event: MouseEvent) {
-    if (!movable.value || (event.target as Element).closest('button, a, input, textarea, select, [role="button"], [role="combobox"], [role="listbox"], [role="option"]')) return
+    if (!movable.value || isControl(event.target) || (event.target as Element).closest('a')) return
     placed.value = null
 }
-watch(moving, on => {
-    document.documentElement.classList.toggle('cursor-grabbing', on)
-    document.documentElement.classList.toggle('select-none', on)
-})
-onBeforeUnmount(() => document.documentElement.classList.remove('cursor-grabbing', 'select-none'))
 
 /** Pop out's window, while it's open: the corner button brings it to the front. */
 let popup: Window | null = null
@@ -437,6 +407,19 @@ function corner() {
     if (popup && !popup.closed) popup.focus()
     else show()
 }
+/** ⌘J (Ctrl-J) does what the corner button does, and with the pane open closes it as Esc does (ORR-1030). Opening
+ * puts the cursor in the box (focusField). Not while typing in a field outside the pane, nor over the palette or New
+ * issue; in its own window there's no pane to toggle. */
+function toggleKey(event: KeyboardEvent) {
+    if (!(event.metaKey || event.ctrlKey) || event.shiftKey || event.altKey || event.key.toLowerCase() !== 'j') return
+    if (useState('palette-open').value || useNewIssue().target.value) return
+    if (isTyping(event.target) && !pane.value?.contains(event.target as Node)) return
+    event.preventDefault()
+    if (open.value) shut()
+    else corner()
+}
+onMounted(() => !props.standalone && window.addEventListener('keydown', toggleKey))
+onBeforeUnmount(() => window.removeEventListener('keydown', toggleKey))
 /** In the window: back into the pane of the window it came from, on the same chat, and this one closes. With that
  * window gone, it stays as it is. */
 function dockBack() {
@@ -571,10 +554,8 @@ onBeforeUnmount(() => window.removeEventListener('message', heard))
         :class="movable && 'cursor-grab touch-none'"
         :title="movable ? 'Drag to move the chat; double-click to put it back in the corner' : undefined"
         data-testid="chat-header"
-        @pointerdown="pressHeader"
-        @pointermove="dragHeader"
-        @pointerup="releaseHeader"
-        @pointercancel="releaseHeader"
+        @pointerdown="headerDrag.down"
+        @click.capture="headerDrag.click"
         @dblclick="homeHeader"
     >
       <UiButton
@@ -585,8 +566,8 @@ onBeforeUnmount(() => window.removeEventListener('message', heard))
       >
         <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M9 4v16" /></svg>
       </UiButton>
-      <div class="flex min-w-0 flex-1 flex-col">
-        <div class="flex min-w-0 items-center gap-1.5 text-[13px] font-medium text-fg">
+      <div class="flex min-w-0 flex-1 flex-col gap-1">
+        <div class="flex min-w-0 items-center gap-2 text-[13px] font-medium text-fg">
           <span>Chat</span>
           <template v-if="about">
             <span class="text-faint">·</span>
@@ -612,7 +593,7 @@ onBeforeUnmount(() => window.removeEventListener('message', heard))
           </template>
         </div>
         <!-- The line stays as it connects and works, so the header doesn't jump. -->
-        <span v-if="chat" class="flex min-h-4 min-w-0 items-center gap-1.5 text-xs text-faint">
+        <span v-if="chat" class="flex min-h-4 min-w-0 items-center gap-2 text-xs text-faint">
           <!-- Who's answering, once connected (ORR-811). The name gives way first on a narrow window, as in the sidebar. -->
           <template v-if="session">
             <span class="min-w-0 shrink-[100] truncate font-medium text-muted" :title="session.name" data-testid="chat-name">{{ nameBesideProject(session) }}</span>
@@ -627,9 +608,22 @@ onBeforeUnmount(() => window.removeEventListener('message', heard))
       <UiButton v-if="standalone" variant="ghost" size="xs" square aria-label="Dock back: the chat in the pane of the window it came from" title="Dock back" @click="dockBack">
         <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3.75" y="3.75" width="16.5" height="16.5" rx="2.25" /><path d="m15 9-6 6m0 0h4.5M9 15v-4.5" /></svg>
       </UiButton>
-      <UiButton v-else variant="ghost" size="xs" square class="max-sm:hidden" aria-label="Pop out: the chat in a window of its own" title="Pop out" @click="popOut">
-        <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13.5 6H5.25A2.25 2.25 0 0 0 3 8.25v10.5A2.25 2.25 0 0 0 5.25 21h10.5A2.25 2.25 0 0 0 18 18.75V10.5M10.5 13.5 21 3m0 0h-5.25M21 3v5.25" /></svg>
-      </UiButton>
+      <!-- More for the chat (ORR-1127): its ⋮ menu, where Pop out now lives as "Break out as own window". -->
+      <Menu v-else as="div" class="relative max-sm:hidden">
+        <MenuButton as="template">
+          <UiButton variant="ghost" size="xs" square aria-label="More for the chat" title="More">
+            <svg class="size-4" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="1.6" /><circle cx="12" cy="12" r="1.6" /><circle cx="12" cy="19" r="1.6" /></svg>
+          </UiButton>
+        </MenuButton>
+        <MenuItems class="menu absolute top-full right-0 z-40 mt-1.5 w-52">
+          <MenuItem v-slot="{active}" as="template">
+            <UiMenuItem :lit="active" title="The chat in a window of its own" @click="popOut">
+              <svg class="size-4 shrink-0 text-faint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13.5 6H5.25A2.25 2.25 0 0 0 3 8.25v10.5A2.25 2.25 0 0 0 5.25 21h10.5A2.25 2.25 0 0 0 18 18.75V10.5M10.5 13.5 21 3m0 0h-5.25M21 3v5.25" /></svg>
+              Break out as own window
+            </UiMenuItem>
+          </MenuItem>
+        </MenuItems>
+      </Menu>
       <UiButton v-if="!standalone" variant="ghost" size="xs" square class="max-sm:hidden" :aria-label="large ? 'Make the chat smaller' : 'Make the chat larger'" :title="large ? 'Smaller' : 'Larger'" @click="resize">
         <svg v-if="large" class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 9V4.5M9 9H4.5M9 9 3.75 3.75M9 15v4.5M9 15H4.5M9 15l-5.25 5.25M15 9h4.5M15 9V4.5M15 9l5.25-5.25M15 15h4.5M15 15v4.5m0-4.5 5.25 5.25" /></svg>
         <svg v-else class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3.75 3.75v4.5m0-4.5h4.5m-4.5 0L9 9M3.75 20.25v-4.5m0 4.5h4.5m-4.5 0L9 15M20.25 3.75h-4.5m4.5 0v4.5m0-4.5L15 9m5.25 11.25h-4.5m4.5 0v-4.5m0 4.5L15 15" /></svg>
@@ -786,8 +780,9 @@ v-if="m.milestone" class="flex w-full flex-col gap-2 rounded-xl bg-well p-3 ring
     <div v-if="session?.state === 'waiting'" class="px-3 pt-2">
       <PermissionPrompt :session="session" :hideable="false" class="w-full! max-w-none!" />
     </div>
-    <!-- An ended chat takes a message too: it starts its session again, on the same conversation (ORR-884). -->
-    <form class="flex flex-col gap-2 p-3" @submit.prevent="submit(true)">
+    <!-- An ended chat takes a message too: it starts its session again, on the same conversation (ORR-884). Not a <form>:
+         Enter sends through onKey, and iOS Safari draws its form bar (arrows and a tick) over the keyboard for a box in one (ORR-1084). -->
+    <div class="flex flex-col gap-2 p-3">
       <LauncherHint v-if="unlaunched" :project="about!" chat />
       <p v-else-if="failed" class="px-1 text-xs text-rose-700 dark:text-rose-400">{{ failed }}</p>
       <div class="flex flex-col gap-2 rounded-2xl bg-well p-2 ring-1 ring-line transition focus-within:ring-accent-500/50">
@@ -827,12 +822,12 @@ v-if="m.milestone" class="flex w-full flex-col gap-2 rounded-xl bg-well p-3 ring
               </MenuItem>
             </MenuItems>
           </Menu>
-          <UiButton type="submit" variant="primary" size="xs" square class="rounded-full" aria-label="Send" title="Send now (⌘↵)" :disabled="sending || !!uploading || !about || !draft.trim() && !images.length && !held.length">
+          <UiButton variant="primary" size="xs" square class="rounded-full" aria-label="Send" title="Send now (⌘↵)" :disabled="sending || !!uploading || !about || !draft.trim() && !images.length && !held.length" @click="submit(true)">
             <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5m0 0-6 6m6-6 6 6" /></svg>
           </UiButton>
         </div>
       </div>
-    </form>
+    </div>
     </div>
   </section>
 </template>

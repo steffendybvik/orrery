@@ -1,6 +1,6 @@
 // The orrery's statuses (every project's board has them) and its own settings.
 import {randomBytes} from 'node:crypto'
-import type {IssueStatus, Kind, Settings, Starts, TerminalApp, WorkKind} from '#shared/roadmap'
+import type {AgentChoice, IssueStatus, Kind, Settings, Starts, TerminalApp, WorkKind} from '#shared/roadmap'
 import {KINDS, WORK_KINDS, slugify} from '#shared/roadmap'
 import type {Input} from '../utils/input'
 import {badRequest, checkInput, conflict, notFound} from '../utils/input'
@@ -10,9 +10,25 @@ import {StoreBase} from './base'
 import {known} from '#shared/known'
 import {ownerOnly} from '../utils/permission'
 
+/** The status an issue gets from what was sent, among `statuses`: as `resolveStatus` gives it. */
+export function resolveIn(statuses: Pick<IssueStatus, 'id' | 'kind'>[], status: Input[string], plan?: Input[string]): string {
+    const first = (kind: Kind) => known(statuses.find(s => s.kind === kind), `a ${kind} status`).id
+    if (plan !== undefined && (status === undefined || status === 'todo')) return first(plan ? 'todo' : 'backlog')
+    if (status === undefined) return first('backlog')
+    const text = String(status)
+    if (statuses.some(s => s.id === text)) return text
+    if (KINDS.includes(text as Kind)) return first(text as Kind)
+    if (LEGACY_KINDS[text]) return first(LEGACY_KINDS[text])
+    throw badRequest(`"status" is "${text}", not one of ${statuses.map(s => s.id).join(', ')} (or a kind: ${KINDS.join(', ')})`)
+}
+
 export abstract class StatusStore extends StoreBase {
     /** This orrery's own settings. */
     async settings(): Promise<Settings> {
+        // From the API when it's set up (ORR-1174), which answers as the route here once did, its id made there the first
+        // time: the outbox follower and every signal read them.
+        const read = await this.fromApi<Settings>('/api/settings')
+        if (read) return read
         let rows = await this.all<{key: string, value: string}>('SELECT key, value FROM settings')
         // Its id is made the first time it's asked for, and kept.
         if (!rows.some(r => r.key === 'id')) {
@@ -36,9 +52,9 @@ export abstract class StatusStore extends StoreBase {
             tracker: (value('tracker') as string | undefined) || null,
             starts: (value('starts') as Starts | null | undefined) ?? null,
             terminal: (value('terminal') as TerminalApp | undefined) ?? 'terminal',
+            agent: (value('agent') as AgentChoice | undefined) ?? 'claude',
             restrict_proposals: (value('restrict_proposals') as boolean | undefined) ?? true,
             advanced: (value('advanced') as boolean | undefined) ?? true,
-            pick_next: (value('pick_next') as boolean | undefined) ?? false,
             count_use: (value('count_use') as boolean | undefined) ?? false,
             work_kinds: (value('work_kinds') as WorkKind[] | null | undefined) ?? [...WORK_KINDS],
             starred: ids('starred').filter(id => !ids('hidden').includes(id)),
@@ -48,12 +64,18 @@ export abstract class StatusStore extends StoreBase {
 
     /** The kinds of work, highest-ranked first (ORR-868): the owner's, else orrery's own. */
     async workKinds(): Promise<readonly WorkKind[]> {
+        // Part of the settings the API serves, when it's set up (ORR-1133).
+        const {readFromApi} = await import('../utils/api-router')
+        const read = await readFromApi<{work_kinds: WorkKind[]}>('/api/settings')
+        if (read) return read.work_kinds
         const row = await this.get<{value: string}>("SELECT value FROM settings WHERE key = 'work_kinds'")
         return (row && JSON.parse(row.value) as WorkKind[] | null) ?? WORK_KINDS
     }
 
     /** The issue statuses, in board order: by kind, then as arranged. */
     async statuses(): Promise<IssueStatus[]> {
+        const read = await this.fromApi<IssueStatus[]>('/api/statuses')
+        if (read) return read
         const rows = await this.all<IssueStatus>('SELECT id, name, kind, color, position FROM statuses ORDER BY position, id')
         return KINDS.flatMap(kind => rows.filter(r => r.kind === kind))
     }
@@ -116,15 +138,7 @@ export abstract class StatusStore extends StoreBase {
     /** The status an issue gets from what was sent: a status's id, a kind (its first status), or the words
      * from before statuses (`doing`; `todo` with a `plan`). */
     async resolveStatus(status: Input[string], plan?: Input[string]): Promise<string> {
-        const statuses = await this.statuses()
-        const first = (kind: Kind) => known(statuses.find(s => s.kind === kind), `a ${kind} status`).id
-        if (plan !== undefined && (status === undefined || status === 'todo')) return first(plan ? 'todo' : 'backlog')
-        if (status === undefined) return first('backlog')
-        const text = String(status)
-        if (statuses.some(s => s.id === text)) return text
-        if (KINDS.includes(text as Kind)) return first(text as Kind)
-        if (LEGACY_KINDS[text]) return first(LEGACY_KINDS[text])
-        throw badRequest(`"status" is "${text}", not one of ${statuses.map(s => s.id).join(', ')} (or a kind: ${KINDS.join(', ')})`)
+        return resolveIn(await this.statuses(), status, plan)
     }
 
     /** What a status filter or focus means: the status ids it covers (an id, a kind, or an old word). */
@@ -159,6 +173,8 @@ export abstract class StatusStore extends StoreBase {
         ownerOnly(actor, 'settings.write')
         const input = checkInput(body, SETTINGS_FIELDS, true)
         await this.db.transaction(async () => {
+            // The outbox row goes in with the write, so it's there once this returns (ORR-1112).
+            this.outbox('settings', {actor})
             for (const [key, sent] of Object.entries(input)) {
                 if (sent === undefined) continue
                 // An empty template is none: the default.
@@ -170,7 +186,7 @@ export abstract class StatusStore extends StoreBase {
             }
         })
         const settings = await this.settings()
-        this.saySettings(settings, actor)
+        this.onSettings(settings)
         // Every project says whether orrery starts its sessions.
         if (input.starts !== undefined) for (const {id} of await this.all<{id: string}>('SELECT id FROM projects')) this.changed(id)
         return settings

@@ -8,7 +8,7 @@ import {join} from 'node:path'
 import {fileURLToPath} from 'node:url'
 import {describe, expect, it, vi} from 'vitest'
 // @ts-expect-error: plain JavaScript, no types
-import {chatOnly, lockedDown} from '../../channel/locked-down.mjs'
+import {besideArgs, chatOnly, lockedDown} from '../../channel/locked-down.mjs'
 import {endSignal, spawnCoverage} from './spawn-coverage'
 
 import {FAKE_TMUX} from './fake-tmux'
@@ -25,10 +25,13 @@ const nameOf = (id: string, project = 'greenhouse') => `orrery-${project}-${id}`
 type Launch = Record<string, unknown> & {id: string}
 type Asked = {method: string, path: string, query: URLSearchParams, headers: Record<string, unknown>, body: string}
 
-/** An orrery as far as a launcher sees it: a project's stream, which says it's ready, and what the launcher posts back. */
-async function standInOrrery(version: string) {
+/** An orrery as far as a launcher sees it: its streams, which say they're ready, and what the launcher posts back. Its
+ * launcher's stream is one for all its projects (ORR-1076), or with `older`, one each, as before that. */
+async function standInOrrery(version: string, {older = false, mcp = false} = {}) {
     const asked: Asked[] = []
     const streams = new Map<string, Set<import('node:http').ServerResponse>>()
+    /** The streams for all of a launcher's projects, as `/api/launches/stream` is, each with what it serves. */
+    const wide = new Map<import('node:http').ServerResponse, string[]>()
     const refused = new Set<string>()
     const connectStreams = new Set<import('node:http').ServerResponse>()
     const server = createServer((req, res) => {
@@ -46,6 +49,15 @@ async function standInOrrery(version: string) {
                 res.on('close', () => open.delete(res))
                 return
             }
+            if (url.pathname === '/api/launches/stream') {
+                if (older) return void res.writeHead(404, {'Content-Type': 'application/json'}).end('{"statusMessage":"Not Found"}')
+                const projects = (JSON.parse(url.searchParams.get('serve') ?? '[]') as {project: string}[]).map(entry => entry.project)
+                res.writeHead(200, {'Content-Type': 'text/event-stream'})
+                res.write(`event: ready\ndata: ${JSON.stringify({projects: Object.fromEntries(projects.map(p => [p, {starts: {limit: 3, minutes: 0}, token: 'launcher-token'}])), unknown: [], version})}\n\n`)
+                wide.set(res, projects)
+                res.on('close', () => wide.delete(res))
+                return
+            }
             if (url.pathname === '/api/connects/stream') {
                 res.writeHead(200, {'Content-Type': 'text/event-stream'})
                 res.write(`event: ready\ndata: ${JSON.stringify({token: 'connect-token', orrery: 'orr_stand_in'})}\n\n`)
@@ -53,9 +65,11 @@ async function standInOrrery(version: string) {
                 res.on('close', () => connectStreams.delete(res))
                 return
             }
+            // orrery's own MCP server (ORR-1102), only when it serves one.
+            if (url.pathname === '/mcp' && mcp) return void res.writeHead(200, {'Content-Type': 'application/json'}).end(JSON.stringify({jsonrpc: '2.0', id: 0, result: {protocolVersion: '2025-06-18'}}))
             if (url.pathname.endsWith('/report')) return void res.writeHead(200, {'Content-Type': 'application/json'}).end(JSON.stringify({claimed: true}))
             const claim = /\/launches\/([^/]+)\/claim$/.exec(url.pathname)
-            if (claim) return void res.writeHead(200, {'Content-Type': 'application/json'}).end(JSON.stringify({claimed: !refused.has(claim[1]!)}))
+            if (claim) return void res.writeHead(200, {'Content-Type': 'application/json'}).end(JSON.stringify(refused.has(claim[1]!) ? {claimed: false} : {claimed: true, repo: 'https://github.com/hati/greenhouse', workspace: 'acme'}))
             res.writeHead(200, {'Content-Type': 'application/json'}).end('{}')
         })
     })
@@ -65,8 +79,16 @@ async function standInOrrery(version: string) {
         url: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
         asked,
         refuse: (id: string) => refused.add(id),
-        event: (event: string, data: unknown, project = 'greenhouse') => streams.get(project)?.forEach(s => s.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)),
-        listening: (project = 'greenhouse') => streams.get(project)?.size ?? 0,
+        event: (event: string, data: unknown, project = 'greenhouse') => {
+            streams.get(project)?.forEach(s => s.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`))
+            // On the one stream, each event names its project, as orrery's do.
+            for (const [s, projects] of wide) if (projects.includes(project)) s.write(`event: ${event}\ndata: ${JSON.stringify({project, ...data as object})}\n\n`)
+        },
+        listening: (project = 'greenhouse') => (streams.get(project)?.size ?? 0) + [...wide.values()].filter(projects => projects.includes(project)).length,
+        /** How many streams for all of a launcher's projects are open. */
+        wideStreams: () => wide.size,
+        /** What each launcher stream asked for serves, by project: its folder, or `home`. */
+        serving: () => orreryServing(asked),
         connectEvent: (event: string, data: unknown) => connectStreams.forEach(s => s.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)),
         connecting: () => connectStreams.size,
         connectReports: () => paths('/report').map(a => JSON.parse(a.body) as Record<string, unknown>),
@@ -80,11 +102,24 @@ async function standInOrrery(version: string) {
     }
 }
 
+/** The folder each project was last asked to be served from, on either kind of launcher stream, or `home`. */
+function orreryServing(asked: Asked[]): Record<string, string> {
+    const serving: Record<string, string> = {}
+    for (const a of asked) {
+        const one = /^\/api\/projects\/([^/]+)\/launches\/stream$/.exec(a.path)
+        if (one) serving[one[1]!] = a.query.get('home') === '1' ? 'home' : a.query.get('dir') ?? ''
+        if (a.path === '/api/launches/stream') {
+            for (const entry of JSON.parse(a.query.get('serve') ?? '[]') as {project: string, dir?: string, home?: boolean}[]) serving[entry.project] = entry.home ? 'home' : entry.dir ?? ''
+        }
+    }
+    return serving
+}
+
 type Sessions = Record<string, Record<string, string>>
 type Finishing = {onTestFinished: (done: () => unknown) => void}
 
 /** A folder with a fake tmux, a stand-in orrery, and a way to start the launcher on them. */
-async function bench({onTestFinished}: Finishing, sessions: Sessions = {}) {
+async function bench({onTestFinished}: Finishing, sessions: Sessions = {}, {older = false, mcp = false} = {}) {
     // Its real path, as the launcher sees its own folder: on macOS the temp folder is behind a link.
     const root = realpathSync(mkdtempSync(join(tmpdir(), 'orrery-launcher-loop-')))
     const [bin, fake, home, sockets, repo] = ['bin', 'fake', 'home', 'sockets', 'repo'].map(part => join(root, part)) as [string, string, string, string, string]
@@ -99,7 +134,7 @@ async function bench({onTestFinished}: Finishing, sessions: Sessions = {}) {
     writeFileSync(join(fake, 'calls'), '')
     writeFileSync(join(fake, 'state.json'), JSON.stringify(sessions))
     const version = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version as string
-    const orrery = await standInOrrery(version)
+    const orrery = await standInOrrery(version, {older, mcp})
     // `ps` is how it tells a live launcher, so the system's folders stay on PATH, after the fake.
     const env = {PATH: `${bin}:/usr/bin:/bin`, HOME: home, XDG_CONFIG_HOME: join(home, '.config'), TMUX_TMPDIR: sockets, FAKE_TMUX: fake, DISPLAY: ':0'}
     const children: ChildProcess[] = []
@@ -140,8 +175,13 @@ async function bench({onTestFinished}: Finishing, sessions: Sessions = {}) {
 
 /** The launch the launcher is offered on its stream. */
 const launchOf = (id: string, more: Record<string, unknown> = {}): Launch => ({id, tmux: nameOf(id), after: 5, ...more})
-/** What `claude` was started with, in the session's `new-session`. */
-const claudeArgs = (call: string[]) => call.slice(call.indexOf('claude') + 1)
+/** What `claude` was started with, in the session's `new-session`, but the repo it's in (ORR-1070), which ends them all. */
+const claudeArgs = (call: string[]) => call.slice(call.indexOf('claude') + 1, call.lastIndexOf('--append-system-prompt'))
+/** The repo it was told it's in, in its system prompt. */
+const toldRepo = (call: string[]) => call[call.lastIndexOf('--append-system-prompt') + 1]
+/** orrery's `/mcp` beside the session's channel, as the launcher gave it (ORR-1102): every session has it (ORR-1072). */
+const besideIn = (call: string[]) => ({name: 'greenhouse-api', session: call[call.indexOf('--session-id') + 1]!, fresh: true,
+    config: {mcpServers: {'greenhouse-api': JSON.parse(call[call.lastIndexOf('--mcp-config') + 1]!).mcpServers['greenhouse-api']}}})
 const envOf = (call: string[]) => call.flatMap((arg, at) => arg === '-e' ? [call[at + 1]!] : [])
 
 describe.concurrent("a launcher's own loop", {timeout: 40_000}, () => {
@@ -158,10 +198,22 @@ describe.concurrent("a launcher's own loop", {timeout: 40_000}, () => {
             expect(claim!.headers['orrery-launcher']).toBe('launcher-token')
             const [call] = called('new-session')
             expect(call!.slice(0, 6)).toEqual(['new-session', '-d', '-s', nameOf(ID.a), '-c', repo])
-            expect(claudeArgs(call!)).toEqual(['--dangerously-load-development-channels', 'server:greenhouse', '--permission-mode', 'auto'])
-            expect(envOf(call!)).toEqual(expect.arrayContaining([`ORRERY_URL=${orrery.url}`, 'ORRERY_PROJECT=greenhouse', `ORRERY_STARTED=${ID.a}`, 'ORRERY_AFTER=5', 'ORRERY_HEAR=greenhouse,pantry', 'ORRERY_PERSON=hati']))
+            expect(claudeArgs(call!)).toEqual(['--dangerously-load-development-channels', 'server:greenhouse', '--permission-mode', 'auto', ...besideArgs(besideIn(call!))])
+            expect(envOf(call!)).toEqual(expect.arrayContaining([`ORRERY_URL=${orrery.url}`, 'ORRERY_PROJECT=greenhouse', `ORRERY_STARTED=${ID.a}`, 'ORRERY_AFTER=5', 'ORRERY_HEAR=greenhouse,pantry', 'ORRERY_PERSON=hati', 'ORRERY_WORKSPACE=acme']))
             expect(envOf(call!).some(pair => pair.startsWith('ORRERY_UNTRUSTED') || pair.startsWith('ORRERY_CHAT'))).toBe(false)
             expect(state()[nameOf(ID.a)]).toMatchObject({'@orrery_launcher': expect.stringMatching(/^\d+$/), '@orrery_context': '{"note":"start here"}'})
+        })
+
+        it("tells the session which repo it's in, and its hook that it has", async context => {
+            const {orrery, repo, start, called, state} = await bench(context)
+            await start()
+            await vi.waitFor(() => expect(orrery.reported()).toHaveLength(1), WAIT)
+            orrery.event('launch', launchOf(ID.a))
+            await vi.waitFor(() => expect(state()[nameOf(ID.a)]?.['@orrery_stops_at']).toBe('never'), WAIT)
+            const [call] = called('new-session')
+            // The bench's folder is in no git repo, so it's told so, and that the project's repo isn't here.
+            expect(toldRepo(call!)).toBe(`orrery: this session's folder, ${repo}, isn't in a git repo. There's no repo to work in here; don't look for one.\nProject "greenhouse"'s repo in orrery is https://github.com/hati/greenhouse, and it isn't checked out in this folder.`)
+            expect(envOf(call!)).toContain('ORRERY_REPO_TOLD=yes')
         })
 
         it('that is untrusted starts locked down, with no Bash, and its channel told so', async context => {
@@ -172,7 +224,7 @@ describe.concurrent("a launcher's own loop", {timeout: 40_000}, () => {
             await vi.waitFor(() => expect(state()[nameOf(ID.a)]?.['@orrery_untrusted']).toBe('yes'), WAIT)
             const [call] = called('new-session')
             const args = claudeArgs(call!)
-            expect(args.slice(2)).toEqual(lockedDown(repo, 'greenhouse'))
+            expect(args.slice(2)).toEqual(lockedDown(repo, 'greenhouse', besideIn(call!)))
             expect(args[args.indexOf('--tools') + 1]).toBe('')
             expect(args).not.toContain('auto')
             expect(envOf(call!)).toContain('ORRERY_UNTRUSTED=yes')
@@ -185,8 +237,46 @@ describe.concurrent("a launcher's own loop", {timeout: 40_000}, () => {
             orrery.event('launch', launchOf(ID.a, {chat: true}))
             await vi.waitFor(() => expect(state()[nameOf(ID.a)]?.['@orrery_chat']).toBe('yes'), WAIT)
             const [call] = called('new-session')
-            expect(claudeArgs(call!).slice(2)).toEqual(chatOnly(repo, 'greenhouse'))
+            expect(claudeArgs(call!).slice(2)).toEqual(chatOnly(repo, 'greenhouse', besideIn(call!)))
             expect(envOf(call!)).toContain('ORRERY_CHAT=yes')
+        })
+
+        it("gets orrery's /mcp beside its channel when the orrery serves it, and its channel only the channel's own (ORR-1102)", async context => {
+            const {orrery, start, called, state} = await bench(context, {}, {mcp: true})
+            await start()
+            await vi.waitFor(() => expect(orrery.reported()).toHaveLength(1), WAIT)
+            orrery.event('launch', launchOf(ID.a, {person: 'hati'}))
+            await vi.waitFor(() => expect(state()[nameOf(ID.a)]?.['@orrery_stops_at']).toBe('never'), WAIT)
+            orrery.event('launch', launchOf(ID.b, {chat: true}))
+            await vi.waitFor(() => expect(state()[nameOf(ID.b)]?.['@orrery_chat']).toBe('yes'), WAIT)
+            orrery.event('launch', launchOf(ID.c, {untrusted: true}))
+            await vi.waitFor(() => expect(state()[nameOf(ID.c)]?.['@orrery_untrusted']).toBe('yes'), WAIT)
+            const [work, chat, untrusted] = called('new-session')
+            const config = (call: string[]) => JSON.parse(call[call.indexOf('--mcp-config') + 1]!).mcpServers['greenhouse-api']
+            const session = work![work!.indexOf('--session-id') + 1]!
+            expect(session).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-/)
+            expect(config(work!)).toEqual({type: 'http', url: `${orrery.url}/mcp`, headers: {'Orrery-Actor': 'claude', 'Orrery-Session': session, 'Orrery-Person': 'hati', 'Orrery-Workspace': 'acme'}})
+            expect(claudeArgs(work!)).toEqual(expect.arrayContaining(['--allowedTools', 'mcp__greenhouse-api']))
+            expect(envOf(work!).join(' ')).not.toContain('ORRERY_TOOLS')
+            // The chat and an untrusted session too, saying so to /mcp as their channel does, whose rails hold them.
+            const id = (call: string[]) => call[call.indexOf('--session-id') + 1]!
+            expect(config(chat!).headers).toEqual({'Orrery-Actor': 'claude', 'Orrery-Session': id(chat!), 'Orrery-Chat': 'yes', 'Orrery-Launch': ID.b, 'Orrery-Workspace': 'acme'})
+            expect(claudeArgs(chat!)).toEqual(expect.arrayContaining(['--allowedTools', 'mcp__greenhouse-api']))
+            expect(config(untrusted!).headers).toEqual({'Orrery-Actor': 'claude', 'Orrery-Session': id(untrusted!), 'Orrery-Untrusted': 'yes', 'Orrery-Workspace': 'acme'})
+            // Still its one --mcp-config, strict: the channel's entry (none in this repo) and /mcp's, nothing of the repo's.
+            expect(claudeArgs(untrusted!).filter(a => a === '--mcp-config')).toHaveLength(1)
+            expect(claudeArgs(untrusted!)).toEqual(expect.arrayContaining(['--strict-mcp-config', '--allowedTools', 'mcp__greenhouse', 'mcp__greenhouse-api']))
+        })
+
+        it("gets orrery's /mcp beside its channel even while the orrery doesn't serve it, as the board's tools are only there (ORR-1072)", async context => {
+            const {orrery, start, called, state} = await bench(context)
+            await start()
+            await vi.waitFor(() => expect(orrery.reported()).toHaveLength(1), WAIT)
+            orrery.event('launch', launchOf(ID.a))
+            await vi.waitFor(() => expect(state()[nameOf(ID.a)]?.['@orrery_stops_at']).toBe('never'), WAIT)
+            const [call] = called('new-session')
+            expect(JSON.parse(call![call!.indexOf('--mcp-config') + 1]!).mcpServers['greenhouse-api']).toMatchObject({type: 'http', url: `${orrery.url}/mcp`})
+            expect(call).toContain('--session-id')
         })
 
         it("that another launcher claimed starts nothing", async context => {
@@ -287,7 +377,43 @@ describe.concurrent("a launcher's own loop", {timeout: 40_000}, () => {
             await vi.waitFor(() => expect(orrery.ended()).toEqual([ID.a]), WAIT)
             expect(Object.keys(state())).toEqual([nameOf(ID.b, 'pantry')])
             await vi.waitFor(() => expect(orrery.listening('greenhouse')).toBe(0), WAIT)
+            await vi.waitFor(() => expect(orrery.listening('pantry')).toBe(1), WAIT)
+        })
+
+        it('serves all its projects on an orrery on one stream, connecting it again as the list changes (ORR-1076)', async context => {
+            const {orrery, repo, start, writeList, state} = await bench(context)
+            const entry = (project: string) => ({url: orrery.url, project, dir: repo})
+            writeList([entry('greenhouse'), entry('pantry')])
+            await start({service: true})
+            await vi.waitFor(() => expect(orrery.reported()).toHaveLength(2), WAIT)
+            expect(orrery.wideStreams()).toBe(1)
+            expect(orrery.asked.filter(a => /^\/api\/projects\/[^/]+\/launches\/stream$/.test(a.path))).toEqual([])
+            orrery.event('launch', {id: ID.b, tmux: nameOf(ID.b, 'pantry'), after: 0}, 'pantry')
+            await vi.waitFor(() => expect(state()[nameOf(ID.b, 'pantry')]?.['@orrery_stops_at']).toBe('never'), WAIT)
+            writeList([entry('greenhouse'), entry('pantry'), entry('orchard')])
+            await vi.waitFor(() => expect(orrery.listening('orchard')).toBe(1), WAIT)
+            // The stream before goes once the new one is ready, so pantry is never left with no launcher.
+            await vi.waitFor(() => expect(orrery.wideStreams()).toBe(1), WAIT)
             expect(orrery.listening('pantry')).toBe(1)
+            // Connecting again for the new set leaves the sessions running.
+            expect(orrery.ended()).toEqual([])
+            expect(Object.keys(state())).toEqual([nameOf(ID.b, 'pantry')])
+        })
+
+        it('serves each project on its own stream from an orrery on older code, which has no one stream (ORR-1076)', async context => {
+            const {orrery, repo, start, writeList, state} = await bench(context, {}, {older: true})
+            const entry = (project: string) => ({url: orrery.url, project, dir: repo})
+            writeList([entry('greenhouse'), entry('pantry')])
+            await start({service: true})
+            await vi.waitFor(() => expect(orrery.listening('greenhouse')).toBe(1), WAIT)
+            await vi.waitFor(() => expect(orrery.listening('pantry')).toBe(1), WAIT)
+            orrery.event('launch', launchOf(ID.a))
+            await vi.waitFor(() => expect(state()[nameOf(ID.a)]?.['@orrery_stops_at']).toBe('never'), WAIT)
+            writeList([entry('pantry')])
+            await vi.waitFor(() => expect(orrery.ended()).toEqual([ID.a]), WAIT)
+            await vi.waitFor(() => expect(orrery.listening('greenhouse')).toBe(0), WAIT)
+            // Its old stream goes once the new one is ready, so for a moment it may have both.
+            await vi.waitFor(() => expect(orrery.listening('pantry')).toBe(1), WAIT)
         })
 
         it('keeps the sessions of a project that only moved, serving it from its new folder', async context => {
@@ -300,8 +426,7 @@ describe.concurrent("a launcher's own loop", {timeout: 40_000}, () => {
             orrery.event('launch', launchOf(ID.a))
             await vi.waitFor(() => expect(state()[nameOf(ID.a)]?.['@orrery_stops_at']).toBe('never'), WAIT)
             writeList([{url: orrery.url, project: 'greenhouse', dir: moved}])
-            const streams = () => orrery.asked.filter(a => a.path.endsWith('/launches/stream'))
-            await vi.waitFor(() => expect(streams().at(-1)!.query.get('dir')).toBe(moved), WAIT)
+            await vi.waitFor(() => expect(orrery.serving().greenhouse).toBe(moved), WAIT)
             expect(orrery.ended()).toEqual([])
             expect(Object.keys(state())).toEqual([nameOf(ID.a)])
         })

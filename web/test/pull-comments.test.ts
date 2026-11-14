@@ -2,7 +2,7 @@ import {beforeEach, describe, expect, it, vi} from 'vitest'
 import type {OrreryEvent} from '#shared/happenings'
 import type {Signal} from '#shared/roadmap'
 import type {PullChange} from '../server/utils/pull-poll'
-import {commentOnPull, criticalFiles, pullComment} from '../server/utils/pull-comments'
+import {ACT_WITHIN, askIfUnattended, commentOnPull, criticalFiles, pullComment} from '../server/utils/pull-comments'
 import {Pulls} from '../server/utils/pulls'
 import {Store} from '../server/utils/store'
 import {testDb} from './db'
@@ -22,6 +22,8 @@ beforeEach(async () => {
     store.happened = event => void events.push(event)
     await store.createProject({name: 'shop', key: 'SHO', repo: 'https://github.com/you/shop'}, me)
     await store.createIssue('shop', {title: 'Pay with cards', status: 'in-progress'}, me)
+    // Its session, there to hear: with none, the news reaches nobody (ORR-1178).
+    await store.workedBy('shop', 'SHO-1', 'pay-session')
     signals = []
     events = []
 })
@@ -57,9 +59,98 @@ describe("a pull request's news on its issue", () => {
         const [comment] = await store.listComments('shop', 'SHO-1')
         expect(comment).toMatchObject({created_by: 'orrery', protected: false})
         expect(comment!.body).toContain('conflicts with `v1.0.0-rc.11`')
-        expect(signals).toMatchObject([{kind: 'comment', issue: 'SHO-1', created_by: 'orrery', protected: true}])
+        expect(signals).toMatchObject([{kind: 'comment', issue: 'SHO-1', created_by: 'orrery', protected: true, target: 'pay-session'}])
         expect(events.map(e => e.type)).toEqual(['comment.added', 'pr.conflicting'])
         expect(events[1]).toMatchObject({project: 'shop', subject: 'SHO-1', by: {name: 'orrery', owner: false}})
+    })
+
+    it('with no session on the issue, is a comment and an event, never a signal left in the pool (ORR-1178)', async () => {
+        await store.createIssue('shop', {title: 'Refunds', status: 'in-progress'}, me)
+        signals = []
+        events = []
+        await commentOnPull(store, {...change('behind'), issue: 'SHO-2'})
+        expect((await store.listComments('shop', 'SHO-2')).map(c => c.created_by)).toEqual(['orrery'])
+        expect(events.map(e => e.type)).toEqual(['comment.added', 'pr.behind'])
+        expect(signals).toEqual([])
+        expect(await store.pooledWaiting('shop')).toEqual([])
+    })
+
+    describe('that needs work, with no session on the issue (ORR-1184)', () => {
+        beforeEach(async () => {
+            await store.createIssue('shop', {title: 'Refunds', status: 'in-progress'}, me)
+            signals = []
+            events = []
+        })
+
+        it('becomes one focus from orrery for the next session, the comment itself still pooled never', async () => {
+            await commentOnPull(store, {...change('conflicting'), issue: 'SHO-2'})
+            expect(events.map(e => e.type)).toEqual(['comment.added', 'pr.conflicting'])
+            expect(signals).toHaveLength(1)
+            expect(signals[0]).toMatchObject({kind: 'focus', issue: 'SHO-2', created_by: 'orrery', protected: true})
+            expect(signals[0]!.target).toBeFalsy()
+            expect(signals[0]!.note).toMatch(/^\[#12\]\(https:\/\/github\.com\/you\/shop\/pull\/12\) conflicts with/)
+            expect(signals[0]!.note).toContain('gh pr view 12 -R you/shop')
+            expect(signals[0]!.note).not.toMatch(/Ignore|rm-rf/)
+            expect((await store.pooledWaiting('shop')).map(s => s.kind)).toEqual(['focus'])
+        })
+
+        it('for failing checks and changes asked for too, but not a PR only behind', async () => {
+            await commentOnPull(store, {...change('checks_failed'), issue: 'SHO-2'})
+            await commentOnPull(store, {...change('changes_requested', {}, {review: {by: 'someone', body: 'x', comments: []}}), issue: 'SHO-2'})
+            await commentOnPull(store, {...change('behind'), issue: 'SHO-2'})
+            expect(signals.map(s => s.kind)).toEqual(['focus', 'focus'])
+        })
+
+        it('is dropped once the PR merges or closes before a session takes it', async () => {
+            await commentOnPull(store, {...change('conflicting'), issue: 'SHO-2'})
+            await commentOnPull(store, {...change('closed'), issue: 'SHO-2'})
+            expect(await store.pooledWaiting('shop')).toEqual([])
+            const [focus] = await store.listSignals('shop', 0)
+            expect(focus).toMatchObject({kind: 'focus', delivered_to: ['orrery']})
+        })
+
+        it('waits for nobody on a closed issue', async () => {
+            await store.updateIssue('shop', 'SHO-2', {status: 'done'}, me)
+            signals = []
+            await commentOnPull(store, {...change('conflicting'), issue: 'SHO-2'})
+            expect(signals).toEqual([])
+        })
+
+        it('is no focus when a session is on the issue: it heard the comment', async () => {
+            await commentOnPull(store, change('conflicting'))
+            expect(signals.map(s => s.kind)).toEqual(['comment'])
+        })
+    })
+
+    describe('left alone (ORR-1184)', () => {
+        const still = {project: 'shop', issue: 'SHO-1', repo: 'you/shop', number: 12, updated_at: '2020-01-01T00:00:00Z', needs: ['conflicting', 'checks_failed'] as ('conflicting' | 'checks_failed')[]}
+        const later = () => Date.now() + ACT_WITHIN + 1000
+
+        it('asks the owner once when nothing has happened since the notice for an hour', async () => {
+            await commentOnPull(store, change('conflicting'))
+            expect(await askIfUnattended(store, still)).toBe(false)
+            events = []
+            expect(await askIfUnattended(store, still, later())).toBe(true)
+            const ask = (await store.listComments('shop', 'SHO-1')).find(c => c.asks)
+            expect(ask).toMatchObject({created_by: 'orrery', asks: 'feedback'})
+            expect(ask!.body).toMatch(/^\[#12\]\(https:\/\/github\.com\/you\/shop\/pull\/12\) still needs its conflicts resolved and its checks fixed/)
+            expect(events.map(e => e.type)).toContain('pr.unattended')
+            expect(await askIfUnattended(store, still, later())).toBe(false)
+        })
+
+        it('asks nothing once someone has commented, or the PR moved on GitHub, since', async () => {
+            await commentOnPull(store, change('conflicting'))
+            expect(await askIfUnattended(store, {...still, updated_at: new Date(Date.now() + 1000).toISOString()}, later())).toBe(false)
+            await store.createComment('shop', 'SHO-1', {body: 'Merging the base in now.'}, {name: 'claude', owner: false})
+            expect(await askIfUnattended(store, still, later())).toBe(false)
+        })
+
+        it('asks nothing with no notice, or on a closed issue', async () => {
+            expect(await askIfUnattended(store, still, later())).toBe(false)
+            await commentOnPull(store, change('conflicting'))
+            await store.updateIssue('shop', 'SHO-1', {status: 'done'}, me)
+            expect(await askIfUnattended(store, still, later())).toBe(false)
+        })
     })
 
     it('comments on a closed issue but wakes no session for it', async () => {
@@ -77,7 +168,7 @@ describe("a pull request's news on its issue", () => {
         await pulls.remember('you/shop', ['shop'], kept)
         await pulls.rate('shop', 'SHO-1', 'you/shop', 12, {level: 'low', why: 'docs only'}, false)
         await commentOnPull(store, change('merged'))
-        expect((await store.listComments('shop', 'SHO-1')).map(c => c.asks ?? null)).toEqual([null])
+        expect((await store.listComments('shop', 'SHO-1')).filter(c => c.asks)).toEqual([])
 
         await pulls.rate('shop', 'SHO-1', 'you/shop', 12, {level: 'high', why: 'adds a\nmigration'}, false)
         events = []
@@ -126,6 +217,80 @@ describe("a pull request's news on its issue", () => {
         expect(signals).toEqual([])
     })
 
+    describe("an issue whose own pull request merged (ORR-1073)", () => {
+        const agent = {name: 'claude', owner: false}
+        const kept = {number: 12, title: 'x', url: 'https://github.com/you/shop/pull/12', branch: 'feat/sho-1-cards', base: 'v1.0.0-rc.11', author: 'claude',
+            merged: true, closed: false, merged_at: '2026-11-07T07:02:30Z', created_at: '2026-11-07T06:55:00Z', updated_at: '2026-11-07T07:02:30Z', names: ['SHO-1']}
+        // Its own status: a parent's column follows its sub-issues.
+        const status = async () => (await store.db.get<{status: string}>("SELECT status FROM issues WHERE project = 'shop' AND id = 'SHO-1'"))?.status
+        const waiting = async () => (await store.notices({list: 'waiting'})).filter(n => n.issue === 'SHO-1').map(n => n.body)
+        /** What the poll keeps of PR 12 before it hands the merge on: the issues it names. */
+        const polled = (names: string[], branch = 'feat/sho-1-cards') => store.db.run(`INSERT INTO pull_states (repo, number, names, title, url, branch, base, author, state, created_at, updated_at, seen_at)
+            VALUES ('you/shop', 12, ?, 'x', 'u', ?, 'v1.0.0-rc.11', 'claude', 'merged', '2026-11-07T06:55:00Z', '2026-11-07T07:02:30Z', '2026-11-07T07:02:40Z')`, JSON.stringify(names), branch)
+
+        it('moves it to Done, closes the ask left open on it, and still asks for the review its files need (ORR-1011)', async () => {
+            await new Pulls(store, async () => { throw new Error('no GitHub here') }).remember('you/shop', ['shop'], kept)
+            await store.createComment('shop', 'SHO-1', {body: 'Does the count look right to you?', asks: 'feedback'}, agent)
+            expect(await waiting()).toEqual(['Does the count look right to you?'])
+            await commentOnPull(store, {...change('merged', {branch: 'feat/sho-1-cards'}), files: ['web/app/components/PermissionPrompts.vue']})
+            expect(await status()).toBe('done')
+            const notes = (await store.listComments('shop', 'SHO-1')).filter(c => c.created_by === 'orrery').map(c => c.body)
+            expect(notes[1]).toBe('Moved to Done: [#12](https://github.com/you/shop/pull/12) merged, and nothing else is open on it. Its open question is closed with it, as the merge answered it.')
+            // The question before the merge leaves the bell; the review of a permission change stays on it, about the code.
+            const left = await waiting()
+            expect(left).toHaveLength(1)
+            expect(left[0]).toContain('which is always reviewed')
+            // On a done issue, nothing on the board waits on the owner (ORR-640).
+            expect((await store.issue('shop', 'SHO-1')).waiting).toBeFalsy()
+        })
+
+        it('moves it as orrery, waking no session beyond the news itself', async () => {
+            signals = []
+            await commentOnPull(store, change('merged'))
+            expect(await status()).toBe('done')
+            expect(events.find(e => e.type === 'issue.status')).toMatchObject({by: {name: 'orrery', owner: false}})
+            // The merged comment reaches the session on the issue; the move's note doesn't.
+            expect(signals.filter(s => s.kind === 'comment')).toHaveLength(1)
+        })
+
+        it('leaves one with another pull request open', async () => {
+            const pulls = new Pulls(store, async () => { throw new Error('no GitHub here') })
+            await pulls.remember('you/shop', ['shop'], kept)
+            await pulls.remember('you/shop', ['shop'], {...kept, number: 13, merged: false, merged_at: null})
+            await commentOnPull(store, change('merged', {branch: 'feat/sho-1-cards'}))
+            expect(await status()).toBe('in-progress')
+        })
+
+        it('leaves one with an open sub-issue, a proposal, and one a release PR only names', async () => {
+            await store.createIssue('shop', {title: 'Refunds too', parent: 'SHO-1'}, me)
+            await commentOnPull(store, change('merged'))
+            expect(await status()).toBe('in-progress')
+            await store.updateIssue('shop', 'SHO-2', {status: 'done'}, me)
+
+            await store.db.run("UPDATE issues SET proposal = 'pending' WHERE project = 'shop' AND id = 'SHO-1'")
+            await commentOnPull(store, change('merged'))
+            expect(await status()).toBe('in-progress')
+            await store.db.run("UPDATE issues SET proposal = NULL WHERE project = 'shop' AND id = 'SHO-1'")
+
+            // A release's PR into main names many issues; its branch names none.
+            await polled(['SHO-1', 'SHO-2'], 'v1.0.0-rc.11')
+            await commentOnPull(store, change('merged', {branch: 'v1.0.0-rc.11', base: 'main'}))
+            expect(await status()).toBe('in-progress')
+        })
+
+        it("closes one whose PR's branch doesn't name it, when the PR names nothing else", async () => {
+            await polled(['SHO-1'], 'fix-the-cards')
+            await commentOnPull(store, change('merged', {branch: 'fix-the-cards'}))
+            expect(await status()).toBe('done')
+        })
+
+        it('says nothing more on one closed already', async () => {
+            await store.updateIssue('shop', 'SHO-1', {status: 'done'}, me)
+            await commentOnPull(store, change('merged'))
+            expect((await store.listComments('shop', 'SHO-1')).map(c => c.body)).toEqual(['[#12](https://github.com/you/shop/pull/12) was merged into `v1.0.0-rc.11`.'])
+        })
+    })
+
     describe("the release of an issue whose pull request merged (ORR-791)", () => {
         /** The project makes releases, one of them on the branch these pull requests merge into. */
         async function releases() {
@@ -134,14 +299,16 @@ describe("a pull request's news on its issue", () => {
             events = []
         }
         const release = async (id = 'SHO-1') => (await store.issue('shop', id)).release
-        const said = async (id = 'SHO-1') => (await store.listComments('shop', id)).at(-1)?.body
+        /** The merge's news: the merge also moves the issue to Done, with a note of its own after it (ORR-1073). */
+        const said = async (id = 'SHO-1') => (await store.listComments('shop', id)).filter(c => !c.body.startsWith('Moved to')).at(-1)?.body
 
         it("sets it, as orrery's, before the news goes out, and says so", async () => {
             await releases()
             await commentOnPull(store, change('merged'))
             expect(await release()).toBe('1.0')
             expect(await said()).toContain("That's the branch of release `1.0`, so I've set this issue for it.")
-            expect(events.map(e => e.type)).toEqual(['issue.release', 'comment.added', 'pr.merged'])
+            // Then the merge closes it (ORR-1073), after the news.
+            expect(events.map(e => e.type)).toEqual(['issue.release', 'comment.added', 'pr.merged', 'issue.status', 'comment.added'])
             expect(events[0]).toMatchObject({by: {name: 'orrery', owner: false}})
         })
 

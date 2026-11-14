@@ -1,11 +1,11 @@
 import {EventEmitter} from 'node:events'
-import {WORK_KINDS} from '#shared/roadmap'
+import {WORK_KINDS, parked} from '#shared/roadmap'
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 
 // The clearing lives in the module, with Nitro's auto-imports stubbed: the session as it is, and the store's say on its work.
 let clearing: typeof import('../server/utils/clearing')
 let session: {project: string, state: string, started?: {launch: string}, idleAt?: number, listening?: boolean, context?: {tokens: number}, carried_over?: {from: string, to: string}} | undefined
-let working: string[]
+let working: (string | {id: string, status: string, waiting?: string})[]
 /** The issue the session worked last (ORR-903). */
 let lastWorked: string | undefined
 let issues: {id: string, parent: string | null, kind: string, column: string, priority?: string, updated_at: string}[]
@@ -17,6 +17,7 @@ let left: {id: string}[]
 let focused: unknown[]
 let carried: unknown[]
 let rechecked: number
+let picked: string[]
 
 /** Whose an issue is, with more than one person (ORR-656); nothing to say with one. */
 let whoseWork: (assignee?: string | null) => string | null | undefined = () => undefined
@@ -49,11 +50,16 @@ beforeEach(async () => {
     vi.stubGlobal('untrustedSession', () => untrusted)
     vi.stubGlobal('chatSession', () => chat)
     vi.stubGlobal('recheckIdle', () => void rechecked++)
+    picked = []
+    vi.stubGlobal('pickNext', async (_project: string, id: string) => void picked.push(id))
     vi.stubGlobal('useStore', () => ({workKinds: async () => WORK_KINDS,
         whoseWork: async (_project: string, assignee?: string | null) => whoseWork(assignee),
-        workingOn: async (_project: string, _ids: string[]) => working.map(id => ({id})), waiting: async (_project: string, _ids: string[]) => waiting,
+        workingOn: async (_project: string, _ids: string[]) => working.map(w => typeof w === 'string' ? {id: w} : w), waiting: async (_project: string, _ids: string[]) => waiting,
         async busy(project: string, ids: string[]) {
             return (await this.workingOn(project, ids)).length > 0 || await this.waiting(project, ids)
+        },
+        async engaged(project: string, ids: string[]) {
+            return (await this.workingOn(project, ids)).some((i: {status?: string, waiting?: string}) => !parked(i)) || await this.waiting(project, ids)
         },
         focusMilestone: async (...args: unknown[]) => void focused.push(args),
         listIssues: async () => issues,
@@ -96,6 +102,19 @@ describe('a session orrery started, gone idle', () => {
         session = {...session!, state: 'idle', idleAt: 2}
         await after()
         expect(sent).toEqual([])
+    })
+
+    it('keeps its parked issues uncleared, and picks its next one now (ORR-1032)', async () => {
+        working = [{id: 'ORR-1', status: 'in-progress', waiting: 'feedback'}, {id: 'ORR-2', status: 'in-review'}]
+        clearing.considerClear('orrery', 'w')
+        await after()
+        expect(sent).toEqual([])
+        expect(picked).toEqual(['w'])
+        expect(clearing.clearPending('w')).toBe(false)
+        working = ['ORR-1']
+        clearing.considerClear('orrery', 'w')
+        await after()
+        expect(picked).toEqual(['w'])
     })
 
     it("isn't cleared when it's the owner's chat, which keeps its conversation", async () => {
