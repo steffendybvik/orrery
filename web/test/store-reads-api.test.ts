@@ -1,6 +1,7 @@
 import {beforeEach, describe, expect, it, vi} from 'vitest'
 import {Store} from '../server/utils/store'
 import {testDb} from './db'
+import {failure} from './store-setup'
 
 // The store's core reads ask the Rust API when it's set up (ORR-1162), so clearing, picking and handing out work read
 // none of them from the database; with no API they're read here, as before.
@@ -131,6 +132,16 @@ describe("the store's reads through the Rust API (ORR-1162)", () => {
     it("reads this orrery's settings from the API (ORR-1174)", async () => {
         replies['/api/settings'] = {id: 'orr_api', tint: 'teal', statuses: []}
         expect(await store.settings()).toEqual(replies['/api/settings'])
+    })
+
+    it("checks a release the chat would make or change against the API's releases (ORR-1160)", async () => {
+        await store.updateProject('greenhouse', {release_mode: 'own'})
+        replies['/api/projects/greenhouse/releases'] = [{version: '2.0.0', branch: 'v2.0.0'}]
+        expect(await store.checkRelease('greenhouse', {version: '2.1.0'})).toBeUndefined()
+        expect(await store.checkRelease('greenhouse', {notes: 'Spring'}, '2.0.0')).toEqual({version: '2.0.0', branch: 'v2.0.0'})
+        expect((await failure(() => store.checkRelease('greenhouse', {version: '2.0.0'}))).status).toBe(409)
+        expect((await failure(() => store.checkRelease('greenhouse', {notes: 'X'}, '3.0.0'))).status).toBe(404)
+        expect(await store.all('SELECT version FROM releases')).toEqual([])
     })
 
     it('reads them from the database here with no API', async () => {
