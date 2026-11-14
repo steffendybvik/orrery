@@ -9,6 +9,7 @@ import {caughtUp, cursorFile, followOutbox, readCursor, saveCursor, setFollowing
 import type {OrreryEvent} from '../server/store/schema'
 import {Store} from '../server/utils/store'
 import {projectEvents} from '../server/utils/events'
+import {scheduleRunning} from '../server/utils/schedules'
 import {testDb} from './db'
 
 const OWNER = {name: 'owner', owner: true}
@@ -95,6 +96,16 @@ describe('following the outbox', () => {
         expect(heard).toEqual(['c1c2c3c4c5c6'])
         expect(changed).toEqual([])
         expect(events).toEqual([])
+    })
+
+    it("tells a schedule run's write as that run's, so it sets no schedule off (ORR-1183)", async () => {
+        const heard: {type: string, cause: number | undefined}[] = []
+        store.happened = event => void heard.push({type: event.type, cause: scheduleRunning.getStore()})
+        await follow([{changes: [
+            row(101, 'issue.created', {subject: 'GRE-4', cause: '7'}),
+            row(102, 'issue.created', {subject: 'GRE-5'}),
+        ], last: 102}])
+        expect(heard).toEqual([{type: 'issue.created', cause: 7}, {type: 'issue.created', cause: undefined}])
     })
 
     it("skips this server's own rows, whose hooks it heard already", async () => {

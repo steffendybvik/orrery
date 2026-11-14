@@ -7,6 +7,7 @@ import {existsSync, mkdirSync, readFileSync, writeFileSync} from 'node:fs'
 import {dirname, resolve} from 'node:path'
 import type {Actor, Store} from './store'
 import {projectEvents} from './events'
+import {scheduleRunning} from './schedules'
 import {inDocker} from './backup-choice'
 
 /** A row of the outbox, as the feed gives it. */
@@ -19,6 +20,8 @@ export interface Change {
     owner: boolean | number
     session: string | null
     untrusted: boolean | number
+    /** The schedule whose run made it (ORR-1183), as text. */
+    cause?: string | null
     payload: string | Record<string, unknown> | null
 }
 
@@ -88,7 +91,12 @@ async function apply(store: Store, change: Change) {
         // Passed on already, by the request that wrote it.
     } else if (change.project) {
         const text = (value: unknown) => typeof value === 'string' ? value : null
-        store.told(change.kind, change.project, change.subject ?? '', actorOf(change, payload), {from: text(payload.from), to: text(payload.to)})
+        const project = change.project
+        const tell = () => store.told(change.kind, project, change.subject ?? '', actorOf(change, payload), {from: text(payload.from), to: text(payload.to)})
+        // A schedule's run made it: it's heard as that run's, so it sets no schedule off (ORR-1183).
+        const cause = change.cause ? Number(change.cause) : NaN
+        if (Number.isInteger(cause)) scheduleRunning.run(cause, tell)
+        else tell()
     }
 }
 

@@ -144,7 +144,7 @@ async fn record(conn: &mut AnyConnection, set_off: &Recorded<'_>, actor: &Actor)
     let now = stamp();
     for (kind, project, subject, payload) in rows {
         sqlx::query(&sql(
-            "INSERT INTO changes (kind, project, subject, actor, owner, session, untrusted, payload, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO changes (kind, project, subject, actor, owner, session, untrusted, cause, payload, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         ))
         .bind(kind)
         .bind(project)
@@ -153,6 +153,7 @@ async fn record(conn: &mut AnyConnection, set_off: &Recorded<'_>, actor: &Actor)
         .bind(i32::from(actor.owner))
         .bind(actor.session.as_deref())
         .bind(i32::from(actor.untrusted))
+        .bind(actor.cause.as_deref())
         .bind(payload)
         .bind(&now)
         .execute(&mut *conn)
