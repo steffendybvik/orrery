@@ -31,6 +31,18 @@ impl Seen {
         Seen::asking(conn, who_of(headers).as_ref(), &actor_of(headers), own.as_deref()).await
     }
 
+    /// What a list of the workspace's own (its projects, releases, schedules) shows (ORR-1108): the one workspace the
+    /// request names in `Orrery-Workspace` when it's one the asker is in, as a page sends its address's; else all of
+    /// theirs, as `of`.
+    pub(crate) async fn listed(conn: &mut AnyConnection, headers: &HeaderMap) -> Result<Seen> {
+        let seen = Seen::of(conn, headers).await?;
+        let named = header(headers, "orrery-workspace").map(|w| w.trim().to_string()).filter(|w| !w.is_empty());
+        Ok(match (seen, named) {
+            (Seen::Only { workspaces, own }, Some(named)) if workspaces.contains(&named) => Seen::Only { workspaces: vec![named], own },
+            (seen, _) => seen,
+        })
+    }
+
     /// The workspaces the asker is a member of: the credential's person, the owner's own (their chat's too), or the
     /// person a session names; the owner sees only the ones they're in. A request naming nobody who's here, as with
     /// login off, sees only `default`. An agent key reaches only its own workspace. An untrusted session also reaches

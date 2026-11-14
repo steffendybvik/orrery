@@ -127,7 +127,7 @@ async fn drop_held(State(app): Shared, Path(schedule): Path<String>, headers: He
 async fn all_schedules(State(app): Shared, headers: HeaderMap) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
     let mut value = Schedules::new(&mut conn).list(None).await?;
-    Seen::of(&mut conn, &headers).await?.keep(&mut conn, &mut value, "project").await?;
+    Seen::listed(&mut conn, &headers).await?.keep(&mut conn, &mut value, "project").await?;
     Ok(Json(value).into_response())
 }
 
@@ -213,7 +213,7 @@ async fn schedules_across(State(app): Shared, headers: HeaderMap) -> Result<Resp
     let mut conn = app.pool.acquire().await?;
     let workspace = Seen::workspace(&mut conn, &headers).await?;
     let mut value = Schedules::new(&mut conn).within(workspace).across().await?;
-    let hidden = Seen::of(&mut conn, &headers).await?.hidden(&mut conn).await?;
+    let hidden = Seen::listed(&mut conn, &headers).await?.hidden(&mut conn).await?;
     if !hidden.is_empty() {
         if let Value::Array(across) = &mut value {
             across.retain_mut(|one| {

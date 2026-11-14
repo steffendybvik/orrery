@@ -24,7 +24,7 @@ const route = useRoute()
     <NuxtLink
         to="/settings"
         class="grid size-7 shrink-0 place-items-center rounded-md transition-colors hover:bg-hover hover:text-fg"
-        :class="route.path === '/settings' ? 'bg-active text-fg' : 'text-muted'"
+        :class="pagePath(route.path) === '/settings' ? 'bg-active text-fg' : 'text-muted'"
         title="App settings"
         aria-label="App settings"
     >
