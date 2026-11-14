@@ -34,6 +34,8 @@ pub(crate) fn actor_of(headers: &HeaderMap) -> Actor {
         asked: header(headers, "orrery-actor-asked").as_deref() == Some("1"),
         untrusted: kind.as_deref() == Some("untrusted"),
         chat: kind.as_deref() == Some("chat"),
+        // Only the local app's own work names a run, as it's what keeps a write from setting schedules off.
+        cause: header(headers, "orrery-cause").filter(|c| came_of(headers).server && !c.is_empty() && c.bytes().all(|b| b.is_ascii_digit())),
     }
 }
 

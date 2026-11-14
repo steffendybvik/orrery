@@ -27,6 +27,7 @@ import {carriedInto} from './carried-over'
 import {forgetRoster} from './roster'
 import type {Input} from './input'
 import {revLabel} from './events'
+import {scheduleRunning} from './schedules'
 import type {Doc, IssueScope, Project, Release, Settings} from '#shared/roadmap'
 import type {IssueDetail, Store} from './store'
 import {withoutClosed, withoutNotes} from '#shared/patch'
@@ -387,6 +388,13 @@ export function databaseMark(setting: string): string {
  * and its kind as `kindOf` has it, as the chat and an untrusted session may name the owner (ORR-952). For the rails
  * between people (ORR-927), the member acting themselves (`person`), who it says it works for (`named`), and whether it
  * came from a request (`asked`). */
+/** The schedule whose run makes this write (ORR-1183): the API keeps it on its outbox rows, so the follower hears them as
+ * that run's and they set no schedule off. */
+export function causeHeaders(): Record<string, string> {
+    const cause = scheduleRunning.getStore()
+    return cause === undefined ? {} : {'Orrery-Cause': String(cause)}
+}
+
 export function actorHeaders(actor: Actor): Record<string, string> {
     return {
         'Orrery-Actor-Name': encodeURIComponent(actor.name),
@@ -842,7 +850,7 @@ export async function writeToApi(method: string, path: string, body: unknown, ac
     try {
         response = await fetch(`${api.url.replace(/\/+$/, '')}${path}`, {
             method,
-            headers: {'Content-Type': 'application/json', 'Orrery-Api-Token': api.token, 'Orrery-Database': databaseMark(databaseSetting()), ...OWN_WORK, ...actorHeaders(actor)},
+            headers: {'Content-Type': 'application/json', 'Orrery-Api-Token': api.token, 'Orrery-Database': databaseMark(databaseSetting()), ...OWN_WORK, ...actorHeaders(actor), ...causeHeaders()},
             body: body === undefined ? undefined : JSON.stringify(body),
             redirect: 'manual',
         })

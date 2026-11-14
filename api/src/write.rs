@@ -16,6 +16,9 @@ pub struct Actor {
     pub asked: bool,
     pub untrusted: bool,
     pub chat: bool,
+    /// The schedule whose run made this write (`Orrery-Cause`, ORR-1183), kept on its outbox rows: the local app hears
+    /// them as that run's, so they set no schedule off.
+    pub cause: Option<String>,
 }
 
 /// What a write changed, for the Nuxt server to tell: the projects (`changed`), whether the orrery's settings did, as

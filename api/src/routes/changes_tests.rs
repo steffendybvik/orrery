@@ -191,3 +191,40 @@ async fn a_stream_sends_a_write_committed_while_it_waits() {
     assert!(started.elapsed() < Duration::from_secs(3), "{:?}", started.elapsed());
     assert!(text.contains("\"kind\":\"settings\""), "{text}");
 }
+
+/// What a write's outbox rows say made them, as the feed gives them (ORR-1183).
+async fn causes(api: &TestApi) -> Vec<Value> {
+    let feed = api.get("/api/changes?after=0").send().await.body;
+    feed["changes"].as_array().unwrap().iter().map(|c| c["cause"].clone()).collect()
+}
+
+#[tokio::test]
+async fn a_schedule_runs_write_keeps_its_cause_on_its_rows() {
+    let api = TestApi::new().await;
+    let project = api.project("Primes").await;
+    let before = causes(&api).await.len();
+    let made = api.post(&format!("/api/projects/{project}/issues"), json!({"title": "Sieve"})).header("orrery-cause", "7").send().await;
+    assert_eq!(made.status, 201, "{}", made.body);
+    let after = causes(&api).await;
+    assert!(after.len() > before);
+    assert!(after[before..].iter().all(|c| c == &json!("7")), "{after:?}");
+}
+
+#[tokio::test]
+async fn only_the_local_app_names_a_writes_cause() {
+    let api = TestApi::new().await;
+    let project = api.project("Primes").await;
+    let before = causes(&api).await.len();
+    // From outside, it would keep the schedules from hearing the write: it's not taken.
+    let made = api
+        .post(&format!("/api/projects/{project}/issues"), json!({"title": "Sieve"}))
+        .header("orrery-came", "loopback")
+        .header("orrery-cause", "7")
+        .send()
+        .await;
+    assert_eq!(made.status, 201, "{}", made.body);
+    // Nor anything but a schedule's id.
+    api.post(&format!("/api/projects/{project}/issues"), json!({"title": "Wheel"})).header("orrery-cause", "7; DROP").send().await;
+    let after = causes(&api).await;
+    assert!(after[before..].iter().all(Value::is_null), "{after:?}");
+}
