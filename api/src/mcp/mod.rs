@@ -27,6 +27,22 @@ pub(crate) static ORRERY_VERSION: std::sync::LazyLock<String> = std::sync::LazyL
     package["version"].as_str().expect("web/package.json has a version").to_string()
 });
 
+/// The notification a channel sends this orrery's `/mcp` when its Claude session (`Orrery-Session`) chose another orrery
+/// with `choose_app` (ORR-1147), `{id, url, environment?}`: from then on its tool calls here are refused, as the channel's
+/// own tools refuse (`choseOther` in channel/app-choice.mjs).
+pub(crate) const CHOSE: &str = "notifications/orrery/chose";
+
+/// What a tool answers once the session chose another orrery, in the channel's words (`choseOther`).
+fn chose_other(other: &Value) -> String {
+    let url = other["url"].as_str();
+    let named = match (other["environment"].as_str(), url) {
+        (Some(environment), Some(url)) => format!("{environment} ({url})"),
+        (_, Some(url)) => url.to_string(),
+        _ => other["id"].as_str().unwrap_or("another orrery").to_string(),
+    };
+    format!("This session chose {named} as its orrery, so this one won't be read or written from it. Use that orrery's tools instead.")
+}
+
 /// The projects on this orrery, as `GET /api/projects` orders them: a tool on one takes which when there are several.
 async fn projects(conn: &mut AnyConnection) -> Result<Vec<String>> {
     let rows = sqlx::query(&sql("SELECT id FROM projects ORDER BY lower(name), name")).fetch_all(conn).await?;
@@ -71,8 +87,12 @@ impl Call<'_> {
             }
             return Ok(Some(error(message.get("id").unwrap_or(&Value::Null), -32600, "Not a JSON-RPC request: it has no method")));
         };
-        let Some(id) = message.get("id") else { return Ok(None) };
         let params = message.get("params").cloned().unwrap_or(Value::Null);
+        if method == CHOSE {
+            self.chose(&params);
+            return Ok(None);
+        }
+        let Some(id) = message.get("id") else { return Ok(None) };
         Ok(Some(match method {
             "initialize" => {
                 let asked = params["protocolVersion"].as_str().unwrap_or_default();
@@ -100,8 +120,30 @@ impl Call<'_> {
         }))
     }
 
+    /// The Claude session this `/mcp` connection belongs to, as the headers helper said (channel/mcp-headers.mjs).
+    fn claude(&self) -> Option<String> {
+        crate::request::header(self.headers, "orrery-session").filter(|s| !s.is_empty())
+    }
+
+    /// Keeps that the Claude session chose another orrery (`CHOSE`): one without a session, or with no orrery named, is
+    /// let be.
+    fn chose(&self, params: &Value) {
+        let Some(claude) = self.claude() else { return };
+        let Some(id) = params["id"].as_str().filter(|id| !id.is_empty()) else { return };
+        let mut other = json!({"id": id});
+        for key in ["url", "environment"] {
+            if let Some(said) = params[key].as_str().filter(|s| !s.is_empty()) {
+                other[key] = json!(said);
+            }
+        }
+        self.app.mcp.chose_other(&claude, other);
+    }
+
     /// A tool's answer, as the channel's `callTool` gives it: refused in its words when the session doesn't have it.
     async fn call(&self, conn: &mut AnyConnection, name: &str, args: &Value) -> Result<Value> {
+        if let Some(other) = self.app.mcp.other_choice(self.claude().as_deref()) {
+            return Ok(text(chose_other(&other), true));
+        }
         // Every tool the session's kind could ever have listed, whatever it has loaded.
         let all: Vec<String> = tools::groups().iter().map(|g| g.to_string()).collect();
         let projects = projects(conn).await?;

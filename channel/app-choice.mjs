@@ -3,7 +3,8 @@
 // in every session. A session that never calls an orrery tool is left alone. On its first call in such a folder the
 // tool doesn't run: it says to choose an app, Claude asks the user, and `choose_app` writes the choice to a small file
 // named by the Claude session's id. Every orrery's server and hook reads that file, so from then on the session's calls
-// and its reports go to the chosen orrery only, and the others refuse, saying which one it chose.
+// and its reports go to the chosen orrery only, and the others refuse, saying which one it chose. The others' `/mcp`
+// can't read the file, so it's told too (`tellChose`, ORR-1147), and refuses the same way.
 import {existsSync, mkdirSync, readFileSync, renameSync, writeFileSync} from 'node:fs'
 import {homedir} from 'node:os'
 import {dirname, join} from 'node:path'
@@ -72,6 +73,24 @@ export const askToChoose = apps => [
 /** What another orrery's tools answer once the session chose one. */
 export const choseOther = ({environment, url, id}) =>
     `This session chose ${environment ? `${environment} (${url})` : url ?? id} as its orrery, so this one won't be read or written from it. Use that orrery's tools instead.`
+
+/** Tells the orrery at `url`'s `/mcp` that Claude session `session` chose `choice` (`{id, url, environment?}`) instead
+ * (ORR-1147), so its tools there refuse it as the channel's do. A notification, so nothing comes back; one that doesn't
+ * get there leaves that orrery's `/mcp` working for the session, as it did before. `headers`: the machine's key for it. */
+export async function tellChose(url, session, {id, url: chosenUrl, environment}, {headers = {}, fetcher = fetch} = {}) {
+    if (!SESSION_ID.test(session ?? '') || !url) return false
+    try {
+        const response = await fetcher(`${url.replace(/\/+$/, '')}/mcp`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json', Accept: 'application/json, text/event-stream', 'Orrery-Actor': 'claude', 'Orrery-Session': session, ...headers},
+            body: JSON.stringify({jsonrpc: '2.0', method: 'notifications/orrery/chose', params: {id, url: chosenUrl, ...environment ? {environment} : {}}}),
+            signal: AbortSignal.timeout(5000),
+        })
+        return response.ok
+    } catch {
+        return false
+    }
+}
 
 /** The app `name` (a server's name, its environment, its id or its address) among `apps`, or none. */
 export function appNamed(apps, name) {

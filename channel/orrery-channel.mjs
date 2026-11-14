@@ -23,7 +23,7 @@ import {authHeaders} from './credentials.mjs'
 import {pickedUpMessage, pickUpRepo} from './pick-up.mjs'
 import {narrowed} from './repo-channels.mjs'
 import {addToList, projectAt, readConfig} from './launcher-service.mjs'
-import {appNamed, appsHere, askToChoose, choiceFor, choseOther, writeChoice} from './app-choice.mjs'
+import {appNamed, appsHere, askToChoose, choiceFor, choseOther, tellChose, writeChoice} from './app-choice.mjs'
 import {serverName} from './server-name.mjs'
 import {signalWords} from './signal-words.mjs'
 import {claudeWindow} from './session.mjs'
@@ -140,7 +140,10 @@ async function chooseApp({app, project}) {
             })
         if (!there.some(p => p.id === project)) throw new Error(`${picked.name} has no project ${project}: it has ${there.map(p => p.id).join(', ') || 'none'}`)
     }
-    writeChoice(window.id, {id: picked.id, url: picked.url, environment: picked.name.replace(/^orrery-/, ''), project})
+    const choice = {id: picked.id, url: picked.url, environment: picked.name.replace(/^orrery-/, '')}
+    writeChoice(window.id, {...choice, project})
+    // The other orrerys' `/mcp` can't read the choice, so they're told (ORR-1147).
+    for (const other of apps.filter(a => a.id !== picked.id)) tellChose(other.url, window.id, choice, {headers: authHeaders(other.url)})
     await server.notification({method: 'notifications/tools/list_changed'}).catch(() => {})
     const tools = picked.id === process.env.ORRERY_ID ? 'these tools' : `${picked.name}'s tools`
     if (!project) return `This session uses ${picked.name} (${picked.url}), with no project of its own: name the project each call is for, with ${tools}. Other orrerys' tools refuse it from now on.`
@@ -150,6 +153,9 @@ async function chooseApp({app, project}) {
     if (picked.url.replace(/\/+$/, '') === base) mapped = projectAt(process.cwd(), base)
     return `This session uses ${picked.name} (${picked.url}) with ${tools}, and this folder is linked to ${project}, so later sessions here report to it without asking.`
 }
+// A session that chose another orrery before this channel started (a resumed one): its
+// `/mcp` here is told, as `choose_app` told it then (ORR-1147).
+if (chosen().state === 'other') tellChose(base, window.id, chosen().choice, {headers: authHeaders(base)})
 const callTool = orreryTools({root: `${base}/api`, projects: reached, home: own, session: window.id, person, auth: authHeaders(base), untrusted, chat, local: true, report: reportCall, load: loadTools, link})
 server.setRequestHandler(ListToolsRequestSchema, async () => ({tools: [...chosen().state === 'unchosen' ? [CHOOSE_APP] : [], ...toolsFor(reached, {chat: !!chat, untrusted, loaded: [...loaded], home: own(), split: 'local'})]}))
 server.setRequestHandler(CallToolRequestSchema, async request => {
