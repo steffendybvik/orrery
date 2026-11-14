@@ -113,7 +113,7 @@ describe("the store's reads through the Rust API (ORR-1162)", () => {
     })
 
     it("leaves a signal and a relayed comment's notice to the API's outbox, and keeps its own without one (ORR-1174)", async () => {
-        const rows = async () => (await store.all<{kind: string}>('SELECT kind FROM changes')).map(r => r.kind)
+        const rows = async () => (await store.all<{kind: string}>('SELECT kind FROM changes ORDER BY id')).map(r => r.kind)
         const before = (await rows()).length
         writes['/api/projects/greenhouse/signals'] = {id: 7, project: 'greenhouse', kind: 'message', delivered_to: []}
         writes['/api/projects/greenhouse/signals/7/receipts'] = {id: 7, project: 'greenhouse', kind: 'message', delivered_to: ['Ada']}
@@ -125,7 +125,7 @@ describe("the store's reads through the Rust API (ORR-1162)", () => {
         // With no API, the store writes the signal and its row here.
         delete writes['/api/projects/greenhouse/signals']
         await store.message('greenhouse', 1, 'Hi again')
-        expect((await rows()).slice(before)).toContain('signal')
+        await vi.waitFor(async () => expect((await rows()).slice(before)).toContain('signal'))
     })
 
     it("reads this orrery's settings from the API (ORR-1174)", async () => {
