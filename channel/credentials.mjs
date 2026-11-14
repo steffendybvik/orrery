@@ -6,7 +6,7 @@ import {readFileSync} from 'node:fs'
 import {homedir} from 'node:os'
 import {join} from 'node:path'
 
-const originOf = url => {
+export const originOf = url => {
     try {
         return new URL(url).origin
     } catch {

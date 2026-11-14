@@ -10,6 +10,8 @@ const NAVIGATION = readFileSync(join(WEB, 'e2e', 'pages.ts'), 'utf8')
 const ELSEWHERE: Record<string, string> = {
     // Only with login on, which the walk's orrery has off.
     'login.vue': 'e2e/login/login.spec.ts',
+    // Only with login on, opened by a machine's install line (ORR-1192).
+    'connect-machine.vue': 'e2e/login/login.spec.ts',
     // Only in development, and a page of samples rather than of the app.
     'ui.vue': 'e2e/ui-kit.spec.ts',
     // Only for a PR a poll of GitHub has found naming an issue, which the walk's orrery never polls (ORR-880).

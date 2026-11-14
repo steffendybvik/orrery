@@ -45,13 +45,14 @@ export abstract class KeyStore extends PeopleStore {
 
     /** Makes a key for `person`: this is the only time its secret is seen. The prefix says its kind, so the channel can
      * refuse a person key before sending it anywhere. */
-    async makeKey(person: string, body: {kind?: unknown, name?: unknown, workspace?: unknown}): Promise<KeyRecord & {key: string}> {
+    async makeKey(person: string, body: {kind?: unknown, name?: unknown, workspace?: unknown, all_workspaces?: unknown}): Promise<KeyRecord & {key: string}> {
         const {kind, name} = body ?? {}
         if (kind !== 'agent' && kind !== 'person') throw badRequest('"kind" is "agent", for a machine\'s sessions, or "person", to sign in to the page')
         const label = String(name ?? '').trim().slice(0, 60)
         if (!label) throw badRequest('"name" says what the key is for, such as the machine it\'s on')
         await this.needsPerson(person)
-        const workspace = kind === 'agent' ? await this.agentsWorkspace(person, body?.workspace) : null
+        // A machine connected from its install line reaches every workspace its person is in (ORR-1192), as the API has it.
+        const workspace = kind === 'agent' && body?.all_workspaces !== true ? await this.agentsWorkspace(person, body?.workspace) : null
         const key = `orrery_${kind}_${token()}`
         const id = randomBytes(6).toString('hex')
         const created = stamp()

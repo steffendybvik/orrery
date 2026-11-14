@@ -169,8 +169,13 @@ are the [chat](API.md#chats)'s. They write as `claude`, from that session, so yo
 to it. Tools work in any session with the server in `.mcp.json`, even one started without the
 channels flag; only the pushed messages need the flag.
 
-An orrery that asks for a login ([when it does](../SECURITY.md#login-and-keys)) needs an agent key from App settings → You → Your keys. Keep it in `~/.config/orrery/keys.json`, which the page gives a line to
-write, as the launcher (a service, with nothing from your shell) and the sessions it starts read it only from there; `ORRERY_KEY` does for a session you start
+An orrery that asks for a login ([when it does](../SECURITY.md#login-and-keys)) needs an agent key, and the install line
+gets one itself (ORR-1192): copied from the signed-in page, it carries a one-time code (`ORRERY_CODE`, good once, for 15
+minutes) that the launcher swaps for the key. Run without one, it opens the orrery's Connect page in the browser, which
+shows the computer's name and two words the Terminal shows too; **Connect** there hands the waiting launcher the key.
+Either way the key is the person's, named after the computer, and reaches every workspace they're in; it's listed in App
+settings → You → Your keys, where revoking it disconnects the computer. A key made there by hand works as before. It's
+kept in `~/.config/orrery/keys.json`, which the launcher writes itself (mode 600), as the launcher (a service, with nothing from your shell) and the sessions it starts read it only from there; `ORRERY_KEY` does for a session you start
 from a terminal. Never put it in `.mcp.json`, which is committed ([how](running.md#claiming-it-and-logging-in)). The
 channel, hooks and launcher all send it. A session on your own machine, alone, needs none. Without a key, the brief at
 `/connect` says only to get one and read it again, and `/llms.txt` leaves out the projects, so send `Authorization: Bearer $ORRERY_KEY` with those `curl`s.
