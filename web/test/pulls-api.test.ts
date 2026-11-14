@@ -9,8 +9,9 @@ const asked: string[] = []
 let project: {repo?: string} | Error | undefined
 vi.mock('../server/utils/api-router', () => ({
     readFromApi: async (path: string) => {
-        // Only the project's own read: what's kept of the issue's PRs is the table's here.
-        if (!path.startsWith('/api/projects/') || path.includes('/kept-pulls')) return undefined
+        // Only the project's own read: what's kept of the issue's PRs, and the rows the store's helpers read (ORR-1174),
+        // are the table's here.
+        if (!path.startsWith('/api/projects/') || path.includes('/kept-pulls') || path.endsWith('/row')) return undefined
         asked.push(path)
         if (project instanceof Error) throw project
         return project

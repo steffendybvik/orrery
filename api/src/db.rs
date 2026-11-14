@@ -1,8 +1,10 @@
 // The database: the same SQLite file or Postgres the Nuxt server opens, already migrated by `orrery-api migrate`
 // (migrate.rs), which the Nuxt server runs before it opens it (ORR-931). Serving, this API runs no migrations, and
 // refuses to start on one that lacks what it reads.
+use serde_json::Value;
+use sqlx::any::AnyRow;
 use sqlx::any::{install_default_drivers, AnyPoolOptions};
-use sqlx::{AnyPool, Executor};
+use sqlx::{AnyPool, Column, Executor, Row};
 use std::sync::OnceLock;
 
 /// What the docs domain, the statuses, the issue, comment and activity reads and the people, keys and logins, the secrets, the settings and a pull request's read take, each a query that fails on a schema without it. Checked by the columns rather than a
@@ -146,4 +148,28 @@ pub async fn open(setting: &str, schema: Option<String>) -> Result<AnyPool, Stri
             .map_err(|e| format!("the database's schema is older than this API ({e}): start the Nuxt server on it first, which migrates it"))?;
     }
     Ok(pool)
+}
+
+/// A row as it's stored, each column by its name (ORR-1174): a whole number, a number, a text or null, as the Nuxt
+/// store's `SELECT *` reads it, for its row helpers.
+pub fn row_json(row: &AnyRow) -> Value {
+    let mut out = serde_json::Map::new();
+    for column in row.columns() {
+        let at = column.ordinal();
+        let value = if let Ok(v) = row.try_get::<Option<i64>, _>(at) {
+            v.map(Value::from)
+        } else if let Ok(v) = row.try_get::<Option<i32>, _>(at) {
+            v.map(Value::from)
+        } else if let Ok(v) = row.try_get::<Option<f64>, _>(at) {
+            v.map(Value::from)
+        } else if let Ok(v) = row.try_get::<Option<String>, _>(at) {
+            v.map(Value::from)
+        } else if let Ok(v) = row.try_get::<Option<bool>, _>(at) {
+            v.map(|b| Value::from(i64::from(b)))
+        } else {
+            None
+        };
+        out.insert(column.name().to_string(), value.unwrap_or(Value::Null));
+    }
+    Value::Object(out)
 }

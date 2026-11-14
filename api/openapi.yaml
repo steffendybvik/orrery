@@ -1536,6 +1536,34 @@ paths:
           description: The session's work
           content: {application/json: {schema: {type: object, required: [issues, waiting, waiting_for], properties: {issues: {type: array, items: {type: object}}, waiting: {type: boolean}, waiting_for: {type: boolean}}}}}
         '403': {$ref: '#/components/responses/Forbidden'}
+  /api/projects/{project}/row:
+    parameters:
+      - {$ref: '#/components/parameters/project'}
+    get:
+      x-served: false
+      summary: 'The project''s row as it''s stored (ORR-1174)'
+      description: >-
+        Only the Nuxt server's own call (`Orrery-Came: server`), for its store's helpers, which read a project to check
+        it's there and for its prompts, instructions and release mode: each column by its name, as `SELECT *` gives it
+        (`instructions` and `muted` as JSON text), with no board.
+      responses:
+        '200': {description: 'The row', content: {application/json: {schema: {type: object}}}}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/projects/{project}/issues/{issue}/row:
+    parameters:
+      - {$ref: '#/components/parameters/project'}
+      - {name: issue, in: path, required: true, schema: {type: string}}
+    get:
+      x-served: false
+      summary: 'The issue''s row as it''s stored, by its id alone (ORR-1174)'
+      description: >-
+        Only the Nuxt server's own call (`Orrery-Came: server`), for its store's helpers: each column by its name, as
+        `SELECT *` gives it (`labels` and the other lists as JSON text). No alias is followed.
+      responses:
+        '200': {description: 'The row', content: {application/json: {schema: {type: object}}}}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
   /api/projects/{project}/release-peers:
     parameters:
       - {$ref: '#/components/parameters/project'}

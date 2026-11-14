@@ -244,6 +244,10 @@ export abstract class StoreBase {
     }
 
     protected async projectRow(id: string): Promise<ProjectRow> {
+        // As it's stored, from the API when it's set up (ORR-1174), which says alike when there's none: every store
+        // method checks its project here first.
+        const read = await this.fromApi<ProjectRow>(`/api/projects/${encodeURIComponent(id)}/row`)
+        if (read) return read
         const row = await this.get<ProjectRow>('SELECT * FROM projects WHERE id = ?', id)
         if (!row) throw notFound(`No project "${id}"`)
         return row
@@ -267,6 +271,8 @@ export abstract class StoreBase {
     }
 
     protected async issueRow(project: string, id: string): Promise<IssueRow> {
+        const read = await this.fromApi<IssueRow>(`/api/projects/${encodeURIComponent(project)}/issues/${encodeURIComponent(id)}/row`)
+        if (read) return read
         await this.projectRow(project)
         const row = await this.get<IssueRow>('SELECT * FROM issues WHERE project = ? AND id = ?', project, id)
         if (!row) throw notFound(`No issue ${id} in ${project}`)

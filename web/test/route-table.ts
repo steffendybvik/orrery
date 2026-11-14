@@ -96,6 +96,8 @@ export const NOT_ROUTED: Readonly<Record<string, Line>> = {
     'GET /api/projects/{project}/session-work': SESSION_WORK,
     'GET /api/auth/ways-in': {rustOnly: "whether the owner has a person key and whether login stays on, as the local app's auth middleware asks them (`ownerHasKey`, `authStaysOn`, ORR-1158)"},
     'GET /api/projects/{project}/comments/unanswered': SESSION_WORK,
+    'GET /api/projects/{project}/row': {rustOnly: "a project's row as it's stored, for the local app's store helpers (ORR-1174)"},
+    'GET /api/projects/{project}/issues/{issue}/row': {rustOnly: "an issue's row as it's stored, for the local app's store helpers (ORR-1174)"},
     'GET /api/projects/{project}/release-peers': {rustOnly: "the projects sharing releases with one, which the local app tells when it changes (ORR-1174)"},
     'POST /api/projects/{project}/issue-sessions/rename': SESSION_WORK,
     'GET /api/projects/{project}/issues/{issue}/branches': GIT,
