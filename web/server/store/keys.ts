@@ -5,7 +5,7 @@ import {createHash, randomBytes} from 'node:crypto'
 import type {KeyKind, KeyRecord, LoginRecord} from '#shared/roadmap'
 import {badRequest, conflict, notFound} from '../utils/input'
 import {PeopleStore} from './people'
-import {actorId, stamp} from './schema'
+import {actorId, AGENT, stamp} from './schema'
 
 /** A credential once checked: the person behind it, and the kind of key if it was one. */
 export interface Holder {
@@ -144,11 +144,11 @@ export abstract class KeyStore extends PeopleStore {
     /** The person an account is, by its issuer and subject and never its email. With `invite`, an account orrery doesn't
      * know yet attaches to the invited person, using the invite up, in one step so it can't be used twice. An account a
      * removed person had moves to the invited person (ORR-787); one that belongs to someone here never does. */
-    async identity(issuer: string, subject: string, invite?: string): Promise<string | undefined> {
+    async identity(issuer: string, subject: string, invite?: string, name?: string): Promise<string | undefined> {
         const known = await this.get<{person: string}>(
             'SELECT i.person FROM identities i JOIN people p ON p.id = i.person WHERE i.issuer = ? AND i.subject = ? AND p.removed_at IS NULL', issuer, subject)
         if (known) return known.person
-        if (!invite) return undefined
+        if (!invite) return await this.firstOwner(issuer, subject, name)
         return await this.db.transaction(async () => {
             const used = await this.run('UPDATE invites SET used_at = ? WHERE id = ? AND used_at IS NULL AND expires_at > ?', stamp(), hashOf(invite), stamp())
             if (!Number(used.changes)) throw conflict('That invite has been used or has run out: ask for a new one')
@@ -160,6 +160,25 @@ export abstract class KeyStore extends PeopleStore {
                  WHERE identities.person IN (SELECT id FROM people WHERE removed_at IS NOT NULL)`, issuer, subject, row.person)
             if (!Number(attached.changes)) throw conflict('That account already belongs to someone here')
             return row.person
+        })
+    }
+
+    /** On an orrery with nobody here yet, the first account to sign in through the provider becomes its owner (ORR-1185),
+     * named as the provider says (`Owner` when it says nothing usable), so a new orrery needs no claim step. Once anyone
+     * is here, an account orrery doesn't know needs an invite. In one transaction, and the account attaches only to an
+     * owner with none yet, so two first sign-ins at once can't both get in. */
+    private async firstOwner(issuer: string, subject: string, name?: string): Promise<string | undefined> {
+        return await this.db.transaction(async () => {
+            if (await this.get('SELECT 1 FROM people')) return undefined
+            const said = (name ?? '').trim().slice(0, 60)
+            const id = actorId(said)
+            const display = id && !['owner', AGENT.name, 'claude', 'orrery'].includes(id) ? said : 'Owner'
+            await this.nameOwner({name: display})
+            const owner = actorId(display)
+            const attached = await this.run(
+                'INSERT INTO identities (issuer, subject, person) SELECT ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM identities WHERE person = ?) ON CONFLICT (issuer, subject) DO NOTHING',
+                issuer, subject, owner, owner)
+            return Number(attached.changes) ? owner : undefined
         })
     }
 

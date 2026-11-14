@@ -2050,7 +2050,7 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
             const {response, to, cookie} = await started('?invite=&back=https://elsewhere.example')
             expect(`${to.origin}${to.pathname}`).toBe(`${issuer}/authorize`)
             expect(Object.fromEntries(to.searchParams)).toEqual({
-                response_type: 'code', scope: 'openid', client_id: 'orrery-client', redirect_uri: `http://127.0.0.1:${port}/api/auth/oidc/callback`,
+                response_type: 'code', scope: 'openid profile', client_id: 'orrery-client', redirect_uri: `http://127.0.0.1:${port}/api/auth/oidc/callback`,
                 state: expect.stringMatching(/^[\w-]{43}$/), nonce: expect.stringMatching(/^[\w-]{43}$/), code_challenge: expect.stringMatching(/^[\w-]{43}$/), code_challenge_method: 'S256',
             })
             expect(response.headers.get('set-cookie')).toMatch(/^orrery_oidc=[\w-]+; Max-Age=600; Path=\/api\/auth\/oidc; HttpOnly; SameSite=Lax$/)

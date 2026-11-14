@@ -200,8 +200,9 @@ async fn oidc_start(headers: HeaderMap, RawQuery(raw): RawQuery) -> Result<Respo
 }
 
 /// `GET /api/auth/oidc/callback` → a redirect to the board, logged in (to its page on another site when it started
-/// there, ORR-667): where the provider sends the browser back (callback.get.ts). An account orrery doesn't know needs
-/// an invite, so nobody gets in only by having an account with the provider. The kept cookie is cleared either way.
+/// there, ORR-667): where the provider sends the browser back (callback.get.ts). On an orrery nobody is on yet, the first
+/// account in becomes its owner (ORR-1185); after that, an account orrery doesn't know needs an invite, so nobody gets in
+/// only by having an account with the provider. The kept cookie is cleared either way.
 async fn oidc_callback(State(app): Shared, headers: HeaderMap, RawQuery(raw): RawQuery) -> Result<Response> {
     if !oidc::on() {
         return Err(ApiError::not_found("This orrery has no login provider"));
@@ -212,7 +213,7 @@ async fn oidc_callback(State(app): Shared, headers: HeaderMap, RawQuery(raw): Ra
         let found = oidc::finish(&headers, oidc::query_value(&query, "state"), oidc::query_value(&query, "code"), kept).await?;
         let mut conn = app.pool.acquire().await?;
         let mut people = People::new(&mut conn);
-        let Some(person) = people.identity(&found.issuer, &found.subject, found.invite.as_deref()).await? else {
+        let Some(person) = people.identity(&found.issuer, &found.subject, found.invite.as_deref(), found.name.as_deref()).await? else {
             return Err(ApiError::forbidden("This account isn't on this orrery: ask its owner for an invite"));
         };
         let secret = people.start_login(&person, None, None).await?;

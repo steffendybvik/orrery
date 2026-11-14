@@ -275,7 +275,7 @@ async fn start_sends_the_browser_with_a_state_nonce_and_s256_challenge_it_keeps(
     let query: HashMap<String, String> = to.query_pairs().into_owned().collect();
     assert!(!query.contains_key("prompt"), "the endpoint's own query is replaced");
     assert_eq!(query["response_type"], "code");
-    assert_eq!(query["scope"], "openid");
+    assert_eq!(query["scope"], "openid profile");
     assert_eq!(query["client_id"], "orrery");
     assert_eq!(query["redirect_uri"], "https://orrery.example/api/auth/oidc/callback");
     assert_eq!(query["code_challenge_method"], "S256");
@@ -326,6 +326,20 @@ impl WayBack {
 
     async fn finish(&self) -> Result<Finished> {
         self.finish_allowing(ALLOWED).await
+    }
+}
+
+#[tokio::test]
+async fn the_name_comes_from_name_else_preferred_username() {
+    let way = WayBack::new().await;
+    assert_eq!(way.finish().await.ok().unwrap().name, None);
+    for (claims, want) in [(json!({"name": "Ada", "preferred_username": "ada1"}), "Ada"), (json!({"name": " ", "preferred_username": "ada1"}), "ada1")] {
+        let mut signed_claims = way.stub.claims("n");
+        for (key, value) in claims.as_object().unwrap() {
+            signed_claims[key] = value.clone();
+        }
+        way.stub.answers(&signed(&signed_claims, Some("k1")));
+        assert_eq!(way.finish().await.ok().unwrap().name.as_deref(), Some(want));
     }
 }
 
