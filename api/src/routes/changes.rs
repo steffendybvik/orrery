@@ -1,4 +1,5 @@
 // The outbox feed (`GET /api/changes`): the handlers and the routes they answer (ORR-1048).
+use crate::access::seen::Seen;
 use crate::error::Result;
 use crate::request::header;
 use crate::{changes, App, Shared};
@@ -22,10 +23,13 @@ async fn list_changes(State(app): Shared, headers: HeaderMap, Query(query): Quer
     let streamed = headers.get(ACCEPT).and_then(|v| v.to_str().ok()).is_some_and(|a| a.contains("text/event-stream"));
     if streamed {
         let after = changes::cursor(header(&headers, "last-event-id").or_else(|| query.get("after").cloned()).as_deref())?;
-        return Ok(Sse::new(changes::stream(app.pool.clone(), after)).keep_alive(KeepAlive::default()).into_response());
+        let seen = Seen::of(&mut *app.pool.acquire().await?, &headers).await?;
+        return Ok(Sse::new(changes::stream(app.pool.clone(), after, seen)).keep_alive(KeepAlive::default()).into_response());
     }
     let mut conn = app.pool.acquire().await?;
-    Ok(Json(changes::after(&mut conn, query.get("after").map(String::as_str)).await?).into_response())
+    let mut value = changes::after(&mut conn, query.get("after").map(String::as_str)).await?;
+    Seen::of(&mut conn, &headers).await?.keep(&mut conn, &mut value["changes"], "project").await?;
+    Ok(Json(value).into_response())
 }
 
 #[cfg(test)]

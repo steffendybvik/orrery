@@ -1,5 +1,6 @@
 // Projects: the handlers and the routes they answer (ORR-1048).
 use super::P;
+use crate::access::seen::Seen;
 use crate::board::board_upload::{self, Upload};
 use crate::board::imports::check_roadmap;
 use crate::board::issue_writes::IssueWrites;
@@ -58,10 +59,11 @@ async fn upload_board(State(app): Shared, request: Request) -> Result<Response> 
 /// `GET /api/projects` → every project with its counts; `?expand=board` gives each one's board instead, without the
 /// events stream's `rev`, which the Nuxt server adds. `&notes=0` and `&closed=0` trim the boards as one project's read
 /// does, but for the projects in `&whole=` (comma-separated ids).
-async fn list_projects(State(app): Shared, Query(query): Query<HashMap<String, String>>) -> Result<Response> {
+async fn list_projects(State(app): Shared, headers: HeaderMap, Query(query): Query<HashMap<String, String>>) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
     let boards = query.get("expand").is_some_and(|e| e == "board");
     let mut value = Projects::new(&mut conn).list(boards).await?;
+    Seen::of(&mut conn, &headers).await?.keep(&mut conn, &mut value, "id").await?;
     if boards {
         let dropped = |key: &str| query.get(key).is_some_and(|v| v == "0");
         let whole: Vec<&str> = query.get("whole").map(|w| w.split(',').collect()).unwrap_or_default();

@@ -1,5 +1,6 @@
 // Releases, a project's and across projects: the handlers and the routes they answer (ORR-1048).
 use super::P;
+use crate::access::seen::Seen;
 use crate::board::issues::Issues;
 use crate::board::plans::Plans;
 use crate::board::releases::Releases;
@@ -62,9 +63,11 @@ async fn get_release(State(app): Shared, Path((project, release)): Path<(String,
     Ok(Json(Plans::new(&mut Issues::new(&mut conn)).release(&project, &release).await?).into_response())
 }
 
-async fn all_releases(State(app): Shared) -> Result<Response> {
+async fn all_releases(State(app): Shared, headers: HeaderMap) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
-    Ok(Json(Plans::new(&mut Issues::new(&mut conn)).all_releases().await?).into_response())
+    let mut value = Plans::new(&mut Issues::new(&mut conn)).all_releases().await?;
+    Seen::of(&mut conn, &headers).await?.keep(&mut conn, &mut value, "project").await?;
+    Ok(Json(value).into_response())
 }
 
 /// `GET …/releases/:release/row` → the release's row as it's stored, in the project's source when it takes its

@@ -2,6 +2,7 @@
 // pausing or activating all of a project's, making and changing one, and deleting one across projects (ORR-1082).
 use super::issues::handoff_headers;
 use super::P;
+use crate::access::seen::Seen;
 use crate::changes::Outbox;
 use crate::error::{ApiError, Result};
 use crate::reply::reply;
@@ -123,9 +124,11 @@ async fn drop_held(State(app): Shared, Path(schedule): Path<String>, headers: He
     Ok(StatusCode::NO_CONTENT.into_response())
 }
 
-async fn all_schedules(State(app): Shared) -> Result<Response> {
+async fn all_schedules(State(app): Shared, headers: HeaderMap) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
-    Ok(Json(Schedules::new(&mut conn).list(None).await?).into_response())
+    let mut value = Schedules::new(&mut conn).list(None).await?;
+    Seen::of(&mut conn, &headers).await?.keep(&mut conn, &mut value, "project").await?;
+    Ok(Json(value).into_response())
 }
 
 async fn list_schedules(State(app): Shared, Path(project): Path<String>) -> Result<Response> {
@@ -205,9 +208,22 @@ async fn delete_schedule(State(app): Shared, Path((project, schedule)): Path<(St
     Ok(reply(StatusCode::NO_CONTENT, None, std::mem::take(&mut schedules.effects)))
 }
 
-async fn schedules_across(State(app): Shared) -> Result<Response> {
+/// A schedule across projects shows only the projects seen, and none it's made on none of (ORR-1106).
+async fn schedules_across(State(app): Shared, headers: HeaderMap) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
-    Ok(Json(Schedules::new(&mut conn).across().await?).into_response())
+    let mut value = Schedules::new(&mut conn).across().await?;
+    let hidden = Seen::of(&mut conn, &headers).await?.hidden(&mut conn).await?;
+    if !hidden.is_empty() {
+        if let Value::Array(across) = &mut value {
+            across.retain_mut(|one| {
+                let Value::Array(on) = &mut one["on_projects"] else { return true };
+                let had = !on.is_empty();
+                on.retain(|p| !p.as_str().is_some_and(|p| hidden.contains(p)));
+                !had || !on.is_empty()
+            });
+        }
+    }
+    Ok(Json(value).into_response())
 }
 
 #[cfg(test)]

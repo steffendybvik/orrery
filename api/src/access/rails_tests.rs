@@ -2,7 +2,7 @@
 // session's columns, and on an orrery with more than one person, the member column and the board the route names.
 use super::*;
 use crate::db::sql;
-use crate::testing::{Req, TestApi};
+use crate::testing::{from_outside, Req, TestApi};
 use serde_json::json;
 
 async fn on_board(api: &TestApi, project: &str, person: &str) {
@@ -190,41 +190,16 @@ async fn an_untrusted_session_writes_only_to_the_project_it_was_started_for() {
 // The workspace a project is in holds its reads and writes (ORR-1106, decision 6): a person who isn't a member of it,
 // the owner too, gets a 404 as if it weren't here; a request naming nobody here sees only `default`.
 
-/// A second workspace, Acme, with project Rockets in it and `members` in it: the project's id.
-async fn acme(api: &TestApi, members: &[&str]) -> String {
-    api.run("INSERT INTO workspaces (id, name, created_at) VALUES ('acme', 'Acme', ?)", &[STAMP_NOW]).await;
-    let project = api.project("Rockets").await;
-    api.run("UPDATE projects SET workspace = 'acme' WHERE id = ?", &[&project]).await;
-    for member in members {
-        api.run("INSERT INTO workspace_members (workspace, person, role, created_at) VALUES ('acme', ?, 'member', ?)", &[member, STAMP_NOW]).await;
-    }
-    project
-}
-
-const STAMP_NOW: &str = "2026-11-14T00:00:00.000Z";
-
-/// As a request from outside comes through the router, over loopback with ORRERY_AUTH=off, rather than the Nuxt
-/// server's own work: it names nobody but what its actor headers say.
-fn from_outside(req: Req) -> Req {
-    req.header("orrery-came", "loopback").header("orrery-login-ways", "off")
-}
-
-/// As a browser signed in as `person` asks, through the router with login on: the API finds who it is from the login.
-async fn signed(api: &TestApi, req: Req, person: &str) -> Req {
-    let login = api.login(person).await;
-    req.header("orrery-came", "loopback").header("orrery-login-ways", "on").signed_in(&login)
-}
-
 #[tokio::test]
 async fn a_person_outside_a_workspace_neither_reads_nor_writes_its_projects() {
     let api = TestApi::new().await;
     api.team().await;
-    let rockets = acme(&api, &["bo"]).await;
-    let read = signed(&api, api.get(&format!("/api/projects/{rockets}/issues")).by_agent("ana"), "ana").await.send().await;
+    let rockets = api.acme(&["bo"]).await;
+    let read = api.signed(api.get(&format!("/api/projects/{rockets}/issues")).by_agent("ana"), "ana").await.send().await;
     assert_eq!(read.status, 404, "{}", read.body);
-    let wrote = signed(&api, api.post(&format!("/api/projects/{rockets}/issues"), json!({"title": "Fuel"})).person("ana"), "ana").await.send().await;
+    let wrote = api.signed(api.post(&format!("/api/projects/{rockets}/issues"), json!({"title": "Fuel"})).person("ana"), "ana").await.send().await;
     assert_eq!(wrote.status, 404, "{}", wrote.body);
-    let theirs = signed(&api, api.get(&format!("/api/projects/{rockets}/issues")).by_agent("bo"), "bo").await.send().await;
+    let theirs = api.signed(api.get(&format!("/api/projects/{rockets}/issues")).by_agent("bo"), "bo").await.send().await;
     assert_eq!(theirs.status, 200, "{}", theirs.body);
 }
 
@@ -233,10 +208,10 @@ async fn the_owner_sees_only_the_workspaces_they_are_in() {
     let api = TestApi::new().await;
     api.team().await;
     let primes = api.project("Primes").await;
-    let rockets = acme(&api, &["bo"]).await;
-    let theirs = signed(&api, api.get(&format!("/api/projects/{rockets}/issues")), "steffen").await.send().await;
+    let rockets = api.acme(&["bo"]).await;
+    let theirs = api.signed(api.get(&format!("/api/projects/{rockets}/issues")), "steffen").await.send().await;
     assert_eq!(theirs.status, 404, "{}", theirs.body);
-    let own = signed(&api, api.get(&format!("/api/projects/{primes}/issues")), "steffen").await.send().await;
+    let own = api.signed(api.get(&format!("/api/projects/{primes}/issues")), "steffen").await.send().await;
     assert_eq!(own.status, 200, "{}", own.body);
     // Their own sessions and chat, with login off, are theirs.
     let chat = from_outside(api.get(&format!("/api/projects/{rockets}/issues")).header("orrery-actor-kind", "chat")).send().await;
@@ -248,7 +223,7 @@ async fn a_request_naming_nobody_here_sees_only_default() {
     let api = TestApi::new().await;
     api.team().await;
     let primes = api.project("Primes").await;
-    let rockets = acme(&api, &["bo"]).await;
+    let rockets = api.acme(&["bo"]).await;
     let nobody = |path: String| from_outside(api.get(&path).agent_of_nobody());
     assert_eq!(nobody(format!("/api/projects/{primes}/issues")).send().await.status, 200);
     assert_eq!(nobody(format!("/api/projects/{rockets}/issues")).send().await.status, 404);
@@ -262,7 +237,7 @@ async fn a_request_naming_nobody_here_sees_only_default() {
 async fn the_nuxt_servers_own_work_and_a_missing_project_are_not_held() {
     let api = TestApi::new().await;
     api.team().await;
-    let rockets = acme(&api, &[]).await;
+    let rockets = api.acme(&[]).await;
     let own = api.get(&format!("/api/projects/{rockets}/issues")).send().await;
     assert_eq!(own.status, 200, "{}", own.body);
     let gone = from_outside(api.get("/api/projects/nowhere/issues").agent_of_nobody()).send().await;
@@ -273,7 +248,7 @@ async fn the_nuxt_servers_own_work_and_a_missing_project_are_not_held() {
 async fn an_untrusted_session_reaches_the_project_it_was_started_for() {
     let api = TestApi::new().await;
     api.team().await;
-    let rockets = acme(&api, &[]).await;
+    let rockets = api.acme(&[]).await;
     let reply = from_outside(api.get(&format!("/api/projects/{rockets}/issues")).untrusted().header("orrery-untrusted-project", &rockets)).send().await;
     assert_eq!(reply.status, 200, "{}", reply.body);
     let elsewhere = from_outside(api.get(&format!("/api/projects/{rockets}/issues")).untrusted()).send().await;
