@@ -3150,6 +3150,12 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         expect(chain.body).toEqual([{issue: there.sub, started: false, worker: null}, {issue: there.top, started: true, worker: 'sess-1'}])
         expect(await store.get('SELECT session FROM issue_sessions WHERE project = ? AND issue = ?', 'through-store', here.top)).toEqual({session: 'sess-1'})
         for (const route of ['/issue-sessions', `/issues/${there.top}/dependents`]) expect(domainOf('GET', `/api/projects/through-api${route}`)).toBeUndefined()
+        // The owner's word no agent has answered, for a session just connected to catch up on (ORR-1161).
+        await store.createComment('through-api', there.top, {body: 'Still waiting'}, OWNER)
+        const unanswered = await viaApi('GET', '/comments/unanswered')
+        expect(unanswered.status).toBe(200)
+        expect(unanswered.body).toEqual([expect.objectContaining({issue: there.top, body: 'Still waiting', owned: true})])
+        expect(domainOf('GET', '/api/projects/through-api/comments/unanswered')).toBeUndefined()
     })
 
     it('brings a board\'s file in alike, the local app checking it and the API writing it (ORR-1142)', async () => {
