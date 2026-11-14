@@ -320,6 +320,25 @@ export async function letGo(project: string, id: string, error?: string): Promis
     return handBack(project, sessionIds(id), sessionNow(id)?.name ?? id, `had its turn cut off by ${why}`)
 }
 
+/** What orrery restarting dropped (ORR-1184): the wait for a session that seemed to have ended is kept in memory
+ * (`handBackSoon`), so a restart lost it and the session stayed on its issues. Run once a while after orrery starts
+ * (`plugins/hand-back.ts`), long enough for live sessions to reconnect: each issue in progress, untouched since orrery
+ * started (`since`), whose last session isn't listening and hasn't been heard from since goes back, as an ended one's
+ * does. One touched since was worked on or talked about after the restart, so it's no wait that was lost. Says which. */
+export async function handBackUnseen(since: string): Promise<string[]> {
+    const store = useStore()
+    const handed: string[] = []
+    for (const {id: project} of await store.listProjects()) {
+        for (const issue of await store.listIssues(project)) {
+            if (issue.kind !== 'started' || issue.updated_at >= since) continue
+            const worker = await store.lastWorker(project, issue.id)
+            if (!worker || store.hears(project, worker) || sessionNow(worker)) continue
+            handed.push(...await handBack(project, [worker], worker.slice(0, 8), 'was gone when orrery came back from a restart'))
+        }
+    }
+    return handed
+}
+
 /** The session has ended, by every id it went by, and didn't come back in time (`handBackSoon`): what it had in progress
  * goes back (ORR-775). */
 export async function letGoEnded(project: string, ids: string[], name: string): Promise<string[]> {

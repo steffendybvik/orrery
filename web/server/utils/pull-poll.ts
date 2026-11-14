@@ -33,6 +33,17 @@ const DONE = 30
 /** How long a merged or closed PR, or a repo nobody points at any more, is kept. */
 const KEEP = 7 * 24 * 60 * 60_000
 
+/** An open PR that still needs work after a poll told no news of it (ORR-1184): what it needs, and when GitHub last saw
+ * anything happen on it (a push, a comment), for orrery to ask the owner when nobody has acted on its notice. */
+export interface PullStill {
+    project: string
+    issue: string
+    repo: string
+    number: number
+    updated_at: string
+    needs: ('conflicting' | 'checks_failed' | 'changes_requested')[]
+}
+
 export type PullChangeKind = 'conflicting' | 'behind' | 'checks_failed' | 'changes_requested' | 'merged' | 'closed' | 'ready' | 'approved'
 
 /** A PR that changed, on the issue it names: `key` is the same for the same change (the PR, the kind, and the head
@@ -172,6 +183,12 @@ export function changesOf(was: Pick<KeptRepo['pulls'][number], 'state' | 'checks
     return kinds
 }
 
+/** What a PR as kept still needs before it can merge: its conflicts resolved, its checks fixed, the changes asked for. */
+function stillNeeds(kept: Pick<KeptRepo['pulls'][number], 'state' | 'checks' | 'review'>): PullStill['needs'] {
+    return [...kept.state === 'conflicting' ? ['conflicting' as const] : [], ...kept.checks === 'failure' ? ['checks_failed' as const] : [],
+        ...kept.review === 'CHANGES_REQUESTED' ? ['changes_requested' as const] : []]
+}
+
 /** How many times the PR's checks have failed (keys told, in order) since they last went green after failing. */
 function failuresSincePassed(told: string[], pr: string): number {
     const since = told.findLastIndex(k => k.startsWith(`${pr} checks_passed`))
@@ -212,6 +229,8 @@ export class PullPoll {
         private readonly onChange: (change: PullChange) => void,
         private readonly note: (entry: EventEntry) => void,
         private readonly now: () => number = Date.now,
+        /** Each open PR that still needs work, with no news of it this poll (ORR-1184). */
+        private readonly onStill: (still: PullStill) => void = () => {},
     ) {}
 
     /** Polls each repo that's due, one after another; a tick while the last is still going does nothing. */
@@ -320,6 +339,7 @@ export class PullPoll {
         // What's kept for good, by PR: one not changed since needn't be looked up and written again each minute.
         const recorded = new Map(known.recorded.map(r => [r.number, r.updated_at]))
         const changes: PullChange[] = []
+        const still: PullStill[] = []
         const rows: PolledRow[] = []
         const seen = new Set<number>()
         for (const pull of [...read.open, ...read.done]) {
@@ -337,7 +357,10 @@ export class PullPoll {
             if (pull.checks === 'success' && failuresSincePassed(told, `${repo}#${pull.number}`) && !told.includes(passed)) told.push(passed)
             if (!first) {
                 const issue = await this.pulls.issueOf(projects, names)
-                for (const kind of changesOf(was, pull)) {
+                const news = changesOf(was, pull)
+                const needs = was && !pull.merged && !pull.closed && !news.length ? stillNeeds(was) : []
+                if (issue && needs.length) still.push({project: issue.project, issue: issue.id, repo, number: pull.number, updated_at: pull.updated_at, needs})
+                for (const kind of news) {
                     const key = keyOf(repo, pull, kind)
                     if (told.includes(key)) continue
                     told.push(key)
@@ -359,6 +382,7 @@ export class PullPoll {
             if (change.kind === 'merged') change.files = await this.changedFiles(repo, asker, change.pull.number)
             this.onChange(change)
         }
+        for (const one of still) this.onStill(one)
         await this.readHistory(repo, projects, asker)
     }
 

@@ -138,7 +138,7 @@ export function usePullPoll(): PullPoll {
             change => {
                 projectEvents.emit('pull-change', change)
                 void commentOnPull(useStore(), change)
-            }, entry => useEventLog().note(entry))
+            }, entry => useEventLog().note(entry), Date.now, still => void askIfUnattended(useStore(), still))
         // A token set again is tried at the next poll, not an hour after GitHub turned the last one down.
         projectEvents.on('secrets', () => void made.secretsChanged())
         pullPoll = made

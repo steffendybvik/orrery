@@ -60,7 +60,7 @@ const CLEARED_FOR = 60 * 1000
 const PARALLEL_WITHIN = 1000
 // How long a session that seems to have ended has to come back (`claude --resume`, a channel reconnecting) before the
 // issues it had in progress are handed back (ORR-775).
-const HAND_BACK_AFTER = 5 * 60 * 1000
+export const HAND_BACK_AFTER = 5 * 60 * 1000
 /** Sessions that seem to have ended, by the id they had then, with every id they went by and the wait for them. */
 const ending = new Map<string, {ids: string[], timer: ReturnType<typeof setTimeout>}>()
 
@@ -214,7 +214,8 @@ function roman(n: number): string {
 }
 
 /** The session seems to have ended: unless it's heard from again in time, what it had in progress is handed back. Kept
- * in memory like the sessions, so orrery restarting drops the wait, and a session that really has gone stays on its issues.
+ * in memory like the sessions; orrery restarting drops the wait, which `handBackUnseen` makes up for once it's back
+ * (ORR-1184).
  * The first word of its end stands: by a later one (its channel closing after its `SessionEnd`) its other ids are forgotten. */
 function handBackSoon(session: Known) {
     if (ending.has(session.id)) return

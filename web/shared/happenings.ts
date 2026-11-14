@@ -65,6 +65,7 @@ export const COMMON_EVENTS: {type: string, label: string, family: string, filter
     {type: 'pr.closed', label: "An issue's pull request is closed unmerged", family: 'Pull requests'},
     {type: 'pr.checks_failed', label: "An issue's pull request fails its checks", family: 'Pull requests'},
     {type: 'pr.changes_requested', label: "An issue's pull request is asked for changes", family: 'Pull requests'},
+    {type: 'pr.unattended', label: "An issue's pull request needs work nobody has done", family: 'Pull requests'},
     {type: 'pr.ready', label: "An issue's pull request can merge again", family: 'Pull requests'},
     {type: 'pr.approved', label: "An issue's pull request is approved", family: 'Pull requests'},
     {type: 'session.started', label: 'A session is started', family: 'Sessions'},

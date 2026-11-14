@@ -20,7 +20,7 @@
 import {CLOSED} from '#shared/roadmap'
 import {OPEN_ASK, ORRERY as ORRERY_ACTOR} from '../store/schema'
 import type {LandedIn} from '../store/releases'
-import type {PullChange, PullChangeKind} from './pull-poll'
+import type {PullChange, PullChangeKind, PullStill} from './pull-poll'
 import type {Store} from './store'
 import {issueIdsIn} from './pulls'
 import {settingsNow, writeToApi} from './api-router'
@@ -81,6 +81,36 @@ async function landMerged(store: Store, {project, issue, repo, pull}: PullChange
     } catch (error) {
         console.error(`[orrery] setting the release of ${issue} from ${repo}#${pull.number}:`, error)
         return null
+    }
+}
+
+/** How long a notice that a PR needs work may go with nothing done about it before orrery asks the owner (ORR-1184). */
+export const ACT_WITHIN = 60 * 60 * 1000
+
+/** What a PR still needs, in a few words. */
+const NEEDED: Record<PullStill['needs'][number], string> = {conflicting: 'its conflicts resolved', checks_failed: 'its checks fixed', changes_requested: 'the changes asked for'}
+
+/** Asks the owner on the bell about a PR that still needs work when nobody has acted on orrery's last notice of it in
+ * ACT_WITHIN (ORR-1184): no comment on the issue since, and nothing on the PR on GitHub (a push, a comment), as
+ * `failedChecks` asks past LOOP_LIMIT. Once a notice: an ask after it, or anyone's comment, stops another. Nothing on a
+ * closed issue. A failure is logged, not thrown: the poll goes on. */
+export async function askIfUnattended(store: Store, {project, issue, repo, number, updated_at, needs}: PullStill, now = Date.now()): Promise<boolean> {
+    try {
+        const pr = `[#${number}](https://github.com/${repo}/pull/${number})`
+        const notice = await store.db.get<{id: number, created_at: string}>(`SELECT id, created_at FROM comments WHERE project = ? AND issue = ?
+            AND created_by = ? AND asks IS NULL AND body LIKE ? ORDER BY id DESC LIMIT 1`, project, issue, ORRERY, `${pr}%`)
+        if (!notice || Date.parse(notice.created_at) > now - ACT_WITHIN || Date.parse(updated_at) > Date.parse(notice.created_at)) return false
+        if (await store.db.get(`SELECT 1 FROM comments WHERE project = ? AND issue = ? AND id > ? AND (created_by != ? OR asks IS NOT NULL) LIMIT 1`,
+            project, issue, notice.id, ORRERY)) return false
+        const row = await store.db.get<{status: string}>('SELECT status FROM issues WHERE project = ? AND id = ?', project, issue)
+        const kind = row && (await store.statuses()).find(s => s.id === row.status)?.kind
+        if (!kind || CLOSED.includes(kind)) return false
+        const wanted = needs.map(n => NEEDED[n]).join(', ').replace(/, ([^,]*)$/, ' and $1')
+        await store.systemAsk(project, issue, `${pr} still needs ${wanted}, and nothing has happened on it for over ${ACT_WITHIN / 3_600_000} hour since I said so: no push, no comment. Have a look, and answer here or point a session at it.`, 'pr.unattended')
+        return true
+    } catch (error) {
+        console.error(`[orrery] asking about ${repo}#${number} on ${issue}:`, error)
+        return false
     }
 }
 
