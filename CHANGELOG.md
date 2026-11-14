@@ -21,8 +21,11 @@ in it is left out. 1.0.0, the first release's overview, is one list.
 - **Run the launcher's install line once more** from the Sessions page's **Setup** tab. Sessions now take the board's
   tools from orrery's `/mcp`, and the channel no longer carries its own copy, so a machine set up on an older line has
   sessions that see only the channel's tools.
-- **The database migrates forward on its own,** now through `orrery-api migrate`, as before: back it up first, as for
-  any release.
+- **The database migrates forward on its own,** now through `orrery-api migrate`. orrery no longer takes a copy
+  before it does, so back the database up yourself first.
+- **Backups are gone:** back the database up yourself (`docs/running.md`'s *Backups* says how). `ORRERY_BACKUP`,
+  `ORRERY_BACKUP_DATABASE` and the `/backup` volume go from your `.env` and compose file, and so do App settings →
+  Database and the in-app database move. Which database orrery uses is set only by `ORRERY_DATABASE`.
 - **A login provider must allow the `profile` scope:** orrery now asks for `openid profile`, so the first person in has
   a name.
 
@@ -89,6 +92,8 @@ in it is left out. 1.0.0, the first release's overview, is one list.
 - **A pull request's news goes only to the session on its issue,** so a session opened by hand isn't flooded with the
   day's old notices on its first idle.
 - **An event schedule no longer hears what a schedule's own run just wrote** through the API.
+- **The health check fails while the Rust API is down,** so Docker or a proxy sees a container whose API died as
+  unhealthy, not healthy.
 - **On a phone:** sticky headers are solid, App settings' tabs stay on one line, a session's ⋯ menu stays on screen,
   and the chat header's parts are spaced.
 
@@ -96,7 +101,7 @@ in it is left out. 1.0.0, the first release's overview, is one list.
 
 - **The Nuxt server routes the board's data to the Rust API** and keeps no routes of its own for it: docs, issues and
   comments, milestones, releases, epics, people and keys, logins, presets, settings, the bell, schedules, the event
-  log, secrets, uploads, backups, projects and schedules' runs. It keeps the page, sessions, the launcher and chats.
+  log, secrets, uploads, projects and schedules' runs. It keeps the page, sessions, the launcher and chats.
 - **The board's tools are served only from the API's `/mcp`**, for every kind of session, chat and untrusted ones
   included.
 - **The Rust API owns the migrations:** Node's steps are frozen at step 87, and a new step is a SQL file in
