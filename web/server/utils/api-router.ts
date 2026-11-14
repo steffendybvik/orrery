@@ -716,6 +716,19 @@ async function forwardMcp(event: H3Event, api: {url: string, token: string}): Pr
     return text
 }
 
+/** A read from the API as the request's own asker (their login or key, and the workspace they name), not as this
+ * server: what they themselves may see (ORR-1195). Undefined with no API in front, or when it says no. */
+export async function readAsAsker<T>(event: H3Event, path: string): Promise<T | undefined> {
+    const api = apiTarget(configHere())
+    if (!api) return undefined
+    try {
+        const response = await fetch(`${api.url.replace(/\/+$/, '')}${path}`, {headers: headersFor(event, api, await actorOf(event)), redirect: 'manual'})
+        return response.ok ? await response.json() as T : undefined
+    } catch {
+        return undefined
+    }
+}
+
 /** Sends the request to the API, once its line's check here lets it (`first`), and gives back its reply. An API that
  * can't be reached or is on another database fails the request (`cantReach`). */
 export async function forwardToApi(event: H3Event, api: {url: string, token: string}): Promise<unknown> {
