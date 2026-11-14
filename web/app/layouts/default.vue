@@ -59,7 +59,6 @@ const skipToContent = () => main.value?.focus()
     <LazyMessageSessionDialog v-if="messageOneDialog" />
     <ScheduleMenu />
     <OwnerDialog />
-    <BackupHint />
     <PermissionPrompts />
     <ImageView />
     <BulkBar />
