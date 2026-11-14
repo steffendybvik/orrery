@@ -23,6 +23,22 @@ pub(crate) fn routes() -> Router<Arc<App>> {
         .route("/api/phone/link", post(phone_link))
         .route("/api/auth/oidc/start", get(oidc_start))
         .route("/api/auth/oidc/callback", get(oidc_callback))
+        .route("/api/auth/ways-in", get(ways_in))
+}
+
+/// `GET /api/auth/ways-in` → {owner_has_key, stays_on}: whether the owner has a person key to log in with
+/// (`ownerHasKey`), and whether login stays on with no setting asking for it (`authStaysOn`: a second person is here,
+/// or was, which it writes down the first time). The Nuxt server's own call alone (`Orrery-Came: server`), as it asks
+/// these on every request its auth middleware holds (ORR-1158), and they say how this orrery's people are set up.
+async fn ways_in(State(app): Shared, headers: HeaderMap) -> Result<Response> {
+    if !came_of(&headers).server {
+        return Err(ApiError::forbidden("Only the local app asks how its people can get in"));
+    }
+    let mut conn = app.pool.acquire().await?;
+    let mut people = People::new(&mut conn);
+    let owner_has_key = people.owner_has_key().await?;
+    let stays_on = people.auth_stays_on().await?;
+    Ok(Json(json!({"owner_has_key": owner_has_key, "stays_on": stays_on})).into_response())
 }
 
 /// The login cookie's name for the address the browser used (`loginCookie`, ORR-956): with a port in `Host` it carries

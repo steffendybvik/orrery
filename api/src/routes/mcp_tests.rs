@@ -31,6 +31,8 @@ async fn initialize_says_its_version_and_tools_and_starts_a_session() {
     assert_eq!(reply.body["id"], 1);
     assert_eq!(reply.body["result"]["protocolVersion"], "2025-03-26");
     assert_eq!(reply.body["result"]["serverInfo"]["name"], "orrery");
+    let package: Value = serde_json::from_str(include_str!("../../../web/package.json")).unwrap();
+    assert_eq!(reply.body["result"]["serverInfo"]["version"], package["version"], "orrery's release version, not the crate's 0.0.0");
     assert!(reply.body["result"]["capabilities"]["tools"].is_object());
     assert_eq!(reply.header("mcp-session-id").map(str::len), Some(32));
     let unknown = rpc(&api, "initialize", json!({"protocolVersion": "1999-01-01"})).send().await;

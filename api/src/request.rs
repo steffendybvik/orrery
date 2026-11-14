@@ -146,7 +146,7 @@ async fn checked(app: &crate::App, headers: &HeaderMap, open: bool) -> Result<Op
     }
     if !came.phone && !ways.provider && !people.owner_has_key().await? {
         return Err(ApiError::unavailable(
-            "Nobody can log in to this orrery yet: claim it from its page on its own machine (App settings → You), or run `docker compose exec orrery node /app/server/claim.mjs` there",
+            "Nobody can log in to this orrery yet: claim it from its page on its own machine (App settings → You), or run `pnpm orrery:claim` there (in Docker, `docker compose exec orrery node /app/server/claim.mjs`)",
         ));
     }
     Err(ApiError::unauthorized("This orrery asks for a credential: log in on its page, or give a session an agent key (ORRERY_KEY)"))

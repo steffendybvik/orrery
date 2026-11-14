@@ -1079,6 +1079,19 @@ paths:
         `proxied`, `phone`, `https`), and `Orrery-Login-Ways` says `on` for ORRERY_AUTH=on. Written ahead of the swap.
       responses:
         '200': {description: '{mode, person?, via?, can_get_in, oidc, warn_http, phone}'}
+  /api/auth/ways-in:
+    get:
+      x-served: false
+      summary: 'Whether the owner has a person key, and whether login stays on (ORR-1158)'
+      description: >-
+        Only the Nuxt server's own call (`Orrery-Came: server`), which its auth middleware makes on the requests it
+        holds. `owner_has_key`: the owner has a live person key to log in with. `stays_on`: a second person is here, or
+        was, so login stays on with no setting asking for it; the first time one is seen it's written down.
+      responses:
+        '200':
+          description: How this orrery's people can get in
+          content: {application/json: {schema: {type: object, required: [owner_has_key, stays_on], properties: {owner_has_key: {type: boolean}, stays_on: {type: boolean}}}}}
+        '403': {$ref: '#/components/responses/Forbidden'}
   /api/auth/link:
     post:
       x-served: false

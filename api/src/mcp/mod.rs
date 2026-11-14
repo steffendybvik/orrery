@@ -20,6 +20,13 @@ use tools::Kind;
 /// The protocol versions this server speaks, newest first: a client's is taken when it's one of them.
 pub(crate) const VERSIONS: [&str; 3] = ["2025-06-18", "2025-03-26", "2024-11-05"];
 
+/// orrery's release version, from web/package.json as the Nuxt server's own `public.version` (ORR-1189): the crate's
+/// version stays 0.0.0, so `initialize`'s `serverInfo` would say nothing useful.
+pub(crate) static ORRERY_VERSION: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+    let package: Value = serde_json::from_str(include_str!("../../../web/package.json")).expect("web/package.json is JSON");
+    package["version"].as_str().expect("web/package.json has a version").to_string()
+});
+
 /// The projects on this orrery, as `GET /api/projects` orders them: a tool on one takes which when there are several.
 async fn projects(conn: &mut AnyConnection) -> Result<Vec<String>> {
     let rows = sqlx::query(&sql("SELECT id FROM projects ORDER BY lower(name), name")).fetch_all(conn).await?;
@@ -75,7 +82,7 @@ impl Call<'_> {
                     json!({
                         "protocolVersion": version,
                         "capabilities": {"tools": {"listChanged": false}},
-                        "serverInfo": {"name": "orrery", "version": env!("CARGO_PKG_VERSION")},
+                        "serverInfo": {"name": "orrery", "version": ORRERY_VERSION.as_str()},
                         "instructions": "orrery keeps the roadmap: projects, issues, comments and docs. Name the project on a call when there are several; how orrery itself works is the guide tool.",
                     }),
                 )
