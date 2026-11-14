@@ -257,11 +257,13 @@ pub struct Projects<'c> {
     pub effects: Effects,
     /// Set for a write: what it sets off goes into the outbox in its transaction (ORR-929).
     pub outbox: Option<Outbox>,
+    /// The workspace a new project goes into (ORR-1195): the one the request acts in.
+    pub workspace: String,
 }
 
 impl<'c> Projects<'c> {
     pub fn new(conn: &'c mut AnyConnection) -> Self {
-        Projects { conn, effects: Effects::default(), outbox: None }
+        Projects { conn, effects: Effects::default(), outbox: None, workspace: "default".into() }
     }
 
     /// Whether orrery may start sessions, and within what: the orrery's setting, as every project shares it (`orreryStarts`).
@@ -429,8 +431,8 @@ impl<'c> Projects<'c> {
             let now = stamp();
             let field = |key: &str| input.get(key).and_then(Value::as_str).map(str::to_string);
             sqlx::query(&sql(
-                "INSERT INTO projects (id, name, key, uid, description, icon, icon_color, repo, release_mode, releases_from, created_by, owned, created_at, updated_at) \
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO projects (id, name, key, uid, description, icon, icon_color, repo, release_mode, releases_from, created_by, owned, created_at, updated_at, workspace) \
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             ))
             .bind(&id)
             .bind(&name)
@@ -446,6 +448,7 @@ impl<'c> Projects<'c> {
             .bind(i64::from(actor.owner))
             .bind(&now)
             .bind(&now)
+            .bind(&self.workspace)
             .execute(&mut *self.conn)
             .await?;
             let sets = prompt_columns(&input);

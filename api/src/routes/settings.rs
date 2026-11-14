@@ -4,7 +4,7 @@ use crate::changes::Outbox;
 use crate::db::sql;
 use crate::error::{ApiError, Result};
 use crate::reply::reply;
-use crate::request::{actor_of, body_of, came_of};
+use crate::request::{actor_of, body_of, came_of, header};
 use crate::work::settings::Settings;
 use crate::{App, Shared};
 use axum::body::Bytes;
@@ -39,8 +39,14 @@ async fn workspace_of(conn: &mut AnyConnection, headers: &HeaderMap, query: &Has
 
 async fn get_settings(State(app): Shared, headers: HeaderMap, Query(query): Query<HashMap<String, String>>) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
-    // Someone in no workspace yet (signed in, before making one) still gets the page's settings, as `default`'s.
-    let workspace = workspace_of(&mut conn, &headers, &query).await.unwrap_or_else(|_| "default".into());
+    // Someone in no workspace yet (signed in, before making one) who names none still gets the page's settings, as
+    // `default`'s; naming one they aren't in is a 404, as anywhere (ORR-1195).
+    let named = header(&headers, "orrery-workspace").is_some_and(|w| !w.trim().is_empty()) || query.contains_key("workspace") || query.contains_key("project");
+    let workspace = match workspace_of(&mut conn, &headers, &query).await {
+        Ok(workspace) => workspace,
+        Err(error) if named => return Err(error),
+        Err(_) => "default".into(),
+    };
     let mut settings = Settings::new(&mut conn);
     settings.workspace = workspace;
     Ok(Json(settings.get().await?).into_response())

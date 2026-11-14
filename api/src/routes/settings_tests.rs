@@ -333,5 +333,5 @@ async fn a_workspaces_settings_are_its_own() {
     let for_rockets = api.get(&format!("/api/settings?project={rockets}")).send().await.body;
     assert_eq!(for_rockets["focus_prompt"], "Count down first.", "the local app reads a project's sessions' settings by the project");
     let ana = api.signed(api.get("/api/settings").header("orrery-workspace", "acme"), "ana").await.send().await;
-    assert_eq!((ana.status.as_u16(), ana.body["focus_prompt"].clone()), (200, serde_json::Value::Null), "ana isn't in Acme, so she gets default's");
+    assert_eq!(ana.status, 404, "ana isn't in Acme, so naming it is a 404, not default's (ORR-1195): {}", ana.body);
 }

@@ -519,3 +519,32 @@ async fn the_local_app_reads_a_projects_and_an_issues_row_as_stored() {
     assert_eq!(door.get(&format!("/api/projects/{other}/row")).send().await.status, 403);
     assert_eq!(door.get(&format!("/api/projects/{other}/issues/{theirs}/row")).send().await.status, 403);
 }
+
+/// A new project goes into the workspace the request acts in (ORR-1195), not `default`; settings named for a workspace
+/// the asker isn't in are a 404, and only someone in none who names none gets `default`'s.
+#[tokio::test]
+async fn a_new_project_goes_into_the_workspace_it_was_made_from() {
+    let api = TestApi::new().await;
+    api.team().await;
+    api.acme(&["bo"]).await;
+    let made = api
+        .signed(
+            api.post("/api/projects", json!({"name": "Telescope"})).header("orrery-workspace", "acme").header("orrery-sent-origin", "http://localhost"),
+            "bo",
+        )
+        .await
+        .send()
+        .await;
+    assert_eq!(made.status, 201, "{}", made.body);
+    assert_eq!(api.count("SELECT count(*) FROM projects WHERE id = 'telescope' AND workspace = 'acme'").await, 1);
+    let ana = api
+        .signed(api.post("/api/projects", json!({"name": "Sneaky"})).header("orrery-workspace", "acme").header("orrery-sent-origin", "http://localhost"), "ana")
+        .await
+        .send()
+        .await;
+    assert_eq!(ana.status, 404, "ana isn't in Acme: {}", ana.body);
+
+    let settings = api.signed(api.get("/api/settings").header("orrery-workspace", "acme"), "ana").await.send().await;
+    assert_eq!(settings.status, 404, "{}", settings.body);
+    assert_eq!(api.signed(api.get("/api/settings"), "ana").await.send().await.status, 200);
+}

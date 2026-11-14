@@ -130,6 +130,8 @@ pub struct Upload<'a> {
     pub name: Option<&'a str>,
     pub holder: &'a str,
     pub body: &'a Value,
+    /// The workspace it comes into (ORR-1195): the one the request acts in.
+    pub workspace: &'a str,
 }
 
 /// Brings the board in, all or nothing, and says what it set off (the new board changed).
@@ -228,7 +230,7 @@ impl Writer<'_> {
     }
 
     async fn write(&mut self, upload: &Upload<'_>, source: &Row, tables: &Map<String, Value>, actor: &Actor) -> Result<()> {
-        let Upload { id, key, name, holder, body } = *upload;
+        let Upload { id, key, name, holder, body, workspace } = *upload;
         if self.exists("SELECT 1 FROM projects WHERE id = ?", &[id]).await? {
             return Err(ApiError::conflict(format!("There is already a project \"{id}\": choose another id")));
         }
@@ -324,6 +326,7 @@ impl Writer<'_> {
             ("release_mode", mode),
             ("next_number", next_number.into()),
             ("next_milestone", next_milestone.into()),
+            ("workspace", Value::String(workspace.into())),
         ] {
             project.insert(column.into(), value);
         }

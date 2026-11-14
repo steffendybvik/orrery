@@ -110,3 +110,17 @@ async fn an_image_that_isnt_one_is_refused() {
     assert_eq!(api.post("/api/boards", body).send().await.status, 201);
     assert_eq!(api.count("SELECT count(*) FROM uploads WHERE id = '0123456789abcdef01234567' AND type = 'image/png'").await, 1);
 }
+
+/// A board comes into the workspace the page was in (ORR-1195), and only one its uploader is in.
+#[tokio::test]
+async fn a_board_comes_into_its_uploaders_workspace() {
+    let api = TestApi::new().await;
+    let (_, file) = primes(&api).await;
+    api.acme(&["steffen"]).await;
+    let reply = api.post("/api/boards", sent(&file, "copy", "CPY")).header("orrery-workspace", "acme").send().await;
+    assert_eq!(reply.status, 201, "{}", reply.body);
+    assert_eq!(api.count("SELECT count(*) FROM projects WHERE id = 'copy' AND workspace = 'acme'").await, 1);
+    sqlx::query("DELETE FROM workspace_members WHERE workspace = 'acme'").execute(&api.app.pool).await.unwrap();
+    let refused = api.post("/api/boards", sent(&file, "other", "OTH")).header("orrery-workspace", "acme").send().await;
+    assert_eq!(refused.status, 404, "steffen isn't in Acme now: {}", refused.body);
+}

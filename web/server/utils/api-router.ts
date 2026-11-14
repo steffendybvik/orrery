@@ -864,7 +864,7 @@ export async function orreryId(): Promise<string> {
  * server with no API set up at all (unit tests, a `nuxt dev` without its build). Once one is set up, it's the only
  * writer: down or unreachable, the write fails (`cantReach`). `noteKeys` off: the caller notes a settings change in the
  * event log itself. */
-export async function writeToApi(method: string, path: string, body: unknown, actor: Actor, {always = false, noteKeys = true, urgent = true, config = configHere()} = {}): Promise<{reply: unknown} | undefined> {
+export async function writeToApi(method: string, path: string, body: unknown, actor: Actor, {always = false, noteKeys = true, urgent = true, config = configHere(), workspace = undefined as string | undefined} = {}): Promise<{reply: unknown} | undefined> {
     if (!always && !servedByApi(method, path)) return undefined
     const asked = `${method} ${path}`
     if (!apiTarget(config)) await apiListening()
@@ -874,7 +874,8 @@ export async function writeToApi(method: string, path: string, body: unknown, ac
     try {
         response = await fetch(`${api.url.replace(/\/+$/, '')}${path}`, {
             method,
-            headers: {'Content-Type': 'application/json', 'Orrery-Api-Token': api.token, 'Orrery-Database': databaseMark(databaseSetting()), ...OWN_WORK, ...actorHeaders(actor), ...causeHeaders()},
+            // `workspace`: the one a page's request named, for what its write makes there (ORR-1195).
+            headers: {'Content-Type': 'application/json', 'Orrery-Api-Token': api.token, 'Orrery-Database': databaseMark(databaseSetting()), ...OWN_WORK, ...actorHeaders(actor), ...causeHeaders(), ...workspaceHeader(workspace)},
             body: body === undefined ? undefined : JSON.stringify(body),
             redirect: 'manual',
         })
