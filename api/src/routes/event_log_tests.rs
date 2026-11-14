@@ -180,3 +180,60 @@ async fn pruning_lets_old_lines_go_and_keeps_the_rest() {
         api.get("/api/events/log").send().await.body.as_array().unwrap().iter().map(|e| e["message"].as_str().unwrap().to_string()).collect();
     assert_eq!(left, ["New info", "Recent error"]);
 }
+
+/// A line is its workspace's (ORR-1107): its project's, or the one the local app names for a line naming none. Each
+/// workspace's log lists and resolves its own lines alone.
+#[tokio::test]
+async fn each_workspace_keeps_its_own_lines() {
+    let api = TestApi::new().await;
+    api.team().await;
+    let rockets = api.acme(&["bo"]).await;
+    let write = |line: Value, workspace: Option<&'static str>| {
+        let api = &api;
+        async move {
+            let req = api.put("/api/events/log/lines", line);
+            let req = match workspace {
+                Some(w) => req.header("orrery-workspace", w),
+                None => req,
+            };
+            let reply = req.send().await;
+            assert_eq!(reply.status, 201, "{}", reply.body);
+            reply.body["event"]["id"].as_i64().unwrap()
+        }
+    };
+    let launched = write(json!({"level": "info", "kind": "session.started", "project": rockets, "message": "Launched"}), None).await;
+    let theirs = write(json!({"level": "warn", "kind": "server.slow", "message": "Slow"}), Some("acme")).await;
+    write(json!({"level": "error", "kind": "server.error", "message": "Boom"}), None).await;
+
+    let as_person = |path: &str, person: &'static str, workspace: Option<&'static str>| {
+        let api = &api;
+        let path = path.to_string();
+        async move {
+            let req = api.get(&path);
+            let req = match workspace {
+                Some(w) => req.header("orrery-workspace", w),
+                None => req,
+            };
+            api.signed(req, person).await.send().await
+        }
+    };
+    let acme = as_person("/api/events/log", "bo", Some("acme")).await;
+    assert_eq!(kinds(&acme.body), ["server.slow", "session.started"], "{}", acme.body);
+    let default = as_person("/api/events/log", "bo", None).await;
+    assert_eq!(kinds(&default.body), ["server.error"], "{}", default.body);
+    assert_eq!(as_person("/api/events/log", "ana", Some("acme")).await.status, 404);
+
+    let resolve = |id: i64, person: &'static str, workspace: Option<&'static str>| {
+        let api = &api;
+        async move {
+            let req = api.post(&format!("/api/events/log/{id}/resolve"), json!({})).header("orrery-sent-origin", "http://localhost");
+            let req = match workspace {
+                Some(w) => req.header("orrery-workspace", w),
+                None => req,
+            };
+            api.signed(req, person).await.send().await.status
+        }
+    };
+    assert_eq!(resolve(theirs, "ana", None).await, 404, "from default, Acme's line isn't there");
+    assert_eq!(resolve(launched, "bo", Some("acme")).await, 200);
+}

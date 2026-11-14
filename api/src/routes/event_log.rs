@@ -40,7 +40,8 @@ async fn list_events(State(app): Shared, headers: HeaderMap, Query(query): Query
         limit: text("limit").map(|l| if l.trim().is_empty() { 0.0 } else { l.trim().parse::<f64>().unwrap_or(f64::NAN) }),
     };
     let mut conn = app.pool.acquire().await?;
-    let mut value = EventLog::new(&mut conn).list(&filter).await?;
+    let workspace = Seen::workspace(&mut conn, &headers).await?;
+    let mut value = EventLog::of(&mut conn, workspace).list(&filter).await?;
     Seen::of(&mut conn, &headers).await?.keep(&mut conn, &mut value, "project").await?;
     Ok(Json(value).into_response())
 }
@@ -59,7 +60,8 @@ async fn write_line(State(app): Shared, headers: HeaderMap, body: Bytes) -> Resu
     local_app_only(&headers)?;
     let actor = actor_of(&headers);
     let mut conn = app.pool.acquire().await?;
-    let mut log = EventLog::new(&mut conn);
+    let workspace = Seen::workspace(&mut conn, &headers).await?;
+    let mut log = EventLog::of(&mut conn, workspace);
     log.outbox = Some(Outbox::new(actor));
     let written = log.write(&body_of(&body)).await?;
     Ok(reply(StatusCode::CREATED, Some(written), log.effects()))
@@ -78,7 +80,8 @@ async fn resolve_event(State(app): Shared, Path(event): Path<String>, headers: H
     let id: i64 = event.parse().map_err(|_| ApiError::not_found(format!("No event {event}")))?;
     let actor = actor_of(&headers);
     let mut conn = app.pool.acquire().await?;
-    let mut log = EventLog::new(&mut conn);
+    let workspace = Seen::workspace(&mut conn, &headers).await?;
+    let mut log = EventLog::of(&mut conn, workspace);
     log.outbox = Some(Outbox::new(actor.clone()));
     let resolved = log.resolve(id, &actor).await?;
     Ok(reply(StatusCode::OK, Some(resolved), log.effects()))

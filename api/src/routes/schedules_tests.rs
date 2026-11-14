@@ -773,3 +773,35 @@ async fn a_schedule_switched_off_drops_what_it_held() {
     assert_eq!(api.delete(&format!("/api/schedules/{id}/held")).send().await.status, 204);
     assert_eq!(api.count("SELECT COUNT(*) FROM schedule_held").await, 0);
 }
+
+/// A schedule across projects is its workspace's (ORR-1107): one for every project is made on every project of that
+/// workspace alone, it's listed there only, and another workspace's is a 404.
+#[tokio::test]
+async fn a_schedule_across_projects_keeps_to_its_workspace() {
+    let api = TestApi::new().await;
+    api.team().await;
+    let primes = api.project("Primes").await;
+    let rockets = api.acme(&["steffen"]).await;
+    let in_acme = |req: crate::testing::Req| req.header("orrery-workspace", "acme");
+    let made = api.post("/api/schedules", json!({"projects": "*", "title": "Tidy", "cron": "0 9 * * 1"})).send().await;
+    assert_eq!(made.status, 201, "{}", made.body);
+    let theirs = in_acme(api.post("/api/schedules", json!({"projects": "*", "title": "Launch check", "cron": "0 9 * * 1"}))).send().await;
+    assert_eq!(theirs.status, 201, "{}", theirs.body);
+    let on = |project: &str| {
+        let api = &api;
+        let project = project.to_string();
+        async move {
+            let list = api.get(&format!("/api/projects/{project}/schedules")).send().await.body;
+            list.as_array().unwrap().iter().map(|s| s["title"].as_str().unwrap().to_string()).collect::<Vec<_>>()
+        }
+    };
+    assert_eq!(on(&primes).await, ["Tidy"]);
+    assert_eq!(on(&rockets).await, ["Launch check"]);
+    let titles = |list: &serde_json::Value| list.as_array().unwrap().iter().map(|s| s["title"].as_str().unwrap().to_string()).collect::<Vec<_>>();
+    assert_eq!(titles(&api.get("/api/schedules/across").send().await.body), ["Tidy"]);
+    assert_eq!(titles(&in_acme(api.get("/api/schedules/across")).send().await.body), ["Launch check"]);
+    let id = theirs.body["id"].as_i64().unwrap();
+    assert_eq!(api.delete(&format!("/api/schedules/across/{id}")).send().await.status, 404, "from default, Acme's isn't there");
+    let named = api.post("/api/schedules", json!({"projects": [rockets], "title": "Stray", "cron": "0 9 * * 1"})).send().await;
+    assert_eq!(named.status, 404, "a project in another workspace isn't one to name: {}", named.body);
+}
