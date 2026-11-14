@@ -68,11 +68,58 @@ describe("a pull request's news on its issue", () => {
         await store.createIssue('shop', {title: 'Refunds', status: 'in-progress'}, me)
         signals = []
         events = []
-        await commentOnPull(store, {...change('conflicting'), issue: 'SHO-2'})
+        await commentOnPull(store, {...change('behind'), issue: 'SHO-2'})
         expect((await store.listComments('shop', 'SHO-2')).map(c => c.created_by)).toEqual(['orrery'])
-        expect(events.map(e => e.type)).toEqual(['comment.added', 'pr.conflicting'])
+        expect(events.map(e => e.type)).toEqual(['comment.added', 'pr.behind'])
         expect(signals).toEqual([])
         expect(await store.pooledWaiting('shop')).toEqual([])
+    })
+
+    describe('that needs work, with no session on the issue (ORR-1184)', () => {
+        beforeEach(async () => {
+            await store.createIssue('shop', {title: 'Refunds', status: 'in-progress'}, me)
+            signals = []
+            events = []
+        })
+
+        it('becomes one focus from orrery for the next session, the comment itself still pooled never', async () => {
+            await commentOnPull(store, {...change('conflicting'), issue: 'SHO-2'})
+            expect(events.map(e => e.type)).toEqual(['comment.added', 'pr.conflicting'])
+            expect(signals).toHaveLength(1)
+            expect(signals[0]).toMatchObject({kind: 'focus', issue: 'SHO-2', created_by: 'orrery', protected: true})
+            expect(signals[0]!.target).toBeFalsy()
+            expect(signals[0]!.note).toMatch(/^\[#12\]\(https:\/\/github\.com\/you\/shop\/pull\/12\) conflicts with/)
+            expect(signals[0]!.note).toContain('gh pr view 12 -R you/shop')
+            expect(signals[0]!.note).not.toMatch(/Ignore|rm-rf/)
+            expect((await store.pooledWaiting('shop')).map(s => s.kind)).toEqual(['focus'])
+        })
+
+        it('for failing checks and changes asked for too, but not a PR only behind', async () => {
+            await commentOnPull(store, {...change('checks_failed'), issue: 'SHO-2'})
+            await commentOnPull(store, {...change('changes_requested', {}, {review: {by: 'someone', body: 'x', comments: []}}), issue: 'SHO-2'})
+            await commentOnPull(store, {...change('behind'), issue: 'SHO-2'})
+            expect(signals.map(s => s.kind)).toEqual(['focus', 'focus'])
+        })
+
+        it('is dropped once the PR merges or closes before a session takes it', async () => {
+            await commentOnPull(store, {...change('conflicting'), issue: 'SHO-2'})
+            await commentOnPull(store, {...change('closed'), issue: 'SHO-2'})
+            expect(await store.pooledWaiting('shop')).toEqual([])
+            const [focus] = await store.listSignals('shop', 0)
+            expect(focus).toMatchObject({kind: 'focus', delivered_to: ['orrery']})
+        })
+
+        it('waits for nobody on a closed issue', async () => {
+            await store.updateIssue('shop', 'SHO-2', {status: 'done'}, me)
+            signals = []
+            await commentOnPull(store, {...change('conflicting'), issue: 'SHO-2'})
+            expect(signals).toEqual([])
+        })
+
+        it('is no focus when a session is on the issue: it heard the comment', async () => {
+            await commentOnPull(store, change('conflicting'))
+            expect(signals.map(s => s.kind)).toEqual(['comment'])
+        })
     })
 
     it('comments on a closed issue but wakes no session for it', async () => {

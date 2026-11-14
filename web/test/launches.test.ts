@@ -209,6 +209,12 @@ describe('starting a session', () => {
         expect(sent).toEqual([])
     })
 
+    it("isn't for orrery's own focus on a PR that needs work, which waits for the next session (ORR-1184)", async () => {
+        launches.addLauncher('greenhouse')
+        expect(await launches.considerLaunch(signal(1, {created_by: 'orrery'}))).toBeNull()
+        expect(sent).toEqual([])
+    })
+
     it('starts one session for signals that come together', async () => {
         launches.addLauncher('greenhouse')
         const both = await Promise.all([launches.considerLaunch(signal(1)), launches.considerLaunch(signal(2))])

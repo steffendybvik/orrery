@@ -184,6 +184,18 @@ describe("a project's feed", () => {
         expect(sent).toEqual([3, 4])
     })
 
+    it("takes orrery's focus on a PR that needs work as it goes idle, its session gone (ORR-1184)", async () => {
+        waiting = [
+            signal(1, {kind: 'comment', issue: 'GRE-2', created_by: 'orrery', note: 'old news'}),
+            signal(2, {kind: 'focus', issue: 'GRE-2', created_by: 'orrery', note: 'needs work'}),
+        ]
+        const feed = await open()
+        const sent: number[] = []
+        feed.onIdle(s => sent.push(s.id))
+        events.emit('session-idle', 's-1')
+        await vi.waitFor(() => expect(sent).toEqual([2]))
+    })
+
     it('tells a signal with the addresses for its project and who it is, and works through signals one after another', async () => {
         const feed = await open(who({session: 's-old'}))
         expect(await feed.told(signal(1))).toEqual({id: 1, api: 'http://localhost:9000/api/projects/greenhouse', me: 's-1'})
