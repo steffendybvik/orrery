@@ -260,17 +260,31 @@ fn project_named(path: &str) -> Option<String> {
 }
 
 /// A read or write of a project in a workspace the asker isn't a member of, answered as if the project weren't here
-/// (ORR-1106, decision 6 of decision-workspaces; who sees what is `Seen::asking`). The Nuxt server's own work
-/// (`Orrery-Came: server`) isn't a request, so nothing holds it here.
-async fn workspace_check(conn: &mut AnyConnection, who: Option<&Who>, actor: &Actor, own: Option<&str>, path: &str) -> Result<()> {
+/// (ORR-1106, decision 6 of decision-workspaces; who sees what is `Seen::asking`). A session works in one workspace,
+/// the one its calls name (`held_to`, ORR-1109): one it can see in another is refused, saying which it's in. The Nuxt
+/// server's own work (`Orrery-Came: server`) isn't a request, so nothing holds it here.
+async fn workspace_check(conn: &mut AnyConnection, who: Option<&Who>, actor: &Actor, own: Option<&str>, held_to: Option<&str>, path: &str) -> Result<()> {
     let Some(project) = project_named(path) else { return Ok(()) };
     let row = sqlx::query(&sql("SELECT workspace FROM projects WHERE id = ?")).bind(&project).fetch_optional(&mut *conn).await?;
     // A project that isn't here is the route's to say so.
     let Some(workspace) = row.map(|r| r.get::<String, _>("workspace")) else { return Ok(()) };
-    if Seen::asking(conn, who, actor, own).await?.sees_in(&workspace, &project) {
-        return Ok(());
+    if !Seen::asking(conn, who, actor, own).await?.sees_in(&workspace, &project) {
+        return Err(ApiError::not_found(format!("No project {project}")));
     }
-    Err(ApiError::not_found(format!("No project {project}")))
+    match held_to {
+        Some(held_to) if held_to != workspace => {
+            Err(ApiError::forbidden(format!("This session works in workspace {held_to}, and {project} is in {workspace}: start a session there to work on it")))
+        }
+        _ => Ok(()),
+    }
+}
+
+/// The workspace a session's calls say it works in (`Orrery-Workspace`, ORR-1109): only a session's, as the router says
+/// it (`Orrery-Actor-Session`) or `/mcp` hears it (`Orrery-Session`). A page names one too, from its address, but isn't
+/// held to it.
+fn session_workspace(headers: &axum::http::HeaderMap, actor: &Actor) -> Option<String> {
+    let session = actor.session.is_some() || crate::request::header(headers, "orrery-session").is_some_and(|s| !s.is_empty());
+    session.then(|| crate::request::header(headers, "orrery-workspace")).flatten().map(|w| w.trim().to_string()).filter(|w| !w.is_empty())
 }
 
 /// Holds each request to its project's workspace, and each write to its rails, before its route runs; a route this API
@@ -284,11 +298,12 @@ pub(crate) async fn rails(State(app): Shared, request: Request, next: Next) -> R
     let (actor, who) = (actor_of(request.headers()), who_of(request.headers()));
     let own = crate::request::header(request.headers(), "orrery-untrusted-project").filter(|p| !p.is_empty());
     let server = crate::request::came_of(request.headers()).server;
+    let held_to = session_workspace(request.headers(), &actor);
     let read = [Method::GET, Method::HEAD, Method::OPTIONS].contains(&method);
     let held = async {
         let mut conn = app.pool.acquire().await?;
         if !server && method != Method::OPTIONS {
-            workspace_check(&mut conn, who.as_ref(), &actor, own.as_deref(), &path).await?;
+            workspace_check(&mut conn, who.as_ref(), &actor, own.as_deref(), held_to.as_deref(), &path).await?;
         }
         if read {
             return Ok(());
