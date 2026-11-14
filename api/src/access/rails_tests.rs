@@ -254,3 +254,39 @@ async fn an_untrusted_session_reaches_the_project_it_was_started_for() {
     let elsewhere = from_outside(api.get(&format!("/api/projects/{rockets}/issues")).untrusted()).send().await;
     assert_eq!(elsewhere.status, 404, "{}", elsewhere.body);
 }
+
+// A session works in one workspace, the one its calls name (ORR-1109): a project it can see in another is refused,
+// saying which it's in, and one it can't see is still a 404. A page naming one isn't held to it.
+
+#[tokio::test]
+async fn a_session_is_held_to_the_workspace_it_names() {
+    let api = TestApi::new().await;
+    api.team().await;
+    let primes = api.project("Primes").await;
+    let rockets = api.acme(&["bo"]).await;
+    let session =
+        |path: String, workspace: &str| from_outside(api.get(&path).agent_of("bo")).header("orrery-actor-session", "s-1").header("orrery-workspace", workspace);
+    let there = session(format!("/api/projects/{rockets}/issues"), "acme").send().await;
+    assert_eq!(there.status, 200, "{}", there.body);
+    let elsewhere = session(format!("/api/projects/{primes}/issues"), "acme").send().await;
+    assert_eq!(elsewhere.status, 403, "{}", elsewhere.body);
+    assert!(elsewhere.body.to_string().contains("works in workspace acme"), "{}", elsewhere.body);
+    let wrote = from_outside(api.post(&format!("/api/projects/{primes}/issues"), json!({"title": "Fuel"})).agent_of("bo"))
+        .header("orrery-session", "s-1")
+        .header("orrery-workspace", "acme")
+        .send()
+        .await;
+    assert_eq!(wrote.status, 403, "{}", wrote.body);
+    // Named nothing, or not a session, it isn't held.
+    let unnamed = from_outside(api.get(&format!("/api/projects/{primes}/issues")).agent_of("bo")).header("orrery-actor-session", "s-1").send().await;
+    assert_eq!(unnamed.status, 200, "{}", unnamed.body);
+    let page = from_outside(api.get(&format!("/api/projects/{primes}/issues")).agent_of("bo")).header("orrery-workspace", "acme").send().await;
+    assert_eq!(page.status, 200, "{}", page.body);
+    // One it can't see stays a 404, whatever it names.
+    let unseen = from_outside(api.get(&format!("/api/projects/{rockets}/issues")).agent_of("ana"))
+        .header("orrery-actor-session", "s-2")
+        .header("orrery-workspace", "default")
+        .send()
+        .await;
+    assert_eq!(unseen.status, 404, "{}", unseen.body);
+}
