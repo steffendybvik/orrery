@@ -1592,6 +1592,36 @@ paths:
         '200': {description: 'The id', content: {application/json: {schema: {type: object, required: [id], properties: {id: {type: string}}}}}}
         '403': {$ref: '#/components/responses/Forbidden'}
         '404': {$ref: '#/components/responses/NotFound'}
+  /api/projects/{project}/milestones/{milestone}/row:
+    parameters:
+      - {$ref: '#/components/parameters/project'}
+      - {name: milestone, in: path, required: true, schema: {type: string}}
+    get:
+      x-served: false
+      summary: 'The milestone''s row as it''s stored, by its id alone (ORR-1174)'
+      description: >-
+        Only the Nuxt server's own call (`Orrery-Came: server`), for its store's `milestoneRow`: each column by its
+        name, as `SELECT *` gives it. No alias is followed.
+      responses:
+        '200': {description: 'The row', content: {application/json: {schema: {type: object}}}}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/projects/{project}/releases/{release}/row:
+    parameters:
+      - {$ref: '#/components/parameters/project'}
+      - {name: release, in: path, required: true, schema: {type: string}}
+    get:
+      x-served: false
+      summary: 'The release''s row as it''s stored, in the project''s source (ORR-1174)'
+      description: >-
+        Only the Nuxt server's own call (`Orrery-Came: server`), for its store's `releaseRow`: the release in the
+        project's source when it takes its releases from another, each column as `SELECT *` gives it. A 400 when the
+        project has no releases.
+      responses:
+        '200': {description: 'The row', content: {application/json: {schema: {type: object}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
   /api/projects/{project}/release-peers:
     parameters:
       - {$ref: '#/components/parameters/project'}

@@ -259,6 +259,8 @@ export abstract class StoreBase {
     }
 
     protected async milestoneRow(project: string, id: string): Promise<MilestoneRow> {
+        const read = await this.fromApi<MilestoneRow>(`/api/projects/${encodeURIComponent(project)}/milestones/${encodeURIComponent(id)}/row`)
+        if (read) return read
         await this.projectRow(project)
         const row = await this.get<MilestoneRow>('SELECT * FROM milestones WHERE project = ? AND id = ?', project, id)
         if (!row) throw notFound(`No milestone "${id}" in ${project}`)
@@ -293,6 +295,9 @@ export abstract class StoreBase {
 
     /** The release by its version, in the project's source when it takes its releases from another. */
     protected async releaseRow(project: string, version: string): Promise<ReleaseRow> {
+        // From the API when it's set up (ORR-1174), which looks in the source alike and says the same when it isn't there.
+        const read = await this.fromApi<ReleaseRow>(`/api/projects/${encodeURIComponent(project)}/releases/${encodeURIComponent(version)}/row`)
+        if (read) return read
         const source = await this.releaseSource(project)
         if (!source) throw badRequest(noReleases(project))
         const row = await this.get<ReleaseRow>('SELECT * FROM releases WHERE project = ? AND version = ?', source, version)

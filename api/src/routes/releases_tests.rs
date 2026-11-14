@@ -277,3 +277,27 @@ async fn counting_from_the_outline_matches_the_whole_board() {
     let from_whole = whole["releases"].as_array().unwrap().iter().find(|r| r["version"] == "1.0").unwrap();
     assert_eq!((&one["issues"], &one["kinds"]), (&from_whole["issues"], &from_whole["kinds"]));
 }
+
+/// A release's row as it's stored, in the project's source, for the local app's store (`releaseRow`, ORR-1174): a 400
+/// with no releases, a 404 for one there isn't, saying where it looked, and only the local app asks.
+#[tokio::test]
+async fn the_local_app_reads_a_releases_row_in_its_source() {
+    let api = TestApi::new().await;
+    let source = shipping(&api, "Primes", None).await;
+    let drawing = shipping(&api, "Sieve", Some(&source)).await;
+    release(&api, &source, json!({"version": "1.0.0"})).await;
+    for project in [&source, &drawing] {
+        let row = api.get(&format!("/api/projects/{project}/releases/1.0.0/row")).send().await;
+        assert_eq!(row.status, 200, "{}", row.body);
+        assert_eq!((row.body["project"].as_str(), row.body["version"].as_str()), (Some(source.as_str()), Some("1.0.0")));
+    }
+    let gone = api.get(&format!("/api/projects/{drawing}/releases/9.9.9/row")).send().await;
+    assert_eq!(gone.status, 404);
+    assert!(gone.body["message"].as_str().unwrap().contains(&format!("(where {drawing} takes its releases from)")), "{}", gone.body);
+    let none = api.project("Plain").await;
+    assert_eq!(api.get(&format!("/api/projects/{none}/releases/1.0.0/row")).send().await.status, 400);
+    assert_eq!(api.get("/api/projects/nowhere/releases/1.0.0/row").send().await.status, 404);
+    let door = TestApi::at_the_door().await;
+    let theirs = shipping(&door, "Primes", None).await;
+    assert_eq!(door.get(&format!("/api/projects/{theirs}/releases/1.0.0/row")).send().await.status, 403);
+}
