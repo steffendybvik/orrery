@@ -141,3 +141,25 @@ async fn an_agent_deletes_its_own_milestones_but_not_the_owner_s() {
     assert_eq!(api.delete(&format!("{path}/2")).by_agent("claude").send().await.status, 204);
     assert_eq!(api.get(&format!("{path}/1")).send().await.status, 200);
 }
+
+/// A milestone's id from its number as shown, a name it had before or the full form, as the local app's store resolves
+/// it (`milestoneId`, ORR-1174): the one sent back when nothing matches, and only the local app asks.
+#[tokio::test]
+async fn the_local_app_resolves_a_milestones_id_from_how_its_shown_or_an_alias() {
+    let api = TestApi::new().await;
+    let project = api.project("Primes").await;
+    let made = milestone(&api, &project, json!({"title": "Sieve"})).await;
+    let number = made["id"].as_str().unwrap().to_string();
+    api.run("INSERT INTO milestone_aliases (project, alias, milestone) VALUES (?, 'sieve-old', ?)", &[&project, &number]).await;
+    let uid = api.get(&format!("/api/projects/{project}/row")).send().await.body["uid"].as_str().unwrap().to_string();
+    let id = |sent: &str| format!("/api/projects/{project}/milestones/{sent}/id");
+    for sent in [number.clone(), format!("MLS-{number}"), "sieve-old".into(), format!("MLS-{number}-{uid}")] {
+        let reply = api.get(&id(&sent)).send().await;
+        assert_eq!((reply.status.as_u16(), &reply.body), (200, &json!({"id": number})), "{sent}");
+    }
+    assert_eq!(api.get(&id("99")).send().await.body, json!({"id": "99"}));
+    assert_eq!(api.get("/api/projects/nowhere/milestones/1/id").send().await.status, 404);
+    let door = TestApi::at_the_door().await;
+    let theirs = door.project("Primes").await;
+    assert_eq!(door.get(&format!("/api/projects/{theirs}/milestones/1/id")).send().await.status, 403);
+}

@@ -206,6 +206,9 @@ export abstract class StoreBase {
 
     /** The issue's id, from its id, an id it had before (an alias), or the full form of either on this board. */
     protected async issueId(project: string, id: string): Promise<string> {
+        // From the API when it's set up (ORR-1174), which resolves it alike.
+        const read = await this.fromApi<{id: string}>(`/api/projects/${encodeURIComponent(project)}/issues/${encodeURIComponent(id)}/id`)
+        if (read) return read.id
         if (await this.get('SELECT 1 FROM issues WHERE project = ? AND id = ?', project, id)) return id
         const alias = (await this.get<{issue: string}>('SELECT issue FROM issue_aliases WHERE project = ? AND alias = ?', project, id))?.issue
         if (alias) return alias
@@ -215,6 +218,8 @@ export abstract class StoreBase {
 
     /** The milestone's id, from its number, a name it had before (an alias), or the full form of either on this board. */
     protected async milestoneId(project: string, id: string): Promise<string> {
+        const read = await this.fromApi<{id: string}>(`/api/projects/${encodeURIComponent(project)}/milestones/${encodeURIComponent(id)}/id`)
+        if (read) return read.id
         if (await this.get('SELECT 1 FROM milestones WHERE project = ? AND id = ?', project, id)) return id
         const alias = (await this.get<{milestone: string}>('SELECT milestone FROM milestone_aliases WHERE project = ? AND alias = ?', project, id))?.milestone
         if (alias) return alias

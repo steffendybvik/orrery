@@ -27,6 +27,7 @@ pub(crate) fn routes() -> Router<Arc<App>> {
         .route(&format!("{P}/issues"), get(list_issues).post(create_issue).patch(update_issues).delete(delete_issues))
         .route(&format!("{P}/issues/{{issue}}"), get(get_issue).patch(patch_issue).delete(delete_issue))
         .route(&format!("{P}/issues/{{issue}}/row"), get(issue_row))
+        .route(&format!("{P}/issues/{{issue}}/id"), get(issue_id))
         .route(&format!("{P}/issues/{{issue}}/claim"), post(claim_issue).delete(release_issue))
         .route(&format!("{P}/issues/{{issue}}/decide"), post(decide_issue))
         .route(&format!("{P}/issues/decide"), post(decide_issues))
@@ -533,4 +534,15 @@ async fn issue_row(State(app): Shared, Path((project, issue)): Path<(String, Str
         .await?
         .ok_or_else(|| ApiError::not_found(format!("No issue {issue} in {project}")))?;
     Ok(Json(crate::db::row_json(&row)).into_response())
+}
+
+/// `GET …/issues/:issue/id` → `{id}`: the issue's id from its id, one it had before (an alias), or the full form of
+/// either, for the local app's store (`issueId`, ORR-1174). The id sent comes back when nothing matches, as the store
+/// leaves it to the read after to say there's no such issue; a 404 for a project there isn't.
+async fn issue_id(State(app): Shared, Path((project, issue)): Path<(String, String)>, headers: HeaderMap) -> Result<Response> {
+    if !came_of(&headers).server {
+        return Err(ApiError::forbidden("Only the local app resolves an issue's id"));
+    }
+    let mut conn = app.pool.acquire().await?;
+    Ok(Json(json!({"id": Issues::new(&mut conn).resolve(&project, &issue, false).await?})).into_response())
 }
