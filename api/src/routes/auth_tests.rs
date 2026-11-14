@@ -452,3 +452,27 @@ async fn the_local_app_asks_whether_the_owner_has_a_key_and_whether_login_stays_
     sqlx::query(&crate::db::sql("UPDATE people SET removed_at = ? WHERE id = 'ada'")).bind(stamp()).execute(&api.app.pool).await.unwrap();
     assert_eq!(ways().await["stays_on"], true, "it stays on after they go");
 }
+
+/// The Nuxt server finishes an OIDC sign-in itself and asks the API who the account is (ORR-1180), so sign-up answers
+/// as on the API's own callback: someone new the provider vouched for gets a person and a workspace of their own.
+#[tokio::test]
+async fn the_local_app_asks_who_a_sign_in_is_and_someone_new_signs_up() {
+    let api = TestApi::new().await;
+    api.owner().await;
+    let ask = |body: Value| api.post("/api/auth/identity", body).header("orrery-came", "server");
+    // Only the local app asks: a page or a session gets a 403, and makes nobody.
+    let page = api
+        .post("/api/auth/identity", json!({"issuer": "https://id.example", "subject": "sub-ada", "name": "Ada"}))
+        .header("orrery-came", "loopback")
+        .send()
+        .await;
+    assert_eq!(page.status, 403, "{}", page.body);
+    assert_eq!(ask(json!({"issuer": "https://id.example"})).send().await.status, 400);
+    let ada = ask(json!({"issuer": "https://id.example", "subject": "sub-ada", "name": "Ada Lovelace"})).send().await;
+    assert_eq!(ada.status, 200, "{}", ada.body);
+    assert_eq!(ada.body, json!({"person": "ada_lovelace"}));
+    let theirs = api.count("SELECT COUNT(*) FROM workspace_members WHERE person = 'ada_lovelace' AND role = 'owner'").await;
+    assert_eq!(theirs, 1, "a workspace of their own");
+    // The same account again is the same person.
+    assert_eq!(ask(json!({"issuer": "https://id.example", "subject": "sub-ada"})).send().await.body, json!({"person": "ada_lovelace"}));
+}
