@@ -189,37 +189,6 @@ async fn a_database_from_a_newer_orrery_is_refused_and_left_as_it_was() {
     let Err(refused) = migrate(&path, None).await else { panic!("it should be refused") };
     assert!(refused.contains("written by a newer orrery") && refused.contains(&format!("schema step {newer}")), "{refused}");
     assert_eq!(std::fs::read(&path).unwrap(), before, "not a byte changed");
-    assert!(!copy_path(&path, newer).exists(), "and no copy taken, as nothing was upgraded");
-}
-
-#[tokio::test]
-async fn an_upgrade_keeps_a_sound_copy_as_it_was_first_and_one_at_the_latest_takes_none() {
-    let (path, conn) = sqlite_at(88).await;
-    conn.close().await.unwrap();
-    migrate(&path, None).await.unwrap();
-    let copy = copy_path(&path, 88);
-    assert!(copy.exists(), "a copy at {}", copy.display());
-    assert!(!std::path::PathBuf::from(format!("{}.partial", copy.display())).exists(), "and nothing half-written left");
-    assert_eq!(step_of(&copy.to_string_lossy()).await, 88, "the copy is the database before its steps");
-    assert_eq!(step_of(&path).await, latest(Dialect::Sqlite) as i64);
-    // At the latest step already, nothing runs and nothing is copied.
-    migrate(&path, None).await.unwrap();
-    assert!(!copy_path(&path, latest(Dialect::Sqlite)).exists());
-}
-
-#[test]
-fn the_copy_goes_in_the_backup_folder_or_beside_the_file_named_for_the_version_and_step() {
-    let path = "/data/orrery.db";
-    assert_eq!(copy_path_with(path, 7, None, None), std::path::PathBuf::from("/data/orrery-pre-upgrade-step7.db"));
-    assert_eq!(
-        copy_path_with(path, 7, Some(String::new()), Some(String::new())),
-        std::path::PathBuf::from("/data/orrery-pre-upgrade-step7.db"),
-        "empty is unset"
-    );
-    assert_eq!(
-        copy_path_with(path, 88, Some("/backups".into()), Some("1.0.0-rc.19".into())),
-        std::path::PathBuf::from("/backups/orrery-pre-1.0.0-rc.19-step88.db")
-    );
 }
 
 #[tokio::test]

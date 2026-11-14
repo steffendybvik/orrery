@@ -47,9 +47,8 @@ It's this machine's only. The container has its own `node_modules` and `.nuxt` (
 packages as it starts.
 
 The Rust API runs inside each image (ORR-1041): the dev image builds it from the checkout, the prod image from its
-build context, and each sets `NUXT_API_BIN`, so the server starts it beside itself on the same database and starts it
-again on a new one after a move or a restore. One container, and one compose file, whatever the orrery. `play` builds
-the image each start, so a change in `api/` is in it.
+build context, and each sets `NUXT_API_BIN`, so the server starts it beside itself on the same database. One container, and
+one compose file, whatever the orrery. `play` builds the image each start, so a change in `api/` is in it.
 
 Without Docker: `pnpm install` and `cargo build` in `api/`, then `pnpm dev` on http://localhost:9000 (Node 24.22.1, pnpm
 10.14.0, Rust 1.88 or later). Without the API's build most routes answer 503 ([The Rust API](#the-rust-api)).
@@ -257,7 +256,7 @@ milliseconds, and a page over its budget fails the run. `web/perf-report/report.
 step's time, the API calls behind it and their sizes, and the slowest routes. CI runs it on both databases with the
 e2e flows and keeps the report as an artifact. `PERF_NO_BUILD=1` reuses the last build when you're trying it again.
 
-`pnpm soak`, after `pnpm build`, runs the built app on a fresh `web/.data/soak.db` and works it faster than real use: sessions listening, their streams and the page's live feed dropping and coming back, hooks, comments, edits and a backup every five minutes. `web/soak-report/` keeps its memory, open files and the project list's time every 15 seconds, and `summary.json` the totals. It fails on a request that errors or when open files keep growing, and memory is for reading. `SOAK_MINUTES` (30), `SOAK_SESSIONS` (8) and `SOAK_PORT` (3360) change it. A short run catches a fast leak, and says nothing of what only shows after days.
+`pnpm soak`, after `pnpm build`, runs the built app on a fresh `web/.data/soak.db` and works it faster than real use: sessions listening, their streams and the page's live feed dropping and coming back, hooks, comments and edits. `web/soak-report/` keeps its memory, open files and the project list's time every 15 seconds, and `summary.json` the totals. It fails on a request that errors or when open files keep growing, and memory is for reading. `SOAK_MINUTES` (30), `SOAK_SESSIONS` (8) and `SOAK_PORT` (3360) change it. A short run catches a fast leak, and says nothing of what only shows after days.
 
 The database's migrations are the Rust API's numbered steps (see [Migrations in Rust](#migrations-in-rust)): a SQL file
 each in `api/migrations/sqlite` and in `api/migrations/postgres`, after Postgres's baseline. Add a step to both, never
@@ -272,12 +271,12 @@ The Rust API owns the migrations (ORR-931): each SQL step as a numbered file in 
 `api/migrations/postgres` (Postgres's baseline as `023-baseline.sql`), listed in `api/src/steps.rs`, and the Node app's
 old code steps written again in `api/src/migrate.rs`. `orrery-api migrate` brings `NUXT_DATABASE` up to the newest step, counted
 as the Node app counts them, so a database either one migrated carries on with the other. The Nuxt server runs it
-before it opens a database (`server/utils/api-migrate.ts`), so the steps that run are these: on start, on a database
-moved to from App settings, on SQLite and Postgres. It passes `ORRERY_API_STEPS`, its own newest step, and a build whose
+before it opens a database (`server/utils/api-migrate.ts`), so the steps that run are these: on start, on SQLite and
+Postgres. It passes `ORRERY_API_STEPS`, its own newest step, and a build whose
 steps end elsewhere (a stale `cargo build`) exits 3 having done nothing; the Nuxt server then says so and runs its own
 steps, as it does with no binary at all (the unit tests, `nuxt dev` before `cargo build`). It prints `{"from":n,"to":m}`,
-which the event log's `migration.ran` takes. Like Node, it copies a SQLite file before upgrading it, and won't upgrade
-without the copy: `orrery-pre-<ORRERY_VERSION>-step<n>.db` in `ORRERY_API_BACKUP_DIR`, or beside the file. An owner
+which the event log's `migration.ran` takes. It takes no copy before upgrading: backing the database up first is
+whoever runs orrery's to do (ORR-1187). An owner
 setting that isn't JSON stops the step that moves the owner to `people`. It leaves a database from before step 4 (when
 issues were renumbered per board) to the Node app.
 

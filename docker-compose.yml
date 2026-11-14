@@ -1,11 +1,7 @@
 # orrery, the built app, on http://localhost:9000 (or ORRERY_PORT): `docker compose up -d --build`.
 #
 # The database is made on the first start, in the orrery-data volume, so it outlasts the container.
-# A copy goes to /backup a few seconds after each change, plus one a day for two weeks, and a new
-# volume starts from that copy: the orrery-backup volume, or a folder of yours with ORRERY_BACKUP
-# (one that syncs off the machine is best; the live file stays out of it, a synced SQLite file gets
-# corrupted). Or ORRERY_BACKUP_DATABASE, a postgres:// URL, backs up into that Postgres database instead: an empty
-# one, or this orrery's backup from before.
+# orrery takes no backups: backing the database up is up to whoever runs it (see docs/running.md).
 #
 # The first time it's opened, it asks your name, and keeps it in the database: what you make, no one
 # else can delete. Your `Orrery-Actor` header is it in lowercase snake case (`skoll_fenrisson`).
@@ -24,8 +20,8 @@
 # and ORRERY_ALLOWED_HOSTS names any host name it's reached by besides localhost and an IP (see SECURITY.md).
 #
 # Secrets, keys agents use to call outside services without seeing them, are encrypted with a key orrery makes on its
-# first start and keeps in /data/orrery.key, out of the backups. Or set your own: ORRERY_SECRET_KEY (a long random
-# string: openssl rand -base64 32), and keep it out of the backups too.
+# first start and keeps in /data/orrery.key. Or set your own: ORRERY_SECRET_KEY (a long random string: openssl rand
+# -base64 32). Keep the key apart from any copy you take of the database.
 #
 # orrery asks GitHub for its own releases at start and every 12 hours, to say in the sidebar when a newer one is out;
 # ORRERY_UPDATE_CHECK=false turns that off.
@@ -34,8 +30,7 @@
 # data in the orrery-pg volume), and ORRERY_DATABASE points orrery at it; put both in .env to keep them:
 #   COMPOSE_PROFILES=postgres
 #   ORRERY_DATABASE=postgres://orrery:orrery@postgres:5432/orrery
-# Or set ORRERY_DATABASE to a Postgres of your own. orrery backs Postgres up as a SQLite snapshot too; for a
-# large one, or to restore into Postgres as it was, use its own means as well (pg_dump, a managed service's backups).
+# Or set ORRERY_DATABASE to a Postgres of your own.
 #
 # ORRERY_BUILD_CONTEXT is what the image is built from: this folder by default, or a ref on GitHub, so a
 # branch switched here never ends up in it: ORRERY_BUILD_CONTEXT=https://github.com/steffendybvik/orrery.git#main
@@ -57,13 +52,8 @@ services:
       NUXT_PUBLIC_ENVIRONMENT: ${ORRERY_ENVIRONMENT:-personal}
       NUXT_PUBLIC_REPO_DIR: ${PWD}
       NUXT_DATABASE: ${ORRERY_DATABASE:-/data/orrery.db}
-      NUXT_BACKUP_DIR: /backup
-      NUXT_BACKUP_DATABASE: ${ORRERY_BACKUP_DATABASE:-}
-      # What /data and /backup are on this computer, the same as the volumes below, for App settings to show.
+      # What /data is on this computer, the same as the volume below.
       NUXT_DATA_HOST: ${ORRERY_DATA:-orrery-data}
-      NUXT_BACKUP_HOST: ${ORRERY_BACKUP:-orrery-backup}
-      # Set when ORRERY_BACKUP names a folder: without one, App settings says the backups stay on this computer.
-      NUXT_BACKUP_CHOSEN: ${ORRERY_BACKUP:+yes}
       NUXT_ALLOWED_HOSTS: ${ORRERY_ALLOWED_HOSTS:-}
       NUXT_ALLOWED_ORIGINS: ${ORRERY_ALLOWED_ORIGINS:-}
       NUXT_PAGES: ${ORRERY_PAGES:-}
@@ -81,7 +71,6 @@ services:
       NUXT_UPDATE_CHECK: ${ORRERY_UPDATE_CHECK:-true}
     volumes:
       - ${ORRERY_DATA:-orrery-data}:/data
-      - ${ORRERY_BACKUP:-orrery-backup}:/backup
     depends_on:
       postgres: {condition: service_healthy, required: false}
     restart: unless-stopped
@@ -104,5 +93,4 @@ services:
 
 volumes:
   orrery-data:
-  orrery-backup:
   orrery-pg:

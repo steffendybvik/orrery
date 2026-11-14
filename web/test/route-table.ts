@@ -26,8 +26,7 @@ const SESSIONS: Line = {stays: "the sessions, the launcher and their signals are
 const MACHINE: Line = {stays: "the machine's: its files, the event log, its own use, and what it says about itself"}
 
 const BOARD: Line = {rustOnly: 'a board\'s file made a new board: the local app checks the file, then sends its rows itself (`writeToApi`, ORR-1142)'}
-const SNAPSHOT: Line = {rustOnly: 'the copy a backup takes of the database: the local app asks for it itself, then checks and keeps it (`snapshotsBy`, ORR-1097)'}
-const DATABASE: Line = {rustOnly: "what the local app's backups and App settings → Database ask of the database itself: whether it's a new orrery's, a Postgres one's size, and the name it runs under (ORR-1140)"}
+const DATABASE: Line = {rustOnly: "what the local app asks of the database itself as it starts and for `GET /api/machine`: whether it's a new orrery's, and a Postgres one's size (ORR-1140)"}
 const SESSION_WORK: Line = {rustOnly: "which session is on which issue, as the local app's session bookkeeping asks it (clearing, picking, the Todo hand-out): it reads them itself (`sessionWork`, ORR-1141)"}
 const STORAGE: Line = {rustOnly: 'how the local app keeps its record of a chat and its messages, a GitHub poll, the feature counts it gathered or a line of the event log: it sends them here itself (`writeToApi`)'}
 const CHAT_ASK: Line = {rustOnly: "the chat asking to change a setting, a schedule, a release or a doc, offering an issue or moving some, for the Rust /mcp's `update_settings`, `create_schedule`, `update_schedule`, `create_release`, `update_release`, `create_doc`, `update_doc`, `offer_issue` and `move_issues` (ORR-1100): the chat's other asks stay at POST /api/chats/{chat}/requests until they move too"}
@@ -46,10 +45,6 @@ export const NOT_ROUTED: Readonly<Record<string, Line>> = {
     'GET /api/auth/oidc/callback': LOGIN,
     'GET /api/auth/oidc/start': LOGIN,
     'GET /api/auth/status': ORR_1038,
-    'GET /api/backups': MACHINE,
-    'POST /api/backups': MACHINE,
-    'PUT /api/backups': MACHINE,
-    'POST /api/backups/restore': MACHINE,
     'GET /api/changes': OUTBOX,
     'GET /api/chats': CHAT,
     'POST /api/chats': CHAT,
@@ -79,12 +74,7 @@ export const NOT_ROUTED: Readonly<Record<string, Line>> = {
     'POST /api/connects/{connect}/write': MACHINE,
     'POST /api/boards': BOARD,
     'GET /api/database': DATABASE,
-    'POST /api/database/check': MACHINE,
-    'PUT /api/database/environment': DATABASE,
-    'POST /api/database/move': MACHINE,
     'POST /api/database/compact': {rustOnly: 'the SQLite file compacted after a clean-up or once the images are compressed: the local app asks for it itself (`writeToApi`, ORR-1134)'},
-    'POST /api/database/rows': {rustOnly: 'every row of the tables a move or a backup into (or of) Postgres copies, read in one transaction: the local app asks for it itself (`writeToApi`, ORR-1134)'},
-    'POST /api/database/snapshot': SNAPSHOT,
     'POST /api/egress': SEALED,
     'POST /api/epics/{epic}/focus': FOCUS,
     'GET /api/events': MACHINE,

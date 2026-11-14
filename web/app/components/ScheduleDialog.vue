@@ -62,7 +62,7 @@ const level = ref('')
 const on = computed(() => eventPick.value === OTHER ? pattern.value.trim() : eventPick.value)
 const common = computed(() => COMMON_EVENTS.find(e => e.type === on.value))
 // Which of the event's filters it shows: what it changed to (a status, or any value), the log entry's level, and who did it,
-// which an entry orrery notes itself (an error, a backup) doesn't say.
+// which an entry orrery notes itself (an error, a migration) doesn't say.
 const showsTo = computed(() => on.value === 'issue.status' || common.value?.filter === 'value' || eventPick.value === OTHER)
 const showsLevel = computed(() => common.value?.filter === 'level' || eventPick.value === OTHER)
 const showsBy = computed(() => common.value?.actor !== false)

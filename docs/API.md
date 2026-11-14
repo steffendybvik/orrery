@@ -56,7 +56,7 @@ characters of base32: the project's `uid`, or the server's (`uid` on `GET /setti
 Every route takes either form, and an alias's full form too. A milestone and an epic are shown the way an issue is
 (ORR-995), `MLS-3` and `EPC-1`, while `id` stays the number; routes and the `milestone` and `epic` fields take the
 number, the shown id or the full id, their prefixes in any case (so the `mls-3-…` of before still works). Issues read back
-with theirs in `full_id`, epics in a list too, and a milestone or doc read on its own (not in a list or a board). A project's `uid` goes with it when the database moves, and a restored backup keeps the server's. An issue
+with theirs in `full_id`, epics in a list too, and a milestone or doc read on its own (not in a list or a board). A project's `uid` goes with it when the database is copied (`orrery:copy`). An issue
 moved to another project has a new full id, and its old one gets a 404. A new project can't take the `key` `MLS`, `EPC`,
 `DOC`, `CHK`, `PST` or `SCH`, which read as the start of a milestone's, an epic's or another kind's id (a key made from
 its name takes a fourth letter instead: `EPCO` for Epcot); one that has it already keeps it.
@@ -89,7 +89,7 @@ person, with a label that's a person's name counting as `agent`. A session stays
 | `DELETE /keys/:key` | 204: revokes it at once, with the logins it started (and its person's from before 1.0.0-rc.17, which don't record their key). Your own, or anyone's for the owner; a 404 for any other. Only a person, never a session (403) |
 | `POST /invites` | `{person}` → 201 `{url, expires_at}`: the owner's only, a link good once and for a week, whose first login attaches that account to the person. 409 with no login provider |
 
-`GET /healthz`, outside `/api`, answers `{ok: true}` with no credential, for a container's health check.
+`GET /healthz`, outside `/api`, answers `{ok: true}` with no credential, for a container's health check, while the Rust API answers too, and 503 with `{ok: false}` when it doesn't, as every board request fails then.
 
 ## Who can delete what
 
@@ -385,7 +385,7 @@ instead of `done` when it won't ship.
 ### Images
 
 A comment (or any Markdown: notes, docs) shows an image orrery keeps: send it, then put the `markdown`
-that comes back in the text. orrery keeps it in its database, so backups and `orrery:copy` take it along.
+that comes back in the text. orrery keeps it in its database, so a copy of the database takes it along.
 
 | | |
 |---|---|
@@ -448,7 +448,7 @@ for changes and where, never a check's output or someone else's review, as a ses
 review by the owner's own GitHub handle (`handle`) is quoted. After a PR's checks fail a fourth time, it doesn't tell
 the session and asks the owner instead (`asks: feedback`). Later failures are only recorded until the owner answers on the
 issue or focuses a session on it; then three more are told before it asks again. Checks going green start the count afresh. Each kind the [event log](#event-log)
-records counts too (`server.error`, `page.error`, `backup.failed`, `session.started`, `launcher.gone`…), even with
+records counts too (`server.error`, `page.error`, `session.started`, `launcher.gone`…), even with
 Advanced off. A repeat of an open error isn't one. `on` is a type or a pattern, `*` for any part (`release.*`,
 `*.failed`, `*`). `on_filter` says what the event must also say:
 - `to` / `from`: the value it changed to or from (a status's id or kind, a label added, a release's version).
@@ -571,46 +571,12 @@ or by watching the text stream with the Monitor tool. The Connect page at `/conn
 `GET /settings` says the orrery's `id` (made once, when it first starts): a channel given `ORRERY_ID` refuses an
 orrery with another id. `GET /machine` says what only the running server knows, none of it stored, so it stays this
 server's when the stored settings are the Rust API's (ORR-954): its `environment` (`personal`, `work`, …), and where
-the data is, read only: `database: {kind, where,
-host?, volume?, backup?, backup_host?, backup_volume?, backed_up_at?, backup_failed?, size?, backup_size?}`, `kind` `sqlite` (`where`
-the file's path, as orrery opens it) or `postgres` (`where` as `user@host:port/name`, never the password), `backup` the
-folder it's backed up to, if any (a Postgres one as a SQLite snapshot). Under Docker, `host` is where the SQLite file is
-on the computer (from `ORRERY_DATA`, a relative one from the compose folder) or `volume` the Docker volume it's in, and
-`backup_host` / `backup_volume` the same for the backup folder (`ORRERY_BACKUP`); `where` and `backup` stay the paths
-inside the container. And `backed_up_at` when the latest backup there was made, and `backup_failed` (`{at, message}`) while the last try failed, and `backup_local` in Docker while the backups are in the default volume, on the same computer (`ORRERY_BACKUP` isn't set). `size` is how big it is in bytes (a SQLite file with
-its `-wal`, or `pg_database_size` on Postgres) and `backup_size` the backup folder's files together; each is left out when
-it can't be read. `movable` says the owner can move it (not when `ORRERY_DATABASE` names Postgres), and `moved` that it
-was moved there from App settings. `POST /backups` (the owner's) backs it up now and answers with `database`; 409 without
-a backup folder. `GET /backups` lists the backups in the folder to restore from: `{snapshots, fresh, restorable,
-environment, docker}`, each snapshot `{name, kind, at, size, of?, environment?, projects?}` (`kind` `latest`, `daily`
-or `before`, for one taken before an upgrade or a restore; `of` the id of the orrery it's a copy of), `fresh` when this
-one is new (no projects, no owner), `restorable` when the app can restore (a SQLite orrery). `POST /backups/restore
-{name}` runs on a copy of that backup, after checking it and keeping the database as it was in the backup folder, and
-answers with `{database}`: the owner's from localhost, or anyone's on this machine while the orrery is new; 409 on
-Postgres. `backups_settable` is what App settings can change about backups: `folder` (whether they run, and
-where) or `switch` (only whether, in Docker); left out when `ORRERY_DATABASE` names Postgres. `backups_off` says the
-owner turned them off, `backup_folder` the folder they chose (kept while off), `backup_postgres` the Postgres database
-they chose (`user@host:port/name`, kept while off), and `backup_default` `NUXT_BACKUP_DIR`. Backed up into Postgres,
-`backup` is that database without its password and `backup_kind` is `postgres`.
-`backup_every` is how often it backs up (`change`, a few seconds after one, or at most once every `15m`, `hour` or
-`day`, and then only when something changed), and `backup_keep` how many daily copies stay in a folder (14 unless
-chosen; into Postgres only the latest is kept).
-`PUT /backups {on?, folder?, every?, keep?}` or `{on, postgres, every?, keep?}` (the owner's, from this machine, 403 from any other, and in Docker while `ORRERY_HOST` opens it to the network) sets them: `folder` a full path
-instead of `NUXT_BACKUP_DIR`, `null` or none back to it; `postgres` a Postgres URL to back up into instead, an empty
-database or this orrery's backup already (400 for one holding another orrery, or the one it runs on). `{on}` alone keeps
-backing up into the Postgres database chosen before. Turned on, it's backed up there at once, and kept only if that
-worked (400 when it can't be, or the folder holds the database); 409 for a folder in Docker, on with nowhere to go, or
-when `ORRERY_DATABASE` names Postgres. `every` and `keep` (1 to 365) change only how often and how many, alone or with
-`on`; `folder` and `postgres` come with `on`. → `database`.
-
-The owner moves it from this machine (403 from any other: it has to be reached by a name of this machine's, such as `localhost`, over a connection from this machine, and one a proxy passed on, with a `Forwarded` or `X-Forwarded-*` header, doesn't count; in Docker, 403 while `ORRERY_HOST` opens it to the network): `POST /database/check {kind: "sqlite", path}` or
-`{kind: "postgres", url}` says what's there without changing it, `{kind, where, state, projects?}`, `state` `empty`,
-`orrery` (an orrery's own, with its `projects`), `current` (the one it runs on) or `other` (something else's tables);
-400 when it can't be reached. A `path` without a leading `/` is in the data folder. `POST /database/move {kind, path |
-url, how}` runs on it from then on, no restart: `how: "copy"` copies everything into an empty one, `"use"` runs on an
-orrery's own as it is; → `{check, copied?, database}`, 409 when it doesn't suit `how`. Where it went is saved before
-anything is written there, so a move that can't save it (a full disk) fails and leaves everything on the one before.
-The one it leaves stays as it was.
+the data is, read only: `database: {kind, where, host?, volume?, size?}`, `kind` `sqlite` (`where` the file's path, as
+orrery opens it) or `postgres` (`where` as `user@host:port/name`, never the password). Under Docker, `host` is where the
+SQLite file is on the computer (from `ORRERY_DATA`, a relative one from the compose folder) or `volume` the Docker volume
+it's in; `where` stays the path inside the container. `size` is how big it is in bytes (a SQLite file with its `-wal`,
+or `pg_database_size` on Postgres), left out when it can't be read. Which database orrery runs on is set only by
+`ORRERY_DATABASE`; the API has no way to move it, and orrery takes no backups.
 A session heard on several projects is listed on each one's
 group on the Sessions page, with the others in `also`. A channel that finds the name its server goes by in the
 repo's `.mcp.json` sends it (`?server=`), and the session lists it as `server`, for the command that restarts it with
@@ -859,13 +825,13 @@ so the owner can jump from the PR to it.
 
 What orrery did and what went wrong, kept in its own database and never sent anywhere, for looking into a
 problem. **Errors** are recorded always: a 5xx the server answers with (`server.error`), an error in the page
-(`page.error`; an unknown URL isn't one, it only shows Not found), a schedule run or backup that failed (`schedule.failed`, `backup.failed`). **What orrery did** is
+(`page.error`; an unknown URL isn't one, it only shows Not found), a schedule run that failed (`schedule.failed`). **What orrery did** is
 recorded only while the owner has Advanced on (`PATCH /settings {advanced: true}`, App settings → Advanced; on in an orrery that never set it):
 sessions started, stopped and refused (`session.started`, `session.stopping`, `session.stopped`,
 `session.refused`), a session that started an issue out of the scope of its last with more than 50k tokens in its context (`session.carried_over`, ORR-968), any session's channel joining and leaving the feed (`channel.connected`, `channel.left`),
 launchers coming and going (`launcher.connected`, `launcher.gone`) or refused a launch because
 their code is older than it (`launcher.outdated`, a warning: one from before chats offered a chat), GitHub turning down the `GITHUB_TOKEN` secret as pull requests are polled (`github.refused`, a warning, once until it works again), a session whose `Orrery-Person` disagrees with its agent key (`auth.person_mismatch`, a warning, once per session), schedule runs and skips
-(`schedule.ran`, `schedule.skipped`), backups, migrations, moves, what orrery cleaned up and server starts (`backup.made`, `backup.set`, `migration.ran`, `housekeeping.cleaned`,
+(`schedule.ran`, `schedule.skipped`), migrations, what orrery cleaned up and server starts (`migration.ran`, `housekeeping.cleaned`,
 `database.created` when a move copies into a new one, `database.moved`, `server.started`), calls through egress
 (`egress.called`: who, which secrets, the method, host and status, never a value or path), and who changed what
 in the settings and secrets (`settings.changed` with the keys, `secret.set`, `secret.narrowed`, `secret.deleted`

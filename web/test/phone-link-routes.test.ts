@@ -235,19 +235,8 @@ describe("over the phone's port, nothing is this machine (ORR-837)", () => {
     })
 
     it('even with Host: localhost and a loopback connection', async () => {
-        const {fromThisMachine} = await import('../server/utils/move')
+        const {fromThisMachine} = await import('../server/utils/this-machine')
         expect(fromThisMachine(request('/', {phone: true}) as never)).toBe(false)
         expect(fromThisMachine(request('/', {}) as never)).toBe(true)
-    })
-
-    it("so the owner's phone can't move the database or set the backups", async () => {
-        const phone = await browser('skoll')
-        const {mayMove} = await import('../server/utils/move')
-        const {maySetBackups} = await import('../server/utils/backup-choice')
-        for (const may of [mayMove, maySetBackups]) {
-            const event = request('/', {headers: phone, phone: true})
-            await gate(event)
-            expect((await failure(() => may(event as never))).status).toBe(403)
-        }
     })
 })

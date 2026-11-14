@@ -1,6 +1,6 @@
 // What happens in an orrery, as a schedule hears it (ORR-341). Nothing here is a list kept by hand: an issue's
 // change is `issue.<field>` for whichever field changed (`issue.status`, `issue.release`, and any field added later),
-// each kind the event log records is one as it's named (`backup.failed`, `session.started`), and releases, comments,
+// each kind the event log records is one as it's named (`schedule.failed`, `session.started`), and releases, comments,
 // milestones and docs say `<thing>.<what>` as they're written. A schedule's `on` is a pattern over the type, `*` standing
 // for any part (`release.*`, `*.failed`), and `on_filter` what the event must also say.
 import type {EventLevel} from './roadmap'
@@ -35,7 +35,7 @@ export interface OnFilter {
 /** A type as a pattern takes it: lowercase dotted names, `*` for any part of one. */
 export const EVENT_PATTERN = /^(\*|[a-z][a-z0-9_-]*)(\.(\*|[a-z][a-z0-9_-]*))*$/
 
-/** Whether `type` is one `pattern` stands for: `release.*` takes `release.frozen`, `*.failed` takes `backup.failed`. */
+/** Whether `type` is one `pattern` stands for: `release.*` takes `release.frozen`, `*.failed` takes `schedule.failed`. */
 export function matchesType(pattern: string, type: string): boolean {
     const parts = pattern.split('.').map(part => part === '*' ? '[^.]+' : part.replace(/[-]/g, '\\-'))
     // A trailing `*` takes the rest, however many parts: `issue.*`, `*`.
@@ -71,6 +71,5 @@ export const COMMON_EVENTS: {type: string, label: string, family: string, filter
     {type: 'session.stopped', label: 'A session stops', family: 'Sessions'},
     {type: 'launcher.gone', label: 'A launcher goes away', family: 'Sessions', actor: false},
     {type: '*.error', label: 'A new error (server or page)', family: 'orrery', filter: 'level', actor: false},
-    {type: '*.failed', label: 'Something fails (a backup, a schedule)', family: 'orrery', actor: false},
-    {type: 'backup.made', label: 'A backup is made', family: 'orrery', actor: false},
+    {type: '*.failed', label: 'Something fails (a schedule)', family: 'orrery', actor: false},
 ]

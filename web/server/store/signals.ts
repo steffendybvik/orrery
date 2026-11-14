@@ -269,8 +269,7 @@ export abstract class SignalStore extends IssueStore {
     }
 
     /** Removes images past KEEP_UNUSED_UPLOADS that nothing refers to (ORR-778). What refers to one is any text in any
-     * table, a new column included, so a place to keep Markdown can't be missed; a failed look removes nothing. Once its
-     * backups age out, a removed image is gone. */
+     * table, a new column included, so a place to keep Markdown can't be missed; a failed look removes nothing. */
     async sweepUploads(now = Date.now()): Promise<{uploads: number, bytes: number}> {
         const before = new Date(now - KEEP_UNUSED_UPLOADS).toISOString()
         return await this.db.transaction(async () => {

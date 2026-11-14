@@ -58,8 +58,7 @@ In practice:
   on an Events page that sessions can read too.
 - **On your phone:** scan the QR code in App settings and the phone is signed in, driving the sessions on this machine.
   End a lost phone's login from the Mac.
-- **Storage:** one SQLite file or Postgres, both backed up automatically, picked when you first open it or moved to
-  later from App settings. Alone on your machine there's no login; with a second person or from another machine it asks for one. The first name given becomes the owner.
+- **Storage:** one SQLite file or Postgres, set in its settings (`ORRERY_DATABASE`). Backing it up is yours to do. Alone on your machine there's no login; with a second person or from another machine it asks for one. The first name given becomes the owner.
 
 [Using orrery](docs/using.md) describes each page, menu and shortcut. A session in any connected repo can ask the same
 through the `guide` tool.
@@ -67,21 +66,15 @@ through the `guide` tool.
 
 ## Keep your data safe
 
-- **Your data is in Docker; your backups are in `ORRERY_BACKUP`.** The database lives in a Docker volume
-  (`orrery_orrery-data`). A checked copy goes to the backup folder a few seconds after each change, plus one a day for
-  two weeks.
-- **Put `ORRERY_BACKUP` somewhere that leaves this computer:** iCloud Drive, Dropbox, or a folder Time Machine covers.
-  Without it the backups sit in a Docker volume on the same disk, and App settings says so.
+- **Your data is in Docker.** The database lives in a Docker volume (`orrery_orrery-data`).
+- **Back it up yourself:** orrery takes no backups. [Running orrery](docs/running.md#backups) says how.
 - **Never `docker compose down -v`**, and don't clear Docker Desktop's data, without a recent backup: both delete the
   database. Plain `docker compose down` keeps it.
-- **To update:** change the version in `compose.yml`'s `image:` and run `docker compose pull && docker compose up -d`
-  (see [Running orrery](docs/running.md#updating)). orrery takes a copy before it upgrades the database, and the
-  channel, hooks and launcher follow.
-- **To move to a new computer:** set it up the same way, point `ORRERY_BACKUP` at the same folder, and choose the
-  backup to restore when it first opens.
+- **To update:** back it up, change the version in `compose.yml`'s `image:` and run `docker compose pull && docker compose up -d`
+  (see [Running orrery](docs/running.md#updating)). The channel, hooks and launcher follow.
+- **To move to a new computer:** set it up the same way, and put your copy of the database where the new one's is.
 - **If your data looks gone after an update:** run `docker volume ls`. A volume with another name (from an older setup
-  in a folder with another name) may hold it. App settings → This orrery → Database → **Restore a backup…** brings back any backup
-  in the folder.
+  in a folder with another name) may hold it.
 
 ## Quick start
 
@@ -130,7 +123,7 @@ You need:
 ## Documentation
 
 - [Using orrery](docs/using.md): pages, menus, directing sessions, keys
-- [Running orrery](docs/running.md): configuration, backups, Postgres, several instances, running without Docker
+- [Running orrery](docs/running.md): configuration, backing up, Postgres, several instances, running without Docker
 - [Connecting a repo](docs/connect.md): the MCP server and channel, hooks, the launcher
 - [API](docs/API.md): every route and field
 - [Development](docs/development.md): where things are, the dev server and checks

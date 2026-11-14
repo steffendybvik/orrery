@@ -1,6 +1,5 @@
-// The Rust API as this server runs it (plugins/api.ts, ORR-922): started on the database this server is on, and started
-// again on the new one when the owner moves it from App settings or restores a backup (ORR-1035), as the API stays on
-// the database it started on and answers every request for another with a 421.
+// The Rust API as this server runs it (plugins/api.ts, ORR-922): started on the database this server is on. The API
+// stays on the database it started on and answers every request for another with a 421.
 import type {ChildProcess} from 'node:child_process'
 import {randomBytes} from 'node:crypto'
 import {known} from '#shared/known'

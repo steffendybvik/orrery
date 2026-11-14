@@ -11,7 +11,6 @@ import type {OrreryEvent} from '#shared/happenings'
 import type {LoggedEvent, Project} from '#shared/roadmap'
 import {numberOf, shortId} from '#shared/roadmap'
 import {diffProject, withoutNotes} from '#shared/patch'
-import type {Db} from './database'
 import {EventLog} from './event-log'
 import {settingsNow, writeToApi} from './api-router'
 import {ORRERY} from '../store/schema'
@@ -22,7 +21,7 @@ import {Schedules, scheduleRunning} from './schedules'
 import {Secrets} from './secrets'
 import {UpdateCheck} from './update-check'
 import {secretKey, secretKeyFile} from './secret-key'
-import {inDocker} from './backup-choice'
+import {inDocker} from './host-paths'
 import {Store} from './store'
 
 export const projectEvents = new EventEmitter()
@@ -101,7 +100,7 @@ let secrets: Secrets | null = null
 let key: string | undefined
 
 /** The secrets, sealed with ORRERY_SECRET_KEY (NUXT_SECRET_KEY) or the key orrery made for them; `secrets` (the list)
- * goes out when they change, and `secret-used` when one is used, which changes nothing a backup or the event log keeps
+ * goes out when they change, and `secret-used` when one is used, which changes nothing the database or the event log keeps
  * (ORR-526). */
 export function useSecrets(): Secrets {
     secrets ??= new Secrets(useStore(), () => {
@@ -163,15 +162,6 @@ export function useEventLog(): EventLog {
     }
     log.happened = happened
     return log
-}
-
-/** Points what holds the database at the one the owner moved to (server/utils/move.ts); the secrets and schedules
- * reach it through the store. The API seeds it with the presets orrery ships once it's on it (plugins/presets.ts). */
-export function rebindDatabase(db: Db) {
-    if (store) store.db = db
-    if (log) log.db = db
-    // The Rust API and its outbox follower start again on it (plugins/api.ts, plugins/outbox.ts, ORR-1035).
-    projectEvents.emit('database')
 }
 
 /** Passes it on once what did it is done (the write's transaction has committed, and nothing when it rolls back),

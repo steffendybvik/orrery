@@ -1,6 +1,6 @@
 // How a built orrery holds up over time (`pnpm soak`, after `pnpm build`), which the perf suite doesn't look at. On a fresh
 // database of its own, it keeps sessions listening, reconnects their streams and the page's live feed, reports hooks, writes
-// issues and comments and takes backups, all faster than real use. Every 15 seconds it notes the server's memory, open
+// issues and comments, all faster than real use. Every 15 seconds it notes the server's memory, open
 // files and how long the project list takes, into web/soak-report/. It fails on a request that errors, and when open
 // files keep growing. A short run catches a fast leak: it says nothing of what only shows after days (ORR-736).
 // SOAK_MINUTES (30), SOAK_SESSIONS (8) and SOAK_PORT (3360) change it.
@@ -14,24 +14,21 @@ const sessionCount = Number(process.env.SOAK_SESSIONS ?? 8)
 const port = Number(process.env.SOAK_PORT ?? 3360)
 const base = `http://127.0.0.1:${port}`
 const database = `${web}.data/soak.db`
-const backups = `${web}.data/soak-backups`
 const report = `${web}soak-report`
 const HEADERS = {'Content-Type': 'application/json', 'Orrery-Actor': 'claude'}
 const PROJECT = 'soak'
 const VERSION = '1.0.0'
 
-rmSync(backups, {recursive: true, force: true})
-for (const suffix of ['', '-wal', '-shm', '.backups.json']) rmSync(database + suffix, {force: true})
-mkdirSync(backups, {recursive: true})
+for (const suffix of ['', '-wal', '-shm']) rmSync(database + suffix, {force: true})
 mkdirSync(report, {recursive: true})
 
 const server = spawn('node', ['.output/server/index.mjs'], {
     cwd: web,
     stdio: ['ignore', 'ignore', 'inherit'],
-    env: {...process.env, NUXT_DATABASE: database, NUXT_BACKUP_DIR: backups, NUXT_UPDATE_CHECK: 'false', PORT: String(port), NITRO_HOST: '127.0.0.1'},
+    env: {...process.env, NUXT_DATABASE: database, NUXT_UPDATE_CHECK: 'false', PORT: String(port), NITRO_HOST: '127.0.0.1'},
 })
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
-const counts = {requests: 0, reconnects: 0, backups: 0}
+const counts = {requests: 0, reconnects: 0}
 const failures = new Map()
 
 async function call(method, path, body) {
@@ -102,7 +99,6 @@ async function main() {
     const end = started + minutes * 60_000
     let tick = 0
     let nextSample = started
-    let nextBackup = started + 5 * 60_000
     while (Date.now() < end) {
         tick++
         const issue = issues[tick % issues.length]
@@ -118,11 +114,6 @@ async function main() {
             feeds[feed]()
             feeds[feed] = hold('/api/events')
             counts.reconnects += 2
-        }
-        if (Date.now() >= nextBackup) {
-            await call('POST', '/api/backups')
-            counts.backups++
-            nextBackup += 5 * 60_000
         }
         if (Date.now() >= nextSample) {
             const before = performance.now()

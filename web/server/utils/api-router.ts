@@ -16,7 +16,7 @@ import type {Actor} from '../store/schema'
 import {ORRERY} from '../store/schema'
 import type {Who} from './auth'
 import {bearer, loginCookie, onLoopback, pathOf, toldOff, toldOn} from './auth'
-import {proxied} from './move'
+import {proxied} from './this-machine'
 import {viaPhone} from './phone-port'
 import {caughtUp, followingOutbox} from './outbox-follower'
 import {oidcOn} from './oidc'
@@ -584,6 +584,16 @@ export function apiListening(within = 5000): Promise<void> {
 export function apiTarget(config: {apiUrl?: unknown, apiToken?: unknown}): {url: string, token: string} | null {
     if (started) return started
     return config.apiUrl && config.apiToken ? {url: String(config.apiUrl), token: String(config.apiToken)} : null
+}
+
+/** Whether the API at `url` answers its own `/health` within `within` ms, for `/healthz` (ORR-1188). */
+export async function apiAnswers(url: string, within = 2000): Promise<boolean> {
+    try {
+        const reply = await fetch(`${url}/health`, {signal: AbortSignal.timeout(within)})
+        return reply.ok
+    } catch {
+        return false
+    }
 }
 
 /** Why the API last couldn't answer, said once, not on every request, until it answers again. */

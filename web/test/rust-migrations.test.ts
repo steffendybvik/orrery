@@ -197,32 +197,12 @@ describe.skipIf(!existsSync(BIN))('orrery-api migrate on SQLite', () => {
         after.close()
     })
 
-    it('keeps a copy of the file as it was before it upgrades it, as Node does (ORR-448)', () => {
+    it('upgrades the file in place, leaving no copy of it beside it', () => {
         const path = nodeSqlite(BEFORE_PEOPLE)
-        const copy = join(dirname(path), `orrery-pre-1.2.3-step${BEFORE_PEOPLE}.db`)
-        const run = spawnSync(BIN, ['migrate'], {env: {...process.env, NUXT_DATABASE: path, ORRERY_VERSION: '1.2.3'}, encoding: 'utf8'})
+        const run = spawnSync(BIN, ['migrate'], {env: {...process.env, NUXT_DATABASE: path}, encoding: 'utf8'})
         expect(run.status, run.stderr).toBe(0)
-        expect(readdirSync(dirname(path)).filter(name => name.startsWith('orrery-pre-'))).toEqual([`orrery-pre-1.2.3-step${BEFORE_PEOPLE}.db`])
-        const kept = new DatabaseSync(copy, {readOnly: true})
-        expect((kept.prepare('PRAGMA user_version').get() as {user_version: number}).user_version).toBe(BEFORE_PEOPLE)
-        kept.close()
-        // Into the backup folder, when there is one; and none for a new file, which has nothing to keep.
-        const backups = join(mkdtempSync(join(tmpdir(), 'orrery-backups-')), 'nested')
-        rustMigrate(nodeSqlite(BEFORE_PEOPLE), undefined, {ORRERY_API_BACKUP_DIR: backups})
-        expect(readdirSync(backups)).toEqual([`orrery-pre-upgrade-step${BEFORE_PEOPLE}.db`])
-        const fresh = join(mkdtempSync(join(tmpdir(), 'orrery-migrate-')), 'orrery.db')
-        rustMigrate(fresh)
-        expect(readdirSync(dirname(fresh))).toEqual(['orrery.db'])
-    })
-
-    it('won\'t upgrade without that copy', () => {
-        const path = nodeSqlite(BEFORE_PEOPLE)
-        const nowhere = join(dirname(path), 'a-file')
-        writeFileSync(nowhere, '')
-        const run = spawnSync(BIN, ['migrate'], {env: {...process.env, NUXT_DATABASE: path, ORRERY_API_BACKUP_DIR: join(nowhere, 'backups')}, encoding: 'utf8'})
-        expect(run.status).toBe(1)
-        expect(run.stderr).toMatch(`won't upgrade ${path} (schema step ${BEFORE_PEOPLE} to ${MIGRATIONS.length}) without a copy of it as it is`)
-        expect(sqliteState(path).step).toBe(BEFORE_PEOPLE)
+        expect(readdirSync(dirname(path)).filter(name => !name.startsWith('orrery.db'))).toEqual([])
+        expect(sqliteState(path).step).toBe(MIGRATIONS.length)
     })
 
     it('stops at the owner\'s step on an owner setting that isn\'t JSON, rather than lose them', () => {
@@ -258,7 +238,7 @@ describe.skipIf(!existsSync(BIN))('orrery-api migrate on SQLite', () => {
             const path = nodeSqlite(BEFORE_PEOPLE)
             expect(migrateWithApi(path, MIGRATIONS.length, BIN)).toEqual({from: BEFORE_PEOPLE, to: MIGRATIONS.length})
             expect(sqliteState(path).step).toBe(MIGRATIONS.length)
-            expect(readdirSync(dirname(path)).sort()).toEqual(['orrery-pre-9.9.9-step' + BEFORE_PEOPLE + '.db', 'orrery.db'])
+            expect(readdirSync(dirname(path)).filter(name => !name.startsWith('orrery.db'))).toEqual([])
             expect(migrateWithApi(path, MIGRATIONS.length, BIN)).toBeNull()
             const stale = nodeSqlite(BEFORE_PEOPLE)
             const said = vi.spyOn(console, 'error').mockImplementation(() => {})

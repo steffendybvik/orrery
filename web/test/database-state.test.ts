@@ -3,19 +3,14 @@ import type {Server} from 'node:http'
 import type {AddressInfo} from 'node:net'
 import {afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi} from 'vitest'
 import {apiForgotten, apiStarted} from '../server/utils/api-router'
-import {databaseFresh, keepEnvironment, sizeOfDatabase} from '../server/utils/database-state'
+import {databaseFresh, sizeOfDatabase} from '../server/utils/database-state'
 
-// What the backups and App settings → Database ask of the database itself (ORR-1140): from the Rust API when it's
-// there, so the Nuxt server reads none of it from the database; from the database here when it isn't.
+// What the start and `GET /api/machine` ask of the database itself (ORR-1140): from the Rust API when it's there, so
+// the Nuxt server reads none of it from the database; from the database here when it isn't.
 
-const here = vi.hoisted(() => ({fresh: true, environment: '', size: 0}))
-vi.mock('../server/utils/db', () => ({useDatabase: () => ({get: async () => ({size: here.size})})}))
-vi.mock('../server/utils/restore', () => ({
-    isFresh: async () => here.fresh,
-    noteEnvironment: async (_db: unknown, environment: string) => {
-        here.environment = environment
-    },
-}))
+const here = vi.hoisted(() => ({fresh: true, size: 0}))
+vi.mock('../server/utils/db', () => ({useDatabase: () => ({get: async (sql: string) => sql.includes('FROM projects') ? {n: here.fresh ? 0 : 1}
+    : sql.includes('FROM people') ? here.fresh ? undefined : {found: 1} : {size: here.size}})}))
 
 type Heard = {method: string, url: string, headers: Record<string, string | string[] | undefined>, body: string}
 
@@ -45,7 +40,7 @@ beforeAll(async () => {
 beforeEach(() => {
     heard.length = 0
     answer = {status: 200, body: {}}
-    Object.assign(here, {fresh: true, environment: '', size: 0})
+    Object.assign(here, {fresh: true, size: 0})
 })
 
 afterEach(() => {
@@ -61,12 +56,11 @@ afterAll(async () => {
 
 describe('the database\'s state, with no API', () => {
     it('is read from the database here', async () => {
+        expect(await databaseFresh()).toBe(true)
         here.fresh = false
         here.size = 4096
         expect(await databaseFresh()).toBe(false)
         expect(await sizeOfDatabase({kind: 'postgres', where: 'u@h/orrery'})).toEqual({size: 4096})
-        await keepEnvironment('work')
-        expect(here.environment).toBe('work')
         expect(heard).toEqual([])
     })
 })
@@ -88,13 +82,5 @@ describe('the database\'s state, with the API there', () => {
         expect(await sizeOfDatabase({kind: 'postgres', where: 'u@h/orrery'})).toEqual({})
         expect(await sizeOfDatabase({kind: 'sqlite', where: '/nowhere/orrery.db'})).toEqual({})
         expect(heard.map(h => `${h.method} ${h.url}`)).toEqual(['GET /api/database', 'GET /api/database'])
-    })
-
-    it('keeps the name it runs under through the API', async () => {
-        apiStarted({url, token: 't'.repeat(24)})
-        answer = {status: 204}
-        await keepEnvironment('personal')
-        expect(heard.map(h => `${h.method} ${h.url} ${h.body}`)).toEqual(['PUT /api/database/environment {"environment":"personal"}'])
-        expect(here.environment).toBe('')
     })
 })

@@ -8,17 +8,10 @@ test.describe.configure({mode: 'serial'})
 
 const api = projectApi('greenhouse')
 
-test('asks where to keep the data, then the owner\'s name, on first open', async ({page, request}) => {
+test('asks the owner\'s name on first open, and nothing about the database', async ({page, request}) => {
     await page.goto('/')
-    // On SQLite it asks where to keep the data first; on Postgres (set as it starts) it doesn't.
-    const where = page.getByRole('dialog', {name: 'Where to keep its data'})
-    if (!process.env.E2E_POSTGRES_URL) {
-        await where.getByRole('button', {name: /Postgres/}).click()
-        await expect(where.getByLabel('Postgres URL')).toBeVisible()
-        await where.getByRole('button', {name: 'Back'}).click()
-        await where.getByRole('button', {name: /On this machine/}).click()
-    }
-    await expect(where).toBeHidden()
+    // Which database it runs on is set only as it starts (ORR-1187), so it never asks where to keep the data.
+    await expect(page.getByRole('dialog', {name: 'Where to keep its data'})).toHaveCount(0)
     const dialog = page.getByRole('dialog', {name: 'Your name'})
     await dialog.getByLabel('Your name').fill('Ada Lovelace')
     // Not a developer: Advanced goes off, and the pages for looking into problems leave the sidebar.

@@ -2,8 +2,7 @@
 // `nuxt dev` the repo's own build, as plugins/api.ts starts it (`apiBinary`), so the dev server and the browser suite hear
 // the API's writes as the image does (ORR-1088). With none, it does nothing, and this server hears its own writes from the store's hooks as ever. Its cursor is kept
 // beside the database (outbox-follower.ts), so a restart carries on from where it was; the first start begins at the
-// newest row, as there's nothing it missed, which the API says (`after=newest`, ORR-1136). When the owner moves the database it follows the new one's outbox, with
-// that one's cursor (ORR-1035).
+// newest row, as there's nothing it missed, which the API says (`after=newest`, ORR-1136).
 import {apiBinary} from '../utils/api-migrate'
 import {apiTarget, databaseMark} from '../utils/api-router'
 import {cursorFile, followOutbox, readCursor, readPage, saveCursor, setFollowingOutbox} from '../utils/outbox-follower'
@@ -44,10 +43,8 @@ export default defineNitroPlugin(nitro => {
         })
     }
     follow()
-    projectEvents.on('database', follow)
     nitro.hooks.hook('close', () => {
         closed = true
-        projectEvents.off('database', follow)
         setFollowingOutbox(false)
     })
 })

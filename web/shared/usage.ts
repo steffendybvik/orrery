@@ -13,7 +13,6 @@ export const FEATURES = {
     'presets': 'Making a preset',
     'message-sessions': 'Message sessions',
     'demo-project': 'The demo project',
-    'backup-now': 'Back up now',
     'focus-issue': 'Focus on this',
     'start-session': 'Start session',
     'watch-session': 'Watch a session',

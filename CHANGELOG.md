@@ -23,6 +23,8 @@ in it is left out. 1.0.0, the first release's overview, is one list.
   sessions that see only the channel's tools.
 - **The database migrates forward on its own,** now through `orrery-api migrate`, as before: back it up first, as for
   any release.
+- **A login provider must allow the `profile` scope:** orrery now asks for `openid profile`, so the first person in has
+  a name.
 
 ### Features
 
@@ -49,6 +51,9 @@ in it is left out. 1.0.0, the first release's overview, is one list.
 - **Copy content** on a doc's page puts its Markdown (an artifact's HTML) on the clipboard.
 - **⌘K finds make and start commands** by the words people reach for, not only their titles.
 - **Workspaces, first step:** everything is in one `default` workspace that the owner holds. Nothing changes yet.
+- **The first sign-in owns a new orrery:** with a login provider set up, the first person to sign in becomes its owner,
+  with no claim step and no console. Everyone after them still needs an invite, and the login page shows only the
+  provider's button.
 
 ### Changes
 
@@ -78,6 +83,12 @@ in it is left out. 1.0.0, the first release's overview, is one list.
 - **A session keeps its lock on an issue** when starting it sets the assignee.
 - **A doc search's snippet** stays on its match.
 - **The board drops the columns** its status filter leaves out.
+- **Logging in through a provider that takes the client secret only as HTTP Basic** works.
+- **On Postgres in Docker, the API's writes reach sessions and open pages again,** as the server can keep its place in
+  the API's outbox.
+- **A pull request's news goes only to the session on its issue,** so a session opened by hand isn't flooded with the
+  day's old notices on its first idle.
+- **An event schedule no longer hears what a schedule's own run just wrote** through the API.
 - **On a phone:** sticky headers are solid, App settings' tabs stay on one line, a session's ⋯ menu stays on screen,
   and the chat header's parts are spaced.
 
@@ -85,7 +96,7 @@ in it is left out. 1.0.0, the first release's overview, is one list.
 
 - **The Nuxt server routes the board's data to the Rust API** and keeps no routes of its own for it: docs, issues and
   comments, milestones, releases, epics, people and keys, logins, presets, settings, the bell, schedules, the event
-  log, secrets, uploads, backups and projects. It keeps the page, sessions, the launcher, chats and schedules' runs.
+  log, secrets, uploads, backups, projects and schedules' runs. It keeps the page, sessions, the launcher and chats.
 - **The board's tools are served only from the API's `/mcp`**, for every kind of session, chat and untrusted ones
   included.
 - **The Rust API owns the migrations:** Node's steps are frozen at step 87, and a new step is a SQL file in
