@@ -87,6 +87,16 @@ describe("the store's reads through the Rust API (ORR-1162)", () => {
         expect(await store.sessionWork('greenhouse', sessions)).toEqual(replies[path])
     })
 
+    it('asks the API whether the owner has a key and whether login stays on (ORR-1158)', async () => {
+        replies['/api/auth/ways-in'] = {owner_has_key: true, stays_on: true}
+        // Nobody's here and no key is in this database, so both say what the API does.
+        expect(await store.ownerHasKey()).toBe(true)
+        expect(await store.authStaysOn()).toBe(true)
+        replies['/api/auth/ways-in'] = undefined
+        expect(await store.ownerHasKey()).toBe(false)
+        expect(await store.authStaysOn()).toBe(false)
+    })
+
     it("hands a session the owner's unanswered comments as the API reads them (ORR-1161)", async () => {
         // None is in this database, so what's carried is the API's.
         replies['/api/projects/greenhouse/comments/unanswered'] = [{issue: 'GRE-1', body: 'Still waiting', created_by: 'owner', owned: true, assignee: null}]

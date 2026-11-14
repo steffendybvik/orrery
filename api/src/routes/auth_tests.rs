@@ -430,3 +430,25 @@ async fn oidc_answers_only_with_a_provider_and_refuses_a_way_back_that_isnt_this
     assert!(started.header("set-cookie").is_none() && started.header("location").is_none());
     assert!(logins(&api).await.is_empty());
 }
+
+#[tokio::test]
+async fn the_local_app_asks_whether_the_owner_has_a_key_and_whether_login_stays_on() {
+    let api = TestApi::at_the_door().await;
+    api.owner().await;
+    let ways = || async {
+        let reply = api.get("/api/auth/ways-in").header("orrery-came", "server").send().await;
+        assert_eq!(reply.status, 200, "{}", reply.body);
+        reply.body
+    };
+    assert_eq!(ways().await, json!({"owner_has_key": false, "stays_on": false}));
+    // Only the local app asks: a page or a session gets a 403.
+    assert_eq!(api.get("/api/auth/ways-in").send().await.status, 403);
+    key(&api, "steffen", "agent").await;
+    assert_eq!(ways().await["owner_has_key"], false, "an agent key signs nobody in");
+    key(&api, "steffen", "person").await;
+    assert_eq!(ways().await["owner_has_key"], true);
+    api.member("ada", "ada").await;
+    assert_eq!(ways().await["stays_on"], true);
+    sqlx::query(&crate::db::sql("UPDATE people SET removed_at = ? WHERE id = 'ada'")).bind(stamp()).execute(&api.app.pool).await.unwrap();
+    assert_eq!(ways().await["stays_on"], true, "it stays on after they go");
+}
