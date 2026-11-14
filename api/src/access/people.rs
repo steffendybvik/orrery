@@ -26,6 +26,8 @@ pub struct Who {
     pub person: String,
     pub owner: bool,
     pub browser: bool,
+    /// An agent key's workspace, the only one it reaches (ORR-1106); none for a login, which is the person's.
+    pub workspace: Option<String>,
 }
 
 /// What the router's settings say about getting in (`Orrery-Login-Ways`), which only it can read: whether a login
@@ -70,6 +72,7 @@ pub struct Holder {
     pub owner: bool,
     pub agent: bool,
     pub key: String,
+    pub workspace: Option<String>,
 }
 
 /// Whether a use noted at `last` is older than `USED_EVERY`, so it's noted again.
@@ -196,7 +199,7 @@ fn key_of(row: &sqlx::any::AnyRow) -> Value {
     for field in ["id", "person", "kind", "name", "created_at"] {
         key.insert(field.into(), Value::String(row.get(field)));
     }
-    for field in ["last_used_at", "revoked_at"] {
+    for field in ["workspace", "last_used_at", "revoked_at"] {
         if let Some(at) = row.get::<Option<String>, _>(field) {
             key.insert(field.into(), Value::String(at));
         }
@@ -532,7 +535,7 @@ impl<'c> People<'c> {
     /// The keys of `person`, or everyone's, the newest first; a revoked one stays listed. Never the key itself.
     pub async fn keys(&mut self, person: Option<&str>) -> Result<Value> {
         let text = format!(
-            "SELECT id, person, kind, name, created_at, last_used_at, revoked_at FROM keys{} ORDER BY created_at DESC, id",
+            "SELECT id, person, kind, name, workspace, created_at, last_used_at, revoked_at FROM keys{} ORDER BY created_at DESC, id",
             if person.is_some() { " WHERE person = ?" } else { "" }
         );
         let text = sql(&text);
@@ -559,19 +562,47 @@ impl<'c> People<'c> {
             return Err(ApiError::bad_request("\"name\" says what the key is for, such as the machine it's on"));
         }
         self.needs_person(&whose).await?;
+        let workspace = match kind.as_str() {
+            "agent" => Some(self.agents_workspace(body, &whose).await?),
+            _ => None,
+        };
         let key = format!("orrery_{kind}_{}", URL_SAFE_NO_PAD.encode(random(32)));
         let id: String = random(6).iter().map(|b| format!("{b:02x}")).collect();
         let created = stamp();
-        sqlx::query(&sql("INSERT INTO keys (id, person, kind, name, hash, created_at) VALUES (?, ?, ?, ?, ?, ?)"))
+        sqlx::query(&sql("INSERT INTO keys (id, person, kind, name, workspace, hash, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)"))
             .bind(&id)
             .bind(&whose)
             .bind(&kind)
             .bind(&label)
+            .bind(workspace.clone())
             .bind(hash_of(&key))
             .bind(&created)
             .execute(&mut *self.conn)
             .await?;
-        Ok(json!({"id": id, "person": whose, "kind": kind, "name": label, "created_at": created, "key": key}))
+        let mut made = json!({"id": id, "person": whose, "kind": kind, "name": label, "created_at": created, "key": key});
+        if let Some(workspace) = workspace {
+            made["workspace"] = json!(workspace);
+        }
+        Ok(made)
+    }
+
+    /// The workspace an agent key reaches (ORR-1106): the body's `workspace`, or `default`, and one its person is a
+    /// member of, as a session's key reaches only the workspace it works in.
+    async fn agents_workspace(&mut self, body: &Value, whose: &str) -> Result<String> {
+        let workspace = match body.get("workspace") {
+            None | Some(Value::Null) => "default".to_string(),
+            Some(Value::String(w)) if !w.trim().is_empty() => w.trim().to_string(),
+            Some(_) => return Err(ApiError::bad_request("\"workspace\" is the id of the workspace the agent key reaches")),
+        };
+        let member = sqlx::query(&sql("SELECT 1 FROM workspace_members WHERE workspace = ? AND person = ?"))
+            .bind(&workspace)
+            .bind(whose)
+            .fetch_optional(&mut *self.conn)
+            .await?;
+        if member.is_none() {
+            return Err(ApiError::not_found(format!("{whose} isn't in a workspace \"{workspace}\"")));
+        }
+        Ok(workspace)
     }
 
     /// Revokes a key, at once, with the logins it started (ORR-786), and its person's logins from before orrery kept which
@@ -665,7 +696,7 @@ impl<'c> People<'c> {
     /// Who a key is, by its hash as the keys table keeps it: the router sends a bearer hashed (`Orrery-Key`), so the key
     /// itself stays with it.
     async fn key_hash_holder(&mut self, hash: &str) -> Result<Option<Holder>> {
-        let row = sqlx::query(&sql("SELECT k.id, k.kind, k.person, p.role, k.last_used_at FROM keys k JOIN people p ON p.id = k.person \
+        let row = sqlx::query(&sql("SELECT k.id, k.kind, k.person, k.workspace, p.role, k.last_used_at FROM keys k JOIN people p ON p.id = k.person \
              WHERE k.hash = ? AND k.revoked_at IS NULL AND p.removed_at IS NULL"))
         .bind(hash)
         .fetch_optional(&mut *self.conn)
@@ -675,7 +706,13 @@ impl<'c> People<'c> {
         if stale(row.get("last_used_at")) {
             sqlx::query(&sql("UPDATE keys SET last_used_at = ? WHERE id = ?")).bind(stamp()).bind(&id).execute(&mut *self.conn).await?;
         }
-        Ok(Some(Holder { person: row.get("person"), owner: row.get::<String, _>("role") == "owner", agent: row.get::<String, _>("kind") == "agent", key: id }))
+        Ok(Some(Holder {
+            person: row.get("person"),
+            owner: row.get::<String, _>("role") == "owner",
+            agent: row.get::<String, _>("kind") == "agent",
+            key: id,
+            workspace: row.get("workspace"),
+        }))
     }
 
     /// Starts a browser's login for `person` (`startLogin`): the secret for its cookie. `key` is the id of the key it was
@@ -712,7 +749,7 @@ impl<'c> People<'c> {
         if stale(row.get("last_used_at")) {
             sqlx::query(&sql("UPDATE logins SET last_used_at = ? WHERE id = ?")).bind(stamp()).bind(id).execute(&mut *self.conn).await?;
         }
-        Ok(Some(Who { person: row.get("person"), owner: row.get::<String, _>("role") == "owner", browser: true }))
+        Ok(Some(Who { person: row.get("person"), owner: row.get::<String, _>("role") == "owner", browser: true, workspace: None }))
     }
 
     /// Who a request's credential says it is (`credential` in web/server/utils/auth.ts), from its bearer's hash and its
@@ -720,7 +757,12 @@ impl<'c> People<'c> {
     /// login, so nothing with a key in its environment can act as a person.
     pub async fn credential(&mut self, bearer: Option<&str>, login: Option<&str>) -> Result<Option<Who>> {
         if let Some(key) = bearer {
-            return Ok(self.key_hash_holder(key).await?.filter(|h| h.agent).map(|h| Who { person: h.person, owner: h.owner, browser: false }));
+            return Ok(self.key_hash_holder(key).await?.filter(|h| h.agent).map(|h| Who {
+                person: h.person,
+                owner: h.owner,
+                browser: false,
+                workspace: h.workspace,
+            }));
         }
         match login {
             Some(login) => self.login_holder(login).await,

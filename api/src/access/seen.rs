@@ -33,7 +33,8 @@ impl Seen {
 
     /// The workspaces the asker is a member of: the credential's person, the owner's own (their chat's too), or the
     /// person a session names; the owner sees only the ones they're in. A request naming nobody who's here, as with
-    /// login off, sees only `default`. An untrusted session also reaches `own`, the project it was started for.
+    /// login off, sees only `default`. An agent key reaches only its own workspace. An untrusted session also reaches
+    /// `own`, the project it was started for.
     pub(crate) async fn asking(conn: &mut AnyConnection, who: Option<&Who>, actor: &Actor, own: Option<&str>) -> Result<Seen> {
         let own = own.filter(|_| actor.untrusted).map(|own| percent_decode_str(own).decode_utf8_lossy().into_owned());
         let mut issues = IssueWrites::new(conn);
@@ -49,7 +50,7 @@ impl Seen {
             }
             None => false,
         };
-        let workspaces = match person.filter(|_| here) {
+        let mut workspaces: Vec<String> = match person.filter(|_| here) {
             Some(person) => sqlx::query(&sql("SELECT workspace FROM workspace_members WHERE person = ? ORDER BY workspace"))
                 .bind(&person)
                 .fetch_all(&mut *conn)
@@ -59,6 +60,10 @@ impl Seen {
                 .collect(),
             None => vec!["default".to_string()],
         };
+        // An agent key reaches only its own workspace, whatever else its person is in.
+        if let Some(only) = who.and_then(|w| w.workspace.as_deref()) {
+            workspaces.retain(|w| w == only);
+        }
         Ok(Seen::Only { workspaces, own })
     }
 
