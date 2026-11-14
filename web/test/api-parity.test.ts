@@ -1921,6 +1921,8 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         const canGetIn = await store.ownerHasKey()
         // On loopback it's off unless auth stays on; anywhere else, through a proxy or on the phone's port it asks.
         expect(await status(loopback)).toEqual({mode: stays ? 'on' : 'off', can_get_in: canGetIn, oidc: false, warn_http: false, phone: false})
+        // How the owner can get in, as the auth middleware asks it (ORR-1158): the local app's own call alone.
+        expect(await (await call('GET', '/api/auth/ways-in', undefined, OWN_WORK)).json()).toEqual({owner_has_key: canGetIn, stays_on: stays})
         expect((await status(none, '192.168.1.9:9000')).mode).toBe('on')
         expect((await status(none, '192.168.1.9:9000')).warn_http).toBe(true)
         expect((await status({...none, https: true}, 'orrery.example')).warn_http).toBe(false)
@@ -3145,6 +3147,10 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         const chain = await viaApi('GET', `/issues/${there.sub}/workers`)
         expect(chain.body).toEqual([{issue: there.sub, started: false, worker: null}, {issue: there.top, started: true, worker: 'sess-1'}])
         expect(await store.get('SELECT session FROM issue_sessions WHERE project = ? AND issue = ?', 'through-store', here.top)).toEqual({session: 'sess-1'})
+        // The owner's comment nobody answered or heard, for a session to catch up on (ORR-1161).
+        const now = new Date().toISOString()
+        await store.db.run("INSERT INTO comments (project, issue, body, created_by, owned, created_at, updated_at) VALUES ('through-api', ?, 'Still waiting', 'owner', 1, ?, ?)", there.top, now, now)
+        expect((await viaApi('GET', '/comments/unanswered')).body).toContainEqual(expect.objectContaining({issue: there.top, body: 'Still waiting', created_by: 'owner', owned: true}))
         for (const route of ['/issue-sessions', `/issues/${there.top}/dependents`]) expect(domainOf('GET', `/api/projects/through-api${route}`)).toBeUndefined()
     })
 
