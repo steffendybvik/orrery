@@ -8,12 +8,14 @@ import {PROJECT_PLACES, type ProjectPlace} from '~/composables/useProjectOrder'
 // glance, and its secrets.
 useHead({title: 'App settings · orrery'})
 const {settings, tintColor, save} = useAppSettings()
-const {environment} = useRuntimeConfig().public
 const failed = ref('')
 // The settings by what they reach (ORR-285), each tab saying so: you, how issues work in every project, this orrery as
 // a whole, and Advanced, the pages for looking into problems (ORR-561). A link to a section (`#tint`) opens its tab, even
 // one naming the tab it used to be on (`?tab=orrery#advanced`). How sessions start and what they hear is on the Sessions page.
-type Tab = 'you' | 'projects' | 'issues' | 'orrery' | 'usage' | 'advanced'
+// Since workspaces (ORR-1108), what was every project's and this orrery's is the workspace's: one Workspace tab for it,
+// and the tabs it was on (`?tab=issues`, `projects`, `orrery`) open it.
+type Tab = 'you' | 'workspace' | 'usage' | 'advanced'
+const OLD_TABS: Record<string, Tab> = {projects: 'workspace', issues: 'workspace', orrery: 'workspace'}
 const TABS: {value: Tab, label: string, scope: string, sections: Heading[]}[] = [
     {value: 'you', label: 'You', scope: 'Who you are on this orrery, and how your issues are named outside it.', sections: [
         {id: 'name', text: 'Your name', level: 2},
@@ -24,16 +26,13 @@ const TABS: {value: Tab, label: string, scope: string, sections: Heading[]}[] = 
         {id: 'phone', text: 'Open on your phone', level: 2},
         {id: 'logins', text: 'Signed in', level: 2},
     ]},
-    {value: 'projects', label: 'Projects', scope: 'Every project on this orrery, and where the sidebar lists it.', sections: [
+    {value: 'workspace', label: 'Workspace', scope: "This workspace: its name and colour, its projects and how their issues work, and the keys its agents use. A project's own settings are on its Settings tab; how sessions start is under Sessions → Setup.", sections: [
+        {id: 'workspace', text: 'Name', level: 2},
+        {id: 'tint', text: 'Colour', level: 2},
         {id: 'projects', text: 'Projects in the sidebar', level: 2},
-    ]},
-    {value: 'issues', label: 'Issues', scope: "How issues work in every project on this orrery. A project's own settings are on its Settings tab.", sections: [
         {id: 'proposals', text: 'Proposals', level: 2},
         {id: 'tracker', text: 'Team tracker', level: 2},
         {id: 'statuses', text: 'Issue statuses', level: 2},
-    ]},
-    {value: 'orrery', label: 'This orrery', scope: 'This orrery as a whole: how it looks and the keys its agents use. How sessions start is under Sessions → Setup.', sections: [
-        {id: 'tint', text: 'Background tint', level: 2},
         {id: 'people', text: 'People', level: 2},
         {id: 'secrets', text: 'Secrets', level: 2},
     ]},
@@ -52,7 +51,7 @@ const tabs = TABS.map(({value, label}) => ({value, label}))
 const route = useRoute()
 const router = useRouter()
 const tab = computed<Tab>({
-    get: () => TABS.find(t => t.sections.some(h => `#${h.id}` === route.hash))?.value ?? TABS.find(t => t.value === route.query.tab)?.value ?? 'you',
+    get: () => TABS.find(t => t.sections.some(h => `#${h.id}` === route.hash))?.value ?? TABS.find(t => t.value === route.query.tab)?.value ?? OLD_TABS[String(route.query.tab)] ?? 'you',
     set: next => router.replace({query: {...route.query, tab: next === 'you' ? undefined : next}, hash: ''}),
 })
 // An address naming a section's old tab (`?tab=orrery#advanced`) is put right, so it reads as the tab it opens.
@@ -173,10 +172,40 @@ async function setAdvanced(on: boolean) {
     }
 }
 
+// The workspace this tab is in (ORR-1108): its name and colour are its owners' to change. Its colour is the page's
+// tint too, so picking one sets both.
+const {current: workspace, load: loadWorkspaces} = useWorkspaces()
+onMounted(() => loadWorkspaces())
+const owns = computed(() => workspace.value?.role === 'owner')
+const workspaceName = ref('')
+const workspaceFailed = ref('')
+watch(() => workspace.value?.name, now => {
+    workspaceName.value = now ?? ''
+}, {immediate: true})
+async function changeWorkspace(change: {name?: string, color?: string | null}) {
+    if (!workspace.value) return
+    const changed = await apiFetch<Workspace>(`/workspaces/${encodeURIComponent(workspace.value.id)}`, {method: 'PATCH', body: change})
+    Object.assign(workspace.value, changed)
+}
+async function saveWorkspaceName() {
+    const next = workspaceName.value.trim()
+    if (!next || next === workspace.value?.name) {
+        workspaceName.value = workspace.value?.name ?? ''
+        return
+    }
+    workspaceFailed.value = ''
+    try {
+        await changeWorkspace({name: next})
+    } catch (error) {
+        workspaceFailed.value = errorMessage(error)
+    }
+}
+
 async function pick(tint: string | null) {
     failed.value = ''
     try {
         await save({tint})
+        if (owns.value) await changeWorkspace({color: tint})
     } catch (error) {
         failed.value = errorMessage(error)
     }
@@ -284,93 +313,30 @@ async function pick(tint: string | null) {
         <LoginSettings />
       </section>
 
-      <section v-if="tab === 'projects'" id="projects" class="scroll-mt-6 flex flex-col gap-3">
+      <section v-if="tab === 'workspace'" id="workspace" class="scroll-mt-6 flex flex-col gap-3">
         <header class="flex flex-col gap-0.5">
-          <h2 class="text-[15px] font-semibold text-fg">{{ title.projects }}</h2>
-          <p class="text-xs text-muted">
-            Star the projects you're on to keep them at the top of the sidebar, and hide the ones you're leaving for a while.
-            A hidden one folds away under Hidden at the foot of the list. Its issues, sessions and schedules carry on, and its pages still open.
-          </p>
+          <h2 class="text-[15px] font-semibold text-fg">{{ title.workspace }}</h2>
+          <p class="text-xs text-muted">What this workspace is called, in the sidebar and in each tab's title. <template v-if="!owns">Its owners can change it.</template></p>
         </header>
-        <ul v-if="allProjects.length" class="flex flex-col divide-y divide-line rounded-xl ring-1 ring-line" data-testid="settings-projects">
-          <li v-for="project in allProjects" :key="project.id" class="flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2">
-            <NuxtLink :to="`/p/${project.id}`" class="flex min-w-0 flex-1 items-center gap-2 text-[13px] hover:underline" :class="isHidden(project.id) ? 'text-muted' : 'text-fg'">
-              <ProjectIcon v-if="project.icon && heroicon(project.icon)" :icon="project.icon" :color="project.icon_color" class="size-3.5" />
-              <ProgressRing v-else :kinds="project.board.kinds" bare :size="14" />
-              <span class="truncate">{{ project.name }}</span>
-            </NuxtLink>
-            <SegmentedControl
-                :model-value="placeOf(project.id)"
-                :options="PROJECT_PLACES"
-                :aria-label="`Where the sidebar lists ${project.name}`"
-                @update:model-value="placeProject(project.id, $event)"
-            />
-          </li>
-        </ul>
-        <p v-else class="text-xs text-faint">No projects yet.</p>
-        <p v-if="projectsFailed" class="text-xs text-rose-700 dark:text-rose-400">{{ projectsFailed }}</p>
+        <input
+            v-model="workspaceName"
+            aria-label="Workspace name"
+            maxlength="60"
+            class="h-8 w-72 max-w-full field"
+            :disabled="!owns"
+            data-testid="workspace-settings-name"
+            @keydown.enter="($event.target as HTMLInputElement).blur()"
+            @keydown.esc="workspaceName = workspace?.name ?? ''"
+            @blur="saveWorkspaceName"
+        >
+        <p v-if="workspaceFailed" class="text-xs text-rose-700 dark:text-rose-400">{{ workspaceFailed }}</p>
       </section>
 
-      <section v-if="tab === 'issues'" id="proposals" class="scroll-mt-6 flex flex-col gap-3">
-        <header class="flex flex-col gap-0.5">
-          <h2 class="text-[15px] font-semibold text-fg">{{ title.proposals }}</h2>
-          <p class="text-xs text-muted">
-            A proposal isn't work until you approve it. While one waits on you, sessions can comment on it and put it up again,
-            but not start it, assign it or put it in a release, so nothing gets built before you've said yes.
-          </p>
-        </header>
-        <label class="flex items-center gap-2 text-[13px] text-fg">
-          <input type="checkbox" class="accent-accent-fill" :checked="settings.restrict_proposals" @change="restrictProposals(($event.target as HTMLInputElement).checked)">
-          Keep agents off proposals until you approve them
-        </label>
-        <p v-if="proposalsFailed" class="text-xs text-rose-700 dark:text-rose-400">{{ proposalsFailed }}</p>
-      </section>
-
-      <section v-if="tab === 'issues'" id="tracker" class="scroll-mt-6 flex flex-col gap-3">
-        <header class="flex flex-col gap-0.5">
-          <h2 class="text-[15px] font-semibold text-fg">{{ title.tracker }}</h2>
-          <p class="text-xs text-muted">
-            This board is yours; the team's tasks live on its tracker. An issue's Team tasks link there:
-            give a task's web address with <span class="font-mono">{id}</span> where its id goes.
-          </p>
-        </header>
-        <form class="flex items-center gap-2" @submit.prevent="saveTracker">
-          <input
-              v-model="tracker"
-              type="url"
-              aria-label="Team tracker"
-              placeholder="https://tracker.example.com/issue/{id}"
-              spellcheck="false"
-              class="h-8 w-[28rem] max-w-full field font-mono"
-              @blur="saveTracker"
-              @keydown.esc="tracker = settings.tracker ?? ''; ($event.target as HTMLInputElement).blur()"
-          >
-          <span v-if="trackerFailed" class="text-xs text-rose-700 dark:text-rose-400">{{ trackerFailed }}</span>
-        </form>
-        <p v-if="trackerTurned" class="text-xs text-muted" role="status">
-          Saved as a task link, with <span class="font-mono">{id}</span> where a task's id goes: <span class="font-mono text-fg">{{ trackerTurned }}</span>
-        </p>
-        <p v-else class="text-xs text-faint">
-          For a tracker this board knows, a link to its team or projects page works too: it's saved as the link to a task.
-        </p>
-      </section>
-
-      <section v-if="tab === 'issues'" id="statuses" class="scroll-mt-6 flex flex-col gap-3">
-        <header class="flex flex-col gap-0.5">
-          <h2 class="text-[15px] font-semibold text-fg">{{ title.statuses }}</h2>
-          <p class="text-xs text-muted">
-            The columns every project's issues move through. Each belongs to a kind, which is what orrery and your agents go by:
-            add a status to a kind (In review, Blocked) and it counts, shows and signals like the rest of its kind.
-          </p>
-        </header>
-        <StatusSettings />
-      </section>
-
-      <section v-if="tab === 'orrery'" id="tint" class="scroll-mt-6 flex flex-col gap-3">
+      <section v-if="tab === 'workspace'" id="tint" class="scroll-mt-6 flex flex-col gap-3">
         <header class="flex flex-col gap-0.5">
           <h2 class="text-[15px] font-semibold text-fg">{{ title.tint }}</h2>
           <p class="text-xs text-muted">
-            Colours this orrery<template v-if="environment"> ({{ environment }})</template> so you can tell it from another at a glance. It's this orrery's own: each keeps its tint.
+            Colours this workspace, the page's background and its dot in the switcher, so you can tell it from another at a glance. Each workspace keeps its own.
           </p>
         </header>
         <div class="flex flex-wrap items-center gap-2">
@@ -404,7 +370,89 @@ async function pick(tint: string | null) {
         <p v-if="failed" class="text-xs text-rose-700 dark:text-rose-400">{{ failed }}</p>
       </section>
 
-<section v-if="tab === 'orrery'" id="people" class="scroll-mt-6 flex flex-col gap-3">
+      <section v-if="tab === 'workspace'" id="projects" class="scroll-mt-6 flex flex-col gap-3">
+        <header class="flex flex-col gap-0.5">
+          <h2 class="text-[15px] font-semibold text-fg">{{ title.projects }}</h2>
+          <p class="text-xs text-muted">
+            Star the projects you're on to keep them at the top of the sidebar, and hide the ones you're leaving for a while.
+            A hidden one folds away under Hidden at the foot of the list. Its issues, sessions and schedules carry on, and its pages still open.
+          </p>
+        </header>
+        <ul v-if="allProjects.length" class="flex flex-col divide-y divide-line rounded-xl ring-1 ring-line" data-testid="settings-projects">
+          <li v-for="project in allProjects" :key="project.id" class="flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2">
+            <NuxtLink :to="`/p/${project.id}`" class="flex min-w-0 flex-1 items-center gap-2 text-[13px] hover:underline" :class="isHidden(project.id) ? 'text-muted' : 'text-fg'">
+              <ProjectIcon v-if="project.icon && heroicon(project.icon)" :icon="project.icon" :color="project.icon_color" class="size-3.5" />
+              <ProgressRing v-else :kinds="project.board.kinds" bare :size="14" />
+              <span class="truncate">{{ project.name }}</span>
+            </NuxtLink>
+            <SegmentedControl
+                :model-value="placeOf(project.id)"
+                :options="PROJECT_PLACES"
+                :aria-label="`Where the sidebar lists ${project.name}`"
+                @update:model-value="placeProject(project.id, $event)"
+            />
+          </li>
+        </ul>
+        <p v-else class="text-xs text-faint">No projects yet.</p>
+        <p v-if="projectsFailed" class="text-xs text-rose-700 dark:text-rose-400">{{ projectsFailed }}</p>
+      </section>
+
+      <section v-if="tab === 'workspace'" id="proposals" class="scroll-mt-6 flex flex-col gap-3">
+        <header class="flex flex-col gap-0.5">
+          <h2 class="text-[15px] font-semibold text-fg">{{ title.proposals }}</h2>
+          <p class="text-xs text-muted">
+            A proposal isn't work until you approve it. While one waits on you, sessions can comment on it and put it up again,
+            but not start it, assign it or put it in a release, so nothing gets built before you've said yes.
+          </p>
+        </header>
+        <label class="flex items-center gap-2 text-[13px] text-fg">
+          <input type="checkbox" class="accent-accent-fill" :checked="settings.restrict_proposals" @change="restrictProposals(($event.target as HTMLInputElement).checked)">
+          Keep agents off proposals until you approve them
+        </label>
+        <p v-if="proposalsFailed" class="text-xs text-rose-700 dark:text-rose-400">{{ proposalsFailed }}</p>
+      </section>
+
+      <section v-if="tab === 'workspace'" id="tracker" class="scroll-mt-6 flex flex-col gap-3">
+        <header class="flex flex-col gap-0.5">
+          <h2 class="text-[15px] font-semibold text-fg">{{ title.tracker }}</h2>
+          <p class="text-xs text-muted">
+            This board is yours; the team's tasks live on its tracker. An issue's Team tasks link there:
+            give a task's web address with <span class="font-mono">{id}</span> where its id goes.
+          </p>
+        </header>
+        <form class="flex items-center gap-2" @submit.prevent="saveTracker">
+          <input
+              v-model="tracker"
+              type="url"
+              aria-label="Team tracker"
+              placeholder="https://tracker.example.com/issue/{id}"
+              spellcheck="false"
+              class="h-8 w-[28rem] max-w-full field font-mono"
+              @blur="saveTracker"
+              @keydown.esc="tracker = settings.tracker ?? ''; ($event.target as HTMLInputElement).blur()"
+          >
+          <span v-if="trackerFailed" class="text-xs text-rose-700 dark:text-rose-400">{{ trackerFailed }}</span>
+        </form>
+        <p v-if="trackerTurned" class="text-xs text-muted" role="status">
+          Saved as a task link, with <span class="font-mono">{id}</span> where a task's id goes: <span class="font-mono text-fg">{{ trackerTurned }}</span>
+        </p>
+        <p v-else class="text-xs text-faint">
+          For a tracker this board knows, a link to its team or projects page works too: it's saved as the link to a task.
+        </p>
+      </section>
+
+      <section v-if="tab === 'workspace'" id="statuses" class="scroll-mt-6 flex flex-col gap-3">
+        <header class="flex flex-col gap-0.5">
+          <h2 class="text-[15px] font-semibold text-fg">{{ title.statuses }}</h2>
+          <p class="text-xs text-muted">
+            The columns every project's issues move through. Each belongs to a kind, which is what orrery and your agents go by:
+            add a status to a kind (In review, Blocked) and it counts, shows and signals like the rest of its kind.
+          </p>
+        </header>
+        <StatusSettings />
+      </section>
+
+<section v-if="tab === 'workspace'" id="people" class="scroll-mt-6 flex flex-col gap-3">
         <header class="flex flex-col gap-0.5">
           <h2 class="text-[15px] font-semibold text-fg">{{ title.people }}</h2>
           <p class="text-xs text-muted">
@@ -414,7 +462,7 @@ async function pick(tint: string | null) {
         <PeopleSettings />
       </section>
 
-            <section v-if="tab === 'orrery'" id="secrets" class="scroll-mt-6 flex flex-col gap-3">
+            <section v-if="tab === 'workspace'" id="secrets" class="scroll-mt-6 flex flex-col gap-3">
         <header class="flex flex-col gap-0.5">
           <h2 class="text-[15px] font-semibold text-fg">{{ title.secrets }}</h2>
           <p class="text-xs text-muted">
