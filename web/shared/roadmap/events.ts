@@ -9,7 +9,7 @@ export type EventLevel = (typeof EVENT_LEVELS)[number]
 export const ACTIVITY_FAMILIES = ['issue', 'comment', 'milestone', 'doc', 'release'] as const
 
 /** A line in the event log (`GET /api/events/log`): what orrery did, what went wrong or a change to the roadmap, its
- * `kind` a dotted name (`server.error`, `session.started`, `backup.made`, `issue.status`…). Each is a line of its own
+ * `kind` a dotted name (`server.error`, `session.started`, `migration.ran`, `issue.status`…). Each is a line of its own
  * (ORR-378): `count` is 1, and `last_seen` is `first_seen`, on those recorded since. */
 export interface LoggedEvent {
     id: number

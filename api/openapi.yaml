@@ -1396,9 +1396,9 @@ paths:
       x-served: false
       summary: Whether the database is a new orrery's, and a Postgres one's size
       description: >-
-        The local app's alone (ORR-1140): `fresh` when it has no projects and no owner yet, as the local app asks before
-        it offers a backup to start from, and `size` in bytes for a Postgres database as it reports itself (left out
-        when it can't say). A SQLite file's size is the local app's, from the file.
+        The local app's alone (ORR-1140): `fresh` when it has no projects and no owner yet, as the local app asks as it
+        starts, and `size` in bytes for a Postgres database as it reports itself (left out when it can't say). A SQLite
+        file's size is the local app's, from the file.
       responses:
         '200':
           description: The database's state
@@ -1410,25 +1410,6 @@ paths:
                 properties:
                   fresh: {type: boolean}
                   size: {type: integer}
-  /api/database/environment:
-    put:
-      x-served: false
-      summary: Keeps the name the orrery runs under
-      description: >-
-        The local app's alone (ORR-1140), as it starts: the name (`personal`, `work`, …) kept in its settings, so its
-        backups say which orrery they're a copy of.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [environment]
-              properties:
-                environment: {type: string}
-      responses:
-        '204': {description: Kept}
-        '400': {$ref: '#/components/responses/BadRequest'}
   /api/database/compact:
     post:
       x-served: false
@@ -1446,47 +1427,6 @@ paths:
                 always: {type: boolean}
       responses:
         '200': {description: 'Whether it was compacted', content: {application/json: {schema: {type: object, properties: {compacted: {type: boolean}}}}}}
-  /api/database/rows:
-    post:
-      x-served: false
-      summary: Reads every row of the tables a copy takes
-      description: >-
-        The local app's alone (ORR-1134): every row of each table in `tables`, read in one transaction (on Postgres one
-        snapshot), for a move into another database or a backup into (or of) Postgres. The local app writes the other
-        database; only this reads the one orrery runs on. Bytes (an upload's image) come as `{$base64}`.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [tables]
-              properties:
-                tables: {type: array, items: {type: string, pattern: '^[a-z_]+$'}}
-      responses:
-        '200': {description: 'The rows, by table, in the order asked', content: {application/json: {schema: {type: object, properties: {tables: {type: object, additionalProperties: {type: array, items: {type: object}}}}}}}}
-        '400': {description: 'No list of table names'}
-  /api/database/snapshot:
-    post:
-      x-served: false
-      summary: Writes a copy of the database for a backup
-      description: >-
-        The local app's alone (ORR-1097): a SQLite copy of the database, written with `VACUUM INTO` to `to`, a
-        `.partial` file not there yet in a folder that is. The local app checks it, puts it in place and lets old ones
-        go. A Postgres database is the local app's to snapshot still (409).
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [to]
-              properties:
-                to: {type: string, description: 'An absolute path to a `.partial` file'}
-      responses:
-        '204': {description: Written}
-        '400': {$ref: '#/components/responses/BadRequest'}
-        '409': {$ref: '#/components/responses/Conflict'}
   /api/secrets/{name}/uses:
     parameters:
       - {name: name, in: path, required: true, description: 'The secret''s name: capitals, digits and `_`', schema: {type: string}}

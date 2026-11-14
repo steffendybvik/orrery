@@ -35,12 +35,9 @@ describe('the release compose file', () => {
         expect(release).not.toMatch(/^ {4}build:/m)
     })
 
-    it('backs up to a volume of its own, making no folder beside it, unless ORRERY_BACKUP names one (ORR-469)', () => {
+    it('takes no backups: no backup volume or setting, as backing up is left to whoever runs orrery (ORR-1187)', () => {
         for (const compose of [release, repo]) {
-            expect(settings(compose)).toMatchObject({NUXT_BACKUP_HOST: '${ORRERY_BACKUP:-orrery-backup}', NUXT_BACKUP_CHOSEN: '${ORRERY_BACKUP:+yes}'})
-            expect(compose).toContain('- ${ORRERY_BACKUP:-orrery-backup}:/backup')
-            expect(compose).toMatch(/^volumes:\n(?: {2}\S+:\n)*? {2}orrery-backup:$/m)
+            expect(compose).not.toMatch(/BACKUP|\/backup/)
         }
-        expect(release).not.toContain('./backups')
     })
 })

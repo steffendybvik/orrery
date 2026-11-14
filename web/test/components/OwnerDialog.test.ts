@@ -14,13 +14,9 @@ registerEndpoint('/api/owner', {method: 'PUT', handler: async event => {
     return {name: 'skoll_fenrisson', display: body.name, named: true}
 }})
 
-let snapshots: {name: string, kind: string, at: string, size: number, projects?: number}[] = []
-registerEndpoint('/api/backups', {method: 'GET', handler: () => ({snapshots, fresh: true, restorable: true, environment: 'personal', docker: false})})
-
 const mounted: VueWrapper[] = []
 beforeEach(() => {
     renamed = []
-    snapshots = []
     useOwner().owner.value = {name: 'agent', display: '', named: false}
 })
 afterEach(() => mounted.splice(0).forEach(w => w.unmount()))
@@ -33,23 +29,12 @@ async function mount() {
     return {wrapper, submit}
 }
 
-const snapshot = (projects?: number) => ({name: 'orrery.db', kind: 'latest', at: '2026-10-30T19:38:00Z', size: 356_000, projects})
-
 describe('OwnerDialog', () => {
-    it('offers a backup that holds projects, or may, before asking anything else', async () => {
-        for (const projects of [4, undefined]) {
-            snapshots = [snapshot(projects)]
-            const {wrapper} = await mount()
-            await vi.waitFor(() => expect(wrapper.text()).toContain('Found backups. Restore one?'))
-            mounted.splice(0).forEach(w => w.unmount())
-        }
-    })
-
-    it('goes straight on when the only backups are of an empty orrery (ORR-741)', async () => {
-        snapshots = [snapshot(0), snapshot(0)]
+    it('asks only whose it is, never where to keep the data or to restore anything', async () => {
         const {wrapper} = await mount()
         await vi.waitFor(() => expect(wrapper.find('input').exists()).toBe(true))
-        expect(wrapper.text()).not.toContain('Found backups')
+        expect(wrapper.text()).toContain('Whose orrery is this?')
+        expect(wrapper.text()).not.toMatch(/backup|restore|Postgres|keep its data/i)
     })
 
     it('shows the id the name makes, and saves it as the owner', async () => {

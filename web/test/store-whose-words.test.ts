@@ -248,7 +248,7 @@ describe('the bell', () => {
 describe('what stays the owner\'s alone', () => {
     it('is every one of these rows, with a member cell on every row', () => {
         for (const row of PERMISSIONS) expect(row.member, row.id).toBeDefined()
-        for (const id of ['presets.write', 'settings.write', 'secrets.write', 'secrets.egress', 'database.write', 'schedules.session', 'schedules.message', 'schedules.action', 'chats.use']) {
+        for (const id of ['presets.write', 'settings.write', 'secrets.write', 'secrets.egress', 'schedules.session', 'schedules.message', 'schedules.action', 'chats.use']) {
             expect(PERMISSIONS.find(row => row.id === id)?.member.level, id).toBe('owner')
         }
     })

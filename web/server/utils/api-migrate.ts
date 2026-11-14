@@ -6,7 +6,6 @@
 import {spawnSync} from 'node:child_process'
 import {existsSync} from 'node:fs'
 import {resolve} from 'node:path'
-import {backupDir} from './backup-choice'
 
 /** The repo's own debug build of the API, from web/ where `nuxt dev` runs. */
 const DEV_BIN = resolve(process.cwd(), '../api/target/debug/orrery-api')
@@ -30,11 +29,7 @@ export type Migrated = {from: number, to: number}
 export function migrateWithApi(setting: string, steps: number, bin = apiBinary()): Migrated | null | undefined {
     if (!bin) return undefined
     const run = spawnSync(bin, ['migrate'], {
-        env: {
-            ...process.env, NUXT_DATABASE: setting, ORRERY_API_STEPS: String(steps),
-            // The copy before an upgrade goes where this server's would (`beforeUpgrade`), and is named the same.
-            ORRERY_API_BACKUP_DIR: backupDir(), ORRERY_VERSION: String(useRuntimeConfig().public?.version ?? ''),
-        },
+        env: {...process.env, NUXT_DATABASE: setting, ORRERY_API_STEPS: String(steps)},
         encoding: 'utf8',
     })
     const said = (run.stderr ?? '').trim().replace(/^\[orrery-api\] /gm, '')

@@ -18,7 +18,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry --mount=type=cache,targe
 FROM node:24.22.1-bookworm-slim AS dev
 RUN npm install -g pnpm@10.14.0
 WORKDIR /src
-RUN mkdir -p /src/node_modules /src/web/node_modules /src/web/.nuxt /data /backup && chown -R node:node /src /data /backup
+RUN mkdir -p /src/node_modules /src/web/node_modules /src/web/.nuxt /data && chown -R node:node /src /data
 # The Rust API, built from this checkout as the image is built, which the server starts beside itself (ORR-1041): the
 # repo's own api/target is the host's build, not this one's.
 COPY --from=api /orrery-api /usr/local/bin/orrery-api
@@ -45,7 +45,7 @@ COPY web/scripts/claim.mjs /app/server/claim.mjs
 # The Rust API, which serves the board's data now that the Nuxt server's routes for it are gone (ORR-1041): the server
 # starts it beside itself on its own database (NUXT_API_BIN).
 COPY --from=api /orrery-api /usr/local/bin/orrery-api
-RUN mkdir /data /backup && chown node:node /data /backup
+RUN mkdir /data && chown node:node /data
 USER node
 ENV HOST=0.0.0.0 PORT=9000 ORRERY_IMAGE=1 NODE_ENV=production NUXT_DATABASE=/data/orrery.db NUXT_API_BIN=/usr/local/bin/orrery-api
 VOLUME /data

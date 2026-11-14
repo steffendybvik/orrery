@@ -441,15 +441,6 @@ export const PERMISSIONS: Permission[] = [
         member: ownerAlone,
     },
     {
-        id: 'database.write', area: 'This orrery', action: 'Back up, restore or move the database',
-        why: 'It decides where all of orrery’s data is.',
-        routes: ['POST /api/backups', 'PUT /api/backups', 'POST /api/backups/restore', 'POST /api/database/move', 'POST /api/database/check'],
-        session: {level: 'owner', note: 'And only from this machine'},
-        chat: refused,
-        untrusted: refused,
-        member: ownerAlone,
-    },
-    {
         id: 'pulls.branches', area: 'This orrery', action: 'See the repos’ branches, and remove one',
         why: 'A branch’s name can hold anyone’s words, and removing one can’t be undone from here.',
         // Reading them is held by the route too, as the table's routes are the writes.

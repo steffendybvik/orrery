@@ -1,8 +1,7 @@
 // The key the secrets are sealed with (ORR-614): ORRERY_SECRET_KEY (NUXT_SECRET_KEY) when the owner set one, else one
 // orrery made on its first start and keeps in a file of its own, `orrery.key`, readable by its owner alone. The file
-// sits in the folder of the SQLite file NUXT_DATABASE names, so a move from App settings leaves it where it is; in
-// Docker that's /data, on SQLite or Postgres alike, so a switch between them keeps it. Backups and `orrery:copy` take
-// the database only, so it's never in one: lose the file and the secrets sealed with it don't open again.
+// sits in the folder of the SQLite file NUXT_DATABASE names; in Docker that's /data, on SQLite or Postgres alike, so a
+// switch between them keeps it. A copy of the database and `orrery:copy` take the database only, so it's never in one: lose the file and the secrets sealed with it don't open again.
 import {randomBytes} from 'node:crypto'
 import {chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync} from 'node:fs'
 import {dirname, join, resolve} from 'node:path'
