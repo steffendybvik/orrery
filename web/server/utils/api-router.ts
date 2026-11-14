@@ -662,7 +662,7 @@ function headersFor(event: H3Event, api: {url: string, token: string}, actor: Ac
         'Orrery-Database': databaseMark(databaseSetting()),
         ...actorHeaders(actor),
         ...askerHeaders(event, actor),
-        ...whoHeaders(event.context.who as Who | undefined, getCookie(event, loginCookie(event)), bearer(event), {origin: getHeader(event, 'origin'), session: getHeader(event, 'orrery-session')}),
+        ...whoHeaders(event.context?.who as Who | undefined, getCookie(event, loginCookie(event)), bearer(event), {origin: getHeader(event, 'origin'), session: getHeader(event, 'orrery-session')}),
         ...loginHeaders({provider: oidcOn(), off: toldOff(), on: toldOn()}, getRequestURL(event, {xForwardedHost: true, xForwardedProto: true}).origin),
         ...cameHeaders({loopback: onLoopback(event), proxied: proxied(event), phone: viaPhone(event), https: getRequestURL(event, {xForwardedProto: true}).protocol === 'https:'}, getRequestHost(event)),
         // The workspace a page or session acts in, for the workspace's own rows (ORR-1107); the API checks it's one the

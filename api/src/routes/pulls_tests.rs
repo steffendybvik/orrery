@@ -525,3 +525,17 @@ async fn an_issues_kept_prs_read_back_with_its_old_ids_and_their_ratings() {
     let missing = api.get(&format!("/api/projects/{project}/issues/NOPE-9/kept-pulls")).send().await;
     assert_eq!(missing.status, 404, "{}", missing.body);
 }
+
+/// A PR's issues are held to the asker's workspaces (ORR-1195): one in another workspace isn't listed, and a PR with
+/// nothing they can see is a 404.
+#[tokio::test]
+async fn a_prs_issues_are_held_to_the_askers_workspaces() {
+    let api = TestApi::new().await;
+    api.team().await;
+    let rockets = api.acme(&["bo"]).await;
+    let issue = api.issue(&rockets, json!({"title": "Fuel"})).await;
+    keep(&api, 12, kept(&[&rockets], &[&issue], "feat/fuel")).await;
+    assert_eq!(api.signed(api.get("/api/pulls/ada/primes/12"), "bo").await.send().await.status, 200);
+    let ana = api.signed(api.get("/api/pulls/ada/primes/12"), "ana").await.send().await;
+    assert_eq!(ana.status, 404, "ana isn't in Acme: {}", ana.body);
+}

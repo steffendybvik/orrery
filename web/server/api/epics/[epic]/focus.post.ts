@@ -8,6 +8,9 @@ export default defineEventHandler(async event => {
     const {start, ...body} = ((await readBody(event).catch(() => null)) ?? {}) as {start?: unknown}
     const actor = await actorOf(event)
     const id = await epicId(event)
+    // A member focuses only an epic of a workspace they're in, as the API finds it for them (ORR-1195).
+    const who = event.context?.who as Who | undefined
+    if (who && !who.owner && !await readAsAsker(event, `/api/epics/${id}`)) throw notFound(`No epic ${id}`)
     const send = () => useStore().focusEpic(id, body, actor)
     const signals = await (start === true && actor.owner ? startAsked.run(true, send) : send())
     setResponseStatus(event, 201)
