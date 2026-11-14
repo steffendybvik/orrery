@@ -23,3 +23,11 @@ export async function needsSeen(event: H3Event, project: string) {
     const sees = await memberSees(event)
     if (sees && !sees.has(project)) throw createError({statusCode: 404, statusMessage: 'Not Found', message: `No project ${project}`})
 }
+
+/** The projects listed to the request's asker (ORR-1195): a member who isn't the owner, those the API lists for them;
+ * anyone else, every one, as this server reads them. */
+export async function projectsListedTo<T>(event: H3Event, every: () => Promise<T[]>): Promise<T[]> {
+    const who = event.context?.who as Who | undefined
+    if (who && !who.owner) return await readAsAsker<T[]>(event, '/api/projects') ?? []
+    return await every()
+}

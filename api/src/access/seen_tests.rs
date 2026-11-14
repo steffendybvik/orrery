@@ -330,3 +330,15 @@ async fn the_projects_list_holds_the_workspace_a_page_names() {
     assert_eq!(listed("default", "bo").await, std::slice::from_ref(&primes));
     assert_eq!(listed("acme", "ana").await, std::slice::from_ref(&primes), "ana isn't in Acme: she sees her own");
 }
+
+/// `/mcp`'s tools name only the projects the asker can see, so another workspace's ids aren't listed (ORR-1195).
+#[tokio::test]
+async fn mcp_tools_name_only_the_askers_projects() {
+    let api = TestApi::new().await;
+    let (_, rockets) = two_workspaces(&api).await;
+    let body = json!({"jsonrpc": "2.0", "id": 1, "method": "tools/list"});
+    let anas = with_agent_key(&api, api.post("/mcp", body.clone()), "ana", Some("default")).await.send().await;
+    assert!(!anas.body.to_string().contains(&format!("\"{rockets}\"")), "ana's tools name Acme's project: {}", anas.body);
+    let bos = with_agent_key(&api, api.post("/mcp", body), "bo", None).await.send().await;
+    assert!(bos.body.to_string().contains(&format!("\"{rockets}\"")), "bo's tools should name it: {}", bos.body);
+}

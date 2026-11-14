@@ -43,10 +43,12 @@ fn chose_other(other: &Value) -> String {
     format!("This session chose {named} as its orrery, so this one won't be read or written from it. Use that orrery's tools instead.")
 }
 
-/// The projects on this orrery, as `GET /api/projects` orders them: a tool on one takes which when there are several.
-async fn projects(conn: &mut AnyConnection) -> Result<Vec<String>> {
+/// The projects on this orrery the asker can see (ORR-1195), as `GET /api/projects` orders them: a tool on one takes
+/// which when there are several.
+async fn projects(conn: &mut AnyConnection, headers: &axum::http::HeaderMap) -> Result<Vec<String>> {
+    let hidden = crate::access::seen::Seen::of(conn, headers).await?.hidden(conn).await?;
     let rows = sqlx::query(&sql("SELECT id FROM projects ORDER BY lower(name), name")).fetch_all(conn).await?;
-    Ok(rows.iter().map(|r| r.get::<String, _>("id")).collect())
+    Ok(rows.iter().map(|r| r.get::<String, _>("id")).filter(|id| !hidden.contains(id)).collect())
 }
 
 /// What answers one JSON-RPC message: `None` for a notification, which has no answer.
@@ -109,7 +111,7 @@ impl Call<'_> {
             }
             "ping" => result(id, json!({})),
             "tools/list" => {
-                let tools = tools::tools_for(&projects(conn).await?, self.kind, &self.app.mcp.loaded(self.session));
+                let tools = tools::tools_for(&projects(conn, self.headers).await?, self.kind, &self.app.mcp.loaded(self.session));
                 result(id, json!({"tools": tools}))
             }
             "tools/call" => {
@@ -146,7 +148,7 @@ impl Call<'_> {
         }
         // Every tool the session's kind could ever have listed, whatever it has loaded.
         let all: Vec<String> = tools::groups().iter().map(|g| g.to_string()).collect();
-        let projects = projects(conn).await?;
+        let projects = projects(conn, self.headers).await?;
         let listed = tools::tools_for(&projects, self.kind, &all);
         let has = listed.iter().any(|t| t["name"] == name) || (name == "more_tools" && self.kind == Kind::Work);
         if !has {
