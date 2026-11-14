@@ -483,17 +483,6 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
           <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14" /></svg>
         </button>
         <template v-if="floating">
-          <button
-              type="button"
-              data-grip
-              class="grid cursor-grab place-items-center rounded p-0.5 text-faint hover:bg-hover hover:text-fg"
-              title="Move the panel: drag, or the arrow keys"
-              aria-label="Move the sessions panel"
-              data-testid="sessions-float-grip"
-              @keydown="float.key"
-          >
-            <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v18M3 12h18M12 3l-3 3m3-3 3 3M12 21l-3-3m3 3 3-3M3 12l3-3m-3 3 3 3M21 12l-3-3m3 3-3 3" /></svg>
-          </button>
           <button type="button" class="grid place-items-center rounded p-0.5 text-faint hover:bg-hover hover:text-fg" title="Back to the sidebar" aria-label="Back to the sidebar" @click="float.dock()">
             <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M9 4v16" /></svg>
           </button>
