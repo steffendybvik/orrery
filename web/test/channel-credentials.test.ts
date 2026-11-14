@@ -24,6 +24,11 @@ describe('the key for an orrery', () => {
         expect(authHeaders('https://a.example', {env: {ORRERY_KEY: 'orrery_agent_env'}, file: keys})).toEqual({Authorization: 'Bearer orrery_agent_env'})
     })
 
+    it("says the session's workspace when it has one (ORR-1109)", () => {
+        expect(authHeaders('https://a.example', {env: {ORRERY_WORKSPACE: ' acme '}, file: '/no/such/file'})).toEqual({'Orrery-Workspace': 'acme'})
+        expect(authHeaders('https://a.example', {env: {ORRERY_KEY: 'orrery_agent_env', ORRERY_WORKSPACE: ''}})).toEqual({Authorization: 'Bearer orrery_agent_env'})
+    })
+
     it('refuses a person key, from either place', () => {
         expect(() => keyFor('https://a.example', {env: {ORRERY_KEY: 'orrery_person_x'}})).toThrow(/person key/)
         expect(() => keyFor('https://a.example', {env: {}, file: file({'https://a.example': 'orrery_person_x'})})).toThrow(/person key/)
