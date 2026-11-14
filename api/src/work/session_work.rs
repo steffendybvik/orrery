@@ -177,7 +177,7 @@ impl<'c> SessionWork<'c> {
     pub(crate) async fn workers(&mut self, project: &str, issue: &str) -> Result<Vec<Value>> {
         let mut issues = Issues::new(self.conn);
         issues.project(project).await?;
-        let started: HashSet<String> = issues.statuses().await?.into_iter().filter(|s| s.kind == "started").map(|s| s.id).collect();
+        let started: HashSet<String> = issues.statuses(project).await?.into_iter().filter(|s| s.kind == "started").map(|s| s.id).collect();
         let mut at = Some(issues.resolve(project, issue, false).await?);
         let mut chain = vec![];
         // A loop in the parents would never end: each issue is walked once.

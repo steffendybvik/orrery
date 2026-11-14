@@ -470,7 +470,7 @@ impl<'c> Chats<'c> {
         match status {
             None => {}
             Some(Value::String(s)) => {
-                to.insert("status".into(), json!(resolve_status(&Issues::new(&mut *self.conn).statuses().await?, Some(s), None)?));
+                to.insert("status".into(), json!(resolve_status(&Issues::new(&mut *self.conn).statuses(&project).await?, Some(s), None)?));
             }
             Some(_) => return Err(ApiError::bad_request("Send \"status\" as a status's id or a kind")),
         }

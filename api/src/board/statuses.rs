@@ -101,23 +101,78 @@ impl Status {
     }
 }
 
+/// The statuses orrery ships, as step 020 gave `default`: (id, name, kind, colour), in board order.
+const SHIPPED: [(&str, &str, &str, &str); 6] = [
+    ("backlog", "Backlog", "backlog", "slate"),
+    ("todo", "Todo", "todo", "blue"),
+    ("in-progress", "In progress", "started", "amber"),
+    ("in-review", "In review", "started", "violet"),
+    ("done", "Done", "done", "green"),
+    ("canceled", "Canceled", "canceled", "slate"),
+];
+
 pub struct Statuses<'c> {
     pub conn: &'c mut AnyConnection,
     pub effects: Effects,
     /// Set for a write: what it sets off goes into the outbox in its transaction (ORR-929).
     pub outbox: Option<Outbox>,
+    /// The workspace whose statuses these are (ORR-1107). Ids stay unique across the server: `default`'s are as they
+    /// always were, another workspace's start with its id (`acme-todo`), so issues keep pointing at one by its id.
+    pub workspace: String,
 }
 
 impl<'c> Statuses<'c> {
     pub fn new(conn: &'c mut AnyConnection) -> Self {
-        Statuses { conn, effects: Effects::default(), outbox: None }
+        Statuses { conn, effects: Effects::default(), outbox: None, workspace: "default".into() }
+    }
+
+    /// The statuses of `workspace`.
+    pub fn of(conn: &'c mut AnyConnection, workspace: String) -> Self {
+        Statuses { workspace, ..Statuses::new(conn) }
+    }
+
+    /// A new status's id in this workspace: as given in `default`, and with the workspace's id in front elsewhere.
+    fn id_here(&self, id: &str) -> String {
+        if self.workspace == "default" || id.starts_with(&format!("{}-", self.workspace)) {
+            id.to_string()
+        } else {
+            format!("{}-{id}", self.workspace)
+        }
+    }
+
+    /// Gives a workspace with no statuses yet the set orrery ships (ORR-1107), its ids its own (`acme-todo`), so a new
+    /// workspace's boards can be drawn however it was made. `default` has had them since step 020.
+    async fn seed(&mut self) -> Result<()> {
+        if self.workspace == "default" {
+            return Ok(());
+        }
+        let any = sqlx::query(&sql("SELECT 1 FROM statuses WHERE workspace = ? LIMIT 1")).bind(&self.workspace).fetch_optional(&mut *self.conn).await?;
+        if any.is_some() || sqlx::query(&sql("SELECT 1 FROM workspaces WHERE id = ?")).bind(&self.workspace).fetch_optional(&mut *self.conn).await?.is_none() {
+            return Ok(());
+        }
+        for (position, (id, name, kind, color)) in SHIPPED.iter().enumerate() {
+            sqlx::query(&sql("INSERT INTO statuses (id, name, kind, color, position, workspace) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (id) DO NOTHING"))
+                .bind(self.id_here(id))
+                .bind(*name)
+                .bind(*kind)
+                .bind(*color)
+                .bind(position as f64)
+                .bind(&self.workspace)
+                .execute(&mut *self.conn)
+                .await?;
+        }
+        Ok(())
     }
 
     /// In board order: by kind, then as arranged.
     async fn rows(&mut self) -> Result<Vec<Status>> {
-        let rows = sqlx::query("SELECT id, name, kind, color, CAST(position AS DOUBLE PRECISION) AS position FROM statuses ORDER BY position, id")
-            .fetch_all(&mut *self.conn)
-            .await?;
+        self.seed().await?;
+        let rows = sqlx::query(&sql(
+            "SELECT id, name, kind, color, CAST(position AS DOUBLE PRECISION) AS position FROM statuses WHERE workspace = ? ORDER BY position, id",
+        ))
+        .bind(&self.workspace)
+        .fetch_all(&mut *self.conn)
+        .await?;
         let all: Vec<Status> = rows
             .iter()
             .map(|r| Status { id: r.get("id"), name: r.get("name"), kind: r.get("kind"), color: r.get("color"), position: r.get("position") })
@@ -138,7 +193,7 @@ impl<'c> Statuses<'c> {
 
     /// Every board is drawn again with them, and the page gets the new list with the settings.
     async fn changed(&mut self) -> Result<()> {
-        let rows = sqlx::query("SELECT id FROM projects").fetch_all(&mut *self.conn).await?;
+        let rows = sqlx::query(&sql("SELECT id FROM projects WHERE workspace = ?")).bind(&self.workspace).fetch_all(&mut *self.conn).await?;
         self.effects.changed = rows.iter().map(|r| r.get::<String, _>("id")).collect();
         self.effects.settings = true;
         Ok(())
@@ -156,6 +211,7 @@ impl<'c> Statuses<'c> {
             Some(id) => id.to_string(),
             None => slugify(&name),
         };
+        let id = if is_slug(&id) { self.id_here(&id) } else { id };
         if !is_slug(&id) {
             return Err(ApiError::bad_request(format!("\"{name}\" doesn't make an id; give one in \"id\"")));
         }
@@ -168,19 +224,23 @@ impl<'c> Statuses<'c> {
         let position = match input.get("position").and_then(Value::as_f64) {
             Some(position) => position,
             None => {
-                let row = sqlx::query("SELECT CAST(max(position) AS DOUBLE PRECISION) AS n FROM statuses").fetch_one(&mut *self.conn).await?;
+                let row = sqlx::query(&sql("SELECT CAST(max(position) AS DOUBLE PRECISION) AS n FROM statuses WHERE workspace = ?"))
+                    .bind(&self.workspace)
+                    .fetch_one(&mut *self.conn)
+                    .await?;
                 row.get::<Option<f64>, _>("n").unwrap_or(0.0) + 1.0
             }
         };
         let color = input.get("color").and_then(Value::as_str).unwrap_or("slate");
         changes::begin(self.conn).await?;
         let done: Result<()> = async {
-            sqlx::query(&sql("INSERT INTO statuses (id, name, kind, color, position) VALUES (?, ?, ?, ?, ?)"))
+            sqlx::query(&sql("INSERT INTO statuses (id, name, kind, color, position, workspace) VALUES (?, ?, ?, ?, ?, ?)"))
                 .bind(&id)
                 .bind(&name)
                 .bind(input["kind"].as_str().unwrap_or_default())
                 .bind(color)
                 .bind(position)
+                .bind(&self.workspace)
                 .execute(&mut *self.conn)
                 .await?;
             self.changed().await

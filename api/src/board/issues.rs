@@ -308,8 +308,20 @@ impl<'c> Issues<'c> {
         })
     }
 
-    pub(crate) async fn statuses(&mut self) -> Result<Vec<Status>> {
-        let listed = Statuses::new(&mut *self.conn).list().await?;
+    /// The statuses of `project`'s workspace (ORR-1107): its board, and what its issues may be set to.
+    pub(crate) async fn statuses(&mut self, project: &str) -> Result<Vec<Status>> {
+        let workspace = sqlx::query(&sql("SELECT workspace FROM projects WHERE id = ?"))
+            .bind(project)
+            .fetch_optional(&mut *self.conn)
+            .await?
+            .map(|r| r.get::<String, _>("workspace"))
+            .unwrap_or_else(|| "default".into());
+        self.statuses_of(workspace).await
+    }
+
+    /// The statuses of `workspace`.
+    pub(crate) async fn statuses_of(&mut self, workspace: String) -> Result<Vec<Status>> {
+        let listed = Statuses::of(&mut *self.conn, workspace).list().await?;
         Ok(listed
             .as_array()
             .into_iter()
@@ -656,7 +668,7 @@ impl<'c> Issues<'c> {
     /// The list, building those listed from the `whole` board or not, or, with None, whichever is quicker.
     async fn listing(&mut self, project: &str, filter: &HashMap<String, String>, whole: Option<bool>) -> Result<Value> {
         let row = self.project(project).await?;
-        let statuses = self.statuses().await?;
+        let statuses = self.statuses(project).await?;
         let get = |key: &str| filter.get(key).map(String::as_str).filter(|v| !v.is_empty() && FILTERS.contains(&key));
         let wide: Vec<&str> = WIDE.iter().filter(|(by, _)| get(by).is_some()).map(|(_, column)| *column).collect();
         // With no filter, each is listed, so the whole board is read as it is.
@@ -981,7 +993,7 @@ impl<'c> Issues<'c> {
     pub async fn issue(&mut self, project: &str, sent: &str) -> Result<Value> {
         let id = self.resolve(project, sent, false).await?;
         let row = self.project(project).await?;
-        let statuses = self.statuses().await?;
+        let statuses = self.statuses(project).await?;
         let (issue, place) = self.subtree(project, &id, &statuses).await?.ok_or_else(|| ApiError::not_found(format!("No issue {id} in {project}")))?;
         let Value::Object(mut out) = issue.json() else { unreachable!() };
         out.insert("project".into(), json!(project));

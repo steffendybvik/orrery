@@ -402,7 +402,7 @@ impl IssueWrites<'_> {
                 return Err(ApiError::bad_request(format!("{parent} is this issue's parent, so it can't depend on it")));
             }
         }
-        let statuses = Issues::new(&mut *self.conn).statuses().await?;
+        let statuses = Issues::new(&mut *self.conn).statuses(project).await?;
         let status = resolve_status(&statuses, words.status.as_deref(), words.plan.as_ref().map(Option::as_deref))?;
         let proposed = words.proposal.as_ref().is_some_and(|p| p.as_deref() == Some("pending"));
         let mut assigned = if proposed {
@@ -618,7 +618,7 @@ impl IssueWrites<'_> {
             Some(None) => Some(None),
             Some(Some(sent)) => Some(Some(self.epic_id(sent).await?)),
         };
-        let statuses = Issues::new(&mut *self.conn).statuses().await?;
+        let statuses = Issues::new(&mut *self.conn).statuses(project).await?;
         let status = if words.status.is_some() || words.plan.is_some() {
             Some(resolve_status(&statuses, words.status.as_deref(), words.plan.as_ref().map(Option::as_deref))?)
         } else {

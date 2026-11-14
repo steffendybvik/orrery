@@ -112,7 +112,7 @@ impl<'c, 'i> Plans<'c, 'i> {
     /// The project's milestones in order, each with its column, counts and top-level issue ids (`listMilestones`).
     pub async fn milestones(&mut self, project: &str) -> Result<Value> {
         self.issues.project(project).await?;
-        let statuses = self.issues.statuses().await?;
+        let statuses = self.issues.statuses(project).await?;
         let board = self.issues.board(project, &statuses).await?;
         Ok(Value::Array(board.milestones.iter().filter(|g| !g.id.is_empty()).map(|g| Value::Object(record(&g.fields, &g.tasks))).collect()))
     }
@@ -127,7 +127,7 @@ impl<'c, 'i> Plans<'c, 'i> {
             .fetch_optional(&mut *self.issues.conn)
             .await?;
         let found = found.ok_or_else(|| ApiError::not_found(format!("No milestone \"{id}\" in {project}")))?;
-        let statuses = self.issues.statuses().await?;
+        let statuses = self.issues.statuses(project).await?;
         let top: Vec<String> = sqlx::query(&sql("SELECT id FROM issues WHERE project = ? AND parent IS NULL AND milestone = ? ORDER BY position, created_at"))
             .bind(project)
             .bind(&id)
@@ -201,7 +201,7 @@ impl<'c, 'i> Plans<'c, 'i> {
     /// The project's releases, newest first, each with how far its issues are (`listReleases`).
     pub async fn releases(&mut self, project: &str) -> Result<Value> {
         self.counted = true;
-        let statuses = self.issues.statuses().await?;
+        let statuses = self.issues.statuses(project).await?;
         let read = self.read(project, &statuses).await?;
         Ok(Value::Array(self.releases_of(&read, &statuses).await?.into_iter().map(Value::Object).collect()))
     }
@@ -213,7 +213,7 @@ impl<'c, 'i> Plans<'c, 'i> {
         self.counted = true;
         let row = self.issues.project(project).await?;
         self.issues.release_there(project, &row, version).await?;
-        let statuses = self.issues.statuses().await?;
+        let statuses = self.issues.statuses(project).await?;
         let own = self.read(project, &statuses).await?;
         let mut drawing = Vec::new();
         if own.row.releases_from.is_none() {
@@ -267,7 +267,6 @@ impl<'c, 'i> Plans<'c, 'i> {
     /// Every project with releases of its own, each with those it covers and their releases without notes, a release
     /// several projects share once, with each one's part (`allReleases`).
     pub async fn all_releases(&mut self) -> Result<Value> {
-        let statuses = self.issues.statuses().await?;
         let shipping = sqlx::query("SELECT id, release_mode, releases_from FROM projects WHERE release_mode <> 'none' ORDER BY id")
             .fetch_all(&mut *self.issues.conn)
             .await?;
@@ -281,6 +280,7 @@ impl<'c, 'i> Plans<'c, 'i> {
             let versions: Vec<String> = rows.iter().map(|r| r.get("version")).collect();
             let mut boards = Vec::new();
             for project in &projects {
+                let statuses = self.issues.statuses(project).await?;
                 boards.push(self.issues.outline(project, &statuses).await?);
             }
             let together = tally(&versions, &boards.iter().collect::<Vec<_>>());

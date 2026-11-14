@@ -251,7 +251,7 @@ impl IssueWrites<'_> {
         let mut urgent = false;
         // Approving is the owner saying it's work: into Todo while it's still in the backlog, else where its work took it.
         if decision == "approved" {
-            let statuses = Issues::new(&mut *self.conn).statuses().await?;
+            let statuses = Issues::new(&mut *self.conn).statuses(project).await?;
             let waiting = statuses.iter().find(|s| s.id == status).is_some_and(|s| s.kind == "backlog");
             let mut edit = Map::new();
             edit.insert("proposal".into(), Value::Null);

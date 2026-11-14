@@ -130,3 +130,27 @@ async fn a_status_in_use_moves_its_issues_where_into_says() {
     let read = api.get(&format!("/api/projects/{project}/issues/{issue}")).send().await;
     assert_eq!(read.body["status"], "in-progress", "{}", read.body);
 }
+
+/// Statuses are their workspace's (ORR-1107): a new workspace starts with its own copy of the set orrery ships, its
+/// ids its own, and an issue there takes its workspace's statuses alone, by id or by kind.
+#[tokio::test]
+async fn each_workspace_has_its_own_statuses() {
+    let api = TestApi::new().await;
+    api.team().await;
+    let rockets = api.acme(&["steffen"]).await;
+    let ids = |list: &serde_json::Value| list.as_array().unwrap().iter().map(|s| s["id"].as_str().unwrap().to_string()).collect::<Vec<_>>();
+    let acme = api.get("/api/statuses").header("orrery-workspace", "acme").send().await;
+    assert_eq!(ids(&acme.body), ["acme-backlog", "acme-todo", "acme-in-progress", "acme-in-review", "acme-done", "acme-canceled"], "{}", acme.body);
+    assert_eq!(ids(&api.get("/api/statuses").send().await.body), ["backlog", "todo", "in-progress", "in-review", "done", "canceled"]);
+
+    let made = api.post("/api/statuses", serde_json::json!({"name": "Testing", "kind": "started"})).header("orrery-workspace", "acme").send().await;
+    assert_eq!((made.status.as_u16(), made.body["id"].as_str()), (201, Some("acme-testing")), "{}", made.body);
+    assert!(!ids(&api.get("/api/statuses").send().await.body).contains(&"acme-testing".to_string()), "default's list doesn't have it");
+
+    let by_kind = api.post(&format!("/api/projects/{rockets}/issues"), serde_json::json!({"title": "Fuel", "status": "todo"})).send().await;
+    assert_eq!((by_kind.status.as_u16(), by_kind.body["status"].as_str()), (201, Some("acme-todo")), "{}", by_kind.body);
+    let theirs = api.post(&format!("/api/projects/{rockets}/issues"), serde_json::json!({"title": "Stray", "status": "in-progress"})).send().await;
+    assert_eq!(theirs.status, 400, "default's status isn't one for Acme's issues: {}", theirs.body);
+    let ana = api.signed(api.get("/api/statuses").header("orrery-workspace", "acme"), "ana").await.send().await;
+    assert_eq!(ana.status, 404, "{}", ana.body);
+}
