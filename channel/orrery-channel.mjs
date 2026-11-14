@@ -24,7 +24,7 @@ import {pickedUpMessage, pickUpRepo} from './pick-up.mjs'
 import {narrowed} from './repo-channels.mjs'
 import {addToList, projectAt, readConfig} from './launcher-service.mjs'
 import {appNamed, appsHere, askToChoose, choiceFor, choseOther, tellChose, writeChoice} from './app-choice.mjs'
-import {serverName} from './server-name.mjs'
+import {legacyServerName} from './server-name.mjs'
 import {signalWords} from './signal-words.mjs'
 import {claudeWindow} from './session.mjs'
 import {writeSessionFile} from './session-file.mjs'
@@ -192,7 +192,8 @@ await new Promise(resolve => setTimeout(resolve, 300))
 function registered() {
     try {
         const cache = join(claudeCache(), process.cwd().replace(/[^a-zA-Z0-9]/g, '-'))
-        const own = [...projects.flatMap(p => [`orrery-${p}`, p]), ...orrery.environment ? [serverName(orrery.environment)] : []]
+        // Its orrery's from before ORR-1193 (`orrery-work`) too, which an older setup still has.
+        const own = [...projects.flatMap(p => [`orrery-${p}`, p]), ...orrery.environment ? [legacyServerName(orrery.environment)] : []]
         const logsOf = names => [...new Set(names)].flatMap(name => {
             try {
                 const dir = join(cache, `mcp-logs-${name}`)

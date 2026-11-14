@@ -6,7 +6,7 @@
 import {existsSync, mkdirSync, readFileSync, renameSync, writeFileSync} from 'node:fs'
 import {dirname, join} from 'node:path'
 import {channelsIn, served} from './repo-channels.mjs'
-import {serverName} from './server-name.mjs'
+import {freeServerName} from './server-name.mjs'
 
 import {ASYNC_EVENTS, HOOK_EVENTS} from './claude-hooks.mjs'
 
@@ -44,8 +44,9 @@ export function connectedIn(dir, {url, id}) {
 function mergedMcp(config, dir, {url, orrery, projects}) {
     const ours = channelsIn(dir).filter(channel => forOrrery(channel, url, orrery.id))
     const lists = ours.filter(channel => channel.env.ORRERY_PROJECTS)
-    const name = lists[0]?.name ?? serverName(orrery.environment)
     const servers = {...config.mcpServers}
+    // `orrery`, or `orrery-<host>` when another orrery's or another tool's entry has that name (ORR-1193).
+    const name = lists[0]?.name ?? freeServerName(url, orrery.id, Object.entries(servers).map(([n, s]) => ({name: n, id: s?.env?.ORRERY_ID})))
     if (servers[name] && !ours.some(channel => channel.name === name)) throw new Error(`.mcp.json already has a server called ${name}, for something else: rename it and try again`)
     const had = ours.map(channel => served(channel))
     const every = had.some(channel => channel.every)

@@ -579,8 +579,8 @@ hasn't run yet. A pre-release counts only for an orrery running one. A failed ch
 event log as `update.failed`.
 
 A session listens through orrery's channel (`channel/orrery-channel.mjs` in this repo, served at `/channel`, an MCP
-server registered in the repo's `.mcp.json` as `orrery-<environment>`, one per orrery for all of the repo's
-projects in `ORRERY_PROJECTS`, followed on one stream; start Claude with `--dangerously-load-development-channels server:orrery-<environment>`),
+server registered in the repo's `.mcp.json` as `orrery` (`orrery-<host>` beside another orrery's), one per orrery for all of the repo's
+projects in `ORRERY_PROJECTS`, followed on one stream; start Claude with `--dangerously-load-development-channels server:orrery`),
 or by watching the text stream with the Monitor tool. The Connect page at `/connect` hands out both.
 `GET /settings` says the orrery's `id` (made once, when it first starts): a channel given `ORRERY_ID` refuses an
 orrery with another id. `GET /machine` says what only the running server knows, none of it stored, so it stays this

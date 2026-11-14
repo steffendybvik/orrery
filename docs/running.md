@@ -69,7 +69,7 @@ All optional, in a `.env` beside `docker-compose.yml` (see `.env.example`):
 | `ORRERY_BUILD_CONTEXT` | what the image is built from: a ref on GitHub, e.g. `https://github.com/steffendybvik/orrery.git#main`, so a branch switched in this folder never ends up in it | this folder |
 | `ORRERY_UPDATE_CHECK` | `false` stops orrery asking GitHub for its own releases (at start, then every 12 hours), which it does to show a notice above the version in the sidebar when a newer one is out. A pre-release is offered only to an orrery running one | on |
 | `ORRERY_REPO_DIR` | the folder a relative `ORRERY_DATA` is under, when `compose.yml` runs from another one | the folder orrery starts in |
-| `ORRERY_ENVIRONMENT` | this orrery's name when you run more than one, e.g. `work`: a chip by its name, and the start of every tab's title | `personal` |
+| `ORRERY_ENVIRONMENT` | no longer shown anywhere (ORR-1193): one orrery holds several workspaces, each with its name and colour in the sidebar and tab title. Kept only so an old env file doesn't fail | `personal` |
 
 ## A GitHub token
 
@@ -149,8 +149,8 @@ ORRERY_PORT=9020
 ```
 
 ```sh
-docker compose --env-file .env.personal up -d --build   # http://localhost:9010, chip: personal
-docker compose --env-file .env.work up -d --build       # http://localhost:9020, chip: work
+docker compose --env-file .env.personal up -d --build   # http://localhost:9010
+docker compose --env-file .env.work up -d --build       # http://localhost:9020
 ```
 
 The project name keeps them apart: each gets its own volumes (`orrery-personal_orrery-data`,

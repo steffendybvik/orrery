@@ -11,7 +11,7 @@ import {existsSync, mkdirSync, readFileSync, renameSync, writeFileSync} from 'no
 import {homedir} from 'node:os'
 import {dirname, join} from 'node:path'
 import {ASYNC_EVENTS, HOOK_EVENTS} from './claude-hooks.mjs'
-import {serverName} from './server-name.mjs'
+import {freeServerName, serverName} from './server-name.mjs'
 import {besideName} from './mcp-beside.mjs'
 
 const SCOPE = 'ORRERY_SCOPE=user'
@@ -31,10 +31,10 @@ function check({url, orrery}) {
 
 /** The user-level server for the orrery at `url`: its name and the JSON `claude mcp add-json` takes. It lists only its
  * own tools, those that need this machine; the board's are its `/mcp`'s, beside it (ORR-1072). */
-export function userServer({url, orrery, commands}) {
+export function userServer({url, orrery, commands, name = serverName()}) {
     check({url, orrery})
     return {
-        name: serverName(orrery.environment),
+        name,
         config: {type: 'stdio', ...commands.channel, env: {ORRERY_URL: url, ORRERY_ID: orrery.id, ORRERY_PROJECTS: '*', ORRERY_SCOPE: 'user'}},
     }
 }
@@ -42,10 +42,10 @@ export function userServer({url, orrery, commands}) {
 /** The user-level entry for the orrery's own `/mcp` (ORR-1102), beside the channel and named as the launcher names it
  * (mcp-beside.mjs): Claude Code tells its `headersHelper` nothing of the session, so the helper reads the headers the
  * session's channel wrote (session-file.mjs, mcp-headers.mjs). */
-export function userMcpServer({url, orrery, commands}) {
+export function userMcpServer({url, orrery, commands, name = serverName()}) {
     check({url, orrery})
     return {
-        name: besideName(serverName(orrery.environment)),
+        name: besideName(name),
         config: {type: 'http', url: `${url}/mcp`, headersHelper: `${SCOPE} ORRERY_URL=${url} ORRERY_ID=${orrery.id} ${commands.headers}`},
     }
 }
@@ -123,16 +123,22 @@ function writeJson(path, value) {
  * its `/mcp` beside it (`mcp`, whenever the agent can have it: the board's tools are only there, ORR-1072), then the hooks and the default folder's trust. Safe to run
  * again. */
 export function setUpUser({url, orrery, commands, home: dir, run, mcp = false, files = claudeFiles()}) {
-    const servers = [userServer({url, orrery, commands}), ...mcp ? [userMcpServer({url, orrery, commands})] : []]
-    for (const name of [serverName(orrery.environment), besideName(serverName(orrery.environment))]) {
+    // `orrery`, unless another orrery's server or another tool already has that name (ORR-1193): this one's own,
+    // whatever it was called before (`orrery-personal`), is taken out and put back under the name; another's never is.
+    const state = readJson(files.state)
+    const present = Object.entries(state.mcpServers ?? {}).map(([name, server]) => ({name, id: server?.env?.ORRERY_ID ?? (ours(server?.headersHelper, orrery.id) ? orrery.id : undefined)}))
+    const name = freeServerName(url, orrery.id, present)
+    const servers = [userServer({url, orrery, commands, name}), ...mcp ? [userMcpServer({url, orrery, commands, name})] : []]
+    const own = new Set([...present.filter(s => s.id === orrery.id).map(s => s.name), ...servers.map(s => s.name)])
+    for (const old of [...own].flatMap(n => [n, besideName(n)])) {
+        if (present.some(s => s.name === old && s.id !== orrery.id)) continue
         try {
-            run(['mcp', 'remove', '--scope', 'user', name])
+            run(['mcp', 'remove', '--scope', 'user', old])
         } catch {
             // There was none yet.
         }
     }
     for (const {name, config} of servers) run(['mcp', 'add-json', '--scope', 'user', name, JSON.stringify(config)])
-    const {name} = servers[0]
     writeJson(files.settings, withUserHooks(readJson(files.settings), {url, orrery, commands}))
     // After `claude mcp`, which writes the same file.
     if (dir) writeJson(files.state, withTrust(readJson(files.state), dir))
