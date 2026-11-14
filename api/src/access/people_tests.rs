@@ -58,3 +58,30 @@ async fn an_orrery_someone_is_on_lets_no_stranger_in() {
     let mut conn = api.app.pool.acquire().await.unwrap();
     assert_eq!(People::new(&mut conn).identity("https://id.example", "sub-1", None, Some("Mallory")).await.unwrap(), None);
 }
+
+// With sign-up open (ORR-1180), someone new signing in gets a person and a workspace of their own, its owner, and is
+// in no other: they see nobody else's boards. Off, as by default, they need an invite.
+#[tokio::test]
+async fn with_sign_up_open_someone_new_gets_a_workspace_of_their_own() {
+    let api = crate::testing::TestApi::new().await;
+    let mut conn = api.app.pool.acquire().await.unwrap();
+    let mut people = People::new(&mut conn);
+    people.identity_with("https://id.example", "sub-1", None, Some("Ada Lovelace"), true).await.unwrap();
+    assert_eq!(people.identity_with("https://id.example", "sub-2", None, Some("Bo"), false).await.unwrap(), None, "closed, Bo needs an invite");
+
+    let bo = people.identity_with("https://id.example", "sub-2", None, Some("Bo"), true).await.unwrap();
+    assert_eq!(bo.as_deref(), Some("bo"));
+    let again = people.identity_with("https://id.example", "sub-2", None, Some("Bo"), true).await.unwrap();
+    assert_eq!(again.as_deref(), Some("bo"), "signing in again is the same person, with no second workspace");
+    let other = people.identity_with("https://other.example", "sub-9", None, Some("Bo"), true).await.unwrap();
+    assert_eq!(other.as_deref(), Some("bo-2"), "another Bo gets an id of their own");
+
+    let rows = sqlx::query("SELECT m.workspace, m.role, w.name FROM workspace_members m JOIN workspaces w ON w.id = m.workspace WHERE m.person = 'bo'")
+        .fetch_all(&mut *people.conn)
+        .await
+        .unwrap();
+    let theirs: Vec<(String, String, String)> = rows.iter().map(|r| (r.get("workspace"), r.get("role"), r.get("name"))).collect();
+    assert_eq!(theirs, [("bo".to_string(), "owner".to_string(), "Bo".to_string())], "in their own workspace alone, not default");
+    let role: String = sqlx::query("SELECT role FROM people WHERE id = 'bo'").fetch_one(&mut *people.conn).await.unwrap().get("role");
+    assert_eq!(role, "member");
+}

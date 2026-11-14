@@ -753,3 +753,21 @@ async fn naming_the_owner_moves_what_was_theirs_to_the_new_id_and_refuses_reserv
     assert_eq!(api.count("SELECT count(*) AS n FROM people WHERE id = 'steffen'").await, 0);
     assert!(api.outbox().await.iter().any(|c| c.line().contains("settings")), "the page hears the settings changed");
 }
+
+/// An invite brings its person into the workspace it names (ORR-1108), one the owner is in; `default` unless named.
+#[tokio::test]
+async fn an_invite_lands_its_person_in_its_workspace() {
+    let api = TestApi::new().await;
+    api.owner().await;
+    api.member("ada", "Ada").await;
+    api.acme(&["steffen"]).await;
+    let invite = api.post("/api/invites", json!({"person": "ada", "workspace": "acme"})).header("orrery-login-ways", "provider").send().await;
+    assert_eq!(invite.status, 201, "{}", invite.body);
+    let secret = invite.body["url"].as_str().unwrap().rsplit("invite=").next().unwrap().to_string();
+    let mut conn = api.app.pool.acquire().await.unwrap();
+    let person = crate::access::people::People::new(&mut conn).identity_with("https://id.example", "sub-ada", Some(&secret), None, false).await.unwrap();
+    assert_eq!(person.as_deref(), Some("ada"));
+    assert_eq!(api.count("SELECT count(*) FROM workspace_members WHERE workspace = 'acme' AND person = 'ada'").await, 1);
+    let nowhere = api.post("/api/invites", json!({"person": "ada", "workspace": "elsewhere"})).header("orrery-login-ways", "provider").send().await;
+    assert_eq!(nowhere.status, 404, "{}", nowhere.body);
+}
