@@ -161,7 +161,7 @@ export abstract class CommentStore extends SignalStore {
     }
 
     /** orrery's own word on an issue (a pull request's news, ORR-507), as `orrery`: a comment, which reaches the session on
-     * the issue as the owner's do, or the project as work does when nobody's on it; not once the issue is closed, where
+     * the issue as the owner's do, and nobody when no session is on it (ORR-1178); not once the issue is closed, where
      * there's no work left to wake anyone for. `type` is what happened, for the schedules (`pr.merged`). Its words are
      * orrery's own, never another's, so they're safe for a session to read as the owner's. */
     async systemComment(project: string, issue: string, body: string, type: string): Promise<Comment> {
@@ -234,7 +234,8 @@ export abstract class CommentStore extends SignalStore {
      * or that one isn't there to hear it, to one session orrery picks (pool.ts), which becomes the issue's (ORR-513).
      * A member's goes only to their own sessions (ORR-658): the one on the issue if it's theirs, else one of theirs if
      * the issue is, and on someone else's issue to nobody, as it's only there to be read. The owner's and orrery's go to
-     * the sessions of whoever has the issue (ORR-656), and on what's nobody's, the owner's to their own and orrery's to no one. */
+     * the sessions of whoever has the issue (ORR-656), and on what's nobody's, the owner's to their own and orrery's to no one.
+     * orrery's never goes to the pool: only to the session on the issue (ORR-1178). */
     protected async carryComment(project: string, issue: string, body: string, actor: Actor) {
         const member = actor.owner ? undefined : actor.person
         const {assignee} = await this.issueFacts(project, issue)
@@ -242,6 +243,10 @@ export abstract class CommentStore extends SignalStore {
         if (!member && whose === null && !actor.owner) return
         const person = whose === null ? await this.ownerId() : whose
         const worker = await this.listeningWorker(project, issue)
+        // orrery's own word (a pull request's news) is for the session on the issue alone. With none listening it stays a
+        // comment, in the inbox, and an event: pooled, it waited for whichever session went idle next, which then took a
+        // day's stale notices on issues long finished (ORR-1178).
+        if (actor.name === ORRERY.name && !actor.owner && !worker) return
         const held = worker && this.sessionPerson(worker)
         const target = person && worker && (member ? held !== member : held && held !== person) ? null : worker
         if (member && !target && await this.holderOf(assignee) !== member) return
