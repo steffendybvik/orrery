@@ -32,6 +32,7 @@ const SESSION_WORK: Line = {rustOnly: "which session is on which issue, as the l
 const STORAGE: Line = {rustOnly: 'how the local app keeps its record of a chat and its messages, a GitHub poll, the feature counts it gathered or a line of the event log: it sends them here itself (`writeToApi`)'}
 const CHAT_ASK: Line = {rustOnly: "the chat asking to change a setting, a schedule, a release or a doc, offering an issue or moving some, for the Rust /mcp's `update_settings`, `create_schedule`, `update_schedule`, `create_release`, `update_release`, `create_doc`, `update_doc`, `offer_issue` and `move_issues` (ORR-1100): the chat's other asks stay at POST /api/chats/{chat}/requests until they move too"}
 const SIGNAL: Line = {rustOnly: "a session's signal, written: the local app picks the session it goes to and tells it, then sends the row here itself (`writeSignal`, ORR-1090)"}
+const CLOCK: Line = {rustOnly: "a schedule's run as the local app's clock keeps it: taking the run, recording it, and the events an event schedule holds back. Only it calls these (`Orrery-Came: server`, ORR-1176)"}
 const SAID: Line = {rustOnly: "orrery's own word on an issue (a pull request's news, a schedule's note): the local app sends it here itself (`writeToApi`, ORR-1094)"}
 const OUTBOX: Line = {rustOnly: "the outbox, which the local app follows to hear what the API's writes set off (ORR-929)"}
 const HEALTH: Line = {rustOnly: 'whether the API is up, for the local app that starts it'}
@@ -128,6 +129,11 @@ export const NOT_ROUTED: Readonly<Record<string, Line>> = {
     'GET /api/projects/{project}/listeners': SESSIONS,
     'POST /api/projects/{project}/milestones/{milestone}/focus': FOCUS,
     'POST /api/projects/{project}/schedules/{schedule}/run': ORR_950,
+    'POST /api/projects/{project}/schedules/{schedule}/claim': CLOCK,
+    'POST /api/projects/{project}/schedules/{schedule}/runs': CLOCK,
+    'DELETE /api/schedules/{schedule}/held': CLOCK,
+    'DELETE /api/schedules/{schedule}/held/{subject}': CLOCK,
+    'PUT /api/schedules/{schedule}/held/{subject}': CLOCK,
     'GET /api/projects/{project}/sessions': SESSIONS,
     'GET /api/projects/{project}/sessions/work': SESSIONS,
     'POST /api/projects/{project}/sessions/{session}/forget': SESSIONS,

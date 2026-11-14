@@ -56,7 +56,9 @@ describe("the local app's own writes through the Rust API (ORR-1094)", () => {
         await schedules.create('greenhouse', {title: 'Merged', kind: 'action', on: 'pr.merged', column: 'done'}, me)
         await store.systemEvent('greenhouse', 'GRE-1', 'pr.merged')
         for (const event of heard.splice(0)) await schedules.hear(event, undefined, new Date())
-        expect(sent.map(s => `${s.method} ${s.path}`)).toEqual(['PATCH /api/projects/greenhouse/issues/GRE-1', 'POST /api/projects/greenhouse/issues/GRE-1/said'])
+        expect(sent.map(s => `${s.method} ${s.path}`)).toEqual(['PATCH /api/projects/greenhouse/issues/GRE-1', 'POST /api/projects/greenhouse/issues/GRE-1/said',
+            // The run's record goes there too (ORR-1176).
+            expect.stringMatching(/^POST \/api\/projects\/greenhouse\/schedules\/\d+\/runs$/)])
         expect((sent[0]!.body)).toEqual({status: 'done'})
         expect(sent[0]!.actor.owner).toBe(true)
         expect(sent[1]!.body).not.toHaveProperty('wakes')

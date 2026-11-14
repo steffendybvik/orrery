@@ -5,16 +5,17 @@ use super::P;
 use crate::changes::Outbox;
 use crate::error::{ApiError, Result};
 use crate::reply::reply;
-use crate::request::{actor_of, body_of};
-use crate::work::presets::Presets;
+use crate::request::{actor_of, body_of, came_of};
+use crate::work::presets::{server_id, Presets};
 use crate::work::schedule_requests::ScheduleRequests;
+use crate::work::schedule_runs::ScheduleRuns;
 use crate::work::schedules::Schedules;
 use crate::{App, Shared};
 use axum::body::Bytes;
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{delete, get, post};
+use axum::routing::{delete, get, post, put};
 use axum::{Json, Router};
 use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
 use serde_json::Value;
@@ -29,6 +30,10 @@ pub(crate) fn routes() -> Router<Arc<App>> {
         .route("/api/schedules", get(all_schedules).post(create_across))
         .route("/api/schedules/across", get(schedules_across))
         .route("/api/schedules/across/{across}", delete(delete_across).patch(update_across))
+        .route(&format!("{P}/schedules/{{schedule}}/claim"), post(claim_run))
+        .route(&format!("{P}/schedules/{{schedule}}/runs"), post(record_run))
+        .route("/api/schedules/{schedule}/held", delete(drop_held))
+        .route("/api/schedules/{schedule}/held/{subject}", put(hold_event).delete(take_held))
         .route(&format!("{P}/issues/{{issue}}/schedule-requests"), post(ask_schedule))
         .route(&format!("{P}/issues/{{issue}}/schedule-requests/{{comment}}"), post(answer_schedule))
 }
@@ -54,6 +59,68 @@ async fn ask_schedule(State(app): Shared, Path((project, issue)): Path<(String, 
     let said = format!("{} {} {} {} {}", encode(&project), encode(&issue), schedule, encode(&fields), encode(&asked.line));
     response.headers_mut().insert("orrery-asked", HeaderValue::from_str(&said).unwrap());
     Ok(response)
+}
+
+/// A run's writes are the local app's clock's alone (ORR-1176): it runs the schedules, so nothing outside asks for them.
+fn clock_only(headers: &HeaderMap) -> Result<()> {
+    if came_of(headers).server {
+        Ok(())
+    } else {
+        Err(ApiError::forbidden("Only the local app's clock runs a schedule: run one with POST …/schedules/:schedule/run"))
+    }
+}
+
+/// The schedule's id as it's sent, a number or its full id.
+async fn schedule_id(conn: &mut sqlx::AnyConnection, sent: &str) -> Result<i64> {
+    let uid = Presets::new(conn).uid().await?;
+    server_id("sch-", "schedule", sent, &uid)
+}
+
+/// `POST …/schedules/:schedule/claim` {from, to, enabled} → {claimed}: the clock taking the run due at `from`.
+async fn claim_run(State(app): Shared, Path((project, schedule)): Path<(String, String)>, headers: HeaderMap, body: Bytes) -> Result<Response> {
+    clock_only(&headers)?;
+    let mut conn = app.pool.acquire().await?;
+    let id = schedule_id(&mut conn, &schedule).await?;
+    let claimed = ScheduleRuns::new(&mut conn).claim(&project, id, &body_of(&body)).await?;
+    Ok(Json(serde_json::json!({"claimed": claimed})).into_response())
+}
+
+/// `POST …/schedules/:schedule/runs` {at, outcome, issue?, note?, subject?} → 201 the run, as the schedule lists it.
+async fn record_run(State(app): Shared, Path((project, schedule)): Path<(String, String)>, headers: HeaderMap, body: Bytes) -> Result<Response> {
+    clock_only(&headers)?;
+    let mut conn = app.pool.acquire().await?;
+    let id = schedule_id(&mut conn, &schedule).await?;
+    let mut runs = ScheduleRuns::new(&mut conn);
+    runs.outbox = Some(Outbox::new(actor_of(&headers)));
+    let run = runs.record(&project, id, &body_of(&body)).await?;
+    Ok(reply(StatusCode::CREATED, Some(run), std::mem::take(&mut runs.effects)))
+}
+
+/// `PUT /api/schedules/:schedule/held/:subject` {event, at} → 204: an event held back for the schedule's next minute.
+async fn hold_event(State(app): Shared, Path((schedule, subject)): Path<(String, String)>, headers: HeaderMap, body: Bytes) -> Result<Response> {
+    clock_only(&headers)?;
+    let mut conn = app.pool.acquire().await?;
+    let id = schedule_id(&mut conn, &schedule).await?;
+    ScheduleRuns::new(&mut conn).hold(id, &subject, &body_of(&body)).await?;
+    Ok(StatusCode::NO_CONTENT.into_response())
+}
+
+/// `DELETE /api/schedules/:schedule/held/:subject` → {taken}: false when another server took it first.
+async fn take_held(State(app): Shared, Path((schedule, subject)): Path<(String, String)>, headers: HeaderMap) -> Result<Response> {
+    clock_only(&headers)?;
+    let mut conn = app.pool.acquire().await?;
+    let id = schedule_id(&mut conn, &schedule).await?;
+    let taken = ScheduleRuns::new(&mut conn).take(id, &subject).await?;
+    Ok(Json(serde_json::json!({"taken": taken})).into_response())
+}
+
+/// `DELETE /api/schedules/:schedule/held` → 204: what a schedule switched off, or gone, held back.
+async fn drop_held(State(app): Shared, Path(schedule): Path<String>, headers: HeaderMap) -> Result<Response> {
+    clock_only(&headers)?;
+    let mut conn = app.pool.acquire().await?;
+    let id = schedule_id(&mut conn, &schedule).await?;
+    ScheduleRuns::new(&mut conn).drop_held(id).await?;
+    Ok(StatusCode::NO_CONTENT.into_response())
 }
 
 async fn all_schedules(State(app): Shared) -> Result<Response> {
