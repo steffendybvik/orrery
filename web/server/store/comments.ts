@@ -6,6 +6,7 @@ import type {Actor, CommentRow, EventRow} from './schema'
 import {AGENT, COMMENT_FIELDS, ANSWERED, OPEN_ASK, PERSONS_WORDS, commentOf, eventOf, nullable, stamp, ORRERY} from './schema'
 import {refusedFor} from '../utils/permission'
 import {KEEP_SIGNALS, SignalStore} from './signals'
+import {sessionWork, type Unanswered} from './session-work'
 
 /** orrery itself, speaking on an issue. */
 export {ORRERY}
@@ -210,7 +211,8 @@ export abstract class CommentStore extends SignalStore {
      * is a member (`person`) gets their own words too, on what's theirs. A comment older than the signals kept (KEEP_SIGNALS)
      * isn't carried: the signal that says it was heard may be gone (ORR-778). */
     async carryUnanswered(project: string, session: string, person?: string): Promise<number> {
-        const waiting = await this.all<{issue: string, body: string, created_by: string, owned: number, assignee: string | null}>(`
+        // Read through the API when it's set up (ORR-1161); who each goes to stays here, as only this server knows the sessions.
+        const waiting = await sessionWork.unanswered(project, person) ?? await this.all<Omit<Unanswered, 'owned'> & {owned: number}>(`
             SELECT c.issue, c.body, c.created_by, c.owned, (SELECT i.assignee FROM issues i WHERE i.project = c.project AND i.id = c.issue) AS assignee FROM comments c
             WHERE c.project = ? AND c.created_at >= ? AND (c.owned = 1 OR (c.person = ? AND c.by_agent = 0
                 AND EXISTS (SELECT 1 FROM issues i WHERE i.project = c.project AND i.id = c.issue AND lower(i.assignee) = c.person)))

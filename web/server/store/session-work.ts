@@ -12,6 +12,9 @@ export type Worker = {issue: string, started: boolean, worker: string | null}
 /** What `GET …/issue-sessions` says of a session's ids. */
 export type SessionWorkRead = {issues: (IssueRecord & {last?: Comment})[], waiting: boolean, waiting_for: boolean}
 
+/** One of the comments `GET …/comments/unanswered` gives: who it's by, and who has its issue. */
+export type Unanswered = {issue: string, body: string, created_by: string, owned: boolean, assignee: string | null}
+
 async function read<T>(path: string): Promise<T | undefined> {
     // Imported here, as the router's module reaches the store: a static import would go round in a circle.
     const {readFromApi} = await import('../utils/api-router')
@@ -44,6 +47,10 @@ export const sessionWork = {
     /** The owner's focuses on the issue from the last day, heard or not, aimed at `session` when given (ORR-1159). */
     focused: (project: string, issue: string, session?: string) =>
         read<Signal[]>(`${at(project)}/signals?focused=${encodeURIComponent(issue)}${session ? `&target=${encodeURIComponent(session)}` : ''}`),
+    /** The owner's (and `person`'s) comments no agent has answered and no session has had, for a session just
+     * connected to catch up on (ORR-1161): oldest first, ten at most. */
+    unanswered: (project: string, person?: string) =>
+        read<Unanswered[]>(`${at(project)}/comments/unanswered${person ? `?person=${encodeURIComponent(person)}` : ''}`),
     /** The issue as the claim needs it: its own id (for an alias or an old one), and what it waits on not done yet. */
     blocking: (project: string, issue: string) => read<{id: string, blocked_by?: string[]}>(`${at(project)}/issues/${encodeURIComponent(issue)}`),
     /** The orrery's statuses, each with its kind. */

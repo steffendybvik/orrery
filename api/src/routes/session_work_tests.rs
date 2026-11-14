@@ -121,6 +121,7 @@ async fn only_the_local_app_asks_which_session_is_on_which_issue() {
         format!("/api/projects/{project}/issues/{issue}/workers"),
         format!("/api/projects/{project}/issues/{issue}/dependents"),
         format!("/api/projects/{project}/session-work"),
+        format!("/api/projects/{project}/comments/unanswered"),
     ] {
         assert_eq!(door.get(&path).send().await.status, 403, "{path}");
     }
@@ -302,4 +303,49 @@ async fn the_sessions_work_needs_a_project_there_is_and_sessions_as_a_list() {
     assert_eq!(api.get(&work_path("nowhere", json!([]))).send().await.status, 404);
     assert_eq!(api.get(&format!("/api/projects/{project}/session-work?sessions=a,b")).send().await.status, 400);
     assert_eq!(api.get(&format!("/api/projects/{project}/session-work")).send().await.body, json!({}));
+}
+
+/// A comment on `issue`, as the store writes one: `who` by, `owned` the owner's, `person` a member's (not an agent's).
+async fn said(api: &TestApi, project: &str, issue: &str, body: &str, who: &str, owned: bool, person: Option<&str>) {
+    let now = stamp();
+    let owned = if owned { "1" } else { "0" };
+    let person = person.unwrap_or("");
+    api.run(
+        "INSERT INTO comments (project, issue, body, created_by, owned, person, by_agent, created_at, updated_at) VALUES (?, ?, ?, ?, ?, NULLIF(?, ''), 0, ?, ?)",
+        &[project, issue, body, who, owned, person, &now, &now],
+    )
+    .await;
+    tokio::time::sleep(std::time::Duration::from_millis(2)).await;
+}
+
+#[tokio::test]
+async fn the_owners_unanswered_comments_are_those_no_agent_answered_nor_session_had() {
+    let api = TestApi::new().await;
+    let (project, sieve) = api.board().await;
+    let answered = api.issue(&project, json!({"title": "Answered"})).await;
+    let heard = api.issue(&project, json!({"title": "Heard"})).await;
+    let anns = api.issue(&project, json!({"title": "Ann's"})).await;
+    api.run("UPDATE issues SET assignee = 'Ann' WHERE id = ?", &[&anns]).await;
+    let path = format!("/api/projects/{project}/comments/unanswered");
+    let bodies = |reply: &Value| reply.as_array().unwrap().iter().map(|c| c["body"].as_str().unwrap().to_string()).collect::<Vec<_>>();
+    assert_eq!(api.get(&path).send().await.body, json!([]));
+    said(&api, &project, &sieve, "Still waiting", "owner", true, None).await;
+    // orrery's own word after it (a pull request's news) answers nothing.
+    said(&api, &project, &sieve, "PR merged", "orrery", false, None).await;
+    said(&api, &project, &answered, "Answer me", "owner", true, None).await;
+    said(&api, &project, &answered, "Done", "claude", false, None).await;
+    said(&api, &project, &heard, "Heard me", "owner", true, None).await;
+    api.post(&format!("/api/projects/{project}/signals"), json!({"kind": "comment", "issue": heard, "created_by": "owner", "owned": true, "target": "sess-1"}))
+        .send()
+        .await;
+    api.run("UPDATE signals SET delivered_to = '[\"Tor\"]'", &[]).await;
+    said(&api, &project, &anns, "Ann asks", "ann", false, Some("ann")).await;
+    let reply = api.get(&path).send().await;
+    assert_eq!(reply.status, 200, "{}", reply.body);
+    assert_eq!(reply.body, json!([{"issue": sieve, "body": "Still waiting", "created_by": "owner", "owned": true, "assignee": null}]));
+    // A member's own words count for their session, on what's theirs.
+    assert_eq!(bodies(&api.get(&format!("{path}?person=ann")).send().await.body), ["Still waiting", "Ann asks"]);
+    // One older than the signals kept isn't carried.
+    api.run("UPDATE comments SET created_at = '2020-01-01T00:00:00.000Z' WHERE body = 'Still waiting'", &[]).await;
+    assert_eq!(api.get(&path).send().await.body, json!([]));
 }

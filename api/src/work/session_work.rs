@@ -3,7 +3,7 @@
 // rows and answers as `workingOn`, `waiting`/`waitingFor`, `takenFrom`/`heldAbove` and `dependentsOf` in
 // web/server/store. Whether a session is there to hear stays the Nuxt server's, as it's this machine's: the workers
 // come back as they're stored, and it drops those not listening.
-use crate::board::comments::{columns, comment_of};
+use crate::board::comments::{columns, comment_of, ORRERY};
 use crate::board::issues::Issues;
 use crate::db::sql;
 use crate::error::{ApiError, Result};
@@ -205,6 +205,43 @@ impl<'c> SessionWork<'c> {
             return Err(ApiError::not_found(format!("No issue {issue} in {project}")));
         }
         Ok(chain)
+    }
+
+    /// The owner's comments in the project that no agent has answered and no session has had yet, nor waits in the
+    /// pool for one to take, as `carryUnanswered` reads them (ORR-1161): `[{issue, body, created_by, owned, assignee}]`,
+    /// oldest first, ten at most. A member's (`person`) own words count too, on what's theirs. Who each goes to stays
+    /// the local app's, as it picks the session. orrery's own word after one answers nothing (ORR-528), and one older
+    /// than the signals kept isn't carried (ORR-778).
+    pub(crate) async fn unanswered(&mut self, project: &str, person: Option<&str>) -> Result<Vec<Value>> {
+        let ago = |days: i64| (chrono::Utc::now() - chrono::Duration::days(days)).format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
+        let rows = sqlx::query(&sql("SELECT c.issue, c.body, c.created_by, CAST(c.owned AS BIGINT) AS owned, \
+                    (SELECT i.assignee FROM issues i WHERE i.project = c.project AND i.id = c.issue) AS assignee FROM comments c \
+             WHERE c.project = ? AND c.created_at >= ? AND (c.owned = 1 OR (c.person = ? AND c.by_agent = 0 \
+                 AND EXISTS (SELECT 1 FROM issues i WHERE i.project = c.project AND i.id = c.issue AND lower(i.assignee) = c.person))) \
+               AND NOT EXISTS (SELECT 1 FROM comments a WHERE a.project = c.project AND a.issue = c.issue \
+                               AND NOT (a.owned = 1 OR (a.person IS NOT NULL AND a.by_agent = 0)) AND a.created_by != ? AND a.id > c.id) \
+               AND NOT EXISTS (SELECT 1 FROM signals s WHERE s.project = c.project AND s.issue = c.issue AND s.kind = 'comment' \
+                               AND s.created_at >= c.created_at AND (s.delivered_to != '[]' OR (s.target IS NULL AND s.created_at >= ?))) \
+             ORDER BY c.created_at LIMIT 10"))
+        .bind(project)
+        .bind(ago(crate::work::signals::KEEP_DAYS))
+        .bind(person)
+        .bind(ORRERY)
+        .bind(ago(1))
+        .fetch_all(&mut *self.conn)
+        .await?;
+        Ok(rows
+            .iter()
+            .map(|r| {
+                json!({
+                    "issue": r.get::<String, _>("issue"),
+                    "body": r.get::<String, _>("body"),
+                    "created_by": r.get::<String, _>("created_by"),
+                    "owned": r.get::<i64, _>("owned") == 1,
+                    "assignee": r.get::<Option<String>, _>("assignee"),
+                })
+            })
+            .collect())
     }
 
     /// The issues that depend on this one, in any project, oldest link first, as `dependentsOf` gives them.

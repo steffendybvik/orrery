@@ -154,7 +154,7 @@ impl<'c> Signals<'c> {
 
 /// How long a signal is kept (ORR-778), as `KEEP_SIGNALS`: what it's for is over within a day; the rest is the
 /// Sessions page's history.
-const KEEP_DAYS: i64 = 30;
+pub(crate) const KEEP_DAYS: i64 = 30;
 
 /// How many times a receipt reads the list again when another session's receipt changed it first.
 const TRIES: usize = 10;
