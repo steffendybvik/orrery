@@ -514,12 +514,27 @@ impl<'c> People<'c> {
             return Err(ApiError::bad_request("\"person\" is the id of who to invite"));
         };
         self.needs_person(person).await?;
+        // The workspace it brings them into (ORR-1108): one the owner is in, `default` unless named.
+        let workspace = body.get("workspace").and_then(Value::as_str).map(str::trim).filter(|w| !w.is_empty()).unwrap_or("default").to_string();
+        let owner = match who {
+            Some(who) => who.person.clone(),
+            None => crate::board::issue_writes::IssueWrites::new(&mut *self.conn).owner_id().await?,
+        };
+        let theirs = sqlx::query(&sql("SELECT 1 FROM workspace_members WHERE workspace = ? AND person = ?"))
+            .bind(&workspace)
+            .bind(&owner)
+            .fetch_optional(&mut *self.conn)
+            .await?;
+        if theirs.is_none() {
+            return Err(ApiError::not_found(format!("No workspace {workspace}")));
+        }
         let secret = URL_SAFE_NO_PAD.encode(random(32));
         let expires = (chrono::Utc::now() + chrono::Duration::days(INVITE_DAYS)).format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
-        sqlx::query(&sql("INSERT INTO invites (id, person, expires_at) VALUES (?, ?, ?)"))
+        sqlx::query(&sql("INSERT INTO invites (id, person, expires_at, workspace) VALUES (?, ?, ?, ?)"))
             .bind(hash_of(&secret))
             .bind(person)
             .bind(&expires)
+            .bind(&workspace)
             .execute(&mut *self.conn)
             .await?;
         Ok(json!({"url": format!("{origin}/login?invite={secret}"), "expires_at": expires}))
@@ -789,6 +804,11 @@ impl<'c> People<'c> {
     /// so it can't be used twice. An account a removed person had moves to the invited person (ORR-787); one that
     /// belongs to someone here never does.
     pub async fn identity(&mut self, issuer: &str, subject: &str, invite: Option<&str>, name: Option<&str>) -> Result<Option<String>> {
+        self.identity_with(issuer, subject, invite, name, sign_up_open()).await
+    }
+
+    /// `identity`, with sign-up `open` or not, as `ORRERY_SIGN_UP` says.
+    pub(crate) async fn identity_with(&mut self, issuer: &str, subject: &str, invite: Option<&str>, name: Option<&str>, open: bool) -> Result<Option<String>> {
         let known = sqlx::query(&sql(
             "SELECT i.person FROM identities i JOIN people p ON p.id = i.person WHERE i.issuer = ? AND i.subject = ? AND p.removed_at IS NULL",
         ))
@@ -799,7 +819,12 @@ impl<'c> People<'c> {
         if let Some(row) = known {
             return Ok(Some(row.get("person")));
         }
-        let Some(invite) = invite else { return self.first_owner(issuer, subject, name).await };
+        let Some(invite) = invite else {
+            if let Some(owner) = self.first_owner(issuer, subject, name).await? {
+                return Ok(Some(owner));
+            }
+            return if open { self.sign_up(issuer, subject, name).await.map(Some) } else { Ok(None) };
+        };
         sqlx::query(if crate::db::on_postgres() { "BEGIN" } else { "BEGIN IMMEDIATE" }).execute(&mut *self.conn).await?;
         let done = self.attach(issuer, subject, invite).await;
         match done {
@@ -839,6 +864,55 @@ impl<'c> People<'c> {
         Ok((attached.rows_affected() > 0).then_some(owner))
     }
 
+    /// Someone new signing in through the provider, with sign-up open (ORR-1180): a person of their own, named as the
+    /// provider says, and a workspace of their own, named after them, with them its owner. They're in no other
+    /// workspace, so they see nobody else's boards until someone invites them into theirs.
+    async fn sign_up(&mut self, issuer: &str, subject: &str, name: Option<&str>) -> Result<String> {
+        let said: String = name.unwrap_or_default().trim().chars().take(60).collect();
+        let display = if actor_id(&said).is_empty() { "New person".to_owned() } else { said };
+        let base = match actor_id(&display) {
+            id if ["owner", "agent", "claude", "orrery", "none"].contains(&id.as_str()) => format!("{id}-person"),
+            id => id,
+        };
+        sqlx::query(if crate::db::on_postgres() { "BEGIN" } else { "BEGIN IMMEDIATE" }).execute(&mut *self.conn).await?;
+        let done: Result<String> = async {
+            let mut id = base.clone();
+            let mut n = 1;
+            while sqlx::query(&sql("SELECT 1 FROM people WHERE id = ?")).bind(&id).fetch_optional(&mut *self.conn).await?.is_some() {
+                n += 1;
+                id = format!("{base}-{n}");
+            }
+            sqlx::query(&sql("INSERT INTO people (id, name, role, created_at) VALUES (?, ?, 'member', ?)"))
+                .bind(&id)
+                .bind(&display)
+                .bind(stamp())
+                .execute(&mut *self.conn)
+                .await?;
+            let attached = sqlx::query(&sql("INSERT INTO identities (issuer, subject, person) VALUES (?, ?, ?) ON CONFLICT (issuer, subject) DO NOTHING"))
+                .bind(issuer)
+                .bind(subject)
+                .bind(&id)
+                .execute(&mut *self.conn)
+                .await?;
+            if attached.rows_affected() == 0 {
+                return Err(ApiError::conflict("That account already belongs to someone here"));
+            }
+            crate::access::workspaces::Workspaces::new(&mut *self.conn).create(&json!({"name": display}), Some(&id)).await?;
+            Ok(id)
+        }
+        .await;
+        match done {
+            Ok(id) => {
+                sqlx::query("COMMIT").execute(&mut *self.conn).await?;
+                Ok(id)
+            }
+            Err(error) => {
+                sqlx::query("ROLLBACK").execute(&mut *self.conn).await.ok();
+                Err(error)
+            }
+        }
+    }
+
     async fn attach(&mut self, issuer: &str, subject: &str, invite: &str) -> Result<String> {
         let gone = || ApiError::conflict("That invite has been used or has run out: ask for a new one");
         let now = stamp();
@@ -851,8 +925,19 @@ impl<'c> People<'c> {
         if used.rows_affected() == 0 {
             return Err(gone());
         }
-        let row = sqlx::query(&sql("SELECT person FROM invites WHERE id = ?")).bind(hash_of(invite)).fetch_optional(&mut *self.conn).await?;
-        let person: String = row.ok_or_else(gone)?.get("person");
+        let row = sqlx::query(&sql("SELECT person, workspace FROM invites WHERE id = ?")).bind(hash_of(invite)).fetch_optional(&mut *self.conn).await?;
+        let row = row.ok_or_else(gone)?;
+        let person: String = row.get("person");
+        // The invite lands them in the workspace it was made for (ORR-1108), as well as any they're in already.
+        sqlx::query(&sql("INSERT INTO workspace_members (workspace, person, role, created_at) SELECT ?, ?, 'member', ? \
+             WHERE NOT EXISTS (SELECT 1 FROM workspace_members WHERE workspace = ? AND person = ?)"))
+        .bind(row.get::<String, _>("workspace"))
+        .bind(&person)
+        .bind(&now)
+        .bind(row.get::<String, _>("workspace"))
+        .bind(&person)
+        .execute(&mut *self.conn)
+        .await?;
         let attached = sqlx::query(&sql(
             "INSERT INTO identities (issuer, subject, person) VALUES (?, ?, ?) ON CONFLICT (issuer, subject) DO UPDATE SET person = excluded.person \
              WHERE identities.person IN (SELECT id FROM people WHERE removed_at IS NOT NULL)",
@@ -1006,3 +1091,9 @@ impl<'c> People<'c> {
 #[cfg(test)]
 #[path = "people_tests.rs"]
 mod tests;
+
+/// Whether someone new may sign in through the login provider and get a workspace of their own (ORR-1180):
+/// `ORRERY_SIGN_UP=open`. Off, as before, an account gets in only by an invite, or as the first one on a new orrery.
+pub(crate) fn sign_up_open() -> bool {
+    std::env::var("ORRERY_SIGN_UP").is_ok_and(|v| v.trim() == "open")
+}
