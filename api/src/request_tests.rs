@@ -270,6 +270,9 @@ async fn with_nobody_able_to_log_in_its_said_rather_than_asked_for() {
     let stuck = api.get("/api/statuses").send().await;
     assert_eq!(stuck.status, 503, "{}", stuck.body);
     assert!(stuck.body["message"].as_str().unwrap().starts_with("Nobody can log in"));
+    // A checkout and a container claim it differently, so both are named (ORR-1190).
+    assert!(stuck.body["message"].as_str().unwrap().contains("pnpm orrery:claim"), "{}", stuck.body);
+    assert!(stuck.body["message"].as_str().unwrap().contains("docker compose exec orrery"), "{}", stuck.body);
     // A provider is a way in, and the phone's port has its own sign-in link.
     assert_eq!(api.get("/api/statuses").header("orrery-login-ways", "provider").send().await.status, 401);
     assert_eq!(api.get("/api/statuses").header("orrery-came", "loopback, phone").send().await.status, 401);

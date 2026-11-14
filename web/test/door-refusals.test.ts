@@ -179,7 +179,7 @@ describe.skipIf(!existsSync(BIN))('a refused request answers the same through th
         })
 
         it('turns away a request from another machine while nobody can log in yet (503)', async () => {
-            await refusedAlike({path: '/api/projects/greenhouse/docs', loopback: false}, 503, /Nobody can log in to this orrery yet/)
+            await refusedAlike({path: '/api/projects/greenhouse/docs', loopback: false}, 503, /Nobody can log in to this orrery yet.*pnpm orrery:claim.*docker compose exec orrery/)
         })
     })
 
