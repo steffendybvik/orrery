@@ -47,12 +47,35 @@ export const apiCrossOrigin = (path: string) => /^[a-z][a-z\d+.-]*:\/\//i.test(b
 
 type ApiOptions = NitroFetchOptions<NitroFetchRequest>
 
+/** The workspace a page's address is in, `/w/<workspace>/…` (ORR-1108), else none. It's read from the address each
+ * time, never kept, so two tabs can sit in different workspaces. */
+export function workspaceIn(pathname: string): string | undefined {
+    const raw = /^\/w\/([^/?#]+)/.exec(pathname)?.[1]
+    if (!raw) return undefined
+    try {
+        const workspace = decodeURIComponent(raw)
+        return /^[\x21-\x7e]{1,64}$/.test(workspace) ? workspace : undefined
+    } catch {
+        return undefined
+    }
+}
+
+/** `Orrery-Workspace` for this tab's address, for the API's workspace-wide rows (epics, statuses, presets…). */
+function workspaceHeader(): Record<string, string> {
+    const workspace = import.meta.client ? workspaceIn(location.pathname) : undefined
+    return workspace ? {'Orrery-Workspace': workspace} : {}
+}
+
 /** Asks the API at `path`. A write goes as the owner (`Orrery-Actor`), or who this browser is acting as (ORR-657), which
  * a read says too, so the bell is theirs. A call says otherwise with `headers`. */
 export async function apiFetch<T = unknown>(path: string, options: ApiOptions = {}): Promise<T> {
     const write = (options.method ?? 'GET').toUpperCase() !== 'GET'
     const acting = useState<string | null>('acting', () => null).value
-    const headers = options.headers ?? (acting ? {'Orrery-Actor': acting} : write ? {'Orrery-Actor': await useOwner().load()} : undefined)
+    const own = options.headers ?? (acting ? {'Orrery-Actor': acting} : write ? {'Orrery-Actor': await useOwner().load()} : undefined)
+    // The tab's workspace goes with every call, unless the call names one itself.
+    const workspace = workspaceHeader()
+    const plain = !own || (typeof own === 'object' && !Array.isArray(own) && !(own instanceof Headers))
+    const headers = Object.keys(workspace).length && plain ? {...workspace, ...own as Record<string, string> | undefined} : own
     const away = apiCrossOrigin(path) ? {credentials: 'include' as const} : {}
     // The global one, which plugins/unseen.client.ts wraps: a plain `$fetch` here is auto-imported as the one underneath it.
     return await globalThis.$fetch<T>(apiUrl(path), {...away, ...options, ...headers ? {headers} : {}} as ApiOptions) as T
