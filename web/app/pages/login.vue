@@ -1,6 +1,7 @@
 <script setup lang="ts">
 // The front door when auth is on (ORR-664): the server is what enforces it. Log in through the provider, or with a person
-// key on a server with none. Nothing here reads the board, as nothing else on the page has started.
+// key on a server with none: with a provider there's only its button (ORR-1185), as a key box is one more thing to ask
+// someone who isn't a developer about. Nothing here reads the board, as nothing else on the page has started.
 definePageMeta({layout: false})
 useHead({title: 'Log in'})
 
@@ -100,7 +101,7 @@ async function submit() {
         This is plain http: over anything but a VPN, a person key and this login's cookie can travel unencrypted.
       </p>
       <UiButton v-if="status?.oidc" :to="provider" variant="primary" size="md" external>Log in with your provider</UiButton>
-      <form v-if="status?.mode !== 'closed'" class="flex flex-col gap-2" @submit.prevent="submit">
+      <form v-if="status?.mode !== 'closed' && !status?.oidc" class="flex flex-col gap-2" @submit.prevent="submit">
         <input
             v-model="key"
             type="password"
@@ -110,7 +111,7 @@ async function submit() {
             spellcheck="false"
             class="h-8 w-full field font-mono"
         >
-        <UiButton type="submit" :variant="status?.oidc || status?.phone ? 'secondary' : 'primary'" size="md" :disabled="busy || !key.trim()">Sign in with a key</UiButton>
+        <UiButton type="submit" :variant="status?.phone ? 'secondary' : 'primary'" size="md" :disabled="busy || !key.trim()">Sign in with a key</UiButton>
       </form>
       <p v-if="failed" class="text-xs text-rose-700 dark:text-rose-400">{{ failed }}</p>
     </div>

@@ -222,7 +222,7 @@ async fn start_with(settings: &Settings, allowed: &str, headers: &HeaderMap, inv
     url.set_query(None);
     url.query_pairs_mut().extend_pairs([
         ("response_type", "code"),
-        ("scope", "openid"),
+        ("scope", "openid profile"),
         ("client_id", settings.client_id.as_str()),
         ("redirect_uri", redirect_uri(headers).as_str()),
         ("state", state.as_str()),
@@ -241,6 +241,8 @@ fn refused(message: &str) -> ApiError {
 pub struct Finished {
     pub issuer: String,
     pub subject: String,
+    /// The name the provider gives (`name`, else `preferred_username`), for the first person in becoming the owner (ORR-1185).
+    pub name: Option<String>,
     pub invite: Option<String>,
     pub back: Option<String>,
 }
@@ -308,7 +310,9 @@ async fn finish_with(
     let Some(subject) = subject else { return Err(doesnt_check_out()) };
     // `back` is checked again, as the list may have changed since the login started.
     let back = text("back").filter(|b| origin_allowed(allowed, b));
-    Ok(Finished { issuer: trimmed(&issuer).to_owned(), subject, invite: text("invite").filter(|i| !i.is_empty()), back })
+    let name =
+        ["name", "preferred_username"].iter().find_map(|claim| claims.get(*claim).and_then(Value::as_str).filter(|n| !n.trim().is_empty())).map(str::to_owned);
+    Ok(Finished { issuer: trimmed(&issuer).to_owned(), subject, name, invite: text("invite").filter(|i| !i.is_empty()), back })
 }
 
 /// The ID token's claims, when it's signed by one of the provider's keys and is for this client from this issuer and
