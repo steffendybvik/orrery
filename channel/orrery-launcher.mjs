@@ -48,7 +48,7 @@ import {authHeaders, keyFor, keysFile} from './credentials.mjs'
 import {addToList, adoptable, configFile, inWsl, install, listChanges, listIn, readConfig, removeService, restartKeepsSessions, servedElsewhere, serviceProblem, uninstall, wslLocalhost} from './launcher-service.mjs'
 import {agentFor} from './agents.mjs'
 import {repoContext} from './repo-context.mjs'
-import {channelFor, channelsIn, projectsIn, servesEvery} from './repo-channels.mjs'
+import {channelFor, channelsIn, onOrrery, projectsIn, servesEvery} from './repo-channels.mjs'
 import {besideFor, besideName, servesMcp} from './mcp-beside.mjs'
 import {resumeArgs} from './locked-down.mjs'
 import {follow} from './sse.mjs'
@@ -140,8 +140,15 @@ if (args.includes('--install') || args.includes('--uninstall')) {
         const unserved = serviceProblem()
         if (unserved) throw new Error(unserved)
         const pickUp = !args.includes('--no-pick-up')
-        // Not in a repo whose .mcp.json registers the channel: the service alone, with no project of its own to add.
-        if (!channelsIn(process.cwd()).length && !process.env.ORRERY_PROJECT) {
+        // The orrery the install line names (ORR-1191): it's set up wherever the line is pasted, and a repo's channels
+        // that point at another orrery are named, not installed in its place.
+        const lineUrl = process.env.ORRERY_URL?.replace(/\/+$/, '')
+        const inRepo = channelsIn(process.cwd()).length || process.env.ORRERY_PROJECT
+        const split = args.includes('--install') && inRepo ? onOrrery(here(), lineUrl) : {on: here(), elsewhere: []}
+        if (split.elsewhere.length) console.log(otherOrrerys(split.elsewhere, lineUrl))
+        // Not in a repo whose .mcp.json registers the channel, or in one with no project on the orrery the line names:
+        // the service alone, with no project of its own to add.
+        if (!inRepo || (lineUrl && args.includes('--install') && !split.on.length)) {
             if (args.includes('--uninstall')) {
                 removeService()
                 const servers = agent.undo({homeOf: id => homeFolder(id)})
@@ -150,19 +157,19 @@ if (args.includes('--install') || args.includes('--uninstall')) {
                 process.exit(0)
             }
             needsTmuxAndAgent()
-            const {config, logs, restarted} = install([], {script, pickUp, orrery: process.env.ORRERY_URL, agent: named})
+            const {config, logs, restarted} = install([], {script, pickUp, orrery: lineUrl, agent: named})
             console.log(`The launcher service is installed and starts at login. It serves ${config.projects.length ? config.projects.map(p => p.project).join(', ') : 'no project yet'}; the list is ${configFile()}.${restarted ? '' : ' It was running already, so its sessions go on.'}`)
             console.log(pickUp
                 ? "Pick-up is on: a Claude session opened in a repo whose .mcp.json registers orrery's channel puts that repo on it. --uninstall in a repo keeps it off."
                 : "Pick-up is off: run this with --install in a project's repo to put its projects on it.")
             console.log(`Its log: ${logs}`)
-            if (process.env.ORRERY_URL) await setUpMachine(process.env.ORRERY_URL.replace(/\/+$/, ''))
+            if (lineUrl) await setUpMachine(lineUrl)
             process.exit(0)
         }
         // Several channels can name a project served from its own repo (a monorepo's channel to the personal
         // orrery): it's left there unless ORRERY_PROJECT names it.
         const served = readConfig().projects
-        const entries = here().filter(entry => {
+        const entries = split.on.filter(entry => {
             const elsewhere = servedElsewhere(served, entry)
             if (elsewhere && !process.env.ORRERY_PROJECT) console.log(`Left ${entry.project} (${entry.url}) as it is, served from ${elsewhere.dir}; ORRERY_PROJECT=${entry.project} acts on it from here.`)
             return !elsewhere || process.env.ORRERY_PROJECT
@@ -170,6 +177,7 @@ if (args.includes('--install') || args.includes('--uninstall')) {
         if (!entries.length) {
             // A channel serving `*` names no project, and the folder's name is no project's (ORR-1068).
             if (!here().length) console.log("This repo's channel names no project, so there's nothing to serve from here: run this with ORRERY_PROJECT=<project> set.")
+            if (lineUrl && args.includes('--install')) await setUpMachine(lineUrl)
             process.exit(0)
         }
         // All of the repo's projects at once. The running service follows the list; it restarts (stopping the sessions
@@ -192,7 +200,7 @@ if (args.includes('--install') || args.includes('--uninstall')) {
             if (found === 404) throw new Error(`${entry.url} has no project ${entry.project}: set ORRERY_PROJECT (and ORRERY_URL) to the one to serve`)
             if (!found) log(`can't reach ${entry.url} now; the launcher keeps trying once it's installed${inWsl() && wslLocalhost(entry.url) ? `. ${WSL_LOCALHOST}` : ''}`)
         }
-        const {config, logs, restarted} = install(entries, {script, dir: process.cwd(), pickUp, agent: named})
+        const {config, logs, restarted} = install(entries, {script, dir: process.cwd(), pickUp, orrery: lineUrl, agent: named})
         for (const {url, project, dir} of entries) {
             console.log(`The launcher now starts sessions for ${project} (${url}) in ${dir}, with ${channelFor(dir, url, project)?.name ?? 'no channel'}, from login on.`)
         }
@@ -200,11 +208,18 @@ if (args.includes('--install') || args.includes('--uninstall')) {
         console.log(`Let orrery start sessions on its Sessions page, if it doesn't yet. Its log: ${logs}`)
         console.log(`If claude hasn't run in ${process.cwd()} before, run it there once to trust the folder.`)
         if (inWsl()) console.log('Inside WSL it runs while the distro does: Windows starts the distro when you open it, and can stop it a while after its last window closes.')
+        if (lineUrl) await setUpMachine(lineUrl)
         process.exit(0)
     } catch (error) {
         log(error.message)
         process.exit(1)
     }
+}
+
+/** The line `--install` gives for a repo's projects on another orrery than the one its line names (ORR-1191). */
+function otherOrrerys(elsewhere, named) {
+    const urls = [...new Set(elsewhere.map(e => e.url))]
+    return `Left ${elsewhere.map(e => e.project).join(', ')} off the launcher: this repo's channels point at ${urls.join(', ')}, not ${named}. To serve ${elsewhere.length === 1 ? 'it' : 'them'} from ${named}, connect this repo again from its Connect an agent page.`
 }
 
 /** The install line's part beyond the service (ORR-1067): the orrery's default folder, and orrery in the agent's own

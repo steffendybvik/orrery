@@ -63,6 +63,15 @@ export function projectsIn(dir, {project, url} = {}) {
     return out
 }
 
+/** Splits a repo's projects by whether they're on the orrery an install line names (ORR-1191): `on` it, which
+ * `--install` adds, and `elsewhere`, whose channels point at another orrery, which it leaves alone and names. With no
+ * orrery named, every one is on. */
+export function onOrrery(entries, url) {
+    if (!url) return {on: entries, elsewhere: []}
+    const named = trim(url)
+    return {on: entries.filter(e => trim(e.url) === named), elsewhere: entries.filter(e => trim(e.url) !== named)}
+}
+
 /** The channel a session for `project` on the orrery at `url` loads: the one naming that project there, else
  * one serving every project there, else the one naming it anywhere, else the first. Undefined with none. */
 export function channelFor(dir, url, project) {

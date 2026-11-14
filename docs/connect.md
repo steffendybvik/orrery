@@ -239,6 +239,9 @@ It runs in the background from then on (launchd on macOS, systemd on Linux; on W
 every project installed this way; run `--install` again in another repo to add its projects, and
 `--uninstall` to take them off. Run outside a repo whose `.mcp.json` registers the channel, `--install` installs the
 service with no project yet, and `--uninstall` removes the service, keeping its projects on the list for the next `--install`.
+With `ORRERY_URL` on the line (as Connect's install line has), `--install` sets the machine up for that orrery wherever
+it's run, and adds only the repo's projects whose channels point at it. Those pointing at another orrery are left off, and
+the line names them and where they point (ORR-1191): connect the repo again from the new orrery to move them.
 `--install` also turns on **pick-up** (`--no-pick-up` leaves it off): from then on, a Claude session you open in a repo
 whose `.mcp.json` registers the channel puts that repo's projects on the list, by the same rules as `--install` there, and
 the session is told once. Only the channel, running in that folder on your machine, does this; orrery itself never
