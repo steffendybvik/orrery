@@ -21,6 +21,7 @@ struct Served {
     keys: Value,
     found: usize,
     forms: Vec<Vec<(String, String)>>,
+    auths: Vec<Option<String>>,
 }
 
 type Shared = Arc<Mutex<Served>>;
@@ -45,6 +46,7 @@ impl Stub {
             keys: json!({ "keys": [jwk("k1", Some("RS256"))] }),
             found: 0,
             forms: vec![],
+            auths: vec![],
         }));
         let app = Router::new()
             .route(
@@ -57,9 +59,10 @@ impl Stub {
             )
             .route(
                 "/token",
-                post(|State(s): State<Shared>, Form(form): Form<Vec<(String, String)>>| async move {
+                post(|State(s): State<Shared>, sent: HeaderMap, Form(form): Form<Vec<(String, String)>>| async move {
                     let mut s = s.lock().unwrap();
                     s.forms.push(form);
+                    s.auths.push(sent.get("authorization").and_then(|v| v.to_str().ok()).map(str::to_owned));
                     Json(s.token.clone())
                 }),
             )
@@ -341,7 +344,27 @@ async fn a_good_token_logs_in_after_swapping_the_code_with_pkces_verifier() {
     assert_eq!(form["code_verifier"], "v");
     assert_eq!(form["redirect_uri"], "http://orrery.example/api/auth/oidc/callback");
     assert_eq!(form["client_id"], "orrery");
-    assert_eq!(form["client_secret"], "a-secret");
+    assert!(!form.contains_key("client_secret"), "the secret goes as HTTP Basic, not in the body (ORR-1181)");
+    let auths = way.stub.served.lock().unwrap().auths.clone();
+    assert_eq!(auths[0].as_deref(), Some(format!("Basic {}", base64::engine::general_purpose::STANDARD.encode("orrery:a-secret")).as_str()));
+}
+
+#[test]
+fn the_secret_goes_in_the_body_only_to_a_provider_that_names_post_and_not_basic() {
+    let post = vec!["client_secret_post".to_string()];
+    assert_eq!(client_auth(Some(&post), "orrery", "s"), (None, true));
+    let both = vec!["client_secret_post".to_string(), "client_secret_basic".to_string()];
+    assert!(client_auth(Some(&both), "orrery", "s").0.is_some());
+    assert!(client_auth(None, "orrery", "s").0.is_some());
+}
+
+#[test]
+fn basic_form_encodes_the_id_and_secret_first() {
+    let (header, in_body) = client_auth(None, "my app", "a:b/c+d");
+    let encoded = header.unwrap().strip_prefix("Basic ").unwrap().to_owned();
+    let pair = base64::engine::general_purpose::STANDARD.decode(encoded).unwrap();
+    assert_eq!(String::from_utf8(pair).unwrap(), "my+app:a%3Ab%2Fc%2Bd");
+    assert!(!in_body);
 }
 
 #[tokio::test]
