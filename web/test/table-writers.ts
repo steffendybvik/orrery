@@ -19,6 +19,9 @@ export const DYNAMIC: Record<string, string[]> = {
     // A board's file brought in, its rows as the file has them (ORR-1142).
     'board/board_upload.rs': ['projects', 'milestones', 'milestone_aliases', 'doc_sections', 'docs', 'releases', 'presets', 'schedules', 'issues', 'issue_aliases', 'issue_links', 'issue_events', 'comments', 'milestone_comments', 'schedule_requests', 'doc_revisions', 'schedule_runs'],
     // Naming the owner moves what was theirs to their new id (ORR-1036).
+    // Deleting an account or a workspace (ORR-1203): each table a workspace holds, then the deleted account's id off
+    // every column naming them.
+    'access/account.rs': [],
     'access/people.rs': ['projects', 'milestones', 'issues', 'docs', 'doc_revisions', 'comments', 'signals', 'schedules', 'issue_events', 'secrets', 'uploads', 'releases', 'epics', 'presets', 'issue_links', 'schedules_across', 'events', 'schedule_requests'],
 }
 
