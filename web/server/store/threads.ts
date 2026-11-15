@@ -23,7 +23,7 @@ interface Thread {
     row: 'comments.write' | 'epics.comment'
 }
 
-export function threadCommentOf(row: ThreadCommentRow): ThreadComment {
+function threadCommentOf(row: ThreadCommentRow): ThreadComment {
     return {
         id: Number(row.id),
         ...row.project === undefined ? {} : {project: row.project},

@@ -135,7 +135,7 @@ export abstract class EpicStore extends ReleaseStore {
     }
 }
 
-export function epicOf(row: EpicRow): Omit<Epic, 'issues' | 'kinds' | 'projects'> {
+function epicOf(row: EpicRow): Omit<Epic, 'issues' | 'kinds' | 'projects'> {
     return {
         id: Number(row.id), title: row.title, ...row.notes ? {notes: row.notes} : {},
         created_by: row.created_by, protected: !!row.owned, created_at: row.created_at, updated_at: row.updated_at,

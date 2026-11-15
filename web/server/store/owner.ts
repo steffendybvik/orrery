@@ -17,7 +17,7 @@ const OWNERS_BELL: Bell = {cleared: 'c.cleared = 1', left: 'c.cleared = 0', mine
  * them (it asks, it's on their issue, it answers their own comment, it names them as `@id`) and the last one on an issue
  * that's done, which says it shipped. The rest (taking an issue, how it's going) stay on the issue. `owner` says whether
  * `id` is the owner, whose words are on the comment's own flag. */
-export function wantedBy(id: string, owner: boolean): string {
+function wantedBy(id: string, owner: boolean): string {
     const quoted = `'${id.toLowerCase().replace(/'/g, "''")}'`
     const mention = `'%@${id.toLowerCase().replace(/'/g, "''").replace(/[!%_]/g, '!$&')}%' ESCAPE '!'`
     const theirs = (o: string) => owner ? `${o}.owned = 1` : `(${o}.person = ${quoted} AND ${o}.by_agent = 0)`
