@@ -3,7 +3,7 @@ import type {Chat, ChatRequestDrift, SessionContext, ChatMilestoneField, ChatMil
 import {CHAT_MILESTONE_FIELDS, CHAT_DOC_FIELDS, CHAT_ISSUES, CHAT_RELEASE_FIELDS, CHAT_SETTINGS, SESSION_STATES, scheduleValue, settingValue} from '#shared/roadmap'
 import type {OrreryEvent} from '#shared/happenings'
 import type {Actor} from '../store/schema'
-import {MILESTONE_FIELDS, DOC_FIELDS, ISSUE_FIELDS, ORRERY, SETTINGS_FIELDS} from '../store/schema'
+import {MILESTONE_FIELDS, DOC_FIELDS, ISSUE_FIELDS, SETTINGS_FIELDS} from '../store/schema'
 import {sectionOf} from '../store/docs'
 import {checkInput, isObject} from './input'
 import {known} from '#shared/known'
@@ -905,8 +905,7 @@ async function answerDoc(chat: Chat, request: ChatDocRequest, allow: boolean, ac
             const {was} = request
             if (was) {
                 const target = known(request.id, 'the doc a change is to')
-                // The Rust API's PATCH has no "as it was" to check against, so it's checked here first; the store's
-                // own write checks it again in its transaction.
+                // The Rust API's PATCH has no "as it was" to check against, so it's checked here first.
                 await stillAsShown(project, target, was)
                 made = await through('PATCH', under(project, 'docs', target), request.body, as)
             } else {
@@ -950,7 +949,7 @@ async function answerIssue(chat: Chat, request: ChatIssueRequest, allow: boolean
     const {id: _, state: __, project: ___, ...fields} = request
     const as: Actor = {...actor, via: 'chat'}
     const body = {...fields, status: chat.issues}
-    const made = allow ? await through('POST', under(project, 'issues'), body, as) : undefined
+    const made = allow ? await through<{id: string, title: string}>('POST', under(project, 'issues'), body, as) : undefined
     request.state = allow ? 'allowed' : 'denied'
     if (made) request.id = made.id
     changed(chat)

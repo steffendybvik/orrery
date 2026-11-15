@@ -2,7 +2,7 @@
 // web/server/utils/chats.ts, and `listChats` and `readChat` answer from it. Written ahead: the Nuxt server answers from
 // its memory, which is ahead of the table, as a chat's change is saved just after it, and why a launcher couldn't start
 // one (`problem`) is never kept. Running a chat stays the local app's, as its session is; what it keeps of one is its
-// row, written here too (`keepChat`), for the local app to hand over once it's swapped in. A chat's messages are rows
+// row, written here alone (`keepChatThrough` sends it, ORR-1135). A chat's messages are rows
 // of their own (`chat_messages`, ORR-1100), each added here, which gives it its id, and changed one at a time (a
 // request's answer, its drift), so the chat's requests can be asked and answered here too.
 use crate::board::issue_edits::resolve_status;
@@ -139,7 +139,7 @@ impl<'c> Chats<'c> {
         Chats { conn, effects: Effects::default(), outbox: None }
     }
 
-    /// Keeps the chat as it is now (`keepChat`): the whole chat, as the local app holds it, but why its launcher
+    /// Keeps the chat as it is now (`keepChatThrough`): the whole chat, as the local app holds it, but why its launcher
     /// couldn't start it. Its project and start stay as first kept.
     pub async fn keep(&mut self, id: &str, body: &Value) -> Result<()> {
         let Some(sent) = body.as_object() else { return Err(ApiError::bad_request("The body should be the chat, a JSON object")) };
@@ -184,7 +184,7 @@ impl<'c> Chats<'c> {
         changes::finish(self.conn, self.outbox.as_mut(), &self.effects, done).await
     }
 
-    /// Lets go of the chat's row (`keepChat` with `gone`): one that ended before anything was said, or deleted. Its
+    /// Lets go of the chat's row (`keepChatThrough` with `gone`): one that ended before anything was said, or deleted. Its
     /// messages go with it.
     pub async fn forget(&mut self, id: &str) -> Result<()> {
         changes::begin(self.conn).await?;
