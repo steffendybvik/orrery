@@ -538,6 +538,17 @@ describe('a session orrery started', () => {
         expect(launches.viewLaunch('greenhouse', 'abc', 20_000)).toEqual({screen: null})
     })
 
+    it("shows a session's screen to its own person only, the server's owner included (ORR-964)", () => {
+        session = {name: 'greenhouse · Gna', person: 'hati', started: {launch: 'abc', tmux: 'orrery-greenhouse-abc'}}
+        launches.addLauncher('greenhouse')
+        expect(() => launches.viewLaunch('greenhouse', 'abc', 1000, 'steffen')).toThrow("greenhouse · Gna is hati's, so only they can see its screen")
+        // Refused before it's asked for: the launcher isn't told to send it.
+        expect(sent).toEqual([])
+        expect(launches.viewLaunch('greenhouse', 'abc', 1000, 'hati')).toEqual({screen: null})
+        // With login off there's no checked person, and only the one person to see it.
+        expect(launches.viewLaunch('greenhouse', 'abc', 2000)).toEqual({screen: null})
+    })
+
     it('keeps no screen for a launch it has no session for', () => {
         expect(launches.keepScreen('greenhouse', 'abc', 'anything')).toEqual({watching: false})
     })

@@ -22,7 +22,7 @@ const asking = (who: unknown, headers: Record<string, string>, method = 'POST', 
 const status = (done: Promise<unknown>) => done.then(() => 200, (error: {statusCode: number}) => error.statusCode)
 
 beforeEach(async () => {
-    ({store} = await storeSetup())
+    ({store} = await storeSetup({api: true}))
     const fail = (statusCode: number) => (message: string) => Object.assign(new Error(message), {statusCode})
     vi.stubGlobal('getHeader', (event: Event, name: string) => event.headers[name])
     vi.stubGlobal('useStore', () => store)

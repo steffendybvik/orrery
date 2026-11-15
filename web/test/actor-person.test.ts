@@ -14,7 +14,7 @@ let needsPerson: typeof import('../server/utils/actor').needsPerson
 const asking = (headers: Record<string, string>) => ({headers}) as never
 
 beforeEach(async () => {
-    ({store} = await storeSetup())
+    ({store} = await storeSetup({api: true}))
     vi.stubGlobal('getHeader', (event: Event, name: string) => event.headers[name])
     vi.stubGlobal('useStore', () => store)
     vi.stubGlobal('sessionName', (name: string | undefined) => name)
