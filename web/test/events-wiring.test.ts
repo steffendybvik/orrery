@@ -38,7 +38,7 @@ beforeEach(async () => {
     vi.doMock('../server/utils/branches', () => ({Branches: fake('Branches')}))
     vi.doMock('../server/utils/pull-poll', () => ({PullPoll: fake('PullPoll', {secretsChanged: () => calls.push('poll.secretsChanged')})}))
     vi.doMock('../server/utils/pull-comments', () => ({commentOnPull: async (_store: unknown, change: {pr: number}) => void calls.push(`commentOnPull ${change.pr}`)}))
-    vi.doMock('../server/utils/event-log', () => ({EventLog: fake('EventLog', {forget: () => calls.push('log.forget'), note: (entry: object) => calls.push(`note ${JSON.stringify(entry)}`)})}))
+    vi.doMock('../server/utils/event-log', () => ({EventLog: fake('EventLog', {forget: () => calls.push('log.forget'), flush: async () => void calls.push('log.flush'), note: (entry: object) => calls.push(`note ${JSON.stringify(entry)}`)})}))
     vi.doMock('../server/utils/schedules', () => ({Schedules: fake('Schedules'), scheduleRunning: {getStore: () => undefined}}))
     // This orrery's settings, which the API answers (ORR-1135): only its uid is read here.
     vi.doMock('../server/utils/api-router', async (real: () => Promise<object>) => ({...await real(), settingsNow: async () => ({uid: 'x7k2m9qd'})}))
@@ -83,16 +83,15 @@ describe("events.ts's helpers", () => {
         expect(calls).toEqual(['commentOnPull 7', 'poll.secretsChanged'])
     })
 
-    it("sends what the event log keeps as `logged`, scrubbed of secrets, and reads settings and secrets again as they change", () => {
+    it("scrubs the event log's lines of secrets, reads settings and secrets again as they change, and says what it held once the API answers", () => {
         events.useEventLog()
-        const [, scrubber, onLogged] = made.EventLog as [unknown, () => unknown, (event: unknown, fresh: boolean) => void]
+        const [scrubber] = made.EventLog as [() => unknown]
         expect(scrubber()).toBe('scrub')
-        const logged = heard('logged')
-        onLogged({id: 1}, true)
-        expect(logged).toEqual([{event: {id: 1}, fresh: true}])
         events.projectEvents.emit('settings', {})
         events.projectEvents.emit('secrets', [])
         expect(calls.filter(c => c === 'log.forget')).toHaveLength(2)
+        events.projectEvents.emit('api-answered')
+        expect(calls.filter(c => c === 'log.flush')).toHaveLength(1)
     })
 
     it("logs a schedule's run as ran, skipped or failed, and starts a session one asks for with its presets' context", async () => {

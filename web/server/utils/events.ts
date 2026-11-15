@@ -3,12 +3,12 @@
 // asks the sessions on a project to focus on an issue, `schedules` (the project) when its schedules
 // change or run, `secrets` (the list, no values) when they change or one is used, `logged` ({event, fresh}) when the
 // event log records or resolves one, and `happened` ({event, cause}) for what the schedules can run on (ORR-341), `cause`
-// the schedule whose run did it, and `database` once the owner has moved the database (`rebindDatabase`). `/api/events` and the signal streams pass them on.
+// the schedule whose run did it, `api-answered` when the Rust API answers again after it couldn't be reached, and `database` once the owner has moved the database (`rebindDatabase`). `/api/events` and the signal streams pass them on.
 import {Branches} from './branches'
 import {EventEmitter} from 'node:events'
 import type {H3Event} from 'h3'
 import type {OrreryEvent} from '#shared/happenings'
-import type {LoggedEvent, Project} from '#shared/roadmap'
+import type {Project} from '#shared/roadmap'
 import {numberOf, shortId} from '#shared/roadmap'
 import {diffProject, withoutNotes} from '#shared/patch'
 import {EventLog} from './event-log'
@@ -152,12 +152,13 @@ let log: EventLog | null = null
 export function useEventLog(): EventLog {
     if (!log) {
         // With the Rust API in front, it writes each line (ORR-1088), and its outbox tells open pages' bells.
-        const made = new EventLog(useDatabase(), () => useSecrets().scrubber(),
-            (event: LoggedEvent, fresh: boolean) => projectEvents.emit('logged', {event, fresh}), undefined,
+        const made = new EventLog(() => useSecrets().scrubber(), undefined,
             async (method, path, body) => (await writeToApi(method, path, body, ORRERY, {always: true}))?.reply)
         // Advanced and the secrets are read once, and again after either changes.
         projectEvents.on('settings', () => made.forget())
         projectEvents.on('secrets', () => made.forget())
+        // What it held while the API couldn't be reached is said once it answers again (ORR-1135).
+        projectEvents.on('api-answered', () => void made.flush().catch(error => console.error('[orrery] saying what the event log held:', error)))
         log = made
     }
     log.happened = happened
