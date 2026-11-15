@@ -81,6 +81,34 @@ async fn an_owners_signal_waits_for_the_session_it_was_sent_to_or_for_any() {
 }
 
 #[tokio::test]
+async fn an_owners_signal_for_any_session_stops_waiting_once_its_too_old_to_hand_out() {
+    let api = TestApi::new().await;
+    let (project, _) = api.board().await;
+    let path = format!("/api/projects/{project}/issue-sessions?sessions=sess-1");
+    for target in [None, Some("*")] {
+        let mut body = json!({"kind": "message", "note": "Old", "created_by": "owner", "owned": true});
+        if let Some(target) = target {
+            body["target"] = json!(target);
+        }
+        assert_eq!(api.post(&format!("/api/projects/{project}/signals"), body).send().await.status, 201);
+    }
+    assert_eq!(api.get(&path).send().await.body["waiting"], true, "a fresh one waits");
+    // Past a day it's out of `?waiting=pooled`, so nothing would hand it out: it mustn't keep every session busy for
+    // good, out of its pick list (ORR-1230).
+    api.run("UPDATE signals SET created_at = '2026-10-24T20:13:41.490Z'", &[]).await;
+    assert_eq!(api.get(&format!("/api/projects/{project}/signals?waiting=pooled")).send().await.body, json!([]));
+    let reply = api.get(&path).send().await;
+    assert_eq!((&reply.body["waiting"], &reply.body["waiting_for"]), (&json!(false), &json!(false)), "{}", reply.body);
+    assert_eq!(api.get(&format!("/api/projects/{project}/issue-sessions")).send().await.body["waiting"], false);
+    // One sent to the session by name still waits, however old: it's the session's own to hear.
+    let own = json!({"kind": "message", "note": "Yours", "created_by": "owner", "owned": true, "target": "sess-1"});
+    api.post(&format!("/api/projects/{project}/signals"), own).send().await;
+    api.run("UPDATE signals SET created_at = '2026-10-24T20:13:41.490Z'", &[]).await;
+    let reply = api.get(&path).send().await;
+    assert_eq!((&reply.body["waiting"], &reply.body["waiting_for"]), (&json!(true), &json!(true)));
+}
+
+#[tokio::test]
 async fn the_workers_go_from_the_issue_up_through_its_parents() {
     let api = TestApi::new().await;
     let (project, top) = api.board().await;

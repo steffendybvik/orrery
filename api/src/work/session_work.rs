@@ -162,11 +162,14 @@ impl<'c> SessionWork<'c> {
         Ok((self.any_waiting(project, unheard).await?, false))
     }
 
-    /// Whether one of the owner's signals waits for every session or the one orrery picks.
+    /// Whether one of the owner's signals from the last day waits for every session or the one orrery picks. An older
+    /// one isn't handed out any more (`Which::Pooled` keeps to the last day), so it mustn't keep every session busy for
+    /// good, out of reach of its pick list (ORR-1230).
     async fn any_waiting(&mut self, project: &str, unheard: &str) -> Result<bool> {
-        Ok(sqlx::query(&sql(&format!("{unheard} AND (target IS NULL OR target = ?) LIMIT 1")))
+        Ok(sqlx::query(&sql(&format!("{unheard} AND (target IS NULL OR target = ?) AND created_at >= ? LIMIT 1")))
             .bind(project)
             .bind(EVERY)
+            .bind(crate::work::signals::a_day_ago())
             .fetch_optional(&mut *self.conn)
             .await?
             .is_some())

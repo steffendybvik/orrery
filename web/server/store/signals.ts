@@ -380,13 +380,15 @@ export abstract class SignalStore extends IssueStore {
             AND target IN (${ids.map(() => '?').join(', ')}) LIMIT 1`, project, ...ids)
     }
 
-    /** Whether a signal of the owner's waits to reach the session (any of its `ids`), for it, for every session or
-     * for the one orrery picks. */
+    /** Whether a signal of the owner's waits to reach the session (any of its `ids`): for it, or, from the last day,
+     * for every session or the one orrery picks. An older one of those isn't handed out any more, so it mustn't keep
+     * every session busy for good (ORR-1230). */
     async waiting(project: string, ids: string[]): Promise<boolean> {
         const read = await sessionWork.of(project, ids)
         if (read) return read.waiting
+        const dayAgo = new Date(Date.now() - 86_400_000).toISOString()
         return !!await this.get(`SELECT 1 FROM signals WHERE project = ? AND owned = 1 AND delivered_to = '[]'
-            AND (target IS NULL OR target = ? OR target IN (${ids.map(() => '?').join(', ')})) LIMIT 1`, project, EVERY, ...ids)
+            AND (target IN (${ids.map(() => '?').join(', ')}) OR ((target IS NULL OR target = ?) AND created_at >= ?)) LIMIT 1`, project, ...ids, EVERY, dayAgo)
     }
 
     /** Whether an owner's focus on the issue from the last ten minutes hasn't been heard yet (Focus on this, a P0's push):
