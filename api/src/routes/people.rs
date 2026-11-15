@@ -1,13 +1,14 @@
 // People, invites, keys and logins: the handlers and the routes they answer (ORR-1048).
 use crate::access::people::{holder_of, People};
 use crate::changes::Outbox;
-use crate::error::Result;
+use crate::error::{ApiError, Result};
 use crate::reply::reply;
 use crate::request::{actor_of, body_of, header, login_of, ways_of, who_of};
+use crate::routes::auth::login_cookie;
 use crate::{App, Shared};
 use axum::body::Bytes;
 use axum::extract::{Path, State};
-use axum::http::{HeaderMap, StatusCode};
+use axum::http::{HeaderMap, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, patch, post};
 use axum::{Json, Router};
@@ -16,6 +17,7 @@ use std::sync::Arc;
 pub(crate) fn routes() -> Router<Arc<App>> {
     Router::new()
         .route("/api/owner", get(owner).put(name_owner))
+        .route("/api/me", get(me).delete(delete_me))
         .route("/api/people", get(list_people).post(add_person))
         .route("/api/people/{person}", patch(rename_person).delete(remove_person))
         .route("/api/invites", post(invite))
@@ -98,6 +100,38 @@ async fn remove_person(State(app): Shared, Path(person): Path<String>, headers: 
     people.outbox = Some(Outbox::new(actor_of(&headers)));
     people.remove_person(&person, &actor_of(&headers), who_of(&headers).as_ref()).await?;
     Ok(reply(StatusCode::NO_CONTENT, None, std::mem::take(&mut people.effects)))
+}
+
+/// The person a request is from, signed in through a browser: `GET /api/me` and `DELETE /api/me` are theirs alone,
+/// never an agent key's, a session's or the chat's, and with login off there's nobody to be (ORR-1203).
+pub(crate) fn signed_in(headers: &HeaderMap) -> Result<String> {
+    let actor = actor_of(headers);
+    match who_of(headers) {
+        Some(who) if who.browser && !actor.chat && !actor.untrusted && actor.session.is_none() => Ok(who.person),
+        Some(_) => Err(ApiError::forbidden("Only a person signed in through a browser has an account here, never a session or an agent key")),
+        None => Err(ApiError::unauthorized("Sign in to see your account")),
+    }
+}
+
+/// `GET /api/me` → the signed-in person's account (`People::me`).
+async fn me(State(app): Shared, headers: HeaderMap) -> Result<Response> {
+    let person = signed_in(&headers)?;
+    let mut conn = app.pool.acquire().await?;
+    Ok(Json(People::new(&mut conn).me(&person).await?).into_response())
+}
+
+/// `DELETE /api/me` {confirm} → 204: deletes the signed-in person's own account (`People::delete_account`), and ends
+/// this browser's login, its cookie cleared as logging out clears it.
+async fn delete_me(State(app): Shared, headers: HeaderMap, body: Bytes) -> Result<Response> {
+    let person = signed_in(&headers)?;
+    let mut conn = app.pool.acquire().await?;
+    let mut people = People::new(&mut conn);
+    people.outbox = Some(Outbox::new(actor_of(&headers)));
+    people.delete_account(&person, &body_of(&body), &actor_of(&headers)).await?;
+    let mut response = reply(StatusCode::NO_CONTENT, None, std::mem::take(&mut people.effects));
+    let cookie = HeaderValue::from_str(&format!("{}=; Max-Age=0; Path=/", login_cookie(&headers))).map_err(|_| ApiError::internal("a login cookie"))?;
+    response.headers_mut().append(axum::http::header::SET_COOKIE, cookie);
+    Ok(response)
 }
 
 async fn rename_person(State(app): Shared, Path(person): Path<String>, headers: HeaderMap, body: Bytes) -> Result<Response> {

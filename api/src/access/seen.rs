@@ -18,8 +18,9 @@ use std::collections::HashSet;
 pub(crate) enum Seen {
     /// Every workspace: the Nuxt server's own work (`Orrery-Came: server`), which isn't a request.
     All,
-    /// The workspaces the asker is a member of, and the project an untrusted session was started for.
-    Only { workspaces: Vec<String>, own: Option<String> },
+    /// The workspaces the asker is a member of, and the project an untrusted session was started for. `off` is the
+    /// projects in those workspaces that they still don't see, as they aren't on the board (ORR-985).
+    Only { workspaces: Vec<String>, own: Option<String>, off: HashSet<String> },
 }
 
 impl Seen {
@@ -40,7 +41,7 @@ impl Seen {
         let seen = Seen::of(conn, headers).await?;
         let named = header(headers, "orrery-workspace").map(|w| w.trim().to_string()).filter(|w| !w.is_empty());
         Ok(match (seen, named) {
-            (Seen::Only { workspaces, own }, Some(named)) if workspaces.contains(&named) => Seen::Only { workspaces: vec![named], own },
+            (Seen::Only { workspaces, own, off }, Some(named)) if workspaces.contains(&named) => Seen::Only { workspaces: vec![named], own, off },
             (seen, _) => seen,
         })
     }
@@ -48,12 +49,13 @@ impl Seen {
     /// The workspaces the asker is a member of: the credential's person, the owner's own (their chat's too), or the
     /// person a session names; the owner sees only the ones they're in. A request naming nobody who's here, as with
     /// login off, sees only `default`. An agent key reaches only its own workspace. An untrusted session also reaches
-    /// `own`, the project it was started for.
+    /// `own`, the project it was started for. Inside a workspace, a member sees only the boards they're on (`off`).
     pub(crate) async fn asking(conn: &mut AnyConnection, who: Option<&Who>, actor: &Actor, own: Option<&str>) -> Result<Seen> {
         let own = own.filter(|_| actor.untrusted).map(|own| percent_decode_str(own).decode_utf8_lossy().into_owned());
-        let mut workspaces: Vec<String> = match Seen::person(conn, who, actor).await? {
+        let person = Seen::person(conn, who, actor).await?;
+        let mut workspaces: Vec<String> = match &person {
             Some(person) => sqlx::query(&sql("SELECT workspace FROM workspace_members WHERE person = ? ORDER BY workspace"))
-                .bind(&person)
+                .bind(person)
                 .fetch_all(&mut *conn)
                 .await?
                 .iter()
@@ -65,7 +67,32 @@ impl Seen {
         if let Some(only) = who.and_then(|w| w.workspace.as_deref()) {
             workspaces.retain(|w| w == only);
         }
-        Ok(Seen::Only { workspaces, own })
+        let off = match &person {
+            Some(person) => Seen::off_boards(conn, person).await?,
+            None => HashSet::new(),
+        };
+        Ok(Seen::Only { workspaces, own, off })
+    }
+
+    /// The projects in the workspaces `person` is a member of whose boards they aren't on (ORR-985), as `onBoard` in
+    /// web/server/utils/roster.ts holds a member to them: the design's "a board you're not on is a 404, in lists and
+    /// streams too". None with one person here, for the server's owner, or in a workspace they own: those see it all.
+    pub(crate) async fn off_boards(conn: &mut AnyConnection, person: &str) -> Result<HashSet<String>> {
+        let present: i64 = sqlx::query_scalar(&sql("SELECT CAST(count(*) AS BIGINT) FROM people WHERE removed_at IS NULL")).fetch_one(&mut *conn).await?;
+        let owner: Option<String> = sqlx::query_scalar(&sql("SELECT id FROM people WHERE role = 'owner' AND removed_at IS NULL ORDER BY created_at LIMIT 1"))
+            .fetch_optional(&mut *conn)
+            .await?;
+        if present < 2 || owner.as_deref() == Some(person) {
+            return Ok(HashSet::new());
+        }
+        let rows =
+            sqlx::query(&sql("SELECT p.id FROM projects p JOIN workspace_members w ON w.workspace = p.workspace AND w.person = ? AND w.role = 'member' \
+             WHERE NOT EXISTS (SELECT 1 FROM project_members m WHERE m.project = p.id AND m.person = ?)"))
+            .bind(person)
+            .bind(person)
+            .fetch_all(&mut *conn)
+            .await?;
+        Ok(rows.iter().map(|r| r.get::<String, _>("id")).collect())
     }
 
     /// The person asking, if they're here: the credential's, the owner's own (their chat's too), or the one a session
@@ -112,7 +139,7 @@ impl Seen {
     pub(crate) fn sees_in(&self, workspace: &str, project: &str) -> bool {
         match self {
             Seen::All => true,
-            Seen::Only { workspaces, own } => workspaces.iter().any(|w| w == workspace) || own.as_deref() == Some(project),
+            Seen::Only { workspaces, own, off } => workspaces.iter().any(|w| w == workspace) && !off.contains(project) || own.as_deref() == Some(project),
         }
     }
 

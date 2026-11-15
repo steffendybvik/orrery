@@ -5,6 +5,7 @@ import type {SessionStart} from '../server/utils/schedules'
 import {Schedules, scheduleRunning} from '../server/utils/schedules'
 import {Store} from '../server/utils/store'
 import {testDb} from './db'
+import {apiStore} from './api'
 
 const me = {name: 'skoll', owner: true}
 const agent = {name: 'claude', owner: false}
@@ -18,12 +19,14 @@ let room: boolean
 let release: Preset
 let review: Preset
 
-beforeEach(async () => {
+/** The store and what's built on it, on the API's database when `api` (ORR-1135): what sends a signal or reads who heard
+ * one goes through the API. */
+async function setUp(api = false) {
     signals = []
     heard = []
     started = []
     room = true
-    store = new Store(testDb(), () => {}, signal => signals.push(signal))
+    store = (api ? await apiStore(() => {}, signal => signals.push(signal)) : new Store(testDb(), () => {}, signal => signals.push(signal)))
     store.happened = event => heard.push({event, cause: scheduleRunning.getStore()})
     await store.createProject({name: 'greenhouse', key: 'GRE'})
     await store.updateProject('greenhouse', {release_mode: 'own'})
@@ -34,7 +37,9 @@ beforeEach(async () => {
         started.push(start)
         return {tmux: 'orrery-greenhouse-abc'}
     }})
-})
+}
+
+beforeEach(() => setUp())
 
 async function failure(call: () => unknown): Promise<{status: number, message: string}> {
     try {
@@ -54,6 +59,7 @@ async function pass(now = new Date()): Promise<number> {
 
 describe('a message schedule with presets', () => {
     it('sends their text, read at each run, before its own words, labelled by their names', async () => {
+        await setUp(true)
         const s = await schedules.create('greenhouse', {kind: 'message', title: 'Friday release', presets: [release.id], notes: 'For rc.9.', cron: '0 9 * * 5', timezone: 'UTC'}, me)
         expect(s.presets).toEqual([release.id])
         await schedules.runNow('greenhouse', s.id, me)
@@ -144,6 +150,7 @@ describe("a schedule's own model (ORR-869)", () => {
     })
 
     it("sends a message schedule's message needing it", async () => {
+        await setUp(true)
         const s = await schedules.create('greenhouse', {kind: 'message', title: 'Maintenance', notes: 'Tidy the code.', cron: '0 9 * * 1', model: 'sonnet'}, me)
         await schedules.runNow('greenhouse', s.id, me)
         const best = await schedules.create('greenhouse', {kind: 'message', title: 'Any', notes: 'Anything.', cron: '0 9 * * 1', model: 'best'}, me)

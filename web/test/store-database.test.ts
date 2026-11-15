@@ -203,6 +203,8 @@ describe('import', () => {
     })
 
     it('replacing never hands out a number again, and lets go of what pointed at the replaced issues', async () => {
+        // What it carries on to sends a signal, which the API writes (ORR-1135).
+        ;({store} = await storeSetup({api: true}))
         const owner = {name: 'skoll', owner: true}
         const shelves = (await store.createIssue('greenhouse', {title: 'Shelves'})).id
         await store.createIssue('greenhouse', {title: 'Jars'})

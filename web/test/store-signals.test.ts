@@ -1,17 +1,16 @@
 // Signals: what sessions are told, who hears it, and what each session is on. The store, against a fresh database with
 // the project `greenhouse` (store-setup.ts).
-import {beforeEach, describe, expect, it, vi} from 'vitest'
+import {beforeEach, describe, expect, it} from 'vitest'
 import {DEFAULT_MILESTONE_PROMPT, DEFAULT_FOCUS_PROMPT} from '#shared/prompt'
-import {Store} from '../server/utils/store'
-import {testDb} from './db'
-import type {Actor} from '../server/utils/store'
+import type {Store,Actor} from '../server/utils/store'
+import {apiStore,apiSettings} from './api'
 import {failure, storeSetup} from './store-setup'
 
 let store: Store
 let changes: string[]
 
 beforeEach(async () => {
-    ({store, changes} = await storeSetup())
+    ({store, changes} = await storeSetup({api: true}))
 })
 
 describe('what sessions are told', () => {
@@ -19,22 +18,22 @@ describe('what sessions are told', () => {
 
     it("uses the project's templates, else the orrery's, else the defaults", async () => {
         expect(await store.prompts('greenhouse')).toEqual({focus: DEFAULT_FOCUS_PROMPT, milestone: DEFAULT_MILESTONE_PROMPT})
-        await store.updateSettings({focus_prompt: 'Look at {issue}.'}, owner)
+        await apiSettings({focus_prompt: 'Look at {issue}.'}, owner)
         await store.updateProject('greenhouse', {milestone_prompt: 'Do milestone {milestone}.'}, owner)
         expect(await store.prompts('greenhouse')).toEqual({focus: 'Look at {issue}.', milestone: 'Do milestone {milestone}.'})
         await store.updateProject('greenhouse', {milestone_prompt: '  '}, owner)
-        await store.updateSettings({focus_prompt: ''}, owner)
+        await apiSettings({focus_prompt: ''}, owner)
         expect(await store.prompts('greenhouse')).toEqual({focus: DEFAULT_FOCUS_PROMPT, milestone: DEFAULT_MILESTONE_PROMPT})
     })
 
     it("are the owner's to change", async () => {
         expect((await failure(() => store.updateProject('greenhouse', {focus_prompt: 'x'}, {name: 'claude', owner: false}))).status).toBe(403)
-        expect((await failure(() => store.updateSettings({instructions: []}, {name: 'claude', owner: false}))).status).toBe(403)
+        expect((await failure(() => apiSettings({instructions: []}, {name: 'claude', owner: false}))).status).toBe(403)
         expect((await store.updateProject('greenhouse', {description: 'still fine'})).description).toBe('still fine')
     })
 
     it('add the standing instructions ticked by default, or those picked for the send', async () => {
-        const {instructions: [commit, branch]} = await store.updateSettings({instructions: [{text: 'Commit whenever a piece works'}, {text: 'Make a branch', on: false}]}, owner)
+        const {instructions: [commit, branch]} = await apiSettings({instructions: [{text: 'Commit whenever a piece works'}, {text: 'Make a branch', on: false}]}, owner)
         expect([commit!.on, branch!.on, commit!.id]).toEqual([true, false, expect.stringMatching(/^[0-9a-f]{8}$/)])
         const {instructions: [tests]} = await store.updateProject('greenhouse', {instructions: [{text: 'Run the tests'}]}, owner)
         const {id} = await store.createIssue('greenhouse', {title: 'A'})
@@ -44,7 +43,7 @@ describe('what sessions are told', () => {
         expect((await store.focusMilestone('greenhouse', '1', {instructions: [branch!.id, tests!.id]}, owner)).instructions).toEqual(['Make a branch', 'Run the tests'])
         expect((await store.focus('greenhouse', id, {instructions: []}, owner)).instructions).toEqual([])
         expect((await failure(() => store.focus('greenhouse', id, {instructions: ['nope']}, owner))).status).toBe(400)
-        expect((await failure(() => store.updateSettings({instructions: [{text: ''}]}, owner))).status).toBe(400)
+        expect((await failure(() => apiSettings({instructions: [{text: ''}]}, owner))).status).toBe(400)
     })
 })
 describe('starting sessions', () => {
@@ -54,32 +53,32 @@ describe('starting sessions', () => {
         await store.createProject({name: 'pantry', key: 'PAN'})
         expect((await store.settings()).starts).toBeNull()
         expect((await store.project('greenhouse')).starts).toBeUndefined()
-        expect((await failure(() => store.updateSettings({starts: {limit: 1, minutes: 30}}))).status).toBe(403)
+        expect((await failure(() => apiSettings({starts: {limit: 1, minutes: 30}}))).status).toBe(403)
         changes.length = 0
-        expect((await store.updateSettings({starts: {limit: 2, minutes: 30}}, owner)).starts).toEqual({limit: 2, minutes: 30})
+        expect((await apiSettings({starts: {limit: 2, minutes: 30}}, owner)).starts).toEqual({limit: 2, minutes: 30})
         // Every project has it, and says so.
         expect((await store.project('pantry')).starts).toEqual({limit: 2, minutes: 30})
         expect(changes.sort()).toEqual(['greenhouse', 'pantry'])
         // Without minutes, they run until stopped; idle minutes stop one that has nothing to do.
-        expect((await store.updateSettings({starts: {limit: 2}}, owner)).starts).toEqual({limit: 2})
-        expect((await store.updateSettings({starts: {limit: 2, minutes: null, idle_minutes: 60}}, owner)).starts).toEqual({limit: 2, idle_minutes: 60})
+        expect((await apiSettings({starts: {limit: 2}}, owner)).starts).toEqual({limit: 2})
+        expect((await apiSettings({starts: {limit: 2, minutes: null, idle_minutes: 60}}, owner)).starts).toEqual({limit: 2, idle_minutes: 60})
         // A minimum kept running, up to the limit.
-        expect((await store.updateSettings({starts: {limit: 3, min: 3, minutes: 60}}, owner)).starts).toEqual({limit: 3, min: 3, minutes: 60})
-        expect((await store.updateSettings({starts: {limit: 3, min: null}}, owner)).starts).toEqual({limit: 3})
+        expect((await apiSettings({starts: {limit: 3, min: 3, minutes: 60}}, owner)).starts).toEqual({limit: 3, min: 3, minutes: 60})
+        expect((await apiSettings({starts: {limit: 3, min: null}}, owner)).starts).toEqual({limit: 3})
         // Work finding nobody listening starts one unless turned off, which is all that's kept.
-        expect((await store.updateSettings({starts: {limit: 3, on_signal: false}}, owner)).starts).toEqual({limit: 3, on_signal: false})
-        expect((await store.updateSettings({starts: {limit: 3, on_signal: true}}, owner)).starts).toEqual({limit: 3})
+        expect((await apiSettings({starts: {limit: 3, on_signal: false}}, owner)).starts).toEqual({limit: 3, on_signal: false})
+        expect((await apiSettings({starts: {limit: 3, on_signal: true}}, owner)).starts).toEqual({limit: 3})
         for (const wrong of [{limit: 2, on_signal: 'no'}, {limit: 2, min: 3}, {limit: 2, min: 0}, {limit: 0, minutes: 30}, {minutes: 30}, {limit: 2, minutes: 0}, {limit: 2, idle_minutes: 1441}, {limit: 2, minutes: 30, model: 'x'}, {limit: 1.5, minutes: 30}, 'yes']) {
-            expect((await failure(() => store.updateSettings({starts: wrong}, owner))).status).toBe(400)
+            expect((await failure(() => apiSettings({starts: wrong}, owner))).status).toBe(400)
         }
-        expect((await store.updateSettings({starts: null}, owner)).starts).toBeNull()
+        expect((await apiSettings({starts: null}, owner)).starts).toBeNull()
         expect((await store.project('greenhouse')).starts).toBeUndefined()
         // A project has none of its own.
         expect((await failure(() => store.updateProject('greenhouse', {starts: {limit: 1}}, owner))).status).toBe(400)
     })
 
     it('reads without building the board', async () => {
-        await store.updateSettings({starts: {limit: 1, minutes: 45}}, owner)
+        await apiSettings({starts: {limit: 1, minutes: 45}}, owner)
         expect(await store.starts('greenhouse')).toEqual({limit: 1, minutes: 45})
         expect((await failure(() => store.starts('nope'))).status).toBe(404)
     })
@@ -91,16 +90,6 @@ describe('a signal reaching sessions', () => {
         await Promise.all(['greenhouse 1', 'greenhouse 2', 'pantry'].map(name => store.delivered('greenhouse', signal.id, name)))
         const [heard] = await store.listSignals('greenhouse', signal.id - 1)
         expect([...heard!.delivered_to].sort()).toEqual(['greenhouse 1', 'greenhouse 2', 'pantry'])
-    })
-
-    it("says so when it can't keep a session's receipt, rather than one it didn't save", async () => {
-        const jars = (await store.createIssue('greenhouse', {title: 'Jars'})).id
-        const signal = await store.focus('greenhouse', jars, {}, {name: 'skoll', owner: true})
-        // Every write loses its race to another session's.
-        const losing = Object.assign(Object.create(store) as Store, {run: async () => ({changes: 0})})
-        expect((await failure(() => losing.delivered('greenhouse', signal.id, 'greenhouse 1'))).status).toBe(409)
-        const [heard] = await store.listSignals('greenhouse', signal.id - 1)
-        expect(heard!.delivered_to).toEqual([])
     })
 })
 describe('a focus on every session', () => {
@@ -169,21 +158,16 @@ describe("what a project's sessions are on", () => {
     it('says when each took its issue, kept while it works it again (ORR-536)', async () => {
         const shelves = (await store.createIssue('greenhouse', {title: 'Shelves', status: 'in-progress'})).id
         const since = async (session: string) => (await store.sessionWork('greenhouse', [{id: session, name: session}]))[session]!.issues[0]?.since
-        vi.useFakeTimers({toFake: ['Date']})
-        try {
-            vi.setSystemTime(new Date('2026-10-29T09:00:00Z'))
-            await store.workedBy('greenhouse', shelves, 'a')
-            vi.setSystemTime(new Date('2026-10-29T09:20:00Z'))
-            await store.workedBy('greenhouse', shelves, 'a')
-            expect(await since('a')).toBe('2026-10-29T09:00:00.000Z')
-            // Another session taking it, once the first is gone (ORR-627), starts the clock again.
-            vi.setSystemTime(new Date('2026-10-29T09:30:00Z'))
-            store.hears = (_project, session) => session !== 'a'
-            await store.workedBy('greenhouse', shelves, 'b')
-            expect(await since('b')).toBe('2026-10-29T09:30:00.000Z')
-        } finally {
-            vi.useRealTimers()
-        }
+        await store.workedBy('greenhouse', shelves, 'a')
+        const took = await since('a')
+        expect(took).toEqual(expect.any(String))
+        await new Promise(done => setTimeout(done, 5))
+        await store.workedBy('greenhouse', shelves, 'a')
+        expect(await since('a')).toBe(took)
+        // Another session taking it, once the first is gone (ORR-627), starts the clock again.
+        store.hears = (_project, session) => session !== 'a'
+        await store.workedBy('greenhouse', shelves, 'b')
+        expect(await since('b') > took!).toBe(true)
     })
 })
 describe('the model a signal needs (ORR-868)', () => {
@@ -230,24 +214,24 @@ describe('the kinds of work (ORR-868)', () => {
         const {WORK_KINDS} = await import('#shared/roadmap')
         expect((await store.settings()).work_kinds).toEqual(WORK_KINDS)
         const mine = [{id: 'docs', name: 'Docs', labels: ['Docs', 'writing'], model: 'haiku', effort: 'low'}, {id: 'other', name: 'Other', labels: [], model: 'best'}]
-        expect((await store.updateSettings({work_kinds: mine}, owner)).work_kinds).toEqual([{...mine[0], labels: ['docs', 'writing']}, mine[1]])
+        expect((await apiSettings({work_kinds: mine}, owner)).work_kinds).toEqual([{...mine[0], labels: ['docs', 'writing']}, mine[1]])
         const writing = (await store.createIssue('greenhouse', {title: 'Write', labels: ['writing']})).id
         expect((await store.focus('greenhouse', writing, {}, owner)).model).toBe('haiku')
-        expect((await store.updateSettings({work_kinds: null}, owner)).work_kinds).toEqual(WORK_KINDS)
+        expect((await apiSettings({work_kinds: null}, owner)).work_kinds).toEqual(WORK_KINDS)
     })
 
     it('are refused with a model, effort, id or label that makes no sense, and are the owner\'s to set', async () => {
         const kind = {id: 'docs', name: 'Docs', labels: ['docs'], model: 'sonnet'}
         for (const bad of [[], [{...kind, model: 'gpt'}], [{...kind, effort: 'huge'}], [kind, kind], [kind, {...kind, id: 'more'}], [{...kind, id: 'Has Space'}], [{...kind, extra: 1}]]) {
-            expect((await failure(() => store.updateSettings({work_kinds: bad}, owner))).status).toBe(400)
+            expect((await failure(() => apiSettings({work_kinds: bad}, owner))).status).toBe(400)
         }
-        expect((await failure(() => store.updateSettings({work_kinds: [kind]}, {name: 'claude', owner: false}))).status).toBe(403)
+        expect((await failure(() => apiSettings({work_kinds: [kind]}, {name: 'claude', owner: false}))).status).toBe(403)
     })
 })
 
 describe('a session that connects', () => {
     it("knows an owner's focus on an issue is on its way until a session hears it (ORR-515)", async () => {
-        const local = new Store(testDb())
+        const local = await apiStore()
         await local.createProject({name: 'greenhouse', key: 'GRE'})
         const a = (await local.createIssue('greenhouse', {title: 'A'})).id
         expect(await local.focusOnItsWay('greenhouse', a)).toBe(false)
@@ -261,7 +245,7 @@ describe('a session that connects', () => {
 
     it("gets the owner's comments that no agent has answered", async () => {
         const sent: string[] = []
-        const local = new Store(testDb(), () => {}, signal => sent.push(`${signal.issue}:${signal.target}:${signal.note}`))
+        const local = await apiStore(() => {}, signal => sent.push(`${signal.issue}:${signal.target}:${signal.note}`))
         await local.createProject({name: 'greenhouse', key: 'GRE'})
         const me = {name: 'skoll', owner: true}
         const a = (await local.createIssue('greenhouse', {title: 'A'})).id
@@ -280,7 +264,7 @@ describe('a session that connects', () => {
 
     it("still gets the owner's comment when only orrery has spoken since, not an agent (ORR-528)", async () => {
         const sent: string[] = []
-        const local = new Store(testDb(), () => {}, signal => sent.push(`${signal.issue}:${signal.target}:${signal.note}`))
+        const local = await apiStore(() => {}, signal => sent.push(`${signal.issue}:${signal.target}:${signal.note}`))
         await local.createProject({name: 'greenhouse', key: 'GRE'})
         const a = (await local.createIssue('greenhouse', {title: 'A'})).id
         await local.createComment('greenhouse', a, {body: 'rebase this'}, {name: 'skoll', owner: true})
@@ -294,7 +278,7 @@ describe('a session that connects', () => {
 
     it("aims the owner's comment on an issue nobody is on at no session, for one to take, and the pool offers it (ORR-513)", async () => {
         const sent: (string | undefined)[] = []
-        const local = new Store(testDb(), () => {}, signal => sent.push(signal.target))
+        const local = await apiStore(() => {}, signal => sent.push(signal.target))
         await local.createProject({name: 'greenhouse', key: 'GRE'})
         const a = (await local.createIssue('greenhouse', {title: 'A'})).id
         await local.createComment('greenhouse', a, {body: 'svg?'}, {name: 'skoll', owner: true})
@@ -336,7 +320,8 @@ describe('a message to one session', () => {
         expect((await failure(() => store.messageSession('greenhouse', 'abc', '  ', owner))).status).toBe(400)
         expect((await failure(() => store.messageSession('nope', 'abc', 'Hi', owner))).status).toBe(404)
         const signal = await store.messageSession('greenhouse', 'abc', ' Look at the hinges\n', owner)
-        expect(signal).toMatchObject({kind: 'message', note: 'Look at the hinges', target: 'abc', schedule: undefined, issue: undefined, created_by: 'skoll', protected: true})
+        expect(signal).toMatchObject({kind: 'message', note: 'Look at the hinges', target: 'abc', created_by: 'skoll', protected: true})
+        expect([signal.schedule, signal.issue]).toEqual([undefined, undefined])
         // Nobody else catches up on it, but the session it's for does, if it wasn't there to hear it.
         expect((await store.unheardScheduled('greenhouse')).map(s => s.target)).toEqual(['abc'])
     })

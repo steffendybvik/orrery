@@ -2,8 +2,8 @@ import {beforeEach, describe, expect, it} from 'vitest'
 import {branchVerdict} from '#shared/roadmap'
 import {Branches} from '../server/utils/branches'
 import {Pulls} from '../server/utils/pulls'
-import {Store} from '../server/utils/store'
-import {testDb} from './db'
+import type {Store} from '../server/utils/store'
+import {apiStore} from './api'
 
 // The repos' branches (ORR-793), with GitHub stubbed: what each is and what to do with it, and nothing goes that has moved on.
 const facts = {held: false, sha: 'a', ahead: 3, worked: false}
@@ -41,7 +41,7 @@ describe('reading the branches', () => {
         associatedPullRequests: {nodes: pull ? [{...pull, url: `https://github.com/you/shop/pull/${pull.number}`}] : []}, compare: {behindBy}})
 
     beforeEach(async () => {
-        store = new Store(testDb())
+        store = await apiStore()
         await store.createProject({name: 'shop', key: 'SHO', repo: 'https://github.com/you/shop'})
         await store.createIssue('shop', {title: 'Pay with cards'})
         now = Date.parse('2026-10-31T10:00:00Z')

@@ -667,34 +667,37 @@ impl<'c> Projects<'c> {
             )));
         }
         changes::begin(self.conn).await?;
-        let done: Result<()> = async {
-            // Comments and issues first: the foreign keys would refuse the project going before them.
-            for statement in [
-                "DELETE FROM comments WHERE project = ?",
-                "UPDATE issues SET parent = NULL, milestone = NULL WHERE project = ?",
-                "DELETE FROM issues WHERE project = ?",
-                "DELETE FROM milestones WHERE project = ?",
-                "DELETE FROM docs WHERE project = ?",
-                "DELETE FROM doc_sections WHERE project = ?",
-                "DELETE FROM doc_revisions WHERE project = ?",
-                "DELETE FROM releases WHERE project = ?",
-                "DELETE FROM issue_aliases WHERE project = ?",
-                "DELETE FROM milestone_aliases WHERE project = ?",
-                "DELETE FROM signals WHERE project = ?",
-                "DELETE FROM schedules WHERE project = ?",
-                "DELETE FROM presets WHERE project = ?",
-            ] {
-                sqlx::query(&sql(statement)).bind(id).execute(&mut *self.conn).await?;
-            }
-            sqlx::query(&sql("DELETE FROM issue_links WHERE project = ? OR on_project = ?")).bind(id).bind(id).execute(&mut *self.conn).await?;
-            sqlx::query(&sql("DELETE FROM projects WHERE id = ?")).bind(id).execute(&mut *self.conn).await?;
-            self.effects.changed = vec![id.into()];
-            // Its schedules went with it, for the local app's runner to drop.
-            self.effects.schedules = vec![id.into()];
-            Ok(())
-        }
-        .await;
+        let done = self.delete_rows(id).await;
         changes::finish(self.conn, self.outbox.as_mut(), &self.effects, done).await
+    }
+
+    /// The rows of `delete`, with no check and no transaction of their own: deleting someone's account runs them for
+    /// each project in the workspaces it deletes, in its one transaction (ORR-1203). What it set off is added to `effects`.
+    pub(crate) async fn delete_rows(&mut self, id: &str) -> Result<()> {
+        // Comments and issues first: the foreign keys would refuse the project going before them.
+        for statement in [
+            "DELETE FROM comments WHERE project = ?",
+            "UPDATE issues SET parent = NULL, milestone = NULL WHERE project = ?",
+            "DELETE FROM issues WHERE project = ?",
+            "DELETE FROM milestones WHERE project = ?",
+            "DELETE FROM docs WHERE project = ?",
+            "DELETE FROM doc_sections WHERE project = ?",
+            "DELETE FROM doc_revisions WHERE project = ?",
+            "DELETE FROM releases WHERE project = ?",
+            "DELETE FROM issue_aliases WHERE project = ?",
+            "DELETE FROM milestone_aliases WHERE project = ?",
+            "DELETE FROM signals WHERE project = ?",
+            "DELETE FROM schedules WHERE project = ?",
+            "DELETE FROM presets WHERE project = ?",
+        ] {
+            sqlx::query(&sql(statement)).bind(id).execute(&mut *self.conn).await?;
+        }
+        sqlx::query(&sql("DELETE FROM issue_links WHERE project = ? OR on_project = ?")).bind(id).bind(id).execute(&mut *self.conn).await?;
+        sqlx::query(&sql("DELETE FROM projects WHERE id = ?")).bind(id).execute(&mut *self.conn).await?;
+        self.effects.changed.push(id.into());
+        // Its schedules went with it, for the local app's runner to drop.
+        self.effects.schedules.push(id.into());
+        Ok(())
     }
 }
 

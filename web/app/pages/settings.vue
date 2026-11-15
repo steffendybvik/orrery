@@ -15,6 +15,7 @@ const failed = ref('')
 // Since workspaces (ORR-1108), what was every project's and this orrery's is the workspace's: one Workspace tab for it,
 // and the tabs it was on (`?tab=issues`, `projects`, `orrery`) open it.
 type Tab = 'you' | 'workspace' | 'usage' | 'advanced'
+const signedIn = computed(() => useAuth().status.value?.mode === 'on' && !!useAuth().status.value?.person)
 const OLD_TABS: Record<string, Tab> = {projects: 'workspace', issues: 'workspace', orrery: 'workspace'}
 const TABS: {value: Tab, label: string, scope: string, sections: Heading[]}[] = [
     {value: 'you', label: 'You', scope: 'Who you are on this orrery, and how your issues are named outside it.', sections: [
@@ -25,6 +26,8 @@ const TABS: {value: Tab, label: string, scope: string, sections: Heading[]}[] = 
         ...useAuth().status.value?.mode === 'on' ? [{id: 'keys', text: 'Your keys', level: 2 as const}] : [],
         {id: 'phone', text: 'Open on your phone', level: 2},
         {id: 'logins', text: 'Signed in', level: 2},
+        // Only for someone signed in (ORR-1203): with no login there's no account to show or delete.
+        ...signedIn.value ? [{id: 'account', text: 'Account', level: 2 as const}] : [],
     ]},
     {value: 'workspace', label: 'Workspace', scope: "This workspace: its name and colour, its projects and how their issues work, and the keys its agents use. A project's own settings are on its Settings tab; how sessions start is under Sessions → Setup.", sections: [
         {id: 'workspace', text: 'Name', level: 2},
@@ -311,6 +314,14 @@ async function pick(tint: string | null) {
           </p>
         </header>
         <LoginSettings />
+      </section>
+
+      <section v-if="tab === 'you' && signedIn" id="account" class="scroll-mt-6 flex flex-col gap-3">
+        <header class="flex flex-col gap-0.5">
+          <h2 class="text-[15px] font-semibold text-fg">{{ title.account ?? 'Account' }}</h2>
+          <p class="text-xs text-muted">Who you're signed in to this orrery as, signing out, and deleting your account.</p>
+        </header>
+        <AccountSettings />
       </section>
 
       <section v-if="tab === 'workspace'" id="workspace" class="scroll-mt-6 flex flex-col gap-3">

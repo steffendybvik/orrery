@@ -26,7 +26,7 @@ const held = async (id: string, project = 'greenhouse') => {
 }
 
 beforeEach(async () => {
-    ({store} = await storeSetup())
+    ({store} = await storeSetup({api: true}))
     await store.nameOwner({name: 'Skoll'})
     for (const name of ['Hati', 'Manni']) {
         await store.addPerson({name})

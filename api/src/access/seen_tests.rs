@@ -8,6 +8,7 @@ use serde_json::json;
 async fn two_workspaces(api: &TestApi) -> (String, String) {
     api.team().await;
     let primes = api.project("Primes").await;
+    api.on_board(&primes, &["ana", "bo"]).await;
     let rockets = api.acme(&["bo"]).await;
     (primes, rockets)
 }
@@ -445,4 +446,85 @@ fn every_route_outside_a_project_says_how_its_held() {
             held => panic!("{at}: held {held:?} is none of workspace, person, owner, server, link or local"),
         }
     }
+}
+
+// A board a member isn't on, inside their own workspace (ORR-985): a 404 in every route of it, its lists and feeds, as
+// decision-people-and-claims says. Quarry is in `default` with ana not on it; bo is.
+
+/// The team, with Quarry in `default`: bo on its board, ana not. Its id.
+async fn a_board_ana_isnt_on(api: &TestApi) -> String {
+    api.team().await;
+    let quarry = api.project("Quarry").await;
+    api.on_board(&quarry, &["bo"]).await;
+    quarry
+}
+
+#[tokio::test]
+async fn no_route_of_a_board_reads_or_writes_for_a_member_off_it() {
+    let api = TestApi::new().await;
+    let quarry = a_board_ana_isnt_on(&api).await;
+    let login = api.login("ana").await;
+    let held = format!("No project {quarry}");
+    let mut leaks = Vec::new();
+    for (method, route) in project_routes() {
+        let path = filled(&route, &quarry);
+        let req = api
+            .request(method.parse().unwrap(), &path)
+            .json(json!({}))
+            .header("orrery-came", "loopback")
+            .header("orrery-login-ways", "on")
+            .header("orrery-sent-origin", "http://localhost")
+            .signed_in(&login);
+        let reply = req.send().await;
+        if reply.status != 404 || reply.body["message"] != held {
+            leaks.push(format!("{method} {route}: {} {}", reply.status, reply.body));
+        }
+    }
+    assert!(leaks.is_empty(), "reached a board ana isn't on:\n{}", leaks.join("\n"));
+    // bo, on it, and the owner, on every board, aren't held: the 404s above are the board's.
+    for person in ["bo", "steffen"] {
+        let read = api.signed(api.get(&format!("/api/projects/{quarry}/issues")), person).await.send().await;
+        assert_eq!(read.status, 200, "{person}: {}", read.body);
+    }
+}
+
+#[tokio::test]
+async fn a_members_lists_and_feeds_keep_to_the_boards_theyre_on() {
+    let api = TestApi::new().await;
+    let quarry = a_board_ana_isnt_on(&api).await;
+    let primes = api.project("Primes").await;
+    api.on_board(&primes, &["ana"]).await;
+    api.issue(&quarry, json!({"title": "Blast"})).await;
+    api.issue(&primes, json!({"title": "Sieve"})).await;
+    assert_eq!(ids(&as_person(&api, "/api/projects", "ana").await), std::slice::from_ref(&primes));
+    let mut owners = ids(&as_person(&api, "/api/projects", "steffen").await);
+    owners.sort();
+    assert_eq!(owners, [primes.clone(), quarry.clone()]);
+    let feed = projects_of(&as_person(&api, "/api/changes", "ana").await["changes"]);
+    assert!(feed.contains(&primes) && !feed.contains(&quarry), "{feed:?}");
+    // Her agent key is held alike.
+    let read = with_agent_key(&api, api.get(&format!("/api/projects/{quarry}/issues")), "ana", None).await.send().await;
+    assert_eq!(read.status, 404, "{}", read.body);
+}
+
+#[tokio::test]
+async fn an_mcp_tool_reaches_only_the_boards_a_member_is_on() {
+    let api = TestApi::new().await;
+    let quarry = a_board_ana_isnt_on(&api).await;
+    let issue = api.issue(&quarry, json!({"title": "Blast"})).await;
+    let body = json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "issue", "arguments": {"id": issue}}});
+    let anas = with_agent_key(&api, api.post("/mcp", body.clone()), "ana", Some("default")).await.send().await;
+    assert_eq!(anas.body["result"]["isError"], true, "{}", anas.body);
+    let bos = with_agent_key(&api, api.post("/mcp", body), "bo", Some("default")).await.send().await;
+    assert_ne!(bos.body["result"]["isError"], true, "{}", bos.body);
+}
+
+#[tokio::test]
+async fn a_workspaces_owner_sees_every_board_in_it() {
+    let api = TestApi::new().await;
+    api.team().await;
+    let rockets = api.acme(&[]).await;
+    api.run("INSERT INTO workspace_members (workspace, person, role, created_at) VALUES ('acme', 'ana', 'owner', ?)", &["2026-11-01T00:00:00.000Z"]).await;
+    let read = api.signed(api.get(&format!("/api/projects/{rockets}/issues")), "ana").await.send().await;
+    assert_eq!(read.status, 200, "Acme is ana's, so its boards are: {}", read.body);
 }

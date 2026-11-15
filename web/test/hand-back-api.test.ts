@@ -5,12 +5,30 @@ import {testDb} from './db'
 // What the local app hands back for a session, and what an action schedule moves, go through the Rust API when it's in
 // front (ORR-1094): it's the one writer of `issues` and `comments` then, so nothing is written to the database here.
 const sent: {method: string, path: string, body: unknown, actor: {name: string, owner: boolean}, always: unknown}[] = []
+/** Which session works which issue: kept by this stand-in for the API, as the set-up needs it (ORR-1141's own tests
+ * cover its API call). */
+const worked = new Map<string, string>()
 vi.mock('../server/utils/api-router', () => ({
-    // No reads from the API: the store answers them here.
+    // No reads from the API but who works what: the store answers them here.
     readFromApi: async () => undefined,
+    readFromApiOnly: async (path: string) => {
+        const url = new URL(path, 'http://api')
+        const workers = /\/issues\/([^/]+)\/workers$/.exec(url.pathname)
+        if (workers) return [{issue: workers[1], started: true, worker: worked.get(workers[1]!) ?? null}]
+        if (url.pathname.endsWith('/issue-sessions')) {
+            const sessions = url.searchParams.get('sessions')!.split(',')
+            const issues = (await useStore().listIssues('greenhouse')).filter(i => sessions.includes(worked.get(i.id) ?? '') && i.kind === 'started')
+            return {issues, waiting: false, waiting_for: false}
+        }
+        throw new Error(`no reply set up for GET ${path}`)
+    },
+    writeToApiOnly: async (method: string, path: string, body: unknown) => {
+        const by = /\/issues\/([^/]+)\/worked-by$/.exec(path)
+        if (!by) throw new Error(`no reply set up for ${method} ${path}`)
+        worked.set(by[1]!, (body as {session: string}).session)
+        return null
+    },
     writeToApi: async (method: string, path: string, body: unknown, actor: {name: string, owner: boolean}, opts: {always?: boolean} = {}) => {
-        // Which session works an issue is kept here, as the set-up needs it (ORR-1141's own tests cover its API call).
-        if (path.endsWith('/worked-by')) return undefined
         sent.push({method, path, body, actor, always: opts.always})
         return {reply: null}
     },
@@ -20,12 +38,13 @@ let store: Store
 
 beforeEach(async () => {
     sent.length = 0
+    worked.clear()
     store = new Store(testDb())
     await store.createProject({name: 'Greenhouse', key: 'GRE'})
     await store.createIssue('greenhouse', {title: 'Water the beds'})
     await store.updateIssue('greenhouse', 'GRE-1', {status: 'in-progress', assignee: 'claude'})
-    await store.workedBy('greenhouse', 'GRE-1', 'w')
     vi.stubGlobal('useStore', () => store)
+    await store.workedBy('greenhouse', 'GRE-1', 'w')
     vi.stubGlobal('sessionIds', (id: string) => [id])
     vi.stubGlobal('sessionNow', () => ({name: 'Sköll'}))
     vi.resetModules()

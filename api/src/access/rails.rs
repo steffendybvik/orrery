@@ -7,9 +7,9 @@
 //
 // The table is web/shared/permissions.ts, copied whole to api/permissions.json by web/test/rust-permissions.test.ts,
 // which `GET /api/permissions` answers with (routes/permissions.rs, ORR-1086); the rails read its rows. Reads
-// go through: a board's reads are each route's (`needsBoard`), as they are on Nuxt, save that a read or write of a project
-// in a workspace the asker isn't a member of is answered 404 (`workspace_check`, ORR-1106), and a write to a board marked
-// as moved 409 (`moved_check`, ORR-1225).
+// go through, save that a read or write of a project the asker doesn't see is answered 404 (`workspace_check`): one in a
+// workspace they aren't a member of (ORR-1106), or a board they aren't on in theirs (`Seen::off_boards`, ORR-985); and a
+// write to a board marked as moved 409 (`moved_check`, ORR-1225).
 use crate::access::people::Who;
 use crate::access::presence::Presence;
 use crate::access::seen::Seen;
