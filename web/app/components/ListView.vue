@@ -65,7 +65,7 @@ function toggle(group: Group) {
         <div v-if="$slots['group-end']" class="ml-auto shrink-0"><slot name="group-end" :column="g.column" /></div>
       </div>
       <div v-if="isOpen(g)">
-        <IssueRow v-for="{issue, milestone} in g.issues" :key="issue.id" :issue="issue" :project="project" :milestone="milestone" nested />
+        <IssueRow v-for="{issue, milestone} in g.issues" :key="issue.id" :issue="issue" :project="project" :milestone="milestone" :group="group === 'status' ? g.column : undefined" nested />
         <p v-if="!g.issues.length" class="border-b border-line/60 px-10 py-2 text-xs text-faint">No issues yet</p>
       </div>
     </section>
