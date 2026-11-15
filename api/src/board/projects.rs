@@ -24,7 +24,7 @@ use sqlx::{AnyConnection, Row};
 use std::sync::LazyLock;
 
 const PROJECT_COLUMNS: &str = "id, name, key, uid, description, icon, icon_color, focus_prompt, milestone_prompt, instructions, muted, repo, \
-    release_mode, releases_from, created_by, CAST(owned AS BIGINT) AS owned, created_at, updated_at, workspace";
+    release_mode, releases_from, created_by, CAST(owned AS BIGINT) AS owned, created_at, updated_at, workspace, moved_to";
 
 /// `PROJECT_FIELDS`, in its order, as `checkInput` lists them.
 const FIELDS: [&str; 13] = [
@@ -286,7 +286,7 @@ impl<'c> Projects<'c> {
             project.insert(column.into(), json!(row.get::<Option<String>, _>(column).unwrap_or_default()));
         }
         // What the store leaves undefined, and so out of its reply, is left out here too.
-        for column in ["description", "icon", "icon_color", "focus_prompt", "milestone_prompt", "repo", "releases_from"] {
+        for column in ["description", "icon", "icon_color", "focus_prompt", "milestone_prompt", "repo", "releases_from", "moved_to"] {
             if let Some(value) = row.get::<Option<String>, _>(column) {
                 project.insert(column.into(), json!(value));
             }
@@ -542,6 +542,31 @@ impl<'c> Projects<'c> {
             if let Some(before) = row.from.clone().filter(|before| Some(before) != from.as_ref()) {
                 self.effects.changed.push(before);
             }
+            Ok(())
+        }
+        .await;
+        changes::finish(self.conn, self.outbox.as_mut(), &self.effects, done).await
+    }
+
+    /// Marks the board as moved to the orrery at `to`, or, with none, lifts the mark (ORR-1225). The owner's alone, from
+    /// their own page: no session, the chat or an untrusted one marks it. While it's marked, the rails refuse each write a
+    /// request makes to the board, saying where it went (`moved_check` in access/rails.rs).
+    pub async fn mark_moved(&mut self, id: &str, to: Option<&str>, actor: &Actor) -> Result<()> {
+        if !actor.owner || actor.session.is_some() || actor.chat || actor.untrusted {
+            return Err(ApiError::forbidden("Only the owner marks a board as moved, from its Settings"));
+        }
+        let to = to.map(|to| to.trim().trim_end_matches('/'));
+        if to.is_some_and(|to| !REPO.is_match(to)) {
+            return Err(ApiError::bad_request("to: the address of the orrery the board went to, e.g. https://orrery.example.com"));
+        }
+        let here: Option<String> = sqlx::query_scalar(&sql("SELECT id FROM projects WHERE id = ?")).bind(id).fetch_optional(&mut *self.conn).await?;
+        if here.is_none() {
+            return Err(ApiError::not_found(format!("No project \"{id}\"")));
+        }
+        changes::begin(self.conn).await?;
+        let done: Result<()> = async {
+            sqlx::query(&sql("UPDATE projects SET moved_to = ?, updated_at = ? WHERE id = ?")).bind(to).bind(stamp()).bind(id).execute(&mut *self.conn).await?;
+            self.effects.changed = vec![id.into()];
             Ok(())
         }
         .await;
