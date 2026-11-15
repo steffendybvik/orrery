@@ -1,12 +1,16 @@
 // `POST /api/epics/:epic/focus` {note?, session?, start?, status?, instructions?} → {signals, listeners} (ORR-987): asks the
 // sessions to work through the epic's open issues, a focus for each project it has open issues in, to one session there
-// orrery picks (`session: "*"`: every one listening on it). Each lists only that project's part, as a milestone's focus
+// orrery picks (`session: "*"`: every one listening on it; a session's id: that session, in each of those projects
+// it hears, ORR-958). Each lists only that project's part, as a milestone's focus
 // does. `listeners` says how many sessions were listening on each, by project. `start: true`, from the owner, starts a
 // session for a project nobody's listening on, even when work alone doesn't start one (`starts.on_signal` off).
 export default defineEventHandler(async event => {
     const {start, ...body} = ((await readBody(event).catch(() => null)) ?? {}) as {start?: unknown}
     const actor = await actorOf(event)
     const id = await epicId(event)
+    // A member focuses only an epic of a workspace they're in, as the API finds it for them (ORR-1195).
+    const who = event.context?.who as Who | undefined
+    if (who && !who.owner && !await readAsAsker(event, `/api/epics/${id}`)) throw notFound(`No epic ${id}`)
     const send = () => useStore().focusEpic(id, body, actor)
     const signals = await (start === true && actor.owner ? startAsked.run(true, send) : send())
     setResponseStatus(event, 201)

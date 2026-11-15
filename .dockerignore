@@ -3,6 +3,7 @@
 **/.output
 **/.channel-bundle
 **/.data
+api/target
 .git
 .env
 .env.*

@@ -19,6 +19,18 @@ test('writes a doc, edits it in place and removes it', async ({page}) => {
     await expect(page).toHaveURL(/\/p\/archive\/docs\/how-we-file$/)
     await expect(page.locator('.doc strong', {hasText: 'year'})).toBeVisible()
 
+    // Copy content puts the doc's Markdown on the clipboard (ORR-1103).
+    await page.evaluate(() => {
+        const copied: string[] = (window as unknown as {copied: string[]}).copied = []
+        navigator.clipboard.writeText = async text => { copied.push(text) }
+    })
+    // Its name turns to Copied, so it's found by its title.
+    const copy = page.getByTitle("Copy this doc's Markdown")
+    await expect(copy).toHaveText('Copy content')
+    await copy.click()
+    await expect(copy).toHaveText('Copied')
+    expect(await page.evaluate(() => (window as unknown as {copied: string[]}).copied)).toEqual(['Boxes by **year**.'])
+
     await page.getByRole('button', {name: 'Edit'}).click()
     await page.getByLabel('Title').fill('How we file things')
     await page.getByLabel('Text').fill('Boxes by year, then by month.')

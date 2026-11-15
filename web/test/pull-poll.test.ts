@@ -1,6 +1,6 @@
 import {beforeEach, describe, expect, it, vi} from 'vitest'
 import type {EventEntry} from '../server/utils/event-log'
-import type {PullChange} from '../server/utils/pull-poll'
+import type {PullChange, PullStill} from '../server/utils/pull-poll'
 import {changesOf, PullPoll, POLL_WITHOUT_TOKEN} from '../server/utils/pull-poll'
 import {Pulls} from '../server/utils/pulls'
 import {Secrets} from '../server/utils/secrets'
@@ -173,6 +173,28 @@ describe('what an issue keeps of its pull requests (ORR-795)', () => {
 })
 
 describe('the pull request poll', () => {
+    it('hands on each open PR that still needs work with no news of it, for orrery to ask about one left alone (ORR-1184)', async () => {
+        const still: PullStill[] = []
+        const watching = new PullPoll(store, pulls, async () => true, () => {}, () => {}, () => now, one => still.push(one))
+        await withToken()
+        open = [pr(1, {mergeStateStatus: 'DIRTY'}), pr(2)]
+        await watching.tick()
+        // The first poll only records.
+        expect(still).toEqual([])
+        now += 60_000
+        await watching.tick()
+        expect(still).toEqual([{project: 'shop', issue: 'SHO-1', repo: 'you/shop', number: 1, updated_at: '2026-10-29T09:00:00Z', needs: ['conflicting']}])
+        // News of it this poll is told as news, not as still needing work.
+        still.length = 0
+        open = [pr(1, {mergeStateStatus: 'DIRTY', commits: {nodes: [{commit: {statusCheckRollup: {state: 'FAILURE'}}}]}}), pr(2)]
+        now += 60_000
+        await watching.tick()
+        expect(still).toEqual([])
+        now += 60_000
+        await watching.tick()
+        expect(still.map(s => s.needs)).toEqual([['conflicting', 'checks_failed']])
+    })
+
     it('records on its first poll of a repo, then tells each change once, on the issue the PR names', async () => {
         await withToken()
         open = [pr(1, {mergeStateStatus: 'DIRTY'}), pr(2)]

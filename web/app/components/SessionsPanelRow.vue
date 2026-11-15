@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import type {Session} from '#shared/roadmap'
 
-// One session in SessionsPanel: its state, a link to its card, and a button to point it at this issue or milestone.
-defineProps<{session: Session, worker?: string, issue?: string, sending: string | null}>()
+// One session in SessionsPanel (or an epic's, EpicSessions): its state, a link to its card, and a button to point it
+// at this issue, milestone or epic (`what`, for a milestone's or epic's: "this milestone" when left out). The slot
+// says more about it, as which of an epic's projects it hears.
+withDefaults(defineProps<{session: Session, worker?: string, issue?: string, what?: string, sending: string | null}>(), {what: 'this milestone'})
 defineEmits<{focus: []}>()
 </script>
 
@@ -17,8 +19,9 @@ defineEmits<{focus: []}>()
     <ModelChip :session="session" size="condensed" />
     <ContextMeter :context="session.context" />
     <span v-if="session.id === worker" class="rounded-full bg-accent-500/10 px-1.5 text-[11px] font-medium text-accent-700 ring-1 ring-accent-500/30 dark:text-accent-300">on this issue</span>
+    <slot />
     <span class="whitespace-nowrap text-xs" :class="session.state === 'waiting' ? 'text-rose-700 dark:text-rose-400' : 'text-faint'">
-      {{ SESSION_STATE[session.state] }} · {{ ago(session.since) }}
+      {{ stateLabel(session) }} · {{ ago(session.since) }}
     </span>
     <button
         v-if="session.listening"
@@ -26,7 +29,7 @@ defineEmits<{focus: []}>()
         class="ml-auto flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium ring-1 transition-colors disabled:opacity-50"
         :class="session.state === 'idle' ? 'bg-accent-500/10 text-accent-700 ring-accent-500/40 hover:bg-accent-500/20 dark:text-accent-300' : 'text-muted ring-line hover:bg-hover hover:text-fg'"
         :disabled="!!sending"
-        :title="issue ? `Ask ${session.name} to work on this now` : `Ask ${session.name} to work through this milestone now`"
+        :title="issue ? `Ask ${session.name} to work on this now` : `Ask ${session.name} to work through ${what} now`"
         @click="$emit('focus')"
     >
       <UiBusy :busy="sending === session.id" label="Sending…">Focus on this</UiBusy>

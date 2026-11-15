@@ -72,7 +72,7 @@ const counted = computed(() => usage.value?.features.some(f => f.last) ?? false)
       </thead>
       <tbody>
         <tr v-for="f in usage.features" :key="f.feature" class="border-t border-line" :data-feature="f.feature">
-          <td class="py-1 text-fg">{{ f.label }}<span v-if="f.feature.includes(':')" class="ml-1.5 text-[11px] text-faint">{{ f.feature.startsWith('page:') ? 'page' : 'tool' }}</span></td>
+          <td class="py-1 text-fg">{{ f.label }}<span v-if="f.feature.includes(':')" class="ml-1.5 text-[11px] text-faint">{{ f.feature.split(':')[0] }}</span></td>
           <td class="py-1 text-muted">{{ f.last ?? 'never' }}</td>
           <td class="py-1 text-right font-mono tabular-nums text-muted">{{ f.days30 }}</td>
           <td class="py-1 text-right font-mono tabular-nums" :class="f.days90 ? 'text-muted' : 'text-amber-800 dark:text-amber-300'">{{ f.days90 }}</td>

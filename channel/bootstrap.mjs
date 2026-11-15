@@ -14,8 +14,9 @@ import {homedir} from 'node:os'
 import {join} from 'node:path'
 import {fileURLToPath, pathToFileURL} from 'node:url'
 
-const SCRIPTS = {channel: 'orrery-channel.mjs', hook: 'orrery-hook.mjs', launcher: 'orrery-launcher.mjs'}
+const SCRIPTS = {channel: 'orrery-channel.mjs', hook: 'orrery-hook.mjs', launcher: 'orrery-launcher.mjs', headers: 'mcp-headers.mjs'}
 const HOOK_CHECKS_EVERY = 60_000
+const QUICK = ['hook', 'headers']
 
 const sha256 = data => createHash('sha256').update(data).digest('hex')
 const trim = url => url.replace(/\/+$/, '')
@@ -114,10 +115,11 @@ export async function resolve(role, {env = process.env, home = homedir(), fetch 
     const pointer = join(dir, `current-${role}.json`)
     const saved = readJson(pointer)
     const last = saved && existsSync(join(dir, saved.folder, script)) ? {...saved, path: join(dir, saved.folder, script)} : null
-    if (role === 'hook' && last && now - (last.checked ?? 0) < HOOK_CHECKS_EVERY) return last
+    // The hook and `/mcp`'s headers helper run often and hold Claude up, so they check for a newer copy at most a minute.
+    if (QUICK.includes(role) && last && now - (last.checked ?? 0) < HOOK_CHECKS_EVERY) return last
     const keep = () => last && writeWhole(pointer, JSON.stringify({...saved, checked: now}))
 
-    const quick = role === 'hook'
+    const quick = QUICK.includes(role)
     const {found, problems} = await lookUp(urls, {env, fetch, timeout: quick ? 800 : 5000})
     const best = found[0]
     if (!best) {
@@ -150,7 +152,7 @@ export async function resolve(role, {env = process.env, home = homedir(), fetch 
 async function main() {
     const role = process.argv[2]
     if (!SCRIPTS[role]) {
-        console.error('[orrery bootstrap] run it as: node bootstrap.mjs channel|hook|launcher [flags]')
+        console.error('[orrery bootstrap] run it as: node bootstrap.mjs channel|hook|launcher|headers [flags]')
         process.exit(1)
     }
     process.argv.splice(2, 1)

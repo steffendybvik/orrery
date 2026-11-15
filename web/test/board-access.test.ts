@@ -20,7 +20,7 @@ const claude = {name: 'claude', owner: false}
 const hati = {name: 'hati', owner: false}
 
 beforeEach(async () => {
-    ({store} = await storeSetup())
+    ({store} = await storeSetup({api: true}))
     vi.stubGlobal('getHeader', (event: Event, name: string) => event.headers[name])
     vi.stubGlobal('useStore', () => store)
     vi.stubGlobal('sessionName', (name: string | undefined) => name)

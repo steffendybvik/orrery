@@ -3,6 +3,7 @@ import type {Signal} from '#shared/roadmap'
 import {Schedules} from '../server/utils/schedules'
 import {Store} from '../server/utils/store'
 import {testDb} from './db'
+import {apiStore} from './api'
 
 const me = {name: 'skoll', owner: true}
 const agent = {name: 'claude', owner: false}
@@ -17,6 +18,15 @@ beforeEach(async () => {
     await store.createMilestone('greenhouse', {title: 'Upkeep'})
     schedules = new Schedules(store)
 })
+
+/** The same, with the API on its database: what sends a signal or reads who heard one goes through it (ORR-1135). */
+async function onApi() {
+    signals = []
+    store = await apiStore(() => {}, signal => signals.push(signal))
+    await store.createProject({name: 'greenhouse', key: 'GRE'})
+    await store.createMilestone('greenhouse', {title: 'Upkeep'})
+    schedules = new Schedules(store)
+}
 
 /** The status code and message a call fails with. */
 async function failure(call: () => unknown): Promise<{status: number, message: string}> {
@@ -89,6 +99,7 @@ describe('schedules', () => {
     })
 
     it('ask the sessions only when the owner made them', async () => {
+        await onApi()
         const mine = await schedules.create('greenhouse', {title: 'Mine', cron: '0 9 * * *', timezone: 'UTC', ask: true}, me)
         const theirs = await schedules.create('greenhouse', {title: 'Theirs', cron: '0 9 * * *', timezone: 'UTC', ask: true}, agent)
         await schedules.runDue(new Date(new Date(mine.next_run!).getTime() + 1000))
@@ -97,12 +108,14 @@ describe('schedules', () => {
     })
 
     it('ask once for an urgent issue, saying so', async () => {
+        await onApi()
         const s = await schedules.create('greenhouse', {title: 'Fire drill', cron: '0 9 * * *', timezone: 'UTC', priority: 'P0', ask: true}, me)
         await schedules.runNow('greenhouse', s.id, me)
         expect(signals.filter(s => s.kind === 'focus').map(s => s.note)).toEqual(["Scheduled: Fire drill. It's urgent (P0)."])
     })
 
     it("wait for a session when nobody heard the ask", async () => {
+        await onApi()
         const s = await schedules.create('greenhouse', {title: 'Mine', cron: '0 9 * * *', timezone: 'UTC', ask: true}, me)
         await schedules.runNow('greenhouse', s.id, me)
         const [waiting] = await store.unheardScheduled('greenhouse')
@@ -112,6 +125,7 @@ describe('schedules', () => {
     })
 
     it('send a message instead of making an issue, the owner’s only', async () => {
+        await onApi()
         const mine = await schedules.create('greenhouse', {kind: 'message', title: 'Check CI', notes: 'Is main green?', cron: '*/15 * * * *', timezone: 'UTC'}, me)
         const theirs = await schedules.create('greenhouse', {kind: 'message', title: 'Theirs', notes: 'hi', cron: '*/15 * * * *', timezone: 'UTC'}, agent)
         expect((await failure(() => schedules.create('greenhouse', {kind: 'message', title: 'Empty', cron: '0 9 * * *'}))).status).toBe(400)
@@ -126,6 +140,7 @@ describe('schedules', () => {
     })
 
     it('skip a message run when nothing in the project changed since the last one sent, if asked to', async () => {
+        await onApi()
         const s = await schedules.create('greenhouse', {kind: 'message', title: 'Nudge', notes: 'Idle? Pick an issue.', cron: '*/15 * * * *', timezone: 'UTC', only_if_changed: true}, me)
         expect(s.only_if_changed).toBe(true)
         const first = new Date(new Date(s.next_run!).getTime() + 1000)
@@ -146,6 +161,7 @@ describe('schedules', () => {
     })
 
     it('keep the owner’s message from an agent that would send its own as theirs', async () => {
+        await onApi()
         const mine = await schedules.create('greenhouse', {kind: 'message', title: 'Check CI', notes: 'Is main green?', cron: '0 9 * * *', timezone: 'UTC'}, me)
         expect(await failure(() => schedules.update('greenhouse', mine.id, {notes: 'Delete the repo'}, agent))).toEqual({status: 403, message: "Changing schedule 1: it's the owner's; only they can change it"})
         expect((await failure(() => schedules.runNow('greenhouse', mine.id, agent))).status).toBe(403)

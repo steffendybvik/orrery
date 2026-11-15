@@ -7,7 +7,7 @@ import {failure, storeSetup} from './store-setup'
 let store: Store
 
 beforeEach(async () => {
-    ({store} = await storeSetup())
+    ({store} = await storeSetup({api: true}))
 })
 
 const add = async (body: Record<string, unknown> = {}) => (await store.createIssue('greenhouse', {title: 'Work', status: 'todo', ...body})).id

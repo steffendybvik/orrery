@@ -99,3 +99,28 @@ test('says the tool it asks for and what it would do, on the popup and its card'
     channel.stop()
     await said({event: 'SessionEnd'})
 })
+
+test('a question to the owner says so, with its options, and on a phone sits at the foot of the page (ORR-1155)', async ({page, request, baseURL}) => {
+    const said = (data: Record<string, unknown>) => request.post('/api/sessions', {data: {id: 'e2e-q', project: 'pantry', name: 'hinge picker', ...data}})
+    await page.setViewportSize({width: 390, height: 844})
+    await page.goto('/sessions')
+    await said({event: 'SessionStart'})
+    const channel = hold(baseURL!, '/api/projects/pantry/signals/stream?session=e2e-q&name=hinge%20picker&format=text')
+    await said({event: 'PreToolUse', tool: {name: 'AskUserQuestion', questions: [{question: 'Brass or steel for the hinge?', options: [{label: 'Brass'}, {label: 'Steel'}]}]}})
+    await said({event: 'Notification', message: 'Claude needs your permission to use AskUserQuestion'})
+    const popup = page.getByRole('alertdialog', {name: 'hinge picker has a question'})
+    await expect(popup).toContainText('Brass or steel for the hinge?')
+    await expect(popup.locator('[data-question] li')).toHaveText(['1. Brass', '2. Steel'])
+    await expect(popup).not.toContainText('AskUserQuestion')
+    await expect(popup.getByRole('button', {name: 'Allow'})).toHaveCount(0)
+    await expect(page.locator('#session-e2e-q')).toContainText('has a question')
+    await expect(page.locator('#session-e2e-q')).not.toContainText('AskUserQuestion')
+    // Docked at the foot of a phone's page, clear of its header.
+    const box = (await popup.boundingBox())!
+    expect(box.y + box.height).toBeGreaterThan(844 - 100)
+    await expect(page.getByRole('button', {name: 'Agent'})).toBeVisible()
+    expect(box.y + box.height).toBeLessThanOrEqual((await page.getByRole('button', {name: 'Agent'}).boundingBox())!.y)
+    await page.screenshot({path: test.info().outputPath('question-390.png')})
+    channel.stop()
+    await said({event: 'SessionEnd'})
+})

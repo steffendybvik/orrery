@@ -136,7 +136,7 @@ export class PostgresDb implements Db {
             // One from a newer orrery is left as it is (ORR-433); its steps all ran in one transaction, so no copy is needed.
             if (version > BASELINE + STEPS.length) {
                 throw new Error(`This Postgres database was written by a newer orrery (schema step ${version}; this one knows up to ${BASELINE + STEPS.length}). `
-                    + 'Run that version again, or restore a backup from before it upgraded.')
+                    + 'Run that version again, or restore the copy of the database you took before it upgraded.')
             }
             if (!row) {
                 await client.query(SCHEMA)

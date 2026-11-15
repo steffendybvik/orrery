@@ -12,6 +12,6 @@ defineProps<{session: Session}>()
       :class="[{idle: 'bg-emerald-500', working: 'bg-accent-fill animate-pulse motion-reduce:animate-none', waiting: 'bg-rose-500', starting: 'bg-faint'}[session.state]]"
       role="img"
       :aria-label="`${session.name} is working on it`"
-      :title="`${session.name} is working on it (${SESSION_STATE[session.state]})`"
+      :title="`${session.name} is working on it (${stateLabel(session)})`"
   />
 </template>

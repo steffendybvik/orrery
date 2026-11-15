@@ -246,8 +246,9 @@ test('follows several projects on one stream, as one session', async ({request, 
         const made = await request.post('/api/projects/dairy/issues', {data: {title: 'Count the jars', status: 'todo'}, headers: AGENT})
         const {id} = await made.json()
         const {signal} = await (await request.post(`/api/projects/dairy/issues/${id}/focus`, {data: {session: 'e2e-m'}, headers: OWNER})).json()
-        await expect.poll(() => stream.said.text).toContain('Count the jars')
-        expect(stream.said.text).toContain('"project":"dairy"')
+        // Kitchen has a "Count the jars" too, and with starts on its pick list can reach the stream first, so this
+        // waits for dairy's focus itself (ORR-1208).
+        await expect.poll(() => stream.said.text).toContain(`"id":${signal.id},"project":"dairy"`)
         await request.post(`/api/projects/dairy/signals/${signal.id}/delivered?name=multi`)
         // A project that doesn't exist is refused, not followed.
         expect((await request.get('/api/signals/stream?projects=kitchen,nowhere')).status()).toBe(404)
@@ -299,6 +300,35 @@ test('with nobody listening and a launcher there, Focus on this starts a session
     }
 })
 
+test("serves all of a launcher's projects on one stream, each counted and sent its own launches (ORR-1076)", async ({page, request, baseURL}) => {
+    const issue = await api(request, 'post', '/issues', {title: 'Wax the counter', status: 'todo'})
+    await expect.poll(async () => (await api(request, 'get', '/sessions')).some((s: {listening: boolean}) => s.listening)).toBe(false)
+    const serve = [{project: 'kitchen', dir: 'kitchen'}, {project: 'dairy', home: true}, {project: 'no-such-project', home: true}]
+    const launcher = hold(baseURL!, `/api/launches/stream?serve=${encodeURIComponent(JSON.stringify(serve))}&version=e2e`)
+    try {
+        await expect.poll(async () => (await api(request, 'get', '/launches')).launchers).toBe(1)
+        await expect.poll(async () => (await (await request.get('/api/projects/dairy/launches')).json()).launchers).toBe(1)
+        const ready = JSON.parse(/event: ready\ndata: (.+)/.exec(launcher.said.text)![1]!)
+        expect(Object.keys(ready.projects).sort()).toEqual(['dairy', 'kitchen'])
+        expect(ready.projects.kitchen.token).not.toBe(ready.projects.dairy.token)
+        expect(ready.unknown).toEqual(['no-such-project'])
+        await page.goto(`/p/kitchen/issues/${issue.id}`)
+        await page.getByRole('button', {name: 'Focus on this (starts a session)'}).click()
+        await expect.poll(() => launcher.said.text).toContain('event: launch')
+        const launch = JSON.parse(/event: launch\ndata: (.+)/.exec(launcher.said.text.slice(launcher.said.text.indexOf('event: launch')))![1]!)
+        expect(launch.project).toBe('kitchen')
+        // A claim holds to the project's own token: dairy's doesn't take kitchen's launch.
+        const claim = (token: string) => request.post(`/api/projects/kitchen/launches/${launch.id}/claim?untrusted=no-bash&chat=yes&model=yes&resume=yes`, {headers: {'Orrery-Launcher': token}}).then(r => r.json())
+        expect((await claim(ready.projects.dairy.token)).claimed).toBe(false)
+        expect((await claim(ready.projects.kitchen.token)).claimed).toBe(true)
+        await request.post(`/api/projects/kitchen/launches/${launch.id}/stop`, {headers: OWNER})
+    } finally {
+        launcher.stop()
+    }
+    await expect.poll(async () => (await api(request, 'get', '/launches')).launchers).toBe(0)
+    await expect.poll(async () => (await (await request.get('/api/projects/dairy/launches')).json()).launchers).toBe(0)
+})
+
 test('with a session listening, New session on this starts another on the issue', async ({page, request, baseURL}) => {
     const issue = await api(request, 'post', '/issues', {title: 'Sweep the steps', status: 'todo'})
     await request.post('/api/sessions', {data: {id: 'e2e-n1', project: 'kitchen', event: 'SessionStart', name: 'e2e-n1'}})
@@ -308,7 +338,12 @@ test('with a session listening, New session on this starts another on the issue'
         await expect.poll(async () => (await api(request, 'get', '/launches')).launchers).toBe(1)
         await page.goto(`/p/kitchen/issues/${issue.id}`)
         await expect(page.getByRole('button', {name: 'Focus on this', exact: true})).toBeVisible()
-        await page.getByRole('button', {name: 'New session on this'}).click()
+        // On a phone the buttons wrap onto a line of their own, inside the screen (ORR-1215).
+        await page.setViewportSize({width: 390, height: 844})
+        const another = page.getByRole('button', {name: 'New session on this'})
+        await expect(another).toBeInViewport({ratio: 1})
+        await page.setViewportSize({width: 1280, height: 720})
+        await another.click()
         await expect.poll(() => launcher.said.text).toContain('event: launch')
         // It's the new session's alone: the one listening isn't asked.
         expect(stream.said.text).not.toContain('Sweep the steps')
@@ -560,6 +595,10 @@ test('on a phone a started session keeps its name whole, with Watch and Stop und
         expect(Math.round((await meta.boundingBox())!.height / lineHeight)).toBeLessThan(items)
         await card.getByRole('button', {name: 'More for e2e-on-a-phone'}).click()
         await expect(page.getByRole('menuitem', {name: /Watch · opens on its launcher's machine/})).toBeVisible()
+        // ⋯'s list stays on the screen, not cut off past its left edge (ORR-1083).
+        const list = (await page.getByRole('menu').boundingBox())!
+        expect(list.x).toBeGreaterThanOrEqual(0)
+        expect(list.x + list.width).toBeLessThanOrEqual(390)
         await page.getByRole('menuitem', {name: 'Stop', exact: true}).click()
         await expect.poll(() => launcher.said.text).toContain('event: stop')
     } finally {
@@ -750,7 +789,7 @@ test('a session opened in a terminal has Stop, which ends it through its channel
     }
 })
 
-test('Show screen draws what the launcher sends, read only, and asks for it only while shown', async ({page, request, baseURL}) => {
+test('Show screen draws what the launcher sends, asks for it only while shown, and types into it', async ({page, request, baseURL}) => {
     const launcher = hold(baseURL!, '/api/projects/kitchen/launches/stream')
     let stream: ReturnType<typeof hold> | undefined
     try {
@@ -768,7 +807,16 @@ test('Show screen draws what the launcher sends, read only, and asks for it only
         const sent = await request.post('/api/projects/kitchen/launches/e2e5c7ee2e5c/screen', {data: {screen: '> stirring the soup   \n\n\n'}})
         expect((await sent.json()).watching).toBe(true)
         await expect(screen).toHaveText('> stirring the soup')
-        await expect(card.getByText(/^Read only · as of /)).toBeVisible()
+        await expect(card.getByText(/^As of .* · what you type goes into its terminal$/)).toBeVisible()
+        // Typing into it (ORR-1152): the line goes to its launcher with Enter after it, and a key as it's pressed.
+        await card.getByLabel("Type into e2e-screen's terminal").fill('add salt')
+        await card.getByLabel("Type into e2e-screen's terminal").press('Enter')
+        await expect.poll(() => launcher.said.text).toContain('"text":"add salt","keys":["Enter"]')
+        await expect(card.getByLabel("Type into e2e-screen's terminal")).toHaveValue('')
+        await card.getByRole('button', {name: 'Esc'}).click()
+        await expect.poll(() => launcher.said.text).toMatch(/event: keys\ndata: \{"project":"kitchen","id":"e2e5c7ee2e5c","keys":\["Escape"\]\}/)
+        await card.getByRole('button', {name: '2', exact: true}).click()
+        await expect.poll(() => launcher.said.text).toContain('"text":"2"}')
         await card.getByRole('button', {name: 'Hide screen'}).click()
         await expect(screen).toHaveCount(0)
     } finally {

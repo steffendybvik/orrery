@@ -21,12 +21,12 @@ export default defineConfig({
     use: {baseURL: `http://localhost:${port}`, trace: 'retain-on-failure', ...devices['Desktop Chrome']},
     webServer: {
         command: [
-            postgres ? 'jiti scripts/e2e-postgres.ts' : 'rm -f .data/perf.db .data/perf.db-* .data/perf.db.backups.json',
+            postgres ? 'jiti scripts/e2e-postgres.ts' : 'rm -f .data/perf.db .data/perf.db-*',
             `jiti e2e/perf/seed.ts ${database}`,
             ...process.env.PERF_NO_BUILD ? [] : ['nuxt build'],
             'node .output/server/index.mjs',
         ].join(' && '),
-        env: {NUXT_DATABASE: database, NUXT_BACKUP_DIR: '', NUXT_UPDATE_CHECK: 'false', PORT: String(port), NITRO_HOST: '127.0.0.1', JITI_ALIAS: JSON.stringify({'#shared': shared})},
+        env: {NUXT_DATABASE: database, NUXT_UPDATE_CHECK: 'false', PORT: String(port), NITRO_HOST: '127.0.0.1', JITI_ALIAS: JSON.stringify({'#shared': shared})},
         url: `http://localhost:${port}/api/settings`,
         reuseExistingServer: false,
         timeout: 600_000,

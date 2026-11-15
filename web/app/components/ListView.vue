@@ -49,7 +49,7 @@ function toggle(group: Group) {
           tabindex="0"
           role="button"
           :aria-expanded="isOpen(g)"
-          class="group sticky top-0 z-10 flex h-9 items-center gap-2.5 border-b border-line bg-panel/90 px-3 outline-none backdrop-blur hover:tint focus-visible:bg-active"
+          class="group sticky top-0 z-20 flex h-9 items-center gap-2.5 border-b border-line bg-panel px-3 outline-none hover:tint focus-visible:bg-active"
           @click="toggle(g)"
       >
         <span class="hidden size-[14px] shrink-0 sm:flex">
@@ -65,7 +65,7 @@ function toggle(group: Group) {
         <div v-if="$slots['group-end']" class="ml-auto shrink-0"><slot name="group-end" :column="g.column" /></div>
       </div>
       <div v-if="isOpen(g)">
-        <IssueRow v-for="{issue, milestone} in g.issues" :key="issue.id" :issue="issue" :project="project" :milestone="milestone" nested />
+        <IssueRow v-for="{issue, milestone} in g.issues" :key="issue.id" :issue="issue" :project="project" :milestone="milestone" :group="group === 'status' ? g.column : undefined" nested />
         <p v-if="!g.issues.length" class="border-b border-line/60 px-10 py-2 text-xs text-faint">No issues yet</p>
       </div>
     </section>

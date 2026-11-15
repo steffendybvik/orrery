@@ -1,10 +1,14 @@
-import {describe, expect, it} from 'vitest'
+import {describe, expect, it, vi} from 'vitest'
 import {COPIED_TABLES as TABLES, copyDatabase as copy} from '../server/utils/copy'
 import {SqliteDb} from '../server/utils/database'
 import {openDb} from '../server/utils/db'
 import {Secrets} from '../server/utils/secrets'
 import {Store} from '../server/utils/store'
 import {testDb} from './db'
+import {keepSignalsIn} from './no-sessions'
+
+// No session is on anything, and the signals the set-up sends go nowhere but where they're kept (no-sessions.ts).
+vi.mock('../server/utils/api-router', async original => (await import('./no-sessions')).noSessions(await original()))
 
 /** A 1×1 PNG, base64. */
 const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='
@@ -15,6 +19,7 @@ const secretsOf = (store: Store) => new Secrets(store, () => 'a long random test
 /** An orrery with a bit of everything in it. */
 async function filled() {
     const store = new Store(new SqliteDb(openDb(':memory:')))
+    keepSignalsIn(store.db)
     const owner = {name: 'skoll', owner: true}
     await store.nameOwner({name: 'Skoll'})
     await store.addPerson({name: 'Hati'})
@@ -29,18 +34,22 @@ async function filled() {
     await store.focus('greenhouse', child.id, {session: 'window-a'}, owner)
     await store.updateSettings({tint: 'teal'}, owner)
     await secretsOf(store).set('STRIPE_KEY', {value: 'sk_live_abcdef123456', hosts: ['api.stripe.com']}, owner)
-    await secretsOf(store).egress({url: 'https://api.stripe.com/v1/charges', headers: {Authorization: 'Bearer {{secret:STRIPE_KEY}}'}})
+    await secretsOf(store).egress({project: 'greenhouse', url: 'https://api.stripe.com/v1/charges', headers: {Authorization: 'Bearer {{secret:STRIPE_KEY}}'}})
     await store.createUpload({data: PNG, name: 'shelf.png'}, owner)
     return store
 }
 
-const everything = async (store: Store) => ({
-    people: await store.people(), projects: await store.listBoards(), statuses: await store.statuses(), settings: await store.settings(), owner: await store.ownerOf(),
-    comments: await store.listComments('greenhouse', 'GRE-2'), activity: (await store.listActivity('greenhouse', 'GRE-2')).map(({id, ...e}) => e),
-    doc: await store.doc('greenhouse', 'readme'), revisions: await store.docRevisions('greenhouse', 'readme'), signals: await store.listSignals('greenhouse'),
-    secret: await secretsOf(store).get('STRIPE_KEY'),
-    uploads: await Promise.all((await store.db.all<{id: string}>('SELECT id FROM uploads')).map(({id}) => store.upload(id))),
-})
+/** What an orrery holds, read back; its signals from its own database (no-sessions.ts). */
+async function everything(store: Store) {
+    keepSignalsIn(store.db)
+    return {
+        people: await store.people(), projects: await store.listBoards(), statuses: await store.statuses(), settings: await store.settings(), owner: await store.ownerOf(),
+        comments: await store.listComments('greenhouse', 'GRE-2'), activity: (await store.listActivity('greenhouse', 'GRE-2')).map(({id, ...e}) => e),
+        doc: await store.doc('greenhouse', 'readme'), revisions: await store.docRevisions('greenhouse', 'readme'), signals: await store.listSignals('greenhouse'),
+        secret: await secretsOf(store).get('STRIPE_KEY'),
+        uploads: await Promise.all((await store.db.all<{id: string}>('SELECT id FROM uploads')).map(({id}) => store.upload(id))),
+    }
+}
 
 describe('copying an orrery', () => {
     it('takes every table across with its ids, and goes on numbering after them', async () => {

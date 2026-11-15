@@ -1,5 +1,5 @@
-// Images kept smaller (ORR-446): they're most of a database (screenshots, mostly PNG), and every backup copies them
-// again. A PNG becomes WebP at quality 90, which looks the same for a screenshot at about a third of the size; a
+// Images kept smaller (ORR-446): they're most of a database (screenshots, mostly PNG), and every copy of it takes
+// them again. A PNG becomes WebP at quality 90, which looks the same for a screenshot at about a third of the size; a
 // JPEG, most often a photo, at 82 (ORR-465). Either is no wider than MAX_WIDTH, and no taller than WebP can hold. A
 // JPEG WebP doesn't make smaller is written again as a JPEG at 82 if that is. Whatever's written again loses its
 // metadata (EXIF, a photo's place); one nothing makes smaller stays as it was, and so do small ones (an icon: there's

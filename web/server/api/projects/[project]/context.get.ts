@@ -5,12 +5,14 @@ import {CONTEXT_KINDS} from '#shared/context'
 
 export default defineEventHandler(async event => {
     const project = param(event, 'project')
-    await useStore().project(project)
+    // Only that it's there (a 404 when it isn't), read from the API (ORR-1139).
+    await projectIdOf(project)
     const {kind, session} = getQuery(event)
     const base = getRequestURL(event).origin
     if (session) {
         const view = sessionContextView(String(session), base)
-        if (!view) throw notFound(`No session ${session}`)
+        // Only a session on this project, so the project's check holds for it too (ORR-1195).
+        if (!view || sessionNow(String(session))?.project !== (await projectIdOf(project))) throw notFound(`No session ${session}`)
         return view
     }
     const asked = String(kind ?? 'work') as ContextKind

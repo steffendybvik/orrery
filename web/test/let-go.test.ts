@@ -1,6 +1,6 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
-import {Store} from '../server/utils/store'
-import {testDb} from './db'
+import type {Store} from '../server/utils/store'
+import {apiStore} from './api'
 
 // A session whose turn an API error cut off (Claude Code's StopFailure) lets go of what it had in progress, on a real
 // store, with the session itself stubbed: back in Todo with nobody on it, and a comment saying why.
@@ -8,7 +8,7 @@ let store: Store
 let clearing: typeof import('../server/utils/clearing')
 
 beforeEach(async () => {
-    store = new Store(testDb())
+    store = await apiStore()
     await store.createProject({name: 'Greenhouse', key: 'GRE'})
     for (const title of ['Water the beds', 'Label the jars', 'Fix the gate']) await store.createIssue('greenhouse', {title})
     for (const id of ['GRE-1', 'GRE-2']) await store.updateIssue('greenhouse', id, {status: 'in-progress', assignee: 'claude'})
@@ -90,5 +90,28 @@ describe('a session that ended (ORR-775)', () => {
         await store.workedBy('greenhouse', 'GRE-2', 'next', {claimed: true})
         expect(await clearing.letGoEnded('greenhouse', ['w', 'w-before'], 'Sköll')).toEqual([])
         expect((await store.issue('greenhouse', 'GRE-2')).status).toBe('in-progress')
+    })
+})
+
+describe('the sessions a restart lost the wait for (ORR-1184)', () => {
+    const before = '9999-01-01T00:00:00.000Z'
+
+    it("hands back what a session still gone had in progress, and nothing a live one has", async () => {
+        store.hears = (_project, session) => session === 'other'
+        vi.stubGlobal('sessionNow', () => undefined)
+        expect(await clearing.handBackUnseen(before)).toEqual(['GRE-1', 'GRE-2'])
+        expect(await store.issue('greenhouse', 'GRE-1')).toMatchObject({status: 'todo'})
+        expect((await store.listComments('greenhouse', 'GRE-1'))[0]!.body).toContain('was gone when orrery came back from a restart')
+        expect((await store.issue('greenhouse', 'GRE-3')).status).toBe('in-progress')
+    })
+
+    it('leaves one whose session has been heard from since, and one touched since orrery started', async () => {
+        store.hears = () => false
+        vi.stubGlobal('sessionNow', (id: string) => id === 'w' ? {name: 'Sköll'} : undefined)
+        const since = new Date().toISOString()
+        await store.updateIssue('greenhouse', 'GRE-3', {title: 'Fix the gate, both hinges'})
+        // GRE-1's session is heard from, GRE-3 was touched since; GRE-2's session from before the clear is still gone.
+        expect(await clearing.handBackUnseen(since)).toEqual(['GRE-2'])
+        expect(await clearing.handBackUnseen(before)).toEqual(['GRE-3'])
     })
 })

@@ -74,7 +74,7 @@ describe('a connect request on the launcher', () => {
         await handler.write({id: 'c1', projects: PROJECTS, orrery: ORRERY, terminal: 'iterm'})
         expect(existsSync(join(chosen, '.mcp.json'))).toBe(true)
         expect(served).toEqual([[chosen, ['shop']]])
-        expect(opened[0]).toMatchObject({dir: chosen, server: 'orrery-personal', terminal: 'iterm'})
+        expect(opened[0]).toMatchObject({dir: chosen, server: 'orrery', terminal: 'iterm'})
         expect(told.at(-1)).toEqual({state: 'done', written: ['.mcp.json', '.claude/settings.json', 'CLAUDE.md'], unchanged: [], opened: true})
     })
 

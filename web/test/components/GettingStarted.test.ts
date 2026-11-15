@@ -53,4 +53,17 @@ describe('GettingStarted', () => {
         useRoadmaps().projects.value = [project()]
         expect(await ticked()).toBe('2')
     })
+
+    it('leads a new orrery with what the browser can do, and the terminal line under working with agents', async () => {
+        useRoadmaps().projects.value = []
+        useRoadmaps().launchers.value = {}
+        const wrapper = await mountSuspended(GettingStarted)
+        mounted.push(wrapper)
+        const html = wrapper.html()
+        const at = (needle: string) => html.indexOf(needle)
+        expect(at('Try it with a demo project')).toBeGreaterThan(-1)
+        expect(at('data-step="machine"')).toBeGreaterThan(at('Try it with a demo project'))
+        expect(at('data-step="machine"')).toBeGreaterThan(at('For working with agents'))
+        expect(at('data-step="agent"')).toBeGreaterThan(at('For working with agents'))
+    })
 })

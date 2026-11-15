@@ -50,6 +50,25 @@ test('the board leaves out the columns of statuses the filter leaves out', async
     await expect(column('Done')).toBeVisible()
 })
 
+test('a parent whose column the filter leaves out gives way to its sub-issues, and the column goes (ORR-1061)', async ({page, request}) => {
+    // A parent is in progress while any sub-issue is, so it's kept, in that column, for one still to do.
+    const parent = await api(request, 'post', '/issues', {title: 'Tidy the pantry'})
+    await api(request, 'post', '/issues', {title: 'Empty the top shelf', status: 'in-progress', parent: parent.id})
+    await api(request, 'post', '/issues', {title: 'Wipe the bottom shelf', status: 'todo', parent: parent.id})
+    await page.goto('/p/scullery?view=board')
+    const heading = (name: string) => page.getByRole('heading', {level: 2, name, exact: true})
+    const column = (name: string) => page.locator('[data-column]').filter({has: heading(name)})
+    await expect(column('In progress').getByText('Tidy the pantry')).toBeVisible()
+    await page.getByRole('button', {name: /^Status ·/}).click()
+    await page.locator('.glass').getByRole('option', {name: 'In progress'}).click()
+    await expect(heading('In progress')).toBeHidden()
+    await expect(page.getByText('Tidy the pantry')).toBeHidden()
+    await expect(column('Todo').getByText('Wipe the bottom shelf')).toBeVisible()
+    await expect(page.getByText('Empty the top shelf')).toBeHidden()
+    await page.locator('.glass').getByRole('button', {name: 'Clear'}).click()
+    await expect(column('In progress').getByText('Tidy the pantry')).toBeVisible()
+})
+
 test('shows sub-issues and their progress on the parent', async ({page, request}) => {
     const one = await api(request, 'post', '/issues', {title: 'Drag to reorder', parent: 'SCU-1'})
     await api(request, 'post', '/issues', {title: 'Reorder with the keyboard', parent: 'SCU-1'})

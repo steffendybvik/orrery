@@ -9,7 +9,7 @@ import {ROUTES, heading} from './pages'
 
 // What the page walk already finds, for ORR-724 to fix: each comes off this list as it's fixed, and until then a new
 // case of one of these isn't caught. Any other rule fails the walk.
-export const A11Y_KNOWN = ['nested-interactive']
+const A11Y_KNOWN = ['nested-interactive']
 
 /** The settings as this page reads them, with `changes` over what the server says: the setting is shared, and other
  * specs change it while these walk. */

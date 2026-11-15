@@ -152,7 +152,7 @@ export class SqliteDb implements Db {
         else work()
     }
 
-    /** Hands the raw connection to `work` when nothing else holds it, e.g. for a backup (`VACUUM INTO`
+    /** Hands the raw connection to `work` when nothing else holds it, e.g. for a compaction (`VACUUM`
      * can't run inside a transaction). */
     async alone<T>(work: (raw: DatabaseSync) => T): Promise<T> {
         return this.queue(() => work(this.raw))

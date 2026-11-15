@@ -4,7 +4,7 @@
 #   .playground/play reset  throw the database away and start over with a fresh demo
 #   .playground/play seed   seed it again (only when it has no projects)
 #   .playground/play down   stop it, keeping the database
-#   .playground/play logs   follow the server
+#   .playground/play logs   follow the server, the Rust API inside it included
 set -euo pipefail
 cd "$(dirname "$0")/.."
 set -a; . .playground/compose.env; set +a
@@ -21,10 +21,10 @@ ready() {
 }
 
 case "${1:-up}" in
-    up) compose up -d; ready; node .playground/seed.mjs "$url" ;;
+    up) compose up -d --build --remove-orphans; ready; node .playground/seed.mjs "$url" ;;
     seed) node .playground/seed.mjs "$url" ;;
-    reset) compose down; docker volume rm -f "${COMPOSE_PROJECT_NAME}_orrery-pg" >/dev/null; rm -rf .playground/data .playground/backup; compose up -d; ready; node .playground/seed.mjs "$url" ;;
+    reset) compose down; docker volume rm -f "${COMPOSE_PROJECT_NAME}_orrery-pg" >/dev/null; rm -rf .playground/data .playground/backup; exec "$0" up ;;  # again, for a new token
     down) compose down ;;
-    logs) compose logs -f orrery ;;
+    logs) compose logs -f "${2:-orrery}" ;;
     *) sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
 esac

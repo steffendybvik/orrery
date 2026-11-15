@@ -1,12 +1,14 @@
-// The Rust API's copy of the migrations (ORR-931, api/migrations and api/src/steps.rs): each step of
-// server/utils/migrations as a numbered SQL file, and the steps that are code here written again in Rust (api/src/migrate.rs).
-// The Node app still runs the migrations, and a new step is still written there. Then, to port it:
+// The migrations are the Rust API's (ORR-931): api/migrations, listed in api/src/steps.rs, run by `orrery-api migrate`.
+// Node's own steps (server/utils/migrations) are frozen at what they were when it handed over, and the code steps among
+// them are written again in Rust (api/src/migrate.rs). A new step is a SQL file in both api/migrations/sqlite and
+// api/migrations/postgres, numbered on from the last; never a code step, as this server couldn't run one. Then
 //
 //   ORRERY_WRITE_MIGRATIONS=1 pnpm --dir web exec vitest run --project unit test/rust-migrations.test.ts
 //
-// which writes the files, plus a Rust arm for any new code step. The first test fails until they match. With the
-// binary built (as for test/api-parity.test.ts), the rest check that `orrery-api migrate` makes the same database Node
-// does: from empty, and carrying on from a step Node stopped at. That's on SQLite, and on Postgres with TEST_POSTGRES_URL.
+// writes steps.rs, and server/utils/migrations/from-api.ts, which this server reads them through when it migrates without
+// the binary (the tests, a bare `nuxt dev`). The first test fails until they match. With the binary built (as for
+// test/api-parity.test.ts), the rest check that `orrery-api migrate` makes the same database Node does: from empty, and
+// carrying on from a step Node stopped at. That's on SQLite, and on Postgres with TEST_POSTGRES_URL.
 import {spawnSync} from 'node:child_process'
 import {existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync} from 'node:fs'
 import {tmpdir} from 'node:os'
@@ -14,10 +16,11 @@ import {dirname, join} from 'node:path'
 import {DatabaseSync} from 'node:sqlite'
 import {fileURLToPath} from 'node:url'
 import pg from 'pg'
-import {describe, expect, it} from 'vitest'
-import {MIGRATIONS} from '../server/utils/migrations/sqlite'
-import {BASELINE, SCHEMA, STEPS} from '../server/utils/migrations/postgres'
+import {describe, expect, it, vi} from 'vitest'
+import {MIGRATIONS, SQLITE_FROZEN} from '../server/utils/migrations/sqlite'
+import {BASELINE, POSTGRES_FROZEN, SCHEMA, STEPS} from '../server/utils/migrations/postgres'
 import {migrate} from '../server/utils/db'
+import {migrateWithApi} from '../server/utils/api-migrate'
 import {PostgresDb} from '../server/utils/postgres'
 
 const API = fileURLToPath(new URL('../../api/', import.meta.url))
@@ -25,9 +28,25 @@ const BIN = process.env.ORRERY_API_BIN || join(API, 'target/debug/orrery-api')
 const POSTGRES = process.env.TEST_POSTGRES_URL
 const pad = (n: number) => String(n).padStart(3, '0')
 
-/** Every file the port should hold, by its path under api/, as the migrations are now. */
+const WEB = fileURLToPath(new URL('../', import.meta.url))
+const FROM_API = 'server/utils/migrations/from-api.ts'
+
+/** How many steps Node had when it handed the migrations over: none is added there since. */
+const HANDED_OVER = {sqlite: 87, postgres: 87}
+
+/** The SQL steps in api/migrations/`dir` after `from`, in order: each `NNN.sql` from `from + 1` on, with no gaps. */
+function added(dir: string, from: number): string[] {
+    const at = join(API, 'migrations', dir)
+    const names = readdirSync(at).filter(name => /^\d{3}\.sql$/.test(name) && Number(name.slice(0, 3)) > from).sort()
+    names.forEach((name, i) => expect(name, `api/migrations/${dir}: the step after ${from + i}`).toBe(`${pad(from + i + 1)}.sql`))
+    return names.map(name => readFileSync(join(at, name), 'utf8'))
+}
+
+/** Every file the migrations should be held in, by its path under api/ (and from-api.ts, by its path under web/). */
 function expected(): Map<string, string> {
     const files = new Map<string, string>()
+    const sqlite = added('sqlite', SQLITE_FROZEN.length)
+    const postgres = added('postgres', BASELINE + POSTGRES_FROZEN.length)
     const list = (dir: string, steps: unknown[], from: number) => steps.map((step, i) => {
         const n = from + i + 1
         if (typeof step !== 'string') return `    Step::Code(${n}),`
@@ -35,13 +54,14 @@ function expected(): Map<string, string> {
         return `    Step::Sql(include_str!("../migrations/${dir}/${pad(n)}.sql")),`
     }).join('\n')
     files.set(`migrations/postgres/${pad(BASELINE)}-baseline.sql`, SCHEMA)
-    files.set('src/steps.rs', `// Written by web/test/rust-migrations.test.ts from web/server/utils/migrations (ORR-931): don't edit it, run that.
+    files.set('src/steps.rs', `// Written by web/test/rust-migrations.test.ts from api/migrations and the frozen steps of web/server/utils/migrations
+// (ORR-931): don't edit it, run that.
 use crate::migrate::Step;
 
 /// SQLite's steps, each bringing \`PRAGMA user_version\` up one.
 #[rustfmt::skip]
 pub const SQLITE: &[Step] = &[
-${list('sqlite', MIGRATIONS, 0)}
+${list('sqlite', [...SQLITE_FROZEN, ...sqlite], 0)}
 ];
 
 /// SQLite's step Postgres's baseline matches.
@@ -53,13 +73,26 @@ pub const POSTGRES_SCHEMA: &str = include_str!("../migrations/postgres/${pad(BAS
 /// Postgres's steps after the baseline, each bringing \`schema_version\` up one.
 #[rustfmt::skip]
 pub const POSTGRES: &[Step] = &[
-${list('postgres', STEPS, BASELINE)}
+${list('postgres', [...POSTGRES_FROZEN, ...postgres], BASELINE)}
 ];
+`)
+    const strings = (steps: string[]) => steps.length ? `[\n${steps.map(step => `    ${JSON.stringify(step)},`).join('\n')}\n]` : '[]'
+    files.set(`web/${FROM_API}`, `// Written by test/rust-migrations.test.ts from api/migrations (ORR-931): don't edit it, run that.
+// The Rust API's steps after the frozen ones in sqlite.ts and postgres.ts, for this server to run without the binary.
+
+/** SQLite's steps after sqlite.ts's. */
+export const SQLITE_FROM_API: string[] = ${strings(sqlite)}
+
+/** Postgres's steps after postgres.ts's. */
+export const POSTGRES_FROM_API: string[] = ${strings(postgres)}
 `)
     return files
 }
 
-/** The port's files as they are on disk. */
+/** Where a file of expected()'s is on disk. */
+const pathOf = (path: string) => path.startsWith('web/') ? join(WEB, path.slice(4)) : join(API, path)
+
+/** Those files as they are on disk. */
 function onDisk(): Map<string, string> {
     const files = new Map<string, string>()
     for (const dir of ['sqlite', 'postgres']) {
@@ -67,21 +100,27 @@ function onDisk(): Map<string, string> {
         if (!existsSync(at)) continue
         for (const name of readdirSync(at)) files.set(`migrations/${dir}/${name}`, readFileSync(join(at, name), 'utf8'))
     }
-    if (existsSync(join(API, 'src/steps.rs'))) files.set('src/steps.rs', readFileSync(join(API, 'src/steps.rs'), 'utf8'))
+    for (const path of ['src/steps.rs', `web/${FROM_API}`]) if (existsSync(pathOf(path))) files.set(path, readFileSync(pathOf(path), 'utf8'))
     return files
 }
 
 describe("the Rust API's migrations", () => {
-    it('are the Node app\'s, step for step', () => {
+    it('stay frozen in the Node app', () => {
+        // A new step goes in api/migrations: see the top of this file.
+        expect(SQLITE_FROZEN.length, 'steps in server/utils/migrations/sqlite.ts').toBe(HANDED_OVER.sqlite)
+        expect(BASELINE + POSTGRES_FROZEN.length, 'steps in server/utils/migrations/postgres.ts').toBe(HANDED_OVER.postgres)
+    })
+
+    it('are the same steps in Rust and in Node', () => {
         const want = expected()
         if (process.env.ORRERY_WRITE_MIGRATIONS === '1') {
             for (const [path, text] of want) {
-                mkdirSync(join(API, path, '..'), {recursive: true})
-                writeFileSync(join(API, path), text)
+                mkdirSync(join(pathOf(path), '..'), {recursive: true})
+                writeFileSync(pathOf(path), text)
             }
         }
         const have = onDisk()
-        // A step is never edited, so one that differs or is missing is a new step not ported yet: see the top of this file.
+        // A frozen step is never edited, and the rest are written from api/migrations: see the top of this file.
         expect([...have.keys()].sort()).toEqual([...want.keys()].sort())
         for (const [path, text] of want) expect(have.get(path), path).toBe(text)
     })
@@ -158,32 +197,12 @@ describe.skipIf(!existsSync(BIN))('orrery-api migrate on SQLite', () => {
         after.close()
     })
 
-    it('keeps a copy of the file as it was before it upgrades it, as Node does (ORR-448)', () => {
+    it('upgrades the file in place, leaving no copy of it beside it', () => {
         const path = nodeSqlite(BEFORE_PEOPLE)
-        const copy = join(dirname(path), `orrery-pre-1.2.3-step${BEFORE_PEOPLE}.db`)
-        const run = spawnSync(BIN, ['migrate'], {env: {...process.env, NUXT_DATABASE: path, ORRERY_VERSION: '1.2.3'}, encoding: 'utf8'})
+        const run = spawnSync(BIN, ['migrate'], {env: {...process.env, NUXT_DATABASE: path}, encoding: 'utf8'})
         expect(run.status, run.stderr).toBe(0)
-        expect(readdirSync(dirname(path)).filter(name => name.startsWith('orrery-pre-'))).toEqual([`orrery-pre-1.2.3-step${BEFORE_PEOPLE}.db`])
-        const kept = new DatabaseSync(copy, {readOnly: true})
-        expect((kept.prepare('PRAGMA user_version').get() as {user_version: number}).user_version).toBe(BEFORE_PEOPLE)
-        kept.close()
-        // Into the backup folder, when there is one; and none for a new file, which has nothing to keep.
-        const backups = join(mkdtempSync(join(tmpdir(), 'orrery-backups-')), 'nested')
-        rustMigrate(nodeSqlite(BEFORE_PEOPLE), undefined, {ORRERY_API_BACKUP_DIR: backups})
-        expect(readdirSync(backups)).toEqual([`orrery-pre-upgrade-step${BEFORE_PEOPLE}.db`])
-        const fresh = join(mkdtempSync(join(tmpdir(), 'orrery-migrate-')), 'orrery.db')
-        rustMigrate(fresh)
-        expect(readdirSync(dirname(fresh))).toEqual(['orrery.db'])
-    })
-
-    it('won\'t upgrade without that copy', () => {
-        const path = nodeSqlite(BEFORE_PEOPLE)
-        const nowhere = join(dirname(path), 'a-file')
-        writeFileSync(nowhere, '')
-        const run = spawnSync(BIN, ['migrate'], {env: {...process.env, NUXT_DATABASE: path, ORRERY_API_BACKUP_DIR: join(nowhere, 'backups')}, encoding: 'utf8'})
-        expect(run.status).toBe(1)
-        expect(run.stderr).toMatch(`won't upgrade ${path} (schema step ${BEFORE_PEOPLE} to ${MIGRATIONS.length}) without a copy of it as it is`)
-        expect(sqliteState(path).step).toBe(BEFORE_PEOPLE)
+        expect(readdirSync(dirname(path)).filter(name => !name.startsWith('orrery.db'))).toEqual([])
+        expect(sqliteState(path).step).toBe(MIGRATIONS.length)
     })
 
     it('stops at the owner\'s step on an owner setting that isn\'t JSON, rather than lose them', () => {
@@ -195,6 +214,44 @@ describe.skipIf(!existsSync(BIN))('orrery-api migrate on SQLite', () => {
         expect(db.prepare("SELECT value FROM settings WHERE key = 'owner'").get()).toEqual({value: 'Åse'})
         expect((db.prepare('PRAGMA user_version').get() as {user_version: number}).user_version).toBe(BEFORE_PEOPLE)
         db.close()
+    })
+
+    it('says what it did on stdout, for the Nuxt server to log (ORR-931)', () => {
+        const path = nodeSqlite(BEFORE_PEOPLE)
+        const run = spawnSync(BIN, ['migrate'], {env: {...process.env, NUXT_DATABASE: path, ORRERY_API_STEPS: String(MIGRATIONS.length)}, encoding: 'utf8'})
+        expect(run.status, run.stderr).toBe(0)
+        expect(JSON.parse(run.stdout)).toEqual({from: BEFORE_PEOPLE, to: MIGRATIONS.length})
+    })
+
+    it('migrates nothing when its steps end elsewhere than the caller\'s', () => {
+        const path = nodeSqlite(BEFORE_PEOPLE)
+        const run = spawnSync(BIN, ['migrate'], {env: {...process.env, NUXT_DATABASE: path, ORRERY_API_STEPS: String(MIGRATIONS.length + 1)}, encoding: 'utf8'})
+        expect(run.status).toBe(3)
+        expect(run.stderr).toMatch(`end at schema step ${MIGRATIONS.length}, not ${MIGRATIONS.length + 1}`)
+        expect(sqliteState(path).step).toBe(BEFORE_PEOPLE)
+        expect(readdirSync(dirname(path))).toEqual(['orrery.db'])
+    })
+
+    it('is what the Nuxt server opens a database with, falling back to its own steps on a mismatched build', () => {
+        vi.stubGlobal('useRuntimeConfig', () => ({public: {version: '9.9.9'}}))
+        try {
+            const path = nodeSqlite(BEFORE_PEOPLE)
+            expect(migrateWithApi(path, MIGRATIONS.length, BIN)).toEqual({from: BEFORE_PEOPLE, to: MIGRATIONS.length})
+            expect(sqliteState(path).step).toBe(MIGRATIONS.length)
+            expect(readdirSync(dirname(path)).filter(name => !name.startsWith('orrery.db'))).toEqual([])
+            expect(migrateWithApi(path, MIGRATIONS.length, BIN)).toBeNull()
+            const stale = nodeSqlite(BEFORE_PEOPLE)
+            const said = vi.spyOn(console, 'error').mockImplementation(() => {})
+            expect(migrateWithApi(stale, MIGRATIONS.length - 1, BIN)).toBeUndefined()
+            expect(migrateWithApi(stale, MIGRATIONS.length, join(dirname(stale), 'no-such-binary'))).toBeUndefined()
+            expect(said).toHaveBeenCalledTimes(2)
+            said.mockRestore()
+            expect(sqliteState(stale).step).toBe(BEFORE_PEOPLE)
+            const newer = nodeSqlite(MIGRATIONS.length, db => db.exec(`PRAGMA user_version = ${MIGRATIONS.length + 1}`))
+            expect(() => migrateWithApi(newer, MIGRATIONS.length, BIN)).toThrow('written by a newer orrery')
+        } finally {
+            vi.unstubAllGlobals()
+        }
     })
 
     it('refuses a database from a newer orrery', () => {

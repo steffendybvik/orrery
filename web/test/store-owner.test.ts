@@ -1,15 +1,14 @@
 // The owner: their name and things, their comments, the questions waiting on them, and the bell. The store, against a
 // fresh database with the project `greenhouse` (store-setup.ts).
 import {beforeEach, describe, expect, it} from 'vitest'
-import {Store} from '../server/utils/store'
-import {testDb} from './db'
-import type {Actor} from '../server/utils/store'
+import type {Store,Actor} from '../server/utils/store'
+import {apiStore} from './api'
 import {failure, storeSetup} from './store-setup'
 
 let store: Store
 
 beforeEach(async () => {
-    ({store} = await storeSetup())
+    ({store} = await storeSetup({api: true}))
 })
 
 describe('comments', () => {
@@ -77,7 +76,7 @@ describe("the owner's name", () => {
 
     it('tells open pages when renamed, with the settings, so they write as the new id', async () => {
         const told: string[] = []
-        const local = new Store(testDb(), () => {}, () => {}, () => {}, settings => told.push(settings.id))
+        const local = await apiStore(() => {}, () => {}, () => {}, settings => told.push(settings.id))
         await local.nameOwner({name: 'Skoll'})
         expect(told).toHaveLength(1)
     })
@@ -107,7 +106,7 @@ describe("the owner's name", () => {
 describe("the owner's comments", () => {
     it('go to the session last asked to focus on the issue, or to all', async () => {
         const sent: string[] = []
-        const local = new Store(testDb(), () => {}, signal => sent.push(`${signal.kind}:${signal.target ?? 'all'}:${signal.note}`))
+        const local = await apiStore(() => {}, signal => sent.push(`${signal.kind}:${signal.target ?? 'all'}:${signal.note}`))
         await local.createProject({name: 'greenhouse', key: 'GRE'})
         const me = {name: 'skoll', owner: true}
         const {id} = await local.createIssue('greenhouse', {title: 'A'})
@@ -120,7 +119,7 @@ describe("the owner's comments", () => {
 })
 describe('the bell', () => {
     it("clears agents' comments by id or up to a time, leaving them on their issues", async () => {
-        const {id} = await store.createIssue('greenhouse', {title: 'A'})
+        const {id} = await store.createIssue('greenhouse', {title: 'A', assignee: 'owner'})
         const agent = {name: 'claude', owner: false}
         const first = await store.createComment('greenhouse', id, {body: 'one'}, agent)
         await store.createComment('greenhouse', id, {body: 'two'}, agent)
@@ -136,7 +135,7 @@ describe('the bell', () => {
     })
 
     it('keeps what the owner has read on the comment, apart from seen, and clears only those read (ORR-785)', async () => {
-        const {id} = await store.createIssue('greenhouse', {title: 'A'})
+        const {id} = await store.createIssue('greenhouse', {title: 'A', assignee: 'owner'})
         const agent = {name: 'claude', owner: false}
         const read = await store.createComment('greenhouse', id, {body: 'read'}, agent)
         const unread = await store.createComment('greenhouse', id, {body: 'unread'}, agent)
@@ -146,6 +145,29 @@ describe('the bell', () => {
         expect((await store.notices({list: 'inbox'})).map(n => [n.id, !!n.read]).sort()).toEqual([[read.id, true], [unread.id, false]].sort())
         expect(await store.clearNotices({read: true})).toBe(1)
         expect((await store.notices({list: 'inbox'})).map(n => n.id)).toEqual([unread.id])
+    })
+
+    it('keeps only what shipped and what is directed at the owner (ORR-1151)', async () => {
+        const agent = {name: 'claude', owner: false}
+        const me = {name: 'skoll', owner: true}
+        const quiet = (await store.createIssue('greenhouse', {title: 'Quiet', status: 'todo'})).id
+        await store.createComment('greenhouse', quiet, {body: 'Taking it'}, agent)
+        await store.createComment('greenhouse', quiet, {body: 'Halfway'}, agent)
+        await store.createComment('greenhouse', quiet, {body: 'Which one?', asks: 'decision'}, agent)
+        await store.nameOwner({name: 'Skoll_F'})
+        await store.createComment('greenhouse', quiet, {body: 'Over to @Skoll_F for a look'}, agent)
+        await store.createComment('greenhouse', quiet, {body: 'The second'}, me)
+        await store.createComment('greenhouse', quiet, {body: 'Going with the second'}, agent)
+        await store.createComment('greenhouse', quiet, {body: 'Still going'}, agent)
+        const shipped = (await store.createIssue('greenhouse', {title: 'Shipped', status: 'todo'})).id
+        await store.createComment('greenhouse', shipped, {body: 'On it'}, agent)
+        await store.updateIssue('greenhouse', shipped, {status: 'done'}, agent)
+        await store.createComment('greenhouse', shipped, {body: 'Shipped'}, agent)
+        await store.createComment('greenhouse', shipped, {body: 'Thanks'}, me)
+        const mine = (await store.createIssue('greenhouse', {title: 'Mine', assignee: 'owner'})).id
+        await store.createComment('greenhouse', mine, {body: 'For you'}, agent)
+        expect((await store.notices()).map(n => n.body).sort())
+            .toEqual(['Going with the second', 'Over to @Skoll_F for a look', 'Which one?', 'Shipped', 'For you'].sort())
     })
 
     it('leaves a question waiting when clearing the read ones', async () => {
@@ -243,7 +265,7 @@ describe("an owner's comment", () => {
 
     it('goes to the session that last worked the issue, while it can hear; else to every session', async () => {
         const sent: (string | undefined)[] = []
-        const local = new Store(testDb(), () => {}, signal => signal.kind === 'comment' && sent.push(signal.target))
+        const local = await apiStore(() => {}, signal => signal.kind === 'comment' && sent.push(signal.target))
         let listening = ['window-a', 'window-b']
         local.hears = (_project, session) => listening.includes(session)
         await local.createProject({name: 'greenhouse', key: 'GRE'})
@@ -262,7 +284,7 @@ describe("an owner's comment", () => {
 
     it('goes again, marked as an edit, when the owner changes its words', async () => {
         const sent: (string | null)[] = []
-        const local = new Store(testDb(), () => {}, signal => signal.kind === 'comment' && sent.push(signal.note ?? null))
+        const local = await apiStore(() => {}, signal => signal.kind === 'comment' && sent.push(signal.note ?? null))
         await local.createProject({name: 'greenhouse', key: 'GRE'})
         const {id} = await local.createIssue('greenhouse', {title: 'Shelves'})
         const comment = await local.createComment('greenhouse', id, {body: 'Use oak'}, owner)
@@ -277,7 +299,7 @@ describe("an owner's comment", () => {
 describe('notice changes (ORR-803)', () => {
     const agent: Actor = {name: 'claude', owner: false, agent: true} as Actor
 
-    it("lists status changes since a time, oldest first, only on issues in the bell", async () => {
+    it("lists moves into done since a time, oldest first, only on issues in the bell", async () => {
         const told = (await store.createIssue('greenhouse', {title: 'Told', status: 'todo'})).id
         const quiet = (await store.createIssue('greenhouse', {title: 'Quiet', status: 'todo'})).id
         await store.createComment('greenhouse', told, {body: 'On it'}, agent)
@@ -285,7 +307,8 @@ describe('notice changes (ORR-803)', () => {
         await store.updateIssue('greenhouse', told, {status: 'done'}, agent)
         await store.updateIssue('greenhouse', quiet, {status: 'done'}, agent)
         const changes = await store.noticeChanges({since: '2000-01-01T00:00:00.000Z'})
-        expect(changes.map(c => [c.issue, c.before, c.after])).toEqual([[told, 'todo', 'in-progress'], [told, 'in-progress', 'done']])
+        // Only the move into done is news (ORR-1151).
+        expect(changes.map(c => [c.issue, c.before, c.after])).toEqual([[told, 'in-progress', 'done']])
         expect(changes[0]).toMatchObject({project: 'greenhouse', created_by: 'claude'})
         expect(await store.noticeChanges({since: '2999-01-01T00:00:00.000Z'})).toEqual([])
     })

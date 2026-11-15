@@ -6,12 +6,14 @@ import type {Permission, PermissionCell} from '#shared/permissions'
 import {Pulls} from '../server/utils/pulls'
 import {Schedules} from '../server/utils/schedules'
 import {Store} from '../server/utils/store'
-import {testDb} from './db'
+import {apiTestDb, withApi, apiStore} from './api'
+import {rustRoutes} from './routes'
 
 // The permissions table (shared/permissions.ts) against what the server does, so it can't say one thing while the code
 // does another (ORR-459): each route it names is there, the chat's and an untrusted session's guards let through what
 // it says and refuse the rest, and a working session meets what its column says, tried on the store or, for a rule a
-// route holds, read in the code that holds it.
+// route holds, read in the code that holds it. A route the Rust API alone serves is held there, and tested in its own
+// route tests (api/src/routes/*_tests.rs).
 
 const me = {name: 'skoll', owner: true}
 const agent = {name: 'claude', owner: false}
@@ -25,6 +27,9 @@ function routeFile(route: string): string | undefined {
     return [`${base}.${method!.toLowerCase()}.ts`, `${base}/index.${method!.toLowerCase()}.ts`].find(f => existsSync(f))
 }
 
+/** Whether the Rust API alone serves the route, its Nuxt route gone (ORR-1041): its rules are held and tested there. */
+const rustOnly = (route: string) => !routeFile(route) && rustRoutes().includes(route.replace(/:(\w+)/g, '{$1}'))
+
 /** A route as a request would ask for it. */
 const concrete = (route: string) => {
     const [method, path] = route.split(' ')
@@ -36,7 +41,7 @@ describe('the permissions table', () => {
         expect(new Set(PERMISSIONS.map(p => p.id)).size).toBe(PERMISSIONS.length)
         for (const p of PERMISSIONS) {
             expect(p.why, p.id).toMatch(/\S/)
-            for (const route of p.routes) expect(routeFile(route), `${p.id}: ${route}`).toBeDefined()
+            for (const route of p.routes) expect(routeFile(route) ?? (rustOnly(route) || undefined), `${p.id}: ${route}`).toBeDefined()
         }
     })
 })
@@ -45,6 +50,7 @@ describe('the guards', () => {
     type Event = {method: string, path: string, headers: Record<string, string>}
     let untrusted: (event: Event) => Promise<void>
     let chat: (event: Event) => void
+    let store: Store
 
     beforeEach(async () => {
         vi.stubGlobal('defineEventHandler', (handler: unknown) => handler)
@@ -53,9 +59,14 @@ describe('the guards', () => {
         vi.stubGlobal('decoded', (part: string) => part)
         vi.stubGlobal('untrustedWrite', (event: Event) => event.headers['orrery-untrusted'] === 'yes')
         vi.stubGlobal('chatWrite', (event: Event) => event.headers['orrery-chat'] === 'yes')
+        vi.stubGlobal('untrustedProject', () => undefined)
+        vi.stubGlobal('sessionHeader', () => undefined)
         vi.stubGlobal('EXTERNAL', 'external')
-        // The issue it comments on is one of its own proposals.
-        vi.stubGlobal('useStore', () => ({issue: async () => ({proposal: 'pending', labels: ['external']})}))
+        // The issue it comments on is one of its own proposals, read through the Rust API (ORR-1163).
+        store = new Store(apiTestDb())
+        await store.createProject({name: 'greenhouse', key: 'GRE'})
+        await store.createIssue('greenhouse', {title: 'A greenhouse on Mars', proposal: 'pending', labels: ['external']})
+        await withApi(store)
         vi.resetModules()
         untrusted = (await import('../server/middleware/untrusted')).default as unknown as typeof untrusted
         chat = (await import('../server/middleware/chat')).default as unknown as typeof chat
@@ -98,8 +109,8 @@ describe('the guards', () => {
         // A refusal on a row's route names the row.
         await expect(chat({...concrete('POST /api/projects/:project/launches'), headers: asChat})).rejects.toMatchObject({statusCode: 403, data: {permission: 'sessions.start'}})
         // An untrusted session comments on its own external proposals only.
-        vi.stubGlobal('useStore', () => ({issue: async () => ({proposal: null, labels: []})}))
-        expect(await through(untrusted, 'POST /api/projects/:project/issues/:issue/comments', {'orrery-untrusted': 'yes'})).toBe(false)
+        await store.createIssue('greenhouse', {title: 'Water the tomatoes'})
+        expect(await through(untrusted, 'POST /api/projects/greenhouse/issues/GRE-2/comments', {'orrery-untrusted': 'yes'})).toBe(false)
         // Reads and other sessions' writes aren't its business.
         expect(await through(chat, 'GET /api/projects/:project/launches', asChat)).toBe(true)
         expect(await through(chat, 'POST /api/projects/:project/launches', {})).toBe(true)
@@ -111,7 +122,7 @@ describe("a working session's column", () => {
     let schedules: Schedules
 
     beforeEach(async () => {
-        store = new Store(testDb(), () => {})
+        store = await apiStore(() => {})
         await store.createProject({name: 'greenhouse', key: 'GRE'}, me)
         schedules = new Schedules(store)
     })
@@ -224,7 +235,7 @@ describe("a working session's column", () => {
     const server = sources().join('\n')
 
     /** Whether every route of the row asks `authorize` for it (ORR-512). */
-    const authorized = (p: Permission) => p.routes.every(route => readFileSync(routeFile(route)!, 'utf8').includes(`authorize(event, '${p.id}')`))
+    const authorized = (p: Permission) => p.routes.every(route => rustOnly(route) || readFileSync(routeFile(route)!, 'utf8').includes(`authorize(event, '${p.id}')`))
     /** Whether the store or a util refuses by the row, owner-only or within its limits. */
     const held = (p: Permission) => server.includes(`ownerOnly(actor, '${p.id}')`) || server.includes(`refusedFor('${p.id}'`)
 

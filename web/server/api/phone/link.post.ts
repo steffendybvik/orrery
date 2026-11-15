@@ -9,7 +9,7 @@ export default defineEventHandler(async event => {
     countOwnUse(event, 'phone-code')
     if (viaPhone(event)) throw createError({statusCode: 403, statusMessage: 'Forbidden', message: "A sign-in link is made from orrery's page on its own machine"})
     const mode = await authMode(event)
-    const who = event.context.who as Who | undefined
+    const who = event.context?.who as Who | undefined
     if (mode !== 'off' && !(who?.owner && who.via === 'browser')) throw createError({statusCode: 403, statusMessage: 'Forbidden', message: 'Only the owner makes a sign-in link, from their own page'})
     // A session, the chat or an untrusted one never: it would get a login as the owner.
     await authorize(event, 'phone.link')

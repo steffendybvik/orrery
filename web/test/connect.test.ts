@@ -4,17 +4,18 @@ import type {ConnectTarget} from '#shared/connect'
 import {connectPieces, idsFor} from '#shared/connect'
 import {Store} from '../server/utils/store'
 import {testDb} from './db'
+import {apiTestDb, withApi} from './api'
 
 const greenhouse: ConnectTarget = {origin: 'http://localhost:9000', id: 'greenhouse', name: 'Greenhouse', key: 'GRE', isNew: false}
 
 describe('connecting a repo', () => {
     it('registers one channel for the orrery, pinned to its id, serving the project', () => {
         const {mcpJson, server, launch, brief} = connectPieces({...greenhouse, orrery: {id: 'orr_7f3a9c', environment: 'Work'}})
-        expect(server).toBe('orrery-work')
-        expect(JSON.parse(mcpJson)).toEqual({mcpServers: {'orrery-work': {
+        expect(server).toBe('orrery')
+        expect(JSON.parse(mcpJson)).toEqual({mcpServers: {'orrery': {
             command: 'node', args: ['${HOME}/.orrery/bootstrap.mjs', 'channel'], env: {ORRERY_URL: 'http://localhost:9000', ORRERY_ID: 'orr_7f3a9c', ORRERY_PROJECTS: 'greenhouse', ORRERY_PERSON: '${ORRERY_PERSON:-}'},
         }}})
-        expect(launch).toBe('claude --dangerously-load-development-channels server:orrery-work')
+        expect(launch).toBe('claude --dangerously-load-development-channels server:orrery')
         expect(brief).toContain("add `greenhouse` to that entry's `ORRERY_PROJECTS`")
     })
 
@@ -114,10 +115,10 @@ describe('the overview agents read', () => {
     afterEach(() => vi.unstubAllGlobals())
 
     it('lists the projects with their progress, at the address it was reached on', async () => {
-        const store = new Store(testDb())
-        vi.stubGlobal('useStore', () => store)
+        // The projects are read through the Rust API (ORR-1163).
+        const store = new Store(apiTestDb())
+        await withApi(store)
         vi.stubGlobal('getRequestURL', () => new URL('http://orrery.lan:9000/llms.txt'))
-        vi.stubGlobal('useRuntimeConfig', () => ({}))
         vi.stubGlobal('getHeader', () => undefined)
         const alone = {node: {req: {headers: {}, socket: {remoteAddress: '127.0.0.1', server: {address: () => ({address: '127.0.0.1'})}}}}} as never
         const {overview} = await import('../server/utils/guide')
@@ -135,12 +136,13 @@ describe('who is asking', () => {
     afterEach(() => vi.unstubAllGlobals())
 
     it('is the Orrery-Actor header, the owner when it is their id, agent without one', async () => {
-        const store = new Store(testDb())
+        // The owner and the people are read through the Rust API (ORR-1163).
+        const store = new Store(apiTestDb())
         await store.nameOwner({name: 'Sköll Fenrisson'})
+        await withApi(store)
         let header: string | undefined
         let session: string | undefined
         let untrusted = false
-        vi.stubGlobal('useStore', () => store)
         vi.stubGlobal('getHeader', (_event: unknown, name: string) => name === 'orrery-session' ? session : name === 'orrery-actor' ? header : undefined)
         vi.stubGlobal('chatWrite', () => false)
         vi.stubGlobal('untrustedWrite', () => untrusted)

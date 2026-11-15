@@ -158,6 +158,10 @@ export interface Issue {
 }
 
 /** Whether an issue waits on another that isn't done yet (ORR-601): nothing hands it out until it's free. */
+/** An issue in progress that's done with for now (ORR-1032): waiting on the owner's answer, or in review. It stays its
+ * session's, but doesn't keep the session from being handed more (`engaged` in the store). */
+export const parked = (issue: {status?: string, waiting?: string | null}) => !!issue.waiting || issue.status === 'in-review'
+
 export const isBlocked = (issue: {blocked_by?: string[]}) => !!issue.blocked_by?.length
 
 /** How an issue names another it's linked to (ORR-601): its id in the same project, `project/ID` in another. */
@@ -366,6 +370,11 @@ export interface Project {
     /** The project whose releases it ships in, when it's `shared` (a monorepo's apps going out together); its
      * `releases` are then that project's, counting its own issues. */
     releases_from?: string
+    /** The orrery it moved to, while the owner has it marked as moved (ORR-1225): writes to it here are refused, saying so. */
+    moved_to?: string
+    /** When it was uploaded from a file, while it's held out of pick lists (ORR-1224): no session is handed its issues
+     * (a pick list, a Todo hand-out, `next`) till the owner lets sessions pick from it on its Settings. */
+    picks_held?: string
     created_by: string
     protected: boolean
     created_at: string
@@ -539,7 +548,7 @@ export function shortId(kind: IdKind, id: string, uid: string): string | null {
 }
 
 /** The number inside a milestone's or an epic's shown id, in any case: `MLS-14` → `14`; null for anything else. */
-export function shownNumber(kind: 'milestone' | 'epic', id: string): string | null {
+function shownNumber(kind: 'milestone' | 'epic', id: string): string | null {
     const prefix = FULL_PREFIX[kind]
     return startsWith(id, prefix) && /^\d+$/.test(id.slice(prefix.length)) ? id.slice(prefix.length) : null
 }

@@ -48,8 +48,8 @@ test('keeps to a family of kinds or to one kind', async ({page}) => {
     expect(new URL(page.url()).searchParams.get('project')).toBe('ledger')
 
     // None of a kind says which.
-    await page.goto('/events?project=ledger&kind=backup.made')
-    await expect(page.getByText('Nothing logged of backup.made in Ledger yet.')).toBeVisible()
+    await page.goto('/events?project=ledger&kind=database.empty')
+    await expect(page.getByText('Nothing logged of database.empty in Ledger yet.')).toBeVisible()
 })
 
 test("an issue event's line links the issue, and following it opens the issue", async ({page, request}) => {

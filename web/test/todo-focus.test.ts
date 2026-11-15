@@ -1,3 +1,4 @@
+import {parked} from '#shared/roadmap'
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 
 // An issue the owner moves into Todo going to an idle session (ORR-515), with Nitro's auto-imports stubbed: the
@@ -14,6 +15,8 @@ let busy: string[]
 let queued: string[]
 let onItsWay: string[]
 let chats: string[]
+/** Boards uploaded from a file and not let through to sessions yet (ORR-1224). */
+let uploaded: string[]
 let sent: {issue: string, session: string, note: string, by: {name: string, owner: boolean}}[]
 
 const issue = (id: string, kind = 'todo', more: Record<string, unknown> = {}) => ({id, kind, created_at: `2026-10-29T0${id.slice(-1)}:00:00Z`, ...more})
@@ -35,6 +38,7 @@ beforeEach(async () => {
     queued = []
     onItsWay = []
     chats = []
+    uploaded = []
     sent = []
     links = []
     workers = {}
@@ -51,10 +55,14 @@ beforeEach(async () => {
         statuses: async () => [{id: 'backlog', kind: 'backlog'}, {id: 'todo', kind: 'todo'}, {id: 'ready', kind: 'todo'}, {id: 'in-progress', kind: 'started'}, {id: 'done', kind: 'done'}, {id: 'canceled', kind: 'canceled'}],
         ownerOf: async () => ({name: 'steffen'}),
         listIssues: async () => board,
+        picksHeld: async (project: string) => uploaded.includes(project),
         workingOn: async (_project: string, ids: string[]) => ids.filter(id => busy.includes(id)).map(id => ({id})),
         waiting: async (_project: string, ids: string[]) => ids.some(id => queued.includes(id)),
         async busy(project: string, ids: string[]) {
             return (await this.workingOn(project, ids)).length > 0 || await this.waiting(project, ids)
+        },
+        async engaged(project: string, ids: string[]) {
+            return (await this.workingOn(project, ids)).some((i: {status?: string, waiting?: string}) => !parked(i)) || await this.waiting(project, ids)
         },
         focusOnItsWay: async (_project: string, id: string) => onItsWay.includes(id),
         dependentsOf: async (_project: string, id: string) => links.filter(l => l.on === id).map(l => ({project: 'orrery', id: l.id})),
@@ -244,6 +252,19 @@ describe('an issue waiting on others (ORR-601)', () => {
         await hear(status('ORR-1', 'in-progress', 'done'))
         expect(sent).toEqual([{issue: 'ORR-3', session: 'finisher', note: `${todo.UNBLOCKED_NOTE} ORR-1.`, by: owner}])
         expect(said).toEqual([{issue: 'ORR-3', type: 'issue.unblocked'}])
+    })
+
+    it("isn't handed out from a board uploaded from a file till the owner lets sessions pick from it (ORR-1224)", async () => {
+        uploaded = ['orrery']
+        await hear(moved('ORR-2'))
+        waiting()
+        await hear(status('ORR-1', 'in-progress', 'done'))
+        expect(sent).toEqual([])
+        expect(said).toEqual([{issue: 'ORR-3', type: 'issue.unblocked'}])
+        uploaded = []
+        board = [issue('ORR-2', 'todo', {priority: 'P0'})]
+        await hear(moved('ORR-2'))
+        expect(sent.map(s => s.issue)).toEqual(['ORR-2'])
     })
 
     it('goes to the one that did the blocker while it finishes its turn, but to another when it has other work', async () => {

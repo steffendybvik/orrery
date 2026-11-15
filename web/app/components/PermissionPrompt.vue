@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type {Session} from '#shared/roadmap'
-import {listable} from '#shared/roadmap'
+import {asksQuestion, listable} from '#shared/roadmap'
 
 // A session at a permission prompt pops up on whatever page the owner has open (ORR-489), small: Claude Code's line on
 // what it wants, the command or file from its prompt in one line for one orrery started (the whole prompt on hover; its
@@ -17,6 +17,9 @@ const busy = ref<'allow' | 'deny' | 'watch' | null>(null)
 const failed = ref('')
 const launch = computed(() => props.session.started?.launch)
 const prompt = computed(() => screen.value ? promptIn(screen.value) : null)
+// A question to the owner (`AskUserQuestion`, ORR-1155) isn't a permission: Allow and Deny don't answer it, so it shows
+// the questions and their options and opens the session's terminal to answer.
+const question = computed(() => asksQuestion(props.session))
 
 let timer: ReturnType<typeof setTimeout> | undefined
 let stopped = false
@@ -57,22 +60,34 @@ async function act(what: 'allow' | 'deny' | 'watch') {
 </script>
 
 <template>
-  <div role="alertdialog" :aria-label="`${session.name} needs permission`" class="flex w-80 max-w-[calc(100vw-2rem)] flex-col gap-1.5 rounded-xl bg-panel p-2.5 text-xs shadow-lg ring-1 ring-rose-500/40" data-permission-prompt>
+  <div role="alertdialog" :aria-label="`${session.name} ${question ? 'has a question' : 'needs permission'}`" class="flex w-80 max-w-[calc(100vw-2rem)] flex-col gap-1.5 rounded-xl bg-panel p-2.5 text-xs shadow-lg ring-1 ring-rose-500/40" data-permission-prompt>
     <div class="flex items-start gap-2">
       <p class="min-w-0 flex-1 truncate font-medium text-fg">
-        <NuxtLink v-if="listable(session)" :to="`/sessions#session-${session.id}`" class="hover:underline">{{ session.name }}</NuxtLink><template v-else>{{ session.name }}</template> needs permission
+        <NuxtLink v-if="listable(session)" :to="`/sessions#session-${session.id}`" class="hover:underline">{{ session.name }}</NuxtLink><template v-else>{{ session.name }}</template> {{ question ? 'has a question' : 'needs permission' }}
       </p>
       <UiButton v-if="hideable" variant="ghost" size="xs" square aria-label="Hide until it asks again" @click="emit('close')">
         <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
       </UiButton>
     </div>
-    <p v-if="session.asks" class="text-muted">{{ session.asks }}</p>
-    <p v-if="prompt?.what" class="truncate rounded-md bg-well px-2 py-1 font-mono text-[11px] text-fg" :title="prompt.text">{{ prompt.what }}</p>
-    <p v-else-if="session.asking" class="flex min-w-0 items-baseline gap-1.5" data-asking>
+    <template v-if="question">
+      <div v-for="(q, i) in session.asking?.questions ?? []" :key="i" class="flex flex-col gap-1" data-question>
+        <p class="text-fg">{{ q.question }}</p>
+        <ol v-if="q.options.length" class="flex flex-col gap-0.5 text-muted">
+          <li v-for="(option, j) in q.options" :key="j" class="truncate"><span class="text-faint">{{ j + 1 }}.</span> {{ option }}</li>
+        </ol>
+      </div>
+      <p v-if="!session.asking?.questions?.length" class="text-muted">Claude is asking you something.</p>
+    </template>
+    <p v-else-if="session.asks" class="text-muted">{{ session.asks }}</p>
+    <p v-if="!question && prompt?.what" class="truncate rounded-md bg-well px-2 py-1 font-mono text-[11px] text-fg" :title="prompt.text">{{ prompt.what }}</p>
+    <p v-else-if="!question && session.asking" class="flex min-w-0 items-baseline gap-1.5" data-asking>
       <span class="shrink-0 font-medium text-fg">{{ toolLabel(session.asking.name) }}</span>
       <span v-if="session.asking.detail" class="min-w-0 truncate rounded-md bg-well px-2 py-1 font-mono text-[11px] text-fg" :title="session.asking.detail">{{ session.asking.detail }}</span>
     </p>
-    <div v-if="launch" class="flex items-center gap-2">
+    <div v-if="launch && question" class="flex items-center gap-2">
+      <UiButton variant="primary" size="xs" :disabled="!!busy" title="Opens its terminal (tmux) to pick an answer" @click="act('watch')"><UiBusy :busy="busy === 'watch'" label="Opening…">Open to answer</UiBusy></UiButton>
+    </div>
+    <div v-else-if="launch" class="flex items-center gap-2">
       <UiButton variant="primary" size="xs" :disabled="!!busy" title="Answers “Yes” once" @click="act('allow')"><UiBusy :busy="busy === 'allow'" label="Allowing…">Allow</UiBusy></UiButton>
       <UiButton size="xs" :disabled="!!busy" title="Answers “No” once" @click="act('deny')"><UiBusy :busy="busy === 'deny'" label="Denying…">Deny</UiBusy></UiButton>
       <UiButton size="xs" :disabled="!!busy" @click="act('watch')"><UiBusy :busy="busy === 'watch'" label="Opening…">Open tmux</UiBusy></UiButton>

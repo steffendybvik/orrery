@@ -32,14 +32,16 @@ beforeEach(async () => {
     vi.stubGlobal('setResponseStatus', (event: {status?: number}, status: number) => void (event.status = status))
     vi.stubGlobal('notFound', (message: string) => Object.assign(new Error(message), {statusCode: 404}))
     vi.resetModules()
-    vi.doMock('../server/utils/store', () => ({Store: fake('Store', {seedPresets: async () => void calls.push('seedPresets'), settings: async () => ({uid: 'x7k2m9qd'})})}))
+    vi.doMock('../server/utils/store', () => ({Store: fake('Store', {settings: async () => ({uid: 'x7k2m9qd'})})}))
     vi.doMock('../server/utils/secrets', () => ({Secrets: fake('Secrets', {scrubber: () => 'scrub', own: () => 'own', ownsFor: () => true})}))
     vi.doMock('../server/utils/pulls', () => ({GITHUB_SECRET: 'GITHUB_TOKEN', Pulls: fake('Pulls')}))
     vi.doMock('../server/utils/branches', () => ({Branches: fake('Branches')}))
     vi.doMock('../server/utils/pull-poll', () => ({PullPoll: fake('PullPoll', {secretsChanged: () => calls.push('poll.secretsChanged')})}))
     vi.doMock('../server/utils/pull-comments', () => ({commentOnPull: async (_store: unknown, change: {pr: number}) => void calls.push(`commentOnPull ${change.pr}`)}))
-    vi.doMock('../server/utils/event-log', () => ({EventLog: fake('EventLog', {forget: () => calls.push('log.forget'), note: (entry: object) => calls.push(`note ${JSON.stringify(entry)}`)})}))
+    vi.doMock('../server/utils/event-log', () => ({EventLog: fake('EventLog', {forget: () => calls.push('log.forget'), flush: async () => void calls.push('log.flush'), note: (entry: object) => calls.push(`note ${JSON.stringify(entry)}`)})}))
     vi.doMock('../server/utils/schedules', () => ({Schedules: fake('Schedules'), scheduleRunning: {getStore: () => undefined}}))
+    // This orrery's settings, which the API answers (ORR-1135): only its uid is read here.
+    vi.doMock('../server/utils/api-router', async (real: () => Promise<object>) => ({...await real(), settingsNow: async () => ({uid: 'x7k2m9qd'})}))
     events = await import('../server/utils/events')
 })
 
@@ -81,16 +83,15 @@ describe("events.ts's helpers", () => {
         expect(calls).toEqual(['commentOnPull 7', 'poll.secretsChanged'])
     })
 
-    it("sends what the event log keeps as `logged`, scrubbed of secrets, and reads settings and secrets again as they change", () => {
+    it("scrubs the event log's lines of secrets, reads settings and secrets again as they change, and says what it held once the API answers", () => {
         events.useEventLog()
-        const [, scrubber, onLogged] = made.EventLog as [unknown, () => unknown, (event: unknown, fresh: boolean) => void]
+        const [scrubber] = made.EventLog as [() => unknown]
         expect(scrubber()).toBe('scrub')
-        const logged = heard('logged')
-        onLogged({id: 1}, true)
-        expect(logged).toEqual([{event: {id: 1}, fresh: true}])
         events.projectEvents.emit('settings', {})
         events.projectEvents.emit('secrets', [])
         expect(calls.filter(c => c === 'log.forget')).toHaveLength(2)
+        events.projectEvents.emit('api-answered')
+        expect(calls.filter(c => c === 'log.flush')).toHaveLength(1)
     })
 
     it("logs a schedule's run as ran, skipped or failed, and starts a session one asks for with its presets' context", async () => {
@@ -112,14 +113,6 @@ describe("events.ts's helpers", () => {
         expect(notes[1]!.details).toEqual({schedule: 4, outcome: 'skipped', note: 'nothing changed', manual: 'steffen'})
         expect(await options.startSession('greenhouse', {presets: ['review'], instructions: '', issue: 'GRE-1'}, 'steffen'))
             .toEqual({project: 'greenhouse', issue: 'GRE-1', release: undefined, context: 'context review', actor: 'steffen'})
-    })
-
-    it('points the store and the event log at the database it moved to, and seeds it with the presets', async () => {
-        const store = events.useStore() as unknown as {db: unknown}
-        const log = events.useEventLog() as unknown as {db: unknown}
-        events.rebindDatabase('new' as never)
-        expect([store.db, log.db]).toEqual(['new', 'new'])
-        await vi.waitFor(() => expect(calls).toContain('seedPresets'))
     })
 
     it("passes on what happened, and what changed to the event log too, once the write commits", async () => {

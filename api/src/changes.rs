@@ -4,9 +4,10 @@
 // never lost. The Nuxt server's own writes add theirs next. The same path streams them as server-sent events (`stream`),
 // woken by `wake()` once a write has committed, and rows older than a week are pruned. Nothing reads them yet: the
 // reply headers still carry what changed.
+use crate::access::seen::Seen;
 use crate::db::sql;
-use crate::docs::{stamp, Actor, Effects, Told};
 use crate::error::{ApiError, Result};
+use crate::write::{stamp, Actor, Effects, Told};
 use axum::response::sse::Event;
 use futures_util::stream::{self, Stream};
 use serde_json::{json, Value};
@@ -26,12 +27,15 @@ pub struct Outbox {
     changed: Vec<String>,
     settings: bool,
     epics: bool,
+    schedules: Vec<String>,
     told: usize,
+    logged: usize,
+    chats: Vec<String>,
 }
 
 impl Outbox {
     pub fn new(actor: Actor) -> Self {
-        Outbox { actor, changed: vec![], settings: false, epics: false, told: 0 }
+        Outbox { actor, changed: vec![], settings: false, epics: false, schedules: vec![], told: 0, logged: 0, chats: vec![] }
     }
 
     /// Records what `effects` holds that this request hasn't recorded yet, on `conn`, inside its transaction.
@@ -39,14 +43,37 @@ impl Outbox {
         let changed: Vec<&String> = effects.changed.iter().filter(|p| !self.changed.contains(p)).collect();
         let settings = effects.settings && !self.settings;
         let epics = effects.epics && !self.epics;
+        let schedules: Vec<&String> = effects.schedules.iter().filter(|p| !self.schedules.contains(p)).collect();
         let told = &effects.told[self.told.min(effects.told.len())..];
-        record(conn, &changed, settings, epics, told, &self.actor).await?;
+        let logged = &effects.logged[self.logged.min(effects.logged.len())..];
+        let chats: Vec<&String> = effects.chats.iter().filter(|c| !self.chats.contains(c)).collect();
+        record(conn, &Recorded { changed: &changed, settings, epics, schedules: &schedules, told, logged, chats: &chats }, &self.actor).await?;
+        self.chats.extend(chats.into_iter().cloned());
         self.changed.extend(changed.into_iter().cloned());
+        self.schedules.extend(schedules.into_iter().cloned());
         self.settings |= settings;
         self.epics |= epics;
         self.told = effects.told.len();
+        self.logged = effects.logged.len();
         Ok(())
     }
+}
+
+/// One outbox row for what `Effects` doesn't carry (ORR-1174): a signal written or heard (`signal`, its id the subject)
+/// and an agent's comment for the owner's bell (`notice`, the comment's id, its issue in the payload). Inside the write's
+/// own transaction, as the local app's store wrote them before: nobody's actor, as they're orrery's own.
+pub async fn row(conn: &mut AnyConnection, kind: &str, project: &str, subject: &str, payload: Option<Value>) -> Result<()> {
+    sqlx::query(&sql(
+        "INSERT INTO changes (kind, project, subject, actor, owner, session, untrusted, payload, created_at) VALUES (?, ?, ?, NULL, 0, NULL, 0, ?, ?)",
+    ))
+    .bind(kind)
+    .bind(project)
+    .bind(subject)
+    .bind(payload.map(|p| p.to_string()))
+    .bind(stamp())
+    .execute(&mut *conn)
+    .await?;
+    Ok(())
 }
 
 /// Starts a write's transaction.
@@ -74,9 +101,23 @@ pub async fn finish<T>(conn: &mut AnyConnection, outbox: Option<&mut Outbox>, ef
     }
 }
 
-/// Writes the rows for what a write by `actor` set off: each project it changed, the settings, the epics, and each event
-/// told.
-async fn record(conn: &mut AnyConnection, changed: &[&String], settings: bool, epics: bool, told: &[Told], actor: &Actor) -> Result<()> {
+/// What one transaction set off that its request hasn't recorded yet: each project it changed, the settings, the epics,
+/// each project whose schedules changed, each event told, each line of the event log it changed, and each chat whose
+/// messages changed.
+struct Recorded<'a> {
+    changed: &'a [&'a String],
+    settings: bool,
+    epics: bool,
+    schedules: &'a [&'a String],
+    told: &'a [Told],
+    logged: &'a [Value],
+    chats: &'a [&'a String],
+}
+
+/// Writes the rows for what a write by `actor` set off (`Recorded`): `event.logged` has the line as its payload, and
+/// `chat` names the chat as its subject.
+async fn record(conn: &mut AnyConnection, set_off: &Recorded<'_>, actor: &Actor) -> Result<()> {
+    let Recorded { changed, settings, epics, schedules, told, logged, chats } = *set_off;
     // Each row's kind, project, subject and payload.
     type Row<'a> = (&'a str, Option<&'a str>, Option<&'a str>, Option<String>);
     let mut rows: Vec<Row> = vec![];
@@ -89,13 +130,22 @@ async fn record(conn: &mut AnyConnection, changed: &[&String], settings: bool, e
     if epics {
         rows.push(("epics", None, None, None));
     }
+    for project in schedules {
+        rows.push(("schedules", Some(project.as_str()), None, None));
+    }
     for told in told {
         rows.push((told.kind.as_str(), Some(told.project.as_str()), Some(told.subject.as_str()), payload_of(told, actor)));
+    }
+    for line in logged {
+        rows.push(("event.logged", None, None, Some(line.to_string())));
+    }
+    for chat in chats {
+        rows.push(("chat", None, Some(chat.as_str()), None));
     }
     let now = stamp();
     for (kind, project, subject, payload) in rows {
         sqlx::query(&sql(
-            "INSERT INTO changes (kind, project, subject, actor, owner, session, untrusted, payload, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO changes (kind, project, subject, actor, owner, session, untrusted, cause, payload, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         ))
         .bind(kind)
         .bind(project)
@@ -104,6 +154,7 @@ async fn record(conn: &mut AnyConnection, changed: &[&String], settings: bool, e
         .bind(i32::from(actor.owner))
         .bind(actor.session.as_deref())
         .bind(i32::from(actor.untrusted))
+        .bind(actor.cause.as_deref())
         .bind(payload)
         .bind(&now)
         .execute(&mut *conn)
@@ -137,9 +188,17 @@ pub fn cursor(after: Option<&str>) -> Result<i64> {
 }
 
 /// The rows after `after` (0, or none, for the oldest kept), oldest first, a page at a time: `{changes, last}`, `last`
-/// being the id to ask after next (`after` itself when there's nothing new).
+/// being the id to ask after next (`after` itself when there's nothing new). `after=newest` gives no rows and the newest
+/// id, where a reader with no cursor of its own starts (the Nuxt server's outbox follower, ORR-1136).
 pub async fn after(conn: &mut AnyConnection, after: Option<&str>) -> Result<Value> {
+    if after.map(str::trim) == Some("newest") {
+        return Ok(json!({"changes": [], "last": newest(conn).await?}));
+    }
     page(conn, cursor(after)?).await
+}
+
+async fn newest(conn: &mut AnyConnection) -> Result<i64> {
+    Ok(sqlx::query(&sql("SELECT CAST(COALESCE(MAX(id), 0) AS BIGINT) AS n FROM changes")).fetch_one(&mut *conn).await?.get("n"))
 }
 
 /// The page after `after`. A cursor whose row isn't kept (pruned, or from another database) answers `{changes: [],
@@ -148,8 +207,7 @@ async fn page(conn: &mut AnyConnection, after: i64) -> Result<Value> {
     if after > 0 {
         let kept: i64 = sqlx::query(&sql("SELECT CAST(COUNT(*) AS BIGINT) AS n FROM changes WHERE id = ?")).bind(after).fetch_one(&mut *conn).await?.get("n");
         if kept == 0 {
-            let newest: i64 = sqlx::query(&sql("SELECT CAST(COALESCE(MAX(id), 0) AS BIGINT) AS n FROM changes")).fetch_one(&mut *conn).await?.get("n");
-            return Ok(json!({"changes": [], "last": newest, "gap": true}));
+            return Ok(json!({"changes": [], "last": newest(conn).await?, "gap": true}));
         }
     }
     let rows = sqlx::query(&sql(
@@ -202,26 +260,30 @@ const KEEP_DAYS: i64 = 7;
 /// The rows after `after` as server-sent events, oldest first, then live: each row an event with its id, so a reader
 /// that reconnects with `Last-Event-ID` carries on from it. A gap is a `gap` event with `{last}`, the newest id, which
 /// the stream carries on from.
-pub fn stream(pool: AnyPool, after: i64) -> impl Stream<Item = std::result::Result<Event, Infallible>> {
-    stream::unfold((pool, after, VecDeque::<Value>::new()), |(pool, mut last, mut queue)| async move {
+/// Only the rows of projects `seen` are sent, worked out again on each look so a project made since is seen (ORR-1106).
+pub fn stream(pool: AnyPool, after: i64, seen: Seen) -> impl Stream<Item = std::result::Result<Event, Infallible>> {
+    stream::unfold((pool, after, VecDeque::<Value>::new(), seen), |(pool, mut last, mut queue, seen)| async move {
         loop {
             if let Some(change) = queue.pop_front() {
                 let event = Event::default().id(change["id"].to_string()).data(change.to_string());
-                return Some((Ok(event), (pool, last, queue)));
+                return Some((Ok(event), (pool, last, queue, seen)));
             }
             // Listening before looking, so a wake between the two isn't missed.
             let woken = WAKE.notified();
             tokio::pin!(woken);
             woken.as_mut().enable();
             let read = match pool.acquire().await {
-                Ok(mut conn) => page(&mut conn, last).await,
+                Ok(mut conn) => match page(&mut conn, last).await {
+                    Ok(mut read) => seen.keep(&mut conn, &mut read["changes"], "project").await.map(|()| read),
+                    Err(e) => Err(e),
+                },
                 Err(e) => Err(e.into()),
             };
             match read {
                 Ok(read) if read["gap"] == Value::Bool(true) => {
                     last = read["last"].as_i64().unwrap_or(0);
                     let event = Event::default().event("gap").data(json!({"last": last}).to_string());
-                    return Some((Ok(event), (pool, last, queue)));
+                    return Some((Ok(event), (pool, last, queue, seen)));
                 }
                 Ok(mut read) => {
                     last = read["last"].as_i64().unwrap_or(last);
@@ -246,3 +308,7 @@ pub async fn prune(pool: &AnyPool) -> Result<u64> {
     let done = sqlx::query(&sql("DELETE FROM changes WHERE created_at < ? AND id < (SELECT MAX(id) FROM changes)")).bind(before).execute(&mut *conn).await?;
     Ok(done.rows_affected())
 }
+
+#[cfg(test)]
+#[path = "changes_tests.rs"]
+mod tests;

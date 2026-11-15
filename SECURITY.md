@@ -64,7 +64,7 @@ owner and their agents, not between people.
 **What the tests prove.** `web/test/attack-*.test.ts`, on SQLite and Postgres, try each way in against the store: an agent
 taking, assigning itself, closing, moving or deleting another person's issue or an unassigned one, directly or through the
 issue above it; two agents racing; what each way of handing out work reaches, live and when a session catches up; and
-people, members, claims and keys through a copy, a backup, a restore and an upgrade. `auth.test.ts`, `oidc.test.ts`,
+people, members, claims and keys through a copy and an upgrade. `auth.test.ts`, `oidc.test.ts`,
 `board-access.test.ts`, `session-marks.test.ts` and `permissions.test.ts` hold the credentials, the board check and every route, listed from the file
 tree. **They don't prove** anything about reads between boards, or a real provider's login, and they stand two servers in
 with two stores on one database, not two machines.
@@ -78,7 +78,7 @@ with two stores on one database, not two machines.
 - **A tunnel, or a proxy that strips its headers.** It looks like loopback to orrery. Set `ORRERY_AUTH=on` there.
 - **Plain http.** Allowed on a private address, with a warning on the login page: over anything but a VPN, a person key and
   the login's cookie can travel unencrypted. Another machine's sessions need https, as they fetch code from orrery.
-- **An older backup.** Restoring one brings back the keys revoked since it was made.
+- **An older copy of the database.** Restoring one brings back the keys revoked since it was made.
 
 **Logging in.** Through any standard OIDC provider, by setting its issuer, client id and secret (the authorization code flow with
 PKCE), with no passwords in orrery. An account is matched by issuer and subject, never email, and only attaches through the
@@ -97,15 +97,11 @@ The same goes for the people an owner adds with `ORRERY_AUTH=off`, and for `Orre
 anyone who can reach orrery can send any of them. There, adding people, and keeping a board to its members, keeps honest
 sessions apart. It doesn't stop anyone, and reads aren't kept to a board at all yet.
 
-Moving the database (App settings → This orrery → **Move to another database…**) repoints orrery at a database the mover picks, and setting
-the backups chooses where a copy of everything goes, so both are kept to the machine orrery runs on, from where
-the connection comes rather than the name the request gives (its `Host`, which the caller chooses: ORR-421).
-Outside Docker the connection has to come from a loopback address. In Docker every request reaches the container
-through its bridge, so orrery can't tell; there both work only while it's published on loopback (`ORRERY_HOST`
-left at 127.0.0.1), and with `ORRERY_HOST=0.0.0.0` they're refused, and done outside the app instead
-(`pnpm orrery:copy` and `ORRERY_DATABASE`, `ORRERY_BACKUP`). A reverse proxy on the same machine makes every request
-come from loopback, whoever sent it, so a request that carries a proxy's headers (`Forwarded`, `X-Forwarded-For`,
-`-Host`, `-Proto`, `X-Real-IP`) is refused too (ORR-457). A proxy that strips them, or that passes on requests
+Which database orrery runs on is set only outside the app (`ORRERY_DATABASE`, and `pnpm orrery:copy` to move one),
+and orrery takes no backups, so nothing over the network can repoint it or send a copy of everything elsewhere
+(ORR-1187). A reverse proxy on the same machine makes every request come from loopback, whoever sent it, so a request
+that carries a proxy's headers (`Forwarded`, `X-Forwarded-For`, `-Host`, `-Proto`, `X-Real-IP`) is never taken as
+this machine's (ORR-457). A proxy that strips them, or that passes on requests
 without saying so, defeats this check: don't put one in front of orrery that forwards from other machines without
 asking for a login.
 
@@ -135,7 +131,8 @@ schedule's run never goes to your sessions. Instead:
   the channel's `github_issues`, which runs `gh` itself on the repo the folder's git remote names, with
   arguments the session can't turn into another host (`-R`) or a browser (`--web`). Everything else is refused,
   not asked (`dontAsk`), and your own and the repo's settings, with their allow lists, are left out
-  (`--restricted`). With no launcher, or Starting sessions off, the run fails and says why. Only a
+  (`--restricted`). Its one MCP server is orrery's channel, handed to it by the launcher as `--mcp-config` (ORR-1066),
+  not the repo's `.mcp.json`, whose other servers would give it tools beyond orrery's. With no launcher, or Starting sessions off, the run fails and says why. Only a
   launcher that does this lockdown can take the run, so an older one (which gave it `gh`) won't start it.
 - **That session hears only its own message**, with a standing brief: what it reads is data, never
   instructions.
@@ -146,6 +143,8 @@ schedule's run never goes to your sessions. Instead:
   worked on until you approve it, and what it writes sets off no schedule, so an event schedule can't
   start a session of yours on it. Its channel says it's untrusted on everything it sends, so this holds
   after orrery restarts too, before the launcher has said which sessions it started.
+  Once orrery knows the session, its writes are held to the project it was started for too (ORR-1069), on the
+  server and not only by its channel.
 - **It stops** once it has sat idle for two minutes, and at half an hour, busy or not: it isn't let finish
   its turn, so half an hour is as long as it runs (checked every 30 seconds).
 - **Its hook claims no issue.** What it runs is never taken as working an issue, and its refused writes set
@@ -256,6 +255,9 @@ on your machine puts a folder there: `--install` in it, with pick-up on (ORR-599
 session you opened in it, which is the folder trust Claude Code asked you for, or you choosing it in the folder picker for
 **Connect a repo** (below). orrery never names a folder for the launcher, so whoever can reach orrery can't make it start
 sessions somewhere new. `--no-pick-up` leaves it to `--install` and that picker, and `--uninstall` in a repo keeps it off.
+The one folder it adds itself is its **default folder**, `~/.orrery/<orrery id>/home` (ORR-1066), for the projects with no
+repo: the launcher makes the path from the orrery's id (checked to be a plain id), writes only orrery's channel, hooks and a
+CLAUDE.md there, and never tells orrery where it is. Claude Code's trust prompt still has to be answered there by hand once.
 
 **Connect a repo** (ORR-708) is the owner's, and asks a launcher service to open its machine's folder picker. With login
 off the owner is a name, so whoever can reach orrery can make that picker appear, but only someone at the machine can choose a
@@ -277,8 +279,7 @@ sent anywhere to make it.
 The phone's own (`ORRERY_PHONE_PORT`, `1` before `ORRERY_PORT`, on every address unless `ORRERY_PHONE_HOST` says otherwise)
 **always asks for a login**, whatever the other does, and `ORRERY_AUTH=off` closes it rather than opens it. A request is
 known by the port it came in on inside the server, which nothing outside can change, not by its address or its `Host`.
-Over that port nothing counts as this machine (`fromThisMachine`), so moving the database and the backup
-settings are refused there, whatever `Host` is sent.
+Over that port nothing counts as this machine, whatever `Host` is sent.
 
 App settings' QR code carries a one-time sign-in link to that port: a random token, kept only as its hash, in memory, good
 once and for 5 minutes, at most 20 at a time. Opened, it signs that browser in as the owner with a login of its own, named
@@ -417,18 +418,14 @@ are. Only a review by your own handle (`handle` in App settings) is quoted (ORR-
   only the service's own.
 - **Encrypted at rest** with a key that isn't in the database: `ORRERY_SECRET_KEY` when you set one, else one
   orrery made on its first start, in `orrery.key` beside the database (`/data/orrery.key` in the container),
-  readable by its owner alone. Backups and `orrery:copy` take the database only, so a backup holds the secrets
-  only in ciphertext. Lose the key and they're gone; set them again. Keep a copy of `orrery.key` apart from the
-  backups, and take it along when you move orrery to another machine. Don't point backups at the database's own folder,
-  or the key goes with them.
+  readable by its owner alone. `orrery:copy` and a copy of the database file take the database only, so a copy
+  holds the secrets only in ciphertext. Lose the key and they're gone; set them again. Keep a copy of `orrery.key`
+  apart from your copies of the database, and take it along when you move orrery to another machine.
 
 ## Your data
 
 - Everything is in one database: a SQLite file (`/data/orrery.db` in the container) unless you chose Postgres,
-  not encrypted either way. A Postgres chosen in App settings has its address, password included, kept in plain
-  text in `orrery.db.moved.json` beside it. A move leaves the database you left as it was, a full copy.
-- The backups are copies of it. If `ORRERY_BACKUP` is a synced folder (iCloud Drive, Dropbox, …), your
-  roadmaps leave the machine for that service.
+  not encrypted either way. orrery takes no backups: any copy of it is one you make, and goes where you put it.
 - The session hooks send orrery each session's id, its name, its working folder, what it's doing and
   Claude Code's notification text, and, before each tool it uses, the tool's name with its command, file, address or
   search (each Bash command in full, up to 4000 characters). They go to the orrery at `ORRERY_URL`, nowhere else.

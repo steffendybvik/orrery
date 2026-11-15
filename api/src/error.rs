@@ -37,6 +37,14 @@ impl ApiError {
         Self::new(StatusCode::CONFLICT, message)
     }
 
+    /// The 409 for a write to a board marked as moved (ORR-1225), saying where it went as `moved_to` too.
+    pub fn moved(project: &str, to: &str) -> Self {
+        ApiError {
+            data: Some(json!({"moved_to": to})),
+            ..Self::new(StatusCode::CONFLICT, format!("{project} moved to {to}, so this orrery's copy only reads: make the change there"))
+        }
+    }
+
     /// The 403 for what only the owner may do, naming the permissions row that says so (`refusedFor`).
     pub fn refused_for(permission: &str, message: impl Into<String>) -> Self {
         ApiError { data: Some(json!({"permission": permission})), ..Self::new(StatusCode::FORBIDDEN, message) }
@@ -58,6 +66,16 @@ impl ApiError {
     /// What can't happen, as the store's `known` refuses it: a 500 naming what was missing.
     pub fn internal(missing: impl Into<String>) -> Self {
         Self::new(StatusCode::INTERNAL_SERVER_ERROR, format!("Expected {}", missing.into()))
+    }
+
+    /// A body bigger than the route takes, said before it's read.
+    pub fn too_large(message: impl Into<String>) -> Self {
+        Self::new(StatusCode::PAYLOAD_TOO_LARGE, message)
+    }
+
+    /// What nobody can do here yet, as this orrery is set up: `closed`, or nobody able to log in.
+    pub fn unavailable(message: impl Into<String>) -> Self {
+        Self::new(StatusCode::SERVICE_UNAVAILABLE, message)
     }
 
     /// A request for another database than this API's: the router serves it from the Nuxt server instead.

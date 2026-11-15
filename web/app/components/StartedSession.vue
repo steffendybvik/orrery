@@ -8,7 +8,8 @@ import {Menu, MenuButton, MenuItem, MenuItems} from '@headlessui/vue'
 // under ⋯: the command that attaches to its tmux session to copy, and the
 // owner's +30 min (for one with a time). On a phone only Show screen stays out: Watch opens on the launcher's
 // machine, not the phone, so it and Stop fold into ⋯ (ORR-828). Headless UI's Menu does the keys, focus and
-// outside-click.
+// outside-click. On a phone ⋯ sits at the start of its own row, so ⋯'s list opens from the row's left edge, not out past
+// the screen's (ORR-1083).
 const props = defineProps<{session: Session}>()
 const viewing = defineModel<boolean>('viewing', {default: false})
 const busy = ref<'stop' | 'extend' | 'watch' | null>(null)
@@ -51,7 +52,7 @@ async function copyAttach() {
 </script>
 
 <template>
-  <span v-if="session.started" class="flex shrink-0 items-center gap-1.5 text-xs">
+  <span v-if="session.started" class="flex shrink-0 items-center gap-1.5 text-xs max-sm:relative">
     <span v-if="failed" class="text-rose-700 dark:text-rose-400">{{ failed }}</span>
     <span v-if="note" class="text-faint">{{ note }}</span>
     <UiButton
@@ -67,13 +68,13 @@ async function copyAttach() {
     <UiButton v-if="!phone" variant="danger-outline" size="xs" :disabled="!!busy" :title="`Stop ${session.name}`" @click="act('stop')">
       <UiBusy :busy="busy === 'stop'" label="Stopping…">Stop</UiBusy>
     </UiButton>
-    <Menu as="div" class="relative">
+    <Menu as="div" class="sm:relative">
       <MenuButton as="template">
         <UiButton size="xs" square :aria-label="`More for ${session.name}`" :title="`More for ${session.name}`">
           <svg class="size-3.5" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.8" /><circle cx="12" cy="12" r="1.8" /><circle cx="19" cy="12" r="1.8" /></svg>
         </UiButton>
       </MenuButton>
-      <MenuItems class="menu absolute top-full right-0 z-40 mt-1.5 w-60">
+      <MenuItems class="menu absolute top-full right-0 z-40 mt-1.5 w-60 max-w-[calc(100vw-2rem)] max-sm:right-auto max-sm:left-0">
         <MenuItem v-if="phone" v-slot="{active}" as="template">
           <UiMenuItem :lit="active" :disabled="!!busy" @click="act('watch')">
             <span class="min-w-0 flex-1">Watch <span class="text-faint">· opens on its launcher's machine</span></span>

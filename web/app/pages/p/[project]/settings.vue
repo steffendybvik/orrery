@@ -1,10 +1,11 @@
 <script setup lang="ts">
-// A project's settings: its name, where its code is, whether it has releases and whose, its icon in the sidebar and the icon's colour, and deleting
-// the project, for good. Its schedules and sessions are on the Schedules and Sessions pages, kept to it.
+// A project's settings: its name, where its code is, whether it has releases and whose, its icon in the sidebar and the icon's colour, letting
+// sessions pick from it once it's uploaded, marking it as moved to another orrery, and deleting the project, for good. Its schedules and sessions are on the Schedules and Sessions pages, kept to it.
 const route = useRoute()
 const router = useRouter()
 const {projects, byId, ready} = useRoadmaps()
-const {shared} = usePeople()
+const {shared, owner, me} = usePeople()
+const isOwner = computed(() => !owner.value || me.value === owner.value)
 const {of} = useSchedules()
 const project = computed(() => byId(route.params.project as string))
 
@@ -81,6 +82,43 @@ async function saveIcon(change: {icon?: string | null, icon_color?: string | nul
         await apiFetch(`/projects/${encodeURIComponent(project.value.id)}`, {method: 'PATCH', body: change})
     } catch (error) {
         iconFailed.value = errorMessage(error)
+    }
+}
+
+// Marking it as moved to another orrery once it's uploaded there (ORR-1225): its writes here are refused, saying where
+// it went, so a session still pointed here is told. The owner's alone; undo lifts it.
+const movedTo = ref('')
+const marking = ref(false)
+const movedFailed = ref('')
+async function markMoved(to: string | null) {
+    if (!project.value) return
+    marking.value = true
+    movedFailed.value = ''
+    try {
+        const at = `/projects/${encodeURIComponent(project.value.id)}/moved`
+        await apiFetch(at, to === null ? {method: 'DELETE'} : {method: 'PUT', body: {to}})
+        movedTo.value = ''
+    } catch (error) {
+        movedFailed.value = errorMessage(error)
+    } finally {
+        marking.value = false
+    }
+}
+
+// Letting sessions pick from a board uploaded from a file (ORR-1224): it starts held, as its titles are the file's, which
+// nobody has checked, so no session is handed its issues till the owner says. The owner's alone, and logged.
+const letting = ref(false)
+const letFailed = ref('')
+async function letPick() {
+    if (!project.value) return
+    letting.value = true
+    letFailed.value = ''
+    try {
+        await apiFetch(`/projects/${encodeURIComponent(project.value.id)}/picks-held`, {method: 'DELETE'})
+    } catch (error) {
+        letFailed.value = errorMessage(error)
+    } finally {
+        letting.value = false
     }
 }
 
@@ -209,6 +247,23 @@ useHead(() => ({title: project.value ? `Settings · ${project.value.name} · orr
 
       <BoardMembers v-if="shared" :project="project.id" />
 
+      <section v-if="project.picks_held" id="picks" class="flex flex-col gap-3 border-t border-line pt-8">
+        <div>
+          <h2 class="text-[15px] font-semibold text-fg">Held from sessions</h2>
+          <p class="mt-0.5 text-[13px] text-muted">
+            {{ project.name }} came from a file, so its issues' titles are text nobody here has checked. Until you let them, no session is handed its
+            issues: not in a pick list, when one lands in Todo, or when a session asks for its next. Focus on this still sends the one you choose.
+          </p>
+        </div>
+        <div v-if="isOwner" class="flex flex-wrap items-center gap-2">
+          <UiButton :disabled="letting" @click="letPick">
+            <UiBusy :busy="letting" label="Letting…">Let sessions pick from this board</UiBusy>
+          </UiButton>
+          <span v-if="letFailed" class="text-xs text-rose-700 dark:text-rose-400">{{ letFailed }}</span>
+        </div>
+        <p v-else class="text-[13px] text-muted">The owner lets sessions pick from it.</p>
+      </section>
+
       <section id="export" class="flex flex-col gap-3 border-t border-line pt-8">
         <div>
           <h2 class="text-[15px] font-semibold text-fg">Export</h2>
@@ -227,6 +282,38 @@ useHead(() => ({title: project.value ? `Settings · ${project.value.name} · orr
         <BoardUpload />
       </section>
 
+      <section v-if="isOwner" id="moved" class="flex flex-col gap-3 border-t border-line pt-8">
+        <div>
+          <h2 class="text-[15px] font-semibold text-fg">Moved</h2>
+          <p class="mt-0.5 text-[13px] text-muted">
+            Once you've uploaded {{ project.name }} to another orrery, mark it here. Its copy here then only reads: every change to it is refused,
+            saying where it went, so a session still pointed here finds out. Deleting it stays up to you.
+          </p>
+        </div>
+        <div v-if="project.moved_to" class="flex flex-wrap items-center gap-2 text-[13px]">
+          <span class="text-fg">Moved to <a :href="project.moved_to" target="_blank" rel="noopener" class="underline underline-offset-2">{{ project.moved_to }}</a></span>
+          <UiButton :disabled="marking" @click="markMoved(null)">
+            <UiBusy :busy="marking" label="Undoing…">Undo</UiBusy>
+          </UiButton>
+          <span v-if="movedFailed" class="text-xs text-rose-700 dark:text-rose-400">{{ movedFailed }}</span>
+        </div>
+        <form v-else class="flex flex-wrap items-center gap-2" @submit.prevent="markMoved(movedTo.trim())">
+          <input
+              v-model="movedTo"
+              type="url"
+              required
+              aria-label="The orrery it moved to"
+              placeholder="https://orrery.example.com"
+              spellcheck="false"
+              class="h-8 w-96 max-w-full field"
+          >
+          <UiButton type="submit" :disabled="!movedTo.trim() || marking">
+            <UiBusy :busy="marking" label="Marking…">Mark as moved</UiBusy>
+          </UiButton>
+          <span v-if="movedFailed" class="text-xs text-rose-700 dark:text-rose-400">{{ movedFailed }}</span>
+        </form>
+      </section>
+
       <section id="danger" class="mt-4 flex flex-col gap-3 rounded-xl border border-rose-500/30 p-4">
         <header class="flex items-start gap-3">
           <div class="flex min-w-0 flex-1 flex-col gap-0.5">
@@ -239,7 +326,6 @@ useHead(() => ({title: project.value ? `Settings · ${project.value.name} · orr
           <div class="rounded-lg bg-rose-500/10 px-3 py-2.5 text-[13px] leading-relaxed text-rose-700 ring-1 ring-rose-500/30 dark:text-rose-300">
             <p class="font-semibold">This is permanent. There is no undo.</p>
             <p>Deleting {{ project.name }} throws away {{ loses.join(', ') }}. Sessions on it stop getting anything.</p>
-            <p class="mt-1 text-xs opacity-80">Only the iCloud backups keep a copy: the daily ones for two weeks, the latest until the next change replaces it.</p>
           </div>
           <label class="flex flex-col gap-1 text-xs text-muted">
             <span>Type <span class="font-mono font-medium text-fg">{{ project.id }}</span> to confirm</span>

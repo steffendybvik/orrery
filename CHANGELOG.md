@@ -4,8 +4,152 @@ What changed in each release. Versions follow [semver](https://semver.org): the 
 the database schema are the public surface, and a database always migrates forward on its own.
 
 Each version's changes are grouped under **Features**, **Changes** and **Fixes**, then **Docs** and
-**Internal** where they help, and a group with nothing in it is left out. 1.0.0, the first release's
-overview, is one list.
+**Internal** where they help, with **Upgrading** first when an update needs a step of you. A group with nothing
+in it is left out. 1.0.0, the first release's overview, is one list.
+
+## 1.0.0-rc.19 (2026-11-15)
+
+### Upgrading
+
+- **orrery now runs on its Rust API.** The Docker image carries it, so `docker compose pull && docker compose up -d`
+  works as before: one container, one compose file.
+- **If you turned the API on by hand in rc.18**, take `COMPOSE_FILE` and `ORRERY_API_TOKEN` out of your `.env`:
+  `docker-compose.api.yml` is gone.
+- **Without Docker**, the server needs the API's binary: `cargo build --release` in `api/` (Rust 1.88 or later),
+  then `NUXT_API_BIN` pointing at `api/target/release/orrery-api` (see *Without Docker* in `docs/running.md`).
+  Without it, the board's requests answer 503.
+- **Run the launcher's install line once more** from the Sessions page's **Setup** tab. Sessions now take the board's
+  tools from orrery's `/mcp`, and the channel no longer carries its own copy, so a machine set up on an older line has
+  sessions that see only the channel's tools.
+- **The database migrates forward on its own,** now through `orrery-api migrate`. orrery no longer takes a copy
+  before it does, so back the database up yourself first.
+- **Backups are gone:** back the database up yourself (`docs/running.md`'s *Backups* says how). `ORRERY_BACKUP`,
+  `ORRERY_BACKUP_DATABASE` and the `/backup` volume go from your `.env` and compose file, and so do App settings →
+  Database and the in-app database move. Which database orrery uses is set only by `ORRERY_DATABASE`.
+- **A login provider must allow the `profile` scope:** orrery now asks for `openid profile`, so the first person in has
+  a name.
+- **Sign-up is open behind a login provider:** anyone the provider lets in gets a workspace of their own. Set
+  `ORRERY_SIGN_UP=invite` to keep the orrery invite-only.
+- **A member reads only the boards they're on:** on an orrery with more than one person, a board stops showing for
+  anyone not on it, so add people to the boards they should read.
+- **The agent's server is called `orrery` now,** not `orrery-personal` or `orrery-work`. The install line moves this
+  orrery's own entry and leaves any other orrery's alone.
+
+### Features
+
+- **Global sessions:** start a session with no project ticked and it runs in the orrery's default folder, hears every
+  project and has a heading of its own on the Sessions page.
+- **Projects with no repo get a launcher too:** the launcher serves them from a default folder it sets up itself
+  (`~/.orrery/<orrery id>/home`), so their chat and sessions can start.
+- **One install line sets a machine up:** the launcher service and, outside a repo, orrery in Claude Code's user config
+  for every folder.
+- **Sessions pick their own next issue:** one out of work always picks from Todo, with no setting, and can ask for its
+  next itself with the `next` tool. A session whose issues are all waiting on the owner or In review counts as out of
+  work, so it picks too.
+- **Link a folder to a project from a session:** a session in a folder no project knows is told it can, and
+  `link_folder` does it.
+- **Sessions know where they are:** each is told its folder, `origin`, branch and default branch, and the project's
+  repo. One opened by hand on a machine with several orrerys asks which one it uses, once.
+- **The chat moves and assigns issues itself** when the owner's message names each one, with no Allow. Any it didn't
+  name still waits for one.
+- **⌘J opens and closes the chat**, with the cursor in its box.
+- **Focus on an epic:** an epic's page has a Sessions panel, as a milestone's does, to point one session, all of them,
+  or one status of its issues at it across its projects. Right-clicking an epic in the list does the same.
+- **Pick your agent:** Getting started and App settings ask whether you run Claude Code or another agent, and show the
+  REST API and the channel to the latter.
+- **Copy content** on a doc's page puts its Markdown (an artifact's HTML) on the clipboard.
+- **⌘K finds make and start commands** by the words people reach for, not only their titles.
+- **Workspaces:** one orrery holds several, each with its own projects, statuses, presets, schedules, secrets,
+  settings and people, at its own address (`/w/<workspace>/…`). A switcher at the top of the sidebar shows the tab's
+  workspace in its colour and makes a new one; its settings sit on one Workspace tab, and the tab's icon takes its
+  colour. Someone outside a workspace gets a 404 from everything in it.
+- **Sign up and get a workspace:** with a login provider set up, anyone it lets in gets an account and a workspace of
+  their own, with no claim step and no console, and the first person in becomes the orrery's owner.
+- **A four-step welcome** walks someone new through their name, their workspace, connecting an agent and a first
+  project, with Back and Skip on each step but the name.
+- **Connect a machine from its install line alone:** the line carries a one-time code the launcher swaps for its own
+  key, so there's nothing to copy, and one launcher serves every workspace its person is in.
+- **Import a whole orrery as a new workspace** of another, with `pnpm orrery:import`.
+- **Delete your account:** a person removes themselves and every workspace they own, and a workspace's owner can delete
+  one workspace. What they leave in other people's workspaces shows as by a "Deleted person".
+- **Type into a session's terminal from its screen:** Show screen has a line to type into and keys for a phone (Esc,
+  Tab, ↑, ↓, Enter, 1–4, Ctrl-C), for what Claude Code waits on there.
+- **A session that starts a parent issue works through its sub-issues,** and can't finish the parent as Done while one
+  is still open.
+- **An uploaded board is held out of pick lists** until its owner presses **Let sessions pick from this board**.
+- **Mark a board as moved** once it's uploaded elsewhere: every write to the old copy, from its own routes or another
+  board's, is refused with the new address.
+
+### Changes
+
+- **The bell and Notifications keep only what's news to you:** a comment that asks you, is on your issue, answers you
+  or mentions you, the last one on an issue that's done, and moves into Done.
+- **A merged pull request closes its issue** when nothing else is open on it, and clears its asks from the bell.
+- **A session waiting on a question shows it as a question,** with its options and an **Open to answer** button, in
+  place of Allow and Deny.
+- **Epics get a card each** on the epics page, and on an epic's page each parent gets a card with its sub-issues.
+- **The chat's pop out** moves into a ⋮ menu in its header.
+- **The floating sessions panel** moves from anywhere on its heading, as the chat does.
+- **An untrusted session** gets only orrery's channel, not the repo's other MCP servers, and the server refuses its
+  writes to any other project.
+- **A request body is held to 1 MB,** eight times the biggest doc there is. Uploads and a board's file keep their own
+  limits.
+- **Every `/api/` reply says which server answered it** (`X-Served-By`).
+- **A launcher follows one stream per orrery** for all its projects, in place of one per project.
+- **orrery no longer tells you that you own it:** signing in makes your account and workspace.
+- **The environment chip and name are gone** from the sidebar and the tab's title: the workspace's name and colour say
+  which orrery you're in.
+- **A session's screen is its own person's only:** the server's owner can still see a member's session runs, and stop
+  it, but not read it.
+- **On a phone, a row's title gets the room:** it wraps to two lines with the id small under it.
+
+### Fixes
+
+- **A session started by one orrery** is reported to that orrery alone, with personal and work orrerys on one machine.
+- **A session no longer takes its folder's name for a project.**
+- **`/p/<project>/issues`** goes on to the project's board, not a Not found.
+- **The Rust API starts again after a database move.**
+- **A write cut off mid-transaction** no longer leaves the database locked.
+- **On Postgres, a `?` inside a quoted name or a comment** is no longer taken for a placeholder.
+- **A session keeps its lock on an issue** when starting it sets the assignee.
+- **A doc search's snippet** stays on its match.
+- **The board drops the columns** its status filter leaves out.
+- **Logging in through a provider that takes the client secret only as HTTP Basic** works.
+- **On Postgres in Docker, the API's writes reach sessions and open pages again,** as the server can keep its place in
+  the API's outbox.
+- **A pull request's news goes only to the session on its issue,** so a session opened by hand isn't flooded with the
+  day's old notices on its first idle.
+- **An event schedule no longer hears what a schedule's own run just wrote** through the API.
+- **The health check fails while the Rust API is down,** so Docker or a proxy sees a container whose API died as
+  unhealthy, not healthy.
+- **On a phone:** sticky headers are solid, App settings' tabs stay on one line, a session's ⋯ menu stays on screen,
+  the chat header's parts are spaced, and an issue's Sessions panel keeps its buttons on screen.
+- **A pull request that needs work, on an issue whose session has gone,** waits for the next session, and one left an
+  hour after orrery said so asks the owner. An issue whose session went before a restart goes back to Todo.
+- **A project with no folder or GitHub link starts its sessions,** as its default folder approves its own channel.
+- **Every session dot shows its state colour** (working, idle), faded when the session can't hear.
+- **A stopped orrery writes its newest changes into the database file,** so a copy of `orrery.db` alone holds them.
+- **Uploads stay in the workspace they came from.**
+- **The install line sets up the orrery its `ORRERY_URL` names** when it's pasted inside a connected repo.
+- **A session that chose one orrery** gets no tools from the other's `/mcp`.
+- **A stale after-login page** no longer sends a later reload to My issues.
+- **The Agent button no longer covers the last row** of an issue list or board column.
+- **An unclaimed orrery's 503** names `pnpm orrery:claim` for a checkout as well as the Docker command.
+
+### Internal
+
+- **The Nuxt server routes the board's data to the Rust API** and keeps no routes of its own for it: docs, issues and
+  comments, milestones, releases, epics, people and keys, logins, presets, settings, the bell, schedules, the event
+  log, secrets, uploads, projects and schedules' runs. It keeps the page, sessions, the launcher and chats.
+- **The board's tools are served only from the API's `/mcp`**, for every kind of session, chat and untrusted ones
+  included.
+- **The Rust API owns the migrations:** Node's steps are frozen at step 87, and a new step is a SQL file in
+  `api/migrations`.
+- **The launcher's Claude handling sits behind an adapter**, ready for other agents.
+- `pnpm dev` starts `api/target/debug/orrery-api`, so `cargo build` in `api/` comes first. The browser suites in CI
+  and the playground run through the API.
+- **The unit tests run against the real Rust API,** not a stand-in.
+- **The event log holds its lines in memory** while the API can't be reached, and sends them once it answers.
 
 ## 1.0.0-rc.18 (2026-11-06)
 

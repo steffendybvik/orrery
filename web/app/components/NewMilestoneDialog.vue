@@ -44,7 +44,7 @@ async function create() {
 </script>
 
 <template>
-  <UiDialog :open="target" label="New milestone" @close="close" @submit="create">
+  <UiDialog :open="target" name="new-milestone" label="New milestone" @close="close" @submit="create">
     <div class="flex items-center gap-2 text-xs text-faint">
       <span>New milestone<template v-if="project"> in {{ project.name }}</template></span>
       <KeyHint class="ml-auto">esc</KeyHint>

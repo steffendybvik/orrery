@@ -4,7 +4,7 @@ import {afterAll, afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 // networks outside Docker, and in Docker a launcher's report of its machine's, as the container sees only its own.
 let docker = false
 let config: Record<string, unknown>
-vi.mock('../server/utils/backup-choice', () => ({inDocker: () => docker}))
+vi.mock('../server/utils/host-paths', async original => ({...await original<typeof import('../server/utils/host-paths')>(), inDocker: () => docker}))
 vi.mock('node:os', async original => ({
     ...await original<object>(),
     networkInterfaces: () => ({

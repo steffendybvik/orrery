@@ -7,7 +7,9 @@
 // listens (and can be stopped) through its own project's channel only.
 import {randomInt} from 'node:crypto'
 import type {CarriedOver, Effort, IssueScope, Session, SessionState, SessionTool, StartedSession} from '#shared/roadmap'
-import {CARRY_FROM, SESSION_NAMES, contextWindow, madeUpName, sameScope} from '#shared/roadmap'
+import {CARRY_FROM, SESSION_NAMES, madeUpName, sameScope} from '#shared/roadmap'
+import {agentFor} from '#channel/agents.mjs'
+import {presenceChanged} from './presence'
 
 interface Known extends Session {
     pid?: number
@@ -59,7 +61,7 @@ const CLEARED_FOR = 60 * 1000
 const PARALLEL_WITHIN = 1000
 // How long a session that seems to have ended has to come back (`claude --resume`, a channel reconnecting) before the
 // issues it had in progress are handed back (ORR-775).
-const HAND_BACK_AFTER = 5 * 60 * 1000
+export const HAND_BACK_AFTER = 5 * 60 * 1000
 /** Sessions that seem to have ended, by the id they had then, with every id they went by and the wait for them. */
 const ending = new Map<string, {ids: string[], timer: ReturnType<typeof setTimeout>}>()
 
@@ -85,7 +87,7 @@ export interface Report {
     /** For `StopFailure`: why the turn was cut off, and what Claude Code told the session. */
     error?: string
     errorText?: string
-    /** For `Notification`: what Claude Code is waiting for. */
+    /** What it's waiting for, when `waiting` (or a `Notification`, from a hook before ORR-1074). */
     message?: string
     /** For `PreToolUse` on Bash: the command it's about to run, to see which issues it writes to. */
     command?: string
@@ -101,6 +103,8 @@ export interface Report {
     effort?: Effort
     /** The tokens its context holds, when its hook could tell (ORR-968). */
     context?: number
+    /** And its model's window, when its agent's adapter said (ORR-1074). */
+    window?: number
 }
 
 /** What a hook says of a session's context (ORR-968): the tokens it holds, against its model's window. A compaction
@@ -113,7 +117,9 @@ function noteContext(session: Known, input: Report) {
     }
     if (input.context === undefined) return
     const compacted = session.context?.compacted
-    session.context = {tokens: input.context, window: contextWindow(session.model, input.context), ...compacted ? {compacted} : {}}
+    // A hook from before the adapter said the window sends tokens alone: Claude Code's, as it can only be.
+    const window = input.window ?? agentFor('claude').window(session.model, input.context)
+    session.context = {tokens: input.context, window, ...compacted ? {compacted} : {}}
 }
 
 /** A session started an issue (ORR-968). One out of the scope of the issue it started before, since its last clear,
@@ -209,7 +215,8 @@ function roman(n: number): string {
 }
 
 /** The session seems to have ended: unless it's heard from again in time, what it had in progress is handed back. Kept
- * in memory like the sessions, so orrery restarting drops the wait, and a session that really has gone stays on its issues.
+ * in memory like the sessions; orrery restarting drops the wait, which `handBackUnseen` makes up for once it's back
+ * (ORR-1184).
  * The first word of its end stands: by a later one (its channel closing after its `SessionEnd`) its other ids are forgotten. */
 function handBackSoon(session: Known) {
     if (ending.has(session.id)) return
@@ -255,6 +262,7 @@ export function report(input: Report): Session | null {
     // A permission dialog opening says which tool it's for and leaves the state to the notification that comes with it:
     // the two can arrive in either order.
     const event = input.event === 'PermissionRequest' ? session?.state ?? 'working'
+        // A hook from before the adapter read Claude Code's notification itself (ORR-1074): one asking for a permission.
         : input.event === 'Notification'
         ? (/permission|approv|allow/i.test(input.message ?? '') ? 'waiting' : 'idle')
         : STATES[input.event] ?? input.event
@@ -378,6 +386,16 @@ function heardOn(session: Known, project: string): boolean {
     return !!session.channels?.get(project)?.heard
 }
 
+/** Each session there to hear, with the projects its channel is heard on, for the Rust API's rails (ORR-1172). */
+export function heardProjects(): Map<string, string[]> {
+    const heard = new Map<string, string[]>()
+    for (const session of sessions.values()) {
+        const projects = [...session.channels ?? []].filter(([, channel]) => channel.heard > 0).map(([project]) => project)
+        if (projects.length) heard.set(session.id, projects)
+    }
+    return heard
+}
+
 /** The id a signal aimed at `given` on the project carries (ORR-821): a session's id (or one it had), or its name,
  * whole (`orrery · Nide`) or without the project (`Nide`), in any case; a name more than one has goes to the one
  * listening, else the newest. A launch's target stays as it is, for the session it starts, and so does the name of a
@@ -451,6 +469,7 @@ export function attend(project: string, id: string | undefined, pid: number | un
     if (version) held.version = version
     if (person) held.person ??= person
     changedAll(held)
+    presenceChanged()
     let open = true
     return {
         get id() {
@@ -471,6 +490,7 @@ export function attend(project: string, id: string | undefined, pid: number | un
             else if (!channels.size) handBackSoon(held)
             changedAll(held)
             changed(project)
+            presenceChanged()
         },
     }
 }
@@ -596,6 +616,13 @@ export function sessionNow(id: string): (Session & {idleAt?: number}) | undefine
 export function untrustedSession(id: string): boolean {
     const session = sessions.get(currentId(id))
     return !!session?.untrusted || !!session?.started?.untrusted
+}
+
+/** The project an untrusted schedule's session was started for, as its hooks name it (the launcher sets its
+ * ORRERY_PROJECT to the launch's): nothing for one orrery doesn't know, or that isn't untrusted. */
+export function untrustedProject(id: string | undefined): string | undefined {
+    const session = id ? sessions.get(currentId(id)) : undefined
+    return session && (session.untrusted || session.started?.untrusted) ? session.project : undefined
 }
 
 /** Whether it's the owner's chat (chats.ts), by its channel's word or its launch's. */

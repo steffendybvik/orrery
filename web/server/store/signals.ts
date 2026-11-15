@@ -3,9 +3,10 @@ import {randomBytes} from 'node:crypto'
 import type {Kind, SessionWork, Signal, Upload} from '#shared/roadmap'
 import {CLOSED, heaviest, modelFor} from '#shared/roadmap'
 import {badRequest, checkInput, conflict, notFound} from '../utils/input'
-import type {Actor, IssueRecord, SignalRow} from './schema'
-import {AGENT, SIGNAL_FIELDS, MILESTONE_SIGNAL_FIELDS, LEGACY_KINDS, UPLOAD_FIELDS, UPLOAD_LIMIT, IMAGE_TYPES, signalOf, nullable, stamp} from './schema'
+import type {Actor, IssueRecord} from './schema'
+import {AGENT, SIGNAL_FIELDS, MILESTONE_SIGNAL_FIELDS, LEGACY_KINDS, UPLOAD_FIELDS, UPLOAD_LIMIT, IMAGE_TYPES, nullable, stamp} from './schema'
 import {IssueStore} from './issues'
+import {sessionWork} from './session-work'
 import {EVERY} from '../utils/pool'
 import {compressImage} from '../utils/compress'
 import {known} from '#shared/known'
@@ -17,7 +18,49 @@ export const KEEP_SIGNALS = 30 * 86_400_000
 const KEEP_UNUSED_UPLOADS = 90 * 86_400_000
 const UPLOAD_LINK = /\/api\/uploads\/([0-9a-f]{24})/g
 
+/** A signal's row as it's written: what it's about, its target already picked, and who it's from. */
+export interface SignalFields {
+    kind: 'focus' | 'comment' | 'message'
+    created_by: string
+    owned: boolean
+    issue?: string | null
+    milestone?: string | null
+    status?: string | null
+    release?: string | null
+    epic?: number | null
+    schedule?: number | null
+    note?: string | null
+    preset?: string | null
+    via?: string | null
+    target?: string | null
+    person?: string | null
+    instructions?: string[]
+    model?: string | null
+}
+
 export abstract class SignalStore extends IssueStore {
+    /** A signal write, sent to the Rust API, the `signals` table's one writer (ORR-1090): its reply. With no API it
+     * fails as one that isn't running does (ORR-1135). Imported when used, as the router reads the store. */
+    private async signalsApi<T>(method: string, path: string, body: unknown): Promise<T> {
+        const {writeToApiOnly} = await import('../utils/api-router')
+        return await writeToApiOnly(method, path, body) as T
+    }
+
+    /** A signal read, asked of the Rust API (ORR-1135), which fails as one that isn't running does with none. */
+    private async signalsRead<T>(path: string): Promise<T> {
+        const {readFromApiOnly} = await import('../utils/api-router')
+        return await readFromApiOnly<T>(path)
+    }
+
+    /** Writes a signal whose target is picked (`POST …/signals`), and tells the sessions of it here, as they're this
+     * machine's. */
+    protected async writeSignal(project: string, fields: SignalFields): Promise<Signal> {
+        const sent = Object.fromEntries(Object.entries(fields).filter(([, value]) => value !== undefined && value !== null))
+        const signal = await this.signalsApi<Signal>('POST', `/api/projects/${encodeURIComponent(project)}/signals`, sent)
+        this.signalled(signal, {inOutbox: true})
+        return signal
+    }
+
     /** Keeps an image for Markdown to show: `{data, name?}` → where it's served and the Markdown that shows it. A PNG or
      * JPEG is kept as WebP when that's smaller (see compress.ts). */
     async createUpload(body: unknown, actor = AGENT): Promise<Upload> {
@@ -98,7 +141,7 @@ export abstract class SignalStore extends IssueStore {
     protected async sendFocus(project: string, issue: string, body: unknown, actor: Actor): Promise<Signal> {
         const input = checkInput(body ?? {}, SIGNAL_FIELDS)
         if (input.session === EVERY) throw badRequest(`Only a milestone can go to every session, not issue ${issue}: name one in "session", or leave it out for orrery to pick one`)
-        const instructions = JSON.stringify(await this.instructionsFor(project, input.instructions))
+        const instructions = await this.instructionsFor(project, input.instructions)
         const member = this.memberAiming(actor, input.session)
         // The owner's goes to the sessions of whoever has the issue, and on what's nobody's, to their own (ORR-656).
         const whose = member ?? (actor.owner ? await this.whoseWork(project, (await this.issueRow(project, issue)).assignee) ?? (await this.isShared() ? await this.ownerId() : undefined) : undefined)
@@ -110,20 +153,19 @@ export abstract class SignalStore extends IssueStore {
             return !whose || person === whose || !member && !person ? session : null
         }
         const target = nullable(input.session) ?? theirs(await this.listeningWorker(project, issue)) ?? theirs((await this.heldAbove(project, issue))?.holder) ?? null
-        const row = await this.one<SignalRow>('INSERT INTO signals (project, issue, kind, note, target, person, instructions, model, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *',
-            project, issue, 'focus', nullable(input.note), target, whose ?? null, instructions, await this.modelNeeded(project, issue), actor.name, Number(actor.owner), stamp())
-        const signal = signalOf(row)
+        const model = await this.modelNeeded(project, issue)
         // A started issue another session is still on stays its: the one asked gets the claim's 409 if it starts it.
-        if (signal.target && signal.target !== EVERY && !await this.takenFrom(project, issue, signal.target)) await this.workedBy(project, issue, signal.target)
-        this.signalled(signal)
-        return signal
+        // Tied before the signal goes out, as an issue's page asks who's on it when it hears the signal (ORR-1208).
+        if (target && target !== EVERY && !await this.takenFrom(project, issue, target)) await this.workedBy(project, issue, target)
+        return await this.writeSignal(project, {issue, kind: 'focus', note: nullable(input.note), target, person: whose ?? null, instructions,
+            model, created_by: actor.name, owned: actor.owner})
     }
 
     /** The model a signal about the issue needs (ORR-868): its own, else what its kind starts a session on. No session on a lighter
      * one takes it from the pool (pool.ts). */
     protected async modelNeeded(project: string, issue: string): Promise<string> {
-        const row = await this.issueRow(project, issue)
-        return modelFor({labels: JSON.parse(row.labels) as string[], model: row.model, effort: row.effort}, await this.workKinds()).model ?? 'best'
+        const {labels, model, effort} = await this.issueFacts(project, issue)
+        return modelFor({labels, model, effort}, await this.workKinds()).model ?? 'best'
     }
 
     /** The heaviest model a milestone's open issues need (`all`: every milestone's, `none`: those in none), as a session working
@@ -168,30 +210,35 @@ export abstract class SignalStore extends IssueStore {
         }
         const release = input.release ? (await this.releaseRow(project, String(input.release))).version : null
         const epic = input.epic === undefined || input.epic === null ? null : (await this.epicRow(input.epic as string)).id
-        const instructions = JSON.stringify(await this.instructionsFor(project, input.instructions))
-        const row = await this.one<SignalRow>('INSERT INTO signals (project, milestone, status, release, epic, kind, note, target, person, instructions, model, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *',
-            project, milestone, status, release, epic, 'focus', nullable(input.note), nullable(input.session), this.memberAiming(actor, input.session) ?? null, instructions, await this.milestoneModelNeeded(project, milestone, epic), actor.name, Number(actor.owner), stamp())
-        const signal = signalOf(row)
-        this.signalled(signal)
-        return signal
+        const instructions = await this.instructionsFor(project, input.instructions)
+        return await this.writeSignal(project, {milestone, status, release, epic, kind: 'focus', note: nullable(input.note), target: nullable(input.session),
+            person: this.memberAiming(actor, input.session) ?? null, instructions, model: await this.milestoneModelNeeded(project, milestone, epic), created_by: actor.name, owned: actor.owner})
     }
 
     /** Asks the sessions to work through an epic's open issues (ORR-987): a focus on each project it has open issues in,
      * as a milestone's over the whole project (`all`) narrowed to the epic, so each goes to that project's sessions (one
      * orrery picks, or `*`) and starts one there as any owner's focus does. `{note?, status?, instructions?}` go to each.
-     * One project's session can't be named, as it would be another's in the next. */
+     * A named session (ORR-958) gets a focus for each of those projects it hears, and none for the others; one that
+     * hears none of them is refused, as nothing would reach it. With a status, only the projects with an open issue of
+     * it in the epic hear it, so no session is asked to work through nothing. */
     async focusEpic(id: number, body: unknown, actor = AGENT): Promise<Signal[]> {
         const epic = await this.epicRow(id)
         const input = checkInput(body ?? {}, MILESTONE_SIGNAL_FIELDS)
-        if (input.session !== undefined && input.session !== null && input.session !== EVERY) throw badRequest(`An epic's focus goes to each project's sessions: leave "session" out for one orrery picks in each, or send "${EVERY}" for all of them`)
         if (input.release !== undefined && input.release !== null) throw badRequest("An epic's focus can't name a release: a release is one project's")
+        const named = typeof input.session === 'string' && input.session && input.session !== EVERY ? input.session : undefined
         const projects = (await this.all<{project: string}>('SELECT DISTINCT project FROM issues WHERE epic = ? ORDER BY project', epic.id)).map(r => r.project)
-        const signals: Signal[] = []
+        // Narrowed to a status (ORR-958), only the projects with an open issue of it in the epic: by its status, or kind.
+        const words = input.status ? String(input.status).split(',').map(w => w.trim()).map(w => LEGACY_KINDS[w] ?? w) : undefined
+        const open: string[] = []
         for (const project of projects) {
             // Only where it has open work: a project whose part is done hears nothing.
-            if (!(await this.inEpic(project, await this.listIssues(project), epic.id)).some(i => i.kind !== 'proposed' && !CLOSED.includes(i.kind as Kind))) continue
-            signals.push(await this.focusMilestone(project, 'all', {...input, epic: epic.id}, actor))
+            if ((await this.inEpic(project, await this.listIssues(project), epic.id)).some(i => i.kind !== 'proposed' && !CLOSED.includes(i.kind as Kind)
+                && (!words || words.includes(i.column) || words.includes(i.kind)))) open.push(project)
         }
+        const to = named ? open.filter(project => this.hears(project, named)) : open
+        if (named && open.length && !to.length) throw badRequest(`Session ${named} hears none of the projects the epic has open issues in (${open.join(', ')})`)
+        const signals: Signal[] = []
+        for (const project of to) signals.push(await this.focusMilestone(project, 'all', {...input, epic: epic.id}, actor))
         return signals
     }
 
@@ -209,13 +256,12 @@ export abstract class SignalStore extends IssueStore {
 
     /** Lets go of signals past KEEP_SIGNALS, heard or not (ORR-778). Nothing they answer for reaches back that far: what
      * waits on one looks a day back, and `carryUnanswered` no further than this. */
-    async pruneSignals(now = Date.now()): Promise<number> {
-        return (await this.run('DELETE FROM signals WHERE created_at < ?', new Date(now - KEEP_SIGNALS).toISOString())).changes
+    async pruneSignals(): Promise<number> {
+        return (await this.signalsApi<{pruned: number}>('POST', '/api/signals/prune', {})).pruned
     }
 
     /** Removes images past KEEP_UNUSED_UPLOADS that nothing refers to (ORR-778). What refers to one is any text in any
-     * table, a new column included, so a place to keep Markdown can't be missed; a failed look removes nothing. Once its
-     * backups age out, a removed image is gone. */
+     * table, a new column included, so a place to keep Markdown can't be missed; a failed look removes nothing. */
     async sweepUploads(now = Date.now()): Promise<{uploads: number, bytes: number}> {
         const before = new Date(now - KEEP_UNUSED_UPLOADS).toISOString()
         return await this.db.transaction(async () => {
@@ -247,52 +293,31 @@ export abstract class SignalStore extends IssueStore {
 
     /** The id of the project's latest signal, 0 before its first. */
     async lastSignal(project: string): Promise<number> {
-        await this.projectRow(project)
-        return Number((await this.get<{id: number | null}>('SELECT MAX(id) AS id FROM signals WHERE project = ?', project))?.id ?? 0)
+        // Asked of the API (ORR-1133), so this server reads none of it from the database.
+        return (await this.signalsRead<{id: number}>(`/api/projects/${encodeURIComponent(project)}/signals/last`)).id
     }
 
-    /** The project's signals after `after` (an id), oldest first; or the latest ones about an issue or a milestone. */
-    async listSignals(project: string, after = 0, limit = 50, about?: {issue?: string, milestone?: string}): Promise<Signal[]> {
-        await this.projectRow(project)
-        const which = about?.issue ? ['issue', await this.issueId(project, about.issue)] as const : about?.milestone ? ['milestone', await this.milestoneId(project, about.milestone)] as const : undefined
-        if (which) {
-            const [column, id] = which
-            return (await this.all<SignalRow>(`SELECT * FROM signals WHERE project = ? AND ${column} = ? ORDER BY id DESC LIMIT ?`, project, id, limit))
-                .reverse().map(signalOf)
-        }
-        return (await this.all<SignalRow>('SELECT * FROM signals WHERE project = ? AND id > ? ORDER BY id LIMIT ?', project, after, limit)).map(signalOf)
+    /** The project's signals after `after` (an id), oldest first, fifty at most: asked of the API (ORR-1135). */
+    async listSignals(project: string, after = 0): Promise<Signal[]> {
+        return await this.signalsRead<Signal[]>(`/api/projects/${encodeURIComponent(project)}/signals?after=${after}`)
     }
 
     /** What each of the project's sessions is on, for its Sessions page: the open issues it worked last (newest
      * first, each with when it took it), and the last `signals` signals that went to it, by its id or, sent to every session, by its name.
      * `ids` are every id a session has gone by (it gets a new one on a `/clear`), its own when left out. */
-    async sessionWork(project: string, sessions: {id: string, name: string, ids?: string[]}[], signals = 5): Promise<Record<string, SessionWork>> {
-        await this.projectRow(project)
-        const open = new Map((await this.listIssues(project)).filter(i => i.kind !== 'proposed' && !CLOSED.includes(i.kind as Kind)).map(i => [i.id, i]))
-        const worked = await this.all<{issue: string, session: string, since: string | null}>('SELECT issue, session, since FROM issue_sessions WHERE project = ? ORDER BY at DESC', project)
-        const recent = (await this.all<SignalRow>('SELECT * FROM signals WHERE project = ? ORDER BY id DESC LIMIT 200', project)).map(signalOf)
-        return Object.fromEntries(sessions.map(session => {
-            const ids = session.ids ?? [session.id]
-            const mine = worked.filter(w => ids.includes(w.session) && open.has(w.issue))
-            return [session.id, {
-                issues: mine.flatMap(({issue, since}) => {
-                    const found = open.get(issue)
-                    return found ? [{id: found.id, title: found.title, column: found.column, kind: found.kind, priority: found.priority, ...since ? {since} : {}}] : []
-                }),
-                signals: recent.filter(s => ids.includes(s.target ?? '') || ((!s.target || s.target === EVERY) && s.delivered_to.includes(session.name))).slice(0, signals),
-            }]
-        }))
+    async sessionWork(project: string, sessions: {id: string, name: string, ids?: string[]}[]): Promise<Record<string, SessionWork>> {
+        // From the API (ORR-1174), which only this server can ask, as only it knows the sessions: the Sessions page asks
+        // for every project's.
+        const asked = JSON.stringify(sessions.map(({id, name, ids}) => ({id, name, ...ids ? {ids} : {}})))
+        return await this.signalsRead<Record<string, SessionWork>>(`/api/projects/${encodeURIComponent(project)}/session-work?sessions=${encodeURIComponent(asked)}`)
     }
 
     /** Sends a schedule's message to the project's sessions, or to one (`target`): about no issue, as the schedule's maker.
      * With the schedule's own `model` (ORR-869), no session on a lighter one takes it. */
     async message(project: string, schedule: number, text: string, actor = AGENT, target?: string, preset?: string, model?: string): Promise<Signal> {
         await this.projectRow(project)
-        const row = await this.one<SignalRow>('INSERT INTO signals (project, schedule, kind, note, preset, target, model, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *',
-            project, schedule, 'message', text, preset ?? null, target ?? null, model && model !== 'best' ? model : null, actor.name, Number(actor.owner), stamp())
-        const signal = signalOf(row)
-        this.signalled(signal)
-        return signal
+        return await this.writeSignal(project, {schedule, kind: 'message', note: text, preset: preset ?? null, target: target ?? null,
+            model: model && model !== 'best' ? model : null, created_by: actor.name, owned: actor.owner})
     }
 
     /** The owner's own words to one session, through its channel: about no issue, from no schedule; their chat's for
@@ -306,69 +331,49 @@ export abstract class SignalStore extends IssueStore {
         if (!note) throw badRequest('Send the message as {"text": "…"}')
         if (preset !== undefined && preset !== null && !Number.isInteger(preset)) throw badRequest('Send preset as a preset\'s id')
         const from = typeof preset === 'number' ? known((await this.presetsFor(project, [preset]))[0], 'the preset').name : null
-        const row = await this.one<SignalRow>('INSERT INTO signals (project, kind, note, preset, via, target, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *',
-            project, 'message', note, from, actor.via ?? null, session, actor.name, 1, stamp())
-        const signal = signalOf(row)
-        this.signalled(signal)
-        return signal
+        return await this.writeSignal(project, {kind: 'message', note, preset: from, via: actor.via ?? null, target: session, created_by: actor.name, owned: true})
     }
 
     /** Whether the owner sent this session something of its own (by one of its ids) that it hasn't heard yet. */
     async waitingFor(project: string, ids: string[]): Promise<boolean> {
-        return !!await this.get(`SELECT 1 FROM signals WHERE project = ? AND owned = 1 AND delivered_to = '[]'
-            AND target IN (${ids.map(() => '?').join(', ')}) LIMIT 1`, project, ...ids)
+        return (await sessionWork.of(project, ids)).waiting_for
     }
 
-    /** Whether a signal of the owner's waits to reach the session (any of its `ids`), for it, for every session or
-     * for the one orrery picks. */
+    /** Whether a signal of the owner's waits to reach the session (any of its `ids`): for it, or, from the last day,
+     * for every session or the one orrery picks. An older one of those isn't handed out any more, so it mustn't keep
+     * every session busy for good (ORR-1230). */
     async waiting(project: string, ids: string[]): Promise<boolean> {
-        return !!await this.get(`SELECT 1 FROM signals WHERE project = ? AND owned = 1 AND delivered_to = '[]'
-            AND (target IS NULL OR target = ? OR target IN (${ids.map(() => '?').join(', ')})) LIMIT 1`, project, EVERY, ...ids)
+        return (await sessionWork.of(project, ids)).waiting
     }
 
     /** Whether an owner's focus on the issue from the last ten minutes hasn't been heard yet (Focus on this, a P0's push):
      * it's on its way, so another isn't sent (ORR-515). */
     async focusOnItsWay(project: string, issue: string): Promise<boolean> {
-        const since = new Date(Date.now() - 600_000).toISOString()
-        return !!await this.get(`SELECT 1 FROM signals WHERE project = ? AND issue = ? AND kind = 'focus' AND (owned = 1 OR person IS NOT NULL)
-            AND delivered_to = '[]' AND created_at >= ? LIMIT 1`, project, issue, since)
+        return (await sessionWork.focusing(project, issue)).length > 0
     }
 
     /** The owner's and members' signals from the last day for one session orrery picks (pool.ts) that none has heard
      * yet: the next session to go idle that may hear them takes them. */
     async pooledWaiting(project: string): Promise<Signal[]> {
-        const since = new Date(Date.now() - 86_400_000).toISOString()
-        return (await this.all<SignalRow>(`SELECT * FROM signals WHERE project = ? AND (owned = 1 OR person IS NOT NULL) AND delivered_to = '[]'
-            AND target IS NULL AND created_at >= ? ORDER BY id`, project, since)).map(signalOf)
+        return await sessionWork.unheard(project, 'pooled')
     }
 
     /** The owner's scheduled asks and messages from the last day that no session has heard yet: the next
      * one to connect gets them. */
     async unheardScheduled(project: string): Promise<Signal[]> {
-        const since = new Date(Date.now() - 86_400_000).toISOString()
-        return (await this.all<SignalRow>(`
-            SELECT s.* FROM signals s LEFT JOIN issues i ON i.project = s.project AND i.id = s.issue
-            WHERE s.project = ? AND s.owned = 1 AND s.delivered_to = '[]' AND s.created_at >= ?
-              AND ((s.kind = 'focus' AND i.schedule IS NOT NULL AND i.status NOT IN (SELECT id FROM statuses WHERE kind IN ('done', 'canceled'))) OR s.kind = 'message')
-            ORDER BY s.id`, project, since)).map(signalOf)
+        return await sessionWork.unheard(project, 'scheduled')
     }
 
     /** Notes that a session got the signal. Two sessions saying so at once both count: the list is only written
      * over if it's still the one read, else read again. */
     async delivered(project: string, id: number, to: string): Promise<Signal> {
-        let row: SignalRow | undefined
-        let names: string[]
-        for (let tries = 0; ; tries++) {
-            row = await this.get<SignalRow>('SELECT * FROM signals WHERE project = ? AND id = ?', project, id)
-            if (!row) throw notFound(`No signal ${id} in ${project}`)
-            names = [...new Set([...JSON.parse(row.delivered_to) as string[], to])]
-            const {changes} = await this.run('UPDATE signals SET delivered_to = ? WHERE id = ? AND delivered_to = ?', JSON.stringify(names), id, row.delivered_to)
-            if (changes) break
-            // Lost every race: say so, rather than a receipt that wasn't kept.
-            if (tries === 9) throw conflict(`Signal ${id} is being marked by too many sessions at once; try again`)
-        }
-        const signal = signalOf({...row, delivered_to: JSON.stringify(names)})
-        this.signalled(signal)
+        const signal = await this.signalsApi<Signal>('POST', `/api/projects/${encodeURIComponent(project)}/signals/${id}/receipts`, {to})
+        this.signalled(signal, {inOutbox: true})
         return signal
+    }
+
+    /** A session's new id (after a `/clear`) takes over the signals sent to its old one. */
+    protected async retargetSignals(project: string, from: string, to: string) {
+        await this.signalsApi('POST', `/api/projects/${encodeURIComponent(project)}/signals/retarget`, {from, to})
     }
 }

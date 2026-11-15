@@ -10,6 +10,8 @@ import {milestoneRecord} from './reads'
 
 export abstract class MilestoneStore extends PresetStore {
     async listMilestones(project: string): Promise<MilestoneRecord[]> {
+        const read = await this.fromApi<MilestoneRecord[]>(`/api/projects/${encodeURIComponent(project)}/milestones`)
+        if (read) return read
         const {board} = await this.project(project)
         return (await this.all<MilestoneRow>('SELECT * FROM milestones WHERE project = ? ORDER BY position, created_at', project))
             .map(row => milestoneRecord(row, known(board.milestones.find(c => c.id === row.id), `milestone ${row.id} on the board`)))

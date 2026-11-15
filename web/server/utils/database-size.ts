@@ -1,15 +1,14 @@
 // How much room this orrery's data takes, for App settings → Database: a SQLite file with the `-wal` beside it, or the
-// Postgres database, as it reports itself; and its backup folder's files. Any of it that can't be read (a file not
-// there yet, no permission on a managed Postgres) is left out.
-import {readdirSync, statSync} from 'node:fs'
-import {join} from 'node:path'
+// Postgres database, as it reports itself. Any of it that can't be read (a file not there yet, no permission on a
+// managed Postgres) is left out.
+import {statSync} from 'node:fs'
 import type {DatabaseInfo} from '#shared/roadmap'
 import type {Db} from './database'
 
-export async function databaseSize(info: DatabaseInfo, db: Db): Promise<{size?: number, backup_size?: number}> {
-    const size = info.kind === 'postgres' ? await postgresSize(db) : sqliteSize(info.where)
-    const backup = info.backup && !info.backup_kind ? folderSize(info.backup) : undefined
-    return {...size === undefined ? {} : {size}, ...backup === undefined ? {} : {backup_size: backup}}
+/** `db` is the database to ask a Postgres one's size, or what asks it elsewhere (the Rust API's, ORR-1140). */
+export async function databaseSize(info: DatabaseInfo, db: Db | (() => Promise<number | undefined>)): Promise<{size?: number}> {
+    const size = info.kind === 'postgres' ? await (typeof db === 'function' ? db() : postgresSize(db)) : sqliteSize(info.where)
+    return size === undefined ? {} : {size}
 }
 
 async function postgresSize(db: Db): Promise<number | undefined> {
@@ -30,18 +29,6 @@ function sqliteSize(where: string): number | undefined {
 function fileSize(path: string): number | undefined {
     try {
         return statSync(path).size
-    } catch {
-        return undefined
-    }
-}
-
-/** The files in the folder and the folders in it, together; none for one that isn't there. */
-function folderSize(dir: string): number | undefined {
-    try {
-        return readdirSync(dir, {withFileTypes: true}).reduce((total, entry) => {
-            const path = join(dir, entry.name)
-            return total + (entry.isDirectory() ? folderSize(path) ?? 0 : entry.isFile() ? fileSize(path) ?? 0 : 0)
-        }, 0)
     } catch {
         return undefined
     }

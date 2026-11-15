@@ -159,7 +159,7 @@ const tints = Object.keys(TINTS)
           <UiConfirm v-if="confirming" inline @confirm="confirming = false; picked = 'Removed'" @cancel="confirming = false">Remove this example?</UiConfirm>
           <UiButton v-else variant="danger-outline" @click="confirming = true">Remove…</UiButton>
         </div>
-        <UiDialog :open="dialog" label="Example dialog" width="md" @close="dialog = false" @submit="dialog = false; picked = `Submitted ${said}`">
+        <UiDialog :open="dialog" name="example" label="Example dialog" width="md" @close="dialog = false" @submit="dialog = false; picked = `Submitted ${said}`">
           <h2 class="text-[15px] font-semibold text-fg">Example dialog</h2>
           <p class="text-xs text-muted">Esc or a press outside closes it; ↵ in the field and ⌘↵ submit.</p>
           <input v-model="said" aria-label="Something to say" class="h-8 field">

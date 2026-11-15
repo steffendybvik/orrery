@@ -72,7 +72,7 @@ describe('a schedule across projects', () => {
     })
 
     it('changes every copy, keeping what each has run, and copies can only be paused themselves', async () => {
-        const made = await schedules.createAcross({projects: '*', title: 'Nudge', kind: 'message', notes: 'Hi', cron: '0 9 * * *'}, me)
+        const made = await schedules.createAcross({projects: '*', title: 'Nudge', notes: 'Hi', cron: '0 9 * * *'}, me)
         const [copy] = await schedules.list('pantry')
         await expect(schedules.update('pantry', copy!.id, {title: 'Mine'}, me)).rejects.toMatchObject({statusCode: 409})
         expect((await schedules.update('pantry', copy!.id, {enabled: false}, me)).enabled).toBe(false)

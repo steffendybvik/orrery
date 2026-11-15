@@ -15,14 +15,31 @@ const {open: newIssue} = useNewIssue()
 const demo = useDemoProject()
 const router = useRouter()
 const open = ref(true)
+// The install line (ORR-1067): the launcher, and orrery in Claude Code's user config for every folder, so a session
+// reaches it before any repo is connected. Under "For working with agents", after what the browser can do, as it's a
+// terminal's (ORR-1180). Gone once a launcher connects.
+const {launchers} = useRoadmaps()
+const machineReady = computed(() => Object.values(launchers.value).some(count => count > 0))
+const machineLine = useMachineLine()
+// The AI agent you run (ORR-1075), picked here or in App settings: the install line and the session's start line are
+// Claude Code's, so another agent is shown what works without an adapter.
+const {settings} = useAppSettings()
+const otherAgent = computed(() => settings.value.agent === 'other')
 
 const TEXT = [
-    {title: 'You own this orrery', text: 'What you make, no one else can delete. Your name is in App settings.'},
+    {title: 'Your name', text: 'How people and agents see you here. Change it in App settings.'},
     {title: 'Make a project', text: 'One for each app or repo. Its issues get a key of their own, like SHP-1.'},
     {title: 'Connect a folder', text: "Open a terminal in your app's folder (any folder works; an empty one to try it), run claude, and paste this. It writes the folder's .mcp.json, hooks and CLAUDE.md itself, and the step ticks once the session says hello."},
     {title: 'Start a session with the channel', text: 'So orrery can send the session work. Ticked once a session is listening.'},
     {title: 'Send it work', text: 'Make an issue and press Focus on this on its page, or ask from the Sessions page. Ticked when a session starts one.'},
 ]
+
+/** What steps 3 and 4 say for an agent with no adapter (ORR-1075). */
+const OTHER: Record<string, string> = {
+    connect: "Open your agent in your app's folder and give it this. It reads its brief from orrery and keeps the roadmap here.",
+    listen: "orrery can only send work to Claude Code sessions so far. Your agent reaches orrery through its API and MCP tools instead: Connect an agent shows how.",
+}
+const textOf = (i: number, key: string) => (otherAgent.value ? OTHER[key] : undefined) ?? TEXT[i]?.text
 
 const PHONE = {title: 'Open it on your phone', text: "Scan the code with the phone's camera, at home on the same Wi-Fi. Ticked once a phone is signed in."}
 
@@ -51,10 +68,10 @@ async function tryDemo() {
         <div class="flex min-w-0 flex-1 flex-col gap-1.5">
           <span class="font-medium" :class="step.done ? 'text-muted line-through decoration-faint' : 'text-fg'">{{ TEXT[i]!.title }}</span>
           <template v-if="i === current && !step.done">
-            <span>{{ TEXT[i]!.text }}</span>
+            <span>{{ textOf(i, step.key) }}</span>
             <UiButton v-if="step.key === 'project'" variant="primary" class="self-start" @click="newProject = true">New project</UiButton>
             <CopyBlock v-else-if="step.key === 'connect'" title="Paste into a session, in the folder" :text="pieces.prompt" />
-            <CopyBlock v-else-if="step.key === 'listen'" title="In the folder, start a session with" :text="pieces.launch" :hint="`An alias saves typing it: alias ${project?.id ?? 'app'}='cd /path/to/folder && ${pieces.launch}'`" />
+            <CopyBlock v-else-if="step.key === 'listen' && !otherAgent" title="In the folder, start a session with" :text="pieces.launch" :hint="`An alias saves typing it: alias ${project?.id ?? 'app'}='cd /path/to/folder && ${pieces.launch}'`" />
             <UiButton v-else-if="step.key === 'work' && project" variant="primary" class="self-start" @click="newIssue(project.id)">New issue</UiButton>
             <LauncherHint v-if="step.key === 'work' && project" :project="project.id" />
           </template>
@@ -93,13 +110,30 @@ async function tryDemo() {
     </div>
     <ol class="flex flex-col gap-4 text-[13px] leading-relaxed text-muted">
       <template v-for="(step, i) in steps" :key="step.key">
-      <li v-if="i === WITHOUT_CLAUDE" class="px-4 pt-2 text-[11px] font-medium uppercase tracking-wide text-faint">For working with agents</li>
+      <template v-if="i === WITHOUT_CLAUDE">
+        <li class="px-4 pt-2 text-[11px] font-medium uppercase tracking-wide text-faint">For working with agents</li>
+        <!-- What the browser can't do comes after what it can (ORR-1180): the agent, then this machine's one line. -->
+        <li class="flex flex-col gap-2 px-4 text-[13px] text-muted" data-step="agent">
+          <span class="font-medium text-fg">Which AI agent do you run?</span>
+          <AgentPicker />
+        </li>
+        <li v-if="otherAgent"><OtherAgent /></li>
+        <li v-else-if="!machineReady && !planning" class="flex flex-col gap-2 rounded-xl bg-panel p-4 text-[13px] leading-relaxed text-muted ring-1 ring-line" data-step="machine">
+          <span class="font-medium text-fg">Set up this machine once</span>
+          <span>
+            Run this in a terminal, from any folder. It installs the launcher, so orrery can start sessions, and adds orrery to
+            Claude Code for every folder, so a <span class="font-mono">claude</span> anywhere reaches it, repo or not. Safe to run again;
+            <span class="font-mono">--uninstall</span> in place of <span class="font-mono">--install</span> takes it all out. Needs tmux 3.2 or newer.
+          </span>
+          <CopyBlock title="Anywhere on your machine, run" :text="machineLine" />
+        </li>
+      </template>
       <li class="flex gap-3 rounded-xl" :class="i === current && !step.done && !(planning && i >= WITHOUT_CLAUDE) ? 'bg-panel p-4 ring-1 ring-line' : ['px-4', planning && i >= WITHOUT_CLAUDE && !step.done && 'opacity-60']">
         <StepMark :done="step.done" :n="i + 1" />
         <div class="flex min-w-0 flex-1 flex-col gap-2">
           <span class="font-medium" :class="step.done ? 'text-muted' : 'text-fg'">{{ TEXT[i]!.title }}</span>
           <template v-if="i === current && !step.done && !(planning && i >= WITHOUT_CLAUDE)">
-            <span>{{ TEXT[i]!.text }}</span>
+            <span>{{ textOf(i, step.key) }}</span>
             <div v-if="step.key === 'project'" class="flex flex-wrap items-center gap-2">
               <UiButton variant="primary" size="md" @click="newProject = true">New project</UiButton>
               <UiButton size="md" :disabled="demo.making.value" title="A sample board to look around first; delete it from its Settings" @click="tryDemo">
@@ -108,7 +142,7 @@ async function tryDemo() {
               <span v-if="demo.failed.value" class="text-xs text-rose-700 dark:text-rose-400">{{ demo.failed.value }}</span>
             </div>
             <CopyBlock v-else-if="step.key === 'connect'" title="Paste into a session, in the folder" :text="pieces.prompt" />
-            <CopyBlock v-else-if="step.key === 'listen'" title="In the folder, start a session with" :text="pieces.launch" />
+            <CopyBlock v-else-if="step.key === 'listen' && !otherAgent" title="In the folder, start a session with" :text="pieces.launch" />
             <UiButton v-else-if="step.key === 'work' && project" variant="primary" size="md" class="self-start" @click="newIssue(project.id)">New issue</UiButton>
             <LauncherHint v-if="step.key === 'work' && project" :project="project.id" />
           </template>

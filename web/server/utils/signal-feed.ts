@@ -1,6 +1,7 @@
 import type {Signal, StartedSession} from '#shared/roadmap'
 import type {EventEntry} from './event-log'
 import {signalPayload} from './signal-payload'
+import {foldRepeats} from './signals'
 
 // One project's signals for a session, as its stream sends them: the owner's, for every session, for one orrery picks
 // (pool.ts) or for this one; what it missed, and what it should hear as it connects. A session's channel follows its
@@ -85,12 +86,18 @@ export async function openFeed(project: string, who: Listener, from: number | un
     }
 
     // This session going idle takes up what was sent to one session while every one was busy, as the stream sends it
-    // (`onIdle`).
+    // (`onIdle`): folded, so a focus sent twice goes once (ORR-1178). orrery's own comment on an issue isn't pooled any more,
+    // so any left from before is passed over: it's news for a session that has gone. Its focus on a PR that needs work is
+    // (ORR-1184): that's work waiting for whoever comes next.
     let sendIdle: (signal: Signal) => unknown = () => {}
     const idle = async (id: string) => {
         if (!attended || !heard || currentId(id) !== attended.id) return
         try {
-            for (const signal of await store.pooledWaiting(project)) sendIdle(signal)
+            const {kept, repeats} = foldRepeats((await store.pooledWaiting(project)).filter(s => s.created_by !== 'orrery' || s.kind === 'focus'))
+            for (const signal of kept) sendIdle(signal)
+            const stale = repeats.filter(wanted)
+            const me = stale.length ? sessionName(attended.id) ?? who.name ?? 'a session' : ''
+            for (const signal of stale) await store.delivered(project, signal.id, me)
         } catch (error) {
             console.error(`[orrery] ${project}'s waiting signals:`, error)
         }
@@ -173,8 +180,9 @@ export async function streamFeed(say: (signal: Signal, told: Told) => unknown, f
         if (key) sent.set(key, Date.now())
         if (attended) startRun(attended.id, signal)
         // The owner's comment orrery handed this session (nobody was on its issue) makes the issue this session's, so
-        // their next comment on it comes here too and the thread keeps one voice (ORR-513).
-        if (attended && signal.kind === 'comment' && !signal.target && signal.issue) {
+        // their next comment on it comes here too and the thread keeps one voice (ORR-513). So does orrery's focus on a PR
+        // that needs work, whose session had gone (ORR-1184): the issue leaves that session for this one.
+        if (attended && (signal.kind === 'comment' || signal.kind === 'focus' && signal.created_by === 'orrery') && !signal.target && signal.issue) {
             store.workedBy(project, signal.issue, attended.id).catch(error => console.error(`[orrery] tying ${signal.issue} to its session:`, error))
         }
         const extra = context()

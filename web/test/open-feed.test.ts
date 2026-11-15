@@ -34,7 +34,9 @@ beforeEach(() => {
             return missed
         },
         pooledWaiting: async () => waiting,
+        delivered: async (_project: string, id: number, to: string) => void log.push(`delivered ${id} to ${to}`),
     }))
+    vi.stubGlobal('sessionName', (id?: string) => id === 's-1' ? 'Frøya' : undefined)
     vi.stubGlobal('attend', (project: string, id: string) => {
         log.push(`attend ${project} ${id}`)
         return {id, done: () => log.push(`left ${id}`)}
@@ -164,6 +166,34 @@ describe("a project's feed", () => {
         events.emit('session-idle', 's-3')
         await new Promise(resolve => setTimeout(resolve))
         expect(none).toEqual([])
+    })
+
+    it("folds what waits as it goes idle, and passes over orrery's own word left in the pool (ORR-1178)", async () => {
+        const pr = (n: number) => `[#${n}](https://github.com/acme/greenhouse/pull/${n})`
+        waiting = [
+            signal(1, {issue: 'GRE-1'}),
+            signal(2, {kind: 'comment', issue: 'GRE-2', created_by: 'orrery', note: `${pr(7)} conflicts with \`main\`.`}),
+            signal(3, {issue: 'GRE-1'}),
+            signal(4, {kind: 'comment', issue: 'GRE-3', note: 'the owner asks'}),
+        ]
+        const feed = await open()
+        const sent: number[] = []
+        feed.onIdle(s => sent.push(s.id))
+        events.emit('session-idle', 's-1')
+        await vi.waitFor(() => expect(log).toContain('delivered 1 to Frøya'))
+        expect(sent).toEqual([3, 4])
+    })
+
+    it("takes orrery's focus on a PR that needs work as it goes idle, its session gone (ORR-1184)", async () => {
+        waiting = [
+            signal(1, {kind: 'comment', issue: 'GRE-2', created_by: 'orrery', note: 'old news'}),
+            signal(2, {kind: 'focus', issue: 'GRE-2', created_by: 'orrery', note: 'needs work'}),
+        ]
+        const feed = await open()
+        const sent: number[] = []
+        feed.onIdle(s => sent.push(s.id))
+        events.emit('session-idle', 's-1')
+        await vi.waitFor(() => expect(sent).toEqual([2]))
     })
 
     it('tells a signal with the addresses for its project and who it is, and works through signals one after another', async () => {

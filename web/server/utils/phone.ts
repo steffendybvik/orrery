@@ -5,9 +5,9 @@ import {execFileSync} from 'node:child_process'
 import {networkInterfaces} from 'node:os'
 import type {H3Event} from 'h3'
 import type {PhoneAddress, PhoneLinks} from '#shared/phone'
-import {inDocker} from './backup-choice'
+import {inDocker} from './host-paths'
 import {launcherAddresses} from './connects'
-import {LOOPBACK} from './move'
+import {LOOPBACK} from './this-machine'
 import {phoneHost, phonePublishedPort} from './phone-port'
 
 const IPV4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/

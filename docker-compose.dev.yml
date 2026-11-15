@@ -14,6 +14,9 @@ services:
       - "127.0.0.1:${ORRERY_PORT:-9000}:9000"
     environment:
       NUXT_LISTEN_HOST: 127.0.0.1
+      # The Rust API says each request it answers, beside the server's `[orrery api-route]` lines for the ones it
+      # didn't (ORR-1085), so `play logs` shows both sides.
+      ORRERY_API_LOG: "1"
     volumes:
       - .:/src
       - orrery-node-modules:/src/node_modules

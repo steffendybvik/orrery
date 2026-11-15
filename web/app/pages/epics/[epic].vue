@@ -34,7 +34,15 @@ const parts = computed(() => ordered.value.flatMap(p => {
     // Open issues first, then the closed ones, each keeping the board's order.
     const rows = milestones.flatMap(milestone => milestone.tasks.map(issue => ({issue, milestone})))
     rows.sort((a, b) => Number(isClosed(a.issue.kind)) - Number(isClosed(b.issue.kind)))
-    return [{project, milestones, rows, issues: tasks.length, kinds}]
+    // Cards of rows (ORR-1146): a parent and its sub-issues get one of their own, so the sub-issues read as its
+    // children; the issues between parents share one.
+    const groups: (typeof rows)[] = []
+    for (const row of rows) {
+        const last = groups.at(-1)
+        if (row.issue.tasks.length || !last || last[0]?.issue.tasks.length) groups.push([row])
+        else last.push(row)
+    }
+    return [{project, milestones, rows, groups, issues: tasks.length, kinds}]
 }))
 
 const saving = ref(false)
@@ -89,7 +97,17 @@ watch(id, () => editingTitle.value = editingNotes.value = false)
 
 // Focus on this (ORR-987): a focus on the epic's open issues for each project it has some in, to one session there
 // orrery picks, or starts when nobody's listening, as an issue's Focus on this does.
-const open = computed(() => parts.value.some(part => part.rows.some(({issue}) => !isClosed(issue.kind) && issue.kind !== 'proposed')))
+// Where it has open work, by its issues' columns (a parent's, its sub-issues'): each project with some, and the
+// open statuses they're in, in the boards' order, for the Sessions panel (ORR-958).
+const {columns: allColumns, look} = useStatuses()
+const working = (column: string) => look(column).kind !== 'proposed' && !isClosed(look(column).kind)
+const openIn = (part: (typeof parts.value)[number]) => part.rows.flatMap(({issue}) => Object.entries(issue.counts).filter(([column, n]) => n && working(column)).map(([column]) => column))
+const openProjects = computed(() => parts.value.filter(part => openIn(part).length).map(part => part.project.id))
+const openColumns = computed(() => {
+    const found = new Set(parts.value.flatMap(openIn))
+    return allColumns.value.map(l => l.id).filter(id => found.has(id))
+})
+const open = computed(() => openProjects.value.length > 0)
 const focusing = ref(false)
 const focused = ref('')
 async function focus() {
@@ -236,6 +254,10 @@ useHead(() => ({title: epic.value ? `${epic.value.title} · Epics · orrery` : '
           <span>{{ epic.issues }} {{ epic.issues === 1 ? 'issue' : 'issues' }}<template v-if="epic.projects.length"> in {{ epic.projects.length }} {{ epic.projects.length === 1 ? 'project' : 'projects' }}</template></span>
         </div>
       </header>
+      <!-- Who can take it (ORR-958): the sessions on its projects, to point one or all at it, or at one status. -->
+      <div v-if="open" class="mx-auto max-w-5xl px-4 pb-6 sm:px-8">
+        <EpicSessions :epic="epic.id" :projects="openProjects" :columns="openColumns" />
+      </div>
       <!-- Each project's issues as children of the epic (ORR-955), laid out like an issue's sub-issues: a heading with
            its progress, then the issues as one compact list, in the header's column. -->
       <div v-if="parts.length" class="mx-auto flex max-w-5xl flex-col gap-6 px-4 pb-10 sm:px-8">
@@ -245,9 +267,9 @@ useHead(() => ({title: epic.value ? `${epic.value.title} · Epics · orrery` : '
             <ProgressRing :kinds="part.kinds" :size="13" />
             <span class="font-mono normal-case">{{ part.kinds.done }}/{{ part.issues }}</span>
           </h2>
-          <div class="overflow-hidden rounded-xl border border-line dark:bg-panel">
+          <div v-for="group in part.groups" :key="group[0]?.issue.id" class="overflow-hidden rounded-xl border border-line dark:bg-panel" data-group>
             <IssueRow
-                v-for="{issue, milestone} in part.rows"
+                v-for="{issue, milestone} in group"
                 :key="issue.id"
                 :issue="issue"
                 :project="part.project.id"

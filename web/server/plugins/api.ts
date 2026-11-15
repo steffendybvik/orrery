@@ -1,43 +1,33 @@
 // Starts the Rust API beside this server (ORR-922) when NUXT_API_BIN names its binary: on this server's database, once
-// that's open and migrated (the API runs no migrations), on a loopback port of its own, with a token made fresh each
-// start. It stops with this server. Until it's listening, or if it can't start, this server answers its routes itself.
-import type {ChildProcess} from 'node:child_process'
+// that's open and migrated (by this same binary's `migrate` as it opened, utils/api-migrate.ts), on a loopback port of
+// its own, with a token made fresh each start, and stops with this server. Until it's listening a request for its routes waits a few seconds for it, then fails with
+// a 503: most of them are its alone, as their routes here are gone (ORR-1041). The image sets NUXT_API_BIN; `nuxt dev`
+// takes the repo's own build (`cargo build` in api/) when it's unset, so the dev server and the browser suite have the
+// API without saying so.
 import {spawn} from 'node:child_process'
-import {randomBytes} from 'node:crypto'
-import {known} from '#shared/known'
-import {apiStarted} from '../utils/api-router'
+import {ApiProcess} from '../utils/api-process'
+import {apiBinary} from '../utils/api-migrate'
+import {apiTarget} from '../utils/api-router'
 
 export default defineNitroPlugin(nitro => {
-    const bin = String(useRuntimeConfig().apiBin ?? '')
-    if (!bin) return
-    let child: ChildProcess | null = null
-    let stopping = false
-    const start = async () => {
-        // Opening it migrates it; on Postgres a first query waits for that.
-        await useDatabase().get('SELECT 1 AS one')
-        const token = randomBytes(24).toString('hex')
-        const api = spawn(bin, [], {env: {...process.env, NUXT_API_TOKEN: token, NUXT_DATABASE: databaseSetting(), ORRERY_API_LISTEN: '127.0.0.1:0'}, stdio: ['ignore', 'inherit', 'pipe']})
-        child = api
-        let said = ''
-        known(api.stderr ?? undefined, "the API's stderr").on('data', (chunk: Buffer) => {
-            process.stderr.write(chunk)
-            said += chunk
-            const at = /serving docs on (http:\/\/\S+),/.exec(said)
-            if (at) {
-                apiStarted({url: known(at[1], 'the address it serves on'), token})
-                said = ''
-            }
-        })
-        api.on('error', error => console.error(`[orrery] can't start the Rust API (${bin}):`, error.message))
-        api.on('exit', code => {
-            apiStarted(null)
-            if (!stopping) console.error(`[orrery] the Rust API stopped (${code}); this server answers its routes now`)
-        })
+    const config = useRuntimeConfig()
+    // An API already running (NUXT_API_URL and NUXT_API_TOKEN) is used as it is.
+    const bin = apiBinary()
+    if (!bin) {
+        if (!apiTarget(config)) console.error('[orrery] no Rust API: set NUXT_API_BIN (or run `cargo build` in api/ for `nuxt dev`), or NUXT_API_URL and NUXT_API_TOKEN; most routes fail with a 503 until then')
+        return
     }
-    start().catch(error => console.error('[orrery] the Rust API waits on the database, which failed:', error))
-    nitro.hooks.hook('close', () => {
-        stopping = true
-        apiStarted(null)
-        child?.kill()
+    const api = new ApiProcess({
+        spawn: env => spawn(bin, [], {env: {...process.env, ...env}, stdio: ['ignore', 'inherit', 'pipe']}),
+        database: async () => {
+            // Opening it migrates it; on Postgres a first query waits for that.
+            await useDatabase().get('SELECT 1 AS one')
+            return databaseSetting()
+        },
+        failed: error => console.error(`[orrery] can't start the Rust API (${bin}):`, error.message),
+        stopped: code => console.error(`[orrery] the Rust API stopped (${code}); its routes fail until it starts again`),
     })
+    const waited = (error: unknown) => console.error('[orrery] the Rust API waits on the database, which failed:', error)
+    api.start().catch(waited)
+    nitro.hooks.hook('close', () => api.stop())
 })

@@ -51,10 +51,11 @@ taller than the window. It's Headless UI's `Dialog`: the focus stays inside whil
 the page under it doesn't scroll. It draws in a portal on the page's body, so a component test finds it there
 (`new DOMWrapper(document.body)`), not inside the component. A test that saves from a dialog waits until it has
 closed (its open state, `useNewIssue().target` say, back to `null`), not only until the request is sent: a save still
-on its way closes the next test's dialog when it lands (ORR-409).
+on its way closes the next test's dialog when it lands (ORR-409). `name` is what App settings → Usage counts it
+under, `dialog:<name>`, once each time it opens while the owner has counting on (ORR-1011).
 
 ```vue
-<UiDialog :open="target" label="New milestone" @close="close" @submit="create">
+<UiDialog :open="target" label="New milestone" name="new-milestone" @close="close" @submit="create">
   <input v-model="title" ...>
   <div class="flex items-center gap-2 border-t border-line pt-3">
     <UiButton type="submit" variant="primary" size="md" class="ml-auto">Create milestone</UiButton>
@@ -261,7 +262,7 @@ Already one component each; use them rather than drawing the same thing again.
 The layout (`layouts/default.vue`) mounts the dialogs any page can open, each as `Lazy…` behind `openedOnce`: it
 loads the first time it opens, in its own milestone, and then stays. A dialog is opened through the state its composable
 shares (`useNewIssue`, `useNewMilestone`, `useNewDoc`, `useStartSession`, `useMessageSessions`, `useSchedules`, and `useState('new-project')`),
-so any page or ⌘K can open it without holding it. `OwnerDialog` is mounted from the start; a dialog that belongs to
+so any page or ⌘K can open it without holding it. `WelcomeDialog` (the first-run walk-through: name, workspace, agent, first project) is mounted from the start; a dialog that belongs to
 one page (`PresetDialog`) stays on that page. A new one goes in the same way, built on `UiDialog`. ⌘K's palette, the menus and the bulk bar are
 mounted from the start, as they listen for keys or show on a right-click.
 

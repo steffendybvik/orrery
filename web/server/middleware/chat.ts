@@ -6,10 +6,13 @@
 // release, a move) is sent or saved only by the owner's Send or Allow, a route
 // refused here. Anything else it tries is refused, so a chat never takes up or finishes work, or speaks to another session
 // on its own say. Starting a session on an issue it does through its own chat (`delegate`). This holds what the chat sends
-// through its channel: with Bash allowed, it can call orrery without that mark.
+// through its channel: with Bash allowed, it can call orrery without that mark. Its calls to orrery's own MCP server
+// (`/mcp`, ORR-1102) are the Rust API's: each tool there runs its route through the API's rails, which hold the chat to
+// the same column (api/src/access/rails.rs), so `/mcp` itself isn't refused here.
 import {guard} from '../utils/guard'
+import {MCP} from '../utils/api-router'
 
 export default defineEventHandler(async event => {
-    if (!chatWrite(event)) return
+    if (!chatWrite(event) || event.path.split('?')[0] === MCP) return
     await guard(event, 'chat', "This session is the owner's chat: it answers (reply), makes and changes issues, milestones and epics (create_issue, edit_issue, create_milestone, create_epic…) and comments, asks the owner before messaging sessions or changing settings, schedules, releases, docs or an issue's status, and works on nothing")
 })

@@ -2,9 +2,8 @@
 // the stream checks at the receiver. The Todo hand-out, unblocking, picking and carrying on are in their own tests.
 import {beforeEach, describe, expect, it} from 'vitest'
 import type {Signal} from '#shared/roadmap'
-import type {Actor} from '../server/utils/store'
-import {Store} from '../server/utils/store'
-import {testDb} from './db'
+import type {Actor,Store} from '../server/utils/store'
+import {apiStore} from './api'
 import {failure} from './store-setup'
 
 let store: Store
@@ -15,7 +14,7 @@ const sessions: Record<string, string> = {'hati-a': 'hati', 'skoll-a': 'skoll'}
 
 beforeEach(async () => {
     signals = []
-    store = new Store(testDb(), () => {}, signal => signals.push(signal))
+    store = await apiStore(() => {}, signal => signals.push(signal))
     store.sessionPerson = session => sessions[session]
     await store.createProject({name: 'greenhouse', key: 'GRE'})
     await store.nameOwner({name: 'Skoll'})
@@ -28,7 +27,7 @@ const last = () => signals.at(-1) as Signal
 
 describe('whose work an issue is', () => {
     it('is nothing to say with one person', async () => {
-        const solo = new Store(testDb(), () => {})
+        const solo = await apiStore(() => {})
         await solo.createProject({name: 'cellar', key: 'CEL'})
         await solo.nameOwner({name: 'Skoll'})
         for (const assignee of [null, 'skoll', 'claude']) expect(await solo.whoseWork('cellar', assignee)).toBeUndefined()
@@ -52,7 +51,8 @@ describe('what goes out', () => {
         const id = await add({assignee: 'hati'})
         await store.workedBy('greenhouse', id, 'skoll-a')
         await store.focus('greenhouse', id, {}, owner)
-        expect(last()).toMatchObject({person: 'hati', protected: true, target: undefined})
+        expect(last()).toMatchObject({person: 'hati', protected: true})
+        expect(last()?.target).toBeUndefined()
     })
 
     it('as the owner pointing at someone else\'s issue takes it over, for their own', async () => {
@@ -81,11 +81,20 @@ describe('what goes out', () => {
 
     it('as a pull request\'s news goes to the assignee\'s, and on what\'s nobody\'s, to no one', async () => {
         const hatis = await add({assignee: 'hati'})
+        await store.workedBy('greenhouse', hatis, 'hati-a')
         await store.systemComment('greenhouse', hatis, 'It merged', 'pr.merged')
         expect(last()).toMatchObject({kind: 'comment', person: 'hati', protected: true})
         const before = signals.length
         await store.systemComment('greenhouse', await add(), 'It merged', 'pr.merged')
         expect(signals).toHaveLength(before)
+    })
+
+    it('as a pull request\'s news goes to no one when no session is on the issue, rather than the pool (ORR-1178)', async () => {
+        const before = signals.length
+        await store.systemComment('greenhouse', await add({assignee: 'hati'}), 'It merged', 'pr.merged')
+        await store.systemComment('greenhouse', await add({assignee: 'claude'}), 'It conflicts', 'pr.conflicting')
+        expect(signals).toHaveLength(before)
+        expect(await store.pooledWaiting('greenhouse')).toEqual([])
     })
 
     it('as the owner\'s comment goes to the assignee\'s, and on what\'s nobody\'s, to their own', async () => {
@@ -107,7 +116,7 @@ describe('what goes out', () => {
 
 describe('with one person', () => {
     it('stamps no one, so every session hears as it did', async () => {
-        const solo = new Store(testDb(), () => {}, signal => signals.push(signal))
+        const solo = await apiStore(() => {}, signal => signals.push(signal))
         await solo.createProject({name: 'cellar', key: 'CEL'})
         await solo.nameOwner({name: 'Skoll'})
         const {id} = await solo.createIssue('cellar', {title: 'Racks', status: 'todo'}, owner)

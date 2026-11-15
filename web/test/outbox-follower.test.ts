@@ -3,11 +3,13 @@
 import {mkdtempSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
-import {beforeEach, describe, expect, it} from 'vitest'
+import {beforeEach, describe, expect, it, vi} from 'vitest'
 import type {Change, Page} from '../server/utils/outbox-follower'
-import {cursorFile, followOutbox, readCursor, saveCursor} from '../server/utils/outbox-follower'
+import {caughtUp, cursorFile, followOutbox, readCursor, saveCursor, setFollowingOutbox} from '../server/utils/outbox-follower'
 import type {OrreryEvent} from '../server/store/schema'
 import {Store} from '../server/utils/store'
+import {projectEvents} from '../server/utils/events'
+import {scheduleRunning} from '../server/utils/schedules'
 import {testDb} from './db'
 
 const OWNER = {name: 'owner', owner: true}
@@ -65,6 +67,47 @@ describe('following the outbox', () => {
         expect(await outboxSize()).toBe(before)
     })
 
+    it("pushes a line of the event log the API resolved to open pages' bells (ORR-1088)", async () => {
+        const heard: unknown[] = []
+        const hear = (logged: unknown) => heard.push(logged)
+        projectEvents.on('logged', hear)
+        const line = {id: 7, level: 'error', kind: 'server.error', message: 'Boom', count: 1, first_seen: 'x', last_seen: 'x', resolved_at: 'y', resolved_by: 'claude'}
+        await follow([{changes: [row(101, 'event.logged', {project: null, payload: line})], last: 101}])
+        projectEvents.off('logged', hear)
+        expect(heard).toEqual([{event: line, fresh: false}])
+        expect(changed).toEqual([])
+    })
+
+    it("pushes a new line the API wrote as news only when it says it's fresh (ORR-1088)", async () => {
+        const heard: unknown[] = []
+        const hear = (logged: unknown) => heard.push(logged)
+        projectEvents.on('logged', hear)
+        const line = {id: 8, level: 'error', kind: 'page.error', message: 'Boom', count: 1, first_seen: 'x', last_seen: 'x'}
+        await follow([{changes: [row(101, 'event.logged', {project: null, payload: {...line, fresh: true}}), row(102, 'event.logged', {project: null, payload: {...line, id: 9}})], last: 102}])
+        projectEvents.off('logged', hear)
+        expect(heard).toEqual([{event: line, fresh: true}, {event: {...line, id: 9}, fresh: false}])
+    })
+
+    it("reads a chat again when the API changed its messages, and tells the board nothing (ORR-1100)", async () => {
+        const heard: string[] = []
+        vi.stubGlobal('chatHeard', async (chat: string) => void heard.push(chat))
+        await follow([{changes: [row(101, 'chat', {project: null, subject: 'c1c2c3c4c5c6'})], last: 101}])
+        vi.unstubAllGlobals()
+        expect(heard).toEqual(['c1c2c3c4c5c6'])
+        expect(changed).toEqual([])
+        expect(events).toEqual([])
+    })
+
+    it("tells a schedule run's write as that run's, so it sets no schedule off (ORR-1183)", async () => {
+        const heard: {type: string, cause: number | undefined}[] = []
+        store.happened = event => void heard.push({type: event.type, cause: scheduleRunning.getStore()})
+        await follow([{changes: [
+            row(101, 'issue.created', {subject: 'GRE-4', cause: '7'}),
+            row(102, 'issue.created', {subject: 'GRE-5'}),
+        ], last: 102}])
+        expect(heard).toEqual([{type: 'issue.created', cause: 7}, {type: 'issue.created', cause: undefined}])
+    })
+
     it("skips this server's own rows, whose hooks it heard already", async () => {
         const from = Number((await store.db.get<{n: number | string | null}>('SELECT max(id) AS n FROM changes'))?.n ?? 0)
         store.keepOwnChanges()
@@ -108,6 +151,52 @@ describe('following the outbox', () => {
     })
 })
 
+describe('catching up before a reply (ORR-1029)', () => {
+    it('is at once when not following', async () => {
+        setFollowingOutbox(false)
+        await caughtUp(10_000)
+    })
+
+    it("wakes the follower from its pause and waits for what's in the outbox now", async () => {
+        setFollowingOutbox(true)
+        let stop = false
+        let written = false
+        const following = followOutbox(store, {
+            read: async after => written && after < 9 ? {changes: [row(9, 'project.changed')], last: 9} : {changes: [], last: after},
+            after: 8,
+            saved: () => {},
+            stopped: () => stop,
+            every: 60_000,
+        })
+        try {
+            await tick()
+            written = true
+            const started = Date.now()
+            await caughtUp(10_000)
+            // Told before the wait ends, though its pause is a minute long.
+            expect(changed).toContain('greenhouse')
+            expect(Date.now() - started).toBeLessThan(5_000)
+        } finally {
+            // Woken once more, it sees it's stopped and ends.
+            stop = true
+            await caughtUp(1_000)
+            setFollowingOutbox(false)
+        }
+        await following
+    })
+
+    it("gives up after its time, so a feed that can't be read never holds a reply", async () => {
+        setFollowingOutbox(true)
+        try {
+            const started = Date.now()
+            await caughtUp(20)
+            expect(Date.now() - started).toBeLessThan(1_000)
+        } finally {
+            setFollowingOutbox(false)
+        }
+    })
+})
+
 describe("the follower's cursor", () => {
     it('is kept beside the database, for that database only', () => {
         const dir = mkdtempSync(join(tmpdir(), 'orrery-cursor-'))
@@ -118,5 +207,11 @@ describe("the follower's cursor", () => {
         saveCursor(file, database, 42)
         expect(readCursor(file, database)).toBe(42)
         expect(readCursor(file, join(dir, 'moved.db'))).toBeUndefined()
+    })
+
+    it("is kept in Docker's data volume on Postgres, as the image starts in / where .data can't be made (ORR-1182)", () => {
+        const url = 'postgres://orrery:pw@postgres:5432/orrery'
+        expect(cursorFile(url, true)).toBe('/data/outbox-cursor.json')
+        expect(cursorFile(url, false)).toBe(join(process.cwd(), '.data/outbox-cursor.json'))
     })
 })

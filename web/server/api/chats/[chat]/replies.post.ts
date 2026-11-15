@@ -5,5 +5,5 @@ export default defineEventHandler(async event => {
     const id = param(event, 'chat')
     if (!chatWrite(event) || getHeader(event, 'orrery-launch') !== id) throw forbidden("Only the chat's own session answers in it")
     const body = await readBody(event).catch(() => null) as {text?: unknown} | null
-    return created(event, reply(id, body?.text))
+    return created(event, await reply(id, body?.text))
 })

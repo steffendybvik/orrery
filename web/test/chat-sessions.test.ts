@@ -1,5 +1,7 @@
 import {EventEmitter} from 'node:events'
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
+import {Store} from '../server/utils/store'
+import {apiTestDb, withApi} from './api'
 
 // The owner's chat asking to start, stop or give more time to a session (ORR-509), with Nitro's auto-imports stubbed:
 // nothing happens until the owner allows it, and then it's done as theirs, through the chat, as the page would.
@@ -27,12 +29,13 @@ beforeEach(async () => {
     vi.stubGlobal('projectEvents', new EventEmitter())
     vi.stubGlobal('startChat', async (project: string) => ({id: 'c1c2c3c4c5c6', project}))
     vi.stubGlobal('launchTarget', (id: string) => `launch-${id}`)
-    vi.stubGlobal('useStore', () => ({
+    // The board the chat is kept on, with the Rust API in front of it (ORR-1135): greenhouse and pantry.
+    const board = new Store(apiTestDb())
+    await board.createProject({name: 'greenhouse', key: 'GRE'})
+    await board.createProject({name: 'pantry', key: 'PAN'})
+    await withApi(board)
+    vi.stubGlobal('useStore', () => Object.assign(Object.create(board) as Store, {
         messageSession: async (_project: string, target: string, text: string) => void messages.push({target, text}),
-        projectId: async (id: string) => {
-            if (!['greenhouse', 'pantry'].includes(id)) throw error(404)(`No project ${id}`)
-            return id
-        },
     }))
     vi.stubGlobal('useEventLog', () => ({note: () => {}}))
     for (const [name, code] of [['notFound', 404], ['badRequest', 400], ['conflict', 409], ['forbidden', 403]] as const) vi.stubGlobal(name, error(code))

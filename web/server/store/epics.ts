@@ -39,6 +39,8 @@ export abstract class EpicStore extends ReleaseStore {
 
     /** Every epic, in the order they're arranged in, a new one on top, each with its progress and each project's part. */
     async epics(): Promise<Epic[]> {
+        const read = await this.fromApi<Epic[]>('/api/epics')
+        if (read) return read
         const rows = await this.all<EpicRow>('SELECT * FROM epics ORDER BY position, id DESC')
         const ids = rows.map(r => r.id)
         const statuses = await this.statuses()
@@ -133,7 +135,7 @@ export abstract class EpicStore extends ReleaseStore {
     }
 }
 
-export function epicOf(row: EpicRow): Omit<Epic, 'issues' | 'kinds' | 'projects'> {
+function epicOf(row: EpicRow): Omit<Epic, 'issues' | 'kinds' | 'projects'> {
     return {
         id: Number(row.id), title: row.title, ...row.notes ? {notes: row.notes} : {},
         created_by: row.created_by, protected: !!row.owned, created_at: row.created_at, updated_at: row.updated_at,

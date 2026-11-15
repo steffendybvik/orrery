@@ -5,7 +5,7 @@ import {noticeKey} from '#shared/roadmap'
 export const isWaiting = (n: Notice) => !n.cleared && !!n.asks && !n.answered
 
 /** Not yet opened on the notifications page. A proposal has no read state: it waits until decided or cleared. */
-export const isUnread = (n: Notice) => !n.cleared && !n.proposal && !n.read
+const isUnread = (n: Notice) => !n.cleared && !n.proposal && !n.read
 
 /** One line on the notifications page: an issue's notices from one day, or (without `day`) those waiting on the owner,
  * newest first. */
@@ -107,7 +107,7 @@ export function latestMerged(notices: Notice[]): string | null {
 }
 
 /** Markdown as one plain line: links to their text, images and marks gone. */
-export function plainText(markdown: string): string {
+function plainText(markdown: string): string {
     return markdown
         .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
         .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
@@ -201,9 +201,13 @@ export function useInbox() {
         changes.value = await apiFetch<NoticeChange[]>('/notices/changes', {query: {since}}).catch(() => changes.value)
     }
 
-    /** A notice from the events stream: into the bell, and the page's list it belongs to. */
-    function arrived(notice: Notice) {
-        notices.value = [notice, ...notices.value.filter(n => n.id !== notice.id)].slice(0, 50)
+    /** A notice from the events stream: into the bell, and the page's list it belongs to, when the server's bell has
+     * it. Only an agent's comment that's news to its reader is a notification there (ORR-1151). */
+    async function arrived(notice: Notice) {
+        const bell = await apiFetch<Notice[]>('/notices').catch(() => undefined)
+        if (!bell) return
+        notices.value = bell
+        if (!bell.some(n => !n.proposal && n.id === notice.id)) return
         const list = lists.value[isWaiting(notice) ? 'waiting' : 'inbox']
         if (list.loaded) list.items = [notice, ...list.items.filter(n => n.id !== notice.id)]
     }

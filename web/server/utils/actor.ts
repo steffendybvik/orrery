@@ -2,6 +2,7 @@ import type {H3Event} from 'h3'
 import type {Actor} from './store'
 import type {Who} from './auth'
 import {actorId} from '../store/schema'
+import {isPerson, ownerNow, personFor} from './roster'
 
 // Who's asking, by the `Orrery-Actor` header (`agent` without one). There's no auth: it's what
 // keeps an agent from deleting what the owner (their id, from the name they gave) made, as long as
@@ -31,10 +32,10 @@ export async function actorOf(event: H3Event): Promise<Actor> {
     if (who) {
         const label = getHeader(event, 'orrery-actor')?.trim().slice(0, 60) || 'agent'
         const session = sessionName(sessionHeader(event))
-        return {name: await useStore().isPerson(label) ? 'agent' : label, owner: false, asked: true, named: who.person, ...untrustedWrite(event) ? {untrusted: true} : {}, ...session ? {session} : {}, ...chatWrite(event) ? {chat: true} : {}}
+        return {name: await isPerson(label) ? 'agent' : label, owner: false, asked: true, named: who.person, ...untrustedWrite(event) ? {untrusted: true} : {}, ...session ? {session} : {}, ...chatWrite(event) ? {chat: true} : {}}
     }
     const name = getHeader(event, 'orrery-actor')?.trim().slice(0, 60) || 'agent'
-    const owner = name.toLowerCase() === (await useStore().ownerOf()).name
+    const owner = name.toLowerCase() === (await ownerNow()).name
     const session = owner ? undefined : sessionName(sessionHeader(event))
     const named = personHeader(event)
     const person = await personActing(event, name, owner, named)
@@ -48,7 +49,7 @@ async function personActing(event: H3Event, name: string, owner: boolean, named:
     if (owner) return undefined
     const id = actorId(name)
     if (named && actorId(named) !== id) return undefined
-    return await useStore().personFor(name) === id ? id : undefined
+    return await personFor(name) === id ? id : undefined
 }
 
 /** Whose a request is (ORR-653): the owner's, and their chat's, whatever they send; a session's, the person it names
@@ -60,7 +61,7 @@ export async function personOf(event: H3Event): Promise<string | undefined> {
     if (who) return who.person
     const {owner, name} = await actorOf(event)
     if (owner) return name.toLowerCase()
-    return chatWrite(event) ? (await useStore().ownerOf()).name : await useStore().personFor(personHeader(event) ?? name)
+    return chatWrite(event) ? (await ownerNow()).name : await personFor(personHeader(event) ?? name)
 }
 
 const personHeader = (event: H3Event) => getHeader(event, 'orrery-person')?.trim() || undefined

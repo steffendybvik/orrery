@@ -1,7 +1,7 @@
 import {beforeEach, describe, expect, it, vi} from 'vitest'
 import type {Signal} from '#shared/roadmap'
-import {Store} from '../server/utils/store'
-import {testDb} from './db'
+import type {Store} from '../server/utils/store'
+import {apiStore} from './api'
 
 // What a session's hook hands its fresh context (ORR-501, out of the route): after a clear, a compaction or a resume, the
 // issues it has in progress with their last comment and what's left of its run; for a session orrery started with
@@ -23,7 +23,7 @@ beforeEach(async () => {
         contextBlock: (c: {text: string}) => `Context: ${c.text}`,
     }))
     ;({sessionBrief} = await import('../server/utils/brief'))
-    store = new Store(testDb())
+    store = await apiStore()
     await store.createProject({name: 'shop', key: 'SHO'}, me)
     await store.createIssue('shop', {title: 'Pay with cards', priority: 'P2', status: 'in-progress'}, me)
     await store.createIssue('shop', {title: 'Refunds', priority: 'P0', status: 'todo'}, me)

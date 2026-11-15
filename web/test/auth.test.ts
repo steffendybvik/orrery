@@ -3,6 +3,7 @@ import {readdirSync} from 'node:fs'
 import {join} from 'node:path'
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 import type {Store as StoreType} from '../server/utils/store'
+import {apiConfig} from './api'
 import {failure, storeSetup} from './store-setup'
 
 // Login and keys (ORR-664): the middleware that asks every /api route for a credential, against a real store, on events
@@ -23,11 +24,11 @@ const asking = (path: string, {method = 'GET', headers = {}, bound = '127.0.0.1'
 const bearer = (key: string, more: Record<string, string> = {}) => ({authorization: `Bearer ${key}`, ...more})
 
 beforeEach(async () => {
-    ({store} = await storeSetup())
+    ({store} = await storeSetup({api: true}))
     config = {auth: 'on', oidc: {issuer: '', clientId: '', clientSecret: ''}, listenHost: ''}
     const fail = (statusCode: number) => (message: string) => Object.assign(new Error(message), {statusCode})
     vi.stubGlobal('defineEventHandler', (handler: unknown) => handler)
-    vi.stubGlobal('useRuntimeConfig', () => config)
+    vi.stubGlobal('useRuntimeConfig', () => ({...config, ...apiConfig()}))
     vi.stubGlobal('useStore', () => store)
     vi.stubGlobal('getHeader', (event: Event, name: string) => event.headers[name])
     vi.stubGlobal('getCookie', (event: Event, name: string) => new RegExp(`${name}=([^;]+)`).exec(event.headers.cookie ?? '')?.[1])
@@ -57,7 +58,7 @@ function routes(dir = 'server/api', at = '/api'): {method: string, path: string}
         return [{method: method.toUpperCase(), path: name === 'index' ? at : `${at}/${name}`}]
     })
 }
-const OPEN = ['/api/auth/status', '/api/auth/login', '/api/auth/logout', '/api/auth/link', '/api/auth/oidc/start', '/api/auth/oidc/callback']
+const OPEN = ['/api/auth/status', '/api/auth/login', '/api/auth/logout', '/api/auth/link', '/api/auth/oidc/start', '/api/auth/oidc/callback', '/api/machines/connect', '/api/machines/claim']
 
 describe('with auth on', () => {
     let agent: string
@@ -69,7 +70,8 @@ describe('with auth on', () => {
 
     it('every route refuses a request with no credential, reads included', async () => {
         const all = routes()
-        expect(all.length).toBeGreaterThan(100)
+        // A floor that catches the scan finding nothing, not a count: it falls as routes move to the Rust API (ORR-1036).
+        expect(all.length).toBeGreaterThan(50)
         for (const {method, path} of all) {
             if (OPEN.includes(path)) continue
             expect((await failure(() => gate(asking(path, {method})))).status, `${method} ${path}`).toBe(401)
@@ -206,7 +208,7 @@ describe('when it is on', () => {
     const off = async (event = asking('/api/projects')) => authMode(event as never)
 
     it('stays off for one person on loopback, whatever they send', async () => {
-        const {store: alone} = await storeSetup()
+        const {store: alone} = await storeSetup({api: true})
         await alone.nameOwner({name: 'Solo'})
         vi.stubGlobal('useStore', () => alone)
         config.auth = ''
@@ -225,7 +227,7 @@ describe('when it is on', () => {
     })
 
     it("comes on off loopback, and for a proxy's request alone", async () => {
-        const {store: alone} = await storeSetup()
+        const {store: alone} = await storeSetup({api: true})
         await alone.nameOwner({name: 'Solo'})
         vi.stubGlobal('useStore', () => alone)
         config.auth = ''
@@ -362,11 +364,11 @@ describe("the phone's port (ORR-837)", () => {
         expect(await authMode(asking('/api/projects', {port: 9001}) as never)).toBe('closed')
     })
 
-    it("never counts as this machine, whatever Host it's sent, so nothing on it moves the database or sets the backups", async () => {
+    it("never counts as this machine, whatever Host it's sent", async () => {
         config = {...config, auth: '', phoneListen: '9001'}
         vi.stubGlobal('getRequestHost', () => 'localhost')
-        const {fromThisMachine} = await import('../server/utils/move')
-        expect(fromThisMachine(asking('/api/database/move', {method: 'POST', port: 9001}) as never)).toBe(false)
+        const {fromThisMachine} = await import('../server/utils/this-machine')
+        expect(fromThisMachine(asking('/api/projects', {method: 'POST', port: 9001}) as never)).toBe(false)
     })
 })
 

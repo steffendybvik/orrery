@@ -31,7 +31,7 @@ describe('setting a repo up', () => {
         const dir = repo()
         const pieces = connectPieces({origin: URL, id: 'shop', name: 'Shop', key: 'SHO', isNew: false, orrery: ORRERY})
         const {server, written, unchanged} = setUp(dir)
-        expect(server).toBe('orrery-personal')
+        expect(server).toBe('orrery')
         expect(written).toEqual(['.mcp.json', '.claude/settings.json', 'CLAUDE.md'])
         expect(unchanged).toEqual([])
         expect(json(dir, '.mcp.json')).toEqual(JSON.parse(pieces.mcpJson))
@@ -59,7 +59,7 @@ describe('setting a repo up', () => {
         const mcp = json(dir, '.mcp.json')
         expect(mcp.extra).toBe(true)
         expect(mcp.mcpServers.other).toEqual({command: 'other-server'})
-        expect(mcp.mcpServers['orrery-personal'].env.ORRERY_PROJECTS).toBe('shop')
+        expect(mcp.mcpServers['orrery'].env.ORRERY_PROJECTS).toBe('shop')
         const settings = json(dir, '.claude/settings.json')
         expect(settings.model).toBe('opus')
         expect(settings.hooks.Stop[0]).toEqual({matcher: 'x', hooks: [{type: 'command', command: 'say done'}]})
@@ -71,8 +71,8 @@ describe('setting a repo up', () => {
         const dir = repo()
         setUp(dir)
         const named = json(dir, '.mcp.json')
-        named.mcpServers.mine = named.mcpServers['orrery-personal']
-        delete named.mcpServers['orrery-personal']
+        named.mcpServers.mine = named.mcpServers['orrery']
+        delete named.mcpServers['orrery']
         writeFileSync(join(dir, '.mcp.json'), JSON.stringify(named))
         const {server, written} = setUp(dir, [SHOP, CART])
         expect(server).toBe('mine')
@@ -114,7 +114,7 @@ describe('setting a repo up', () => {
         setUp(dir)
         const {mcpServers} = json(dir, '.mcp.json')
         expect(mcpServers['orrery-work'].env.ORRERY_PROJECTS).toBe('core')
-        expect(mcpServers['orrery-personal'].env.ORRERY_PROJECTS).toBe('shop')
+        expect(mcpServers['orrery'].env.ORRERY_PROJECTS).toBe('shop')
         const commands = json(dir, '.claude/settings.json').hooks.Stop.flatMap((group: {hooks: {command: string}[]}) => group.hooks.map(h => h.command))
         expect(commands).toHaveLength(2)
         expect(commands).toContain(hook)
@@ -152,9 +152,11 @@ describe('setting a repo up', () => {
         expect(() => setUp(broken)).toThrow(/isn't valid JSON/)
         expect(existsSync(join(broken, '.mcp.json'))).toBe(false)
         expect(read(broken, 'CLAUDE.md')).toBe('mine\n')
-        const taken = repo({'.mcp.json': {mcpServers: {'orrery-personal': {command: 'other'}}}})
-        expect(() => setUp(taken)).toThrow(/already has a server/)
-        expect(json(taken, '.mcp.json').mcpServers['orrery-personal']).toEqual({command: 'other'})
+        // A name another tool has is left to it: this orrery's goes in beside it, under its host (ORR-1193).
+        const taken = repo({'.mcp.json': {mcpServers: {'orrery': {command: 'other'}}}})
+        setUp(taken)
+        expect(json(taken, '.mcp.json').mcpServers['orrery']).toEqual({command: 'other'})
+        expect(json(taken, '.mcp.json').mcpServers['orrery-localhost'].env.ORRERY_ID).toBe(ORRERY.id)
     })
 
     it("won't put what orrery sends into a file unless it's a plain id", () => {

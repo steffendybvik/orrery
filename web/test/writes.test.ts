@@ -107,7 +107,7 @@ describe('a session’s stream', () => {
     it('doesn’t open for a picture, on another site or in orrery’s own page', () => {
         expect(refused('GET', stream, {'sec-fetch-site': 'cross-site', 'sec-fetch-dest': 'image'})).toBe(403)
         // The router serves a stream with a slash on the end too (ORR-752).
-        for (const path of ['/api/projects/greenhouse/signals/stream/?session=abc', '/api/projects/greenhouse/launches/stream/', '/api/signals/stream/?session=abc']) {
+        for (const path of ['/api/projects/greenhouse/signals/stream/?session=abc', '/api/projects/greenhouse/launches/stream/', '/api/launches/stream?serve=[]', '/api/signals/stream/?session=abc']) {
             expect(refused('GET', path, {'sec-fetch-site': 'cross-site', 'sec-fetch-dest': 'image'})).toBe(403)
         }
         expect(refused('GET', stream, {'sec-fetch-site': 'same-origin', 'sec-fetch-dest': 'image'})).toBe(403)
@@ -121,23 +121,5 @@ describe('a session’s stream', () => {
     it('leaves the other reads alone', () => {
         expect(refused('GET', '/api/projects/greenhouse/issues', {'sec-fetch-site': 'cross-site', 'sec-fetch-dest': 'image'})).toBeUndefined()
         expect(refused('GET', '/api/events', {'sec-fetch-site': 'same-origin', 'sec-fetch-dest': 'empty'})).toBeUndefined()
-    })
-})
-
-describe('an upload', () => {
-    it('too big for any image is refused before its body is read', async () => {
-        const {UPLOAD_LIMIT} = await import('../server/utils/store')
-        let read = 0
-        vi.stubGlobal('UPLOAD_LIMIT', UPLOAD_LIMIT)
-        vi.stubGlobal('readBody', async () => void read++)
-        vi.stubGlobal('useStore', () => ({createUpload: async () => ({id: 'x'})}))
-        vi.stubGlobal('actorOf', async () => ({name: 'skoll', owner: true}))
-        vi.stubGlobal('created', (_event: unknown, value: unknown) => value)
-        const upload = (await import('../server/api/uploads/index.post')).default as unknown as (event: Event) => Promise<unknown>
-        const post = (length: number) => upload({method: 'POST', path: '/api/uploads', headers: {'content-length': String(length)}})
-        await expect(post(UPLOAD_LIMIT * 2)).rejects.toMatchObject({statusCode: 413})
-        expect(read).toBe(0)
-        await expect(post(UPLOAD_LIMIT)).resolves.toEqual({id: 'x'})
-        expect(read).toBe(1)
     })
 })

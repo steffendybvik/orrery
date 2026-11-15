@@ -1,5 +1,5 @@
 // The owner moving an issue into Todo, or making one there, hands it to an idle session at once (ORR-515), without
-// Focus on this and whether or not sessions pick their next issue (`pick_next`). Each issue goes, as a focus aimed at
+// Focus on this. Each issue goes, as a focus aimed at
 // it, to a different idle listening session out of work: one session per issue, and never one that's busy, so a
 // working session isn't interrupted. With nobody idle, the issue waits in Todo as before: nothing is queued and no
 // session is started. A burst of moves (a bulk move to Todo) is collected first, so the most urgent go out first and
@@ -15,7 +15,7 @@
 import type {OrreryEvent} from '#shared/happenings'
 import {CLOSED, isBlocked, linkRef} from '#shared/roadmap'
 import type {IssueRecord} from '../store/schema'
-import {handedTo} from './pick'
+import {handedTo, heldFromPicks} from './pick'
 
 /** How long after the owner's move the issues are handed out, so a burst is one hand-out. */
 export const TODO_AFTER = 1500
@@ -86,7 +86,7 @@ async function idleSessions(project: string): Promise<ReturnType<typeof listSess
     const idle: ReturnType<typeof listSessions> = []
     for (const session of listSessions().filter(s => s.listening && s.state === 'idle' && hears(s, project))) {
         if (chatSession(session.id) || untrustedSession(session.id)) continue
-        if (await store.busy(project, sessionIds(session.id))) continue
+        if (await store.engaged(project, sessionIds(session.id))) continue
         idle.push(session)
     }
     return idle.sort((a, b) => Number(!!a.also?.length) - Number(!!b.also?.length))
@@ -105,7 +105,7 @@ const handable = (issue: IssueRecord, parents: Set<string | null>) => issue.kind
  * that last worked the blocker while that one listens and has nothing in progress, else to an idle session out of
  * work, one each. One canceled asks the owner on each open issue waiting on it; one reopened tells the session
  * working on one. Says how many were handed out. */
-export async function handUnblocked(project: string, issues: Map<string, {from?: string, to?: string, links?: true}>): Promise<number> {
+async function handUnblocked(project: string, issues: Map<string, {from?: string, to?: string, links?: true}>): Promise<number> {
     const store = useStore()
     const kinds = new Map((await store.statuses()).map(s => [s.id, s.kind]))
     const kindOf = (status?: string) => status ? kinds.get(status) : undefined
@@ -139,7 +139,7 @@ export async function handUnblocked(project: string, issues: Map<string, {from?:
         // Freed by a dropped link only if it waited on something: one never blocked has nothing to announce.
         if (!blocker && !issues.get(id)?.links) continue
         await store.systemEvent(on, id, 'issue.unblocked')
-        const to = handable(issue, new Set(board.map(i => i.parent))) ? await handedTo(on, issue) : null
+        const to = handable(issue, new Set(board.map(i => i.parent))) && !await heldFromPicks(on) ? await handedTo(on, issue) : null
         if (!to || await store.focusOnItsWay(on, id)) continue
         const theirs = (s: {person?: string}) => !to.person || s.person === to.person
         // A follow-up under an issue another session is on goes to that session (ORR-613), busy or not: it's its to start.
@@ -153,7 +153,7 @@ export async function handUnblocked(project: string, issues: Map<string, {from?:
         const worker = blocker ? await store.workerOf(blocker.project, blocker.id) : null
         const finisher = worker ? listSessions().find(s => s.id === worker || sessionIds(s.id).includes(worker)) : undefined
         let session = finisher && theirs(finisher) && finisher.listening && hears(finisher, on) && !chatSession(finisher.id) && !untrustedSession(finisher.id)
-            && !given.has(finisher.id) && !await store.busy(on, sessionIds(finisher.id)) ? finisher : undefined
+            && !given.has(finisher.id) && !await store.engaged(on, sessionIds(finisher.id)) ? finisher : undefined
         session ??= (await idleSessions(on)).find(s => !given.has(s.id) && theirs(s))
         if (!session) continue
         given.add(session.id)
@@ -168,8 +168,10 @@ export async function handUnblocked(project: string, issues: Map<string, {from?:
  * this, a P0's push), most urgent first, each to its own idle session out of work, the project's own before one
  * spanning projects. A follow-up under an issue another session is on goes to that session instead (ORR-613). Says
  * how many went. */
-export async function handTodo(project: string, issues: Map<string, TodoMove>): Promise<number> {
+async function handTodo(project: string, issues: Map<string, TodoMove>): Promise<number> {
     const store = useStore()
+    // An uploaded board's titles aren't handed to anyone till the owner lets sessions pick from it (ORR-1224).
+    if (await heldFromPicks(project)) return 0
     const kinds = new Map((await store.statuses()).map(s => [s.id, s.kind]))
     const idle = await idleSessions(project)
 

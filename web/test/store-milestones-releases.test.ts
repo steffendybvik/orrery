@@ -1,9 +1,8 @@
 // Milestones and releases: made, ordered, frozen, shipped and shared between projects. The store, against a fresh database
 // with the project `greenhouse` (store-setup.ts).
 import {beforeEach, describe, expect, it} from 'vitest'
-import {Store} from '../server/utils/store'
-import {testDb} from './db'
-import type {Actor} from '../server/utils/store'
+import type {Store,Actor} from '../server/utils/store'
+import {apiStore} from './api'
 import {failure, storeSetup} from './store-setup'
 import {releasesToTrack} from '#shared/roadmap'
 
@@ -11,7 +10,7 @@ let store: Store
 let changes: string[]
 
 beforeEach(async () => {
-    ({store, changes} = await storeSetup())
+    ({store, changes} = await storeSetup({api: true}))
 })
 
 describe('milestones', () => {
@@ -39,7 +38,7 @@ describe('milestones', () => {
 
     it('can be focused on, by their id or a name they had', async () => {
         const sent: string[] = []
-        const local = new Store(testDb(), () => {}, signal => sent.push(`${signal.kind}:${signal.issue ?? '-'}:${signal.milestone}:${signal.target ?? 'all'}`))
+        const local = await apiStore(() => {}, signal => sent.push(`${signal.kind}:${signal.issue ?? '-'}:${signal.milestone}:${signal.target ?? 'all'}`))
         await local.createProject({name: 'greenhouse', key: 'GRE'})
         await local.createMilestone('greenhouse', {title: 'Joints'})
         const signal = await local.focusMilestone('greenhouse', '1', {session: 'joints-window', note: 'urgent'}, {name: 'skoll', owner: true})
@@ -53,7 +52,7 @@ describe('milestones', () => {
     })
 
     it('can be focused on for their issues of one status', async () => {
-        const local = new Store(testDb(), () => {})
+        const local = await apiStore(() => {})
         await local.createProject({name: 'greenhouse', key: 'GRE'})
         await local.createMilestone('greenhouse', {title: 'Joints'})
         expect((await local.focusMilestone('greenhouse', '1', {status: 'todo'}, {name: 'skoll', owner: true})).status).toBe('todo')
@@ -65,7 +64,7 @@ describe('milestones', () => {
     })
 
     it('can be focused on all at once, for issues of several statuses and a release', async () => {
-        const local = new Store(testDb(), () => {})
+        const local = await apiStore(() => {})
         await local.createProject({name: 'greenhouse', key: 'GRE', release_mode: 'own'})
         await local.createRelease('greenhouse', {version: '1.0.0'})
         const signal = await local.focusMilestone('greenhouse', 'all', {status: 'todo, started', release: '1.0.0'}, {name: 'skoll', owner: true})

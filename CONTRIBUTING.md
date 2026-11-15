@@ -11,13 +11,15 @@ first and say what you'd change and why; it saves you building something that wo
 .playground/play   # nuxt dev on http://localhost:9001, with a demo of its own
 ```
 
-or, without Docker, `pnpm install` and `pnpm dev` (Node 24.22.1, pnpm 10.14.0).
+or, without Docker, `cargo build` in `api/` (Rust 1.88 or later), then `pnpm install` and `pnpm dev` (Node 24.22.1,
+pnpm 10.14.0). The Nuxt server needs the Rust API, which serves the board's data: `pnpm dev` starts
+`api/target/debug/orrery-api` beside itself, so build it again after a change in `api/`.
 
 ## Before a pull request
 
 - `pnpm test`, `pnpm typecheck`, `pnpm lint` and `pnpm test:e2e` pass (CI runs the first three on every pull request, `test:e2e` and `test:e2e:perf` on SQLite and Postgres on a release tag and on a pull request into `main` that isn't a draft (a release's; one into a release branch skips them), and builds the image; a release tag publishes only once they pass)
 - A pull request into a release branch needs `check` and `docker` green before it can merge
-- A change to the database is a new step at the end of the migrations in `web/server/utils/migrations/sqlite.ts` (and Postgres's in `web/server/utils/migrations/postgres.ts`); never edit one. Then port it to the Rust API, as [docs/development.md](docs/development.md#migrations-in-rust) says
+- A change to the database is a new SQL step at the end of the Rust API's migrations, in both `api/migrations/sqlite` and `api/migrations/postgres`; never edit one, and add none to the Node app's frozen ones. Then write the step lists, as [docs/development.md](docs/development.md#migrations-in-rust) says
 - A change to the API updates [docs/API.md](docs/API.md), which is also what agents read
 - A change to how something works updates the docs that describe it: `docs/` and the orrery's project docs (a decision's `decision-*` doc too), which agents read before the code
 - New behaviour comes with a test where the store or the board rules change, and a component test (`web/test/components`, mounted in Nuxt) where a component decides what it sends

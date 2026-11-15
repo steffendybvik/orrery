@@ -1,5 +1,5 @@
-import type {Milestone, Column, Comment, Issue, Kinds, Place, Project, Release, SessionContext} from '#shared/roadmap'
-import {CLOSED, PRIORITIES, RISK_LEVELS, TINTS, linkRef, madeUpName, open, parseLinkRef, total} from '#shared/roadmap'
+import type {Milestone, Column, Comment, Issue, Kinds, Place, Project, Release, Session, SessionContext} from '#shared/roadmap'
+import {CLOSED, PRIORITIES, asksQuestion, RISK_LEVELS, TINTS, linkRef, madeUpName, open, parseLinkRef, total} from '#shared/roadmap'
 import {serverName} from '#shared/connect'
 
 /** A tint's name as its colour; a `#rrggbb` as itself. */
@@ -13,8 +13,11 @@ export const isClosed = (kind: Place) => CLOSED.includes(kind as never)
  * decision (`waiting`), as the bell has it. */
 export const pendingProposal = (issue: Issue): {choices: number} | undefined => issue.proposal === 'pending' && issue.waiting === 'decision' ? {choices: issue.choices.length} : undefined
 
-/** A session's state as the page says it. `waiting` is only ever a permission prompt (a Notification hook), so it says so. */
+/** A session's state as the page says it. `waiting` is a permission prompt (a Notification hook), so it says so. */
 export const SESSION_STATE = {idle: 'idle', working: 'working', waiting: 'permission needed', starting: 'starting'}
+
+/** A session's state in words: one waiting at a question to the owner has a question, not a permission (ORR-1155). */
+export const stateLabel = (session: Pick<Session, 'state' | 'asking'>) => asksQuestion(session) ? 'has a question' : SESSION_STATE[session.state]
 
 /** The projects a session hears: its own and the others its channel serves (`also`). One that hears more than one
  * spans them, and is listed across projects; `all` when that's every project the orrery has. */
@@ -141,6 +144,12 @@ export function filterTree(issues: Issue[], matches: (issue: Issue) => boolean):
     })
 }
 
+/** The board's cards from filtered issues: a parent whose own status the filter leaves out (kept for a sub-issue that
+ * matches) gives way to those sub-issues, so its column doesn't show just for it (ORR-1061). */
+export function boardCards(issues: Issue[], picked: Column[]): Issue[] {
+    return issues.flatMap(issue => !picked.length || picked.includes(issue.column) ? [issue] : boardCards(issue.tasks, picked))
+}
+
 /** An issue to paste elsewhere, as Markdown: its ref, title and description, then its comments in order, each saying
  * who wrote it and when. */
 export function issueAsMarkdown({ref, title, notes, comments, who}: {ref: string, title: string, notes: string, comments: Comment[], who: (actor: string, session?: string) => string}): string {
@@ -196,6 +205,22 @@ export function epicMilestones(project: Project, epic: number): Milestone[] {
     return project.board.milestones.map(c => ({...c, tasks: pick(c.tasks)})).filter(c => c.tasks.length)
 }
 
+/** The sessions listening on any of an epic's `projects` (ORR-958), each once, idle first, with the ones of those
+ * projects it hears: a focus on the epic aimed at it goes to each of them. `sessions` is by project, as useRoadmaps
+ * has them, a session that hears several being under each. */
+export function listeningOn(projects: string[], sessions: Record<string, Session[]>): {session: Session, hears: string[]}[] {
+    const found = new Map<string, {session: Session, hears: string[]}>()
+    for (const project of projects) {
+        for (const session of sessions[project] ?? []) {
+            if (!session.listening) continue
+            const one = found.get(session.id)
+            if (one) one.hears.push(project)
+            else found.set(session.id, {session, hears: [project]})
+        }
+    }
+    return [...found.values()].sort((a, b) => Number(b.session.state === 'idle') - Number(a.session.state === 'idle'))
+}
+
 /** A milestone's page; the issues in no milestone are at `none`. */
 export const milestonePath = (project: string, milestone: string) => `/p/${encodeURIComponent(project)}/roadmap/${milestone ? encodeURIComponent(milestone) : 'none'}`
 
@@ -209,7 +234,7 @@ export function releaseMilestones(project: Project, version: string): Milestone[
 /** The changelog's groups, in the order it lists them, and the labels that put an issue in each (ORR-516). An issue
  * goes in the first group one of its labels names, checked in this order (a `bug` labelled `docs` is a fix), and in
  * Changes when none does. */
-export const CHANGELOG_GROUPS = [
+const CHANGELOG_GROUPS = [
     {title: 'Features', labels: ['feature', 'feature request', 'feat', 'enhancement']},
     {title: 'Changes', labels: ['improvement', 'perf', 'performance', 'refactor', 'design']},
     {title: 'Fixes', labels: ['bug', 'fix', 'regression']},

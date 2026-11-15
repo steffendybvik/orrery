@@ -199,6 +199,51 @@ test('makes a schedule that moves issues, which runs on an event and has no Run 
     await expect(page.getByRole('menu').getByRole('button', {name: /Run now/})).toBeHidden()
 })
 
+test("sends only the fields its tab and trigger use: no stale ask, no hidden event filter (ORR-1060)", async ({page, request}) => {
+    await page.goto('/schedules?project=vineyard')
+    await page.getByRole('button', {name: 'New schedule in Vineyard'}).click()
+    const dialog = page.getByRole('dialog', {name: 'New schedule'})
+    // Ticked on the issue tab, then left behind on the message tab.
+    await dialog.getByText("Ask Vineyard's sessions to pick it up").click()
+    await dialog.getByRole('radio', {name: 'Sends a message'}).click()
+    await dialog.getByLabel('Title').fill('Check the cellar')
+    await dialog.getByRole('textbox', {name: 'Message'}).fill('Is the cellar cool enough?')
+    // An issue moving to Done, then another event that has no "to": the hidden Done doesn't filter it.
+    await dialog.getByRole('radio', {name: 'Event', exact: true}).click()
+    await dialog.locator('[data-picker="Moves to"]').click()
+    await page.getByRole('option', {name: 'Done'}).click()
+    await dialog.locator('[data-picker="Event"]').click()
+    await page.getByRole('option', {name: 'A release is frozen'}).click()
+    await expect(dialog.locator('[data-picker="Moves to"]')).toBeHidden()
+    // On an event, "only if changed" doesn't apply, so it isn't offered.
+    await expect(dialog.getByText('Skip a run when no issue or comment changed')).toBeHidden()
+    const sent = page.waitForRequest(r => r.method() === 'POST' && r.url().endsWith('/projects/vineyard/schedules'))
+    await dialog.getByRole('button', {name: /Create schedule/}).click()
+    const body = (await sent).postDataJSON()
+    expect(body).toMatchObject({kind: 'message', on: 'release.frozen', on_filter: {}})
+    for (const field of ['ask', 'skip_open', 'only_if_changed', 'column', 'priority', 'labels', 'milestone', 'timezone']) expect(body).not.toHaveProperty(field)
+    await expect(dialog).toBeHidden()
+    const made = (await api(request, 'get', '/schedules')).find((s: {title: string}) => s.title === 'Check the cellar')
+    expect(made).toMatchObject({kind: 'message', on: 'release.frozen', ask: false})
+    expect(made.on_filter).toBeUndefined()
+})
+
+test('a session schedule needs words or a preset, and Moves issues hands the trigger back (ORR-1060)', async ({page}) => {
+    await page.goto('/schedules?project=vineyard')
+    await page.getByRole('button', {name: 'New schedule in Vineyard'}).click()
+    const dialog = page.getByRole('dialog', {name: 'New schedule'})
+    await dialog.getByRole('radio', {name: 'Starts a session'}).click()
+    await dialog.getByLabel('Title').fill('Taste the vintage')
+    const create = dialog.getByRole('button', {name: /Create schedule/})
+    await expect(create).toBeDisabled()
+    await dialog.getByLabel('Your own instructions').fill('Taste it and say how it is')
+    await expect(create).toBeEnabled()
+    // Moves issues runs on an event; back on a session, it's on a time again.
+    await dialog.getByRole('radio', {name: 'Moves issues'}).click()
+    await dialog.getByRole('radio', {name: 'Starts a session'}).click()
+    await expect(dialog.getByRole('radio', {name: 'Time', exact: true})).toBeChecked()
+})
+
 test('Pause all goes at once, and Activate all asks first with the count', async ({page, request}) => {
     const project = {name: 'Trellis', key: 'TRL'}
     await request.post('/api/projects', {data: project, headers: {'Orrery-Actor': 'claude'}})

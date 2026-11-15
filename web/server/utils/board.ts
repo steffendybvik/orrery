@@ -3,12 +3,14 @@
 // only the owner-only routes call it. A route the table doesn't name is refused, so a new one can't slip past, and a
 // session that names nobody gets only the routes a row says it may (`unnamed`). The owner and their agents go through
 // here untouched, and with one person nothing does: what else they're held to is the rest of the table. With login off
-// these are names, which keeps honest sessions apart; with it on, the credential decides who's asking (ORR-664). Reads stay open;
-// `needsBoard` is what a read route would call when they don't.
+// these are names, which keeps honest sessions apart; with it on, the credential decides who's asking (ORR-664). Reads are
+// held by the API (`Seen` in api/src/access/seen.rs, ORR-985): a board a member isn't on is a 404 there, and the reads this
+// server answers itself follow the projects the API lists to them (middleware/board-reads.ts, ORR-1195).
 import {createError} from 'h3'
 import type {H3Event} from 'h3'
 import {PERMISSIONS} from '#shared/permissions'
 import {needsPerson, personOf} from './actor'
+import {boardsOf, isShared, onBoard, ownerNow} from './roster'
 import {lets, matchRoute} from './guard'
 import {notFound} from './input'
 import {refusedFor} from './permission'
@@ -20,10 +22,9 @@ export async function checkBoards(event: H3Event) {
     if (READS.has(event.method)) return
     const path = event.path.replace(/\/{2,}/g, '/')
     if (!path.startsWith('/api/') || untrustedWrite(event) || chatWrite(event)) return
-    const store = useStore()
-    if (!await store.isShared()) return
+    if (!await isShared()) return
     const person = await personOf(event)
-    if (person === (await store.ownerOf()).name) return
+    if (person === (await ownerNow()).name) return
     const matches = PERMISSIONS.flatMap(row => row.routes.flatMap(route => {
         const params = matchRoute(route, event.method, path)
         return params ? [{row, route, params}] : []
@@ -45,7 +46,7 @@ export async function checkBoards(event: H3Event) {
 export async function needsBoard(event: H3Event, project: string) {
     if (untrustedWrite(event) || chatWrite(event)) return
     const person = await personOf(event)
-    if (person && !await useStore().onBoard(project, person)) throw notFound(`No project ${project}`)
+    if (person && !await onBoard(project, person)) throw notFound(`No project ${project}`)
 }
 
 /** Those of `projects` a session may hear: its person's boards, and none for a session naming nobody, which is told how
@@ -54,5 +55,5 @@ export async function boardsHeard(event: H3Event, projects: string[]): Promise<s
     if (untrustedWrite(event)) return projects
     await needsPerson(event)
     const person = await personOf(event)
-    return person ? await useStore().boardsOf(person, projects) : projects
+    return person ? await boardsOf(person, projects) : projects
 }

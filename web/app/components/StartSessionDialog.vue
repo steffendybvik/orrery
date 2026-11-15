@@ -5,8 +5,8 @@ import type {LaunchState} from '~/composables/useLaunchState'
 
 // Starting Claude sessions from anywhere, as the owner: pick the projects (every one, those that can't start one
 // now shown with why, and how to change that), one session each, hearing only its project; or, when the projects
-// picked are served from one repo, one session there hearing them all; or none, for one session hearing every
-// project, where a launcher's channel serves them all (`*`). On one project it can focus on an open issue;
+// picked are served from one repo, one session there hearing them all; or none, for a global session (ORR-1079):
+// in orrery's default folder, hearing every project, with none of its own, started through any project's launcher. On one project it can focus on an open issue;
 // else it works through a scope, the issues of the statuses ticked (and of a release), most urgent first, or with
 // nothing ticked waits for your work. It can be given more context: presets (the orrery's, and each project's own)
 // and your own words, which go with every signal to it. Several at once can be started of each, as many as the limit
@@ -140,9 +140,9 @@ const shared = computed(() => {
 const oneSession = computed(() => shared.value && together.value === 'one')
 const ways = computed(() => [{value: 'one' as const, label: `One session for all ${projects.value.length}`}, {value: 'each' as const, label: 'A session each'}])
 
-/** With nothing ticked, the project whose launcher starts a session hearing every project: the first that can start
- * one now where its channel serves them all. */
-const everywhere = computed(() => projects.value.length ? undefined : ordered.value.find(p => !why(p) && states.value[p.id]?.every))
+/** With nothing ticked, the project whose launcher starts a global session (ORR-1079), kept under it: the first that
+ * can start one now. */
+const everywhere = computed(() => projects.value.length ? undefined : ordered.value.find(p => !why(p) && !!states.value[p.id]))
 
 /** The sessions one of the count starts: one for all, or one for every project picked. */
 const launches = computed(() => everywhere.value || oneSession.value ? 1 : Math.max(projects.value.length, 1))
@@ -192,8 +192,8 @@ async function start() {
             }
         }
     }
-    // Without `hears`, so it hears what its channel serves: every project. Nothing ticked, so no work is set.
-    if (everywhere.value) await launch(everywhere.value.id, everywhere.value.name, {presets: picked.value, ...own})
+    // A global session: every project, none of its own. Nothing ticked, so no work is set.
+    if (everywhere.value) await launch(everywhere.value.id, everywhere.value.name, {global: true, presets: picked.value, ...own, ...model.value ? {model: model.value} : {}})
     if (oneSession.value) {
         // Started from the first project's launcher, hearing every one picked, with every preset ticked.
         const first = projects.value[0]?.id ?? ''
@@ -217,7 +217,7 @@ async function start() {
 <template>
   <!-- Its body scrolls between the heading and the footer, so Start session is always in reach, on a phone too (ORR-851).
        dvh, as a phone's toolbars take some of vh. -->
-  <UiDialog :open="target" label="Start session" class="max-h-[76dvh]" @close="close" @submit="start">
+  <UiDialog :open="target" name="start-session" label="Start session" class="max-h-[76dvh]" @close="close" @submit="start">
     <div class="flex items-center gap-2 text-xs text-faint">
       <span>Start a session</span>
       <KeyHint class="ml-auto">esc</KeyHint>
@@ -225,7 +225,7 @@ async function start() {
 
     <div class="-mx-5 flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-5" data-dialog-body>
     <div class="flex flex-col gap-1">
-      <span class="label px-1">Projects <span class="font-normal normal-case text-faint">· {{ !projects.length ? 'none ticked: one session hearing every project' : oneSession ? 'one session hearing them all' : 'a session each' }}</span></span>
+      <span class="label px-1">Projects <span class="font-normal normal-case text-faint">· {{ !projects.length ? 'none ticked: a global session' : oneSession ? 'one session hearing them all' : 'a session each' }}</span></span>
       <div class="flex flex-col gap-0.5" role="group" aria-label="Projects">
         <label
             v-for="p in ordered"
@@ -247,8 +247,8 @@ async function start() {
     </div>
 
     <p v-if="!projects.length" class="px-1 text-xs text-faint">
-      <template v-if="everywhere">One session hearing every project, projects made later too, started in {{ everywhere.name }}'s repo.</template>
-      <template v-else>Tick a project to start. For one session hearing every project, a launcher has to run in a repo whose <code>.mcp.json</code> gives the channel <code>ORRERY_PROJECTS=*</code>.</template>
+      <template v-if="everywhere">A global session: it starts in orrery's default folder, not a repo, hears every project, projects made later too, and has none of its own, so it names the one it works on.</template>
+      <template v-else>Tick a project to start. A global session needs a project that can start sessions now.</template>
     </p>
 
     <div v-if="shared" class="flex items-center gap-2 px-1">

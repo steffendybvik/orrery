@@ -3,6 +3,7 @@
 // place, so the page and the URL say the same. A project's name and a session's come from the URL, so
 // nothing in them reaches a shell command unquoted or adds a line to the brief.
 import {keyFor, slugify} from './roadmap'
+import {ASYNC_EVENTS, HOOK_EVENTS} from '#channel/claude-hooks.mjs'
 
 export interface ConnectTarget {
     /** This orrery asks for a login, so the brief's own requests send `ORRERY_KEY`. */
@@ -37,17 +38,20 @@ export interface ConnectPieces {
     url: string
 }
 
-// PreToolUse runs on every tool call, so it runs in the background (`async`): it catches the turns
-// no prompt started (a focus signal, a background task finishing). StopFailure runs instead of Stop when a turn
-// ends on an API error, which lets go of what the session had in progress.
-const HOOK_EVENTS = ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PermissionRequest', 'Stop', 'StopFailure', 'Notification', 'SessionEnd']
-/** The ones that run in the background: Claude Code doesn't wait on them, so they never hold up a tool or answer its prompt. */
-const ASYNC_EVENTS = ['PreToolUse', 'PermissionRequest']
 
 /** Puts the bootstrap on this machine: it stays the same across versions, and runs what the orrery at `origin` serves. */
 const bootstrapInstall = (origin: string) => `mkdir -p ~/.orrery && curl -fsS ${origin}/channel/bootstrap.mjs -o ~/.orrery/bootstrap.mjs`
-/** Puts the bootstrap on this machine, and the launcher service with it. */
-export const launcherInstall = (origin: string) => `${bootstrapInstall(origin)} && ORRERY_URL=${origin} node ~/.orrery/bootstrap.mjs launcher --install`
+/** Puts the bootstrap on this machine, and the launcher service with it. `code`: a one-time code from the signed-in
+ *  page (ORR-1192), which the launcher swaps for the machine's key, so pasting the line connects it. */
+export const launcherInstall = (origin: string, code?: string) =>
+    `${bootstrapInstall(origin)} && ORRERY_URL=${origin}${code ? ` ORRERY_CODE=${code}` : ''} node ~/.orrery/bootstrap.mjs launcher --install`
+/** An agent with no launcher adapter (ORR-1075): the bootstrap put in place once, then orrery's channel run as a plain
+ * MCP server over stdio, serving every project, for the agent's own MCP config. orrery can't start it or send it work,
+ * but it has orrery's tools. */
+export const channelServer = (origin: string) => ({
+    bootstrap: bootstrapInstall(origin),
+    command: `ORRERY_URL=${origin} ORRERY_PROJECTS='*' node ~/.orrery/bootstrap.mjs channel`,
+})
 
 export function connectPieces(target: ConnectTarget): ConnectPieces {
     const {origin, id, key, isNew} = target
@@ -172,8 +176,9 @@ function shellQuote(text: string): string {
     return `'${text.replace(/'/g, `'\\''`)}'`
 }
 
-/** The channel's server name for an orrery, as Connect writes it in .mcp.json: `orrery-<environment>` (`Work` →
- * `orrery-work`). channel/server-name.mjs is the same for the channel. */
-export function serverName(environment: string): string {
-    return `orrery-${slugify(environment) || 'orrery'}`
+/** The channel's server name for an orrery, as Connect writes it in .mcp.json: always `orrery` (ORR-1193), now that
+ * one orrery holds several workspaces; `environment` is ignored. channel/server-name.mjs is the same for the channel,
+ * and takes `orrery-<host>` there when a repo already has another orrery's `orrery`. */
+export function serverName(_environment?: string): string {
+    return 'orrery'
 }

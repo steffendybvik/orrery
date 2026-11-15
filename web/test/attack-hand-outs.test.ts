@@ -1,10 +1,9 @@
 import {EventEmitter} from 'node:events'
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 import type {Signal} from '#shared/roadmap'
-import type {Actor} from '../server/utils/store'
-import {Store} from '../server/utils/store'
+import type {Actor,Store} from '../server/utils/store'
 import type {Listener} from '../server/utils/signal-feed'
-import {testDb} from './db'
+import {apiStore} from './api'
 
 // What reaches whose session (ORR-659): a real store sending to real feeds, two people with two sessions each, each way
 // of sending tried against the other person's sessions, live and when a session catches up after a restart or a `/clear`.
@@ -21,7 +20,7 @@ const add = async (assignee?: string) => (await store.createIssue('greenhouse', 
 
 beforeEach(async () => {
     signals = []
-    store = new Store(testDb(), () => {}, signal => signals.push(signal))
+    store = await apiStore(() => {}, signal => signals.push(signal))
     store.sessionPerson = session => SESSIONS[session]
     await store.createProject({name: 'greenhouse', key: 'GRE'})
     await store.createMilestone('greenhouse', {title: 'Shelves'})
@@ -62,7 +61,11 @@ describe.each([
     ['a member\'s focus', async (id: string) => store.focus('greenhouse', id, {}, hati)],
     ['the owner\'s focus on it', async (id: string) => store.focus('greenhouse', id, {}, {name: 'skoll', owner: true})],
     ['it going P0', async (id: string) => store.updateIssue('greenhouse', id, {priority: 'P0'}, hati)],
-    ['a pull request\'s news', async (id: string) => store.systemComment('greenhouse', id, 'It merged', 'pr.merged')],
+    // orrery's word goes only to the session on the issue (ORR-1178).
+    ['a pull request\'s news', async (id: string) => {
+        await store.workedBy('greenhouse', id, 'hati-a')
+        return store.systemComment('greenhouse', id, 'It merged', 'pr.merged')
+    }],
 ] as const)('%s on Hati\'s issue', (_, send) => {
     it('reaches Hati\'s sessions and neither of Manni\'s, live or caught up from the start', async () => {
         const id = await add('hati')

@@ -65,10 +65,12 @@ test('a wrong key shows the error and stays on the page', async ({page}) => {
 
 test('a person key reaches the board, and writes work from there', async ({page}) => {
     await signedIn(page)
-    await page.getByRole('button', {name: 'New project'}).first().click()
-    const dialog = page.getByRole('dialog', {name: 'New project'})
-    await dialog.getByLabel('Name').fill('Greenhouse')
-    await dialog.getByRole('button', {name: /Create project/}).click()
+    // A new owner with no project yet is walked through the welcome (ORR-1194): its last step makes the first one.
+    const welcome = page.getByRole('dialog', {name: 'Welcome'})
+    await expect(welcome).toBeVisible()
+    while (!await welcome.getByLabel('Project name').isVisible()) await welcome.getByRole('button', {name: 'Skip', exact: true}).click()
+    await welcome.getByLabel('Project name').fill('Greenhouse')
+    await welcome.getByRole('button', {name: 'Make it'}).click()
     await expect(page).toHaveURL(/\/p\/greenhouse/)
     await expect(page.getByRole('heading', {name: 'Greenhouse'})).toBeVisible()
 })
@@ -193,4 +195,76 @@ test("App settings' code signs a phone in on its own port, once, in place of the
     expect((await another.request.post(`${address}/api/auth/link`, {data: {code: shown}})).status()).toBe(401)
     expect((await another.request.post(`${address}/api/auth/link`, {data: {token}})).status()).toBe(401)
     await another.close()
+})
+
+// Connecting a machine with no key to copy (ORR-1192), as the launcher does it from the install line. Run without a
+// code, it asks, and the page it opens, signed in after a stop at the login page, shows the words the Terminal shows;
+// Connect hands the waiting launcher an agent key. Copied from the signed-in page, the line's own code does it at once.
+test('a machine connects from the install line, by the Connect page or the line\'s code', async ({page, browser}) => {
+    const machine = await browser.newContext()
+    const asked = await machine.request.post('/api/machines/connect', {data: {name: "Ada's MacBook"}})
+    expect(asked.status()).toBe(201)
+    const {request, secret, words, url} = await asked.json() as {request: string, secret: string, words: string, url: string}
+    const claim = () => machine.request.post('/api/machines/claim', {data: {request, secret}})
+    expect((await claim()).status()).toBe(202)
+
+    // Logged out, the page goes by the login page and comes back.
+    await page.context().clearCookies()
+    expect(url).toMatch(new RegExp(`/connect-machine\\?request=${request}$`))
+    await page.goto(`/connect-machine?request=${request}`)
+    await expect(page).toHaveURL(/\/login$/)
+    await signIn(page, personKey)
+    await expect(page).toHaveURL(/\/connect-machine\?request=/)
+    await expect(page.getByTestId('connect-machine-words')).toHaveText(words)
+    await page.getByTestId('connect-machine-go').click()
+    await expect(page.getByRole('heading', {name: 'Connected'})).toBeVisible()
+
+    const claimed = await claim()
+    expect(claimed.status()).toBe(201)
+    const {key} = await claimed.json() as {key: string}
+    expect(key).toMatch(/^orrery_agent_/)
+    expect((await machine.request.get('/api/projects', {headers: {authorization: `Bearer ${key}`}})).status()).toBe(200)
+    expect((await claim()).status()).toBe(410)
+
+    // The line copied from the signed-in page carries a code, good once.
+    const made = await page.evaluate(async () => (await fetch('/api/machines/code', {method: 'POST', headers: {'Content-Type': 'application/json'}})).json()) as {code: string}
+    const byCode = await machine.request.post('/api/machines/connect', {data: {name: 'Rig', code: made.code}})
+    expect(byCode.status()).toBe(201)
+    expect((await byCode.json() as {key: string}).key).toMatch(/^orrery_agent_/)
+    expect((await machine.request.post('/api/machines/connect', {data: {name: 'Rig', code: made.code}})).status()).toBe(401)
+    await machine.close()
+
+    // Both are listed as the owner's keys, by the machine's name, to disconnect from there.
+    await page.goto('/settings?tab=you#keys')
+    for (const name of ["Ada's MacBook", 'Rig']) await expect(keyRow(page, name)).toHaveCount(1)
+})
+
+// One launcher for every workspace (ORR-1109): a machine connected from its install line serves the projects in each of
+// its person's workspaces, and a key held to one workspace hears only that one's, whatever it asks to serve.
+test('a machine\'s launcher hears every workspace its person is in, and a one-workspace key only its own', async ({page, baseURL}) => {
+    await signedIn(page)
+    const asPage = (path: string, body: unknown, workspace?: string) => page.evaluate(async ([path, body, workspace]) => {
+        const response = await fetch(path, {method: 'POST', headers: {'Content-Type': 'application/json', ...workspace ? {'Orrery-Workspace': workspace} : {}}, body: JSON.stringify(body)})
+        return response.json()
+    }, [path, body, workspace] as const)
+    const lab = await asPage('/api/workspaces', {name: 'Lab'}) as {id: string}
+    await asPage('/api/projects', {name: 'Rockets'}, lab.id)
+    const {code} = await asPage('/api/machines/code', {}) as {code: string}
+    const machineKey = (await (await fetch(`${baseURL}/api/machines/connect`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({name: 'Rig', code})})).json() as {key: string}).key
+    const homeKey = (await asPage('/api/keys', {kind: 'agent', name: 'Home only', workspace: 'default'}) as {key: string}).key
+
+    /** What a launcher on `key` is told it serves of `projects`, from its stream's first event. */
+    async function serves(key: string, projects: string[]) {
+        const stop = new AbortController()
+        const serve = encodeURIComponent(JSON.stringify(projects.map(project => ({project, home: true}))))
+        const response = await fetch(`${baseURL}/api/launches/stream?serve=${serve}&version=9.9.9`, {headers: {authorization: `Bearer ${key}`}, signal: stop.signal})
+        const reader = response.body!.getReader()
+        let text = ''
+        while (!/event: ready\ndata: .*\n/.test(text)) text += new TextDecoder().decode((await reader.read()).value)
+        stop.abort()
+        const ready = JSON.parse(/event: ready\ndata: (.*)\n/.exec(text)![1]!) as {projects: Record<string, unknown>, unknown: string[]}
+        return {served: Object.keys(ready.projects).sort(), unknown: ready.unknown}
+    }
+    expect(await serves(machineKey, ['greenhouse', 'rockets'])).toEqual({served: ['greenhouse', 'rockets'], unknown: []})
+    expect(await serves(homeKey, ['greenhouse', 'rockets'])).toEqual({served: ['greenhouse'], unknown: ['rockets']})
 })

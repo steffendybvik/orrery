@@ -1,0 +1,163 @@
+// The owner's chats as they're kept: the handlers and the routes they answer (ORR-1048).
+use crate::changes::Outbox;
+use crate::error::Result;
+use crate::reply::reply;
+use crate::request::{actor_of, body_of};
+use crate::work::chats::Chats;
+use crate::{App, Shared};
+use axum::body::Bytes;
+use axum::extract::{Path, State};
+use axum::http::{HeaderMap, HeaderValue, StatusCode};
+use axum::response::{IntoResponse, Response};
+use axum::routing::{get, post, put};
+use axum::{Json, Router};
+use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
+use std::sync::Arc;
+
+pub(crate) fn routes() -> Router<Arc<App>> {
+    Router::new()
+        .route("/api/chats", get(list_chats))
+        .route("/api/chats/{chat}", get(get_chat).put(keep_chat).delete(forget_chat))
+        .route("/api/chats/{chat}/lines", post(add_message))
+        .route("/api/chats/{chat}/lines/{message}", put(change_message))
+        .route("/api/chats/{chat}/replies", post(reply_in_chat))
+        .route("/api/chats/{chat}/setting-requests", post(ask_setting))
+        .route("/api/chats/{chat}/schedule-requests", post(ask_schedule))
+        .route("/api/chats/{chat}/release-requests", post(ask_release))
+        .route("/api/chats/{chat}/doc-requests", post(ask_doc))
+        .route("/api/chats/{chat}/issue-requests", post(offer_issue))
+        .route("/api/chats/{chat}/move-requests", post(ask_move))
+}
+
+/// `POST /api/chats/:chat/move-requests` {move: {ids, status?, assignee?}, project?, why?} → 201 the message (ORR-1100):
+/// the chat's `move_issues`. Moved at once when the owner's last message names them or was sent from their page, the
+/// message then saying so, with `Orrery-Urgent` for those it made urgent open work; else kept as a request (`move`) the
+/// owner allows or denies on the chat's page.
+async fn ask_move(State(app): Shared, Path(chat): Path<String>, headers: HeaderMap, body: Bytes) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    let mut chats = Chats::new(&mut conn);
+    chats.outbox = Some(Outbox::new(actor_of(&headers)));
+    let moved = chats.ask_move(&chat, &body_of(&body)).await;
+    let mut effects = std::mem::take(&mut chats.effects);
+    let moved = moved?;
+    crate::work::chats::absorb(&mut effects, moved.set_off);
+    let mut response = reply(StatusCode::CREATED, Some(moved.message), effects);
+    if !moved.urgent.is_empty() {
+        let encode = |s: &str| utf8_percent_encode(s, NON_ALPHANUMERIC).to_string();
+        let project = moved.project;
+        let said = moved.urgent.iter().map(|id| format!("{} {}", encode(&project), encode(id))).collect::<Vec<_>>().join(", ");
+        response.headers_mut().insert("orrery-urgent", HeaderValue::from_str(&said).unwrap());
+    }
+    Ok(response)
+}
+
+/// `POST /api/chats/:chat/issue-requests` {issue, project?, why?} → 201 the message offering (ORR-1100): the chat's
+/// `offer_issue`, kept as an offer the owner files or doesn't on the chat's page.
+async fn offer_issue(State(app): Shared, Path(chat): Path<String>, headers: HeaderMap, body: Bytes) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    let mut chats = Chats::new(&mut conn);
+    chats.outbox = Some(Outbox::new(actor_of(&headers)));
+    let offered = chats.ask_issue(&chat, &body_of(&body)).await?;
+    Ok(reply(StatusCode::CREATED, Some(offered), std::mem::take(&mut chats.effects)))
+}
+
+/// `POST /api/chats/:chat/doc-requests` {doc, id?, project?, why?} → 201 the message asking (ORR-1100): the chat's
+/// `create_doc` and `update_doc`, kept as a request the owner allows or denies on the chat's page.
+async fn ask_doc(State(app): Shared, Path(chat): Path<String>, headers: HeaderMap, body: Bytes) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    let mut chats = Chats::new(&mut conn);
+    chats.outbox = Some(Outbox::new(actor_of(&headers)));
+    let asked = chats.ask_doc(&chat, &body_of(&body)).await?;
+    Ok(reply(StatusCode::CREATED, Some(asked), std::mem::take(&mut chats.effects)))
+}
+
+/// `POST /api/chats/:chat/release-requests` {release, version?, project?, why?} → 201 the message asking (ORR-1100): the
+/// chat's `create_release` and `update_release`, kept as a request the owner allows or denies on the chat's page.
+async fn ask_release(State(app): Shared, Path(chat): Path<String>, headers: HeaderMap, body: Bytes) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    let mut chats = Chats::new(&mut conn);
+    chats.outbox = Some(Outbox::new(actor_of(&headers)));
+    let asked = chats.ask_release(&chat, &body_of(&body)).await?;
+    Ok(reply(StatusCode::CREATED, Some(asked), std::mem::take(&mut chats.effects)))
+}
+
+/// `POST /api/chats/:chat/replies` {text} → 201 the message (ORR-1101): the chat's session answering, for the Rust
+/// /mcp's `reply`. Only that session's: it's a chat (`Orrery-Actor-Kind`), started for this one (`Orrery-Launch`).
+async fn reply_in_chat(State(app): Shared, Path(chat): Path<String>, headers: HeaderMap, body: Bytes) -> Result<Response> {
+    let launch = crate::request::header(&headers, "orrery-launch");
+    if !actor_of(&headers).chat || launch.as_deref() != Some(chat.as_str()) {
+        return Err(crate::error::ApiError::forbidden("Only the chat's own session answers in it"));
+    }
+    let mut conn = app.pool.acquire().await?;
+    let mut chats = Chats::new(&mut conn);
+    chats.outbox = Some(Outbox::new(actor_of(&headers)));
+    let said = chats.reply(&chat, &body_of(&body)).await?;
+    Ok(reply(StatusCode::CREATED, Some(said), std::mem::take(&mut chats.effects)))
+}
+
+/// `POST /api/chats/:chat/schedule-requests` {schedule, id?, project?, why?} → 201 the message asking (ORR-1100): the
+/// chat's `create_schedule` and `update_schedule`, kept as a request the owner allows or denies on the chat's page.
+async fn ask_schedule(State(app): Shared, Path(chat): Path<String>, headers: HeaderMap, body: Bytes) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    let mut chats = Chats::new(&mut conn);
+    chats.outbox = Some(Outbox::new(actor_of(&headers)));
+    let asked = chats.ask_schedule(&chat, &body_of(&body)).await?;
+    Ok(reply(StatusCode::CREATED, Some(asked), std::mem::take(&mut chats.effects)))
+}
+
+/// `POST /api/chats/:chat/setting-requests` {setting, value, why?} → 201 the message asking (ORR-1100): the chat's
+/// `update_settings`, kept as a request the owner allows or denies on the chat's page.
+async fn ask_setting(State(app): Shared, Path(chat): Path<String>, headers: HeaderMap, body: Bytes) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    let mut chats = Chats::new(&mut conn);
+    chats.outbox = Some(Outbox::new(actor_of(&headers)));
+    let asked = chats.ask_setting(&chat, &body_of(&body)).await?;
+    Ok(reply(StatusCode::CREATED, Some(asked), std::mem::take(&mut chats.effects)))
+}
+
+async fn add_message(State(app): Shared, Path(chat): Path<String>, headers: HeaderMap, body: Bytes) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    let mut chats = Chats::new(&mut conn);
+    chats.outbox = Some(Outbox::new(actor_of(&headers)));
+    let said = chats.add_message(&chat, &body_of(&body)).await?;
+    Ok(reply(StatusCode::CREATED, Some(said), std::mem::take(&mut chats.effects)))
+}
+
+async fn change_message(State(app): Shared, Path((chat, message)): Path<(String, String)>, headers: HeaderMap, body: Bytes) -> Result<Response> {
+    let Ok(id) = message.parse::<i64>() else { return Err(crate::error::ApiError::not_found(format!("No message {message} in chat {chat}"))) };
+    let mut conn = app.pool.acquire().await?;
+    let mut chats = Chats::new(&mut conn);
+    chats.outbox = Some(Outbox::new(actor_of(&headers)));
+    let changed = chats.change_message(&chat, id, &body_of(&body)).await?;
+    Ok(reply(StatusCode::OK, Some(changed), std::mem::take(&mut chats.effects)))
+}
+
+async fn list_chats(State(app): Shared) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    Ok(Json(Chats::new(&mut conn).list().await?).into_response())
+}
+
+async fn keep_chat(State(app): Shared, Path(chat): Path<String>, headers: HeaderMap, body: Bytes) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    let mut chats = Chats::new(&mut conn);
+    chats.outbox = Some(Outbox::new(actor_of(&headers)));
+    chats.keep(&chat, &body_of(&body)).await?;
+    Ok(reply(StatusCode::NO_CONTENT, None, std::mem::take(&mut chats.effects)))
+}
+
+async fn forget_chat(State(app): Shared, Path(chat): Path<String>, headers: HeaderMap) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    let mut chats = Chats::new(&mut conn);
+    chats.outbox = Some(Outbox::new(actor_of(&headers)));
+    chats.forget(&chat).await?;
+    Ok(reply(StatusCode::NO_CONTENT, None, std::mem::take(&mut chats.effects)))
+}
+
+async fn get_chat(State(app): Shared, Path(chat): Path<String>) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    Ok(Json(Chats::new(&mut conn).get(&chat).await?).into_response())
+}
+
+#[cfg(test)]
+#[path = "chats_tests.rs"]
+mod tests;

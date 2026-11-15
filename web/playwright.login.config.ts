@@ -3,6 +3,7 @@
 // and a phone signed in by App settings' QR link on its own port (ORR-845).
 import {defineConfig, devices} from '@playwright/test'
 import {e2ePort} from './e2e-port'
+import {apiBuild, serverTimeout} from './e2e-api'
 
 const port = e2ePort(3600)
 // The phone's own port (ORR-837), always asking for a login: 1000 above, as compose puts it beside ORRERY_PORT.
@@ -16,16 +17,16 @@ export default defineConfig({
     outputDir: 'test-results-login',
     use: {baseURL: `http://localhost:${port}`, trace: 'retain-on-failure', ...devices['Desktop Chrome']},
     webServer: {
-        command: `rm -f node_modules/.cache/nuxt/dev-server.json .data/e2e-login.db .data/e2e-login.db-* .data/e2e-login.db.backups.json && nuxt dev --port ${port}`,
+        command: `rm -f node_modules/.cache/nuxt/dev-server.json .data/e2e-login.db .data/e2e-login.db-* && ${apiBuild}nuxt dev --port ${port}`,
         // Its address is given (`ORRERY_PHONE_URL`, as for a VPN's name), so the QR link goes to this machine's phone port
         // whatever networks the machine running the tests is on.
         env: {
-            NUXT_DATABASE: '.data/e2e-login.db', NUXT_BACKUP_DIR: '', NUXT_UPDATE_CHECK: 'false', ORRERY_AUTH: 'on',
+            NUXT_DATABASE: '.data/e2e-login.db', NUXT_UPDATE_CHECK: 'false', ORRERY_AUTH: 'on',
             ORRERY_PHONE_PORT: String(phonePort), NUXT_PHONE_URL: `http://localhost:${phonePort}`,
         },
         // Not a route that asks for a login, which answers 503 until someone claims the server.
         url: `http://localhost:${port}/api/auth/status`,
         reuseExistingServer: false,
-        timeout: 180_000,
+        timeout: serverTimeout(180_000),
     },
 })

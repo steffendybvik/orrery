@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type {Session, SessionWork} from '#shared/roadmap'
-import {cutOffLabel} from '#shared/roadmap'
+import {asksQuestion, cutOffLabel} from '#shared/roadmap'
 import {olderVersion} from '#shared/version'
 
 // One Claude session on the Sessions page. Its name, then one quiet line, wrapping as text does: what it's doing and since when, its time
@@ -9,7 +9,7 @@ import {olderVersion} from '#shared/version'
 // a Stop that ends it through the channel, as one nothing can reach isn't listed (ORR-716). A listening one takes a message. Then what it's on now (`work`,
 // on `project`): its issues in progress, the rest it worked folded under them, and the latest thing it was sent, the
 // rest folded too. One that hears other projects too says which: listed across projects (`spans`), every project it
-// hears as a chip, or All projects. `lit` marks the one a link pointed at. On a phone the buttons take a row of their
+// hears as a chip, or All projects; a global one says it has no project of its own. `lit` marks the one a link pointed at. On a phone the buttons take a row of their
 // own under the name, so it isn't cut to a few letters (ORR-828).
 const props = defineProps<{session: Session, project: string, work?: SessionWork, lit?: boolean, spans?: boolean}>()
 const {who} = useOwner()
@@ -92,13 +92,17 @@ const behind = computed(() => props.session.listening && olderVersion(props.sess
           </template>
         </div>
         <p class="min-w-0 text-xs text-faint *:mr-1.5">
-          <span class="whitespace-nowrap" :class="session.state === 'waiting' && 'text-rose-700 dark:text-rose-400'" :title="`Up since ${ago(session.started_at)}`">{{ SESSION_STATE[session.state] }} · {{ ago(session.since) }}</span>
+          <span class="whitespace-nowrap" :class="session.state === 'waiting' && 'text-rose-700 dark:text-rose-400'" :title="`Up since ${ago(session.started_at)}`">{{ stateLabel(session) }} · {{ ago(session.since) }}</span>
           <span v-if="session.cut_off" class="text-amber-800 dark:text-amber-400" data-testid="session-cut-off">· {{ cutOffLabel(session.cut_off) }}<template v-if="session.cut_off.text">: {{ session.cut_off.text }}</template></span>
-          <span v-if="session.state === 'waiting' && session.asking" class="inline-flex max-w-full min-w-0 items-baseline gap-1" :title="session.asking.detail">
+          <span v-if="asksQuestion(session) && session.asking?.questions?.length" class="min-w-0 max-w-80 truncate text-muted" :title="session.asking.questions.map(q => q.question).join('\n')" data-question>
+            · {{ session.asking.questions[0]!.question }}
+          </span>
+          <span v-else-if="session.state === 'waiting' && session.asking && !asksQuestion(session)" class="inline-flex max-w-full min-w-0 items-baseline gap-1" :title="session.asking.detail">
             · for <span class="text-muted">{{ toolLabel(session.asking.name) }}</span>
             <span v-if="session.asking.detail" class="max-w-80 truncate font-mono text-[11px] text-muted">{{ session.asking.detail }}</span>
           </span>
           <span v-if="left" class="whitespace-nowrap" :title="session.started?.stops_at && `orrery started it; it stops at ${new Date(session.started.stops_at).toLocaleTimeString()}, or once it's done after that`">· {{ left }}</span>
+          <span v-if="session.started?.global" class="whitespace-nowrap" title="A global session: it hears every project, and a call names the one it's for (ORR-1079)">· global, no project of its own</span>
           <span v-if="folder" class="whitespace-nowrap" :title="session.cwd">· in <span class="font-mono">{{ folder }}/</span></span>
           <span v-if="session.started?.context">· with <span class="text-muted" :title="session.started.context.text">{{ contextLabel(session.started.context) }}</span></span>
           <NuxtLink v-if="appSettings.advanced" :to="{path: '/context', query: {project, session: session.id}}" class="whitespace-nowrap underline-offset-2 hover:text-fg hover:underline" title="What orrery puts into its context, part by part, with sizes">· Context</NuxtLink>

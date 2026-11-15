@@ -11,8 +11,8 @@ import {signalWords} from '../../channel/signal-words.mjs'
 import {guideParts} from '../../channel/guide-sections.mjs'
 import {chatBrief} from '../server/utils/chats'
 import {signalPayload} from '../server/utils/signal-payload'
-import {Store} from '../server/utils/store'
-import {testDb} from './db'
+import type {Store} from '../server/utils/store'
+import {apiStore} from './api'
 
 // How much context orrery adds to a session (ORR-548): what Claude carries on every turn (the tool list, the server's
 // instructions) and what each signal brings. Sizes are in characters (a token is about four). Each budget is set just
@@ -27,11 +27,11 @@ describe('the tool list a session carries on every turn', () => {
         // The chat's planning reads (milestones, presets, preset, schedules) are the chat's alone (ORR-544).
         // A work session's rarer tools (asking for a schedule, secrets and egress, the event log, rating a PR) wait behind more_tools
         // (ORR-625), and come in its list once it asks for their group.
-        const work = ['issues', 'issue', 'create_issue', 'update_issue', 'start_issue', 'finish_issue', 'comment', 'releases', 'docs', 'doc',
+        const work = ['issues', 'issue', 'create_issue', 'update_issue', 'start_issue', 'next', 'finish_issue', 'comment', 'releases', 'docs', 'doc',
             'write_doc', 'sessions', 'guide']
         expect(tools(['greenhouse']).map(t => t.name)).toEqual([...work, 'more_tools'])
         expect(tools(['greenhouse'], {loaded: ['schedules', 'secrets', 'debug', 'review']}).map(t => t.name)).toEqual(['issues', 'issue', 'create_issue',
-            'update_issue', 'start_issue', 'finish_issue', 'rate_pull', 'comment', 'releases', 'docs', 'doc', 'write_doc', 'sessions', 'secrets', 'egress',
+            'update_issue', 'start_issue', 'next', 'finish_issue', 'rate_pull', 'comment', 'releases', 'docs', 'doc', 'write_doc', 'sessions', 'secrets', 'egress',
             'events', 'guide', 'resolve_event', 'create_schedule', 'update_schedule', 'more_tools'])
         expect(tools(['greenhouse'], {loaded: ['debug']}).map(t => t.name)).toEqual([...work.slice(0, -1), 'events', 'guide', 'resolve_event', 'more_tools'])
         // An untrusted one has only what orrery lets it do: read, raise proposals and comment on them, and read GitHub issues.
@@ -47,14 +47,17 @@ describe('the tool list a session carries on every turn', () => {
         // issue's GitHub issues (ORR-635) added about 140 to each, a doc's past (ORR-675) about 130, writing an artifact (ORR-677) about 95, and
         // the guide's section (ORR-848) about 65, which saves a session most of the 39,000 the guide sent whole. An issue's
         // epic (ORR-895) about 155, its tools waiting behind more_tools, and about 80 on an untrusted run, which has none of them.
-        expect(size(tools(['greenhouse']))).toBeLessThanOrEqual(6_630)
-        expect(size(tools(['greenhouse', 'pantry']))).toBeLessThanOrEqual(7_515)
-        expect(size(tools(['greenhouse'], {loaded: ['schedules', 'secrets', 'debug']}))).toBeLessThanOrEqual(9_260)
+        // Asking for its next issue (`next`, ORR-521) about 140, on a work session only. Linking its folder (ORR-1071) about
+        // 60, its tool waiting behind more_tools.
+        expect(size(tools(['greenhouse']))).toBeLessThanOrEqual(6_830)
+        expect(size(tools(['greenhouse', 'pantry']))).toBeLessThanOrEqual(7_715)
+        expect(size(tools(['greenhouse'], {loaded: ['schedules', 'secrets', 'debug']}))).toBeLessThanOrEqual(9_460)
         expect(size(tools(['greenhouse'], {untrusted: true}))).toBeLessThanOrEqual(4_860)
         // The chat's fell from about 20,100 when its requests went behind request (ORR-624), reading GitHub (ORR-748) added about 1,500, and its own docs, egress and event log (ORR-750) about 1,900,
-        // reading the epics (ORR-895) about 290, and writing epics and milestones itself instead of asking (ORR-988) about 1,700.
-        expect(size(tools(['greenhouse'], {chat: true}))).toBeLessThanOrEqual(14_680)
-        expect(size(tools(['greenhouse', 'pantry'], {chat: true}))).toBeLessThanOrEqual(16_450)
+        // reading the epics (ORR-895) about 290, writing epics and milestones itself instead of asking (ORR-988) about 1,700,
+        // and moving issues on another project (ORR-1063) about 55.
+        expect(size(tools(['greenhouse'], {chat: true}))).toBeLessThanOrEqual(14_740)
+        expect(size(tools(['greenhouse', 'pantry'], {chat: true}))).toBeLessThanOrEqual(16_510)
     })
 
     it('has no description, of a tool or of its arguments, longer than a short paragraph', () => {
@@ -89,6 +92,18 @@ describe("the server's instructions a session carries on every turn", () => {
         expect(instructionsFor({base, serves: 'project "greenhouse"'})).not.toContain('HUB-12')
         expect(instructionsFor({base, serves: 'projects "greenhouse", "pantry"', several: true})).toContain('HUB-12')
     })
+
+    it('offer to link a folder linked to no project (ORR-1071), in a line', () => {
+        expect(instructionsFor({base, serves: 'every project on it', several: true, unlinked: true})).toContain('link_folder')
+        expect(instructionsFor({base, serves: 'every project on it', several: true})).not.toContain('link_folder')
+    })
+
+    it('tell a global session it has no project of its own (ORR-1079), in a line', () => {
+        const global = instructionsFor({base, serves: 'every project on it', several: true, global: true})
+        expect(global).toContain('This is a global session')
+        expect(size(global)).toBeLessThanOrEqual(1_400)
+        expect(instructionsFor({base, serves: 'every project on it', several: true})).not.toContain('global session')
+    })
 })
 
 describe('what a search brings', () => {
@@ -108,7 +123,7 @@ describe('what a signal brings', () => {
     let store: Store
 
     beforeEach(async () => {
-        store = new Store(testDb())
+        store = await apiStore()
         await store.createProject({name: 'shop', key: 'SHO', release_mode: 'own'}, me)
         await store.createIssue('shop', {title: 'Pay with cards', priority: 'P2', status: 'todo', notes: 'Card payments at the till.'}, me)
         vi.stubGlobal('useScheduler', () => ({get: async () => ({id: 7, title: 'Nightly triage'})}))
@@ -141,7 +156,7 @@ describe('what a big milestone brings', () => {
     let milestone: string
 
     beforeEach(async () => {
-        store = new Store(testDb())
+        store = await apiStore()
         await store.createProject({name: 'shop', key: 'SHO', release_mode: 'own'}, me)
         milestone = (await store.createMilestone('shop', {title: 'Taking payments'})).id
         for (let n = 1; n <= 50; n++) await store.createIssue('shop', {title: `Take card payment number ${n} at the till`, priority: 'P2', status: 'todo', milestone}, me)

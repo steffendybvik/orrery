@@ -38,7 +38,7 @@ const fold = (column: Column) => unfolded.value = unfolded.value.includes(column
         <span class="font-mono text-lg font-medium tabular-nums" :style="{color: readable(look(column).color)}">{{ inColumn.length }}</span>
         {{ inColumn.length === 1 ? 'milestone' : 'milestones' }} {{ look(column).label.toLowerCase() }}
       </button>
-      <div v-else class="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto pb-4">
+      <div v-else class="clear-agent flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto">
         <MilestoneCard
             v-for="milestone in inColumn"
             :key="milestone.id || 'none'"

@@ -43,7 +43,7 @@ export function heardScope({event, cause}: {event: OrreryEvent, cause?: unknown}
 }
 
 /** Tells the session on each started issue the changes reach, one message a session. Says how many were sent. */
-export async function tellScope(project: string, changes: Change[]): Promise<number> {
+async function tellScope(project: string, changes: Change[]): Promise<number> {
     const store = useStore()
     const board = await store.listIssues(project)
     const byId = new Map(board.map(issue => [issue.id, issue]))

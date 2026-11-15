@@ -1,77 +1,53 @@
 import {beforeEach, describe, expect, it} from 'vitest'
 import type {LoggedEvent} from '#shared/roadmap'
-import {describe as describeChange, EventLog, KEEP_INFO, KEEP_PROBLEMS, redact, refusal} from '../server/utils/event-log'
+import {describe as describeChange, EventLog, HOLD, redact, refusal} from '../server/utils/event-log'
+import {writeToApi} from '../server/utils/api-router'
+import {ORRERY} from '../server/store/schema'
 import {Store} from '../server/utils/store'
+import {apiTestDb, withApi} from './api'
 import {testDb} from './db'
+import type {StandIn} from './log-stand-in'
+import {standInApi} from './log-stand-in'
 
-const owner = {name: 'skoll', owner: true}
-let store: Store
+// The log makes a line here and sends it to the Rust API, its one writer (ORR-1088); this server opens no database for
+// it (ORR-1135). What the API does with a line (repeats, caps, pruning) is cargo's to test (routes/event_log_tests.rs):
+// here a stand-in API keeps what it's sent, and one test sends to the real one.
+
+const scrubbed = async () => (text: string) => text.replaceAll('sk-live-123', '{{secret:STRIPE}}')
+
+let api: StandIn
 let log: EventLog
 let now: Date
-let heard: {event: LoggedEvent, fresh: boolean}[]
 
 beforeEach(() => {
-    store = new Store(testDb())
+    api = standInApi()
     now = new Date('2026-10-27T12:00:00Z')
-    heard = []
-    log = new EventLog(store.db, async () => text => text.replaceAll('sk-live-123', '{{secret:STRIPE}}'), (event, fresh) => heard.push({event, fresh}), () => now)
+    log = new EventLog(scrubbed, () => now, api.send)
 })
-
-const later = (ms: number) => {
-    now = new Date(now.getTime() + ms)
-}
 
 describe('the event log', () => {
     it('records errors always, what orrery did only while Advanced is on', async () => {
-        await store.updateSettings({advanced: false}, owner)
+        api.advanced = false
         expect(await log.record({level: 'info', kind: 'session.started', project: 'hub', message: 'Started a session'})).toBeNull()
         expect(await log.record({level: 'warn', kind: 'session.refused', message: 'At the limit'})).toBeNull()
-        expect(await log.record({level: 'error', kind: 'server.error', message: 'boom'})).toMatchObject({level: 'error', kind: 'server.error', count: 1})
+        expect(await log.record({level: 'error', kind: 'server.error', message: 'boom'})).toMatchObject({level: 'error', kind: 'server.error'})
 
-        await store.updateSettings({advanced: true}, owner)
+        api.advanced = true
         log.forget()
-        expect((await store.settings()).advanced).toBe(true)
-        expect(await log.record({level: 'info', kind: 'session.started', project: 'hub', message: 'Started a session'})).toMatchObject({project: 'hub', count: 1})
-        expect((await log.list()).map(e => e.kind)).toEqual(['session.started', 'server.error'])
+        expect(await log.record({level: 'info', kind: 'session.started', project: 'hub', message: 'Started a session'})).toMatchObject({project: 'hub'})
+        expect(api.lines.map(e => e.kind)).toEqual(['server.error', 'session.started'])
     })
 
-    it('has Advanced on in an orrery that never set it (ORR-578)', async () => {
-        expect((await store.settings()).advanced).toBe(true)
-        expect(await log.record({level: 'info', kind: 'session.started', project: 'hub', message: 'Started a session'})).toMatchObject({kind: 'session.started'})
-    })
-
-    it('writes a repeat as a line of its own, but as no news until it is resolved', async () => {
-        const first = await log.record({level: 'error', kind: 'page.error', message: 'x is undefined', details: {page: '/now'}})
-        later(1000)
-        const again = await log.record({level: 'error', kind: 'page.error', message: 'x is undefined', details: {page: '/mine'}})
-        expect(again).toMatchObject({count: 1, first_seen: now.toISOString(), details: {page: '/mine'}})
-        expect(again?.id).not.toBe(first?.id)
-        expect(heard.map(h => h.fresh)).toEqual([true, false])
-
-        // In another project, or another message, it's news.
-        await log.record({level: 'error', kind: 'page.error', project: 'hub', message: 'x is undefined'})
-        expect(heard.at(-1)?.fresh).toBe(true)
-
-        // Resolving one resolves its repeats, and the next is news again.
-        const resolved = await log.resolve(first?.id ?? 0)
-        expect(resolved.resolved_at).toBe(now.toISOString())
-        expect((await log.list({open: true})).map(e => e.project)).toEqual(['hub'])
+    it('tells the schedules of a line only when it is news', async () => {
+        const ran: unknown[] = []
+        log.happened = event => ran.push(event)
         await log.record({level: 'error', kind: 'page.error', message: 'x is undefined'})
-        expect(heard.at(-1)?.fresh).toBe(true)
-    })
-
-    it('keeps who resolved it when that was an agent, for it and its repeats, and the first resolver only', async () => {
-        const first = await log.record({level: 'error', kind: 'server.error', message: 'boom'})
-        later(1000)
-        await log.record({level: 'error', kind: 'server.error', message: 'boom'})
-        const resolved = await log.resolve(first?.id ?? 0, {name: 'claude', owner: false})
-        expect(resolved).toMatchObject({resolved_at: now.toISOString(), resolved_by: 'claude'})
-        expect((await log.list()).map(e => e.resolved_by)).toEqual(['claude', 'claude'])
-        // Resolving it again changes nothing; the owner's own resolving names nobody.
-        later(1000)
-        expect(await log.resolve(first?.id ?? 0, owner)).toMatchObject({resolved_by: 'claude'})
-        const other = await log.record({level: 'error', kind: 'server.error', message: 'bang'})
-        expect(await log.resolve(other?.id ?? 0, owner)).not.toHaveProperty('resolved_by')
+        await log.record({level: 'error', kind: 'page.error', message: 'x is undefined'})
+        expect(ran).toEqual([{type: 'page.error', level: 'error', subject: 'event 1'}])
+        // What orrery did is news each time.
+        await log.record({level: 'info', kind: 'backup.made', message: 'Backed up'})
+        await log.record({level: 'info', kind: 'backup.made', message: 'Backed up'})
+        expect(ran).toHaveLength(3)
     })
 
     it('keeps secrets, passwords and tokens out', async () => {
@@ -92,90 +68,57 @@ describe('the event log', () => {
 
     it('reads Advanced and the secrets once, and again only once told they changed', async () => {
         let made = 0
-        const counted = new EventLog(store.db, async () => {
+        const counted = new EventLog(async () => {
             made++
             return text => text
-        })
-        await store.updateSettings({advanced: false}, owner)
+        }, () => now, api.send)
+        api.advanced = false
         await counted.record({level: 'error', kind: 'server.error', message: 'one'})
         await counted.record({level: 'error', kind: 'server.error', message: 'two'})
         expect(made).toBe(1)
         expect(await counted.record({level: 'info', kind: 'backup.made', message: 'Backed up'})).toBeNull()
 
-        await store.updateSettings({advanced: true}, owner)
+        api.advanced = true
         expect(await counted.record({level: 'info', kind: 'backup.made', message: 'Backed up'})).toBeNull()
         counted.forget()
         expect(await counted.record({level: 'info', kind: 'backup.made', message: 'Backed up'})).toMatchObject({kind: 'backup.made'})
         expect(made).toBe(2)
+        expect(api.sent.filter(s => s.path === '/api/settings')).toHaveLength(2)
     })
 
-    it('lists by level, kind, project and time, newest first', async () => {
-        await store.updateSettings({advanced: true}, owner)
-        log.forget()
-        await log.record({level: 'info', kind: 'launcher.connected', project: 'hub', message: 'A launcher connected'})
-        later(1000)
-        await log.record({level: 'info', kind: 'session.started', project: 'hub', message: 'Started a session'})
-        later(1000)
-        await log.record({level: 'warn', kind: 'session.refused', project: 'css', message: 'At the limit'})
-        later(1000)
-        const error = await log.record({level: 'error', kind: 'schedule.failed', project: 'hub', message: 'Groom: failed'})
-
-        expect((await log.list()).map(e => e.kind)).toEqual(['schedule.failed', 'session.refused', 'session.started', 'launcher.connected'])
-        expect((await log.list({level: 'warn,error'})).map(e => e.kind)).toEqual(['schedule.failed', 'session.refused'])
-        expect((await log.list({kind: 'session'})).map(e => e.kind)).toEqual(['session.refused', 'session.started'])
-        expect((await log.list({project: 'css'})).map(e => e.kind)).toEqual(['session.refused'])
-        expect((await log.list({since: new Date(now.getTime() - 1500).toISOString()})).map(e => e.kind)).toEqual(['schedule.failed', 'session.refused'])
-        await log.resolve(error?.id ?? 0)
-        expect((await log.list({level: 'error', open: true}))).toEqual([])
-        await expect(log.list({level: 'loud'})).rejects.toMatchObject({statusCode: 400})
-        // No level at all is no filter, and a kind's `_` is itself, not any one character.
-        expect(await log.list({level: ','})).toHaveLength(4)
-        await log.record({level: 'info', kind: 'launcher_x.gone', message: 'Gone'})
-        await log.record({level: 'info', kind: 'launcherx.gone', message: 'Gone'})
-        expect((await log.list({kind: 'launcher_x'})).map(e => e.kind)).toEqual(['launcher_x.gone'])
-        await expect(log.record({level: 'error', kind: 'Not A Kind', message: 'x'})).rejects.toMatchObject({statusCode: 400})
-        await expect(log.resolve(9999)).rejects.toMatchObject({statusCode: 404})
-    })
-
-    it('records each change to the roadmap as a row of its own, while Advanced is on', async () => {
+    it('sends each change to the roadmap as a line of its own, while Advanced is on', async () => {
         const moved = {type: 'issue.status', project: 'hub', subject: 'HUB-1', by: {name: 'claude', owner: false}, from: 'todo', to: 'done'}
-        await store.updateSettings({advanced: false}, owner)
-        log.forget()
+        api.advanced = false
         expect(await log.activity(moved)).toBeNull()
 
-        await store.updateSettings({advanced: true}, owner)
+        api.advanced = true
         log.forget()
         const first = await log.activity(moved, 7)
-        expect(first).toMatchObject({level: 'info', kind: 'issue.status', project: 'hub', subject: 'HUB-1', count: 1,
+        expect(first).toMatchObject({level: 'info', kind: 'issue.status', project: 'hub', subject: 'HUB-1',
             message: 'claude moved HUB-1: todo → done', details: {by: 'claude', owner: false, from: 'todo', to: 'done', schedule: 7}})
         expect((await log.activity(moved))?.id).not.toBe(first?.id)
-        expect(heard.map(h => h.fresh)).toEqual([true, true])
-        await log.activity({type: 'comment.added', project: 'hub', subject: 'HUB-2', by: {name: 'skoll', owner: true}})
-
-        expect((await log.list({subject: 'HUB-1'})).map(e => e.kind)).toEqual(['issue.status', 'issue.status'])
-        expect((await log.list({kind: 'comment'})).map(e => e.message)).toEqual(['skoll commented on HUB-2'])
+        expect(api.sent.at(-1)?.body).toMatchObject({activity: true})
     })
 
     it('takes the changes as the store says them, with no text an outsider wrote', async () => {
-        await store.updateSettings({advanced: true}, owner)
-        log.forget()
+        const store = new Store(testDb())
         const said: Promise<unknown>[] = []
         store.happened = event => said.push(log.activity(event))
+        const owner = {name: 'skoll', owner: true}
         await store.createProject({name: 'hub', key: 'HUB'})
         const issue = await store.createIssue('hub', {title: 'Secret plans', notes: 'sk-live-123'}, owner)
         await store.updateIssue('hub', issue.id, {status: 'in-progress', title: 'Other plans', notes: 'more'}, {name: 'claude', owner: false})
         await store.createComment('hub', issue.id, {body: 'hello'}, {name: 'claude', owner: false})
         await Promise.all(said)
 
-        const rows = await log.list({subject: issue.id})
-        expect(rows.map(e => e.message).toReversed()).toEqual([
+        expect(api.lines.filter(e => e.subject === issue.id).map(e => e.message)).toEqual([
             `skoll made ${issue.id}`,
             `claude changed ${issue.id}'s title`,
             `claude moved ${issue.id}: backlog → in-progress`,
             `claude changed ${issue.id}'s notes`,
             `claude commented on ${issue.id}`,
         ])
-        expect(JSON.stringify(rows)).not.toMatch(/Secret|Other plans|sk-live|hello|more/)
+        expect(JSON.stringify(api.sent)).not.toMatch(/Secret|Other plans|sk-live|hello|more/)
     })
 
     it('says a change in a line', () => {
@@ -208,38 +151,88 @@ describe('the event log', () => {
     it("tells the schedules an untrusted session's refusal is its, so none runs on it", async () => {
         const told: {untrusted?: boolean}[] = []
         log.happened = event => told.push(event)
+        api.advanced = false
         await log.record({level: 'warn', kind: 'request.refused', message: 'Refused', untrusted: true})
-        await store.updateSettings({advanced: true}, owner)
+        api.advanced = true
         log.forget()
         await log.record({level: 'warn', kind: 'request.refused', message: 'Refused again', untrusted: true})
         await log.record({level: 'warn', kind: 'request.refused', message: 'Refused the owner'})
         expect(told.map(event => !!event.untrusted)).toEqual([true, true, false])
     })
 
-    it('caps the changes to the roadmap apart from the rest, so they cannot push an error out', async () => {
-        await store.updateSettings({advanced: true}, owner)
-        log.forget()
-        await log.record({level: 'error', kind: 'server.error', message: 'boom'})
-        // Past the cap, written straight in: 5000 through activity() would be slow.
-        const at = now.toISOString()
-        await store.db.run(`WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 5002)
-            INSERT INTO events (level, kind, project, subject, message, count, first_seen, last_seen)
-            SELECT 'info', 'issue.status', 'hub', 'HUB-' || i, 'moved', 1, ?, ? FROM n`, at, at)
-        expect(await log.prune()).toBe(2)
-        expect(await log.list({level: 'error'})).toHaveLength(1)
-        expect(await log.list({kind: 'issue', limit: 1000})).toHaveLength(1000)
+    it('sends a finished line to the API, scrubbed, and prunes there (ORR-1088)', async () => {
+        const event = await log.record({level: 'error', kind: 'server.error', project: 'hub', message: 'Paid with sk-live-123', details: {stack: 'at sk-live-123'}})
+        expect(event).toMatchObject({id: 1, kind: 'server.error'})
+        expect(api.sent).toEqual([{method: 'PUT', path: '/api/events/log/lines', body: {level: 'error', kind: 'server.error', project: 'hub',
+            message: 'Paid with {{secret:STRIPE}}', details: {stack: 'at {{secret:STRIPE}}'}}}])
+        expect(await log.prune()).toBe(3)
     })
 
-    it('lets go of what orrery did after a week, problems after a month', async () => {
-        await store.updateSettings({advanced: true}, owner)
-        log.forget()
-        await log.record({level: 'info', kind: 'backup.made', message: 'Backed up'})
-        await log.record({level: 'error', kind: 'backup.failed', message: 'Disk full'})
-        later(KEEP_INFO + 1000)
-        expect(await log.prune()).toBe(1)
-        expect((await log.list()).map(e => e.kind)).toEqual(['backup.failed'])
-        later(KEEP_PROBLEMS)
-        expect(await log.prune()).toBe(1)
-        expect(await log.list()).toEqual([])
+    it("holds what's said while the API can't be reached, and says it once it answers (ORR-1135)", async () => {
+        api.down = true
+        const ran: unknown[] = []
+        log.happened = event => ran.push(event)
+        expect(await log.record({level: 'error', kind: 'api.unreachable', message: 'Gone', details: {why: 'unreachable'}})).toBeNull()
+        later(1000)
+        expect(await log.activity({type: 'issue.status', project: 'hub', subject: 'HUB-1', from: 'todo', to: 'done'})).toBeNull()
+        expect(log.waiting).toBe(2)
+        expect(await log.prune()).toBe(0)
+        expect(ran).toEqual([])
+
+        // It answers: the next line says what was held first, oldest first, each with when it happened.
+        api.down = false
+        later(1000)
+        await log.record({level: 'error', kind: 'server.error', message: 'After'})
+        expect(log.waiting).toBe(0)
+        expect(api.lines.map(l => [l.kind, (l.details as {held?: string} | null)?.held])).toEqual([
+            ['api.unreachable', '2026-10-27T12:00:00.000Z'],
+            ['issue.status', '2026-10-27T12:00:01.000Z'],
+            ['server.error', undefined],
+        ])
+        expect(api.lines[0]?.details).toMatchObject({why: 'unreachable'})
+        // The schedules hear them now, as they're kept.
+        expect(ran).toHaveLength(2)
     })
+
+    it('holds a line with no API set up at all, and at most HOLD of them, saying how many went', async () => {
+        let set = false
+        const unset = new EventLog(scrubbed, () => now, async (...asked) => set ? await api.send(...asked) : undefined)
+        for (let i = 0; i < HOLD + 2; i++) await unset.record({level: 'error', kind: 'server.error', message: `boom ${i}`})
+        expect(unset.waiting).toBe(HOLD)
+        set = true
+        await unset.flush()
+        expect(api.lines[0]?.message).toBe('boom 2')
+        expect(api.lines.at(-1)).toMatchObject({level: 'warn', kind: 'events.dropped', details: {dropped: 2}})
+    })
+
+    it('lets go of a held line the API refuses, and says nothing of a refusal while it is up', async () => {
+        api.down = true
+        await log.record({level: 'error', kind: 'server.error', message: 'Held'})
+        api.down = false
+        api.refusing = Object.assign(new Error('"kind" is wrong'), {statusCode: 400})
+        const said = console.error
+        console.error = () => {}
+        try {
+            await log.flush()
+        } finally {
+            console.error = said
+        }
+        expect(log.waiting).toBe(0)
+        await expect(log.record({level: 'error', kind: 'server.error', message: 'Boom'})).rejects.toThrow('"kind" is wrong')
+        expect(log.waiting).toBe(0)
+    })
+
+    it('writes through the real API, which keeps it (ORR-1088)', async () => {
+        const store = new Store(apiTestDb())
+        await withApi(store)
+        const real = new EventLog(scrubbed, () => now, async (method, path, body) => (await writeToApi(method, path, body, ORRERY, {always: true}))?.reply)
+        const event = await real.record({level: 'error', kind: 'server.error', project: undefined, message: 'Paid with sk-live-123'})
+        expect(event).toMatchObject({kind: 'server.error', message: 'Paid with {{secret:STRIPE}}'})
+        const kept = (await writeToApi('GET', '/api/events/log', undefined, ORRERY, {always: true}))?.reply as LoggedEvent[]
+        expect(kept.map(e => e.message)).toEqual(['Paid with {{secret:STRIPE}}'])
+    }, 30_000)
 })
+
+function later(ms: number) {
+    now = new Date(now.getTime() + ms)
+}

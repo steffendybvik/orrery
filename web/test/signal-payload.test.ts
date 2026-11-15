@@ -1,7 +1,7 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 import {signalPayload} from '../server/utils/signal-payload'
-import {Store} from '../server/utils/store'
-import {testDb} from './db'
+import type {Store} from '../server/utils/store'
+import {apiStore} from './api'
 
 // What a signal says as its stream sends it to a session (ORR-500): a message (and whose schedule it is), a milestone focus
 // with its open issues (marking those another session is on), a focus with its prompt and a release's freeze, and
@@ -11,7 +11,7 @@ const api = 'http://orrery.test/api/projects/shop'
 let store: Store
 
 beforeEach(async () => {
-    store = new Store(testDb())
+    store = await apiStore()
     await store.createProject({name: 'shop', key: 'SHO', release_mode: 'own'}, me)
     await store.createRelease('shop', {version: '1.0', frozen_on: '2026-10-28'}, me)
     await store.createIssue('shop', {title: 'Pay with cards', priority: 'P2', status: 'todo'}, me)
