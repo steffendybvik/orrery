@@ -1512,34 +1512,31 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
             // Its messages are rows of their own (ORR-1100).
             for (const {id, at, ...message} of messages) await store.db.run('INSERT INTO chat_messages (chat, id, at, message) VALUES (?, ?, ?, ?)', chat.id, id, at, JSON.stringify(message))
         }
-        // The store's side is the chats module reading them back as orrery starts, with Nitro's globals stubbed.
-        vi.stubGlobal('useDatabase', () => store.db)
-        vi.stubGlobal('notFound', (await import('../server/utils/input')).notFound)
-        vi.resetModules()
-        const chats = await import('../server/utils/chats')
-        await chats.chatsLoaded()
-        const listed = await viaApi('GET', '/api/chats')
-        expect(listed.status).toBe(200)
-        expect(listed.body).toEqual(JSON.parse(JSON.stringify(chats.listChats())))
-        expect((listed.body as {id: string, project: string}[]).map(c => `${c.id} ${c.project}`)).toEqual(['c0ffee000002 through-api', 'c0ffee000003 through-api', 'c0ffee000001 through-store'])
-        for (const id of ['c0ffee000001', 'c0ffee000002']) expect((await viaApi('GET', `/api/chats/${id}`)).body, id).toEqual(JSON.parse(JSON.stringify(chats.readChat(id))))
-        let missing: unknown
-        try { chats.readChat('nope') } catch (error) { missing = (error as Error).message }
-        expect(await viaApi('GET', '/api/chats/nope')).toMatchObject({status: 404, body: {message: missing}})
-        // Read back as orrery starts with the API there, not the database (ORR-1142): the same chats, their messages'
-        // fields in the same order, so what's kept of each compares as the same text when the chat is heard again.
+        // The chats module reads them back as orrery starts, over HTTP alone (ORR-1142, ORR-1135), with Nitro's globals
+        // stubbed: the same chats, their messages' fields in the same order, so what's kept of each compares as the same
+        // text when the chat is heard again.
         vi.stubGlobal('useDatabase', () => { throw new Error('read from the database') })
         vi.stubGlobal('databaseSetting', () => setting)
+        vi.stubGlobal('notFound', (await import('../server/utils/input')).notFound)
         vi.resetModules()
         const router = await import('../server/utils/api-router')
         router.apiStarted({url, token: TOKEN})
         try {
-            const overHttp = await import('../server/utils/chats')
-            await overHttp.chatsLoaded()
-            expect(JSON.stringify(overHttp.listChats())).toBe(JSON.stringify(chats.listChats()))
+            const chats = await import('../server/utils/chats')
+            await chats.chatsLoaded()
+            const listed = await viaApi('GET', '/api/chats')
+            expect(listed.status).toBe(200)
+            expect(listed.body).toEqual(JSON.parse(JSON.stringify(chats.listChats())))
+            expect((listed.body as {id: string, project: string}[]).map(c => `${c.id} ${c.project}`)).toEqual(['c0ffee000002 through-api', 'c0ffee000003 through-api', 'c0ffee000001 through-store'])
+            // Each as it was kept, on the project its row names.
+            expect((listed.body as unknown[])[0]).toEqual({...rows[1], project: 'through-api'})
+            for (const id of ['c0ffee000001', 'c0ffee000002']) expect((await viaApi('GET', `/api/chats/${id}`)).body, id).toEqual(JSON.parse(JSON.stringify(chats.readChat(id))))
+            let missing: unknown
+            try { chats.readChat('nope') } catch (error) { missing = (error as Error).message }
+            expect(await viaApi('GET', '/api/chats/nope')).toMatchObject({status: 404, body: {message: missing}})
             const emitted: unknown[] = []
             vi.stubGlobal('projectEvents', {emit: (...args: unknown[]) => emitted.push(args)})
-            await overHttp.chatHeard('c0ffee000001')
+            await chats.chatHeard('c0ffee000001')
             expect(emitted, 'nothing new to hear').toEqual([])
         } finally {
             router.apiStarted(null)
@@ -1549,31 +1546,31 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         const row = (id: string) => store.db.get<{project: string, started_at: string, ended_at: string | null, chat: string}>('SELECT project, started_at, ended_at, chat FROM chats WHERE id = ?', id)
         const said = (id: string, project: string) => ({...kept(id, project, '2026-11-05T13:00:00.000Z'), project, problem: 'A launcher too old', ended: true, ended_at: '2026-11-05T13:10:00.000Z',
             messages: [{id: 9, from: 'owner', text: 'Ünïcode, "quotes" and a\nline', images: ['up1'], at: '2026-11-05T13:00:00.000Z'}]})
-        await chats.keepChat(store.db, said('c0ffee000010', 'through-store') as never)
         expect(await viaApi('PUT', '/api/chats/c0ffee000011', said('c0ffee000011', 'through-api'))).toMatchObject({status: 204, changed: [], told: []})
-        const [byStore, byApi] = [await row('c0ffee000010'), await row('c0ffee000011')]
-        expect(byApi!.chat).toBe(byStore!.chat.replace('c0ffee000010', 'c0ffee000011').replace('"project":"through-store"', '"project":"through-api"'))
-        expect(JSON.parse(byApi!.chat)).not.toHaveProperty('problem')
-        expect({...byApi, chat: undefined}).toEqual({...byStore, chat: undefined, project: 'through-api'})
+        // Kept as the module kept it when it wrote the row itself: the chat with neither its messages nor its problem,
+        // its fields in the order sent.
+        const {messages: _messages, problem: _problem, ...rowOf11} = said('c0ffee000011', 'through-api')
+        const byApi = await row('c0ffee000011')
+        expect(byApi!.chat).toBe(JSON.stringify(rowOf11))
+        expect({...byApi, chat: undefined}).toEqual({project: 'through-api', started_at: '2026-11-05T13:00:00.000Z', ended_at: '2026-11-05T13:10:00.000Z', chat: undefined})
         // Changed again: its project and start stay as first kept.
-        await chats.keepChat(store.db, {...said('c0ffee000010', 'through-api'), started_at: '2027-01-01T00:00:00.000Z'} as never)
         await viaApi('PUT', '/api/chats/c0ffee000011', {...said('c0ffee000011', 'through-store'), started_at: '2027-01-01T00:00:00.000Z'})
-        expect([(await row('c0ffee000010'))!.project, (await row('c0ffee000011'))!.project]).toEqual(['through-store', 'through-api'])
+        expect((await row('c0ffee000011'))!.project).toBe('through-api')
         expect((await row('c0ffee000011'))!.started_at).toBe('2026-11-05T13:00:00.000Z')
         expect(await viaApi('PUT', '/api/chats/c0ffee000011', {id: 'another', project: 1})).toMatchObject({status: 400})
         expect(JSON.parse((await row('c0ffee000011'))!.chat)).not.toHaveProperty('messages')
         // Its messages, added and changed one at a time (ORR-1100): given the next id after every chat's, alike.
         const lines = (id: string) => store.db.all<{id: number, message: string}>('SELECT id, message FROM chat_messages WHERE chat = ? ORDER BY id', id)
         const asked = {from: 'claude', text: 'May I?', images: [], request: {setting: 'tint', from: null, to: 'blue', state: 'asked'}}
-        const byStoreLine = await chats.addLine(store.db, 'c0ffee000010', asked as never)
+        const last = Number((await store.db.get<{n: number | string}>('SELECT COALESCE(MAX(id), 0) AS n FROM chat_messages'))!.n)
         const byApiLine = await viaApi('POST', '/api/chats/c0ffee000011/lines', {...asked, id: 1, at: 'then'})
         expect(byApiLine).toMatchObject({status: 201, changed: [], told: []})
-        expect(byApiLine.body).toEqual({...byStoreLine, id: byStoreLine.id + 1, at: expect.any(String)})
+        expect(byApiLine.body).toEqual({id: last + 1, at: expect.any(String), ...asked})
         const answered = {...asked, request: {...asked.request, state: 'allowed'}}
-        await chats.keepLine(store.db, 'c0ffee000010', {...answered, id: byStoreLine.id, at: byStoreLine.at} as never)
-        const changedByApi = await viaApi('PUT', `/api/chats/c0ffee000011/lines/${byStoreLine.id + 1}`, answered)
-        expect(changedByApi).toMatchObject({status: 200, body: {id: byStoreLine.id + 1, request: {state: 'allowed'}}})
-        expect((await lines('c0ffee000011')).map(l => l.message)).toEqual((await lines('c0ffee000010')).map(l => l.message))
+        const changedByApi = await viaApi('PUT', `/api/chats/c0ffee000011/lines/${last + 1}`, answered)
+        expect(changedByApi).toMatchObject({status: 200, body: {id: last + 1, request: {state: 'allowed'}}})
+        // Kept as the module kept a message itself: without its id and time, its fields in the order sent.
+        expect((await lines('c0ffee000011')).map(l => l.message)).toEqual([JSON.stringify(answered)])
         expect(await viaApi('POST', '/api/chats/nope/lines', asked)).toMatchObject({status: 404})
         expect(await viaApi('PUT', '/api/chats/c0ffee000011/lines/999', asked)).toMatchObject({status: 404})
         expect(await viaApi('POST', '/api/chats/c0ffee000011/lines', {from: 'someone'})).toMatchObject({status: 400})
@@ -1617,10 +1614,9 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         const documenting = await viaApi('POST', '/api/chats/c0ffee000003/doc-requests', {doc: {title: 'Plan', body: 'Sieve'}, why: 'You asked.'})
         expect(documenting).toMatchObject({status: 201, body: {from: 'claude', text: 'You asked.', images: [], doc: {title: 'Plan', body: {title: 'Plan', body: 'Sieve'}, state: 'asked'}}})
         expect(await viaApi('POST', '/api/chats/c0ffee000011/doc-requests', {doc: {title: 'Plan'}})).toMatchObject({status: 404})
-        await chats.keepChat(store.db, said('c0ffee000010', 'through-store') as never, true)
         expect(await viaApi('DELETE', '/api/chats/c0ffee000011')).toMatchObject({status: 204})
-        expect([await row('c0ffee000010'), await row('c0ffee000011')]).toEqual([undefined, undefined])
-        expect([await lines('c0ffee000010'), await lines('c0ffee000011')]).toEqual([[], []])
+        expect(await row('c0ffee000011')).toBeUndefined()
+        expect(await lines('c0ffee000011')).toEqual([])
         vi.unstubAllGlobals()
         expect(domainOf('GET', '/api/chats')).toBeUndefined()
         expect(domainOf('PUT', '/api/chats/c0ffee000011')).toBeUndefined()
@@ -1648,9 +1644,9 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         }
     })
 
-    it('runs the owner\'s chat end to end alike, with the store and with the Rust API in front (ORR-1044)', async () => {
+    it('runs the owner\'s chat end to end with the Rust API in front (ORR-1044, ORR-1135)', async () => {
         // The chat module with Nitro's globals stubbed: its launches and the messages to its session are caught here, the
-        // board is the real store, and the chat's row goes to the database or through the API as the app sends it.
+        // board is the real store, and the chat's row and its Allow's writes go through the API, the one way there is.
         let launches = 0
         const heard: {shown: Chat[], sent: string[], noted: string[]} = {shown: [], sent: [], noted: []}
         const page = new EventEmitter()
@@ -1717,23 +1713,19 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
             }
         }
 
-        // A project each of its own, as what the steps above made differs between the two.
-        for (const [name, key] of [['chat-through-store', 'CHS'], ['chat-through-api', 'CHA']] as const) await store.createProject({name, key})
+        await store.createProject({name: 'chat-through-api', key: 'CHA'})
         try {
-            const byStore = await flow('chat-through-store')
             router.apiStarted({url, token: TOKEN})
             const before = new Set(reached)
             const byApi = await flow('chat-through-api')
             // The chat's own row and Allow's writes went to the API.
             const asked = [...reached].filter(r => !before.has(r) || /chats|docs|milestones/.test(r))
-            for (const route of ['PUT /api/chats/c0ffee000102', 'POST /api/chats/c0ffee000102/lines', 'DELETE /api/chats/c0ffee000102', 'POST /api/projects/chat-through-api/docs', 'PATCH /api/projects/chat-through-api/docs/how-joints-work', 'POST /api/projects/chat-through-api/milestones']) {
+            for (const route of ['PUT /api/chats/c0ffee000101', 'POST /api/chats/c0ffee000101/lines', 'DELETE /api/chats/c0ffee000101', 'POST /api/projects/chat-through-api/docs', 'PATCH /api/projects/chat-through-api/docs/how-joints-work', 'POST /api/projects/chat-through-api/milestones']) {
                 expect(asked, route).toContain(route)
             }
-            // The two chats' ids differ by their launch, and the issues' keys by their project, keys of `was` too.
-            const alike = (outcome: Outcome, project: string) => same(JSON.parse(JSON.stringify(outcome).replaceAll(/c0ffee0001\d\d/g, '<chat>').replaceAll(/\bCH[SA]-(\d+)\b/g, 'KEY-$1')) as Outcome, project)
-            expect(alike(byApi, 'chat-through-api')).toEqual(alike(byStore, 'chat-through-store'))
-            expect(byStore.heard.shown.at(-1)).toMatchObject({deleted: true, ended: true})
-            expect(byStore.row).toMatchObject({ended: true, project: 'chat-through-store'})
+            expect(byApi.heard.shown.at(-1)).toMatchObject({deleted: true, ended: true})
+            expect(byApi.row).toMatchObject({ended: true, project: 'chat-through-api'})
+            expect(byApi.heard.sent.length).toBeGreaterThan(0)
             expect(byApi.heard.noted).toContain('chat.answered: steffen allowed the chat\'s request to make the milestone "Joints"')
             expect(byApi.board).toMatchObject({joints: 'A hinge turns, and squeaks.', issues: [{title: 'Fit the hinge', status: 'in-progress'}, {title: 'Oil the hinge', status: 'backlog'}]})
         } finally {

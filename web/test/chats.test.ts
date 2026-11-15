@@ -2,7 +2,7 @@ import {EventEmitter} from 'node:events'
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 import type {Chat} from '#shared/roadmap'
 import {Store} from '../server/utils/store'
-import {testDb} from './db'
+import {apiTestDb, withApi} from './api'
 import type {Db} from '../server/utils/database'
 
 // The owner's chats live in the module, with Nitro's auto-imports stubbed: its launch, and the message to its session.
@@ -10,8 +10,13 @@ let chats: typeof import('../server/utils/chats')
 let changes: Chat[]
 let messages: {project: string, target: string, text: string}[]
 let stopped: string[]
+/** The board the chats are on, with the Rust API in front of it: where a chat and its messages are kept (ORR-1135). */
+let board: Store
 
 beforeEach(async () => {
+    board = new Store(apiTestDb())
+    await board.createProject({name: 'greenhouse', key: 'GRE'})
+    await withApi(board)
     changes = []
     messages = []
     stopped = []
@@ -21,27 +26,22 @@ beforeEach(async () => {
     vi.stubGlobal('startChat', async (project: string, context: {text: string}) => ({id: 'c1c2c3c4c5c6', project, context}))
     vi.stubGlobal('launchTarget', (id: string) => `launch-${id}`)
     vi.stubGlobal('endLaunch', (_project: string, id: string) => stopped.push(id))
-    vi.stubGlobal('useStore', () => ({messageSession: async (project: string, target: string, text: string) => void messages.push({project, target, text})}))
+    vi.stubGlobal('useStore', () => over({messageSession: async (project: string, target: string, text: string) => void messages.push({project, target, text})}))
     vi.stubGlobal('notFound', (message: string) => Object.assign(new Error(message), {statusCode: 404}))
     vi.stubGlobal('badRequest', (message: string) => Object.assign(new Error(message), {statusCode: 400}))
     vi.stubGlobal('currentId', (id: string) => id)
     vi.stubGlobal('sessionOfLaunch', () => undefined)
-    // Where a chat is kept (ORR-877): nowhere, but in the tests of it below, though its messages' ids run on (ORR-1100).
-    let lines = 0
-    vi.stubGlobal('useDatabase', () => ({
-        run: async (sql: string) => {
-            if (sql.startsWith('INSERT INTO chat_messages')) lines++
-            return {changes: 0}
-        },
-        all: async () => [],
-        get: async () => ({n: lines}),
-        transaction: async <T>(work: () => Promise<T>) => await work(),
-    }))
+    vi.stubGlobal('useEventLog', () => ({note: () => {}}))
     vi.resetModules()
     chats = await import('../server/utils/chats')
 })
 
 afterEach(() => vi.unstubAllGlobals())
+
+/** A test's store: what it says of `methods`, and the board's own for the rest, as the router asks it too. */
+function over(methods: object): Store {
+    return Object.assign(Object.create(board) as Store, methods)
+}
 
 const owner = {name: 'skoll', owner: true}
 const image = 'e961abaa8718ef8efe55380b'
@@ -51,19 +51,18 @@ describe('handing work on an issue to a session (ORR-750)', () => {
     let started: {project: string, issue: string, actor: {owner: boolean, via: string}}[]
     const delegate = (issue: string) => chats.ask(CHAT, {delegate: {issue}})
 
-    beforeEach(() => {
+    beforeEach(async () => {
         started = []
-        const issues: Record<string, object> = {
-            'GRE-4': {id: 'GRE-4', kind: 'todo', status: 'todo'},
-            'GRE-40': {id: 'GRE-40', kind: 'todo', status: 'todo', aliases: ['OLD-1']},
-            'GRE-5': {id: 'GRE-5', kind: 'done', status: 'done'},
-            'GRE-6': {id: 'GRE-6', kind: 'backlog', status: 'backlog', proposal: 'pending'},
+        // On the board: GRE-4 to work, GRE-5 done, GRE-6 a proposal, and GRE-40, which was OLD-1 before it moved here.
+        for (let n = 1; n <= 39; n++) {
+            const status = n === 5 ? 'done' : n === 6 ? 'backlog' : 'todo'
+            await board.createIssue('greenhouse', {title: `Issue ${n}`, status, ...n === 6 ? {proposal: 'pending'} : {}})
         }
-        vi.stubGlobal('useStore', () => ({
-            messageSession: async () => {},
-            ownerOf: async () => ({name: 'skoll'}),
-            issue: async (_project: string, id: string) => issues[id] ?? Promise.reject(Object.assign(new Error(`No issue ${id}`), {statusCode: 404})),
-        }))
+        await board.createProject({name: 'old', key: 'OLD'})
+        await board.createIssue('old', {title: 'Moved in', status: 'todo'})
+        await board.updateIssue('old', 'OLD-1', {project: 'greenhouse'})
+        await board.nameOwner({name: 'Skoll'})
+        vi.stubGlobal('useStore', () => over({messageSession: async () => {}}))
         vi.stubGlobal('startLaunch', async (project: string, {issue, actor}: {issue: string, actor: {owner: boolean, via: string}}) => {
             started.push({project, issue, actor})
             return {id: 'l1'}
@@ -123,10 +122,10 @@ describe('handing work on an issue to a session (ORR-750)', () => {
 
     it("refuses what isn't work: finished, a proposal, or no such issue", async () => {
         await chats.openChat('greenhouse')
-        await chats.say(CHAT, 'GRE-5, GRE-6 and GRE-9', [], owner)
+        await chats.say(CHAT, 'GRE-5, GRE-6 and GRE-99', [], owner)
         await expect(delegate('GRE-5')).rejects.toThrow('no work to hand over')
         await expect(delegate('GRE-6')).rejects.toThrow("isn't work yet")
-        await expect(delegate('GRE-9')).rejects.toMatchObject({statusCode: 404})
+        await expect(delegate('GRE-99')).rejects.toMatchObject({statusCode: 404})
         await expect(chats.ask(CHAT, {delegate: {}})).rejects.toMatchObject({statusCode: 400})
         expect(started).toEqual([])
     })
@@ -339,7 +338,7 @@ describe("the owner's chat", () => {
             {id: 'def', project: 'pantry', name: 'Sudri', state: 'working', listening: true},
             {id: 'c1c2c3c4c5c6', project: 'greenhouse', name: 'Chat', state: 'idle', listening: true, chat: true},
         ]
-        vi.stubGlobal('useStore', () => ({messageSession: async (project: string, target: string, text: string, actor: {via?: string}) => void sent.push({project, target, text, ...actor.via ? {via: actor.via} : {}})}))
+        vi.stubGlobal('useStore', () => over({messageSession: async (project: string, target: string, text: string, actor: {via?: string}) => void sent.push({project, target, text, ...actor.via ? {via: actor.via} : {}})}))
         vi.stubGlobal('useEventLog', () => ({note: (entry: {kind: string}) => notes.push(entry)}))
         vi.stubGlobal('conflict', (message: string) => Object.assign(new Error(message), {statusCode: 409}))
         vi.stubGlobal('listSessions', () => listed)
@@ -385,7 +384,7 @@ describe("the owner's chat", () => {
         const sent: string[] = []
         let listed = [{id: 'abc', project: 'greenhouse', name: 'Nordre', state: 'idle', listening: true}]
         const aliases = new Map<string, string>()
-        vi.stubGlobal('useStore', () => ({messageSession: async (_project: string, target: string) => void sent.push(target)}))
+        vi.stubGlobal('useStore', () => over({messageSession: async (_project: string, target: string) => void sent.push(target)}))
         vi.stubGlobal('useEventLog', () => ({note: () => {}}))
         vi.stubGlobal('conflict', (message: string) => Object.assign(new Error(message), {statusCode: 409}))
         vi.stubGlobal('listSessions', () => listed)
@@ -411,7 +410,7 @@ describe("the owner's chat", () => {
             {id: 'abc', project: 'greenhouse', name: 'Nordre', state: 'idle', listening: true},
             {id: 'def', project: 'pantry', name: 'Sudri', state: 'idle', listening: true},
         ]
-        vi.stubGlobal('useStore', () => ({messageSession: async (_project: string, target: string) => {
+        vi.stubGlobal('useStore', () => over({messageSession: async (_project: string, target: string) => {
             await new Promise(resolve => setTimeout(resolve, 0))
             if (target === failing) throw Object.assign(new Error('Sudri stopped listening'), {statusCode: 409})
             sent.push(target)
@@ -438,15 +437,10 @@ describe("the owner's chat", () => {
     })
 
     it("asks the owner to change a setting, saving it only once they allow it, and telling its session", async () => {
-        const saved: object[] = []
         const notes: {kind: string}[] = []
-        let tracker: string | null = null
-        vi.stubGlobal('useStore', () => ({
-            settings: async () => ({tracker, tint: null, handle: null, restrict_proposals: true, advanced: false}),
-            updateSettings: async (patch: {tracker?: string}) => {
-                saved.push(patch)
-                tracker = patch.tracker ?? tracker
-            },
+        // What's saved is what the API keeps on the board.
+        const tracker = async () => (await board.settings()).tracker ?? null
+        vi.stubGlobal('useStore', () => over({
             messageSession: async (project: string, target: string, text: string) => void messages.push({project, target, text}),
         }))
         vi.stubGlobal('useEventLog', () => ({note: (entry: {kind: string}) => notes.push(entry)}))
@@ -455,31 +449,32 @@ describe("the owner's chat", () => {
         const url = 'https://tracker.example.com/issue/{id}'
         const asked = await chats.askSetting('c1c2c3c4c5c6', {setting: 'tracker', value: url, why: 'Links ENG-1234 to its task.'})
         expect(asked).toMatchObject({from: 'claude', text: 'Links ENG-1234 to its task.', request: {setting: 'tracker', from: null, to: url, state: 'asked'}})
-        expect(saved).toEqual([])
+        expect(await tracker()).toBeNull()
         // Denied saves nothing, and can't be answered again.
         await chats.answer('c1c2c3c4c5c6', asked.id, false, owner)
-        expect(saved).toEqual([])
+        expect(await tracker()).toBeNull()
         expect(messages.at(-1)!.text).toMatch(/denied .*nothing changed/)
         await expect(chats.answer('c1c2c3c4c5c6', asked.id, true, owner)).rejects.toMatchObject({statusCode: 409})
         // Allowed saves it as asked.
         const again = await chats.askSetting('c1c2c3c4c5c6', {setting: 'tracker', value: url})
         await chats.answer('c1c2c3c4c5c6', again.id, true, owner)
-        expect(saved).toEqual([{tracker: url}])
+        expect(await tracker()).toBe(url)
         expect(chats.chatOf('c1c2c3c4c5c6').messages.find(m => m.id === again.id)!.request!.state).toBe('allowed')
         expect(messages.at(-1)!.text).toContain(`Team tracker is now ${url}, saved`)
         expect(notes.map(n => n.kind)).toEqual(['chat.asked', 'chat.answered', 'chat.asked', 'settings.changed', 'chat.answered'])
         // Asking again for the same setting lets the one before go; an old request expires.
-        const first = await chats.askSetting('c1c2c3c4c5c6', {setting: 'advanced', value: true})
-        const second = await chats.askSetting('c1c2c3c4c5c6', {setting: 'advanced', value: false})
+        const advanced = (await board.settings()).advanced
+        const first = await chats.askSetting('c1c2c3c4c5c6', {setting: 'advanced', value: !advanced})
+        const second = await chats.askSetting('c1c2c3c4c5c6', {setting: 'advanced', value: advanced})
         await expect(chats.answer('c1c2c3c4c5c6', first.id, true, owner)).rejects.toMatchObject({statusCode: 409})
         vi.useFakeTimers({now: Date.now() + chats.ASK_FOR + 1000})
         await expect(chats.answer('c1c2c3c4c5c6', second.id, true, owner)).rejects.toThrow(/expired/)
         vi.useRealTimers()
-        expect(saved).toHaveLength(1)
+        expect((await board.settings()).advanced).toBe(advanced)
     })
 
     it("asks only for the settings a chat may, and as the settings would take them", async () => {
-        vi.stubGlobal('useStore', () => ({settings: async () => ({handle: null})}))
+        vi.stubGlobal('useStore', () => over({settings: async () => ({handle: null})}))
         vi.stubGlobal('useEventLog', () => ({note: () => {}}))
         await chats.openChat('greenhouse')
         for (const body of [{setting: 'secrets', value: 'x'}, {setting: 'starts', value: null}, {setting: 'focus_prompt', value: 'Hi'}, {setting: 'tracker'},
@@ -493,8 +488,8 @@ describe("the owner's chat", () => {
         const made: {project: string, body: unknown, actor: unknown, id?: number}[] = []
         const checked: {body: unknown, actor: {owner: boolean}, id?: number}[] = []
         const nightly = {id: 3, title: 'Nightly triage', kind: 'message', notes: 'Triage', cron: '0 2 * * *', presets: [7], enabled: true}
-        vi.stubGlobal('useStore', () => ({
-            ownerOf: async () => ({name: 'skoll'}),
+        await board.nameOwner({name: 'skoll'})
+        vi.stubGlobal('useStore', () => over({
             presets: async () => [{id: 7, name: 'Review'}, {id: 8, name: 'Debug an error'}],
             messageSession: async (project: string, target: string, text: string) => void messages.push({project, target, text}),
         }))
@@ -544,11 +539,10 @@ describe("the owner's chat", () => {
     it('asks for a schedule or an issue on another project it names, and saves it there (ORR-1063)', async () => {
         const made: {what: string, project: string}[] = []
         const checkedOn: string[] = []
-        vi.stubGlobal('useStore', () => ({
-            ownerOf: async () => ({name: 'skoll'}),
+        await board.nameOwner({name: 'skoll'})
+        await board.createProject({name: 'reading-list', key: 'REA'})
+        vi.stubGlobal('useStore', () => over({
             presets: async () => [],
-            projectId: async (id: string) => id === 'reading-list' ? id : Promise.reject(Object.assign(new Error(`No project ${id}`), {statusCode: 404})),
-            createIssue: async (project: string, body: {title: string}) => (made.push({what: 'issue', project}), {id: 'REA-1', title: body.title}),
             messageSession: async (project: string, target: string, text: string) => void messages.push({project, target, text}),
         }))
         vi.stubGlobal('useScheduler', () => ({
@@ -556,7 +550,6 @@ describe("the owner's chat", () => {
             create: async (project: string, body: {title: string}) => (made.push({what: 'schedule', project}), {id: 1, title: body.title, enabled: true}),
         }))
         vi.stubGlobal('useEventLog', () => ({note: () => {}}))
-        vi.stubGlobal('writeToApi', () => false)
         vi.stubGlobal('conflict', (message: string) => Object.assign(new Error(message), {statusCode: 409}))
         vi.stubGlobal('forbidden', (message: string) => Object.assign(new Error(message), {statusCode: 403}))
         await chats.openChat('greenhouse')
@@ -566,7 +559,9 @@ describe("the owner's chat", () => {
         await chats.answer('c1c2c3c4c5c6', watch.id, true, owner)
         const offered = await chats.ask('c1c2c3c4c5c6', {issue: {title: 'Read Dune'}, project: 'reading-list'})
         await chats.answer('c1c2c3c4c5c6', offered.id, true, owner)
-        expect(made).toEqual([{what: 'schedule', project: 'reading-list'}, {what: 'issue', project: 'reading-list'}])
+        expect(made).toEqual([{what: 'schedule', project: 'reading-list'}])
+        // The issue is filed on the board, on the project it named.
+        expect((await board.listIssues('reading-list')).map(i => i.title)).toEqual(['Read Dune'])
         // The chat's session hears it on its own project, where it runs.
         expect(messages.map(m => m.project)).toEqual(['greenhouse', 'greenhouse'])
         // Its own project, named or not, isn't marked; one orrery doesn't have is refused.
@@ -578,19 +573,13 @@ describe("the owner's chat", () => {
 
     it("asks to add a release or change one, checked as Releases would, and saves it as the owner's only once they allow it", async () => {
         const notes: {kind: string}[] = []
-        const saved: {how: string, project: string, version?: string, body: unknown, actor: unknown}[] = []
-        const releases = [{version: '1.1.0', branch: 'v1.1.0'}, {version: '1.0.0', branch: 'v1.0.0', frozen_on: '2026-10-20'}]
-        vi.stubGlobal('useStore', () => ({
-            checkRelease: async (_project: string, body: {version?: string, branch?: string}, version?: string) => {
-                if (body.version === '1.1.0' && version === undefined) throw Object.assign(new Error('There is already a release 1.1.0'), {statusCode: 409})
-                if (version === undefined) return undefined
-                const found = releases.find(r => r.version === version)
-                if (!found) throw Object.assign(new Error(`No release ${version}`), {statusCode: 404})
-                return found
-            },
-            listReleases: async () => releases,
-            createRelease: async (project: string, body: unknown, actor: unknown) => void saved.push({how: 'create', project, body, actor}),
-            updateRelease: async (project: string, version: string, body: unknown, actor: unknown) => void saved.push({how: 'update', project, version, body, actor}),
+        // On the board, newest at the top: 1.1.0, then 1.0.0, frozen. What's saved is what the API keeps there.
+        await board.updateProject('greenhouse', {release_mode: 'own'})
+        await board.createRelease('greenhouse', {version: '1.0.0', branch: 'v1.0.0', frozen_on: '2026-10-20'})
+        await board.createRelease('greenhouse', {version: '1.1.0', branch: 'v1.1.0', position: 0})
+        expect((await board.listReleases('greenhouse')).map(r => r.version)).toEqual(['1.1.0', '1.0.0'])
+        const versions = async () => (await board.listReleases('greenhouse')).map(r => r.version)
+        vi.stubGlobal('useStore', () => over({
             messageSession: async (project: string, target: string, text: string) => void messages.push({project, target, text}),
         }))
         vi.stubGlobal('useEventLog', () => ({note: (entry: {kind: string}) => notes.push(entry)}))
@@ -601,17 +590,18 @@ describe("the owner's chat", () => {
         expect(fresh).toMatchObject({from: 'claude', text: 'As you asked.', release: {version: '1.2.0', change: false, state: 'asked', changes: [
             {field: 'version', to: '1.2.0'}, {field: 'branch', to: 'v1.2.0'}, {field: 'position', to: '2nd from the top'},
         ]}})
-        expect(saved).toEqual([])
+        expect(await versions()).toEqual(['1.1.0', '1.0.0'])
         await chats.answer('c1c2c3c4c5c6', fresh.id, true, owner)
-        expect(saved).toEqual([{how: 'create', project: 'greenhouse', body: {version: '1.2.0', branch: 'v1.2.0', position: 1}, actor: {...owner, via: 'chat'}}])
+        expect(await versions()).toEqual(['1.1.0', '1.2.0', '1.0.0'])
         expect(messages.at(-1)!.text).toBe('(I allowed your request: release 1.2.0 is added.)')
         // A change shows each field from → to, its place too; asking again for the same release lets the one before go.
         const freeze = await chats.ask('c1c2c3c4c5c6', {version: '1.0.0', release: {frozen_on: null}})
         const ship = await chats.ask('c1c2c3c4c5c6', {version: '1.0.0', release: {shipped_on: '2026-10-29', position: 0}})
         expect(freeze.release!.state).toBe('expired')
-        expect(ship.release).toMatchObject({version: '1.0.0', change: true, changes: [{field: 'shipped_on', from: null, to: '2026-10-29'}, {field: 'position', from: '2nd from the top', to: 'the top'}]})
+        expect(ship.release).toMatchObject({version: '1.0.0', change: true, changes: [{field: 'shipped_on', from: null, to: '2026-10-29'}, {field: 'position', from: '3rd from the top', to: 'the top'}]})
         await chats.answer('c1c2c3c4c5c6', ship.id, false, owner)
-        expect(saved).toHaveLength(1)
+        expect(await versions()).toEqual(['1.1.0', '1.2.0', '1.0.0'])
+        expect((await board.release('greenhouse', '1.0.0')).shipped_on ?? null).toBeNull()
         expect(messages.at(-1)!.text).toMatch(/denied your request to change release 1.0.0: Shipped on to 2026-10-29, Place to the top: nothing changed/)
         // What it may not ask for, or what Releases would refuse, fails as it asks.
         for (const [body, status] of [[{release: {}}, 400], [{release: {version: '1.1.0'}}, 409], [{version: '0.9.0', release: {notes: 'X'}}, 404],
@@ -621,13 +611,10 @@ describe("the owner's chat", () => {
     })
 
     it("offers an issue, filing it as the owner's only when they press File issue (ORR-711)", async () => {
-        const made: {body: Record<string, unknown>, actor: {via?: string, name: string}}[] = []
-        vi.stubGlobal('useStore', () => ({
+        // What's filed is what the API keeps on the board.
+        const made = async () => await board.listIssues('greenhouse')
+        vi.stubGlobal('useStore', () => over({
             messageSession: async (project: string, target: string, text: string) => void messages.push({project, target, text}),
-            createIssue: async (_project: string, body: Record<string, unknown>, actor: {via?: string, name: string}) => {
-                made.push({body, actor})
-                return {id: 'GRE-9', title: body.title}
-            },
         }))
         vi.stubGlobal('useEventLog', () => ({note: () => {}}))
         vi.stubGlobal('forbidden', (message: string) => Object.assign(new Error(message), {statusCode: 403}))
@@ -641,35 +628,31 @@ describe("the owner's chat", () => {
 
         const offer = await chats.ask('c1c2c3c4c5c6', {issue: {title: 'Fix the vent', notes: 'It sticks.', priority: 'P2', labels: ['bug']}, why: 'I found this.'})
         expect(offer).toMatchObject({from: 'claude', text: 'I found this.', issue: {title: 'Fix the vent', notes: 'It sticks.', priority: 'P2', labels: ['bug'], state: 'asked'}})
-        expect(made).toEqual([])
+        expect(await made()).toEqual([])
 
         const answered = await chats.answer('c1c2c3c4c5c6', offer.id, true, owner)
-        expect(answered.issue).toMatchObject({state: 'allowed', id: 'GRE-9'})
-        expect(made[0]!.body).toEqual({title: 'Fix the vent', notes: 'It sticks.', priority: 'P2', labels: ['bug'], status: 'todo'})
-        expect(made[0]!.actor).toMatchObject({name: 'ada', via: 'chat'})
-        expect(messages.at(-1)!.text).toContain("it's GRE-9")
+        expect(answered.issue).toMatchObject({state: 'allowed', id: 'GRE-1'})
+        const filed = await board.issue('greenhouse', 'GRE-1')
+        expect(filed).toMatchObject({title: 'Fix the vent', notes: 'It sticks.', priority: 'P2', labels: ['bug'], status: 'todo', created_by: 'ada'})
+        expect(messages.at(-1)!.text).toContain("it's GRE-1")
         await expect(chats.answer('c1c2c3c4c5c6', offer.id, true, owner)).rejects.toMatchObject({statusCode: 409})
-        expect(made).toHaveLength(1)
+        expect(await made()).toHaveLength(1)
 
         const second = await chats.ask('c1c2c3c4c5c6', {issue: {title: 'Oil the hinge'}})
         const again = await chats.ask('c1c2c3c4c5c6', {issue: {title: 'Oil the hinge', notes: 'Both of them.'}})
         expect(second.issue!.state).toBe('expired')
         expect((await chats.answer('c1c2c3c4c5c6', again.id, false, owner)).issue!.state).toBe('denied')
-        expect(made).toHaveLength(1)
+        expect(await made()).toHaveLength(1)
         expect(messages.at(-1)!.text).toContain('nothing was filed')
     })
 
     it('asks to make a milestone or change one, and saves it as the owner\'s only once they allow it (ORR-510)', async () => {
         const notes: {kind: string}[] = []
-        const made: unknown[][] = []
-        const shelves = {id: '3', title: 'Shelves', summary: 'Everything on the shelves', priority: null}
-        vi.stubGlobal('useStore', () => ({
-            milestone: async (_project: string, id: string) => {
-                if (id !== '3') throw Object.assign(new Error(`No milestone ${id}`), {statusCode: 404})
-                return shelves
-            },
-            createMilestone: async (project: string, body: {title: string}, actor: unknown) => (made.push(['create', project, body, actor]), {id: '7', title: body.title}),
-            updateMilestone: async (project: string, id: string, body: unknown) => (made.push(['update', project, id, body]), {...shelves, priority: 'P1'}),
+        // On the board: milestone 1, Shelves. What's saved is what the API keeps there.
+        const shelves = await board.createMilestone('greenhouse', {title: 'Shelves', summary: 'Everything on the shelves'})
+        expect(shelves.id).toBe('1')
+        const made = async () => (await board.listMilestones('greenhouse')).map(m => [m.id, m.title, m.priority ?? null])
+        vi.stubGlobal('useStore', () => over({
             messageSession: async (project: string, target: string, text: string) => void messages.push({project, target, text}),
         }))
         vi.stubGlobal('useEventLog', () => ({note: (entry: {kind: string}) => notes.push(entry)}))
@@ -678,22 +661,22 @@ describe("the owner's chat", () => {
         await chats.openChat('greenhouse')
         const fresh = await chats.ask('c1c2c3c4c5c6', {milestone: {title: 'Seed trays', priority: 'P2'}, why: 'As you asked.'})
         expect(fresh).toMatchObject({from: 'claude', text: 'As you asked.', milestone: {title: 'Seed trays', state: 'asked', changes: [{field: 'title', to: 'Seed trays'}, {field: 'priority', to: 'P2'}]}})
-        expect(made).toEqual([])
+        expect(await made()).toEqual([['1', 'Shelves', null]])
         await chats.answer('c1c2c3c4c5c6', fresh.id, true, owner)
-        expect(made).toEqual([['create', 'greenhouse', {title: 'Seed trays', priority: 'P2'}, {...owner, via: 'chat'}]])
-        expect(chats.chatOf('c1c2c3c4c5c6').messages.find(m => m.id === fresh.id)!.milestone).toMatchObject({id: '7', state: 'allowed'})
-        expect(messages.at(-1)!.text).toBe('(I allowed your request: milestone 7 ("Seed trays") is saved.)')
+        expect(await made()).toEqual([['1', 'Shelves', null], ['2', 'Seed trays', 'P2']])
+        expect(chats.chatOf('c1c2c3c4c5c6').messages.find(m => m.id === fresh.id)!.milestone).toMatchObject({id: '2', state: 'allowed'})
+        expect(messages.at(-1)!.text).toBe('(I allowed your request: milestone 2 ("Seed trays") is saved.)')
         // A change shows each field from → to; asking again for the same milestone lets the one before go.
-        const first = await chats.ask('c1c2c3c4c5c6', {id: '3', milestone: {priority: 'P2'}})
-        const second = await chats.ask('c1c2c3c4c5c6', {id: '3', milestone: {priority: 'P1'}})
+        const first = await chats.ask('c1c2c3c4c5c6', {id: '1', milestone: {priority: 'P2'}})
+        const second = await chats.ask('c1c2c3c4c5c6', {id: '1', milestone: {priority: 'P1'}})
         expect(first.milestone!.state).toBe('expired')
-        expect(second.milestone).toMatchObject({id: '3', title: 'Shelves', changes: [{field: 'priority', from: null, to: 'P1'}]})
+        expect(second.milestone).toMatchObject({id: '1', title: 'Shelves', changes: [{field: 'priority', from: null, to: 'P1'}]})
         await chats.answer('c1c2c3c4c5c6', second.id, false, owner)
-        expect(made).toHaveLength(1)
-        expect(messages.at(-1)!.text).toMatch(/denied your request to change milestone 3 .*nothing changed/)
+        expect(await made()).toEqual([['1', 'Shelves', null], ['2', 'Seed trays', 'P2']])
+        expect(messages.at(-1)!.text).toMatch(/denied your request to change milestone 1 .*nothing changed/)
         // What it may not ask for, or what the milestone routes would refuse, fails as it asks.
         for (const [body, status] of [[{milestone: {}}, 400], [{milestone: {title: 'X', position: 2}}, 403], [{milestone: {summary: 'No name'}}, 400],
-            [{milestone: {title: 'X', priority: 'P9'}}, 400], [{id: '4', milestone: {priority: 'P1'}}, 404]] as const)
+            [{milestone: {title: 'X', priority: 'P9'}}, 400], [{id: '9', milestone: {priority: 'P1'}}, 404]] as const)
             await expect(chats.ask('c1c2c3c4c5c6', body)).rejects.toMatchObject({statusCode: status})
         expect(notes.map(n => n.kind)).toEqual(['chat.asked', 'chat.answered', 'chat.asked', 'chat.asked', 'chat.answered'])
     })
@@ -730,10 +713,10 @@ describe("the owner's chat moving issues", () => {
     let notes: {kind: string, message: string}[]
 
     beforeEach(async () => {
-        store = new Store(testDb())
+        // The board the API is in front of, so what the chat reads of an issue is what's moved.
+        store = board
         await store.nameOwner({name: 'Skoll'})
         const owner = {name: 'skoll', owner: true}
-        await store.createProject({name: 'Greenhouse', key: 'GRE'}, owner)
         for (const title of ['Shelf labels', 'Grow lights', 'Water timer']) await store.createIssue('greenhouse', {title, status: 'todo'}, owner)
         await store.createIssue('greenhouse', {title: 'A greenhouse cat', proposal: 'pending'})
         store.messageSession = async (project: string, target: string, text: string) => void messages.push({project, target, text})
@@ -887,7 +870,9 @@ describe("the owner's chat moving issues", () => {
 
     it('holds a setting that changed while it waited until the owner goes ahead anyway', async () => {
         const asked = await chats.ask(chatId, {setting: 'tint', value: 'teal'})
-        await store.updateSettings({tint: 'rose'}, skoll)
+        // Changed meanwhile, as the Settings page would: through the API, which keeps settings.
+        const {writeToApiOnly} = await import('../server/utils/api-router')
+        await writeToApiOnly('PATCH', '/api/settings', {tint: 'rose'}, skoll)
         await chats.answer(chatId, asked.id, true, skoll)
         expect(asked.request).toMatchObject({state: 'asked', drifted: [{label: 'Background tint', from: '(none)', to: 'rose'}]})
         expect((await store.settings()).tint).toBe('rose')
@@ -1097,12 +1082,10 @@ describe('chats kept across a restart (ORR-877)', () => {
     let known: Set<string>
 
     beforeEach(async () => {
-        db = testDb()
-        const store = new Store(db)
-        await store.nameOwner({name: 'Skoll'})
-        await store.createProject({name: 'Greenhouse', key: 'GRE'}, owner)
+        // The board's database, which the API keeps the chats in: read here to see what a restart would.
+        db = board.db
+        await board.nameOwner({name: 'Skoll'})
         known = new Set()
-        vi.stubGlobal('useDatabase', () => db)
         vi.stubGlobal('useEventLog', () => ({note: () => {}}))
         vi.stubGlobal('launchKnown', (id: string) => known.has(id))
         vi.stubGlobal('sessionOfLaunch', () => undefined)
@@ -1132,12 +1115,7 @@ describe('chats kept across a restart (ORR-877)', () => {
     })
 
     it("keeps each message as a row, and a request's answer on it (ORR-1100)", async () => {
-        const settings: Record<string, unknown> = {}
-        vi.stubGlobal('useStore', () => ({
-            messageSession: async () => {},
-            settings: async () => settings,
-            updateSettings: async (body: Record<string, unknown>) => Object.assign(settings, body),
-        }))
+        vi.stubGlobal('useStore', () => over({messageSession: async () => {}}))
         await chats.openChat('greenhouse')
         await chats.say(CHAT, 'Make it blue', [], owner)
         const asked = await chats.askSetting(CHAT, {setting: 'tint', value: 'blue'})
@@ -1209,21 +1187,12 @@ describe('chats kept across a restart (ORR-877)', () => {
 
 describe("a chat's messages changed through the API (ORR-1100)", () => {
     const CHAT = 'c1c2c3c4c5c6'
-    let rows: {id: number, at: string, message: string}[]
-    const row = ({id, at, ...message}: {id: number, at: string} & Record<string, unknown>) => ({id, at, message: JSON.stringify(message)})
+    /** A write to the chat's rows that isn't this server's, as another of the API's callers would make it. */
+    let api: (method: string, path: string, body?: unknown) => Promise<unknown>
 
-    beforeEach(() => {
-        rows = []
-        let lines = 0
-        vi.stubGlobal('useDatabase', () => ({
-            run: async (sql: string) => {
-                if (sql.startsWith('INSERT INTO chat_messages')) lines++
-                return {changes: 0}
-            },
-            all: async (sql: string, chat?: string) => sql.includes('WHERE chat = ?') && chat === CHAT ? rows : [],
-            get: async () => ({n: lines}),
-            transaction: async <T>(work: () => Promise<T>) => await work(),
-        }))
+    beforeEach(async () => {
+        const {writeToApiOnly} = await import('../server/utils/api-router')
+        api = async (method, path, body) => await writeToApiOnly(method, path, body)
     })
 
     it('brings in a message the API added, and the page hears the chat with it', async () => {
@@ -1231,8 +1200,7 @@ describe("a chat's messages changed through the API (ORR-1100)", () => {
         await chats.say(CHAT, 'Make it blue', [], owner)
         await chats.chatsSaved()
         const [said] = chats.chatOf(CHAT).messages
-        const asked = {id: 2, at: '2026-11-11T15:00:00.000Z', from: 'claude', text: '', images: [], request: {setting: 'tint', from: null, to: 'blue', state: 'asked'}}
-        rows = [row(said!), row(asked)]
+        const asked = await api('POST', `/api/chats/${CHAT}/lines`, {from: 'claude', text: '', images: [], request: {setting: 'tint', from: null, to: 'blue', state: 'asked'}})
         changes = []
         await chats.chatHeard(CHAT)
         expect(chats.chatOf(CHAT).messages).toEqual([said, asked])
@@ -1249,7 +1217,7 @@ describe("a chat's messages changed through the API (ORR-1100)", () => {
         await chats.chatsSaved()
         const said = chats.chatOf(CHAT).messages[0]!
         // Changed elsewhere: the row isn't what this server kept, so it comes in.
-        rows = [row({...said, text: 'Make it green'})]
+        await api('PUT', `/api/chats/${CHAT}/lines/${said.id}`, {...said, text: 'Make it green'})
         await chats.chatHeard(CHAT)
         expect(chats.chatOf(CHAT).messages[0]!.text).toBe('Make it green')
         // Changed here and not kept yet: the row is what this server kept last, so the change here stays.
@@ -1259,7 +1227,6 @@ describe("a chat's messages changed through the API (ORR-1100)", () => {
     })
 
     it("leaves a chat this server doesn't hold", async () => {
-        rows = [row({id: 1, at: '2026-11-11T15:00:00.000Z', from: 'claude', text: 'Hi', images: []})]
         await chats.chatHeard(CHAT)
         expect(() => chats.readChat(CHAT)).toThrow()
     })

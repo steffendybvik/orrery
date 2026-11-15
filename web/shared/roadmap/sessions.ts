@@ -150,7 +150,7 @@ export interface SessionQuestion {
 }
 
 /** Claude Code's tool for asking the owner a question: waiting at it is a question, not a permission (ORR-1155). */
-export const QUESTION_TOOL = 'AskUserQuestion'
+const QUESTION_TOOL = 'AskUserQuestion'
 
 /** Whether a session waits at a question to the owner rather than a permission prompt. */
 export const asksQuestion = (session: {state: string, asking?: SessionTool}) => session.state === 'waiting' && session.asking?.name === QUESTION_TOOL

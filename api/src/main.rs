@@ -144,6 +144,7 @@ async fn main() {
             tokio::time::sleep(std::time::Duration::from_secs(3600)).await;
         }
     });
+    let closing = pool.clone();
     let app = Arc::new(App {
         pool,
         token,
@@ -156,10 +157,45 @@ async fn main() {
     let listener = tokio::net::TcpListener::bind(&listen).await.unwrap_or_else(|e| fail(format!("can't listen on {listen}: {e}")));
     let at = listener.local_addr().map(|a| a.to_string()).unwrap_or(listen);
     eprintln!("[orrery-api] serving docs on http://{at}, {}", if db::is_postgres(&setting) { "Postgres" } else { "SQLite" });
-    axum::serve(listener, router(app))
-        .with_graceful_shutdown(async {
-            tokio::signal::ctrl_c().await.ok();
-        })
-        .await
-        .unwrap_or_else(|e| fail(e.to_string()));
+    // Stopped (Ctrl-C, or SIGTERM as the Nuxt server and `docker compose stop` send it), it takes no new requests and
+    // gives the ones in hand a few seconds, as a stream never ends by itself, then lets go of the database (ORR-1214).
+    let (stop, stopping) = tokio::sync::watch::channel(false);
+    tokio::spawn(async move {
+        stopped().await;
+        stop.send(true).ok();
+    });
+    let mut asked = stopping.clone();
+    let serving = axum::serve(listener, router(app)).with_graceful_shutdown(async move {
+        asked.wait_for(|s| *s).await.ok();
+    });
+    let mut asked = stopping;
+    tokio::select! {
+        served = std::future::IntoFuture::into_future(serving) => served.unwrap_or_else(|e| fail(e.to_string())),
+        _ = async move {
+            asked.wait_for(|s| *s).await.ok();
+            tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+        } => eprintln!("[orrery-api] stopping with requests still open (streams)"),
+    }
+    db::close(&closing).await;
+}
+
+/// Ctrl-C, or SIGTERM where there is one.
+async fn stopped() {
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{signal, SignalKind};
+        match signal(SignalKind::terminate()) {
+            Ok(mut term) => {
+                tokio::select! {
+                    _ = tokio::signal::ctrl_c() => {}
+                    _ = term.recv() => {}
+                }
+            }
+            Err(_) => {
+                tokio::signal::ctrl_c().await.ok();
+            }
+        }
+    }
+    #[cfg(not(unix))]
+    tokio::signal::ctrl_c().await.ok();
 }
