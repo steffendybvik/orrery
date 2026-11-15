@@ -32,6 +32,13 @@ registerEndpoint('/api/me', {method: 'DELETE', handler: async event => {
     setResponseStatus(event, 204)
     return null
 }})
+const spacesDeleted: unknown[] = []
+registerEndpoint('/api/workspaces/ana-side', {method: 'DELETE', handler: async event => {
+    spacesDeleted.push(await readBody(event))
+    setResponseStatus(event, 204)
+    return null
+}})
+registerEndpoint('/api/workspaces', {method: 'GET', handler: () => account.workspaces.filter(w => w.id !== 'ana-side')})
 registerEndpoint('/api/auth/logout', {method: 'POST', handler: event => {
     loggedOut++
     setResponseStatus(event, 204)
@@ -46,6 +53,7 @@ beforeEach(() => {
 afterEach(() => {
     mounted.splice(0).forEach(w => w.unmount())
     deleted.splice(0)
+    spacesDeleted.splice(0)
     loggedOut = 0
     refuse = false
     assign.mockReset()
@@ -70,7 +78,7 @@ describe('Account', () => {
         expect(shown).toContain('Ana Lima')
         expect(shown).toContain('ana')
         expect(shown).toContain('accounts.example.com')
-        expect(wrapper.findAll('ul[aria-label="Your workspaces"] > li').map(li => li.text())).toEqual(['Default member', 'Side projects owner'])
+        expect(wrapper.findAll('ul[aria-label="Your workspaces"] > li').map(li => li.text())).toEqual(['Default member', 'Side projects ownerDelete'])
         expect(wrapper.text()).toContain('Goes with it: Side projects')
         expect(wrapper.text()).not.toContain('You own this orrery')
     })
@@ -109,5 +117,33 @@ describe('Account', () => {
         expect(wrapper.text()).toContain('Type your name, Ana Lima, to delete your account')
         expect(assign).not.toHaveBeenCalled()
         expect(button(wrapper, 'Delete my account').attributes('disabled')).toBeUndefined()
+    })
+
+    it('deletes a workspace you own on its own once its name is typed, and keeps you signed in', async () => {
+        const wrapper = await mount()
+        // Only one you own, and never the first one: Default, a member's here, has no Delete.
+        expect(wrapper.findAll('ul[aria-label="Your workspaces"] button').map(b => b.text())).toEqual(['Delete'])
+        await button(wrapper, 'Delete').trigger('click')
+        const form = wrapper.find('form[aria-label="Delete Side projects"]')
+        const go = button(wrapper, 'Delete workspace')
+        expect(go.attributes('disabled')).toBeDefined()
+        await form.find('input').setValue('Side')
+        await form.trigger('submit')
+        await settle()
+        expect(spacesDeleted).toEqual([])
+        await form.find('input').setValue('side PROJECTS')
+        expect(go.attributes('disabled')).toBeUndefined()
+        await form.trigger('submit')
+        await settle()
+        expect(spacesDeleted).toEqual([{confirm: 'side PROJECTS'}])
+        expect(deleted).toEqual([])
+        expect(wrapper.findAll('ul[aria-label="Your workspaces"] > li').map(li => li.text())).toEqual(['Default member'])
+        expect(assign).not.toHaveBeenCalled()
+    })
+
+    it('says a name stays off what you leave in other workspaces', async () => {
+        const wrapper = await mount()
+        expect(wrapper.text()).toContain('“Deleted person”')
+        expect(wrapper.text()).not.toContain('your name stays')
     })
 })

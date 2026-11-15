@@ -1,7 +1,8 @@
 <script setup lang="ts">
 // Your account on App settings (ORR-1203), shown only while you're signed in: who you're signed in as, how, since when
 // and the workspaces you're in, with Sign out; and deleting it, which takes every workspace you own with it, shared or
-// not, so the button waits until you type your name. orrery keeps no email, so none shows.
+// not, so the button waits until you type your name. orrery keeps no email, so none shows. A workspace you own can be
+// deleted on its own from its row, with everything in it, once you type its name; the first one, `default`, can't.
 export interface Account {
     id: string
     name: string
@@ -12,6 +13,10 @@ export interface Account {
 }
 
 const {logOut} = useAuth()
+const {load: loadWorkspaces, here} = useWorkspaces()
+/** The workspace whose delete is open, and its name as typed. */
+const deleting = ref('')
+const typedSpace = ref('')
 const account = ref<Account | null>(null)
 const failed = ref('')
 const typed = ref('')
@@ -36,6 +41,31 @@ function provider(issuer: string) {
     }
 }
 const when = (stamp: string) => new Date(stamp).toLocaleDateString()
+const spaceMatches = (name: string) => typedSpace.value.trim().toLowerCase() === name.trim().toLowerCase()
+
+function startDelete(id: string) {
+    deleting.value = deleting.value === id ? '' : id
+    typedSpace.value = ''
+    failed.value = ''
+}
+
+async function removeWorkspace(workspace: Account['workspaces'][number]) {
+    if (!spaceMatches(workspace.name) || busy.value) return
+    busy.value = true
+    failed.value = ''
+    try {
+        await apiFetch(`/workspaces/${encodeURIComponent(workspace.id)}`, {method: 'DELETE', headers: {}, body: {confirm: typedSpace.value}})
+        // The one you're in gone, the page starts again in one you still have.
+        if (here.value === workspace.id) return location.assign('/')
+        if (account.value) account.value.workspaces = account.value.workspaces.filter(w => w.id !== workspace.id)
+        deleting.value = ''
+        await loadWorkspaces(true)
+    } catch (error) {
+        failed.value = errorMessage(error)
+    } finally {
+        busy.value = false
+    }
+}
 
 async function remove() {
     if (!matches.value || busy.value) return
@@ -66,7 +96,37 @@ async function remove() {
         <dt class="text-muted">Workspaces</dt>
         <dd class="text-fg">
           <ul v-if="account.workspaces.length" class="flex flex-col gap-0.5" aria-label="Your workspaces">
-            <li v-for="workspace in account.workspaces" :key="workspace.id">{{ workspace.name }} <span class="text-muted">{{ workspace.role }}</span></li>
+            <li v-for="workspace in account.workspaces" :key="workspace.id" class="flex flex-col gap-1.5">
+              <span class="flex items-center gap-2">
+                <span>{{ workspace.name }} <span class="text-muted">{{ workspace.role }}</span></span>
+                <button
+                    v-if="workspace.role === 'owner' && workspace.id !== 'default'"
+                    type="button"
+                    class="text-[11px] text-rose-700 hover:underline dark:text-rose-400"
+                    :aria-expanded="deleting === workspace.id"
+                    @click="startDelete(workspace.id)"
+                >{{ deleting === workspace.id ? 'Keep it' : 'Delete' }}</button>
+              </span>
+              <form
+                  v-if="deleting === workspace.id"
+                  class="flex flex-col gap-2 rounded-md p-2 ring-1 ring-rose-500/40"
+                  :aria-label="`Delete ${workspace.name}`"
+                  @submit.prevent="removeWorkspace(workspace)"
+              >
+                <span class="text-muted">Its projects, issues, docs, schedules and secrets go with it, for everyone in it. It can't be undone.</span>
+                <span class="flex flex-wrap items-center gap-2">
+                  <input
+                      v-model="typedSpace"
+                      :aria-label="`Type its name, ${workspace.name}, to confirm`"
+                      :placeholder="workspace.name"
+                      autocomplete="off"
+                      spellcheck="false"
+                      class="h-8 w-56 max-w-full field"
+                  >
+                  <UiButton type="submit" variant="danger" size="md" :disabled="!spaceMatches(workspace.name) || busy">Delete workspace</UiButton>
+                </span>
+              </form>
+            </li>
           </ul>
           <span v-else class="text-muted">none</span>
         </dd>
@@ -80,7 +140,8 @@ async function remove() {
         <p class="text-xs text-muted">
           This deletes your account and every workspace you own, with everything in them: projects, issues, docs, epics,
           schedules and secrets. That includes workspaces other people are in: they lose them too.
-          In workspaces you don't own, your issues go back to unassigned and your name stays on what you did.
+          In workspaces you don't own, your issues go back to unassigned, and what you did there shows as by a
+          “Deleted person”: your name comes off it.
           <template v-if="account.role === 'owner'">You own this orrery: it goes to whoever has been on it longest.</template>
           It can't be undone.
         </p>

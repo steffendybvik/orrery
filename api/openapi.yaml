@@ -974,6 +974,23 @@ paths:
         '403': {$ref: '#/components/responses/Forbidden'}
         '404': {$ref: '#/components/responses/NotFound'}
         '409': {$ref: '#/components/responses/Conflict'}
+  /api/me:
+    get:
+      summary: Your account, signed in through a browser
+      description: Who you are, the login provider's accounts you sign in with (by issuer; orrery keeps no email), when you joined, and the workspaces you're in with your role in each. Nobody signed in is a 401; a session, the chat or an agent key a 403.
+      responses:
+        '200': {description: Your account, content: {application/json: {schema: {type: object, required: [id, name, role, identities, workspaces], properties: {id: {type: string}, name: {type: string}, role: {type: string, enum: [owner, member]}, created_at: {type: [string, 'null']}, identities: {type: array, items: {type: object, properties: {issuer: {type: string}}}}, workspaces: {type: array, items: {$ref: '#/components/schemas/Workspace'}}}}}}}
+        '401': {description: Nobody signed in}
+        '403': {$ref: '#/components/responses/Forbidden'}
+    delete:
+      summary: Deletes your own account, with every workspace you own
+      description: Every workspace you own goes with everything in it, even one others are in. Your name and id come off what you leave in other people's workspaces (shown as by a `Deleted person`), your open issues there go back to unassigned, and your keys, logins and memberships end. This browser's login cookie is cleared. `confirm` is your name, in any case (400 otherwise). Only you, signed in through a browser.
+      requestBody: {required: true, content: {application/json: {schema: {type: object, required: [confirm], properties: {confirm: {type: string, description: Your name}}}}}}
+      responses:
+        '204': {description: Deleted}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {description: Nobody signed in}
+        '403': {$ref: '#/components/responses/Forbidden'}
   /api/owner:
     get:
       summary: The owner
