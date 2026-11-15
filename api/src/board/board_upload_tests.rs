@@ -134,7 +134,9 @@ async fn a_board_in_another_workspace_takes_its_statuses_by_name_then_kind() {
     for (id, name, kind, position) in
         [("acme-todo", "To do", "todo", "0"), ("acme-review", "In review", "started", "1"), ("acme-doing", "Doing", "started", "2")]
     {
-        api.run("INSERT INTO statuses (id, name, kind, color, position, workspace) VALUES (?, ?, ?, 'slate', ?, 'acme')", &[id, name, kind, position]).await;
+        // The position goes in the statement, as Postgres won't take text into its number column.
+        let statement = format!("INSERT INTO statuses (id, name, kind, color, position, workspace) VALUES (?, ?, ?, 'slate', {position}, 'acme')");
+        api.run(&statement, &[id, name, kind]).await;
     }
     for issue in file["tables"]["issues"].as_array_mut().unwrap() {
         issue["status"] = json!(if issue["id"] == "PRI-1" { "review" } else { "doing-it" });
