@@ -85,6 +85,7 @@ onMounted(() => nextTick(() => {
       </UiButton>
     </template>
   </ViewToolbar>
+  <BoardMoved v-if="project" :project="project" />
 
   <div class="min-h-0 flex-1" :class="view === 'list' ? 'clear-agent overflow-y-auto' : 'overflow-hidden'">
     <template v-if="project">

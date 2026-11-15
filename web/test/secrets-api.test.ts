@@ -78,7 +78,7 @@ describe("secrets' writes through the Rust API (ORR-1096)", () => {
         expect(await count('secret_uses')).toBe(0)
     })
 
-    it('reads a secret back sealed from there, to open it here, and the table only while it is down for the scrubber (ORR-1143)', async () => {
+    it('reads a secret back sealed from there, to open it here, and fails while it is down, the scrubber too (ORR-1143, ORR-1135)', async () => {
         inFront = false
         await secrets.set('STRIPE_KEY', {value: VALUE, hosts: ['api.stripe.com']}, OWNER)
         inFront = true
@@ -88,10 +88,10 @@ describe("secrets' writes through the Rust API (ORR-1096)", () => {
         // Each read names the project it's for, whose workspace's secret it is (ORR-1107).
         expect(read).toEqual(['/api/secrets/STRIPE_KEY/sealed?project=shop', '/api/secrets/NONE_SUCH/sealed?project=shop', '/api/sealed-secrets'])
         await expect(secrets.egress({url: 'https://api.stripe.com/x?k={{secret:NONE_SUCH}}', project: 'shop'})).rejects.toMatchObject({statusCode: 404})
-        // While it can't be reached, egress fails, but the scrubber still opens what's kept here, for the event log's line.
+        // While it can't be reached, egress fails, and so does the scrubber: the event log holds its line until it answers.
         down = true
         await expect(secrets.ownsFor('https://api.stripe.com/v1/me', 'STRIPE_KEY', 'shop')).rejects.toMatchObject({statusCode: 503})
-        expect(await secrets.scrub(`paid with ${VALUE}`)).toBe('paid with {{secret:STRIPE_KEY}}')
+        await expect(secrets.scrub(`paid with ${VALUE}`)).rejects.toMatchObject({statusCode: 503})
     })
 
     it('deletes there, and writes everything here without the API', async () => {

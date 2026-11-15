@@ -8,7 +8,8 @@
 // The table is web/shared/permissions.ts, copied whole to api/permissions.json by web/test/rust-permissions.test.ts,
 // which `GET /api/permissions` answers with (routes/permissions.rs, ORR-1086); the rails read its rows. Reads
 // go through: a board's reads are each route's (`needsBoard`), as they are on Nuxt, save that a read or write of a project
-// in a workspace the asker isn't a member of is answered 404 (`workspace_check`, ORR-1106).
+// in a workspace the asker isn't a member of is answered 404 (`workspace_check`, ORR-1106), and a write to a board marked
+// as moved 409 (`moved_check`, ORR-1225).
 use crate::access::people::Who;
 use crate::access::presence::Presence;
 use crate::access::seen::Seen;
@@ -282,6 +283,24 @@ async fn workspace_check(conn: &mut AnyConnection, who: Option<&Who>, actor: &Ac
     }
 }
 
+/// A write to a board marked as moved to another orrery (ORR-1225), refused with where it went, so a session still
+/// pointed here doesn't write to the old copy unnoticed. Marking it and lifting the mark (`…/moved`) go through, and so
+/// does deleting the board, which stays the owner's call.
+async fn moved_check(conn: &mut AnyConnection, method: &Method, path: &str) -> Result<()> {
+    let Some(project) = project_named(path) else { return Ok(()) };
+    let base = path.trim_end_matches('/').splitn(5, '/').collect::<Vec<_>>();
+    let marking = base.len() == 5 && base[4] == "moved";
+    let deleting = base.len() == 4 && method == Method::DELETE;
+    if marking || deleting {
+        return Ok(());
+    }
+    let row = sqlx::query(&sql("SELECT moved_to FROM projects WHERE id = ?")).bind(&project).fetch_optional(&mut *conn).await?;
+    match row.and_then(|r| r.get::<Option<String>, _>("moved_to")) {
+        Some(to) => Err(ApiError::moved(&project, &to)),
+        None => Ok(()),
+    }
+}
+
 /// The workspace a session's calls say it works in (`Orrery-Workspace`, ORR-1109): only a session's, as the router says
 /// it (`Orrery-Actor-Session`) or `/mcp` hears it (`Orrery-Session`). A page names one too, from its address, but isn't
 /// held to it.
@@ -348,6 +367,10 @@ pub(crate) async fn rails(State(app): Shared, request: Request, next: Next) -> R
         }
         if read {
             return Ok(());
+        }
+        // A request's write, or one the Nuxt server makes for it (`asked`); not the server's own work.
+        if !server || actor.asked {
+            moved_check(&mut conn, &method, &path).await?;
         }
         match (actor.chat, actor.untrusted) {
             (true, _) => guard(&mut conn, Kind::Chat, method.as_str(), &path).await?,

@@ -370,6 +370,8 @@ export interface Project {
     /** The project whose releases it ships in, when it's `shared` (a monorepo's apps going out together); its
      * `releases` are then that project's, counting its own issues. */
     releases_from?: string
+    /** The orrery it moved to, while the owner has it marked as moved (ORR-1225): writes to it here are refused, saying so. */
+    moved_to?: string
     created_by: string
     protected: boolean
     created_at: string

@@ -414,11 +414,8 @@ export class Secrets {
     /** What takes every secret's value out of a text, for many texts at the cost of one. */
     async scrubber(): Promise<(text: string) => string> {
         const secrets = new Map<string, {value: string}>()
-        // While the API can't be reached, the table here: the event log scrubs the line that says so (`api.unreachable`).
-        const sent = await this.fromApi<SecretRow[]>('/api/sealed-secrets').catch(error => {
-            if ((error as {statusCode?: number}).statusCode !== 503) throw error
-            return undefined
-        })
+        // A 503 while the API can't be reached: the event log holds its line until it answers (ORR-1135).
+        const sent = await this.fromApi<SecretRow[]>('/api/sealed-secrets')
         const rows = sent ?? await this.db.all<SecretRow>('SELECT * FROM secrets')
         for (const row of rows) {
             try {

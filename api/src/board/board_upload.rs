@@ -304,7 +304,7 @@ impl Writer<'_> {
             row
         };
 
-        self.bring_uploads(body.get("uploads"), actor).await?;
+        self.bring_uploads(body.get("uploads"), actor, workspace).await?;
 
         // What points outside the board stays only where it leads somewhere here that the uploader may see.
         let releases_from = match source.get("releases_from") {
@@ -341,6 +341,8 @@ impl Writer<'_> {
             ("next_number", next_number.into()),
             ("next_milestone", next_milestone.into()),
             ("workspace", Value::String(workspace.into())),
+            // The board arrives here as its new home, even from a file of one marked as moved (ORR-1225).
+            ("moved_to", Value::Null),
         ] {
             project.insert(column.into(), value);
         }
@@ -532,8 +534,9 @@ impl Writer<'_> {
     }
 
     /// The images the file's text shows: each checked as an image, by its bytes rather than what it says. One this
-    /// server already has by that id stays as it is (`bringUploads`).
-    async fn bring_uploads(&mut self, uploads: Option<&Value>, actor: &Actor) -> Result<()> {
+    /// server already has by that id stays as it is (`bringUploads`). The rest are `workspace`'s, the one the board comes
+    /// into (ORR-1226).
+    async fn bring_uploads(&mut self, uploads: Option<&Value>, actor: &Actor, workspace: &str) -> Result<()> {
         let Some(uploads) = uploads.and_then(Value::as_array) else { return Ok(()) };
         for upload in uploads {
             let unreadable = || ApiError::bad_request("That file holds an image it can't read");
@@ -554,7 +557,7 @@ impl Writer<'_> {
                 continue;
             }
             let name: Option<String> = upload.get("name").and_then(Value::as_str).map(|n| n.chars().take(200).collect());
-            sqlx::query(&sql("INSERT INTO uploads (id, type, name, size, data, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, 0, ?)"))
+            sqlx::query(&sql("INSERT INTO uploads (id, type, name, size, data, created_by, owned, created_at, workspace) VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)"))
                 .bind(id)
                 .bind(kind)
                 .bind(name)
@@ -562,6 +565,7 @@ impl Writer<'_> {
                 .bind(bytes)
                 .bind(&actor.name)
                 .bind(stamp())
+                .bind(workspace)
                 .execute(&mut *self.conn)
                 .await?;
         }

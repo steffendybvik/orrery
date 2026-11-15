@@ -111,15 +111,20 @@ async fn an_image_that_isnt_one_is_refused() {
     assert_eq!(api.count("SELECT count(*) FROM uploads WHERE id = '0123456789abcdef01234567' AND type = 'image/png'").await, 1);
 }
 
-/// A board comes into the workspace the page was in (ORR-1195), and only one its uploader is in.
+/// A board comes into the workspace the page was in (ORR-1195), and only one its uploader is in; its images do too
+/// (ORR-1226).
 #[tokio::test]
 async fn a_board_comes_into_its_uploaders_workspace() {
     let api = TestApi::new().await;
     let (_, file) = primes(&api).await;
     api.acme(&["steffen"]).await;
-    let reply = api.post("/api/boards", sent(&file, "copy", "CPY")).header("orrery-workspace", "acme").send().await;
+    let mut body = sent(&file, "copy", "CPY");
+    let png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+    body["uploads"] = json!([{"id": "0123456789abcdef01234567", "data": png, "name": "dot.png"}]);
+    let reply = api.post("/api/boards", body).header("orrery-workspace", "acme").send().await;
     assert_eq!(reply.status, 201, "{}", reply.body);
     assert_eq!(api.count("SELECT count(*) FROM projects WHERE id = 'copy' AND workspace = 'acme'").await, 1);
+    assert_eq!(api.count("SELECT count(*) FROM uploads WHERE id = '0123456789abcdef01234567' AND workspace = 'acme'").await, 1);
     sqlx::query("DELETE FROM workspace_members WHERE workspace = 'acme'").execute(&api.app.pool).await.unwrap();
     let refused = api.post("/api/boards", sent(&file, "other", "OTH")).header("orrery-workspace", "acme").send().await;
     assert_eq!(refused.status, 404, "steffen isn't in Acme now: {}", refused.body);
@@ -178,4 +183,19 @@ async fn the_owners_own_board_keeps_who_said_what_and_its_prompts() {
         1
     );
     assert_eq!(api.count("SELECT count(*) FROM issues WHERE project = 'copy' AND claimed_by IS NOT NULL").await, 0, "claims stay behind");
+}
+
+#[tokio::test]
+async fn a_file_from_a_board_marked_as_moved_comes_in_unmarked() {
+    let api = TestApi::new().await;
+    let (project, _) = primes(&api).await;
+    let marked = api.put(&format!("/api/projects/{project}/moved"), json!({"to": "https://orrery.example.com"})).send().await;
+    assert_eq!(marked.status, 200, "{}", marked.body);
+    let file = exported(&api, &project).await;
+    assert_eq!(file["tables"]["projects"][0]["moved_to"], "https://orrery.example.com", "the file holds the row whole");
+    let reply = api.post("/api/boards", sent(&file, "copy", "CPY")).send().await;
+    assert_eq!(reply.status, 201, "{}", reply.body);
+    assert!(reply.body.get("moved_to").is_none(), "{}", reply.body);
+    let wrote = api.post("/api/projects/copy/issues", json!({"title": "Here now"})).agent_of_nobody().send().await;
+    assert_eq!(wrote.status, 201, "{}", wrote.body);
 }

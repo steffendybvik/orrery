@@ -915,6 +915,31 @@ paths:
       responses:
         '200': {description: The board's file, content: {application/json: {schema: {type: object, required: [format, format_version, schema_step, exported_at, project, people, statuses, uploads, tables], properties: {format: {type: string, enum: [orrery-board]}, format_version: {type: integer}, schema_step: {type: integer}, exported_at: {type: string}, project: {type: string}, people: {type: array, items: {type: object}}, statuses: {type: array, items: {type: object}}, uploads: {type: array, items: {type: object}}, tables: {type: object}}}}}}
         '404': {$ref: '#/components/responses/NotFound'}
+  /api/projects/{project}/moved:
+    parameters: [{$ref: '#/components/parameters/project'}]
+    put:
+      summary: Marks the board as moved
+      description: |
+        The board went to another orrery (ORR-1225), so its copy here only reads: while it's marked, every write a request
+        makes to it is a 409 saying where it went (`data.moved_to`), from the rails, before the route runs. Reads still
+        work, and so do lifting the mark and deleting the board. The Nuxt server's own work, which no request set off,
+        isn't held. The owner's alone, from their page: a session, the chat or an untrusted one gets a 403. `to` is the
+        new orrery's address, kept without its last slash.
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      requestBody: {required: true, content: {application/json: {schema: {type: object, required: [to], properties: {to: {type: string}}}}}}
+      responses:
+        '200': {description: 'The project, with its board and `moved_to`', content: {application/json: {schema: {$ref: '#/components/schemas/Project'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+    delete:
+      summary: Lifts the board's mark as moved
+      description: Writes go through again. The owner's alone, as marking it is.
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      responses:
+        '200': {description: 'The project, with its board', content: {application/json: {schema: {$ref: '#/components/schemas/Project'}}}}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
   /api/projects/{project}/import:
     parameters: [{$ref: '#/components/parameters/project'}]
     post:
@@ -3035,6 +3060,7 @@ components:
         repo: {type: string}
         release_mode: {type: string, enum: [none, own, shared]}
         releases_from: {type: string, description: The project it takes its releases from, when shared}
+        moved_to: {type: string, description: 'The orrery it moved to, while it''s marked as moved (ORR-1225): its writes here are refused'}
         created_by: {type: string}
         protected: {type: boolean}
         created_at: {type: string, format: date-time}
