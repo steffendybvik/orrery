@@ -69,12 +69,12 @@ export default defineConfig({
             ? [
                 mine
                     ? {name: 'free', testMatch: share('free', []), dependencies: ['first-run'], use: chrome}
-                    : {name: 'free', testIgnore: ['first-run.spec.ts', 'perf/**', 'login/**', 'readme/**', 'restart/**', ...specs(shared)], dependencies: ['first-run'], use: chrome},
+                    : {name: 'free', testIgnore: ['first-run.spec.ts', 'perf/**', 'login/**', 'signup/**', 'readme/**', 'restart/**', ...specs(shared)], dependencies: ['first-run'], use: chrome},
                 {name: 'sessions', testMatch: share('sessions', SESSIONS), dependencies: ['first-run'], workers: 1, use: chrome},
                 {name: 'settings', testMatch: share('settings', SETTINGS), dependencies: ['first-run'], workers: 1, use: chrome},
                 {name: 'alone', testMatch: share('alone', ALONE), dependencies: beforeLast, workers: 1, use: chrome},
             ]
-            : [{name: process.env.E2E_BROWSER || 'chromium', testIgnore: ['first-run.spec.ts', 'perf/**', 'login/**', 'readme/**', 'restart/**'], dependencies: ['first-run'], use: chrome}],
+            : [{name: process.env.E2E_BROWSER || 'chromium', testIgnore: ['first-run.spec.ts', 'perf/**', 'login/**', 'signup/**', 'readme/**', 'restart/**'], dependencies: ['first-run'], use: chrome}],
     ],
     webServer: {
         command: `rm -f node_modules/.cache/nuxt/dev-server.json && ${postgres ? 'jiti scripts/e2e-postgres.ts' : 'rm -f .data/e2e.db .data/e2e.db-*'} && ${apiBuild}nuxt dev --port ${port}`,
