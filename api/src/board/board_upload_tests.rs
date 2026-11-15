@@ -131,7 +131,9 @@ async fn a_board_in_another_workspace_takes_its_statuses_by_name_then_kind() {
     let api = TestApi::new().await;
     let (_, mut file) = primes(&api).await;
     api.acme(&["steffen"]).await;
-    for (id, name, kind, position) in [("acme-todo", "To do", "todo", "0"), ("acme-review", "In review", "started", "1"), ("acme-doing", "Doing", "started", "2")] {
+    for (id, name, kind, position) in
+        [("acme-todo", "To do", "todo", "0"), ("acme-review", "In review", "started", "1"), ("acme-doing", "Doing", "started", "2")]
+    {
         api.run("INSERT INTO statuses (id, name, kind, color, position, workspace) VALUES (?, ?, ?, 'slate', ?, 'acme')", &[id, name, kind, position]).await;
     }
     for issue in file["tables"]["issues"].as_array_mut().unwrap() {
@@ -169,6 +171,9 @@ async fn the_owners_own_board_keeps_who_said_what_and_its_prompts() {
         api.count("SELECT count(*) FROM comments WHERE project = 'copy' AND created_by = 'claude' AND session_name = 'primes · Ada' AND asks = 'decision' AND cleared = 0").await,
         1
     );
-    assert_eq!(api.count("SELECT count(*) FROM projects WHERE id = 'copy' AND focus_prompt = 'Mind the sieve' AND repo = 'https://example.com/primes'").await, 1);
+    assert_eq!(
+        api.count("SELECT count(*) FROM projects WHERE id = 'copy' AND focus_prompt = 'Mind the sieve' AND repo = 'https://example.com/primes'").await,
+        1
+    );
     assert_eq!(api.count("SELECT count(*) FROM issues WHERE project = 'copy' AND claimed_by IS NOT NULL").await, 0, "claims stay behind");
 }

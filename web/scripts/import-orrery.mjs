@@ -273,6 +273,7 @@ export async function importOrrery({source, target, name, color, fromWorkspace =
 
     // The workspace: a new one, unless told to add to the one by that name.
     const workspaces = await target.get('/workspaces')
+    if (!Array.isArray(workspaces)) throw new Error(`${target.url} has no workspaces to add to: it needs an orrery with workspaces (1.0.0-rc.19 or later) and its Rust API`)
     const existing = workspaces.find(w => w.name.toLowerCase() === name.toLowerCase())
     if (existing && !add) throw new Error(`The target already has a workspace "${existing.name}" (${existing.id}): run again with --add to add to it, or choose another --name`)
     if (!existing && add) throw new Error(`The target has no workspace "${name}" to add to`)
