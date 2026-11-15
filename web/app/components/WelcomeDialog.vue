@@ -142,7 +142,7 @@ function submit() {
     <template v-if="step === 'name'">
       <div class="flex flex-col gap-1">
         <h2 class="text-[15px] font-semibold text-fg">Welcome! What's your name?</h2>
-        <p class="text-xs text-muted">You own this orrery: what you make, nobody else can delete. You can change it later in Settings.</p>
+        <p class="text-xs text-muted">How people and agents see you here. You can change it later in Settings.</p>
       </div>
       <input v-model="display" placeholder="Your name" aria-label="Your name" maxlength="60" autofocus class="bg-transparent text-lg font-semibold text-fg placeholder:text-faint focus:outline-none">
       <fieldset class="flex flex-col gap-1.5">

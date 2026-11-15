@@ -231,7 +231,7 @@ async function pick(tint: string | null) {
         <header class="flex flex-col gap-0.5">
           <h2 class="text-[15px] font-semibold text-fg">{{ title.name }}</h2>
           <p class="text-xs text-muted">
-            You own this orrery: what you make, no one else can delete. Your <span class="font-mono">Orrery-Actor</span> header is
+            Your <span class="font-mono">Orrery-Actor</span> header is
             <span class="font-mono">{{ owner?.name }}</span>; renaming moves what's yours to the new one.
           </p>
         </header>
