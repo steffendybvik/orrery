@@ -2046,7 +2046,7 @@ paths:
       x-served: false
       summary: Keeps the chat as it is now, whole, but why its launcher couldn't start it
       description: >-
-        The write the local app makes of a chat (`keepChat`), as it changes: a chat runs as a session on the local
+        The write the local app makes of a chat (`keepChatThrough`), as it changes: a chat runs as a session on the local
         machine, so what it does stays there, and this keeps its record. Its project and start stay as first kept. Its
         messages are kept one at a time, through `…/lines` (ORR-1100).
       requestBody: {required: true, content: {application/json: {schema: {type: object, required: [id, project, started_at], description: 'The chat, as `GET` gives it. Its messages are rows of their own, so any sent are left'}}}}
