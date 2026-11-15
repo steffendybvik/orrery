@@ -2,7 +2,6 @@ import {EventEmitter} from 'node:events'
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 import type {Chat} from '#shared/roadmap'
 import {Store} from '../server/utils/store'
-import {testDb} from './db'
 import {apiTestDb, withApi} from './api'
 import type {Db} from '../server/utils/database'
 
@@ -871,7 +870,9 @@ describe("the owner's chat moving issues", () => {
 
     it('holds a setting that changed while it waited until the owner goes ahead anyway', async () => {
         const asked = await chats.ask(chatId, {setting: 'tint', value: 'teal'})
-        await store.updateSettings({tint: 'rose'}, skoll)
+        // Changed meanwhile, as the Settings page would: through the API, which keeps settings.
+        const {writeToApiOnly} = await import('../server/utils/api-router')
+        await writeToApiOnly('PATCH', '/api/settings', {tint: 'rose'}, skoll)
         await chats.answer(chatId, asked.id, true, skoll)
         expect(asked.request).toMatchObject({state: 'asked', drifted: [{label: 'Background tint', from: '(none)', to: 'rose'}]})
         expect((await store.settings()).tint).toBe('rose')
@@ -1081,12 +1082,10 @@ describe('chats kept across a restart (ORR-877)', () => {
     let known: Set<string>
 
     beforeEach(async () => {
-        db = testDb()
-        const store = new Store(db)
-        await store.nameOwner({name: 'Skoll'})
-        await store.createProject({name: 'Greenhouse', key: 'GRE'}, owner)
+        // The board's database, which the API keeps the chats in: read here to see what a restart would.
+        db = board.db
+        await board.nameOwner({name: 'Skoll'})
         known = new Set()
-        vi.stubGlobal('useDatabase', () => db)
         vi.stubGlobal('useEventLog', () => ({note: () => {}}))
         vi.stubGlobal('launchKnown', (id: string) => known.has(id))
         vi.stubGlobal('sessionOfLaunch', () => undefined)
@@ -1116,12 +1115,7 @@ describe('chats kept across a restart (ORR-877)', () => {
     })
 
     it("keeps each message as a row, and a request's answer on it (ORR-1100)", async () => {
-        const settings: Record<string, unknown> = {}
-        vi.stubGlobal('useStore', () => over({
-            messageSession: async () => {},
-            settings: async () => settings,
-            updateSettings: async (body: Record<string, unknown>) => Object.assign(settings, body),
-        }))
+        vi.stubGlobal('useStore', () => over({messageSession: async () => {}}))
         await chats.openChat('greenhouse')
         await chats.say(CHAT, 'Make it blue', [], owner)
         const asked = await chats.askSetting(CHAT, {setting: 'tint', value: 'blue'})
@@ -1193,21 +1187,12 @@ describe('chats kept across a restart (ORR-877)', () => {
 
 describe("a chat's messages changed through the API (ORR-1100)", () => {
     const CHAT = 'c1c2c3c4c5c6'
-    let rows: {id: number, at: string, message: string}[]
-    const row = ({id, at, ...message}: {id: number, at: string} & Record<string, unknown>) => ({id, at, message: JSON.stringify(message)})
+    /** A write to the chat's rows that isn't this server's, as another of the API's callers would make it. */
+    let api: (method: string, path: string, body?: unknown) => Promise<unknown>
 
-    beforeEach(() => {
-        rows = []
-        let lines = 0
-        vi.stubGlobal('useDatabase', () => ({
-            run: async (sql: string) => {
-                if (sql.startsWith('INSERT INTO chat_messages')) lines++
-                return {changes: 0}
-            },
-            all: async (sql: string, chat?: string) => sql.includes('WHERE chat = ?') && chat === CHAT ? rows : [],
-            get: async () => ({n: lines}),
-            transaction: async <T>(work: () => Promise<T>) => await work(),
-        }))
+    beforeEach(async () => {
+        const {writeToApiOnly} = await import('../server/utils/api-router')
+        api = async (method, path, body) => await writeToApiOnly(method, path, body)
     })
 
     it('brings in a message the API added, and the page hears the chat with it', async () => {
@@ -1215,8 +1200,7 @@ describe("a chat's messages changed through the API (ORR-1100)", () => {
         await chats.say(CHAT, 'Make it blue', [], owner)
         await chats.chatsSaved()
         const [said] = chats.chatOf(CHAT).messages
-        const asked = {id: 2, at: '2026-11-11T15:00:00.000Z', from: 'claude', text: '', images: [], request: {setting: 'tint', from: null, to: 'blue', state: 'asked'}}
-        rows = [row(said!), row(asked)]
+        const asked = await api('POST', `/api/chats/${CHAT}/lines`, {from: 'claude', text: '', images: [], request: {setting: 'tint', from: null, to: 'blue', state: 'asked'}})
         changes = []
         await chats.chatHeard(CHAT)
         expect(chats.chatOf(CHAT).messages).toEqual([said, asked])
@@ -1233,7 +1217,7 @@ describe("a chat's messages changed through the API (ORR-1100)", () => {
         await chats.chatsSaved()
         const said = chats.chatOf(CHAT).messages[0]!
         // Changed elsewhere: the row isn't what this server kept, so it comes in.
-        rows = [row({...said, text: 'Make it green'})]
+        await api('PUT', `/api/chats/${CHAT}/lines/${said.id}`, {...said, text: 'Make it green'})
         await chats.chatHeard(CHAT)
         expect(chats.chatOf(CHAT).messages[0]!.text).toBe('Make it green')
         // Changed here and not kept yet: the row is what this server kept last, so the change here stays.
@@ -1243,7 +1227,6 @@ describe("a chat's messages changed through the API (ORR-1100)", () => {
     })
 
     it("leaves a chat this server doesn't hold", async () => {
-        rows = [row({id: 1, at: '2026-11-11T15:00:00.000Z', from: 'claude', text: 'Hi', images: []})]
         await chats.chatHeard(CHAT)
         expect(() => chats.readChat(CHAT)).toThrow()
     })
