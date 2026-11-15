@@ -8,11 +8,11 @@ fn hashes_as_the_store_does() {
 #[test]
 fn holds_keys_to_a_person() {
     let session = Actor { name: "agent".into(), owner: false, session: Some("s".into()), ..Default::default() };
-    let owner = Actor { name: "Steffen".into(), owner: true, session: None, ..Default::default() };
+    let owner = Actor { name: "Sam".into(), owner: true, session: None, ..Default::default() };
     let browser = Who { person: "ada".into(), owner: false, browser: true, workspace: None };
-    let agent = Who { person: "steffen".into(), owner: true, browser: false, workspace: None };
+    let agent = Who { person: "sam".into(), owner: true, browser: false, workspace: None };
     assert_eq!(holder_of("keys.write", Some(&browser), &session).unwrap(), ("ada".into(), false));
-    assert_eq!(holder_of("keys.write", None, &owner).unwrap(), ("steffen".into(), true));
+    assert_eq!(holder_of("keys.write", None, &owner).unwrap(), ("sam".into(), true));
     assert_eq!(holder_of("keys.write", None, &session).unwrap_err().status.as_u16(), 403);
     assert_eq!(holder_of("logins.write", Some(&agent), &owner).unwrap_err().status.as_u16(), 403);
 }

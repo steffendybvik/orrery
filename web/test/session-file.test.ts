@@ -12,7 +12,7 @@ describe("a session's file for /mcp", () => {
     const dir = () => mkdtempSync(join(tmpdir(), 'orrery-sessions-'))
 
     it('says who calls as the channel does, the chat and an untrusted session included', () => {
-        expect(sessionHeaders({session: 's1', person: 'steffen'})).toEqual({'Orrery-Actor': 'claude', 'Orrery-Session': 's1', 'Orrery-Person': 'steffen'})
+        expect(sessionHeaders({session: 's1', person: 'sam'})).toEqual({'Orrery-Actor': 'claude', 'Orrery-Session': 's1', 'Orrery-Person': 'sam'})
         expect(sessionHeaders({session: 's1', untrusted: true})).toEqual({'Orrery-Actor': 'claude', 'Orrery-Session': 's1', 'Orrery-Untrusted': 'yes'})
         expect(sessionHeaders({session: 's1', chat: 'l1'})).toEqual({'Orrery-Actor': 'claude', 'Orrery-Session': 's1', 'Orrery-Chat': 'yes', 'Orrery-Launch': 'l1'})
         expect(sessionHeaders({})).toEqual({'Orrery-Actor': 'claude'})

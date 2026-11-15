@@ -781,7 +781,7 @@ async fn a_schedule_across_projects_keeps_to_its_workspace() {
     let api = TestApi::new().await;
     api.team().await;
     let primes = api.project("Primes").await;
-    let rockets = api.acme(&["steffen"]).await;
+    let rockets = api.acme(&["sam"]).await;
     let in_acme = |req: crate::testing::Req| req.header("orrery-workspace", "acme");
     let made = api.post("/api/schedules", json!({"projects": "*", "title": "Tidy", "cron": "0 9 * * 1"})).send().await;
     assert_eq!(made.status, 201, "{}", made.body);

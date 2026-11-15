@@ -284,11 +284,11 @@ describe('the pull request poll', () => {
         open = []
         done = [
             pr(1, {merged: true, closed: true, mergeCommit: {oid: 'm1'}}),
-            pr(2, {closed: true, timelineItems: {nodes: [{actor: {login: 'steffen'}}]}}),
+            pr(2, {closed: true, timelineItems: {nodes: [{actor: {login: 'sam'}}]}}),
             pr(3, {merged: true, closed: true, mergeCommit: {oid: 'm3'}}),
         ]
         await minuteOn()
-        expect(changes.map(c => [c.kind, c.issue, c.pull.merge_sha, c.pull.closed_by])).toEqual([['merged', 'SHO-1', 'm1', null], ['closed', 'SHO-2', null, 'steffen']])
+        expect(changes.map(c => [c.kind, c.issue, c.pull.merge_sha, c.pull.closed_by])).toEqual([['merged', 'SHO-1', 'm1', null], ['closed', 'SHO-2', null, 'sam']])
         await minuteOn()
         expect(changes).toHaveLength(2)
     })

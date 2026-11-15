@@ -11,7 +11,7 @@ fn chat(req: Req) -> Req {
 #[test]
 fn the_chat_keeps_a_proposal_and_drops_its_status_plan_and_assignee() {
     let headers = HeaderMap::new();
-    let made = as_chat_issue(json!({"title": "A", "status": "done", "plan": "now", "assignee": "steffen", "priority": "P1"}), &headers);
+    let made = as_chat_issue(json!({"title": "A", "status": "done", "plan": "now", "assignee": "sam", "priority": "P1"}), &headers);
     assert_eq!(made, json!({"title": "A", "status": "todo", "priority": "P1"}));
     let proposal = as_chat_issue(json!({"title": "B", "status": "done", "proposal": "pending"}), &headers);
     assert_eq!(proposal, json!({"title": "B", "proposal": "pending"}));
@@ -29,7 +29,7 @@ fn the_chat_lands_in_backlog_only_when_the_owner_picked_it() {
 
 #[test]
 fn an_untrusted_ask_keeps_its_words_alone() {
-    let sent = json!({"title": "T", "notes": "N", "choices": [{"label": "x"}], "github_issues": [3], "priority": "P0", "parent": "ORR-1", "assignee": "steffen", "labels": ["bug"]});
+    let sent = json!({"title": "T", "notes": "N", "choices": [{"label": "x"}], "github_issues": [3], "priority": "P0", "parent": "ORR-1", "assignee": "sam", "labels": ["bug"]});
     assert_eq!(
         as_proposal(&sent),
         json!({"title": "T", "notes": "N", "choices": [{"label": "x"}], "github_issues": [3], "proposal": "pending", "labels": ["external"]})

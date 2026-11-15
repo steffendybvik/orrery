@@ -146,7 +146,7 @@ async fn the_owner_deletes_themselves_and_the_longest_here_takes_the_orrery() {
     let api = TestApi::new().await;
     api.team().await;
     let (primes, _) = api.board().await;
-    let deleted = as_person(&api, api.request(axum::http::Method::DELETE, "/api/me").json(json!({"confirm": "Steffen"})), "steffen").await.send().await;
+    let deleted = as_person(&api, api.request(axum::http::Method::DELETE, "/api/me").json(json!({"confirm": "Sam"})), "sam").await.send().await;
     assert_eq!(deleted.status, 204, "{}", deleted.body);
     // `default` is emptied, not deleted: the server needs it.
     assert_eq!(api.count("SELECT count(*) AS n FROM workspaces WHERE id = 'default'").await, 1);
@@ -165,17 +165,17 @@ async fn the_owner_deletes_themselves_and_the_longest_here_takes_the_orrery() {
 async fn the_last_owner_leaving_frees_the_orrery_for_the_next_sign_in() {
     let api = TestApi::new().await;
     api.owner().await;
-    api.run("INSERT INTO identities (issuer, subject, person) VALUES ('https://id.example', '1', 'steffen')", &[]).await;
-    let deleted = as_person(&api, api.request(axum::http::Method::DELETE, "/api/me").json(json!({"confirm": "steffen"})), "steffen").await.send().await;
+    api.run("INSERT INTO identities (issuer, subject, person) VALUES ('https://id.example', '1', 'sam')", &[]).await;
+    let deleted = as_person(&api, api.request(axum::http::Method::DELETE, "/api/me").json(json!({"confirm": "sam"})), "sam").await.send().await;
     assert_eq!(deleted.status, 204, "{}", deleted.body);
     assert_eq!(api.get("/api/owner").send().await.body["named"], false);
-    // The same account signing in again is someone new, the owner now. `steffen` is free again, as history no longer has it.
-    let again = api.post("/api/auth/identity", json!({"issuer": "https://id.example", "subject": "1", "name": "Steffen"})).send().await;
+    // The same account signing in again is someone new, the owner now. `sam` is free again, as history no longer has it.
+    let again = api.post("/api/auth/identity", json!({"issuer": "https://id.example", "subject": "1", "name": "Sam"})).send().await;
     assert_eq!(again.status, 200, "{}", again.body);
-    assert_eq!(again.body["person"], "steffen");
+    assert_eq!(again.body["person"], "sam");
     let owner = api.get("/api/owner").send().await;
-    assert_eq!((owner.body["name"].as_str(), owner.body["named"].as_bool()), (Some("steffen"), Some(true)));
-    assert_eq!(api.count("SELECT count(*) AS n FROM workspace_members WHERE workspace = 'default' AND person = 'steffen' AND role = 'owner'").await, 1);
+    assert_eq!((owner.body["name"].as_str(), owner.body["named"].as_bool()), (Some("sam"), Some(true)));
+    assert_eq!(api.count("SELECT count(*) AS n FROM workspace_members WHERE workspace = 'default' AND person = 'sam' AND role = 'owner'").await, 1);
 }
 
 #[tokio::test]
@@ -196,7 +196,7 @@ async fn deletes_a_workspace_she_owns_on_its_own_with_everything_in_it() {
     // Only with its name typed, only by its owner, and never `default`; one she isn't in is as one that isn't there.
     assert_eq!(delete("ana", "ana-side", "side").await.status, 400);
     assert_eq!(delete("bo", "ana-side", "ana-side").await.status, 403);
-    assert_eq!(delete("steffen", "default", "Default").await.status, 409);
+    assert_eq!(delete("sam", "default", "Default").await.status, 409);
     workspace(&api, "bo-works", "bo", &[], "Rockets").await;
     assert_eq!(delete("ana", "bo-works", "bo-works").await.status, 404);
     assert_eq!(api.count("SELECT count(*) AS n FROM issues WHERE title = 'Plan'").await, 1);

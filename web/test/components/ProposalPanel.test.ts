@@ -11,7 +11,7 @@ const CHOICES: Choice[] = [
 // What the panel sent, as the server got it.
 let sent: {path: string, method: string, actor?: string, body: unknown}[] = []
 let failing = false
-registerEndpoint('/api/owner', () => ({name: 'steffen', display: 'Steffen', named: true}))
+registerEndpoint('/api/owner', () => ({name: 'sam', display: 'Sam', named: true}))
 for (const [path, method] of [['/decide', 'POST'], ['', 'PATCH']] as const) {
     registerEndpoint(`/api/projects/orrery/issues/ORR-1${path}`, {method, handler: async event => {
         if (failing) {
@@ -45,7 +45,7 @@ describe('ProposalPanel', () => {
         await wrapper.find('textarea').setValue('  Keep it simple  ')
         await button('Approve').trigger('click')
         await vi.waitFor(() => expect((wrapper.find('textarea').element as HTMLTextAreaElement).value).toBe(''))
-        expect(sent).toEqual([{path: '/decide', method: 'POST', actor: 'steffen', body: {decision: 'approved', picks: {store: ['A']}, note: 'Keep it simple'}}])
+        expect(sent).toEqual([{path: '/decide', method: 'POST', actor: 'sam', body: {decision: 'approved', picks: {store: ['A']}, note: 'Keep it simple'}}])
     })
 
     it('sends what the owner ticked instead of the recommendation', async () => {
@@ -75,7 +75,7 @@ describe('ProposalPanel', () => {
     })
 
     it('shows a decision as a summary, with Change decision bringing the controls back', async () => {
-        const {wrapper, button} = await mount(proposal({proposal: 'changes', choices: CHOICES, picks: {store: ['B']}, decided_by: 'steffen', decided_at: '2026-10-27T08:00:00Z', decision_note: 'Try Postgres'}))
+        const {wrapper, button} = await mount(proposal({proposal: 'changes', choices: CHOICES, picks: {store: ['B']}, decided_by: 'sam', decided_at: '2026-10-27T08:00:00Z', decision_note: 'Try Postgres'}))
         expect(wrapper.text()).toContain('Changes asked for')
         expect(wrapper.text()).toContain('Where does it live? → Postgres')
         expect(wrapper.text()).toContain('“Try Postgres”')
@@ -86,11 +86,11 @@ describe('ProposalPanel', () => {
     })
 
     it('once approved and open, says it is work and can put it up again', async () => {
-        const {wrapper, button} = await mount(proposal({proposal: undefined, kind: 'todo', decided_by: 'steffen', decided_at: '2026-10-27T08:00:00Z'}))
+        const {wrapper, button} = await mount(proposal({proposal: undefined, kind: 'todo', decided_by: 'sam', decided_at: '2026-10-27T08:00:00Z'}))
         expect(wrapper.text()).toContain("It's on the roadmap")
         await button('Put it up again').trigger('click')
         await vi.waitFor(() => expect(sent).toHaveLength(1))
-        expect(sent).toEqual([{path: '', method: 'PATCH', actor: 'steffen', body: {proposal: 'pending'}}])
+        expect(sent).toEqual([{path: '', method: 'PATCH', actor: 'sam', body: {proposal: 'pending'}}])
     })
 
     it('shows nothing for an issue that was never a proposal', async () => {

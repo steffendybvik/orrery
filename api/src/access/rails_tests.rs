@@ -149,12 +149,8 @@ async fn only_the_boards_holder_passes_its_check() {
     api.team().await;
     let project = api.project("Primes").await;
     on_board(&api, &project, "ana").await;
-    sqlx::query(&sql("UPDATE project_members SET role = 'owner' WHERE project = ? AND person = 'steffen'"))
-        .bind(&project)
-        .execute(&api.app.pool)
-        .await
-        .unwrap();
-    sqlx::query(&sql("INSERT INTO project_members (project, person, role, created_at) SELECT ?, 'steffen', 'owner', '2026-11-01' WHERE NOT EXISTS (SELECT 1 FROM project_members WHERE project = ? AND person = 'steffen')"))
+    sqlx::query(&sql("UPDATE project_members SET role = 'owner' WHERE project = ? AND person = 'sam'")).bind(&project).execute(&api.app.pool).await.unwrap();
+    sqlx::query(&sql("INSERT INTO project_members (project, person, role, created_at) SELECT ?, 'sam', 'owner', '2026-11-01' WHERE NOT EXISTS (SELECT 1 FROM project_members WHERE project = ? AND person = 'sam')"))
         .bind(&project)
         .bind(&project)
         .execute(&api.app.pool)
@@ -162,10 +158,10 @@ async fn only_the_boards_holder_passes_its_check() {
         .unwrap();
     let mut conn = api.app.pool.acquire().await.unwrap();
     let params = HashMap::from([("project".to_string(), project.clone())]);
-    assert!(check(&mut conn, "boardHolder", &params, Some("steffen")).await.unwrap());
+    assert!(check(&mut conn, "boardHolder", &params, Some("sam")).await.unwrap());
     assert!(!check(&mut conn, "boardHolder", &params, Some("ana")).await.unwrap());
     assert!(!check(&mut conn, "boardHolder", &params, None).await.unwrap());
-    assert!(!check(&mut conn, "ownSession", &params, Some("steffen")).await.unwrap(), "the sessions are the local app's");
+    assert!(!check(&mut conn, "ownSession", &params, Some("sam")).await.unwrap(), "the sessions are the local app's");
 }
 
 #[tokio::test]
@@ -210,9 +206,9 @@ async fn the_owner_sees_only_the_workspaces_they_are_in() {
     api.team().await;
     let primes = api.project("Primes").await;
     let rockets = api.acme(&["bo"]).await;
-    let theirs = api.signed(api.get(&format!("/api/projects/{rockets}/issues")), "steffen").await.send().await;
+    let theirs = api.signed(api.get(&format!("/api/projects/{rockets}/issues")), "sam").await.send().await;
     assert_eq!(theirs.status, 404, "{}", theirs.body);
-    let own = api.signed(api.get(&format!("/api/projects/{primes}/issues")), "steffen").await.send().await;
+    let own = api.signed(api.get(&format!("/api/projects/{primes}/issues")), "sam").await.send().await;
     assert_eq!(own.status, 200, "{}", own.body);
     // Their own sessions and chat, with login off, are theirs.
     let chat = from_outside(api.get(&format!("/api/projects/{rockets}/issues")).header("orrery-actor-kind", "chat")).send().await;

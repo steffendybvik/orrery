@@ -12,7 +12,7 @@ use sqlx::Row;
 async fn key(api: &TestApi, person: &str, kind: &str) -> (String, String) {
     let made = api
         .post("/api/keys", json!({"kind": kind, "name": "laptop", "person": person}))
-        .header("orrery-actor-name", "Steffen")
+        .header("orrery-actor-name", "Sam")
         .header("orrery-came", "server")
         .send()
         .await;
@@ -50,22 +50,22 @@ async fn logins(api: &TestApi) -> Vec<(String, String, Option<String>, Option<St
 async fn logging_in_swaps_a_person_key_for_an_http_only_cookie_named_for_the_port() {
     let api = TestApi::at_the_door().await;
     api.owner().await;
-    let (id, secret) = key(&api, "steffen", "person").await;
+    let (id, secret) = key(&api, "sam", "person").await;
     let reply = api.post("/api/auth/login", json!({"key": format!("  {secret}\n")})).header("host", "localhost:9010").send().await;
     assert_eq!(reply.status, 200, "{}", reply.body);
-    assert_eq!(reply.body, json!({"person": "steffen"}));
+    assert_eq!(reply.body, json!({"person": "sam"}));
     let cookie = reply.header("set-cookie").unwrap();
     assert!(cookie.starts_with("orrery_login_9010="), "{cookie}");
     assert!(cookie.contains("; Max-Age=2592000; Path=/; HttpOnly;") && cookie.ends_with("SameSite=Lax") && !cookie.contains("Secure"), "{cookie}");
     let kept = logins(&api).await;
-    assert_eq!(kept, [(hash(&cookie_secret(&reply)), "steffen".to_string(), Some(id), None)], "only the cookie's hash is kept, with the key that started it");
+    assert_eq!(kept, [(hash(&cookie_secret(&reply)), "sam".to_string(), Some(id), None)], "only the cookie's hash is kept, with the key that started it");
 }
 
 #[tokio::test]
 async fn a_login_cookie_is_secure_over_https_and_plain_without_a_port() {
     let api = TestApi::at_the_door().await;
     api.owner().await;
-    let (_, secret) = key(&api, "steffen", "person").await;
+    let (_, secret) = key(&api, "sam", "person").await;
     let proxied = api.post("/api/auth/login", json!({"key": secret})).header("host", "orrery.example").header("x-forwarded-proto", "https,http").send().await;
     let cookie = proxied.header("set-cookie").unwrap();
     assert!(cookie.starts_with("orrery_login=") && cookie.contains(" Secure;"), "{cookie}");
@@ -78,9 +78,9 @@ async fn an_agent_key_a_revoked_key_or_a_removed_persons_never_logs_in() {
     let api = TestApi::at_the_door().await;
     api.owner().await;
     api.member("ada", "ada").await;
-    let (_, agent) = key(&api, "steffen", "agent").await;
-    let (revoked_id, revoked) = key(&api, "steffen", "person").await;
-    let revoke = api.delete(&format!("/api/keys/{revoked_id}")).header("orrery-actor-name", "Steffen").header("orrery-came", "server");
+    let (_, agent) = key(&api, "sam", "agent").await;
+    let (revoked_id, revoked) = key(&api, "sam", "person").await;
+    let revoke = api.delete(&format!("/api/keys/{revoked_id}")).header("orrery-actor-name", "Sam").header("orrery-came", "server");
     assert_eq!(revoke.send().await.status, 204);
     let (_, adas) = key(&api, "ada", "person").await;
     sqlx::query(&crate::db::sql("UPDATE people SET removed_at = ? WHERE id = 'ada'")).bind(stamp()).execute(&api.app.pool).await.unwrap();
@@ -98,7 +98,7 @@ async fn an_agent_key_a_revoked_key_or_a_removed_persons_never_logs_in() {
 async fn logging_out_ends_this_browsers_login_on_the_server_too() {
     let api = TestApi::at_the_door().await;
     api.owner().await;
-    let (_, secret) = key(&api, "steffen", "person").await;
+    let (_, secret) = key(&api, "sam", "person").await;
     let mine = cookie_secret(&api.post("/api/auth/login", json!({"key": secret})).header("host", "localhost:9010").send().await);
     let other = cookie_secret(&api.post("/api/auth/login", json!({"key": secret})).header("host", "localhost:9010").send().await);
     // A cookie under another port's name isn't this orrery's.
@@ -183,9 +183,9 @@ async fn status_says_someone_can_get_in_with_a_provider_or_the_owners_person_key
     api.owner().await;
     assert_eq!(status(api.get("/api/auth/status").header("orrery-login-ways", "provider")).await["can_get_in"], true);
     assert_eq!(status(api.get("/api/auth/status").header("orrery-login-ways", "provider")).await["oidc"], true);
-    key(&api, "steffen", "agent").await;
+    key(&api, "sam", "agent").await;
     assert_eq!(status(api.get("/api/auth/status")).await["can_get_in"], false, "an agent key signs nobody in");
-    key(&api, "steffen", "person").await;
+    key(&api, "sam", "person").await;
     assert_eq!(status(api.get("/api/auth/status")).await["can_get_in"], true);
 }
 
@@ -194,14 +194,14 @@ async fn status_says_who_this_browser_or_agent_is() {
     let api = TestApi::at_the_door().await;
     api.owner().await;
     let on = |req: Req| req.header("orrery-login-ways", "on");
-    let said = status(on(api.get("/api/auth/status")).signed_in(&api.login("steffen").await)).await;
-    assert_eq!((said["person"].as_str(), said["via"].as_str()), (Some("steffen"), Some("browser")));
-    let said = status(on(api.get("/api/auth/status")).header("orrery-key", &api.key("steffen", "agent").await)).await;
-    assert_eq!((said["person"].as_str(), said["via"].as_str()), (Some("steffen"), Some("agent")));
-    let said = status(on(api.get("/api/auth/status")).header("orrery-key", &api.key("steffen", "person").await)).await;
+    let said = status(on(api.get("/api/auth/status")).signed_in(&api.login("sam").await)).await;
+    assert_eq!((said["person"].as_str(), said["via"].as_str()), (Some("sam"), Some("browser")));
+    let said = status(on(api.get("/api/auth/status")).header("orrery-key", &api.key("sam", "agent").await)).await;
+    assert_eq!((said["person"].as_str(), said["via"].as_str()), (Some("sam"), Some("agent")));
+    let said = status(on(api.get("/api/auth/status")).header("orrery-key", &api.key("sam", "person").await)).await;
     assert!(said.get("person").is_none(), "a person key is swapped for a login, and is no credential itself: {said}");
     // What the router says is never taken: only what's found here.
-    let said = status(on(api.get("/api/auth/status")).browser("steffen", true)).await;
+    let said = status(on(api.get("/api/auth/status")).browser("sam", true)).await;
     assert!(said.get("person").is_none(), "{said}");
 }
 
@@ -236,14 +236,14 @@ async fn the_owner_makes_a_sign_in_link_good_for_five_minutes() {
     assert!(left > LINK_MINUTES * 60 - 10 && left <= LINK_MINUTES * 60, "{left}s");
     // With login on, from the owner's own browser.
     api.member("ada", "ada").await;
-    assert_eq!(api.post("/api/phone/link", json!(null)).signed_in(&api.login("steffen").await).send().await.status, 201);
+    assert_eq!(api.post("/api/phone/link", json!(null)).signed_in(&api.login("sam").await).send().await.status, 201);
 }
 
 #[tokio::test]
 async fn a_sign_in_link_is_never_made_over_the_phones_port() {
     let api = TestApi::at_the_door().await;
     api.owner().await;
-    let login = api.login("steffen").await;
+    let login = api.login("sam").await;
     for came in ["loopback, phone", "phone"] {
         let refused = api.post("/api/phone/link", json!(null)).signed_in(&login).header("orrery-came", came).send().await;
         assert_eq!(refused.status, 403, "{}", refused.body);
@@ -262,9 +262,9 @@ async fn with_login_on_only_the_owners_own_browser_makes_a_sign_in_link() {
         // With no credential, and nobody able to log in, it's turned away at the door.
         (api.post("/api/phone/link", json!(null)), 503),
         (api.post("/api/phone/link", json!(null)).signed_in(&api.login("ada").await), 403),
-        (api.post("/api/phone/link", json!(null)).header("orrery-key", &api.key("steffen", "agent").await), 403),
+        (api.post("/api/phone/link", json!(null)).header("orrery-key", &api.key("sam", "agent").await), 403),
         // Closed: nobody gets in, so nobody makes one.
-        (api.post("/api/phone/link", json!(null)).signed_in(&api.login("steffen").await).header("orrery-came", "").header("orrery-login-ways", "off"), 503),
+        (api.post("/api/phone/link", json!(null)).signed_in(&api.login("sam").await).header("orrery-came", "").header("orrery-login-ways", "off"), 503),
     ];
     for (req, expected) in tries {
         let refused = req.send().await;
@@ -291,7 +291,7 @@ async fn a_session_the_chat_or_an_untrusted_one_never_makes_a_sign_in_link() {
         );
         let on = api
             .post("/api/phone/link", json!(null))
-            .signed_in(&api.login("steffen").await)
+            .signed_in(&api.login("sam").await)
             .header("orrery-actor-kind", kind)
             .header("orrery-login-ways", "on")
             .send()
@@ -318,9 +318,9 @@ async fn a_phones_link_signs_it_in_as_the_owner_once() {
     let token = made.body["token"].as_str().unwrap();
     let signed = api.post("/api/auth/link", json!({"token": token})).header("host", "192.168.1.4:9011").without("orrery-actor-owner").send().await;
     assert_eq!(signed.status, 201, "{}", signed.body);
-    assert_eq!(signed.body, json!({"person": "steffen"}));
+    assert_eq!(signed.body, json!({"person": "sam"}));
     assert!(signed.header("set-cookie").unwrap().starts_with("orrery_login_9011="));
-    assert_eq!(logins(&api).await, [(hash(&cookie_secret(&signed)), "steffen".into(), None, Some(PHONE_LOGIN.into()))]);
+    assert_eq!(logins(&api).await, [(hash(&cookie_secret(&signed)), "sam".into(), None, Some(PHONE_LOGIN.into()))]);
     let again = api.post("/api/auth/link", json!({"token": token})).send().await;
     assert_eq!(again.status, 401, "{}", again.body);
     assert!(again.body["message"].as_str().unwrap().contains("sign-in link"));
@@ -346,7 +346,7 @@ async fn a_typed_code_signs_a_phone_in_and_uses_up_its_link() {
 async fn a_link_run_out_or_never_made_signs_nobody_in() {
     let api = TestApi::at_the_door().await;
     api.owner().await;
-    let old = api.app.phone.make("steffen", phone::now_ms() - (LINK_MINUTES * 60_000 + 1_000));
+    let old = api.app.phone.make("sam", phone::now_ms() - (LINK_MINUTES * 60_000 + 1_000));
     for body in
         [json!({"token": old.token}), json!({"code": old.code}), json!({"token": "a".repeat(32)}), json!({}), json!({"token": 5}), json!({"code": "ABC"})]
     {
@@ -443,9 +443,9 @@ async fn the_local_app_asks_whether_the_owner_has_a_key_and_whether_login_stays_
     assert_eq!(ways().await, json!({"owner_has_key": false, "stays_on": false}));
     // Only the local app asks: a page or a session gets a 403.
     assert_eq!(api.get("/api/auth/ways-in").send().await.status, 403);
-    key(&api, "steffen", "agent").await;
+    key(&api, "sam", "agent").await;
     assert_eq!(ways().await["owner_has_key"], false, "an agent key signs nobody in");
-    key(&api, "steffen", "person").await;
+    key(&api, "sam", "person").await;
     assert_eq!(ways().await["owner_has_key"], true);
     api.member("ada", "ada").await;
     assert_eq!(ways().await["stays_on"], true);

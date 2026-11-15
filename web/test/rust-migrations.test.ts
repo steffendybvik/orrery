@@ -180,7 +180,7 @@ describe.skipIf(!existsSync(BIN))('orrery-api migrate on SQLite', () => {
 
     it('carries on from the step Node stopped at, owner, boards and all', () => {
         const owner = (db: DatabaseSync) => {
-            db.prepare("INSERT INTO settings (key, value) VALUES ('owner', ?)").run(JSON.stringify('Åse Dybvik'))
+            db.prepare("INSERT INTO settings (key, value) VALUES ('owner', ?)").run(JSON.stringify('Åse Rivers'))
             db.prepare("INSERT INTO projects (id, name, key, created_by, created_at, updated_at) VALUES ('larder', 'Larder', 'LAR', 'agent', '2026-01-01', '2026-01-01')").run()
         }
         const ours = nodeSqlite(BEFORE_PEOPLE, owner)
@@ -191,7 +191,7 @@ describe.skipIf(!existsSync(BIN))('orrery-api migrate on SQLite', () => {
         db.close()
         expect(sqliteState(ours)).toEqual(sqliteState(node))
         const after = new DatabaseSync(ours)
-        expect(after.prepare('SELECT id, name, role FROM people').all()).toEqual([{id: 'ase_dybvik', name: 'Åse Dybvik', role: 'owner'}])
+        expect(after.prepare('SELECT id, name, role FROM people').all()).toEqual([{id: 'ase_rivers', name: 'Åse Rivers', role: 'owner'}])
         expect((after.prepare('SELECT uid FROM projects').get() as {uid: string}).uid).toMatch(/^[a-z2-7]{8}$/)
         expect(JSON.parse((after.prepare("SELECT value FROM settings WHERE key = 'uid'").get() as {value: string}).value)).toMatch(/^[a-z2-7]{8}$/)
         after.close()
@@ -316,7 +316,7 @@ describe.skipIf(!existsSync(BIN) || !POSTGRES)('orrery-api migrate on Postgres',
 
     it('carries on from the step Node stopped at, owner and all', async () => {
         const owner = async (db: PostgresDb) => {
-            await db.run("INSERT INTO settings (key, value) VALUES ('owner', ?)", JSON.stringify('Åse Dybvik'))
+            await db.run("INSERT INTO settings (key, value) VALUES ('owner', ?)", JSON.stringify('Åse Rivers'))
         }
         const ours = await nodePostgres(BEFORE_PEOPLE, owner)
         rustMigrate(POSTGRES!, ours)
@@ -327,7 +327,7 @@ describe.skipIf(!existsSync(BIN) || !POSTGRES)('orrery-api migrate on Postgres',
         expect(await postgresState(ours)).toEqual(await postgresState(node))
         const client = new pg.Client({connectionString: POSTGRES})
         await client.connect()
-        expect((await client.query(`SELECT id, name, role FROM "${ours}".people`)).rows).toEqual([{id: 'ase_dybvik', name: 'Åse Dybvik', role: 'owner'}])
+        expect((await client.query(`SELECT id, name, role FROM "${ours}".people`)).rows).toEqual([{id: 'ase_rivers', name: 'Åse Rivers', role: 'owner'}])
         await client.end()
     }, 30_000)
 })
