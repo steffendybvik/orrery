@@ -1,6 +1,7 @@
 // An image kept for Markdown to show (ORR-927): keeping one as `createUpload` in web/server/store/signals.ts does,
 // compressed as compress.ts has it (ORR-1058), and reading it back, answering as web/server/api/uploads/[upload].get.ts
 // does.
+use crate::access::seen::Seen;
 use crate::board::compress::compress_image;
 use crate::db::sql;
 use crate::error::{ApiError, Result};
@@ -89,8 +90,8 @@ pub(crate) fn decode(base64: &str) -> Vec<u8> {
 }
 
 /// Keeps an image for Markdown to show: `{data, name?}` → where it's served and the Markdown that shows it. A PNG or
-/// JPEG is kept as WebP when that's smaller (compress.rs).
-pub async fn create_upload(conn: &mut AnyConnection, body: &Value, actor: &Actor) -> Result<Value> {
+/// JPEG is kept as WebP when that's smaller (compress.rs). It's `workspace`'s (ORR-1226): the one the request acts in.
+pub async fn create_upload(conn: &mut AnyConnection, body: &Value, actor: &Actor, workspace: &str) -> Result<Value> {
     let (data, name) = check_input(body)?;
     let base64 = DATA_URL.replace(&data, "");
     if !BASE64.is_match(&base64) {
@@ -110,7 +111,7 @@ pub async fn create_upload(conn: &mut AnyConnection, body: &Value, actor: &Actor
     let name = name.map(|n| n.trim().chars().take(200).collect::<String>()).filter(|n| !n.is_empty());
     let id = crate::work::settings::hex(12);
     let size = data.len() as i64;
-    sqlx::query(&sql("INSERT INTO uploads (id, type, name, size, data, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"))
+    sqlx::query(&sql("INSERT INTO uploads (id, type, name, size, data, created_by, owned, created_at, workspace) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"))
         .bind(&id)
         .bind(kind)
         .bind(name.as_deref())
@@ -119,6 +120,7 @@ pub async fn create_upload(conn: &mut AnyConnection, body: &Value, actor: &Actor
         .bind(&actor.name)
         .bind(i64::from(actor.owner))
         .bind(stamp())
+        .bind(workspace)
         .execute(conn)
         .await?;
     let url = format!("/api/uploads/{id}");
@@ -128,10 +130,18 @@ pub async fn create_upload(conn: &mut AnyConnection, body: &Value, actor: &Actor
 }
 
 /// The image's bytes, as kept, with the headers the route sends: it never changes, so the browser keeps it, and it's
-/// only ever an image, never a page that could run something.
-pub async fn upload(conn: &mut AnyConnection, id: &str) -> Result<Response> {
-    let row = if ID.is_match(id) { sqlx::query(&sql("SELECT type, data FROM uploads WHERE id = ?")).bind(id).fetch_optional(conn).await? } else { None };
-    let row = row.ok_or_else(|| ApiError::not_found(format!("No image {id}")))?;
+/// only ever an image, never a page that could run something. One outside the workspaces `seen` reaches isn't there
+/// (ORR-1226), as with the rails; an untrusted session also reaches its own project's workspace.
+pub async fn upload(conn: &mut AnyConnection, id: &str, seen: &Seen) -> Result<Response> {
+    let row = if ID.is_match(id) {
+        sqlx::query(&sql("SELECT type, data, workspace FROM uploads WHERE id = ?")).bind(id).fetch_optional(&mut *conn).await?
+    } else {
+        None
+    };
+    let row = match row {
+        Some(row) if reaches(conn, seen, &row.get::<String, _>("workspace")).await? => row,
+        _ => return Err(ApiError::not_found(format!("No image {id}"))),
+    };
     let kind: String = row.get("type");
     let data: Vec<u8> = row.get("data");
     let mut response = data.into_response();
@@ -141,4 +151,33 @@ pub async fn upload(conn: &mut AnyConnection, id: &str) -> Result<Response> {
     headers.insert(header::X_CONTENT_TYPE_OPTIONS, HeaderValue::from_static("nosniff"));
     headers.insert(header::CONTENT_SECURITY_POLICY, HeaderValue::from_static("default-src 'none'; sandbox"));
     Ok(response)
+}
+
+/// Whether `seen` reaches `workspace`: one of its own, or, for an untrusted session, its project's.
+async fn reaches(conn: &mut AnyConnection, seen: &Seen, workspace: &str) -> Result<bool> {
+    match seen {
+        Seen::All => Ok(true),
+        Seen::Only { workspaces, .. } if workspaces.iter().any(|w| w == workspace) => Ok(true),
+        Seen::Only { own: Some(own), .. } => Ok(own_workspace(conn, own).await?.as_deref() == Some(workspace)),
+        Seen::Only { .. } => Ok(false),
+    }
+}
+
+/// The workspace of an untrusted session's own project, if it's here.
+async fn own_workspace(conn: &mut AnyConnection, project: &str) -> Result<Option<String>> {
+    let row = sqlx::query(&sql("SELECT workspace FROM projects WHERE id = ?")).bind(project).fetch_optional(conn).await?;
+    Ok(row.map(|r| r.get("workspace")))
+}
+
+/// The workspace an upload is kept in: the one the request acts in (`Seen::pick`), or, for an untrusted session in none
+/// of its own, its project's.
+pub(crate) async fn workspace_for(conn: &mut AnyConnection, seen: &Seen, named: Option<&str>) -> Result<String> {
+    match (seen.pick(named), seen) {
+        (Ok(workspace), _) => Ok(workspace),
+        (Err(error), Seen::Only { own: Some(own), .. }) => match own_workspace(conn, own).await? {
+            Some(workspace) if named.map_or(true, |n| n == workspace) => Ok(workspace),
+            _ => Err(error),
+        },
+        (Err(error), _) => Err(error),
+    }
 }
