@@ -76,6 +76,12 @@ let database: SqliteDb | PostgresDb | null = null
 
 /** Lets go of the database, e.g. as `nuxt dev` swaps in a reloaded server; the next use opens it again. */
 export async function closeDb() {
+    // What's in the `-wal` goes into the file first, so a copy of the file alone, taken once orrery stops, has it all (ORR-1214).
+    try {
+        db?.exec('PRAGMA wal_checkpoint(TRUNCATE)')
+    } catch (error) {
+        console.error('[orrery] writing the -wal into the database as it closes:', error)
+    }
     db?.close()
     db = null
     if (database instanceof PostgresDb) await database.close()
