@@ -821,11 +821,7 @@ impl IssueWrites<'_> {
         }
         let there = Issues::new(&mut *self.conn).project(to).await?;
         // A board marked as moved only reads, so nothing moves into it either (ORR-1229).
-        let moved: Option<String> =
-            sqlx::query_scalar(&sql("SELECT moved_to FROM projects WHERE id = ?")).bind(to).fetch_optional(&mut *self.conn).await?.flatten();
-        if let Some(moved) = moved {
-            return Err(ApiError::moved(to, &moved));
-        }
+        crate::board::projects::not_moved(self.conn, to).await?;
         let parent = match parent.filter(|p| !p.is_empty()) {
             Some(sent) => Some(self.issue_id(to, sent).await?),
             None => None,
@@ -1146,6 +1142,10 @@ impl IssueWrites<'_> {
             }
             let on_id = self.issue_id(&on_project, &on_id).await?;
             self.issue_there(&on_project, &on_id).await?;
+            // One on a board marked as moved can't change any more, so nothing new waits on it (ORR-1229).
+            if on_project != project {
+                crate::board::projects::not_moved(self.conn, &on_project).await?;
+            }
             if on_project == project && on_id == issue {
                 return Err(ApiError::bad_request("An issue can't depend on itself"));
             }
