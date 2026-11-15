@@ -1425,8 +1425,10 @@ paths:
         The local app's alone (ORR-1142): `POST /api/projects/upload` checks a board's file first, as it's untrusted,
         bringing its rows up to this schema in a throwaway SQLite, and sends them here to be made a new board held by
         `holder`. Every id numbered across the server is numbered again, and nothing in it speaks for anyone: its
-        comments are the file's, its schedules paused, its prompts, repo and claims left behind. An id or key already
-        taken is a 409.
+        comments are the file's, its schedules paused, its prompts, repo and claims left behind. With `own`, the
+        server's owner's alone (403 for anyone else), its comments keep who wrote them and the project its prompts,
+        instructions, repo and `starts` (ORR-1110). Statuses are the workspace's it comes into: by id, else name, else
+        kind. An id or key already taken is a 409.
       requestBody:
         required: true
         content:
@@ -1439,6 +1441,7 @@ paths:
                 key: {type: string}
                 name: {type: [string, 'null']}
                 holder: {type: string, description: The person who holds the board}
+                own: {type: boolean, description: 'The owner''s own board from another orrery of theirs, kept as it was said'}
                 project: {type: [string, 'null'], description: The board's id in the file}
                 exported_at: {type: [string, 'null']}
                 statuses: {type: array, items: {type: object}}
@@ -1448,6 +1451,7 @@ paths:
       responses:
         '201': {description: 'The board, as a project with its board', content: {application/json: {schema: {$ref: '#/components/schemas/Project'}}}}
         '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
         '409': {$ref: '#/components/responses/Conflict'}
   /api/database:
     get:

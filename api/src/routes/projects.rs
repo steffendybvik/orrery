@@ -37,7 +37,7 @@ pub(crate) fn routes() -> Router<Arc<App>> {
 /// what JSON adds around them.
 const BOARD_BODY_LIMIT: usize = 320 * 1024 * 1024;
 
-/// `POST /api/boards` {id, key, name?, holder, project, exported_at?, statuses, people, uploads, tables} → 201 the new
+/// `POST /api/boards` {id, key, name?, holder, own?, project, exported_at?, statuses, people, uploads, tables} → 201 the new
 /// board. The local app's own call (ORR-1142): it checks a board's file first (`checkedBoard` in board-upload.ts), as
 /// that's untrusted, and sends its rows here to be made a board, held by `holder` (`board_upload`). Its body is read
 /// here, past the API's own limit, as a board's file is far bigger than any other request.
@@ -62,7 +62,12 @@ async fn upload_board(State(app): Shared, request: Request) -> Result<Response> 
     if theirs.is_none() {
         return Err(ApiError::not_found(format!("No workspace {workspace}")));
     }
-    let upload = Upload { id, key, name: text("name"), holder, body: &body, workspace: &workspace };
+    // The owner's own board from another orrery of theirs keeps who said what (ORR-1110): theirs alone to ask for.
+    let own = body.get("own").and_then(Value::as_bool).unwrap_or(false);
+    if own && !actor.owner {
+        return Err(ApiError::forbidden("Only the owner brings a board in as their own"));
+    }
+    let upload = Upload { id, key, name: text("name"), holder, body: &body, workspace: &workspace, own };
     let effects = board_upload::upload_board(&mut conn, &upload, &actor).await?;
     let value = Projects::new(&mut conn).project(id).await?;
     Ok(reply(StatusCode::CREATED, Some(value), effects))

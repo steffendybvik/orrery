@@ -23,7 +23,8 @@
     "soak": "node scripts/soak.mjs",
     "api-bench": "node scripts/api-bench.mjs",
     "orrery:claim": "node scripts/claim.mjs",
-    "orrery:copy": "jiti scripts/copy.ts"
+    "orrery:copy": "jiti scripts/copy.ts",
+    "orrery:import": "node scripts/import-orrery.mjs"
   },
   "dependencies": {
     "@headlessui/vue": "1.7.23",

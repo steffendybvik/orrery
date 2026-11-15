@@ -4,7 +4,9 @@
 // sends here is those rows, with what the file says of its statuses, people and images, and the id, key and name the
 // board is to have. This makes the board from them, all or nothing: every id numbered across the server is numbered
 // again, and nothing in it speaks for anyone. Nothing is the owner's, its comments reach no session, its schedules are
-// paused, and what would act on its own (prompts, a repo to poll, starting sessions, claims) is left behind.
+// paused, and what would act on its own (prompts, a repo to poll, starting sessions, claims) is left behind. The
+// server's owner bringing in a board of their own from another orrery (`own`, ORR-1110) keeps who said what and the
+// project's prompts, instructions, repo and `starts`; its schedules still arrive paused, and claims stay behind.
 use crate::board::uploads::{decode, type_of, UPLOAD_LIMIT};
 use crate::changes;
 use crate::db::{on_postgres, sql};
@@ -132,6 +134,9 @@ pub struct Upload<'a> {
     pub body: &'a Value,
     /// The workspace it comes into (ORR-1195): the one the request acts in.
     pub workspace: &'a str,
+    /// The owner's own board, from another orrery of theirs (ORR-1110): its comments keep who wrote them, and the
+    /// project its prompts, instructions, repo and `starts`. The route lets only the server's owner ask for it.
+    pub own: bool,
 }
 
 /// Brings the board in, all or nothing, and says what it set off (the new board changed).
@@ -230,7 +235,7 @@ impl Writer<'_> {
     }
 
     async fn write(&mut self, upload: &Upload<'_>, source: &Row, tables: &Map<String, Value>, actor: &Actor) -> Result<()> {
-        let Upload { id, key, name, holder, body, workspace } = *upload;
+        let Upload { id, key, name, holder, body, workspace, own } = *upload;
         if self.exists("SELECT 1 FROM projects WHERE id = ?", &[id]).await? {
             return Err(ApiError::conflict(format!("There is already a project \"{id}\": choose another id")));
         }
@@ -241,25 +246,33 @@ impl Writer<'_> {
         let table = |name: &str| rows(tables.get(name));
         let file_project = body.get("project").cloned().unwrap_or(Value::Null);
 
-        // Statuses by id, else the first of their kind. People by name, and an open issue with nobody here goes unassigned.
-        let statuses: Vec<(String, String)> = sqlx::query("SELECT id, kind FROM statuses ORDER BY position")
+        // The workspace's own statuses (ORR-1110): by id, else by name, else the first of their kind. People by name, and
+        // an open issue with nobody here goes unassigned.
+        let statuses: Vec<(String, String, String)> = sqlx::query(&sql("SELECT id, name, kind FROM statuses WHERE workspace = ? ORDER BY position"))
+            .bind(workspace)
             .fetch_all(&mut *self.conn)
             .await?
             .iter()
-            .map(|row| (row.get::<String, _>("id"), row.get::<String, _>("kind")))
+            .map(|row| (row.get::<String, _>("id"), row.get::<String, _>("name").to_lowercase(), row.get::<String, _>("kind")))
             .collect();
         let in_file = rows(body.get("statuses"));
         let status_for = |status: Option<&Value>| -> (String, String) {
             let status = status.map(said);
-            if let Some(same) = statuses.iter().find(|(id, _)| Some(id) == status.as_ref()) {
-                return same.clone();
+            let pair = |(id, _, kind): &(String, String, String)| (id.clone(), kind.clone());
+            if let Some(same) = statuses.iter().find(|(id, _, _)| Some(id) == status.as_ref()) {
+                return pair(same);
             }
-            let kind = in_file.iter().find(|s| s.get("id").map(said) == status).and_then(|s| s.get("kind")).map(said);
+            let said_of = in_file.iter().find(|s| s.get("id").map(said) == status);
+            let name = said_of.and_then(|s| s.get("name")).map(|n| said(n).to_lowercase());
+            let kind = said_of.and_then(|s| s.get("kind")).map(said);
             statuses
                 .iter()
-                .find(|(_, k)| Some(k) == kind.as_ref())
-                .or_else(|| statuses.iter().find(|(_, k)| k == "backlog"))
-                .cloned()
+                .find(|(_, n, k)| Some(n) == name.as_ref() && Some(k) == kind.as_ref())
+                .or_else(|| statuses.iter().find(|(_, _, k)| Some(k) == kind.as_ref()))
+                // One the file doesn't describe, as a schedule's `todo`: orrery's own ids are their kinds.
+                .or_else(|| statuses.iter().find(|(_, _, k)| Some(k) == status.as_ref()))
+                .or_else(|| statuses.iter().find(|(_, _, k)| k == "backlog"))
+                .map(pair)
                 .unwrap_or_else(|| ("backlog".into(), "backlog".into()))
         };
         let people: Vec<(String, String)> = sqlx::query("SELECT id, name FROM people")
@@ -280,7 +293,7 @@ impl Writer<'_> {
         let on_this_board = |row: &Row| -> Row {
             let mut row = row.clone();
             row.insert("project".into(), Value::String(id.to_string()));
-            if row.contains_key("owned") {
+            if row.contains_key("owned") && !own {
                 row.insert("owned".into(), 0.into());
             }
             row
@@ -310,6 +323,7 @@ impl Writer<'_> {
         let milestones = table("milestones");
         let next_number = past_ids(issues.iter().filter_map(|i| i.get("id")), source.get("next_number").unwrap_or(&Value::Null));
         let next_milestone = past_ids(milestones.iter().filter_map(|m| m.get("id")), source.get("next_milestone").unwrap_or(&Value::Null));
+        let kept_or = |column: &str, none: Value| if own { source.get(column).cloned().unwrap_or(none) } else { none };
         for (column, value) in [
             ("id", Value::String(id.into())),
             ("key", Value::String(key.into())),
@@ -317,11 +331,11 @@ impl Writer<'_> {
             ("uid", Value::String(uid_of(&hex(5)))),
             ("created_by", Value::String(actor.name.clone())),
             ("owned", i64::from(actor.owner).into()),
-            ("focus_prompt", Value::Null),
-            ("milestone_prompt", Value::Null),
-            ("instructions", Value::String("[]".into())),
-            ("starts", Value::Null),
-            ("repo", Value::Null),
+            ("focus_prompt", kept_or("focus_prompt", Value::Null)),
+            ("milestone_prompt", kept_or("milestone_prompt", Value::Null)),
+            ("instructions", kept_or("instructions", Value::String("[]".into()))),
+            ("starts", kept_or("starts", Value::Null)),
+            ("repo", kept_or("repo", Value::Null)),
             ("releases_from", releases_from.clone()),
             ("release_mode", mode),
             ("next_number", next_number.into()),
@@ -435,13 +449,22 @@ impl Writer<'_> {
             self.insert("issue_events", &on_this_board(&without_id(event)), false).await?;
         }
         // Said by whoever the file says, which is why it says it's the file's: no one here said it, and it asks nothing of anyone.
+        // The owner's own board keeps who said it, its person found here by name, and what it asks (`own`).
         let from_a_file = |row: &Row| Value::String(format!("{} (from a file)", row.get("created_by").map(said).unwrap_or_else(|| "undefined".into())));
+        let said_by = |row: &Row, asks: bool| -> Vec<(&str, Value)> {
+            if own {
+                return vec![("person", person_for(row.get("person")))];
+            }
+            let mut columns = vec![("created_by", from_a_file(row)), ("person", Value::Null), ("session_name", Value::Null)];
+            if asks {
+                columns.extend([("cleared", 1.into()), ("asks", Value::Null)]);
+            }
+            columns
+        };
         let mut comments: HashMap<String, i64> = HashMap::new();
         for comment in table("comments") {
             let mut row = on_this_board(&without_id(comment));
-            for (column, value) in
-                [("created_by", from_a_file(comment)), ("person", Value::Null), ("cleared", 1.into()), ("asks", Value::Null), ("session_name", Value::Null)]
-            {
+            for (column, value) in said_by(comment, true) {
                 row.insert(column.into(), value);
             }
             let made = self.insert("comments", &row, true).await?.unwrap_or_default();
@@ -449,7 +472,7 @@ impl Writer<'_> {
         }
         for comment in table("milestone_comments") {
             let mut row = on_this_board(&without_id(comment));
-            for (column, value) in [("created_by", from_a_file(comment)), ("person", Value::Null), ("session_name", Value::Null)] {
+            for (column, value) in said_by(comment, false) {
                 row.insert(column.into(), value);
             }
             self.insert("milestone_comments", &row, true).await?;
@@ -467,7 +490,9 @@ impl Writer<'_> {
         let mut revisions: HashMap<String, i64> = HashMap::new();
         for revision in table("doc_revisions") {
             let mut row = on_this_board(&without_id(revision));
-            row.insert("session_name".into(), Value::Null);
+            if !own {
+                row.insert("session_name".into(), Value::Null);
+            }
             let made = self.insert("doc_revisions", &row, true).await?.unwrap_or_default();
             revisions.insert(revision.get("id").map(said).unwrap_or_default(), made);
         }
