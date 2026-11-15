@@ -541,10 +541,9 @@ describe("the owner's chat", () => {
         const made: {what: string, project: string}[] = []
         const checkedOn: string[] = []
         await board.nameOwner({name: 'skoll'})
+        await board.createProject({name: 'reading-list', key: 'REA'})
         vi.stubGlobal('useStore', () => over({
             presets: async () => [],
-            projectId: async (id: string) => id === 'reading-list' ? id : Promise.reject(Object.assign(new Error(`No project ${id}`), {statusCode: 404})),
-            createIssue: async (project: string, body: {title: string}) => (made.push({what: 'issue', project}), {id: 'REA-1', title: body.title}),
             messageSession: async (project: string, target: string, text: string) => void messages.push({project, target, text}),
         }))
         vi.stubGlobal('useScheduler', () => ({
@@ -552,7 +551,6 @@ describe("the owner's chat", () => {
             create: async (project: string, body: {title: string}) => (made.push({what: 'schedule', project}), {id: 1, title: body.title, enabled: true}),
         }))
         vi.stubGlobal('useEventLog', () => ({note: () => {}}))
-        vi.stubGlobal('writeToApi', () => false)
         vi.stubGlobal('conflict', (message: string) => Object.assign(new Error(message), {statusCode: 409}))
         vi.stubGlobal('forbidden', (message: string) => Object.assign(new Error(message), {statusCode: 403}))
         await chats.openChat('greenhouse')
@@ -562,7 +560,9 @@ describe("the owner's chat", () => {
         await chats.answer('c1c2c3c4c5c6', watch.id, true, owner)
         const offered = await chats.ask('c1c2c3c4c5c6', {issue: {title: 'Read Dune'}, project: 'reading-list'})
         await chats.answer('c1c2c3c4c5c6', offered.id, true, owner)
-        expect(made).toEqual([{what: 'schedule', project: 'reading-list'}, {what: 'issue', project: 'reading-list'}])
+        expect(made).toEqual([{what: 'schedule', project: 'reading-list'}])
+        // The issue is filed on the board, on the project it named.
+        expect((await board.listIssues('reading-list')).map(i => i.title)).toEqual(['Read Dune'])
         // The chat's session hears it on its own project, where it runs.
         expect(messages.map(m => m.project)).toEqual(['greenhouse', 'greenhouse'])
         // Its own project, named or not, isn't marked; one orrery doesn't have is refused.
@@ -574,19 +574,13 @@ describe("the owner's chat", () => {
 
     it("asks to add a release or change one, checked as Releases would, and saves it as the owner's only once they allow it", async () => {
         const notes: {kind: string}[] = []
-        const saved: {how: string, project: string, version?: string, body: unknown, actor: unknown}[] = []
-        const releases = [{version: '1.1.0', branch: 'v1.1.0'}, {version: '1.0.0', branch: 'v1.0.0', frozen_on: '2026-10-20'}]
+        // On the board, newest at the top: 1.1.0, then 1.0.0, frozen. What's saved is what the API keeps there.
+        await board.updateProject('greenhouse', {release_mode: 'own'})
+        await board.createRelease('greenhouse', {version: '1.0.0', branch: 'v1.0.0', frozen_on: '2026-10-20'})
+        await board.createRelease('greenhouse', {version: '1.1.0', branch: 'v1.1.0', position: 0})
+        expect((await board.listReleases('greenhouse')).map(r => r.version)).toEqual(['1.1.0', '1.0.0'])
+        const versions = async () => (await board.listReleases('greenhouse')).map(r => r.version)
         vi.stubGlobal('useStore', () => over({
-            checkRelease: async (_project: string, body: {version?: string, branch?: string}, version?: string) => {
-                if (body.version === '1.1.0' && version === undefined) throw Object.assign(new Error('There is already a release 1.1.0'), {statusCode: 409})
-                if (version === undefined) return undefined
-                const found = releases.find(r => r.version === version)
-                if (!found) throw Object.assign(new Error(`No release ${version}`), {statusCode: 404})
-                return found
-            },
-            listReleases: async () => releases,
-            createRelease: async (project: string, body: unknown, actor: unknown) => void saved.push({how: 'create', project, body, actor}),
-            updateRelease: async (project: string, version: string, body: unknown, actor: unknown) => void saved.push({how: 'update', project, version, body, actor}),
             messageSession: async (project: string, target: string, text: string) => void messages.push({project, target, text}),
         }))
         vi.stubGlobal('useEventLog', () => ({note: (entry: {kind: string}) => notes.push(entry)}))
@@ -597,17 +591,18 @@ describe("the owner's chat", () => {
         expect(fresh).toMatchObject({from: 'claude', text: 'As you asked.', release: {version: '1.2.0', change: false, state: 'asked', changes: [
             {field: 'version', to: '1.2.0'}, {field: 'branch', to: 'v1.2.0'}, {field: 'position', to: '2nd from the top'},
         ]}})
-        expect(saved).toEqual([])
+        expect(await versions()).toEqual(['1.1.0', '1.0.0'])
         await chats.answer('c1c2c3c4c5c6', fresh.id, true, owner)
-        expect(saved).toEqual([{how: 'create', project: 'greenhouse', body: {version: '1.2.0', branch: 'v1.2.0', position: 1}, actor: {...owner, via: 'chat'}}])
+        expect(await versions()).toEqual(['1.1.0', '1.2.0', '1.0.0'])
         expect(messages.at(-1)!.text).toBe('(I allowed your request: release 1.2.0 is added.)')
         // A change shows each field from → to, its place too; asking again for the same release lets the one before go.
         const freeze = await chats.ask('c1c2c3c4c5c6', {version: '1.0.0', release: {frozen_on: null}})
         const ship = await chats.ask('c1c2c3c4c5c6', {version: '1.0.0', release: {shipped_on: '2026-10-29', position: 0}})
         expect(freeze.release!.state).toBe('expired')
-        expect(ship.release).toMatchObject({version: '1.0.0', change: true, changes: [{field: 'shipped_on', from: null, to: '2026-10-29'}, {field: 'position', from: '2nd from the top', to: 'the top'}]})
+        expect(ship.release).toMatchObject({version: '1.0.0', change: true, changes: [{field: 'shipped_on', from: null, to: '2026-10-29'}, {field: 'position', from: '3rd from the top', to: 'the top'}]})
         await chats.answer('c1c2c3c4c5c6', ship.id, false, owner)
-        expect(saved).toHaveLength(1)
+        expect(await versions()).toEqual(['1.1.0', '1.2.0', '1.0.0'])
+        expect((await board.release('greenhouse', '1.0.0')).shipped_on ?? null).toBeNull()
         expect(messages.at(-1)!.text).toMatch(/denied your request to change release 1.0.0: Shipped on to 2026-10-29, Place to the top: nothing changed/)
         // What it may not ask for, or what Releases would refuse, fails as it asks.
         for (const [body, status] of [[{release: {}}, 400], [{release: {version: '1.1.0'}}, 409], [{version: '0.9.0', release: {notes: 'X'}}, 404],
@@ -617,13 +612,10 @@ describe("the owner's chat", () => {
     })
 
     it("offers an issue, filing it as the owner's only when they press File issue (ORR-711)", async () => {
-        const made: {body: Record<string, unknown>, actor: {via?: string, name: string}}[] = []
+        // What's filed is what the API keeps on the board.
+        const made = async () => await board.listIssues('greenhouse')
         vi.stubGlobal('useStore', () => over({
             messageSession: async (project: string, target: string, text: string) => void messages.push({project, target, text}),
-            createIssue: async (_project: string, body: Record<string, unknown>, actor: {via?: string, name: string}) => {
-                made.push({body, actor})
-                return {id: 'GRE-9', title: body.title}
-            },
         }))
         vi.stubGlobal('useEventLog', () => ({note: () => {}}))
         vi.stubGlobal('forbidden', (message: string) => Object.assign(new Error(message), {statusCode: 403}))
@@ -637,35 +629,31 @@ describe("the owner's chat", () => {
 
         const offer = await chats.ask('c1c2c3c4c5c6', {issue: {title: 'Fix the vent', notes: 'It sticks.', priority: 'P2', labels: ['bug']}, why: 'I found this.'})
         expect(offer).toMatchObject({from: 'claude', text: 'I found this.', issue: {title: 'Fix the vent', notes: 'It sticks.', priority: 'P2', labels: ['bug'], state: 'asked'}})
-        expect(made).toEqual([])
+        expect(await made()).toEqual([])
 
         const answered = await chats.answer('c1c2c3c4c5c6', offer.id, true, owner)
-        expect(answered.issue).toMatchObject({state: 'allowed', id: 'GRE-9'})
-        expect(made[0]!.body).toEqual({title: 'Fix the vent', notes: 'It sticks.', priority: 'P2', labels: ['bug'], status: 'todo'})
-        expect(made[0]!.actor).toMatchObject({name: 'ada', via: 'chat'})
-        expect(messages.at(-1)!.text).toContain("it's GRE-9")
+        expect(answered.issue).toMatchObject({state: 'allowed', id: 'GRE-1'})
+        const filed = await board.issue('greenhouse', 'GRE-1')
+        expect(filed).toMatchObject({title: 'Fix the vent', notes: 'It sticks.', priority: 'P2', labels: ['bug'], status: 'todo', created_by: 'ada'})
+        expect(messages.at(-1)!.text).toContain("it's GRE-1")
         await expect(chats.answer('c1c2c3c4c5c6', offer.id, true, owner)).rejects.toMatchObject({statusCode: 409})
-        expect(made).toHaveLength(1)
+        expect(await made()).toHaveLength(1)
 
         const second = await chats.ask('c1c2c3c4c5c6', {issue: {title: 'Oil the hinge'}})
         const again = await chats.ask('c1c2c3c4c5c6', {issue: {title: 'Oil the hinge', notes: 'Both of them.'}})
         expect(second.issue!.state).toBe('expired')
         expect((await chats.answer('c1c2c3c4c5c6', again.id, false, owner)).issue!.state).toBe('denied')
-        expect(made).toHaveLength(1)
+        expect(await made()).toHaveLength(1)
         expect(messages.at(-1)!.text).toContain('nothing was filed')
     })
 
     it('asks to make a milestone or change one, and saves it as the owner\'s only once they allow it (ORR-510)', async () => {
         const notes: {kind: string}[] = []
-        const made: unknown[][] = []
-        const shelves = {id: '3', title: 'Shelves', summary: 'Everything on the shelves', priority: null}
+        // On the board: milestone 1, Shelves. What's saved is what the API keeps there.
+        const shelves = await board.createMilestone('greenhouse', {title: 'Shelves', summary: 'Everything on the shelves'})
+        expect(shelves.id).toBe('1')
+        const made = async () => (await board.listMilestones('greenhouse')).map(m => [m.id, m.title, m.priority ?? null])
         vi.stubGlobal('useStore', () => over({
-            milestone: async (_project: string, id: string) => {
-                if (id !== '3') throw Object.assign(new Error(`No milestone ${id}`), {statusCode: 404})
-                return shelves
-            },
-            createMilestone: async (project: string, body: {title: string}, actor: unknown) => (made.push(['create', project, body, actor]), {id: '7', title: body.title}),
-            updateMilestone: async (project: string, id: string, body: unknown) => (made.push(['update', project, id, body]), {...shelves, priority: 'P1'}),
             messageSession: async (project: string, target: string, text: string) => void messages.push({project, target, text}),
         }))
         vi.stubGlobal('useEventLog', () => ({note: (entry: {kind: string}) => notes.push(entry)}))
@@ -674,22 +662,22 @@ describe("the owner's chat", () => {
         await chats.openChat('greenhouse')
         const fresh = await chats.ask('c1c2c3c4c5c6', {milestone: {title: 'Seed trays', priority: 'P2'}, why: 'As you asked.'})
         expect(fresh).toMatchObject({from: 'claude', text: 'As you asked.', milestone: {title: 'Seed trays', state: 'asked', changes: [{field: 'title', to: 'Seed trays'}, {field: 'priority', to: 'P2'}]}})
-        expect(made).toEqual([])
+        expect(await made()).toEqual([['1', 'Shelves', null]])
         await chats.answer('c1c2c3c4c5c6', fresh.id, true, owner)
-        expect(made).toEqual([['create', 'greenhouse', {title: 'Seed trays', priority: 'P2'}, {...owner, via: 'chat'}]])
-        expect(chats.chatOf('c1c2c3c4c5c6').messages.find(m => m.id === fresh.id)!.milestone).toMatchObject({id: '7', state: 'allowed'})
-        expect(messages.at(-1)!.text).toBe('(I allowed your request: milestone 7 ("Seed trays") is saved.)')
+        expect(await made()).toEqual([['1', 'Shelves', null], ['2', 'Seed trays', 'P2']])
+        expect(chats.chatOf('c1c2c3c4c5c6').messages.find(m => m.id === fresh.id)!.milestone).toMatchObject({id: '2', state: 'allowed'})
+        expect(messages.at(-1)!.text).toBe('(I allowed your request: milestone 2 ("Seed trays") is saved.)')
         // A change shows each field from → to; asking again for the same milestone lets the one before go.
-        const first = await chats.ask('c1c2c3c4c5c6', {id: '3', milestone: {priority: 'P2'}})
-        const second = await chats.ask('c1c2c3c4c5c6', {id: '3', milestone: {priority: 'P1'}})
+        const first = await chats.ask('c1c2c3c4c5c6', {id: '1', milestone: {priority: 'P2'}})
+        const second = await chats.ask('c1c2c3c4c5c6', {id: '1', milestone: {priority: 'P1'}})
         expect(first.milestone!.state).toBe('expired')
-        expect(second.milestone).toMatchObject({id: '3', title: 'Shelves', changes: [{field: 'priority', from: null, to: 'P1'}]})
+        expect(second.milestone).toMatchObject({id: '1', title: 'Shelves', changes: [{field: 'priority', from: null, to: 'P1'}]})
         await chats.answer('c1c2c3c4c5c6', second.id, false, owner)
-        expect(made).toHaveLength(1)
-        expect(messages.at(-1)!.text).toMatch(/denied your request to change milestone 3 .*nothing changed/)
+        expect(await made()).toEqual([['1', 'Shelves', null], ['2', 'Seed trays', 'P2']])
+        expect(messages.at(-1)!.text).toMatch(/denied your request to change milestone 1 .*nothing changed/)
         // What it may not ask for, or what the milestone routes would refuse, fails as it asks.
         for (const [body, status] of [[{milestone: {}}, 400], [{milestone: {title: 'X', position: 2}}, 403], [{milestone: {summary: 'No name'}}, 400],
-            [{milestone: {title: 'X', priority: 'P9'}}, 400], [{id: '4', milestone: {priority: 'P1'}}, 404]] as const)
+            [{milestone: {title: 'X', priority: 'P9'}}, 400], [{id: '9', milestone: {priority: 'P1'}}, 404]] as const)
             await expect(chats.ask('c1c2c3c4c5c6', body)).rejects.toMatchObject({statusCode: status})
         expect(notes.map(n => n.kind)).toEqual(['chat.asked', 'chat.answered', 'chat.asked', 'chat.asked', 'chat.answered'])
     })

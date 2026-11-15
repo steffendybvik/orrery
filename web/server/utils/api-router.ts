@@ -865,10 +865,10 @@ export async function readFromApiOnly<T>(path: string, {config = configHere()} =
     return read.reply as T
 }
 
-/** A write this server makes itself on a route only it calls (the chat's rows), its fallback to the store gone
- * (ORR-1135): `writeToApi` as `orrery`, but with no API set up it fails as one that isn't running does. The reply. */
-export async function writeToApiOnly(method: string, path: string, body: unknown): Promise<unknown> {
-    const sent = await writeToApi(method, path, body, ORRERY, {always: true})
+/** A write this server makes itself, its fallback to the store gone (ORR-1135): `writeToApi` (as `orrery` unless
+ * `actor` says), but with no API set up it fails as one that isn't running does. The reply. */
+export async function writeToApiOnly(method: string, path: string, body: unknown, actor: Actor = ORRERY, {noteKeys = true} = {}): Promise<unknown> {
+    const sent = await writeToApi(method, path, body, actor, {always: true, noteKeys})
     if (!sent) return cantReach(`${method} ${path}`, NOT_RUNNING, 'not-running')
     return sent.reply
 }
