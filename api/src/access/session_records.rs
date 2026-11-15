@@ -123,7 +123,7 @@ impl<'a> SessionRecords<'a> {
 
 /// The ids a request names its session by: the one it sent (`Orrery-Session`) and the one the router says it goes by
 /// now (`Orrery-Worked-By`), decoded.
-fn named_ids(headers: &HeaderMap) -> Vec<String> {
+pub(crate) fn named_ids(headers: &HeaderMap) -> Vec<String> {
     let mut ids: Vec<String> = Vec::new();
     for name in ["orrery-session", "orrery-worked-by"] {
         if let Some(id) = header(headers, name).map(|v| percent_decode_str(v.trim()).decode_utf8_lossy().into_owned()).filter(|v| !v.is_empty()) {

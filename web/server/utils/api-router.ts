@@ -50,9 +50,9 @@ export const DOMAINS: readonly {domain: string, paths: RegExp, methods?: readonl
     // wakes sessions (ORR-929).
     {domain: 'issues, reading', paths: /^projects\/[^/]+\/issues(\/[^/]+)?$/, methods: ['GET']},
     // An issue's comments: reading, making, editing and deleting one (ORR-927). The API's reply says what a new or
-    // edited one leaves this server to pass on to the sessions and the owner's bell (`handedOn`). An edit checks the
-    // session's claim on the issue here first, as only this server knows the sessions (`claimFor`, ORR-627).
-    {domain: 'comments', paths: /^projects\/[^/]+\/issues\/[^/]+\/comments(\/[^/]+)?$/, first: {PATCH: claimOnComment}},
+    // edited one leaves this server to pass on to the sessions and the owner's bell (`handedOn`). The API's rails check an
+    // edit against the session's claim on the issue (ORR-627), from who's there that this server tells it (ORR-1172).
+    {domain: 'comments', paths: /^projects\/[^/]+\/issues\/[^/]+\/comments(\/[^/]+)?$/},
     // Deleting an issue, with its sub-issues and comments, or many at once (`{ids}`, ORR-927): the API tells each back,
     // and the dependents it frees, as `Orrery-Told`, and puts them in the outbox (ORR-929).
     {domain: 'an issue, deleted', paths: /^projects\/[^/]+\/issues(\/[^/]+)?$/, methods: ['DELETE']},
@@ -134,9 +134,9 @@ export const DOMAINS: readonly {domain: string, paths: RegExp, methods?: readonl
     // Pausing or activating all of a project's (ORR-1082): it works out each next run, and starts no session.
     {domain: 'schedules, paused or activated', paths: /^projects\/[^/]+\/schedules\/enabled$/, methods: ['POST']},
     // A working session asking the owner for a schedule on its issue (ORR-1100): a comment with the request beside it,
-    // checked as Schedules would check it, saving nothing. Its claim on the issue is checked here first (`claimFor`), and
-    // the event log's line comes back as `Orrery-Asked`.
-    {domain: 'a schedule, asked for', paths: /^projects\/[^/]+\/issues\/[^/]+\/schedule-requests$/, methods: ['POST'], first: {POST: claimOnComment}},
+    // checked as Schedules would check it, saving nothing. Its claim on the issue is the API's rails' to check (ORR-1172),
+    // and the event log's line comes back as `Orrery-Asked`.
+    {domain: 'a schedule, asked for', paths: /^projects\/[^/]+\/issues\/[^/]+\/schedule-requests$/, methods: ['POST']},
     // The owner's Allow or Deny of it (ORR-1100): the schedule made or changed as theirs, and their answer a comment
     // handed on quietly. The event log's line comes back as `Orrery-Answered`.
     {domain: 'a schedule, answered', paths: /^projects\/[^/]+\/issues\/[^/]+\/schedule-requests\/[^/]+$/, methods: ['POST']},
@@ -325,12 +325,6 @@ function withCarried(event: H3Event): ReturnType<Shaping> {
 async function onTheBoard(event: H3Event, rest: string) {
     const [, project] = /^projects\/([^/]+)\//.exec(rest) ?? []
     if (project) await needsBoard(event, decodeURIComponent(project))
-}
-
-/** A comment's edit, refused while another session is working on its issue (ORR-627), as its route here does. */
-async function claimOnComment(event: H3Event, rest: string) {
-    const [, project, issue] = /^projects\/([^/]+)\/issues\/([^/]+)\//.exec(rest) ?? []
-    if (project && issue) await claimFor(event, decodeURIComponent(project), decodeURIComponent(issue))
 }
 
 /** The headers a reply that isn't JSON keeps on its way through: what it is, how long the browser keeps it, and that

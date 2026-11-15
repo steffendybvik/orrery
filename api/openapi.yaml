@@ -330,6 +330,30 @@ paths:
         '400': {$ref: '#/components/responses/BadRequest'}
         '403': {$ref: '#/components/responses/Forbidden'}
         '409': {$ref: '#/components/responses/Conflict'}
+  /api/session-presence/{session}:
+    parameters:
+      - {name: session, in: path, required: true, schema: {type: string}}
+    put:
+      x-served: false
+      summary: 'Says the session is there to hear, on these projects (ORR-1172)'
+      description: >-
+        Only the Nuxt server's own call (`Orrery-Came: server`), as the session's channel connects and every half minute
+        while it's there. The rails hold a session's comment edit or schedule request on an issue another session has
+        started only while that session is there: said within 90 seconds, on the issue's project.
+      requestBody:
+        required: true
+        content: {application/json: {schema: {type: object, required: [projects], properties: {projects: {type: array, items: {type: string}}}}}}
+      responses:
+        '204': {description: Kept}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+    delete:
+      x-served: false
+      summary: 'Says the session has gone (ORR-1172)'
+      description: Only the Nuxt server's own call, once the session's last channel has closed.
+      responses:
+        '204': {description: Gone}
+        '403': {$ref: '#/components/responses/Forbidden'}
   /api/signals/prune:
     post:
       x-served: false

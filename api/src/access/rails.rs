@@ -11,12 +11,14 @@
 // in a workspace the asker isn't a member of is answered 404 (`workspace_check`, ORR-1106), and a write to a board marked
 // as moved 409 (`moved_check`, ORR-1225).
 use crate::access::people::Who;
+use crate::access::presence::Presence;
 use crate::access::seen::Seen;
-use crate::access::session_records::as_recorded;
+use crate::access::session_records::{as_recorded, named_ids};
 use crate::board::issue_writes::IssueWrites;
 use crate::db::sql;
 use crate::error::{ApiError, Result};
 use crate::request::{actor_of, who_of};
+use crate::work::session_work::SessionWork;
 use crate::write::Actor;
 use crate::Shared;
 use axum::extract::{Request, State};
@@ -307,6 +309,42 @@ fn session_workspace(headers: &axum::http::HeaderMap, actor: &Actor) -> Option<S
     session.then(|| crate::request::header(headers, "orrery-workspace")).flatten().map(|w| w.trim().to_string()).filter(|w| !w.is_empty())
 }
 
+/// The project and issue of a write a session's claim holds (ORR-1172): a comment's edit, or a schedule asked for on an
+/// issue, as `claimOnComment` in the router held them. None for any other.
+fn claimed_on(method: &Method, path: &str) -> Option<(String, String)> {
+    let parts: Vec<&str> = path.trim_start_matches("/api/").trim_end_matches('/').split('/').collect();
+    let held = match (method, parts.as_slice()) {
+        (&Method::PATCH, ["projects", _, "issues", _, "comments", ..]) => parts.len() <= 6,
+        (&Method::POST, ["projects", _, "issues", _, "schedule-requests"]) => true,
+        _ => false,
+    };
+    let decoded = |part: &str| percent_decode_str(part).decode_utf8_lossy().into_owned();
+    held.then(|| (decoded(parts[1]), decoded(parts[3])))
+}
+
+/// A session's claim (ORR-1172): its write on an issue another session has started, while that session is still there
+/// to hear (`Presence`), is refused as the router's `claimFor` refused it. The owner isn't held, and nor is a request
+/// naming no session. One whose issue isn't there is left to its route to say so.
+async fn claim_check(conn: &mut AnyConnection, headers: &axum::http::HeaderMap, actor: &Actor, method: &Method, path: &str) -> Result<()> {
+    let ids = named_ids(headers);
+    let Some((project, issue)) = claimed_on(method, path).filter(|_| !actor.owner && !ids.is_empty()) else {
+        return Ok(());
+    };
+    let Ok(chain) = SessionWork::new(&mut *conn).workers(&project, &issue).await else {
+        return Ok(());
+    };
+    let Some(first) = chain.first() else { return Ok(()) };
+    let started = first["started"].as_bool().unwrap_or(false);
+    let Some(worker) = first["worker"].as_str().filter(|w| started && !ids.iter().any(|id| id == w)) else {
+        return Ok(());
+    };
+    if !Presence::new(conn).present(&project, worker).await? {
+        return Ok(());
+    }
+    let id = first["issue"].as_str().unwrap_or(&issue);
+    Err(ApiError::conflict(format!("{id} is already being worked on by another session ({worker}); pick another issue")))
+}
+
 /// Holds each request to its project's workspace, and each write to its rails, before its route runs; a route this API
 /// doesn't have is left to say so.
 pub(crate) async fn rails(State(app): Shared, request: Request, next: Next) -> Response {
@@ -335,13 +373,14 @@ pub(crate) async fn rails(State(app): Shared, request: Request, next: Next) -> R
             moved_check(&mut conn, &method, &path).await?;
         }
         match (actor.chat, actor.untrusted) {
-            (true, _) => guard(&mut conn, Kind::Chat, method.as_str(), &path).await,
+            (true, _) => guard(&mut conn, Kind::Chat, method.as_str(), &path).await?,
             (_, true) => {
                 guard(&mut conn, Kind::Untrusted, method.as_str(), &path).await?;
-                own_project(own.as_deref(), &path)
+                own_project(own.as_deref(), &path)?
             }
-            _ => board_check(&mut conn, who.as_ref(), &actor, method.as_str(), &path).await,
+            _ => board_check(&mut conn, who.as_ref(), &actor, method.as_str(), &path).await?,
         }
+        claim_check(&mut conn, headers, &actor, &method, &path).await
     };
     match held.await {
         Ok(()) => next.run(request).await,

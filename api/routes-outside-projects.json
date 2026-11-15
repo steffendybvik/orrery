@@ -90,6 +90,8 @@
 {"method": "GET", "path": "/api/secrets/{name}/sealed", "held": "local"},
 {"method": "PUT", "path": "/api/secrets/{name}/sealed", "held": "local"},
 {"method": "POST", "path": "/api/secrets/{name}/uses", "held": "local"},
+{"method": "DELETE", "path": "/api/session-presence/{session}", "held": "local"},
+{"method": "PUT", "path": "/api/session-presence/{session}", "held": "local"},
 {"method": "PUT", "path": "/api/session-records/{session}", "held": "local"},
 {"method": "GET", "path": "/api/settings", "held": "workspace", "test": "routes/settings_tests.rs::a_workspaces_settings_are_its_own"},
 {"method": "PATCH", "path": "/api/settings", "held": "workspace", "test": "routes/settings_tests.rs::a_workspaces_settings_are_its_own"},
