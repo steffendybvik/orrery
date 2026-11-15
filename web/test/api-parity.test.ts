@@ -3829,6 +3829,8 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         const outside = {'Orrery-Api-Token': TOKEN, 'Orrery-Database': databaseMark(setting), ...cameHeaders({loopback: true, proxied: false, phone: false, https: false}, 'localhost')}
         expect([401, 503]).toContain(await ask({...outside, ...whoHeaders({person: 'steffen', owner: true, via: 'browser'}, undefined)}))
         await store.addPerson({name: 'Gate'}).catch(() => undefined)
+        // On the board, as a member reads only the boards they're on (ORR-985).
+        await store.addMember('through-api', {person: 'gate'}, OWNER).catch(() => undefined)
         expect(await ask({...outside, ...whoHeaders(undefined, (await store.startLogin('gate')).secret)})).toBe(200)
         expect(await ask({...outside, ...whoHeaders(undefined, undefined, (await store.makeKey('gate', {kind: 'agent', name: 'gate'})).key)})).toBe(200)
         expect([401, 503]).toContain(await ask({...outside, ...whoHeaders(undefined, undefined, (await store.makeKey('gate', {kind: 'person', name: 'gate'})).key)}))

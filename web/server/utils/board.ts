@@ -3,8 +3,9 @@
 // only the owner-only routes call it. A route the table doesn't name is refused, so a new one can't slip past, and a
 // session that names nobody gets only the routes a row says it may (`unnamed`). The owner and their agents go through
 // here untouched, and with one person nothing does: what else they're held to is the rest of the table. With login off
-// these are names, which keeps honest sessions apart; with it on, the credential decides who's asking (ORR-664). Reads stay open;
-// `needsBoard` is what a read route would call when they don't.
+// these are names, which keeps honest sessions apart; with it on, the credential decides who's asking (ORR-664). Reads are
+// held by the API (`Seen` in api/src/access/seen.rs, ORR-985): a board a member isn't on is a 404 there, and the reads this
+// server answers itself follow the projects the API lists to them (middleware/board-reads.ts, ORR-1195).
 import {createError} from 'h3'
 import type {H3Event} from 'h3'
 import {PERMISSIONS} from '#shared/permissions'
