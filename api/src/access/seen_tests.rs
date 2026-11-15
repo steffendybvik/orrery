@@ -367,3 +367,82 @@ async fn mcp_tools_name_only_the_askers_projects() {
     let bos = with_agent_key(&api, api.post("/mcp", body), "bo", None).await.send().await;
     assert!(bos.body.to_string().contains(&format!("\"{rockets}\"")), "bo's tools should name it: {}", bos.body);
 }
+
+// Every route outside a project, read from the source the same way, says how it's held in routes-outside-projects.json
+// (ORR-1222): to a workspace, to the person asking, to the server's owner, the same for everyone, by an unguessable
+// link, or not routed at all (`local`, as only the local app reaches it). A route that isn't in the file fails here,
+// and a held one has to name the test that proves it. web/test/api-router-workspace.test.ts holds `local` to the
+// router's DOMAINS.
+
+/// `(method, path)` for each route outside `/api/projects/{project}` anywhere in src, `.route("…", …)` by `.route("…", …)`.
+fn routes_outside_projects() -> Vec<(String, String)> {
+    fn walk(dir: &std::path::Path, files: &mut Vec<std::path::PathBuf>) {
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                walk(&path, files);
+            } else if path.extension().is_some_and(|e| e == "rs") && !path.to_string_lossy().ends_with("_tests.rs") {
+                files.push(path);
+            }
+        }
+    }
+    let mut files = Vec::new();
+    walk(&std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src"), &mut files);
+    let mut routes = Vec::new();
+    for file in files {
+        for line in std::fs::read_to_string(&file).unwrap().lines() {
+            for call in line.split(".route(").skip(1) {
+                let Some(said) = call.trim_start().strip_prefix('"') else { continue };
+                let Some(end) = said.find('"') else { continue };
+                let (path, methods) = (&said[..end], &said[end..]);
+                if !path.starts_with('/') || path.starts_with("/api/projects/{project}") {
+                    continue;
+                }
+                for method in ["get", "post", "put", "patch", "delete"] {
+                    let called = methods
+                        .match_indices(&format!("{method}("))
+                        .any(|(at, _)| at == 0 || !methods.as_bytes()[at - 1].is_ascii_alphanumeric() && methods.as_bytes()[at - 1] != b'_');
+                    if called {
+                        routes.push((method.to_uppercase(), path.to_string()));
+                    }
+                }
+            }
+        }
+    }
+    routes.sort();
+    routes.dedup();
+    routes
+}
+
+#[test]
+fn every_route_outside_a_project_says_how_its_held() {
+    let census: Vec<Value> = serde_json::from_str(include_str!("../../routes-outside-projects.json")).unwrap();
+    let mut listed: Vec<(String, String)> =
+        census.iter().map(|e| (e["method"].as_str().unwrap().to_string(), e["path"].as_str().unwrap().to_string())).collect();
+    listed.sort();
+    let routes = routes_outside_projects();
+    let missing: Vec<_> = routes.iter().filter(|r| !listed.contains(r)).collect();
+    assert!(missing.is_empty(), "say how each is held in api/routes-outside-projects.json: {missing:?}");
+    let gone: Vec<_> = listed.iter().filter(|r| !routes.contains(r)).collect();
+    assert!(gone.is_empty(), "no longer routes, so take them out of api/routes-outside-projects.json: {gone:?}");
+    let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    for entry in &census {
+        let at = format!("{} {}", entry["method"].as_str().unwrap_or_default(), entry["path"].as_str().unwrap_or_default());
+        let has = |key: &str| entry[key].as_str().is_some_and(|v| !v.is_empty());
+        match entry["held"].as_str().unwrap_or_default() {
+            "workspace" | "person" | "owner" => {
+                let test = entry["test"].as_str().unwrap_or_else(|| panic!("{at}: name the test that proves it"));
+                let (file, name) = test.split_once("::").unwrap_or_else(|| panic!("{at}: `file::test`, not {test}"));
+                let source = std::fs::read_to_string(src.join(file)).unwrap_or_else(|_| panic!("{at}: no src/{file}"));
+                assert!(source.contains(&format!("fn {name}(")), "{at}: no test {name} in src/{file}");
+                if entry["held"] == "person" {
+                    assert!(has("why"), "{at}: say whose it is");
+                }
+            }
+            "server" => assert!(has("why"), "{at}: say why it's the same for everyone"),
+            "link" => assert!(has("issue") && has("why"), "{at}: name its issue and why"),
+            "local" => {}
+            held => panic!("{at}: held {held:?} is none of workspace, person, owner, server, link or local"),
+        }
+    }
+}
