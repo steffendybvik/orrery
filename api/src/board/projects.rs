@@ -24,7 +24,7 @@ use sqlx::{AnyConnection, Row};
 use std::sync::LazyLock;
 
 const PROJECT_COLUMNS: &str = "id, name, key, uid, description, icon, icon_color, focus_prompt, milestone_prompt, instructions, muted, repo, \
-    release_mode, releases_from, created_by, CAST(owned AS BIGINT) AS owned, created_at, updated_at";
+    release_mode, releases_from, created_by, CAST(owned AS BIGINT) AS owned, created_at, updated_at, workspace";
 
 /// `PROJECT_FIELDS`, in its order, as `checkInput` lists them.
 const FIELDS: [&str; 13] = [
@@ -266,9 +266,14 @@ impl<'c> Projects<'c> {
         Projects { conn, effects: Effects::default(), outbox: None, workspace: "default".into() }
     }
 
-    /// Whether orrery may start sessions, and within what: the orrery's setting, as every project shares it (`orreryStarts`).
-    async fn starts(&mut self) -> Result<Option<Value>> {
-        let row = sqlx::query(&sql("SELECT value FROM settings WHERE key = ?")).bind("starts").fetch_optional(&mut *self.conn).await?;
+    /// Whether orrery may start sessions, and within what: the workspace's setting, as every project in it shares it
+    /// (`orreryStarts`). It's kept per workspace in `workspace_settings` since ORR-1107 (ORR-1208).
+    async fn starts(&mut self, workspace: &str) -> Result<Option<Value>> {
+        let row = sqlx::query(&sql("SELECT value FROM workspace_settings WHERE workspace = ? AND key = ?"))
+            .bind(workspace)
+            .bind("starts")
+            .fetch_optional(&mut *self.conn)
+            .await?;
         Ok(row.map(|r| parsed(r.get("value"), Value::Null)).filter(|v| !v.is_null()))
     }
 
@@ -326,10 +331,15 @@ impl<'c> Projects<'c> {
 
     pub async fn list(&mut self, boards: bool) -> Result<Value> {
         let rows = sqlx::query(&sql(&format!("SELECT {PROJECT_COLUMNS} FROM projects ORDER BY lower(name), name"))).fetch_all(&mut *self.conn).await?;
-        let starts = self.starts().await?;
+        let mut starts = std::collections::HashMap::<String, Option<Value>>::new();
         let mut out = Vec::new();
         for row in &rows {
-            out.push(self.project_of(row, &starts, !boards).await?);
+            let workspace: String = row.get("workspace");
+            if !starts.contains_key(&workspace) {
+                let read = self.starts(&workspace).await?;
+                starts.insert(workspace.clone(), read);
+            }
+            out.push(self.project_of(row, &starts[&workspace], !boards).await?);
         }
         Ok(Value::Array(out))
     }
@@ -341,7 +351,7 @@ impl<'c> Projects<'c> {
             .fetch_optional(&mut *self.conn)
             .await?
             .ok_or_else(|| ApiError::not_found(format!("No project \"{id}\"")))?;
-        let starts = self.starts().await?;
+        let starts = self.starts(&row.get::<String, _>("workspace")).await?;
         self.project_of(&row, &starts, false).await
     }
 
