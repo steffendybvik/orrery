@@ -87,6 +87,38 @@ describe('WelcomeDialog', () => {
         expect(Object.values(localStorage).some(v => v === 'done') || Object.keys(localStorage).some(k => k.startsWith('orrery-welcome:'))).toBe(true)
     })
 
+    it('goes back to a step answered or skipped, with what was entered there (ORR-1202)', async () => {
+        const {wrapper} = await mount()
+        const back = () => wrapper.find('[data-testid="welcome-back"]')
+        await vi.waitFor(() => expect(wrapper.find('input[aria-label="Your name"]').exists()).toBe(true))
+        expect(back().exists()).toBe(false)
+        await wrapper.find('input[aria-label="Your name"]').setValue('Sköll')
+        await wrapper.find('form').trigger('submit')
+
+        await vi.waitFor(() => expect(wrapper.find('[data-testid="welcome-workspace"]').exists()).toBe(true))
+        await wrapper.find('button[aria-label="teal"]').trigger('click')
+        await wrapper.find('form').trigger('submit')
+        await vi.waitFor(() => expect(wrapper.text()).toContain('Connect your AI agent'))
+        expect(wrapper.text()).toContain('Step 3 of 4')
+
+        await back().trigger('click')
+        await vi.waitFor(() => expect(wrapper.find('[data-testid="welcome-workspace"]').exists()).toBe(true))
+        expect(wrapper.text()).toContain('Step 2 of 4')
+        expect(wrapper.find('button[aria-label="teal"]').attributes('aria-pressed')).toBe('true')
+
+        await back().trigger('click')
+        await vi.waitFor(() => expect(wrapper.find('input[aria-label="Your name"]').exists()).toBe(true))
+        expect((wrapper.find('input[aria-label="Your name"]').element as HTMLInputElement).value).toBe('Sköll')
+        expect(wrapper.text()).toContain('Step 1 of 4')
+
+        await wrapper.find('form').trigger('submit')
+        await vi.waitFor(() => expect(wrapper.find('[data-testid="welcome-workspace"]').exists()).toBe(true))
+        await wrapper.findAll('button').find(b => b.text() === 'Skip')!.trigger('click')
+        await vi.waitFor(() => expect(wrapper.text()).toContain('Connect your AI agent'))
+        await back().trigger('click')
+        await vi.waitFor(() => expect(wrapper.find('[data-testid="welcome-workspace"]').exists()).toBe(true))
+    })
+
     it('doesn\'t open for someone named whose workspace has projects', async () => {
         useOwner().owner.value = {name: 'ada', display: 'Ada', named: true}
         useRoadmaps().projects.value = [{id: 'shop'} as never]
