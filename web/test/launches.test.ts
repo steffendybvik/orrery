@@ -518,6 +518,23 @@ describe('a session orrery started', () => {
         expect(answered).toEqual(['greenhouse/abc'])
     })
 
+    it('has what the owner types into it typed by its launcher, its own person alone, and logged without the text (ORR-1152)', () => {
+        vi.stubGlobal('badRequest', (message: string) => Object.assign(new Error(message), {statusCode: 400}))
+        expect(() => launches.typeIntoLaunch('greenhouse', 'abc', {text: 'hi'})).toThrow('No session started for launch abc')
+        session = {name: 'greenhouse · Gna', person: 'skoll', started: {launch: 'abc', tmux: 'orrery-greenhouse-abc'}}
+        expect(() => launches.typeIntoLaunch('greenhouse', 'abc', {text: 'hi'}, 'hati')).toThrow("greenhouse · Gna is skoll's, so only they can type into it")
+        for (const body of [{}, {keys: ['F1']}, {text: 'rm -rf /\n'}, {text: 7}, {keys: 'Enter'}]) {
+            expect(() => launches.typeIntoLaunch('greenhouse', 'abc', body, 'skoll'), JSON.stringify(body)).toThrow(expect.objectContaining({statusCode: 400}))
+        }
+        expect(() => launches.typeIntoLaunch('greenhouse', 'abc', {text: 'hi'})).toThrow('attach by hand with tmux attach -t orrery-greenhouse-abc')
+        launches.addLauncher('greenhouse')
+        expect(launches.typeIntoLaunch('greenhouse', 'abc', {text: 'add salt', keys: ['Enter']}, 'skoll')).toEqual({text: 'add salt', keys: ['Enter']})
+        launches.typeIntoLaunch('greenhouse', 'abc', {keys: ['Escape']})
+        expect(sent).toEqual([{type: 'keys', project: 'greenhouse', id: 'abc', text: 'add salt', keys: ['Enter']}, {type: 'keys', project: 'greenhouse', id: 'abc', keys: ['Escape']}])
+        expect(noted.map(n => n.message)).toEqual(['The owner typed into greenhouse · Gna: Enter', 'The owner typed into greenhouse · Gna: Escape'])
+        expect(JSON.stringify(noted)).not.toContain('add salt')
+    })
+
     it('has its screen sent by its launcher while the owner views it, and asked for again once stale', () => {
         expect(() => launches.viewLaunch('greenhouse', 'abc')).toThrow('No session started for launch abc')
         session = {started: {launch: 'abc', tmux: 'orrery-greenhouse-abc'}}
