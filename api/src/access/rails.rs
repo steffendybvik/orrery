@@ -11,6 +11,7 @@
 // in a workspace the asker isn't a member of is answered 404 (`workspace_check`, ORR-1106).
 use crate::access::people::Who;
 use crate::access::seen::Seen;
+use crate::access::session_records::as_recorded;
 use crate::board::issue_writes::IssueWrites;
 use crate::db::sql;
 use crate::error::{ApiError, Result};
@@ -238,9 +239,9 @@ async fn board_check(conn: &mut AnyConnection, who: Option<&Who>, actor: &Actor,
     ))
 }
 
-/// An untrusted session's write to a project other than the one it was started for (ORR-1069), refused: the router says
-/// which it was (`Orrery-Untrusted-Project`) once it knows the session, as middleware/untrusted.ts holds it there. It's
-/// held here too for the tools at `/mcp` (ORR-1102), whose routes the router's middleware never sees.
+/// An untrusted session's write to a project other than the one it was started for (ORR-1069), refused: its record
+/// says which (`as_recorded`, ORR-1171), as middleware/untrusted.ts holds it there. It's held here too for the tools at
+/// `/mcp` (ORR-1102), whose routes the router's middleware never sees.
 fn own_project(own: Option<&str>, path: &str) -> Result<()> {
     let Some(own) = own else { return Ok(()) };
     let Some(named) = path.strip_prefix("/api/projects/").and_then(|rest| rest.split_once('/')).map(|(project, _)| project) else { return Ok(()) };
@@ -295,13 +296,15 @@ pub(crate) async fn rails(State(app): Shared, request: Request, next: Next) -> R
         return next.run(request).await;
     }
     let path = request.uri().path().to_string();
-    let (actor, who) = (actor_of(request.headers()), who_of(request.headers()));
-    let own = crate::request::header(request.headers(), "orrery-untrusted-project").filter(|p| !p.is_empty());
+    let who = who_of(request.headers());
     let server = crate::request::came_of(request.headers()).server;
-    let held_to = session_workspace(request.headers(), &actor);
     let read = [Method::GET, Method::HEAD, Method::OPTIONS].contains(&method);
+    let headers = request.headers();
     let held = async {
         let mut conn = app.pool.acquire().await?;
+        // The session's record holds it as tight as the router says, or tighter (ORR-1171).
+        let (actor, own) = as_recorded(&mut conn, headers, &actor_of(headers)).await?;
+        let held_to = session_workspace(headers, &actor);
         if !server && method != Method::OPTIONS {
             workspace_check(&mut conn, who.as_ref(), &actor, own.as_deref(), held_to.as_deref(), &path).await?;
         }

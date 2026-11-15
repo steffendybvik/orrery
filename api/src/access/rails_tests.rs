@@ -170,12 +170,13 @@ async fn only_the_boards_holder_passes_its_check() {
 
 #[tokio::test]
 async fn an_untrusted_session_writes_only_to_the_project_it_was_started_for() {
-    // The router says which (`Orrery-Untrusted-Project`) once it knows the session (ORR-1069), as for /mcp's tools (ORR-1102).
+    // Its record says which (ORR-1171), once the Nuxt server knows the session (ORR-1069), as for /mcp's tools (ORR-1102).
     let api = TestApi::new().await;
     let own = api.project("Primes").await;
     let other = api.project("Sieves").await;
+    api.record_session("run-1", "untrusted", Some(&own)).await;
     let raise = |project: &str| {
-        kind(api.post(&format!("/api/projects/{project}/issues"), json!({"title": "From outside"})), "untrusted").header("orrery-untrusted-project", &own)
+        kind(api.post(&format!("/api/projects/{project}/issues"), json!({"title": "From outside"})), "untrusted").header("orrery-session", "run-1")
     };
     let there = raise(&other).send().await;
     assert_eq!(there.status, 403, "{}", there.body);
@@ -249,7 +250,8 @@ async fn an_untrusted_session_reaches_the_project_it_was_started_for() {
     let api = TestApi::new().await;
     api.team().await;
     let rockets = api.acme(&[]).await;
-    let reply = from_outside(api.get(&format!("/api/projects/{rockets}/issues")).untrusted().header("orrery-untrusted-project", &rockets)).send().await;
+    api.record_session("run-2", "untrusted", Some(&rockets)).await;
+    let reply = from_outside(api.get(&format!("/api/projects/{rockets}/issues")).untrusted().header("orrery-session", "run-2")).send().await;
     assert_eq!(reply.status, 200, "{}", reply.body);
     let elsewhere = from_outside(api.get(&format!("/api/projects/{rockets}/issues")).untrusted()).send().await;
     assert_eq!(elsewhere.status, 404, "{}", elsewhere.body);

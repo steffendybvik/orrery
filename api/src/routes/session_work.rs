@@ -2,6 +2,7 @@
 // the database (ORR-1093). They're the local app's own calls alone (`Orrery-Came: server`), as only it knows which
 // sessions are there to hear.
 use super::P;
+use crate::access::session_records::SessionRecords;
 use crate::error::{ApiError, Result};
 use crate::request::{body_of, came_of};
 use crate::work::session_work::{Asked, SessionWork};
@@ -97,7 +98,7 @@ async fn worked_by(State(app): Shared, Path((project, issue)): Path<(String, Str
 }
 
 /// `{from, to}`, a session's old id and its new one (after a `/clear`): `{moved}`, how many issues it worked went to the
-/// new one. Its signals move with `…/signals/retarget`.
+/// new one. Its signals move with `…/signals/retarget`, and its record goes with it (ORR-1171).
 async fn rename(State(app): Shared, Path(project): Path<String>, headers: HeaderMap, body: Bytes) -> Result<Response> {
     local_app_only(&headers)?;
     let body = body_of(&body);
@@ -105,6 +106,7 @@ async fn rename(State(app): Shared, Path(project): Path<String>, headers: Header
     let (from, to) = (named("from")?, named("to")?);
     let mut conn = app.pool.acquire().await?;
     let moved = SessionWork::new(&mut conn).rename(&project, from, to).await?;
+    SessionRecords::new(&mut conn).carry(from, to).await?;
     Ok(Json(json!({"moved": moved})).into_response())
 }
 

@@ -3,7 +3,7 @@ import type {AddressInfo} from 'node:net'
 import {Socket} from 'node:net'
 import {createEvent, getHeader} from 'h3'
 import {afterAll, afterEach, beforeAll, describe, expect, it, vi} from 'vitest'
-import {apiStarted, askerHeaders, routeToApi, SERVED_BY} from '../server/utils/api-router'
+import {apiStarted, askerHeaders, recordSession, routeToApi, SERVED_BY} from '../server/utils/api-router'
 
 // The routes the Rust API serves are its alone (ORR-1091, once the swap's flag, ORR-1034): an API that can't answer
 // fails the request instead of leaving it to Nuxt's routes and store.
@@ -170,5 +170,55 @@ describe('what the API is told of the asker (ORR-1059)', () => {
         expect(askerHeaders(event, {name: 'claude', owner: false})).toEqual({'Orrery-Worked-By': 'new%20id'})
         expect(askerHeaders(event, {name: 'outsider', owner: false, untrusted: true, chat: true})).toEqual({'Orrery-Worked-By': 'new%20id'})
         expect(askerHeaders(asking({}), {name: 'steffen', owner: true})).toEqual({})
+    })
+})
+
+describe('what a session is, kept in the API for its rails (ORR-1171)', () => {
+    /** An API that answers each PUT with `status`, keeping what it was sent. */
+    async function apiAnswering(status: number) {
+        const sent: {path: string, body: unknown, came: string | undefined}[] = []
+        const server = createServer((req, res) => {
+            let body = ''
+            req.on('data', chunk => body += chunk)
+            req.on('end', () => {
+                sent.push({path: req.url ?? '', body: JSON.parse(body || 'null'), came: req.headers['orrery-came'] as string | undefined})
+                res.writeHead(status, {'Content-Type': 'application/json'}).end(JSON.stringify(status === 200 ? {} : {statusCode: status, message: 'no'}))
+            })
+        })
+        await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
+        apiStarted({url: `http://127.0.0.1:${(server.address() as AddressInfo).port}`, token: 't'.repeat(24)})
+        return {sent, close: () => new Promise<void>(resolve => server.close(() => resolve()))}
+    }
+    const naming = (session: string) => {
+        const event = eventOf('/api/projects/orrery/issues', 'POST')
+        Object.assign(event.node.req.headers, {'orrery-session': session})
+        return event
+    }
+
+    // A record sets nothing off for the store to tell.
+    beforeAll(() => vi.stubGlobal('useStore', () => ({relaying: async (run: () => Promise<void>) => run()})))
+
+    it('records an untrusted session and the chat once each, as the server\'s own call, and nothing for any other', async () => {
+        const api = await apiAnswering(200)
+        await recordSession(naming('run 1'), {name: 'outsider', owner: false, untrusted: true, chat: true})
+        await recordSession(naming('run 1'), {name: 'outsider', owner: false, untrusted: true})
+        await recordSession(naming('chat-1'), {name: 'claude', owner: false, chat: true})
+        await recordSession(naming('plain'), {name: 'claude', owner: false})
+        await recordSession(eventOf('/api/projects/orrery/issues', 'POST'), {name: 'outsider', owner: false, untrusted: true})
+        expect(api.sent).toEqual([
+            {path: '/api/session-records/run%201', body: {kind: 'untrusted', project: null}, came: 'server'},
+            {path: '/api/session-records/chat-1', body: {kind: 'chat', project: null}, came: 'server'},
+        ])
+        await api.close()
+    })
+
+    it('lets a record the API keeps tighter stand, and fails the request when it can\'t be written', async () => {
+        const tighter = await apiAnswering(409)
+        await recordSession(naming('run 2'), {name: 'outsider', owner: false, untrusted: true})
+        expect(tighter.sent).toHaveLength(1)
+        await tighter.close()
+        const broken = await apiAnswering(500)
+        await expect(recordSession(naming('run 3'), {name: 'outsider', owner: false, untrusted: true})).rejects.toMatchObject({statusCode: 500})
+        await broken.close()
     })
 })
