@@ -105,6 +105,17 @@ pub fn is_postgres(setting: &str) -> bool {
     setting.starts_with("postgres://") || setting.starts_with("postgresql://")
 }
 
+/// Lets go of the database as the API stops (ORR-1214): on SQLite, what's in the `-wal` beside the file is written into
+/// it first, so the file alone holds everything, and a copy of it taken once orrery has stopped loses nothing.
+pub async fn close(pool: &AnyPool) {
+    if !on_postgres() {
+        if let Err(e) = sqlx::query("PRAGMA wal_checkpoint(TRUNCATE)").fetch_all(pool).await {
+            eprintln!("[orrery-api] writing the -wal into the database as it stops: {e}");
+        }
+    }
+    pool.close().await;
+}
+
 /// Opens `setting`, a SQLite file's path or a `postgres://` URL, as the Nuxt server's `NUXT_DATABASE` names it.
 /// `schema`, on Postgres, is the one to work in (the tests' own, as web/test/db.ts makes them).
 pub async fn open(setting: &str, schema: Option<String>) -> Result<AnyPool, String> {
