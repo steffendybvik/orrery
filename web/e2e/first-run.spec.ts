@@ -21,7 +21,8 @@ test('walks the owner through the welcome on first open, and asks nothing about 
     await expect(dialog.getByRole('radio', {name: /Yes/})).toBeChecked()
     await dialog.getByRole('radio', {name: /No/}).check()
     await dialog.getByRole('button', {name: 'Continue'}).click()
-    expect(await (await request.get('/api/owner')).json()).toMatchObject({name: 'ada_lovelace', named: true})
+    // Saved once Continue's request lands, which a busy machine takes a moment over.
+    await expect.poll(async () => (await request.get('/api/owner')).json()).toMatchObject({name: 'ada_lovelace', named: true})
     // The agent's install line, waiting for this computer until it connects, and skippable.
     await expect(dialog.getByText('Step 2 of 3')).toBeVisible()
     await expect(dialog.getByText(/launcher --install/)).toBeVisible()
