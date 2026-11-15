@@ -5,7 +5,7 @@
 // refused, so what it read can't steer it into changing the roadmap, the docs or a secret's use. Once orrery knows its
 // session, it's held to the project it was started for too (ORR-1069), whatever its channel would let it name. Its calls
 // to orrery's own MCP server (`/mcp`, ORR-1102) are the Rust API's, whose rails hold each tool's route to both, the
-// project by `Orrery-Untrusted-Project` (`askerHeaders`), so `/mcp` itself isn't refused here.
+// project by the session's record (`recordSession`, ORR-1171), so `/mcp` itself isn't refused here.
 import {guard} from '../utils/guard'
 import {MCP} from '../utils/api-router'
 import {projectNamed} from '../utils/roster'

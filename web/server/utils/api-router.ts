@@ -412,9 +412,9 @@ export function actorHeaders(actor: Actor): Record<string, string> {
 
 /** What only this server knows of who's asking, for the API's rewrite of a new issue (ORR-1059): the status the owner
  * picked for the chat's issues (`Orrery-Chat-Issues`) and which chat it is (`Orrery-Launch`), or the session a write is noted as worked by, by the id it goes
- * by after a `/clear` (`Orrery-Worked-By`, percent-encoded). An untrusted session's is never the chat's; it says the
- * project the session was started for (`Orrery-Untrusted-Project`), once this server knows it, for the API's rails to
- * hold its writes to (ORR-1069), as middleware/untrusted.ts does here. */
+ * by after a `/clear` (`Orrery-Worked-By`, percent-encoded). An untrusted session's is never the chat's. The project an
+ * untrusted session was started for isn't said here: the API's rails read it from the session's record
+ * (`recordSession`, ORR-1171). */
 export function askerHeaders(event: H3Event, actor: Actor): Record<string, string> {
     if (actor.chat && !actor.untrusted) {
         // And which chat it is (`Orrery-Launch`, its launch's id), for the asks `/mcp` keeps in it (ORR-1100).
@@ -422,8 +422,30 @@ export function askerHeaders(event: H3Event, actor: Actor): Record<string, strin
         return {'Orrery-Chat-Issues': chatIssuesFor(launch), ...launch ? {'Orrery-Launch': encodeURIComponent(launch)} : {}}
     }
     const session = getHeader(event, 'orrery-session')?.trim()
-    const own = actor.untrusted ? untrustedProject(session) : undefined
-    return {...session ? {'Orrery-Worked-By': encodeURIComponent(currentId(session))} : {}, ...own ? {'Orrery-Untrusted-Project': encodeURIComponent(own)} : {}}
+    return session ? {'Orrery-Worked-By': encodeURIComponent(currentId(session))} : {}
+}
+
+/** What's been recorded of each session (`id kind project`), so each is written once. */
+const recorded = new Set<string>()
+
+/** Keeps what the session a request names is in the API, once, before its request goes on (ORR-1171): an untrusted
+ * schedule's, held to the project it was started for, or the owner's chat. The API's rails then hold it by its record,
+ * whatever a later request says, and a restart here doesn't loosen it. A record the API keeps tighter already (409)
+ * holds as it is; one that can't be written fails the request, as the rails couldn't hold it. */
+export async function recordSession(event: H3Event, actor: Actor) {
+    const session = getHeader(event, 'orrery-session')?.trim()
+    if (!session || !(actor.untrusted || actor.chat)) return
+    const kind = actor.untrusted ? 'untrusted' : 'chat'
+    const project = actor.untrusted ? untrustedProject(session) ?? null : null
+    const key = `${session}\n${kind}\n${project ?? ''}`
+    if (recorded.has(key)) return
+    try {
+        await writeToApi('PUT', `/api/session-records/${encodeURIComponent(session)}`, {kind, project}, ORRERY, {always: true})
+    } catch (error) {
+        if ((error as {statusCode?: number}).statusCode !== 409) throw error
+    }
+    if (recorded.size >= 10_000) recorded.clear()
+    recorded.add(key)
 }
 
 /** What the auth middleware's credential said (`Who`), and the credential itself, hashed as the logins and keys tables
@@ -690,6 +712,7 @@ const MCP_ANSWERED = ['content-type', 'mcp-session-id', 'allow'] as const
  * route's reply: a comment carried to its session and the bell, an urgent push, the event log's lines. */
 async function forwardMcp(event: H3Event, api: {url: string, token: string}): Promise<unknown> {
     const actor = await actorOf(event)
+    await recordSession(event, actor)
     const body = event.method === 'POST' ? await readRawBody(event, false) : undefined
     const headers: Record<string, string> = headersFor(event, api, actor)
     for (const name of MCP_ASKED) {
@@ -739,6 +762,7 @@ export async function forwardToApi(event: H3Event, api: {url: string, token: str
     if (first) await first(event, asked)
     const shaped = found?.line.reply?.[event.method.toUpperCase()]?.(event)
     const actor = await actorOf(event)
+    await recordSession(event, actor)
     const body = WRITES.has(event.method) ? await readRawBody(event, false) : undefined
     const headers = headersFor(event, api, actor)
     let response: Response

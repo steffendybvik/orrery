@@ -142,6 +142,13 @@ impl TestApi {
         reply.body["id"].as_str().expect("a project's id").to_string()
     }
 
+    /// Records `session` as `kind` (`untrusted`, held to `project`, or `chat`), as the Nuxt server does once it knows
+    /// (ORR-1171); the rails then hold a request naming it (`Orrery-Session`).
+    pub(crate) async fn record_session(&self, session: &str, kind: &str, project: Option<&str>) {
+        let reply = self.put(&format!("/api/session-records/{session}"), json!({"kind": kind, "project": project})).send().await;
+        assert_eq!(reply.status, 200, "recording session {session}: {}", reply.body);
+    }
+
     /// Makes an issue on `project` as the owner, from `body` (`{"title": …}` at least), and gives back its id.
     pub(crate) async fn issue(&self, project: &str, body: Value) -> String {
         let reply = self.post(&format!("/api/projects/{project}/issues"), body).send().await;

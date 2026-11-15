@@ -40,6 +40,7 @@ export const WRITERS: Record<string, Writer> = {
     issue_events: {nuxt: `the status and assignee changes it still makes (store/base.ts), and ${UPLOAD}`, issue: 'ORR-747'},
     issue_links: PROJECT,
     issue_pulls: {nuxt: 'the GitHub poll (utils/pulls.ts remember) only with no API in front; it sends them to PUT /api/pulls/{owner}/{name}/{number} otherwise', issue: 'ORR-1093'},
+    session_records: {alone: "what a session is (untrusted, held to its project, or the chat): the local app keeps it through PUT /api/session-records/{session} (ORR-1171)"},
     issue_sessions: {nuxt: 'which session works an issue: a session writing to one, its focus, its claim (store/claims.ts workedBy), as the sessions are the local app\'s; the API notes only the session that made a new issue (ORR-1059)'},
     issues: {nuxt: `schedule runs making issues (ORR-950), naming the owner (ORR-928), and ${PROJECT.nuxt}`, issue: 'ORR-1006'},
     keys: {nuxt: "a key's last use, as logging in checks it (store/keys.ts keyHolder), which stays here", issue: 'ORR-928'},

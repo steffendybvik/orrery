@@ -311,6 +311,25 @@ paths:
       responses:
         '200': {description: The image, content: {image/png: {}, image/jpeg: {}, image/gif: {}, image/webp: {}}}
         '404': {$ref: '#/components/responses/NotFound'}
+  /api/session-records/{session}:
+    parameters:
+      - {name: session, in: path, required: true, schema: {type: string}}
+    put:
+      x-served: false
+      summary: 'Keeps what a session is: an untrusted run''s, held to its project, or the owner''s chat (ORR-1171)'
+      description: >-
+        Only the Nuxt server's own call (`Orrery-Came: server`), once it knows the session for what it is. A later write
+        can only tighten it: the chat can become untrusted, and an untrusted session gets a project once, but never the
+        other way (409). Saying less than what's kept leaves it be. The rails read it by `Orrery-Session` (and
+        `Orrery-Worked-By`), and a session's new id after a `/clear` takes it on (`…/issue-sessions/rename`).
+      requestBody:
+        required: true
+        content: {application/json: {schema: {type: object, required: [kind], properties: {kind: {type: string, enum: [untrusted, chat]}, project: {type: [string, 'null']}}}}}
+      responses:
+        '200': {description: 'The record as it stands', content: {application/json: {schema: {type: object, properties: {session: {type: string}, kind: {type: string}, project: {type: [string, 'null']}, workspace: {type: string}, at: {type: string}}}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
   /api/signals/prune:
     post:
       x-served: false
