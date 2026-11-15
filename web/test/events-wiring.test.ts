@@ -40,6 +40,8 @@ beforeEach(async () => {
     vi.doMock('../server/utils/pull-comments', () => ({commentOnPull: async (_store: unknown, change: {pr: number}) => void calls.push(`commentOnPull ${change.pr}`)}))
     vi.doMock('../server/utils/event-log', () => ({EventLog: fake('EventLog', {forget: () => calls.push('log.forget'), note: (entry: object) => calls.push(`note ${JSON.stringify(entry)}`)})}))
     vi.doMock('../server/utils/schedules', () => ({Schedules: fake('Schedules'), scheduleRunning: {getStore: () => undefined}}))
+    // This orrery's settings, which the API answers (ORR-1135): only its uid is read here.
+    vi.doMock('../server/utils/api-router', async (real: () => Promise<object>) => ({...await real(), settingsNow: async () => ({uid: 'x7k2m9qd'})}))
     events = await import('../server/utils/events')
 })
 

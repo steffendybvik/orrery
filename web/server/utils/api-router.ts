@@ -873,39 +873,38 @@ export async function writeToApiOnly(method: string, path: string, body: unknown
     return sent.reply
 }
 
-/** The project's id, read from the API (a 404 when it isn't there), or the store with none set up (ORR-1139). Only the
+/** The project's id, read from the API (a 404 when it isn't there; ORR-1139, ORR-1135). Only the
  * project's own fields: none of its issues' notes or closed ones. */
 export async function projectIdOf(project: string): Promise<string> {
-    const read = await readFromApi<{id: string}>(`/api/projects/${encodeURIComponent(project)}?notes=0&closed=0`)
-    return read?.id ?? await useStore().projectId(project)
+    return (await readFromApiOnly<{id: string}>(`/api/projects/${encodeURIComponent(project)}?notes=0&closed=0`)).id
 }
 
-/** This orrery's settings, read from the API, or from `store` with none set up (ORR-1133). */
-export async function settingsNow(store: Pick<Store, 'settings'> = useStore()): Promise<Settings> {
-    return (await readFromApi<Settings>('/api/settings')) ?? await store.settings()
+/** This orrery's settings, read from the API (ORR-1133), the one place they're kept (ORR-1135). */
+export async function settingsNow(): Promise<Settings> {
+    return await readFromApiOnly<Settings>('/api/settings')
 }
 
-/** A project's doc, with its body, read from the API (a 404 when it isn't there), or the store with none set up (ORR-1133). */
+/** A project's doc, with its body, read from the API (a 404 when it isn't there; ORR-1133, ORR-1135). */
 export async function docNow(project: string, id: string): Promise<Doc> {
-    return (await readFromApi<Doc>(`/api/projects/${encodeURIComponent(project)}/docs/${encodeURIComponent(id)}`)) ?? await useStore().doc(project, id)
+    return await readFromApiOnly<Doc>(`/api/projects/${encodeURIComponent(project)}/docs/${encodeURIComponent(id)}`)
 }
 
-/** One issue, read from the API (a 404 when it isn't there), or the store with none set up (ORR-1142). */
+/** One issue, read from the API (a 404 when it isn't there; ORR-1142, ORR-1135). */
 export async function issueNow(project: string, id: string): Promise<IssueDetail> {
-    return (await readFromApi<IssueDetail>(`/api/projects/${encodeURIComponent(project)}/issues/${encodeURIComponent(id)}`)) ?? await useStore().issue(project, id)
+    return await readFromApiOnly<IssueDetail>(`/api/projects/${encodeURIComponent(project)}/issues/${encodeURIComponent(id)}`)
 }
 
-/** One milestone with its issues, read from the API (a 404 when it isn't there), or the store with none set up (ORR-1142). */
+/** One milestone with its issues, read from the API (a 404 when it isn't there; ORR-1142, ORR-1135). */
 export async function milestoneNow(project: string, id: string): Promise<Awaited<ReturnType<Store['milestone']>>> {
-    return (await readFromApi<Awaited<ReturnType<Store['milestone']>>>(`/api/projects/${encodeURIComponent(project)}/milestones/${encodeURIComponent(id)}`)) ?? await useStore().milestone(project, id)
+    return await readFromApiOnly<Awaited<ReturnType<Store['milestone']>>>(`/api/projects/${encodeURIComponent(project)}/milestones/${encodeURIComponent(id)}`)
 }
 
-/** A project's releases, read from the API, or the store with none set up (ORR-1142). */
+/** A project's releases, read from the API (ORR-1142, ORR-1135). */
 export async function releasesNow(project: string): Promise<Release[]> {
-    return (await readFromApi<Release[]>(`/api/projects/${encodeURIComponent(project)}/releases`)) ?? await useStore().listReleases(project)
+    return await readFromApiOnly<Release[]>(`/api/projects/${encodeURIComponent(project)}/releases`)
 }
 
-/** This orrery's id (`settings.id`), read from the API, or the store with none set up (ORR-1139). */
+/** This orrery's id (`settings.id`), read from the API (ORR-1139, ORR-1135). */
 export async function orreryId(): Promise<string> {
     return (await settingsNow()).id
 }

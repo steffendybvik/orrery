@@ -17,7 +17,7 @@ vi.mock('../server/utils/api-router', () => ({
         return {reply: {id: sent.length, body: (body as {body: string}).body, created_by: 'orrery'}}
     },
     // No API to read the settings from: the store answers.
-    settingsNow: async (store: {settings: () => Promise<unknown>}) => await store.settings(),
+    settingsNow: async () => await store.settings(),
 }))
 
 let store: Store

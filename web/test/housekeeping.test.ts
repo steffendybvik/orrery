@@ -86,14 +86,14 @@ describe('unused images', () => {
 describe('a run', () => {
     it('says what it removed, says nothing with nothing to remove, and looks at images once a day', async () => {
         const log = {note: vi.fn()}
-        await houseKeep(store, store.db, log)
+        await houseKeep(store, log)
         expect(log.note).not.toHaveBeenCalled()
         await signalAt(1, ago(40))
         await uploadAt(1)
-        await houseKeep(store, store.db, log, Date.now() + 3_600_000)
+        await houseKeep(store, log, Date.now() + 3_600_000)
         expect(log.note).toHaveBeenCalledTimes(1)
         expect(log.note.mock.calls[0]![0]).toMatchObject({kind: 'housekeeping.cleaned', message: 'Removed 1 old signal'})
-        await houseKeep(store, store.db, log, Date.now() + 2 * DAY)
+        await houseKeep(store, log, Date.now() + 2 * DAY)
         expect(log.note.mock.calls[1]![0]).toMatchObject({details: {uploads: 1, bytes: 1024, compacted: false}})
     })
 })
