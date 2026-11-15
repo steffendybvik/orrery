@@ -1,7 +1,7 @@
 // Which session is on which issue, asked of the Rust API (ORR-1141), so the session bookkeeping reads the board over
-// HTTP rather than from the database (ORR-1093). Each is undefined with no API set up (unit tests, a `nuxt dev` without
-// its build), for the store to read (or write) the database as before, until that goes too (ORR-1143). Whether a session is
-// there to hear stays this server's: the workers come back as they're stored.
+// HTTP rather than from the database (ORR-1093). With no API set up, each fails as one that isn't running does: the
+// store's fallback to the database is gone (ORR-1135). Whether a session is there to hear stays this server's: the
+// workers come back as they're stored.
 import type {Comment, IssueStatus, Signal} from '#shared/roadmap'
 import type {IssueRecord} from './schema'
 import {ORRERY} from './schema'
@@ -15,16 +15,16 @@ export type SessionWorkRead = {issues: (IssueRecord & {last?: Comment})[], waiti
 /** One of the comments `GET …/comments/unanswered` gives: who it's by, and who has its issue. */
 export type Unanswered = {issue: string, body: string, created_by: string, owned: boolean, assignee: string | null}
 
-async function read<T>(path: string): Promise<T | undefined> {
+async function read<T>(path: string): Promise<T> {
     // Imported here, as the router's module reaches the store: a static import would go round in a circle.
-    const {readFromApi} = await import('../utils/api-router')
-    return await readFromApi<T>(path)
+    const {readFromApiOnly} = await import('../utils/api-router')
+    return await readFromApiOnly<T>(path)
 }
 
-/** `true` once the API kept the write; undefined with none set up. */
-async function write(path: string, body: unknown): Promise<true | undefined> {
-    const {writeToApi} = await import('../utils/api-router')
-    return await writeToApi('POST', path, body, ORRERY, {always: true}) ? true : undefined
+/** Once the API has kept the write. */
+async function write(path: string, body: unknown): Promise<void> {
+    const {writeToApiOnly} = await import('../utils/api-router')
+    await writeToApiOnly('POST', path, body, ORRERY)
 }
 
 const at = (project: string) => `/api/projects/${encodeURIComponent(project)}`

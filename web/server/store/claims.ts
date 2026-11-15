@@ -18,16 +18,13 @@ const LOCK_LANDS = 5000
 export abstract class ClaimStore extends EpicStore {
     /** The session that last worked the issue, while it's there to hear; null otherwise (one session orrery picks). */
     protected async listeningWorker(project: string, issue: string): Promise<string | null> {
-        const chain = await sessionWork.workers(project, issue)
-        const worker = chain ? chain[0]?.worker : (await this.get<{session: string}>('SELECT session FROM issue_sessions WHERE project = ? AND issue = ?', project, issue))?.session
+        const worker = (await sessionWork.workers(project, issue))[0]?.worker
         return worker && this.hears(project, worker) ? worker : null
     }
 
     /** The session that last worked the issue, there to hear or not; none when no session has. */
     async lastWorker(project: string, issue: string): Promise<string | null> {
-        const chain = await sessionWork.workers(project, issue)
-        if (chain) return chain[0]?.worker ?? null
-        return (await this.get<{session: string}>('SELECT session FROM issue_sessions WHERE project = ? AND issue = ?', project, issue))?.session ?? null
+        return (await sessionWork.workers(project, issue))[0]?.worker ?? null
     }
 
     /** Notes that `session` is working the issue (it wrote to it, or was asked to focus on it): the owner's
@@ -38,11 +35,7 @@ export abstract class ClaimStore extends EpicStore {
     async workedBy(project: string, issue: string, session: string, {claimed = false} = {}) {
         issue = await this.issueId(project, issue)
         if (!claimed && await this.takenFrom(project, issue, session).catch(() => null)) return
-        if (await sessionWork.workedBy(project, issue, session)) return
-        const now = stamp()
-        await this.run(`INSERT INTO issue_sessions (project, issue, session, at, since) SELECT ?, ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM issues WHERE project = ? AND id = ?)
-            ON CONFLICT (project, issue) DO UPDATE SET since = CASE WHEN issue_sessions.session = excluded.session THEN issue_sessions.since ELSE excluded.since END,
-            session = excluded.session, at = excluded.at`, project, issue, session, now, now, project, issue)
+        await sessionWork.workedBy(project, issue, session)
     }
 
     // The rails between people (ORR-655): they hold an agent's request, at the store so no route gets round them, on an
@@ -140,16 +133,16 @@ export abstract class ClaimStore extends EpicStore {
      * and a reviewer's findings go to the session on it that way. Closing it (`status` a closed one) is any session's,
      * and one no session is on any more is free to take over. */
     async claim(project: string, issue: string, status: Input[string], session: string) {
-        // Read from the Rust API when it's in front (ORR-1159), as the one on the database then; otherwise here.
+        // Read from the Rust API (ORR-1159), the one on the database.
         const read = status === undefined ? undefined : await sessionWork.blocking(project, issue)
         issue = read?.id ?? await this.issueId(project, issue)
-        if (status !== undefined) {
+        if (read) {
             const statuses = await sessionWork.statuses()
-            const to = statuses ? resolveIn(statuses, status) : await this.resolveStatus(status)
-            const kind = (statuses ?? await this.statuses()).find(s => s.id === to)?.kind
+            const to = resolveIn(statuses, status)
+            const kind = statuses.find(s => s.id === to)?.kind
             if (kind && CLOSED.includes(kind)) return
             if (kind === 'started') {
-                const blockers = read ? read.blocked_by ?? [] : await this.blockers(project, issue)
+                const blockers = read.blocked_by ?? []
                 if (blockers.length && !await this.focusedOn(project, issue)) {
                     throw conflict(`${issue} is blocked by ${blockers.join(', ')}, which ${blockers.length === 1 ? "isn't" : "aren't"} done yet; pick another issue`)
                 }
@@ -178,27 +171,15 @@ export abstract class ClaimStore extends EpicStore {
     /** Whether the owner pointed a session (`session`, when given) at this issue in the last day: their explicit focus
      * starts it, blocked or not. */
     private async focusedOn(project: string, issue: string, session?: string): Promise<boolean> {
-        const read = await sessionWork.focused(project, issue, session)
-        if (read) return read.length > 0
-        const since = new Date(Date.now() - 86_400_000).toISOString()
-        return !!await this.get(`SELECT 1 FROM signals WHERE project = ? AND issue = ? AND kind = 'focus' AND owned = 1 AND created_at >= ?${session ? ' AND target = ?' : ''} LIMIT 1`,
-            project, issue, since, ...session ? [session] : [])
+        return (await sessionWork.focused(project, issue, session)).length > 0
     }
 
     /** The issue above this one (its parent, or one further up) that another session than `session` has started and is
      * there to hear, with that session (ORR-611): a follow-up under it is that session's to start. Null when none is. */
     async heldAbove(project: string, issue: string, session?: string): Promise<{parent: string, holder: string} | null> {
-        const chain = await sessionWork.workers(project, issue)
-        if (chain) {
-            for (const above of chain.slice(1)) {
-                const holder = this.heardOther(project, above, session)
-                if (holder) return {parent: above.issue, holder}
-            }
-            return null
-        }
-        for (let parent = (await this.issueRow(project, issue)).parent; parent; parent = (await this.issueRow(project, parent)).parent) {
-            const holder = await this.takenFrom(project, parent, session)
-            if (holder) return {parent, holder}
+        for (const above of (await sessionWork.workers(project, issue)).slice(1)) {
+            const holder = this.heardOther(project, above, session)
+            if (holder) return {parent: above.issue, holder}
         }
         return null
     }
@@ -211,17 +192,13 @@ export abstract class ClaimStore extends EpicStore {
 
     /** The issues that depend on this one (ORR-601), in any project, oldest link first. */
     async dependentsOf(project: string, issue: string): Promise<{project: string, id: string}[]> {
-        return await sessionWork.dependents(project, issue) ?? await this.all<{project: string, id: string}>('SELECT project, issue AS id FROM issue_links WHERE on_project = ? AND on_issue = ? ORDER BY created_at, project, issue', project, issue)
+        return await sessionWork.dependents(project, issue)
     }
 
     /** The other session on an issue: the one that has it started, while it's there to hear, if that isn't `session`. */
     async takenFrom(project: string, issue: string, session: string | undefined): Promise<string | null> {
-        const chain = await sessionWork.workers(project, issue)
-        if (chain) return chain[0] ? this.heardOther(project, chain[0], session) : null
-        const {status} = await this.issueRow(project, issue)
-        if ((await this.statuses()).find(s => s.id === status)?.kind !== 'started') return null
-        const worker = await this.listeningWorker(project, issue)
-        return worker && worker !== session ? worker : null
+        const [on] = await sessionWork.workers(project, issue)
+        return on ? this.heardOther(project, on, session) : null
     }
 
     /** The session on a started issue of the chain, while it's there to hear, if that isn't `session`. */

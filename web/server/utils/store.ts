@@ -6,8 +6,7 @@
 // the one the server makes and the routes use.
 import type {Comment} from '#shared/roadmap'
 import {parked} from '#shared/roadmap'
-import type {IssueRecord, CommentRow} from '../store/schema'
-import {ANSWERED, commentOf} from '../store/schema'
+import type {IssueRecord} from '../store/schema'
 import {ImportStore} from '../store/imports'
 import {sessionWork} from '../store/session-work'
 
@@ -18,17 +17,7 @@ export class Store extends ImportStore {
     /** The issues in progress (a started status) that one of `sessions` worked last, with their latest comment. */
     async workingOn(project: string, sessions: string[]): Promise<(IssueRecord & {last?: Comment})[]> {
         if (!sessions.length) return []
-        const read = await sessionWork.of(project, sessions)
-        if (read) return read.issues
-        const worked = new Set((await this.all<{issue: string}>(`SELECT issue FROM issue_sessions WHERE project = ? AND session IN (${sessions.map(() => '?').join(', ')})`,
-            project, ...sessions)).map(r => r.issue))
-        const issues = (await this.listIssues(project)).filter(r => worked.has(r.id) && r.kind === 'started')
-        if (!issues.length) return []
-        // Their comments in one query, not one each: the hook asking for this waits on it.
-        const last = new Map<string, Comment>()
-        for (const row of await this.all<CommentRow>(`SELECT c.*, ${ANSWERED} FROM comments c WHERE project = ? AND issue IN (${issues.map(() => '?').join(', ')}) ORDER BY created_at, id`,
-            project, ...issues.map(i => i.id))) last.set(row.issue, commentOf(row))
-        return issues.map(issue => ({...issue, last: last.get(issue.id)}))
+        return (await sessionWork.of(project, sessions)).issues
     }
 
     /** The issue one of `sessions` worked last, by when it last wrote to it or was focused on it (ORR-903). */
@@ -56,7 +45,7 @@ export class Store extends ImportStore {
     /** A session's new id (after a `/clear`) takes over what its old one worked and was sent, so none of it
      * hangs on the server remembering the old id. */
     async renameSession(project: string, from: string, to: string) {
-        if (!await sessionWork.rename(project, from, to)) await this.run('UPDATE issue_sessions SET session = ? WHERE project = ? AND session = ?', to, project, from)
+        await sessionWork.rename(project, from, to)
         await this.retargetSignals(project, from, to)
     }
 }
