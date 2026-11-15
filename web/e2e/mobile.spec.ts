@@ -70,6 +70,20 @@ test("the project and an issue's page fit the screen", async ({page}) => {
     expect(await scrollsSideways(page)).toBe(false)
 })
 
+test("a row's title wraps to two lines, its id small under it rather than a column of its own (ORR-1218)", async ({page}) => {
+    await page.goto('/p/pocket?view=list')
+    const row = page.locator(`[data-issue="${id}"]`)
+    const title = row.getByText(/A title long enough/)
+    const under = row.getByText(id, {exact: true}).filter({visible: true})
+    // The id is drawn once: the desktop column is hidden.
+    await expect(under).toHaveCount(1)
+    const [t, u] = [await title.boundingBox(), await under.boundingBox()]
+    // Two lines of the title, and the id below them, starting where the title does.
+    expect(t!.height).toBeGreaterThan(30)
+    expect(u!.y).toBeGreaterThanOrEqual(t!.y + t!.height - 1)
+    expect(Math.abs(u!.x - t!.x)).toBeLessThan(2)
+})
+
 test('key hints aren\'t drawn on a touch screen, which has no keys to press (ORR-817)', async ({page}) => {
     await page.goto('/mine')
     await page.getByRole('button', {name: 'Open the sidebar'}).tap()

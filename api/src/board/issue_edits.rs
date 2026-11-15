@@ -820,6 +820,8 @@ impl IssueWrites<'_> {
             self.railed_assignee(rails.as_deref(), &issue, assignee).await?;
         }
         let there = Issues::new(&mut *self.conn).project(to).await?;
+        // A board marked as moved only reads, so nothing moves into it either (ORR-1229).
+        crate::board::projects::not_moved(self.conn, to).await?;
         let parent = match parent.filter(|p| !p.is_empty()) {
             Some(sent) => Some(self.issue_id(to, sent).await?),
             None => None,
@@ -1140,6 +1142,10 @@ impl IssueWrites<'_> {
             }
             let on_id = self.issue_id(&on_project, &on_id).await?;
             self.issue_there(&on_project, &on_id).await?;
+            // One on a board marked as moved can't change any more, so nothing new waits on it (ORR-1229).
+            if on_project != project {
+                crate::board::projects::not_moved(self.conn, &on_project).await?;
+            }
             if on_project == project && on_id == issue {
                 return Err(ApiError::bad_request("An issue can't depend on itself"));
             }

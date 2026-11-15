@@ -640,3 +640,15 @@ async fn only_the_owner_marks_a_board_as_moved_and_only_to_an_address() {
     assert_eq!(missing.status, 404, "{}", missing.body);
     assert_eq!(api.count(&format!("SELECT count(*) FROM projects WHERE id = '{project}' AND moved_to IS NULL")).await, 1);
 }
+
+#[tokio::test]
+async fn no_project_takes_its_releases_from_a_board_marked_as_moved() {
+    let api = TestApi::new().await;
+    let source = make(&api, json!({"name": "Engine", "release_mode": "own"})).await;
+    let app = api.project("Dashboard").await;
+    let marked = api.put(&format!("/api/projects/{}/moved", source["id"].as_str().unwrap()), json!({"to": "https://orrery.example.com"})).send().await;
+    assert_eq!(marked.status, 200, "{}", marked.body);
+    let reply = api.patch(&format!("/api/projects/{app}"), json!({"release_mode": "shared", "releases_from": source["id"]})).send().await;
+    assert_eq!(reply.status, 409, "{}", reply.body);
+    assert_eq!(reply.body["data"]["moved_to"], "https://orrery.example.com");
+}
