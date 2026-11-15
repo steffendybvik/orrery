@@ -6,8 +6,7 @@ import type {Permission, PermissionCell} from '#shared/permissions'
 import {Pulls} from '../server/utils/pulls'
 import {Schedules} from '../server/utils/schedules'
 import {Store} from '../server/utils/store'
-import {testDb} from './db'
-import {apiTestDb, withApi} from './api'
+import {apiTestDb, withApi, apiStore} from './api'
 import {rustRoutes} from './routes'
 
 // The permissions table (shared/permissions.ts) against what the server does, so it can't say one thing while the code
@@ -123,7 +122,7 @@ describe("a working session's column", () => {
     let schedules: Schedules
 
     beforeEach(async () => {
-        store = new Store(testDb(), () => {})
+        store = await apiStore(() => {})
         await store.createProject({name: 'greenhouse', key: 'GRE'}, me)
         schedules = new Schedules(store)
     })

@@ -21,7 +21,7 @@ import type {Db} from '../server/utils/database'
 import {SqliteDb} from '../server/utils/database'
 import {openDb} from '../server/utils/db'
 import {PostgresDb} from '../server/utils/postgres'
-import type {Store} from '../server/utils/store'
+import {Store} from '../server/utils/store'
 import {forgetRoster} from '../server/utils/roster'
 
 const API_BIN = process.env.ORRERY_API_BIN || fileURLToPath(new URL('../../api/target/debug/orrery-api', import.meta.url))
@@ -86,6 +86,10 @@ export async function withApi(store: Store, env: Record<string, string> = {}): P
     })
     vi.stubGlobal('useStore', () => store)
     vi.stubGlobal('databaseSetting', () => at.setting)
+    // What a relayed write tells (api-router.ts `relayed`), heard by nothing in a unit test unless it stubs its own.
+    const globals = globalThis as Record<string, unknown>
+    if (!globals.useScheduler) vi.stubGlobal('useScheduler', () => ({changedElsewhere: () => {}}))
+    if (!globals.useEventLog) vi.stubGlobal('useEventLog', () => ({note: () => {}, activity: async () => {}}))
     // Through the runtime config rather than `apiStarted`, which a test's `vi.resetModules()` would leave on a copy of
     // the router it no longer uses. A test that stubs the config itself after this spreads `apiConfig()` into it.
     const before = (globalThis as {useRuntimeConfig?: () => Record<string, unknown>}).useRuntimeConfig
@@ -93,6 +97,14 @@ export async function withApi(store: Store, env: Record<string, string> = {}): P
     vi.stubGlobal('useRuntimeConfig', () => ({...before?.(), ...config}))
     forgetRoster()
     return {url, token: TOKEN}
+}
+
+/** A store on a database of its own with the API running on it, as `new Store(testDb(), …)` was before the store's
+ * fallbacks went (ORR-1135): what it reads and writes goes through the API as it does on a server. */
+export async function apiStore(...rest: ConstructorParameters<typeof Store> extends [unknown, ...infer R] ? R : never): Promise<Store> {
+    const store = new Store(apiTestDb(), ...rest)
+    await withApi(store)
+    return store
 }
 
 /** What points the router at this test's API (`apiUrl`, `apiToken`) and names its database, for a test that stubs

@@ -2,16 +2,15 @@
 // against a fresh database with the project `greenhouse` (store-setup.ts).
 import {beforeEach, describe, expect, it} from 'vitest'
 import {total} from '#shared/roadmap'
-import {Store} from '../server/utils/store'
-import {testDb} from './db'
-import type {Actor} from '../server/utils/store'
+import type {Store,Actor} from '../server/utils/store'
+import {apiStore} from './api'
 import {failure, storeSetup} from './store-setup'
 
 let store: Store
 let changes: string[]
 
 beforeEach(async () => {
-    ({store, changes} = await storeSetup())
+    ({store, changes} = await storeSetup({api: true}))
 })
 
 describe('issues', () => {
@@ -205,7 +204,7 @@ describe('an urgent issue', () => {
 
     it("goes to the sessions when the owner makes it P0: to its worker while it can hear, else to every one", async () => {
         const sent: string[] = []
-        const local = new Store(testDb(), () => {}, signal => sent.push(`${signal.kind}:${signal.issue}:${signal.target ?? 'all'}:${signal.note}`))
+        const local = await apiStore(() => {}, signal => sent.push(`${signal.kind}:${signal.issue}:${signal.target ?? 'all'}:${signal.note}`))
         let listening = ['window-a']
         local.hears = (_project, session) => listening.includes(session)
         await local.createProject({name: 'greenhouse', key: 'GRE'})
@@ -227,7 +226,7 @@ describe('an urgent issue', () => {
 
     it('goes when a P0 issue becomes open work: a proposal committed, a closed one reopened', async () => {
         const sent: string[] = []
-        const local = new Store(testDb(), () => {}, signal => sent.push(String(signal.issue)))
+        const local = await apiStore(() => {}, signal => sent.push(String(signal.issue)))
         await local.createProject({name: 'greenhouse', key: 'GRE'})
         const idea = (await local.createIssue('greenhouse', {title: 'An idea', priority: 'P0', proposal: 'pending'}, owner)).id
         const gone = (await local.createIssue('greenhouse', {title: 'Gone', priority: 'P0', status: 'done'}, owner)).id
@@ -244,7 +243,7 @@ describe('an urgent issue', () => {
     })
 
     it("doesn't fail the saved write when the push fails", async () => {
-        const local = new Store(testDb(), () => {}, () => {})
+        const local = await apiStore(() => {}, () => {})
         local.hears = () => { throw new Error('no line') }
         await local.createProject({name: 'greenhouse', key: 'GRE'})
         const leak = (await local.createIssue('greenhouse', {title: 'Leak', priority: 'P2'}, owner)).id

@@ -3,9 +3,8 @@
 import {beforeEach, describe, expect, it} from 'vitest'
 import type {Signal} from '#shared/roadmap'
 import {PERMISSIONS} from '#shared/permissions'
-import type {Actor} from '../server/utils/store'
-import {Store} from '../server/utils/store'
-import {testDb} from './db'
+import type {Actor,Store} from '../server/utils/store'
+import {apiStore} from './api'
 import {failure} from './store-setup'
 
 let store: Store
@@ -18,7 +17,7 @@ const sessions: Record<string, string> = {'hati-a': 'hati', 'hati-b': 'hati', 's
 
 beforeEach(async () => {
     signals = []
-    store = new Store(testDb(), () => {}, signal => signals.push(signal))
+    store = await apiStore(() => {}, signal => signals.push(signal))
     store.sessionPerson = session => sessions[session]
     await store.createProject({name: 'greenhouse', key: 'GRE'})
     await store.nameOwner({name: 'Skoll'})
@@ -256,7 +255,7 @@ describe('what stays the owner\'s alone', () => {
 
 describe('with one person', () => {
     it('keeps the bell, its clearing and the signals as they were', async () => {
-        const solo = new Store(testDb(), () => {}, signal => signals.push(signal))
+        const solo = await apiStore(() => {}, signal => signals.push(signal))
         await solo.createProject({name: 'cellar', key: 'CEL'})
         await solo.nameOwner({name: 'Skoll'})
         const {id} = await solo.createIssue('cellar', {title: 'Racks', assignee: 'owner'}, owner)

@@ -10,7 +10,7 @@ const ago = (days: number) => new Date(Date.now() - days * DAY).toISOString()
 const owner = {name: 'skoll', owner: true}
 
 beforeEach(async () => {
-    ({store} = await storeSetup())
+    ({store} = await storeSetup({api: true}))
     forgetSweep()
 })
 

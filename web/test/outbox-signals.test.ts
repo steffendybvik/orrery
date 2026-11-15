@@ -29,7 +29,7 @@ async function rows(until: (rows: Row[]) => boolean) {
 }
 
 beforeEach(async () => {
-    ;({store} = await storeSetup())
+    ;({store} = await storeSetup({api: true}))
     await tick()
     from = Number((await store.db.get<{n: number | null}>('SELECT max(id) AS n FROM changes'))?.n ?? 0)
 })

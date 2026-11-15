@@ -2,16 +2,15 @@
 // the project `greenhouse` (store-setup.ts).
 import {beforeEach, describe, expect, it, vi} from 'vitest'
 import {DEFAULT_MILESTONE_PROMPT, DEFAULT_FOCUS_PROMPT} from '#shared/prompt'
-import {Store} from '../server/utils/store'
-import {testDb} from './db'
-import type {Actor} from '../server/utils/store'
+import type {Store,Actor} from '../server/utils/store'
+import {apiStore} from './api'
 import {failure, storeSetup} from './store-setup'
 
 let store: Store
 let changes: string[]
 
 beforeEach(async () => {
-    ({store, changes} = await storeSetup())
+    ({store, changes} = await storeSetup({api: true}))
 })
 
 describe('what sessions are told', () => {
@@ -247,7 +246,7 @@ describe('the kinds of work (ORR-868)', () => {
 
 describe('a session that connects', () => {
     it("knows an owner's focus on an issue is on its way until a session hears it (ORR-515)", async () => {
-        const local = new Store(testDb())
+        const local = await apiStore()
         await local.createProject({name: 'greenhouse', key: 'GRE'})
         const a = (await local.createIssue('greenhouse', {title: 'A'})).id
         expect(await local.focusOnItsWay('greenhouse', a)).toBe(false)
@@ -261,7 +260,7 @@ describe('a session that connects', () => {
 
     it("gets the owner's comments that no agent has answered", async () => {
         const sent: string[] = []
-        const local = new Store(testDb(), () => {}, signal => sent.push(`${signal.issue}:${signal.target}:${signal.note}`))
+        const local = await apiStore(() => {}, signal => sent.push(`${signal.issue}:${signal.target}:${signal.note}`))
         await local.createProject({name: 'greenhouse', key: 'GRE'})
         const me = {name: 'skoll', owner: true}
         const a = (await local.createIssue('greenhouse', {title: 'A'})).id
@@ -280,7 +279,7 @@ describe('a session that connects', () => {
 
     it("still gets the owner's comment when only orrery has spoken since, not an agent (ORR-528)", async () => {
         const sent: string[] = []
-        const local = new Store(testDb(), () => {}, signal => sent.push(`${signal.issue}:${signal.target}:${signal.note}`))
+        const local = await apiStore(() => {}, signal => sent.push(`${signal.issue}:${signal.target}:${signal.note}`))
         await local.createProject({name: 'greenhouse', key: 'GRE'})
         const a = (await local.createIssue('greenhouse', {title: 'A'})).id
         await local.createComment('greenhouse', a, {body: 'rebase this'}, {name: 'skoll', owner: true})
@@ -294,7 +293,7 @@ describe('a session that connects', () => {
 
     it("aims the owner's comment on an issue nobody is on at no session, for one to take, and the pool offers it (ORR-513)", async () => {
         const sent: (string | undefined)[] = []
-        const local = new Store(testDb(), () => {}, signal => sent.push(signal.target))
+        const local = await apiStore(() => {}, signal => sent.push(signal.target))
         await local.createProject({name: 'greenhouse', key: 'GRE'})
         const a = (await local.createIssue('greenhouse', {title: 'A'})).id
         await local.createComment('greenhouse', a, {body: 'svg?'}, {name: 'skoll', owner: true})

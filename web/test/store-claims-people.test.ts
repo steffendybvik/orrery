@@ -18,7 +18,7 @@ const refused = async (run: () => Promise<unknown>, says?: string) => {
 }
 
 beforeEach(async () => {
-    ({store} = await storeSetup())
+    ({store} = await storeSetup({api: true}))
     await store.nameOwner({name: 'Skoll'})
 })
 

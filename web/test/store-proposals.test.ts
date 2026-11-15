@@ -2,15 +2,15 @@
 // project `greenhouse` (store-setup.ts).
 import {beforeEach, describe, expect, it} from 'vitest'
 import {total} from '#shared/roadmap'
-import {Store, type Actor} from '../server/utils/store'
+import type {Store, type Actor} from '../server/utils/store';
 import {startsNone} from '../server/utils/starts-none'
-import {testDb} from './db'
+import {apiStore} from './api'
 import {failure, storeSetup} from './store-setup'
 
 let store: Store
 
 beforeEach(async () => {
-    ({store} = await storeSetup())
+    ({store} = await storeSetup({api: true}))
 })
 
 describe('proposals', () => {
@@ -40,7 +40,7 @@ describe('proposals', () => {
 
     it('start no session when rejected, as approving or asking for changes may (ORR-606)', async () => {
         const said: {note?: string, quiet: boolean}[] = []
-        const own = new Store(testDb(), () => {}, signal => said.push({note: signal.note, quiet: !!startsNone.getStore()}))
+        const own = await apiStore(() => {}, signal => said.push({note: signal.note, quiet: !!startsNone.getStore()}))
         await own.createProject({name: 'greenhouse', key: 'GRE'})
         for (const decision of ['rejected', 'changes', 'approved']) {
             const {id} = await own.createIssue('greenhouse', {title: decision, proposal: 'pending'}, claude)
