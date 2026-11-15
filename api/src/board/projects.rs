@@ -253,6 +253,17 @@ struct ReleaseRow {
     from: Option<String>,
 }
 
+/// Refused with a 409 saying where it went if `project` is marked as moved (ORR-1225): its copy here only reads, so
+/// nothing moves into it, takes its releases or waits on its issues either (ORR-1229).
+pub(crate) async fn not_moved(conn: &mut AnyConnection, project: &str) -> Result<()> {
+    let moved: Option<String> =
+        sqlx::query_scalar(&sql("SELECT moved_to FROM projects WHERE id = ?")).bind(project).fetch_optional(&mut *conn).await?.flatten();
+    match moved {
+        Some(to) => Err(ApiError::moved(project, &to)),
+        None => Ok(()),
+    }
+}
+
 pub struct Projects<'c> {
     conn: &'c mut AnyConnection,
     pub effects: Effects,
@@ -375,6 +386,7 @@ impl<'c> Projects<'c> {
         let Some(source) = self.release_row(from).await? else {
             return Err(ApiError::bad_request(format!("No project \"{from}\" to take releases from")));
         };
+        not_moved(self.conn, from).await?;
         let theirs = source.from.unwrap_or_default();
         match source.mode.as_str() {
             "shared" => Err(ApiError::bad_request(format!("{from} takes its releases from {theirs}; take them from {theirs} too"))),
