@@ -199,3 +199,50 @@ async fn a_file_from_a_board_marked_as_moved_comes_in_unmarked() {
     let wrote = api.post("/api/projects/copy/issues", json!({"title": "Here now"})).agent_of_nobody().send().await;
     assert_eq!(wrote.status, 201, "{}", wrote.body);
 }
+
+// Holding an uploaded board out of pick lists (ORR-1224).
+
+#[tokio::test]
+async fn an_uploaded_board_starts_held_out_of_pick_lists_even_the_owners_own() {
+    let api = TestApi::new().await;
+    let (project, file) = primes(&api).await;
+    assert!(api.get(&format!("/api/projects/{project}")).send().await.body.get("picks_held").is_none(), "a board made here isn't held");
+    let reply = api.post("/api/boards", sent(&file, "copy", "CPY")).send().await;
+    assert_eq!(reply.status, 201, "{}", reply.body);
+    assert!(reply.body["picks_held"].is_string(), "{}", reply.body);
+    let mut own = sent(&file, "mine", "MIN");
+    own["own"] = json!(true);
+    let own = api.post("/api/boards", own).send().await;
+    assert_eq!(own.status, 201, "{}", own.body);
+    assert!(own.body["picks_held"].is_string(), "the owner's own file is still a file: {}", own.body);
+    let listed = api.get("/api/projects").send().await;
+    let copy = listed.body.as_array().unwrap().iter().find(|p| p["id"] == "copy").cloned().unwrap();
+    assert!(copy["picks_held"].is_string(), "the list says so too: {copy}");
+}
+
+#[tokio::test]
+async fn only_the_owner_lets_sessions_pick_from_an_uploaded_board_and_its_logged() {
+    let api = TestApi::new().await;
+    let (_, file) = primes(&api).await;
+    let made = api.post("/api/boards", sent(&file, "copy", "CPY")).send().await;
+    assert_eq!(made.status, 201, "{}", made.body);
+    let at = "/api/projects/copy/picks-held";
+    let agent = api.delete(at).agent_of_nobody().send().await;
+    assert_eq!(agent.status, 403, "{}", agent.body);
+    let owners_session = api.delete(at).header("orrery-actor-session", "s-1").send().await;
+    assert_eq!(owners_session.status, 403, "a session naming the owner isn't the owner's page: {}", owners_session.body);
+    let chat = api.delete(at).header("orrery-actor-kind", "chat").header("orrery-actor-asked", "1").send().await;
+    assert_eq!(chat.status, 403, "{}", chat.body);
+    assert_eq!(api.count("SELECT count(*) FROM projects WHERE id = 'copy' AND picks_held IS NOT NULL").await, 1, "still held");
+    assert_eq!(api.delete("/api/projects/nowhere/picks-held").send().await.status, 404);
+
+    let let_ = api.delete(at).header("orrery-actor-asked", "1").send().await;
+    assert_eq!(let_.status, 200, "{}", let_.body);
+    assert!(let_.body.get("picks_held").is_none(), "{}", let_.body);
+    assert_eq!(let_.changed(), ["copy"], "open pages hear it");
+    assert_eq!(api.count("SELECT count(*) FROM events WHERE kind = 'project.picks_let' AND project = 'copy'").await, 1, "it's logged");
+    // Again, it's already let: nothing changes and nothing more is logged.
+    let again = api.delete(at).header("orrery-actor-asked", "1").send().await;
+    assert_eq!(again.status, 200, "{}", again.body);
+    assert_eq!(api.count("SELECT count(*) FROM events WHERE kind = 'project.picks_let'").await, 1);
+}

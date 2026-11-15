@@ -940,6 +940,20 @@ paths:
         '200': {description: 'The project, with its board', content: {application/json: {schema: {$ref: '#/components/schemas/Project'}}}}
         '403': {$ref: '#/components/responses/Forbidden'}
         '404': {$ref: '#/components/responses/NotFound'}
+  /api/projects/{project}/picks-held:
+    parameters: [{$ref: '#/components/parameters/project'}]
+    delete:
+      summary: Lets sessions pick from a board uploaded from a file
+      description: |
+        A board brought in from a file (`POST /api/projects/upload`) starts held (ORR-1224): its Todo titles are the file's,
+        which nobody has checked, so no session is handed its issues, in a pick list, a Todo hand-out or `next`, while
+        `picks_held` is set. This lifts the hold, and logs it (`project.picks_let`). The owner's alone, from their page:
+        a session, the chat or an untrusted one gets a 403. A board that isn't held is left as it is.
+      parameters: [{$ref: '#/components/parameters/actor'}]
+      responses:
+        '200': {description: 'The project, with its board', content: {application/json: {schema: {$ref: '#/components/schemas/Project'}}}}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
   /api/projects/{project}/import:
     parameters: [{$ref: '#/components/parameters/project'}]
     post:
@@ -3061,6 +3075,7 @@ components:
         release_mode: {type: string, enum: [none, own, shared]}
         releases_from: {type: string, description: The project it takes its releases from, when shared}
         moved_to: {type: string, description: 'The orrery it moved to, while it''s marked as moved (ORR-1225): its writes here are refused'}
+        picks_held: {type: string, format: date-time, description: 'When it was uploaded from a file, while it''s held out of pick lists (ORR-1224): no session is handed its issues till the owner lets them pick from it'}
         created_by: {type: string}
         protected: {type: boolean}
         created_at: {type: string, format: date-time}

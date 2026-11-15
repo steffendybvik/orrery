@@ -1,5 +1,5 @@
 import {expect, test} from './test'
-import {AGENT, OWNER, makeProject, projectApi} from './support'
+import {AGENT, OWNER, hold, makeProject, projectApi} from './support'
 
 // A board's file brought in as a new board, through the real route (ORR-670); what it does with a file is in board-upload.test.ts.
 const api = projectApi('boathouse')
@@ -73,4 +73,31 @@ test('brings a board\'s comments, pictures and docs along with its issues (ORR-1
     await page.goto(`/p/${id}/issues/${issue.id}`)
     await expect(page.getByRole('img', {name: 'The barrels'})).toBeVisible()
     await expect(page.getByRole('img', {name: 'The barrels'})).toHaveJSProperty('naturalWidth', 1)
+})
+
+test("holds an uploaded board's Todo out of a session's pick list till the owner lets sessions pick from it (ORR-1224)", async ({page, request, baseURL}) => {
+    await makeProject(request, {name: 'Chandlery', key: 'CHA'})
+    const issue = await projectApi('chandlery')(request, 'post', '/issues', {title: 'Coil the rope', status: 'todo'})
+    const file = await (await request.get('/api/projects/chandlery/export')).json()
+    const [id, key] = test.info().retry ? ['ropewalk-again', 'RWA'] : ['ropewalk', 'RWK']
+    const uploaded = await request.post(`/api/projects/upload?id=${id}&key=${key}&name=Ropewalk`, {data: file, headers: OWNER})
+    expect(uploaded.status(), await uploaded.text()).toBe(201)
+
+    const session = `e2e-pick-${id}`
+    const stream = hold(baseURL!, `/api/projects/${id}/signals/stream?session=${session}&name=${session}&format=text`)
+    try {
+        await expect.poll(async () => (await (await request.get('/api/sessions')).json() as {id: string, listening: boolean}[])
+            .some(s => s.id === session && s.listening)).toBe(true)
+        const offered = async () => (await (await request.get(`/api/projects/${id}/sessions/${session}/next`)).json() as {issues: {id: string}[]}).issues.map(i => i.id)
+        expect(await offered()).toEqual([])
+
+        await page.goto(`/p/${id}/settings`)
+        const picks = page.locator('#picks')
+        await expect(picks.getByText('came from a file')).toBeVisible()
+        await picks.getByRole('button', {name: 'Let sessions pick from this board'}).click()
+        await expect(picks).toHaveCount(0)
+        await expect.poll(offered).toEqual([issue.id])
+    } finally {
+        stream.stop()
+    }
 })

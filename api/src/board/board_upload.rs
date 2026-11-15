@@ -343,6 +343,9 @@ impl Writer<'_> {
             ("workspace", Value::String(workspace.into())),
             // The board arrives here as its new home, even from a file of one marked as moved (ORR-1225).
             ("moved_to", Value::Null),
+            // Its Todo titles are a file's, which nobody has checked: no session is handed them until the owner lets
+            // sessions pick from it (ORR-1224), even from the owner's own file.
+            ("picks_held", Value::String(stamp())),
         ] {
             project.insert(column.into(), value);
         }

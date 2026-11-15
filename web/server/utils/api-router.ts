@@ -161,6 +161,9 @@ export const DOMAINS: readonly {domain: string, paths: RegExp, methods?: readonl
     // Marking a board as moved to another orrery, and lifting it (ORR-1225): the owner's, from its Settings. While it's
     // marked, the API's rails refuse each write a request makes to the board with a 409 saying where it went.
     {domain: 'a project, marked as moved', paths: /^projects\/[^/]+\/moved$/, methods: ['PUT', 'DELETE']},
+    // Letting sessions pick from a board uploaded from a file (ORR-1224), which starts held out of pick lists: the
+    // owner's, from its Settings, and logged. Picking here reads the hold from the project's row (`heldFromPicks`).
+    {domain: 'a project, let sessions pick from', paths: /^projects\/[^/]+\/picks-held$/, methods: ['DELETE']},
     // A board as one file (ORR-1006): read in one transaction, named for the project and the day (`Content-Disposition`).
     // Whether the asker is on the board is checked here first (`needsBoard`), as a write's board is in middleware/board.ts.
     {domain: 'a project, exported', paths: /^projects\/[^/]+\/export$/, methods: ['GET'], first: {GET: onTheBoard}},
