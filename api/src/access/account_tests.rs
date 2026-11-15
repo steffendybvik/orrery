@@ -82,7 +82,8 @@ async fn deletes_the_workspaces_they_own_shared_ones_too_with_their_projects() {
     ] {
         assert_eq!(api.count(query).await, 0, "{what}");
     }
-    assert_eq!(api.count("SELECT count(*) AS n FROM people WHERE id = 'ana' AND removed_at IS NOT NULL").await, 1);
+    assert_eq!(api.count("SELECT count(*) AS n FROM people WHERE id = 'ana'").await, 0);
+    assert_eq!(api.count("SELECT count(*) AS n FROM people WHERE name = 'Deleted person' AND removed_at IS NOT NULL").await, 1);
     // Who stays is as they were: bo, in default, and the owner's workspace with its project.
     assert_eq!(api.count("SELECT count(*) AS n FROM workspace_members WHERE person = 'bo'").await, 1);
     assert_eq!(api.count("SELECT count(*) AS n FROM workspaces WHERE id = 'default'").await, 1);
@@ -91,28 +92,52 @@ async fn deletes_the_workspaces_they_own_shared_ones_too_with_their_projects() {
 }
 
 #[tokio::test]
-async fn leaves_others_workspaces_with_their_name_on_history() {
+async fn leaves_others_workspaces_but_takes_her_name_off_what_she_left_there() {
     let api = TestApi::new().await;
     api.team().await;
     let rockets = workspace(&api, "bo-works", "bo", &["ana"], "Rockets").await;
     let fuel = api.issue(&rockets, json!({"title": "Fuel", "assignee": "ana"})).await;
-    api.run("UPDATE issues SET created_by = 'ana' WHERE id = ?", &[&fuel]).await;
+    api.run("UPDATE issues SET created_by = 'ana', decided_by = 'Ana' WHERE id = ?", &[&fuel]).await;
+    api.run(
+        "INSERT INTO comments (project, issue, body, created_by, person, created_at, updated_at) VALUES (?, ?, 'Ready', 'ana', 'ana', 'x', 'x')",
+        &[&rockets, &fuel],
+    )
+    .await;
+    // A login of hers, made while she's here, to try once she's gone.
+    let again = as_person(&api, api.get("/api/me"), "ana").await.header("orrery-login-ways", "on, provider");
     let deleted = as_person(&api, api.request(axum::http::Method::DELETE, "/api/me").json(json!({"confirm": "ana"})), "ana").await.send().await;
     assert_eq!(deleted.status, 204, "{}", deleted.body);
+    // bo's workspace stays, with what she did in it.
     assert_eq!(api.count("SELECT count(*) AS n FROM workspaces WHERE id = 'bo-works'").await, 1);
     let issue = api.get(&format!("/api/projects/{rockets}/issues/{fuel}")).send().await;
     assert_eq!(issue.status, 200, "{}", issue.body);
     assert!(issue.body["assignee"].is_null(), "{}", issue.body);
-    assert_eq!(api.count("SELECT count(*) AS n FROM issues WHERE created_by = 'ana'").await, 1);
-    assert_eq!(api.count("SELECT count(*) AS n FROM issue_events WHERE field = 'assignee' AND \"before\" = 'ana' AND \"after\" IS NULL").await, 1);
     assert!(api.outbox().await.iter().any(|c| c.kind == "issue.assignee"), "{:?}", api.outbox().await);
-    // Listed still, removed, under her name.
+    // But not her name, nor the id made from it: a "Deleted person" did it, under an id that says nothing of her.
     let people = api.get("/api/people").send().await;
-    let ana = people.body.as_array().unwrap().iter().find(|p| p["id"] == "ana").cloned().unwrap();
-    assert_eq!(ana["name"], "ana");
-    assert!(ana["removed_at"].is_string());
+    let gone = people.body.as_array().unwrap().iter().find(|p| p["name"] == "Deleted person").cloned().unwrap();
+    assert!(gone["removed_at"].is_string());
+    let erased = gone["id"].as_str().unwrap().to_owned();
+    assert!(erased.starts_with("deleted_") && !erased.contains("ana"), "{erased}");
+    assert!(!people.body.to_string().contains("\"ana\""), "{}", people.body);
+    assert_eq!(api.count(&format!("SELECT count(*) AS n FROM issues WHERE created_by = '{erased}' AND decided_by = '{erased}'")).await, 1);
+    assert_eq!(api.count(&format!("SELECT count(*) AS n FROM comments WHERE body = 'Ready' AND created_by = '{erased}' AND person = '{erased}'")).await, 1);
+    assert_eq!(
+        api.count(&format!("SELECT count(*) AS n FROM issue_events WHERE field = 'assignee' AND \"before\" = '{erased}' AND \"after\" IS NULL")).await,
+        1
+    );
+    for (table, column) in [
+        ("issues", "created_by"),
+        ("issues", "assignee"),
+        ("comments", "person"),
+        ("issue_events", "created_by"),
+        ("issue_events", "\"before\""),
+        ("keys", "person"),
+    ] {
+        assert_eq!(api.count(&format!("SELECT count(*) AS n FROM {table} WHERE lower({column}) = 'ana'")).await, 0, "{table}.{column}");
+    }
     // A login of hers no longer gets her in.
-    let again = as_person(&api, api.get("/api/me"), "ana").await.header("orrery-login-ways", "on, provider").send().await;
+    let again = again.send().await;
     assert_eq!(again.status, 401, "{}", again.body);
 }
 
@@ -144,11 +169,60 @@ async fn the_last_owner_leaving_frees_the_orrery_for_the_next_sign_in() {
     let deleted = as_person(&api, api.request(axum::http::Method::DELETE, "/api/me").json(json!({"confirm": "steffen"})), "steffen").await.send().await;
     assert_eq!(deleted.status, 204, "{}", deleted.body);
     assert_eq!(api.get("/api/owner").send().await.body["named"], false);
-    // The same account signing in again is the new owner, under a name of its own: `steffen` stays on history.
+    // The same account signing in again is someone new, the owner now. `steffen` is free again, as history no longer has it.
     let again = api.post("/api/auth/identity", json!({"issuer": "https://id.example", "subject": "1", "name": "Steffen"})).send().await;
     assert_eq!(again.status, 200, "{}", again.body);
-    assert_eq!(again.body["person"], "steffen_2");
+    assert_eq!(again.body["person"], "steffen");
     let owner = api.get("/api/owner").send().await;
-    assert_eq!((owner.body["name"].as_str(), owner.body["named"].as_bool()), (Some("steffen_2"), Some(true)));
-    assert_eq!(api.count("SELECT count(*) AS n FROM workspace_members WHERE workspace = 'default' AND person = 'steffen_2' AND role = 'owner'").await, 1);
+    assert_eq!((owner.body["name"].as_str(), owner.body["named"].as_bool()), (Some("steffen"), Some(true)));
+    assert_eq!(api.count("SELECT count(*) AS n FROM workspace_members WHERE workspace = 'default' AND person = 'steffen' AND role = 'owner'").await, 1);
+}
+
+#[tokio::test]
+async fn deletes_a_workspace_she_owns_on_its_own_with_everything_in_it() {
+    let api = TestApi::new().await;
+    api.team().await;
+    let side = workspace(&api, "ana-side", "ana", &["bo"], "Side").await;
+    api.issue(&side, json!({"title": "Plan"})).await;
+    let delete = |who: &'static str, workspace: &'static str, confirm: &'static str| {
+        let api = &api;
+        async move {
+            as_person(api, api.request(axum::http::Method::DELETE, &format!("/api/workspaces/{workspace}")).json(json!({"confirm": confirm})), who)
+                .await
+                .send()
+                .await
+        }
+    };
+    // Only with its name typed, only by its owner, and never `default`; one she isn't in is as one that isn't there.
+    assert_eq!(delete("ana", "ana-side", "side").await.status, 400);
+    assert_eq!(delete("bo", "ana-side", "ana-side").await.status, 403);
+    assert_eq!(delete("steffen", "default", "Default").await.status, 409);
+    workspace(&api, "bo-works", "bo", &[], "Rockets").await;
+    assert_eq!(delete("ana", "bo-works", "bo-works").await.status, 404);
+    assert_eq!(api.count("SELECT count(*) AS n FROM issues WHERE title = 'Plan'").await, 1);
+    let deleted = delete("ana", "ana-side", " ANA-SIDE ").await;
+    assert_eq!(deleted.status, 204, "{}", deleted.body);
+    for (what, query) in [
+        ("the workspace", "SELECT count(*) AS n FROM workspaces WHERE id = 'ana-side'"),
+        ("its members", "SELECT count(*) AS n FROM workspace_members WHERE workspace = 'ana-side'"),
+        ("its project", "SELECT count(*) AS n FROM projects WHERE workspace = 'ana-side'"),
+        ("its issues", "SELECT count(*) AS n FROM issues WHERE title = 'Plan'"),
+    ] {
+        assert_eq!(api.count(query).await, 0, "{what}");
+    }
+    // She's still here, as is everything else.
+    assert_eq!(api.count("SELECT count(*) AS n FROM people WHERE id = 'ana' AND removed_at IS NULL").await, 1);
+    assert_eq!(api.count("SELECT count(*) AS n FROM workspaces WHERE id = 'bo-works'").await, 1);
+    // A session can't, even with her key.
+    let key = api.key("ana", "agent").await;
+    workspace(&api, "ana-two", "ana", &[], "Two").await;
+    let agent = api
+        .request(axum::http::Method::DELETE, "/api/workspaces/ana-two")
+        .json(json!({"confirm": "ana-two"}))
+        .header("orrery-came", "loopback")
+        .header("orrery-login-ways", "on")
+        .header("orrery-key", &key)
+        .send()
+        .await;
+    assert_eq!(agent.status, 403, "{}", agent.body);
 }

@@ -395,6 +395,15 @@ export const PERMISSIONS: Permission[] = [
         member: {level: 'free', note: 'Changing only the ones they own'},
     },
     {
+        id: 'workspaces.delete', area: 'This orrery', action: 'Delete a workspace',
+        why: 'A workspace\u2019s owner can delete it with everything in it (ORR-1203). Only they, signed in to orrery\u2019s page: never a session, the chat or an agent key, which would take every board in it with them.',
+        routes: ['DELETE /api/workspaces/:workspace'],
+        session: refused,
+        chat: refused,
+        untrusted: refused,
+        member: {level: 'free', note: 'Only the ones they own'},
+    },
+    {
         id: 'keys.write', area: 'This orrery', action: 'Make or revoke a key',
         why: 'A key can’t make or widen a key, so an agent can never become its person. A person handles their own, and the owner issues them to others.',
         routes: ['POST /api/keys', 'DELETE /api/keys/:key'],

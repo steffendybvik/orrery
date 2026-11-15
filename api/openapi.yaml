@@ -1042,6 +1042,16 @@ paths:
         '400': {$ref: '#/components/responses/BadRequest'}
         '403': {$ref: '#/components/responses/Forbidden'}
         '404': {$ref: '#/components/responses/NotFound'}
+    delete:
+      summary: Deletes a workspace with everything in it, its owner's only
+      description: Its projects, issues, docs, uploads, schedules, secrets, settings and members go, even with others in it. Only its owner signed in through a browser; a member, a session, the chat or an agent key is refused (403), one you aren't in is a 404, and `default` can't be (409). `confirm` is its name, in any case (400 otherwise).
+      requestBody: {required: true, content: {application/json: {schema: {type: object, required: [confirm], properties: {confirm: {type: string, description: The workspace's name}}}}}}
+      responses:
+        '204': {description: Deleted}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
   /api/people/{person}:
     parameters:
       - {name: person, in: path, required: true, description: The person's id, schema: {type: string}}

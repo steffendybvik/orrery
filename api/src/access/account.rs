@@ -32,6 +32,49 @@ const WORKSPACE_TABLES: [&str; 14] = [
 /// whatever workspace it's for (uploads, chats, use counts, sessions' people), or is what orrery ships and seeds once
 /// (statuses since step 020, the shipped presets and their seeding marks), so deleting them would reach past this
 /// person's workspace or leave a new board in `default` with nothing to draw it with.
+/// What a deleted account is called on what it leaves in other people's workspaces (ORR-1203): its name and its id go, as
+/// the id is made from the name (`ada_lovelace`), and an id that can't be traced back takes their place.
+pub const ERASED_NAME: &str = "Deleted person";
+/// Every column that holds who did something by their id, and so the deleted account's id on what it leaves behind. The
+/// tables that point at `people` follow its id on their own (`ON UPDATE CASCADE`), but are listed too, for a database
+/// where SQLite's foreign keys are off. `issue_pulls.author` is GitHub's login, not a person here, so it isn't.
+const WHO_COLUMNS: [(&str, &str); 35] = [
+    ("projects", "created_by"),
+    ("milestones", "created_by"),
+    ("issues", "created_by"),
+    ("issues", "assignee"),
+    ("issues", "decided_by"),
+    ("issues", "claimed_by"),
+    ("docs", "created_by"),
+    ("doc_revisions", "created_by"),
+    ("comments", "created_by"),
+    ("comments", "person"),
+    ("milestone_comments", "created_by"),
+    ("milestone_comments", "person"),
+    ("epic_comments", "created_by"),
+    ("epic_comments", "person"),
+    ("signals", "created_by"),
+    ("signals", "person"),
+    ("schedules", "created_by"),
+    ("schedules_across", "created_by"),
+    ("schedule_requests", "answered_by"),
+    ("issue_events", "created_by"),
+    ("issue_links", "created_by"),
+    ("secrets", "created_by"),
+    ("secret_uses", "created_by"),
+    ("uploads", "created_by"),
+    ("releases", "created_by"),
+    ("epics", "created_by"),
+    ("presets", "created_by"),
+    ("events", "resolved_by"),
+    ("issue_pulls", "risk_by"),
+    ("changes", "actor"),
+    ("project_members", "person"),
+    ("keys", "person"),
+    ("session_people", "person"),
+    ("notice_reads", "person"),
+    ("notice_clears", "person"),
+];
 const DEFAULT_KEEPS: [&str; 6] = ["chats", "session_people", "uploads", "feature_use", "preset_defaults", "statuses"];
 
 impl People<'_> {
@@ -67,9 +110,10 @@ impl People<'_> {
 
     /// `DELETE /api/me` `{confirm}`: deletes `person`'s own account, `confirm` their name in any case. Every workspace
     /// they own goes, with everything in it, even one others are members of; then they're removed as `remove_person`
-    /// removes someone (`retire`): their name stays on history, their open issues elsewhere go back to unassigned, their
-    /// keys are revoked and their logins and invites end. Their memberships elsewhere end, and the login provider's
-    /// accounts they signed in with are let go, so the same account can sign up again as someone new.
+    /// removes someone (`retire`): their open issues elsewhere go back to unassigned, their keys are revoked and their
+    /// logins and invites end. Their memberships elsewhere end, and the login provider's accounts they signed in with are
+    /// let go, so the same account can sign up again as someone new. Unlike a removed member, their name doesn't stay on
+    /// history (`erase`): what they wrote in other people's workspaces stays, by a "Deleted person".
     pub async fn delete_account(&mut self, person: &str, body: &Value, actor: &Actor) -> Result<()> {
         let row = self.person(person).await?;
         if row.get::<Option<String>, _>("removed_at").is_some() {
@@ -129,10 +173,68 @@ impl People<'_> {
                         .await?;
                 }
             }
-            self.retire(person, heir.as_deref(), actor).await
+            self.retire(person, heir.as_deref(), actor).await?;
+            self.erase(person).await
         }
         .await;
         changes::finish(self.conn, self.outbox.as_mut(), &self.effects, done).await
+    }
+
+    /// `DELETE /api/workspaces/:workspace` `{confirm}`: `person` deleting a workspace they own, `confirm` its name in any
+    /// case, with everything in it, even with others in it (ORR-1203), as deleting their account deletes it. `default`
+    /// can't be: the server needs it (a 409).
+    pub async fn delete_own_workspace(&mut self, person: &str, workspace: &str, body: &Value) -> Result<()> {
+        let row =
+            sqlx::query(&sql("SELECT w.name, m.role FROM workspaces w LEFT JOIN workspace_members m ON m.workspace = w.id AND m.person = ? WHERE w.id = ?"))
+                .bind(person)
+                .bind(workspace)
+                .fetch_optional(&mut *self.conn)
+                .await?;
+        // One they aren't in is as one that isn't there, so its name isn't told to them.
+        let Some(row) = row.filter(|r| r.get::<Option<String>, _>("role").is_some()) else {
+            return Err(ApiError::not_found(format!("No workspace \"{workspace}\"")));
+        };
+        if row.get::<Option<String>, _>("role").as_deref() != Some("owner") {
+            return Err(ApiError::forbidden("Only the workspace's owner can delete it"));
+        }
+        if workspace == "default" {
+            return Err(ApiError::conflict("The first workspace can't be deleted: the server needs it"));
+        }
+        let name: String = row.get("name");
+        let confirm = body.get("confirm").and_then(Value::as_str).unwrap_or_default().trim();
+        if confirm.to_lowercase() != name.trim().to_lowercase() {
+            return Err(ApiError::bad_request(format!("Type the workspace's name, {name}, to delete it")));
+        }
+        changes::begin(self.conn).await?;
+        let done = self.delete_workspace(workspace).await;
+        changes::finish(self.conn, self.outbox.as_mut(), &self.effects, done).await
+    }
+
+    /// Takes a deleted account's name and id off what it leaves behind (the right to erasure): a new id that says nothing
+    /// of them, `deleted_` and random, in every column naming them (`WHO_COLUMNS`) and in the assignee changes that name
+    /// them, and the person named `ERASED_NAME`, with no handle. Text they wrote, a comment's body say, stays as written.
+    async fn erase(&mut self, person: &str) -> Result<()> {
+        let mut bytes = [0u8; 6];
+        getrandom::getrandom(&mut bytes).expect("the system's randomness");
+        let erased = format!("deleted_{}", bytes.iter().map(|b| format!("{b:02x}")).collect::<String>());
+        sqlx::query(&sql("UPDATE people SET id = ?, name = ?, handle = NULL WHERE id = ?"))
+            .bind(&erased)
+            .bind(ERASED_NAME)
+            .bind(person)
+            .execute(&mut *self.conn)
+            .await?;
+        let old = person.to_lowercase();
+        for (table, column) in WHO_COLUMNS {
+            sqlx::query(&sql(&format!("UPDATE {table} SET {column} = ? WHERE lower({column}) = ?"))).bind(&erased).bind(&old).execute(&mut *self.conn).await?;
+        }
+        for side in ["\"before\"", "\"after\""] {
+            sqlx::query(&sql(&format!("UPDATE issue_events SET {side} = ? WHERE field = 'assignee' AND lower({side}) = ?")))
+                .bind(&erased)
+                .bind(&old)
+                .execute(&mut *self.conn)
+                .await?;
+        }
+        Ok(())
     }
 
     /// Deletes a workspace and everything in it, inside the caller's transaction: each project as deleting a project

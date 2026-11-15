@@ -104,7 +104,7 @@ async fn remove_person(State(app): Shared, Path(person): Path<String>, headers: 
 
 /// The person a request is from, signed in through a browser: `GET /api/me` and `DELETE /api/me` are theirs alone,
 /// never an agent key's, a session's or the chat's, and with login off there's nobody to be (ORR-1203).
-fn signed_in(headers: &HeaderMap) -> Result<String> {
+pub(crate) fn signed_in(headers: &HeaderMap) -> Result<String> {
     let actor = actor_of(headers);
     match who_of(headers) {
         Some(who) if who.browser && !actor.chat && !actor.untrusted && actor.session.is_none() => Ok(who.person),
