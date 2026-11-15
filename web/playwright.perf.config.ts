@@ -11,6 +11,7 @@ const port = e2ePort(3400)
 const postgres = process.env.E2E_POSTGRES_URL
 const database = postgres || '.data/perf.db'
 const shared = fileURLToPath(new URL('./shared', import.meta.url))
+const channel = fileURLToPath(new URL('../channel', import.meta.url))
 
 export default defineConfig({
     testDir: 'e2e/perf',
@@ -26,7 +27,7 @@ export default defineConfig({
             ...process.env.PERF_NO_BUILD ? [] : ['nuxt build'],
             'node .output/server/index.mjs',
         ].join(' && '),
-        env: {NUXT_DATABASE: database, NUXT_UPDATE_CHECK: 'false', PORT: String(port), NITRO_HOST: '127.0.0.1', JITI_ALIAS: JSON.stringify({'#shared': shared})},
+        env: {NUXT_DATABASE: database, NUXT_UPDATE_CHECK: 'false', PORT: String(port), NITRO_HOST: '127.0.0.1', JITI_ALIAS: JSON.stringify({'#shared': shared, '#channel': channel})},
         url: `http://localhost:${port}/api/settings`,
         reuseExistingServer: false,
         timeout: 600_000,
