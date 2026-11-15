@@ -32,7 +32,7 @@ async function linesOf(path, functions, into, sources) {
 }
 
 /** Each file V8 wrote in `dir`, added up: what any one process reached counts. */
-export async function coveredLines(dir) {
+async function coveredLines(dir) {
     const into = {}
     for (const name of readdirSync(dir).filter(file => file.endsWith('.json'))) {
         const {result} = JSON.parse(readFileSync(join(dir, name), 'utf8'))

@@ -24,7 +24,7 @@ import {PostgresDb} from '../server/utils/postgres'
 import type {Store} from '../server/utils/store'
 import {forgetRoster} from '../server/utils/roster'
 
-export const API_BIN = process.env.ORRERY_API_BIN || fileURLToPath(new URL('../../api/target/debug/orrery-api', import.meta.url))
+const API_BIN = process.env.ORRERY_API_BIN || fileURLToPath(new URL('../../api/target/debug/orrery-api', import.meta.url))
 const TOKEN = 'unit-test-token-0123456789'
 const POSTGRES = process.env.TEST_POSTGRES_URL
 
