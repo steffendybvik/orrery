@@ -43,7 +43,7 @@ fn ago(duration: chrono::Duration) -> String {
 }
 
 /// A day ago, as the signals' `created_at` has it.
-fn a_day_ago() -> String {
+pub(crate) fn a_day_ago() -> String {
     ago(chrono::Duration::days(1))
 }
 

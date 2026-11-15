@@ -339,8 +339,9 @@ export abstract class SignalStore extends IssueStore {
         return (await sessionWork.of(project, ids)).waiting_for
     }
 
-    /** Whether a signal of the owner's waits to reach the session (any of its `ids`), for it, for every session or
-     * for the one orrery picks. */
+    /** Whether a signal of the owner's waits to reach the session (any of its `ids`): for it, or, from the last day,
+     * for every session or the one orrery picks. An older one of those isn't handed out any more, so it mustn't keep
+     * every session busy for good (ORR-1230). */
     async waiting(project: string, ids: string[]): Promise<boolean> {
         return (await sessionWork.of(project, ids)).waiting
     }

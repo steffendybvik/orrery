@@ -3114,6 +3114,14 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         await both('what depends on it', p => viaStore(() => store.dependentsOf(p, ids[p]!.top)), () => viaApi('GET', `/issues/${there.top}/dependents`))
         await both('a session\'s work', p => viaStore(async () => ({issues: await store.workingOn(p, ['sess-1']), waiting: await store.waiting(p, ['sess-1']), waiting_for: await store.waitingFor(p, ['sess-1'])})),
             () => viaApi('GET', '/issue-sessions?sessions=sess-1'))
+        // An owner's signal for any session from before yesterday isn't handed out any more, so it changes nothing (ORR-1230).
+        const before = (await viaApi('GET', '/issue-sessions?sessions=sess-1')).body
+        for (const project of ['through-store', 'through-api']) {
+            await store.run("INSERT INTO signals (project, kind, note, created_by, owned, created_at) VALUES (?, 'message', 'Long gone', 'owner', 1, '2026-10-24T20:13:41.490Z')", project)
+        }
+        await both('a session\'s work, past an old signal', p => viaStore(async () => ({issues: await store.workingOn(p, ['sess-1']), waiting: await store.waiting(p, ['sess-1']), waiting_for: await store.waitingFor(p, ['sess-1'])})),
+            () => viaApi('GET', '/issue-sessions?sessions=sess-1'))
+        expect((await viaApi('GET', '/issue-sessions?sessions=sess-1')).body).toEqual(before)
         // A project's row and an issue's, as the store's helpers read them (ORR-1174): the API gives the very row the
         // database holds, as `SELECT *` here reads it.
         expect((await viaApi('GET', '/row')).body).toEqual(await store.get('SELECT * FROM projects WHERE id = ?', 'through-api'))
