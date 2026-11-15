@@ -789,7 +789,7 @@ test('a session opened in a terminal has Stop, which ends it through its channel
     }
 })
 
-test('Show screen draws what the launcher sends, read only, and asks for it only while shown', async ({page, request, baseURL}) => {
+test('Show screen draws what the launcher sends, asks for it only while shown, and types into it', async ({page, request, baseURL}) => {
     const launcher = hold(baseURL!, '/api/projects/kitchen/launches/stream')
     let stream: ReturnType<typeof hold> | undefined
     try {
@@ -807,7 +807,16 @@ test('Show screen draws what the launcher sends, read only, and asks for it only
         const sent = await request.post('/api/projects/kitchen/launches/e2e5c7ee2e5c/screen', {data: {screen: '> stirring the soup   \n\n\n'}})
         expect((await sent.json()).watching).toBe(true)
         await expect(screen).toHaveText('> stirring the soup')
-        await expect(card.getByText(/^Read only · as of /)).toBeVisible()
+        await expect(card.getByText(/^As of .* · what you type goes into its terminal$/)).toBeVisible()
+        // Typing into it (ORR-1152): the line goes to its launcher with Enter after it, and a key as it's pressed.
+        await card.getByLabel("Type into e2e-screen's terminal").fill('add salt')
+        await card.getByLabel("Type into e2e-screen's terminal").press('Enter')
+        await expect.poll(() => launcher.said.text).toContain('"text":"add salt","keys":["Enter"]')
+        await expect(card.getByLabel("Type into e2e-screen's terminal")).toHaveValue('')
+        await card.getByRole('button', {name: 'Esc'}).click()
+        await expect.poll(() => launcher.said.text).toMatch(/event: keys\ndata: \{"project":"kitchen","id":"e2e5c7ee2e5c","keys":\["Escape"\]\}/)
+        await card.getByRole('button', {name: '2', exact: true}).click()
+        await expect.poll(() => launcher.said.text).toContain('"text":"2"}')
         await card.getByRole('button', {name: 'Hide screen'}).click()
         await expect(screen).toHaveCount(0)
     } finally {
