@@ -96,14 +96,14 @@ You need:
 
    To [build from source](docs/running.md#building-from-source) instead, clone this repo.
 
-2. Open it and give your name (that makes you the owner). It opens on **Getting started**, which ticks off the
-   steps below as they happen. Create a project there or from the sidebar (`+`).
+2. Open it and give your name, which makes your account and workspace. It opens on **Getting started**, which
+   ticks off the steps below as they happen. Create a project there or from the sidebar (`+`).
 3. Paste the line Getting started (or **Connect an agent**) gives you into a Claude session in that
    project's repo. The session writes the repo's `.mcp.json`, hooks and `CLAUDE.md` section itself.
 4. From then on, start Claude in that repo with the channel, so orrery can send it work:
 
    ```sh
-   claude --dangerously-load-development-channels server:orrery-personal
+   claude --dangerously-load-development-channels server:orrery
    ```
 
    The name after `server:` is the one in the repo's `.mcp.json`; Connect shows it. A shell alias saves typing it
