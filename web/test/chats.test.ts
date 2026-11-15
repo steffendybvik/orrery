@@ -464,13 +464,14 @@ describe("the owner's chat", () => {
         expect(messages.at(-1)!.text).toContain(`Team tracker is now ${url}, saved`)
         expect(notes.map(n => n.kind)).toEqual(['chat.asked', 'chat.answered', 'chat.asked', 'settings.changed', 'chat.answered'])
         // Asking again for the same setting lets the one before go; an old request expires.
-        const first = await chats.askSetting('c1c2c3c4c5c6', {setting: 'advanced', value: true})
-        const second = await chats.askSetting('c1c2c3c4c5c6', {setting: 'advanced', value: false})
+        const advanced = (await board.settings()).advanced
+        const first = await chats.askSetting('c1c2c3c4c5c6', {setting: 'advanced', value: !advanced})
+        const second = await chats.askSetting('c1c2c3c4c5c6', {setting: 'advanced', value: advanced})
         await expect(chats.answer('c1c2c3c4c5c6', first.id, true, owner)).rejects.toMatchObject({statusCode: 409})
         vi.useFakeTimers({now: Date.now() + chats.ASK_FOR + 1000})
         await expect(chats.answer('c1c2c3c4c5c6', second.id, true, owner)).rejects.toThrow(/expired/)
         vi.useRealTimers()
-        expect((await board.settings()).advanced).toBeFalsy()
+        expect((await board.settings()).advanced).toBe(advanced)
     })
 
     it("asks only for the settings a chat may, and as the settings would take them", async () => {
@@ -488,8 +489,8 @@ describe("the owner's chat", () => {
         const made: {project: string, body: unknown, actor: unknown, id?: number}[] = []
         const checked: {body: unknown, actor: {owner: boolean}, id?: number}[] = []
         const nightly = {id: 3, title: 'Nightly triage', kind: 'message', notes: 'Triage', cron: '0 2 * * *', presets: [7], enabled: true}
+        await board.nameOwner({name: 'skoll'})
         vi.stubGlobal('useStore', () => over({
-            ownerOf: async () => ({name: 'skoll'}),
             presets: async () => [{id: 7, name: 'Review'}, {id: 8, name: 'Debug an error'}],
             messageSession: async (project: string, target: string, text: string) => void messages.push({project, target, text}),
         }))
@@ -539,8 +540,8 @@ describe("the owner's chat", () => {
     it('asks for a schedule or an issue on another project it names, and saves it there (ORR-1063)', async () => {
         const made: {what: string, project: string}[] = []
         const checkedOn: string[] = []
+        await board.nameOwner({name: 'skoll'})
         vi.stubGlobal('useStore', () => over({
-            ownerOf: async () => ({name: 'skoll'}),
             presets: async () => [],
             projectId: async (id: string) => id === 'reading-list' ? id : Promise.reject(Object.assign(new Error(`No project ${id}`), {statusCode: 404})),
             createIssue: async (project: string, body: {title: string}) => (made.push({what: 'issue', project}), {id: 'REA-1', title: body.title}),
