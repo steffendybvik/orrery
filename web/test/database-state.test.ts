@@ -5,12 +5,8 @@ import {afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi} fr
 import {apiForgotten, apiStarted} from '../server/utils/api-router'
 import {databaseFresh, sizeOfDatabase} from '../server/utils/database-state'
 
-// What the start and `GET /api/machine` ask of the database itself (ORR-1140): from the Rust API when it's there, so
-// the Nuxt server reads none of it from the database; from the database here when it isn't.
-
-const here = vi.hoisted(() => ({fresh: true, size: 0}))
-vi.mock('../server/utils/db', () => ({useDatabase: () => ({get: async (sql: string) => sql.includes('FROM projects') ? {n: here.fresh ? 0 : 1}
-    : sql.includes('FROM people') ? here.fresh ? undefined : {found: 1} : {size: here.size}})}))
+// What the start and `GET /api/machine` ask of the database itself (ORR-1140): from the Rust API, so the Nuxt server
+// reads none of it from the database; with no API, the question fails (ORR-1135).
 
 type Heard = {method: string, url: string, headers: Record<string, string | string[] | undefined>, body: string}
 
@@ -40,7 +36,6 @@ beforeAll(async () => {
 beforeEach(() => {
     heard.length = 0
     answer = {status: 200, body: {}}
-    Object.assign(here, {fresh: true, size: 0})
 })
 
 afterEach(() => {
@@ -55,12 +50,11 @@ afterAll(async () => {
 })
 
 describe('the database\'s state, with no API', () => {
-    it('is read from the database here', async () => {
-        expect(await databaseFresh()).toBe(true)
-        here.fresh = false
-        here.size = 4096
-        expect(await databaseFresh()).toBe(false)
-        expect(await sizeOfDatabase({kind: 'postgres', where: 'u@h/orrery'})).toEqual({size: 4096})
+    it('fails as an API that isn\'t running, reading nothing here', async () => {
+        await expect(databaseFresh()).rejects.toMatchObject({statusCode: 503})
+        await expect(sizeOfDatabase({kind: 'postgres', where: 'u@h/orrery'})).rejects.toMatchObject({statusCode: 503})
+        // A SQLite file's size is read from the file, with no question to ask.
+        expect(await sizeOfDatabase({kind: 'sqlite', where: '/nowhere/orrery.db'})).toEqual({})
         expect(heard).toEqual([])
     })
 })

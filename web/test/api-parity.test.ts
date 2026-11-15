@@ -34,7 +34,6 @@ import {Schedules} from '../server/utils/schedules'
 import {PullPoll} from '../server/utils/pull-poll'
 import type {PolledRow} from '../server/utils/pull-poll'
 import {openDb} from '../server/utils/db'
-import {isFresh} from '../server/utils/database-state'
 import {boardForApi, checkedBoard, uploadBoard} from '../server/utils/board-upload'
 import {PostgresDb} from '../server/utils/postgres'
 import {PHONE_LOGIN} from '#shared/phone'
@@ -1370,7 +1369,10 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
     it('says alike whether the database is a new orrery\'s (ORR-1140)', async () => {
         const state = await viaApi('GET', '/api/database')
         expect(state.status).toBe(200)
-        expect((state.body as {fresh: boolean}).fresh).toBe(await isFresh(store.db))
+        // A new orrery's: no projects, and no owner named yet, as the database itself has it.
+        const fresh = !Number((await store.db.get<{n: number}>('SELECT count(*) AS n FROM projects'))?.n ?? 0)
+            && !await store.db.get("SELECT 1 AS found FROM people WHERE role = 'owner'")
+        expect((state.body as {fresh: boolean}).fresh).toBe(fresh)
         expect(domainOf('GET', '/api/database')).toBeUndefined()
     })
 
