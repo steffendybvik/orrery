@@ -413,6 +413,15 @@ export const PERMISSIONS: Permission[] = [
         member: {level: 'free', note: 'Their own logins'},
     },
     {
+        id: 'account.delete', area: 'This orrery', action: 'Delete your own account',
+        why: 'Your account is yours to end, with the workspaces you own and everything in them (ORR-1203). Only you, signed in to orrery\u2019s page: never a session, the chat or an agent key, which would take everything of yours with them.',
+        routes: ['DELETE /api/me'],
+        session: refused,
+        chat: refused,
+        untrusted: refused,
+        member: {level: 'free', note: 'Their own account alone'},
+    },
+    {
         id: 'auth.login', area: 'This orrery', action: 'Log in or out',
         why: 'Nobody has a credential until they’ve logged in, and a session has no use for a login: an agent key signs nothing in.',
         routes: ['POST /api/auth/login', 'POST /api/auth/logout', 'POST /api/auth/link'],

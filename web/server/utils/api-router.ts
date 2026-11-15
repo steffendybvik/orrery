@@ -92,6 +92,9 @@ export const DOMAINS: readonly {domain: string, paths: RegExp, methods?: readonl
     {domain: 'invites', paths: /^invites$/},
     // The owner: who they are, and naming them, which moves what was theirs to their new id (ORR-1036).
     {domain: 'owner', paths: /^owner$/, methods: ['GET', 'PUT']},
+    // The signed-in person's own account: what it holds, and deleting it with the workspaces they own (ORR-1203). The
+    // API clears the login's cookie on a delete, and its `Set-Cookie` is passed back.
+    {domain: 'your account', paths: /^me$/, methods: ['GET', 'DELETE']},
     // Who's on a board: listing them, and its holder or the owner adding and taking off one (ORR-1036).
     {domain: 'board members', paths: /^projects\/[^/]+\/members(\/[^/]+)?$/},
     // A person's keys and the browsers signed in as them (ORR-928). Checking a key or a login's cookie on each request,

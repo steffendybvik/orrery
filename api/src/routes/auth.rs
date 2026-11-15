@@ -45,7 +45,7 @@ async fn ways_in(State(app): Shared, headers: HeaderMap) -> Result<Response> {
 /// The login cookie's name for the address the browser used (`loginCookie`, ORR-956): with a port in `Host` it carries
 /// it, so two orrerys on localhost don't share one; without one (a proxy on 443) it's plain `orrery_login`. Behind the
 /// router, the address is the one the browser asked it for (`Orrery-Host`), not the API's own (ORR-1137).
-fn login_cookie(headers: &HeaderMap) -> String {
+pub(crate) fn login_cookie(headers: &HeaderMap) -> String {
     let host = header(headers, "orrery-host").filter(|h| !h.is_empty()).or_else(|| header(headers, "host")).unwrap_or_default();
     match host.rsplit_once(':').filter(|(_, port)| !port.is_empty() && port.bytes().all(|b| b.is_ascii_digit())) {
         Some((_, port)) => format!("orrery_login_{port}"),

@@ -263,7 +263,7 @@ impl<'c> People<'c> {
         Ok(Value::Array(rows.iter().map(person_json).collect()))
     }
 
-    async fn person(&mut self, id: &str) -> Result<sqlx::any::AnyRow> {
+    pub(crate) async fn person(&mut self, id: &str) -> Result<sqlx::any::AnyRow> {
         sqlx::query(&sql("SELECT id, name, role, created_at, removed_at FROM people WHERE id = ?"))
             .bind(id)
             .fetch_optional(&mut *self.conn)
@@ -450,57 +450,69 @@ impl<'c> People<'c> {
             return Ok(());
         }
         let id: String = person.get("id");
+        let owner: String = sqlx::query("SELECT id FROM people WHERE role = 'owner'").fetch_one(&mut *self.conn).await?.get("id");
+        changes::begin(self.conn).await?;
+        let done = self.retire(&id, Some(&owner), actor).await;
+        changes::finish(self.conn, self.outbox.as_mut(), &self.effects, done).await
+    }
+
+    /// What removing a person does, inside the caller's transaction (`remove_person`, and deleting one's own account,
+    /// ORR-1203): `removed_at` set, the boards they held go to `heir` (taken off them when there's none), their keys
+    /// revoked, their logins and invites gone, and their open issues back to unassigned, each noted and told. Their
+    /// name stays on history.
+    pub(crate) async fn retire(&mut self, id: &str, heir: Option<&str>, actor: &Actor) -> Result<()> {
         let open = sqlx::query(&sql(
             "SELECT project, id, assignee FROM issues WHERE lower(assignee) = ? AND status NOT IN (SELECT id FROM statuses WHERE kind IN ('done', 'canceled'))",
         ))
-        .bind(&id)
+        .bind(id)
         .fetch_all(&mut *self.conn)
         .await?;
         let open: Vec<(String, String, String)> = open.iter().map(|r| (r.get("project"), r.get("id"), r.get("assignee"))).collect();
-        let owner: String = sqlx::query("SELECT id FROM people WHERE role = 'owner'").fetch_one(&mut *self.conn).await?.get("id");
-        changes::begin(self.conn).await?;
-        let done: Result<()> = async {
-            let now = stamp();
-            sqlx::query(&sql("UPDATE people SET removed_at = ? WHERE id = ?")).bind(&now).bind(&id).execute(&mut *self.conn).await?;
-            // What they held goes to the owner, who may already be on it.
-            sqlx::query(&sql("DELETE FROM project_members WHERE person = ? AND role = 'member'")).bind(&id).execute(&mut *self.conn).await?;
-            sqlx::query(&sql("DELETE FROM project_members WHERE person = ? AND project IN (SELECT project FROM project_members WHERE person = ?)"))
-                .bind(&owner)
-                .bind(&id)
-                .execute(&mut *self.conn)
-                .await?;
-            sqlx::query(&sql("UPDATE project_members SET person = ? WHERE person = ?")).bind(&owner).bind(&id).execute(&mut *self.conn).await?;
-            sqlx::query(&sql("UPDATE keys SET revoked_at = ? WHERE person = ? AND revoked_at IS NULL")).bind(&now).bind(&id).execute(&mut *self.conn).await?;
-            sqlx::query(&sql("DELETE FROM logins WHERE person = ?")).bind(&id).execute(&mut *self.conn).await?;
-            sqlx::query(&sql("DELETE FROM invites WHERE person = ?")).bind(&id).execute(&mut *self.conn).await?;
-            for (project, issue, assignee) in &open {
-                sqlx::query(&sql("UPDATE issues SET assignee = NULL, updated_at = ? WHERE project = ? AND id = ?"))
-                    .bind(stamp())
-                    .bind(project)
-                    .bind(issue)
+        let now = stamp();
+        sqlx::query(&sql("UPDATE people SET removed_at = ? WHERE id = ?")).bind(&now).bind(id).execute(&mut *self.conn).await?;
+        sqlx::query(&sql("DELETE FROM project_members WHERE person = ? AND role = 'member'")).bind(id).execute(&mut *self.conn).await?;
+        match heir {
+            // What they held goes to the heir, who may already be on it.
+            Some(heir) => {
+                sqlx::query(&sql("DELETE FROM project_members WHERE person = ? AND project IN (SELECT project FROM project_members WHERE person = ?)"))
+                    .bind(heir)
+                    .bind(id)
                     .execute(&mut *self.conn)
                     .await?;
-                sqlx::query(&sql(
-                    "INSERT INTO issue_events (project, issue, field, \"before\", \"after\", created_by, session_name, owned, created_at) VALUES (?, ?, 'assignee', ?, NULL, ?, ?, ?, ?)",
-                ))
+                sqlx::query(&sql("UPDATE project_members SET person = ? WHERE person = ?")).bind(heir).bind(id).execute(&mut *self.conn).await?;
+            }
+            None => {
+                sqlx::query(&sql("DELETE FROM project_members WHERE person = ?")).bind(id).execute(&mut *self.conn).await?;
+            }
+        }
+        sqlx::query(&sql("UPDATE keys SET revoked_at = ? WHERE person = ? AND revoked_at IS NULL")).bind(&now).bind(id).execute(&mut *self.conn).await?;
+        sqlx::query(&sql("DELETE FROM logins WHERE person = ?")).bind(id).execute(&mut *self.conn).await?;
+        sqlx::query(&sql("DELETE FROM invites WHERE person = ?")).bind(id).execute(&mut *self.conn).await?;
+        for (project, issue, assignee) in &open {
+            sqlx::query(&sql("UPDATE issues SET assignee = NULL, updated_at = ? WHERE project = ? AND id = ?"))
+                .bind(stamp())
                 .bind(project)
                 .bind(issue)
-                .bind(assignee)
-                .bind(&actor.name)
-                .bind(actor.session.as_deref())
-                .bind(i64::from(actor.owner))
-                .bind(stamp())
                 .execute(&mut *self.conn)
                 .await?;
-                self.effects.tell_change("issue.assignee", project, issue, Some(assignee), None);
-                if !self.effects.changed.contains(project) {
-                    self.effects.changed.push(project.clone());
-                }
+            sqlx::query(&sql(
+                "INSERT INTO issue_events (project, issue, field, \"before\", \"after\", created_by, session_name, owned, created_at) VALUES (?, ?, 'assignee', ?, NULL, ?, ?, ?, ?)",
+            ))
+            .bind(project)
+            .bind(issue)
+            .bind(assignee)
+            .bind(&actor.name)
+            .bind(actor.session.as_deref())
+            .bind(i64::from(actor.owner))
+            .bind(stamp())
+            .execute(&mut *self.conn)
+            .await?;
+            self.effects.tell_change("issue.assignee", project, issue, Some(assignee), None);
+            if !self.effects.changed.contains(project) {
+                self.effects.changed.push(project.clone());
             }
-            Ok(())
         }
-        .await;
-        changes::finish(self.conn, self.outbox.as_mut(), &self.effects, done).await
+        Ok(())
     }
 
     /// An invite for a person to attach their first login (`POST /api/invites`): the owner's only, and only with a login
@@ -847,12 +859,21 @@ impl<'c> People<'c> {
     /// (`firstOwner` in web/server/store/keys.ts). The account attaches only to an owner with none yet, so of two first
     /// sign-ins at once only one gets in.
     async fn first_owner(&mut self, issuer: &str, subject: &str, name: Option<&str>) -> Result<Option<String>> {
-        if sqlx::query("SELECT 1 AS one FROM people").fetch_optional(&mut *self.conn).await?.is_some() {
+        // Nobody is on yet: no one here, or only people removed and no owner, as an owner who deleted their own account
+        // with nobody left to hand the orrery to leaves it (ORR-1203).
+        if sqlx::query("SELECT 1 AS one FROM people WHERE removed_at IS NULL OR role = 'owner'").fetch_optional(&mut *self.conn).await?.is_some() {
             return Ok(None);
         }
         let said: String = name.unwrap_or_default().trim().chars().take(60).collect();
         let id = actor_id(&said);
-        let display = if id.is_empty() || ["owner", "agent", "claude", "orrery"].contains(&id.as_str()) { "Owner".to_owned() } else { said };
+        let first = if id.is_empty() || ["owner", "agent", "claude", "orrery"].contains(&id.as_str()) { "Owner".to_owned() } else { said };
+        // An id a removed person had stays theirs, on history: the new owner's name gets a number until it's free.
+        let mut display = first.clone();
+        let mut n = 1;
+        while sqlx::query(&sql("SELECT 1 FROM people WHERE id = ?")).bind(actor_id(&display)).fetch_optional(&mut *self.conn).await?.is_some() {
+            n += 1;
+            display = format!("{} {n}", first.chars().take(56).collect::<String>());
+        }
         self.name_owner(&serde_json::json!({"name": display}), &Actor { name: "orrery".into(), ..Actor::default() }).await?;
         let owner = actor_id(&display);
         let attached =
