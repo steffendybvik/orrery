@@ -338,7 +338,12 @@ test('with a session listening, New session on this starts another on the issue'
         await expect.poll(async () => (await api(request, 'get', '/launches')).launchers).toBe(1)
         await page.goto(`/p/kitchen/issues/${issue.id}`)
         await expect(page.getByRole('button', {name: 'Focus on this', exact: true})).toBeVisible()
-        await page.getByRole('button', {name: 'New session on this'}).click()
+        // On a phone the buttons wrap onto a line of their own, inside the screen (ORR-1215).
+        await page.setViewportSize({width: 390, height: 844})
+        const another = page.getByRole('button', {name: 'New session on this'})
+        await expect(another).toBeInViewport({ratio: 1})
+        await page.setViewportSize({width: 1280, height: 720})
+        await another.click()
         await expect.poll(() => launcher.said.text).toContain('event: launch')
         // It's the new session's alone: the one listening isn't asked.
         expect(stream.said.text).not.toContain('Sweep the steps')
