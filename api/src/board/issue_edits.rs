@@ -820,6 +820,12 @@ impl IssueWrites<'_> {
             self.railed_assignee(rails.as_deref(), &issue, assignee).await?;
         }
         let there = Issues::new(&mut *self.conn).project(to).await?;
+        // A board marked as moved only reads, so nothing moves into it either (ORR-1229).
+        let moved: Option<String> =
+            sqlx::query_scalar(&sql("SELECT moved_to FROM projects WHERE id = ?")).bind(to).fetch_optional(&mut *self.conn).await?.flatten();
+        if let Some(moved) = moved {
+            return Err(ApiError::moved(to, &moved));
+        }
         let parent = match parent.filter(|p| !p.is_empty()) {
             Some(sent) => Some(self.issue_id(to, sent).await?),
             None => None,

@@ -1646,3 +1646,17 @@ async fn the_local_app_resolves_an_issues_id_from_an_alias_or_its_full_form() {
     let (other, theirs) = door.board().await;
     assert_eq!(door.get(&format!("/api/projects/{other}/issues/{theirs}/id")).send().await.status, 403);
 }
+
+#[tokio::test]
+async fn nothing_moves_into_a_board_marked_as_moved() {
+    let api = TestApi::new().await;
+    let board = Board::new(&api).await;
+    let other = api.project("Composites").await;
+    let top = board.issue(json!({"title": "Sieve"})).await;
+    let marked = api.put(&format!("/api/projects/{other}/moved"), json!({"to": "https://orrery.example.com"})).send().await;
+    assert_eq!(marked.status, 200, "{}", marked.body);
+    let reply = api.patch(&board.at(&top), json!({"project": other})).send().await;
+    assert_eq!(reply.status, 409, "{}", reply.body);
+    assert_eq!(reply.body["data"]["moved_to"], "https://orrery.example.com");
+    assert_eq!(api.get(&board.at(&top)).send().await.status, 200, "it stays where it was");
+}
