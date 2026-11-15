@@ -76,6 +76,36 @@ describe("the channel's tools", () => {
             + 'End your turn now without working on it: orrery clears your context, then sends you back to GRE-1 to start it fresh.')
     })
 
+    it('tell a session starting a parent to work through its open sub-issues, most urgent first (ORR-1197)', async () => {
+        const tasks = [
+            {id: 'GRE-2', title: 'Pots', status: 'todo', kind: 'todo'},
+            {id: 'GRE-3', title: 'Soil', status: 'done', kind: 'done'},
+            {id: 'GRE-4', title: 'Racks', status: 'backlog', kind: 'backlog', priority: 'P1', blocked_by: ['GRE-2']},
+        ]
+        const {call} = harness({'PATCH /issues/GRE-1': {body: issue({status: 'in-progress', assignee: 'claude', tasks})}})
+        expect((await call('start_issue', {id: 'GRE-1'})).text).toBe([
+            'Started GRE-1 [in-progress, claude] Shelves',
+            '',
+            "GRE-1 has 2 open sub-issues, and they're yours to work through, one at a time, most urgent first, after any they're blocked by:",
+            'GRE-4 [backlog, P1] Racks (blocked by GRE-2)',
+            'GRE-2 [todo] Pots',
+            "Start and finish each as you go. One you can't do: comment on it why, leave it open, and say so on GRE-1. Finish GRE-1 only once every sub-issue is done or canceled (with a comment why).",
+        ].join('\n'))
+    })
+
+    it('keep a parent open while a sub-issue is, but let it be canceled or put in review (ORR-1197)', async () => {
+        const open = issue({tasks: [{id: 'GRE-2', title: 'Pots', status: 'todo', kind: 'todo'}, {id: 'GRE-3', title: 'Soil', status: 'canceled', kind: 'canceled'}]})
+        const {call, calls} = harness({'GET /issues/GRE-1': {body: open}, 'PATCH /issues/GRE-1': {body: issue({status: 'done'})}, 'POST /issues/GRE-1/comments': {body: {id: 1}}})
+        const refused = await call('finish_issue', {id: 'GRE-1', comment: 'Built'})
+        expect(refused.text).toBe("GRE-1 still has open sub-issues, so it isn't done yet:\nGRE-2 [todo] Pots\n\nFinish each, or cancel it with a comment why, then finish GRE-1.")
+        expect(calls.map(c => c.method)).toEqual(['GET'])
+        await call('finish_issue', {id: 'GRE-1', comment: 'Waits on you', status: 'in-review'})
+        expect(calls.slice(1).map(c => c.method)).toEqual(['PATCH', 'POST'])
+        // Every sub-issue closed: it's done.
+        const closed = harness({'GET /issues/GRE-1': {body: issue({tasks: [{id: 'GRE-3', title: 'Soil', status: 'done', kind: 'done'}]})}, 'PATCH /issues/GRE-1': {body: issue({status: 'done'})}, 'POST /issues/GRE-1/comments': {body: {id: 1}}})
+        expect((await closed.call('finish_issue', {id: 'GRE-1', comment: 'Built'})).text).toBe('Done: GRE-1 [done] Shelves')
+    })
+
     it("report each call's tool and answer, refusals too, for the Context page (ORR-549)", async () => {
         const reported: [string, string][] = []
         const fetch = async () => ({ok: true, status: 200, statusText: '', text: async () => JSON.stringify(issue())})
@@ -653,7 +683,8 @@ describe("the channel's tools", () => {
     it('leave no comment when finishing is refused', async () => {
         const {call, calls} = harness({'PATCH /issues/GRE-1': {status: 403, body: {message: 'Not yours'}}, 'POST /issues/GRE-1/comments': {body: {id: 1}}})
         expect(await call('finish_issue', {id: 'GRE-1', comment: 'Built'})).toEqual({error: true, text: 'orrery said no: Not yours'})
-        expect(calls.map(c => c.method)).toEqual(['PATCH'])
+        // Its sub-issues read first (ORR-1197), which here orrery hasn't to give.
+        expect(calls.map(c => c.method)).toEqual(['GET', 'PATCH'])
     })
 
     it("say the status when what answers isn't orrery", async () => {
