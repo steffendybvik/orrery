@@ -8,15 +8,18 @@ import {total} from '#shared/roadmap'
 // Clicking opens its page, right-clicking its menu (IssueMenu); `j`/`k` move between rows (`data-nav`). Its tick
 // (SelectBox) takes the priority's place on hover, for changing many at once; with any ticked, a shift- or ⌘-click ticks.
 //
-// The tree: each level is INDENT further in, and a sub-issue's line comes down from under its
+// The tree: each level is `--indent` (24px) further in, and a sub-issue's line comes down from under its
 // parent's first icon (RAIL from the row's edge) and turns into it. `rails` says, for each level
 // above the parent, whether that level's line carries on past this row; `last` whether this one does.
+//
+// On a phone (under `sm`, ORR-1218) the title has the room: it wraps to two lines, the id sits small
+// under it rather than in a column of its own, a level is half as far in (`--indent`), and only the
+// line from the parent is drawn, not those of the levels above it.
 const {byId} = useRoadmaps()
 const props = withDefaults(defineProps<{issue: Issue, project: string, depth?: number, milestone?: {id: string, title: string}, nested?: boolean, rails?: boolean[], last?: boolean}>(),
     {depth: 0, milestone: undefined, nested: false, rails: () => [], last: true})
-const INDENT = 24
 const RAIL = 19
-const railAt = (level: number) => `${RAIL + level * INDENT}px`
+const railAt = (level: number) => `calc(${RAIL}px + ${level} * var(--indent))`
 const childRails = computed(() => props.depth ? [...props.rails, !props.last] : [])
 const {open, isLast} = useIssueLink()
 const {open: openMenu} = useIssueMenu()
@@ -46,29 +49,32 @@ const shown = computed(() => isParent.value ? props.issue.column : props.issue.s
       :data-project="project"
       tabindex="0"
       role="button"
-      class="group relative flex h-11 items-center gap-3 border-b border-line/60 pr-3 text-sm outline-none transition-colors hover:bg-hover focus-visible:bg-active"
+      class="group relative flex min-h-11 items-center gap-3 border-b [--indent:12px] max-sm:py-1.5 sm:h-11 sm:[--indent:24px] border-line/60 pr-3 text-sm outline-none transition-colors hover:bg-hover focus-visible:bg-active"
       :class="[ticked ? 'bg-accent-500/8' : isLast(project, issue.id) ? 'bg-hover' : '', flash ? 'animate-flash' : '', depth ? 'border-b-transparent' : '', issue.waiting ? 'waiting-row' : unseen ? 'unseen-row' : '']"
-      :style="{paddingLeft: `${12 + depth * INDENT}px`}"
+      :style="{paddingLeft: `calc(12px + ${depth} * var(--indent))`}"
       @click="click"
       @contextmenu="openMenu($event, project, issue.id)"
   >
     <template v-if="depth">
       <template v-for="(carries, level) in rails" :key="level">
-        <span v-if="carries" class="pointer-events-none absolute inset-y-0 w-px bg-faint/55" :style="{left: railAt(level)}" />
+        <span v-if="carries" class="pointer-events-none absolute inset-y-0 w-px bg-faint/55 max-sm:hidden" :style="{left: railAt(level)}" />
       </template>
       <span v-if="!last" class="pointer-events-none absolute inset-y-0 w-px bg-faint/55" :style="{left: railAt(depth - 1)}" />
-      <span class="pointer-events-none absolute top-0 h-1/2 w-3 rounded-bl-md border-b border-l border-faint/55" :style="{left: railAt(depth - 1)}" />
+      <span class="pointer-events-none absolute top-0 h-1/2 w-1 rounded-bl-md sm:w-3 border-b border-l border-faint/55" :style="{left: railAt(depth - 1)}" />
     </template>
     <span class="relative hidden size-[14px] shrink-0 sm:block">
       <PriorityIcon :priority="issue.priority" class="transition-opacity" :class="ticked || selected.length ? 'opacity-0' : 'group-hover:opacity-0'" />
       <SelectBox :project="project" :id="issue.id" row class="absolute top-0 left-0" />
     </span>
-    <span class="w-16 shrink-0 truncate font-mono text-[11px] text-faint">{{ issue.id }}</span>
+    <span class="w-16 shrink-0 truncate font-mono text-[11px] text-faint max-sm:hidden">{{ issue.id }}</span>
     <StatusIcon :column="issue.column" :progress="progress(issue.kinds).share" />
     <span class="flex min-w-0 flex-1 items-center gap-2">
       <span v-if="unseen" class="unseen-dot" title="Changed since you last opened it" />
       <WorkingDot v-if="worker" :session="worker" />
-      <span class="min-w-0 truncate" :class="[isClosed(issue.kind) ? 'text-muted' : 'text-fg', unseen ? 'font-semibold' : '']"><InlineText :text="issue.title" /></span>
+      <span class="flex min-w-0 flex-col">
+        <span class="min-w-0 max-sm:line-clamp-2 max-sm:leading-snug sm:truncate" :class="[isClosed(issue.kind) ? 'text-muted' : 'text-fg', unseen ? 'font-semibold' : '']"><InlineText :text="issue.title" /></span>
+        <span class="font-mono text-[10px] leading-tight text-faint sm:hidden">{{ issue.id }}</span>
+      </span>
       <template v-if="issue.waiting">
         <WaitingChip :asks="issue.waiting" :proposal="pendingProposal(issue)" class="max-sm:hidden" />
         <!-- On a phone the title needs the room: the chip's dot alone, the row tinted as ever. -->
