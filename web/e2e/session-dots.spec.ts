@@ -6,22 +6,22 @@ import {hold, makeProject, projectApi} from './support'
 // whose channel can't hear (opened without the channel flag) used to lose its colour to a hollow grey ring, so most
 // dots didn't tell working from idle.
 
-const api = projectApi('cellar')
+const api = projectApi('spice-rack')
 
 const colour = (dot: Locator) => dot.locator('[data-session-dot]').evaluate(el => getComputedStyle(el).backgroundColor)
 const transparent = ['transparent', 'rgba(0, 0, 0, 0)']
 
 test('a working and an idle session each show their colour, heard or not', async ({page, request, baseURL}) => {
-    await makeProject(request, {name: 'Cellar', key: 'CEL'})
-    const report = (id: string, event: string) => request.post('/api/sessions', {data: {id, project: 'cellar', event, name: id}})
+    await makeProject(request, {name: 'Spice rack', key: 'SPR'})
+    const report = (id: string, event: string) => request.post('/api/sessions', {data: {id, project: 'spice-rack', event, name: id}})
     const sessions = [
-        {id: 'e2e-cellar-busy', state: 'working', channel: ''},
-        {id: 'e2e-cellar-rest', state: 'idle', channel: ''},
-        {id: 'e2e-cellar-deaf-busy', state: 'working', channel: '&channel=no&stops=yes'},
-        {id: 'e2e-cellar-deaf-rest', state: 'idle', channel: '&channel=no&stops=yes'},
+        {id: 'e2e-spice-busy', state: 'working', channel: ''},
+        {id: 'e2e-spice-rest', state: 'idle', channel: ''},
+        {id: 'e2e-spice-deaf-busy', state: 'working', channel: '&channel=no&stops=yes'},
+        {id: 'e2e-spice-deaf-rest', state: 'idle', channel: '&channel=no&stops=yes'},
     ]
     for (const s of sessions) await report(s.id, 'SessionStart')
-    const streams = sessions.map(s => hold(baseURL!, `/api/projects/cellar/signals/stream?session=${s.id}&name=${s.id}&format=text${s.channel}`))
+    const streams = sessions.map(s => hold(baseURL!, `/api/projects/spice-rack/signals/stream?session=${s.id}&name=${s.id}&format=text${s.channel}`))
     try {
         for (const s of sessions) if (s.state === 'working') await report(s.id, 'UserPromptSubmit')
         await expect.poll(async () => (await api(request, 'get', '/sessions'))
@@ -43,10 +43,10 @@ test('a working and an idle session each show their colour, heard or not', async
                 expect(transparent, `${s.id} on ${place} has a colour`).not.toContain(seen[s.id])
             }
             // Working and idle aren't the same colour, heard or not; not hearing doesn't change it.
-            expect(seen['e2e-cellar-busy'], place).not.toBe(seen['e2e-cellar-rest'])
-            expect(seen['e2e-cellar-deaf-busy'], place).toBe(seen['e2e-cellar-busy'])
-            expect(seen['e2e-cellar-deaf-rest'], place).toBe(seen['e2e-cellar-rest'])
-            await expect(dotOf('e2e-cellar-deaf-busy')).toHaveAttribute('title', 'working, not listening')
+            expect(seen['e2e-spice-busy'], place).not.toBe(seen['e2e-spice-rest'])
+            expect(seen['e2e-spice-deaf-busy'], place).toBe(seen['e2e-spice-busy'])
+            expect(seen['e2e-spice-deaf-rest'], place).toBe(seen['e2e-spice-rest'])
+            await expect(dotOf('e2e-spice-deaf-busy')).toHaveAttribute('title', 'working, not listening')
         }
     } finally {
         for (const s of streams) s.stop()
