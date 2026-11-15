@@ -265,6 +265,7 @@ async fn a_session_is_held_to_the_workspace_it_names() {
     let api = TestApi::new().await;
     api.team().await;
     let primes = api.project("Primes").await;
+    api.on_board(&primes, &["bo"]).await;
     let rockets = api.acme(&["bo"]).await;
     let session =
         |path: String, workspace: &str| from_outside(api.get(&path).agent_of("bo")).header("orrery-actor-session", "s-1").header("orrery-workspace", workspace);

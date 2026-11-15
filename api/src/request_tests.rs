@@ -384,6 +384,7 @@ async fn an_agent_key_cant_write_as_another_persons_session() {
     let api = two_people().await;
     api.key("steffen", "person").await;
     let docs = docs_of(&api).await;
+    api.on_board(docs.split('/').nth(3).unwrap(), &["ada"]).await;
     let ada = api.key("ada", "agent").await;
     let steffen = api.key("steffen", "agent").await;
     api.session_held_by("s 1", "ada").await;

@@ -182,7 +182,21 @@ impl TestApi {
         for member in members {
             self.run("INSERT INTO workspace_members (workspace, person, role, created_at) VALUES ('acme', ?, 'member', ?)", &[member, STAMP]).await;
         }
+        // On its board too, as a member sees only the boards they're on (ORR-985).
+        self.on_board(&project, members).await;
         project
+    }
+
+    /// Puts `people` on `project`'s board as members, straight in the table: a member sees and works only the boards
+    /// they're on (ORR-985).
+    pub(crate) async fn on_board(&self, project: &str, people: &[&str]) {
+        for person in people {
+            self.run(
+                "INSERT INTO project_members (project, person, role, created_at) VALUES (?, ?, 'member', ?) ON CONFLICT DO NOTHING",
+                &[project, person, STAMP],
+            )
+            .await;
+        }
     }
 
     /// As a browser signed in as `person` asks, through the router with login on: the API finds who it is from the login.
