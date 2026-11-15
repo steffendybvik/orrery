@@ -1,4 +1,4 @@
-// `POST /api/projects/upload?id=&key=&name=` {a board's file} → the new board, held by whoever uploaded it (ORR-670). It
+// `POST /api/projects/upload?id=&key=&name=&own=` {a board's file} → the new board, held by whoever uploaded it (ORR-670). It
 // never merges into or overwrites a board: an id or key already taken is a 409, and you choose another. A member brings one in
 // in person, held to that by `checkBoards`; anyone else goes on to `authorize`, so an agent of theirs is still refused (ORR-725).
 // The file is checked here (`checkedBoard`), and the Rust API makes the board from its rows (`POST /api/boards`, ORR-1142).
@@ -21,8 +21,11 @@ export default defineEventHandler(async event => {
     const checked = checkedBoard(file, {id: text('id'), key: text('key'), name: text('name')})
     const holder = await personOf(event) ?? (await ownerNow()).name
     // Into the workspace the page is in (ORR-1195).
-    const sent = await writeToApi('POST', '/api/boards', boardForApi(checked, holder), actor, {always: true, workspace: getHeader(event, 'orrery-workspace')})
+    // `?own=1`: the owner's own board from another orrery of theirs, keeping who said what (ORR-1110); the API holds it to them.
+    const own = query.own === '1' || query.own === 'true'
+    const sent = await writeToApi('POST', '/api/boards', {...boardForApi(checked, holder), ...own ? {own: true} : {}}, actor, {always: true, workspace: getHeader(event, 'orrery-workspace')})
     if (!sent) {
+        if (own) throw createError({statusCode: 503, statusMessage: 'Bringing a board in as your own needs the Rust API'})
         await uploadBoard(useDatabase(), file, {id: checked.id, key: checked.key, name: checked.name}, actor, holder)
         useStore().changed(checked.id)
     }

@@ -124,3 +124,51 @@ async fn a_board_comes_into_its_uploaders_workspace() {
     let refused = api.post("/api/boards", sent(&file, "other", "OTH")).header("orrery-workspace", "acme").send().await;
     assert_eq!(refused.status, 404, "steffen isn't in Acme now: {}", refused.body);
 }
+
+/// Into another workspace, a board takes that workspace's statuses alone (ORR-1110): by id, else by name, else by kind.
+#[tokio::test]
+async fn a_board_in_another_workspace_takes_its_statuses_by_name_then_kind() {
+    let api = TestApi::new().await;
+    let (_, mut file) = primes(&api).await;
+    api.acme(&["steffen"]).await;
+    for (id, name, kind, position) in [("acme-todo", "To do", "todo", "0"), ("acme-review", "In review", "started", "1"), ("acme-doing", "Doing", "started", "2")] {
+        api.run("INSERT INTO statuses (id, name, kind, color, position, workspace) VALUES (?, ?, ?, 'slate', ?, 'acme')", &[id, name, kind, position]).await;
+    }
+    for issue in file["tables"]["issues"].as_array_mut().unwrap() {
+        issue["status"] = json!(if issue["id"] == "PRI-1" { "review" } else { "doing-it" });
+    }
+    file["statuses"] = json!([{"id": "review", "name": "In Review", "kind": "started"}, {"id": "doing-it", "name": "Busy", "kind": "started"}]);
+    let reply = api.post("/api/boards", sent(&file, "copy", "CPY")).header("orrery-workspace", "acme").send().await;
+    assert_eq!(reply.status, 201, "{}", reply.body);
+    assert_eq!(api.count("SELECT count(*) FROM issues WHERE project = 'copy' AND id = 'PRI-1' AND status = 'acme-review'").await, 1, "by name");
+    assert_eq!(api.count("SELECT count(*) FROM issues WHERE project = 'copy' AND id = 'PRI-2' AND status = 'acme-review'").await, 1, "the first of its kind");
+    // A status the file doesn't describe, orrery's own `todo`, goes by its kind.
+    let mut file = file;
+    file["tables"]["schedules"] = json!([{"id": 9, "project": "primes", "title": "Groom", "cron": "0 9 * * 1", "timezone": "UTC", "place": "todo", "labels": "[]", "presets": "[]", "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z"}]);
+    let reply = api.post("/api/boards", sent(&file, "copy2", "CPZ")).header("orrery-workspace", "acme").send().await;
+    assert_eq!(reply.status, 201, "{}", reply.body);
+    assert_eq!(api.count("SELECT count(*) FROM schedules WHERE project = 'copy2' AND place = 'acme-todo' AND enabled = 0").await, 1);
+}
+
+/// The owner bringing in a board of their own from another orrery (`own`, ORR-1110) keeps who said what and the
+/// project's prompts; anyone else asking for it is refused.
+#[tokio::test]
+async fn the_owners_own_board_keeps_who_said_what_and_its_prompts() {
+    let api = TestApi::new().await;
+    let (project, _) = primes(&api).await;
+    api.run("UPDATE projects SET focus_prompt = 'Mind the sieve', repo = 'https://example.com/primes' WHERE id = ?", &[&project]).await;
+    api.run("UPDATE comments SET created_by = 'claude', session_name = 'primes · Ada', asks = 'decision', cleared = 0", &[]).await;
+    let file = exported(&api, &project).await;
+    let mut body = sent(&file, "copy", "CPY");
+    body["own"] = json!(true);
+    let refused = api.post("/api/boards", body.clone()).by_agent("steffen").send().await;
+    assert_eq!(refused.status, 403, "{}", refused.body);
+    let reply = api.post("/api/boards", body).send().await;
+    assert_eq!(reply.status, 201, "{}", reply.body);
+    assert_eq!(
+        api.count("SELECT count(*) FROM comments WHERE project = 'copy' AND created_by = 'claude' AND session_name = 'primes · Ada' AND asks = 'decision' AND cleared = 0").await,
+        1
+    );
+    assert_eq!(api.count("SELECT count(*) FROM projects WHERE id = 'copy' AND focus_prompt = 'Mind the sieve' AND repo = 'https://example.com/primes'").await, 1);
+    assert_eq!(api.count("SELECT count(*) FROM issues WHERE project = 'copy' AND claimed_by IS NOT NULL").await, 0, "claims stay behind");
+}
