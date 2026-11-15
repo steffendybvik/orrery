@@ -102,7 +102,7 @@ describe("events.ts's helpers", () => {
         expect(changed).toEqual(['greenhouse'])
         const schedule = {id: 4, project: 'greenhouse', title: 'Tidy'}
         options.onRan(schedule, {outcome: 'made', issue: 'GRE-9'})
-        options.onRan(schedule, {outcome: 'skipped', note: 'nothing changed'}, 'steffen')
+        options.onRan(schedule, {outcome: 'skipped', note: 'nothing changed'}, 'sam')
         options.onRan(schedule, {outcome: 'failed'})
         const notes = calls.map(c => JSON.parse(c.slice(5)) as {level: string, kind: string, message: string, details: object})
         expect(notes.map(n => [n.level, n.kind, n.message])).toEqual([
@@ -110,9 +110,9 @@ describe("events.ts's helpers", () => {
             ['info', 'schedule.skipped', 'Tidy: skipped, nothing changed'],
             ['error', 'schedule.failed', 'Tidy: failed'],
         ])
-        expect(notes[1]!.details).toEqual({schedule: 4, outcome: 'skipped', note: 'nothing changed', manual: 'steffen'})
-        expect(await options.startSession('greenhouse', {presets: ['review'], instructions: '', issue: 'GRE-1'}, 'steffen'))
-            .toEqual({project: 'greenhouse', issue: 'GRE-1', release: undefined, context: 'context review', actor: 'steffen'})
+        expect(notes[1]!.details).toEqual({schedule: 4, outcome: 'skipped', note: 'nothing changed', manual: 'sam'})
+        expect(await options.startSession('greenhouse', {presets: ['review'], instructions: '', issue: 'GRE-1'}, 'sam'))
+            .toEqual({project: 'greenhouse', issue: 'GRE-1', release: undefined, context: 'context review', actor: 'sam'})
     })
 
     it("passes on what happened, and what changed to the event log too, once the write commits", async () => {

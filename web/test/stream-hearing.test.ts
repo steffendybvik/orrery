@@ -6,7 +6,7 @@ describe('streamHearing', () => {
     const seen = () => new Set(['rockets'])
 
     it('gives the owner, and anyone with login off, everything', () => {
-        for (const who of [undefined, {person: 'steffen', owner: true, via: 'browser' as const}]) {
+        for (const who of [undefined, {person: 'sam', owner: true, via: 'browser' as const}]) {
             const hearing = streamHearing(who, seen)
             expect([hearing.sees('primes'), hearing.sees(null), hearing.ownersToo]).toEqual([true, true, true])
         }

@@ -84,7 +84,7 @@ describe('a site listed in NUXT_ALLOWED_ORIGINS (ORR-667)', () => {
 
 describe('the names it answers to', () => {
     it('are this machine’s: localhost, an IP, and its Bonjour name on the Wi-Fi (ORR-874)', () => {
-        for (const host of ['localhost:9000', 'app.localhost', '192.168.1.20:19000', 'steffens-mac.local:19010', 'Mac.local']) {
+        for (const host of ['localhost:9000', 'app.localhost', '192.168.1.20:19000', 'sams-mac.local:19010', 'Mac.local']) {
             expect(refused('GET', '/api/issues', {host})).toBeUndefined()
         }
     })

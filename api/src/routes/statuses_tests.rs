@@ -137,7 +137,7 @@ async fn a_status_in_use_moves_its_issues_where_into_says() {
 async fn each_workspace_has_its_own_statuses() {
     let api = TestApi::new().await;
     api.team().await;
-    let rockets = api.acme(&["steffen"]).await;
+    let rockets = api.acme(&["sam"]).await;
     let ids = |list: &serde_json::Value| list.as_array().unwrap().iter().map(|s| s["id"].as_str().unwrap().to_string()).collect::<Vec<_>>();
     let acme = api.get("/api/statuses").header("orrery-workspace", "acme").send().await;
     assert_eq!(ids(&acme.body), ["acme-backlog", "acme-todo", "acme-in-progress", "acme-in-review", "acme-done", "acme-canceled"], "{}", acme.body);

@@ -31,7 +31,7 @@ let infos: ReturnType<typeof vi.spyOn>
 
 beforeAll(() => {
     vi.stubGlobal('useEventLog', () => ({note: (entry: {level: string, kind: string, message: string}) => noted.push(entry)}))
-    vi.stubGlobal('actorOf', async () => ({name: 'steffen', owner: true}))
+    vi.stubGlobal('actorOf', async () => ({name: 'sam', owner: true}))
     vi.stubGlobal('databaseSetting', () => 'sqlite:test')
     vi.stubGlobal('getHeader', getHeader)
     vi.stubGlobal('useRuntimeConfig', () => ({}))
@@ -169,7 +169,7 @@ describe('what the API is told of the asker (ORR-1059)', () => {
         const event = asking({'orrery-session': 'old id'})
         expect(askerHeaders(event, {name: 'claude', owner: false})).toEqual({'Orrery-Worked-By': 'new%20id'})
         expect(askerHeaders(event, {name: 'outsider', owner: false, untrusted: true, chat: true})).toEqual({'Orrery-Worked-By': 'new%20id'})
-        expect(askerHeaders(asking({}), {name: 'steffen', owner: true})).toEqual({})
+        expect(askerHeaders(asking({}), {name: 'sam', owner: true})).toEqual({})
     })
 })
 

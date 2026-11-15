@@ -61,7 +61,7 @@ afterAll(async () => {
     vi.restoreAllMocks()
 })
 
-const owner = {name: 'steffen', owner: true, via: 'chat'}
+const owner = {name: 'sam', owner: true, via: 'chat'}
 
 describe('a write of the local app\'s own', () => {
     it('with no API, is left to the store here', async () => {
@@ -76,7 +76,7 @@ describe('a write of the local app\'s own', () => {
         expect(sent).toEqual({reply: {id: 'P-1', status: 'done'}})
         expect(heard).toHaveLength(1)
         expect(heard[0]).toMatchObject({method: 'PATCH', url: '/api/projects/p/issues/P-1', body: '{"status":"done"}'})
-        expect(heard[0]!.headers).toMatchObject({'orrery-api-token': 't'.repeat(24), 'orrery-actor-name': 'steffen', 'orrery-actor-owner': '1', 'orrery-actor-kind': 'owner'})
+        expect(heard[0]!.headers).toMatchObject({'orrery-api-token': 't'.repeat(24), 'orrery-actor-name': 'sam', 'orrery-actor-owner': '1', 'orrery-actor-kind': 'owner'})
         expect(changed).toEqual(['p'])
     })
 

@@ -230,7 +230,7 @@ async fn login_on() -> TestApi {
 #[tokio::test]
 async fn with_login_on_an_agent_key_gets_the_tools_and_a_login_or_nothing_doesnt() {
     let api = login_on().await;
-    api.key("steffen", "person").await;
+    api.key("sam", "person").await;
     let agent = api.key("ada", "agent").await;
     let keyed = rpc(&api, "tools/list", json!({})).header("orrery-key", &agent).send().await;
     assert_eq!(keyed.status, 200, "{}", keyed.body);
