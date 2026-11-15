@@ -168,7 +168,7 @@ export function boardForApi({file, tables, statusesInFile, id, key, name}: Check
 }
 
 /** Brings the file in as a new board, and says its id. `holder` is the person who holds it: whoever is uploading it.
- * The local app's own, with no API set up; with one, it's the API's (`boardForApi`). */
+ * The route sends the board to the API instead (`boardForApi`, ORR-1135): this is what the tests compare its write with. */
 export async function uploadBoard(db: Db, file: unknown, as: {id?: string, key?: string, name?: string}, actor: Actor, holder: string): Promise<string> {
     return await writeBoard(db, checkedBoard(file, as), actor, holder)
 }

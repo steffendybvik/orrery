@@ -17,18 +17,14 @@ export default defineEventHandler(async event => {
     const query = getQuery(event)
     const text = (name: string) => typeof query[name] === 'string' && query[name] ? query[name] as string : undefined
     // Checked here, without the database; written by the API, which says the board changed (ORR-1142). With no API set
-    // up, the store here writes it.
+    // up, the upload fails as one that isn't running does (ORR-1135).
     const checked = checkedBoard(file, {id: text('id'), key: text('key'), name: text('name')})
     const holder = await personOf(event) ?? (await ownerNow()).name
     // Into the workspace the page is in (ORR-1195).
     // `?own=1`: the owner's own board from another orrery of theirs, keeping who said what (ORR-1110); the API holds it to them.
     const own = query.own === '1' || query.own === 'true'
     const sent = await writeToApi('POST', '/api/boards', {...boardForApi(checked, holder), ...own ? {own: true} : {}}, actor, {always: true, workspace: getHeader(event, 'orrery-workspace')})
-    if (!sent) {
-        if (own) throw createError({statusCode: 503, statusMessage: 'Bringing a board in as your own needs the Rust API'})
-        await uploadBoard(useDatabase(), file, {id: checked.id, key: checked.key, name: checked.name}, actor, holder)
-        useStore().changed(checked.id)
-    }
+    if (!sent) throw createError({statusCode: 503, statusMessage: 'Uploading a board needs the Rust API, which isn\'t running'})
     useEventLog().note({level: 'info', kind: 'board.uploaded', project: checked.id, message: `${actor.name} uploaded a board's file as ${checked.id}`, details: {by: actor.name}})
-    return created(event, sent ? sent.reply : await useStore().project(checked.id))
+    return created(event, sent.reply)
 })
