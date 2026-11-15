@@ -105,6 +105,14 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
             void query.finally(() => inFlight.delete(query)).catch(() => {})
             return query
         }
+        // And for what it asks the API (the projects sharing a release, ORR-1135), as each read there is one in flight too.
+        const fromApi = (store as unknown as {fromApi: (path: string) => Promise<unknown>}).fromApi.bind(store)
+        ;(store as unknown as {fromApi: (path: string) => Promise<unknown>}).fromApi = path => {
+            const read = fromApi(path)
+            inFlight.add(read)
+            void read.finally(() => inFlight.delete(read)).catch(() => {})
+            return read
+        }
         // Both projects first, which on Postgres also lays the schema down before the API looks at it.
         for (const name of ['through-store', 'through-api']) await store.createProject({name, key: name === 'through-store' ? 'STO' : 'API'})
         // `orrery.example` stands for a name behind a proxy, listed as the owner would list it (ORR-1173).
