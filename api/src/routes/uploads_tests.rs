@@ -167,3 +167,37 @@ async fn a_body_too_big_to_hold_an_image_is_refused_before_its_read() {
     assert_eq!(sent.status, 413, "{}", sent.body);
     assert_eq!(sent.body["statusMessage"], "Payload Too Large");
 }
+
+#[tokio::test]
+async fn an_upload_is_its_workspaces_alone() {
+    let api = TestApi::new().await;
+    api.team().await;
+    api.acme(&["bo"]).await;
+    let gif = STANDARD.encode(b"GIF89a\x01\x00\x01\x00\x00\x00\x00;");
+    let post = api.post("/api/uploads", json!({"data": gif})).header("orrery-workspace", "acme").header("orrery-sent-origin", "http://localhost");
+    let made = api.signed(post, "bo").await.send().await;
+    assert_eq!(made.status, 201, "{}", made.body);
+    let id = made.body["id"].as_str().unwrap().to_string();
+    let workspace: (String,) = sqlx::query_as(&crate::db::sql("SELECT workspace FROM uploads WHERE id = ?")).bind(&id).fetch_one(&api.app.pool).await.unwrap();
+    assert_eq!(workspace.0, "acme", "kept in the workspace it came from");
+
+    let path = format!("/api/uploads/{id}");
+    assert_eq!(api.signed(api.get(&path), "bo").await.send().await.status, 200, "Bo is in Acme, whichever workspace the page names");
+    let ana = api.signed(api.get(&path), "ana").await.send().await;
+    assert_eq!(ana.status, 404, "Ana isn't in Acme: {}", ana.body);
+    assert_eq!(ana.body["message"], format!("No image {id}"), "as if it weren't here");
+    assert_eq!(api.get(&path).header("orrery-came", "server").send().await.status, 200, "the Nuxt server's own reads see it");
+
+    let ana = api
+        .signed(api.post("/api/uploads", json!({"data": gif})).header("orrery-workspace", "acme").header("orrery-sent-origin", "http://localhost"), "ana")
+        .await;
+    assert_eq!(ana.send().await.status, 404, "Ana can't keep one in Acme");
+    let theirs = api.signed(api.post("/api/uploads", json!({"data": gif})).header("orrery-sent-origin", "http://localhost"), "ana").await.send().await;
+    assert_eq!(theirs.status, 201, "with none named, it's default's: {}", theirs.body);
+    let workspace: (String,) = sqlx::query_as(&crate::db::sql("SELECT workspace FROM uploads WHERE id = ?"))
+        .bind(theirs.body["id"].as_str().unwrap())
+        .fetch_one(&api.app.pool)
+        .await
+        .unwrap();
+    assert_eq!(workspace.0, "default");
+}
