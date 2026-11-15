@@ -246,8 +246,9 @@ test('follows several projects on one stream, as one session', async ({request, 
         const made = await request.post('/api/projects/dairy/issues', {data: {title: 'Count the jars', status: 'todo'}, headers: AGENT})
         const {id} = await made.json()
         const {signal} = await (await request.post(`/api/projects/dairy/issues/${id}/focus`, {data: {session: 'e2e-m'}, headers: OWNER})).json()
-        await expect.poll(() => stream.said.text).toContain('Count the jars')
-        expect(stream.said.text).toContain('"project":"dairy"')
+        // Kitchen has a "Count the jars" too, and with starts on its pick list can reach the stream first, so this
+        // waits for dairy's focus itself (ORR-1208).
+        await expect.poll(() => stream.said.text).toContain(`"id":${signal.id},"project":"dairy"`)
         await request.post(`/api/projects/dairy/signals/${signal.id}/delivered?name=multi`)
         // A project that doesn't exist is refused, not followed.
         expect((await request.get('/api/signals/stream?projects=kitchen,nowhere')).status()).toBe(404)

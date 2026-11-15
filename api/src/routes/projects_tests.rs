@@ -548,3 +548,21 @@ async fn a_new_project_goes_into_the_workspace_it_was_made_from() {
     assert_eq!(settings.status, 404, "{}", settings.body);
     assert_eq!(api.signed(api.get("/api/settings"), "ana").await.send().await.status, 200);
 }
+
+/// A project shows its workspace's `starts` as its own (ORR-1208): from `workspace_settings`, where ORR-1107 keeps it,
+/// not the row left in `settings`, which nothing writes any more.
+#[tokio::test]
+async fn a_project_shows_its_workspaces_starts() {
+    let api = TestApi::new().await;
+    let id = make(&api, json!({"name": "Kitchen"})).await["id"].as_str().unwrap().to_string();
+    api.run("INSERT INTO settings (key, value) VALUES ('starts', ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value", &[r#"{"limit":9}"#]).await;
+    assert_eq!(api.get(&format!("/api/projects/{id}")).send().await.body.get("starts"), None, "the stale row is left alone");
+    let reply = api.patch("/api/settings", json!({"starts": {"limit": 2}})).send().await;
+    assert_eq!(reply.status, 200, "{}", reply.body);
+    assert_eq!(api.get(&format!("/api/projects/{id}")).send().await.body["starts"], json!({"limit": 2}));
+    let listed = api.get("/api/projects").send().await.body;
+    let kitchen = listed.as_array().unwrap().iter().find(|p| p["id"] == id.as_str()).unwrap().clone();
+    assert_eq!(kitchen["starts"], json!({"limit": 2}), "and in the list");
+    api.patch("/api/settings", json!({"starts": null})).send().await;
+    assert_eq!(api.get(&format!("/api/projects/{id}")).send().await.body.get("starts"), None);
+}
