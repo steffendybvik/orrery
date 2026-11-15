@@ -46,6 +46,9 @@ test('the switcher makes a workspace and moves this tab into it, and links stay 
     await expect(switcher.getByRole('button').first()).toContainText(name)
     await expect(page.getByTestId('workspace-edge')).toBeVisible()
     await expect(page).toHaveTitle(new RegExp(name))
+    // The tab's icon is the logo on the workspace's teal, in place of both orange ones (ORR-1104).
+    const icons = (on: typeof page) => on.locator('head link[rel="icon"]').evaluateAll(links => links.map(l => (l as HTMLLinkElement).href))
+    await expect.poll(async () => (await icons(page)).map(href => href.startsWith('data:image/svg+xml,') && decodeURIComponent(href).includes('fill="#14b8a6"'))).toEqual([true, true])
 
     // A link from a page in it stays in it.
     await page.goto(`/w/${workspace}/epics`)
@@ -56,4 +59,5 @@ test('the switcher makes a workspace and moves this tab into it, and links stay 
     const other = await context.newPage()
     await other.goto('/mine')
     await expect(other.getByTestId('workspace-switcher').getByRole('button').first()).not.toContainText(name)
+    expect((await icons(other)).map(href => new URL(href).pathname)).toEqual(['/favicon.ico', '/favicon.svg'])
 })

@@ -138,8 +138,9 @@ export default defineNuxtConfig({
             title: 'orrery',
             meta: [{name: 'description', content: 'Where every app project stands'}],
             link: [
-                {rel: 'icon', href: '/favicon.ico', sizes: '32x32'},
-                {rel: 'icon', type: 'image/svg+xml', href: '/favicon.svg'},
+                // Keyed, so app.vue can swap both for the workspace's colour (ORR-1104).
+                {key: 'icon', rel: 'icon', href: '/favicon.ico', sizes: '32x32'},
+                {key: 'icon-svg', rel: 'icon', type: 'image/svg+xml', href: '/favicon.svg'},
                 {rel: 'apple-touch-icon', href: '/apple-touch-icon.png'},
                 {rel: 'manifest', href: '/site.webmanifest'},
                 // Fetched with the page rather than once its stylesheet is read: nearly every page's text is in it (ORR-766).
