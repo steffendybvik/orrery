@@ -438,15 +438,10 @@ describe("the owner's chat", () => {
     })
 
     it("asks the owner to change a setting, saving it only once they allow it, and telling its session", async () => {
-        const saved: object[] = []
         const notes: {kind: string}[] = []
-        let tracker: string | null = null
+        // What's saved is what the API keeps on the board.
+        const tracker = async () => (await board.settings()).tracker ?? null
         vi.stubGlobal('useStore', () => over({
-            settings: async () => ({tracker, tint: null, handle: null, restrict_proposals: true, advanced: false}),
-            updateSettings: async (patch: {tracker?: string}) => {
-                saved.push(patch)
-                tracker = patch.tracker ?? tracker
-            },
             messageSession: async (project: string, target: string, text: string) => void messages.push({project, target, text}),
         }))
         vi.stubGlobal('useEventLog', () => ({note: (entry: {kind: string}) => notes.push(entry)}))
@@ -455,16 +450,16 @@ describe("the owner's chat", () => {
         const url = 'https://tracker.example.com/issue/{id}'
         const asked = await chats.askSetting('c1c2c3c4c5c6', {setting: 'tracker', value: url, why: 'Links ENG-1234 to its task.'})
         expect(asked).toMatchObject({from: 'claude', text: 'Links ENG-1234 to its task.', request: {setting: 'tracker', from: null, to: url, state: 'asked'}})
-        expect(saved).toEqual([])
+        expect(await tracker()).toBeNull()
         // Denied saves nothing, and can't be answered again.
         await chats.answer('c1c2c3c4c5c6', asked.id, false, owner)
-        expect(saved).toEqual([])
+        expect(await tracker()).toBeNull()
         expect(messages.at(-1)!.text).toMatch(/denied .*nothing changed/)
         await expect(chats.answer('c1c2c3c4c5c6', asked.id, true, owner)).rejects.toMatchObject({statusCode: 409})
         // Allowed saves it as asked.
         const again = await chats.askSetting('c1c2c3c4c5c6', {setting: 'tracker', value: url})
         await chats.answer('c1c2c3c4c5c6', again.id, true, owner)
-        expect(saved).toEqual([{tracker: url}])
+        expect(await tracker()).toBe(url)
         expect(chats.chatOf('c1c2c3c4c5c6').messages.find(m => m.id === again.id)!.request!.state).toBe('allowed')
         expect(messages.at(-1)!.text).toContain(`Team tracker is now ${url}, saved`)
         expect(notes.map(n => n.kind)).toEqual(['chat.asked', 'chat.answered', 'chat.asked', 'settings.changed', 'chat.answered'])
@@ -475,7 +470,7 @@ describe("the owner's chat", () => {
         vi.useFakeTimers({now: Date.now() + chats.ASK_FOR + 1000})
         await expect(chats.answer('c1c2c3c4c5c6', second.id, true, owner)).rejects.toThrow(/expired/)
         vi.useRealTimers()
-        expect(saved).toHaveLength(1)
+        expect((await board.settings()).advanced).toBeFalsy()
     })
 
     it("asks only for the settings a chat may, and as the settings would take them", async () => {
