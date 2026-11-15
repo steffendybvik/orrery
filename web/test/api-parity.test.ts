@@ -635,6 +635,11 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         expect((await viaApi('PUT', '/api/session-records/run-9', {kind: 'chat'})).status).toBe(409)
         expect((await viaApi('PUT', '/api/session-records/run-9', {kind: 'owner'})).status).toBe(400)
         expect(domainOf('PUT', '/api/session-records/run-9')).toBeUndefined()
+        // Who's there to hear (ORR-1172), said by the local app alone, for the rails' claim check.
+        expect((await viaApi('PUT', '/api/session-presence/run-9', {projects: ['through-api']})).status).toBe(204)
+        expect((await viaApi('PUT', '/api/session-presence/run-9', {projects: 'through-api'})).status).toBe(400)
+        expect((await viaApi('DELETE', '/api/session-presence/run-9')).status).toBe(204)
+        expect(domainOf('PUT', '/api/session-presence/run-9')).toBeUndefined()
         await store.db.run("DELETE FROM session_records WHERE session = 'run-9'")
     })
 
@@ -3872,19 +3877,12 @@ describe('the router', () => {
         expect(domainOf('POST', '/api/projects/p/issues/P-1/activity')).toBeUndefined()
     })
 
-    it('checks a session\'s claim on the issue here before a comment\'s edit goes on (ORR-927)', async () => {
-        const claimed: string[][] = []
-        vi.stubGlobal('claimFor', async (_event: unknown, project: string, issue: string) => {
-            claimed.push([project, issue])
-        })
-        try {
-            const line = DOMAINS.find(d => d.domain === 'comments')!
-            expect(Object.keys(line.first ?? {})).toEqual(['PATCH'])
-            await line.first!.PATCH!({} as never, 'projects/shop%20front/issues/SHO-4/comments/12')
-            expect(claimed).toEqual([['shop front', 'SHO-4']])
-        } finally {
-            vi.unstubAllGlobals()
-        }
+    it("leaves a session's claim on a comment's edit or a schedule request to the API's rails (ORR-627, ORR-1172)", () => {
+        // The rails check it from who's there, which this server tells the API (utils/presence.ts); cargo's
+        // routes/session_presence_tests.rs shows them refusing as `claimFor` here did.
+        for (const domain of ['comments', 'a schedule, asked for']) expect(DOMAINS.find(d => d.domain === domain)?.first, domain).toBeUndefined()
+        expect(domainOf('PATCH', '/api/projects/p/issues/P-1/comments/12')).toBe('comments')
+        expect(domainOf('POST', '/api/projects/p/issues/P-1/schedule-requests')).toBe('a schedule, asked for')
     })
 
     it('sends milestones and releases there, reads and writes, and keeps a milestone\'s focus here (ORR-926, ORR-974)', () => {
@@ -3987,7 +3985,7 @@ describe('the contract (api/openapi.yaml)', () => {
     })
 
     it('sends none of the routes written ahead of the Rust API to it', () => {
-        expect(contract(true)).toEqual(['DELETE /api/chats/{chat}', 'DELETE /api/secrets/{name}/sealed', 'GET /api/auth/oidc/callback', 'GET /api/auth/oidc/start', 'GET /api/auth/status', 'GET /api/auth/ways-in', 'GET /api/chats', 'GET /api/chats/{chat}', 'GET /api/database', 'GET /api/projects/{project}/comments/unanswered', 'GET /api/projects/{project}/issue-sessions', 'GET /api/projects/{project}/issues/{issue}/dependents', 'GET /api/projects/{project}/issues/{issue}/id', 'GET /api/projects/{project}/issues/{issue}/kept-pulls', 'GET /api/projects/{project}/issues/{issue}/row', 'GET /api/projects/{project}/issues/{issue}/workers', 'GET /api/projects/{project}/milestones/{milestone}/id', 'GET /api/projects/{project}/milestones/{milestone}/row', 'GET /api/projects/{project}/release-peers', 'GET /api/projects/{project}/releases/{release}/row', 'GET /api/projects/{project}/row', 'GET /api/projects/{project}/session-work', 'GET /api/projects/{project}/signals/last', 'GET /api/pulls/named', 'GET /api/pulls/repos', 'GET /api/pulls/{owner}/{name}', 'POST /api/auth/identity', 'POST /api/auth/link', 'POST /api/boards', 'POST /api/chats/{chat}/doc-requests', 'POST /api/chats/{chat}/issue-requests', 'POST /api/chats/{chat}/lines', 'POST /api/chats/{chat}/move-requests', 'POST /api/chats/{chat}/release-requests', 'POST /api/chats/{chat}/replies', 'POST /api/chats/{chat}/schedule-requests', 'POST /api/chats/{chat}/setting-requests', 'POST /api/database/compact', 'POST /api/events/log/prune', 'POST /api/phone/link', 'POST /api/presets/seed', 'POST /api/projects/{project}/issue-sessions/rename', 'POST /api/projects/{project}/issues/{issue}/worked-by', 'POST /api/projects/{project}/signals', 'POST /api/projects/{project}/signals/retarget', 'POST /api/projects/{project}/signals/{signal}/receipts', 'POST /api/pulls/forget', 'POST /api/secrets/{name}/uses', 'POST /api/signals/prune', 'PUT /api/chats/{chat}', 'PUT /api/chats/{chat}/lines/{message}', 'PUT /api/events/log/lines', 'PUT /api/pulls/{owner}/{name}', 'PUT /api/pulls/{owner}/{name}/error', 'PUT /api/pulls/{owner}/{name}/history', 'PUT /api/pulls/{owner}/{name}/{number}', 'PUT /api/secrets/{name}/sealed', 'PUT /api/session-records/{session}', 'PUT /api/usage'])
+        expect(contract(true)).toEqual(['DELETE /api/chats/{chat}', 'DELETE /api/secrets/{name}/sealed', 'DELETE /api/session-presence/{session}', 'GET /api/auth/oidc/callback', 'GET /api/auth/oidc/start', 'GET /api/auth/status', 'GET /api/auth/ways-in', 'GET /api/chats', 'GET /api/chats/{chat}', 'GET /api/database', 'GET /api/projects/{project}/comments/unanswered', 'GET /api/projects/{project}/issue-sessions', 'GET /api/projects/{project}/issues/{issue}/dependents', 'GET /api/projects/{project}/issues/{issue}/id', 'GET /api/projects/{project}/issues/{issue}/kept-pulls', 'GET /api/projects/{project}/issues/{issue}/row', 'GET /api/projects/{project}/issues/{issue}/workers', 'GET /api/projects/{project}/milestones/{milestone}/id', 'GET /api/projects/{project}/milestones/{milestone}/row', 'GET /api/projects/{project}/release-peers', 'GET /api/projects/{project}/releases/{release}/row', 'GET /api/projects/{project}/row', 'GET /api/projects/{project}/session-work', 'GET /api/projects/{project}/signals/last', 'GET /api/pulls/named', 'GET /api/pulls/repos', 'GET /api/pulls/{owner}/{name}', 'POST /api/auth/identity', 'POST /api/auth/link', 'POST /api/boards', 'POST /api/chats/{chat}/doc-requests', 'POST /api/chats/{chat}/issue-requests', 'POST /api/chats/{chat}/lines', 'POST /api/chats/{chat}/move-requests', 'POST /api/chats/{chat}/release-requests', 'POST /api/chats/{chat}/replies', 'POST /api/chats/{chat}/schedule-requests', 'POST /api/chats/{chat}/setting-requests', 'POST /api/database/compact', 'POST /api/events/log/prune', 'POST /api/phone/link', 'POST /api/presets/seed', 'POST /api/projects/{project}/issue-sessions/rename', 'POST /api/projects/{project}/issues/{issue}/worked-by', 'POST /api/projects/{project}/signals', 'POST /api/projects/{project}/signals/retarget', 'POST /api/projects/{project}/signals/{signal}/receipts', 'POST /api/pulls/forget', 'POST /api/secrets/{name}/uses', 'POST /api/signals/prune', 'PUT /api/chats/{chat}', 'PUT /api/chats/{chat}/lines/{message}', 'PUT /api/events/log/lines', 'PUT /api/pulls/{owner}/{name}', 'PUT /api/pulls/{owner}/{name}/error', 'PUT /api/pulls/{owner}/{name}/history', 'PUT /api/pulls/{owner}/{name}/{number}', 'PUT /api/secrets/{name}/sealed', 'PUT /api/session-presence/{session}', 'PUT /api/session-records/{session}', 'PUT /api/usage'])
         expect(contract(true).filter(operation => routes().includes(operation))).toEqual([])
     })
 })

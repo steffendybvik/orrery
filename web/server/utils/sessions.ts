@@ -9,6 +9,7 @@ import {randomInt} from 'node:crypto'
 import type {CarriedOver, Effort, IssueScope, Session, SessionState, SessionTool, StartedSession} from '#shared/roadmap'
 import {CARRY_FROM, SESSION_NAMES, madeUpName, sameScope} from '#shared/roadmap'
 import {agentFor} from '#channel/agents.mjs'
+import {presenceChanged} from './presence'
 
 interface Known extends Session {
     pid?: number
@@ -385,6 +386,16 @@ function heardOn(session: Known, project: string): boolean {
     return !!session.channels?.get(project)?.heard
 }
 
+/** Each session there to hear, with the projects its channel is heard on, for the Rust API's rails (ORR-1172). */
+export function heardProjects(): Map<string, string[]> {
+    const heard = new Map<string, string[]>()
+    for (const session of sessions.values()) {
+        const projects = [...session.channels ?? []].filter(([, channel]) => channel.heard > 0).map(([project]) => project)
+        if (projects.length) heard.set(session.id, projects)
+    }
+    return heard
+}
+
 /** The id a signal aimed at `given` on the project carries (ORR-821): a session's id (or one it had), or its name,
  * whole (`orrery · Nide`) or without the project (`Nide`), in any case; a name more than one has goes to the one
  * listening, else the newest. A launch's target stays as it is, for the session it starts, and so does the name of a
@@ -458,6 +469,7 @@ export function attend(project: string, id: string | undefined, pid: number | un
     if (version) held.version = version
     if (person) held.person ??= person
     changedAll(held)
+    presenceChanged()
     let open = true
     return {
         get id() {
@@ -478,6 +490,7 @@ export function attend(project: string, id: string | undefined, pid: number | un
             else if (!channels.size) handBackSoon(held)
             changedAll(held)
             changed(project)
+            presenceChanged()
         },
     }
 }

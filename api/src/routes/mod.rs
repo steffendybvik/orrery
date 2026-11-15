@@ -23,6 +23,7 @@ pub(crate) mod pulls;
 pub(crate) mod releases;
 pub(crate) mod schedules;
 pub(crate) mod secrets;
+pub(crate) mod session_presence;
 pub(crate) mod session_records;
 pub(crate) mod session_work;
 pub(crate) mod settings;
@@ -59,6 +60,7 @@ pub(crate) fn all() -> Router<Arc<App>> {
         .merge(signals::routes())
         .merge(session_work::routes())
         .merge(session_records::routes())
+        .merge(session_presence::routes())
         .merge(chats::routes())
         .merge(uploads::routes())
         .merge(usage::routes())
