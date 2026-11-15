@@ -16,7 +16,7 @@ In practice:
 
 <table>
 <tr>
-<td width="50%"><img alt="A project's board in orrery: issues in In progress, Todo and Proposed columns, one waiting on the owner's decision and a proposal with choices, and the Claude sessions in the sidebar, one needing the owner" src="docs/images/board-light.png"></td>
+<td width="50%"><img alt="A project's board in orrery: issues in In progress, Todo and Proposed columns, one waiting on the owner's decision and a proposal with choices, and the workspace and Claude sessions in the sidebar, one session needing the owner" src="docs/images/board-light.png"></td>
 <td width="50%"><img alt="An issue's page: a banner naming the session working on it, that session in its Sessions panel, its sub-issues, and a question waiting on the owner's decision" src="docs/images/issue-light.png"></td>
 </tr>
 <tr>
