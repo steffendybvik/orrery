@@ -341,6 +341,8 @@ impl Writer<'_> {
             ("next_number", next_number.into()),
             ("next_milestone", next_milestone.into()),
             ("workspace", Value::String(workspace.into())),
+            // The board arrives here as its new home, even from a file of one marked as moved (ORR-1225).
+            ("moved_to", Value::Null),
         ] {
             project.insert(column.into(), value);
         }

@@ -566,3 +566,77 @@ async fn a_project_shows_its_workspaces_starts() {
     api.patch("/api/settings", json!({"starts": null})).send().await;
     assert_eq!(api.get(&format!("/api/projects/{id}")).send().await.body.get("starts"), None);
 }
+
+// Marking a board as moved (ORR-1225).
+
+#[tokio::test]
+async fn a_board_marked_as_moved_refuses_each_write_saying_where_it_went_and_still_reads() {
+    let api = TestApi::new().await;
+    let project = api.project("Primes").await;
+    let issue = api.issue(&project, json!({"title": "Sieve"})).await;
+    let marked = api.put(&format!("/api/projects/{project}/moved"), json!({"to": " https://orrery.example.com/ "})).send().await;
+    assert_eq!(marked.status, 200, "{}", marked.body);
+    assert_eq!(marked.body["moved_to"], "https://orrery.example.com", "trimmed, without its last slash");
+    assert_eq!(marked.changed(), [project.as_str()], "open pages hear it");
+
+    // A session's write, and the owner's own from their page, are each a 409 naming where it went.
+    let session = api.post(&format!("/api/projects/{project}/issues"), json!({"title": "Wheel"})).agent_of_nobody().send().await;
+    assert_eq!(session.status, 409, "{}", session.body);
+    assert_eq!(session.body["data"]["moved_to"], "https://orrery.example.com");
+    assert!(session.body["message"].as_str().unwrap().contains("moved to https://orrery.example.com"), "{}", session.body);
+    let page =
+        api.patch(&format!("/api/projects/{project}/issues/{issue}"), json!({"title": "Sieve of Eratosthenes"})).header("orrery-actor-asked", "1").send().await;
+    assert_eq!(page.status, 409, "{}", page.body);
+    let comment = api.post(&format!("/api/projects/{project}/issues/{issue}/comments"), json!({"body": "Still here?"})).agent_of_nobody().send().await;
+    assert_eq!(comment.status, 409, "{}", comment.body);
+    assert_eq!(api.count(&format!("SELECT count(*) FROM issues WHERE project = '{project}'")).await, 1, "nothing was written");
+
+    // Reads still work, and the board says where it went.
+    let read = api.get(&format!("/api/projects/{project}")).agent_of_nobody().send().await;
+    assert_eq!(read.status, 200, "{}", read.body);
+    assert_eq!(read.body["moved_to"], "https://orrery.example.com");
+    let listed = api.get("/api/projects").send().await;
+    assert_eq!(listed.body[0]["moved_to"], "https://orrery.example.com");
+
+    // The Nuxt server's own work, which no request set off, isn't held.
+    let own = api.post(&format!("/api/projects/{project}/issues"), json!({"title": "Housekeeping"})).send().await;
+    assert_eq!(own.status, 201, "{}", own.body);
+
+    // Undo lifts it.
+    let lifted = api.delete(&format!("/api/projects/{project}/moved")).send().await;
+    assert_eq!(lifted.status, 200, "{}", lifted.body);
+    assert!(lifted.body.get("moved_to").is_none(), "{}", lifted.body);
+    let after = api.post(&format!("/api/projects/{project}/issues"), json!({"title": "Wheel"})).agent_of_nobody().send().await;
+    assert_eq!(after.status, 201, "{}", after.body);
+}
+
+#[tokio::test]
+async fn deleting_a_board_marked_as_moved_stays_the_owners_call() {
+    let api = TestApi::new().await;
+    let project = api.project("Primes").await;
+    let marked = api.put(&format!("/api/projects/{project}/moved"), json!({"to": "https://orrery.example.com"})).send().await;
+    assert_eq!(marked.status, 200, "{}", marked.body);
+    let gone = api.delete(&format!("/api/projects/{project}")).header("orrery-actor-asked", "1").send().await;
+    assert_eq!(gone.status, 204, "{}", gone.body);
+}
+
+#[tokio::test]
+async fn only_the_owner_marks_a_board_as_moved_and_only_to_an_address() {
+    let api = TestApi::new().await;
+    let project = api.project("Primes").await;
+    let at = format!("/api/projects/{project}/moved");
+    let to = json!({"to": "https://orrery.example.com"});
+    let agent = api.put(&at, to.clone()).agent_of_nobody().send().await;
+    assert_eq!(agent.status, 403, "{}", agent.body);
+    let owners_session = api.put(&at, to.clone()).header("orrery-actor-session", "s-1").send().await;
+    assert_eq!(owners_session.status, 403, "a session naming the owner isn't the owner's page: {}", owners_session.body);
+    let chat = api.put(&at, to.clone()).header("orrery-actor-kind", "chat").header("orrery-actor-asked", "1").send().await;
+    assert_eq!(chat.status, 403, "{}", chat.body);
+    for bad in [json!({}), json!({"to": "orrery.example.com"}), json!({"to": "ftp://orrery.example.com"}), json!({"to": 7})] {
+        let reply = api.put(&at, bad.clone()).send().await;
+        assert_eq!(reply.status, 400, "{bad}: {}", reply.body);
+    }
+    let missing = api.put("/api/projects/nowhere/moved", to).send().await;
+    assert_eq!(missing.status, 404, "{}", missing.body);
+    assert_eq!(api.count(&format!("SELECT count(*) FROM projects WHERE id = '{project}' AND moved_to IS NULL")).await, 1);
+}

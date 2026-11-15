@@ -184,3 +184,18 @@ async fn the_owners_own_board_keeps_who_said_what_and_its_prompts() {
     );
     assert_eq!(api.count("SELECT count(*) FROM issues WHERE project = 'copy' AND claimed_by IS NOT NULL").await, 0, "claims stay behind");
 }
+
+#[tokio::test]
+async fn a_file_from_a_board_marked_as_moved_comes_in_unmarked() {
+    let api = TestApi::new().await;
+    let (project, _) = primes(&api).await;
+    let marked = api.put(&format!("/api/projects/{project}/moved"), json!({"to": "https://orrery.example.com"})).send().await;
+    assert_eq!(marked.status, 200, "{}", marked.body);
+    let file = exported(&api, &project).await;
+    assert_eq!(file["tables"]["projects"][0]["moved_to"], "https://orrery.example.com", "the file holds the row whole");
+    let reply = api.post("/api/boards", sent(&file, "copy", "CPY")).send().await;
+    assert_eq!(reply.status, 201, "{}", reply.body);
+    assert!(reply.body.get("moved_to").is_none(), "{}", reply.body);
+    let wrote = api.post("/api/projects/copy/issues", json!({"title": "Here now"})).agent_of_nobody().send().await;
+    assert_eq!(wrote.status, 201, "{}", wrote.body);
+}

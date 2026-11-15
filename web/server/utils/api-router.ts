@@ -158,6 +158,9 @@ export const DOMAINS: readonly {domain: string, paths: RegExp, methods?: readonl
     // Deleting a project (ORR-1006), with everything in it: its schedules too, told back as `Orrery-Schedules` for the
     // runner here to drop, and its signals, which are only rows.
     {domain: 'a project, deleted', paths: /^projects\/[^/]+$/, methods: ['DELETE']},
+    // Marking a board as moved to another orrery, and lifting it (ORR-1225): the owner's, from its Settings. While it's
+    // marked, the API's rails refuse each write a request makes to the board with a 409 saying where it went.
+    {domain: 'a project, marked as moved', paths: /^projects\/[^/]+\/moved$/, methods: ['PUT', 'DELETE']},
     // A board as one file (ORR-1006): read in one transaction, named for the project and the day (`Content-Disposition`).
     // Whether the asker is on the board is checked here first (`needsBoard`), as a write's board is in middleware/board.ts.
     {domain: 'a project, exported', paths: /^projects\/[^/]+\/export$/, methods: ['GET'], first: {GET: onTheBoard}},

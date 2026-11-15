@@ -1,10 +1,11 @@
 <script setup lang="ts">
-// A project's settings: its name, where its code is, whether it has releases and whose, its icon in the sidebar and the icon's colour, and deleting
-// the project, for good. Its schedules and sessions are on the Schedules and Sessions pages, kept to it.
+// A project's settings: its name, where its code is, whether it has releases and whose, its icon in the sidebar and the icon's colour, marking
+// it as moved to another orrery, and deleting the project, for good. Its schedules and sessions are on the Schedules and Sessions pages, kept to it.
 const route = useRoute()
 const router = useRouter()
 const {projects, byId, ready} = useRoadmaps()
-const {shared} = usePeople()
+const {shared, owner, me} = usePeople()
+const isOwner = computed(() => !owner.value || me.value === owner.value)
 const {of} = useSchedules()
 const project = computed(() => byId(route.params.project as string))
 
@@ -81,6 +82,26 @@ async function saveIcon(change: {icon?: string | null, icon_color?: string | nul
         await apiFetch(`/projects/${encodeURIComponent(project.value.id)}`, {method: 'PATCH', body: change})
     } catch (error) {
         iconFailed.value = errorMessage(error)
+    }
+}
+
+// Marking it as moved to another orrery once it's uploaded there (ORR-1225): its writes here are refused, saying where
+// it went, so a session still pointed here is told. The owner's alone; undo lifts it.
+const movedTo = ref('')
+const marking = ref(false)
+const movedFailed = ref('')
+async function markMoved(to: string | null) {
+    if (!project.value) return
+    marking.value = true
+    movedFailed.value = ''
+    try {
+        const at = `/projects/${encodeURIComponent(project.value.id)}/moved`
+        await apiFetch(at, to === null ? {method: 'DELETE'} : {method: 'PUT', body: {to}})
+        movedTo.value = ''
+    } catch (error) {
+        movedFailed.value = errorMessage(error)
+    } finally {
+        marking.value = false
     }
 }
 
@@ -225,6 +246,38 @@ useHead(() => ({title: project.value ? `Settings · ${project.value.name} · orr
           <p class="mt-0.5 text-[13px] text-muted">Brings a board's file in as a new board, so this one stays as it is. Nothing in the file counts as yours, and its schedules arrive paused.</p>
         </div>
         <BoardUpload />
+      </section>
+
+      <section v-if="isOwner" id="moved" class="flex flex-col gap-3 border-t border-line pt-8">
+        <div>
+          <h2 class="text-[15px] font-semibold text-fg">Moved</h2>
+          <p class="mt-0.5 text-[13px] text-muted">
+            Once you've uploaded {{ project.name }} to another orrery, mark it here. Its copy here then only reads: every change to it is refused,
+            saying where it went, so a session still pointed here finds out. Deleting it stays up to you.
+          </p>
+        </div>
+        <div v-if="project.moved_to" class="flex flex-wrap items-center gap-2 text-[13px]">
+          <span class="text-fg">Moved to <a :href="project.moved_to" target="_blank" rel="noopener" class="underline underline-offset-2">{{ project.moved_to }}</a></span>
+          <UiButton :disabled="marking" @click="markMoved(null)">
+            <UiBusy :busy="marking" label="Undoing…">Undo</UiBusy>
+          </UiButton>
+          <span v-if="movedFailed" class="text-xs text-rose-700 dark:text-rose-400">{{ movedFailed }}</span>
+        </div>
+        <form v-else class="flex flex-wrap items-center gap-2" @submit.prevent="markMoved(movedTo.trim())">
+          <input
+              v-model="movedTo"
+              type="url"
+              required
+              aria-label="The orrery it moved to"
+              placeholder="https://orrery.example.com"
+              spellcheck="false"
+              class="h-8 w-96 max-w-full field"
+          >
+          <UiButton type="submit" :disabled="!movedTo.trim() || marking">
+            <UiBusy :busy="marking" label="Marking…">Mark as moved</UiBusy>
+          </UiButton>
+          <span v-if="movedFailed" class="text-xs text-rose-700 dark:text-rose-400">{{ movedFailed }}</span>
+        </form>
       </section>
 
       <section id="danger" class="mt-4 flex flex-col gap-3 rounded-xl border border-rose-500/30 p-4">
