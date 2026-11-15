@@ -916,6 +916,23 @@ describe("the owner's chat", () => {
         expect(problems.at(-1)).toEqual([launch.id, null])
     })
 
+    it('says its session is stuck on a startup prompt, once, and lets that go as it connects (ORR-1198)', async () => {
+        const {token} = launches.addLauncher('greenhouse')
+        const launch = await launches.startChat('greenhouse', context)
+        expect(launches.claim('greenhouse', launch.id, token, true, true, true)).toBe(true)
+        const why = 'Claude Code is asking whether to use the MCP servers in /home/.mcp.json'
+        launches.launchStuck('greenhouse', launch.id, why)
+        launches.launchStuck('greenhouse', launch.id, why)
+        expect(noted).toEqual([expect.objectContaining({level: 'warn', kind: 'launch.stuck', project: 'greenhouse', message: expect.stringContaining(why), details: {launch: launch.id}})])
+        expect(problems).toEqual([[launch.id, noted[0]!.message]])
+        // The owner answered it in the terminal: the session connects, and the chat stops saying so.
+        launches.launched(launch.id)
+        expect(problems.at(-1)).toEqual([launch.id, null])
+        // One that isn't on its way any more is left.
+        launches.launchStuck('greenhouse', launch.id, why)
+        expect(noted).toHaveLength(1)
+    })
+
     it("isn't stopped for sitting idle, nor for its time", async () => {
         starts = {limit: 2, idle_minutes: 1}
         const now = Date.parse('2026-10-26T15:00:00.000Z')

@@ -561,10 +561,23 @@ export function claim(project: string, id: string, token: string | undefined, lo
  * the event log, and on the chat, so it doesn't sit at "Starting the session…". */
 const told = new Set<string>()
 function outdated(project: string, id: string, message: string) {
+    cantStart(project, id, 'launcher.outdated', message)
+}
+
+function cantStart(project: string, id: string, kind: string, message: string) {
     if (told.has(id)) return
     told.add(id)
-    useEventLog().note({level: 'warn', kind: 'launcher.outdated', project, message})
+    useEventLog().note({level: 'warn', kind, project, message, details: {launch: id}})
     chatProblem(id, message)
+}
+
+/** The launcher says the launch's session is stuck as it starts (ORR-1198): waiting on a prompt of its agent's that it
+ * won't answer for the owner, such as Claude Code asking whether to run the folder's MCP servers. Said once, as a warning
+ * in the event log, and on the chat, so it doesn't sit at "Starting the session…"; it goes if the session connects after
+ * all, once the owner has answered. */
+export function launchStuck(project: string, id: string, why: string) {
+    if (!pending.has(id)) return
+    cantStart(project, id, 'launch.stuck', `A session orrery started on ${project} is stuck as it starts: ${why}`)
 }
 
 /** The launch's session connected: it counts as a started session from now on. Says what it was started as. Only its
