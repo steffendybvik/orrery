@@ -51,7 +51,7 @@ function same(file: File) {
     const strip = (rows: Row[] = [], ...keys: string[]) => rows.map(row => Object.fromEntries(Object.entries(row).filter(([key]) => !keys.includes(key))))
     return {
         people: file.people, statuses: file.statuses, uploads: file.uploads.map(u => ({id: u.id, data: u.data})),
-        project: strip(t.projects, 'uid', 'owned', 'created_by', 'instructions', 'updated_at'),
+        project: strip(t.projects, 'uid', 'owned', 'created_by', 'instructions', 'updated_at', 'picks_held'),
         members: (t.project_members ?? []).map(m => m.person),
         issues: strip(t.issues, 'owned', 'claimed_by', 'claimed_at', 'claimed_session', 'session_name'),
         comments: (t.comments ?? []).map(c => ({issue: c.issue, body: c.body, by: String(c.created_by).replace(' (from a file)', ''), at: c.created_at})),
@@ -71,6 +71,9 @@ describe('uploading a board\'s file', () => {
         expect(await uploadBoard(db, file, {}, owner, 'skoll')).toBe('greenhouse')
         const again = JSON.parse(JSON.stringify(await exportBoard(db, 'greenhouse')))
         expect(same(again)).toEqual(same(file))
+        // Held out of pick lists, as its titles are the file's (ORR-1224), which the file it came from wasn't.
+        expect(again.tables.projects[0].picks_held).toEqual(expect.any(String))
+        expect(file.tables.projects[0].picks_held ?? null).toBeNull()
     })
 
     it('renumbers what\'s numbered across the server, with everything pointing at it', async () => {

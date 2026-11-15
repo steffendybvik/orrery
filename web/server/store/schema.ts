@@ -123,7 +123,9 @@ interface Made { created_by: string, owned: number, created_at: string, updated_
 export interface ProjectRow extends Made {
     id: string, name: string, key: string, uid: string, description: string | null, icon: string | null, icon_color: string | null, next_number: number, next_milestone: number,
     focus_prompt: string | null, milestone_prompt: string | null, instructions: string, muted: string, starts: string | null, repo: string | null,
-    release_mode: ReleaseMode, releases_from: string | null, doc_section_order: string, workspace?: string
+    release_mode: ReleaseMode, releases_from: string | null, doc_section_order: string, workspace?: string,
+    /** When it was uploaded from a file and held out of pick lists (ORR-1224), till the owner lets sessions pick from it. */
+    picks_held?: string | null
 }
 export interface MilestoneRow extends Made { project: string, id: string, title: string, summary: string | null, priority: Priority | null, position: number }
 export interface IssueRow extends Made {

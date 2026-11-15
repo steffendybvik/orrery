@@ -132,6 +132,7 @@ export const NOT_ROUTED: Readonly<Record<string, Line>> = {
     'POST /api/projects/{project}/launches/{launch}/deny': SESSIONS,
     'POST /api/projects/{project}/launches/{launch}/ended': SESSIONS,
     'POST /api/projects/{project}/launches/{launch}/extend': SESSIONS,
+    'POST /api/projects/{project}/launches/{launch}/keys': SESSIONS,
     'GET /api/projects/{project}/launches/{launch}/screen': SESSIONS,
     'POST /api/projects/{project}/launches/{launch}/screen': SESSIONS,
     'POST /api/projects/{project}/launches/{launch}/stop': SESSIONS,

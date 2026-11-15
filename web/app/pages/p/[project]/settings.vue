@@ -1,6 +1,6 @@
 <script setup lang="ts">
-// A project's settings: its name, where its code is, whether it has releases and whose, its icon in the sidebar and the icon's colour, marking
-// it as moved to another orrery, and deleting the project, for good. Its schedules and sessions are on the Schedules and Sessions pages, kept to it.
+// A project's settings: its name, where its code is, whether it has releases and whose, its icon in the sidebar and the icon's colour, letting
+// sessions pick from it once it's uploaded, marking it as moved to another orrery, and deleting the project, for good. Its schedules and sessions are on the Schedules and Sessions pages, kept to it.
 const route = useRoute()
 const router = useRouter()
 const {projects, byId, ready} = useRoadmaps()
@@ -102,6 +102,23 @@ async function markMoved(to: string | null) {
         movedFailed.value = errorMessage(error)
     } finally {
         marking.value = false
+    }
+}
+
+// Letting sessions pick from a board uploaded from a file (ORR-1224): it starts held, as its titles are the file's, which
+// nobody has checked, so no session is handed its issues till the owner says. The owner's alone, and logged.
+const letting = ref(false)
+const letFailed = ref('')
+async function letPick() {
+    if (!project.value) return
+    letting.value = true
+    letFailed.value = ''
+    try {
+        await apiFetch(`/projects/${encodeURIComponent(project.value.id)}/picks-held`, {method: 'DELETE'})
+    } catch (error) {
+        letFailed.value = errorMessage(error)
+    } finally {
+        letting.value = false
     }
 }
 
@@ -229,6 +246,23 @@ useHead(() => ({title: project.value ? `Settings · ${project.value.name} · orr
       </section>
 
       <BoardMembers v-if="shared" :project="project.id" />
+
+      <section v-if="project.picks_held" id="picks" class="flex flex-col gap-3 border-t border-line pt-8">
+        <div>
+          <h2 class="text-[15px] font-semibold text-fg">Held from sessions</h2>
+          <p class="mt-0.5 text-[13px] text-muted">
+            {{ project.name }} came from a file, so its issues' titles are text nobody here has checked. Until you let them, no session is handed its
+            issues: not in a pick list, when one lands in Todo, or when a session asks for its next. Focus on this still sends the one you choose.
+          </p>
+        </div>
+        <div v-if="isOwner" class="flex flex-wrap items-center gap-2">
+          <UiButton :disabled="letting" @click="letPick">
+            <UiBusy :busy="letting" label="Letting…">Let sessions pick from this board</UiBusy>
+          </UiButton>
+          <span v-if="letFailed" class="text-xs text-rose-700 dark:text-rose-400">{{ letFailed }}</span>
+        </div>
+        <p v-else class="text-[13px] text-muted">The owner lets sessions pick from it.</p>
+      </section>
 
       <section id="export" class="flex flex-col gap-3 border-t border-line pt-8">
         <div>
