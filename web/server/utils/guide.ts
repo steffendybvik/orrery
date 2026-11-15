@@ -5,7 +5,7 @@ import type {H3Event} from 'h3'
 import {total} from '#shared/roadmap'
 import {projectsListedTo} from './member-sees'
 import {mayRead} from './auth'
-import {readFromApi} from './api-router'
+import {readFromApiOnly} from './api-router'
 import type {ProjectSummary} from '../store/schema'
 
 export async function apiReference(): Promise<string> {
@@ -25,7 +25,7 @@ export function originOf(event: H3Event): string {
 export async function overview(event: H3Event): Promise<string> {
     const origin = originOf(event)
     const listed = await mayRead(event)
-    const projects = listed ? await projectsListedTo(event, async () => (await readFromApi<ProjectSummary[]>('/api/projects')) ?? await useStore().listProjects()) : []
+    const projects = listed ? await projectsListedTo(event, () => readFromApiOnly<ProjectSummary[]>('/api/projects')) : []
     return `# orrery
 
 > A local roadmap board for your projects and the agent sessions working on them. Each app's roadmap (milestones of work, issues with
