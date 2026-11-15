@@ -337,31 +337,26 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         expect(domainOf('POST', '/api/events/log')).toBeUndefined()
     })
 
-    it('writes a line the local app made and prunes old ones as the log here did (ORR-1088)', async () => {
-        // The store's side is utils/event-log.ts with no API to send to, writing the same table itself.
-        const here: {event: unknown, fresh: boolean}[] = []
-        const log = new EventLog(store.db, async () => text => text, (event, fresh) => here.push({event, fresh}))
+    it('writes a line the local app made, and prunes, for the event log here (ORR-1088, ORR-1135)', async () => {
+        // utils/event-log.ts makes each line and sends it here, through the router: the API is its one writer.
         await store.db.run('DELETE FROM events')
-        const shape = (event: unknown) => {
-            const {id: _id, first_seen: _first, last_seen: _last, ...rest} = event as Record<string, unknown>
-            return rest
-        }
+        const heard: {fresh: boolean}[] = []
+        const log = new EventLog(async () => text => text, () => new Date(), async (method, path, body) => {
+            const sent = await viaApi(method, path, body, ORRERY)
+            if (sent.status >= 400) throw Object.assign(new Error(JSON.stringify(sent.body)), {statusCode: sent.status})
+            if (path === '/api/events/log/lines') heard.push({fresh: (sent.body as {fresh: boolean}).fresh})
+            return sent.body
+        })
         const line = {level: 'error', kind: 'page.error', project: 'primes', message: 'Boom', details: {route: 'GET /x'}} as const
         for (const time of [1, 2]) {
-            const written = await viaApi('PUT', '/api/events/log/lines', line, ORRERY)
-            expect(written.status, `time ${time}`).toBe(201)
-            await log.record(line)
-            const [last] = here.slice(-1)
-            expect(shape((written.body as {event: unknown}).event), `time ${time}`).toEqual(shape(JSON.parse(JSON.stringify(last!.event))))
-            expect((written.body as {fresh: boolean}).fresh, `time ${time}`).toBe(time === 1)
+            expect(await log.record(line), `time ${time}`).toMatchObject({...line, count: 1})
+            expect(heard.at(-1)?.fresh, `time ${time}`).toBe(time === 1)
         }
         const change = {type: 'issue.status', project: 'primes', subject: 'PRI-1', by: {name: 'claude', owner: false}, from: 'todo', to: 'done'}
-        await log.activity(change)
-        const kept = JSON.parse(JSON.stringify(here.at(-1)!.event)) as Record<string, unknown>
-        const sent = await viaApi('PUT', '/api/events/log/lines', {level: 'info', kind: kept.kind, project: kept.project, subject: kept.subject, message: kept.message, details: kept.details, activity: true}, ORRERY)
-        expect(shape((sent.body as {event: unknown}).event)).toEqual(shape(kept))
+        expect(await log.activity(change)).toMatchObject({level: 'info', kind: 'issue.status', project: 'primes', subject: 'PRI-1',
+            message: 'claude moved PRI-1: todo → done', details: {by: 'claude', owner: false, from: 'todo', to: 'done'}})
         expect(await viaApi('PUT', '/api/events/log/lines', {...line, level: 'loud'}, ORRERY)).toMatchObject({status: 400, body: {message: '"level" is "loud"; use error, warn, info'}})
-        expect((await viaApi('POST', '/api/events/log/prune', {}, ORRERY)).body).toEqual({pruned: 0})
+        expect(await log.prune()).toBe(0)
         expect(domainOf('PUT', '/api/events/log/lines')).toBeUndefined()
         expect(domainOf('POST', '/api/events/log/prune')).toBeUndefined()
     })

@@ -26,7 +26,7 @@ import {untrustedProject} from './sessions'
 import {carriedInto} from './carried-over'
 import {forgetRoster} from './roster'
 import type {Input} from './input'
-import {revLabel} from './events'
+import {projectEvents, revLabel} from './events'
 import {scheduleRunning} from './schedules'
 import type {Doc, IssueScope, Project, Release, Settings} from '#shared/roadmap'
 import type {IssueDetail, Store} from './store'
@@ -624,6 +624,13 @@ export async function apiAnswers(url: string, within = 2000): Promise<boolean> {
 /** Why the API last couldn't answer, said once, not on every request, until it answers again. */
 let unreachable = ''
 
+/** The API answered: once it had stopped, `api-answered` goes out, for the event log to say what it held (ORR-1135). */
+function answered() {
+    if (!unreachable) return
+    unreachable = ''
+    projectEvents.emit('api-answered')
+}
+
 /** The API can't answer `event` (`why`): a 503 that says why, logged once to the server's log and the event log while
  * it lasts. */
 function cantReach(event: H3Event | string, why: string, reason: Reason = 'unreachable'): never {
@@ -726,7 +733,7 @@ async function forwardMcp(event: H3Event, api: {url: string, token: string}): Pr
         return cantReach(event, `at ${api.url} can't be reached (${(error as Error).message})`)
     }
     if (response.status === 421) return cantReach(event, `at ${api.url} is on another database than this server`, 'other-database')
-    unreachable = ''
+    answered()
     setResponseHeader(event, SERVED_BY, 'rust')
     const text = await response.text()
     if (response.ok) await relayed(response, actor, event.method)
@@ -773,7 +780,7 @@ export async function forwardToApi(event: H3Event, api: {url: string, token: str
     }
     // On another database than this server's: the owner moved it, and the API hasn't been started again on the new one.
     if (response.status === 421) return cantReach(event, `at ${api.url} is on another database than this server`, 'other-database')
-    unreachable = ''
+    answered()
     setResponseHeader(event, SERVED_BY, 'rust')
     const passed = await passedThrough(response)
     if (passed) {
@@ -935,7 +942,7 @@ export async function writeToApi(method: string, path: string, body: unknown, ac
         return cantReach(asked, `at ${api.url} can't be reached (${(error as Error).message})`)
     }
     if (response.status === 421) return cantReach(asked, `at ${api.url} is on another database than this server`, 'other-database')
-    unreachable = ''
+    answered()
     const text = await response.text()
     const json = text ? JSON.parse(text) as Record<string, unknown> : null
     if (response.status >= 400) throw refusal(response.status, json)
