@@ -27,7 +27,7 @@ const {settings} = useAppSettings()
 const otherAgent = computed(() => settings.value.agent === 'other')
 
 const TEXT = [
-    {title: 'You own this orrery', text: 'What you make, no one else can delete. Your name is in App settings.'},
+    {title: 'Your name', text: 'How people and agents see you here. Change it in App settings.'},
     {title: 'Make a project', text: 'One for each app or repo. Its issues get a key of their own, like SHP-1.'},
     {title: 'Connect a folder', text: "Open a terminal in your app's folder (any folder works; an empty one to try it), run claude, and paste this. It writes the folder's .mcp.json, hooks and CLAUDE.md itself, and the step ticks once the session says hello."},
     {title: 'Start a session with the channel', text: 'So orrery can send the session work. Ticked once a session is listening.'},

@@ -784,10 +784,13 @@ const FRESH_FOR = 3000
 const SCREEN_MAX = 64 * 1024
 
 /** The owner viewing a session orrery started, about once a second while it's open: its screen as its launcher
- * last sent it (none until the first comes in). Asks the launcher to send it, again when it's gone stale. */
-export function viewLaunch(project: string, id: string, now = Date.now()): {screen: string | null, at?: string} {
+ * last sent it (none until the first comes in). Asks the launcher to send it, again when it's gone stale. A session's
+ * screen is its own person's only (ORR-964): `viewer`, the person asking, sees another person's session run and can stop
+ * it, but not read its terminal, the server's owner included. */
+export function viewLaunch(project: string, id: string, now = Date.now(), viewer?: string): {screen: string | null, at?: string} {
     const session = sessionOfLaunch(project, id)
     if (!session?.started) throw notFound(`No session started for launch ${id} in ${project}`)
+    if (viewer && session.person && session.person !== viewer) throw forbidden(`${session.name ?? `Launch ${id}`} is ${session.person}'s, so only they can see its screen`)
     if (!launchersOf(project)) throw conflict(`No launcher is running for ${project} to show its screen; attach by hand with tmux attach -t ${session.started.tmux}`)
     viewed.set(id, now)
     const shot = screens.get(id)
