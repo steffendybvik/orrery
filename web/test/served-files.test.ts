@@ -1,5 +1,6 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 import type {Store as StoreType} from '../server/utils/store'
+import {apiConfig} from './api'
 import {storeSetup} from './store-setup'
 
 // What's open outside /api with a login on (ORR-689): /llms.txt, /llms-full.txt and /connect/<project>.md answer anyone,
@@ -31,14 +32,15 @@ const connect = (file: string, {headers, query}: {headers?: Record<string, strin
 const bearer = (key: string) => ({authorization: `Bearer ${key}`})
 
 beforeEach(async () => {
-    ({store} = await storeSetup())
+    ({store} = await storeSetup({api: true}))
     config = {auth: 'on', oidc: {issuer: '', clientId: '', clientSecret: ''}, listenHost: '', public: {environment: 'personal'}}
     vi.stubGlobal('defineEventHandler', (handler: unknown) => handler)
-    vi.stubGlobal('useRuntimeConfig', () => config)
-    vi.stubGlobal('useStore', () => store)
-    // No API in these, so the server's own reads fall back to the store (ORR-1139).
-    vi.stubGlobal('readFromApi', async () => undefined)
-    vi.stubGlobal('orreryId', async () => (await store.settings()).id)
+    // The server's own reads go through the Rust API, as on a server (ORR-1163).
+    vi.stubGlobal('useRuntimeConfig', () => ({...config, ...apiConfig()}))
+    const router = await import('../server/utils/api-router')
+    vi.stubGlobal('readFromApi', router.readFromApi)
+    vi.stubGlobal('readFromApiOnly', router.readFromApiOnly)
+    vi.stubGlobal('orreryId', router.orreryId)
     vi.stubGlobal('useStorage', () => ({getItem: async () => '# The API reference'}))
     vi.stubGlobal('getHeader', (event: Event, name: string) => event.headers[name])
     vi.stubGlobal('getCookie', (event: Event, name: string) => new RegExp(`${name}=([^;]+)`).exec(event.headers.cookie ?? '')?.[1])

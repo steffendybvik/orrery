@@ -19,7 +19,7 @@ export default defineEventHandler(async event => {
         return lockedBrief(connectPieces({origin: originOf(event), id: idsFor(asked).id, name: asked, key: '', isNew: !!named, session}).url)
     }
     // A member who isn't the owner finds only a project they can see; any other is new to them (ORR-1195).
-    const project = (await projectsListedTo(event, async () => (await readFromApi<ProjectSummary[]>('/api/projects')) ?? await useStore().listProjects())).find(p => p.id === id)
+    const project = (await projectsListedTo(event, () => readFromApiOnly<ProjectSummary[]>('/api/projects'))).find(p => p.id === id)
     const name = project?.name ?? named ?? id
     const {brief} = connectPieces({
         origin: originOf(event),

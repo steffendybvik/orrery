@@ -833,6 +833,14 @@ export async function readFromApi<T>(path: string, {config = configHere()} = {})
     return read?.reply as T | undefined
 }
 
+/** A read only the API answers, its fallback to the store gone (ORR-1163): `readFromApi`, but with no API set up it fails
+ * as one that isn't running does, rather than leaving it to a store this server no longer reads. */
+export async function readFromApiOnly<T>(path: string, {config = configHere()} = {}): Promise<T> {
+    const read = await writeToApi('GET', path, undefined, ORRERY, {always: true, config})
+    if (!read) return cantReach(`GET ${path}`, NOT_RUNNING, 'not-running')
+    return read.reply as T
+}
+
 /** The project's id, read from the API (a 404 when it isn't there), or the store with none set up (ORR-1139). Only the
  * project's own fields: none of its issues' notes or closed ones. */
 export async function projectIdOf(project: string): Promise<string> {

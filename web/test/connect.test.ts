@@ -115,10 +115,10 @@ describe('the overview agents read', () => {
     afterEach(() => vi.unstubAllGlobals())
 
     it('lists the projects with their progress, at the address it was reached on', async () => {
-        const store = new Store(testDb())
-        vi.stubGlobal('useStore', () => store)
+        // The projects are read through the Rust API (ORR-1163).
+        const store = new Store(apiTestDb())
+        await withApi(store)
         vi.stubGlobal('getRequestURL', () => new URL('http://orrery.lan:9000/llms.txt'))
-        vi.stubGlobal('useRuntimeConfig', () => ({}))
         vi.stubGlobal('getHeader', () => undefined)
         const alone = {node: {req: {headers: {}, socket: {remoteAddress: '127.0.0.1', server: {address: () => ({address: '127.0.0.1'})}}}}} as never
         const {overview} = await import('../server/utils/guide')
