@@ -653,9 +653,9 @@ async fn issues_the_owner_named_in_their_last_message_move_at_once_as_theirs() {
         api.post("/api/chats/c1/move-requests", json!({"move": {"ids": ["PRI-1", "PRI-2", "PRI-1"], "status": "done", "assignee": "owner"}})).send().await;
     assert_eq!(moved.status, 201, "{}", moved.body);
     assert!(moved.body.get("move").is_none(), "nothing asked: {}", moved.body);
-    assert_eq!(moved.body["text"], "Put [PRI-1](/p/primes/issues/PRI-1), [PRI-2](/p/primes/issues/PRI-2) in done, assigned to steffen.");
+    assert_eq!(moved.body["text"], "Put [PRI-1](/p/primes/issues/PRI-1), [PRI-2](/p/primes/issues/PRI-2) in done, assigned to sam.");
     for issue in ["PRI-1", "PRI-2"] {
-        assert_eq!(column_of(&api, &project, issue).await, (json!("done"), json!("steffen")), "{issue}");
+        assert_eq!(column_of(&api, &project, issue).await, (json!("done"), json!("sam")), "{issue}");
     }
     assert!(moved.told().contains(&"issue.status primes PRI-1 backlog done".to_string()), "{:?}", moved.told());
     assert_eq!(api.count("SELECT count(*) FROM events WHERE kind = 'chat.moved'").await, 1, "and the event log says so");

@@ -57,7 +57,7 @@ beforeEach(async () => {
         whoseWork: async (_project: string, assignee?: string | null) => whoseWork(assignee),
         // An older database still holds `pick_next`, off: it's not read any more (ORR-1043).
         settings: async () => ({pick_next: false}),
-        ownerOf: async () => ({name: 'steffen'}),
+        ownerOf: async () => ({name: 'sam'}),
         listIssues: async (project: string) => board[project] ?? [],
         picksHeld: async (project: string) => uploaded.includes(project),
         heldAbove: async (_project: string, id: string) => held.includes(id) ? {parent: 'ORR-5', holder: 'builder'} : null,
@@ -95,7 +95,7 @@ describe('a session out of work', () => {
     it('is handed nothing it may not start', async () => {
         board.orrery = [
             issue('ORR-1', 'todo'), issue('ORR-2', 'todo', {proposal: 'pending'}), issue('ORR-3', 'todo', {waiting: 'decision'}),
-            issue('ORR-4', 'todo', {assignee: 'steffen'}), issue('ORR-5', 'todo'), issue('ORR-6', 'todo', {parent: 'ORR-5'}),
+            issue('ORR-4', 'todo', {assignee: 'sam'}), issue('ORR-5', 'todo'), issue('ORR-6', 'todo', {parent: 'ORR-5'}),
             issue('ORR-7', 'started'), issue('ORR-8', 'todo', {assignee: 'ada'}), issue('ORR-9', 'todo', {assignee: 'Claude'}),
         ]
         await pick.pickNext('orrery', 'w')
@@ -116,9 +116,9 @@ describe('a session out of work', () => {
     })
 
     it('is handed only what is its own person\'s, with more than one person (ORR-656)', async () => {
-        whoseWork = assignee => assignee === 'claude' ? 'steffen' : assignee ?? null
+        whoseWork = assignee => assignee === 'claude' ? 'sam' : assignee ?? null
         sessions[0] = {...sessions[0]!, person: 'hati'} as Listed
-        board.orrery = [issue('ORR-1', 'todo'), issue('ORR-2', 'todo', {assignee: 'hati'}), issue('ORR-3', 'todo', {assignee: 'steffen'}), issue('ORR-4', 'todo', {assignee: 'claude'})]
+        board.orrery = [issue('ORR-1', 'todo'), issue('ORR-2', 'todo', {assignee: 'hati'}), issue('ORR-3', 'todo', {assignee: 'sam'}), issue('ORR-4', 'todo', {assignee: 'claude'})]
         await pick.pickNext('orrery', 'w')
         expect(ids(sent[0]!.text)).toEqual(['ORR-2'])
     })

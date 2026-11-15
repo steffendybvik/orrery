@@ -115,7 +115,7 @@ describe('importOrrery', () => {
     const target = (workspaces: unknown[] = []) => fake('http://home', {
         '/workspaces': workspaces,
         '/projects': [{id: 'orrery', key: 'ORR', name: 'orrery'}],
-        '/people': [{id: 'steffen', name: 'steffen'}],
+        '/people': [{id: 'sam', name: 'sam'}],
     })
 
     it('plans on a dry run and writes nothing to either', async () => {

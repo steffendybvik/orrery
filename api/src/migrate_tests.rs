@@ -2,7 +2,7 @@ use super::*;
 
 #[test]
 fn names_become_ids_as_the_node_app_makes_them() {
-    assert_eq!(actor_id("Steffen Dybvik"), "steffen_dybvik");
+    assert_eq!(actor_id("Sam Rivers"), "sam_rivers");
     assert_eq!(actor_id("  Åse  Ødegård! "), "ase_degard");
     assert_eq!(actor_id("Ziggy"), "ziggy");
     assert_eq!(actor_id("!!!"), "");

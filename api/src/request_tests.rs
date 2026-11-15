@@ -33,11 +33,11 @@ fn headers(pairs: &[(&'static str, &'static str)]) -> HeaderMap {
 fn who_of_reads_a_browser_or_an_agent_and_nothing_else() {
     let browser = who_of(&headers(&[("orrery-who", "browser"), ("orrery-who-person", "ada"), ("orrery-who-owner", "0")])).unwrap();
     assert_eq!((browser.person.as_str(), browser.owner, browser.browser), ("ada", false, true));
-    let agent = who_of(&headers(&[("orrery-who", "agent"), ("orrery-who-person", "steffen"), ("orrery-who-owner", "1")])).unwrap();
-    assert_eq!((agent.person.as_str(), agent.owner, agent.browser), ("steffen", true, false));
+    let agent = who_of(&headers(&[("orrery-who", "agent"), ("orrery-who-person", "sam"), ("orrery-who-owner", "1")])).unwrap();
+    assert_eq!((agent.person.as_str(), agent.owner, agent.browser), ("sam", true, false));
     // Only `1` is the owner.
     assert!(!who_of(&headers(&[("orrery-who", "browser"), ("orrery-who-person", "ada"), ("orrery-who-owner", "true")])).unwrap().owner);
-    assert!(who_of(&headers(&[("orrery-who", "owner"), ("orrery-who-person", "steffen"), ("orrery-who-owner", "1")])).is_none());
+    assert!(who_of(&headers(&[("orrery-who", "owner"), ("orrery-who-person", "sam"), ("orrery-who-owner", "1")])).is_none());
     assert!(who_of(&headers(&[("orrery-who", "browser"), ("orrery-who-owner", "1")])).is_none(), "a credential names its person");
     assert!(who_of(&headers(&[("orrery-who", "browser"), ("orrery-who-person", ""), ("orrery-who-owner", "1")])).is_none());
     assert!(who_of(&HeaderMap::new()).is_none());
@@ -204,7 +204,7 @@ async fn two_people() -> crate::testing::TestApi {
 #[tokio::test]
 async fn with_login_on_a_login_or_an_agent_key_gets_in_and_nothing_else_does() {
     let api = two_people().await;
-    api.key("steffen", "person").await;
+    api.key("sam", "person").await;
     let login = api.login("ada").await;
     let agent = api.key("ada", "agent").await;
     assert_eq!(api.get("/api/statuses").header("orrery-login", &login).send().await.status, 200);
@@ -217,16 +217,16 @@ async fn with_login_on_a_login_or_an_agent_key_gets_in_and_nothing_else_does() {
         assert_eq!(api.get("/api/statuses").header(name, value).send().await.status, 401, "{name}: {value}");
     }
     // The router's word on who it is counts for nothing.
-    let said = api.get("/api/statuses").header("orrery-who", "browser").header("orrery-who-person", "steffen").header("orrery-who-owner", "1").send().await;
+    let said = api.get("/api/statuses").header("orrery-who", "browser").header("orrery-who-person", "sam").header("orrery-who-owner", "1").send().await;
     assert_eq!(said.status, 401);
 }
 
 #[tokio::test]
 async fn a_login_run_out_a_revoked_key_or_a_removed_persons_gets_nobody_in() {
     let api = two_people().await;
-    api.key("steffen", "person").await;
+    api.key("sam", "person").await;
     let login = api.login("ada").await;
-    let agent = api.key("steffen", "agent").await;
+    let agent = api.key("sam", "agent").await;
     sqlx::query(&crate::db::sql("UPDATE logins SET expires_at = ? WHERE id = ?"))
         .bind("2020-01-01T00:00:00.000Z")
         .bind(&login)
@@ -253,14 +253,14 @@ async fn who_the_api_found_is_who_the_route_hears() {
         .get("/api/auth/status")
         .header("orrery-login", &api.login("ada").await)
         .header("orrery-who", "browser")
-        .header("orrery-who-person", "steffen")
+        .header("orrery-who-person", "sam")
         .header("orrery-who-owner", "1")
         .send()
         .await;
     assert_eq!((said.body["person"].as_str(), said.body["via"].as_str()), (Some("ada"), Some("browser")), "{}", said.body);
     // With login off, nobody's named, whatever the router says.
     let api = crate::testing::TestApi::at_the_door().await;
-    let off = api.get("/api/auth/status").header("orrery-who", "browser").header("orrery-who-person", "steffen").header("orrery-who-owner", "1").send().await;
+    let off = api.get("/api/auth/status").header("orrery-who", "browser").header("orrery-who-person", "sam").header("orrery-who-owner", "1").send().await;
     assert!(off.body.get("person").is_none(), "{}", off.body);
 }
 
@@ -281,7 +281,7 @@ async fn with_nobody_able_to_log_in_its_said_rather_than_asked_for() {
 #[tokio::test]
 async fn closed_turns_everything_away_but_the_logins_own_routes() {
     let api = two_people().await;
-    let login = api.login("steffen").await;
+    let login = api.login("sam").await;
     for came in ["", "proxied", "loopback, phone"] {
         let closed = api.get("/api/statuses").header("orrery-came", came).header("orrery-login-ways", "off").header("orrery-login", &login).send().await;
         assert_eq!(closed.status, 503, "{came:?}: {}", closed.body);
@@ -303,7 +303,7 @@ async fn off_on_loopback_and_the_servers_own_work_need_no_login() {
 
 /// A project's docs, the project made by the owner's agent key, as the guard lets in nothing else.
 async fn docs_of(api: &crate::testing::TestApi) -> String {
-    let key = api.key("steffen", "agent").await;
+    let key = api.key("sam", "agent").await;
     let made = api.post("/api/projects", serde_json::json!({"name": "Primes"})).header("orrery-key", &key).send().await;
     assert_eq!(made.status, 201, "{}", made.body);
     format!("/api/projects/{}/docs", made.body["id"].as_str().unwrap())
@@ -312,8 +312,8 @@ async fn docs_of(api: &crate::testing::TestApi) -> String {
 #[tokio::test]
 async fn a_logged_in_browsers_write_has_to_say_which_page_its_from() {
     let api = two_people().await;
-    api.key("steffen", "person").await;
-    let login = api.login("steffen").await;
+    api.key("sam", "person").await;
+    let login = api.login("sam").await;
     let docs = docs_of(&api).await;
     let bare = api.post(&docs, serde_json::json!({"title": "Plan"})).signed_in(&login).without("orrery-sent-origin").send().await;
     assert_eq!(bare.status, 403, "{}", bare.body);
@@ -324,7 +324,7 @@ async fn a_logged_in_browsers_write_has_to_say_which_page_its_from() {
     assert_eq!(sent.status, 201, "{}", sent.body);
     // A read needs none, nor does an agent key's write, nor logging out.
     assert_eq!(api.get(&docs).signed_in(&login).send().await.status, 200);
-    let agent = api.key("steffen", "agent").await;
+    let agent = api.key("sam", "agent").await;
     assert_eq!(api.post(&docs, serde_json::json!({"title": "Agent's"})).header("orrery-key", &agent).send().await.status, 201);
     assert_ne!(api.post("/api/auth/logout", serde_json::json!({})).signed_in(&login).send().await.status, 403);
 }
@@ -332,8 +332,8 @@ async fn a_logged_in_browsers_write_has_to_say_which_page_its_from() {
 #[tokio::test]
 async fn the_browser_guards_hold_at_the_apis_own_door() {
     let api = two_people().await;
-    api.key("steffen", "person").await;
-    let login = api.login("steffen").await;
+    api.key("sam", "person").await;
+    let login = api.login("sam").await;
     let docs = docs_of(&api).await;
     let write = |origin: &str, host: &str| {
         api.post(&docs, serde_json::json!({"title": "Plan"})).signed_in(&login).header("orrery-sent-origin", origin).header("orrery-host", host)
@@ -367,7 +367,7 @@ async fn the_browser_guards_hold_at_the_apis_own_door() {
 #[tokio::test]
 async fn behind_the_router_logging_out_goes_by_the_hashed_login_and_the_address_the_browser_asked_for() {
     let api = two_people().await;
-    api.key("steffen", "person").await;
+    api.key("sam", "person").await;
     let login = api.login("ada").await;
     assert_eq!(api.get("/api/statuses").header("orrery-login", &login).send().await.status, 200);
     let out = api.post("/api/auth/logout", serde_json::json!({})).header("orrery-login", &login).header("orrery-host", "localhost%3A9123").send().await;
@@ -382,22 +382,22 @@ async fn behind_the_router_logging_out_goes_by_the_hashed_login_and_the_address_
 #[tokio::test]
 async fn an_agent_key_cant_write_as_another_persons_session() {
     let api = two_people().await;
-    api.key("steffen", "person").await;
+    api.key("sam", "person").await;
     let docs = docs_of(&api).await;
     api.on_board(docs.split('/').nth(3).unwrap(), &["ada"]).await;
     let ada = api.key("ada", "agent").await;
-    let steffen = api.key("steffen", "agent").await;
+    let sam = api.key("sam", "agent").await;
     api.session_held_by("s 1", "ada").await;
-    let theirs = api.post(&docs, serde_json::json!({"title": "Mine"})).header("orrery-key", &steffen).header("orrery-session", "s%201").send().await;
+    let theirs = api.post(&docs, serde_json::json!({"title": "Mine"})).header("orrery-key", &sam).header("orrery-session", "s%201").send().await;
     assert_eq!(theirs.status, 409, "{}", theirs.body);
-    assert_eq!(theirs.body["message"], "This session is ada's, and this is steffen's agent key, so it can't write as that session");
+    assert_eq!(theirs.body["message"], "This session is ada's, and this is sam's agent key, so it can't write as that session");
     let own = api.post(&docs, serde_json::json!({"title": "Ada's"})).header("orrery-key", &ada).header("orrery-session", "s%201").send().await;
     assert_eq!(own.status, 201, "{}", own.body);
     // A session nobody holds yet, a read, and a browser's write naming it go by.
-    let free = api.post(&docs, serde_json::json!({"title": "New"})).header("orrery-key", &steffen).header("orrery-session", "s2").send().await;
+    let free = api.post(&docs, serde_json::json!({"title": "New"})).header("orrery-key", &sam).header("orrery-session", "s2").send().await;
     assert_eq!(free.status, 201, "{}", free.body);
-    assert_eq!(api.get(&docs).header("orrery-key", &steffen).header("orrery-session", "s%201").send().await.status, 200);
-    let login = api.login("steffen").await;
+    assert_eq!(api.get(&docs).header("orrery-key", &sam).header("orrery-session", "s%201").send().await.status, 200);
+    let login = api.login("sam").await;
     let page = api
         .post(&docs, serde_json::json!({"title": "Page"}))
         .signed_in(&login)

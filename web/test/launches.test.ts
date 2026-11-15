@@ -257,7 +257,7 @@ describe('starting a session', () => {
         expect(launches.claim('greenhouse', launch.id, member.token)).toBe(false)
         const on = (who?: {person: string, owner: boolean}) => ({context: who ? {who} : {}}) as never
         expect(() => launches.launcherMayTell(on({person: 'hati', owner: false}), launch.id)).toThrow("isn't hati's")
-        expect(() => launches.launcherMayTell(on({person: 'steffen', owner: true}), launch.id)).not.toThrow()
+        expect(() => launches.launcherMayTell(on({person: 'sam', owner: true}), launch.id)).not.toThrow()
         expect(() => launches.launcherMayTell(on(), launch.id)).not.toThrow()
         expect(launches.claim('greenhouse', launch.id, token)).toBe(true)
         member()
@@ -558,7 +558,7 @@ describe('a session orrery started', () => {
     it("shows a session's screen to its own person only, the server's owner included (ORR-964)", () => {
         session = {name: 'greenhouse · Gna', person: 'hati', started: {launch: 'abc', tmux: 'orrery-greenhouse-abc'}}
         launches.addLauncher('greenhouse')
-        expect(() => launches.viewLaunch('greenhouse', 'abc', 1000, 'steffen')).toThrow("greenhouse · Gna is hati's, so only they can see its screen")
+        expect(() => launches.viewLaunch('greenhouse', 'abc', 1000, 'sam')).toThrow("greenhouse · Gna is hati's, so only they can see its screen")
         // Refused before it's asked for: the launcher isn't told to send it.
         expect(sent).toEqual([])
         expect(launches.viewLaunch('greenhouse', 'abc', 1000, 'hati')).toEqual({screen: null})

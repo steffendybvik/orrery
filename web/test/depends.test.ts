@@ -142,7 +142,7 @@ describe('blocked', () => {
         // Closing it, or a comment, is still anyone's.
         await store.claim('greenhouse', c, 'canceled', 'sess-1')
         await store.claim('greenhouse', c, undefined, 'sess-1')
-        await store.focus('greenhouse', c, {}, {name: 'steffen', owner: true})
+        await store.focus('greenhouse', c, {}, {name: 'sam', owner: true})
         await store.claim('greenhouse', c, 'in-progress', 'sess-1')
     })
 })

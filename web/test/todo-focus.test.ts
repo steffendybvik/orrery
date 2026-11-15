@@ -20,7 +20,7 @@ let uploaded: string[]
 let sent: {issue: string, session: string, note: string, by: {name: string, owner: boolean}}[]
 
 const issue = (id: string, kind = 'todo', more: Record<string, unknown> = {}) => ({id, kind, created_at: `2026-10-29T0${id.slice(-1)}:00:00Z`, ...more})
-const owner = {name: 'steffen', owner: true}
+const owner = {name: 'sam', owner: true}
 const moved = (id: string, from = 'backlog') => ({event: {type: 'issue.status', project: 'orrery', subject: id, by: owner, from, to: 'todo'}})
 
 /** Whose an issue is, with more than one person (ORR-656); nothing to say with one. */
@@ -53,7 +53,7 @@ beforeEach(async () => {
     vi.stubGlobal('useStore', () => ({
         whoseWork: async (_project: string, assignee?: string | null) => whoseWork(assignee),
         statuses: async () => [{id: 'backlog', kind: 'backlog'}, {id: 'todo', kind: 'todo'}, {id: 'ready', kind: 'todo'}, {id: 'in-progress', kind: 'started'}, {id: 'done', kind: 'done'}, {id: 'canceled', kind: 'canceled'}],
-        ownerOf: async () => ({name: 'steffen'}),
+        ownerOf: async () => ({name: 'sam'}),
         listIssues: async () => board,
         picksHeld: async (project: string) => uploaded.includes(project),
         workingOn: async (_project: string, ids: string[]) => ids.filter(id => busy.includes(id)).map(id => ({id})),
@@ -90,11 +90,11 @@ async function hear(...events: Parameters<typeof todo.heardTodo>[0][]) {
 }
 
 describe('with more than one person (ORR-656)', () => {
-    const owners = {id: 'owners', project: 'orrery', state: 'idle', listening: true, person: 'steffen'} as Listed
+    const owners = {id: 'owners', project: 'orrery', state: 'idle', listening: true, person: 'sam'} as Listed
     const hatis = {id: 'hatis', project: 'orrery', state: 'idle', listening: true, person: 'hati'} as Listed
 
     beforeEach(() => {
-        whoseWork = assignee => assignee === 'claude' ? 'steffen' : assignee ?? null
+        whoseWork = assignee => assignee === 'claude' ? 'sam' : assignee ?? null
         sessions = [owners, hatis]
     })
 
@@ -202,7 +202,7 @@ describe('an issue the owner moves into Todo', () => {
 
     it('sends nothing for a move within Todo, out of it, or what isn\'t work for a session', async () => {
         board = [
-            issue('ORR-1'), issue('ORR-2', 'backlog'), issue('ORR-3', 'todo', {proposal: 'pending'}), issue('ORR-4', 'todo', {assignee: 'steffen'}),
+            issue('ORR-1'), issue('ORR-2', 'backlog'), issue('ORR-3', 'todo', {proposal: 'pending'}), issue('ORR-4', 'todo', {assignee: 'sam'}),
             issue('ORR-5', 'todo', {waiting: 'decision'}), issue('ORR-6'), issue('ORR-7', 'todo', {parent: 'ORR-6'}), issue('ORR-8'),
             issue('ORR-9', 'todo', {assignee: 'ada'}),
         ]
