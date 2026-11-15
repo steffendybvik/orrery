@@ -1,5 +1,6 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 import type {Store as StoreType} from '../server/utils/store'
+import {apiConfig} from './api'
 import {failure, storeSetup} from './store-setup'
 import {LINK_MINUTES, PHONE_LOGIN, clearSignInLinks} from '../server/utils/phone-sign-in'
 
@@ -47,13 +48,13 @@ async function browser(person: string) {
 }
 
 beforeEach(async () => {
-    ({store} = await storeSetup())
+    ({store} = await storeSetup({api: true}))
     config = {auth: 'on', oidc: {issuer: '', clientId: '', clientSecret: ''}, listenHost: '', phoneListen: String(PHONE_PORT)}
     cookies = []
     clearSignInLinks()
     const fail = (statusCode: number) => (message: string) => Object.assign(new Error(message), {statusCode})
     vi.stubGlobal('defineEventHandler', (handler: unknown) => handler)
-    vi.stubGlobal('useRuntimeConfig', () => config)
+    vi.stubGlobal('useRuntimeConfig', () => ({...config, ...apiConfig()}))
     vi.stubGlobal('useStore', () => store)
     vi.stubGlobal('getHeader', (event: Event, name: string) => event.headers[name])
     vi.stubGlobal('getRequestHost', (event: Event) => event.headers.host)
@@ -129,7 +130,7 @@ describe('POST /api/phone/link', () => {
         })
 
         it('asks for an owner first, while nobody is named', async () => {
-            ({store} = await storeSetup())
+            ({store} = await storeSetup({api: true}))
             // The page before its first question, under the name an unnamed owner goes by.
             const {name} = await store.ownerOf()
             expect((await failure(() => makeLink({headers: named(name)}))).status).toBe(409)

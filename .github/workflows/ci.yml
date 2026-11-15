@@ -45,6 +45,10 @@ jobs:
       - if: ${{ github.base_ref == 'main' && !github.event.pull_request.draft }}
         run: node web/scripts/changelog-section.mjs "$(jq -r .version web/package.json)" > /dev/null
       - run: pnpm install --frozen-lockfile
+      # The Rust API that a unit test of what goes through it starts on its own database (web/test/api.ts, ORR-1163).
+      # The runner has Rust already; the global setup's own `cargo build` then finds it built.
+      - run: cargo build --locked
+        working-directory: api
       # Every test on SQLite, then every unit test again on Postgres: the store's, the schema parity and upgrades, and
       # copies into it. Each keeps its coverage, and the two are counted together, so code only the Postgres run reaches
       # counts as tested (ORR-585).
@@ -72,7 +76,7 @@ jobs:
 
   # The Rust API (ORR-922, api/): its format, lints and own tests, then the store's parity with it on SQLite and on
   # Postgres (web/test/api-parity.test.ts), and its migrations against Node's (web/test/rust-migrations.test.ts): what the
-  # check job skips, having no binary. The runner has Rust already.
+  # check job leaves to it. The runner has Rust already.
   api:
     runs-on: ubuntu-latest
     services:
@@ -136,7 +140,7 @@ jobs:
           include-hidden-files: true
           retention-days: 1
 
-  # The unit coverage: the check job's runs and the api job's, which are the only ones with the binary, counted together.
+  # The unit coverage: the check job's runs and the api job's, counted together.
   coverage:
     needs: [check, api]
     runs-on: ubuntu-latest

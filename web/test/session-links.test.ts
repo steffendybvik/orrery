@@ -1,4 +1,6 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
+import {Store} from '../server/utils/store'
+import {apiTestDb, withApi} from './api'
 
 // Which session an issue is the work of, when a write names it (`Orrery-Session`): the issue an address
 // names. The one a write made or moved, which the address doesn't, the Rust API notes (`worked_by`). The
@@ -16,7 +18,6 @@ beforeEach(async () => {
         createComment: async (_project: string, _issue: string, body: object) => ({id: 1, ...body}),
         workedBy: async (project: string, issue: string, session: string) => void worked.push([project, issue, session]),
         claimed: async (_project: string, _issue: string, _status: unknown, _session: string, write: () => Promise<unknown>) => write(),
-        issue: async (_project: string, id: string) => id === 'GRE-7' ? {proposal: 'pending', labels: ['external']} : {labels: []},
     }
     vi.stubGlobal('defineEventHandler', (handler: unknown) => handler)
     vi.stubGlobal('getHeader', (event: Event, name: string) => event.headers[name])
@@ -64,13 +65,19 @@ describe("a session's writes", () => {
 
 describe("an untrusted schedule's session", () => {
     it('may only raise proposals and comment on them; any other write is refused', async () => {
+        // The issues it writes to are read through the Rust API (ORR-1163): GRE-1 a plain one, GRE-2 a proposal it raised.
+        const store = new Store(apiTestDb())
+        await store.createProject({name: 'greenhouse', key: 'GRE'})
+        await store.createIssue('greenhouse', {title: 'Water the tomatoes'})
+        await store.createIssue('greenhouse', {title: 'A greenhouse on Mars', proposal: 'pending', labels: ['external']})
+        await withApi(store)
         const guard = (await import('../server/middleware/untrusted')).default as unknown as (event: object) => Promise<void>
         const tries = async (method: string, path: string, session = 'locked') => guard(event(method, path, {}, undefined, session)).then(() => 'ok', (e: {statusCode: number}) => e.statusCode)
         expect(await tries('GET', '/api/projects/greenhouse/issues/GRE-1')).toBe('ok')
         expect(await tries('POST', '/api/projects/greenhouse/issues')).toBe('ok')
-        expect(await tries('POST', '/api/projects/greenhouse/issues/GRE-7/comments')).toBe('ok')
+        expect(await tries('POST', '/api/projects/greenhouse/issues/GRE-2/comments')).toBe('ok')
         expect(await tries('POST', '/api/projects/greenhouse/issues/GRE-1/comments')).toBe(403)
-        expect(await tries('PATCH', '/api/projects/greenhouse/issues/GRE-7')).toBe(403)
+        expect(await tries('PATCH', '/api/projects/greenhouse/issues/GRE-2')).toBe(403)
         expect(await tries('PUT', '/api/projects/greenhouse/docs/setup')).toBe(403)
         expect(await tries('POST', '/api/egress')).toBe(403)
         // Any other session writes as it always has.
