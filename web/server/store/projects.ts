@@ -42,6 +42,12 @@ export abstract class ProjectStore extends KeyStore {
         return (await this.projectRow(id)).id
     }
 
+    /** Whether the board is held out of pick lists (ORR-1224): uploaded from a file, its titles not yet let through to
+     * sessions by the owner. A 404 when there's none. */
+    async picksHeld(id: string): Promise<boolean> {
+        return !!(await this.projectRow(id)).picks_held
+    }
+
     /** The workspace the project is in (ORR-1109), or a 404 when there's none: `default` for a row from before
      * workspaces. */
     async projectWorkspace(id: string): Promise<string> {

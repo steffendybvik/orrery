@@ -32,6 +32,18 @@ const urgency = (issue: Pick<Issue, 'priority'>) => issue.priority ? RANK[issue.
  * (todo-focus.ts) both go by it. */
 export const forSessions = (issue: {assignee?: string | null}) => !issue.assignee || issue.assignee.toLowerCase() === 'claude'
 
+/** Whether no session may be handed the board's issues unasked (ORR-1224): it was uploaded from a file, whose titles
+ * nobody has checked, and the owner hasn't let sessions pick from it yet. Picking, `next`, the Todo hand-outs
+ * (todo-focus.ts) and carrying on to related work (clearing.ts) pass it over; the owner's own Focus on this doesn't. A
+ * board gone since is held too. */
+export async function heldFromPicks(project: string): Promise<boolean> {
+    try {
+        return await useStore().picksHeld(project)
+    } catch {
+        return true
+    }
+}
+
 /** Who may be handed an issue (ORR-656): `null` nobody; `{}` any session, as with one person; else the sessions of
  * `{person}`, the person whose work it is. The owner's own is theirs to work, as `forSessions` says, and a member's goes
  * to their agents. `member`: only they may be handed it, as it's their hand-out. */
@@ -46,11 +58,12 @@ export async function handedTo(project: string, issue: {assignee?: string | null
 /** The issues a session hearing `projects` may start: Todo, most urgent first (then
  * oldest), without proposals not yet approved, ones assigned to someone (`forSessions`), ones waiting on the owner's
  * answer, ones blocked by an issue not done yet (ORR-601), sub-issues of one another session is on (ORR-613), and parents
- * (their sub-issues are the work). At most PICK_FROM. */
+ * (their sub-issues are the work), on no board held out of pick lists (`heldFromPicks`). At most PICK_FROM. */
 async function pickable(projects: string[], person?: string): Promise<(IssueRecord & {project: string})[]> {
     const store = useStore()
     const open: (IssueRecord & {project: string})[] = []
     for (const project of projects) {
+        if (await heldFromPicks(project)) continue
         for (const issue of await store.listIssues(project)) {
             if (issue.proposal || issue.waiting || isBlocked(issue)) continue
             const to = await handedTo(project, issue)

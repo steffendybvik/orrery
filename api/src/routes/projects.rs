@@ -16,7 +16,7 @@ use axum::body::{to_bytes, Bytes};
 use axum::extract::{Path, Query, Request, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, post, put};
+use axum::routing::{delete, get, post, put};
 use axum::{Json, Router};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -31,6 +31,7 @@ pub(crate) fn routes() -> Router<Arc<App>> {
         .route(&format!("{P}/row"), get(project_row))
         .route(&format!("{P}/import"), post(import_project))
         .route(&format!("{P}/moved"), put(mark_moved).delete(unmark_moved))
+        .route(&format!("{P}/picks-held"), delete(let_pick))
         .route("/api/boards", post(upload_board))
 }
 
@@ -149,6 +150,18 @@ async fn moved(app: &App, project: &str, headers: &HeaderMap, to: Option<&str>) 
     projects.mark_moved(project, to, &actor_of(headers)).await?;
     let effects = std::mem::take(&mut projects.effects);
     let value = projects.project(project).await?;
+    Ok(reply(StatusCode::OK, Some(value), effects))
+}
+
+/// `DELETE /api/projects/{project}/picks-held` → the project, its sessions let pick from it (ORR-1224): a board uploaded
+/// from a file starts held out of pick lists, Todo hand-outs and `next`. The owner's alone, from their page; logged.
+async fn let_pick(State(app): Shared, Path(project): Path<String>, headers: HeaderMap) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    let mut projects = Projects::new(&mut conn);
+    projects.outbox = Some(Outbox::new(actor_of(&headers)));
+    projects.let_pick(&project, &actor_of(&headers)).await?;
+    let effects = std::mem::take(&mut projects.effects);
+    let value = projects.project(&project).await?;
     Ok(reply(StatusCode::OK, Some(value), effects))
 }
 

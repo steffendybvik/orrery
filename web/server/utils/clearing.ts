@@ -13,6 +13,7 @@ import type {Signal} from '#shared/roadmap'
 import {CARRY_FROM, CLOSED, byPriority, isBlocked, modelFor, sameScope} from '#shared/roadmap'
 import {heavyEnough} from './pool'
 import {writeToApi} from './api-router'
+import {heldFromPicks} from './pick'
 
 /** How long a session stays idle before it's cleared: a signal its channel has just handed Claude Code starts
  * another turn in that time, and then it isn't cleared. */
@@ -237,6 +238,8 @@ export function carryOn(project: string, id: string) {
 async function nextRelated(now: NonNullable<ReturnType<typeof sessionNow>>, id: string) {
     const ids = sessionIds(id)
     const store = useStore()
+    // Nor from a board uploaded from a file that the owner hasn't let sessions pick from yet (ORR-1224).
+    if (await heldFromPicks(now.project)) return undefined
     const issues = await store.listIssues(now.project)
     const parents = new Set((await store.workingOn(now.project, ids)).map(i => i.id))
     let after: string | undefined

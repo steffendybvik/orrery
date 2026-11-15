@@ -52,7 +52,7 @@ beforeEach(async () => {
     vi.stubGlobal('recheckIdle', () => void rechecked++)
     picked = []
     vi.stubGlobal('pickNext', async (_project: string, id: string) => void picked.push(id))
-    vi.stubGlobal('useStore', () => ({workKinds: async () => WORK_KINDS,
+    vi.stubGlobal('useStore', () => ({workKinds: async () => WORK_KINDS, picksHeld: async () => false,
         whoseWork: async (_project: string, assignee?: string | null) => whoseWork(assignee),
         workingOn: async (_project: string, _ids: string[]) => working.map(w => typeof w === 'string' ? {id: w} : w), waiting: async (_project: string, _ids: string[]) => waiting,
         async busy(project: string, ids: string[]) {
