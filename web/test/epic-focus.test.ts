@@ -1,7 +1,7 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 import {signalPayload} from '../server/utils/signal-payload'
-import {Store} from '../server/utils/store'
-import {testDb} from './db'
+import type {Store} from '../server/utils/store'
+import {apiStore} from './api'
 
 // Focus on this on an epic (ORR-987): a milestone-style focus for each project the epic has open issues in, narrowed to
 // the epic's issues (a sub-issue's through its parent), told to a session as the epic. Against a real store.
@@ -12,7 +12,7 @@ let store: Store
 let epic: number
 
 beforeEach(async () => {
-    store = new Store(testDb())
+    store = await apiStore()
     await store.createProject({name: 'shop', key: 'SHO'}, me)
     await store.createProject({name: 'api', key: 'API'}, me)
     await store.createProject({name: 'docs', key: 'WIK'}, me)

@@ -4,6 +4,7 @@ import {splitChecklist} from '../server/utils/schedule-checklist'
 import {Schedules} from '../server/utils/schedules'
 import {Store} from '../server/utils/store'
 import {testDb} from './db'
+import {apiStore} from './api'
 
 // An issue schedule's checklist as sub-issues (ORR-722): how the notes split, and what a run makes of them.
 const me = {name: 'skoll', owner: true}
@@ -53,13 +54,17 @@ describe('a run', () => {
     const make = (body: Record<string, unknown> = {}) => schedules.create('greenhouse', {title: 'Pre-release', cron: '0 9 * * *', timezone: 'UTC', notes: NOTES, milestone: '1', priority: 'P2', column: 'todo', ...body}, me)
     const run = async (id: number) => (await schedules.runNow('greenhouse', id, me))
 
-    beforeEach(async () => {
+    /** The store and what's built on it, on the API's database when `api` (ORR-1135): what sends a signal or reads who heard
+     * one goes through the API. */
+    async function setUp(api = false) {
         signals = []
-        store = new Store(testDb(), () => {}, signal => signals.push(signal))
+        store = (api ? await apiStore(() => {}, signal => signals.push(signal)) : new Store(testDb(), () => {}, signal => signals.push(signal)))
         await store.createProject({name: 'greenhouse', key: 'GRE'})
         await store.createMilestone('greenhouse', {title: 'Upkeep'})
         schedules = new Schedules(store)
-    })
+    }
+
+    beforeEach(() => setUp())
 
     it('makes a sub-issue for each line, in order, with the parent\'s priority, milestone and status', async () => {
         const made = await run((await make({labels: ['upkeep']})).id)
@@ -79,6 +84,7 @@ describe('a run', () => {
     })
 
     it('asks about the parent only, a P0 too, and only once it\'s all made', async () => {
+        await setUp(true)
         const asked = await run((await make({ask: true})).id)
         expect(asked.note).toBe('with 4 sub-issues; asked the sessions (0 listening)')
         expect(signals.map(s => s.issue)).toEqual([asked.issue])

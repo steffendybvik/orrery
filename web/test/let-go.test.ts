@@ -1,6 +1,6 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
-import {Store} from '../server/utils/store'
-import {testDb} from './db'
+import type {Store} from '../server/utils/store'
+import {apiStore} from './api'
 
 // A session whose turn an API error cut off (Claude Code's StopFailure) lets go of what it had in progress, on a real
 // store, with the session itself stubbed: back in Todo with nobody on it, and a comment saying why.
@@ -8,7 +8,7 @@ let store: Store
 let clearing: typeof import('../server/utils/clearing')
 
 beforeEach(async () => {
-    store = new Store(testDb())
+    store = await apiStore()
     await store.createProject({name: 'Greenhouse', key: 'GRE'})
     for (const title of ['Water the beds', 'Label the jars', 'Fix the gate']) await store.createIssue('greenhouse', {title})
     for (const id of ['GRE-1', 'GRE-2']) await store.updateIssue('greenhouse', id, {status: 'in-progress', assignee: 'claude'})

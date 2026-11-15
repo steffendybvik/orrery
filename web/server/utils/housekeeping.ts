@@ -17,7 +17,7 @@ async function compact(): Promise<boolean> {
 }
 
 export async function houseKeep(store: Store = useStore(), log: Pick<EventLog, 'note'> = useEventLog(), now = Date.now()) {
-    const signals = await store.pruneSignals(now)
+    const signals = await store.pruneSignals()
     let found = {uploads: 0, bytes: 0}
     if (now - swept >= SWEEP_EVERY) {
         found = await store.sweepUploads(now)

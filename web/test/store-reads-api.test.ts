@@ -8,18 +8,32 @@ import {failure} from './store-setup'
 const asked: string[] = []
 let replies: Record<string, unknown> = {}
 let writes: Record<string, unknown> = {}
+/** What went to the API's writes with no fallback, and with what. */
+const sent: {path: string, body: unknown}[] = []
 vi.mock('../server/utils/api-router', () => ({
     readFromApi: async (path: string) => {
         asked.push(path)
         return replies[path]
     },
     writeToApi: async (_method: string, path: string) => path in writes ? {reply: writes[path]} : undefined,
+    // The reads and writes with no fallback to the store (ORR-1135): one the test hasn't set up fails, as no API would.
+    readFromApiOnly: async (path: string) => {
+        asked.push(path)
+        if (!(path in replies)) throw new Error(`no reply set up for GET ${path}`)
+        return replies[path]
+    },
+    writeToApiOnly: async (method: string, path: string, body: unknown) => {
+        sent.push({path, body})
+        if (!(path in writes)) throw new Error(`no reply set up for ${method} ${path}`)
+        return writes[path]
+    },
 }))
 
 let store: Store
 
 beforeEach(async () => {
     asked.length = 0
+    sent.length = 0
     replies = {}
     writes = {}
     store = new Store(testDb())
@@ -100,9 +114,11 @@ describe("the store's reads through the Rust API (ORR-1162)", () => {
     it("hands a session the owner's unanswered comments as the API reads them (ORR-1161)", async () => {
         // None is in this database, so what's carried is the API's.
         replies['/api/projects/greenhouse/comments/unanswered'] = [{issue: 'GRE-1', body: 'Still waiting', created_by: 'owner', owned: true, assignee: null}]
+        writes['/api/projects/greenhouse/signals'] = {id: 1, project: 'greenhouse', kind: 'comment', delivered_to: []}
         expect(await store.carryUnanswered('greenhouse', 'sess-1')).toBe(1)
-        expect(await store.listSignals('greenhouse')).toEqual([expect.objectContaining({kind: 'comment', issue: 'GRE-1', note: 'Still waiting', target: 'sess-1'})])
+        expect(sent).toEqual([{path: '/api/projects/greenhouse/signals', body: expect.objectContaining({kind: 'comment', issue: 'GRE-1', note: 'Still waiting', target: 'sess-1'})}])
         // A member's session asks for their own words too.
+        replies['/api/projects/greenhouse/comments/unanswered?person=bo'] = []
         expect(await store.carryUnanswered('greenhouse', 'sess-2', 'bo')).toBe(0)
         expect(asked).toContain('/api/projects/greenhouse/comments/unanswered?person=bo')
     })
@@ -143,10 +159,6 @@ describe("the store's reads through the Rust API (ORR-1162)", () => {
         replies['/api/projects/greenhouse/issues/GRE-1/comments/4'] = {id: 4, issue: 'GRE-1', body: 'Done', created_by: 'claude'}
         await store.handOn('greenhouse', 'GRE-1', 4, {carry: false, notice: true}, {name: 'claude', owner: false})
         expect((await rows()).slice(before).filter(kind => kind === 'signal' || kind === 'notice')).toEqual([])
-        // With no API, the store writes the signal and its row here.
-        delete writes['/api/projects/greenhouse/signals']
-        await store.message('greenhouse', 1, 'Hi again')
-        await vi.waitFor(async () => expect((await rows()).slice(before)).toContain('signal'))
     })
 
     it("reads this orrery's settings from the API (ORR-1174)", async () => {

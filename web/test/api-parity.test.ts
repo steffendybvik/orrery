@@ -10,7 +10,7 @@ import {existsSync, mkdtempSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import {join, resolve} from 'node:path'
 import {fileURLToPath} from 'node:url'
-import {afterAll, beforeAll, describe, expect, it, vi} from 'vitest'
+import {afterAll, beforeAll, beforeEach, describe, expect, it, vi} from 'vitest'
 import sharp from 'sharp'
 import type {OrreryEvent} from '#shared/happenings'
 import type {Chat} from '#shared/roadmap'
@@ -105,6 +105,14 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
             void query.finally(() => inFlight.delete(query)).catch(() => {})
             return query
         }
+        // And for what it asks the API (the projects sharing a release, ORR-1135), as each read there is one in flight too.
+        const fromApi = (store as unknown as {fromApi: (path: string) => Promise<unknown>}).fromApi.bind(store)
+        ;(store as unknown as {fromApi: (path: string) => Promise<unknown>}).fromApi = path => {
+            const read = fromApi(path)
+            inFlight.add(read)
+            void read.finally(() => inFlight.delete(read)).catch(() => {})
+            return read
+        }
         // Both projects first, which on Postgres also lays the schema down before the API looks at it.
         for (const name of ['through-store', 'through-api']) await store.createProject({name, key: name === 'through-store' ? 'STO' : 'API'})
         // `orrery.example` stands for a name behind a proxy, listed as the owner would list it (ORR-1173).
@@ -118,7 +126,25 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
             })
             api.on('exit', code => fail(new Error(`the API stopped (${code}): ${said}`)))
         })
+        // The store's signals and who works what are the API's alone (ORR-1135): its side asks this API for them too.
     }, 30_000)
+
+    // What the router reads as it asks the API for the store, set again for each step, as some unstub every global.
+    beforeEach(() => {
+        // Through the runtime config, as a step's `vi.resetModules()` would leave `apiStarted` on a copy of the router.
+        const before = (globalThis as {useRuntimeConfig?: () => Record<string, unknown>}).useRuntimeConfig
+        vi.stubGlobal('useRuntimeConfig', () => ({...before?.(), apiUrl: url, apiToken: TOKEN, database: setting}))
+        vi.stubGlobal('databaseSetting', () => setting)
+        vi.stubGlobal('useStore', () => store)
+        vi.stubGlobal('useScheduler', () => ({changedElsewhere: () => {}}))
+        vi.stubGlobal('useEventLog', () => ({note: () => {}, activity: async () => {}}))
+    })
+
+    /** Leaves the store to its own database for a step that compares its own writes with the API's (the settings, the
+     * epics): with the API in front, its reads would be the API's. */
+    function storeOnItsOwn() {
+        vi.stubGlobal('useRuntimeConfig', () => ({database: setting}))
+    }
 
     afterAll(async () => {
         api?.kill()
@@ -575,36 +601,6 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         // Not a whole number: the route's `commentId` refuses it before the store is asked.
         expect((await viaApi('GET', `/issues/${ids['through-api']}/comments/abc`)).body).toEqual({message: 'No comment abc'})
         expect((await viaApi('GET', `/issues/${ids['through-api']}/comments/1.5`)).status).toBe(404)
-    })
-
-    it('reads a project\'s signals alike (ORR-1087)', async () => {
-        const ids: Record<string, string> = {}
-        for (const p of ['through-store', 'through-api']) {
-            const {id} = await store.createIssue(p, {title: 'Signal it'}, OWNER)
-            ids[p] = id
-            const add = (sql: string, ...binds: unknown[]) => store.db.run(sql, ...binds)
-            await add("INSERT INTO signals (project, issue, kind, created_by, owned, created_at) VALUES (?, ?, 'focus', 'owner', 1, '2026-11-10T10:00:00.000Z')", p, id)
-            await add("INSERT INTO signals (project, kind, note, via, target, delivered_to, instructions, model, created_by, owned, created_at) VALUES (?, 'message', 'Look', 'chat', 's1', '[\"orrery · Frøy\"]', '[\"Be brief\"]', 'opus', 'owner', 1, '2026-11-10T10:01:00.000Z')", p)
-            await add("INSERT INTO signals (project, issue, kind, note, created_by, owned, created_at) VALUES (?, ?, 'comment', 'Done?', 'owner', 1, '2026-11-10T10:02:00.000Z')", p, id)
-            await store.db.run('INSERT INTO issue_aliases (project, alias, issue) VALUES (?, ?, ?)', p, `${p === 'through-store' ? 'STO' : 'API'}-92`, id)
-        }
-        const first = async (p: string) => (await store.listSignals(p))[0]!.id
-        await both('every signal', p => viaStore(() => store.listSignals(p)), () => viaApi('GET', '/signals'))
-        await both('after the first', async p => viaStore(async () => store.listSignals(p, await first(p))), async () => viaApi('GET', `/signals?after=${await first('through-api')}`))
-        await both('after something not a number', p => viaStore(() => store.listSignals(p, Number('soon') || 0)), () => viaApi('GET', '/signals?after=soon'))
-        await both('about an issue', p => viaStore(() => store.listSignals(p, 0, 50, {issue: ids[p]})), () => viaApi('GET', `/signals?issue=${ids['through-api']}`))
-        await both('about an issue, by an id it had before', p => viaStore(() => store.listSignals(p, 0, 50, {issue: p === 'through-store' ? 'STO-92' : 'API-92'})), () => viaApi('GET', '/signals?issue=API-92'))
-        await both('about an issue that isn\'t there', p => viaStore(() => store.listSignals(p, 0, 50, {issue: 'X-404'})), () => viaApi('GET', '/signals?issue=X-404'))
-        await both('about a milestone', p => viaStore(() => store.listSignals(p, 0, 50, {milestone: '1'})), () => viaApi('GET', '/signals?milestone=1'))
-        await both('a project that isn\'t there', () => viaStore(() => store.listSignals('nowhere')), () => viaApi('GET', '/signals', undefined, AGENT, 'nowhere'))
-        // The latest signal's id, where the local app starts a session's stream from (ORR-1133).
-        expect((await viaApi('GET', '/signals/last')).body).toEqual({id: await store.lastSignal('through-api')})
-        await both('the last signal of a project that isn\'t there', () => viaStore(() => store.lastSignal('nowhere')), () => viaApi('GET', '/signals/last', undefined, AGENT, 'nowhere'))
-        expect(domainOf('GET', '/api/projects/p/signals')).toBe('signals, reading')
-        for (const [method, path] of [['GET', '/api/projects/p/signals/stream'], ['POST', '/api/projects/p/signals/3/delivered']])
-            expect(domainOf(method!, path!), `${method} ${path}`).toBeUndefined()
-        // Taken out again, as later steps read every signal on these projects as one about an issue.
-        await store.db.run("DELETE FROM signals WHERE project IN ('through-store', 'through-api')")
     })
 
     it('moves a session\'s issues to its new id alike (ORR-1132)', async () => {
@@ -3151,6 +3147,8 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         await store.db.run("INSERT INTO comments (project, issue, body, created_by, owned, created_at, updated_at) VALUES ('through-api', ?, 'Still waiting', 'owner', 1, ?, ?)", there.top, now, now)
         expect((await viaApi('GET', '/comments/unanswered')).body).toContainEqual(expect.objectContaining({issue: there.top, body: 'Still waiting', created_by: 'owner', owned: true}))
         for (const route of ['/issue-sessions', `/issues/${there.top}/dependents`]) expect(domainOf('GET', `/api/projects/through-api${route}`)).toBeUndefined()
+        // The latest signal's id, which a session started from orrery hears after (launches.ts).
+        expect((await viaApi('GET', '/signals/last')).body).toEqual({id: expect.any(Number)})
     })
 
     it('brings a board\'s file in alike, the local app checking it and the API writing it (ORR-1142)', async () => {
@@ -3332,6 +3330,8 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
     })
 
     it('reads and changes the settings alike, every one, and refuses a session (ORR-954)', async () => {
+
+        storeOnItsOwn()
         // The settings are the orrery's, so each side runs every step in turn on the same table, put back between them.
         type Step = [string, () => Promise<Outcome>, () => Promise<Outcome>]
         const step = (name: string, body: unknown, actor: Actor = OWNER): Step =>
@@ -3650,6 +3650,8 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
     })
 
     it('lists, reads, makes, changes, moves and deletes epics alike, telling what each did (ORR-1004)', async () => {
+
+        storeOnItsOwn()
         // The epics are the orrery's, so each side runs every step in turn on the same tables, put back between them,
         // their numbering too, so both make the same epics. Each project has a cog with a tooth to put in them.
         const cogs: Record<string, {cog: string, tooth: string}> = {}

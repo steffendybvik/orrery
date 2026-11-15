@@ -1,15 +1,14 @@
 // The owner: their name and things, their comments, the questions waiting on them, and the bell. The store, against a
 // fresh database with the project `greenhouse` (store-setup.ts).
 import {beforeEach, describe, expect, it} from 'vitest'
-import {Store} from '../server/utils/store'
-import {testDb} from './db'
-import type {Actor} from '../server/utils/store'
+import type {Store,Actor} from '../server/utils/store'
+import {apiStore} from './api'
 import {failure, storeSetup} from './store-setup'
 
 let store: Store
 
 beforeEach(async () => {
-    ({store} = await storeSetup())
+    ({store} = await storeSetup({api: true}))
 })
 
 describe('comments', () => {
@@ -77,7 +76,7 @@ describe("the owner's name", () => {
 
     it('tells open pages when renamed, with the settings, so they write as the new id', async () => {
         const told: string[] = []
-        const local = new Store(testDb(), () => {}, () => {}, () => {}, settings => told.push(settings.id))
+        const local = await apiStore(() => {}, () => {}, () => {}, settings => told.push(settings.id))
         await local.nameOwner({name: 'Skoll'})
         expect(told).toHaveLength(1)
     })
@@ -107,7 +106,7 @@ describe("the owner's name", () => {
 describe("the owner's comments", () => {
     it('go to the session last asked to focus on the issue, or to all', async () => {
         const sent: string[] = []
-        const local = new Store(testDb(), () => {}, signal => sent.push(`${signal.kind}:${signal.target ?? 'all'}:${signal.note}`))
+        const local = await apiStore(() => {}, signal => sent.push(`${signal.kind}:${signal.target ?? 'all'}:${signal.note}`))
         await local.createProject({name: 'greenhouse', key: 'GRE'})
         const me = {name: 'skoll', owner: true}
         const {id} = await local.createIssue('greenhouse', {title: 'A'})
@@ -266,7 +265,7 @@ describe("an owner's comment", () => {
 
     it('goes to the session that last worked the issue, while it can hear; else to every session', async () => {
         const sent: (string | undefined)[] = []
-        const local = new Store(testDb(), () => {}, signal => signal.kind === 'comment' && sent.push(signal.target))
+        const local = await apiStore(() => {}, signal => signal.kind === 'comment' && sent.push(signal.target))
         let listening = ['window-a', 'window-b']
         local.hears = (_project, session) => listening.includes(session)
         await local.createProject({name: 'greenhouse', key: 'GRE'})
@@ -285,7 +284,7 @@ describe("an owner's comment", () => {
 
     it('goes again, marked as an edit, when the owner changes its words', async () => {
         const sent: (string | null)[] = []
-        const local = new Store(testDb(), () => {}, signal => signal.kind === 'comment' && sent.push(signal.note ?? null))
+        const local = await apiStore(() => {}, signal => signal.kind === 'comment' && sent.push(signal.note ?? null))
         await local.createProject({name: 'greenhouse', key: 'GRE'})
         const {id} = await local.createIssue('greenhouse', {title: 'Shelves'})
         const comment = await local.createComment('greenhouse', id, {body: 'Use oak'}, owner)

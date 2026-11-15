@@ -1,4 +1,4 @@
-import {describe, expect, it} from 'vitest'
+import {describe, expect, it, vi} from 'vitest'
 import type {Store as StoreType} from '../server/utils/store'
 import {EXPORTED, NOT_EXPORTED, USED_ONLY, exportBoard} from '../server/utils/board-export'
 import {COPIED_TABLES} from '../server/utils/copy'
@@ -6,6 +6,9 @@ import {MIGRATIONS} from '../server/utils/migrations/sqlite'
 import {Store} from '../server/utils/store'
 import {Secrets} from '../server/utils/secrets'
 import {testDb} from './db'
+
+// No session is on anything, and the signals the set-up sends go nowhere but where they're kept (no-sessions.ts).
+vi.mock('../server/utils/api-router', async original => (await import('./no-sessions')).noSessions(await original()))
 
 // One board as one file (ORR-668). The round trip back in is on its upload's issue (ORR-670).
 const owner = {name: 'skoll', owner: true}

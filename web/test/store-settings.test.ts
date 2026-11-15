@@ -107,6 +107,8 @@ describe('statuses', () => {
     })
 
     it('narrow a milestone focus to an open one, by id or kind', async () => {
+        // The focus is a signal, which the API writes (ORR-1135).
+        ;({store} = await storeSetup({api: true}))
         const signal = async (status: string) => (await store.focusMilestone('greenhouse', '1', {status}, owner)).status
         expect(await signal('in-review')).toBe('in-review')
         expect(await signal('started')).toBe('started')

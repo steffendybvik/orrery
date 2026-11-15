@@ -11,8 +11,8 @@ import {signalWords} from '../../channel/signal-words.mjs'
 import {guideParts} from '../../channel/guide-sections.mjs'
 import {chatBrief} from '../server/utils/chats'
 import {signalPayload} from '../server/utils/signal-payload'
-import {Store} from '../server/utils/store'
-import {testDb} from './db'
+import type {Store} from '../server/utils/store'
+import {apiStore} from './api'
 
 // How much context orrery adds to a session (ORR-548): what Claude carries on every turn (the tool list, the server's
 // instructions) and what each signal brings. Sizes are in characters (a token is about four). Each budget is set just
@@ -123,7 +123,7 @@ describe('what a signal brings', () => {
     let store: Store
 
     beforeEach(async () => {
-        store = new Store(testDb())
+        store = await apiStore()
         await store.createProject({name: 'shop', key: 'SHO', release_mode: 'own'}, me)
         await store.createIssue('shop', {title: 'Pay with cards', priority: 'P2', status: 'todo', notes: 'Card payments at the till.'}, me)
         vi.stubGlobal('useScheduler', () => ({get: async () => ({id: 7, title: 'Nightly triage'})}))
@@ -156,7 +156,7 @@ describe('what a big milestone brings', () => {
     let milestone: string
 
     beforeEach(async () => {
-        store = new Store(testDb())
+        store = await apiStore()
         await store.createProject({name: 'shop', key: 'SHO', release_mode: 'own'}, me)
         milestone = (await store.createMilestone('shop', {title: 'Taking payments'})).id
         for (let n = 1; n <= 50; n++) await store.createIssue('shop', {title: `Take card payment number ${n} at the till`, priority: 'P2', status: 'todo', milestone}, me)
