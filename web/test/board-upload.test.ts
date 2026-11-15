@@ -1,10 +1,13 @@
-import {describe, expect, it} from 'vitest'
+import {describe, expect, it, vi} from 'vitest'
 import type {Store as StoreType} from '../server/utils/store'
 import {exportBoard} from '../server/utils/board-export'
 import {uploadBoard} from '../server/utils/board-upload'
 import {MIGRATIONS} from '../server/utils/migrations/sqlite'
 import {Store} from '../server/utils/store'
 import {testDb} from './db'
+
+// No session is on anything, and the signals the set-up sends go nowhere but where they're kept (no-sessions.ts).
+vi.mock('../server/utils/api-router', async original => (await import('./no-sessions')).noSessions(await original()))
 
 // A board's file brought in as a new board (ORR-670). The file is untrusted: nothing in it speaks for anyone.
 type Row = Record<string, unknown>
