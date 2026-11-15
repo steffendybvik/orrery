@@ -774,6 +774,8 @@ v-if="m.milestone" class="flex w-full flex-col gap-2 rounded-xl bg-well p-3 ring
       <li v-if="thinking" class="flex items-center px-1 py-2 text-lg text-faint" aria-live="polite" aria-label="Thinking…">
         <UiSpinner />
       </li>
+      <!-- Why its session can't start (a launcher too old, or one stuck on a prompt it won't answer, ORR-1198), in place of the spinner. -->
+      <li v-if="state" class="px-1 py-2 text-xs text-rose-700 dark:text-rose-400" aria-live="polite" data-testid="chat-problem">{{ chat!.problem }}</li>
     </ol>
 
     <!-- What its session asks permission for, answered here while the pane is open (ORR-750). -->

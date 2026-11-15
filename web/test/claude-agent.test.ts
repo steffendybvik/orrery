@@ -100,6 +100,13 @@ describe('the Claude adapter', () => {
             await vi.advanceTimersByTimeAsync(500)
             expect((await untrusted).stop).toContain('run claude in /repo once by hand')
 
+            // Its folder's MCP servers not approved yet: the owner's to answer, said at once (ORR-1198).
+            const asking = paneShowing('New MCP server found in this project: orrery')
+            const approval = claude.getPast(asking, {dir: '/repo'})
+            await vi.advanceTimersByTimeAsync(500)
+            expect((await approval).stuck).toContain("MCP servers in /repo's .mcp.json")
+            expect(asking.done).toEqual([])
+
             const quiet = paneShowing('nothing yet')
             const stuck = claude.getPast(quiet, {dir: '/repo'})
             await vi.advanceTimersByTimeAsync(30_000)

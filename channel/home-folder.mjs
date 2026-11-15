@@ -2,7 +2,7 @@
 // for an orrery's projects that have no repo, so a project needn't have one to get help or work done. One per orrery,
 // `~/.orrery/<orrery id>/home`, which the launcher sets up itself: the channel in its .mcp.json (serving every project,
 // the launch saying which it hears), orrery's hooks in .claude/settings.json (with no project fixed, as the launch's
-// ORRERY_PROJECT says it), and a CLAUDE.md saying there's no repo here. orrery never names the folder: the launcher
+// ORRERY_PROJECT says it) beside the channel's approval, and a CLAUDE.md saying there's no repo here. orrery never names the folder: the launcher
 // makes it from the orrery's id, and tells orrery nothing of where it is.
 import {mkdirSync, readFileSync, renameSync, writeFileSync} from 'node:fs'
 import {homedir} from 'node:os'
@@ -46,7 +46,11 @@ export function homeFiles({url, orrery, commands}) {
     const command = `ORRERY_URL=${url} ORRERY_ID=${orrery.id} ${commands.hook}`
     const hooks = Object.fromEntries(HOOK_EVENTS.map(event => [event, [{hooks: [{type: 'command', command, timeout: 5, ...ASYNC_EVENTS.includes(event) ? {async: true} : {}}]}]]))
     const json = value => `${JSON.stringify(value, null, 2)}\n`
-    return {server, files: {'.mcp.json': json(mcp), '.claude/settings.json': json({hooks}), 'CLAUDE.md': HOME_CLAUDE_MD}}
+    // Trusting the folder isn't enough: Claude Code asks once more before it runs a server from .mcp.json, and a
+    // session the launcher starts waits on that question with nobody there to answer it (ORR-1198). The folder is
+    // orrery's own, so its one server is approved here.
+    const settings = {enabledMcpjsonServers: [server], hooks}
+    return {server, files: {'.mcp.json': json(mcp), '.claude/settings.json': json(settings), 'CLAUDE.md': HOME_CLAUDE_MD}}
 }
 
 const readOr = path => {

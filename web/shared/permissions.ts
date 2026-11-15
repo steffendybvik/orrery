@@ -562,12 +562,12 @@ export const PERMISSIONS: Permission[] = [
     {
         id: 'sessions.report', area: 'Sessions', action: 'Say what a session is doing, from its hook, channel or launcher',
         why: 'It’s a session reporting on itself, which changes nothing on the roadmap.',
-        routes: ['POST /api/connects/:connect/report', 'POST /api/sessions', 'POST /api/sessions/:session/calls', 'POST /api/projects/:project/signals/:signal/delivered', 'POST /api/projects/:project/launches/running', 'POST /api/projects/:project/launches/:launch/claim', 'POST /api/projects/:project/launches/:launch/ended', 'POST /api/projects/:project/launches/:launch/screen'],
+        routes: ['POST /api/connects/:connect/report', 'POST /api/sessions', 'POST /api/sessions/:session/calls', 'POST /api/projects/:project/signals/:signal/delivered', 'POST /api/projects/:project/launches/running', 'POST /api/projects/:project/launches/:launch/claim', 'POST /api/projects/:project/launches/:launch/ended', 'POST /api/projects/:project/launches/:launch/screen', 'POST /api/projects/:project/launches/:launch/stuck'],
         session: {level: 'free'},
         chat: refused,
         untrusted: refused,
         member: onTheirBoards,
-        unnamed: ['POST /api/connects/:connect/report', 'POST /api/sessions', 'POST /api/sessions/:session/calls', 'POST /api/projects/:project/signals/:signal/delivered', 'POST /api/projects/:project/launches/running', 'POST /api/projects/:project/launches/:launch/claim', 'POST /api/projects/:project/launches/:launch/ended', 'POST /api/projects/:project/launches/:launch/screen'],
+        unnamed: ['POST /api/connects/:connect/report', 'POST /api/sessions', 'POST /api/sessions/:session/calls', 'POST /api/projects/:project/signals/:signal/delivered', 'POST /api/projects/:project/launches/running', 'POST /api/projects/:project/launches/:launch/claim', 'POST /api/projects/:project/launches/:launch/ended', 'POST /api/projects/:project/launches/:launch/screen', 'POST /api/projects/:project/launches/:launch/stuck'],
     },
     {
         id: 'events.report', area: 'This orrery', action: 'Report an error to the event log',

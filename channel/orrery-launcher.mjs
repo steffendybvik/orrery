@@ -533,7 +533,12 @@ async function getPast(id, dir) {
     if (!name) return
     const {stop: why, stuck} = await agent.getPast(paneOf(name), {dir})
     if (why) return stop(id, why)
-    if (stuck) log(`${name}: ${stuck}; if it's stuck on a prompt, answer it with: tmux attach -t ${name}`)
+    if (!stuck) return
+    const said = `${stuck}; if it's stuck on a prompt, answer it with: tmux attach -t ${name}`
+    log(`${name}: ${said}`)
+    // orrery says so in its event log, and on a chat, rather than waiting on a session that may never connect (ORR-1198).
+    const {api} = running.get(id) ?? {}
+    if (api) await fetch(`${api}/launches/${id}/stuck`, {method: 'POST', headers: {'Content-Type': 'application/json', ...authHeaders(api)}, body: JSON.stringify({why: said})}).catch(() => {})
 }
 
 /** Where a project's launches are, on its orrery. */

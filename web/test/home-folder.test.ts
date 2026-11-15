@@ -34,6 +34,8 @@ describe('the default folder', () => {
         expect(command).toBe(`ORRERY_URL=${URL} ORRERY_ID=orr_abc123 node "/Users/me/.orrery/bootstrap.mjs" hook`)
         expect(command).not.toContain('ORRERY_PROJECT')
         expect(Object.keys(settings.hooks)).toHaveLength(8)
+        // Approved, so a session started here doesn't wait on Claude Code asking whether to run it (ORR-1198).
+        expect(settings.enabledMcpjsonServers).toEqual([server])
         expect(readFileSync(join(dir, 'CLAUDE.md'), 'utf8')).toBe(HOME_CLAUDE_MD)
         // An untrusted schedule's session there loads only this folder's channel and hooks.
         const flags = lockedDown(dir, server)
@@ -45,6 +47,11 @@ describe('the default folder', () => {
         const dir = mkdtempSync(join(tmpdir(), 'orrery-home-'))
         setUpHome(dir, {url: URL, orrery: ORRERY, commands: commandsFor(BOOTSTRAP)})
         expect(setUpHome(dir, {url: URL, orrery: ORRERY, commands: commandsFor(BOOTSTRAP)})).toMatchObject({created: false, written: []})
+        // A folder set up before the channel was approved there gets the approval (ORR-1198).
+        const settings = join(dir, '.claude', 'settings.json')
+        const {enabledMcpjsonServers: _approved, ...before} = JSON.parse(readFileSync(settings, 'utf8'))
+        writeFileSync(settings, JSON.stringify(before))
+        expect(setUpHome(dir, {url: URL, orrery: ORRERY, commands: commandsFor(BOOTSTRAP)})).toMatchObject({written: ['.claude/settings.json']})
         writeFileSync(join(dir, 'CLAUDE.md'), 'something else')
         expect(setUpHome(dir, {url: URL, orrery: ORRERY, commands: commandsFor(BOOTSTRAP)})).toMatchObject({created: false, written: ['CLAUDE.md']})
     })

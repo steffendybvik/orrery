@@ -44,6 +44,9 @@ export const claude = {
             await wait(500)
             const screen = pane.read()
             if (/trust (the files in )?this folder/i.test(screen)) return {stop: `the folder isn't trusted yet: run claude in ${dir} once by hand and accept it`}
+            // A server in the folder's .mcp.json nobody has approved yet (ORR-1198): which to run there is the owner's
+            // to say, so it's left asking, and said at once rather than after the wait.
+            if (/New MCP servers? found in this project/i.test(screen)) return {stuck: `Claude Code is asking whether to use the MCP servers in ${dir}'s .mcp.json: run claude there once and pick "Use this MCP server"`}
             if (screen.includes('Loading development channels') && screen.includes('I am using this for local development')) {
                 pane.press('Enter')
                 return {}
