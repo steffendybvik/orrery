@@ -625,6 +625,15 @@ export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''),
     }
     const pick =(args, keys) => Object.fromEntries(keys.filter(k => args[k] !== undefined).map(k => [k, args[k]]))
     const line = i => `${i.id} [${[i.status, i.priority, i.assignee].filter(Boolean).join(', ')}] ${i.title}${i.proposal ? ` (proposal: ${i.proposal})` : ''}${i.blocked_by?.length ? ` (blocked by ${i.blocked_by.join(', ')})` : ''}`
+    /** An issue's sub-issues not yet done or canceled, most urgent first (none last), as the issue reply holds them. */
+    const openSubIssues = issue => (issue?.tasks ?? []).filter(t => !['done', 'canceled'].includes(t.kind))
+        .sort((a, b) => (a.priority ?? 'P9').localeCompare(b.priority ?? 'P9'))
+    /** What a session starting a parent hears (ORR-1197): its sub-issues are its work, and the parent closes last. */
+    const subIssuesRule = (id, open) => [
+        `${id} has ${open.length} open sub-issue${open.length === 1 ? '' : 's'}, and they're yours to work through, one at a time, most urgent first, after any they're blocked by:`,
+        ...open.map(line),
+        `Start and finish each as you go. One you can't do: comment on it why, leave it open, and say so on ${id}. Finish ${id} only once every sub-issue is done or canceled (with a comment why).`,
+    ].join('\n')
 
     const run = {
         async more_tools({group}) {
@@ -708,7 +717,10 @@ export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''),
             if (comment) await call('POST', `${issuePath(id)}/comments`, {body: comment}, base)
             // Unrelated to the issue it worked before, with that one's context still in: cleared once idle (ORR-968).
             const carried = issue.carried_over
-            return `Started ${line(issue)}${carried ? `\n\nThis is unrelated to ${carried.from}, and your context still holds about ${Math.round(carried.tokens / 1000)}k tokens of it. End your turn now without working on it: orrery clears your context, then sends you back to ${issue.id} to start it fresh.` : ''}`
+            if (carried) return `Started ${line(issue)}\n\nThis is unrelated to ${carried.from}, and your context still holds about ${Math.round(carried.tokens / 1000)}k tokens of it. End your turn now without working on it: orrery clears your context, then sends you back to ${issue.id} to start it fresh.`
+            // A parent's sub-issues are the work (ORR-1197): the session that starts it works through them itself.
+            const open = openSubIssues(issue)
+            return `Started ${line(issue)}${open.length ? `\n\n${subIssuesRule(issue.id, open)}` : ''}`
         },
         async next() {
             // The list is the session's own, across every project it hears: asked on the first, which it's on.
@@ -717,6 +729,11 @@ export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''),
         },
         async finish_issue({id, comment, status = 'done'}) {
             const base = at(await projectOf({id}))
+            // A parent is done only once each of its sub-issues is done or canceled (ORR-1197). Unread, it's left to orrery.
+            if (status === 'done') {
+                const open = openSubIssues(await call('GET', issuePath(id), undefined, base).catch(() => null))
+                if (open.length) return `${id} still has open sub-issues, so it isn't done yet:\n${open.map(line).join('\n')}\n\nFinish each, or cancel it with a comment why, then finish ${id}.`
+            }
             // The status first: refused, it leaves no "shipped" comment on an open issue for a retry to repeat.
             const issue = await call('PATCH', issuePath(id), {status}, base)
             await call('POST', `${issuePath(id)}/comments`, {body: comment}, base)
