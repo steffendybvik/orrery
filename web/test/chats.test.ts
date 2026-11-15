@@ -52,19 +52,18 @@ describe('handing work on an issue to a session (ORR-750)', () => {
     let started: {project: string, issue: string, actor: {owner: boolean, via: string}}[]
     const delegate = (issue: string) => chats.ask(CHAT, {delegate: {issue}})
 
-    beforeEach(() => {
+    beforeEach(async () => {
         started = []
-        const issues: Record<string, object> = {
-            'GRE-4': {id: 'GRE-4', kind: 'todo', status: 'todo'},
-            'GRE-40': {id: 'GRE-40', kind: 'todo', status: 'todo', aliases: ['OLD-1']},
-            'GRE-5': {id: 'GRE-5', kind: 'done', status: 'done'},
-            'GRE-6': {id: 'GRE-6', kind: 'backlog', status: 'backlog', proposal: 'pending'},
+        // On the board: GRE-4 to work, GRE-5 done, GRE-6 a proposal, and GRE-40, which was OLD-1 before it moved here.
+        for (let n = 1; n <= 39; n++) {
+            const status = n === 5 ? 'done' : n === 6 ? 'backlog' : 'todo'
+            await board.createIssue('greenhouse', {title: `Issue ${n}`, status, ...n === 6 ? {proposal: 'pending'} : {}})
         }
-        vi.stubGlobal('useStore', () => over({
-            messageSession: async () => {},
-            ownerOf: async () => ({name: 'skoll'}),
-            issue: async (_project: string, id: string) => issues[id] ?? Promise.reject(Object.assign(new Error(`No issue ${id}`), {statusCode: 404})),
-        }))
+        await board.createProject({name: 'old', key: 'OLD'})
+        await board.createIssue('old', {title: 'Moved in', status: 'todo'})
+        await board.updateIssue('old', 'OLD-1', {project: 'greenhouse'})
+        await board.nameOwner({name: 'Skoll'})
+        vi.stubGlobal('useStore', () => over({messageSession: async () => {}}))
         vi.stubGlobal('startLaunch', async (project: string, {issue, actor}: {issue: string, actor: {owner: boolean, via: string}}) => {
             started.push({project, issue, actor})
             return {id: 'l1'}
@@ -124,10 +123,10 @@ describe('handing work on an issue to a session (ORR-750)', () => {
 
     it("refuses what isn't work: finished, a proposal, or no such issue", async () => {
         await chats.openChat('greenhouse')
-        await chats.say(CHAT, 'GRE-5, GRE-6 and GRE-9', [], owner)
+        await chats.say(CHAT, 'GRE-5, GRE-6 and GRE-99', [], owner)
         await expect(delegate('GRE-5')).rejects.toThrow('no work to hand over')
         await expect(delegate('GRE-6')).rejects.toThrow("isn't work yet")
-        await expect(delegate('GRE-9')).rejects.toMatchObject({statusCode: 404})
+        await expect(delegate('GRE-99')).rejects.toMatchObject({statusCode: 404})
         await expect(chats.ask(CHAT, {delegate: {}})).rejects.toMatchObject({statusCode: 400})
         expect(started).toEqual([])
     })
