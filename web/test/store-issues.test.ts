@@ -77,7 +77,8 @@ describe('issues', () => {
         expect(await store.issue('greenhouse', a)).toMatchObject({assignee: 'claude', labels: ['bug', 'ui']})
         expect((await store.listIssues('greenhouse', {label: 'ui'})).map(i => i.id)).toEqual([a])
         expect((await store.listIssues('greenhouse', {assignee: 'none'})).map(i => i.id)).toEqual([b])
-        expect(await store.updateIssue('greenhouse', a, {labels: null, assignee: null})).toMatchObject({labels: [], assignee: undefined})
+        const cleared = await store.updateIssue('greenhouse', a, {labels: null, assignee: null})
+        expect([cleared.labels, cleared.assignee]).toEqual([[], undefined])
         expect((await failure(() => add({title: 'x', labels: 'bug'}))).status).toBe(400)
     })
 

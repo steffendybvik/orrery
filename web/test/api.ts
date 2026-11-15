@@ -21,7 +21,9 @@ import type {Db} from '../server/utils/database'
 import {SqliteDb} from '../server/utils/database'
 import {openDb} from '../server/utils/db'
 import {PostgresDb} from '../server/utils/postgres'
-import {Store} from '../server/utils/store'
+import type {Actor} from '../server/utils/store'
+import {AGENT, Store} from '../server/utils/store'
+import type {Settings} from '#shared/roadmap'
 import {forgetRoster} from '../server/utils/roster'
 
 const API_BIN = process.env.ORRERY_API_BIN || fileURLToPath(new URL('../../api/target/debug/orrery-api', import.meta.url))
@@ -105,6 +107,13 @@ export async function apiStore(...rest: ConstructorParameters<typeof Store> exte
     const store = new Store(apiTestDb(), ...rest)
     await withApi(store)
     return store
+}
+
+/** Changes the orrery's settings through the API (`PATCH /api/settings`, as `actor`), where they're kept: the store's
+ * own settings write is gone from what a server does (ORR-1135). The settings as they are now, or the API's refusal. */
+export async function apiSettings(body: Record<string, unknown>, actor: Actor = AGENT): Promise<Settings> {
+    const {writeToApiOnly} = await import('../server/utils/api-router')
+    return await writeToApiOnly('PATCH', '/api/settings', body, actor) as Settings
 }
 
 /** What points the router at this test's API (`apiUrl`, `apiToken`) and names its database, for a test that stubs

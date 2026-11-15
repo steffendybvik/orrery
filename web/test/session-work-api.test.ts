@@ -15,6 +15,15 @@ vi.mock('../server/utils/api-router', () => ({
         asked.push(`${method} ${path} ${JSON.stringify(body)}`)
         return {reply: null}
     },
+    // The same, with no fallback to the store (ORR-1135).
+    readFromApiOnly: async (path: string) => {
+        asked.push(`GET ${path}`)
+        return replies[path]
+    },
+    writeToApiOnly: async (method: string, path: string, body: unknown) => {
+        asked.push(`${method} ${path} ${JSON.stringify(body)}`)
+        return null
+    },
 }))
 
 let store: Store

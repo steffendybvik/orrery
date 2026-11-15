@@ -2,9 +2,9 @@
 // project `greenhouse` (store-setup.ts).
 import {beforeEach, describe, expect, it} from 'vitest'
 import {total} from '#shared/roadmap'
-import type {Store, type Actor} from '../server/utils/store';
+import type {Store, Actor} from '../server/utils/store'
 import {startsNone} from '../server/utils/starts-none'
-import {apiStore} from './api'
+import {apiSettings, apiStore} from './api'
 import {failure, storeSetup} from './store-setup'
 
 let store: Store
@@ -60,7 +60,8 @@ describe('proposals', () => {
         expect([approved.proposal, approved.column, approved.decided_by, approved.decision_note]).toEqual([undefined, 'todo', 'skoll', 'Go'])
         // One whose work went ahead while it waited keeps where it got to.
         const done = await store.createIssue('greenhouse', {title: 'Done already', proposal: 'pending', status: 'done'})
-        expect((await store.decide('greenhouse', done.id, {decision: 'approved'}, owner))).toMatchObject({column: 'done', proposal: undefined})
+        const decided = await store.decide('greenhouse', done.id, {decision: 'approved'}, owner)
+        expect([decided.column, decided.proposal]).toEqual(['done', undefined])
         const started = await store.createIssue('greenhouse', {title: 'Started', proposal: 'pending', status: 'in-progress'})
         expect((await store.decide('greenhouse', started.id, {decision: 'approved'}, owner)).status).toBe('in-progress')
         expect((await store.listComments('greenhouse', id)).at(-1)?.body).toBe('Approved this proposal.\n\nGo')
@@ -91,11 +92,11 @@ describe('proposals', () => {
         expect((await store.updateIssue('greenhouse', id, {proposal: 'pending', assignee: 'claude'}, claude)).proposal).toBe('pending')
         // The owner moves it as they like; with the setting off, so can an agent.
         expect((await store.updateIssue('greenhouse', id, {status: 'in-progress'}, owner)).status).toBe('in-progress')
-        expect((await failure(() => store.updateSettings({restrict_proposals: false}, claude))).status).toBe(403)
-        await store.updateSettings({restrict_proposals: false}, owner)
+        expect((await failure(() => apiSettings({restrict_proposals: false}, claude))).status).toBe(403)
+        await apiSettings({restrict_proposals: false}, owner)
         expect((await store.updateIssue('greenhouse', id, {status: 'todo'}, claude)).status).toBe('todo')
         // Approved, it's work like any other.
-        await store.updateSettings({restrict_proposals: true}, owner)
+        await apiSettings({restrict_proposals: true}, owner)
         await store.decide('greenhouse', id, {decision: 'approved'}, owner)
         expect((await store.updateIssue('greenhouse', id, {status: 'in-progress'}, claude)).status).toBe('in-progress')
     })

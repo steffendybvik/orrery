@@ -51,7 +51,8 @@ describe('what goes out', () => {
         const id = await add({assignee: 'hati'})
         await store.workedBy('greenhouse', id, 'skoll-a')
         await store.focus('greenhouse', id, {}, owner)
-        expect(last()).toMatchObject({person: 'hati', protected: true, target: undefined})
+        expect(last()).toMatchObject({person: 'hati', protected: true})
+        expect(last()?.target).toBeUndefined()
     })
 
     it('as the owner pointing at someone else\'s issue takes it over, for their own', async () => {

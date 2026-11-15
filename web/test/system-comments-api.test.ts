@@ -18,6 +18,15 @@ vi.mock('../server/utils/api-router', () => ({
     },
     // No API to read the settings from: the store answers.
     settingsNow: async () => await store.settings(),
+    // Nobody is on an issue, and a signal the comment sets off is kept (ORR-1135): the API's alone, with no fallback.
+    readFromApiOnly: async (path: string) => {
+        if (path.endsWith('/workers') || path.includes('/signals?waiting=')) return []
+        throw new Error(`no reply set up for GET ${path}`)
+    },
+    writeToApiOnly: async (method: string, path: string, body: unknown) => {
+        if (path.endsWith('/signals')) return {id: 1, project: 'shop', delivered_to: [], ...body as object}
+        throw new Error(`no reply set up for ${method} ${path}`)
+    },
 }))
 
 let store: Store
@@ -45,15 +54,6 @@ describe("orrery's own words through the Rust API (ORR-1094)", () => {
         expect(sent.every(s => s.always === true && (s.actor as {name: string}).name === 'orrery')).toBe(true)
         expect(told).toEqual(['pr.merged', 'pr.risky_merged'])
         expect(await count()).toBe(0)
-    })
-
-    it('writes them here without the API', async () => {
-        inFront = false
-        await store.systemComment('shop', 'SHO-1', 'Merged.', 'pr.merged')
-        await store.systemNote('shop', 'SHO-1', 'Moved to Done.')
-        await store.systemAsk('shop', 'SHO-1', 'Review it.', 'pr.risky_merged')
-        expect(sent).toEqual([])
-        expect(await count()).toBe(3)
     })
 
     it("sends a merge's release, its cleared ask and its move to Done there too", async () => {

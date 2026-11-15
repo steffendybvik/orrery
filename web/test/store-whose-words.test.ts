@@ -41,7 +41,8 @@ describe('a comment', () => {
     it('from a member goes to one of theirs when nobody\'s on their issue', async () => {
         const id = await add({assignee: 'hati'})
         await store.createComment('greenhouse', id, {body: 'Use the blue ones'}, hati)
-        expect(lastSignal()).toMatchObject({target: undefined, person: 'hati', protected: false})
+        expect(lastSignal()).toMatchObject({person: 'hati', protected: false})
+        expect(lastSignal()?.target).toBeUndefined()
     })
 
     it('from a member never goes to another person\'s session, or wakes anyone on someone else\'s issue', async () => {
@@ -107,7 +108,8 @@ describe('a focus', () => {
         const id = await add({assignee: 'hati'})
         await store.workedBy('greenhouse', id, 'skoll-a')
         await store.focus('greenhouse', id, {}, hati)
-        expect(lastSignal()).toMatchObject({kind: 'focus', target: undefined, person: 'hati', protected: false})
+        expect(lastSignal()).toMatchObject({kind: 'focus', person: 'hati', protected: false})
+        expect(lastSignal()?.target).toBeUndefined()
         await store.focus('greenhouse', id, {session: 'hati-b'}, hati)
         expect(lastSignal()).toMatchObject({target: 'hati-b', person: 'hati'})
     })
