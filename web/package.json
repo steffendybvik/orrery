@@ -17,7 +17,7 @@
     "test:e2e": "E2E_WHOLE=1 playwright test",
     "test:e2e:visual": "scripts/e2e-visual.sh",
     "test:e2e:perf": "playwright test --config playwright.perf.config.ts",
-    "test:e2e:login": "playwright test --config playwright.login.config.ts",
+    "test:e2e:login": "playwright test --config playwright.login.config.ts && playwright test --config playwright.signup.config.ts",
     "test:e2e:restart": "([ -n \"$RESTART_NO_BUILD\" ] || (cargo build --quiet --manifest-path ../api/Cargo.toml && nuxt build)) && playwright test --config playwright.restart.config.ts",
     "images:readme": "playwright test --config playwright.readme.config.ts",
     "soak": "node scripts/soak.mjs",

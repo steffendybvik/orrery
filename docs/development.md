@@ -246,7 +246,10 @@ Linux the spec skips; `pnpm test:e2e:visual` (in `web/`) runs it in CI's Playwri
 `pnpm test:e2e:visual -- --update-snapshots` remakes the images after a change that's meant to show.
 
 `pnpm test:e2e:login` runs `e2e/login/` on an orrery of its own with `ORRERY_AUTH=on` and a fresh `web/.data/e2e-login.db`, as
-the flows' stays one person's: the login page, signing in with a key, Settings' keys and logging out.
+the flows' stays one person's: the login page, signing in with a key, Settings' keys and logging out. Then it runs
+`e2e/signup/` on another, with a fresh `web/.data/e2e-signup.db` and a login provider of its own (`scripts/e2e-oidc.mjs`),
+as a provider takes the key box off the login page: the first account in becomes the owner, someone new signs up into a
+workspace of their own, and neither sees the other's projects, workspaces or events.
 
 `pnpm test:e2e:restart` builds the app and runs `e2e/restart/` on it, with a fresh `web/.data/e2e-restart.db`: the spec
 stops and starts the server itself, to check what outlives a restart (the owner's chats). `RESTART_NO_BUILD=1` skips the build.
