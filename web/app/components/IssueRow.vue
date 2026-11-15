@@ -15,9 +15,13 @@ import {total} from '#shared/roadmap'
 // On a phone (under `sm`, ORR-1218) the title has the room: it wraps to two lines, the id sits small
 // under it rather than in a column of its own, a level is half as far in (`--indent`), and only the
 // line from the parent is drawn, not those of the levels above it.
+//
+// Each thing is said once (ORR-1217): in a group named for a status (`group`, the list's column), a row in it has no
+// status chip; waiting on the owner is the row's tint and edge, and a violet dot whose tooltip says which ask; and one
+// label shows, the rest as a count.
 const {byId} = useRoadmaps()
-const props = withDefaults(defineProps<{issue: Issue, project: string, depth?: number, milestone?: {id: string, title: string}, nested?: boolean, rails?: boolean[], last?: boolean}>(),
-    {depth: 0, milestone: undefined, nested: false, rails: () => [], last: true})
+const props = withDefaults(defineProps<{issue: Issue, project: string, depth?: number, milestone?: {id: string, title: string}, nested?: boolean, rails?: boolean[], last?: boolean, group?: string}>(),
+    {depth: 0, milestone: undefined, nested: false, rails: () => [], last: true, group: undefined})
 const RAIL = 19
 const railAt = (level: number) => `calc(${RAIL}px + ${level} * var(--indent))`
 const childRails = computed(() => props.depth ? [...props.rails, !props.last] : [])
@@ -40,6 +44,9 @@ const worker = computed(() => isClosed(props.issue.kind) ? undefined : workerOf(
 const {look} = useStatuses()
 // The status in words once: the issue's own, or for a parent the column its sub-issues put it in.
 const shown = computed(() => isParent.value ? props.issue.column : props.issue.status)
+// Its group's header already says it, when the row sits in the column the group is named for.
+const saysStatus = computed(() => props.issue.column !== props.group)
+const waitingLabel = computed(() => pendingProposal(props.issue) ? 'Proposal: decision needed' : props.issue.waiting === 'decision' ? 'Decision needed' : 'Feedback needed')
 </script>
 
 <template>
@@ -75,11 +82,8 @@ const shown = computed(() => isParent.value ? props.issue.column : props.issue.s
         <span class="min-w-0 max-sm:line-clamp-2 max-sm:leading-snug sm:truncate" :class="[isClosed(issue.kind) ? 'text-muted' : 'text-fg', unseen ? 'font-semibold' : '']"><InlineText :text="issue.title" /></span>
         <span class="font-mono text-[10px] leading-tight text-faint sm:hidden">{{ issue.id }}</span>
       </span>
-      <template v-if="issue.waiting">
-        <WaitingChip :asks="issue.waiting" :proposal="pendingProposal(issue)" class="max-sm:hidden" />
-        <!-- On a phone the title needs the room: the chip's dot alone, the row tinted as ever. -->
-        <span class="size-2 shrink-0 rounded-full bg-violet-500 sm:hidden" role="img" :aria-label="issue.waiting === 'decision' ? 'Decision needed' : 'Feedback needed'" :title="issue.waiting === 'decision' ? 'Decision needed' : 'Feedback needed'" />
-      </template>
+      <!-- The row's tint and edge say it waits on the owner; the dot's tooltip says what for. -->
+      <span v-if="issue.waiting" class="size-2 shrink-0 rounded-full bg-violet-500" role="img" :aria-label="waitingLabel" :title="waitingLabel" />
       <BlockedChip v-if="issue.blocked_by?.length" :blockers="issue.blocked_by" class="max-sm:hidden" />
       <RiskChip v-if="issue.risk && issue.risk.level !== 'low'" :risk="issue.risk" class="max-sm:hidden" />
       <span v-if="issue.schedule" class="shrink-0 text-faint" title="Made by a schedule"><SectionIcon section="schedules" class="size-3" /></span>
@@ -99,13 +103,13 @@ const shown = computed(() => isParent.value ? props.issue.column : props.issue.s
     >{{ {approved: 'Approved', changes: 'Changes asked', rejected: 'Rejected'}[issue.proposal] }}</span>
     <span class="hidden shrink-0 items-center gap-1 lg:flex">
       <GithubIssueChip v-for="github in issue.github_issues.slice(0, 1)" :key="github" :issue="github" :repo="byId(project)?.repo" />
-      <LabelChip v-for="label in issue.labels.slice(0, 2)" :key="label" :label="label" />
-      <span v-if="issue.labels.length > 2" class="text-[11px] text-faint">+{{ issue.labels.length - 2 }}</span>
+      <LabelChip v-for="label in issue.labels.slice(0, 1)" :key="label" :label="label" />
+      <span v-if="issue.labels.length > 1" class="text-[11px] text-faint" :title="issue.labels.slice(1).join(', ')">+{{ issue.labels.length - 1 }}</span>
     </span>
     <span v-if="issue.comments" class="hidden shrink-0 items-center gap-1 text-[11px] text-faint sm:flex" :title="`${issue.comments} comments`">
       <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M4 5h16v11H9l-5 4V5Z" /></svg>{{ issue.comments }}
     </span>
-    <span class="hidden h-5 shrink-0 items-center rounded-full px-2 text-[11px] font-medium ring-1 ring-line md:inline-flex" :style="{color: readable(look(shown).color)}">{{ look(shown).label }}</span>
+    <span v-if="saysStatus" class="hidden h-5 shrink-0 items-center rounded-full px-2 text-[11px] font-medium ring-1 ring-line md:inline-flex" :style="{color: readable(look(shown).color)}">{{ look(shown).label }}</span>
     <ClaimMark :issue="issue" />
     <PersonAvatar v-if="issue.assignee" :name="issue.assignee" />
     <span v-else class="size-[18px] shrink-0 rounded-full border border-dashed border-faint/50" title="No assignee" />
@@ -119,6 +123,7 @@ const shown = computed(() => isParent.value ? props.issue.column : props.issue.s
         :depth="depth + 1"
         :rails="childRails"
         :last="i === issue.tasks.length - 1"
+        :group="group"
         nested
     />
   </template>
