@@ -17,6 +17,9 @@ const ACROSS_FIELDS = ['kind', 'title', 'notes', 'presets', 'cron', 'on', 'on_fi
 // Ids, as the server checks them (board_upload.rs).
 const SLUG = /^[a-z0-9][a-z0-9-]{0,39}$/
 const KEY = /^[A-Z][A-Z0-9]{0,9}$/
+/** How a milestone's, an epic's, a doc's, a checklist's, a preset's or a schedule's full id starts, so no project's key
+ * (RESERVED_KEYS in shared/roadmap/board.ts and text.rs). An orrery from before they were reserved can have one. */
+export const RESERVED_KEYS = ['MLS', 'EPC', 'DOC', 'CHK', 'PST', 'SCH']
 
 /** The id itself when it's free, else the first of `id-2`, `id-3`… that is, within the 40 characters an id has. */
 export function freeId(id, taken) {
@@ -40,14 +43,14 @@ export function freeKey(key, taken) {
 
 /**
  * Where each source project goes on the target: its own id and key where they're free, renamed where the target (or a
- * project earlier in the list) has them. A project that releases from another comes after it, so its `releases_from`
+ * project earlier in the list) has them, or its key is reserved. A project that releases from another comes after it, so its `releases_from`
  * finds the board there. `already`: the projects of the workspace being added to; one with a source project's id or name
  * is taken to be it, brought in before, and left alone.
  */
 export function planProjects(source, target, already = []) {
     const there = project => already.find(p => p.id === project.id || p.name.toLowerCase() === project.name.toLowerCase())
     const ids = new Set(target.map(p => p.id))
-    const keys = new Set(target.map(p => p.key))
+    const keys = new Set([...target.map(p => p.key), ...RESERVED_KEYS])
     const ordered = []
     const placed = new Set()
     const byId = new Map(source.map(p => [p.id, p]))
@@ -190,8 +193,10 @@ export function summary(report) {
         const counts = p.counts ? `  ${p.counts.issues} issues, ${p.counts.comments} comments, ${p.counts.docs} docs, ${p.counts.schedules} schedules` : ''
         if (p.skipped) lines.push(`  ${p.from}: already in the workspace${p.id !== p.from ? ` as ${p.id}` : ''}, left alone`)
         else if (p.renamed) {
-            const taken = [p.id !== p.from && 'id', p.key !== p.fromKey && 'key'].filter(Boolean).join(' and ')
-            lines.push(`  ${p.from} → ${p.id} (key ${p.fromKey} → ${p.key}): renamed, as the target has its ${taken}${counts}`)
+            const reserved = RESERVED_KEYS.includes(p.fromKey)
+            const taken = [p.id !== p.from && 'id', p.key !== p.fromKey && !reserved && 'key'].filter(Boolean).join(' and ')
+            const why = [taken && `the target has its ${taken}`, reserved && `${p.fromKey} is how another kind of id starts`].filter(Boolean).join(', and ')
+            lines.push(`  ${p.from} → ${p.id} (key ${p.fromKey} → ${p.key}): renamed, as ${why}${counts}`)
         }
         else lines.push(`  ${p.id} (${p.key})${counts}`)
         if (p.error) lines.push(`    failed: ${p.error}`)

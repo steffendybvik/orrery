@@ -1,5 +1,6 @@
 import {describe, expect, it} from 'vitest'
-import {freeId, freeKey, importOrrery, laterLinks, parseArgs, planProjects, planStatuses, prepareFile, rewriteLinks, summary} from '../scripts/import-orrery.mjs'
+import {RESERVED_KEYS} from '../shared/roadmap/board'
+import {RESERVED_KEYS as SCRIPT_RESERVED, freeId, freeKey, importOrrery, laterLinks, parseArgs, planProjects, planStatuses, prepareFile, rewriteLinks, summary} from '../scripts/import-orrery.mjs'
 
 // `pnpm orrery:import` (ORR-1110): a whole orrery brought in as a new workspace of another. Its planning is pure, so it's
 // tested here; the upload it ends in is the Rust API's, tested in board_upload_tests.rs.
@@ -28,6 +29,12 @@ describe('planProjects', () => {
         expect(plan[0]).toMatchObject({id: 'core', key: 'ORR2', renamed: true})
         expect(plan[1]).toMatchObject({id: 'app', key: 'APP', renamed: false})
         expect(plan[2]).toMatchObject({id: 'docs', skipped: true})
+    })
+
+    it('renames a key the target reserves, which an older orrery can have', () => {
+        expect(SCRIPT_RESERVED).toEqual(RESERVED_KEYS)
+        const plan = planProjects([{id: 'checkout', key: 'CHK', name: 'Checkout'}, {id: 'docs', key: 'DOC', name: 'Docs'}], [])
+        expect(plan.map(p => [p.id, p.key, p.renamed])).toEqual([['checkout', 'CHK2', true], ['docs', 'DOC2', true]])
     })
 })
 
