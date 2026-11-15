@@ -86,7 +86,7 @@ onMounted(() => nextTick(() => {
     </template>
   </ViewToolbar>
 
-  <div class="min-h-0 flex-1" :class="view === 'list' ? 'overflow-y-auto' : 'overflow-hidden'">
+  <div class="min-h-0 flex-1" :class="view === 'list' ? 'clear-agent overflow-y-auto' : 'overflow-hidden'">
     <template v-if="project">
       <div v-if="!project.board.milestones.length" class="mx-auto flex max-w-xl flex-col gap-3 px-4 py-20 text-center">
         <p class="text-sm text-muted">{{ project.name }} has no issues yet.</p>
