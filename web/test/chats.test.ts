@@ -3,6 +3,7 @@ import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 import type {Chat} from '#shared/roadmap'
 import {Store} from '../server/utils/store'
 import {testDb} from './db'
+import {apiTestDb, withApi} from './api'
 import type {Db} from '../server/utils/database'
 
 // The owner's chats live in the module, with Nitro's auto-imports stubbed: its launch, and the message to its session.
@@ -10,8 +11,13 @@ let chats: typeof import('../server/utils/chats')
 let changes: Chat[]
 let messages: {project: string, target: string, text: string}[]
 let stopped: string[]
+/** The board the chats are on, with the Rust API in front of it: where a chat and its messages are kept (ORR-1135). */
+let board: Store
 
 beforeEach(async () => {
+    board = new Store(apiTestDb())
+    await board.createProject({name: 'greenhouse', key: 'GRE'})
+    await withApi(board)
     changes = []
     messages = []
     stopped = []
@@ -21,27 +27,22 @@ beforeEach(async () => {
     vi.stubGlobal('startChat', async (project: string, context: {text: string}) => ({id: 'c1c2c3c4c5c6', project, context}))
     vi.stubGlobal('launchTarget', (id: string) => `launch-${id}`)
     vi.stubGlobal('endLaunch', (_project: string, id: string) => stopped.push(id))
-    vi.stubGlobal('useStore', () => ({messageSession: async (project: string, target: string, text: string) => void messages.push({project, target, text})}))
+    vi.stubGlobal('useStore', () => over({messageSession: async (project: string, target: string, text: string) => void messages.push({project, target, text})}))
     vi.stubGlobal('notFound', (message: string) => Object.assign(new Error(message), {statusCode: 404}))
     vi.stubGlobal('badRequest', (message: string) => Object.assign(new Error(message), {statusCode: 400}))
     vi.stubGlobal('currentId', (id: string) => id)
     vi.stubGlobal('sessionOfLaunch', () => undefined)
-    // Where a chat is kept (ORR-877): nowhere, but in the tests of it below, though its messages' ids run on (ORR-1100).
-    let lines = 0
-    vi.stubGlobal('useDatabase', () => ({
-        run: async (sql: string) => {
-            if (sql.startsWith('INSERT INTO chat_messages')) lines++
-            return {changes: 0}
-        },
-        all: async () => [],
-        get: async () => ({n: lines}),
-        transaction: async <T>(work: () => Promise<T>) => await work(),
-    }))
+    vi.stubGlobal('useEventLog', () => ({note: () => {}}))
     vi.resetModules()
     chats = await import('../server/utils/chats')
 })
 
 afterEach(() => vi.unstubAllGlobals())
+
+/** A test's store: what it says of `methods`, and the board's own for the rest, as the router asks it too. */
+function over(methods: object): Store {
+    return Object.assign(Object.create(board) as Store, methods)
+}
 
 const owner = {name: 'skoll', owner: true}
 const image = 'e961abaa8718ef8efe55380b'
@@ -59,7 +60,7 @@ describe('handing work on an issue to a session (ORR-750)', () => {
             'GRE-5': {id: 'GRE-5', kind: 'done', status: 'done'},
             'GRE-6': {id: 'GRE-6', kind: 'backlog', status: 'backlog', proposal: 'pending'},
         }
-        vi.stubGlobal('useStore', () => ({
+        vi.stubGlobal('useStore', () => over({
             messageSession: async () => {},
             ownerOf: async () => ({name: 'skoll'}),
             issue: async (_project: string, id: string) => issues[id] ?? Promise.reject(Object.assign(new Error(`No issue ${id}`), {statusCode: 404})),
@@ -339,7 +340,7 @@ describe("the owner's chat", () => {
             {id: 'def', project: 'pantry', name: 'Sudri', state: 'working', listening: true},
             {id: 'c1c2c3c4c5c6', project: 'greenhouse', name: 'Chat', state: 'idle', listening: true, chat: true},
         ]
-        vi.stubGlobal('useStore', () => ({messageSession: async (project: string, target: string, text: string, actor: {via?: string}) => void sent.push({project, target, text, ...actor.via ? {via: actor.via} : {}})}))
+        vi.stubGlobal('useStore', () => over({messageSession: async (project: string, target: string, text: string, actor: {via?: string}) => void sent.push({project, target, text, ...actor.via ? {via: actor.via} : {}})}))
         vi.stubGlobal('useEventLog', () => ({note: (entry: {kind: string}) => notes.push(entry)}))
         vi.stubGlobal('conflict', (message: string) => Object.assign(new Error(message), {statusCode: 409}))
         vi.stubGlobal('listSessions', () => listed)
@@ -385,7 +386,7 @@ describe("the owner's chat", () => {
         const sent: string[] = []
         let listed = [{id: 'abc', project: 'greenhouse', name: 'Nordre', state: 'idle', listening: true}]
         const aliases = new Map<string, string>()
-        vi.stubGlobal('useStore', () => ({messageSession: async (_project: string, target: string) => void sent.push(target)}))
+        vi.stubGlobal('useStore', () => over({messageSession: async (_project: string, target: string) => void sent.push(target)}))
         vi.stubGlobal('useEventLog', () => ({note: () => {}}))
         vi.stubGlobal('conflict', (message: string) => Object.assign(new Error(message), {statusCode: 409}))
         vi.stubGlobal('listSessions', () => listed)
@@ -411,7 +412,7 @@ describe("the owner's chat", () => {
             {id: 'abc', project: 'greenhouse', name: 'Nordre', state: 'idle', listening: true},
             {id: 'def', project: 'pantry', name: 'Sudri', state: 'idle', listening: true},
         ]
-        vi.stubGlobal('useStore', () => ({messageSession: async (_project: string, target: string) => {
+        vi.stubGlobal('useStore', () => over({messageSession: async (_project: string, target: string) => {
             await new Promise(resolve => setTimeout(resolve, 0))
             if (target === failing) throw Object.assign(new Error('Sudri stopped listening'), {statusCode: 409})
             sent.push(target)
@@ -441,7 +442,7 @@ describe("the owner's chat", () => {
         const saved: object[] = []
         const notes: {kind: string}[] = []
         let tracker: string | null = null
-        vi.stubGlobal('useStore', () => ({
+        vi.stubGlobal('useStore', () => over({
             settings: async () => ({tracker, tint: null, handle: null, restrict_proposals: true, advanced: false}),
             updateSettings: async (patch: {tracker?: string}) => {
                 saved.push(patch)
@@ -479,7 +480,7 @@ describe("the owner's chat", () => {
     })
 
     it("asks only for the settings a chat may, and as the settings would take them", async () => {
-        vi.stubGlobal('useStore', () => ({settings: async () => ({handle: null})}))
+        vi.stubGlobal('useStore', () => over({settings: async () => ({handle: null})}))
         vi.stubGlobal('useEventLog', () => ({note: () => {}}))
         await chats.openChat('greenhouse')
         for (const body of [{setting: 'secrets', value: 'x'}, {setting: 'starts', value: null}, {setting: 'focus_prompt', value: 'Hi'}, {setting: 'tracker'},
@@ -493,7 +494,7 @@ describe("the owner's chat", () => {
         const made: {project: string, body: unknown, actor: unknown, id?: number}[] = []
         const checked: {body: unknown, actor: {owner: boolean}, id?: number}[] = []
         const nightly = {id: 3, title: 'Nightly triage', kind: 'message', notes: 'Triage', cron: '0 2 * * *', presets: [7], enabled: true}
-        vi.stubGlobal('useStore', () => ({
+        vi.stubGlobal('useStore', () => over({
             ownerOf: async () => ({name: 'skoll'}),
             presets: async () => [{id: 7, name: 'Review'}, {id: 8, name: 'Debug an error'}],
             messageSession: async (project: string, target: string, text: string) => void messages.push({project, target, text}),
@@ -544,7 +545,7 @@ describe("the owner's chat", () => {
     it('asks for a schedule or an issue on another project it names, and saves it there (ORR-1063)', async () => {
         const made: {what: string, project: string}[] = []
         const checkedOn: string[] = []
-        vi.stubGlobal('useStore', () => ({
+        vi.stubGlobal('useStore', () => over({
             ownerOf: async () => ({name: 'skoll'}),
             presets: async () => [],
             projectId: async (id: string) => id === 'reading-list' ? id : Promise.reject(Object.assign(new Error(`No project ${id}`), {statusCode: 404})),
@@ -580,7 +581,7 @@ describe("the owner's chat", () => {
         const notes: {kind: string}[] = []
         const saved: {how: string, project: string, version?: string, body: unknown, actor: unknown}[] = []
         const releases = [{version: '1.1.0', branch: 'v1.1.0'}, {version: '1.0.0', branch: 'v1.0.0', frozen_on: '2026-10-20'}]
-        vi.stubGlobal('useStore', () => ({
+        vi.stubGlobal('useStore', () => over({
             checkRelease: async (_project: string, body: {version?: string, branch?: string}, version?: string) => {
                 if (body.version === '1.1.0' && version === undefined) throw Object.assign(new Error('There is already a release 1.1.0'), {statusCode: 409})
                 if (version === undefined) return undefined
@@ -622,7 +623,7 @@ describe("the owner's chat", () => {
 
     it("offers an issue, filing it as the owner's only when they press File issue (ORR-711)", async () => {
         const made: {body: Record<string, unknown>, actor: {via?: string, name: string}}[] = []
-        vi.stubGlobal('useStore', () => ({
+        vi.stubGlobal('useStore', () => over({
             messageSession: async (project: string, target: string, text: string) => void messages.push({project, target, text}),
             createIssue: async (_project: string, body: Record<string, unknown>, actor: {via?: string, name: string}) => {
                 made.push({body, actor})
@@ -663,7 +664,7 @@ describe("the owner's chat", () => {
         const notes: {kind: string}[] = []
         const made: unknown[][] = []
         const shelves = {id: '3', title: 'Shelves', summary: 'Everything on the shelves', priority: null}
-        vi.stubGlobal('useStore', () => ({
+        vi.stubGlobal('useStore', () => over({
             milestone: async (_project: string, id: string) => {
                 if (id !== '3') throw Object.assign(new Error(`No milestone ${id}`), {statusCode: 404})
                 return shelves
@@ -730,10 +731,10 @@ describe("the owner's chat moving issues", () => {
     let notes: {kind: string, message: string}[]
 
     beforeEach(async () => {
-        store = new Store(testDb())
+        // The board the API is in front of, so what the chat reads of an issue is what's moved.
+        store = board
         await store.nameOwner({name: 'Skoll'})
         const owner = {name: 'skoll', owner: true}
-        await store.createProject({name: 'Greenhouse', key: 'GRE'}, owner)
         for (const title of ['Shelf labels', 'Grow lights', 'Water timer']) await store.createIssue('greenhouse', {title, status: 'todo'}, owner)
         await store.createIssue('greenhouse', {title: 'A greenhouse cat', proposal: 'pending'})
         store.messageSession = async (project: string, target: string, text: string) => void messages.push({project, target, text})
@@ -1133,7 +1134,7 @@ describe('chats kept across a restart (ORR-877)', () => {
 
     it("keeps each message as a row, and a request's answer on it (ORR-1100)", async () => {
         const settings: Record<string, unknown> = {}
-        vi.stubGlobal('useStore', () => ({
+        vi.stubGlobal('useStore', () => over({
             messageSession: async () => {},
             settings: async () => settings,
             updateSettings: async (body: Record<string, unknown>) => Object.assign(settings, body),

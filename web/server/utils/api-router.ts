@@ -865,6 +865,14 @@ export async function readFromApiOnly<T>(path: string, {config = configHere()} =
     return read.reply as T
 }
 
+/** A write this server makes itself on a route only it calls (the chat's rows), its fallback to the store gone
+ * (ORR-1135): `writeToApi` as `orrery`, but with no API set up it fails as one that isn't running does. The reply. */
+export async function writeToApiOnly(method: string, path: string, body: unknown): Promise<unknown> {
+    const sent = await writeToApi(method, path, body, ORRERY, {always: true})
+    if (!sent) return cantReach(`${method} ${path}`, NOT_RUNNING, 'not-running')
+    return sent.reply
+}
+
 /** The project's id, read from the API (a 404 when it isn't there), or the store with none set up (ORR-1139). Only the
  * project's own fields: none of its issues' notes or closed ones. */
 export async function projectIdOf(project: string): Promise<string> {
